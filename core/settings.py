@@ -1358,6 +1358,9 @@ class ConfigManager:
         return _Batch()
 
     def get(self, key: str, default: Any = None) -> Any:
+        """Value at dot-notation ``key``. A dict or list comes back as a copy:
+        handing out the live one would let callers iterate or edit the
+        config outside the lock. Change values through ``set()``."""
         keys = key.split('.')
 
         with self._sync.lock:
@@ -1368,6 +1371,8 @@ class ConfigManager:
                 else:
                     return default
 
+            if isinstance(value, (dict, list)):
+                return copy.deepcopy(value)
             return value
 
     def get_full_config(self) -> Dict[str, Any]:

@@ -9,6 +9,7 @@ background workers. These tests pin what makes that safe:
 - Writes land in order: a write copies the config only once it holds the
   write lock, so an older copy can never overwrite a newer one.
 - batch() is per thread: one thread's batch defers only its own saves.
+- get() hands out copies of dicts and lists, never the live ones.
 
 Every wait is on an event with a timeout, never on a sleep.
 """
@@ -223,3 +224,25 @@ def test_nested_batches_on_one_thread_save_once_at_the_outer_exit(manager, monke
         assert writes == []
     assert len(writes) == 1
     assert writes[0]["nested"] == {"a": 1, "b": 2}
+
+
+def test_get_returns_copies_of_dicts_and_lists(manager):
+    """A caller editing what get() returned must not be changing the live
+    config behind the lock (and the change would not be saved anyway)."""
+    manager.config_data = {"plex": {"base_url": "u", "tags": ["a"]},
+                           "library": {"music_paths": ["/music"]}}
+    section = manager.get("plex")
+    section["base_url"] = "edited"
+    section["tags"].append("b")
+    manager.get("library.music_paths").append("/elsewhere")
+
+    assert manager.get("plex") == {"base_url": "u", "tags": ["a"]}
+    assert manager.get("library.music_paths") == ["/music"]
+    # Read-modify-set, the way callers change a section, still works.
+    section = manager.get("plex")
+    section["base_url"] = "http://new"
+    manager.set("plex", section)
+    assert manager.get("plex.base_url") == "http://new"
+    # Scalars and a missing key's default come back as they are.
+    default = {}
+    assert manager.get("plex.missing", default) is default
