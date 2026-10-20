@@ -5,6 +5,15 @@ on:
     branches-ignore:
       - main
       - dev
+  # PRs from forks never trigger the push event above, so without this they
+  # show no checks at all. Branches in this repo are already tested on push.
+  pull_request:
+    branches:
+      - dev
+      - main
+
+permissions:
+  contents: read
 
 # A newer push to the same branch supersedes the running check; without this
 # every follow-up push stacks another 19-29 minute test job behind the first.
@@ -15,6 +24,9 @@ concurrency:
 jobs:
   sanity-check:
     runs-on: ubuntu-latest
+    # Branches in this repo are tested on push; only fork PRs need the
+    # pull_request run, so same-repo PRs don't run every job twice.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     # A wedged run must fail visibly, not sit on the runner for the 6h default.
     timeout-minutes: 90
 
@@ -45,6 +57,9 @@ jobs:
 
   webui:
     runs-on: ubuntu-latest
+    # Branches in this repo are tested on push; only fork PRs need the
+    # pull_request run, so same-repo PRs don't run every job twice.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     timeout-minutes: 45
 
     defaults:
@@ -77,6 +92,9 @@ jobs:
 
   webui-visual:
     runs-on: ubuntu-latest
+    # Branches in this repo are tested on push; only fork PRs need the
+    # pull_request run, so same-repo PRs don't run every job twice.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     timeout-minutes: 20
     # Non-blocking for now: UI changes land on dev without re-rendered
     # baselines, so a diff here is a heads-up, not a red run. The diffs are
