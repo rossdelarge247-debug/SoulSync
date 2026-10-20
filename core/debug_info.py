@@ -328,6 +328,13 @@ def get_debug_info():
     elif not download_orchestrator:
         info['download_client_failures'] = ['ALL (orchestrator failed to initialize)']
 
+    # Database schema steps that failed at startup. Each was rolled back and
+    # runs again on the next start; ok=None means the check itself failed.
+    try:
+        info['schema'] = get_database().schema_health()
+    except Exception:
+        info['schema'] = {'ok': None, 'failed_steps': []}
+
     # API rate monitor — current calls/min, 24h totals, peaks, rate limit events
     try:
         from core.api_call_tracker import api_call_tracker

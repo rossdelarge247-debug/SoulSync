@@ -837,6 +837,12 @@
             out.push('');
         }
 
+        if (data.schema && data.schema.failed_steps && data.schema.failed_steps.length) {
+            out.push('── Database Schema Failures (retried next start) ──');
+            data.schema.failed_steps.forEach(f => out.push(`  ❌ ${f.step}: ${f.error}`));
+            out.push('');
+        }
+
         out.push('── API Rates (calls/min) ──');
         Object.entries(data.api_rates || {}).forEach(([svcName, info]) => {
             const cpm = (info && info.cpm) || 0;
