@@ -2888,10 +2888,22 @@ def _shutdown_runtime_components():
     # Give daemon cleanup threads a moment to observe the shutdown flag.
     time.sleep(0.2)
 
+_runtime_shutdown_lock = threading.RLock()
+
+def shutdown_runtime_services():
+    """Stop the runtime services: timers, monitors, workers and executors.
+
+    Runs once; a call made while it is running waits for it to finish. A
+    direct run calls it from the SIGINT/SIGTERM handler below; under gunicorn
+    the worker hooks in utils/gunicorn_hooks.py call it.
+    """
+    with _runtime_shutdown_lock:
+        _shutdown_runtime_components()
+
 def signal_handler(signum, frame):
     """Handle SIGINT (Ctrl+C) and SIGTERM"""
     logger.info(f"Signal {signum} received, cleaning up...")
-    _shutdown_runtime_components()
+    shutdown_runtime_services()
     sys.exit(0)
 
 # Register cleanup handlers
@@ -2904,7 +2916,7 @@ def _atexit_save_history():
 
 def _atexit_shutdown():
     try:
-        _shutdown_runtime_components()
+        shutdown_runtime_services()
     except Exception:  # noqa: S110 — atexit handler, log handles may be closed
         pass
 
@@ -2927,8 +2939,12 @@ atexit.register(cleanup_monitor)
 # FIRST, before any other shutdown handler emits its "Shutting down"
 # log line into a stream pytest already closed.
 atexit.register(_atexit_silence_shutdown_logger_errors)
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+# Only a direct run (python web_server.py) owns the process signals. A gunicorn
+# worker installs its own SIGINT/SIGTERM handlers before it loads the app, and
+# replacing them here would turn its graceful stop into an immediate exit.
+if _DIRECT_RUN:
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
 def _update_task_status(task_id, new_status):
     """Helper to update task status and timestamp for timeout tracking"""

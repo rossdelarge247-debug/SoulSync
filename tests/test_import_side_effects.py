@@ -80,9 +80,12 @@ WORKER_GLOBALS = {
 }
 
 _IMPORT_PROBE = textwrap.dedent("""
-    import json, os, threading, time
+    import json, os, signal, threading, time
     before = {t.ident for t in threading.enumerate()}
+    handlers_before = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
     import web_server
+    replaced = sorted(signal.Signals(s).name for s, h in handlers_before.items()
+                      if signal.getsignal(s) is not h)
     # flask-limiter's memory storage fires a one-shot 10ms expiry timer when
     # the app registers it; give short-lived library timers time to finish.
     deadline = time.time() + 5
@@ -96,6 +99,7 @@ _IMPORT_PROBE = textwrap.dedent("""
             {"name": t.name, "daemon": t.daemon, "target": repr(getattr(t, "_target", None))}
             for t in new
         ],
+        "replaced_signal_handlers": replaced,
     }), flush=True)
     os._exit(0)
 """)
@@ -147,6 +151,13 @@ def test_importing_web_server_logs_no_worker_starts(import_probe):
         if re.search(r"(?i)\b(worker|monitor|thread|timer|watcher|sweeper)\b.*\bstarted\b", line)
     ]
     assert started == [], "worker start log lines during import:\n" + "\n".join(started)
+
+
+def test_importing_web_server_leaves_signal_handlers_alone(import_probe):
+    """Gunicorn installs its worker's SIGINT/SIGTERM handlers before loading
+    the app; replacing them at import turned its graceful stop into an exit."""
+    result, _output = import_probe
+    assert result["replaced_signal_handlers"] == []
 
 
 def test_no_module_level_thread_starts():
