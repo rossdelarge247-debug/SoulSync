@@ -508,12 +508,14 @@ def test_store_schema_is_additive(tmp_path):
 
 # ---- the pure bits ------------------------------------------------------------
 
+# Fixed ids: STUDIO is a fresh uuid4 per import, so ids derived from it differ
+# between xdist workers and collection fails with "Different tests were collected".
 @pytest.mark.parametrize("term,expected", [
     (f"lidarr:{STUDIO}", {"mbid": STUDIO}),
     (f"mbid:{STUDIO.upper()}", {"mbid": STUDIO}),
     (STUDIO, {"mbid": STUDIO}),
     ("the band", {"name": "the band"}),
-])
+], ids=["lidarr-prefix", "mbid-prefix-uppercase", "bare-mbid", "name"])
 def test_parse_term(term, expected):
     assert resources.parse_term(term) == expected
 
