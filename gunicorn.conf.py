@@ -17,3 +17,7 @@ errorlog = "-"
 access_log_format = '%(h)s - - "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
 loglevel = "info"
 logger_class = "utils.gunicorn_logger.FilteredGunicornLogger"
+
+# Graceful shutdown: the worker keeps its own SIGINT/SIGTERM handling, and
+# SoulSync's cleanup runs from these hooks (see utils/gunicorn_hooks.py).
+from utils.gunicorn_hooks import post_worker_init, worker_exit  # noqa: E402,F401

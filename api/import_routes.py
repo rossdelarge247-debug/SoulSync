@@ -346,7 +346,8 @@ auto_import_worker = None
 
 def _boot_auto_import_worker():
     """runs from configure(): the worker needs the injected deps, so it
-    cannot boot at import time like it did as web_server top-level code."""
+    cannot boot at import time like it did as web_server top-level code.
+    Builds the worker only; start_auto_import_worker() starts it."""
     global auto_import_worker
     try:
         from core.auto_import_worker import AutoImportWorker
@@ -361,13 +362,21 @@ def _boot_auto_import_worker():
             config_manager=config_manager,
             automation_engine=automation_engine,
         )
-        if config_manager.get('auto_import.enabled', False):
-            auto_import_worker.start()
-            logger.info("Auto-import worker started")
-        else:
-            logger.info("Auto-import worker initialized (disabled)")
     except Exception as _ai_err:
         logger.error(f"Auto-import worker init failed: {_ai_err}")
+
+
+def start_auto_import_worker():
+    """Start the worker when auto-import is enabled. Called once from
+    web_server.start_runtime_services(), so configuring the blueprint (and
+    importing web_server) never starts its thread."""
+    if auto_import_worker is None:
+        return
+    if config_manager.get('auto_import.enabled', False):
+        auto_import_worker.start()
+        logger.info("Auto-import worker started")
+    else:
+        logger.info("Auto-import worker initialized (disabled)")
 
 
 # /api/auto-import* endpoints: lifted to api/auto_import.py.

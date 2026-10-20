@@ -50,7 +50,8 @@ def test_a_self_hosted_instance_still_respects_pause():
 
 def test_boot_asks_the_gate():
     src = _read("web_server.py")
-    block = src.split("amazon_worker = AmazonWorker(", 1)[1].split("except Exception", 1)[0]
+    # built at import, started (and paused) from start_runtime_services()
+    block = src.split("def _start_amazon_worker(", 1)[1].split("\n\n\n", 1)[0]
     assert "_amazon_enrichment_should_run(config_manager)" in block
     assert "amazon_enrichment_paused', True" not in block
 
