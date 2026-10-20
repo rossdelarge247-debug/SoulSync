@@ -38,7 +38,8 @@ def register_routes(bp):
         """Get current settings (sensitive values redacted)."""
         try:
             cfg = current_app.soulsync["config_manager"]
-            raw = dict(cfg.config_data) if hasattr(cfg, "config_data") else {}
+            # a locked copy: walking the live dict races concurrent set() calls
+            raw = cfg.get_full_config() if hasattr(cfg, "get_full_config") else {}
 
             sanitized = _redact_sensitive(raw)
             return api_success({"settings": sanitized})

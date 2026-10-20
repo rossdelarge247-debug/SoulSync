@@ -2,6 +2,7 @@ import copy
 import json
 import os
 import sqlite3
+import threading
 import time
 from typing import Dict, Any, Optional
 from cryptography.fernet import Fernet, InvalidToken
@@ -26,6 +27,32 @@ def default_sample_paths() -> list:
 
 
 logger = get_logger("config")
+
+
+class _BatchState(threading.local):
+    """Per-thread batch() nesting, so one thread's batch never holds back
+    another thread's saves."""
+    depth = 0
+    dirty = False
+
+
+class _SyncState:
+    """Locks and counters that make one ConfigManager safe to share between
+    the request threads and the background workers."""
+
+    def __init__(self):
+        # Guards every read and write of config_data. Re-entrant so a method
+        # holding it can call another one that takes it.
+        self.lock = threading.RLock()
+        # Orders database writes. Held for a single attempt only, never while
+        # sleeping between retries.
+        self.save_lock = threading.Lock()
+        self.batch = _BatchState()
+        # Save tickets: ``requested`` counts save requests, ``persisted`` is
+        # the newest request already covered by a successful database write.
+        self.requested = 0
+        self.persisted = 0
+
 
 class ConfigManager:
     _VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
@@ -71,6 +98,21 @@ class ConfigManager:
         logger.info(f"Database path set to: {self.database_path}")
              
         self.load_config(str(self.config_path))
+
+    @property
+    def _sync(self) -> _SyncState:
+        # Built on first use rather than in __init__: tests create instances
+        # with __new__ to skip the database, and those need the lock too.
+        state = self.__dict__.get('_sync_state')
+        if state is None:
+            state = self.__dict__.setdefault('_sync_state', _SyncState())
+        return state
+
+    def _snapshot(self) -> Dict[str, Any]:
+        """Deep copy of config_data taken under the lock — safe to serialize
+        while other threads keep calling set()."""
+        with self._sync.lock:
+            return copy.deepcopy(self.config_data)
 
     def load_config(self, config_path: str = None):
         """
@@ -279,7 +321,7 @@ class ConfigManager:
                     break
             if needs_migration:
                 logger.info("Encrypting sensitive config values at rest...")
-                self._save_to_database(self.config_data)
+                self._save_to_database(self._snapshot())
                 logger.info("Sensitive config values encrypted successfully")
         except Exception as e:
             logger.warning(f"Could not migrate encryption: {e}")
@@ -1212,8 +1254,11 @@ class ConfigManager:
         # per-leaf saves were hundreds of full encrypt+serialize+commit
         # cycles per click, and that self-inflicted lock contention is what
         # pushed saves onto the fallback path in the first place (#1137).
-        if getattr(self, '_batch_depth', 0) > 0:
-            self._batch_dirty = True
+        # The batch belongs to the thread that opened it; saves from other
+        # threads go ahead as normal.
+        sync = self._sync
+        if sync.batch.depth > 0:
+            sync.batch.dirty = True
             return
 
         # A session that could not READ the stored row must never WRITE
@@ -1224,15 +1269,21 @@ class ConfigManager:
             self._save_config_file_atomic()
             return
 
+        with sync.lock:
+            sync.requested += 1
+            ticket = sync.requested
+
         # Cumulative delay across attempts: 0.2 + 0.5 + 1.0 + 2.0 + 4.0 = 7.7s
         # plus the 30s busy_timeout that already runs inside each attempt.
+        # The sleeps happen outside every lock, so other threads keep reading
+        # and writing the config meanwhile.
         retry_delays = [0.2, 0.5, 1.0, 2.0, 4.0]
-        if self._save_to_database(self.config_data):
+        if self._write_snapshot(ticket):
             return
 
         for delay in retry_delays:
             time.sleep(delay)
-            if self._save_to_database(self.config_data):
+            if self._write_snapshot(ticket):
                 return
 
         # All retries exhausted — fall back to config.json so the user
@@ -1243,6 +1294,27 @@ class ConfigManager:
         )
         self._save_config_file_atomic()
 
+    def _write_snapshot(self, ticket: int) -> bool:
+        """One database write attempt for save request ``ticket``.
+
+        Writes are serialized and each one copies the config only after it
+        holds ``save_lock``, so an older copy can never land on top of a
+        newer one. A write that started after this request was made already
+        carries its change, so the request is then done without touching
+        the database.
+        """
+        sync = self._sync
+        with sync.save_lock:
+            if sync.persisted >= ticket:
+                return True
+            with sync.lock:
+                newest = sync.requested
+                snapshot = copy.deepcopy(self.config_data)
+            if not self._save_to_database(snapshot):
+                return False
+            sync.persisted = newest
+            return True
+
     def _save_config_file_atomic(self):
         """Write config.json via temp-file + os.replace. The old plain
         open(path,'w') truncated the file the instant it opened — a crash
@@ -1250,28 +1322,36 @@ class ConfigManager:
         try:
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = self.config_path.with_suffix('.json.tmp')
-            with open(tmp_path, 'w') as f:
-                json.dump(self.config_data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, self.config_path)
+            # save_lock keeps two fallback writers off the same temp file.
+            with self._sync.save_lock:
+                data = self._snapshot()
+                with open(tmp_path, 'w') as f:
+                    json.dump(data, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, self.config_path)
             logger.warning("Configuration saved to config.json as fallback")
         except Exception as e:
             logger.error(f"Failed to save configuration: {e}")
 
     def batch(self):
-        """Context manager: suppress per-leaf saves, one write on exit."""
+        """Context manager: suppress per-leaf saves, one write on exit.
+
+        Per thread: only saves made by the thread inside the batch are held
+        back. Other threads keep saving, and their writes include whatever
+        the batch has set so far."""
         manager = self
+        state = self._sync.batch
 
         class _Batch:
             def __enter__(self):
-                manager._batch_depth = getattr(manager, '_batch_depth', 0) + 1
+                state.depth += 1
                 return manager
 
             def __exit__(self, exc_type, exc, tb):
-                manager._batch_depth -= 1
-                if manager._batch_depth <= 0 and getattr(manager, '_batch_dirty', False):
-                    manager._batch_dirty = False
+                state.depth -= 1
+                if state.depth <= 0 and state.dirty:
+                    state.dirty = False
                     manager._save_config()
                 return False
 
@@ -1279,22 +1359,23 @@ class ConfigManager:
 
     def get(self, key: str, default: Any = None) -> Any:
         keys = key.split('.')
-        value = self.config_data
 
-        for k in keys:
-            if isinstance(value, dict) and k in value:
-                value = value[k]
-            else:
-                return default
+        with self._sync.lock:
+            value = self.config_data
+            for k in keys:
+                if isinstance(value, dict) and k in value:
+                    value = value[k]
+                else:
+                    return default
 
-        return value
+            return value
 
     def get_full_config(self) -> Dict[str, Any]:
         """Deep copy of the live, DECRYPTED config — including secrets. Used by
         the config export ONLY when the user opts into embedding credentials;
         never sent to the browser on the normal settings fetch (that's
         ``redacted_config``)."""
-        return copy.deepcopy(self.config_data)
+        return self._snapshot()
 
     def apply_config_dict(self, incoming: Dict[str, Any]) -> int:
         """Merge an imported config dict (config migration). Walks to LEAVES and
@@ -1328,8 +1409,7 @@ class ConfigManager:
         to the sentinel too — the UI has no field for them anyway. The matching
         guard in ``set()`` turns a round-tripped sentinel back into a no-op.
         """
-        import copy
-        data = copy.deepcopy(self.config_data)
+        data = self._snapshot()
         for path in self._SENSITIVE_PATHS:
             keys = path.split('.')
             parent = data
@@ -1365,14 +1445,18 @@ class ConfigManager:
             return
 
         keys = key.split('.')
-        config = self.config_data
 
-        for k in keys[:-1]:
-            if k not in config:
-                config[k] = {}
-            config = config[k]
+        with self._sync.lock:
+            config = self.config_data
+            for k in keys[:-1]:
+                if k not in config:
+                    config[k] = {}
+                config = config[k]
 
-        config[keys[-1]] = value
+            config[keys[-1]] = value
+
+        # Outside the lock: the save copies the config under it, then does
+        # the database write (and any retry sleeps) without holding it.
         self._save_config()
 
     def resolve_secret(self, key: str, posted: Any) -> str:
