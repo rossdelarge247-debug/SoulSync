@@ -9,6 +9,7 @@ import re
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from functools import lru_cache
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Tuple, Union
@@ -22,6 +23,30 @@ logger = get_logger("music_database")
 _database_initialized_paths = set()
 _database_sidecar_warnings = set()
 _database_initialization_lock = threading.Lock()
+
+# what sqlite says when a schema step re-runs against a database that already
+# has its change: the column is there, the table/index/trigger exists. every
+# step runs on every start, so on an up to date database this is the normal
+# outcome. any other error means the step didn't do its job.
+_ALREADY_APPLIED_ERRORS = ('duplicate column name', 'already exists')
+
+# the schema steps that failed the last time each database path was set up in
+# this process, for MusicDatabase.schema_health. keyed like
+# _database_initialized_paths.
+_schema_failures_by_path: Dict[str, List[Dict[str, str]]] = {}
+
+# the schema steps running on this thread, innermost last. per thread because a
+# few steps are also called at request time (_add_profile_controls).
+_migration_frames = threading.local()
+
+
+def _is_already_applied_error(exc: BaseException) -> bool:
+    """True for the error a re-run schema step raises because its change is
+    already in place, e.g. ``duplicate column name: foo``."""
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    message = str(exc).lower()
+    return any(fragment in message for fragment in _ALREADY_APPLIED_ERRORS)
 
 # normalized-text columns (title_norm / name_norm / track_artist_norm). one
 # backfill at a time per db path, and a short-lived "is every row filled"
@@ -580,7 +605,9 @@ class MusicDatabase:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            
+            # this start's failed schema steps, see _migration_step
+            self._migration_failures = []
+
             # Artists table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS artists (
@@ -670,19 +697,15 @@ class MusicDatabase:
 
             # Phase 4: which stem a chop was cut from (NULL = the full mix).
             # Tolerant ALTER — existing installs get the column on next boot.
-            try:
+            with self._migration_step(cursor, "add sample_stash.stem"):
                 cursor.execute("ALTER TABLE sample_stash ADD COLUMN stem TEXT")
-            except sqlite3.OperationalError:
-                pass  # already there
 
             # Phase 6: which configured sample folder the chop was saved to
             # (the configured path string at save time). file_path stays the
             # resolvable absolute path, so removing a folder from settings
             # never breaks existing chops.
-            try:
+            with self._migration_step(cursor, "add sample_stash.folder"):
                 cursor.execute("ALTER TABLE sample_stash ADD COLUMN folder TEXT")
-            except sqlite3.OperationalError:
-                pass  # already there
 
             # Sample Studio stems — per-track separation cache. One row per
             # (track_id, stem); the four WAVs live under
@@ -716,10 +739,8 @@ class MusicDatabase:
                 ("sample_stash", "space", "REAL"),
                 ("sample_stash", "delay_json", "TEXT"),
             ):
-                try:
+                with self._migration_step(cursor, f"add {_table}.{_col}"):
                     cursor.execute(f"ALTER TABLE {_table} ADD COLUMN {_col} {_type}")
-                except sqlite3.OperationalError:
-                    pass  # already there
 
             self._migrate_sample_analysis_text_ids(cursor)
 
@@ -837,7 +858,7 @@ class MusicDatabase:
                            "ON wishlist_removals (removed_at)")
 
             # Purge any podcast items that erroneously leaked into wishlist_tracks
-            try:
+            with self._migration_step(cursor, "purge podcasts from wishlist_tracks"):
                 cursor.execute("""
                     DELETE FROM wishlist_tracks
                     WHERE source_type = 'podcast'
@@ -846,8 +867,6 @@ class MusicDatabase:
                        OR source_info LIKE '%"download_source": "Podcast"%'
                        OR source_info LIKE '%"playlist_id": "podcasts"%'
                 """)
-            except Exception as purge_err:
-                logger.debug("Initial podcast wishlist purge skipped or failed: %s", purge_err)
 
             # Wishlist ignore-list (#874): a TTL'd skip-gate. When a user
             # removes a track from the wishlist or cancels an in-flight
@@ -1020,17 +1039,13 @@ class MusicDatabase:
             """)
             # the table shipped one commit before the reply column — live dbs
             # already created it, so the column rides a tolerant ALTER
-            try:
+            with self._migration_step(cursor, "add chat_room_messages.reply"):
                 cursor.execute("ALTER TABLE chat_room_messages ADD COLUMN reply TEXT")
-            except sqlite3.OperationalError:
-                pass    # already there
             # file-share card metadata (name/size/mime) — without it, archived
             # file messages lost their card + preview + save-to-library button
             # and rendered as a bare link. Same tolerant-ALTER pattern as reply.
-            try:
+            with self._migration_step(cursor, "add chat_room_messages.file"):
                 cursor.execute("ALTER TABLE chat_room_messages ADD COLUMN file TEXT")
-            except sqlite3.OperationalError:
-                pass    # already there
             # Channel / thread / avatar envelope tags. Without these the
             # archive flattened every message into #general on reload: the
             # push loop archived DECODED dicts, and decoding is exactly the
@@ -1042,10 +1057,8 @@ class MusicDatabase:
             # shared into the room simply vanished on reload.
             for _chat_col in ('chan TEXT', 'thread TEXT', 'thread_name TEXT', 'av INTEGER',
                               'edit_target TEXT', 'overlay TEXT', 'np TEXT', 'want TEXT', 'badge TEXT'):
-                try:
+                with self._migration_step(cursor, f"add chat_room_messages.{_chat_col.split()[0]}"):
                     cursor.execute("ALTER TABLE chat_room_messages ADD COLUMN " + _chat_col)
-                except sqlite3.OperationalError:
-                    pass    # already there
 
             # Watchlist table for storing artists to monitor for new releases
             cursor.execute("""
@@ -1126,10 +1139,12 @@ class MusicDatabase:
             # constraint has to be per profile too.
             #
             # sqlite cannot alter a constraint, so the table is rebuilt. it only
-            # holds subscriptions, so it is small, and the whole thing runs in
-            # one transaction - either the new table is in place with every row
-            # copied or nothing changed at all.
-            try:
+            # holds subscriptions, so it is small, and the whole thing runs as
+            # one step - either the new table is in place with every row copied
+            # or nothing changed at all. a failure must not stop the database
+            # opening: the old shape still works for one profile, which is what
+            # it did before.
+            with self._migration_step(cursor, "rebuild watchlist_podcasts"):
                 _wp_sql = cursor.execute(
                     "SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist_podcasts'"
                 ).fetchone()
@@ -1178,10 +1193,6 @@ class MusicDatabase:
                                    "ON watchlist_podcasts (itunes_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_podcasts_profile "
                                    "ON watchlist_podcasts (profile_id)")
-            except Exception as _wp_err:
-                # a failed migration must not stop the database opening. the old
-                # shape still works for one profile, which is what it did before.
-                logger.error("watchlist_podcasts migration skipped: %s", _wp_err)
 
             # Downloaded podcast episodes tracker (for auto-download deduplication and retention pruning)
             cursor.execute("""
@@ -1698,21 +1709,17 @@ class MusicDatabase:
             try:
                 cursor.execute("SELECT track_results FROM sync_history LIMIT 1")
             except Exception:
-                try:
+                with self._migration_step(cursor, "add sync_history.track_results"):
                     cursor.execute("ALTER TABLE sync_history ADD COLUMN track_results TEXT")
                     logger.info("Added track_results column to sync_history table")
-                except Exception as e:
-                    logger.debug("Failed to add track_results column: %s", e)
 
             # Migration: add source_page column to sync_history (UI origin context for batch panel)
             try:
                 cursor.execute("SELECT source_page FROM sync_history LIMIT 1")
             except Exception:
-                try:
+                with self._migration_step(cursor, "add sync_history.source_page"):
                     cursor.execute("ALTER TABLE sync_history ADD COLUMN source_page TEXT")
                     logger.info("Added source_page column to sync_history table")
-                except Exception as e:
-                    logger.debug("Failed to add source_page column: %s", e)
 
             # Migration: give sync_history a SoulSync profile and a Quality
             # Profile (P1-04). Without them every profile saw and could delete
@@ -1724,18 +1731,16 @@ class MusicDatabase:
                 try:
                     cursor.execute(f"SELECT {_sh_col} FROM sync_history LIMIT 1")
                 except Exception:
-                    try:
+                    with self._migration_step(cursor, f"add sync_history.{_sh_col}"):
                         cursor.execute(
                             f"ALTER TABLE sync_history ADD COLUMN {_sh_col} {_sh_type}"
                         )
                         logger.info("Added %s column to sync_history table", _sh_col)
-                    except Exception as e:
-                        logger.debug("Failed to add %s column: %s", _sh_col, e)
 
             # Repair: single tracks and some albums were recorded as playlists
             # and showed on the dashboard's playlist card (#1591). cheap and
             # idempotent, so it just runs every start.
-            try:
+            with self._migration_step(cursor, "repair sync_history types"):
                 from core.downloads.history import ALBUM_PREFIXES, SINGLE_TRACK_PREFIXES
                 for _sh_type, _sh_prefixes in (('track', SINGLE_TRACK_PREFIXES),
                                                ('album', ALBUM_PREFIXES)):
@@ -1746,18 +1751,14 @@ class MusicDatabase:
                         f"AND ({_sh_like})",
                         (_sh_type, *(p + '%' for p in _sh_prefixes)),
                     )
-            except Exception as e:
-                logger.debug("Failed to repair sync_history types: %s", e)
 
             # Migration: add track_artist column for per-track artist on compilations/DJ mixes
             try:
                 cursor.execute("SELECT track_artist FROM tracks LIMIT 1")
             except Exception:
-                try:
+                with self._migration_step(cursor, "add tracks.track_artist"):
                     cursor.execute("ALTER TABLE tracks ADD COLUMN track_artist TEXT")
                     logger.info("Added track_artist column to tracks table")
-                except Exception as e:
-                    logger.debug("Failed to add track_artist column: %s", e)
 
             # Migration: add file_size column so the Stats page can show
             # total library size on disk without having to walk the
@@ -1770,17 +1771,15 @@ class MusicDatabase:
             try:
                 cursor.execute("SELECT file_size FROM tracks LIMIT 1")
             except Exception:
-                try:
+                with self._migration_step(cursor, "add tracks.file_size"):
                     cursor.execute("ALTER TABLE tracks ADD COLUMN file_size INTEGER")
                     logger.info("Added file_size column to tracks table")
-                except Exception as e:
-                    logger.debug("Failed to add file_size column: %s", e)
 
             # One-time migration: purge discovery cache entries that lack track_number.
             # Prior versions cached discovery results without track_number/disc_number/release_date,
             # causing incorrect file organization (all tracks as "01", missing album year).
             # Purged entries get re-populated with complete data on next discovery.
-            try:
+            with self._migration_step(cursor, "discovery_cache_v2"):
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_discovery_cache_v2_migrated'")
                 if not cursor.fetchone():
                     cursor.execute("DELETE FROM discovery_match_cache WHERE id IN ("
@@ -1790,13 +1789,11 @@ class MusicDatabase:
                     cursor.execute("CREATE TABLE _discovery_cache_v2_migrated (applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
                     if purged > 0:
                         logger.info(f"Purged {purged} stale discovery cache entries (missing track_number)")
-            except Exception as e:
-                logger.debug("Failed to purge stale discovery cache entries: %s", e)
 
             # One-time migration: purge Deezer album/track cache entries with missing data.
             # Deezer's /artist/{id}/albums returns albums without artist info, and search
             # results cache tracks without track_position — both produce bad metadata.
-            try:
+            with self._migration_step(cursor, "deezer_cache_v2"):
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_deezer_cache_v2_migrated'")
                 if not cursor.fetchone():
                     cursor.execute("""DELETE FROM metadata_cache_entities
@@ -1807,12 +1804,10 @@ class MusicDatabase:
                     cursor.execute("CREATE TABLE _deezer_cache_v2_migrated (applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
                     if purged > 0:
                         logger.info(f"Purged {purged} stale Deezer cache entries (missing artist/track_position)")
-            except Exception as e:
-                logger.debug("Failed to purge stale Deezer cache entries: %s", e)
 
             # One-time migration: purge cached tracks/albums with junk artist names.
             # The cache gate now rejects these, but existing entries need cleaning.
-            try:
+            with self._migration_step(cursor, "cache_junk_artist_purged"):
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_cache_junk_artist_purged'")
                 if not cursor.fetchone():
                     cursor.execute("""DELETE FROM metadata_cache_entities
@@ -1824,8 +1819,6 @@ class MusicDatabase:
                     cursor.execute("CREATE TABLE _cache_junk_artist_purged (applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
                     if purged > 0:
                         logger.info(f"Purged {purged} cached tracks/albums with junk artist names")
-            except Exception as e:
-                logger.debug("Failed to purge cached tracks/albums with junk artist names: %s", e)
 
             # One-time migration: clear source ids that enrichment wrongly
             # SHARED across differently-named artists. The album/track "artist
@@ -1838,7 +1831,7 @@ class MusicDatabase:
             # Same-name duplicates (one artist indexed on two media servers,
             # legitimately sharing an id) are left alone via the DISTINCT-name
             # check, so this only touches genuine corruption.
-            try:
+            with self._migration_step(cursor, "source_id_dedupe_v2"):
                 # v2 re-runs the sweep: #988 found the Deezer album/track "id
                 # correction" path could still smear an id (e.g. The Beatles' id 1
                 # onto The Outfield) after v1 ran, via a blank result-artist-name
@@ -1858,7 +1851,7 @@ class MusicDatabase:
                     ]
                     total_cleared = 0
                     for id_col, status_col in _dedupe_id_cols:
-                        try:
+                        with self._migration_step(cursor, f"clear {id_col}"):
                             cursor.execute(f"""
                                 UPDATE artists
                                 SET {id_col} = NULL, {status_col} = NULL
@@ -1870,16 +1863,14 @@ class MusicDatabase:
                                 )
                             """)
                             total_cleared += cursor.rowcount
-                        except Exception as col_err:
-                            logger.debug("Source-id dedupe skipped %s: %s", id_col, col_err)
-                    cursor.execute("CREATE TABLE _source_id_dedupe_v2 (applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+                    # a column that failed to clear sweeps again next start
+                    if self._migration_step_ok():
+                        cursor.execute("CREATE TABLE _source_id_dedupe_v2 (applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
                     if total_cleared > 0:
                         logger.info(
                             f"Cleared {total_cleared} duplicated source ids shared across "
                             f"differently-named artists — they'll re-derive on next enrichment"
                         )
-            except Exception as e:
-                logger.debug("Failed to dedupe shared source ids: %s", e)
 
             # HiFi API instances table
             cursor.execute("""
@@ -1894,21 +1885,17 @@ class MusicDatabase:
 
             # Personalized-playlists subsystem schema (Group A + Group B
             # unified storage). Idempotent — safe on every startup.
-            try:
+            with self._migration_step(cursor, "personalized_schema"):
                 from database.personalized_schema import ensure_personalized_schema
                 ensure_personalized_schema(conn)
-            except Exception as ps_err:
-                logger.error(f"Personalized-playlist schema init failed: {ps_err}")
 
             # App-wide quality-profiles schema. Idempotent and additive — only
             # creates/migrates the `quality_profiles` table, never touches
             # legacy tables.
-            try:
+            with self._migration_step(cursor, "quality_profiles_schema"):
                 from core.quality.schema import ensure_quality_profiles_schema
                 ensure_quality_profiles_schema(conn)
                 self._record_migration(cursor, 'quality_profiles_schema')
-            except Exception as qp_err:
-                logger.error(f"Quality-profiles schema init failed: {qp_err}")
 
             self._ensure_wishlist_quality_columns(cursor)
             self._ensure_library_quality_column(cursor)
@@ -1917,11 +1904,9 @@ class MusicDatabase:
             # settings into the `quality_profiles` default row and backfill
             # existing wishlist rows, so every wishlist item is self-sufficient
             # for the download/import pipeline instead of relying on globals.
-            try:
+            with self._migration_step(cursor, "materialize_default_quality_profile"):
                 from core.quality.migrate_to_profiles import materialize_default_profile_and_backfill
                 materialize_default_profile_and_backfill(self, conn)
-            except Exception as qp_err:
-                logger.error(f"Quality-profile migration failed: {qp_err}")
 
             # Watchlist artists and mirrored playlists predate named Quality
             # Profiles.  Pin every legacy row to the profile that is global at
@@ -1934,29 +1919,24 @@ class MusicDatabase:
             self._ensure_manual_metadata_schema(cursor)
             # every artist credited on a track, from the enrichment workers.
             # after the provider id columns above, the triggers watch them
-            try:
+            with self._migration_step(cursor, "track_artist_credits_schema"):
                 from core.library.artist_credits import ensure_schema as _ensure_artist_credits
                 _ensure_artist_credits(cursor)
-            except Exception as e:
-                logger.error(f"track_artist_credits schema init failed: {e}")
             # clients-tab music matches: a download followed to the import page
-            try:
+            with self._migration_step(cursor, "client_music_matches_schema"):
                 from core.client_match import ensure_schema as _ensure_client_matches
                 _ensure_client_matches(cursor)
-            except Exception as e:
-                logger.error(f"client_music_matches schema init failed: {e}")
             # artists and albums added through the lidarr compatible api
-            try:
+            with self._migration_step(cursor, "lidarr_compat_schema"):
                 from core.lidarr_compat.store import ensure_schema as _ensure_lidarr_compat
                 _ensure_lidarr_compat(cursor)
-            except Exception as e:
-                logger.error(f"lidarr_compat schema init failed: {e}")
             self._requeue_similar_artists_rematch(cursor)
             self._purge_beatport_positional_matches(cursor)
             self._normalize_genres_to_json(cursor)
             # Unify scattered migration state into the ledger + stamp the schema
             # version. Additive backstop — runs last, gates nothing.
             self._sync_migration_ledger(cursor)
+            failed_steps = self._report_migration_failures(cursor)
 
             conn.commit()
 
@@ -1980,7 +1960,8 @@ class MusicDatabase:
             except Exception as qp_err:
                 logger.error(f"Could not reconcile stale quality-profile config: {qp_err}")
 
-            logger.info("Database initialized successfully")
+            if not failed_steps:
+                logger.info("Database initialized successfully")
 
         except Exception as e:
             logger.error(f"Error initializing database: {e}")
@@ -2072,6 +2053,130 @@ class MusicDatabase:
         except Exception as e:
             logger.debug("Could not record migration %s in ledger: %s", name, e)
 
+    # ── schema step bookkeeping ─────────────────────────────────────────────
+    # every schema step runs on every start and checks for itself whether its
+    # change is already there. so a step that fails only has to leave nothing
+    # half done behind, not write its "done" marker, and say so; the next start
+    # runs it again. _migration_step does all three. steps used to log and
+    # carry on, write their marker anyway, and let the single commit at the end
+    # of _initialize_database save whatever state that left.
+
+    # metadata row holding the steps that failed on the last start, cleared by
+    # a clean one. the per-process list behind schema_health() is the live view.
+    _SCHEMA_FAILURES_KEY = 'schema_failed_steps'
+
+    @contextmanager
+    def _migration_step(self, cursor, name: str):
+        """Run one schema step, or one part of a step, as a unit.
+
+        The block runs inside a SAVEPOINT on ``cursor``'s connection:
+
+        - it finishes: kept, as before.
+        - it raises an "already applied" error (see _ALREADY_APPLIED_ERRORS):
+          quiet, and whatever it did up to there is kept, exactly what the
+          ``except: pass`` this replaces did.
+        - it raises anything else: everything the block did is rolled back,
+          the failure is logged at ERROR (and, during _initialize_database,
+          recorded for schema_health), and every step the block sits inside
+          is marked failed, so a step that writes a done marker leaves it
+          unwritten (see _migration_step_ok) and runs again next start.
+
+        The error is not re-raised. One broken step must not stop the database
+        opening, which is what the per-step try/except always promised.
+        """
+        stack = self._migration_stack()
+        label = ' / '.join([frame['name'] for frame in stack] + [name])
+        savepoint = f"migration_step_{len(stack)}"
+        cursor.execute(f"SAVEPOINT {savepoint}")
+        stack.append({'name': name, 'failed': False})
+        try:
+            yield
+        except Exception as e:
+            already_applied = _is_already_applied_error(e)
+            self._close_migration_savepoint(cursor, savepoint, label, rollback=not already_applied)
+            if already_applied:
+                logger.debug("schema step %s: already applied (%s)", label, e)
+            else:
+                self._record_migration_failure(label, e)
+        else:
+            self._close_migration_savepoint(cursor, savepoint, label, rollback=False)
+        finally:
+            stack.pop()
+
+    @staticmethod
+    def _close_migration_savepoint(cursor, savepoint: str, label: str, rollback: bool) -> None:
+        try:
+            if rollback:
+                cursor.execute(f"ROLLBACK TO {savepoint}")
+            cursor.execute(f"RELEASE {savepoint}")
+        except sqlite3.Error as e:
+            # a commit inside the step ends every open savepoint, and whatever
+            # the step did before that commit is saved already
+            if rollback:
+                logger.warning("schema step %s: could not roll back its partial changes: %s", label, e)
+            else:
+                logger.debug("schema step %s: savepoint already closed: %s", label, e)
+
+    def _record_migration_failure(self, step: str, exc: BaseException) -> None:
+        # only while _initialize_database runs; at request time it's just the log
+        failures = getattr(self, '_migration_failures', None)
+        if failures is not None:
+            failures.append({'step': step, 'error': f"{type(exc).__name__}: {exc}"})
+        for frame in self._migration_stack():
+            frame['failed'] = True
+        logger.error("Schema step %s failed and was rolled back, it runs again on next start: %s",
+                     step, exc, exc_info=exc)
+
+    def _migration_step_ok(self) -> bool:
+        """False once any part of the innermost running step has failed. A step
+        checks this before writing its done marker, so one with a failed part
+        runs again next start instead of being recorded as complete."""
+        stack = self._migration_stack()
+        return not (stack and stack[-1]['failed'])
+
+    @staticmethod
+    def _migration_stack() -> List[Dict[str, Any]]:
+        stack = getattr(_migration_frames, 'stack', None)
+        if stack is None:
+            stack = _migration_frames.stack = []
+        return stack
+
+    def _report_migration_failures(self, cursor) -> List[Dict[str, str]]:
+        """End of _initialize_database: one ERROR line naming every step that
+        failed this start, the list schema_health() reads, and the metadata row
+        (deleted on a clean start). Returns the failures."""
+        failures = list(getattr(self, '_migration_failures', None) or [])
+        self._migration_failures = None   # recording stops with the start
+        key = self._schema_health_key()
+        if key:
+            _schema_failures_by_path[key] = failures
+        try:
+            if failures:
+                cursor.execute(
+                    "INSERT OR REPLACE INTO metadata (key, value, updated_at) "
+                    "VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    (self._SCHEMA_FAILURES_KEY, json.dumps(failures)))
+            else:
+                cursor.execute("DELETE FROM metadata WHERE key = ?", (self._SCHEMA_FAILURES_KEY,))
+        except Exception as e:
+            logger.debug("could not store the failed schema steps: %s", e)
+        if failures:
+            logger.error(
+                "Database schema setup finished with %d failed step(s): %s. Each was rolled "
+                "back and runs again on the next start; the errors above say why.",
+                len(failures), ', '.join(f['step'] for f in failures))
+        return failures
+
+    def schema_health(self) -> Dict[str, Any]:
+        """Did this database's schema setup finish cleanly the last time it ran
+        in this process? ``{'ok': bool, 'failed_steps': [{'step', 'error'}]}``."""
+        failures = _schema_failures_by_path.get(self._schema_health_key(), [])
+        return {'ok': not failures, 'failed_steps': [dict(f) for f in failures]}
+
+    def _schema_health_key(self) -> Optional[str]:
+        path = getattr(self, 'database_path', None)   # test harnesses skip __init__
+        return str(path.resolve()) if path is not None else None
+
     def _copy_rows_for_rebuild(self, cursor, old_table: str, new_table: str, *,
                                expressions: Optional[Dict[str, str]] = None,
                                or_ignore: bool = False) -> List[str]:
@@ -2133,7 +2238,7 @@ class MusicDatabase:
         marker tables / metadata flags are present); it never decides whether a
         migration runs. Safe to run on every startup.
         """
-        try:
+        with self._migration_step(cursor, 'sync_migration_ledger'):
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = {r[0] for r in cursor.fetchall()}
             for ledger_name, (kind, signal) in self._KNOWN_MIGRATION_SIGNALS.items():
@@ -2146,8 +2251,6 @@ class MusicDatabase:
                     self._record_migration(cursor, ledger_name)
             # Backstop version stamp; nothing gates on it.
             cursor.execute(f"PRAGMA user_version = {int(self.SCHEMA_VERSION)}")
-        except Exception as e:
-            logger.error(f"Error syncing migration ledger: {e}")
 
     def _normalize_genres_to_json(self, cursor):
         """One-time: rewrite legacy comma-separated genres to canonical JSON arrays.
@@ -2162,7 +2265,7 @@ class MusicDatabase:
         like the other migrations.
         """
         import json
-        try:
+        with self._migration_step(cursor, 'normalize_genres_to_json'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'genres_json_normalized' LIMIT 1")
             if cursor.fetchone():
                 return
@@ -2198,8 +2301,6 @@ class MusicDatabase:
             self._record_migration(cursor, 'genres_json')
             if total:
                 logger.info("Normalized %d legacy genres value(s) to JSON", total)
-        except Exception as e:
-            logger.error(f"Error normalizing genres to JSON: {e}")
 
     def _ensure_core_media_schema_columns(self, cursor):
         """Repair required media-library columns that older migrations may miss.
@@ -2209,7 +2310,7 @@ class MusicDatabase:
         occasionally miss one if a previous migration path failed or was marked
         complete before the column existed.
         """
-        try:
+        with self._migration_step(cursor, 'ensure_core_media_schema_columns'):
             cursor.execute("PRAGMA table_info(tracks)")
             track_cols = {c[1] for c in cursor.fetchall()}
             if track_cols and 'file_size' not in track_cols:
@@ -2291,9 +2392,6 @@ class MusicDatabase:
                     cursor.execute(f"ALTER TABLE albums ADD COLUMN {_col} {_typedef}")
                     logger.info("Added %s column to albums table (#1701)", _col)
 
-        except Exception as e:
-            logger.error("Error repairing core media schema columns: %s", e)
-
     def _art_lock_supported(self, cursor, table: str) -> bool:
         """Does this database have ``<table>.art_locked`` yet?
 
@@ -2330,7 +2428,7 @@ class MusicDatabase:
         studio release. its OWN method with its OWN try, like art_locked: no
         sync upsert references these columns in its main statement, so a
         missing column degrades to "not locked", never to a lost scan."""
-        try:
+        with self._migration_step(cursor, 'ensure_manual_metadata_schema'):
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS manual_metadata_files (
                     path_key TEXT PRIMARY KEY,
@@ -2340,17 +2438,13 @@ class MusicDatabase:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-        except Exception as e:
-            logger.error("Could not ensure manual_metadata_files: %s", e)
         for table in ('albums', 'tracks'):
-            try:
+            with self._migration_step(cursor, f"add {table}.metadata_locked"):
                 cursor.execute(f"PRAGMA table_info({table})")
                 cols = {c[1] for c in cursor.fetchall()}
                 if cols and 'metadata_locked' not in cols:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN metadata_locked INTEGER DEFAULT 0")
                     logger.info("Added metadata_locked column to %s table (hand-tagged)", table)
-            except Exception as e:
-                logger.error("Could not ensure %s.metadata_locked: %s", table, e)
 
     @staticmethod
     def manual_path_key(file_path) -> str:
@@ -2463,14 +2557,12 @@ class MusicDatabase:
         server, today's behaviour for every existing row. its own method and
         try, same reason as art_locked: the scan upserts reference it."""
         for table in ('albums', 'artists'):
-            try:
+            with self._migration_step(cursor, f"add {table}.genres_locked"):
                 cursor.execute(f"PRAGMA table_info({table})")
                 cols = {c[1] for c in cursor.fetchall()}
                 if cols and 'genres_locked' not in cols:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN genres_locked INTEGER DEFAULT 0")
                     logger.info("Added genres_locked column to %s table", table)
-            except Exception as e:
-                logger.error("Could not ensure %s.genres_locked: %s", table, e)
 
     def _genres_lock_supported(self, cursor, table: str) -> bool:
         """does this db have ``<table>.genres_locked`` yet. no column means the
@@ -2509,14 +2601,12 @@ class MusicDatabase:
         column has to be the one thing that cannot be skipped by someone else's
         error."""
         for table in ('albums', 'artists'):
-            try:
+            with self._migration_step(cursor, f"add {table}.art_locked"):
                 cursor.execute(f"PRAGMA table_info({table})")
                 cols = {c[1] for c in cursor.fetchall()}
                 if cols and 'art_locked' not in cols:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN art_locked INTEGER DEFAULT 0")
                     logger.info("Added art_locked column to %s table (custom artwork)", table)
-            except Exception as e:
-                logger.error("Could not ensure %s.art_locked: %s", table, e)
 
     def _ensure_wishlist_quality_columns(self, cursor):
         """Give every wishlist row a pointer to its own quality profile.
@@ -2536,7 +2626,7 @@ class MusicDatabase:
         Nullable: NULL means "not yet resolved" — callers must fall back to
         the default `quality_profiles` row until backfilled.
         """
-        try:
+        with self._migration_step(cursor, 'ensure_wishlist_quality_columns'):
             cursor.execute("PRAGMA table_info(wishlist_tracks)")
             cols = {c[1] for c in cursor.fetchall()}
             if cols and 'quality_profile_id' not in cols:
@@ -2556,8 +2646,6 @@ class MusicDatabase:
                         logger.info("Dropped dormant %s column from wishlist_tracks table", dead_col)
                     except Exception as e:  # noqa: BLE001
                         logger.debug("wishlist column removal %s: %s", dead_col, e)
-        except Exception as e:
-            logger.error("Error adding wishlist quality-profile column: %s", e)
 
     def _ensure_library_quality_column(self, cursor):
         """Give every library track a pointer to its own quality profile.
@@ -2571,7 +2659,7 @@ class MusicDatabase:
         are inserted with NULL and simply follow whichever profile is default
         at read time — no insert call site needs to change.
         """
-        try:
+        with self._migration_step(cursor, 'ensure_library_quality_column'):
             cursor.execute("PRAGMA table_info(tracks)")
             cols = {c[1] for c in cursor.fetchall()}
             if cols and 'quality_profile_id' not in cols:
@@ -2583,8 +2671,6 @@ class MusicDatabase:
             if cols and 'retention_json' not in cols:
                 cursor.execute("ALTER TABLE tracks ADD COLUMN retention_json TEXT DEFAULT NULL")
                 logger.info("Added retention_json column to tracks table (retention provenance)")
-        except Exception as e:
-            logger.error("Error adding library quality-profile column: %s", e)
 
     def set_album_canonical(self, album_id, source: str, canonical_album_id: str,
                             score: float, locked: bool = False) -> bool:
@@ -2849,18 +2935,16 @@ class MusicDatabase:
 
     def _add_mirrored_playlist_explored_column(self, cursor):
         """Add explored_at column to mirrored_playlists to persist explore badge."""
-        try:
+        with self._migration_step(cursor, 'add_mirrored_playlist_explored_column'):
             cursor.execute("PRAGMA table_info(mirrored_playlists)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'explored_at' not in cols:
                 cursor.execute("ALTER TABLE mirrored_playlists ADD COLUMN explored_at TIMESTAMP DEFAULT NULL")
                 logger.info("Added explored_at column to mirrored_playlists table")
-        except Exception as e:
-            logger.error(f"Error adding explored_at column to mirrored_playlists: {e}")
 
     def _add_mirrored_playlist_organize_column(self, cursor):
         """Add organize_by_playlist preference for playlist-folder downloads."""
-        try:
+        with self._migration_step(cursor, 'add_mirrored_playlist_organize_column'):
             cursor.execute("PRAGMA table_info(mirrored_playlists)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'organize_by_playlist' not in cols:
@@ -2868,20 +2952,16 @@ class MusicDatabase:
                     "ALTER TABLE mirrored_playlists ADD COLUMN organize_by_playlist INTEGER NOT NULL DEFAULT 0"
                 )
                 logger.info("Added organize_by_playlist column to mirrored_playlists table")
-        except Exception as e:
-            logger.error(f"Error adding organize_by_playlist column to mirrored_playlists: {e}")
 
     def _add_mirrored_playlist_sync_mode_column(self, cursor):
         """Per-playlist sync mode (#1704). null means use the global
         playlist_sync.mode, so existing mirrors keep doing what they did."""
-        try:
+        with self._migration_step(cursor, 'add_mirrored_playlist_sync_mode_column'):
             cursor.execute("PRAGMA table_info(mirrored_playlists)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'sync_mode' not in cols:
                 cursor.execute("ALTER TABLE mirrored_playlists ADD COLUMN sync_mode TEXT DEFAULT NULL")
                 logger.info("Added sync_mode column to mirrored_playlists table")
-        except Exception as e:
-            logger.error(f"Error adding sync_mode column to mirrored_playlists: {e}")
 
     def _add_mirrored_playlist_custom_name_column(self, cursor):
         """Add custom_name (a user alias) for a mirrored playlist.
@@ -2891,14 +2971,12 @@ class MusicDatabase:
         on refresh, ``custom_name`` just overrides what's shown/synced. Stored in
         its OWN column (not ``name``) precisely so ``mirror_playlist`` — which
         rewrites ``name`` from upstream on every refresh — never clobbers it."""
-        try:
+        with self._migration_step(cursor, 'add_mirrored_playlist_custom_name_column'):
             cursor.execute("PRAGMA table_info(mirrored_playlists)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'custom_name' not in cols:
                 cursor.execute("ALTER TABLE mirrored_playlists ADD COLUMN custom_name TEXT DEFAULT NULL")
                 logger.info("Added custom_name column to mirrored_playlists table")
-        except Exception as e:
-            logger.error(f"Error adding custom_name column to mirrored_playlists: {e}")
 
     def _add_mirrored_playlist_server_link_columns(self, cursor):
         """Which server playlist a mirror corresponds to, once we know.
@@ -2915,7 +2993,7 @@ class MusicDatabase:
         throughout, so every existing row means "not linked" and behaves exactly
         as it does today.
         """
-        try:
+        with self._migration_step(cursor, 'add_mirrored_playlist_server_link_columns'):
             cursor.execute("PRAGMA table_info(mirrored_playlists)")
             cols = [c[1] for c in cursor.fetchall()]
             for name, decl in (
@@ -2928,8 +3006,6 @@ class MusicDatabase:
                         f"ALTER TABLE mirrored_playlists ADD COLUMN {name} {decl}"
                     )
                     logger.info(f"Added {name} column to mirrored_playlists table")
-        except Exception as e:
-            logger.error(f"Error adding server link columns to mirrored_playlists: {e}")
 
     def _add_mirrored_playlist_cover_tiles_column(self, cursor):
         """Up to four distinct album covers, for the 2x2 collage.
@@ -2939,14 +3015,12 @@ class MusicDatabase:
         of its albums. This column is the fallback for the many sources that
         send no poster at all, filled from what discovery matched.
         """
-        try:
+        with self._migration_step(cursor, 'add_mirrored_playlist_cover_tiles_column'):
             cursor.execute("PRAGMA table_info(mirrored_playlists)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'cover_tiles' not in cols:
                 cursor.execute("ALTER TABLE mirrored_playlists ADD COLUMN cover_tiles TEXT DEFAULT NULL")
                 logger.info("Added cover_tiles column to mirrored_playlists table")
-        except Exception as e:
-            logger.error(f"Error adding cover_tiles column to mirrored_playlists: {e}")
 
     def _add_mirrored_playlist_track_added_at_column(self, cursor):
         """when each track joined the playlist, for "sort by date added".
@@ -2955,14 +3029,12 @@ class MusicDatabase:
         this across by source_track_id the same way it carries extra_data. NULL
         for rows from before the column; they sort by position.
         """
-        try:
+        with self._migration_step(cursor, 'add_mirrored_playlist_track_added_at_column'):
             cursor.execute("PRAGMA table_info(mirrored_playlist_tracks)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'added_at' not in cols:
                 cursor.execute("ALTER TABLE mirrored_playlist_tracks ADD COLUMN added_at TEXT DEFAULT NULL")
                 logger.info("Added added_at column to mirrored_playlist_tracks table")
-        except Exception as e:
-            logger.error(f"Error adding added_at column to mirrored_playlist_tracks: {e}")
 
     def _add_mirrored_playlist_source_skipped_column(self, cursor):
         """add source_skipped: what the source never handed over (#1613).
@@ -2972,14 +3044,12 @@ class MusicDatabase:
         the mirror sees them, so without this a 395 track playlist mirrors
         as 365 and nothing says why.
         """
-        try:
+        with self._migration_step(cursor, 'add_mirrored_playlist_source_skipped_column'):
             cursor.execute("PRAGMA table_info(mirrored_playlists)")
             cols = {c[1] for c in cursor.fetchall()}
             if cols and 'source_skipped' not in cols:
                 cursor.execute("ALTER TABLE mirrored_playlists ADD COLUMN source_skipped TEXT DEFAULT NULL")
                 logger.info("Added source_skipped column to mirrored_playlists table")
-        except Exception as e:
-            logger.error(f"Error adding source_skipped column to mirrored_playlists: {e}")
 
     @staticmethod
     def _source_skipped_json(skipped) -> Optional[str]:
@@ -3005,7 +3075,7 @@ class MusicDatabase:
         Existing NULL rows are backfilled after ``quality_profiles`` has been
         ensured later in startup.
         """
-        try:
+        with self._migration_step(cursor, 'add_mirrored_playlist_quality_profile_column'):
             cursor.execute("PRAGMA table_info(mirrored_playlists)")
             columns = {column[1] for column in cursor.fetchall()}
             if columns and 'quality_profile_id' not in columns:
@@ -3014,12 +3084,10 @@ class MusicDatabase:
                     "ADD COLUMN quality_profile_id INTEGER DEFAULT NULL"
                 )
                 logger.info("Added quality_profile_id column to mirrored_playlists")
-        except Exception as e:
-            logger.error(f"Error adding mirrored playlist quality profile column: {e}")
 
     def _add_mirrored_playlist_request_list_columns(self, cursor):
         """Add request list and upstream tracking columns to mirrored_playlists."""
-        try:
+        with self._migration_step(cursor, 'add_mirrored_playlist_request_list_columns'):
             cursor.execute("PRAGMA table_info(mirrored_playlists)")
             cols = {column[1] for column in cursor.fetchall()}
             if cols and 'is_request_list' not in cols:
@@ -3040,8 +3108,6 @@ class MusicDatabase:
                 END
                 WHERE is_request_list = 1 AND (upstream_playlist_id IS NULL OR upstream_playlist_id = '')
             """)
-        except Exception as e:
-            logger.error(f"Error adding request list columns to mirrored_playlists: {e}")
 
     def _backfill_native_quality_profile_assignments(self, cursor):
         """Repair missing/dangling Watchlist and playlist assignments.
@@ -3050,7 +3116,7 @@ class MusicDatabase:
         global settings have been materialized.  It is idempotent and also
         self-heals references left by interrupted/older profile deletions.
         """
-        try:
+        with self._migration_step(cursor, 'backfill_native_quality_profile_assignments'):
             row = cursor.execute(
                 "SELECT id FROM quality_profiles WHERE is_default=1 "
                 "ORDER BY id LIMIT 1"
@@ -3079,48 +3145,40 @@ class MusicDatabase:
                             )""",
                     (default_id,),
                 )
-        except Exception as e:
-            logger.error(f"Error backfilling native quality profile assignments: {e}")
 
     def _add_automation_notify_columns(self, cursor):
         """Add notification and result columns to automations table."""
-        try:
+        with self._migration_step(cursor, 'add_automation_notify_columns'):
             cursor.execute("PRAGMA table_info(automations)")
             cols = [c[1] for c in cursor.fetchall()]
             for col, typedef in [('notify_type', 'TEXT DEFAULT NULL'), ('notify_config', "TEXT DEFAULT '{}'"), ('last_result', 'TEXT DEFAULT NULL')]:
                 if col not in cols:
                     cursor.execute(f"ALTER TABLE automations ADD COLUMN {col} {typedef}")
                     logger.info(f"Added {col} column to automations table")
-        except Exception as e:
-            logger.error(f"Error adding automation notify columns: {e}")
 
     def _add_automation_system_column(self, cursor):
         """Add is_system column to automations table for non-deletable system automations."""
-        try:
+        with self._migration_step(cursor, 'add_automation_system_column'):
             cursor.execute("PRAGMA table_info(automations)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'is_system' not in cols:
                 cursor.execute("ALTER TABLE automations ADD COLUMN is_system INTEGER DEFAULT 0")
                 logger.info("Added is_system column to automations table")
-        except Exception as e:
-            logger.error(f"Error adding automation system column: {e}")
 
     def _add_automation_group_name_column(self, cursor):
         """Add group_name column to automations table for folder-style grouping."""
-        try:
+        with self._migration_step(cursor, 'add_automation_group_name_column'):
             cursor.execute("PRAGMA table_info(automations)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'group_name' not in cols:
                 cursor.execute("ALTER TABLE automations ADD COLUMN group_name TEXT DEFAULT NULL")
                 logger.info("Added group_name column to automations table")
-        except Exception as e:
-            logger.error(f"Error adding automation group_name column: {e}")
 
     def _add_automation_owned_by_column(self, cursor):
         """Add owned_by column so feature surfaces (Auto-Sync schedule
         board, future pipeline groups) can recognize automations they
         manage without relying on fragile name-prefix string matches."""
-        try:
+        with self._migration_step(cursor, 'add_automation_owned_by_column'):
             cursor.execute("PRAGMA table_info(automations)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'owned_by' not in cols:
@@ -3135,12 +3193,10 @@ class MusicDatabase:
                       AND owned_by IS NULL
                 """)
                 logger.info(f"Backfilled {cursor.rowcount} existing Auto-Sync automations with owned_by='auto_sync'")
-        except Exception as e:
-            logger.error(f"Error adding automation owned_by column: {e}")
 
     def _add_automation_then_actions_column(self, cursor):
         """Add then_actions column to automations table and migrate existing notify data."""
-        try:
+        with self._migration_step(cursor, 'add_automation_then_actions_column'):
             cursor.execute("PRAGMA table_info(automations)")
             cols = [c[1] for c in cursor.fetchall()]
             if 'then_actions' not in cols:
@@ -3156,12 +3212,10 @@ class MusicDatabase:
                     except Exception as e:
                         logger.debug("Failed to migrate notify data for automation row: %s", e)
                 logger.info("Migrated existing notify data to then_actions")
-        except Exception as e:
-            logger.error(f"Error adding automation then_actions column: {e}")
 
     def _add_server_source_columns(self, cursor):
         """Add server_source columns to existing tables for multi-server support"""
-        try:
+        with self._migration_step(cursor, 'add_server_source_columns'):
             # Check if server_source column exists in artists table
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
@@ -3204,23 +3258,19 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_source_updated ON artists (server_source, updated_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_albums_server_source ON albums (server_source)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_server_source ON tracks (server_source)")
-            
-        except Exception as e:
-            logger.error(f"Error adding server_source columns: {e}")
-            # Don't raise - this is a migration, database can still function without it
-    
+
     def _migrate_sample_analysis_text_ids(self, cursor):
         """sample_analysis.track_id was an INTEGER PRIMARY KEY, which sqlite
         refuses text in. tracks.id is TEXT (jellyfin guids, navidrome ids), so
         no track from those libraries could ever be analyzed. rebuild it keyed
-        by TEXT; plex ids carry over as their digits."""
-        try:
+        by TEXT; plex ids carry over as their digits. a failure puts the old
+        table back (the step rolls back), and numeric ids keep working on it."""
+        with self._migration_step(cursor, "migrate_sample_analysis_text_ids"):
             cursor.execute("PRAGMA table_info(sample_analysis)")
             cols = {row[1]: row for row in cursor.fetchall()}
             track_col = cols.get("track_id")
             if not track_col or str(track_col[2]).upper() == "TEXT":
                 return
-            cursor.execute("SAVEPOINT sample_analysis_text_ids")
             cursor.execute("DROP TABLE IF EXISTS sample_analysis_text")
             cursor.execute("""
                 CREATE TABLE sample_analysis_text (
@@ -3239,20 +3289,11 @@ class MusicDatabase:
                                         expressions={"track_id": "CAST(track_id AS TEXT)"})
             cursor.execute("DROP TABLE sample_analysis")
             cursor.execute("ALTER TABLE sample_analysis_text RENAME TO sample_analysis")
-            cursor.execute("RELEASE sample_analysis_text_ids")
             logger.info("sample_analysis now keyed by text track ids")
-        except Exception as e:
-            # put the old table back. numeric ids keep working on it
-            try:
-                cursor.execute("ROLLBACK TO sample_analysis_text_ids")
-                cursor.execute("RELEASE sample_analysis_text_ids")
-            except Exception as rollback_err:
-                logger.debug(f"sample_analysis rollback: {rollback_err}")
-            logger.error(f"sample_analysis text-id migration failed: {e}")
 
     def _migrate_id_columns_to_text(self, cursor):
         """Migrate ID columns from INTEGER to TEXT to support both Plex (int) and Jellyfin (GUID) IDs"""
-        try:
+        with self._migration_step(cursor, 'migrate_id_columns_to_text'):
             # Check if migration has already been applied by looking for a specific marker
             cursor.execute("SELECT value FROM metadata WHERE key = 'id_columns_migrated' LIMIT 1")
             migration_done = cursor.fetchone()
@@ -3325,7 +3366,7 @@ class MusicDatabase:
             }
             for table in ('artists', 'albums', 'tracks'):
                 self._copy_rows_for_rebuild(cursor, table, f"{table}_new", expressions=id_columns_as_text)
-            
+
             # Step 3: Drop old tables and rename new ones
             cursor.execute("DROP TABLE IF EXISTS tracks")
             cursor.execute("DROP TABLE IF EXISTS albums") 
@@ -3364,14 +3405,10 @@ class MusicDatabase:
             """)
             
             logger.info("ID columns migration completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error migrating ID columns: {e}")
-            # Don't raise - this is a migration, database can still function
 
     def _add_discovery_tables(self, cursor):
         """Add tables for discovery feature: similar artists, discovery pool, and recent releases"""
-        try:
+        with self._migration_step(cursor, 'add_discovery_tables'):
             # Similar Artists table - stores similar artists for each watchlist artist
             # Supports Spotify plus fallback provider IDs for discovery
             cursor.execute("""
@@ -3603,32 +3640,33 @@ class MusicDatabase:
             table_schema = cursor.fetchone()
             if table_schema and 'album_spotify_id TEXT NOT NULL' in (table_schema[0] or ''):
                 logger.info("Migrating discovery_recent_albums to allow NULL album_spotify_id for iTunes support...")
-                # SQLite doesn't support ALTER COLUMN, so recreate table
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS discovery_recent_albums_new (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        album_spotify_id TEXT,
-                        album_itunes_id TEXT,
-                        album_deezer_id TEXT,
-                        artist_spotify_id TEXT,
-                        artist_itunes_id TEXT,
-                        artist_deezer_id TEXT,
-                        source TEXT NOT NULL DEFAULT 'spotify',
-                        album_name TEXT NOT NULL,
-                        artist_name TEXT NOT NULL,
-                        album_cover_url TEXT,
-                        release_date TEXT NOT NULL,
-                        album_type TEXT DEFAULT 'album',
-                        cached_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(album_spotify_id, album_itunes_id, album_deezer_id, source)
-                    )
-                """)
-                self._copy_rows_for_rebuild(cursor, "discovery_recent_albums", "discovery_recent_albums_new",
-                                            or_ignore=True)
-                cursor.execute("DROP TABLE discovery_recent_albums")
-                cursor.execute("ALTER TABLE discovery_recent_albums_new RENAME TO discovery_recent_albums")
-                cursor.connection.commit()
-                logger.info("Successfully migrated discovery_recent_albums table for iTunes support")
+                # its own unit, so a failed rebuild leaves the rest of this step alone
+                with self._migration_step(cursor, "rebuild discovery_recent_albums"):
+                    # SQLite doesn't support ALTER COLUMN, so recreate table
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS discovery_recent_albums_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            album_spotify_id TEXT,
+                            album_itunes_id TEXT,
+                            album_deezer_id TEXT,
+                            artist_spotify_id TEXT,
+                            artist_itunes_id TEXT,
+                            artist_deezer_id TEXT,
+                            source TEXT NOT NULL DEFAULT 'spotify',
+                            album_name TEXT NOT NULL,
+                            artist_name TEXT NOT NULL,
+                            album_cover_url TEXT,
+                            release_date TEXT NOT NULL,
+                            album_type TEXT DEFAULT 'album',
+                            cached_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE(album_spotify_id, album_itunes_id, album_deezer_id, source)
+                        )
+                    """)
+                    self._copy_rows_for_rebuild(cursor, "discovery_recent_albums", "discovery_recent_albums_new",
+                                                or_ignore=True)
+                    cursor.execute("DROP TABLE discovery_recent_albums")
+                    cursor.execute("ALTER TABLE discovery_recent_albums_new RENAME TO discovery_recent_albums")
+                    logger.info("Successfully migrated discovery_recent_albums table for iTunes support")
 
             # Migration: Add UNIQUE constraint to similar_artists table
             # Skip if table already has profile-scoped UNIQUE constraint (from v3 migration)
@@ -3656,12 +3694,15 @@ class MusicDatabase:
 
                 if needs_similar_migration:
                     logger.info("Migrating similar_artists to add UNIQUE constraint...")
-                    # Get a fresh connection for the migration
-                    with self._get_connection() as migration_conn:
-                        migration_cursor = migration_conn.cursor()
+                    # on this connection. it used a second one, which can't write
+                    # while this one holds the startup transaction: it sat out the
+                    # 30 s busy timeout, failed with "database is locked" and took
+                    # the rest of this step down with it, on every install old
+                    # enough to need it.
+                    with self._migration_step(cursor, "rebuild similar_artists"):
                         # SQLite doesn't support adding constraints, so recreate table
-                        migration_cursor.execute("DROP TABLE IF EXISTS similar_artists_new")
-                        migration_cursor.execute("""
+                        cursor.execute("DROP TABLE IF EXISTS similar_artists_new")
+                        cursor.execute("""
                             CREATE TABLE similar_artists_new (
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                 source_artist_id TEXT NOT NULL,
@@ -3677,11 +3718,10 @@ class MusicDatabase:
                                 UNIQUE(source_artist_id, similar_artist_name)
                             )
                         """)
-                        self._copy_rows_for_rebuild(migration_cursor, "similar_artists", "similar_artists_new",
+                        self._copy_rows_for_rebuild(cursor, "similar_artists", "similar_artists_new",
                                                     or_ignore=True)
-                        migration_cursor.execute("DROP TABLE similar_artists")
-                        migration_cursor.execute("ALTER TABLE similar_artists_new RENAME TO similar_artists")
-                        migration_conn.commit()
+                        cursor.execute("DROP TABLE similar_artists")
+                        cursor.execute("ALTER TABLE similar_artists_new RENAME TO similar_artists")
                         logger.info("Successfully migrated similar_artists table with UNIQUE constraint")
 
             # ============== INDEXES (after migrations to ensure columns exist) ==============
@@ -4136,21 +4176,15 @@ class MusicDatabase:
             try:
                 cursor.execute("SELECT discogs_release_id FROM liked_albums_pool LIMIT 1")
             except Exception:
-                try:
+                with self._migration_step(cursor, "add liked_albums_pool.discogs_release_id"):
                     cursor.execute("ALTER TABLE liked_albums_pool ADD COLUMN discogs_release_id TEXT")
                     logger.info("Added discogs_release_id column to liked_albums_pool")
-                except Exception as e:
-                    logger.debug("Failed to add discogs_release_id column: %s", e)
 
             logger.info("Discovery tables added/verified successfully")
 
-        except Exception as e:
-            logger.error(f"Error creating discovery tables: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_watchlist_artist_image_column(self, cursor):
         """Add image_url column to watchlist_artists table"""
-        try:
+        with self._migration_step(cursor, 'add_watchlist_artist_image_column'):
             cursor.execute("PRAGMA table_info(watchlist_artists)")
             columns = [column[1] for column in cursor.fetchall()]
 
@@ -4158,13 +4192,9 @@ class MusicDatabase:
                 cursor.execute("ALTER TABLE watchlist_artists ADD COLUMN image_url TEXT")
                 logger.info("Added image_url column to watchlist_artists table")
 
-        except Exception as e:
-            logger.error(f"Error adding image_url column to watchlist_artists: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_watchlist_album_type_filters(self, cursor):
         """Add album type filter columns to watchlist_artists table"""
-        try:
+        with self._migration_step(cursor, 'add_watchlist_album_type_filters'):
             cursor.execute("PRAGMA table_info(watchlist_artists)")
             columns = [column[1] for column in cursor.fetchall()]
 
@@ -4179,13 +4209,9 @@ class MusicDatabase:
                     cursor.execute(f"ALTER TABLE watchlist_artists ADD COLUMN {column_name} {column_type} DEFAULT {default_value}")
                     logger.info(f"Added {column_name} column to watchlist_artists table")
 
-        except Exception as e:
-            logger.error(f"Error adding album type filter columns to watchlist_artists: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_watchlist_content_type_filters(self, cursor):
         """Add content type filter columns to watchlist_artists table"""
-        try:
+        with self._migration_step(cursor, 'add_watchlist_content_type_filters'):
             cursor.execute("PRAGMA table_info(watchlist_artists)")
             columns = [column[1] for column in cursor.fetchall()]
 
@@ -4203,24 +4229,18 @@ class MusicDatabase:
                     cursor.execute(f"ALTER TABLE watchlist_artists ADD COLUMN {column_name} {column_type} DEFAULT {default_value}")
                     logger.info(f"Added {column_name} column to watchlist_artists table")
 
-        except Exception as e:
-            logger.error(f"Error adding content type filter columns to watchlist_artists: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_watchlist_auto_download_column(self, cursor):
         """Add per-artist auto_download column ("follow only" toggle).
 
         Default 1 (auto-download) = existing behaviour. When 0, the watchlist scan
         still finds + surfaces new releases for the artist but skips adding them to
         the wishlist."""
-        try:
+        with self._migration_step(cursor, 'add_watchlist_auto_download_column'):
             cursor.execute("PRAGMA table_info(watchlist_artists)")
             columns = [column[1] for column in cursor.fetchall()]
             if 'auto_download' not in columns:
                 cursor.execute("ALTER TABLE watchlist_artists ADD COLUMN auto_download INTEGER NOT NULL DEFAULT 1")
                 logger.info("Added auto_download column to watchlist_artists table")
-        except Exception as e:
-            logger.error(f"Error adding auto_download column to watchlist_artists: {e}")
 
     def _add_watchlist_auto_download_pref_column(self, cursor):
         """Add the three-state auto-download preference (swiftpawpaw's request).
@@ -4241,7 +4261,7 @@ class MusicDatabase:
         stays NULL and inherits. Nothing is discarded, because today "explicitly
         on" and "on by default" behave identically — the difference was never
         expressible."""
-        try:
+        with self._migration_step(cursor, 'add_watchlist_auto_download_pref_column'):
             cursor.execute("PRAGMA table_info(watchlist_artists)")
             columns = [column[1] for column in cursor.fetchall()]
             if 'auto_download_pref' in columns:
@@ -4253,8 +4273,6 @@ class MusicDatabase:
                                "WHERE auto_download = 0")
             logger.info("Added auto_download_pref column to watchlist_artists "
                         "(explicit follow-only rows preserved)")
-        except Exception as e:
-            logger.error(f"Error adding auto_download_pref to watchlist_artists: {e}")
 
     def _add_watchlist_quality_profile_column(self, cursor):
         """Add the native per-artist Quality Profile assignment.
@@ -4263,7 +4281,7 @@ class MusicDatabase:
         migrations, which use explicit watchlist column lists.  Running it
         earlier would let an older install silently drop the new column.
         """
-        try:
+        with self._migration_step(cursor, 'add_watchlist_quality_profile_column'):
             cursor.execute("PRAGMA table_info(watchlist_artists)")
             columns = {column[1] for column in cursor.fetchall()}
             if columns and 'quality_profile_id' not in columns:
@@ -4272,23 +4290,19 @@ class MusicDatabase:
                     "ADD COLUMN quality_profile_id INTEGER DEFAULT NULL"
                 )
                 logger.info("Added quality_profile_id column to watchlist_artists")
-        except Exception as e:
-            logger.error(f"Error adding watchlist quality profile column: {e}")
 
     def _add_watchlist_lookback_days_column(self, cursor):
         """Add per-artist lookback_days column to watchlist_artists table"""
-        try:
+        with self._migration_step(cursor, 'add_watchlist_lookback_days_column'):
             cursor.execute("PRAGMA table_info(watchlist_artists)")
             columns = [column[1] for column in cursor.fetchall()]
             if 'lookback_days' not in columns:
                 cursor.execute("ALTER TABLE watchlist_artists ADD COLUMN lookback_days INTEGER DEFAULT NULL")
                 logger.info("Added lookback_days column to watchlist_artists table")
-        except Exception as e:
-            logger.error(f"Error adding lookback_days column to watchlist_artists: {e}")
 
     def _add_watchlist_itunes_id_column(self, cursor):
         """Add iTunes artist ID column to watchlist_artists table for cross-provider support"""
-        try:
+        with self._migration_step(cursor, 'add_watchlist_itunes_id_column'):
             cursor.execute("PRAGMA table_info(watchlist_artists)")
             columns = [column[1] for column in cursor.fetchall()]
 
@@ -4312,20 +4326,14 @@ class MusicDatabase:
                 cursor.execute("ALTER TABLE watchlist_artists ADD COLUMN musicbrainz_artist_id TEXT")
                 logger.info("Added musicbrainz_artist_id column to watchlist_artists table for MusicBrainz support")
 
-        except Exception as e:
-            logger.error(f"Error adding itunes_artist_id column to watchlist_artists: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_watchlist_preferred_metadata_source_column(self, cursor):
         """Add per-artist preferred_metadata_source column to watchlist_artists table"""
-        try:
+        with self._migration_step(cursor, 'add_watchlist_preferred_metadata_source_column'):
             cursor.execute("PRAGMA table_info(watchlist_artists)")
             columns = [column[1] for column in cursor.fetchall()]
             if 'preferred_metadata_source' not in columns:
                 cursor.execute("ALTER TABLE watchlist_artists ADD COLUMN preferred_metadata_source TEXT DEFAULT NULL")
                 logger.info("Added preferred_metadata_source column to watchlist_artists table")
-        except Exception as e:
-            logger.error(f"Error adding preferred_metadata_source column to watchlist_artists: {e}")
 
     def _clear_deezer_ids_stored_as_itunes(self, cursor):
         """Repair: watchlist iTunes ids that are actually Deezer ids.
@@ -4340,7 +4348,7 @@ class MusicDatabase:
         pair is effectively impossible; worst case is a NULL that re-matches
         correctly on the next scan). Idempotent: clearing kills the equality.
         """
-        try:
+        with self._migration_step(cursor, 'clear_deezer_ids_stored_as_itunes'):
             cursor.execute("PRAGMA table_info(watchlist_artists)")
             columns = [column[1] for column in cursor.fetchall()]
             if 'itunes_artist_id' not in columns or 'deezer_artist_id' not in columns:
@@ -4356,8 +4364,6 @@ class MusicDatabase:
                     "(pre-fix _match_to_itunes searched the primary source); they "
                     "re-match via real iTunes on the next watchlist scan",
                     cursor.rowcount)
-        except Exception as e:
-            logger.error(f"Error clearing deezer-as-itunes watchlist ids: {e}")
 
     # ── normalized text columns ─────────────────────────────────────────────
     # every ownership check used to run `unidecode_lower(tracks.title) LIKE ?`,
@@ -4402,13 +4408,11 @@ class MusicDatabase:
     )
 
     def _add_lookup_indexes(self, cursor):
-        try:
+        with self._migration_step(cursor, 'add_lookup_indexes'):
             for name, table, column in self._LOWER_TEXT_INDEXES:
                 cursor.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} (LOWER({column}))")
             for name, table, column in self._PLAIN_LOOKUP_INDEXES:
                 cursor.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})")
-        except Exception as e:
-            logger.error(f"Error adding lookup indexes: {e}")
 
     @staticmethod
     def _normalizer(kind: str):
@@ -4417,7 +4421,7 @@ class MusicDatabase:
 
     def _add_norm_columns(self, cursor):
         """add the *_norm columns, their indexes and the nulling triggers."""
-        try:
+        with self._migration_step(cursor, 'add_norm_columns'):
             for table, raw, norm, _kind in self._NORM_COLUMNS:
                 cursor.execute(f"PRAGMA table_info({table})")
                 cols = [c[1] for c in cursor.fetchall()]
@@ -4469,8 +4473,6 @@ class MusicDatabase:
                 END
             """)
             self._add_albums_fts(cursor)
-        except Exception as e:
-            logger.error(f"Error adding normalized text columns: {e}")
 
     def _add_albums_fts(self, cursor):
         """a full-text index over albums.title_norm, so a title search that
@@ -4783,7 +4785,7 @@ class MusicDatabase:
 
     def _add_similar_artists_last_featured_column(self, cursor):
         """Add last_featured column to similar_artists for hero slider cycling"""
-        try:
+        with self._migration_step(cursor, 'add_similar_artists_last_featured_column'):
             cursor.execute("PRAGMA table_info(similar_artists)")
             columns = [column[1] for column in cursor.fetchall()]
 
@@ -4799,10 +4801,6 @@ class MusicDatabase:
                 cursor.execute("ALTER TABLE similar_artists ADD COLUMN metadata_updated_at TIMESTAMP")
                 logger.info("Added image_url, genres, popularity, metadata_updated_at columns to similar_artists for hero caching")
 
-        except Exception as e:
-            logger.error(f"Error adding columns to similar_artists: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _fix_profile_one_owner_rows(self, cursor):
         """Repair rows stamped owner_profile_id=1 by the pre-#1660 import bug.
 
@@ -4812,11 +4810,9 @@ class MusicDatabase:
         lookup. This is idempotent: only touches rows that still have the
         bad value.
         """
-        try:
+        with self._migration_step(cursor, 'fix_profile_one_owner_rows'):
             for table in ("tracks", "albums", "artists"):
                 cursor.execute(f"UPDATE {table} SET owner_profile_id = NULL WHERE owner_profile_id = 1")
-        except Exception as e:
-            logger.debug(f"Profile-1 owner repair skipped: {e}")
 
     def _fix_watchlist_spotify_id_nullable(self, cursor):
         """
@@ -4826,7 +4822,7 @@ class MusicDatabase:
         Since SQLite doesn't support modifying column constraints directly,
         we need to recreate the table if the constraint needs to be changed.
         """
-        try:
+        with self._migration_step(cursor, 'fix_watchlist_spotify_id_nullable'):
             # Check if spotify_artist_id is currently NOT NULL using PRAGMA
             # (more reliable than string-matching the CREATE TABLE SQL)
             cursor.execute("PRAGMA table_info(watchlist_artists)")
@@ -4928,15 +4924,11 @@ class MusicDatabase:
                 logger.info("Successfully migrated watchlist_artists table - spotify_artist_id is now nullable")
             else:
                 logger.debug("watchlist_artists table already has nullable spotify_artist_id or custom schema")
-                
-        except Exception as e:
-            logger.error(f"Error making spotify_artist_id nullable in watchlist_artists: {e}")
-            # Don't raise - this is a migration, database can still function
 
     def _add_musicbrainz_columns(self, cursor):
         """Add MusicBrainz tracking columns to library tables for metadata enrichment"""
         columns_added = False
-        try:
+        with self._migration_step(cursor, 'add_musicbrainz_columns'):
             # --- Artists ---
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
@@ -5040,14 +5032,10 @@ class MusicDatabase:
             
             if columns_added:
                 logger.info("MusicBrainz migration completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error in MusicBrainz migration: {e}")
-            # Don't raise - this is a migration, database can still function
 
     def _add_external_id_columns(self, cursor):
         """Add Spotify/iTunes external ID columns to library tables for enrichment"""
-        try:
+        with self._migration_step(cursor, 'add_external_id_columns'):
             # --- Artists ---
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
@@ -5082,13 +5070,9 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_spotify_nocase ON tracks (spotify_track_id COLLATE NOCASE)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_itunes_id ON tracks (itunes_track_id)")
 
-        except Exception as e:
-            logger.error(f"Error adding external ID columns: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_audiodb_columns(self, cursor):
         """Add AudioDB tracking + generic metadata columns for enrichment (artists, albums, tracks)"""
-        try:
+        with self._migration_step(cursor, 'add_audiodb_columns'):
             # --- Artists ---
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
@@ -5150,13 +5134,9 @@ class MusicDatabase:
             if 'mood' not in tracks_columns:
                 cursor.execute("ALTER TABLE tracks ADD COLUMN mood TEXT")
 
-        except Exception as e:
-            logger.error(f"Error adding AudioDB columns: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_discogs_columns(self, cursor):
         """Add Discogs enrichment columns to artists and albums tables."""
-        try:
+        with self._migration_step(cursor, 'add_discogs_columns'):
             # --- Artists ---
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
@@ -5191,9 +5171,6 @@ class MusicDatabase:
 
             logger.info("Discogs enrichment columns added/verified successfully")
 
-        except Exception as e:
-            logger.error(f"Error adding Discogs columns: {e}")
-
     def _add_similar_artists_worker_columns(self, cursor):
         """Add Similar-Artists worker tracking columns to the artists table.
 
@@ -5203,7 +5180,7 @@ class MusicDatabase:
         fetch MusicMap similars for and retry transient failures after a window.
         Idempotent — only adds columns that aren't already present.
         """
-        try:
+        with self._migration_step(cursor, 'add_similar_artists_worker_columns'):
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
 
@@ -5213,8 +5190,6 @@ class MusicDatabase:
                 cursor.execute("ALTER TABLE artists ADD COLUMN similar_artists_last_attempted TIMESTAMP")
 
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_similarartists_status ON artists (similar_artists_match_status, id)")
-        except Exception as e:
-            logger.error(f"Error adding similar-artists worker columns: {e}")
 
     def _requeue_similar_artists_rematch(self, cursor):
         """one-time: fetch every artist's similar artists again.
@@ -5225,7 +5200,7 @@ class MusicDatabase:
         days, so neither would heal them. requeue both; replace_similar_artists
         swaps each set as it lands. occurrence_count goes back to one per row:
         every refetch had bumped it and the reader sums it."""
-        try:
+        with self._migration_step(cursor, 'requeue_similar_artists_rematch'):
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='_similar_artists_rematch_applied'")
             if cursor.fetchone():
                 return
@@ -5237,8 +5212,6 @@ class MusicDatabase:
             cursor.execute("CREATE TABLE _similar_artists_rematch_applied (applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
             self._record_migration(cursor, 'similar_artists_rematch')
             logger.info("similar artists rematch: requeued %s library artists", requeued)
-        except Exception as e:
-            logger.error(f"Error requeueing similar artists rematch: {e}")
 
     def _purge_beatport_positional_matches(self, cursor):
         """one-time: drop what the old beatport ids and enrichment left behind.
@@ -5250,7 +5223,7 @@ class MusicDatabase:
         they all go, along with manual matches filed under the same ids. the
         cached beatport track pages go too: the old enrichment stored charts
         as tracks there, and the json reads refill them correctly."""
-        try:
+        with self._migration_step(cursor, 'purge_beatport_positional_matches'):
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = {r[0] for r in cursor.fetchall()}
             if '_beatport_positional_purged' in tables:
@@ -5268,12 +5241,10 @@ class MusicDatabase:
             cursor.execute("CREATE TABLE _beatport_positional_purged (applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
             self._record_migration(cursor, 'beatport_positional_purged')
             logger.info("beatport positional id purge: %s", counts)
-        except Exception as e:
-            logger.error(f"Error purging beatport positional matches: {e}")
 
     def _add_amazon_columns(self, cursor):
         """Add Amazon enrichment tracking columns to artists, albums, and tracks."""
-        try:
+        with self._migration_step(cursor, 'add_amazon_columns'):
             # --- Artists ---
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
@@ -5317,8 +5288,6 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_amazon_status ON tracks (amazon_match_status, id)")
 
             logger.info("Amazon columns added/verified successfully")
-        except Exception as e:
-            logger.error(f"Error adding Amazon columns: {e}")
 
     def _add_bandcamp_columns(self, cursor):
         """Add Bandcamp enrichment tracking columns to albums and tracks.
@@ -5330,7 +5299,7 @@ class MusicDatabase:
         (full tracklist, tags, label, credits in one place), so albums get
         the same enrichment columns tracks do, mirroring the existing
         Last.fm/Tidal/Qobuz album-level columns."""
-        try:
+        with self._migration_step(cursor, 'add_bandcamp_columns'):
             for table in ("albums", "tracks"):
                 cursor.execute(f"PRAGMA table_info({table})")
                 table_columns = [column[1] for column in cursor.fetchall()]
@@ -5352,8 +5321,6 @@ class MusicDatabase:
                 cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_bandcamp_status ON {table} (bandcamp_match_status, id)")
 
             logger.info("Bandcamp columns added/verified successfully")
-        except Exception as e:
-            logger.error(f"Error adding Bandcamp columns: {e}")
 
     def _backfill_match_status_for_existing_ids(self, cursor):
         """Set `<provider>_match_status = 'matched'` for rows that already have a
@@ -5389,7 +5356,7 @@ class MusicDatabase:
 
         total_backfilled = 0
         for table, id_col, status_col in targets:
-            try:
+            with self._migration_step(cursor, f"backfill {table}.{status_col}"):
                 cursor.execute(f"PRAGMA table_info({table})")
                 cols = {row[1] for row in cursor.fetchall()}
                 if id_col not in cols or status_col not in cols:
@@ -5404,15 +5371,13 @@ class MusicDatabase:
                         f"Backfilled {cursor.rowcount} rows in {table}.{status_col} "
                         f"where {id_col} was already set."
                     )
-            except Exception as e:
-                logger.error(f"Error backfilling {table}.{status_col}: {e}")
 
         if total_backfilled == 0:
             logger.debug("Match-status backfill: no rows needed updating.")
 
     def _add_deezer_columns(self, cursor):
         """Add Deezer tracking + generic metadata columns for enrichment (artists, albums, tracks)"""
-        try:
+        with self._migration_step(cursor, 'add_deezer_columns'):
             # --- Artists ---
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
@@ -5467,9 +5432,6 @@ class MusicDatabase:
             if 'explicit' not in tracks_columns:
                 cursor.execute("ALTER TABLE tracks ADD COLUMN explicit INTEGER")
 
-        except Exception as e:
-            logger.error(f"Error adding Deezer columns: {e}")
-            # Don't raise - this is a migration, database can still function
 
         # --- Repair worker columns ---
         # Kept in their OWN try block: a failure in the Deezer ALTERs above must not
@@ -5477,7 +5439,7 @@ class MusicDatabase:
         # querying a missing repair_status column. (#964 folded this into the Deezer
         # block; restored here.) Re-read tracks_columns so a partial failure above
         # doesn't leave us with a stale snapshot.
-        try:
+        with self._migration_step(cursor, "add_deezer_columns (repair worker columns)"):
             cursor.execute("PRAGMA table_info(tracks)")
             tracks_columns = [column[1] for column in cursor.fetchall()]
 
@@ -5488,13 +5450,9 @@ class MusicDatabase:
 
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_repair_status ON tracks (repair_status)")
 
-        except Exception as e:
-            logger.error(f"Error adding repair worker columns: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_jiosaavn_columns(self, cursor):
         """Add JioSaavn tracking columns for enrichment (artists, albums, tracks)"""
-        try:
+        with self._migration_step(cursor, 'add_jiosaavn_columns'):
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
 
@@ -5535,12 +5493,10 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_jiosaavn_status ON tracks (jiosaavn_match_status, id)")
 
             logger.info("JioSaavn columns added/verified successfully")
-        except Exception as e:
-            logger.error(f"Error adding JioSaavn columns: {e}")
 
     def _add_spotify_itunes_enrichment_columns(self, cursor):
         """Add Spotify/iTunes enrichment tracking columns (match_status + last_attempted) to artists, albums, tracks"""
-        try:
+        with self._migration_step(cursor, 'add_spotify_itunes_enrichment_columns'):
             # --- Artists ---
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
@@ -5589,13 +5545,9 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_spotify_match_status ON tracks (spotify_match_status, id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_itunes_match_status ON tracks (itunes_match_status, id)")
 
-        except Exception as e:
-            logger.error(f"Error adding Spotify/iTunes enrichment columns: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_lastfm_genius_columns(self, cursor):
         """Add Last.fm and Genius enrichment tracking + metadata columns to artists, albums, tracks"""
-        try:
+        with self._migration_step(cursor, 'add_lastfm_genius_columns'):
             # --- Artists ---
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
@@ -5717,13 +5669,9 @@ class MusicDatabase:
                 cursor.execute("CREATE TABLE _genius_search_fix_applied (applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
                 logger.info(f"Genius search fix applied: reset {artist_count} artists and {track_count} tracks")
 
-        except Exception as e:
-            logger.error(f"Error adding Last.fm/Genius enrichment columns: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_tidal_qobuz_enrichment_columns(self, cursor):
         """Add Tidal and Qobuz enrichment tracking columns to artists, albums, tracks"""
-        try:
+        with self._migration_step(cursor, 'add_tidal_qobuz_enrichment_columns'):
             # --- Artists ---
             cursor.execute("PRAGMA table_info(artists)")
             artists_columns = [column[1] for column in cursor.fetchall()]
@@ -5818,13 +5766,9 @@ class MusicDatabase:
                 cursor.execute("CREATE TABLE _tidal_search_fix_applied (applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
                 logger.info(f"Tidal search fix applied: requeued {requeued} not_found rows for enrichment")
 
-        except Exception as e:
-            logger.error(f"Error adding Tidal/Qobuz enrichment columns: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_retag_tables(self, cursor):
         """Add retag tool tables for tracking processed downloads"""
-        try:
+        with self._migration_step(cursor, 'add_retag_tables'):
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS retag_groups (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -5860,12 +5804,9 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_retag_tracks_group ON retag_tracks (group_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_retag_tracks_path ON retag_tracks (file_path)")
 
-        except Exception as e:
-            logger.error(f"Error adding retag tables: {e}")
-
     def _add_profile_support(self, cursor):
         """Add multi-profile support: profiles table + profile_id on per-profile tables"""
-        try:
+        with self._migration_step(cursor, 'add_profile_support'):
             # Check if migration already applied
             cursor.execute("SELECT value FROM metadata WHERE key = 'profiles_migration_v1' LIMIT 1")
             already_migrated = cursor.fetchone() is not None
@@ -5878,14 +5819,12 @@ class MusicDatabase:
                 'bubble_snapshots', 'recent_releases'
             ]
             for table in tables_needing_profile_id:
-                try:
+                with self._migration_step(cursor, f"repair {table}.profile_id"):
                     cursor.execute(f"PRAGMA table_info({table})")
                     columns = [col[1] for col in cursor.fetchall()]
                     if 'profile_id' not in columns:
                         cursor.execute(f"ALTER TABLE {table} ADD COLUMN profile_id INTEGER DEFAULT 1")
                         logger.info(f"Repaired missing profile_id column on {table}")
-                except Exception as e:
-                    logger.debug("Failed to repair profile_id column on %s: %s", table, e)
 
             if already_migrated:
                 return  # Rest of migration already done
@@ -5916,7 +5855,7 @@ class MusicDatabase:
             # 4. Rebuild watchlist_artists to change UNIQUE constraint
             #    Old: UNIQUE(spotify_artist_id)
             #    New: UNIQUE(profile_id, spotify_artist_id)
-            try:
+            with self._migration_step(cursor, "rebuild watchlist_artists"):
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist_artists'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'UNIQUE(profile_id' not in create_sql[0]:
@@ -5962,11 +5901,9 @@ class MusicDatabase:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_spotify_id ON watchlist_artists (spotify_artist_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_profile ON watchlist_artists (profile_id)")
                     logger.info("Rebuilt watchlist_artists with profile-scoped UNIQUE constraints")
-            except Exception as e:
-                logger.error(f"Error rebuilding watchlist_artists for profiles: {e}")
 
             # 5. Rebuild wishlist_tracks for profile-scoped uniqueness
-            try:
+            with self._migration_step(cursor, "rebuild wishlist_tracks"):
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='wishlist_tracks'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'UNIQUE(profile_id' not in create_sql[0]:
@@ -5993,11 +5930,9 @@ class MusicDatabase:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_wishlist_spotify_id ON wishlist_tracks (spotify_track_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_wishlist_profile ON wishlist_tracks (profile_id)")
                     logger.info("Rebuilt wishlist_tracks with profile-scoped UNIQUE constraints")
-            except Exception as e:
-                logger.error(f"Error rebuilding wishlist_tracks for profiles: {e}")
 
             # 6. Rebuild bubble_snapshots for profile-scoped PRIMARY KEY
-            try:
+            with self._migration_step(cursor, "rebuild bubble_snapshots"):
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='bubble_snapshots'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'profile_id' in [c[1] for c in (cursor.execute("PRAGMA table_info(bubble_snapshots)").fetchall())]:
@@ -6018,11 +5953,9 @@ class MusicDatabase:
                     cursor.execute("DROP TABLE bubble_snapshots")
                     cursor.execute("ALTER TABLE bubble_snapshots_new RENAME TO bubble_snapshots")
                     logger.info("Rebuilt bubble_snapshots with profile-scoped UNIQUE constraints")
-            except Exception as e:
-                logger.error(f"Error rebuilding bubble_snapshots for profiles: {e}")
 
             # 7. Rebuild discovery_curated_playlists for profile-scoped uniqueness
-            try:
+            with self._migration_step(cursor, "rebuild discovery_curated_playlists"):
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='discovery_curated_playlists'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'UNIQUE(profile_id' not in create_sql[0]:
@@ -6043,8 +5976,6 @@ class MusicDatabase:
                     cursor.execute("DROP TABLE discovery_curated_playlists")
                     cursor.execute("ALTER TABLE discovery_curated_playlists_new RENAME TO discovery_curated_playlists")
                     logger.info("Rebuilt discovery_curated_playlists with profile-scoped UNIQUE constraints")
-            except Exception as e:
-                logger.error(f"Error rebuilding discovery_curated_playlists for profiles: {e}")
 
             # 8. Add indexes for profile_id on remaining tables
             index_pairs = [
@@ -6054,12 +5985,13 @@ class MusicDatabase:
                 ('idx_recent_releases_profile', 'recent_releases'),
             ]
             for idx_name, table in index_pairs:
-                try:
+                with self._migration_step(cursor, f"index {table}.profile_id"):
                     cursor.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} (profile_id)")
-                except Exception as e:
-                    logger.debug("Failed to create index %s on %s: %s", idx_name, table, e)
 
-            # Set migration marker
+            # Set migration marker, unless a part above failed: then it all
+            # runs again next start (each part checks for itself)
+            if not self._migration_step_ok():
+                return
             cursor.execute("""
                 INSERT OR REPLACE INTO metadata (key, value, updated_at)
                 VALUES ('profiles_migration_v1', 'true', CURRENT_TIMESTAMP)
@@ -6067,13 +5999,9 @@ class MusicDatabase:
 
             logger.info("Multi-profile support migration completed successfully")
 
-        except Exception as e:
-            logger.error(f"Error adding profile support: {e}")
-            # Don't raise - this is a migration, database can still function
-
     def _add_profile_support_v2(self, cursor):
         """Fix missing profile-scoped UNIQUE constraints on 3 tables (v2 migration)"""
-        try:
+        with self._migration_step(cursor, 'add_profile_support_v2'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'profiles_migration_v2' LIMIT 1")
             if cursor.fetchone():
                 return  # Already migrated
@@ -6081,7 +6009,7 @@ class MusicDatabase:
             logger.info("Applying profile support v2 migration...")
 
             # Rebuild discovery_pool: UNIQUE(profile_id, spotify_track_id, itunes_track_id, source)
-            try:
+            with self._migration_step(cursor, "rebuild discovery_pool"):
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='discovery_pool'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'UNIQUE(profile_id' not in create_sql[0]:
@@ -6120,11 +6048,9 @@ class MusicDatabase:
                     cursor.execute("ALTER TABLE discovery_pool_new RENAME TO discovery_pool")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_pool_profile ON discovery_pool (profile_id)")
                     logger.info("Rebuilt discovery_pool with profile-scoped UNIQUE constraint")
-            except Exception as e:
-                logger.error(f"Error rebuilding discovery_pool for profiles v2: {e}")
 
             # Rebuild discovery_recent_albums: UNIQUE(profile_id, album_spotify_id, album_itunes_id, source)
-            try:
+            with self._migration_step(cursor, "rebuild discovery_recent_albums"):
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='discovery_recent_albums'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'UNIQUE(profile_id' not in create_sql[0]:
@@ -6155,11 +6081,9 @@ class MusicDatabase:
                     cursor.execute("ALTER TABLE discovery_recent_albums_new RENAME TO discovery_recent_albums")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_recent_albums_profile ON discovery_recent_albums (profile_id)")
                     logger.info("Rebuilt discovery_recent_albums with profile-scoped UNIQUE constraint")
-            except Exception as e:
-                logger.error(f"Error rebuilding discovery_recent_albums for profiles v2: {e}")
 
             # Rebuild recent_releases: UNIQUE(profile_id, watchlist_artist_id, album_spotify_id, album_itunes_id)
-            try:
+            with self._migration_step(cursor, "rebuild recent_releases"):
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='recent_releases'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'UNIQUE(profile_id' not in create_sql[0]:
@@ -6187,10 +6111,10 @@ class MusicDatabase:
                     cursor.execute("ALTER TABLE recent_releases_new RENAME TO recent_releases")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_recent_releases_profile ON recent_releases (profile_id)")
                     logger.info("Rebuilt recent_releases with profile-scoped UNIQUE constraint")
-            except Exception as e:
-                logger.error(f"Error rebuilding recent_releases for profiles v2: {e}")
 
-            # Set migration marker
+            # Set migration marker, unless a rebuild above failed
+            if not self._migration_step_ok():
+                return
             cursor.execute("""
                 INSERT OR REPLACE INTO metadata (key, value, updated_at)
                 VALUES ('profiles_migration_v2', 'true', CURRENT_TIMESTAMP)
@@ -6198,12 +6122,9 @@ class MusicDatabase:
 
             logger.info("Profile support v2 migration completed successfully")
 
-        except Exception as e:
-            logger.error(f"Error in profile support v2 migration: {e}")
-
     def _add_profile_support_v3(self, cursor):
         """Fix similar_artists UNIQUE constraint and make discovery_pool_metadata per-profile (v3 migration)"""
-        try:
+        with self._migration_step(cursor, 'add_profile_support_v3'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'profiles_migration_v3' LIMIT 1")
             already_migrated = cursor.fetchone() is not None
 
@@ -6222,7 +6143,7 @@ class MusicDatabase:
                 logger.info("Applying profile support v3 migration...")
 
             # Rebuild similar_artists: UNIQUE(profile_id, source_artist_id, similar_artist_name)
-            try:
+            with self._migration_step(cursor, "rebuild similar_artists"):
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='similar_artists'")
                 create_sql = cursor.fetchone()
                 if create_sql and ('UNIQUE(profile_id' not in create_sql[0] or needs_repair):
@@ -6255,11 +6176,9 @@ class MusicDatabase:
                     cursor.execute("ALTER TABLE similar_artists_new RENAME TO similar_artists")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_similar_artists_profile ON similar_artists (profile_id)")
                     logger.info("Rebuilt similar_artists with profile-scoped UNIQUE constraint")
-            except Exception as e:
-                logger.error(f"Error rebuilding similar_artists for profiles v3: {e}")
 
             # Make discovery_pool_metadata per-profile: change CHECK(id=1) to use profile_id as key
-            try:
+            with self._migration_step(cursor, "rebuild discovery_pool_metadata"):
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='discovery_pool_metadata'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'profile_id' not in create_sql[0]:
@@ -6283,10 +6202,10 @@ class MusicDatabase:
                     cursor.execute("DROP TABLE discovery_pool_metadata")
                     cursor.execute("ALTER TABLE discovery_pool_metadata_new RENAME TO discovery_pool_metadata")
                     logger.info("Rebuilt discovery_pool_metadata with per-profile support")
-            except Exception as e:
-                logger.error(f"Error rebuilding discovery_pool_metadata for profiles v3: {e}")
 
-            # Set migration marker
+            # Set migration marker, unless a rebuild above failed
+            if not self._migration_step_ok():
+                return
             cursor.execute("""
                 INSERT OR REPLACE INTO metadata (key, value, updated_at)
                 VALUES ('profiles_migration_v3', 'true', CURRENT_TIMESTAMP)
@@ -6294,12 +6213,9 @@ class MusicDatabase:
 
             logger.info("Profile support v3 migration completed successfully")
 
-        except Exception as e:
-            logger.error(f"Error in profile support v3 migration: {e}")
-
     def _add_profile_support_v4(self, cursor):
         """Add avatar_url column to profiles table (v4 migration)"""
-        try:
+        with self._migration_step(cursor, 'add_profile_support_v4'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'profiles_migration_v4' LIMIT 1")
             if cursor.fetchone():
                 return  # Already migrated
@@ -6307,19 +6223,16 @@ class MusicDatabase:
             logger.info("Applying profile support v4 migration...")
 
             # Add avatar_url column
-            try:
+            with self._migration_step(cursor, "add profiles.avatar_url"):
                 cursor.execute("ALTER TABLE profiles ADD COLUMN avatar_url TEXT DEFAULT NULL")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
 
+            if not self._migration_step_ok():
+                return  # a part failed: no marker, so it all runs again next start
             cursor.execute("""
                 INSERT OR REPLACE INTO metadata (key, value) VALUES ('profiles_migration_v4', '1')
             """)
 
             logger.info("Profile support v4 migration completed successfully")
-
-        except Exception as e:
-            logger.error(f"Error in profile support v4 migration: {e}")
 
     # columns this migration owns, with their defaults
     _PROFILE_CONTROL_COLUMNS = (
@@ -6335,7 +6248,7 @@ class MusicDatabase:
         """request quotas, kids content limits and the session epoch
         (sept 25 2026), plus the admin audit log and invite links. idempotent
         on columns, so a half-applied run finishes next boot."""
-        try:
+        with self._migration_step(cursor, 'add_profile_controls'):
             cursor.execute("PRAGMA table_info(profiles)")
             cols = {c[1] for c in cursor.fetchall()}
             if not cols:
@@ -6386,8 +6299,6 @@ class MusicDatabase:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-        except Exception as e:
-            logger.error(f"Error in profile controls migration: {e}")
 
     @staticmethod
     def _profile_controls(row, columns) -> Dict[str, Any]:
@@ -6409,20 +6320,18 @@ class MusicDatabase:
         shipped default — most installs predate the video side) and 'both'
         for admins (they manage everything; never lockable). Only an explicit
         admin grant stores 'video'/'both' on a non-admin row."""
-        try:
+        with self._migration_step(cursor, 'add_profile_sides'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'profiles_migration_sides' LIMIT 1")
             if cursor.fetchone():
                 return  # Already migrated
-            try:
+            with self._migration_step(cursor, "add profiles.allowed_sides"):
                 cursor.execute("ALTER TABLE profiles ADD COLUMN allowed_sides TEXT DEFAULT NULL")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
+            if not self._migration_step_ok():
+                return  # a part failed: no marker, so it all runs again next start
             cursor.execute("""
                 INSERT OR REPLACE INTO metadata (key, value) VALUES ('profiles_migration_sides', '1')
             """)
             logger.info("Profile sides migration completed successfully")
-        except Exception as e:
-            logger.error(f"Error in profile sides migration: {e}")
 
     @staticmethod
     def _profile_sides(row, columns, is_admin: bool) -> str:
@@ -6436,7 +6345,7 @@ class MusicDatabase:
 
     def _add_profile_settings(self, cursor):
         """Add home_page, allowed_pages, can_download columns to profiles table"""
-        try:
+        with self._migration_step(cursor, 'add_profile_settings'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'profiles_migration_settings' LIMIT 1")
             if cursor.fetchone():
                 return  # Already migrated
@@ -6448,23 +6357,20 @@ class MusicDatabase:
                 "ALTER TABLE profiles ADD COLUMN allowed_pages TEXT DEFAULT NULL",
                 "ALTER TABLE profiles ADD COLUMN can_download INTEGER DEFAULT 1",
             ]:
-                try:
+                with self._migration_step(cursor, col_sql):
                     cursor.execute(col_sql)
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
 
+            if not self._migration_step_ok():
+                return  # a part failed: no marker, so it all runs again next start
             cursor.execute("""
                 INSERT OR REPLACE INTO metadata (key, value) VALUES ('profiles_migration_settings', '1')
             """)
 
             logger.info("Profile settings migration completed successfully")
 
-        except Exception as e:
-            logger.error(f"Error in profile settings migration: {e}")
-
     def _add_profile_listenbrainz_support(self, cursor):
         """Add per-profile ListenBrainz credentials and scope playlist cache by profile"""
-        try:
+        with self._migration_step(cursor, 'add_profile_listenbrainz_support'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'profiles_listenbrainz_v1' LIMIT 1")
             if cursor.fetchone():
                 return  # Already migrated
@@ -6477,10 +6383,8 @@ class MusicDatabase:
                 "ALTER TABLE profiles ADD COLUMN listenbrainz_base_url TEXT DEFAULT NULL",
                 "ALTER TABLE profiles ADD COLUMN listenbrainz_username TEXT DEFAULT NULL",
             ]:
-                try:
+                with self._migration_step(cursor, col_sql):
                     cursor.execute(col_sql)
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
 
             # Recreate listenbrainz_playlists with profile_id and compound unique constraint
             # (SQLite can't ALTER constraints, so we must recreate the table)
@@ -6520,14 +6424,13 @@ class MusicDatabase:
 
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_lb_playlists_profile ON listenbrainz_playlists (profile_id)")
 
+            if not self._migration_step_ok():
+                return  # a part failed: no marker, so it all runs again next start
             cursor.execute("""
                 INSERT OR REPLACE INTO metadata (key, value) VALUES ('profiles_listenbrainz_v1', '1')
             """)
 
             logger.info("Per-profile ListenBrainz migration completed successfully")
-
-        except Exception as e:
-            logger.error(f"Error in per-profile ListenBrainz migration: {e}")
 
     def set_profile_listenbrainz(self, profile_id: int, token: str, base_url: str = '', username: str = '') -> bool:
         """Save encrypted ListenBrainz credentials for a profile"""
@@ -6649,7 +6552,7 @@ class MusicDatabase:
 
     def _add_profile_service_credentials(self, cursor):
         """Add per-profile Spotify, Tidal, and media server library columns to profiles table."""
-        try:
+        with self._migration_step(cursor, 'add_profile_service_credentials'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'profiles_services_v1' LIMIT 1")
             if cursor.fetchone():
                 return  # Already migrated
@@ -6674,19 +6577,16 @@ class MusicDatabase:
             ]
 
             for sql in columns:
-                try:
+                with self._migration_step(cursor, sql):
                     cursor.execute(sql)
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
 
+            if not self._migration_step_ok():
+                return  # a part failed: no marker, so it all runs again next start
             cursor.execute("""
                 INSERT OR REPLACE INTO metadata (key, value) VALUES ('profiles_services_v1', '1')
             """)
 
             logger.info("Per-profile service credentials migration completed")
-
-        except Exception as e:
-            logger.error(f"Error in per-profile service credentials migration: {e}")
 
     def _add_profile_navidrome_login(self, cursor):
         """a navidrome login per profile. subsonic writes playlists as whoever
@@ -6697,18 +6597,14 @@ class MusicDatabase:
             "ALTER TABLE profiles ADD COLUMN navidrome_username TEXT DEFAULT NULL",
             "ALTER TABLE profiles ADD COLUMN navidrome_password TEXT DEFAULT NULL",
         ):
-            try:
+            with self._migration_step(cursor, sql):
                 cursor.execute(sql)
-            except sqlite3.OperationalError:
-                pass  # Column already exists
 
     def _add_profile_lastfm_username(self, cursor):
         """a last.fm username per profile (#1293). reading someone's scrobbles
         only takes the app's api key and their name, so there's no token."""
-        try:
+        with self._migration_step(cursor, 'add_profile_lastfm_username'):
             cursor.execute("ALTER TABLE profiles ADD COLUMN lastfm_username TEXT DEFAULT NULL")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
 
     def set_profile_lastfm(self, profile_id: int, username: Optional[str]) -> bool:
         """save (or with an empty name clear) a profile's own last.fm username."""
@@ -6793,10 +6689,8 @@ class MusicDatabase:
             # it can't prove who someone is
             "ALTER TABLE profiles ADD COLUMN plex_account_id TEXT DEFAULT NULL",
         ):
-            try:
+            with self._migration_step(cursor, sql):
                 cursor.execute(sql)
-            except sqlite3.OperationalError:
-                pass  # Column already exists
 
     def set_profile_plex_home_user(self, profile_id: int, user_id: Optional[str], title: Optional[str],
                                    token: Optional[str]) -> bool:
@@ -6939,10 +6833,8 @@ class MusicDatabase:
             "CREATE INDEX IF NOT EXISTS idx_albums_source_owner ON albums (server_source, owner_profile_id, id)",
             "CREATE INDEX IF NOT EXISTS idx_artists_source_owner ON artists (server_source, owner_profile_id, id)",
         ):
-            try:
+            with self._migration_step(cursor, sql):
                 cursor.execute(sql)
-            except sqlite3.OperationalError:
-                pass  # Column / index already exists
 
     def _repair_own_jellyfin_artist_ids(self, cursor):
         """Split legacy cross-library artist parents without losing enrichment or children."""
@@ -7074,7 +6966,7 @@ class MusicDatabase:
         Dormant until the resolver + UI are wired in a later phase, so this
         migration changes no runtime behaviour for existing installs.
         """
-        try:
+        with self._migration_step(cursor, 'add_service_credential_sets'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'service_credentials_v1' LIMIT 1")
             if cursor.fetchone():
                 return  # Already migrated
@@ -7118,8 +7010,6 @@ class MusicDatabase:
                 "INSERT OR REPLACE INTO metadata (key, value) VALUES ('service_credentials_v1', '1')"
             )
             logger.info("Service-credential-sets migration completed")
-        except Exception as e:
-            logger.error(f"Error in service-credential-sets migration: {e}")
 
     # ── Service credential sets (named, switchable per profile) ──────────────
 
@@ -7290,7 +7180,7 @@ class MusicDatabase:
 
     def _add_soul_id_columns(self, cursor):
         """Add soul_id columns to artists, albums, and tracks tables."""
-        try:
+        with self._migration_step(cursor, 'add_soul_id_columns'):
             # Artists: soul_id
             cursor.execute("PRAGMA table_info(artists)")
             artist_cols = [c[1] for c in cursor.fetchall()]
@@ -7355,12 +7245,9 @@ class MusicDatabase:
                 if cleared > 0:
                     logger.info(f"SoulID v2 migration: cleared {cleared} artist soul_ids for regeneration")
 
-        except Exception as e:
-            logger.error(f"Error adding soul_id columns: {e}")
-
     def _add_listening_history_table(self, cursor):
         """Create listening_history table and add play_count/last_played to tracks."""
-        try:
+        with self._migration_step(cursor, 'add_listening_history_table'):
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS listening_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -7424,9 +7311,6 @@ class MusicDatabase:
                     WHERE server_source IN ('plex', 'jellyfin', 'navidrome',
                                             'lastfm', 'listenbrainz')
                 """)
-
-        except Exception as e:
-            logger.error(f"Error creating listening_history table: {e}")
 
     def _add_listening_history_owner(self, cursor):
         """#1293: whose pile each play is in. every existing row is the shared
@@ -8783,7 +8667,7 @@ class MusicDatabase:
 
     def _add_spotify_library_cache_table(self, cursor):
         """Create spotify_library_cache table for caching user's saved Spotify albums"""
-        try:
+        with self._migration_step(cursor, 'add_spotify_library_cache_table'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'spotify_library_cache_v1' LIMIT 1")
             if cursor.fetchone():
                 return  # Already migrated
@@ -8815,12 +8699,9 @@ class MusicDatabase:
 
             logger.info("spotify_library_cache table created successfully")
 
-        except Exception as e:
-            logger.error(f"Error creating spotify_library_cache table: {e}")
-
     def _add_metadata_cache_tables(self, cursor):
         """Create metadata_cache_entities and metadata_cache_searches tables for universal API response caching"""
-        try:
+        with self._migration_step(cursor, 'add_metadata_cache_tables'):
             # Skip only when the marker is set AND the tables actually exist.
             # A marker-only guard is fragile: if the `metadata` table survives a
             # corruption-recovery but the (large) cache tables don't, the stale
@@ -8907,12 +8788,9 @@ class MusicDatabase:
 
             logger.info("Metadata cache tables created successfully")
 
-        except Exception as e:
-            logger.error(f"Error creating metadata cache tables: {e}")
-
     def _add_repair_worker_tables(self, cursor):
         """Create repair_findings and repair_job_runs tables for the multi-job repair worker."""
-        try:
+        with self._migration_step(cursor, 'add_repair_worker_tables'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'repair_worker_v2' LIMIT 1")
             if cursor.fetchone():
                 # Tables exist — but LATER columns/indexes still have to reach
@@ -8974,9 +8852,6 @@ class MusicDatabase:
 
             logger.info("Repair worker v2 tables created successfully")
 
-        except Exception as e:
-            logger.error(f"Error creating repair worker v2 tables: {e}")
-
     def _migrate_repair_worker_columns(self, cursor):
         """Columns + indexes added to the repair tables after v2 shipped.
 
@@ -8985,7 +8860,7 @@ class MusicDatabase:
         marker is set once, so anything gated by it never reaches an existing
         install.
         """
-        try:
+        with self._migration_step(cursor, 'migrate_repair_worker_columns'):
             cursor.execute("PRAGMA table_info(repair_findings)")
             finding_cols = {c[1] for c in cursor.fetchall()}
             if 'last_error' not in finding_cols:
@@ -9015,8 +8890,6 @@ class MusicDatabase:
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_rf_type_status "
                 "ON repair_findings (finding_type, status)")
-        except Exception as e:
-            logger.error(f"Error migrating repair worker columns: {e}")
 
     def _init_manual_library_match_table(self):
         """Create manual_library_track_matches table and indexes."""
@@ -9743,20 +9616,18 @@ class MusicDatabase:
 
     def _add_profile_password_support(self, cursor):
         """Add a per-profile login password column (separate from pin_hash)."""
-        try:
+        with self._migration_step(cursor, 'add_profile_password_support'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'profiles_password_v1' LIMIT 1")
             if cursor.fetchone():
                 return  # Already migrated
             logger.info("Applying per-profile login-password migration...")
-            try:
+            with self._migration_step(cursor, "add profiles.password_hash"):
                 cursor.execute("ALTER TABLE profiles ADD COLUMN password_hash TEXT DEFAULT NULL")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
+            if not self._migration_step_ok():
+                return  # a part failed: no marker, so it all runs again next start
             cursor.execute(
                 "INSERT OR REPLACE INTO metadata (key, value) VALUES ('profiles_password_v1', '1')")
             logger.info("Per-profile login-password migration completed")
-        except Exception as e:
-            logger.error(f"Error in login-password migration: {e}")
 
     # ── Login-password recovery (security question + answer) ──────────────────
 
@@ -9826,7 +9697,7 @@ class MusicDatabase:
 
     def _add_profile_recovery_support(self, cursor):
         """Add recovery question + answer-hash columns (login-password recovery)."""
-        try:
+        with self._migration_step(cursor, 'add_profile_recovery_support'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'profiles_recovery_v1' LIMIT 1")
             if cursor.fetchone():
                 return  # Already migrated
@@ -9835,15 +9706,13 @@ class MusicDatabase:
                 "ALTER TABLE profiles ADD COLUMN recovery_question TEXT DEFAULT NULL",
                 "ALTER TABLE profiles ADD COLUMN recovery_answer_hash TEXT DEFAULT NULL",
             ):
-                try:
+                with self._migration_step(cursor, col_sql):
                     cursor.execute(col_sql)
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
+            if not self._migration_step_ok():
+                return  # a part failed: no marker, so it all runs again next start
             cursor.execute(
                 "INSERT OR REPLACE INTO metadata (key, value) VALUES ('profiles_recovery_v1', '1')")
             logger.info("Per-profile recovery-question migration completed")
-        except Exception as e:
-            logger.error(f"Error in recovery-question migration: {e}")
 
     def close(self):
         """Close database connection (no-op since we create connections per operation)"""
@@ -21348,7 +21217,7 @@ class MusicDatabase:
         unblocked came back on the next restart; the discover page's blocked
         artists modal now writes the blocklist, so nothing new lands in the
         old table after this."""
-        try:
+        with self._migration_step(cursor, 'migrate_discovery_blacklist_into_blocklist'):
             cursor.execute("SELECT 1 FROM metadata WHERE key = "
                            "'discovery_blacklist_migrated_v1' LIMIT 1")
             if cursor.fetchone():
@@ -21386,8 +21255,6 @@ class MusicDatabase:
             if migrated:
                 logger.info("Migrated %d discovery-blacklist artist entr(ies) into the "
                             "unified blocklist across %d profile(s)", migrated, len(profile_ids))
-        except Exception as e:
-            logger.debug("discovery→blocklist migration skipped: %s", e)
 
     @staticmethod
     def _mark_discovery_blacklist_migrated(cursor):
