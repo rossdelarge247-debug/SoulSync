@@ -328,8 +328,8 @@ def get_debug_info():
     elif not download_orchestrator:
         info['download_client_failures'] = ['ALL (orchestrator failed to initialize)']
 
-    # Database schema steps that failed at startup. Each was rolled back and
-    # runs again on the next start; ok=None means the check itself failed.
+    # Database schema steps that failed at startup. Each runs again on the
+    # next start; ok=None means the check itself failed.
     try:
         info['schema'] = get_database().schema_health()
     except Exception:

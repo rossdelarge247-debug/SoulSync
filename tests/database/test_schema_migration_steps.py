@@ -5,9 +5,14 @@ carry on, write their "done" marker anyway, and the single commit at the end
 of init saved whatever half-migrated state that left. Now a failing step:
 
 - rolls back what it did (each step, and each part of a step, is a SAVEPOINT),
+  unless it only adds columns/tables/indexes: then what it added before the
+  error stays, as before, and the rest runs next start,
 - leaves its done marker unwritten, so the next start runs it again,
 - says so: an ERROR log naming the step, MusicDatabase.schema_health(), and a
   metadata row.
+
+A done marker is written as its own part, so a failed marker write costs only
+the marker, never the work it records.
 
 "Already applied" errors (duplicate column, table/index already exists) are the
 normal outcome of a re-run and stay quiet.
@@ -201,6 +206,72 @@ def test_a_step_that_stops_part_way_is_rolled_back_whole(tmp_path: Path, db_log,
     assert "UNIQUE(playlist_mbid, profile_id)" in _table_sql(db_path, "listenbrainz_playlists")
 
 
+def test_a_failed_marker_write_keeps_the_steps_work_and_retries(tmp_path: Path, db_log) -> None:
+    """_add_profile_support creates profiles, then writes profiles_migration_v1.
+    The marker write failing used to roll the profiles table back with it, and
+    every later step that needs profiles failed too. Now only the marker is
+    missing: the table stays, the failure is reported, and the next start
+    writes the marker."""
+    db_path = tmp_path / "library.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT, "
+                 "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+    conn.execute("""
+        CREATE TRIGGER block_profiles_marker BEFORE INSERT ON metadata
+        WHEN NEW.key = 'profiles_migration_v1'
+        BEGIN SELECT RAISE(ABORT, 'marker write failed (injected)'); END
+    """)
+    conn.commit()
+    conn.close()
+
+    db = MusicDatabase(str(db_path))
+
+    failed = db.schema_health()["failed_steps"]
+    assert [f["step"] for f in failed] == ["add_profile_support / mark profiles_migration_v1 done"]
+    assert "marker write failed (injected)" in failed[0]["error"]
+    assert _metadata(db_path, "profiles_migration_v1") is None
+    assert _query(db_path, "SELECT id, name FROM profiles") == [(1, "Admin")]
+    assert "avatar_url" in _columns(db_path, "profiles")   # later profile steps ran on it
+
+    _query(db_path, "DROP TRIGGER block_profiles_marker")
+    db._initialize_database()
+
+    assert db.schema_health()["ok"] is True
+    assert _metadata(db_path, "profiles_migration_v1") == "true"
+    assert _query(db_path, "SELECT id, name FROM profiles") == [(1, "Admin")]
+
+
+def test_old_metadata_table_without_updated_at_is_repaired_first(tmp_path: Path, db_log) -> None:
+    """A legacy database with metadata (key, value): every marker write names
+    updated_at. The table gets the column before any step runs, so markers
+    land and profiles exists. Its library tables lack updated_at as well, so
+    the server_source step's (server_source, updated_at) indexes fail, but the
+    columns it added before them stay (it only adds, so it isn't rolled back):
+    later steps read tracks.server_source."""
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
+    conn.execute("INSERT INTO metadata (key, value) VALUES ('id_columns_migrated', 'true')")
+    conn.execute("CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
+    conn.execute("CREATE TABLE albums (id TEXT PRIMARY KEY, artist_id TEXT NOT NULL, title TEXT NOT NULL)")
+    conn.execute("CREATE TABLE tracks (id TEXT PRIMARY KEY, album_id TEXT NOT NULL, "
+                 "artist_id TEXT NOT NULL, title TEXT NOT NULL, file_path TEXT)")
+    conn.commit()
+    conn.close()
+
+    db = MusicDatabase(str(db_path))
+
+    assert "updated_at" in _columns(db_path, "metadata")
+    assert _metadata(db_path, "profiles_migration_v1") == "true"
+    assert "profiles" in _tables(db_path)
+    for table in ("artists", "albums", "tracks"):
+        assert "server_source" in _columns(db_path, table)
+    failed = {f["step"]: f["error"] for f in db.schema_health()["failed_steps"]}
+    assert "no such column: updated_at" in failed["add_server_source_columns"]
+    assert not [step for step in failed if "profile" in step]
+    assert any("kept what it did before the error" in e for e in db_log.errors())
+
+
 # a pre-profile watchlist_artists: rebuilt by _add_profile_support
 _OLD_WATCHLIST = """
     CREATE TABLE watchlist_artists (
@@ -293,6 +364,29 @@ def test_migration_step_rolls_back_a_real_failure_and_flags_its_parent(tmp_path:
     assert db._migration_failures == [
         {"step": "outer / bad part", "error": "OperationalError: no such table: missing_table"}]
     assert any("outer / bad part" in e for e in db_log.errors())
+    conn.close()
+
+
+def test_a_non_atomic_step_keeps_what_it_did_before_a_failure(tmp_path: Path, db_log) -> None:
+    db = _bare_db()
+    conn = sqlite3.connect(str(tmp_path / "steps.db"))
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE t (a INTEGER)")
+    conn.commit()
+
+    with db._migration_step(cur, "outer"):
+        with db._migration_step(cur, "add columns", atomic=False):
+            cur.execute("ALTER TABLE t ADD COLUMN b TEXT")
+            cur.execute("CREATE INDEX idx_t_missing ON t (missing)")
+            cur.execute("ALTER TABLE t ADD COLUMN c TEXT")   # not reached
+        outer_ok = db._migration_step_ok()
+    conn.commit()
+
+    assert outer_ok is False
+    assert [r[1] for r in cur.execute("PRAGMA table_info(t)")] == ["a", "b"]
+    assert db._migration_failures == [
+        {"step": "outer / add columns", "error": "OperationalError: no such column: missing"}]
+    assert any("kept what it did before the error" in e for e in db_log.errors())
     conn.close()
 
 
