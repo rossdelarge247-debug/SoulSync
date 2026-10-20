@@ -1,0 +1,475 @@
+{
+  "release": "3.0.5",
+  "commit": "e2e3b3f77bbeaf2b11d4038839d13cd47e4362f0",
+  "generated": "2026-10-20",
+  "stubbed_modules": [],
+  "init_warnings": [],
+  "rows": [
+    {
+      "db": "music",
+      "table": "metadata",
+      "key": {
+        "key": "last_full_refresh"
+      },
+      "values": {
+        "key": "last_full_refresh",
+        "value": "2026-01-01T12:00:00"
+      }
+    },
+    {
+      "db": "music",
+      "table": "profiles",
+      "key": {
+        "id": 2
+      },
+      "values": {
+        "id": 2,
+        "name": "Fixture Listener",
+        "avatar_color": "#22c55e",
+        "is_admin": 0
+      }
+    },
+    {
+      "db": "music",
+      "table": "artists",
+      "key": {
+        "id": "9001"
+      },
+      "values": {
+        "id": "9001",
+        "name": "Fixture Artist",
+        "thumb_url": "/library/metadata/9001/thumb/1700000000",
+        "genres": "Rock, Indie Rock",
+        "summary": "Artist row written by the upgrade-test fixture generator.",
+        "server_source": "plex",
+        "spotify_artist_id": "0OdUWJ0sBjDrqHygGUXeCF",
+        "musicbrainz_id": "f1d1c2a0-0000-4000-8000-000000009001"
+      }
+    },
+    {
+      "db": "music",
+      "table": "albums",
+      "key": {
+        "id": "9101"
+      },
+      "values": {
+        "id": "9101",
+        "artist_id": "9001",
+        "title": "Fixture Album (Deluxe Edition)",
+        "year": 2019,
+        "thumb_url": "/library/metadata/9101/thumb/1700000000",
+        "genres": "[\"Rock\", \"Indie Rock\"]",
+        "track_count": 2,
+        "duration": 431000,
+        "server_source": "plex",
+        "spotify_album_id": "2noRn2Aes5aoNVsU6iWThc"
+      }
+    },
+    {
+      "db": "music",
+      "table": "tracks",
+      "key": {
+        "id": "9201"
+      },
+      "values": {
+        "id": "9201",
+        "album_id": "9101",
+        "artist_id": "9001",
+        "title": "Opening Song",
+        "track_number": 1,
+        "duration": 215000,
+        "bitrate": 1411,
+        "server_source": "plex",
+        "file_path": "/music/Fixture Artist/Fixture Album (Deluxe Edition) (2019)/01 - Opening Song.flac",
+        "spotify_track_id": "3n3Ppam7vgaVa1iaRUc9Lp"
+      }
+    },
+    {
+      "db": "music",
+      "table": "tracks",
+      "key": {
+        "id": "9202"
+      },
+      "values": {
+        "id": "9202",
+        "album_id": "9101",
+        "artist_id": "9001",
+        "title": "Café Été",
+        "track_number": 2,
+        "duration": 216000,
+        "bitrate": 320,
+        "server_source": "plex",
+        "file_path": "/music/Fixture Artist/Fixture Album (Deluxe Edition) (2019)/02 - Café Été.mp3"
+      }
+    },
+    {
+      "db": "music",
+      "table": "wishlist_tracks",
+      "key": {
+        "spotify_track_id": "3n3Ppam7vgaVa1iaRUc9Lp"
+      },
+      "values": {
+        "id": 301,
+        "spotify_track_id": "3n3Ppam7vgaVa1iaRUc9Lp",
+        "spotify_data": "{\"id\": \"3n3Ppam7vgaVa1iaRUc9Lp\", \"name\": \"Opening Song\", \"artists\": [{\"id\": \"0OdUWJ0sBjDrqHygGUXeCF\", \"name\": \"Fixture Artist\"}], \"album\": {\"id\": \"2noRn2Aes5aoNVsU6iWThc\", \"name\": \"Fixture Album (Deluxe Edition)\", \"release_date\": \"2019-05-17\", \"album_type\": \"album\", \"images\": [{\"url\": \"https://i.scdn.co/image/fixture-cover\", \"height\": 640, \"width\": 640}]}, \"duration_ms\": 215000, \"track_number\": 1, \"disc_number\": 1, \"popularity\": 42, \"external_urls\": {\"spotify\": \"https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp\"}}",
+        "failure_reason": "No suitable Soulseek results",
+        "retry_count": 2,
+        "last_attempted": "2026-01-02 10:00:00",
+        "date_added": "2026-01-01 09:00:00",
+        "source_type": "playlist",
+        "source_info": "{\"playlist_name\": \"Fixture Mix\", \"playlist_id\": \"37i9dQZF1DXcBWIGoYBM5M\"}",
+        "profile_id": 1
+      }
+    },
+    {
+      "db": "music",
+      "table": "wishlist_tracks",
+      "key": {
+        "spotify_track_id": "6rqhFgbbKwnb9MLmUQDhG6"
+      },
+      "values": {
+        "id": 302,
+        "spotify_track_id": "6rqhFgbbKwnb9MLmUQDhG6",
+        "spotify_data": "{\"id\": \"6rqhFgbbKwnb9MLmUQDhG6\", \"name\": \"Caf\\u00e9 \\u00c9t\\u00e9\", \"artists\": [{\"id\": \"0OdUWJ0sBjDrqHygGUXeCF\", \"name\": \"Fixture Artist\"}], \"album\": {\"id\": \"2noRn2Aes5aoNVsU6iWThc\", \"name\": \"Fixture Album (Deluxe Edition)\", \"release_date\": \"2019-05-17\", \"album_type\": \"album\", \"images\": [{\"url\": \"https://i.scdn.co/image/fixture-cover\", \"height\": 640, \"width\": 640}]}, \"duration_ms\": 216000, \"track_number\": 2, \"disc_number\": 1, \"popularity\": 42, \"external_urls\": {\"spotify\": \"https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6\"}}",
+        "failure_reason": "Download failed",
+        "retry_count": 0,
+        "date_added": "2026-01-01 09:05:00",
+        "source_type": "manual",
+        "source_info": "{}",
+        "profile_id": 2
+      }
+    },
+    {
+      "db": "music",
+      "table": "watchlist_artists",
+      "key": {
+        "artist_name": "Fixture Artist"
+      },
+      "values": {
+        "id": 401,
+        "spotify_artist_id": "0OdUWJ0sBjDrqHygGUXeCF",
+        "artist_name": "Fixture Artist",
+        "date_added": "2026-01-01 09:00:00",
+        "last_scan_timestamp": "2026-01-03 08:00:00",
+        "image_url": "https://i.scdn.co/image/fixture-artist",
+        "include_albums": 1,
+        "include_eps": 1,
+        "include_singles": 0,
+        "profile_id": 1
+      }
+    },
+    {
+      "db": "music",
+      "table": "similar_artists",
+      "key": {
+        "source_artist_id": "0OdUWJ0sBjDrqHygGUXeCF",
+        "similar_artist_name": "Similar Fixture Band"
+      },
+      "values": {
+        "id": 451,
+        "source_artist_id": "0OdUWJ0sBjDrqHygGUXeCF",
+        "similar_artist_spotify_id": "4Z8W4fKeB5YxbusRsdQVPb",
+        "similar_artist_name": "Similar Fixture Band",
+        "similarity_rank": 1,
+        "occurrence_count": 3,
+        "profile_id": 1
+      }
+    },
+    {
+      "db": "music",
+      "table": "recent_releases",
+      "key": {
+        "album_name": "Fixture Comeback"
+      },
+      "values": {
+        "id": 471,
+        "watchlist_artist_id": 401,
+        "album_spotify_id": "1fixtureNewAlbum00000",
+        "album_name": "Fixture Comeback",
+        "release_date": "2026-01-10",
+        "album_cover_url": "https://i.scdn.co/image/fixture-comeback",
+        "track_count": 10,
+        "profile_id": 1
+      }
+    },
+    {
+      "db": "music",
+      "table": "discovery_pool",
+      "key": {
+        "track_name": "Discovered Tune",
+        "artist_name": "Similar Fixture Band"
+      },
+      "values": {
+        "id": 461,
+        "spotify_track_id": "7fixtureDiscovery0000",
+        "spotify_album_id": "5fixtureDiscAlbum0000",
+        "spotify_artist_id": "4Z8W4fKeB5YxbusRsdQVPb",
+        "source": "spotify",
+        "track_name": "Discovered Tune",
+        "artist_name": "Similar Fixture Band",
+        "album_name": "Found Sounds",
+        "album_cover_url": "https://i.scdn.co/image/fixture-found",
+        "duration_ms": 198000,
+        "popularity": 37,
+        "release_date": "2025-11-01",
+        "is_new_release": 0,
+        "track_data_json": "{\"id\": \"7fixtureDiscovery0000\", \"name\": \"Discovered Tune\"}",
+        "profile_id": 1
+      }
+    },
+    {
+      "db": "music",
+      "table": "listenbrainz_playlists",
+      "key": {
+        "playlist_mbid": "c0ffee00-0000-4000-8000-000000000501"
+      },
+      "values": {
+        "id": 501,
+        "playlist_mbid": "c0ffee00-0000-4000-8000-000000000501",
+        "title": "Weekly Jams for fixture",
+        "creator": "troi-bot",
+        "playlist_type": "weekly-jams",
+        "track_count": 1,
+        "profile_id": 1
+      }
+    },
+    {
+      "db": "music",
+      "table": "listenbrainz_tracks",
+      "key": {
+        "playlist_id": 501,
+        "position": 0
+      },
+      "values": {
+        "id": 511,
+        "playlist_id": 501,
+        "position": 0,
+        "track_name": "Opening Song",
+        "artist_name": "Fixture Artist",
+        "album_name": "Fixture Album (Deluxe Edition)",
+        "duration_ms": 215000,
+        "recording_mbid": "c0ffee00-0000-4000-8000-000000000511"
+      }
+    },
+    {
+      "db": "music",
+      "table": "mirrored_playlists",
+      "key": {
+        "source": "spotify",
+        "source_playlist_id": "37i9dQZF1DXcBWIGoYBM5M"
+      },
+      "values": {
+        "id": 601,
+        "source": "spotify",
+        "source_playlist_id": "37i9dQZF1DXcBWIGoYBM5M",
+        "name": "Fixture Mix",
+        "description": "Mirrored by the fixture generator",
+        "owner": "fixture",
+        "image_url": "https://i.scdn.co/image/fixture-mix",
+        "track_count": 2,
+        "profile_id": 1
+      }
+    },
+    {
+      "db": "music",
+      "table": "mirrored_playlist_tracks",
+      "key": {
+        "playlist_id": 601,
+        "position": 0
+      },
+      "values": {
+        "id": 611,
+        "playlist_id": 601,
+        "position": 0,
+        "track_name": "Opening Song",
+        "artist_name": "Fixture Artist",
+        "album_name": "Fixture Album (Deluxe Edition)",
+        "duration_ms": 215000,
+        "source_track_id": "3n3Ppam7vgaVa1iaRUc9Lp"
+      }
+    },
+    {
+      "db": "music",
+      "table": "mirrored_playlist_tracks",
+      "key": {
+        "playlist_id": 601,
+        "position": 1
+      },
+      "values": {
+        "id": 612,
+        "playlist_id": 601,
+        "position": 1,
+        "track_name": "Imported From A File",
+        "artist_name": "Fixture Artist",
+        "album_name": "Fixture Album (Deluxe Edition)",
+        "duration_ms": 201000
+      }
+    },
+    {
+      "db": "music",
+      "table": "sync_history",
+      "key": {
+        "batch_id": "fixture-batch-1"
+      },
+      "values": {
+        "id": 701,
+        "batch_id": "fixture-batch-1",
+        "playlist_id": "37i9dQZF1DXcBWIGoYBM5M",
+        "playlist_name": "Fixture Mix",
+        "source": "spotify",
+        "sync_type": "playlist",
+        "tracks_json": "[{\"id\": \"3n3Ppam7vgaVa1iaRUc9Lp\", \"name\": \"Opening Song\"}]",
+        "total_tracks": 2,
+        "tracks_found": 1,
+        "tracks_downloaded": 1,
+        "tracks_failed": 0,
+        "started_at": "2026-01-04 18:00:00",
+        "completed_at": "2026-01-04 18:05:00"
+      }
+    },
+    {
+      "db": "video",
+      "table": "root_folders",
+      "key": {
+        "path": "/media/movies"
+      },
+      "values": {
+        "id": 1,
+        "path": "/media/movies",
+        "content_kind": "movie"
+      }
+    },
+    {
+      "db": "video",
+      "table": "movies",
+      "key": {
+        "id": 1
+      },
+      "values": {
+        "id": 1,
+        "server_source": "plex",
+        "server_id": "5001",
+        "tmdb_id": 900001,
+        "imdb_id": "tt9000001",
+        "tmdb_match_status": "matched",
+        "title": "Fixture Movie",
+        "year": 2021,
+        "status": "Released",
+        "has_file": 1,
+        "path": "/media/movies/Fixture Movie (2021)/Fixture Movie (2021).mkv",
+        "details_synced": 1
+      }
+    },
+    {
+      "db": "video",
+      "table": "shows",
+      "key": {
+        "id": 1
+      },
+      "values": {
+        "id": 1,
+        "server_source": "plex",
+        "server_id": "6001",
+        "tmdb_id": 900101,
+        "tmdb_match_status": "matched",
+        "title": "Fixture Show",
+        "year": 2020,
+        "status": "Returning Series",
+        "details_synced": 1
+      }
+    },
+    {
+      "db": "video",
+      "table": "seasons",
+      "key": {
+        "id": 1
+      },
+      "values": {
+        "id": 1,
+        "show_id": 1,
+        "server_id": "6011",
+        "season_number": 1,
+        "title": "Season 1"
+      }
+    },
+    {
+      "db": "video",
+      "table": "episodes",
+      "key": {
+        "id": 1
+      },
+      "values": {
+        "id": 1,
+        "show_id": 1,
+        "season_id": 1,
+        "server_source": "plex",
+        "server_id": "6012",
+        "season_number": 1,
+        "episode_number": 1,
+        "title": "Pilot",
+        "air_date": "2020-03-01",
+        "has_file": 1
+      }
+    },
+    {
+      "db": "video",
+      "table": "video_watchlist",
+      "key": {
+        "kind": "show",
+        "tmdb_id": 900101
+      },
+      "values": {
+        "id": 1,
+        "kind": "show",
+        "tmdb_id": 900101,
+        "title": "Fixture Show",
+        "library_id": 1,
+        "source": "tmdb",
+        "state": "follow",
+        "date_added": "2026-07-01 10:00:00"
+      }
+    },
+    {
+      "db": "video",
+      "table": "video_wishlist",
+      "key": {
+        "kind": "movie",
+        "tmdb_id": 900002
+      },
+      "values": {
+        "id": 1,
+        "kind": "movie",
+        "tmdb_id": 900002,
+        "title": "Wished Fixture Movie",
+        "year": 2024,
+        "status": "wanted",
+        "source": "tmdb",
+        "date_added": "2026-07-02 10:00:00"
+      }
+    },
+    {
+      "db": "video",
+      "table": "video_wishlist",
+      "key": {
+        "kind": "episode",
+        "tmdb_id": 900101,
+        "season_number": 1,
+        "episode_number": 2
+      },
+      "values": {
+        "id": 2,
+        "kind": "episode",
+        "tmdb_id": 900101,
+        "title": "Fixture Show",
+        "season_number": 1,
+        "episode_number": 2,
+        "episode_title": "Second Episode",
+        "air_date": "2020-03-08",
+        "status": "wanted",
+        "library_id": 1,
+        "source": "tmdb",
+        "date_added": "2026-07-02 10:05:00"
+      }
+    }
+  ]
+}
