@@ -1317,7 +1317,6 @@ class MusicDatabase:
             self._add_profile_support_v2(cursor)
             self._add_profile_support_v3(cursor)
             self._add_profile_support_v4(cursor)
-            self._fix_profile_one_owner_rows(cursor)
             self._add_profile_settings(cursor)
             self._add_profile_sides(cursor)
             self._add_profile_listenbrainz_support(cursor)
@@ -1329,6 +1328,9 @@ class MusicDatabase:
             self._add_profile_plex_home_user(cursor)
             self._add_profile_controls(cursor)
             self._add_own_library_columns(cursor)
+            # after the column it repairs exists: it used to run before
+            # _add_own_library_columns and fail on every fresh install
+            self._fix_profile_one_owner_rows(cursor)
             self._repair_own_jellyfin_artist_ids(cursor)
             self._add_service_credential_sets(cursor)
             self._add_soul_id_columns(cursor)
