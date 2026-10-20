@@ -44,3 +44,5 @@ Staging/
 Transfer/
 # Any hidden folders
 **/.*/
+# ...except GitHub config, or new workflow and Dependabot files are silently ignored
+!.github/
