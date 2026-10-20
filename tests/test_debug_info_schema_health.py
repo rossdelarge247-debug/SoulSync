@@ -1,5 +1,5 @@
 """/api/debug-info carries MusicDatabase.schema_health(): the schema steps that
-failed at startup (rolled back, retried next start), so a support dump shows a
+failed at startup (retried next start), so a support dump shows a
 half-migrated database instead of it hiding in the logs."""
 
 from __future__ import annotations
