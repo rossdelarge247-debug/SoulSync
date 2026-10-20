@@ -51,12 +51,6 @@ _FK_CASCADE = (
 # (release, database, check) -> why it fails. check is "schema", "logs",
 # "integrity" or "rows:<table>".
 KNOWN_BUGS = {
-    ("2.0", "music", "schema"): (
-        "metadata_cache_entities never gets idx_mce_browse, idx_mce_browse_name, idx_mce_browse_pop or "
-        "idx_mce_stats on a database whose metadata cache was created before 3.0: "
-        "_add_metadata_cache_tables returns early once the metadata_cache_v1 marker is set, and the "
-        "indexes were later added inside that marker-gated block"
-    ),
     ("1.3", "music", "rows:recent_releases"): _FK_CASCADE + (
         "_add_profile_support rebuilds watchlist_artists (ids preserved) and the DROP deletes every "
         "recent_releases row on a pre-profiles database"

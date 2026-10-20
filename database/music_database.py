@@ -8899,6 +8899,24 @@ class MusicDatabase:
         except Exception as e:
             logger.error(f"Error creating spotify_library_cache table: {e}")
 
+    # Run on every boot, not only inside the one-time block below: the browse
+    # and stats indexes came after the cache itself, and a database whose
+    # cache predates them (one created by 2.x) never got them while they
+    # lived behind the metadata_cache_v1 marker.
+    _METADATA_CACHE_ENTITY_INDEXES = (
+        "CREATE INDEX IF NOT EXISTS idx_mce_lookup ON metadata_cache_entities (source, entity_type, entity_id)",
+        "CREATE INDEX IF NOT EXISTS idx_mce_name ON metadata_cache_entities (entity_type, name COLLATE NOCASE)",
+        "CREATE INDEX IF NOT EXISTS idx_mce_artist ON metadata_cache_entities (artist_name COLLATE NOCASE)",
+        "CREATE INDEX IF NOT EXISTS idx_mce_accessed ON metadata_cache_entities (last_accessed_at)",
+        "CREATE INDEX IF NOT EXISTS idx_mce_source ON metadata_cache_entities (source)",
+        # Composite indexes for browse queries (entity_type + sort column)
+        "CREATE INDEX IF NOT EXISTS idx_mce_browse ON metadata_cache_entities (entity_type, source, last_accessed_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_mce_browse_name ON metadata_cache_entities (entity_type, source, name COLLATE NOCASE)",
+        "CREATE INDEX IF NOT EXISTS idx_mce_browse_pop ON metadata_cache_entities (entity_type, source, popularity DESC)",
+        # Stats query index (covers GROUP BY entity_type, source with count)
+        "CREATE INDEX IF NOT EXISTS idx_mce_stats ON metadata_cache_entities (entity_type, source, access_count)",
+    )
+
     def _add_metadata_cache_tables(self, cursor):
         """Create metadata_cache_entities and metadata_cache_searches tables for universal API response caching"""
         try:
@@ -8912,6 +8930,8 @@ class MusicDatabase:
             tables_present = cursor.fetchone() is not None
             cursor.execute("SELECT value FROM metadata WHERE key = 'metadata_cache_v1' LIMIT 1")
             if cursor.fetchone() and tables_present:
+                for statement in self._METADATA_CACHE_ENTITY_INDEXES:
+                    cursor.execute(statement)
                 return  # Already migrated and tables present
 
             logger.info("Creating metadata cache tables...")
@@ -8952,17 +8972,8 @@ class MusicDatabase:
                 )
             """)
 
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mce_lookup ON metadata_cache_entities (source, entity_type, entity_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mce_name ON metadata_cache_entities (entity_type, name COLLATE NOCASE)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mce_artist ON metadata_cache_entities (artist_name COLLATE NOCASE)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mce_accessed ON metadata_cache_entities (last_accessed_at)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mce_source ON metadata_cache_entities (source)")
-            # Composite indexes for browse queries (entity_type + sort column)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mce_browse ON metadata_cache_entities (entity_type, source, last_accessed_at DESC)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mce_browse_name ON metadata_cache_entities (entity_type, source, name COLLATE NOCASE)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mce_browse_pop ON metadata_cache_entities (entity_type, source, popularity DESC)")
-            # Stats query index (covers GROUP BY entity_type, source with count)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mce_stats ON metadata_cache_entities (entity_type, source, access_count)")
+            for statement in self._METADATA_CACHE_ENTITY_INDEXES:
+                cursor.execute(statement)
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS metadata_cache_searches (
