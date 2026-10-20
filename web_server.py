@@ -515,11 +515,33 @@ _set_colart_emit(socketio.emit)
 # Live bulk-metadata progress → 'video:bulk' socket events (bell + library bar).
 from core.video.bulk_ops import set_bulk_progress_emitter as _set_bulk_emit
 _set_bulk_emit(socketio.emit)
+
+# --- Background starts ---
+# Importing web_server must not start threads: tests, scripts and tools import
+# it as well as the server. Code that starts a worker, monitor or loop puts the
+# start in a function decorated with @_deferred_start(...), and
+# start_runtime_services() runs those once per process, in the order they
+# appear in this file, before its own steps.
+_deferred_starts = []
+
+
+def _deferred_start(name):
+    """Register the decorated function to run from start_runtime_services()."""
+    def register(fn):
+        _deferred_starts.append((name, fn))
+        return fn
+    return register
+
+
 # Video Library Maintenance (jobs & findings): live 'video:repair:progress'
 # socket events + the scheduler thread (force-runs work even when disabled).
 from core.video.repair.worker import get_video_repair_worker as _get_video_repair
 _get_video_repair().set_emitter(socketio.emit)
-_get_video_repair().start()
+
+
+@_deferred_start("video repair worker")
+def _start_video_repair_worker():
+    _get_video_repair().start()
 
 # Plex PIN auth requests stored in memory for polling
 _plex_pin_requests = {}
@@ -1840,6 +1862,14 @@ try:
     logger.info("Public REST API v1 registered at /api/v1")
 except Exception as e:
     logger.error(f"Public REST API v1 failed to register: {e}")
+
+
+@_deferred_start("API request cleanup timer")
+def _start_api_request_cleanup():
+    # Evicts stale entries from the in-memory /api/v1 request tracking so idle
+    # periods don't leave them in memory.
+    from api.request import start_cleanup_thread
+    start_cleanup_thread()
 
 
 # --- Sample Studio legacy web UI routes (session auth) ---
@@ -21635,6 +21665,15 @@ try:
         app_version="1.0",
         contact_email=""
     )
+except Exception as e:
+    logger.error(f"MusicBrainz worker initialization failed: {e}")
+    mb_worker = None
+
+
+@_deferred_start("MusicBrainz worker")
+def _start_musicbrainz_worker():
+    if mb_worker is None:
+        return
     # Start worker automatically (can be paused via UI)
     mb_worker.start()
     if config_manager.get('musicbrainz_enrichment_paused', False):
@@ -21642,9 +21681,6 @@ try:
         logger.info("MusicBrainz enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("MusicBrainz enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"MusicBrainz worker initialization failed: {e}")
-    mb_worker = None
 
 # MusicBrainz status / pause / resume routes are now served by the
 # generic enrichment blueprint registered in core/enrichment/api.py
@@ -21665,15 +21701,21 @@ try:
     from database.music_database import MusicDatabase
     audiodb_db = MusicDatabase()
     audiodb_worker = AudioDBWorker(database=audiodb_db)
+except Exception as e:
+    logger.error(f"AudioDB worker initialization failed: {e}")
+    audiodb_worker = None
+
+
+@_deferred_start("AudioDB worker")
+def _start_audiodb_worker():
+    if audiodb_worker is None:
+        return
     audiodb_worker.start()
     if config_manager.get('audiodb_enrichment_paused', False):
         audiodb_worker.pause()
         logger.info("AudioDB enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("AudioDB enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"AudioDB worker initialization failed: {e}")
-    audiodb_worker = None
 
 # AudioDB status / pause / resume routes are now served by the
 # generic enrichment blueprint at /api/enrichment/audiodb/{status,pause,resume}.
@@ -21689,15 +21731,21 @@ try:
     from database.music_database import MusicDatabase
     discogs_db = MusicDatabase()
     discogs_worker = DiscogsWorker(database=discogs_db)
+except Exception as e:
+    logger.error(f"Discogs worker initialization failed: {e}")
+    discogs_worker = None
+
+
+@_deferred_start("Discogs worker")
+def _start_discogs_worker():
+    if discogs_worker is None:
+        return
     discogs_worker.start()
     if config_manager.get('discogs_enrichment_paused', False):
         discogs_worker.pause()
         logger.info("Discogs enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("Discogs enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"Discogs worker initialization failed: {e}")
-    discogs_worker = None
 
 # Discogs status / pause / resume routes are now served by the
 # generic enrichment blueprint at /api/enrichment/discogs/{status,pause,resume}.
@@ -21712,15 +21760,21 @@ try:
     from database.music_database import MusicDatabase
     deezer_db = MusicDatabase()
     deezer_worker = DeezerWorker(database=deezer_db)
+except Exception as e:
+    logger.error(f"Deezer worker initialization failed: {e}")
+    deezer_worker = None
+
+
+@_deferred_start("Deezer worker")
+def _start_deezer_worker():
+    if deezer_worker is None:
+        return
     deezer_worker.start()
     if config_manager.get('deezer_enrichment_paused', False):
         deezer_worker.pause()
         logger.info("Deezer enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("Deezer enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"Deezer worker initialization failed: {e}")
-    deezer_worker = None
 
 # Deezer status / pause / resume routes are now served by the
 # generic enrichment blueprint at /api/enrichment/deezer/{status,pause,resume}.
@@ -21738,15 +21792,21 @@ try:
     from database.music_database import MusicDatabase
     jiosaavn_db = MusicDatabase()
     jiosaavn_worker = JioSaavnWorker(database=jiosaavn_db)
+except Exception as e:
+    logger.error(f"JioSaavn worker initialization failed: {e}")
+    jiosaavn_worker = None
+
+
+@_deferred_start("JioSaavn worker")
+def _start_jiosaavn_worker():
+    if jiosaavn_worker is None:
+        return
     jiosaavn_worker.start()
     if config_manager.get('jiosaavn_enrichment_paused', False):
         jiosaavn_worker.pause()
         logger.info("JioSaavn enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("JioSaavn enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"JioSaavn worker initialization failed: {e}")
-    jiosaavn_worker = None
 
 # JioSaavn status / pause / resume routes are served by the
 # generic enrichment blueprint at /api/enrichment/jiosaavn/{status,pause,resume}.
@@ -21759,6 +21819,15 @@ amazon_worker = None
 try:
     amazon_db = MusicDatabase()
     amazon_worker = AmazonWorker(database=amazon_db)
+except Exception as e:
+    logger.error(f"Amazon worker initialization failed: {e}")
+    amazon_worker = None
+
+
+@_deferred_start("Amazon worker")
+def _start_amazon_worker():
+    if amazon_worker is None:
+        return
     amazon_worker.start()
     # Opt-in by default: Amazon enrichment depends on an external public proxy
     # (T2Tunes) that can be down, so it stays paused unless the user has
@@ -21771,9 +21840,6 @@ try:
         logger.info("Amazon enrichment worker initialized (paused — enable it in Settings)")
     else:
         logger.info("Amazon enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"Amazon worker initialization failed: {e}")
-    amazon_worker = None
 
 
 # --- Similar Artists Worker Initialization ---
@@ -21786,15 +21852,21 @@ try:
     from core.similar_artists_worker import SimilarArtistsWorker
     similar_artists_db = MusicDatabase()
     similar_artists_worker = SimilarArtistsWorker(database=similar_artists_db)
+except Exception as e:
+    logger.error(f"Similar Artists worker initialization failed: {e}")
+    similar_artists_worker = None
+
+
+@_deferred_start("Similar Artists worker")
+def _start_similar_artists_worker():
+    if similar_artists_worker is None:
+        return
     similar_artists_worker.start()
     if config_manager.get('similar_artists_enrichment_paused', False):
         similar_artists_worker.pause()
         logger.info("Similar Artists worker initialized (paused — restored from config)")
     else:
         logger.info("Similar Artists worker initialized and started")
-except Exception as e:
-    logger.error(f"Similar Artists worker initialization failed: {e}")
-    similar_artists_worker = None
 
 
 # ================================================================================================
@@ -21814,10 +21886,19 @@ except Exception as e:
 # they explicitly want background Spotify enrichment.
 spotify_enrichment_worker = None
 try:
-    from core.metadata_service import get_configured_primary_source
     from database.music_database import MusicDatabase
     spotify_enrichment_db = MusicDatabase()
     spotify_enrichment_worker = SpotifyWorker(database=spotify_enrichment_db)
+except Exception as e:
+    logger.error(f"Spotify enrichment worker initialization failed: {e}")
+    spotify_enrichment_worker = None
+
+
+@_deferred_start("Spotify enrichment worker")
+def _start_spotify_enrichment_worker():
+    if spotify_enrichment_worker is None:
+        return
+    from core.metadata_service import get_configured_primary_source
     # Use configured source only — get_primary_source() probes Spotify auth and can
     # block gunicorn worker boot indefinitely when the API is unreachable.
     _primary = get_configured_primary_source()
@@ -21831,9 +21912,6 @@ try:
         logger.info("Spotify enrichment worker initialized (paused — restored from config)")
     else:
         logger.info(f"Spotify enrichment worker initialized (paused — primary metadata source is '{_primary}', not Spotify)")
-except Exception as e:
-    logger.error(f"Spotify enrichment worker initialization failed: {e}")
-    spotify_enrichment_worker = None
 
 # --- API Rate Monitor Endpoints ---
 
@@ -21871,15 +21949,21 @@ try:
     from database.music_database import MusicDatabase
     itunes_enrichment_db = MusicDatabase()
     itunes_enrichment_worker = iTunesWorker(database=itunes_enrichment_db)
+except Exception as e:
+    logger.error(f"iTunes enrichment worker initialization failed: {e}")
+    itunes_enrichment_worker = None
+
+
+@_deferred_start("iTunes enrichment worker")
+def _start_itunes_enrichment_worker():
+    if itunes_enrichment_worker is None:
+        return
     itunes_enrichment_worker.start()
     if config_manager.get('itunes_enrichment_paused', False):
         itunes_enrichment_worker.pause()
         logger.info("iTunes enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("iTunes enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"iTunes enrichment worker initialization failed: {e}")
-    itunes_enrichment_worker = None
 
 # iTunes status / pause / resume routes are now served by the
 # generic enrichment blueprint at /api/enrichment/itunes/{status,pause,resume}.
@@ -21898,15 +21982,21 @@ try:
     from database.music_database import MusicDatabase
     lastfm_db = MusicDatabase()
     lastfm_worker = LastFMWorker(database=lastfm_db)
+except Exception as e:
+    logger.error(f"Last.fm worker initialization failed: {e}")
+    lastfm_worker = None
+
+
+@_deferred_start("Last.fm worker")
+def _start_lastfm_worker():
+    if lastfm_worker is None:
+        return
     lastfm_worker.start()
     if config_manager.get('lastfm_enrichment_paused', False):
         lastfm_worker.pause()
         logger.info("Last.fm enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("Last.fm enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"Last.fm worker initialization failed: {e}")
-    lastfm_worker = None
 
 # Last.fm status / pause / resume routes are now served by the
 # generic enrichment blueprint at /api/enrichment/lastfm/{status,pause,resume}.
@@ -21991,6 +22081,15 @@ try:
     from database.music_database import MusicDatabase
     genius_db = MusicDatabase()
     genius_worker = GeniusWorker(database=genius_db)
+except Exception as e:
+    logger.error(f"Genius worker initialization failed: {e}")
+    genius_worker = None
+
+
+@_deferred_start("Genius worker")
+def _start_genius_worker():
+    if genius_worker is None:
+        return
     if config_manager.get('genius_enrichment_paused', False):
         genius_worker.paused = True
     genius_worker.start()
@@ -21998,9 +22097,6 @@ try:
         logger.info("Genius enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("Genius enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"Genius worker initialization failed: {e}")
-    genius_worker = None
 
 # --- Genius API Endpoints ---
 
@@ -22027,6 +22123,15 @@ try:
     from database.music_database import MusicDatabase
     bandcamp_db = MusicDatabase()
     bandcamp_worker = BandcampWorker(database=bandcamp_db)
+except Exception as e:
+    logger.error(f"Bandcamp worker initialization failed: {e}")
+    bandcamp_worker = None
+
+
+@_deferred_start("Bandcamp worker")
+def _start_bandcamp_worker():
+    if bandcamp_worker is None:
+        return
     if config_manager.get('bandcamp_enrichment_paused', False):
         bandcamp_worker.paused = True
     bandcamp_worker.start()
@@ -22034,9 +22139,6 @@ try:
         logger.info("Bandcamp enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("Bandcamp enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"Bandcamp worker initialization failed: {e}")
-    bandcamp_worker = None
 
 # Bandcamp status / pause / resume routes are served by the generic
 # enrichment blueprint at /api/enrichment/bandcamp/{status,pause,resume},
@@ -22055,15 +22157,21 @@ try:
     from database.music_database import MusicDatabase
     tidal_enrich_db = MusicDatabase()
     tidal_enrichment_worker = TidalWorker(database=tidal_enrich_db, client=tidal_client)
+except Exception as e:
+    logger.error(f"Tidal worker initialization failed: {e}")
+    tidal_enrichment_worker = None
+
+
+@_deferred_start("Tidal enrichment worker")
+def _start_tidal_enrichment_worker():
+    if tidal_enrichment_worker is None:
+        return
     tidal_enrichment_worker.start()
     if config_manager.get('tidal_enrichment_paused', False):
         tidal_enrichment_worker.pause()
         logger.info("Tidal enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("Tidal enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"Tidal worker initialization failed: {e}")
-    tidal_enrichment_worker = None
 
 # Tidal status / pause / resume routes are now served by the
 # generic enrichment blueprint at /api/enrichment/tidal/{status,pause,resume}.
@@ -22081,15 +22189,21 @@ try:
     qobuz_enrich_db = MusicDatabase()
     qobuz_enrich_client = QobuzClient()  # Separate client instance for thread safety
     qobuz_enrichment_worker = QobuzWorker(database=qobuz_enrich_db, client=qobuz_enrich_client)
+except Exception as e:
+    logger.error(f"Qobuz worker initialization failed: {e}")
+    qobuz_enrichment_worker = None
+
+
+@_deferred_start("Qobuz enrichment worker")
+def _start_qobuz_enrichment_worker():
+    if qobuz_enrichment_worker is None:
+        return
     qobuz_enrichment_worker.start()
     if config_manager.get('qobuz_enrichment_paused', False):
         qobuz_enrichment_worker.pause()
         logger.info("Qobuz enrichment worker initialized (paused — restored from config)")
     else:
         logger.info("Qobuz enrichment worker initialized and started")
-except Exception as e:
-    logger.error(f"Qobuz worker initialization failed: {e}")
-    qobuz_enrichment_worker = None
 
 _init_service_search(
     spotify_worker=spotify_enrichment_worker,
@@ -22130,7 +22244,6 @@ try:
         from api import hydrabase_routes as _hb
         return (_hb._hydrabase_ws, _hb._hydrabase_lock)
     hydrabase_worker = HydrabaseWorker(get_ws_and_lock=_get_hydrabase_ws_and_lock)
-    hydrabase_worker.start()
     hydrabase_client = HydrabaseClient(get_ws_and_lock=_get_hydrabase_ws_and_lock)
     logger.info("Hydrabase P2P mirror worker and metadata client initialized")
     # Update API blueprint references
@@ -22141,6 +22254,12 @@ except Exception as e:
     logger.error(f"Hydrabase initialization failed: {e}")
     hydrabase_worker = None
     hydrabase_client = None
+
+
+@_deferred_start("Hydrabase worker")
+def _start_hydrabase_worker():
+    if hydrabase_worker is not None:
+        hydrabase_worker.start()
 
 register_runtime_clients(
     hydrabase_client=hydrabase_client,
@@ -22264,13 +22383,15 @@ def _start_discover_warmer():
     threading.Thread(target=loop, name='discover-warmer', daemon=True).start()
 
 
-# NEVER under pytest: dozens of tests import web_server, and a leaked
-# background thread touching databases mid-suite is exactly the bug class
-# behind the video-db split-brain incident (conftest locks video installs
-# for the same reason). Opt-out env for anyone who wants it off in prod.
-import sys as _sys
-if 'pytest' not in _sys.modules and os.environ.get('SOULSYNC_NO_DISCOVER_WARMUP', '0') != '1':
-    _start_discover_warmer()
+# NEVER under pytest: a leaked background thread touching databases
+# mid-suite is exactly the bug class behind the video-db split-brain incident
+# (conftest locks video installs for the same reason). Opt-out env for anyone
+# who wants it off in prod.
+@_deferred_start("discover warmer")
+def _start_discover_warmer_unless_disabled():
+    import sys as _sys
+    if 'pytest' not in _sys.modules and os.environ.get('SOULSYNC_NO_DISCOVER_WARMUP', '0') != '1':
+        _start_discover_warmer()
 
 _init_download_validation(
     matching_engine_obj=matching_engine,
@@ -22323,22 +22444,24 @@ _init_download_monitor(
 )
 
 # --- Hydrabase Auto-Reconnect ---
-try:
-    _hydra_cfg = config_manager.get_hydrabase_config()
-    if _hydra_cfg.get('auto_connect') and _hydra_cfg.get('url') and _hydra_cfg.get('api_key'):
-        import websocket as _ws_mod
-        _auto_ws = _ws_mod.create_connection(
-            _hydra_cfg['url'],
-            header={"x-api-key": _hydra_cfg['api_key']},
-            timeout=10
-        )
-        from api import hydrabase_routes as _hb
-        _hb._hydrabase_ws = _auto_ws
-        # Don't auto-enable dev mode — user must explicitly activate dev mode
-        # Auto-connect just establishes the WebSocket for fallback/search tab use
-        logger.info(f"Hydrabase auto-connected to {_hydra_cfg['url']}")
-except Exception as e:
-    logger.error(f"Hydrabase auto-reconnect failed: {e}")
+@_deferred_start("Hydrabase auto-connect")
+def _hydrabase_auto_connect():
+    try:
+        _hydra_cfg = config_manager.get_hydrabase_config()
+        if _hydra_cfg.get('auto_connect') and _hydra_cfg.get('url') and _hydra_cfg.get('api_key'):
+            import websocket as _ws_mod
+            _auto_ws = _ws_mod.create_connection(
+                _hydra_cfg['url'],
+                header={"x-api-key": _hydra_cfg['api_key']},
+                timeout=10
+            )
+            from api import hydrabase_routes as _hb
+            _hb._hydrabase_ws = _auto_ws
+            # Don't auto-enable dev mode — user must explicitly activate dev mode
+            # Auto-connect just establishes the WebSocket for fallback/search tab use
+            logger.info(f"Hydrabase auto-connected to {_hydra_cfg['url']}")
+    except Exception as e:
+        logger.error(f"Hydrabase auto-reconnect failed: {e}")
 
 # --- Hydrabase Worker API Endpoints ---
 
@@ -22409,11 +22532,17 @@ try:
     from database.music_database import MusicDatabase
     soulid_db = MusicDatabase()
     soulid_worker = SoulIDWorker(database=soulid_db)
-    soulid_worker.start()
-    logger.info("SoulID worker initialized and started")
 except Exception as e:
     logger.error(f"SoulID worker initialization failed: {e}")
     soulid_worker = None
+
+
+@_deferred_start("SoulID worker")
+def _start_soulid_worker():
+    if soulid_worker is None:
+        return
+    soulid_worker.start()
+    logger.info("SoulID worker initialized and started")
 
 @app.route('/api/soulid/status', methods=['GET'])
 def soulid_status():
@@ -22441,11 +22570,17 @@ try:
         config_manager=config_manager,
         media_server_engine=media_server_engine,
     )
-    listening_stats_worker.start()
-    logger.info("Listening stats worker initialized and started")
 except Exception as e:
     logger.error(f"Listening stats worker initialization failed: {e}")
     listening_stats_worker = None
+
+
+@_deferred_start("Listening stats worker")
+def _start_listening_stats_worker():
+    if listening_stats_worker is None:
+        return
+    listening_stats_worker.start()
+    logger.info("Listening stats worker initialized and started")
 
 lastfm_import_worker = None
 lastfm_import_workers = None
@@ -22582,11 +22717,17 @@ try:
     if automation_engine is not None:
         repair_worker._event_emit = automation_engine.emit
         repair_worker._automation_engine = automation_engine
-    repair_worker.start()
-    logger.info("Repair worker initialized and started")
 except Exception as e:
     logger.error(f"Repair worker initialization failed: {e}")
     repair_worker = None
+
+
+@_deferred_start("Repair worker")
+def _start_repair_worker():
+    if repair_worker is None:
+        return
+    repair_worker.start()
+    logger.info("Repair worker initialized and started")
 
 # --- Repair Worker API Endpoints: lifted to api/repair.py (wired near the
 # chat/labels/beatport blueprints below) ---
@@ -23626,6 +23767,13 @@ _cfg_imp(
 )
 app.register_blueprint(_bp_imp())
 
+
+@_deferred_start("auto-import worker")
+def _start_auto_import_worker():
+    # the worker handle lives (and is rebound) in api.import_routes
+    from api import import_routes as _imp
+    _imp.start_auto_import_worker()
+
 # hydrabase p2p
 from api.hydrabase_routes import configure as _cfg_hb, create_blueprint as _bp_hb
 def _set_dev_mode_impl(value):
@@ -23924,29 +24072,37 @@ app.register_blueprint(_bp_sw())
 # Follow grabbed audiobooks to completion and file them into the library. Without this
 # a grab is fire-and-forget: the download client fetches something the app never
 # notices finishing.
-try:
-    from core.audiobook_download_monitor import ensure_started as _ensure_audiobook_downloads
-    _ensure_audiobook_downloads()
-except Exception as _ab_monitor_err:  # noqa: BLE001
-    logger.warning(f"Audiobook download monitor did not start: {_ab_monitor_err}")
+@_deferred_start("audiobook download monitor")
+def _start_audiobook_download_monitor():
+    try:
+        from core.audiobook_download_monitor import ensure_started as _ensure_audiobook_downloads
+        _ensure_audiobook_downloads()
+    except Exception as _ab_monitor_err:  # noqa: BLE001
+        logger.warning(f"Audiobook download monitor did not start: {_ab_monitor_err}")
+
 
 # Resume video downloads at boot: without this the monitor only starts on a grab or
 # when the Downloads page opens, so in-flight downloads (and orphaned 'searching' rows)
 # after a restart would sit untracked until the user happened to visit the page.
-try:
-    from core.video.download_monitor import ensure_started as _ensure_video_download_monitor
-    from api.video import get_video_db as _get_video_db
-    _ensure_video_download_monitor(_get_video_db)
-except Exception:
-    logger.warning("could not start the video download monitor at boot", exc_info=True)
+@_deferred_start("video download monitor")
+def _start_video_download_monitor():
+    try:
+        from core.video.download_monitor import ensure_started as _ensure_video_download_monitor
+        from api.video import get_video_db as _get_video_db
+        _ensure_video_download_monitor(_get_video_db)
+    except Exception:
+        logger.warning("could not start the video download monitor at boot", exc_info=True)
+
 
 # Clients-tab music matches waiting on their download: resume following them at
 # boot. It stops by itself when nothing is pending.
-try:
-    from core.client_match import ensure_watcher as _ensure_client_match_watcher
-    _ensure_client_match_watcher(app)
-except Exception:
-    logger.warning("could not start the clients-tab match watcher at boot", exc_info=True)
+@_deferred_start("clients-tab match watcher")
+def _start_client_match_watcher():
+    try:
+        from core.client_match import ensure_watcher as _ensure_client_match_watcher
+        _ensure_client_match_watcher(app)
+    except Exception:
+        logger.warning("could not start the clients-tab match watcher at boot", exc_info=True)
 
 
 def _emit_rate_monitor_loop():
@@ -24601,12 +24757,19 @@ _runtime_started = False
 
 
 def start_runtime_services():
-    """Start one-time server background services for direct and WSGI launches."""
+    """Start one-time server background services for direct and WSGI launches.
+
+    Importing this module starts no threads; every worker, monitor and loop
+    starts here. Runs once per process: later calls return immediately.
+    """
     global _runtime_started
 
     with _runtime_start_lock:
         if _runtime_started:
             return
+        # Set first, so a start that raises can't make a later call start
+        # everything a second time.
+        _runtime_started = True
 
         logger.info("Starting SoulSync runtime services...")
 
@@ -24616,6 +24779,15 @@ def start_runtime_services():
             logger.info(f"[Startup] SOULSYNC environment variables: {_soulsync_env}")
         else:
             logger.warning("[Startup] No SOULSYNC_* environment variables detected")
+
+        # Workers, monitors and loops built at import (@_deferred_start), in
+        # the order they appear in this file. They used to start during the
+        # import itself, so they still run before the steps below.
+        for _start_name, _start_fn in _deferred_starts:
+            try:
+                _start_fn()
+            except Exception as e:
+                logger.error(f"{_start_name} failed to start: {e}")
 
         # Start OAuth callback servers
         logger.info("Starting OAuth callback servers...")
@@ -24860,21 +25032,22 @@ def start_runtime_services():
         socketio.start_background_task(_emit_live_log_loop)
         logger.info("WebSocket emitters started (Phase 1-7: global/dashboard/enrichment/tools/sync/automations/repair + rate monitor + live logs)")
 
-        _runtime_started = True
-
 
 # Module import is complete — provider clients may now perform network probes.
 from core.boot_phase import mark_boot_complete
 mark_boot_complete()
 
+
 # Auto-run the Discover popularity backfill in the background (no manual trigger). Self-limits: it
 # sleeps past startup, fills whatever's still missing, and exits when there's nothing left.
-try:
-    import threading as _pb_threading
-    _pb_threading.Thread(target=_autostart_popularity_backfill, daemon=True,
-                         name='PopularityBackfillAutostart').start()
-except Exception as _pb_autostart_err:
-    logger.debug(f"could not start popularity backfill autostart: {_pb_autostart_err}")
+@_deferred_start("popularity backfill autostart")
+def _start_popularity_backfill():
+    try:
+        import threading as _pb_threading
+        _pb_threading.Thread(target=_autostart_popularity_backfill, daemon=True,
+                             name='PopularityBackfillAutostart').start()
+    except Exception as _pb_autostart_err:
+        logger.debug(f"could not start popularity backfill autostart: {_pb_autostart_err}")
 
 
 # Direct execution: python web_server.py (dev/Windows fallback)
