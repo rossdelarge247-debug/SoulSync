@@ -1144,6 +1144,7 @@ class MusicDatabase:
                 )
                 if _wp_sql and _wp_needs_rebuild:
                     logger.info("Migrating watchlist_podcasts to a per-profile unique key")
+                    cursor.execute("DROP TABLE IF EXISTS watchlist_podcasts_migrating")
                     cursor.execute("""
                         CREATE TABLE watchlist_podcasts_migrating (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1165,19 +1166,9 @@ class MusicDatabase:
                             UNIQUE(feed_url, profile_id)
                         )
                     """)
-                    cursor.execute("""
-                        INSERT INTO watchlist_podcasts_migrating (
-                            id, feed_url, itunes_id, title, author, description,
-                            artwork_url, website, auto_download, retention_days,
-                            episode_count, date_added, last_scan_timestamp,
-                            created_at, updated_at, profile_id
-                        )
-                        SELECT id, feed_url, itunes_id, title, author, description,
-                               artwork_url, website, auto_download, retention_days,
-                               episode_count, date_added, last_scan_timestamp,
-                               created_at, updated_at, COALESCE(profile_id, 1)
-                        FROM watchlist_podcasts
-                    """)
+                    self._copy_rows_for_rebuild(
+                        cursor, "watchlist_podcasts", "watchlist_podcasts_migrating",
+                        expressions={"profile_id": "COALESCE(profile_id, 1)"})
                     cursor.execute("DROP TABLE watchlist_podcasts")
                     cursor.execute("ALTER TABLE watchlist_podcasts_migrating "
                                    "RENAME TO watchlist_podcasts")
@@ -2080,6 +2071,59 @@ class MusicDatabase:
             )
         except Exception as e:
             logger.debug("Could not record migration %s in ledger: %s", name, e)
+
+    def _copy_rows_for_rebuild(self, cursor, old_table: str, new_table: str, *,
+                               expressions: Optional[Dict[str, str]] = None,
+                               or_ignore: bool = False) -> List[str]:
+        """Copy old_table's rows into new_table, the middle step of a rebuild
+        (create new, copy, drop old, rename).
+
+        The columns come from PRAGMA table_info on both tables. The rebuilds
+        used to name them by hand, and every column the list didn't name was
+        silently dropped, which is why later migrations had to keep re-adding
+        columns after them.
+
+        A column only old_table has is added to new_table first when any row
+        holds a value in it, so a rebuild never throws stored data away. An
+        empty one is left behind, as before, which keeps the schema a fresh
+        install ends up with unchanged.
+
+        ``expressions`` maps a new_table column to the SQL that fills it (a
+        CAST, a COALESCE, a constant), and applies even when old_table doesn't
+        have that column. Returns the columns written.
+        """
+        expressions = expressions or {}
+        old_info = cursor.execute(f"PRAGMA table_info({old_table})").fetchall()
+        old_cols = [row[1] for row in old_info]
+        new_cols = [row[1] for row in cursor.execute(f"PRAGMA table_info({new_table})").fetchall()]
+        for _cid, name, decl_type, notnull, default, pk in old_info:
+            if name in new_cols:
+                continue
+            has_data = cursor.execute(
+                f'SELECT 1 FROM {old_table} WHERE "{name}" IS NOT NULL LIMIT 1').fetchone()
+            if not has_data:
+                continue
+            if pk:
+                logger.warning("Rebuild of %s drops %s, a primary key column the new table "
+                               "doesn't have", old_table, name)
+                continue
+            plain = f'"{name}" {decl_type or ""}'.rstrip()
+            full = plain + (" NOT NULL" if notnull else "") + (f" DEFAULT {default}" if default is not None else "")
+            try:
+                cursor.execute(f"ALTER TABLE {new_table} ADD COLUMN {full}")
+            except sqlite3.OperationalError:
+                # NOT NULL without a default, or a default ALTER can't add
+                # (CURRENT_TIMESTAMP): keep the values, lose the constraint
+                cursor.execute(f"ALTER TABLE {new_table} ADD COLUMN {plain}")
+            new_cols.append(name)
+            logger.info("Rebuild of %s keeps column %s, which its new definition doesn't have",
+                        old_table, name)
+        cols = [c for c in new_cols if c in old_cols or c in expressions]
+        target = ', '.join(f'"{c}"' for c in cols)
+        source = ', '.join(expressions.get(c, f'"{c}"') for c in cols)
+        verb = "INSERT OR IGNORE" if or_ignore else "INSERT"
+        cursor.execute(f"{verb} INTO {new_table} ({target}) SELECT {source} FROM {old_table}")
+        return cols
 
     def _sync_migration_ledger(self, cursor):
         """Back-fill the ledger from existing idempotency signals and stamp
@@ -3176,9 +3220,6 @@ class MusicDatabase:
             track_col = cols.get("track_id")
             if not track_col or str(track_col[2]).upper() == "TEXT":
                 return
-            keep = ["bpm", "onsets_json", "duration_s", "analyzed_at", "analyzer_version",
-                    "key_name", "key_confidence", "source_sig"]
-            keep = [c for c in keep if c in cols]
             cursor.execute("SAVEPOINT sample_analysis_text_ids")
             cursor.execute("DROP TABLE IF EXISTS sample_analysis_text")
             cursor.execute("""
@@ -3194,10 +3235,8 @@ class MusicDatabase:
                     source_sig TEXT
                 )
             """)
-            col_list = ", ".join(keep)
-            cursor.execute(
-                f"INSERT INTO sample_analysis_text (track_id, {col_list}) "
-                f"SELECT CAST(track_id AS TEXT), {col_list} FROM sample_analysis")
+            self._copy_rows_for_rebuild(cursor, "sample_analysis", "sample_analysis_text",
+                                        expressions={"track_id": "CAST(track_id AS TEXT)"})
             cursor.execute("DROP TABLE sample_analysis")
             cursor.execute("ALTER TABLE sample_analysis_text RENAME TO sample_analysis")
             cursor.execute("RELEASE sample_analysis_text_ids")
@@ -3278,26 +3317,14 @@ class MusicDatabase:
             """)
             
             # Step 2: Copy existing data (converting INTEGER IDs to TEXT)
-            cursor.execute("""
-                INSERT INTO artists_new (id, name, thumb_url, genres, summary, server_source, created_at, updated_at)
-                SELECT CAST(id AS TEXT), name, thumb_url, genres, summary, 
-                       COALESCE(server_source, 'plex'), created_at, updated_at 
-                FROM artists
-            """)
-            
-            cursor.execute("""
-                INSERT INTO albums_new (id, artist_id, title, year, thumb_url, genres, track_count, duration, server_source, created_at, updated_at)
-                SELECT CAST(id AS TEXT), CAST(artist_id AS TEXT), title, year, thumb_url, genres, track_count, duration,
-                       COALESCE(server_source, 'plex'), created_at, updated_at
-                FROM albums
-            """)
-            
-            cursor.execute("""
-                INSERT INTO tracks_new (id, album_id, artist_id, title, track_number, duration, file_path, bitrate, server_source, created_at, updated_at)
-                SELECT CAST(id AS TEXT), CAST(album_id AS TEXT), CAST(artist_id AS TEXT), title, track_number, duration, file_path, bitrate,
-                       COALESCE(server_source, 'plex'), created_at, updated_at
-                FROM tracks
-            """)
+            id_columns_as_text = {
+                'id': 'CAST(id AS TEXT)',
+                'artist_id': 'CAST(artist_id AS TEXT)',
+                'album_id': 'CAST(album_id AS TEXT)',
+                'server_source': "COALESCE(server_source, 'plex')",
+            }
+            for table in ('artists', 'albums', 'tracks'):
+                self._copy_rows_for_rebuild(cursor, table, f"{table}_new", expressions=id_columns_as_text)
             
             # Step 3: Drop old tables and rename new ones
             cursor.execute("DROP TABLE IF EXISTS tracks")
@@ -3577,9 +3604,6 @@ class MusicDatabase:
             if table_schema and 'album_spotify_id TEXT NOT NULL' in (table_schema[0] or ''):
                 logger.info("Migrating discovery_recent_albums to allow NULL album_spotify_id for iTunes support...")
                 # SQLite doesn't support ALTER COLUMN, so recreate table
-                cursor.execute("PRAGMA table_info(discovery_recent_albums)")
-                old_cols_info = cursor.fetchall()
-                old_col_names = [c[1] for c in old_cols_info]
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS discovery_recent_albums_new (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3599,13 +3623,8 @@ class MusicDatabase:
                         UNIQUE(album_spotify_id, album_itunes_id, album_deezer_id, source)
                     )
                 """)
-                new_cols = ['id', 'album_spotify_id', 'album_itunes_id', 'album_deezer_id',
-                            'artist_spotify_id', 'artist_itunes_id', 'artist_deezer_id',
-                            'source', 'album_name', 'artist_name', 'album_cover_url',
-                            'release_date', 'album_type', 'cached_date']
-                shared_cols = [c for c in new_cols if c in old_col_names]
-                cols_str = ', '.join(shared_cols)
-                cursor.execute(f"INSERT OR IGNORE INTO discovery_recent_albums_new ({cols_str}) SELECT {cols_str} FROM discovery_recent_albums")
+                self._copy_rows_for_rebuild(cursor, "discovery_recent_albums", "discovery_recent_albums_new",
+                                            or_ignore=True)
                 cursor.execute("DROP TABLE discovery_recent_albums")
                 cursor.execute("ALTER TABLE discovery_recent_albums_new RENAME TO discovery_recent_albums")
                 cursor.connection.commit()
@@ -3658,18 +3677,8 @@ class MusicDatabase:
                                 UNIQUE(source_artist_id, similar_artist_name)
                             )
                         """)
-                        migration_cursor.execute("""
-                            INSERT OR IGNORE INTO similar_artists_new
-                            (source_artist_id, similar_artist_spotify_id, similar_artist_itunes_id,
-                             similar_artist_deezer_id, similar_artist_musicbrainz_id,
-                             similar_artist_name, similarity_rank, occurrence_count, last_updated,
-                             source_provider)
-                            SELECT source_artist_id, similar_artist_spotify_id, similar_artist_itunes_id,
-                                   similar_artist_deezer_id, similar_artist_musicbrainz_id,
-                                   similar_artist_name, similarity_rank, occurrence_count, last_updated,
-                                   source_provider
-                            FROM similar_artists
-                        """)
+                        self._copy_rows_for_rebuild(migration_cursor, "similar_artists", "similar_artists_new",
+                                                    or_ignore=True)
                         migration_cursor.execute("DROP TABLE similar_artists")
                         migration_cursor.execute("ALTER TABLE similar_artists_new RENAME TO similar_artists")
                         migration_conn.commit()
@@ -4902,20 +4911,8 @@ class MusicDatabase:
                         )
                     """)
 
-                # Copy data from old table (only columns that exist in both)
-                cursor.execute("PRAGMA table_info(watchlist_artists)")
-                old_cols = [col[1] for col in cursor.fetchall()]
-                new_cols = ['id', 'spotify_artist_id', 'artist_name', 'date_added',
-                            'last_scan_timestamp', 'created_at', 'updated_at', 'image_url',
-                            'include_albums', 'include_eps', 'include_singles', 'include_live',
-                            'include_remixes', 'include_acoustic', 'include_compilations',
-                            'include_instrumentals', 'include_other_artists', 'lookback_days',
-                            'itunes_artist_id', 'deezer_artist_id', 'discogs_artist_id',
-                            'musicbrainz_artist_id', 'amazon_artist_id',
-                            'preferred_metadata_source', 'auto_download', 'profile_id']
-                shared_cols = [c for c in new_cols if c in old_cols]
-                cols_str = ', '.join(shared_cols)
-                cursor.execute(f"INSERT INTO watchlist_artists_new ({cols_str}) SELECT {cols_str} FROM watchlist_artists")
+                # Copy data from old table
+                self._copy_rows_for_rebuild(cursor, "watchlist_artists", "watchlist_artists_new")
 
                 # Drop old table
                 cursor.execute("DROP TABLE watchlist_artists")
@@ -5923,11 +5920,6 @@ class MusicDatabase:
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='watchlist_artists'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'UNIQUE(profile_id' not in create_sql[0]:
-                    # Get current columns for the table
-                    cursor.execute("PRAGMA table_info(watchlist_artists)")
-                    cols_info = cursor.fetchall()
-                    col_names = [c[1] for c in cols_info]
-
                     # Drop leftover temp table from any previous failed migration
                     cursor.execute("DROP TABLE IF EXISTS watchlist_artists_new")
 
@@ -5964,19 +5956,7 @@ class MusicDatabase:
                         )
                     """)
 
-                    # Build column list for INSERT (only columns that exist in both)
-                    new_cols = ['id', 'spotify_artist_id', 'artist_name', 'date_added',
-                                'last_scan_timestamp', 'created_at', 'updated_at', 'image_url',
-                                'include_albums', 'include_eps', 'include_singles', 'include_live',
-                                'include_remixes', 'include_acoustic', 'include_compilations',
-                                'include_instrumentals', 'include_other_artists', 'lookback_days',
-                                'itunes_artist_id', 'deezer_artist_id', 'discogs_artist_id',
-                                'musicbrainz_artist_id', 'amazon_artist_id',
-                            'preferred_metadata_source', 'auto_download', 'profile_id']
-                    shared_cols = [c for c in new_cols if c in col_names]
-                    cols_str = ', '.join(shared_cols)
-
-                    cursor.execute(f"INSERT INTO watchlist_artists_new ({cols_str}) SELECT {cols_str} FROM watchlist_artists")
+                    self._copy_rows_for_rebuild(cursor, "watchlist_artists", "watchlist_artists_new")
                     cursor.execute("DROP TABLE watchlist_artists")
                     cursor.execute("ALTER TABLE watchlist_artists_new RENAME TO watchlist_artists")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_spotify_id ON watchlist_artists (spotify_artist_id)")
@@ -6007,15 +5987,7 @@ class MusicDatabase:
                         )
                     """)
 
-                    cursor.execute("PRAGMA table_info(wishlist_tracks)")
-                    old_cols = [c[1] for c in cursor.fetchall()]
-                    new_cols = ['id', 'spotify_track_id', 'spotify_data', 'failure_reason',
-                                'retry_count', 'last_attempted', 'date_added', 'source_type',
-                                'source_info', 'profile_id']
-                    shared_cols = [c for c in new_cols if c in old_cols]
-                    cols_str = ', '.join(shared_cols)
-
-                    cursor.execute(f"INSERT INTO wishlist_tracks_new ({cols_str}) SELECT {cols_str} FROM wishlist_tracks")
+                    self._copy_rows_for_rebuild(cursor, "wishlist_tracks", "wishlist_tracks_new")
                     cursor.execute("DROP TABLE wishlist_tracks")
                     cursor.execute("ALTER TABLE wishlist_tracks_new RENAME TO wishlist_tracks")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_wishlist_spotify_id ON wishlist_tracks (spotify_track_id)")
@@ -6042,10 +6014,7 @@ class MusicDatabase:
                         )
                     """)
 
-                    cursor.execute("""
-                        INSERT INTO bubble_snapshots_new (type, data, timestamp, snapshot_id, profile_id)
-                        SELECT type, data, timestamp, snapshot_id, profile_id FROM bubble_snapshots
-                    """)
+                    self._copy_rows_for_rebuild(cursor, "bubble_snapshots", "bubble_snapshots_new")
                     cursor.execute("DROP TABLE bubble_snapshots")
                     cursor.execute("ALTER TABLE bubble_snapshots_new RENAME TO bubble_snapshots")
                     logger.info("Rebuilt bubble_snapshots with profile-scoped UNIQUE constraints")
@@ -6069,13 +6038,8 @@ class MusicDatabase:
                         )
                     """)
 
-                    cursor.execute("PRAGMA table_info(discovery_curated_playlists)")
-                    old_cols = [c[1] for c in cursor.fetchall()]
-                    new_cols = ['id', 'playlist_type', 'track_ids_json', 'curated_date', 'profile_id']
-                    shared_cols = [c for c in new_cols if c in old_cols]
-                    cols_str = ', '.join(shared_cols)
-
-                    cursor.execute(f"INSERT INTO discovery_curated_playlists_new ({cols_str}) SELECT {cols_str} FROM discovery_curated_playlists")
+                    self._copy_rows_for_rebuild(cursor, "discovery_curated_playlists",
+                                                "discovery_curated_playlists_new")
                     cursor.execute("DROP TABLE discovery_curated_playlists")
                     cursor.execute("ALTER TABLE discovery_curated_playlists_new RENAME TO discovery_curated_playlists")
                     logger.info("Rebuilt discovery_curated_playlists with profile-scoped UNIQUE constraints")
@@ -6121,9 +6085,6 @@ class MusicDatabase:
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='discovery_pool'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'UNIQUE(profile_id' not in create_sql[0]:
-                    cursor.execute("PRAGMA table_info(discovery_pool)")
-                    old_cols = [c[1] for c in cursor.fetchall()]
-
                     cursor.execute("DROP TABLE IF EXISTS discovery_pool_new")
                     cursor.execute("""
                         CREATE TABLE discovery_pool_new (
@@ -6154,16 +6115,7 @@ class MusicDatabase:
                         )
                     """)
 
-                    new_cols = ['id', 'spotify_track_id', 'spotify_album_id', 'spotify_artist_id',
-                                'itunes_track_id', 'itunes_album_id', 'itunes_artist_id',
-                                'deezer_track_id', 'deezer_album_id', 'deezer_artist_id',
-                                'source', 'track_name', 'artist_name', 'album_name', 'album_cover_url',
-                                'duration_ms', 'popularity', 'release_date', 'is_new_release',
-                                'track_data_json', 'artist_genres', 'added_date', 'profile_id']
-                    shared_cols = [c for c in new_cols if c in old_cols]
-                    cols_str = ', '.join(shared_cols)
-
-                    cursor.execute(f"INSERT INTO discovery_pool_new ({cols_str}) SELECT {cols_str} FROM discovery_pool")
+                    self._copy_rows_for_rebuild(cursor, "discovery_pool", "discovery_pool_new")
                     cursor.execute("DROP TABLE discovery_pool")
                     cursor.execute("ALTER TABLE discovery_pool_new RENAME TO discovery_pool")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_pool_profile ON discovery_pool (profile_id)")
@@ -6176,9 +6128,6 @@ class MusicDatabase:
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='discovery_recent_albums'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'UNIQUE(profile_id' not in create_sql[0]:
-                    cursor.execute("PRAGMA table_info(discovery_recent_albums)")
-                    old_cols = [c[1] for c in cursor.fetchall()]
-
                     cursor.execute("DROP TABLE IF EXISTS discovery_recent_albums_new")
                     cursor.execute("""
                         CREATE TABLE discovery_recent_albums_new (
@@ -6201,14 +6150,7 @@ class MusicDatabase:
                         )
                     """)
 
-                    new_cols = ['id', 'album_spotify_id', 'album_itunes_id', 'album_deezer_id',
-                                'artist_spotify_id', 'artist_itunes_id', 'artist_deezer_id',
-                                'source', 'album_name', 'artist_name',
-                                'album_cover_url', 'release_date', 'album_type', 'cached_date', 'profile_id']
-                    shared_cols = [c for c in new_cols if c in old_cols]
-                    cols_str = ', '.join(shared_cols)
-
-                    cursor.execute(f"INSERT INTO discovery_recent_albums_new ({cols_str}) SELECT {cols_str} FROM discovery_recent_albums")
+                    self._copy_rows_for_rebuild(cursor, "discovery_recent_albums", "discovery_recent_albums_new")
                     cursor.execute("DROP TABLE discovery_recent_albums")
                     cursor.execute("ALTER TABLE discovery_recent_albums_new RENAME TO discovery_recent_albums")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_recent_albums_profile ON discovery_recent_albums (profile_id)")
@@ -6221,9 +6163,6 @@ class MusicDatabase:
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='recent_releases'")
                 create_sql = cursor.fetchone()
                 if create_sql and 'UNIQUE(profile_id' not in create_sql[0]:
-                    cursor.execute("PRAGMA table_info(recent_releases)")
-                    old_cols = [c[1] for c in cursor.fetchall()]
-
                     cursor.execute("DROP TABLE IF EXISTS recent_releases_new")
                     cursor.execute("""
                         CREATE TABLE recent_releases_new (
@@ -6243,13 +6182,7 @@ class MusicDatabase:
                         )
                     """)
 
-                    new_cols = ['id', 'watchlist_artist_id', 'album_spotify_id', 'album_itunes_id',
-                                'album_deezer_id', 'source', 'album_name', 'release_date',
-                                'album_cover_url', 'track_count', 'added_date', 'profile_id']
-                    shared_cols = [c for c in new_cols if c in old_cols]
-                    cols_str = ', '.join(shared_cols)
-
-                    cursor.execute(f"INSERT INTO recent_releases_new ({cols_str}) SELECT {cols_str} FROM recent_releases")
+                    self._copy_rows_for_rebuild(cursor, "recent_releases", "recent_releases_new")
                     cursor.execute("DROP TABLE recent_releases")
                     cursor.execute("ALTER TABLE recent_releases_new RENAME TO recent_releases")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_recent_releases_profile ON recent_releases (profile_id)")
@@ -6293,9 +6226,6 @@ class MusicDatabase:
                 cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='similar_artists'")
                 create_sql = cursor.fetchone()
                 if create_sql and ('UNIQUE(profile_id' not in create_sql[0] or needs_repair):
-                    cursor.execute("PRAGMA table_info(similar_artists)")
-                    old_cols = [c[1] for c in cursor.fetchall()]
-
                     cursor.execute("DROP TABLE IF EXISTS similar_artists_new")
                     cursor.execute("""
                         CREATE TABLE similar_artists_new (
@@ -6320,17 +6250,7 @@ class MusicDatabase:
                         )
                     """)
 
-                    new_cols = ['id', 'source_artist_id', 'similar_artist_spotify_id',
-                                'similar_artist_itunes_id', 'similar_artist_deezer_id',
-                                'similar_artist_musicbrainz_id', 'similar_artist_name',
-                                'similarity_rank', 'occurrence_count',
-                                'last_updated', 'image_url', 'genres', 'popularity',
-                                'metadata_updated_at', 'last_featured', 'profile_id',
-                                'source_provider']
-                    shared_cols = [c for c in new_cols if c in old_cols]
-                    cols_str = ', '.join(shared_cols)
-
-                    cursor.execute(f"INSERT INTO similar_artists_new ({cols_str}) SELECT {cols_str} FROM similar_artists")
+                    self._copy_rows_for_rebuild(cursor, "similar_artists", "similar_artists_new")
                     cursor.execute("DROP TABLE similar_artists")
                     cursor.execute("ALTER TABLE similar_artists_new RENAME TO similar_artists")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_similar_artists_profile ON similar_artists (profile_id)")
@@ -6581,12 +6501,9 @@ class MusicDatabase:
                         UNIQUE(playlist_mbid, profile_id)
                     )
                 """)
-                cursor.execute("""
-                    INSERT OR IGNORE INTO listenbrainz_playlists_new
-                    (id, playlist_mbid, title, creator, playlist_type, track_count, annotation_data, profile_id, last_updated, cached_date)
-                    SELECT id, playlist_mbid, title, creator, playlist_type, track_count, annotation_data, 1, last_updated, cached_date
-                    FROM listenbrainz_playlists
-                """)
+                # every cached playlist so far belongs to profile 1
+                self._copy_rows_for_rebuild(cursor, "listenbrainz_playlists", "listenbrainz_playlists_new",
+                                            expressions={"profile_id": "1"}, or_ignore=True)
                 cursor.execute("DROP TABLE listenbrainz_playlists")
                 cursor.execute("ALTER TABLE listenbrainz_playlists_new RENAME TO listenbrainz_playlists")
 
