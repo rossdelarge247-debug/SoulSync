@@ -291,3 +291,27 @@ def test_a_failing_start_does_not_stop_the_rest(ws, quiet_runtime, monkeypatch):
     ws.start_runtime_services()
     assert quiet_runtime.calls == ["after"]
     quiet_runtime.start_batch_healing_timer.assert_called_once_with()
+
+
+_DIRECT_RUN_PROBE = textwrap.dedent("""
+    import json, os, runpy, sys, threading
+    import flask_socketio
+    threading.Thread.start = lambda self: None                # start nothing for real
+    flask_socketio.SocketIO.run = lambda self, *a, **k: None  # and don't serve
+    namespace = runpy.run_path(os.path.join(sys.argv[1], "web_server.py"), run_name="__main__")
+    import web_server
+    print("DIRECT-RUN-PROBE " + json.dumps({"same_app": web_server.app is namespace["app"]}), flush=True)
+    os._exit(0)
+""")
+
+
+def test_direct_run_serves_import_web_server_from_the_running_module(tmp_path):
+    """`python web_server.py` runs the file as __main__; a later lazy
+    `import web_server` must get that module, not execute the file again."""
+    proc = subprocess.run(
+        [sys.executable, "-c", _DIRECT_RUN_PROBE, str(ROOT)],
+        cwd=str(tmp_path), env=_subprocess_env(tmp_path), capture_output=True, text=True, timeout=300,
+    )
+    lines = [line for line in proc.stdout.splitlines() if line.startswith("DIRECT-RUN-PROBE ")]
+    assert proc.returncode == 0 and lines, (proc.stdout + proc.stderr)[-4000:]
+    assert json.loads(lines[-1][len("DIRECT-RUN-PROBE "):]) == {"same_app": True}

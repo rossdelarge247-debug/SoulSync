@@ -1,4 +1,11 @@
 _DIRECT_RUN = (__name__ == '__main__')
+if _DIRECT_RUN:
+    # `python web_server.py` runs this file as __main__. A few routes import
+    # web_server lazily; without this alias that import would run the whole
+    # file again as a second module (a second app, clients and workers) and
+    # point shared emitters and clients at that copy.
+    import sys
+    sys.modules.setdefault('web_server', sys.modules[__name__])
 
 import os
 import json
