@@ -15,6 +15,7 @@ import { Route as WatchlistRouteRouteImport } from './routes/watchlist/route'
 import { Route as ToolsRouteRouteImport } from './routes/tools/route'
 import { Route as SyncRouteRouteImport } from './routes/sync/route'
 import { Route as StatsRouteRouteImport } from './routes/stats/route'
+import { Route as SetupCheckRouteRouteImport } from './routes/setup-check/route'
 import { Route as SearchRouteRouteImport } from './routes/search/route'
 import { Route as SampleStudioRouteRouteImport } from './routes/sample-studio/route'
 import { Route as RequestsRouteRouteImport } from './routes/requests/route'
@@ -73,6 +74,11 @@ const SyncRouteRoute = SyncRouteRouteImport.update({
 const StatsRouteRoute = StatsRouteRouteImport.update({
   id: '/stats',
   path: '/stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupCheckRouteRoute = SetupCheckRouteRouteImport.update({
+  id: '/setup-check',
+  path: '/setup-check',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SearchRouteRoute = SearchRouteRouteImport.update({
@@ -236,6 +242,7 @@ export interface FileRoutesByFullPath {
   '/requests': typeof RequestsRouteRoute
   '/sample-studio': typeof SampleStudioRouteRoute
   '/search': typeof SearchRouteRoute
+  '/setup-check': typeof SetupCheckRouteRoute
   '/stats': typeof StatsRouteRoute
   '/sync': typeof SyncRouteRoute
   '/tools': typeof ToolsRouteRoute
@@ -270,6 +277,7 @@ export interface FileRoutesByTo {
   '/requests': typeof RequestsRouteRoute
   '/sample-studio': typeof SampleStudioRouteRoute
   '/search': typeof SearchRouteRoute
+  '/setup-check': typeof SetupCheckRouteRoute
   '/stats': typeof StatsRouteRoute
   '/sync': typeof SyncRouteRoute
   '/tools': typeof ToolsRouteRoute
@@ -308,6 +316,7 @@ export interface FileRoutesById {
   '/requests': typeof RequestsRouteRoute
   '/sample-studio': typeof SampleStudioRouteRoute
   '/search': typeof SearchRouteRoute
+  '/setup-check': typeof SetupCheckRouteRoute
   '/stats': typeof StatsRouteRoute
   '/sync': typeof SyncRouteRoute
   '/tools': typeof ToolsRouteRoute
@@ -347,6 +356,7 @@ export interface FileRouteTypes {
     | '/requests'
     | '/sample-studio'
     | '/search'
+    | '/setup-check'
     | '/stats'
     | '/sync'
     | '/tools'
@@ -381,6 +391,7 @@ export interface FileRouteTypes {
     | '/requests'
     | '/sample-studio'
     | '/search'
+    | '/setup-check'
     | '/stats'
     | '/sync'
     | '/tools'
@@ -418,6 +429,7 @@ export interface FileRouteTypes {
     | '/requests'
     | '/sample-studio'
     | '/search'
+    | '/setup-check'
     | '/stats'
     | '/sync'
     | '/tools'
@@ -456,6 +468,7 @@ export interface RootRouteChildren {
   RequestsRouteRoute: typeof RequestsRouteRoute
   SampleStudioRouteRoute: typeof SampleStudioRouteRoute
   SearchRouteRoute: typeof SearchRouteRoute
+  SetupCheckRouteRoute: typeof SetupCheckRouteRoute
   StatsRouteRoute: typeof StatsRouteRoute
   SyncRouteRoute: typeof SyncRouteRoute
   ToolsRouteRoute: typeof ToolsRouteRoute
@@ -508,6 +521,13 @@ declare module '@tanstack/react-router' {
       path: '/stats'
       fullPath: '/stats'
       preLoaderRoute: typeof StatsRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup-check': {
+      id: '/setup-check'
+      path: '/setup-check'
+      fullPath: '/setup-check'
+      preLoaderRoute: typeof SetupCheckRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/search': {
@@ -787,6 +807,7 @@ const rootRouteChildren: RootRouteChildren = {
   RequestsRouteRoute: RequestsRouteRoute,
   SampleStudioRouteRoute: SampleStudioRouteRoute,
   SearchRouteRoute: SearchRouteRoute,
+  SetupCheckRouteRoute: SetupCheckRouteRoute,
   StatsRouteRoute: StatsRouteRoute,
   SyncRouteRoute: SyncRouteRoute,
   ToolsRouteRoute: ToolsRouteRoute,
