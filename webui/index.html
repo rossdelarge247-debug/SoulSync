@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>SoulSync - Music Sync & Manager</title>
     <meta name="soulsync-url-base" content="{{ request.script_root }}">
-    <script src="{{ url_for('static', filename='url-base.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='url-base.js') }}"></script>
     <!-- Collapsed sidebar (#1155). Has to run HERE, before the stylesheet
          resolves --sidebar-w, or the sidebar renders full width and snaps to the
          icon width after paint — a visible jump of the whole page on every
@@ -87,45 +87,45 @@
             };
         })();
     </script>
-    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png', v=static_v) }}">
-    <link rel="manifest" href="{{ url_for('static', filename='manifest.json', v=static_v) }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
     <meta name="theme-color" content="{{ initial_accent_color }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='pwa-icon-192.png', v=static_v) }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='pwa-icon-192.png') }}">
     <!-- Design tokens: the one global :root. Must stay the first stylesheet. -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='tokens.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='media-player-v2.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='mobile.css', v=static_v) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='tokens.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='media-player-v2.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mobile.css') }}">
     <!-- Automations visual redesign — a pure reskin loaded after style/mobile so it
          wins by cascade; no JS-referenced selectors change (see file header). -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='automations-redesign.css', v=static_v) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='automations-redesign.css') }}">
     <!-- Automations navigation overhaul — sidebar + overview + library; loaded
          after the redesign so it wins where they meet (see file header). -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='automations-overhaul.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='setup-wizard.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='video/video-side.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='video/video-overlay-editor.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='video/video-collection-editor.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='settings-premier.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='discover-premier.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='watchlist-premier.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='chat-overhaul.css', v=static_v) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='automations-overhaul.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='setup-wizard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='video/video-side.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='video/video-overlay-editor.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='video/video-collection-editor.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='settings-premier.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='discover-premier.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='watchlist-premier.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='chat-overhaul.css') }}">
     <!-- Wishlist premier redesign — pure reskin + additive wlp-* markup; every
          JS-referenced hook (.wl-*, #wishlist-*, data-testid) is untouched. -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='wishlist-premier.css', v=static_v) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='wishlist-premier.css') }}">
     <!-- Dashboard premier redesign — pure reskin of the music dashboard hero,
          rails and right column; orb strip and library-card markup untouched. -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard-premier.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='profiles.css', v=static_v) }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='docs.css', v=static_v) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard-premier.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='profiles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='docs.css') }}">
     <!-- Sidebar weather: time/temp/condition line, forecast popover, particle
          scene. Additive — only #sidebar-weather-* selectors inside. -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='sidebar-weather.css', v=static_v) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='sidebar-weather.css') }}">
     <!-- Global scrollbars: visible/grabbable horizontal webkit styling, the
          .hscroll-fade edge-fade utility, and the general fading-scrollbar
          rules. Linked last so these win equal-specificity ties with
          component sheets. -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='scrollbars.css', v=static_v) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='scrollbars.css') }}">
     <style id="soulsync-initial-appearance">
         :root {
             --accent-rgb: {{ initial_accent_rgb }};
@@ -12647,27 +12647,27 @@
 
     <!-- fetch-dedupe must load BEFORE the React bundle and every split module,
          so all frameworks share one wire request per identical GET burst. -->
-    <script src="{{ url_for('static', filename='fetch-dedupe.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='fetch-dedupe.js') }}"></script>
     <!-- profile-api-gate: answers api calls this profile can't have with a local
          403, so a member's page load doesn't send a burst of 4xx (#1763). after
          fetch-dedupe so refused calls never reach it. -->
-    <script src="{{ url_for('static', filename='profile-api-gate.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='profile-api-gate.js') }}"></script>
     <!-- scrollbar-fade: toggles .is-scrolling on whatever element is scrolling
          so scrollbars.css section 4 can brighten/fade thumbs. Standalone,
          dependency-free, safe to load before every other module. -->
-    <script src="{{ url_for('static', filename='scrollbar-fade.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='vendor/socket.io.min.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='scrollbar-fade.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/socket.io.min.js') }}"></script>
     {{ vite_assets('body')|safe }}
-    <script src="{{ url_for('static', filename='setup-wizard.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='setup-wizard.js') }}"></script>
     <!-- Split modules (was: script.js) — core.js must load first, init.js before shell-bridge.js -->
-    <script src="{{ url_for('static', filename='core.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='shared-helpers.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='media-player.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='media-player-v2.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='settings.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='sync-spotify.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='downloads.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='wishlist-tools.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='core.js') }}"></script>
+    <script src="{{ url_for('static', filename='shared-helpers.js') }}"></script>
+    <script src="{{ url_for('static', filename='media-player.js') }}"></script>
+    <script src="{{ url_for('static', filename='media-player-v2.js') }}"></script>
+    <script src="{{ url_for('static', filename='settings.js') }}"></script>
+    <script src="{{ url_for('static', filename='sync-spotify.js') }}"></script>
+    <script src="{{ url_for('static', filename='downloads.js') }}"></script>
+    <script src="{{ url_for('static', filename='wishlist-tools.js') }}"></script>
     <!-- the SHELL bundle: classic scripts ported to typescript (src/shell/*,
          built by vite.shell.config.ts as a synchronous IIFE). currently:
          blocklist, origin-history, watchlist-history, my-accounts,
@@ -12676,29 +12676,29 @@
          window globals exist by the time anything that calls them runs.
          (discover-section-controller.js was deleted outright - its consumer,
          the vanilla discover page, is long gone.) -->
-    <script src="{{ url_for('static', filename='dist/shell.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='sync-services.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='api-monitor.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='dist/shell.js') }}"></script>
+    <script src="{{ url_for('static', filename='sync-services.js') }}"></script>
+    <script src="{{ url_for('static', filename='api-monitor.js') }}"></script>
     <!-- Artist Web graph stack (sigma.js): graphology = data model, sigma = WebGL renderer,
          graphology-library = utils incl. forceAtlas2 layout. CDN/UMD (SoulSync is vanilla). -->
     <script defer src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/graphology-library/dist/graphology-library.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
-    <script src="{{ url_for('static', filename='enrichment.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='enrichment-manager.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='stats-automations.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='auto-sync.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='pages-extra.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='chat-protocol.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='enrichment.js') }}"></script>
+    <script src="{{ url_for('static', filename='enrichment-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='stats-automations.js') }}"></script>
+    <script src="{{ url_for('static', filename='auto-sync.js') }}"></script>
+    <script src="{{ url_for('static', filename='pages-extra.js') }}"></script>
+    <script src="{{ url_for('static', filename='chat-protocol.js') }}"></script>
     <!-- Arcade: the chess rules engine and the game lifecycle fold. Both are
          pure and self-contained (no DOM, no fetch); chat.js reads them off
          window and simply hides the Arcade if either failed to load. -->
-    <script src="{{ url_for('static', filename='chat-hash.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='chess-engine.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='chat-games.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='chat.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='init.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='shell-bridge.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='chat-hash.js') }}"></script>
+    <script src="{{ url_for('static', filename='chess-engine.js') }}"></script>
+    <script src="{{ url_for('static', filename='chat-games.js') }}"></script>
+    <script src="{{ url_for('static', filename='chat.js') }}"></script>
+    <script src="{{ url_for('static', filename='init.js') }}"></script>
+    <script src="{{ url_for('static', filename='shell-bridge.js') }}"></script>
     <!-- Notification bell + floating helper toggle — always accessible above modals -->
     <!-- The floating global ("Search everything…") bar used to live here, above
          the media player. Removed deliberately: it duplicated the Search page
@@ -12832,96 +12832,96 @@
         <span>?</span>
     </button>
 
-    <script src="{{ url_for('static', filename='docs.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/01-getting-started.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/02-guides.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/03-dashboard.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/04-search.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/05-sync.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/06-discover.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/07-artists.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/08-automations.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/09-library.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/10-import-player.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/11-settings.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/12-profiles.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/13-troubleshooting.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/14-video.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/15-sample-studio.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/16-api.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='docs-content/17-podcasts-audiobooks.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='helper.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='particles.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='worker-orbs.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='docs.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/01-getting-started.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/02-guides.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/03-dashboard.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/04-search.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/05-sync.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/06-discover.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/07-artists.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/08-automations.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/09-library.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/10-import-player.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/11-settings.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/12-profiles.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/13-troubleshooting.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/14-video.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/15-sample-studio.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/16-api.js') }}"></script>
+    <script src="{{ url_for('static', filename='docs-content/17-podcasts-audiobooks.js') }}"></script>
+    <script src="{{ url_for('static', filename='helper.js') }}"></script>
+    <script src="{{ url_for('static', filename='particles.js') }}"></script>
+    <script src="{{ url_for('static', filename='worker-orbs.js') }}"></script>
     <!-- Video side shell controller (isolated; music never references it) -->
-    <script src="{{ url_for('static', filename='video/video-side.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-side.js') }}"></script>
     <!-- Shared video scan controller (triggers + polls scans for all video pages) -->
-    <script src="{{ url_for('static', filename='video/video-scan.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='video/video-server-scan.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-scan.js') }}"></script>
+    <script src="{{ url_for('static', filename='video/video-server-scan.js') }}"></script>
     <!-- Video settings additions (isolated; library mapping on the settings page) -->
-    <script src="{{ url_for('static', filename='video/video-settings.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-settings.js') }}"></script>
     <!-- Video enrichment dashboard buttons (isolated; polls /api/video/enrichment) -->
-    <script src="{{ url_for('static', filename='video/video-enrichment.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-enrichment.js') }}"></script>
     <!-- Video Manage-Workers modal (isolated; reuses music's .em-* CSS, own JS) -->
-    <script src="{{ url_for('static', filename='video/video-enrichment-manager.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-enrichment-manager.js') }}"></script>
     <!-- Video dashboard data layer (isolated; populates the dashboard from the video DB) -->
-    <script src="{{ url_for('static', filename='video/video-dashboard.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-dashboard.js') }}"></script>
     <!-- Video-side sidebar service status: dots + the server/download switch modal -->
-    <script src="{{ url_for('static', filename='video/video-service-status.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-service-status.js') }}"></script>
     <!-- Video watchlist button (shared; the add-to-watchlist control used by every
          show-poster + person card — must load before the card renderers) -->
-    <script src="{{ url_for('static', filename='video/video-wish-state.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='video/video-watchlist-btn.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-wish-state.js') }}"></script>
+    <script src="{{ url_for('static', filename='video/video-watchlist-btn.js') }}"></script>
     <!-- Video "get" button + detail/download modal (shared; movies + ended shows) -->
-    <script src="{{ url_for('static', filename='video/video-get-modal.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-get-modal.js') }}"></script>
     <!-- Poster Manager (full-screen modal; "Manage Poster" on detail pages + dashboard quick action) -->
-    <script src="{{ url_for('static', filename='video/video-poster-modal.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-poster-modal.js') }}"></script>
     <!-- Manage panel (per-item metadata editor slide-over; "Manage" on detail pages) -->
-    <script src="{{ url_for('static', filename='video/video-manage-panel.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-manage-panel.js') }}"></script>
     <!-- Library Maintenance (jobs & findings on the video Tools page) -->
-    <script src="{{ url_for('static', filename='video/video-repair.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-repair.js') }}"></script>
     <!-- Issues (report on items via the Manage sidebar; triage on the Issues page) -->
-    <script src="{{ url_for('static', filename='video/video-issues.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-issues.js') }}"></script>
     <!-- Overlay Studio (full-bleed visual editor for poster-overlay templates; Artwork Studio) -->
-    <script src="{{ url_for('static', filename='video/video-overlay-editor.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='video/video-collection-editor.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-overlay-editor.js') }}"></script>
+    <script src="{{ url_for('static', filename='video/video-collection-editor.js') }}"></script>
     <!-- Download VIEW renderer (movie / show / youtube): per-source search + quality verdict;
          rendered inline inside the get-modal (not its own modal) -->
-    <script src="{{ url_for('static', filename='video/video-download-view.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-download-view.js') }}"></script>
     <!-- Headless per-episode / per-season auto-grab + wishlist helper (VideoGrab),
          used by the detail page's inline acquisition buttons -->
-    <script src="{{ url_for('static', filename='video/video-grab.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-grab.js') }}"></script>
     <!-- Automations page (shared system automations, video view) -->
-    <script src="{{ url_for('static', filename='video/video-automations.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-automations.js') }}"></script>
     <!-- Video library page (isolated; lists movies/shows + scan trigger) -->
-    <script src="{{ url_for('static', filename='video/video-library.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-library.js') }}"></script>
     <!-- Video detail page (isolated; show drill-in: hero + season/episode tree) -->
-    <script src="{{ url_for('static', filename='video/video-detail.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-detail.js') }}"></script>
     <!-- Subtitle overrides + manual search (Phase 3; hooks into video-detail.js) -->
-    <script src="{{ url_for('static', filename='video/video-subtitles.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-subtitles.js') }}"></script>
     <!-- Shared YouTube-channel helpers (paste-a-link follow, channel/video cards);
          load before search/watchlist/wishlist which use window.VideoYoutube -->
-    <script src="{{ url_for('static', filename='video/video-youtube.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-youtube.js') }}"></script>
     <!-- Video search (isolated; in-app multi-search → library/tmdb detail) -->
-    <script src="{{ url_for('static', filename='video/video-search.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-search.js') }}"></script>
     <!-- Video discover (isolated; trending hero + lazy genre/decade rails + filter grid) -->
-    <script src="{{ url_for('static', filename='video/video-discover.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='video/video-calendar.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-discover.js') }}"></script>
+    <script src="{{ url_for('static', filename='video/video-calendar.js') }}"></script>
     <!-- Video person page (isolated; cast/crew drill-in → filmography) -->
-    <script src="{{ url_for('static', filename='video/video-person.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-person.js') }}"></script>
     <!-- Video studio page (isolated; production-company drill-in → film collection) -->
-    <script src="{{ url_for('static', filename='video/video-studio.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-studio.js') }}"></script>
     <!-- Video watchlist page (isolated; tabbed shows / people you follow) -->
-    <script src="{{ url_for('static', filename='video/video-watchlist.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='video/video-subscriptions.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-watchlist.js') }}"></script>
+    <script src="{{ url_for('static', filename='video/video-subscriptions.js') }}"></script>
     <!-- Video wishlist page (isolated; tabbed movies / TV, grouped show tree) -->
-    <script src="{{ url_for('static', filename='video/video-wishlist.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='video/video-requests.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='video/video-import.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-wishlist.js') }}"></script>
+    <script src="{{ url_for('static', filename='video/video-requests.js') }}"></script>
+    <script src="{{ url_for('static', filename='video/video-import.js') }}"></script>
     <!-- Video worker orbs (isolated copy of the music orbs; idles into the
          floating-orb animation around the SoulSync logo on the video dashboard) -->
-    <script src="{{ url_for('static', filename='video/video-worker-orbs.js', v=static_v) }}"></script>
-    <script src="{{ url_for('static', filename='config-migration.js', v=static_v) }}"></script>
+    <script src="{{ url_for('static', filename='video/video-worker-orbs.js') }}"></script>
+    <script src="{{ url_for('static', filename='config-migration.js') }}"></script>
 </body>
 
 </html>

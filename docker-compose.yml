@@ -151,7 +151,7 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8008/" ]
+      test: [ "CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8008/api/health" ]
       interval: 30s
       timeout: 10s
       retries: 3

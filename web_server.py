@@ -294,6 +294,11 @@ app = Flask(
     template_folder=os.path.join(base_dir, 'webui'),
     static_folder=os.path.join(base_dir, 'webui', 'static')
 )
+# gzip/brotli for the page shell, static JS/CSS and API JSON. Registered before
+# any other after_request hook so it runs after all of them (Flask runs them in
+# reverse order); see core/webui/compression.py for what is never compressed.
+from core.webui.compression import init_compression
+init_compression(app)
 
 # The browser's media engine buffers audio in bursts: it opens a Range
 # request, kills it once its internal buffer is full, and re-requests as
@@ -312,26 +317,30 @@ logging.getLogger('werkzeug').addFilter(_AudioChunkLogFilter())
 app.config['TEMPLATES_AUTO_RELOAD'] = DEV_STATIC_NO_CACHE
 app.jinja_env.auto_reload = DEV_STATIC_NO_CACHE
 # Static assets (library.js / style.css / etc.) get aggressive browser
-# caching (1 year). Safe because every static URL is bust-tagged with
-# `?v=static_v` (computed once per process start — see below) so each
-# server restart effectively invalidates every cached asset for every
-# user. Within a single deploy, repeat page loads hit zero round-trips
-# on static files — was a 304 round-trip per asset under the old
-# max-age=0 setting.
+# caching (1 year). Safe because every url_for('static', ...) URL carries
+# `?v=<hash of that file's contents>` (StaticVersioner below): when an
+# upgrade changes a file its URL changes, so the browser cannot reuse the
+# old copy no matter what its Cache-Control header said, while files the
+# upgrade didn't touch stay cached. Within a single deploy, repeat page
+# loads hit zero round-trips on static files.
 #
 # In dev, DEV_STATIC_NO_CACHE flips this back to 0 so iterating on JS
 # / CSS doesn't require a server restart between edits.
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0 if DEV_STATIC_NO_CACHE else 31536000
 
 
-# Cache-bust query string for static assets. Computed once per process
-# start so each server restart invalidates the browser's cached copy of
-# every JS/CSS file. This is the surefire fix for "user has stale JS
-# even after Ctrl+Shift+R" — the URL itself changes, so the browser
-# cannot reuse a previously-cached response no matter what its
-# Cache-Control header said.
+# Per-process token: the version for a static file that can't be read, and
+# `static_v` for templates that still pass v= themselves.
 import time as _cache_bust_time
 _STATIC_CACHE_BUST = str(int(_cache_bust_time.time()))
+
+# Each file is hashed the first time a URL for it is built, then remembered for
+# the life of the process (re-checked against mtime/size in dev no-cache mode),
+# so rendering a page no longer touches the static folder.
+from core.webui.static_version import StaticVersioner
+_static_versioner = StaticVersioner(app.static_folder, fallback=_STATIC_CACHE_BUST,
+                                    watch=DEV_STATIC_NO_CACHE)
+app.url_defaults(_static_versioner.url_defaults)
 
 def _valid_hex_color(value, fallback='#1db954'):
     value = str(value or '').strip()
@@ -435,17 +444,7 @@ def _initial_appearance_context():
 
 @app.context_processor
 def _inject_static_cache_bust():
-    try:
-        static_dir = Path(app.static_folder)
-        mtimes = [
-            p.stat().st_mtime_ns
-            for p in static_dir.rglob('*')
-            if p.is_file() and p.suffix.lower() in {'.css', '.js'}
-        ]
-        static_v = str(max(mtimes)) if mtimes else _STATIC_CACHE_BUST
-    except Exception:
-        static_v = _STATIC_CACHE_BUST
-    return {'static_v': static_v, **_initial_appearance_context()}
+    return {'static_v': _STATIC_CACHE_BUST, **_initial_appearance_context()}
 
 
 @app.context_processor
@@ -3352,6 +3351,12 @@ def spa_catch_all(page):
     if not should_serve_webui_spa(f'/{page}'):
         abort(404)
     return index()
+
+
+# Liveness for the Docker HEALTHCHECK: the app and its database answer, without
+# rendering the page shell (api/health.py). Open to every session gate.
+from api.health import create_blueprint as _create_health_blueprint
+app.register_blueprint(_create_health_blueprint(get_database=lambda: get_database()))
 
 # --- API Endpoints ---
 

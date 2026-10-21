@@ -3,10 +3,17 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { defineConfig } from 'vite';
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => ({
   plugins: [
     tanstackRouter({
       target: 'react',
+      // each route's component becomes its own chunk, loaded when the route
+      // is first matched (or hovered: defaultPreload is 'intent'), so a page
+      // load no longer downloads every page. loaders stay in the entry chunk.
+      // off under vitest (mode 'test'): route tests that render a page off
+      // the route tree time out waiting for the lazy chunk, and splitting is
+      // a bundling concern the build covers.
+      autoCodeSplitting: mode !== 'test',
     }),
     react(),
   ],

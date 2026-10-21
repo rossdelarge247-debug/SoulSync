@@ -143,9 +143,11 @@ RUN chmod +x /entrypoint.sh
 # Expose port
 EXPOSE 8008
 
-# Health check
+# Health check: /api/health answers once the app and its database respond,
+# without rendering the 1 MB page shell every 30 s like "/" did. Open to the
+# login / launch-PIN gates; it reports only up or down.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8008/ || exit 1
+    CMD curl -fsS -o /dev/null http://localhost:8008/api/health || exit 1
 
 # Set environment variables
 ENV PYTHONPATH=/app

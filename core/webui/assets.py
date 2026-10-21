@@ -114,13 +114,54 @@ def build_webui_vite_assets(
         return ""
 
     if placement == "head":
-        return "\n".join(
+        chunk_files, css_files = _collect_static_imports(manifest, entry)
+        tags = [
             f'<link rel="stylesheet" href="{static_url(f"dist/{css_file}")}">'
-            for css_file in entry_meta.get("css", [])
+            for css_file in css_files
+        ]
+        # the entry imports these shared chunks statically; preloading them
+        # here saves a round trip per level of the import graph
+        tags.extend(
+            f'<link rel="modulepreload" href="{static_url(f"dist/{chunk_file}")}">'
+            for chunk_file in chunk_files
         )
+        return "\n".join(tags)
 
     entry_file = entry_meta.get("file")
     if not entry_file:
         return ""
 
     return f'<script type="module" src="{static_url(f"dist/{entry_file}")}"></script>'
+
+
+def _collect_static_imports(manifest: dict[str, Any], entry: str) -> tuple[list[str], list[str]]:
+    """The chunk files the entry statically imports (transitively, entry
+    excluded) and the CSS of the entry and all of those chunks, without
+    duplicates. CSS comes dependencies first, as Vite orders it in the HTML it
+    generates itself, so the entry's own rules still win the cascade.
+
+    With route code splitting the entry is no longer the only chunk loaded up
+    front. Route chunks (``dynamicImports``) are left out: the router loads them,
+    and their CSS, when a route needs them.
+    """
+    chunk_files: list[str] = []
+    css_files: list[str] = []
+    seen: set[str] = set()
+
+    def visit(key: str) -> None:
+        if key in seen:
+            return
+        seen.add(key)
+        meta = manifest.get(key)
+        if not isinstance(meta, dict):
+            return
+        if key != entry and meta.get("file") and meta["file"] not in chunk_files:
+            chunk_files.append(meta["file"])
+        for imported in meta.get("imports", []):
+            visit(imported)
+        for css_file in meta.get("css", []):
+            if css_file not in css_files:
+                css_files.append(css_file)
+
+    visit(entry)
+    return chunk_files, css_files

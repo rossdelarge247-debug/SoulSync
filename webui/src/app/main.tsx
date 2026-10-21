@@ -6,6 +6,12 @@ import { mountAddToPlaylistHost } from '@/features/playlists/add-to-playlist';
 import { mountLibraryDiscographySourceSelector } from '@/features/settings/library-discography-source';
 import { bindWindowWebRouter } from '@/platform/shell/bridge';
 import { ROUTER_ROOT_ID } from '@/platform/shell/route-controllers';
+// Route components are code-split, so a route module's top-level code only runs
+// once its route loads. The discover download bar's store publishes window
+// globals at module load that wishlist-tools.js and init.js use on every page
+// (discoverDownloads, hydrateDiscoverDownloadsFromSnapshot), so it has to be in
+// the entry chunk. entry-side-effects.test.ts keeps the next one honest.
+import '@/routes/discover/-discover.use-download-bar';
 
 import { createAppQueryClient } from './query-client';
 import { AppRouterProvider, createAppRouter } from './router';

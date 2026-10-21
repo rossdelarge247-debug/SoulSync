@@ -39,6 +39,13 @@ class FilteredGunicornLogger(GunicornLogger):
         "curl/",
     )
 
+    # what the Docker HEALTHCHECK polls every 30 s: "/" in older images and
+    # compose files, /api/health now
+    _HEALTHCHECK_PATHS = (
+        "/",
+        "/api/health",
+    )
+
     def _should_skip_access_log(self, environ) -> bool:
         path = environ.get("PATH_INFO") or ""
         if not path:
@@ -53,7 +60,7 @@ class FilteredGunicornLogger(GunicornLogger):
         ):
             return True
 
-        if lower_path == "/":
+        if lower_path in self._HEALTHCHECK_PATHS:
             user_agent = (environ.get("HTTP_USER_AGENT") or "").lower()
             if any(token in user_agent for token in self._HEALTHCHECK_USER_AGENTS):
                 return True
