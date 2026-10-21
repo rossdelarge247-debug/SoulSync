@@ -6315,14 +6315,7 @@ def deezer_callback():
 # chat/labels blueprints below) ---
 # --- Placeholder API Endpoints for Other Pages ---
 
-@app.route('/api/activity')
-def get_activity():
-    # Placeholder: returns mock activity data
-    mock_activity = [
-        {"time": "1 min ago", "text": "Service status checked."},
-        {"time": "5 min ago", "text": "Application server started."}
-    ]
-    return jsonify({"activities": mock_activity})
+# /api/activity (the Activity feed) lives in api/activity.py.
 
 @app.route('/api/playlists')
 def get_playlists():
@@ -23759,6 +23752,11 @@ _cfg_setup_check(config_manager_=config_manager,
                  soulseek_client_getter=lambda: download_orchestrator.client('soulseek') if download_orchestrator else None)
 app.register_blueprint(_bp_setup_check())
 
+# Activity feed (api/activity.py).
+from api.activity import configure as _cfg_activity, create_blueprint as _bp_activity
+_cfg_activity(get_database_=get_database)
+app.register_blueprint(_bp_activity())
+
 # Quality profiles / auto-import watcher / metadata-cache browser - three
 # self-contained clusters lifted to their own api/ modules.
 from api.quality_profiles import configure as _cfg_qp, create_blueprint as _bp_qp
@@ -24007,7 +24005,9 @@ app.register_blueprint(_bp_lbr())
 
 # server activity, personalized playlists, music issues - three thin families
 from api.server_activity import configure as _cfg_sa, create_blueprint as _bp_sa
-_cfg_sa(get_activity=get_activity)
+# its routes import core.server_activity themselves; the old injection handed
+# over the mock /api/activity view, which nothing called
+_cfg_sa()
 app.register_blueprint(_bp_sa())
 
 from api.personalized import configure as _cfg_pz, create_blueprint as _bp_pz

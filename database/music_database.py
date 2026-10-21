@@ -1674,6 +1674,8 @@ class MusicDatabase:
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_aih_status ON auto_import_history (status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_aih_folder_hash ON auto_import_history (folder_hash)")
+            # the Activity feed reads auto-imports by time (core/activity/feed.py)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_aih_created ON auto_import_history (created_at)")
 
             # Preview-then-confirm outcomes (core/library/action_plans.py keeps
             # the plans themselves in memory). One row when a preview expired
