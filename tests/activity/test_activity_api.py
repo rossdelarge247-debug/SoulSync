@@ -9,6 +9,7 @@ import pytest
 from flask import Flask
 
 import api.activity as activity_api
+from core.activity import feed as _feed
 from core.activity import safety_log
 from core.library.action_plans import PlanStore
 from tests.activity.activity_rows import HOUR
@@ -22,6 +23,10 @@ def client(db, monkeypatch):
     store = PlanStore()
     monkeypatch.setattr("core.library.action_plans.plan_store", store)
     monkeypatch.setattr(activity_api, "get_database", lambda: db)
+    # downloads and automations other tests left running on this worker
+    # would otherwise count as running here
+    monkeypatch.setattr(_feed, "snapshot_live_batches", lambda: {})
+    monkeypatch.setattr(_feed, "snapshot_running_automations", lambda: {})
     safety_log.install(lambda: db, store=store)
     app = Flask(__name__)
     app.register_blueprint(activity_api.bp)
