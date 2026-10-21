@@ -26282,43 +26282,113 @@ class MusicDatabase:
             return False
 
     def update_mirrored_track_extra_data(self, track_id: int, extra_data_dict: dict) -> bool:
-        """Merge new data into a mirrored track's extra_data JSON field."""
+        """Merge new data into a mirrored track's extra_data JSON field.
+
+        The read, the merge and the write run under one BEGIN IMMEDIATE, so a
+        second writer merging other keys into the same row waits for this one
+        and merges into its result. Without it, two read-merge-writes racing
+        on one row (a discovery worker and a sync, say) both read the old
+        JSON and the later write silently dropped the earlier one's keys."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT extra_data FROM mirrored_playlist_tracks WHERE id = ?",
-                    (track_id,)
-                )
-                row = cursor.fetchone()
-                if not row:
-                    return False
-                existing = {}
-                if row['extra_data']:
-                    try:
-                        existing = json.loads(row['extra_data'])
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                existing.update(extra_data_dict)
-                cursor.execute(
-                    "UPDATE mirrored_playlist_tracks SET extra_data = ? WHERE id = ?",
-                    (json.dumps(existing), track_id)
-                )
-                # A newly discovered track can change what the collage should
-                # be, so drop the cached tiles and let the next library read
-                # rebuild them. Cheaper than recomputing four distinct covers on
-                # every single track write, and it is the read that needs them.
-                if mirrored_cover_from_match(existing):
-                    cursor.execute(
-                        "UPDATE mirrored_playlists SET cover_tiles = NULL "
-                        "WHERE id = (SELECT playlist_id FROM mirrored_playlist_tracks WHERE id = ?)",
-                        (track_id,)
-                    )
-                conn.commit()
-                return cursor.rowcount > 0
+                cursor.execute("BEGIN IMMEDIATE")
+                return self._merge_mirrored_track_extra_data(cursor, track_id, extra_data_dict)
         except Exception as e:
             logger.error(f"Error updating mirrored track extra_data: {e}")
             return False
+
+    # mirrored tracks merged per write transaction in update_mirrored_tracks_extra_data
+    _EXTRA_DATA_WRITE_BATCH = 500
+
+    def update_mirrored_tracks_extra_data(self, updates) -> List[bool]:
+        """update_mirrored_track_extra_data for many rows: ``updates`` is a
+        sequence of ``(track_id, extra_data_dict)``, applied in order (a
+        repeated id merges into the previous merge, as one by one). Returns
+        what each single call would have returned.
+
+        One connection, and one BEGIN IMMEDIATE per 500 rows instead of a
+        connection and a commit per row. Each row merges in its own savepoint:
+        one that fails is logged exactly as the single call logs it, returns
+        False and costs only itself. A batch whose transaction can't be had or
+        committed is merged row by row through the single call."""
+        updates = list(updates)
+        results = [False] * len(updates)
+        if not updates:
+            return results
+        conn = None
+        try:
+            for start in range(0, len(updates), self._EXTRA_DATA_WRITE_BATCH):
+                chunk = list(enumerate(updates[start:start + self._EXTRA_DATA_WRITE_BATCH], start))
+                try:
+                    if conn is None:
+                        conn = self._get_connection()
+                    cursor = conn.cursor()
+                    chunk_results = {}
+                    cursor.execute("BEGIN IMMEDIATE")
+                    for i, (track_id, extra_data_dict) in chunk:
+                        try:
+                            with self._savepoint(cursor, 'extra_data'):
+                                chunk_results[i] = self._merge_mirrored_track_extra_data(cursor, track_id, extra_data_dict)
+                        except Exception as e:  # noqa: BLE001 - the single call's outcome for this row
+                            if not conn.in_transaction:
+                                raise
+                            logger.error(f"Error updating mirrored track extra_data: {e}")
+                            chunk_results[i] = False
+                    conn.commit()
+                except Exception as e:  # noqa: BLE001 - nothing of this chunk was kept
+                    if conn is not None:
+                        try:
+                            conn.rollback()
+                        except Exception as rollback_err:  # noqa: BLE001
+                            logger.debug("extra_data batch rollback failed: %s", rollback_err)
+                    logger.warning("Batched extra_data merge of %d rows failed (%s); merging them one at a time",
+                                   len(chunk), e)
+                    chunk_results = {i: self.update_mirrored_track_extra_data(track_id, extra_data_dict)
+                                     for i, (track_id, extra_data_dict) in chunk}
+                for i, result in chunk_results.items():
+                    results[i] = result
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception as close_err:  # noqa: BLE001
+                    logger.debug("Error closing extra_data batch connection: %s", close_err)
+        return results
+
+    @staticmethod
+    def _merge_mirrored_track_extra_data(cursor, track_id, extra_data_dict) -> bool:
+        """update_mirrored_track_extra_data's read-merge-write on a cursor
+        whose transaction the caller holds; no commit."""
+        cursor.execute(
+            "SELECT extra_data FROM mirrored_playlist_tracks WHERE id = ?",
+            (track_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+        existing = {}
+        if row['extra_data']:
+            try:
+                existing = json.loads(row['extra_data'])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        existing.update(extra_data_dict)
+        cursor.execute(
+            "UPDATE mirrored_playlist_tracks SET extra_data = ? WHERE id = ?",
+            (json.dumps(existing), track_id)
+        )
+        # A newly discovered track can change what the collage should
+        # be, so drop the cached tiles and let the next library read
+        # rebuild them. Cheaper than recomputing four distinct covers on
+        # every single track write, and it is the read that needs them.
+        if mirrored_cover_from_match(existing):
+            cursor.execute(
+                "UPDATE mirrored_playlists SET cover_tiles = NULL "
+                "WHERE id = (SELECT playlist_id FROM mirrored_playlist_tracks WHERE id = ?)",
+                (track_id,)
+            )
+        return cursor.rowcount > 0
 
     def get_mirrored_tracks_extra_data_map(self, playlist_id: int) -> dict:
         """Return {source_track_id: extra_data_json_string} for a playlist.

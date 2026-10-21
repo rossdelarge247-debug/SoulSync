@@ -1395,14 +1395,11 @@ def retry_failed_mirrored_discovery(playlist_id):
         # Clear discovery_attempted in DB for failed tracks so they're retryable
         try:
             db = get_database()
-            for i, track in enumerate(tracks):
-                if i not in found_indices:
-                    db_track_id = track.get('db_track_id')
-                    if db_track_id:
-                        db.update_mirrored_track_extra_data(db_track_id, {
-                            'discovered': False,
-                            'discovery_attempted': False,
-                        })
+            db.update_mirrored_tracks_extra_data([
+                (track.get('db_track_id'), {'discovered': False, 'discovery_attempted': False})
+                for i, track in enumerate(tracks)
+                if i not in found_indices and track.get('db_track_id')
+            ])
         except Exception as db_err:
             logger.error(f"Error clearing discovery_attempted in DB: {db_err}")
 

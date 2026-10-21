@@ -328,7 +328,7 @@ def _record_library_membership(tracks_json, match_details) -> None:
         from database.music_database import get_database
         db = get_database()
         checked_at = int(time.time())
-        written = 0
+        updates = []
         for detail in match_details:
             idx = detail.get('index')
             if not isinstance(idx, int) or idx < 0 or idx >= len(tracks_json):
@@ -337,7 +337,7 @@ def _record_library_membership(tracks_json, match_details) -> None:
             if not db_track_id:
                 continue
             found = detail.get('status') == 'found'
-            db.update_mirrored_track_extra_data(db_track_id, {
+            updates.append((db_track_id, {
                 'in_library': found,
                 # which library row: the next sync's skip checks it still
                 # exists, or a deleted file was never noticed (#1417)
@@ -347,8 +347,15 @@ def _record_library_membership(tracks_json, match_details) -> None:
                 # until the next sync, and a number that cannot say how old it
                 # is invites more trust than it has earned.
                 'library_checked_at': checked_at,
-            })
-            written += 1
+            }))
+        # every row in one connection and transaction, not one apiece
+        batch_update = getattr(db, 'update_mirrored_tracks_extra_data', None)
+        if callable(batch_update):
+            batch_update(updates)
+        else:
+            for db_track_id, extra_data in updates:
+                db.update_mirrored_track_extra_data(db_track_id, extra_data)
+        written = len(updates)
         if written:
             logger.info(f"[Sync] Recorded library membership for {written} mirrored tracks")
     except Exception as e:  # noqa: BLE001 - never fail a completed sync over bookkeeping
