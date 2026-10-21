@@ -527,16 +527,31 @@ _set_bulk_emit(socketio.emit)
 # it as well as the server. Code that starts a worker, monitor or loop puts the
 # start in a function decorated with @_deferred_start(...), and
 # start_runtime_services() runs those once per process, in the order they
-# appear in this file, before its own steps.
+# appear in this file, before its own steps. A start that belongs to an
+# optional module (core/modules.py) names it, and is skipped while that module
+# is turned off; turning the module on later runs it then.
 _deferred_starts = []
+_deferred_start_modules = {}   # start name -> module name
 
 
-def _deferred_start(name):
+def _deferred_start(name, module=None):
     """Register the decorated function to run from start_runtime_services()."""
     def register(fn):
         _deferred_starts.append((name, fn))
+        if module is not None:
+            _deferred_start_modules[name] = module
         return fn
     return register
+
+
+def _module_enabled(name):
+    """core.modules.is_enabled, for the background loops: never raises."""
+    try:
+        from core.modules import is_enabled
+        return is_enabled(name)
+    except Exception as e:
+        logger.debug("module switch read failed for %s: %s", name, e)
+        return True
 
 
 # Video Library Maintenance (jobs & findings): live 'video:repair:progress'
@@ -545,7 +560,7 @@ from core.video.repair.worker import get_video_repair_worker as _get_video_repai
 _get_video_repair().set_emitter(socketio.emit)
 
 
-@_deferred_start("video repair worker")
+@_deferred_start("video repair worker", module="video")
 def _start_video_repair_worker():
     _get_video_repair().start()
 
@@ -916,6 +931,27 @@ def _set_profile_context():
             logger.debug("profile session validate: %s", e)
 
     g.profile_id = pid
+
+
+# --- Module switches (before_request hook) ---
+# One path-prefix check for every optional module (core/modules.py): a turned-
+# off module's API answers 409 module_disabled, for every profile and every
+# blueprint (/api/v1 callers get the v1 error envelope). Registered after the
+# login / PIN / profile gates so an unauthenticated caller still gets their
+# 401 first. GET /api/modules sits outside every module, so the UI can always
+# read which modules are on.
+@app.before_request
+def _enforce_module_switches():
+    from core.modules import disabled_module_for_path, disabled_payload
+    module = disabled_module_for_path(request.path)
+    if module is None:
+        return None
+    body = disabled_payload(module)
+    if request.path.startswith('/api/v1/'):
+        return jsonify({"success": False, "data": None, "pagination": None,
+                        "error": {"code": "MODULE_DISABLED", "message": body["message"],
+                                  "module": module}}), 409
+    return jsonify(body), 409
 
 
 @app.after_request
@@ -22959,6 +22995,10 @@ def _emit_chat_push_loop():
         try:
             if not _has_connected_clients():
                 continue
+            # Chat module off: no room joins, no slskd polls, no pushes. Read
+            # every pass, so turning it back on resumes without a restart.
+            if not _module_enabled('chat'):
+                continue
             _slsk = download_orchestrator.client("soulseek") if download_orchestrator else None
             # slskd down or never started: back off, don't poll it every 6s (#1387)
             if not _slsk or not _slsk.base_url or _slsk.unreachable_backoff_active():
@@ -23717,6 +23757,8 @@ def _client_known_items():
     from core.client_match import compose_known
 
     def _video_rows():
+        if not _module_enabled('video'):
+            return []
         from api.video import get_video_db
         return get_video_db().list_video_downloads(limit=200)
 
@@ -23725,6 +23767,8 @@ def _client_known_items():
             return [t for t in download_tasks.values() if isinstance(t, dict)]
 
     def _audiobook_rows():
+        if not _module_enabled('audiobooks'):
+            return []
         from core.audiobook_database import get_audiobook_db
         return get_audiobook_db().get_downloads()
 
@@ -24108,7 +24152,7 @@ app.register_blueprint(_bp_sw())
 # Follow grabbed audiobooks to completion and file them into the library. Without this
 # a grab is fire-and-forget: the download client fetches something the app never
 # notices finishing.
-@_deferred_start("audiobook download monitor")
+@_deferred_start("audiobook download monitor", module="audiobooks")
 def _start_audiobook_download_monitor():
     try:
         from core.audiobook_download_monitor import ensure_started as _ensure_audiobook_downloads
@@ -24120,7 +24164,7 @@ def _start_audiobook_download_monitor():
 # Resume video downloads at boot: without this the monitor only starts on a grab or
 # when the Downloads page opens, so in-flight downloads (and orphaned 'searching' rows)
 # after a restart would sit untracked until the user happened to visit the page.
-@_deferred_start("video download monitor")
+@_deferred_start("video download monitor", module="video")
 def _start_video_download_monitor():
     try:
         from core.video.download_monitor import ensure_started as _ensure_video_download_monitor
@@ -24139,6 +24183,90 @@ def _start_client_match_watcher():
         _ensure_client_match_watcher(app)
     except Exception:
         logger.warning("could not start the clients-tab match watcher at boot", exc_info=True)
+
+
+# --- Module switches: what turning a module on/off does to this process ---
+# (core/modules.py; GET/PUT /api/modules in api/modules.py). The API gate,
+# the automation skip and the background loops read the switch on every use,
+# so they follow it live. These hooks handle the workers: turning a module on
+# runs its @_deferred_start starts (once the runtime is up), turning it off
+# calls the stop methods its workers have. A worker with no stop method keeps
+# running until the process restarts, and the hook says so (restart_required).
+def _start_module_workers(module):
+    if not _runtime_started:
+        return None   # start_runtime_services() reads the switch itself
+    failed = _run_deferred_starts(module)
+    if failed:
+        return "%s failed to start; restart SoulSync to retry." % ", ".join(failed)
+    return None
+
+
+def _thread_alive(thread):
+    return bool(thread is not None and thread.is_alive())
+
+
+def _stop_video_module():
+    try:
+        worker = _get_video_repair()
+        worker.stop()
+        # stop() only signals; wait briefly so turning the module straight back
+        # on starts a fresh thread instead of finding the old one still alive
+        thread = getattr(worker, '_thread', None)
+        if _thread_alive(thread):
+            thread.join(timeout=5)
+    except Exception:
+        logger.warning("could not stop the video repair worker", exc_info=True)
+    try:
+        from core.video.enrichment.engine import stop_video_enrichment_engine
+        stop_video_enrichment_engine()
+    except Exception:
+        logger.warning("could not stop the video enrichment engine", exc_info=True)
+    # No stop method: the download monitor and the subtitle worker riding on it.
+    monitor = sys.modules.get('core.video.download_monitor')
+    if monitor is not None and getattr(monitor, '_started', False):
+        return ("The video download monitor and subtitle worker have no stop switch; "
+                "they keep running until SoulSync restarts.")
+    return None
+
+
+def _stop_audiobooks_module():
+    monitor = sys.modules.get('core.audiobook_download_monitor')
+    if monitor is not None:
+        monitor.get_monitor().stop()
+    return None
+
+
+def _stop_sample_studio_module():
+    # Nothing new is queued once the module is off (the API is gated and the
+    # import hook checks the switch). The workers block on their queues with no
+    # stop method, and the audio libraries they loaded stay in memory.
+    running = []
+    analysis = sys.modules.get('core.sample.worker')
+    if analysis is not None and _thread_alive(getattr(analysis, '_thread', None)):
+        running.append('analysis')
+    stems = sys.modules.get('core.sample.stems_worker')
+    if stems is not None and any(_thread_alive(t) for t in dict(getattr(stems, '_threads', {}) or {}).values()):
+        running.append('stem separation')
+    if running:
+        return ("The Sample Studio %s worker has no stop switch, and the audio libraries "
+                "it loaded stay in memory until SoulSync restarts." % " and ".join(running))
+    return None
+
+
+def _register_module_runtime_hooks():
+    from core import modules as _modules
+    _modules.register_runtime_hooks('video', on_enable=lambda: _start_module_workers('video'),
+                                    on_disable=_stop_video_module)
+    _modules.register_runtime_hooks('audiobooks', on_enable=lambda: _start_module_workers('audiobooks'),
+                                    on_disable=_stop_audiobooks_module)
+    _modules.register_runtime_hooks('sample_studio', on_disable=_stop_sample_studio_module)
+    # podcasts and chat run nothing that outlives a request; their gates (API,
+    # automations, the chat push loop) already follow the switch live.
+
+
+_register_module_runtime_hooks()
+from api.modules import create_blueprint as _bp_modules
+app.register_blueprint(_bp_modules())
 
 
 def _emit_rate_monitor_loop():
@@ -24327,6 +24455,8 @@ def _emit_video_enrichment_status_loop():
     from core.video.enrichment.engine import peek_video_enrichment_engine
     while not globals().get('IS_SHUTTING_DOWN', False):
         socketio.sleep(2)
+        if not _module_enabled('video'):
+            continue
         eng = peek_video_enrichment_engine()
         if eng is None:
             continue
@@ -24792,6 +24922,26 @@ _runtime_start_lock = threading.Lock()
 _runtime_started = False
 
 
+def _run_deferred_starts(module=None):
+    """Run the @_deferred_start functions in order; with ``module``, only that
+    module's. A start whose module is turned off is skipped. Returns the names
+    of the starts that raised."""
+    failed = []
+    for _start_name, _start_fn in _deferred_starts:
+        _start_module = _deferred_start_modules.get(_start_name)
+        if module is not None and _start_module != module:
+            continue
+        if _start_module is not None and not _module_enabled(_start_module):
+            logger.info("%s not started: the %s module is turned off", _start_name, _start_module)
+            continue
+        try:
+            _start_fn()
+        except Exception as e:
+            failed.append(_start_name)
+            logger.error(f"{_start_name} failed to start: {e}")
+    return failed
+
+
 def start_runtime_services():
     """Start one-time server background services for direct and WSGI launches.
 
@@ -24819,11 +24969,7 @@ def start_runtime_services():
         # Workers, monitors and loops built at import (@_deferred_start), in
         # the order they appear in this file. They used to start during the
         # import itself, so they still run before the steps below.
-        for _start_name, _start_fn in _deferred_starts:
-            try:
-                _start_fn()
-            except Exception as e:
-                logger.error(f"{_start_name} failed to start: {e}")
+        _run_deferred_starts()
 
         # Start OAuth callback servers
         logger.info("Starting OAuth callback servers...")

@@ -1155,6 +1155,22 @@ def peek_video_enrichment_engine():
     return _engine
 
 
+def stop_video_enrichment_engine() -> bool:
+    """Stop the running engine's workers and drop it (the Video module was
+    turned off). The next get_video_enrichment_engine() builds a fresh one.
+    False when no engine was running."""
+    global _engine
+    with _lock:
+        eng, _engine = _engine, None
+    if eng is None:
+        return False
+    try:
+        eng.stop_all()
+    except Exception:
+        logger.exception("video enrichment: stopping the engine failed")
+    return True
+
+
 def rebuild_video_enrichment_engine():
     """Rebuild the engine so workers pick up changed API keys (stops the old
     workers first so threads don't leak)."""
