@@ -39,6 +39,10 @@ _schema_failures_by_path: Dict[str, List[Dict[str, str]]] = {}
 # few steps are also called at request time (_add_profile_controls).
 _migration_frames = threading.local()
 
+# the start of a stored CREATE [UNIQUE] INDEX without IF NOT EXISTS, see
+# MusicDatabase._replace_table
+_CREATE_INDEX_PREFIX = re.compile(r'^\s*CREATE\s+(UNIQUE\s+)?INDEX\s+(?!IF\s+NOT\s+EXISTS\b)', re.IGNORECASE)
+
 
 def _is_already_applied_error(exc: BaseException) -> bool:
     """True for the error a re-run schema step raises because its change is
@@ -1191,9 +1195,7 @@ class MusicDatabase:
                     self._copy_rows_for_rebuild(
                         cursor, "watchlist_podcasts", "watchlist_podcasts_migrating",
                         expressions={"profile_id": "COALESCE(profile_id, 1)"})
-                    cursor.execute("DROP TABLE watchlist_podcasts")
-                    cursor.execute("ALTER TABLE watchlist_podcasts_migrating "
-                                   "RENAME TO watchlist_podcasts")
+                    self._replace_table(cursor, "watchlist_podcasts", "watchlist_podcasts_migrating")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_podcasts_feed "
                                    "ON watchlist_podcasts (feed_url)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_podcasts_itunes "
@@ -2383,6 +2385,31 @@ class MusicDatabase:
         cursor.execute(f"{verb} INTO {new_table} ({target}) SELECT {source} FROM {old_table}")
         return cols
 
+    def _replace_table(self, cursor, table: str, new_table: str) -> None:
+        """The end of a rebuild: drop ``table``, rename ``new_table`` to it and
+        put back the indexes ``table`` had.
+
+        DROP TABLE takes a table's indexes with it, and the rebuilds only
+        recreated one or two by hand. The rest came back on the next start, if
+        at all: a fresh install, whose first start runs the profile rebuilds on
+        tables _add_discovery_tables had just indexed, went its whole first
+        run without ~24 of them. An index the new table can't have (its column
+        is gone) is left out and logged.
+        """
+        cursor.execute("SELECT name, sql FROM sqlite_master "
+                       "WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL", (table,))
+        indexes = cursor.fetchall()
+        cursor.execute(f"DROP TABLE {table}")
+        cursor.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
+        for name, sql in indexes:
+            sql = _CREATE_INDEX_PREFIX.sub(
+                lambda m: f"CREATE {m.group(1) or ''}INDEX IF NOT EXISTS ", sql, count=1)
+            try:
+                cursor.execute(sql)
+            except sqlite3.Error as e:
+                logger.info("Rebuild of %s leaves out index %s, which the new table can't have: %s",
+                            table, name, e)
+
     def _sync_migration_ledger(self, cursor):
         """Back-fill the ledger from existing idempotency signals and stamp
         PRAGMA user_version.
@@ -3437,8 +3464,7 @@ class MusicDatabase:
             """)
             self._copy_rows_for_rebuild(cursor, "sample_analysis", "sample_analysis_text",
                                         expressions={"track_id": "CAST(track_id AS TEXT)"})
-            cursor.execute("DROP TABLE sample_analysis")
-            cursor.execute("ALTER TABLE sample_analysis_text RENAME TO sample_analysis")
+            self._replace_table(cursor, "sample_analysis", "sample_analysis_text")
             logger.info("sample_analysis now keyed by text track ids")
 
     def _migrate_id_columns_to_text(self, cursor):
@@ -3811,8 +3837,7 @@ class MusicDatabase:
                     """)
                     self._copy_rows_for_rebuild(cursor, "discovery_recent_albums", "discovery_recent_albums_new",
                                                 or_ignore=True)
-                    cursor.execute("DROP TABLE discovery_recent_albums")
-                    cursor.execute("ALTER TABLE discovery_recent_albums_new RENAME TO discovery_recent_albums")
+                    self._replace_table(cursor, "discovery_recent_albums", "discovery_recent_albums_new")
                     logger.info("Successfully migrated discovery_recent_albums table for iTunes support")
 
             # Migration: Add UNIQUE constraint to similar_artists table
@@ -3867,8 +3892,7 @@ class MusicDatabase:
                         """)
                         self._copy_rows_for_rebuild(cursor, "similar_artists", "similar_artists_new",
                                                     or_ignore=True)
-                        cursor.execute("DROP TABLE similar_artists")
-                        cursor.execute("ALTER TABLE similar_artists_new RENAME TO similar_artists")
+                        self._replace_table(cursor, "similar_artists", "similar_artists_new")
                         logger.info("Successfully migrated similar_artists table with UNIQUE constraint")
 
             # ============== INDEXES (after migrations to ensure columns exist) ==============
@@ -5057,11 +5081,8 @@ class MusicDatabase:
                 # Copy data from old table
                 self._copy_rows_for_rebuild(cursor, "watchlist_artists", "watchlist_artists_new")
 
-                # Drop old table
-                cursor.execute("DROP TABLE watchlist_artists")
-
-                # Rename new table
-                cursor.execute("ALTER TABLE watchlist_artists_new RENAME TO watchlist_artists")
+                # Drop old table, rename new table
+                self._replace_table(cursor, "watchlist_artists", "watchlist_artists_new")
 
                 # Recreate indexes
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_spotify_id ON watchlist_artists (spotify_artist_id)")
@@ -6043,8 +6064,7 @@ class MusicDatabase:
                     """)
 
                     self._copy_rows_for_rebuild(cursor, "watchlist_artists", "watchlist_artists_new")
-                    cursor.execute("DROP TABLE watchlist_artists")
-                    cursor.execute("ALTER TABLE watchlist_artists_new RENAME TO watchlist_artists")
+                    self._replace_table(cursor, "watchlist_artists", "watchlist_artists_new")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_spotify_id ON watchlist_artists (spotify_artist_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_profile ON watchlist_artists (profile_id)")
                     logger.info("Rebuilt watchlist_artists with profile-scoped UNIQUE constraints")
@@ -6072,8 +6092,7 @@ class MusicDatabase:
                     """)
 
                     self._copy_rows_for_rebuild(cursor, "wishlist_tracks", "wishlist_tracks_new")
-                    cursor.execute("DROP TABLE wishlist_tracks")
-                    cursor.execute("ALTER TABLE wishlist_tracks_new RENAME TO wishlist_tracks")
+                    self._replace_table(cursor, "wishlist_tracks", "wishlist_tracks_new")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_wishlist_spotify_id ON wishlist_tracks (spotify_track_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_wishlist_profile ON wishlist_tracks (profile_id)")
                     logger.info("Rebuilt wishlist_tracks with profile-scoped UNIQUE constraints")
@@ -6097,8 +6116,7 @@ class MusicDatabase:
                     """)
 
                     self._copy_rows_for_rebuild(cursor, "bubble_snapshots", "bubble_snapshots_new")
-                    cursor.execute("DROP TABLE bubble_snapshots")
-                    cursor.execute("ALTER TABLE bubble_snapshots_new RENAME TO bubble_snapshots")
+                    self._replace_table(cursor, "bubble_snapshots", "bubble_snapshots_new")
                     logger.info("Rebuilt bubble_snapshots with profile-scoped UNIQUE constraints")
 
             # 7. Rebuild discovery_curated_playlists for profile-scoped uniqueness
@@ -6120,8 +6138,7 @@ class MusicDatabase:
 
                     self._copy_rows_for_rebuild(cursor, "discovery_curated_playlists",
                                                 "discovery_curated_playlists_new")
-                    cursor.execute("DROP TABLE discovery_curated_playlists")
-                    cursor.execute("ALTER TABLE discovery_curated_playlists_new RENAME TO discovery_curated_playlists")
+                    self._replace_table(cursor, "discovery_curated_playlists", "discovery_curated_playlists_new")
                     logger.info("Rebuilt discovery_curated_playlists with profile-scoped UNIQUE constraints")
 
             # 8. Add indexes for profile_id on remaining tables
@@ -6188,8 +6205,7 @@ class MusicDatabase:
                     """)
 
                     self._copy_rows_for_rebuild(cursor, "discovery_pool", "discovery_pool_new")
-                    cursor.execute("DROP TABLE discovery_pool")
-                    cursor.execute("ALTER TABLE discovery_pool_new RENAME TO discovery_pool")
+                    self._replace_table(cursor, "discovery_pool", "discovery_pool_new")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_pool_profile ON discovery_pool (profile_id)")
                     logger.info("Rebuilt discovery_pool with profile-scoped UNIQUE constraint")
 
@@ -6221,8 +6237,7 @@ class MusicDatabase:
                     """)
 
                     self._copy_rows_for_rebuild(cursor, "discovery_recent_albums", "discovery_recent_albums_new")
-                    cursor.execute("DROP TABLE discovery_recent_albums")
-                    cursor.execute("ALTER TABLE discovery_recent_albums_new RENAME TO discovery_recent_albums")
+                    self._replace_table(cursor, "discovery_recent_albums", "discovery_recent_albums_new")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_recent_albums_profile ON discovery_recent_albums (profile_id)")
                     logger.info("Rebuilt discovery_recent_albums with profile-scoped UNIQUE constraint")
 
@@ -6251,8 +6266,7 @@ class MusicDatabase:
                     """)
 
                     self._copy_rows_for_rebuild(cursor, "recent_releases", "recent_releases_new")
-                    cursor.execute("DROP TABLE recent_releases")
-                    cursor.execute("ALTER TABLE recent_releases_new RENAME TO recent_releases")
+                    self._replace_table(cursor, "recent_releases", "recent_releases_new")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_recent_releases_profile ON recent_releases (profile_id)")
                     logger.info("Rebuilt recent_releases with profile-scoped UNIQUE constraint")
 
@@ -6313,8 +6327,7 @@ class MusicDatabase:
                     """)
 
                     self._copy_rows_for_rebuild(cursor, "similar_artists", "similar_artists_new")
-                    cursor.execute("DROP TABLE similar_artists")
-                    cursor.execute("ALTER TABLE similar_artists_new RENAME TO similar_artists")
+                    self._replace_table(cursor, "similar_artists", "similar_artists_new")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_similar_artists_profile ON similar_artists (profile_id)")
                     logger.info("Rebuilt similar_artists with profile-scoped UNIQUE constraint")
 
@@ -6340,8 +6353,7 @@ class MusicDatabase:
                         SELECT 1, last_populated_timestamp, track_count, updated_at
                         FROM discovery_pool_metadata WHERE id = 1
                     """)
-                    cursor.execute("DROP TABLE discovery_pool_metadata")
-                    cursor.execute("ALTER TABLE discovery_pool_metadata_new RENAME TO discovery_pool_metadata")
+                    self._replace_table(cursor, "discovery_pool_metadata", "discovery_pool_metadata_new")
                     logger.info("Rebuilt discovery_pool_metadata with per-profile support")
 
             # Set migration marker, unless a rebuild above failed
@@ -6540,8 +6552,7 @@ class MusicDatabase:
                 # every cached playlist so far belongs to profile 1
                 self._copy_rows_for_rebuild(cursor, "listenbrainz_playlists", "listenbrainz_playlists_new",
                                             expressions={"profile_id": "1"}, or_ignore=True)
-                cursor.execute("DROP TABLE listenbrainz_playlists")
-                cursor.execute("ALTER TABLE listenbrainz_playlists_new RENAME TO listenbrainz_playlists")
+                self._replace_table(cursor, "listenbrainz_playlists", "listenbrainz_playlists_new")
 
                 # the copy keeps the ids, so every track still points at its
                 # playlist (this used to delete the playlists left without

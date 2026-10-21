@@ -94,3 +94,59 @@ def test_copy_rows_for_rebuild_or_ignore_drops_duplicates(tmp_path: Path) -> Non
 
     assert cur.execute("SELECT id, a, b FROM pairs_new ORDER BY id").fetchall() == [(1, "x", "y"), (3, "x", "z")]
     conn.close()
+
+
+def test_replace_table_puts_back_the_old_tables_indexes(tmp_path: Path) -> None:
+    """DROP TABLE takes the indexes with it, and the rebuilds recreated one or
+    two by hand, so most came back only on the next start. An index whose
+    column the new table doesn't have is left out instead of failing."""
+    db = MusicDatabase.__new__(MusicDatabase)   # just the helper, no init
+    conn = sqlite3.connect(str(tmp_path / "replace.db"))
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE things (id INTEGER PRIMARY KEY, name TEXT, gone TEXT, UNIQUE(name))")
+    cur.execute("CREATE INDEX idx_things_name_nocase ON things (name COLLATE NOCASE) WHERE name IS NOT NULL")
+    cur.execute("CREATE UNIQUE INDEX idx_things_lower ON things (LOWER(name))")
+    cur.execute("CREATE INDEX idx_things_gone ON things (gone)")
+    cur.execute("INSERT INTO things (name) VALUES ('a'), ('B')")
+    cur.execute("CREATE TABLE things_new (id INTEGER PRIMARY KEY, name TEXT, extra TEXT)")
+    db._copy_rows_for_rebuild(cur, "things", "things_new")
+
+    db._replace_table(cur, "things", "things_new")
+
+    indexes = dict(cur.execute("SELECT name, sql FROM sqlite_master WHERE type = 'index' "
+                               "AND tbl_name = 'things' AND sql IS NOT NULL").fetchall())
+    assert set(indexes) == {"idx_things_name_nocase", "idx_things_lower"}
+    assert indexes["idx_things_name_nocase"].endswith("WHERE name IS NOT NULL")
+    assert cur.execute("SELECT name FROM things ORDER BY id").fetchall() == [("a",), ("B",)]
+
+
+def test_a_rebuild_on_upgrade_keeps_the_tables_indexes(tmp_path: Path) -> None:
+    """The profile rebuild of a pre-profile wishlist_tracks keeps an index it
+    doesn't create itself."""
+    db_path = tmp_path / "old.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE wishlist_tracks (         -- pre-profile shape: gets rebuilt
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            spotify_track_id TEXT UNIQUE NOT NULL,
+            spotify_data TEXT NOT NULL,
+            failure_reason TEXT,
+            retry_count INTEGER DEFAULT 0,
+            last_attempted TIMESTAMP,
+            date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            source_type TEXT DEFAULT 'unknown',
+            source_info TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX idx_wishlist_failure ON wishlist_tracks (failure_reason)")
+    conn.commit()
+    conn.close()
+
+    db = MusicDatabase(str(db_path))
+
+    assert db.schema_health() == {"ok": True, "failed_steps": []}
+    sql = _query(db_path, "SELECT sql FROM sqlite_master WHERE name = 'wishlist_tracks'")[0][0]
+    assert "UNIQUE(profile_id, spotify_track_id)" in sql   # the rebuild did run
+    indexes = {r[0] for r in _query(db_path, "SELECT name FROM sqlite_master WHERE type = 'index' "
+                                             "AND tbl_name = 'wishlist_tracks'")}
+    assert {"idx_wishlist_failure", "idx_wishlist_date_added"} <= indexes

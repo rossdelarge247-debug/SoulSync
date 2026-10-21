@@ -122,13 +122,12 @@ def test_fresh_init_has_no_failed_steps(tmp_path: Path, db_log) -> None:
 
 
 def test_reinit_of_an_initialised_db_changes_nothing(tmp_path: Path, db_log) -> None:
-    """The first start on an empty file isn't quite a fixed point: the profile
-    rebuilds drop indexes _add_discovery_tables made earlier in the same start
-    and the second start puts them back (that predates this change). From then
-    on a start must change nothing and fail nothing."""
+    """A start must change nothing and fail nothing on a database a start has
+    set up, the second start after a fresh install included: the first used
+    to go without ~24 indexes (the profile rebuilds dropped the ones
+    _add_discovery_tables had just made) and the second put them back."""
     db_path = tmp_path / "library.db"
     db = MusicDatabase(str(db_path))
-    db._initialize_database()
     before = _snapshot(db_path)
     db_log.records.clear()
 
