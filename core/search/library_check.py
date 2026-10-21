@@ -118,7 +118,7 @@ def _owned_tracks_for(cursor, artist_ids: list) -> dict[str, dict]:
     ph = ','.join('?' for _ in artist_ids)
     cursor.execute(
         f"""
-        SELECT t.title, a.name, t.id, t.file_path, al.title, al.thumb_url
+        SELECT t.title, a.name, t.id, t.file_path, al.title, al.thumb_url, t.bitrate
         FROM tracks t
         JOIN artists a ON a.id = t.artist_id
         JOIN albums al ON al.id = t.album_id
@@ -136,6 +136,9 @@ def _owned_tracks_for(cursor, artist_ids: list) -> dict[str, dict]:
                 'artist_name': r[1],
                 'album_title': r[4],
                 'album_thumb_url': r[5],
+                # kbps, so a page can name the copy you have ("your MP3 320
+                # copy") next to the file type in file_path
+                'bitrate': r[6],
             }
         first = _first_artist(artist_name)
         if first and first != artist_name:
