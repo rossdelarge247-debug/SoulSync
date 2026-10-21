@@ -4284,144 +4284,18 @@ function navigateToLabelDetail(labelId, name = null, options = {}) {
 }
 
 // ===============================
-// MOBILE NAVIGATION
+// NAVIGATION SHELL
 // ===============================
 
+// The sidebar, its compact rail, the top bar and the phone tab bar with its
+// sheets are the navigation shell (src/shell/nav-shell.ts, in the shell
+// bundle, booted before this file). The old off-canvas drawer and the
+// collapse toggle (#1155) are gone: the rail is the shell's compact mode
+// (same localStorage key), the drawer is the tab bar's sheets. What stays
+// here is the video sidebar's folding sections.
 function initializeMobileNavigation() {
-    const hamburgerBtn = document.getElementById('hamburger-btn');
-    const sidebar = document.querySelector('.sidebar');
-    const overlay = document.getElementById('mobile-overlay');
-
-    if (!hamburgerBtn || !sidebar || !overlay) return;
-
-    // One explicit state: the drawer is open only because someone opened it at
-    // a mobile width. It is not a width, and it is not carried over from the
-    // desktop layout.
-    function openMobileNav() {
-        sidebar.classList.add('mobile-open');
-        hamburgerBtn.classList.add('active');
-        hamburgerBtn.setAttribute('aria-expanded', 'true');
-        hamburgerBtn.setAttribute('aria-label', 'Close navigation');
-        overlay.classList.add('active');
-        document.body.classList.add('mobile-nav-open');
-        // Focus moves into the drawer so a keyboard isn't left behind the
-        // backdrop, and Escape below puts it back on the opener.
-        const first = sidebar.querySelector('.nav-button, a[href], button:not([disabled])');
-        if (first) first.focus();
-    }
-
-    function closeMobileNav(restoreFocus) {
-        const wasOpen = sidebar.classList.contains('mobile-open');
-        sidebar.classList.remove('mobile-open');
-        hamburgerBtn.classList.remove('active');
-        hamburgerBtn.setAttribute('aria-expanded', 'false');
-        hamburgerBtn.setAttribute('aria-label', 'Open navigation');
-        overlay.classList.remove('active');
-        document.body.classList.remove('mobile-nav-open');
-        if (wasOpen && restoreFocus === true) hamburgerBtn.focus();
-    }
-
-    hamburgerBtn.addEventListener('click', () => {
-        if (sidebar.classList.contains('mobile-open')) {
-            closeMobileNav();
-        } else {
-            openMobileNav();
-        }
-    });
-
-    overlay.addEventListener('click', () => closeMobileNav());
-
-    document.addEventListener('keydown', (event) => {
-        if (event.key !== 'Escape') return;
-        if (!sidebar.classList.contains('mobile-open')) return;
-        closeMobileNav(true);
-    });
-
-    // Crossing the breakpoint. Going desktop -> mobile the drawer defaults
-    // CLOSED: nobody asked for it, and the drawer's slide transition made the
-    // flip paint a half-open panel over the page. Going mobile -> desktop we
-    // just drop the mobile-only classes; the collapse preference lives in
-    // html[data-sidebar] and is untouched by any of this.
-    const mobileQuery = window.matchMedia ? window.matchMedia('(max-width: 768px)') : null;
-    if (mobileQuery) {
-        const onBreakpoint = () => {
-            // Kill the slide for one frame, so the layout change itself never
-            // animates across the viewport.
-            sidebar.classList.add('sidebar-no-transition');
-            closeMobileNav();
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => sidebar.classList.remove('sidebar-no-transition'));
-            });
-        };
-        if (mobileQuery.addEventListener) mobileQuery.addEventListener('change', onBreakpoint);
-        else if (mobileQuery.addListener) mobileQuery.addListener(onBreakpoint);
-    }
-
-    // Backstop for the overlay click above: the overlay is one element at a
-    // fixed z-index, so anything that paints over it swallows the tap and the
-    // drawer stays open. Closing on any click that lands outside the drawer
-    // doesn't care what's on top. The hamburger is excluded because its own
-    // handler already toggles — without this guard the two would fight and
-    // re-close the drawer the instant it opened.
-    document.addEventListener('click', (event) => {
-        if (!sidebar.classList.contains('mobile-open')) return;
-        if (sidebar.contains(event.target)) return;
-        if (hamburgerBtn.contains(event.target)) return;
-        closeMobileNav();
-    });
-
-    // A drag inside the drawer must never count as a tap on the link under the
-    // finger. Reported as "responds to scrolling as a tap first, making it
-    // change pages on each scroll" — every attempt to scroll the nav list
-    // navigated instead. Browsers normally cancel the synthetic click once a
-    // touch moves far enough, but they don't when the gesture scrolled nothing,
-    // which is exactly the case in a drawer whose list is short or already at
-    // an edge. Track the movement ourselves and swallow the click.
-    //
-    // Capture phase so this runs BEFORE the .nav-button handlers below and the
-    // anchors' own default navigation.
-    let touchStart = null;
-    let touchDragged = false;
-    const TAP_SLOP_PX = 8;   // a tap wobbles a few px; a drag does not
-
-    sidebar.addEventListener('touchstart', (event) => {
-        touchStart = event.touches.length === 1
-            ? { x: event.touches[0].clientX, y: event.touches[0].clientY }
-            : null;
-        touchDragged = false;
-    }, { passive: true });
-
-    sidebar.addEventListener('touchmove', (event) => {
-        if (!touchStart) return;
-        // Distance, not just vertical travel. A drag across the drawer moves
-        // mostly sideways and a Y-only check waves it straight through — the
-        // click then lands on whatever was under the FINGER AT TOUCHSTART,
-        // which is how pressing one entry and dragging away still opened it.
-        const dx = event.touches[0].clientX - touchStart.x;
-        const dy = event.touches[0].clientY - touchStart.y;
-        if (Math.hypot(dx, dy) > TAP_SLOP_PX) {
-            touchDragged = true;
-        }
-    }, { passive: true });
-
-    sidebar.addEventListener('click', (event) => {
-        if (!touchDragged) return;
-        touchDragged = false;          // one click per gesture; never latch
-        event.preventDefault();
-        event.stopPropagation();
-    }, true);
-
-    // Close sidebar on nav button click (mobile only)
-    document.querySelectorAll('.nav-button').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (window.innerWidth <= 768) {
-                closeMobileNav();
-            }
-        });
-    });
-
     restoreNavSections();
-    initSidebarCollapse();
+    if (window.SoulSyncShellNav) window.SoulSyncShellNav.refresh();
 }
 
 // --- Collapsible sidebar sections (persisted per section in localStorage) ---
@@ -4458,99 +4332,6 @@ function restoreNavSections() {
         if (_navSectionItems(label).some(it => it.getAttribute('href') === path)) collapsed = false;
         _setNavSectionCollapsed(label, collapsed);
     });
-}
-
-// --- Collapsible sidebar (#1155, wishx) ---
-// Two states: full width, or icons only. The width itself is CSS
-// (--sidebar-w keyed off html[data-sidebar="collapsed"]); this only decides
-// which state is on and remembers it. The attribute is applied before paint by
-// the inline script in index.html's <head> — this runs later and just keeps the
-// button label and the icon tooltips in sync, so the two must agree on the key.
-const SIDEBAR_COLLAPSE_KEY = 'sidebarCollapsed';
-
-function isSidebarCollapsed() {
-    return document.documentElement.getAttribute('data-sidebar') === 'collapsed';
-}
-
-function setSidebarCollapsed(collapsed) {
-    const sidebar = document.querySelector('.sidebar');
-    const canAnimate = sidebar && window.matchMedia
-        && window.matchMedia('(min-width: 769px)').matches
-        && !document.body.classList.contains('reduce-effects')
-        && !document.body.classList.contains('max-performance');
-    const fromWidth = canAnimate ? sidebar.getBoundingClientRect().width : 0;
-    const targetWidth = collapsed ? 68 : 240;
-
-    if (canAnimate) {
-        sidebar.style.transition = 'none';
-        sidebar.style.width = `${fromWidth}px`;
-        sidebar.style.minWidth = `${fromWidth}px`;
-        sidebar.style.maxWidth = `${fromWidth}px`;
-        sidebar.style.flexBasis = `${fromWidth}px`;
-        sidebar.offsetWidth; // commit the starting width before the state flips
-    }
-
-    // Expanded carries no attribute so the plain :root width applies — one less
-    // state for the CSS to special-case.
-    if (collapsed) document.documentElement.setAttribute('data-sidebar', 'collapsed');
-    else document.documentElement.removeAttribute('data-sidebar');
-
-    if (canAnimate) {
-        const transition = 'width 420ms cubic-bezier(0.22, 1, 0.36, 1), min-width 420ms cubic-bezier(0.22, 1, 0.36, 1), max-width 420ms cubic-bezier(0.22, 1, 0.36, 1), flex-basis 420ms cubic-bezier(0.22, 1, 0.36, 1)';
-        requestAnimationFrame(() => {
-            sidebar.style.transition = transition;
-            sidebar.style.width = `${targetWidth}px`;
-            sidebar.style.minWidth = `${targetWidth}px`;
-            sidebar.style.maxWidth = `${targetWidth}px`;
-            sidebar.style.flexBasis = `${targetWidth}px`;
-        });
-        const clearInlineAnimation = (event) => {
-            if (event.target !== sidebar || event.propertyName !== 'width') return;
-            sidebar.removeEventListener('transitionend', clearInlineAnimation);
-            sidebar.style.transition = '';
-            sidebar.style.width = '';
-            sidebar.style.minWidth = '';
-            sidebar.style.maxWidth = '';
-            sidebar.style.flexBasis = '';
-        };
-        sidebar.addEventListener('transitionend', clearInlineAnimation);
-    }
-
-    try {
-        if (collapsed) localStorage.setItem(SIDEBAR_COLLAPSE_KEY, '1');
-        else localStorage.removeItem(SIDEBAR_COLLAPSE_KEY);
-    } catch (e) { /* localStorage blocked — works for the session */ }
-    const btn = document.getElementById('sidebar-collapse-toggle');
-    if (btn) {
-        const label = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
-        btn.title = label;
-        btn.setAttribute('aria-label', label);
-        btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    }
-    syncSidebarNavTitles(collapsed);
-    return collapsed;
-}
-
-function toggleSidebarCollapsed() {
-    return setSidebarCollapsed(!isSidebarCollapsed());
-}
-
-// Collapsed hides .nav-text, so the icon is all that's left to go on. Native
-// title rather than a styled tooltip: .nav-button is overflow:hidden and the
-// sidebar's stacking context is already delicate (see the visualiser's z-index
-// note in style.css), so a ::after bubble would be clipped or fight for layer.
-function syncSidebarNavTitles(collapsed) {
-    document.querySelectorAll('.sidebar-nav .nav-button').forEach(btn => {
-        if (!collapsed) { btn.removeAttribute('title'); return; }
-        const label = (btn.querySelector('.nav-text')?.textContent || '').trim();
-        if (label) btn.title = label;
-    });
-}
-
-function initSidebarCollapse() {
-    // Re-apply what the <head> script already read, so the button label and the
-    // icon tooltips match the state on first load too.
-    setSidebarCollapsed(isSidebarCollapsed());
 }
 
 /**

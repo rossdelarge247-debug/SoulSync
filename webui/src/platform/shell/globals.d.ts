@@ -4,6 +4,7 @@ import type {
 } from '@/platform/workflows/album-workflows';
 import type { IssueDomainBridge } from '@/routes/issues/-issues.types';
 import type { MirroredPipelineState } from '@/routes/sync/-sync.pipeline';
+import type { NavShell } from '@/shell/nav-shell';
 
 import type { ShellProfileContext, ShellRouteDefinition, ShellPageId } from './bridge';
 
@@ -704,6 +705,10 @@ declare global {
       pageId: string,
       options?: Record<string, unknown>,
     ) => boolean | Promise<boolean> | void;
+    /** url-base.js: the deployment's URL prefix (Flask script_root). */
+    SoulSyncURL?: { strip: (pathname: string) => string; resolve?: (path: string) => string };
+    /** src/shell/nav-shell.ts: the navigation shell (sidebar, top bar, tab bar). */
+    SoulSyncShellNav?: NavShell;
     SoulSyncWebRouter?: {
       routeManifest: ShellRouteDefinition[];
       getCurrentPath: () => string;

@@ -105,7 +105,9 @@ def test_side_toggle_has_music_and_video():
 # --- the video nav ---------------------------------------------------------
 
 def test_video_nav_has_all_expected_pages():
-    block = _block(_INDEX, r'<nav class="sidebar-nav video-nav"', "</nav>")
+    # the video list lives inside the navigation shell's sidebar (one <nav>
+    # landmark), as its own block; it holds no nested <div>
+    block = _block(_INDEX, r'<div class="sidebar-nav video-nav', "</div>")
     found = set(re.findall(r'data-video-page="([^"]+)"', block))
     assert found == EXPECTED_VIDEO_PAGES, f"video nav pages mismatch: {found ^ EXPECTED_VIDEO_PAGES}"
     # data-attr wired — the ONE sanctioned inline handler is the collapsible
@@ -127,9 +129,12 @@ def test_video_assets_referenced():
 # --- isolation: music side untouched --------------------------------------
 
 def test_music_sidebar_nav_still_intact():
-    # The original music nav (a sibling .sidebar-nav WITHOUT the video-nav class)
-    # must still carry its pages — the video side is additive, not a rewrite.
-    music_nav = _block(_INDEX, r'<nav class="sidebar-nav">', "</nav>")
+    # The music rows (the navigation shell's sidebar: the groups plus the
+    # "Admin and help" fold) must still carry their pages — the video side is
+    # additive, not a rewrite.
+    sidebar = _block(_INDEX, r'<nav class="sidebar ss-sidebar" id="app-sidebar"', "</nav>")
+    music_nav = sidebar[:sidebar.index('class="sidebar-nav video-nav')] + \
+        sidebar[sidebar.index('class="ss-nav-bottom"'):]
     for page in ("dashboard", "sync", "library", "settings", "issues", "help"):
         assert f'data-page="{page}"' in music_nav, f"music nav lost '{page}'"
     # The music subtitle is still the default in markup (JS swaps it at runtime).
@@ -446,7 +451,7 @@ def test_video_top_level_pages_are_deep_linked():
     assert 'data-video-page="video-search" href="/video-search"' in _INDEX
     assert 'data-video-page="video-library" href="/video-library"' in _INDEX
     assert 'href="#"' not in _block(  # none left in the video nav block
-        _INDEX, r'<nav class="sidebar-nav video-nav"', "</nav>")
+        _INDEX, r'<div class="sidebar-nav video-nav', "</div>")
     # Modifier-clicks fall through to the href instead of being swallowed.
     assert "metaKey" in _JS and "ctrlKey" in _JS
 

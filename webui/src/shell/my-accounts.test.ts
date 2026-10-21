@@ -5,6 +5,8 @@
  */
 
 import { HttpResponse, http } from 'msw';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { server } from '@/test/msw';
@@ -15,6 +17,7 @@ import {
   openMyAccountsModal,
   openPersonalSettings,
 } from './my-accounts';
+import { bootNavShell } from './nav-shell';
 
 type Conns = Record<string, { connected: boolean; account: string | null }>;
 
@@ -97,27 +100,34 @@ afterEach(() => {
 });
 
 describe('My Account', () => {
-  it('closes the mobile nav drawer it was opened from (Oct 13 fold, M-04)', async () => {
-    // The My Account button lives inside the sidebar drawer; drawer-first
-    // is the natural phone flow, and the drawer (z-10001) would otherwise
-    // stay open over the modal (z-10000) with its close button hidden.
-    document.body.innerHTML = `
-      <button id="hamburger-btn" class="active" aria-expanded="true"></button>
-      <div id="mobile-overlay" class="active"></div>
-      <aside class="sidebar mobile-open"></aside>`;
-    document.body.classList.add('mobile-nav-open');
+  it('closes the phone nav sheet it was opened from (Oct 13 fold, M-04)', async () => {
+    // On phones the My Account button sits at the end of the Settings sheet
+    // (the navigation shell); the sheet steps aside for the modal rather than
+    // staying open over the page it locks.
+    const parsed = new DOMParser().parseFromString(
+      readFileSync(resolve(process.cwd(), 'index.html'), 'utf8'),
+      'text/html',
+    );
+    const take = (id: string) => document.importNode(parsed.getElementById(id)!, true);
+    document.body.replaceChildren(
+      take('app-sidebar'),
+      take('ss-topbar'),
+      take('ss-sheet-catcher'),
+      take('ss-tabbar'),
+    );
+    const shell = bootNavShell();
+    shell?.openSheet('settings');
+    expect(document.documentElement.getAttribute('data-sheet')).toBe('settings');
+    expect(document.body.classList.contains('mobile-nav-open')).toBe(true);
     mockAccount({});
     await opened();
-    expect(document.querySelector('.sidebar')?.classList.contains('mobile-open')).toBe(false);
+    expect(document.documentElement.hasAttribute('data-sheet')).toBe(false);
     expect(document.body.classList.contains('mobile-nav-open')).toBe(false);
-    expect(document.getElementById('mobile-overlay')?.classList.contains('active')).toBe(false);
-    const burger = document.getElementById('hamburger-btn');
-    expect(burger?.classList.contains('active')).toBe(false);
-    expect(burger?.getAttribute('aria-expanded')).toBe('false');
     // …and the modal itself is open.
     expect(document.getElementById('my-accounts-overlay')?.classList.contains('hidden')).toBe(
       false,
     );
+    shell?.destroy();
   });
 
   it('is one modal with your media server and your music services', async () => {

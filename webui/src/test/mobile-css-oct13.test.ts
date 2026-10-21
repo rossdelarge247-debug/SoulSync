@@ -159,15 +159,16 @@ describe('M-02/M-04 — hamburger hides behind the modals the React-root cap exp
     expect(YEAR_STORY_TSX).toContain('data-year-story-overlay');
   });
 
-  it('opening My Account closes the mobile nav drawer first (the button lives inside it)', () => {
+  it('opening My Account closes the phone nav sheet first (the button lives inside it)', () => {
+    // the drawer became the navigation shell's sheets (src/shell/nav-shell.ts);
+    // closing one also drops body.mobile-nav-open (nav-shell.test.ts)
     expect(MY_ACCOUNTS_TS).toContain('function _maCloseMobileNav()');
     const open = MY_ACCOUNTS_TS.slice(
       MY_ACCOUNTS_TS.indexOf('export function openMyAccountsModal'),
     );
     expect(open.slice(0, 200)).toContain('_maCloseMobileNav();');
     const helper = MY_ACCOUNTS_TS.slice(MY_ACCOUNTS_TS.indexOf('function _maCloseMobileNav()'));
-    expect(helper).toContain("classList.remove('mobile-open')");
-    expect(helper).toContain("classList.remove('mobile-nav-open')");
+    expect(helper.slice(0, 120)).toContain('closeShellSheet();');
   });
 });
 
