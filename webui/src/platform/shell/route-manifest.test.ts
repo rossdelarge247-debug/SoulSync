@@ -66,6 +66,11 @@ describe('shellRouteManifest', () => {
     expect(getShellRouteByPageId('playlist-explorer')?.kind).toBe('react');
     expect(getShellRouteByPageId('tools')?.kind).toBe('react');
     expect(getShellRouteByPageId('sync')?.kind).toBe('react');
+    expect(getShellRouteByPageId('setup-check')).toEqual({
+      pageId: 'setup-check',
+      path: '/setup-check',
+      kind: 'react',
+    });
     expect(reactShellRoutes.map((route) => route.pageId)).toEqual([
       'dashboard',
       'sync',
@@ -82,6 +87,7 @@ describe('shellRouteManifest', () => {
       'artist-detail',
       'label-detail',
       'stats',
+      'setup-check',
       'issues',
       'requests',
       'podcasts',

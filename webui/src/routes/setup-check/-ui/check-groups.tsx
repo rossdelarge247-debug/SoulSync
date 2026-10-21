@@ -1,0 +1,184 @@
+import clsx from 'clsx';
+import { useEffect, useRef, useState } from 'react';
+
+import { Button } from '@/components/form';
+import { Badge, type BadgeTone } from '@/components/primitives';
+
+import type { CheckGroup, CheckStatus, SetupCheckResult } from '../-setup-check.types';
+
+import { copyText } from '../-setup-check.clipboard';
+import {
+  STATUS_WORD,
+  fixBlocks,
+  groupSuffix,
+  isExpanded,
+  parseFixText,
+} from '../-setup-check.helpers';
+import { StatusIcon } from './icons';
+import styles from './setup-check-page.module.css';
+
+const TAG_TONE: Record<CheckStatus, BadgeTone> = {
+  ok: 'success',
+  warning: 'warning',
+  error: 'danger',
+  skipped: 'neutral',
+};
+
+export function StatusTag({ status }: { status: CheckStatus }) {
+  return (
+    <Badge className={styles.statusTag} tone={TAG_TONE[status]}>
+      {STATUS_WORD[status]}
+    </Badge>
+  );
+}
+
+function toast(message: string, type: 'success' | 'info' = 'success') {
+  window.showToast?.(message, type);
+}
+
+function CodeLine({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const copy = async () => {
+    const ok = await copyText(code);
+    if (!ok) {
+      toast(
+        'Copying isn’t available in this browser. Select the line and copy it by hand.',
+        'info',
+      );
+      return;
+    }
+    toast('Copied');
+    setCopied(true);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className={styles.codeLine}>
+      <code className={styles.codeBlock}>{code}</code>
+      <Button variant="secondary" size="lg" aria-label={`Copy ${code}`} onClick={() => void copy()}>
+        {copied ? 'Copied' : 'Copy'}
+      </Button>
+    </div>
+  );
+}
+
+export function FixText({ fix }: { fix: string }) {
+  const blocks = fixBlocks(parseFixText(fix));
+  return (
+    <>
+      {blocks.map((block, index) => {
+        const [first] = block;
+        if (first?.kind === 'line') return <CodeLine key={index} code={first.code} />;
+        return (
+          <p key={index} className={styles.fixText}>
+            {block.map((segment, i) =>
+              segment.kind === 'code' ? (
+                <code key={i} className={styles.inlineCode}>
+                  {segment.code}
+                </code>
+              ) : segment.kind === 'text' ? (
+                <span key={i}>{segment.text}</span>
+              ) : null,
+            )}
+          </p>
+        );
+      })}
+    </>
+  );
+}
+
+function CheckRow({
+  check,
+  onRerun,
+  rerunning,
+}: {
+  check: SetupCheckResult;
+  onRerun: () => void;
+  rerunning: boolean;
+}) {
+  if (!isExpanded(check)) {
+    return (
+      <li className={clsx(styles.row, styles.rowCompact)} data-status={check.status}>
+        <StatusIcon className={styles.rowIcon} status={check.status} />
+        <div className={styles.rowBody}>
+          <div className={styles.rowHead}>
+            <span className={styles.rowTitle}>{check.title}</span>
+            <StatusTag status={check.status} />
+          </div>
+          {check.detail ? <p className={styles.compactDetail}>{check.detail}</p> : null}
+        </div>
+      </li>
+    );
+  }
+
+  const attention = check.status === 'error' || check.status === 'warning';
+  return (
+    <li className={styles.row} data-status={check.status}>
+      <StatusIcon className={styles.rowIcon} status={check.status} />
+      <div className={styles.rowBody}>
+        <div className={styles.rowHead}>
+          <span className={styles.rowTitle}>{check.title}</span>
+          <StatusTag status={check.status} />
+        </div>
+        {check.detail ? <p className={styles.detail}>{check.detail}</p> : null}
+        {check.fix ? (
+          <div className={styles.fixBox}>
+            <p className={styles.fixLabel}>{attention ? 'How to fix it' : 'What you can do'}</p>
+            <FixText fix={check.fix} />
+            {attention ? (
+              <div className={styles.fixActions}>
+                <Button size="lg" onClick={onRerun} disabled={rerunning}>
+                  {rerunning ? 'Checking…' : 'Run this check again'}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+export function CheckGroups({
+  groups,
+  onRerun,
+  rerunning,
+}: {
+  groups: CheckGroup[];
+  onRerun: () => void;
+  rerunning: boolean;
+}) {
+  return (
+    <>
+      {groups.map((group) => {
+        const headingId = `setup-check-group-${group.category || 'other'}`;
+        return (
+          <section
+            key={group.category}
+            aria-labelledby={headingId}
+            className={styles.group}
+            data-testid="setup-check-group"
+          >
+            <h2 id={headingId} className={styles.groupLabel}>
+              {group.label} <span aria-hidden="true">·</span> {groupSuffix(group)}
+            </h2>
+            <ul className={styles.checkList}>
+              {group.checks.map((check, index) => (
+                <CheckRow
+                  key={`${check.id}-${index}`}
+                  check={check}
+                  onRerun={onRerun}
+                  rerunning={rerunning}
+                />
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+    </>
+  );
+}

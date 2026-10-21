@@ -1,0 +1,545 @@
+/* Setup check. Reading text is 14px or larger; only the uppercase group and
+   fix labels are 12px. Text stays at 60% white or brighter. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  color: var(--text-1);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* 44px touch targets for this page's buttons (the shared lg size is 40px) */
+.page button[data-size='lg'] {
+  min-height: 44px;
+  padding-inline: 18px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.headText {
+  display: flex;
+  flex: 1 1 420px;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 15px;
+  color: var(--white-a75);
+}
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* ── Panels (admin only, errors) ────────────────────────────────────── */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 24px;
+  border: 1px solid var(--white-a09);
+  border-radius: var(--radius-lg);
+  background: var(--white-a04);
+}
+
+.panel[data-tone='warning'] {
+  border-color: rgba(var(--warning-rgb), 0.3);
+  background: rgba(var(--warning-rgb), 0.06);
+}
+
+.panel[role='alert']:not([data-tone]) {
+  border-color: rgba(var(--danger-rgb), 0.35);
+  background: rgba(var(--danger-rgb), 0.06);
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.panelText {
+  margin: 0;
+  font-size: 15px;
+  color: var(--white-a80);
+}
+
+/* ── Progress ───────────────────────────────────────────────────────── */
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px;
+  border: 1px solid rgba(var(--accent-light-rgb), 0.3);
+  border-radius: var(--radius-lg);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+
+.progressTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.progressTrack {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--white-a10);
+}
+
+.progressFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: rgb(var(--accent-light-rgb));
+  transition: width 1s linear;
+}
+
+.progressText {
+  margin: 0;
+  font-size: 14px;
+  color: var(--white-a75);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progressFill {
+    transition: none;
+  }
+}
+
+/* ── Summary tiles ──────────────────────────────────────────────────── */
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--white-a09);
+  border-radius: var(--radius-lg);
+  background: var(--white-a04);
+}
+
+.tileIcon {
+  display: inline-flex;
+  flex: none;
+}
+
+.tile[data-tone='ok'] .tileIcon {
+  color: var(--success);
+}
+
+.tile[data-tone='warning'] .tileIcon {
+  color: var(--warning);
+}
+
+.tile[data-tone='error'] .tileIcon {
+  color: var(--danger-light);
+}
+
+.tile[data-tone='time'] .tileIcon {
+  color: var(--white-a70);
+}
+
+.tileText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tileValue {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.tileTime {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.tileLabel {
+  font-size: 14px;
+  color: var(--white-a75);
+}
+
+/* ── Groups and rows ────────────────────────────────────────────────── */
+
+.group {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 24px;
+  border: 1px solid var(--white-a09);
+  border-radius: var(--radius-lg);
+  background: var(--white-a04);
+}
+
+.groupLabel {
+  margin: 0;
+  padding: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--white-a60);
+}
+
+.checkList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  gap: 14px;
+  padding: 16px 0;
+  border-top: 1px solid var(--white-a08);
+}
+
+.rowCompact {
+  padding: 14px 0;
+}
+
+.rowIcon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.row[data-status='ok'] .rowIcon {
+  color: var(--success);
+}
+
+.row[data-status='warning'] .rowIcon {
+  color: var(--warning);
+}
+
+.row[data-status='error'] .rowIcon {
+  color: var(--danger-light);
+}
+
+.row[data-status='skipped'] .rowIcon {
+  color: var(--white-a60);
+}
+
+.rowBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rowCompact .rowBody {
+  gap: 2px;
+}
+
+.rowHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.rowTitle {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* the shared Badge, as a small square-ish tag with a word in it */
+.statusTag[data-slot='badge'] {
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.statusTag[data-tone='neutral'] {
+  color: var(--white-a75);
+  background: var(--white-a06);
+  border-color: var(--white-a10);
+}
+
+.detail,
+.compactDetail {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.detail {
+  color: var(--white-a85);
+}
+
+.compactDetail {
+  color: var(--white-a70);
+}
+
+/* ── How to fix it ──────────────────────────────────────────────────── */
+
+.fixBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--white-a10);
+  border-radius: var(--radius-md);
+  background: var(--white-a03);
+}
+
+.fixLabel {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--white-a60);
+}
+
+.fixText {
+  margin: 0;
+  font-size: 14px;
+  color: var(--white-a85);
+  overflow-wrap: anywhere;
+}
+
+.inlineCode {
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: rgba(0, 0, 0, 0.35);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-1);
+}
+
+.codeLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.codeBlock {
+  display: block;
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.4);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-1);
+  white-space: pre;
+}
+
+.fixActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ── First-run steps ────────────────────────────────────────────────── */
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid var(--white-a09);
+  border-radius: var(--radius-lg);
+  background: var(--white-a04);
+}
+
+.stepsHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stepsTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.stepsSummary,
+.stepsNote {
+  margin: 0;
+  font-size: 14px;
+  color: var(--white-a75);
+}
+
+.stepList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--white-a08);
+  border-radius: var(--radius-md);
+  background: var(--white-a03);
+}
+
+.stepCurrent {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.14);
+}
+
+.stepBadge {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--white-a08);
+  font-weight: 700;
+}
+
+.step[data-state='done'] .stepBadge,
+.step[data-state='not-needed'] .stepBadge {
+  background: rgba(var(--success-rgb), 0.12);
+  color: var(--success);
+}
+
+.step[data-state='attention'] .stepBadge {
+  background: rgba(var(--danger-rgb), 0.14);
+  color: var(--danger-light);
+}
+
+.stepCurrent .stepBadge {
+  background: rgb(var(--accent-light-rgb));
+  color: #0b0b0f;
+}
+
+.stepText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stepTitle {
+  font-weight: 600;
+}
+
+.stepState {
+  font-size: 14px;
+  color: var(--white-a70);
+}
+
+.link {
+  color: rgb(var(--accent-light-rgb));
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── Loading ────────────────────────────────────────────────────────── */
+
+.skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.tileSkeleton {
+  height: 84px;
+  border-radius: var(--radius-lg);
+}
+
+.groupSkeleton {
+  height: 220px;
+  border-radius: var(--radius-lg);
+}
+
+@media (max-width: 640px) {
+  .page {
+    gap: 20px;
+  }
+
+  .title {
+    font-size: 24px;
+  }
+
+  .headerActions {
+    width: 100%;
+  }
+
+  .headerActions > button {
+    flex: 1 1 auto;
+  }
+
+  .group {
+    padding: 4px 16px;
+  }
+
+  .steps,
+  .panel {
+    padding: 18px 16px;
+  }
+
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .tile {
+    padding: 14px;
+    gap: 10px;
+  }
+}

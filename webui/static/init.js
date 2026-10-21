@@ -614,6 +614,9 @@ function isPageAllowed(pageId) {
     // requests: admins answer them, profiles without download rights make them
     if (normalizedPageId === 'requests') return !!currentProfile.is_admin || !canDownload();
     if (normalizedPageId === 'settings') return currentProfile.is_admin;
+    // anyone may open it; a non-admin is told there that only an admin can
+    // run it (the nav shows it to admins only)
+    if (normalizedPageId === 'setup-check') return true;
     if (normalizedPageId === 'artist-detail') {
         const ap = normalizeProfilePageList(currentProfile.allowed_pages);
         if (!ap) return true;
@@ -2072,8 +2075,8 @@ function updateProfileIndicator() {
     document.querySelectorAll('.nav-button[data-page]').forEach(btn => {
         const page = btn.getAttribute('data-page');
         if (page === 'hydrabase') return; // Managed by dev mode toggle
-        if (page === 'settings') {
-            // Settings always gated by is_admin
+        if (page === 'settings' || page === 'setup-check') {
+            // Settings and the setup check are always gated by is_admin
             btn.style.display = currentProfile.is_admin ? '' : 'none';
         } else if (page === 'requests') {
             btn.style.display = (currentProfile.is_admin || !canDownload()) ? '' : 'none';
@@ -4184,7 +4187,7 @@ const _DEEPLINK_VALID_PAGES = new Set([
     'library', 'import', 'settings', 'help', 'issues', 'stats', 'watchlist',
     'wishlist', 'active-downloads', 'artist-detail', 'playlist-explorer',
     'hydrabase', 'tools', 'chat', 'podcasts', 'audiobooks', 'requests',
-    'sample-studio'
+    'sample-studio', 'setup-check'
 ]);
 
 function _getPageFromPath() {
