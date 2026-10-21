@@ -296,7 +296,15 @@ export function FollowedTab({
     onError: (error: Error) => toast(`Couldn't unfollow: ${error.message}`, 'error'),
   });
 
-  const openArtist = async (row: FollowedRow) => {
+  /**
+   * The artist's page: their library record when they're in the library,
+   * else the metadata source they're matched on. Says so, and answers false,
+   * when neither can be opened.
+   */
+  const openArtist = async (
+    row: FollowedRow,
+    options: { replace?: boolean; quiet?: boolean } = {},
+  ): Promise<boolean> => {
     try {
       const library = await findLibraryArtist(row.name);
       if (library) {
@@ -304,8 +312,9 @@ export function FollowedTab({
           to: '/artist-detail/$source/$id',
           params: { source: 'library', id: library.id },
           search: { name: library.name },
+          replace: options.replace,
         });
-        return;
+        return true;
       }
     } catch {
       /* the library didn't answer; try the provider match next */
@@ -321,25 +330,53 @@ export function FollowedTab({
             to: '/artist-detail/$source/$id',
             params: { source: pick.source, id: pick.id },
             search: { name: row.name },
+            replace: options.replace,
           });
-          return;
+          return true;
         }
       } catch {
         /* fall through to the explanation */
       }
     }
-    toast(
-      `Couldn't open ${row.name}: it's only matched on sources that are switched off. Open its settings to match it again.`,
-      'warning',
-    );
+    if (!options.quiet) {
+      toast(
+        `Couldn't open ${row.name}: it's only matched on sources that are switched off. Open its settings to match it again.`,
+        'warning',
+      );
+    }
+    return false;
   };
 
   const handlers: FollowedRowHandlers = {
     onOpenArtist: (row) => void openArtist(row),
     onSettings: (row) => row.id && go({ configId: row.id }),
-    onAbout: (row) => row.id && go({ detailId: row.id }),
     onUnfollow: (row) => setUnfollow([row]),
   };
+
+  /**
+   * An old "About this artist" link (/watchlist?detailId=…) opens the Artist
+   * page, which holds everything that panel showed. The panel stays only for
+   * an artist whose page can't be opened (matched on switched-off sources),
+   * since it explains that and links to the settings.
+   */
+  const [panelFallback, setPanelFallback] = useState<string | null>(null);
+  const handingOff = useRef<string | null>(null);
+  useEffect(() => {
+    const detailId = search.detailId;
+    if (!detailId || search.list || !artists.isSuccess) return;
+    if (handingOff.current === detailId) return;
+    handingOff.current = detailId;
+    const row = allRows.find((r) => r.id === detailId);
+    if (!row) {
+      go({ detailId: undefined }, { replace: true });
+      return;
+    }
+    void openArtist(row, { replace: true, quiet: true }).then((opened) => {
+      if (!opened) setPanelFallback(detailId);
+    });
+    // allRows changes as the summary loads; the hand-off runs once per id
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.detailId, search.list, artists.isSuccess]);
 
   // ── selection ──────────────────────────────────────────────────────────
   const shownIds = shown.map((row) => row.id).filter((id): id is string => Boolean(id));
@@ -392,7 +429,7 @@ export function FollowedTab({
           onClose={() => go({ configId: undefined })}
         />
       ) : null}
-      {search.detailId ? (
+      {search.detailId && panelFallback === search.detailId ? (
         <WatchlistArtistDetail
           profileId={profileId}
           artistId={search.detailId}

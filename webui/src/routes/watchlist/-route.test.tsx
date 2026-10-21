@@ -355,16 +355,24 @@ describe('old Watchlist links', () => {
     expect(screen.queryByText('Aphex Twin')).not.toBeInTheDocument();
   });
 
-  it('settings, an artist’s settings and an artist’s panel stay open', async () => {
+  it('settings and an artist’s settings stay open', async () => {
     stubFetch();
-    const { router } = renderRoute('/watchlist?settings=true&configId=sp-aphex&detailId=sp-aphex');
+    const { router } = renderRoute('/watchlist?settings=true&configId=sp-aphex');
     await waitFor(() => expect(router.state.location.pathname).toBe('/wanted'));
     expect(params(router)).toEqual({
       tab: 'followed',
       settings: 'true',
       configId: 'sp-aphex',
-      detailId: 'sp-aphex',
     });
+  });
+
+  it('an artist’s panel opens the Artist page now', async () => {
+    stubFetch();
+    const { router } = renderRoute('/watchlist?detailId=sp-aphex');
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/artist-detail/deezer/dz-aphex'),
+    );
+    expect(params(router)).toMatchObject({ name: 'Aphex Twin' });
   });
 
   it('a profile that may not see the Watchlist lands on the Wanted tab', async () => {
@@ -412,15 +420,20 @@ describe('Followed artists, from the URL', () => {
     expect(within(bar).getByText('1 selected')).toBeInTheDocument();
   });
 
-  it('a row’s menu opens its panel, and the panel says where Back goes', async () => {
+  it('a row opens the Artist page; its menu has no separate panel', async () => {
     stubFetch();
     const { router } = renderRoute();
     await screen.findByText('Aphex Twin');
-    await menuItem('More actions for Aphex Twin', 'About this artist…');
-    await waitFor(() => expect(params(router)).toMatchObject({ detailId: 'sp-aphex' }));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Aphex Twin' }));
     expect(
-      await screen.findByRole('button', { name: '← Back to Followed artists' }),
+      await screen.findByRole('menuitem', { name: 'Settings for this artist…' }),
     ).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'About this artist…' })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open artist' })[0]);
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/artist-detail/deezer/dz-aphex'),
+    );
   });
 });
 
@@ -669,8 +682,17 @@ describe('settings for one artist', () => {
 });
 
 describe('an artist’s panel', () => {
-  it('opens from the URL with releases and settings', async () => {
+  it('hands an old link over to the Artist page, replacing it in history', async () => {
     stubFetch();
+    const { router } = renderRoute('/wanted?tab=followed&detailId=sp-aphex');
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe('/artist-detail/deezer/dz-aphex'),
+    );
+    expect(router.history.length).toBe(1);
+  });
+
+  it('stays, with releases and settings, for an artist whose page can’t be opened', async () => {
+    stubFetch({ configProviderIds: false });
     renderRoute('/wanted?tab=followed&detailId=sp-aphex');
     expect(await screen.findByText('1,234,567')).toBeInTheDocument();
     expect(screen.getByText('electronic')).toBeInTheDocument();
@@ -680,7 +702,7 @@ describe('an artist’s panel', () => {
   });
 
   it('Settings swaps the panel for the artist’s settings', async () => {
-    stubFetch();
+    stubFetch({ configProviderIds: false });
     const { router } = renderRoute('/wanted?tab=followed&detailId=sp-aphex');
     fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
     await waitFor(() => expect(params(router)).toMatchObject({ configId: 'sp-aphex' }));
@@ -688,7 +710,7 @@ describe('an artist’s panel', () => {
   });
 
   it('Unfollow… asks first, like the row’s Unfollow', async () => {
-    const calls = stubFetch();
+    const calls = stubFetch({ configProviderIds: false });
     const { router } = renderRoute('/wanted?tab=followed&detailId=sp-aphex');
     await screen.findByText('1,234,567');
     fireEvent.click(await screen.findByRole('button', { name: 'Unfollow…' }));
