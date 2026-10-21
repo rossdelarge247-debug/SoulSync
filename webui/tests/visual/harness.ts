@@ -71,6 +71,8 @@ export function renderIndex() {
     'initial_reduce_effects | tojson': 'false',
     'initial_max_performance | tojson': 'false',
     'profile_gate_rules | tojson': 'null',
+    // no module switched off: every sidebar entry shows
+    'initial_modules | default([]) | tojson': '[]',
     soulsync_base_version: '0.0.0',
   };
   const flags: Record<string, boolean> = {
