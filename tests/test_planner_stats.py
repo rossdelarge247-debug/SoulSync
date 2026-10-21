@@ -101,8 +101,18 @@ def test_the_boot_kick_analyzes_it_and_title_searches_stop_walking_server_source
     c.close()
     after = _title_search_plans(db, monkeypatch)
     assert after
-    for p in after:
-        assert not any("idx_tracks_source_owner" in s for s in p), p
+
+    # the exact lookup goes by title_norm and the ORDER BY title search by the
+    # title index. only the substring fallback (title_norm LIKE '%..%'), which
+    # no index can serve, still walks the server's rows, and did before the
+    # bug too: through the plain (server_source) index until that was dropped
+    # as a copy of idx_tracks_source_owner's first column, through this now.
+    def walks(plans):
+        return sum(any("(server_source=?)" in s for s in p) for p in plans)
+
+    assert any("idx_tracks_title_norm (title_norm=?)" in s for p in after for s in p), after
+    assert walks(after) < walks(before), (before, after)
+    assert walks(after) <= 1, after
 
 
 def test_nothing_to_analyze_starts_no_thread(db):

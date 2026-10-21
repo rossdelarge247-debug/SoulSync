@@ -899,7 +899,6 @@ class MusicDatabase:
                     UNIQUE(profile_id, track_id)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_wishlist_ignore_profile ON wishlist_ignore (profile_id, track_id)")
 
             # Artists whose music downloads are filed in the audiobook library
             # instead (core/audiobook_routing.py). Keyed on the normalized
@@ -943,7 +942,6 @@ class MusicDatabase:
                     UNIQUE(username, filename)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_qsb_source ON quarantine_source_blocks (username, filename)")
 
             # Notification history (Kazimir): every toast the UI raises is
             # journaled here so a reflexive "Clear All" in the bell panel
@@ -1000,8 +998,6 @@ class MusicDatabase:
                     UNIQUE(room, target_key, emoji, username) ON CONFLICT IGNORE
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_room_reactions_room "
-                           "ON chat_room_reactions (room, target_key)")
             # Arcade game carriers. Protocol carriers are normally ephemeral --
             # they are machine coordination and replaying a stale jukebox vote
             # would resurrect a dead queue -- but a GAME is durable state that
@@ -1111,8 +1107,6 @@ class MusicDatabase:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_labels_mbid "
-                           "ON watchlist_labels (musicbrainz_label_id)")
 
             # Podcast watchlist (podcasts feature) — follow podcast shows to monitor
             # their new episodes, mirroring artists and labels. Purely ADDITIVE.
@@ -1137,8 +1131,6 @@ class MusicDatabase:
                     UNIQUE(feed_url, profile_id)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_podcasts_feed "
-                           "ON watchlist_podcasts (feed_url)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_podcasts_itunes "
                            "ON watchlist_podcasts (itunes_id)")
 
@@ -1196,8 +1188,6 @@ class MusicDatabase:
                         cursor, "watchlist_podcasts", "watchlist_podcasts_migrating",
                         expressions={"profile_id": "COALESCE(profile_id, 1)"})
                     self._replace_table(cursor, "watchlist_podcasts", "watchlist_podcasts_migrating")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_podcasts_feed "
-                                   "ON watchlist_podcasts (feed_url)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_podcasts_itunes "
                                    "ON watchlist_podcasts (itunes_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_podcasts_profile "
@@ -1218,8 +1208,6 @@ class MusicDatabase:
                     UNIQUE(feed_url, enclosure_url)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_downloaded_podcasts_feed "
-                           "ON downloaded_podcast_episodes (feed_url)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_downloaded_podcasts_guid "
                            "ON downloaded_podcast_episodes (guid)")
 
@@ -1385,7 +1373,6 @@ class MusicDatabase:
                     UNIQUE(whitelist_hash, normalized_source_genre)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_gtc_hash ON genre_translation_cache (whitelist_hash)")
 
             # Mirrored playlists — persistent backup of parsed playlists from any service
             cursor.execute("""
@@ -1425,8 +1412,6 @@ class MusicDatabase:
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_mirrored_playlists_profile ON mirrored_playlists (profile_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mirrored_playlists_source ON mirrored_playlists (source, source_playlist_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mirrored_tracks_playlist ON mirrored_playlist_tracks (playlist_id)")
 
             # Automations table — trigger → action scheduled tasks
             cursor.execute("""
@@ -1942,6 +1927,9 @@ class MusicDatabase:
             self._requeue_similar_artists_rematch(cursor)
             self._purge_beatport_positional_matches(cursor)
             self._normalize_genres_to_json(cursor)
+            # after every step that creates indexes (and _replace_table, which
+            # carries a rebuilt table's old ones over)
+            self._drop_redundant_indexes(cursor)
             # Unify scattered migration state into the ledger + stamp the schema
             # version. Additive backstop — runs last, gates nothing.
             self._sync_migration_ledger(cursor)
@@ -3420,8 +3408,8 @@ class MusicDatabase:
                 cursor.execute("ALTER TABLE tracks ADD COLUMN disc_number INTEGER DEFAULT 1")
                 logger.info("Added disc_number column to tracks table")
                 
-            # Create indexes for server_source columns for performance
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_server_source ON artists (server_source)")
+            # Indexes led by server_source. a plain (server_source) index only
+            # repeats their first column, see _REDUNDANT_INDEXES
             # the library page picks one row per (server, name) with a
             # correlated MIN(id) subquery, for the count and again for the
             # page. this index covers it, so neither statement reads the
@@ -3433,8 +3421,6 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_source_updated ON tracks (server_source, updated_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_albums_source_updated ON albums (server_source, updated_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_source_updated ON artists (server_source, updated_at)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_albums_server_source ON albums (server_source)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_server_source ON tracks (server_source)")
 
     def _migrate_sample_analysis_text_ids(self, cursor):
         """sample_analysis.track_id was an INTEGER PRIMARY KEY, which sqlite
@@ -3556,7 +3542,6 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_albums_artist_id ON albums (artist_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks (album_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks (artist_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_server_source ON artists (server_source)")
             # the library page picks one row per (server, name) with a
             # correlated MIN(id) subquery, for the count and again for the
             # page. this index covers it, so neither statement reads the
@@ -3568,8 +3553,6 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_source_updated ON tracks (server_source, updated_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_albums_source_updated ON albums (server_source, updated_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_source_updated ON artists (server_source, updated_at)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_albums_server_source ON albums (server_source)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_server_source ON tracks (server_source)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_artists_name ON artists (name)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_albums_title ON albums (title)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks (title)")
@@ -3917,9 +3900,6 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_recent_albums_source ON discovery_recent_albums (source)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_recent_albums_date ON discovery_recent_albums (release_date)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listenbrainz_playlists_type ON listenbrainz_playlists (playlist_type)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listenbrainz_playlists_mbid ON listenbrainz_playlists (playlist_mbid)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listenbrainz_tracks_playlist ON listenbrainz_tracks (playlist_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listenbrainz_tracks_position ON listenbrainz_tracks (playlist_id, position)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_recent_albums_artist ON discovery_recent_albums (artist_spotify_id)")
 
             # Discovery Match Cache - caches successful discovery matches across all sources
@@ -3939,7 +3919,6 @@ class MusicDatabase:
                     UNIQUE(normalized_title, normalized_artist, provider)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_cache_lookup ON discovery_match_cache (normalized_title, normalized_artist, provider)")
 
             # Sync match cache — caches server track ID for discovered Spotify tracks
             cursor.execute("""
@@ -3958,7 +3937,6 @@ class MusicDatabase:
                     UNIQUE(spotify_track_id, server_source)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_cache_lookup ON sync_match_cache (spotify_track_id, server_source)")
 
             # Download blacklist — tracks users have rejected as wrong matches
             cursor.execute("""
@@ -3973,7 +3951,6 @@ class MusicDatabase:
                     UNIQUE(blocked_username, blocked_filename)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_blacklist_user_file ON download_blacklist (blocked_username, blocked_filename)")
 
             # Track download provenance — where each library track came from
             cursor.execute("""
@@ -4156,7 +4133,6 @@ class MusicDatabase:
                     UNIQUE(artist_name)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_dab_name ON discovery_artist_blacklist (artist_name COLLATE NOCASE)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_dab_spotify ON discovery_artist_blacklist (spotify_artist_id)")
 
             # Unified artist/album/track blocklist (the "proper" blacklist —
@@ -4309,7 +4285,6 @@ class MusicDatabase:
                     UNIQUE(profile_id, normalized_name)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_lap_profile ON liked_artists_pool (profile_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_lap_status ON liked_artists_pool (profile_id, match_status)")
             cursor.execute("PRAGMA table_info(liked_artists_pool)")
             liked_artist_columns = {column[1] for column in cursor.fetchall()}
@@ -4338,7 +4313,6 @@ class MusicDatabase:
                     UNIQUE(profile_id, normalized_key)
                 )
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_lalp_profile ON liked_albums_pool (profile_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_lalp_spotify ON liked_albums_pool (spotify_album_id)")
 
             # Migration: add discogs_release_id column for the Discogs
@@ -4577,6 +4551,103 @@ class MusicDatabase:
     _PLAIN_LOOKUP_INDEXES = (
         ('idx_tracks_file_path', 'tracks', 'file_path'),
     )
+
+    # indexes that only repeat another index on the same table, so every
+    # insert and delete paid for a b-tree that no query needed: an exact copy
+    # of a UNIQUE constraint's index, or the leading columns of a longer index
+    # (or UNIQUE constraint), which answers every lookup on those columns the
+    # same way. checked with EXPLAIN QUERY PLAN on the queries that used them:
+    # each now runs the same search on the covering index. index -> table.
+    # the plain/NOCASE pairs on tracks.spotify_track_id and tracks.isrc and
+    # the title/LOWER(title) pairs are not here: each one serves queries the
+    # other can't.
+    _REDUNDANT_INDEXES = {
+        # exact copies of a UNIQUE constraint
+        'idx_blacklist_user_file': 'download_blacklist',
+        'idx_dab_name': 'discovery_artist_blacklist',
+        'idx_discovery_cache_lookup': 'discovery_match_cache',
+        'idx_listenbrainz_tracks_position': 'listenbrainz_tracks',
+        'idx_mce_lookup': 'metadata_cache_entities',
+        'idx_mltm_lookup': 'manual_library_track_matches',
+        'idx_qsb_source': 'quarantine_source_blocks',
+        'idx_sync_cache_lookup': 'sync_match_cache',
+        'idx_watchlist_labels_mbid': 'watchlist_labels',
+        'idx_wishlist_ignore_profile': 'wishlist_ignore',
+        # the leading columns of a UNIQUE constraint
+        'idx_chat_room_reactions_room': 'chat_room_reactions',
+        'idx_discovery_pool_profile': 'discovery_pool',
+        'idx_discovery_recent_albums_profile': 'discovery_recent_albums',
+        'idx_downloaded_podcasts_feed': 'downloaded_podcast_episodes',
+        'idx_gtc_hash': 'genre_translation_cache',
+        'idx_lalp_profile': 'liked_albums_pool',
+        'idx_listenbrainz_playlists_mbid': 'listenbrainz_playlists',
+        'idx_listenbrainz_tracks_playlist': 'listenbrainz_tracks',
+        'idx_mb_cache_entity': 'musicbrainz_cache',
+        'idx_mcs_lookup': 'metadata_cache_searches',
+        'idx_mirrored_playlists_source': 'mirrored_playlists',
+        'idx_mirrored_tracks_playlist': 'mirrored_playlist_tracks',
+        'idx_personalized_tracks_playlist': 'personalized_playlist_tracks',
+        'idx_recent_releases_profile': 'recent_releases',
+        'idx_service_credentials_service': 'service_credentials',
+        'idx_similar_artists_profile': 'similar_artists',
+        'idx_spotify_library_album_id': 'spotify_library_cache',
+        'idx_watchlist_podcasts_feed': 'watchlist_podcasts',
+        'idx_watchlist_profile': 'watchlist_artists',
+        'idx_wishlist_profile': 'wishlist_tracks',
+        # the leading columns of a longer index
+        'idx_albums_server_source': 'albums',       # idx_albums_source_owner / _source_updated
+        'idx_artists_server_source': 'artists',     # idx_artists_source_name_id / _owner / _updated
+        'idx_tracks_server_source': 'tracks',       # idx_tracks_source_owner / _source_updated
+        'idx_lap_profile': 'liked_artists_pool',    # idx_lap_status, UNIQUE(profile_id, normalized_name)
+        'idx_mce_source': 'metadata_cache_entities',  # UNIQUE(source, entity_type, entity_id)
+        'idx_rf_type': 'repair_findings',           # idx_rf_type_status
+    }
+
+    def _drop_redundant_indexes(self, cursor) -> None:
+        """Drop the _REDUNDANT_INDEXES an existing database still has, each
+        only when that database really has the index that covers it."""
+        with self._migration_step(cursor, 'drop_redundant_indexes', atomic=False):
+            names = list(self._REDUNDANT_INDEXES)
+            cursor.execute("SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' "
+                           f"AND name IN ({','.join('?' * len(names))})", names)
+            dropped = []
+            for name, table in cursor.fetchall():
+                if table != self._REDUNDANT_INDEXES[name]:
+                    continue   # same name, some other table's index
+                covering = self._covering_index(cursor, table, name)
+                if covering is None:
+                    logger.debug("keeping index %s: nothing else on %s covers it", name, table)
+                    continue
+                cursor.execute(f'DROP INDEX IF EXISTS "{name}"')
+                dropped.append(f"{name} ({covering})")
+            if dropped:
+                logger.info("Dropped %d index(es) another index already covers: %s",
+                            len(dropped), ', '.join(dropped))
+
+    @staticmethod
+    def _covering_index(cursor, table: str, name: str) -> Optional[str]:
+        """Another index on ``table`` whose leading key columns are ``name``'s
+        (same columns, order, collation and direction), not partial, and as
+        unique as ``name``; None if there is none, or ``name`` is partial or
+        has an expression column."""
+        indexes = {}
+        for _seq, index, unique, _origin, partial in cursor.execute(
+                f'PRAGMA index_list("{table}")').fetchall():
+            keys = tuple((r[2], r[4], r[3]) for r in cursor.execute(
+                f'PRAGMA index_xinfo("{index}")').fetchall() if r[5])
+            indexes[index] = (keys, bool(unique), bool(partial))
+        if name not in indexes:
+            return None
+        keys, unique, partial = indexes[name]
+        if partial or not keys or any(column is None for column, _coll, _desc in keys):
+            return None
+        for other, (other_keys, other_unique, other_partial) in indexes.items():
+            if other == name or other_partial or other_keys[:len(keys)] != keys:
+                continue
+            if unique and not (other_unique and len(other_keys) == len(keys)):
+                continue
+            return other
+        return None
 
     def _add_lookup_indexes(self, cursor):
         with self._migration_step(cursor, 'add_lookup_indexes', atomic=False):
@@ -5086,9 +5157,7 @@ class MusicDatabase:
 
                 # Recreate indexes
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_spotify_id ON watchlist_artists (spotify_artist_id)")
-                if old_has_profile:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_profile ON watchlist_artists (profile_id)")
-                
+
                 logger.info("Successfully migrated watchlist_artists table - spotify_artist_id is now nullable")
             else:
                 logger.debug("watchlist_artists table already has nullable spotify_artist_id or custom schema")
@@ -5193,7 +5262,6 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_mbid ON tracks (musicbrainz_recording_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tracks_mb_status ON tracks (musicbrainz_match_status, id)")
             
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mb_cache_entity ON musicbrainz_cache (entity_type, entity_name)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_mb_cache_mbid ON musicbrainz_cache (musicbrainz_id)")
             # Partial index for failed lookups — speeds up the management modal queries
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_mb_cache_failed ON musicbrainz_cache (entity_type, last_updated) WHERE musicbrainz_id IS NULL")
@@ -6066,7 +6134,6 @@ class MusicDatabase:
                     self._copy_rows_for_rebuild(cursor, "watchlist_artists", "watchlist_artists_new")
                     self._replace_table(cursor, "watchlist_artists", "watchlist_artists_new")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_spotify_id ON watchlist_artists (spotify_artist_id)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_profile ON watchlist_artists (profile_id)")
                     logger.info("Rebuilt watchlist_artists with profile-scoped UNIQUE constraints")
 
             # 5. Rebuild wishlist_tracks for profile-scoped uniqueness
@@ -6094,7 +6161,6 @@ class MusicDatabase:
                     self._copy_rows_for_rebuild(cursor, "wishlist_tracks", "wishlist_tracks_new")
                     self._replace_table(cursor, "wishlist_tracks", "wishlist_tracks_new")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_wishlist_spotify_id ON wishlist_tracks (spotify_track_id)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_wishlist_profile ON wishlist_tracks (profile_id)")
                     logger.info("Rebuilt wishlist_tracks with profile-scoped UNIQUE constraints")
 
             # 6. Rebuild bubble_snapshots for profile-scoped PRIMARY KEY
@@ -6140,17 +6206,6 @@ class MusicDatabase:
                                                 "discovery_curated_playlists_new")
                     self._replace_table(cursor, "discovery_curated_playlists", "discovery_curated_playlists_new")
                     logger.info("Rebuilt discovery_curated_playlists with profile-scoped UNIQUE constraints")
-
-            # 8. Add indexes for profile_id on remaining tables
-            index_pairs = [
-                ('idx_similar_artists_profile', 'similar_artists'),
-                ('idx_discovery_pool_profile', 'discovery_pool'),
-                ('idx_discovery_recent_albums_profile', 'discovery_recent_albums'),
-                ('idx_recent_releases_profile', 'recent_releases'),
-            ]
-            for idx_name, table in index_pairs:
-                with self._migration_step(cursor, f"index {table}.profile_id"):
-                    cursor.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} (profile_id)")
 
             # Set migration marker, unless a part above failed: then it all
             # runs again next start (each part checks for itself)
@@ -6206,7 +6261,6 @@ class MusicDatabase:
 
                     self._copy_rows_for_rebuild(cursor, "discovery_pool", "discovery_pool_new")
                     self._replace_table(cursor, "discovery_pool", "discovery_pool_new")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_pool_profile ON discovery_pool (profile_id)")
                     logger.info("Rebuilt discovery_pool with profile-scoped UNIQUE constraint")
 
             # Rebuild discovery_recent_albums: UNIQUE(profile_id, album_spotify_id, album_itunes_id, source)
@@ -6238,7 +6292,6 @@ class MusicDatabase:
 
                     self._copy_rows_for_rebuild(cursor, "discovery_recent_albums", "discovery_recent_albums_new")
                     self._replace_table(cursor, "discovery_recent_albums", "discovery_recent_albums_new")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_discovery_recent_albums_profile ON discovery_recent_albums (profile_id)")
                     logger.info("Rebuilt discovery_recent_albums with profile-scoped UNIQUE constraint")
 
             # Rebuild recent_releases: UNIQUE(profile_id, watchlist_artist_id, album_spotify_id, album_itunes_id)
@@ -6267,7 +6320,6 @@ class MusicDatabase:
 
                     self._copy_rows_for_rebuild(cursor, "recent_releases", "recent_releases_new")
                     self._replace_table(cursor, "recent_releases", "recent_releases_new")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_recent_releases_profile ON recent_releases (profile_id)")
                     logger.info("Rebuilt recent_releases with profile-scoped UNIQUE constraint")
 
             # Set migration marker, unless a rebuild above failed
@@ -6328,7 +6380,6 @@ class MusicDatabase:
 
                     self._copy_rows_for_rebuild(cursor, "similar_artists", "similar_artists_new")
                     self._replace_table(cursor, "similar_artists", "similar_artists_new")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_similar_artists_profile ON similar_artists (profile_id)")
                     logger.info("Rebuilt similar_artists with profile-scoped UNIQUE constraint")
 
             # Make discovery_pool_metadata per-profile: change CHECK(id=1) to use profile_id as key
@@ -7140,10 +7191,6 @@ class MusicDatabase:
                     PRIMARY KEY (profile_id, service)
                 )
             """)
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_service_credentials_service "
-                "ON service_credentials (service)"
-            )
 
             self._mark_step_done(cursor, 'service_credentials_v1', '1')
             logger.info("Service-credential-sets migration completed")
@@ -8829,7 +8876,6 @@ class MusicDatabase:
                 )
             """)
 
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_spotify_library_album_id ON spotify_library_cache (spotify_album_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_spotify_library_profile ON spotify_library_cache (profile_id)")
 
             self._mark_step_done(cursor, 'spotify_library_cache_v1', '1')
@@ -8841,11 +8887,9 @@ class MusicDatabase:
     # cache predates them (one created by 2.x) never got them while they
     # lived behind the metadata_cache_v1 marker.
     _METADATA_CACHE_ENTITY_INDEXES = (
-        "CREATE INDEX IF NOT EXISTS idx_mce_lookup ON metadata_cache_entities (source, entity_type, entity_id)",
         "CREATE INDEX IF NOT EXISTS idx_mce_name ON metadata_cache_entities (entity_type, name COLLATE NOCASE)",
         "CREATE INDEX IF NOT EXISTS idx_mce_artist ON metadata_cache_entities (artist_name COLLATE NOCASE)",
         "CREATE INDEX IF NOT EXISTS idx_mce_accessed ON metadata_cache_entities (last_accessed_at)",
-        "CREATE INDEX IF NOT EXISTS idx_mce_source ON metadata_cache_entities (source)",
         # Composite indexes for browse queries (entity_type + sort column)
         "CREATE INDEX IF NOT EXISTS idx_mce_browse ON metadata_cache_entities (entity_type, source, last_accessed_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_mce_browse_name ON metadata_cache_entities (entity_type, source, name COLLATE NOCASE)",
@@ -8930,7 +8974,6 @@ class MusicDatabase:
                 )
             """)
 
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_mcs_lookup ON metadata_cache_searches (source, search_type, query_normalized)")
 
             self._mark_step_done(cursor, 'metadata_cache_v1', '1')
 
@@ -8972,7 +9015,6 @@ class MusicDatabase:
 
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_rf_job ON repair_findings (job_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_rf_status ON repair_findings (status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_rf_type ON repair_findings (finding_type)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_rf_created ON repair_findings (created_at)")
 
             cursor.execute("""
@@ -9060,10 +9102,6 @@ class MusicDatabase:
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(profile_id, source, source_track_id, server_source)
                     )
-                """)
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_mltm_lookup
-                    ON manual_library_track_matches (profile_id, source, source_track_id, server_source)
                 """)
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS idx_mltm_lib_track

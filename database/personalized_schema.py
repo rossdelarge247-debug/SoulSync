@@ -98,11 +98,6 @@ CREATE TABLE IF NOT EXISTS personalized_playlist_tracks (
 )
 """
 
-PERSONALIZED_PLAYLIST_TRACKS_INDEX = """
-CREATE INDEX IF NOT EXISTS idx_personalized_tracks_playlist
-    ON personalized_playlist_tracks(playlist_id)
-"""
-
 PERSONALIZED_TRACK_HISTORY_DDL = """
 CREATE TABLE IF NOT EXISTS personalized_track_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,7 +124,6 @@ def ensure_personalized_schema(connection: Any) -> None:
     cursor = connection.cursor()
     cursor.execute(PERSONALIZED_PLAYLISTS_DDL)
     cursor.execute(PERSONALIZED_PLAYLIST_TRACKS_DDL)
-    cursor.execute(PERSONALIZED_PLAYLIST_TRACKS_INDEX)
     cursor.execute(PERSONALIZED_TRACK_HISTORY_DDL)
     cursor.execute(PERSONALIZED_TRACK_HISTORY_INDEX)
 
@@ -153,7 +147,6 @@ __all__ = [
     'ensure_personalized_schema',
     'PERSONALIZED_PLAYLISTS_DDL',
     'PERSONALIZED_PLAYLIST_TRACKS_DDL',
-    'PERSONALIZED_PLAYLIST_TRACKS_INDEX',
     'PERSONALIZED_TRACK_HISTORY_DDL',
     'PERSONALIZED_TRACK_HISTORY_INDEX',
 ]
