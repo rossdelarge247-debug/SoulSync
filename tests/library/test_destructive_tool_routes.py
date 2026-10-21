@@ -109,3 +109,17 @@ def test_deep_scan_large_move_plan_needs_its_confirmation(client):
     assert submitted and submitted[0][1] == {"plan_id": plan.plan_id, "allow_large_move": True}
     with da.db_update_lock:
         da.db_update_state["status"] = "idle"
+
+
+def test_deep_scan_plan_items_are_paged_without_spending_the_plan(client):
+    http, _executor, _ws = client
+    from core.library.standalone_scan import DEEP_SCAN_TOOL
+    items = [{"path": f"/t/{i}.flac", "dest": f"/s/{i}.flac", "action": "move_to_staging",
+              "reason": "no database record for this file", "size": 1} for i in range(5)]
+    plan = plan_store.create(DEEP_SCAN_TOOL, items)
+    body = http.get(f"/api/database/deep-scan/plan?plan_id={plan.plan_id}&offset=3&limit=10").get_json()
+    assert body["total"] == 5
+    assert [i["path"] for i in body["items"]] == ["/t/3.flac", "/t/4.flac"]
+    assert plan_store.peek(plan.plan_id, DEEP_SCAN_TOOL)          # still usable
+    missing = http.get("/api/database/deep-scan/plan?plan_id=gone")
+    assert missing.status_code == 404 and missing.get_json()["code"] == "plan_unknown"

@@ -150,6 +150,26 @@ def test_preview_reports_accurate_counts(scan):
     assert _snapshot(scan["staging"]) == []
 
 
+def test_preview_says_when_it_stops_working_and_what_the_limit_is(scan):
+    """The confirm screen shows when the preview was made, when it expires,
+    where the files go and the ratio limit its warning names."""
+    scan["library"](20, 3)
+    preview = da.build_soulsync_deep_scan_preview()
+    stored = plan_store.peek(preview["plan_id"], "deep_scan")
+    assert preview["created_at"] == stored.created_at
+    assert preview["expires_at"] == stored.expires_at
+    assert preview["max_move_percent"] == 25
+    assert preview["staging_path"] == scan["staging"]
+
+
+def test_a_preview_with_nothing_to_confirm_has_no_expiry(scan):
+    scan["library"](20, 0)
+    preview = da.build_soulsync_deep_scan_preview()
+    assert preview["mode"] == "clean"
+    assert preview["plan_id"] is None
+    assert preview["created_at"] is None and preview["expires_at"] is None
+
+
 # ── confirmed plan ─────────────────────────────────────────────────────────
 
 

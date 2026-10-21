@@ -777,14 +777,23 @@ def build_soulsync_deep_scan_preview():
     plan = plan_standalone_deep_scan(transfer_files, db_paths, never_move=never_move,
                                      max_move_fraction=max_move_fraction)
     items = build_move_items(plan['untracked'], transfer_path, staging_path)
-    plan_id = None
+    stored = None
     if items and (not plan['move_blocked'] or plan['needs_confirmation']):
         stored = plan_store.create(DEEP_SCAN_TOOL, items, meta={
             'transfer_path': transfer_path, 'staging_path': staging_path,
             'needs_confirmation': plan['needs_confirmation'], 'block_reason': plan['block_reason']})
-        plan_id = stored.plan_id
     mode = "clean" if not items else ("blocked" if plan['move_blocked'] else "preview")
-    return _deep_scan_move_summary(plan, items, mode=mode, plan_id=plan_id)
+    summary = _deep_scan_move_summary(plan, items, mode=mode,
+                                      plan_id=stored.plan_id if stored else None)
+    # what the confirm screen shows: where the files go, the ratio limit the
+    # warning names, and when this preview stops authorising the move
+    summary.update({
+        "staging_path": staging_path,
+        "max_move_percent": round(max_move_fraction * 100, 1),
+        "created_at": stored.created_at if stored else None,
+        "expires_at": stored.expires_at if stored else None,
+    })
+    return summary
 
 
 def _run_soulsync_deep_scan(plan_id=None, *, confirm_moves=False, allow_large_move=False):
@@ -1313,6 +1322,29 @@ def preview_deep_scan():
         logger.error(f"[SoulSync Deep Scan] preview failed: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
     summary.update({"success": True, "moves_files": True, "server": active_server})
+    return jsonify(summary)
+
+
+@bp.route('/api/database/deep-scan/plan', methods=['GET'])
+@admin_only
+def get_deep_scan_plan():
+    """The full file list of a deep-scan preview, paged:
+    ``?plan_id=&offset=&limit=``. Each item: path, dest, action, reason, size.
+    Reads only; the plan stays valid for its confirm."""
+    from core.library.action_plans import PlanError, plan_store
+    from core.library.standalone_scan import DEEP_SCAN_TOOL
+    try:
+        plan = plan_store.peek(request.args.get('plan_id'), DEEP_SCAN_TOOL)
+    except PlanError as exc:
+        return jsonify({"success": False, "error": exc.message, "code": exc.code}), 404
+    try:
+        offset = max(0, int(request.args.get('offset', 0)))
+        limit = min(1000, max(1, int(request.args.get('limit', 200))))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "offset and limit must be numbers"}), 400
+    summary = plan.summary(sample_size=0)
+    summary.update({"success": True, "offset": offset, "limit": limit,
+                    "items": plan.items[offset:offset + limit]})
     return jsonify(summary)
 
 
