@@ -576,7 +576,10 @@ class VideoDatabase:
         conn = sqlite3.connect(str(self.database_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
+        # NOT `PRAGMA journal_mode = WAL`: wal is stored in the file and set
+        # once at init (_ensure_wal_mode). asking on every connection takes a
+        # lock, and the music database measured ~250 ms per connection in the
+        # busy backoff while workers were writing (see its _get_connection).
         conn.execute("PRAGMA busy_timeout = 30000")  # 30s
         return conn
 
@@ -597,6 +600,22 @@ class VideoDatabase:
             self._initialize_database()
             _initialized_paths.add(key)
 
+    def _ensure_wal_mode(self) -> None:
+        """Put the database file in WAL mode, once per process at init. The
+        mode lives in the file, so every later connection inherits it."""
+        try:
+            conn = sqlite3.connect(str(self.database_path), timeout=30.0)
+            try:
+                conn.execute("PRAGMA busy_timeout = 30000")
+                mode = conn.execute("PRAGMA journal_mode = WAL").fetchone()
+                if mode and str(mode[0]).lower() != "wal":
+                    logger.warning("could not switch %s to wal mode (journal_mode=%s)",
+                                   self.database_path, mode[0])
+            finally:
+                conn.close()
+        except Exception as e:   # noqa: BLE001 - a rollback journal still works
+            logger.warning("wal mode check failed for %s: %s", self.database_path, e)
+
     def _initialize_database(self) -> None:
         # Staged restore (P10): if the admin picked a backup, swap it in NOW —
         # before any connection opens. The current DB is set aside (kept), so
@@ -606,6 +625,8 @@ class VideoDatabase:
             apply_pending_restore(str(self.database_path))
         except Exception:   # noqa: BLE001 - a restore hiccup must never block startup
             logger.exception("staged video restore failed; continuing with the current DB")
+        # after the restore: a swapped-in file brings its own journal mode
+        self._ensure_wal_mode()
         schema = _SCHEMA_FILE.read_text(encoding="utf-8")
         conn = self._get_connection()
         try:
