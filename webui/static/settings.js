@@ -7047,22 +7047,15 @@ async function testDeezerConnection() {
 }
 
 async function clearQuarantine() {
-    if (!await showConfirmDialog({ title: 'Clear Quarantine', message: 'Delete all files in the quarantine folder? This cannot be undone.', confirmText: 'Delete', destructive: true })) return;
-    try {
-        showLoadingOverlay('Clearing quarantine folder...');
-        const response = await fetch('/api/quarantine/clear', { method: 'POST' });
-        const result = await response.json();
-        if (result.success) {
-            showToast(result.message || 'Quarantine cleared', 'success');
-        } else {
-            showToast(`Failed to clear quarantine: ${result.error}`, 'error');
-        }
-    } catch (error) {
-        console.error('Error clearing quarantine:', error);
-        showToast('Failed to clear quarantine', 'error');
-    } finally {
-        hideLoadingOverlay();
+    // Clearing the quarantine deletes files for good, so it goes through the
+    // shared preview-then-confirm dialog (count, size, dates and a sample of
+    // the files) that the React app registers. The route deletes nothing
+    // without that preview's plan id.
+    if (typeof window.openPermanentDelete === 'function') {
+        await window.openPermanentDelete({ kind: 'quarantine' });
+        return;
     }
+    showToast('Reload the page to clear the quarantine.', 'error');
 }
 
 // ======================== API Key Management ========================

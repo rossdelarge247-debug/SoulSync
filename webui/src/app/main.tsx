@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 
 import { mountCandidateInspectorHost } from '@/features/downloads/inspector-modal';
 import { mountAddToPlaylistHost } from '@/features/playlists/add-to-playlist';
+import { mountPermanentDeleteHost } from '@/features/safe-action/permanent-delete-flow';
 import { mountLibraryDiscographySourceSelector } from '@/features/settings/library-discography-source';
 import { bindWindowWebRouter } from '@/platform/shell/bridge';
 import { ROUTER_ROOT_ID } from '@/platform/shell/route-controllers';
@@ -64,4 +65,5 @@ export async function bootstrapApp() {
 void mountLibraryDiscographySourceSelector();
 mountCandidateInspectorHost();
 mountAddToPlaylistHost();
+mountPermanentDeleteHost();
 void bootstrapApp();

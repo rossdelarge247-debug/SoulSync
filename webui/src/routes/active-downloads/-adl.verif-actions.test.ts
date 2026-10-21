@@ -9,7 +9,6 @@ import {
   approveAllQuarantine,
   approveAllUnverified,
   cleanOrphans,
-  clearAllQuarantine,
   deleteAllUnverified,
   quarantineApproveEntry,
   quarantineAudit,
@@ -131,13 +130,6 @@ describe('nothing destructive happens without a confirmation', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('does not clear the quarantine when declined', async () => {
-    confirmAnswer = false;
-    const calls = ok('/api/quarantine/clear');
-    await clearAllQuarantine([entry()], vi.fn());
-    expect(calls).toHaveLength(0);
-  });
-
   it('does not approve everything when declined', async () => {
     confirmAnswer = false;
     const unv = ok('/api/verification/:id/approve');
@@ -158,8 +150,7 @@ describe('nothing destructive happens without a confirmation', () => {
     await unverifiedDelete('42', vi.fn());
     await quarantineDeleteEntry(entry(), vi.fn());
     await deleteAllUnverified(['1'], vi.fn());
-    await clearAllQuarantine([entry()], vi.fn());
-    expect(confirmCalls.map((c) => c.destructive)).toEqual([true, true, true, true]);
+    expect(confirmCalls.map((c) => c.destructive)).toEqual([true, true, true]);
   });
 
   it('does NOT mark the non-destructive ones destructive', async () => {
@@ -176,9 +167,6 @@ describe('nothing destructive happens without a confirmation', () => {
     confirmAnswer = false;
     await deleteAllUnverified(['1', '2', '3'], vi.fn());
     expect(String(confirmCalls[0].message)).toContain('3');
-    confirmCalls = [];
-    await clearAllQuarantine([entry(), entry({ id: 'q2' })], vi.fn());
-    expect(String(confirmCalls[0].message)).toContain('2');
   });
 });
 
@@ -365,39 +353,6 @@ describe('bulk actions', () => {
     ok('/api/verification/clean-orphans', { success: true, removed: 4, checked: 10 });
     await cleanOrphans(vi.fn());
     expect(toasts[0].message).toBe('Removed 4 orphaned entries (checked 10)');
-  });
-
-  it('does not clear an already-empty quarantine', async () => {
-    const calls = ok('/api/quarantine/clear');
-    await clearAllQuarantine([], vi.fn());
-    expect(confirmCalls).toHaveLength(0);
-    expect(calls).toHaveLength(0);
-  });
-
-  it('uses totalCount for the clear dialog count', async () => {
-    confirmAnswer = false;
-    ok('/api/quarantine/clear');
-    await clearAllQuarantine([entry()], vi.fn(), 42);
-    expect(confirmCalls).toHaveLength(1);
-    expect(String(confirmCalls[0].message)).toContain('42');
-    expect(String(confirmCalls[0].message)).not.toContain('all 1 ');
-  });
-
-  it('still clears when entries are empty but totalCount is positive', async () => {
-    const calls = ok('/api/quarantine/clear');
-    const onDone = vi.fn();
-    await clearAllQuarantine([], onDone, 7);
-    expect(confirmCalls).toHaveLength(1);
-    expect(String(confirmCalls[0].message)).toContain('7');
-    expect(calls).toHaveLength(1);
-    expect(onDone).toHaveBeenCalled();
-  });
-
-  it('is a no-op for empty entries with no totalCount', async () => {
-    const calls = ok('/api/quarantine/clear');
-    await clearAllQuarantine([], vi.fn(), undefined);
-    expect(confirmCalls).toHaveLength(0);
-    expect(calls).toHaveLength(0);
   });
 
   it('delete-group with an unknown (null) count confirms without a number and still deletes siblings', async () => {

@@ -12,9 +12,7 @@
 import type { AdlDeletedEntry, AdlDownload, AdlQuarantineEntry } from './-adl.types';
 
 import {
-  purgeDeletedFiles,
   quarantineApprove,
-  quarantineClear,
   quarantineCompareStream,
   quarantineDelete,
   quarantineEntry,
@@ -413,37 +411,14 @@ export async function approveAllQuarantine(
   onDone();
 }
 
-export async function clearAllQuarantine(
-  entries: AdlQuarantineEntry[],
-  onDone: () => void,
-  totalCount?: number,
-): Promise<void> {
-  const count = totalCount ?? entries.length;
-  if (!count) return;
-  const confirmed = await window.showConfirmDialog?.({
-    title: 'Clear Quarantine',
-    message: `This permanently deletes all ${count} quarantined files and their metadata sidecars. Cannot be undone.`,
-    confirmText: 'Delete All',
-    cancelText: 'Cancel',
-    destructive: true,
-  });
-  if (!confirmed) return;
-  try {
-    const data = await quarantineClear();
-    if (data.success) toast('Quarantine cleared', 'success');
-    else toast(data.error || 'Clear failed', 'error');
-  } catch {
-    toast('Clear failed', 'error');
-  }
-  onDone();
-}
-
 /* ── The deleted-files (recycle bin) actions ─────────────────────────────── */
 
 /**
  * Third family: a DELETED entry was in the library once and got removed by a
  * tool. It has no sidecar and no history row - just the file, its manifest
- * record, and two verbs.
+ * record, and two verbs. Restore lives here; deleting for good (one file or
+ * the whole bin), like clearing the quarantine, previews a plan first and is
+ * confirmed in the shared dialog (features/safe-action/permanent-delete-flow).
  */
 
 function reportDeletedResult(
@@ -466,26 +441,6 @@ export async function restoreDeletedEntry(entry: AdlDeletedEntry, onDone: () => 
   onDone();
 }
 
-export async function purgeDeletedEntry(entry: AdlDeletedEntry, onDone: () => void) {
-  const confirmed = await window.showConfirmDialog?.({
-    title: 'Delete Permanently',
-    message: `This permanently deletes "${entry.name}". It cannot be restored afterwards.`,
-    confirmText: 'Delete',
-    cancelText: 'Cancel',
-    destructive: true,
-  });
-  if (!confirmed) {
-    onDone();
-    return;
-  }
-  try {
-    reportDeletedResult(await purgeDeletedFiles([entry.id]), 'Deleted');
-  } catch {
-    toast('Delete failed', 'error');
-  }
-  onDone();
-}
-
 export async function restoreAllDeleted(entries: AdlDeletedEntry[], onDone: () => void) {
   if (!entries.length) return;
   const confirmed = await window.showConfirmDialog?.({
@@ -499,24 +454,6 @@ export async function restoreAllDeleted(entries: AdlDeletedEntry[], onDone: () =
     reportDeletedResult(await restoreDeletedFiles(entries.map((e) => e.id)), 'Restored');
   } catch {
     toast('Restore failed', 'error');
-  }
-  onDone();
-}
-
-export async function emptyDeletedBin(count: number, onDone: () => void) {
-  if (!count) return;
-  const confirmed = await window.showConfirmDialog?.({
-    title: 'Empty Bin',
-    message: `This permanently deletes all ${count} files in the bin. Cannot be undone.`,
-    confirmText: 'Empty Bin',
-    cancelText: 'Cancel',
-    destructive: true,
-  });
-  if (!confirmed) return;
-  try {
-    reportDeletedResult(await purgeDeletedFiles(null, true), 'Deleted');
-  } catch {
-    toast('Empty bin failed', 'error');
   }
   onDone();
 }
