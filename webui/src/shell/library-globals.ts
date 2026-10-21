@@ -14,7 +14,7 @@
  *     route through it; it owns the label-stack push/pop semantics.
  *   - playLibraryTrack - downloads.js, enrichment.js, stats-automations.js and
  *     the shell bridge all start library playback through it.
- *   - _updateSidebarLibraryBreadcrumb - init.js repaints the nav breadcrumb.
+ *   - _updateSidebarLibraryBreadcrumb - names the artist page in the top bar.
  *   - _handoffLibrarySearchToEnhancedSearch - the React library and label
  *     pages hand a query off to the search page with it.
  *
@@ -24,6 +24,8 @@
  * through the global scope chain, declared ambiently below. When their homes
  * port into the shell, the declares migrate with them.
  */
+
+import { setShellPageName } from './nav-shell';
 
 declare global {
   /* eslint-disable no-var */
@@ -167,54 +169,15 @@ window.addEventListener(_PAGE_WILL_CHANGE, (event) => {
   }
 });
 
-// Maximum visible characters of an artist name in the sidebar Library
-// breadcrumb. Names longer than this get truncated with an ellipsis so the
-// nav button width stays consistent across the rest of the sidebar.
-const _SIDEBAR_BREADCRUMB_ARTIST_MAXLEN = 14;
-
 export function _updateSidebarLibraryBreadcrumb(): void {
-  // Rewrite the Library nav button label between plain "Library" and a
-  // "Library / <Artist>" breadcrumb depending on whether the user is on
-  // the artist-detail pseudo-page. Pure visual - touches no app state.
-  const btn = document.querySelector('[data-page="library"]');
-  if (!btn) return;
-  const textEl = btn.querySelector('.nav-text') as HTMLElement | null;
-  if (!textEl) return;
-
+  // On the artist page the top bar's page name is the artist (it used to be a
+  // "Library / <Artist>" breadcrumb in the Library nav row; the navigation
+  // shell's rows keep fixed labels, and the top bar says where you are).
+  // Everywhere else the shell goes back to the current row's name. Pure
+  // visual - touches no app state.
   const onArtistDetail = typeof currentPage === 'string' && currentPage === 'artist-detail';
   const artistName = onArtistDetail ? artistDetailPageState.currentArtistName || '' : '';
-
-  if (!onArtistDetail || !artistName) {
-    // Default state: plain "Library" label. Use textContent so we wipe
-    // any previously-injected breadcrumb spans cleanly.
-    textEl.textContent = 'Library';
-    textEl.removeAttribute('data-breadcrumb');
-    return;
-  }
-
-  // Truncate long names so the button width stays consistent.
-  let display = artistName;
-  if (display.length > _SIDEBAR_BREADCRUMB_ARTIST_MAXLEN) {
-    display = display.slice(0, _SIDEBAR_BREADCRUMB_ARTIST_MAXLEN - 1).trimEnd() + '…';
-  }
-
-  // Render via inline spans so CSS can style the root / separator / context
-  // independently. Escape via textContent on individual spans.
-  textEl.setAttribute('data-breadcrumb', '1');
-  textEl.textContent = '';
-  const root = document.createElement('span');
-  root.className = 'nav-text-root';
-  root.textContent = 'Library';
-  const sep = document.createElement('span');
-  sep.className = 'nav-text-sep';
-  sep.textContent = ' / ';
-  const ctx = document.createElement('span');
-  ctx.className = 'nav-text-context';
-  ctx.textContent = display;
-  ctx.title = artistName; // full name on hover
-  textEl.appendChild(root);
-  textEl.appendChild(sep);
-  textEl.appendChild(ctx);
+  setShellPageName(artistName || null);
 }
 
 export function navigateToArtistDetail(

@@ -53,6 +53,8 @@ import {
   openPersonalSettings,
   saveMyAccountToken,
 } from './my-accounts';
+import { bootNavShell } from './nav-shell';
+import './server-activity';
 import {
   closeDownloadOriginsModal,
   deleteSelectedOriginEntries,
@@ -63,7 +65,6 @@ import {
   toggleOriginEntry,
   toggleOriginGroup,
 } from './origin-history';
-import './server-activity';
 import { initPlexSignIn } from './plex-signin';
 import {
   closeServiceSwitchModal,
@@ -165,6 +166,9 @@ Object.assign(window, SHELL_WINDOW_EXPORTS);
 // before DOMContentLoaded: the sidebar and #chat-page are parsed by now, and
 // video-side.js reads moduleIsOff when it picks the side
 initModules();
+// the navigation shell (sidebar, top bar, tab bar): its markup is parsed too,
+// and shell-bridge.js (loaded after this bundle) hands it the current page
+bootNavShell();
 startDiscoverInboxBadge();
 initSidebarWeather();
 const onReady = () => {

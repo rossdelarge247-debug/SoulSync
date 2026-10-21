@@ -9,6 +9,9 @@ import { normalizeReport } from './-setup-check.helpers';
 
 export const SETUP_CHECK_QUERY_KEY = ['setup-check'] as const;
 
+/** Announced on window with every report (scope + summary) for the nav shell. */
+export const SETUP_CHECK_REPORT_EVENT = 'ss:setup-check-report';
+
 /** The endpoint is admin-only; a 403 means this profile may not run it. */
 export class SetupCheckForbiddenError extends Error {
   constructor() {
@@ -39,7 +42,15 @@ export async function fetchSetupCheck(scope: CheckScope): Promise<SetupCheckRepo
     throw error;
   }
   if (!payload.success) throw new Error(payload.error || 'The setup check failed');
-  return normalizeReport(payload);
+  const report = normalizeReport(payload);
+  // the navigation shell's Setup check dot follows the latest report
+  // (src/shell/nav-shell.ts SETUP_CHECK_REPORT_EVENT)
+  window.dispatchEvent(
+    new CustomEvent(SETUP_CHECK_REPORT_EVENT, {
+      detail: { scope: report.scope, summary: report.summary },
+    }),
+  );
+  return report;
 }
 
 /**

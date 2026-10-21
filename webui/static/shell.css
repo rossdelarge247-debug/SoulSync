@@ -1,0 +1,1176 @@
+/* ══ Navigation shell (Shell A) ═══════════════════════════════════════════
+   The sidebar, the compact rail, the top bar, and the phone tab bar with its
+   bottom sheets, from the "Nav v2 (Shell A)" boards 1m and 1n
+   (docs/design/SCREENS.md). Behaviour: src/shell/nav-shell.ts. Markup: the
+   #app-sidebar / #ss-main block in index.html.
+
+   Loaded after every legacy sheet. The sidebar keeps the legacy .sidebar and
+   .nav-button classes (profile gating, module guard, badges and the shell
+   bridge key off them), so the rules here start from #app-sidebar: an id
+   outranks the old glassy .sidebar / .nav-button rules without !important.
+   Inline display (profile gating), the module guard and the side rules all
+   still win: they are inline or !important.
+
+   States follow docs/design/DESIGN-SYSTEM.md: +6% hover wash, keyboard-only
+   focus ring (inset inside lists), selected = 14% accent wash + 45% border,
+   120ms transitions on colour only, nothing animates layout. */
+
+:root {
+    --ss-topbar-h: 64px;
+    --ss-topbar-h-phone: 56px;
+    --ss-tabbar-h: 64px;
+    --ss-shell-font: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'Helvetica Neue', Arial, sans-serif;
+}
+
+.ss-sr {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+.ss-dot {
+    display: block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+}
+.ss-dot[hidden] { display: none; }
+.ss-dot--warning { background: var(--ss-warning); }
+.ss-dot--info { background: var(--ss-info); }
+
+/* ── the content column ──────────────────────────────────────────────── */
+
+.ss-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+.ss-main > .main-content {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* the page particles start under the top bar, not over it */
+#page-particles-canvas {
+    top: var(--ss-topbar-h);
+    height: calc(100vh - var(--ss-topbar-h));
+}
+
+/* ── sidebar (large) ─────────────────────────────────────────────────── */
+
+#app-sidebar.ss-sidebar {
+    position: relative;
+    width: var(--sidebar-w);
+    min-width: var(--sidebar-w);
+    max-width: var(--sidebar-w);
+    flex: 0 0 var(--sidebar-w);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 16px 12px;
+    box-sizing: border-box;
+    background: var(--ss-ground-sidebar);
+    border: 0;
+    border-right: 1px solid var(--ss-hairline);
+    border-radius: 0;
+    box-shadow: none;
+    overflow: hidden;
+    transition: none;
+    color: var(--ss-text);
+    font-family: var(--ss-shell-font);
+    -webkit-font-smoothing: antialiased;
+}
+#app-sidebar.ss-sidebar::before,
+#app-sidebar.ss-sidebar::after {
+    content: none;
+    display: none;
+}
+#app-sidebar.ss-sidebar > * {
+    position: relative;
+    z-index: 1;
+}
+
+#app-sidebar .ss-sheet-handle,
+#app-sidebar .ss-sheet-title {
+    display: none;
+}
+
+/* wordmark: a button that folds the sidebar to the rail */
+#app-sidebar .ss-brand {
+    flex: none;
+    display: block;
+    min-height: 0;
+    margin: 0 0 8px;
+    padding: 0;
+    background: none;
+    border: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    overflow: visible;
+    text-align: left;
+}
+#app-sidebar .ss-brand::after { content: none; animation: none; }
+
+#app-sidebar .ss-wordmark {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 12px;
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-control);
+    background: none;
+    color: var(--ss-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+#app-sidebar .ss-wordmark:hover { background: var(--ss-hover-wash); }
+#app-sidebar .ss-wordmark:active { opacity: var(--ss-pressed-opacity); }
+.ss-wordmark-name {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+.ss-wordmark-version {
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.2;
+    color: var(--ss-text-meta);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+.ss-wordmark-chevrons {
+    width: 18px;
+    height: 18px;
+    margin-left: auto;
+    flex: none;
+    color: var(--ss-text-meta);
+}
+.ss-monogram { display: none; }
+
+/* the middle list scrolls; the bottom block stays pinned */
+#app-sidebar .ss-nav-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0 -12px;
+    padding: 0 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+#app-sidebar .ss-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0;
+}
+#app-sidebar .ss-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+#app-sidebar .ss-group-label {
+    margin: 14px 12px 4px;
+    padding: 0;
+    font: 600 12px/1.3 var(--ss-shell-font);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ss-text-meta);
+}
+
+/* one row: 44px, 20px icon, 15/500 label at 86% white */
+#app-sidebar .ss-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    height: auto;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 12px;
+    box-sizing: border-box;
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-control);
+    background: none;
+    box-shadow: none;
+    transform: none;
+    overflow: visible;
+    color: var(--ss-text-secondary);
+    font: 500 15px/1.25 var(--ss-shell-font);
+    letter-spacing: 0;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+    flex: none;
+    transition: var(--ss-transition);
+}
+#app-sidebar .ss-item::before { content: none; display: none; }
+#app-sidebar .ss-item:hover {
+    background: var(--ss-hover-wash);
+    border-color: transparent;
+    color: var(--ss-text);
+    box-shadow: none;
+    transform: none;
+    text-decoration: none;
+}
+#app-sidebar .ss-item:active { opacity: var(--ss-pressed-opacity); }
+#app-sidebar .ss-item.active,
+#app-sidebar .ss-item[aria-current='page'] {
+    background: var(--ss-selected-fill);
+    border-color: var(--ss-selected-border);
+    color: var(--ss-text);
+    box-shadow: none;
+}
+#app-sidebar .ss-item:focus-visible,
+#app-sidebar .ss-count-link:focus-visible,
+#app-sidebar .ss-icon-btn:focus-visible,
+#app-sidebar .ss-wordmark:focus-visible,
+#app-sidebar .ss-section-toggle:focus-visible {
+    outline: var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset-inset);
+}
+#app-sidebar .ss-icon {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    color: inherit;
+    pointer-events: none;
+}
+#app-sidebar .ss-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: inherit;
+    font: inherit;
+    letter-spacing: 0;
+    opacity: 1;
+    visibility: visible;
+    transition: none;
+}
+
+/* requests / issues hide until there's something to manage; the page you're
+   on keeps its row. "Requests and issues" itself always shows (the board
+   lists it in the fold). */
+#app-sidebar .nav-button.nav-idle:not(.active):not(.ss-keep-visible) { display: none !important; }
+
+/* counts: 13/600 on a 10% wash; warnings in their colour */
+#app-sidebar .ss-badge {
+    position: static;
+    top: auto;
+    right: auto;
+    transform: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    box-sizing: border-box;
+    border: 0;
+    border-radius: var(--ss-radius-tag);
+    background: rgba(255, 255, 255, 0.1);
+    box-shadow: none;
+    color: var(--ss-text);
+    font: 600 13px/1 var(--ss-shell-font);
+    letter-spacing: 0;
+    flex: none;
+}
+#app-sidebar .ss-badge[hidden] { display: none; }
+#app-sidebar .ss-badge--warning {
+    background: rgba(var(--ss-warning-rgb), 0.12);
+    color: var(--ss-warning);
+}
+
+/* the requests count that sits at the end of "Requests and issues" */
+#app-sidebar .ss-split {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+#app-sidebar .ss-split > .ss-item { flex: 1 1 auto; }
+#app-sidebar .ss-count-link {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    height: auto;
+    min-width: 44px;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-control);
+    background: none;
+    box-shadow: none;
+    transform: none;
+    text-decoration: none;
+    transition: var(--ss-transition);
+}
+#app-sidebar .ss-count-link::before { content: none; }
+#app-sidebar .ss-count-link:hover { background: var(--ss-hover-wash); border-color: transparent; transform: none; box-shadow: none; }
+#app-sidebar .ss-count-link .ss-badge {
+    background: rgba(var(--ss-info-rgb), 0.12);
+    color: var(--ss-info);
+}
+/* room for the requests count beside the issues badge */
+#app-sidebar .ss-split:has(.ss-count-link:not([style*='display: none']):not(.nav-idle)) > .ss-item {
+    padding-right: 56px;
+}
+
+/* the bottom block: hairline, Admin and help, Switch to Video, the profile */
+#app-sidebar .ss-nav-bottom {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-top: 8px;
+    border-top: 1px solid var(--ss-hairline);
+}
+
+#app-sidebar .ss-admin {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+#app-sidebar .ss-admin-toggle .ss-disclosure {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    color: var(--ss-text-meta);
+}
+#app-sidebar .ss-admin-toggle[aria-expanded='true'] .ss-disclosure { transform: rotate(180deg); }
+/* "Admin and help" shows a dot when something folded inside needs a look:
+   a setup check problem (set by nav-shell.ts) or an update (checkForUpdates). */
+#app-sidebar .ss-admin:has(.version-button.update-available) .ss-admin-dot[hidden] {
+    display: block;
+    background: var(--ss-info);
+}
+
+#app-sidebar .ss-admin-panel {
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 12px;
+    max-height: 40vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+html[data-admin-open='true'] #app-sidebar .ss-admin-panel { display: flex; }
+#app-sidebar .ss-popover-title { display: none; }
+#app-sidebar .ss-hairline {
+    height: 0;
+    margin: 6px 12px;
+    border: 0;
+    border-top: 1px solid var(--ss-hairline);
+    flex: none;
+}
+
+/* Connections: the service status, one row, a dot per service */
+#app-sidebar .ss-connections {
+    height: auto;
+    margin: 0;
+    padding: 0 12px;
+    background: none;
+    border-radius: var(--ss-radius-control);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+#app-sidebar .ss-connections.status-section--locked { cursor: default; }
+#app-sidebar .ss-connections.status-section--locked:hover { background: none; }
+#app-sidebar .ss-connections .status-title {
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    letter-spacing: 0;
+    text-transform: none;
+}
+#app-sidebar .ss-status-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+}
+#app-sidebar .ss-status-dots .status-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 24px;
+    margin: 0;
+    padding: 0;
+    gap: 0;
+    background: none;
+    border-radius: var(--ss-radius-tag);
+}
+#app-sidebar .ss-status-dots .status-test-btn { display: none; }
+#app-sidebar .ss-status-dots .status-dot {
+    width: 8px;
+    height: 8px;
+    border: 0;
+    box-shadow: none;
+    animation: none;
+    background: var(--ss-text-meta);
+}
+#app-sidebar .ss-status-dots .status-dot::before { content: none; }
+#app-sidebar .ss-status-dots .status-dot.connected { background: var(--ss-success); }
+#app-sidebar .ss-status-dots .status-dot.disconnected { background: var(--ss-danger); }
+#app-sidebar .ss-status-dots .status-dot.fallback,
+#app-sidebar .ss-status-dots .status-dot.rate-limited { background: var(--ss-warning); }
+
+/* What's new: the version in meta grey, an update as a tag */
+#app-sidebar .ss-version-row .version-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+    color: var(--ss-text-meta);
+    font: 400 14px/1.2 var(--ss-shell-font);
+    cursor: inherit;
+    flex: none;
+    width: auto;
+    height: auto;
+    transform: none;
+}
+#app-sidebar .ss-version-row .version-button::before,
+#app-sidebar .ss-version-row .version-button::after { content: none; }
+#app-sidebar .ss-version-row .update-badge {
+    position: static;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 6px;
+    border-radius: var(--ss-radius-tag);
+    background: rgba(var(--ss-info-rgb), 0.12);
+    color: var(--ss-info);
+    font: 600 12px/1 var(--ss-shell-font);
+    letter-spacing: 0.08em;
+    box-shadow: none;
+    animation: none;
+}
+#app-sidebar .ss-version-row .update-available--major .update-badge {
+    background: rgba(var(--ss-warning-rgb), 0.12);
+    color: var(--ss-warning);
+}
+#app-sidebar .ss-version-row .update-available--critical .update-badge {
+    background: rgba(var(--ss-danger-rgb), 0.12);
+    color: var(--ss-danger);
+}
+
+/* Switch to Video / Switch to Music: the button for the other side shows */
+#app-sidebar .side-toggle {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    isolation: auto;
+}
+html.side-locked #app-sidebar .side-toggle { display: none; }
+#app-sidebar .side-toggle-btn.active { display: none; }
+#app-sidebar .ss-trail {
+    width: 16px;
+    height: 16px;
+    margin-left: auto;
+    flex: none;
+    color: var(--ss-text-meta);
+}
+
+/* the profile: avatar + name opens the quick switch menu */
+#app-sidebar .ss-profile {
+    align-items: center;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    background: none;
+    cursor: default;
+}
+#app-sidebar .ss-profile:hover { background: none; }
+#app-sidebar .ss-profile .profile-indicator-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 12px;
+}
+#app-sidebar .profile-indicator-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 600;
+}
+#app-sidebar .profile-indicator-name { font-size: 15px; }
+#app-sidebar .ss-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    flex: none;
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-control);
+    background: none;
+    color: var(--ss-text-meta);
+    cursor: pointer;
+    transform: none;
+    transition: var(--ss-transition);
+}
+#app-sidebar .ss-icon-btn:hover {
+    background: var(--ss-hover-wash);
+    color: var(--ss-text);
+    transform: none;
+}
+#app-sidebar .ss-icon-btn .ss-icon { width: 18px; height: 18px; }
+
+/* the video sidebar: same rows; its sections still fold (init.js toggleNavSection) */
+#app-sidebar .video-nav .ss-section-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    margin: 4px 0 0;
+    padding: 0 12px;
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-control);
+    background: none;
+    color: var(--ss-text-meta);
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+#app-sidebar .video-nav .ss-section-toggle:hover { background: var(--ss-hover-wash); color: var(--ss-text); }
+#app-sidebar .video-nav .nav-section-title {
+    font: 600 12px/1.3 var(--ss-shell-font);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: inherit;
+    max-width: none;
+}
+#app-sidebar .video-nav .nav-section-chevron {
+    width: 14px;
+    height: 14px;
+    opacity: 1;
+    transition: none;
+}
+#app-sidebar .video-nav .nav-section-label.collapsed .nav-section-chevron { transform: rotate(-90deg); }
+
+/* which list shows: music by default, video on the video side (the .ss-list
+   rule above outranks video-side.css's own .video-nav switch) */
+#app-sidebar .video-nav { display: none; }
+body[data-side='video'] #app-sidebar .video-nav { display: flex; }
+body[data-side='video'] #app-sidebar .ss-music-nav { display: none; }
+#app-sidebar [data-video-only] { display: none; }
+body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
+
+/* ── top bar ─────────────────────────────────────────────────────────── */
+
+.ss-topbar {
+    flex: none;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 24px;
+    height: var(--ss-topbar-h);
+    padding: 0 24px;
+    box-sizing: border-box;
+    border-bottom: 1px solid var(--ss-hairline);
+    background: var(--ss-ground-page);
+    color: var(--ss-text);
+    font-family: var(--ss-shell-font);
+    -webkit-font-smoothing: antialiased;
+}
+.ss-topbar-start,
+.ss-topbar-end {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+.ss-page-name {
+    margin: 0 0 0 8px;
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--ss-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#ss-topbar .ss-icon-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    margin: 0;
+    padding: 0;
+    flex: none;
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-control);
+    background: transparent;
+    color: var(--ss-text);
+    text-decoration: none;
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+#ss-topbar .ss-icon-btn:hover { background: var(--ss-hover-wash); }
+#ss-topbar .ss-icon-btn:active { opacity: var(--ss-pressed-opacity); }
+#ss-topbar .ss-icon-btn[aria-disabled='true'] {
+    color: var(--ss-text-meta);
+    background: transparent;
+    cursor: default;
+    opacity: 1;
+}
+#ss-topbar .ss-icon-btn .ss-icon { width: 20px; height: 20px; pointer-events: none; }
+#ss-topbar .ss-phone-only { display: none; }
+#ss-topbar [hidden] { display: none !important; }
+#ss-topbar .ss-icon-btn .ss-dot {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+}
+#ss-topbar .ss-icon-btn:focus-visible,
+#ss-topbar .ss-running:focus-visible {
+    outline: var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* one search field for the whole app; ⌘K / Ctrl K focuses it */
+#ss-search.ss-search {
+    justify-self: center;
+    width: 100%;
+    max-width: 520px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 44px;
+    margin: 0;
+    padding: 0 14px;
+    box-sizing: border-box;
+    border: 1px solid var(--ss-input-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-input-fill);
+    color: var(--ss-text-meta);
+    cursor: text;
+    transition: var(--ss-transition);
+}
+#ss-search.ss-search:hover { border-color: var(--ss-input-border-hover); }
+#ss-search.ss-search:focus-within { border-color: var(--ss-input-focus-border); }
+.ss-search-icon {
+    width: 18px;
+    height: 18px;
+    flex: none;
+}
+#ss-search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    outline: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--ss-text);
+    font: 400 15px/1.2 var(--ss-shell-font);
+    -webkit-appearance: none;
+    appearance: none;
+}
+#ss-search-input:focus,
+#ss-search-input:focus-visible { outline: none; box-shadow: none; border: 0; }
+#ss-search-input::placeholder { color: var(--ss-text-meta); opacity: 1; }
+#ss-search-input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+.ss-kbd {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 6px;
+    box-sizing: border-box;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-tag);
+    background: none;
+    box-shadow: none;
+    color: var(--ss-text-meta);
+    font: 600 13px/1 var(--ss-shell-font);
+    white-space: nowrap;
+    flex: none;
+}
+
+/* "3 running": live, in the info colour, with a slow pulse */
+.ss-running {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: var(--ss-radius-control);
+    color: var(--ss-text-meta);
+    font: 600 14px/1.2 var(--ss-shell-font);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: var(--ss-transition);
+}
+.ss-running:hover { background: var(--ss-hover-wash); color: var(--ss-text); text-decoration: none; }
+.ss-running[data-state='live'],
+.ss-running[data-state='live']:hover { color: var(--ss-info); }
+.ss-running-dot {
+    display: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+}
+.ss-running[data-state='live'] .ss-running-dot {
+    display: block;
+    animation: ss-live-pulse var(--ss-live-pulse) ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .ss-running[data-state='live'] .ss-running-dot { animation: none; }
+}
+
+.ss-phone-only { display: none; }
+
+/* ── phone tab bar and sheets (hidden on desktop) ────────────────────── */
+
+.ss-tabbar,
+.ss-sheet-catcher { display: none; }
+
+/* ── compact rail (desktop) ──────────────────────────────────────────── */
+
+@media (min-width: 769px) {
+    html[data-sidebar='collapsed'] #app-sidebar.ss-sidebar {
+        align-items: center;
+        overflow: visible;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-brand { width: 48px; }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-wordmark {
+        justify-content: center;
+        width: 48px;
+        height: 44px;
+        padding: 0;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-wordmark-name,
+    html[data-sidebar='collapsed'] #app-sidebar .ss-wordmark-version,
+    html[data-sidebar='collapsed'] #app-sidebar .ss-wordmark-chevrons { display: none; }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-monogram {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 28px;
+        padding: 0 6px;
+        box-sizing: border-box;
+        border: 1.5px solid currentColor;
+        border-radius: var(--ss-radius-tag);
+        font: 700 13px/1 var(--ss-shell-font);
+        letter-spacing: -0.01em;
+    }
+
+    html[data-sidebar='collapsed'] #app-sidebar .ss-nav-scroll {
+        align-items: center;
+        width: 72px;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-list,
+    html[data-sidebar='collapsed'] #app-sidebar .ss-group { align-items: center; width: 48px; }
+
+    html[data-sidebar='collapsed'] #app-sidebar .ss-item {
+        justify-content: center;
+        gap: 0;
+        width: 48px;
+        height: 44px;
+        min-height: 44px;
+        padding: 0;
+    }
+    /* labels leave the screen but stay the rows' names (title + aria-label are
+       set by nav-shell.ts as well) */
+    html[data-sidebar='collapsed'] #app-sidebar .ss-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-group-label,
+    html[data-sidebar='collapsed'] #app-sidebar .video-nav .ss-section-toggle {
+        width: 24px;
+        height: 0;
+        min-height: 0;
+        margin: 8px 0;
+        padding: 0;
+        border: 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 0;
+        overflow: hidden;
+        font-size: 0;
+        color: transparent;
+        pointer-events: none;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .video-nav .ss-section-toggle > * { display: none; }
+    /* the video sidebar's folded sections open up on the rail: a folded
+       section has no readable name there to unfold it by */
+    html[data-sidebar='collapsed'] #app-sidebar .nav-item-hidden { display: flex !important; }
+
+    /* counts become 8px dots top-right; Wanted keeps its count in its label only */
+    html[data-sidebar='collapsed'] #app-sidebar .ss-item > .ss-badge,
+    html[data-sidebar='collapsed'] #app-sidebar .ss-item > .ss-dot {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        width: 8px;
+        height: 8px;
+        min-width: 0;
+        padding: 0;
+        border-radius: 50%;
+        background: var(--ss-text-secondary);
+        font-size: 0;
+        color: transparent;
+        overflow: hidden;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-item > .ss-badge--warning,
+    html[data-sidebar='collapsed'] #app-sidebar .ss-item > .ss-dot--warning { background: var(--ss-warning); }
+    html[data-sidebar='collapsed'] #app-sidebar [data-nav-row='wanted'] > .ss-badge { display: none; }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-admin-toggle .ss-disclosure,
+    html[data-sidebar='collapsed'] #app-sidebar .ss-trail { display: none; }
+
+    /* static and no z-index (a flex item makes a layer of any z-index), so
+       the popover below anchors to the sidebar (left: 80px is the 72px rail
+       + 8px) and stacks above the page instead of inside this block */
+    html[data-sidebar='collapsed'] #app-sidebar .ss-nav-bottom {
+        position: static;
+        z-index: auto;
+        align-items: center;
+        width: 48px;
+    }
+
+    /* "Admin and help" opens as a popover beside the rail, not inline */
+    html[data-sidebar='collapsed'] #app-sidebar .ss-admin { align-items: center; }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-admin-panel {
+        display: none;
+        position: absolute;
+        left: 80px;
+        bottom: 16px;
+        width: 256px;
+        max-height: calc(100vh - 32px);
+        padding: 8px;
+        box-sizing: border-box;
+        background: var(--ss-ground-note);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: var(--ss-radius-card);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+        z-index: 30;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-admin.is-popover-open .ss-admin-panel { display: flex; }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-popover-title {
+        display: block;
+        margin: 0;
+        padding: 6px 12px 8px;
+        font: 600 12px/1.3 var(--ss-shell-font);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ss-text-meta);
+    }
+    /* inside the popover the rows are full rows again */
+    html[data-sidebar='collapsed'] #app-sidebar .ss-admin-panel .ss-item {
+        justify-content: flex-start;
+        gap: 12px;
+        width: 100%;
+        padding: 0 12px;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-admin-panel .ss-label {
+        position: static;
+        width: auto;
+        height: auto;
+        overflow: hidden;
+        clip-path: none;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-admin-panel .ss-item > .ss-badge {
+        position: static;
+        width: auto;
+        min-width: 22px;
+        height: 22px;
+        padding: 0 6px;
+        border-radius: var(--ss-radius-tag);
+        background: rgba(255, 255, 255, 0.1);
+        font-size: 13px;
+        color: var(--ss-text);
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-admin-panel .ss-item > .ss-dot { position: static; }
+
+    /* the profile is its avatar; My Account and Sign out are in its menu */
+    html[data-sidebar='collapsed'] #app-sidebar .ss-profile {
+        justify-content: center;
+        flex-wrap: nowrap;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-profile .profile-indicator-main {
+        flex: none;
+        width: 48px;
+    }
+    html[data-sidebar='collapsed'] #app-sidebar .ss-profile .ss-icon-btn { display: none; }
+}
+
+/* ── phone ───────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .ss-desktop-only,
+    #ss-topbar .ss-desktop-only { display: none !important; }
+    .ss-phone-only,
+    #ss-topbar .ss-phone-only { display: inline-flex; }
+
+    .main-container { flex-direction: row; }
+    .ss-main {
+        width: 100%;
+        height: 100%;
+    }
+
+    #page-particles-canvas {
+        top: var(--ss-topbar-h-phone);
+        height: calc(100dvh - var(--ss-topbar-h-phone) - var(--ss-tabbar-h));
+    }
+
+    /* top bar: back, the page name, search and Activity */
+    .ss-topbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        height: var(--ss-topbar-h-phone);
+        padding: 0 4px 0 12px;
+    }
+    #ss-back { margin-left: -8px; }
+    .ss-page-name {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+    }
+
+    /* tab bar: Home and the four groups */
+    .ss-tabbar {
+        display: flex;
+        flex: none;
+        height: calc(var(--ss-tabbar-h) + env(safe-area-inset-bottom, 0px));
+        padding: 0 0 env(safe-area-inset-bottom, 0px);
+        box-sizing: border-box;
+        border-top: 1px solid var(--ss-hairline);
+        background: var(--ss-ground-sidebar);
+        font-family: var(--ss-shell-font);
+    }
+    #ss-tabbar .ss-tab {
+        position: relative;
+        flex: 1 1 0;
+        min-width: 0;
+        width: auto;
+        height: auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: none;
+        box-shadow: none;
+        transform: none;
+        overflow: visible;
+        color: var(--ss-text-meta);
+        font: 600 12px/1 var(--ss-shell-font);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        text-decoration: none;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: var(--ss-transition);
+    }
+    #ss-tabbar .ss-tab::before { content: none; }
+    #ss-tabbar .ss-tab:hover { background: var(--ss-hover-wash); transform: none; box-shadow: none; border: 0; }
+    #ss-tabbar .ss-tab:focus-visible {
+        outline: var(--ss-focus-ring);
+        outline-offset: var(--ss-focus-offset-inset);
+    }
+    #ss-tabbar .ss-tab[aria-expanded='true'],
+    #ss-tabbar .ss-tab[aria-current] { color: rgb(var(--ss-accent-light-rgb)); background: none; }
+    /* while a sheet is open only its tab is lit */
+    html[data-sheet] #ss-tabbar .ss-tab[aria-current]:not([aria-expanded='true']) {
+        color: var(--ss-text-meta);
+    }
+    #ss-tabbar .ss-tab[hidden] { display: none; }
+    .ss-tab-icon { width: 22px; height: 22px; flex: none; pointer-events: none; }
+    #ss-tabbar [data-video-only] { display: none; }
+    body[data-side='video'] #ss-tabbar [data-video-only] { display: flex; }
+    body[data-side='video'] #ss-tabbar .ss-tab-label[data-video-only] { display: inline; }
+
+    /* the sidebar is the sheet: hidden until a group's tab opens it */
+    #app-sidebar.ss-sidebar { display: none; }
+    html[data-sheet] #app-sidebar.ss-sidebar {
+        display: flex;
+        position: fixed;
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: calc(var(--ss-tabbar-h) + env(safe-area-inset-bottom, 0px));
+        width: auto;
+        min-width: 0;
+        max-width: none;
+        height: auto;
+        max-height: calc(100dvh - var(--ss-topbar-h-phone) - var(--ss-tabbar-h) - 16px);
+        padding: 8px 12px 12px;
+        background: var(--ss-ground-note);
+        border: 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: var(--ss-radius-dialog) var(--ss-radius-dialog) 0 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        transform: none;
+        z-index: 9000;
+    }
+    html[data-sheet] #app-sidebar .ss-sheet-handle {
+        display: block;
+        flex: none;
+        width: 36px;
+        height: 4px;
+        margin: 0 auto 8px;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.24);
+    }
+    html[data-sheet] #app-sidebar .ss-sheet-title {
+        display: block;
+        flex: none;
+        margin: 0;
+        padding: 4px 12px 6px;
+        font: 600 12px/1.3 var(--ss-shell-font);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ss-text-meta);
+    }
+    html[data-sheet] #app-sidebar .ss-brand,
+    html[data-sheet] #app-sidebar .ss-group-label,
+    html[data-sheet] #app-sidebar .video-nav .ss-section-toggle { display: none; }
+    html[data-sheet] #app-sidebar .ss-nav-scroll {
+        flex: none;
+        margin: 0;
+        padding: 0;
+        overflow: visible;
+    }
+    html[data-sheet] #app-sidebar .ss-item { min-height: 48px; }
+
+    /* each sheet lists its own group: the music groups by wrapper, the video
+       rows by data-group (inline display: none from profile gating still wins) */
+    html[data-sheet] #app-sidebar .ss-music-nav > .ss-item,
+    html[data-sheet] #app-sidebar .ss-music-nav > .ss-group,
+    html[data-sheet] #app-sidebar .video-nav > .ss-item { display: none; }
+    html[data-sheet='get-music'] #app-sidebar .ss-music-nav > .ss-group[data-group='get-music'],
+    html[data-sheet='library'] #app-sidebar .ss-music-nav > .ss-group[data-group='library'],
+    html[data-sheet='automate'] #app-sidebar .ss-music-nav > .ss-group[data-group='automate'],
+    html[data-sheet='settings'] #app-sidebar .ss-music-nav > .ss-group[data-group='settings'] { display: flex; }
+    html[data-sheet='get-music'] #app-sidebar .video-nav > .ss-item[data-group='get-music'],
+    html[data-sheet='library'] #app-sidebar .video-nav > .ss-item[data-group='library'],
+    html[data-sheet='automate'] #app-sidebar .video-nav > .ss-item[data-group='automate'],
+    html[data-sheet='settings'] #app-sidebar .video-nav > .ss-item[data-group='settings'] { display: flex; }
+    /* folded video sections don't hide rows in a sheet (it has no section names) */
+    html[data-sheet] #app-sidebar .video-nav > .ss-item.nav-item-hidden { display: none !important; }
+    html[data-sheet='get-music'] #app-sidebar .video-nav > .ss-item.nav-item-hidden[data-group='get-music'],
+    html[data-sheet='library'] #app-sidebar .video-nav > .ss-item.nav-item-hidden[data-group='library'],
+    html[data-sheet='automate'] #app-sidebar .video-nav > .ss-item.nav-item-hidden[data-group='automate'],
+    html[data-sheet='settings'] #app-sidebar .video-nav > .ss-item.nav-item-hidden[data-group='settings'] {
+        display: flex !important;
+    }
+    /* Admin and help, the side switch and the profile end the Settings sheet */
+    html[data-sheet]:not([data-sheet='settings']) #app-sidebar .ss-nav-bottom { display: none; }
+    html[data-sheet='settings'] #app-sidebar .ss-nav-bottom { margin-top: 8px; }
+    html[data-sheet] #app-sidebar .ss-admin-panel {
+        max-height: none;
+        overflow: visible;
+    }
+
+    /* a tap outside the sheet closes it */
+    html[data-sheet] .ss-sheet-catcher:not([hidden]) {
+        display: block;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: calc(var(--ss-tabbar-h) + env(safe-area-inset-bottom, 0px));
+        z-index: 8999;
+        background: transparent;
+    }
+
+    /* the floating buttons and the mini player sit above the tab bar, and
+       step aside while a sheet is open (init.js's old drawer class) */
+    .notif-bell-btn,
+    .helper-float-btn,
+    .activity-float-btn {
+        bottom: calc(var(--ss-tabbar-h) + 16px + env(safe-area-inset-bottom, 0px));
+    }
+    .media-player {
+        bottom: calc(var(--ss-tabbar-h) + 62px + env(safe-area-inset-bottom, 0px));
+    }
+    .notif-panel {
+        bottom: calc(var(--ss-tabbar-h) + 62px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+    body.mobile-nav-open .notif-bell-btn,
+    body.mobile-nav-open .helper-float-btn,
+    body.mobile-nav-open .activity-float-btn,
+    body.mobile-nav-open #notif-bell-btn { display: none !important; }
+}
+
+@media (max-width: 480px) {
+    .notif-bell-btn,
+    .helper-float-btn,
+    .activity-float-btn {
+        bottom: calc(var(--ss-tabbar-h) + 12px + env(safe-area-inset-bottom, 0px));
+    }
+}

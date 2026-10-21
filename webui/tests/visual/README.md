@@ -27,7 +27,7 @@ spec, but don't compare or update baselines that way.
 Both npm scripts run the full `npm run build` first: the app bundle and the
 shell bundle (`static/dist/shell.js`). A bare `vite build` empties
 `static/dist` and drops `shell.js`, so the page boots without the shell
-globals, such as the sidebar "Library / <artist>" breadcrumb. A shot fails
+globals, such as the navigation shell (sidebar, top bar, tab bar). A shot fails
 outright when any `/static/` file is missing, so run `npm run build` before
 calling `scripts/visual.mjs` on its own.
 

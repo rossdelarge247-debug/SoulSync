@@ -20,24 +20,23 @@ function showLegacyPage(pageId) {
 }
 
 function setActivePageChrome(pageId) {
-    // Only manage MUSIC nav buttons (they carry data-page). The video sidebar owns
-    // its own highlight via .nav-button[data-video-page]; clearing those here wiped
-    // the video selection on the first nav — it only re-stuck on a second click,
-    // which hits navigateToPage's same-page early-return so this never ran. (#sidebar)
-    document.querySelectorAll('.nav-button[data-page]').forEach(btn => {
-        btn.classList.remove('active');
-        btn.removeAttribute('aria-current');
-    });
-    const navButton = document.querySelector(`[data-page="${pageId}"]`);
-    if (navButton) {
-        navButton.classList.add('active');
-        navButton.setAttribute('aria-current', 'page');
-    } else if (pageId === 'artist-detail') {
-        // Artist detail is a Library context, so keep the sidebar anchored there.
-        const libraryBtn = document.querySelector('[data-page="library"]');
-        if (libraryBtn) {
-            libraryBtn.classList.add('active');
-            libraryBtn.setAttribute('aria-current', 'page');
+    // The navigation shell (src/shell/nav-shell.ts) owns which row is lit: a
+    // page can light a row that isn't its own (Watchlist lights Wanted, the
+    // artist page Artists, /library?view=albums Albums), and the same row
+    // shows in the sidebar, the rail and the phone tab bar. It only manages
+    // MUSIC rows; the video sidebar keeps its own highlight (video-side.js).
+    if (window.SoulSyncShellNav && typeof window.SoulSyncShellNav.markActive === 'function') {
+        window.SoulSyncShellNav.markActive(pageId);
+    } else {
+        // shell bundle missing: the plain one-row-per-page marking
+        document.querySelectorAll('.nav-button[data-page]').forEach(btn => {
+            btn.classList.remove('active');
+            btn.removeAttribute('aria-current');
+        });
+        const navButton = document.querySelector(`.nav-button[data-page="${pageId}"]`);
+        if (navButton) {
+            navButton.classList.add('active');
+            navButton.setAttribute('aria-current', 'page');
         }
     }
     currentPage = pageId;
@@ -279,6 +278,10 @@ function _handleShellLinkClick(event) {
     const navPageId = anchor.matches('.nav-button[data-page]') ? anchor.getAttribute('data-page') : null;
     if (navPageId) {
         event.preventDefault();
+        if (anchor.hasAttribute('data-nav-query')) {
+            _navigateToQueryRow(navPageId, anchor);
+            return;
+        }
         void navigateToPage(navPageId);
         return;
     }
@@ -296,6 +299,30 @@ function _handleShellLinkClick(event) {
         _handleLabelDetailLinkClick(event, pathname, anchor);
         return;
     }
+}
+
+// Two rows can share a page and differ only by query: Artists is /library,
+// Albums /library?view=albums. navigateToPage() only compares paths (it would
+// see /library -> /library as "already there"), so these rows carry
+// data-nav-query and go through the router with their exact query.
+function _navigateToQueryRow(pageId, anchor) {
+    const search = anchor.search || '';
+    if (search === window.location.search
+        && (window.SoulSyncURL?.strip(anchor.pathname) ?? anchor.pathname)
+            === (window.SoulSyncURL?.strip(window.location.pathname) ?? window.location.pathname)) {
+        return;
+    }
+    const router = getWebRouter();
+    if (!router || typeof router.navigateToPage !== 'function' || !isPageAllowed(pageId)) {
+        void navigateToPage(pageId);
+        return;
+    }
+    const query = {};
+    new URLSearchParams(search).forEach((value, key) => { query[key] = value; });
+    notifyPageWillChange(pageId);
+    showReactHost(pageId);
+    // light the row once the URL carries the query it's keyed on
+    void Promise.resolve(router.navigateToPage(pageId, { query })).then(() => setActivePageChrome(pageId));
 }
 
 function _handleArtistDetailLinkClick(event, pathname, anchor) {
@@ -371,6 +398,9 @@ document.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 || _isModifiedLinkClick(event)) return;
     const btn = event.target?.closest?.('.nav-button[data-page]');
     if (!btn) return;
+    // a row that differs from its sibling only by query (Artists / Albums)
+    // waits for the click, which carries the query (_navigateToQueryRow)
+    if (btn.hasAttribute('data-nav-query')) return;
     const pageId = btn.getAttribute('data-page');
     if (pageId) void navigateToPage(pageId);
 }, true);

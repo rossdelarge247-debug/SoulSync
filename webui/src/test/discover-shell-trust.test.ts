@@ -19,7 +19,6 @@ import { describe, expect, it } from 'vitest';
  */
 
 const CSS = readFileSync(resolve(process.cwd(), 'static/style.css'), 'utf8');
-const MOBILE = readFileSync(resolve(process.cwd(), 'static/mobile.css'), 'utf8');
 const INIT = readFileSync(resolve(process.cwd(), 'static/init.js'), 'utf8');
 const HTML = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
 const HERO = readFileSync(
@@ -77,39 +76,44 @@ describe('the music hero foot', () => {
   });
 });
 
-describe('the mobile drawer', () => {
-  it('closes when the viewport crosses into mobile', () => {
-    // Nobody asked for it to be open; carrying a desktop layout into a drawer
-    // is how a resized window ended up with the nav over the page.
-    expect(INIT).toContain("window.matchMedia('(max-width: 768px)')");
-    const handler = INIT.slice(
-      INIT.indexOf('const onBreakpoint'),
-      INIT.indexOf('};', INIT.indexOf('const onBreakpoint')),
+// The off-canvas drawer became the navigation shell's phone tab bar and
+// sheets (src/shell/nav-shell.ts; behaviour tested in nav-shell.test.ts).
+// The same promises hold for the sheet.
+describe('the phone nav sheet', () => {
+  const SHELL = readFileSync(resolve(process.cwd(), 'src/shell/nav-shell.ts'), 'utf8');
+
+  it('closes when the viewport crosses the breakpoint', () => {
+    expect(SHELL).toContain("PHONE_QUERY = '(max-width: 768px)'");
+    const handler = SHELL.slice(
+      SHELL.indexOf('const onBreakpoint'),
+      SHELL.indexOf('};', SHELL.indexOf('const onBreakpoint')),
     );
-    expect(handler).toContain('closeMobileNav()');
-    expect(handler).toContain('sidebar-no-transition');
-    expect(MOBILE).toContain('.sidebar.sidebar-no-transition');
+    expect(handler).toContain('closeSheet(false)');
+    // and the drawer is gone with its hamburger
+    expect(HTML).not.toContain('id="hamburger-btn"');
+    expect(INIT).not.toContain('function openMobileNav');
   });
 
-  it('the opener says whether the drawer is open, and points at it', () => {
+  it('each opener says whether its sheet is open, and points at it', () => {
     expect(HTML).toContain('aria-controls="app-sidebar"');
     expect(HTML).toContain('id="app-sidebar"');
-    expect(INIT).toContain("hamburgerBtn.setAttribute('aria-expanded', 'true')");
-    expect(INIT).toContain("hamburgerBtn.setAttribute('aria-expanded', 'false')");
+    expect(SHELL).toContain(
+      "tab.setAttribute('aria-expanded', tab.dataset.tab === group ? 'true' : 'false')",
+    );
   });
 
   it('Escape closes it and hands focus back to the opener', () => {
-    const esc = INIT.slice(INIT.indexOf("if (event.key !== 'Escape') return;"));
-    expect(esc.slice(0, 220)).toContain('closeMobileNav(true)');
-    expect(INIT).toContain('if (wasOpen && restoreFocus === true) hamburgerBtn.focus();');
+    const esc = SHELL.slice(SHELL.indexOf("if (e.key === 'Escape') {"));
+    expect(esc.slice(0, 260)).toContain('closeSheet(true)');
+    expect(SHELL).toContain('if (restoreFocus) opener?.focus();');
   });
 
-  it('opening moves focus into the drawer', () => {
-    const open = INIT.slice(
-      INIT.indexOf('function openMobileNav'),
-      INIT.indexOf('function closeMobileNav'),
+  it('opening moves focus into the sheet', () => {
+    const open = SHELL.slice(
+      SHELL.indexOf('function openSheet'),
+      SHELL.indexOf('function closeSheet'),
     );
-    expect(open).toContain('first.focus()');
+    expect(open).toContain('firstFocusable(sidebar!, view)?.focus()');
   });
 });
 

@@ -116,6 +116,22 @@ Use these before drawing new ones. Paths are under `webui/src/`.
 | `DialogFrame`, `DialogHeader`, `DialogBody`, `DialogFooter` | `components/dialog` | accessible modal; 44px close button |
 | `SafeActionDialog`, `GuardBox` | `features/safe-action` | preview, then confirm, for anything that moves or deletes files |
 
+## Navigation shell pieces
+
+The shell is legacy markup (it has to paint before any script runs), so these aren't React components; reuse their classes and tokens rather than drawing new ones. Markup in `index.html`, behaviour in `src/shell/nav-shell.ts`, look in `static/shell.css`.
+
+| Piece | Where | Notes |
+| --- | --- | --- |
+| Sidebar and its rows | `#app-sidebar`, `.ss-item`, `.ss-group-label` | 256px on `#101010`; 44px rows (48px in a sheet), 20px icon, 15/500 at 86% white; selected = 14% accent wash + 45% border with `aria-current="page"`; 12px group labels. A row keeps `.nav-button` and `data-page` so profile gating and the module guard reach it. |
+| Compact rail | `html[data-sidebar="collapsed"]` | 72px; icons with `title` + `aria-label`; groups become 24px hairlines; counts become 8px dots. Desktop only. |
+| Count badge | `.ss-badge` (`.ss-badge--warning`) | 13/600 on a 10% wash, 22px tall, 6px radius; a warning count in the warning colour at 12%. |
+| Dot | `.ss-dot--warning`, `.ss-dot--info` | 8px; always with words beside it or for a screen reader (`.ss-sr`). |
+| Disclosure ("Admin and help") | `.ss-admin` | A 44px button with `aria-expanded`; its state is kept in `localStorage`. |
+| Popover beside the rail | `.ss-admin.is-popover-open .ss-admin-panel` | 256px, `#141416`, 14px radius, `0 20px 60px rgba(0,0,0,.45)`, a 12px title; Escape and a click outside close it and focus returns to its button. |
+| Top bar | `#ss-topbar` | 64px (56px on phones): 44px icon buttons, the page name 15/500 (17/600 on phones), the 44px search field (max 520px, 24% border, `kbd` hint), the live link in the info colour with a pulsing 8px dot. |
+| Tab bar | `#ss-tabbar` | Phones: 64px on `#101010`, five equal tabs with a 22px icon and a 12/600 uppercase label; the open or current tab in accent-light. |
+| Bottom sheet | `html[data-sheet] #app-sidebar` | Phones: the sidebar itself, filtered to one group, above the tab bar on `#141416` with a 16px top radius, a 36×4 handle and a 12px title; 48px rows. Opens from a tab (`aria-expanded`, `aria-controls`); the same tab, Escape or a tap outside closes it, and focus goes back to the tab. |
+
 A page builder's loading and empty states, for example:
 
 ```tsx

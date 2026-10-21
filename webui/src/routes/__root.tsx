@@ -3,6 +3,7 @@ import { Outlet, createRootRouteWithContext } from '@tanstack/react-router';
 import type { AppRouterContext } from '@/app/router';
 
 import { waitForShellContext } from '@/platform/shell/bridge';
+import { ShellLocationReporter } from '@/platform/shell/route-controllers';
 import { shellStatusQueryOptions } from '@/platform/shell/status';
 
 import { VideoDownloadsBadgePoller } from './active-downloads/-vdl.use-downloads';
@@ -28,6 +29,8 @@ export const Route = createRootRouteWithContext<AppRouterContext>()({
       {/* keeps the video sidebar's downloads badge live while the unified
           page's video view isn't mounted (its own poll owns the badge then) */}
       <VideoDownloadsBadgePoller />
+      {/* the navigation shell's current row follows the whole URL */}
+      <ShellLocationReporter />
     </>
   ),
 });

@@ -2311,15 +2311,15 @@ const HELPER_TOURS = {
             { page: 'dashboard', selector: '.listen-hero', title: 'Library Radio', description: 'One click starts an endless shuffle through your own collection — the player keeps feeding the queue as you listen. The Mixes tile beside it jumps to your daily playlists on Discover.' },
             { page: 'dashboard', selector: '.dash-autom-rows', title: 'Automations', description: 'Everything else the engine runs — watchlist scans, wishlist processing, backups, notifications — with each automation\'s trigger, last outcome, and next firing. Hover a row to run it now; the quick-settings switches below calm the visual effects on low-power devices.' },
             { page: 'dashboard', selector: '#sync-history-cards', title: 'Sync', description: 'Every playlist in one band: its schedule and next run, the last run\'s results, and how much of it you own. Hover a row to Run its pipeline now or Listen to it from your library; click a row for the full run detail; Manage opens the Auto-Sync board.' },
-            { page: 'dashboard', selector: '.status-section', title: 'Service Status', description: 'Your three core connections live in the sidebar on every page: metadata source, media server, and download source. The dot is the health; hover a row for its bolt button to run a live connection test, or click the row to switch sources.' },
+            { page: 'dashboard', selector: '.status-section', title: 'Service Status', description: 'Your three core connections sit under Admin and help at the foot of the sidebar: metadata source, media server, and download source, one dot each. Green is connected, red is not; click the row to switch sources. The Dashboard\'s service cards run a live connection test.' },
 
             // The shell around every page
-            { page: 'dashboard', selector: '.side-toggle', title: 'Music / Video Toggle', description: 'SoulSync has two whole sides. This switch flips between the MUSIC app and the VIDEO app (movies + TV) — each has its own pages, library, and settings.' },
+            { page: 'dashboard', selector: '.side-toggle', title: 'Music / Video Toggle', description: 'SoulSync has two whole sides. Switch to Video, at the foot of the sidebar, flips between the MUSIC app and the VIDEO app (movies + TV) — each has its own pages, library, and settings.' },
             { page: 'dashboard', selector: '#profile-indicator', title: 'Your Profile', description: 'Who\'s signed in. Click to switch profiles; the person icon opens My Account (your media server login and your own music services).' },
             { page: 'dashboard', selector: '.nav-section-label[data-section="find"]', title: 'Find', description: 'Discovery lives here — Search, Discover, and the Artist Map. Section headers collapse if you like a tidy sidebar.' },
             { page: 'dashboard', selector: '.nav-section-label[data-section="music"]', title: 'Music', description: 'Your collection: Library, Playlists & Sync, Downloads, and Import for files you already have.' },
             { page: 'dashboard', selector: '.nav-section-label[data-section="system"]', title: 'System', description: 'The machinery: Automations, Tools, Stats, Issues, and Settings.' },
-            { page: 'dashboard', selector: '.version-button', title: 'Version & Support', description: 'Click the version number for release notes — it glows when an update is available (green routine, yellow major, red critical). Support SoulSync lives right above it. That\'s the dashboard! 🎉' },
+            { page: 'dashboard', selector: '.version-button', title: 'Version & Support', description: 'What\'s new, under Admin and help, opens the release notes; it shows an update tag when one is out, and Admin and help gets a dot. Support SoulSync is right below it. That\'s the dashboard! 🎉' },
         ]
     },
     'first-download': {
@@ -2826,13 +2826,9 @@ document.addEventListener('keydown', function(e) {
         e.preventDefault();
         toggleHelperMode();
     }
-    // Ctrl+K / Cmd+K opens helper search
-    if (e.key === 'k' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        if (HelperState.mode === 'search') { exitHelperMode(); return; }
-        if (HelperState.mode) exitHelperMode();
-        activateHelperMode('search');
-    }
+    // Ctrl+K / Cmd+K belongs to the top bar's search field now (the
+    // navigation shell, src/shell/nav-shell.ts). Help search stays one
+    // click away in the helper menu (?).
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3168,7 +3164,7 @@ function closeSetupPanel() {
 const KEYBOARD_SHORTCUTS = [
     // Global
     { key: '?',     desc: 'Open helper menu',             scope: 'Global' },
-    { key: 'Ctrl+K', desc: 'Search help topics',          scope: 'Global' },
+    { key: 'Ctrl+K', desc: 'Search music (the top bar)',  scope: 'Global' },
     { key: 'Esc',   desc: 'Close modal / Exit helper',    scope: 'Global' },
 
     // Player
