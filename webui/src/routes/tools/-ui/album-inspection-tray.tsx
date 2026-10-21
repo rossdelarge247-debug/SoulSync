@@ -3,9 +3,15 @@ import { useEffect, useState } from 'react';
 import type { FindingAlbumGroup } from '../-tools.api';
 import type { RepairFinding } from '../-tools.types';
 
-import { fetchRepairFindings, fixFinding, dismissFinding, reopenFinding } from '../-tools.api';
-import { findingFixLabel, findingSeverityIcon, findingTypeLabel } from '../-tools.core';
+import { fetchRepairFindings, dismissFinding, reopenFinding } from '../-tools.api';
+import {
+  bulkFixLoopMessage,
+  findingFixLabel,
+  findingSeverityIcon,
+  findingTypeLabel,
+} from '../-tools.core';
 import { VinylCoverFallback } from './album-cover-fallback';
+import { useBulkFixPreview } from './bulk-fix-preview';
 
 export interface AlbumInspectionTrayProps {
   group: FindingAlbumGroup;
@@ -126,6 +132,30 @@ export function AlbumInspectionTray({
     }
   };
 
+  // "Resolve all" fixes up to a page of one album's findings. When any fix
+  // moves or deletes a file it previews first and runs only the confirmed
+  // plan (the backend refuses a bulk run otherwise); when none does, the
+  // plan runs straight away, as the button always did.
+  const albumPlan = useBulkFixPreview(() => undefined, {
+    runner: 'inline',
+    onFinished: (result) => {
+      setBusyIds(new Set());
+      void loadAlbumFindings();
+      onRefresh();
+      const failed = result.failed ?? 0;
+      if (failed === 0) {
+        window.showToast?.(`Resolved all issues on "${albumName}"`, 'success');
+      } else {
+        const { message, type } = bulkFixLoopMessage(
+          result.fixed ?? 0,
+          failed,
+          result.errors?.[0]?.error ?? '',
+        );
+        window.showToast?.(message, type);
+      }
+    },
+  });
+
   const handleFixAllOnAlbum = async () => {
     if (!findings || findings.length === 0) return;
     // only what has a fix: the rest would be marked resolved without one
@@ -133,33 +163,16 @@ export function AlbumInspectionTray({
       (f) => f.status === 'pending' && Boolean(findingFixLabel(f.finding_type)),
     );
     if (fixable.length === 0) return;
-
-    const hasDestructive = fixable.some(
-      (f) =>
-        f.finding_type === 'corrupt_audio' ||
-        f.finding_type === 'fake_lossless' ||
-        f.finding_type === 'orphan_file',
+    await albumPlan.begin(
+      { ids: fixable.map((f) => f.id) },
+      {
+        findingType: '',
+        fixAction: null,
+        label: `issues on "${albumName}"`,
+        selection: true,
+        confirmOnlyWhenDestructive: true,
+      },
     );
-    if (hasDestructive) {
-      const confirmed = await window.showConfirmDialog?.({
-        title: 'Resolve Album Issues',
-        message: `This album has ${fixable.length} issues, including files that will be moved to quarantine and re-downloaded. Proceed?`,
-        confirmText: 'Resolve & Replace',
-        destructive: false,
-      });
-      if (!confirmed) return;
-    }
-
-    for (const f of fixable) {
-      setBusyIds((prev) => new Set(prev).add(f.id));
-      try {
-        await fixFinding(f.id);
-      } catch {}
-    }
-    setBusyIds(new Set());
-    await loadAlbumFindings();
-    onRefresh();
-    window.showToast?.(`Resolved all issues on "${albumName}"`, 'success');
   };
 
   const handleDismissAllOnAlbum = async () => {
@@ -526,6 +539,7 @@ export function AlbumInspectionTray({
           </div>
         )}
       </div>
+      {albumPlan.dialog}
     </div>
   );
 }

@@ -1353,16 +1353,62 @@ describe('bulk selection', () => {
     expect(toastSpy).toHaveBeenCalledWith('2 findings dismissed', 'success');
   });
 
-  it('asks once per finding KIND, then fixes each id with its own action', async () => {
+  /** A selection preview: ids + the action chosen for each kind. */
+  const selectionPlan = (over: Record<string, unknown> = {}) => ({
+    success: true,
+    plan_id: 'sel-1',
+    tool: 'repair_bulk_fix',
+    total: 3,
+    destructive: 3,
+    counts: { staging: 2, remove: 1 },
+    by_reason: {},
+    total_bytes: 0,
+    per_type: { orphan_file: 2, dead_file: 1 },
+    by_effect: { move: 2, library: 1 },
+    recycle_deletes: true,
+    sample: [
+      {
+        finding_id: 1,
+        finding_type: 'orphan_file',
+        path: '/music/Loose/a.flac',
+        action: 'staging',
+        reason: 'Orphan file: a.flac',
+        effect: 'Moves the file to Staging, where you can review and import it',
+        effect_kind: 'move',
+        destructive: true,
+      },
+      {
+        finding_id: 3,
+        finding_type: 'dead_file',
+        path: '/music/Gone/c.flac',
+        action: 'remove',
+        reason: 'Dead file: c.flac',
+        effect: 'Removes the library entry. The file is already missing',
+        effect_kind: 'library',
+        destructive: true,
+      },
+    ],
+    truncated: false,
+    created_at: 1_800_000_000,
+    expires_at: 1_800_000_900,
+    ...over,
+  });
+
+  // full paths: the findings list URL is a prefix of these and would win
+  const PREVIEW = '/api/repair/findings/bulk-fix-preview';
+  const START = '/api/repair/findings/bulk-fix-start';
+
+  const fixCalls = () => fetchMock.mock.calls.filter((c) => /\/\d+\/fix$/.test(String(c[0])));
+
+  it("asks once per finding KIND, then previews the selection with each kind's action", async () => {
     routes({
       [FINDINGS]: page([
         finding({ id: 1, job_id: 'orphan_file_detector' }),
         finding({ id: 2, job_id: 'orphan_file_detector' }),
         finding({ id: 3, job_id: 'dead_file_cleaner', finding_type: 'dead_file' }),
       ]),
-      '/api/repair/findings/1/fix': { success: true },
-      '/api/repair/findings/2/fix': { success: true },
-      '/api/repair/findings/3/fix': { success: true },
+      [PREVIEW]: selectionPlan(),
+      [START]: { started: true, total: 3 },
     });
     await renderList();
     await flush();
@@ -1376,12 +1422,196 @@ describe('bulk selection', () => {
     await flush();
     clickPrompt('_dead-remove');
     await flush();
+    await flush();
 
-    const bodyFor = (id: number) => bodyOf(`/${id}/fix`);
-    expect(bodyFor(1)).toEqual({ fix_action: 'staging' });
-    expect(bodyFor(2)).toEqual({ fix_action: 'staging' });
-    expect(bodyFor(3)).toEqual({ fix_action: 'remove' });
-    expect(toastSpy).toHaveBeenCalledWith('Fixed 3', 'success');
+    // the preview goes first, with the answer given for each kind…
+    expect(bodyOf('/bulk-fix-preview')).toEqual({
+      ids: [1, 2, 3],
+      fix_actions: { orphan_file: 'staging', dead_file: 'remove' },
+    });
+    // …and nothing moves or deletes a file before the confirm
+    expect(fixCalls()).toEqual([]);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('bulk-fix-start'))).toBe(false);
+
+    expect(await screen.findByText('Fix 3 selected findings?')).toBeTruthy();
+    expect(
+      screen.getByText('Moves the file to Staging, where you can review and import it'),
+    ).toBeTruthy();
+    expect(screen.getByText(/2 fixes move files without deleting them/)).toBeTruthy();
+    const confirm = screen.getByRole('button', { name: 'Fix 3 findings' });
+    expect(confirm.getAttribute('data-tone')).toBe('primary');
+
+    fireEvent.click(confirm);
+    await flush();
+    expect(bodyOf('/bulk-fix-start')).toEqual({ plan_id: 'sel-1' });
+    expect(fixCalls()).toEqual([]);
+    expect(toastSpy).toHaveBeenCalledWith('Fixing 3 selected findings in the background…', 'info');
+  });
+
+  it('a selection that deletes files gets the danger confirm and permanent wording', async () => {
+    routes({
+      [FINDINGS]: page([finding({ id: 1 }), finding({ id: 2 })]),
+      [PREVIEW]: selectionPlan({
+        total: 2,
+        destructive: 2,
+        by_effect: { delete: 2 },
+        recycle_deletes: false,
+        sample: [],
+      }),
+    });
+    await renderList();
+    await flush();
+
+    fireEvent.click(document.getElementById('repair-select-all-cb') as HTMLElement);
+    await flush();
+    fireEvent.click(screen.getByText('Fix Selected'));
+    await flush();
+    clickPrompt('_orphan-delete');
+    await flush();
+    await flush();
+
+    expect(bodyOf('/bulk-fix-preview')).toEqual({
+      ids: [1, 2],
+      fix_actions: { orphan_file: 'delete' },
+    });
+    expect(
+      await screen.findByText("2 fixes delete files permanently. They can't be put back."),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Fix 2 findings' }).getAttribute('data-tone')).toBe(
+      'danger',
+    );
+    expect(fixCalls()).toEqual([]);
+  });
+
+  it("a refused selection plan shows the backend's message and previews again", async () => {
+    routes({
+      [FINDINGS]: page([finding({ id: 1 })]),
+      [PREVIEW]: selectionPlan({ total: 1 }),
+      [START]: {
+        success: false,
+        started: false,
+        code: 'plan_unknown',
+        error:
+          'That preview is no longer available (it was used already, or SoulSync restarted). Preview again.',
+      },
+    });
+    await renderList();
+    await flush();
+
+    fireEvent.click(document.getElementById('repair-select-all-cb') as HTMLElement);
+    await flush();
+    fireEvent.click(screen.getByText('Fix Selected'));
+    await flush();
+    clickPrompt('_orphan-staging');
+    await flush();
+    await flush();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fix 1 finding' }));
+    await flush();
+    expect(bodyOf('/bulk-fix-start')).toEqual({ plan_id: 'sel-1' });
+    expect(await screen.findByText(/That preview is no longer available/)).toBeTruthy();
+    expect(screen.getByText('Nothing was moved or deleted.')).toBeTruthy();
+    const before = fetchMock.mock.calls.filter((c) => String(c[0]).includes('bulk-fix-preview'));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview again' }));
+    await flush();
+    const after = fetchMock.mock.calls.filter((c) => String(c[0]).includes('bulk-fix-preview'));
+    expect(after.length).toBe(before.length + 1);
+    expect(fixCalls()).toEqual([]);
+  });
+
+  it('dismisses "Just Clear" rows only after the confirmed run started', async () => {
+    routes({
+      [FINDINGS]: page([
+        finding({ id: 1 }),
+        finding({
+          id: 5,
+          job_id: 'discography_backfill',
+          finding_type: 'missing_discography_track',
+        }),
+      ]),
+      [PREVIEW]: selectionPlan({ total: 1 }),
+      [START]: { started: true, total: 1 },
+      '/api/repair/findings/5/dismiss': { success: true },
+    });
+    await renderList();
+    await flush();
+
+    fireEvent.click(document.getElementById('repair-select-all-cb') as HTMLElement);
+    await flush();
+    fireEvent.click(screen.getByText('Fix Selected'));
+    await flush();
+    clickPrompt('_orphan-staging');
+    await flush();
+    clickPrompt('_dbf-dismiss');
+    await flush();
+    await flush();
+
+    expect(bodyOf('/bulk-fix-preview')).toEqual({
+      ids: [1],
+      fix_actions: { orphan_file: 'staging' },
+    });
+    const dismissed = () =>
+      fetchMock.mock.calls.filter((c) => String(c[0]).includes('/5/dismiss')).length;
+    expect(dismissed()).toBe(0);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fix 1 finding' }));
+    await flush();
+    await flush();
+    expect(dismissed()).toBe(1);
+  });
+
+  it('a selection that only writes tags still fixes one id at a time', async () => {
+    routes({
+      [FINDINGS]: page([
+        finding({ id: 7, job_id: 'genre_cleanup', finding_type: 'genre_cleanup' }),
+        finding({ id: 8, job_id: 'genre_cleanup', finding_type: 'genre_cleanup' }),
+      ]),
+      [TYPES]: {
+        types: [
+          typeInfo({
+            type: 'genre_cleanup',
+            label: 'Genre Cleanup',
+            verb: 'Clean Genres',
+            destructive: false,
+          }),
+        ],
+      },
+      '/api/repair/findings/7/fix': { success: true },
+      '/api/repair/findings/8/fix': { success: true },
+    });
+    await renderList();
+    await flush();
+
+    fireEvent.click(document.getElementById('repair-select-all-cb') as HTMLElement);
+    await flush();
+    fireEvent.click(screen.getByText('Fix Selected'));
+    await flush();
+    await flush();
+
+    expect(fixCalls().map((c) => String(c[0]))).toEqual([
+      '/api/repair/findings/7/fix',
+      '/api/repair/findings/8/fix',
+    ]);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('bulk-fix-preview'))).toBe(false);
+    expect(toastSpy).toHaveBeenCalledWith('Fixed 2', 'success');
+  });
+
+  it('a kind with no type info counts as one that touches files', async () => {
+    routes({
+      [FINDINGS]: page([finding({ id: 9, job_id: 'x', finding_type: 'brand_new_type' })]),
+      [PREVIEW]: selectionPlan({ total: 1 }),
+    });
+    await renderList();
+    await flush();
+
+    fireEvent.click(document.getElementById('repair-select-all-cb') as HTMLElement);
+    await flush();
+    fireEvent.click(screen.getByText('Fix Selected'));
+    await flush();
+    await flush();
+
+    expect(bodyOf('/bulk-fix-preview')).toEqual({ ids: [9] });
+    expect(fixCalls()).toEqual([]);
   });
 
   it('aborts the whole bulk run if any prompt is cancelled', async () => {
@@ -1404,6 +1634,7 @@ describe('bulk selection', () => {
     await flush();
 
     expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith('/fix'))).toBe(false);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('bulk-fix-preview'))).toBe(false);
   });
 
   it('gates a mass orphan DELETE behind the witness-me phrase', async () => {
@@ -1670,6 +1901,37 @@ describe('the background bulk run', () => {
     expect(screen.getByText(/Nothing is deleted/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Move 30 files' })).toBeTruthy();
   });
+
+  it.each([
+    [
+      false,
+      "These files are deleted permanently. Recycling is turned off in Settings, so they can't be put back.",
+    ],
+    [true, 'These files go to the recycle bin, so you can put them back until it is emptied.'],
+  ])(
+    'a removal says what the recycle-bin setting does (recycle_deletes %s)',
+    async (recycle, lead) => {
+      await fixGroup(
+        'orphan_file',
+        3,
+        {},
+        {
+          '/bulk-fix-preview': {
+            ...bulkPlan(3, 'orphan_file', 'delete'),
+            recycle_deletes: recycle,
+          },
+        },
+      );
+      clickPrompt('_orphan-delete');
+      await flush();
+      await flush();
+      expect(await screen.findByText(lead)).toBeTruthy();
+      expect(screen.queryByText(/by default/)).toBeNull();
+      expect(screen.getByRole('button', { name: 'Remove 3 files' }).getAttribute('data-tone')).toBe(
+        'danger',
+      );
+    },
+  );
 
   it("a refused bulk-fix plan shows the backend's message and previews again", async () => {
     await fixGroup(

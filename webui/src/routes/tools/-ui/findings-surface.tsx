@@ -31,6 +31,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { countLabel } from '@/features/safe-action/plan';
+
 import type { FindingAlbumGroup } from '../-tools.api';
 import type { FindingGroup, FindingTypeInfo } from '../-tools.groups';
 import type {
@@ -715,7 +717,36 @@ export function FindingsSurface({
     }
   }, [refreshAll, selected]);
 
-  /** `bulkFixFindings` — ask once per finding KIND, then fix one id at a time. */
+  /** A run the server accepted: say so and follow its progress. */
+  const reportBulkStart = useCallback(
+    (result: { started?: boolean; already_running?: boolean; total?: number }, label: string) => {
+      if (result.started) {
+        toast(`Fixing ${result.total} ${label.toLowerCase()} in the background…`, 'info');
+        watchBulkFixRun();
+      } else if (result.already_running) {
+        toast('A bulk fix is already running — showing its progress', 'info');
+        watchBulkFixRun();
+      }
+    },
+    [watchBulkFixRun],
+  );
+
+  // A group fix that moves or deletes files previews first and runs only the
+  // confirmed plan (the backend refuses it otherwise).
+  const bulkPreview = useBulkFixPreview((result, ctx: BulkFixContext) =>
+    reportBulkStart(result, ctx.label),
+  );
+
+  /**
+   * `bulkFixFindings` — ask once per finding KIND, then fix the selection.
+   *
+   * A selection where any fix moves or deletes a file never fixes row by row:
+   * it previews with the action chosen for each kind, the shared confirm shows
+   * every finding and what happens to it, and only its button sends the plan
+   * id (the backend refuses the bulk run otherwise). A kind this page has no
+   * type info for counts as one that touches files. Selections that only
+   * write tags or the wishlist still fix one id at a time, as they always did.
+   */
   const bulkFix = useCallback(async () => {
     if (selected.size === 0) return;
     const ids = [...selected];
@@ -763,20 +794,80 @@ export function FindingsSurface({
       if (!qualityAction) return;
     }
 
+    // Backfill "Just Clear" and quality "Ignore" both dismiss rather than
+    // fix, so they bypass the fix endpoint entirely.
+    const dismisses = (id: number) =>
+      (typeOf(id) === TYPE_BACKFILL && backfillAction === 'dismiss') ||
+      (typeOf(id) === TYPE_QUALITY && qualityAction === 'ignore');
+    const actionFor = (findingType: string | undefined): string | null => {
+      if (findingType === TYPE_ORPHAN) return orphanAction;
+      if (findingType === TYPE_DEAD) return deadAction;
+      if (findingType === TYPE_ACOUSTID) return acoustidAction;
+      if (findingType === TYPE_QUALITY) return qualityAction;
+      // Backfill "Add to Wishlist" falls through with no action — the fix
+      // handler already adds to the wishlist by default.
+      return null;
+    };
+
+    const dismissIds = ids.filter(dismisses);
+    const fixIds = ids.filter((id) => !dismisses(id));
+    const touchesFiles = fixIds.some((id) => {
+      const findingType = typeOf(id);
+      const info = findingType ? typeInfo(findingType) : undefined;
+      return (
+        !info ||
+        info.destructive ||
+        findingType === TYPE_ORPHAN ||
+        actionFor(findingType) === 'delete'
+      );
+    });
+
+    const dismissAll = async () => {
+      let ok = 0;
+      for (const id of dismissIds) {
+        try {
+          if (await dismissFindingChecked(id)) ok++;
+        } catch {
+          // counted as not dismissed
+        }
+      }
+      return ok;
+    };
+
+    if (fixIds.length > 0 && touchesFiles) {
+      const fixActions: Record<string, string> = {};
+      for (const id of fixIds) {
+        const findingType = typeOf(id);
+        const action = actionFor(findingType);
+        if (findingType && action) fixActions[findingType] = action;
+      }
+      await bulkPreview.begin(
+        { ids: fixIds, fixActions },
+        {
+          findingType: '',
+          fixAction: null,
+          label: 'selected findings',
+          selection: true,
+          afterStart: async () => {
+            setSelected(new Set());
+            if (dismissIds.length) {
+              const ok = await dismissAll();
+              toast(`Dismissed ${countLabel(ok, 'finding')}`, ok ? 'success' : 'error');
+            }
+          },
+        },
+      );
+      return;
+    }
+
     let fixed = 0;
     let failed = 0;
     let lastError = '';
     toast(`Fixing ${ids.length} findings...`, 'info');
 
     for (const id of ids) {
-      const findingType = typeOf(id);
       try {
-        // Backfill "Just Clear" and quality "Ignore" both dismiss rather than
-        // fix, so they bypass the fix endpoint entirely.
-        if (
-          (findingType === TYPE_BACKFILL && backfillAction === 'dismiss') ||
-          (findingType === TYPE_QUALITY && qualityAction === 'ignore')
-        ) {
+        if (dismisses(id)) {
           try {
             if (await dismissFindingChecked(id)) fixed++;
             else {
@@ -789,15 +880,7 @@ export function FindingsSurface({
           continue;
         }
 
-        let fixAction: string | null = null;
-        if (findingType === TYPE_ORPHAN && orphanAction) fixAction = orphanAction;
-        else if (findingType === TYPE_DEAD && deadAction) fixAction = deadAction;
-        else if (findingType === TYPE_ACOUSTID && acoustidAction) fixAction = acoustidAction;
-        else if (findingType === TYPE_QUALITY && qualityAction) fixAction = qualityAction;
-        // Backfill "Add to Wishlist" falls through with no action — the fix
-        // handler already adds to the wishlist by default.
-
-        const result = await fixFinding(id, fixAction);
+        const result = await fixFinding(id, actionFor(typeOf(id)));
         if (result.success) fixed++;
         else {
           failed++;
@@ -811,29 +894,9 @@ export function FindingsSurface({
     const { message, type } = bulkFixLoopMessage(fixed, failed, lastError);
     toast(message, type);
     refreshAll();
-  }, [items, prompts, refreshAll, selected]);
+  }, [bulkPreview, items, prompts, refreshAll, selected, typeInfo]);
 
   // ── Group-scoped actions ───────────────────────────────────────────────────
-
-  /** A run the server accepted: say so and follow its progress. */
-  const reportBulkStart = useCallback(
-    (result: { started?: boolean; already_running?: boolean; total?: number }, label: string) => {
-      if (result.started) {
-        toast(`Fixing ${result.total} ${label.toLowerCase()} in the background…`, 'info');
-        watchBulkFixRun();
-      } else if (result.already_running) {
-        toast('A bulk fix is already running — showing its progress', 'info');
-        watchBulkFixRun();
-      }
-    },
-    [watchBulkFixRun],
-  );
-
-  // A group fix that moves or deletes files previews first and runs only the
-  // confirmed plan (the backend refuses it otherwise).
-  const bulkPreview = useBulkFixPreview((result, ctx: BulkFixContext) =>
-    reportBulkStart(result, ctx.label),
-  );
 
   /**
    * Fix a whole group. Every run is scoped to ONE finding type, which is the

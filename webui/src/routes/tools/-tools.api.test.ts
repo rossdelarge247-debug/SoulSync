@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  bulkFixWithPlan,
   backupDownloadUrl,
   bulkFindingAction,
   confirmDuplicateClean,
@@ -320,6 +321,27 @@ describe('bulk fix', () => {
     await expect(previewBulkFix({ fixAction: 'delete' })).resolves.toMatchObject({
       success: false,
       error: 'spans types',
+    });
+  });
+
+  it('previews a ticked selection with the action chosen for each kind', async () => {
+    jsonOnce({ success: true, plan_id: 'sel', total: 3, destructive: 2, sample: [] });
+    await previewBulkFix({ ids: [1, 2, 3], fixActions: { orphan_file: 'staging' } });
+    expect(lastCall().body).toEqual({ ids: [1, 2, 3], fix_actions: { orphan_file: 'staging' } });
+    jsonOnce({ success: true, plan_id: 'sel', total: 1, sample: [] });
+    await previewBulkFix({ ids: [4], fixActions: {} });
+    expect(lastCall().body).toEqual({ ids: [4] });
+  });
+
+  it('runs a confirmed plan inline and reads a refusal as failed', async () => {
+    jsonOnce({ success: true, fixed: 2, failed: 0, total: 2 });
+    await expect(bulkFixWithPlan('p9')).resolves.toMatchObject({ fixed: 2 });
+    expect(lastCall().url).toBe('/api/repair/findings/bulk-fix');
+    expect(lastCall().body).toEqual({ plan_id: 'p9' });
+    jsonOnce({ success: false, code: 'plan_expired', error: 'out of date' }, false, 409);
+    await expect(bulkFixWithPlan('p9')).resolves.toMatchObject({
+      success: false,
+      code: 'plan_expired',
     });
   });
 
