@@ -1175,16 +1175,6 @@ def check_slskd_download_folder(ctx: SetupCheckContext) -> Dict[str, Any]:
 # Media server
 # ---------------------------------------------------------------------------
 
-def _jellyfin_headers(api_key: str) -> Dict[str, str]:
-    try:
-        from core.jellyfin_client import jellyfin_auth_headers
-        return jellyfin_auth_headers(api_key)
-    except Exception:  # noqa: BLE001 - same two headers, built here if the client won't import
-        return {"X-Emby-Token": api_key or "",
-                "Authorization": f'MediaBrowser Client="SoulSync", Device="SoulSync", DeviceId="soulsync-setup-check", '
-                                 f'Version="1.0.0", Token="{api_key or ""}"'}
-
-
 def _probe_media_server(ctx: SetupCheckContext, name: str, url: str, cfg: Mapping[str, Any]
                         ) -> Tuple[str, str, Optional[List[str]], str]:
     """(failure_kind, failure_text, music_library_paths, server_text).
@@ -1209,7 +1199,9 @@ def _probe_media_server(ctx: SetupCheckContext, name: str, url: str, cfg: Mappin
                     paths.append(p)
         return "", "", paths, ""
     if name == "jellyfin":
-        res = http_get(ctx, f"{url}/Library/VirtualFolders", headers=_jellyfin_headers(str(cfg.get("api_key") or "")))
+        # the shared helper sends both headers jellyfin 10.x and 12 accept (#1250)
+        from core.jellyfin_client import jellyfin_auth_headers  # noqa: PLC0415 - lazy: keeps imports light
+        res = http_get(ctx, f"{url}/Library/VirtualFolders", headers=jellyfin_auth_headers(str(cfg.get("api_key") or "")))
         if res.kind:
             return res.kind, res.error, None, ""
         if res.status in (401, 403):
