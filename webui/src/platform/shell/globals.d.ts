@@ -50,6 +50,15 @@ declare global {
      * being reimplemented in React.
      */
     _navigateToArtistFromWishlist?: (artistName: string) => void;
+    /**
+     * The preview-then-confirm dialog for emptying the recycle bin or clearing
+     * the quarantine (features/safe-action/permanent-delete-flow). Settings ->
+     * Clear quarantine opens it; the routes delete nothing without its plan.
+     */
+    openPermanentDelete?: (
+      target: { kind: 'quarantine' } | { kind: 'recycle-bin'; ids?: string[] },
+      onDone?: () => void,
+    ) => Promise<void>;
     /** The candidate inspector for a download task (features/downloads/inspector-modal). */
     openDownloadTaskInspector?: (
       taskId: string,

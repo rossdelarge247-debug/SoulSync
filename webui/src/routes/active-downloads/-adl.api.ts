@@ -179,12 +179,6 @@ export function restoreDeletedFiles(ids: string[]): Promise<DeletedActionResult>
   return readJson<DeletedActionResult>(apiClient.post('deleted-files/restore', { json: { ids } }));
 }
 
-export function purgeDeletedFiles(ids: string[] | null, all = false): Promise<DeletedActionResult> {
-  return readJson<DeletedActionResult>(
-    apiClient.post('deleted-files/purge', { json: all ? { all: true } : { ids: ids ?? [] } }),
-  );
-}
-
 export function setDeletedRetention(days: number): Promise<AdlResult & { keep_days?: number }> {
   return readJson<AdlResult & { keep_days?: number }>(
     apiClient.post('deleted-files/retention', { json: { days } }),
@@ -359,10 +353,6 @@ export function quarantineDelete(
   return readJson<QuarantineDeleteResult>(
     apiClient.delete(options.siblings ? `${path}?siblings=1` : path),
   );
-}
-
-export function quarantineClear(): Promise<AdlResult> {
-  return readJson<AdlResult>(apiClient.post('quarantine/clear'));
 }
 
 // ── The Clients tab (external download clients) ───────────────────────────

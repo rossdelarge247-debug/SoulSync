@@ -10,8 +10,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdlDeletedEntry } from '@/routes/active-downloads/-adl.types';
 
 import {
-  emptyDeletedBin,
-  purgeDeletedEntry,
   restoreAllDeleted,
   restoreDeletedEntry,
 } from '@/routes/active-downloads/-adl.verif-actions';
@@ -146,36 +144,6 @@ describe('the deleted-file actions', () => {
     expect(toasts[0]).toBe('Restored 1 file');
   });
 
-  it('purge is confirm-gated: cancelling never touches the endpoint', async () => {
-    const hit = vi.fn();
-    server.use(
-      http.post('/api/deleted-files/purge', () => {
-        hit();
-        return HttpResponse.json({ success: true, purged: [ENTRY.id], errors: [] });
-      }),
-    );
-    confirmAnswer = false;
-    const onDone = vi.fn();
-    await purgeDeletedEntry(ENTRY, onDone);
-    expect(hit).not.toHaveBeenCalled();
-    expect(onDone).toHaveBeenCalled();
-    expect(confirms[0].destructive).toBe(true);
-  });
-
-  it('empty bin purges everything only after a destructive confirm', async () => {
-    let body: unknown;
-    server.use(
-      http.post('/api/deleted-files/purge', async ({ request }) => {
-        body = await request.json();
-        return HttpResponse.json({ success: true, purged: ['a', 'b'], errors: [] });
-      }),
-    );
-    await emptyDeletedBin(2, vi.fn());
-    expect(body).toEqual({ all: true });
-    expect(confirms[0].destructive).toBe(true);
-    expect(toasts[0]).toBe('Deleted 2 files');
-  });
-
   it('restore-all reports partial failures honestly', async () => {
     server.use(
       http.post('/api/deleted-files/restore', () =>
@@ -189,10 +157,5 @@ describe('the deleted-file actions', () => {
     await restoreAllDeleted([ENTRY, { ...ENTRY, id: 'deleted:b.mp3' }], vi.fn());
     expect(toasts[0]).toContain('Restored 1, 1 failed');
     expect(toasts[0]).toContain('already exists');
-  });
-
-  it('empty bin with nothing in it asks nothing and does nothing', async () => {
-    await emptyDeletedBin(0, vi.fn());
-    expect(confirms).toHaveLength(0);
   });
 });

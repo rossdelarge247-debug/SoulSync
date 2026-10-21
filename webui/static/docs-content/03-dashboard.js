@@ -192,7 +192,7 @@ The **Backup Manager** is a server card on the **Tools** page. It protects your 
 
 Repair and maintenance moved to the **Tools** page, which has two tabs:
 
-- **Operations** — the findings inbox. Repair scans surface problems here (missing tags, duplicates, dead files, …) and you fix them individually or in bulk.
+- **Operations** — the findings inbox. Repair scans surface problems here (missing tags, duplicates, dead files, …) and you fix them individually or in bulk. A bulk fix that moves or deletes files (a whole group, **Fix Selected** over ticked rows, or an album's **Resolve all**) previews first: the confirm lists every finding and what will happen to it ("Moves the file to the recycle bin", "Deletes the file permanently" when recycling is off in Settings), and only its button runs exactly that list. Fixes that only write tags run straight away.
 - **Tools** — launcher cards for scans and maintenance: **Media Server Scan**, **Metadata Updater**, **Backup Manager**, **Download Blacklist**, **Metadata Cache**, **Discovery Pool**, and more.
 
 ## Repair jobs
@@ -372,10 +372,14 @@ Files that **failed** verification and were **not** imported. Trigger badges: **
 
 Per-row: Play, Compare, Audit, **✔ Approve** (re-imports this exact file into the library, marked human-verified — nothing is renamed), **⤴ Recover** (legacy sidecars without embedded context go back to Staging for manual import), **🗑 Delete** (permanent).
 
+**🗑 Clear all** (and **Clear Quarantine** in Settings) previews first: how many files, how much space, the oldest and newest, and a sample. **Delete N files permanently** deletes exactly those; anything quarantined after the preview stays.
+
 ### 🗑 Deleted — the recycle bin
 Files removed by repair tools and the duplicate cleaner land here instead of dying, hidden from media servers. Source chips: "Repair tool", "Duplicate cleaner", "Stalled album download". Per row: **↩ Restore** (back to where it was removed from) or **🗑 Delete permanently**.
 
 Retention: **"keep deleted files:"** — keep forever, or auto-delete after 7 / 14 / 30 / 90 days. Bulk: **↩ Restore all**, **🗑 Empty bin**.
+
+Deleting from the bin can't be undone, so **🗑 Empty bin** and a row's **🗑 Delete permanently** preview first: the number of files, their size, the oldest and newest deletion date and a sample. **Delete N files permanently** deletes exactly those files. A preview works for 15 minutes and once; a file restored or replaced since the preview is kept.
 `
         },
         {

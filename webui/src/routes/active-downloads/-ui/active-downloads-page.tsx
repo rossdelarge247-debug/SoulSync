@@ -1,6 +1,8 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { usePermanentDelete } from '@/features/safe-action/permanent-delete-flow';
+
 import type { AdlBatch, AdlDeletedEntry, AdlDownload, AdlQuarantineEntry } from '../-adl.types';
 import type { ReviewActionHandlers } from './adl-review';
 
@@ -21,10 +23,7 @@ import {
   approveAllQuarantine,
   approveAllUnverified,
   cleanOrphans,
-  clearAllQuarantine,
   deleteAllUnverified,
-  emptyDeletedBin,
-  purgeDeletedEntry,
   restoreAllDeleted,
   restoreDeletedEntry,
   quarantineApproveEntry,
@@ -94,6 +93,11 @@ export function ActiveDownloadsPage() {
     [verification],
   );
   const refreshDeleted = useCallback(() => void verification.loadDeleted(true), [verification]);
+  // Emptying the bin, deleting one binned file and clearing the quarantine
+  // delete for good: each previews a plan and is confirmed in the shared
+  // dialog, which names the count, size and dates and says it is permanent.
+  const permanentDelete = usePermanentDelete();
+  const beginPermanentDelete = permanentDelete.begin;
   const onKeepDays = useCallback(
     async (days: number) => {
       try {
@@ -116,9 +120,10 @@ export function ActiveDownloadsPage() {
   const deletedHandlers = useCallback(
     (entry: AdlDeletedEntry) => ({
       onRestore: () => void restoreDeletedEntry(entry, refreshDeleted),
-      onPurge: () => void purgeDeletedEntry(entry, refreshDeleted),
+      onPurge: () =>
+        void beginPermanentDelete({ kind: 'recycle-bin', ids: [entry.id] }, refreshDeleted),
     }),
-    [refreshDeleted],
+    [beginPermanentDelete, refreshDeleted],
   );
 
   const onCancelRow = useCallback(
@@ -425,21 +430,13 @@ export function ActiveDownloadsPage() {
                 }
               }}
               onQuarantineClearAll={() =>
-                void clearAllQuarantine(
-                  verification.state.quarantine,
-                  refreshQuarantine,
-                  // The summary poll and the list total can disagree (one
-                  // is staler than the other) — a destructive confirm must
-                  // never understate how much it is about to delete.
-                  Math.max(
-                    verification.state.summary?.quarantine ?? 0,
-                    verification.state.quarantineTotal ?? 0,
-                  ) || undefined,
-                )
+                void beginPermanentDelete({ kind: 'quarantine' }, refreshQuarantine)
               }
               deletedCount={verification.state.deletedLoaded ? deletedEntries.length : null}
               onRestoreAllDeleted={() => void restoreAllDeleted(deletedEntries, refreshDeleted)}
-              onEmptyDeleted={() => void emptyDeletedBin(deletedEntries.length, refreshDeleted)}
+              onEmptyDeleted={() =>
+                void beginPermanentDelete({ kind: 'recycle-bin' }, refreshDeleted)
+              }
             />
           ) : null}
 
@@ -572,6 +569,7 @@ export function ActiveDownloadsPage() {
           )}
         </div>
       </div>
+      {permanentDelete.dialog}
     </div>
   );
 }

@@ -120,6 +120,95 @@ FINDING_TYPE_META = {
 }
 
 
+# An explicit action that removes a file whatever the type's default does
+# (fake_lossless 'delete', say). A bulk run asking for one of these needs a
+# confirmed preview even when the type itself is not in
+# DESTRUCTIVE_FINDING_TYPES.
+_FILE_DELETING_ACTIONS = frozenset({'delete', 'delete_confirmed'})
+
+
+def fix_moves_or_deletes(finding_type: str, fix_action: Optional[str] = None) -> bool:
+    """True when fixing a finding of this type, with this action, moves or
+    deletes a file, so a bulk run of it must come with a confirmed preview."""
+    return (finding_type in DESTRUCTIVE_FINDING_TYPES
+            or str(fix_action or '') in _FILE_DELETING_ACTIONS)
+
+
+def _removal(thing: str, recycle: bool) -> Tuple[str, str]:
+    if recycle:
+        return f"Moves {thing} to the recycle bin", 'recycle'
+    return f"Deletes {thing} permanently", 'delete'
+
+
+def bulk_fix_effect(finding_type: str, fix_action: Optional[str], recycle: bool) -> Tuple[str, str]:
+    """What fixing one finding does, in plain words, for a preview screen.
+
+    Returns ``(text, kind)``. ``kind`` is one of ``move`` (the file moves and
+    stays on disk), ``recycle`` (it goes to the recycle bin, restorable until
+    the bin is emptied), ``delete`` (gone for good), ``folder`` (an empty
+    folder is removed), ``library`` (only the library entry changes),
+    ``write`` (tags, metadata or the wishlist) or ``none`` (nothing happens
+    without a choice). ``recycle`` is ``library.recycle_deletes``; handlers
+    that always use the bin (duplicates, corrupt audio) or never do (expired
+    downloads) say so whatever it is set to. Pure: it mirrors the fix
+    handlers, it does not call them.
+    """
+    action = str(fix_action or '')
+    if finding_type == 'orphan_file':
+        if action == 'staging':
+            return "Moves the file to Staging, where you can review and import it", 'move'
+        if action in _FILE_DELETING_ACTIONS:
+            return _removal('the file', recycle)
+        return "Nothing until you choose Staging or delete", 'none'
+    if finding_type == 'dead_file':
+        if action == 'remove':
+            return "Removes the library entry. The file is already missing", 'library'
+        return "Adds the track to the wishlist and removes the missing entry", 'library'
+    if finding_type == 'corrupt_audio':
+        return "Moves the damaged file to the recycle bin and re-downloads the track", 'recycle'
+    if finding_type == 'unwanted_content':
+        text, kind = _removal('the file', recycle)
+        return f"{text} and removes the track from the library", kind
+    if finding_type == 'short_preview_track':
+        text, kind = _removal('the preview clip', recycle)
+        return f"{text} and re-downloads the full track", kind
+    if finding_type == 'expired_download':
+        return "Deletes the file permanently and removes the track", 'delete'
+    if finding_type == 'empty_folder':
+        return "Deletes the empty folder and any junk files left in it", 'folder'
+    if finding_type == 'duplicate_tracks':
+        keeper = 'the copy you picked' if action else 'the best copy'
+        return f"Keeps {keeper} and moves the others to the recycle bin", 'recycle'
+    if finding_type == 'single_album_redundant':
+        text, kind = _removal('the single', recycle)
+        return f"{text}. The album version stays", kind
+    if finding_type == 'quality_upgrade':
+        if action in _FILE_DELETING_ACTIONS:
+            return _removal('the lower-quality file', recycle)
+        return "Adds the better version to the wishlist. The current file stays", 'write'
+    if finding_type == 'acoustid_mismatch':
+        if action in _FILE_DELETING_ACTIONS:
+            text, kind = _removal('the file', recycle)
+            return f"{text} and removes the track", kind
+        if action == 'redownload':
+            text, kind = _removal('the file', recycle)
+            return f"{text} and adds the expected track to the wishlist", kind
+        if action.startswith('relocate'):
+            return "Re-tags the file and moves it to Staging for re-import", 'move'
+        return "Updates the title and artist to match the audio", 'write'
+    if finding_type == 'fake_lossless':
+        if action in _FILE_DELETING_ACTIONS:
+            text, kind = _removal('the file', recycle)
+            return f"{text} and removes the track", kind
+        return "Adds a genuine lossless copy to the wishlist", 'write'
+    if action in _FILE_DELETING_ACTIONS:
+        return _removal('the file', recycle)
+    if finding_type == 'path_mismatch':
+        return "Moves or renames the file to match your folder pattern", 'move'
+    verb = (FINDING_TYPE_META.get(finding_type) or {}).get('verb') or 'Fix'
+    return verb, 'write'
+
+
 # Which family each job belongs to, and the order the families are shown in.
 #
 # Thirty jobs rendered as thirty identical stacked cards is a wall: no order,
@@ -6227,22 +6316,28 @@ class RepairWorker:
                 conn.close()
 
     def bulk_fix_findings(self, job_id: str = None, severity: str = None,
-                          finding_ids: List[int] = None, fix_action: str = None) -> dict:
+                          finding_ids: List[int] = None, fix_action: str = None,
+                          fix_actions: Optional[Dict[str, str]] = None) -> dict:
         """Fix all pending fixable findings matching filters. Returns {fixed, failed, skipped}.
 
         Args:
             fix_action: Optional action for findings that need user choice (e.g. orphan files)
+            fix_actions: Optional per-type actions (finding_type -> action) for a
+                mixed selection; a type missing from it takes its default.
         """
         try:
             ids_to_fix = self._pending_fixable_ids(
                 job_id=job_id, severity=severity, finding_ids=finding_ids)
+            types = self._types_for_findings(ids_to_fix) if fix_actions is not None else {}
 
             fixed = 0
             failed = 0
             errors = []
             for fid in ids_to_fix:
+                action = (fix_actions.get(types.get(fid) or '') if fix_actions is not None
+                          else fix_action)
                 try:
-                    result = self.fix_finding(fid, fix_action=fix_action)
+                    result = self.fix_finding(fid, fix_action=action)
                 except Exception as e:  # noqa: BLE001
                     # One bad finding must not abandon the rest. Without this
                     # the whole loop fell to the outer handler and returned
@@ -6285,16 +6380,26 @@ class RepairWorker:
 
     def preview_bulk_fix(self, job_id: str = None, severity: str = None,
                          finding_ids: List[int] = None, fix_action: str = None,
-                         finding_type: str = None, safe_only: bool = False) -> dict:
+                         finding_type: str = None, safe_only: bool = False,
+                         fix_actions: Optional[Dict[str, str]] = None) -> dict:
         """What a bulk fix with these filters WOULD do, finding by finding,
         recorded as a plan. Changes nothing.
 
+        ``fix_actions`` (finding_type -> action) is how a mixed selection
+        ("Fix selected") carries the choice made for each kind; it cannot be
+        combined with ``fix_action``.
+
         Returns the plan summary (``plan_id``, ``total``, ``counts`` per
-        action, ``sample`` items with ``path`` / ``reason``) plus
-        ``destructive`` (how many items move or delete files) and
-        ``per_type``. ``{'invalid': True, ...}`` for an action spanning types,
-        ``total == 0`` (and no plan id) when nothing matches."""
+        action, ``sample`` items with ``path`` / ``reason`` / ``effect`` /
+        ``effect_kind``) plus ``destructive`` (how many items move or delete
+        files), ``per_type``, ``by_effect`` (items per effect kind) and
+        ``recycle_deletes`` (whether removed files go to the recycle bin).
+        ``{'invalid': True, ...}`` for an action spanning types, ``total == 0``
+        (and no plan id) when nothing matches."""
         from core.library.action_plans import plan_store
+        if fix_action and fix_actions:
+            return {'invalid': True, 'error': (
+                "Send one action for the whole run, or one action per finding type, not both.")}
         ids = self._pending_fixable_ids(
             job_id=job_id, severity=severity, finding_ids=finding_ids,
             finding_type=finding_type, safe_only=safe_only)
@@ -6303,31 +6408,42 @@ class RepairWorker:
             return {'invalid': True, 'error': (
                 f"'{fix_action}' would be applied to {len(set(types.values()))} different finding "
                 "types. Narrow the run to a single type, or run it without an action.")}
+        recycle = _recycle_deletes_enabled(self._config_manager)
         rows = self._finding_rows_for_plan(ids)
         items = []
         for fid in ids:
             row = rows.get(fid) or {}
             ftype = row.get('finding_type') or types.get(fid) or ''
             meta = FINDING_TYPE_META.get(ftype, {})
+            action = (fix_actions or {}).get(ftype) if fix_actions else fix_action
+            effect, kind = bulk_fix_effect(ftype, action, recycle)
             items.append({
                 'finding_id': fid,
                 'finding_type': ftype,
                 'path': row.get('file_path') or '',
-                'action': fix_action or meta.get('verb') or 'fix',
+                'action': action or meta.get('verb') or 'fix',
                 'reason': row.get('title') or meta.get('label') or ftype,
-                'destructive': ftype in DESTRUCTIVE_FINDING_TYPES,
+                'effect': effect,
+                'effect_kind': kind,
+                'destructive': fix_moves_or_deletes(ftype, action),
             })
         if not items:
             return {'total': 0, 'plan_id': None, 'destructive': 0, 'per_type': {},
+                    'by_effect': {}, 'recycle_deletes': recycle,
                     'counts': {}, 'by_reason': {}, 'sample': [], 'truncated': False}
         plan = plan_store.create(REPAIR_BULK_FIX_TOOL, items, meta={
-            'ids': list(ids), 'fix_action': fix_action})
+            'ids': list(ids), 'fix_action': fix_action,
+            'fix_actions': dict(fix_actions) if fix_actions else None})
         summary = plan.summary()
         per_type: Dict[str, int] = {}
+        by_effect: Dict[str, int] = {}
         for item in items:
             per_type[item['finding_type']] = per_type.get(item['finding_type'], 0) + 1
+            by_effect[item['effect_kind']] = by_effect.get(item['effect_kind'], 0) + 1
         summary['per_type'] = per_type
+        summary['by_effect'] = by_effect
         summary['destructive'] = sum(1 for i in items if i['destructive'])
+        summary['recycle_deletes'] = recycle
         return summary
 
     def _finding_rows_for_plan(self, ids: List[int]) -> Dict[int, dict]:
@@ -6352,27 +6468,38 @@ class RepairWorker:
 
     def bulk_fix_needs_plan(self, job_id: str = None, severity: str = None,
                             finding_ids: List[int] = None, finding_type: str = None,
-                            safe_only: bool = False) -> bool:
+                            safe_only: bool = False, fix_action: str = None,
+                            fix_actions: Optional[Dict[str, str]] = None) -> bool:
         """True when this selection would move or delete files, so a bulk run
-        of it must come with a confirmed preview."""
+        of it must come with a confirmed preview. Judged per finding, by its
+        type and the action it would get (``fix_moves_or_deletes``)."""
         if safe_only:
-            return False
+            # safe_only drops every DESTRUCTIVE type; an explicit delete is
+            # still a delete.
+            return any(str(a or '') in _FILE_DELETING_ACTIONS
+                       for a in [fix_action, *((fix_actions or {}).values())])
         ids = self._pending_fixable_ids(
             job_id=job_id, severity=severity, finding_ids=finding_ids,
             finding_type=finding_type, safe_only=False)
-        return bool(set(self._types_for_findings(ids).values()) & DESTRUCTIVE_FINDING_TYPES)
+        for ftype in set(self._types_for_findings(ids).values()):
+            action = (fix_actions or {}).get(ftype) if fix_actions else fix_action
+            if fix_moves_or_deletes(ftype, action):
+                return True
+        return False
 
     @staticmethod
     def consume_bulk_fix_plan(plan_id: str) -> dict:
-        """The finding ids and action a confirmed preview authorised. Raises
+        """The finding ids and action(s) a confirmed preview authorised. Raises
         ``PlanError`` for a missing / used / expired plan."""
         from core.library.action_plans import plan_store
         plan = plan_store.consume(plan_id, REPAIR_BULK_FIX_TOOL)
-        return {'ids': list(plan.meta.get('ids') or []), 'fix_action': plan.meta.get('fix_action')}
+        return {'ids': list(plan.meta.get('ids') or []), 'fix_action': plan.meta.get('fix_action'),
+                'fix_actions': plan.meta.get('fix_actions') or None}
 
     def start_bulk_fix(self, job_id: str = None, severity: str = None,
                        finding_ids: List[int] = None, fix_action: str = None,
-                       finding_type: str = None, safe_only: bool = False) -> dict:
+                       finding_type: str = None, safe_only: bool = False,
+                       fix_actions: Optional[Dict[str, str]] = None) -> dict:
         """Start a background bulk-fix run. Only one runs at a time.
 
         ``fix_action`` may only reach ONE finding type per run. The string is
@@ -6387,8 +6514,15 @@ class RepairWorker:
         only orphan_file), and rejecting those would break the working
         per-job Fix All while catching nothing real.
 
+        ``fix_actions`` (finding_type -> action) carries one action PER TYPE
+        for a mixed selection, which is the safe form of the same thing: each
+        fixer only ever sees the answer given for its own type.
+
         Returns ``{'started': True, 'total': N}`` or
         ``{'started': False, 'error': ..., 'already_running': bool}``."""
+        if fix_action and fix_actions:
+            return {'started': False, 'invalid': True, 'error': (
+                "Send one action for the whole run, or one action per finding type, not both.")}
         with self._bulk_fix_lock:
             if self._bulk_fix_thread is not None and self._bulk_fix_thread.is_alive():
                 return {'started': False, 'already_running': True,
@@ -6435,7 +6569,7 @@ class RepairWorker:
                 'per_type': {},
             }
             self._bulk_fix_thread = threading.Thread(
-                target=self._run_bulk_fix, args=(list(ids), fix_action),
+                target=self._run_bulk_fix, args=(list(ids), fix_action, fix_actions),
                 daemon=True, name='repair-bulk-fix')
             self._bulk_fix_thread.start()
             logger.info("Background bulk fix started: %d finding(s)%s",
@@ -6463,7 +6597,8 @@ class RepairWorker:
             if conn:
                 conn.close()
 
-    def _run_bulk_fix(self, ids: List[int], fix_action: str = None):
+    def _run_bulk_fix(self, ids: List[int], fix_action: str = None,
+                      fix_actions: Optional[Dict[str, str]] = None):
         state = self._bulk_fix_state
         types = self._types_for_findings(ids)
         try:
@@ -6473,8 +6608,10 @@ class RepairWorker:
                     logger.info("Background bulk fix stopped at %d/%d",
                                 state['done'], state['total'])
                     break
+                action = (fix_actions.get(types.get(fid) or '') if fix_actions is not None
+                          else fix_action)
                 try:
-                    result = self.fix_finding(fid, fix_action=fix_action)
+                    result = self.fix_finding(fid, fix_action=action)
                 except Exception as e:  # fix_finding shouldn't raise, but never kill the run
                     result = {'success': False, 'error': str(e)}
                 state['done'] += 1

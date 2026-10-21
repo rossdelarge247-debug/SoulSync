@@ -412,6 +412,10 @@ export interface BulkFixPlanItem extends PlanItem {
   path: string;
   action: string;
   reason: string;
+  /** What fixing it does, in plain words ("Moves the file to the recycle bin"). */
+  effect?: string;
+  /** move | recycle | delete | folder | library | write | none. */
+  effect_kind?: string;
   /** Moves or deletes a file. */
   destructive: boolean;
 }
@@ -422,6 +426,10 @@ export interface BulkFixPreview extends PlanSummary<BulkFixPlanItem> {
   success?: boolean;
   destructive?: number;
   per_type?: Record<string, number>;
+  /** Items per `effect_kind`. */
+  by_effect?: Record<string, number>;
+  /** `library.recycle_deletes`: false means removed files are gone for good. */
+  recycle_deletes?: boolean;
   invalid?: boolean;
   error?: string;
 }
@@ -448,15 +456,24 @@ export interface BulkFixOptions {
   findingType?: string;
   /** Skips every destructive type. What "Fix all safe" sends. */
   safeOnly?: boolean;
+  /** A ticked selection ("Fix selected"), by finding id. */
+  ids?: number[];
+  /** The action chosen for each finding type in a selection. Never sent with
+   *  `fixAction`: each fixer only sees the answer given for its own type. */
+  fixActions?: Record<string, string>;
 }
 
-function bulkFixBody(options: BulkFixOptions): Record<string, string | boolean> {
-  const body: Record<string, string | boolean> = {};
+function bulkFixBody(options: BulkFixOptions): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
   if (options.jobId) body.job_id = options.jobId;
   if (options.severity) body.severity = options.severity;
   if (options.fixAction) body.fix_action = options.fixAction;
   if (options.findingType) body.finding_type = options.findingType;
   if (options.safeOnly) body.safe_only = true;
+  if (options.ids?.length) body.ids = options.ids;
+  if (options.fixActions && Object.keys(options.fixActions).length) {
+    body.fix_actions = options.fixActions;
+  }
   return body;
 }
 
@@ -489,6 +506,29 @@ export async function startBulkFix(
   const body = options.planId ? { plan_id: options.planId } : bulkFixBody(options);
   const response = await postJson('/api/repair/findings/bulk-fix-start', body);
   return (await response.json()) as BulkFixStartResult;
+}
+
+export interface BulkFixInlineResult {
+  success?: boolean;
+  fixed?: number;
+  failed?: number;
+  total?: number;
+  errors?: { id: number; error: string }[];
+  error?: string;
+  /** A 409 plan refusal (plan_unknown / plan_expired / plan_wrong_tool). */
+  code?: string;
+}
+
+/**
+ * Run a confirmed bulk-fix plan inside the request and answer with the tally.
+ * For small, bounded selections (one album's findings); anything that can
+ * grow uses `startBulkFix` and the background run.
+ */
+export async function bulkFixWithPlan(planId: string): Promise<BulkFixInlineResult> {
+  const response = await postJson('/api/repair/findings/bulk-fix', { plan_id: planId });
+  const data = (await response.json().catch(() => ({}))) as BulkFixInlineResult;
+  if (!response.ok) data.success = false;
+  return data;
 }
 
 /**

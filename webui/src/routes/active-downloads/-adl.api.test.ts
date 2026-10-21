@@ -14,7 +14,6 @@ import {
   fetchQuarantine,
   fetchVerificationConfig,
   quarantineApprove,
-  quarantineClear,
   quarantineDelete,
   quarantineEntry,
   quarantinePlay,
@@ -271,12 +270,6 @@ describe('the quarantine endpoints', () => {
     const seen = capture('delete', '/api/quarantine/:id');
     await quarantineDelete('q1');
     expect(seen[0].url.pathname).toBe('/api/quarantine/q1');
-  });
-
-  it('clears the whole quarantine with POST', async () => {
-    const seen = capture('post', '/api/quarantine/clear');
-    await quarantineClear();
-    expect(seen[0].url.pathname).toBe('/api/quarantine/clear');
   });
 
   it('reads a synthesised entry with GET and plays with POST', async () => {

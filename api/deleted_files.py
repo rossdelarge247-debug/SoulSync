@@ -5,6 +5,10 @@ files the repair worker and duplicate cleaner remove go to
 list that folder, restore files to where they came from, purge them for
 real, and set the retention window. all the actual filesystem logic lives
 in core/library/deleted_quarantine.py - this is the thin http layer.
+
+purging is permanent, so it only runs against a preview: purge-preview
+records a plan (count, size, oldest/newest, a sample) and purge deletes
+exactly that plan's files, given its fresh plan_id.
 """
 
 from flask import Blueprint, jsonify, request
@@ -66,16 +70,48 @@ def create_blueprint() -> Blueprint:
             logger.error(f"[DeletedFiles] restore failed: {e}")
             return jsonify({"success": False, "error": str(e)}), 500
 
-    @bp.route('/api/deleted-files/purge', methods=['POST'])
-    def purge_deleted_files():
+    @bp.route('/api/deleted-files/purge-preview', methods=['POST'])
+    def preview_purge_deleted_files():
+        """What a purge WOULD delete for good: ``{all: true}`` for the whole
+        bin, or ``{ids: [...]}``. Records a plan and deletes nothing; POST its
+        plan_id to /api/deleted-files/purge to delete exactly these files."""
+        from core.library.action_plans import plan_store
+        from core.library.cleanup import RECYCLE_PURGE_TOOL, preview_recycle_entries, removal_stats
         try:
             payload = request.get_json(silent=True) or {}
             ids = payload.get('ids')
             purge_all = bool(payload.get('all'))
             if not purge_all and (not isinstance(ids, list) or not ids):
                 return jsonify({"success": False, "error": "ids or all required"}), 400
-            result = deleted_quarantine.purge_entries(
-                _transfer_folder(), ids if not purge_all else None, purge_all=purge_all)
+            items = preview_recycle_entries(_transfer_folder(), None if purge_all else ids)
+            stats = removal_stats(items, "deleted_at")
+            if not items:
+                return jsonify({"success": True, "plan_id": None, "total": 0, "sample": [],
+                                "truncated": False, **stats})
+            plan = plan_store.create(RECYCLE_PURGE_TOOL, items,
+                                     meta={"scope": "all" if purge_all else "selected"})
+            return jsonify({"success": True, **plan.summary(), **stats})
+        except Exception as e:
+            logger.error(f"[DeletedFiles] purge preview failed: {e}")
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @bp.route('/api/deleted-files/purge', methods=['POST'])
+    def purge_deleted_files():
+        """Delete for good exactly the files a fresh purge-preview plan
+        listed (``{plan_id}``). Without a usable plan nothing is deleted:
+        409 with ``code`` plan_required / plan_unknown / plan_expired /
+        plan_wrong_tool."""
+        from core.library.action_plans import PlanError, plan_store
+        from core.library.cleanup import RECYCLE_PURGE_TOOL, purge_planned_recycle
+        try:
+            payload = request.get_json(silent=True) or {}
+            try:
+                plan = plan_store.consume(payload.get('plan_id'), RECYCLE_PURGE_TOOL)
+            except PlanError as exc:
+                return jsonify({"success": False, "code": exc.code, "error": exc.message}), 409
+            result = purge_planned_recycle(_transfer_folder(), plan.items)
+            logger.info(f"[DeletedFiles] purged {len(result['purged'])} file(s) for good "
+                        f"({len(result['skipped'])} changed since the preview, kept)")
             result["success"] = True
             return jsonify(result)
         except Exception as e:

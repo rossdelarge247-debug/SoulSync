@@ -71,6 +71,41 @@ def test_clear_quarantine_without_the_switch_keeps_everything(tmp_path):
     assert not qfile.exists()
 
 
+def test_the_gated_http_purges_leave_the_automation_switch_working(tmp_path):
+    """Empty recycle bin and Clear quarantine over HTTP now need a preview
+    plan. The automations never went through those routes: plan mode still
+    reports and keeps everything, and the switch still lets them delete."""
+    from flask import Flask
+
+    import api.deleted_files as df_api
+    import api.quarantine as q_api
+
+    deps, _lines, qfile, binned = _deps_for(tmp_path, keep_days=0)
+    cfg = deps.config_manager
+    q_api.configure(config_manager_=cfg, docker_resolve_path_=lambda p: p,
+                    serve_audio_file_with_range=None, audio_mime_types={},
+                    post_process_matched_download=None,
+                    post_process_matched_download_with_verification=None,
+                    download_orchestrator_getter=lambda: None, matching_engine_getter=lambda: None)
+    df_api.configure(config_manager_=cfg, docker_resolve_path_=lambda p: p)
+    app = Flask(__name__)
+    app.register_blueprint(q_api.bp)
+    app.register_blueprint(df_api.create_blueprint())
+    http = app.test_client()
+
+    assert http.post('/api/quarantine/clear').status_code == 409
+    assert http.post('/api/deleted-files/purge', json={'all': True}).status_code == 409
+    assert qfile.exists() and binned.exists()
+
+    plan = auto_library_cleanup({}, deps)
+    assert plan['mode'] == 'plan' and plan['would_remove'] == 2
+    assert qfile.exists() and binned.exists()
+
+    acted = auto_library_cleanup({'confirm': True}, deps)
+    assert acted['removed'] == 2
+    assert not qfile.exists() and not binned.exists()
+
+
 def test_full_cleanup_leaves_the_quarantine_alone_without_the_switch(tmp_path):
     deps, _lines, qfile, _binned = _deps_for(tmp_path)
     deps = _build_deps(config_manager=deps.config_manager, get_staging_path=lambda: str(tmp_path / 'none'),

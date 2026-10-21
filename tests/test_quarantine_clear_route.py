@@ -1,7 +1,10 @@
-"""POST /api/quarantine/clear after the folder walk moved into
-core.library.cleanup. The route's contract is unchanged and pinned here:
-already-empty message when the folder is missing, a count in the message
-when it is not, a bad entry logged and skipped, 200 either way.
+"""POST /api/quarantine/clear-preview and /api/quarantine/clear.
+
+Clearing the quarantine deletes files for good, so the route only does it
+against a preview plan: clear-preview lists every entry (count, size, oldest
+and newest date, a sample of the downloads) and deletes nothing; clear
+deletes exactly that plan's entries, given its fresh plan_id, and refuses
+(409) without one. A bad entry is logged and skipped, the rest still go.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ import pytest
 from flask import Flask
 
 import api.quarantine as q_api
+from core.library.action_plans import plan_store
 
 
 class _FakeConfig:
@@ -39,38 +43,115 @@ def client(tmp_path):
     app.config['TESTING'] = True
     c = app.test_client()
     c.quarantine_dir = os.path.join(str(tmp_path), 'ss_quarantine')
-    return c
+    plan_store.clear()
+    yield c
+    plan_store.clear()
 
 
-def test_a_missing_folder_is_already_empty(client):
-    r = client.post('/api/quarantine/clear')
+def _put(client, name, payload=b''):
+    os.makedirs(client.quarantine_dir, exist_ok=True)
+    path = os.path.join(client.quarantine_dir, name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        f.write(payload)
+    return path
+
+
+def _entry(client, stem, mtime, payload=b'audio'):
+    _put(client, f'{stem}.flac.quarantined', payload)
+    sidecar = _put(client, f'{stem}.json', b'{}')
+    os.utime(sidecar, (mtime, mtime))
+
+
+def _preview(client):
+    r = client.post('/api/quarantine/clear-preview')
     assert r.status_code == 200
-    assert r.get_json() == {"success": True, "message": "Quarantine folder is already empty."}
+    return r.get_json()
 
 
-def test_it_clears_and_counts(client):
-    os.makedirs(client.quarantine_dir)
-    open(os.path.join(client.quarantine_dir, 'a.flac'), 'wb').close()
+def test_a_missing_folder_previews_nothing_to_confirm(client):
+    body = _preview(client)
+    assert body['success'] is True and body['plan_id'] is None and body['files'] == 0
+
+
+def test_preview_counts_files_size_and_dates_and_deletes_nothing(client):
+    _entry(client, '20260101_a', 1767225600, b'12345')       # 2026-01-01
+    _entry(client, '20260301_b', 1772323200, b'123')         # 2026-03-01
+
+    body = _preview(client)
+
+    assert body['plan_id'] and body['total'] == 4             # two downloads, two sidecars
+    assert body['files'] == 2 and body['info_files'] == 2
+    assert body['total_bytes'] == 5 + 3 + 2 + 2
+    assert body['oldest'].startswith('2026-01-01')
+    assert body['newest'].startswith('2026-03-01')
+    assert sorted(i['name'] for i in body['sample']) == [
+        '20260101_a.flac.quarantined', '20260301_b.flac.quarantined']
+    assert len(os.listdir(client.quarantine_dir)) == 4
+
+
+@pytest.mark.parametrize('body,code', [
+    (None, 'plan_required'),
+    ({}, 'plan_required'),
+    ({'plan_id': 'nope'}, 'plan_unknown'),
+])
+def test_clear_without_a_usable_plan_deletes_nothing(client, body, code):
+    _put(client, 'a.flac')
+    r = client.post('/api/quarantine/clear', json=body) if body is not None \
+        else client.post('/api/quarantine/clear')
+    assert r.status_code == 409
+    assert r.get_json()['code'] == code
+    assert os.listdir(client.quarantine_dir) == ['a.flac']
+
+
+def test_clear_deletes_exactly_the_previewed_entries(client):
+    _entry(client, '20260101_a', 1767225600)
     os.makedirs(os.path.join(client.quarantine_dir, 'album'))
-    open(os.path.join(client.quarantine_dir, 'album', 'b.flac'), 'wb').close()
-    r = client.post('/api/quarantine/clear')
+    _put(client, 'album/b.flac')
+    plan = _preview(client)
+    _put(client, '20260401_late.flac.quarantined')            # quarantined after the preview
+
+    r = client.post('/api/quarantine/clear', json={'plan_id': plan['plan_id']})
+
     assert r.status_code == 200
-    assert r.get_json() == {"success": True, "message": "Quarantine cleared (2 items removed)."}
-    assert os.listdir(client.quarantine_dir) == []
+    body = r.get_json()
+    assert body['removed'] == 3 and body['files_removed'] == 2
+    assert body['message'] == 'Deleted 2 quarantined files.'
+    assert os.listdir(client.quarantine_dir) == ['20260401_late.flac.quarantined']
+
+
+def test_a_file_that_changed_since_the_preview_is_kept(client):
+    _put(client, 'a.flac', b'one')
+    _put(client, 'b.flac', b'two')
+    plan = _preview(client)
+    _put(client, 'b.flac', b'a different, longer file')
+
+    body = client.post('/api/quarantine/clear', json={'plan_id': plan['plan_id']}).get_json()
+
+    assert body['removed'] == 1 and body['skipped'] == 1
+    assert os.listdir(client.quarantine_dir) == ['b.flac']
+
+
+def test_a_clear_plan_is_single_use(client):
+    _put(client, 'a.flac')
+    plan = _preview(client)
+    assert client.post('/api/quarantine/clear', json={'plan_id': plan['plan_id']}).status_code == 200
+    again = client.post('/api/quarantine/clear', json={'plan_id': plan['plan_id']})
+    assert again.status_code == 409 and again.get_json()['code'] == 'plan_unknown'
 
 
 def test_one_item_reads_singular(client):
-    os.makedirs(client.quarantine_dir)
-    open(os.path.join(client.quarantine_dir, 'a.flac'), 'wb').close()
-    assert client.post('/api/quarantine/clear').get_json()["message"] == \
-        "Quarantine cleared (1 item removed)."
+    _put(client, 'a.flac')
+    plan = _preview(client)
+    assert client.post('/api/quarantine/clear', json={'plan_id': plan['plan_id']}).get_json()["message"] == \
+        "Deleted 1 quarantined file."
 
 
 def test_a_bad_entry_is_skipped_and_the_rest_go(client, monkeypatch):
     from core.library import cleanup
-    os.makedirs(client.quarantine_dir)
     for n in ('a.flac', 'b.flac'):
-        open(os.path.join(client.quarantine_dir, n), 'wb').close()
+        _put(client, n)
+    plan = _preview(client)
     real_remove = os.remove
 
     def _remove(p):
@@ -78,7 +159,9 @@ def test_a_bad_entry_is_skipped_and_the_rest_go(client, monkeypatch):
             raise PermissionError('locked')
         real_remove(p)
     monkeypatch.setattr(cleanup.os, 'remove', _remove)
-    r = client.post('/api/quarantine/clear')
+    r = client.post('/api/quarantine/clear', json={'plan_id': plan['plan_id']})
     assert r.status_code == 200
-    assert r.get_json()["message"] == "Quarantine cleared (1 item removed)."
+    body = r.get_json()
+    assert body["message"] == "Deleted 1 quarantined file. 1 could not be deleted."
+    assert body["errors"][0]["entry"] == "a.flac"
     assert os.listdir(client.quarantine_dir) == ['a.flac']
