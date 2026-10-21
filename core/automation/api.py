@@ -402,3 +402,85 @@ def system_automation_for(action_type: str) -> Optional[dict]:
     """
     from database.music_database import MusicDatabase
     return MusicDatabase().get_system_automation_by_action(action_type)
+
+
+# ---------------------------------------------------------------------------
+# Preview a run (dry run)
+# ---------------------------------------------------------------------------
+
+def automation_for_viewer(database, automation_id: int, profile_id: Optional[int]) -> Optional[dict]:
+    """The automation, when the profile sees it on its Automations page (its
+    own, or a system one, as ``list_automations`` scopes them); else None, so
+    a foreign automation reads exactly like a missing one."""
+    auto = database.get_automation(automation_id)
+    if not auto or profile_id is None:
+        return None
+    if auto.get('is_system'):
+        return auto
+    try:
+        return auto if int(auto.get('profile_id') or 1) == int(profile_id) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _draft_part(data: dict, saved: Optional[dict], key: str, default):
+    """The draft's value when the body has one, else the saved row's."""
+    if key in data:
+        return data[key]
+    if saved is None:
+        return default
+    value = saved.get(key)
+    if isinstance(value, str) and key != 'action_type':
+        try:
+            return json.loads(value or 'null') or default
+        except (json.JSONDecodeError, TypeError):
+            return default
+    return value if value is not None else default
+
+
+def preview_automation(database, ctx, *, automation_id: Optional[int], data: Optional[dict],
+                       profile_id: Optional[int], is_admin: bool) -> tuple[dict, int]:
+    """Dry-run an automation: the saved one (``automation_id``), with any of
+    ``action_type`` / ``action_config`` / ``then_actions`` from ``data``
+    standing in for the saved values (the editor previews unsaved steps), or a
+    draft alone when ``automation_id`` is None.
+
+    Who: the automation must be one the profile sees (own or system), else
+    404. A preview is recorded as a run tagged Preview when the automation is
+    the profile's own, or the viewer is an admin: a system automation's
+    history is shared, and preview outcomes are admins' or the previewer's
+    (the rule the Activity feed applies to previews). A non-admin still gets
+    the preview of a system automation; it just isn't recorded.
+    """
+    from core.automation import dry_run
+
+    data = data if isinstance(data, dict) else {}
+    saved = None
+    if automation_id is not None:
+        saved = automation_for_viewer(database, automation_id, profile_id)
+        if saved is None:
+            return {'success': False, 'error': 'Automation not found'}, 404
+    action_type = str(_draft_part(data, saved, 'action_type', '') or '')
+    if not action_type:
+        return {'success': False, 'error': 'Choose what the automation does before previewing it.'}, 400
+    action_config = _draft_part(data, saved, 'action_config', {})
+    then_actions = _draft_part(data, saved, 'then_actions', [])
+    if not isinstance(action_config, dict) or not isinstance(then_actions, list):
+        return {'success': False, 'error': 'action_config must be an object and then_actions a list'}, 400
+    if saved is not None:
+        try:
+            ctx.profile_id = int(saved.get('profile_id') or 1)
+        except (TypeError, ValueError):
+            ctx.profile_id = 1
+
+    result, started, finished = dry_run.timed_preview(
+        ctx, action_type=action_type, action_config=action_config, then_actions=then_actions)
+    body = {'success': True, 'automation_id': automation_id, 'previewed_at': int(finished),
+            'duration_ms': int(round((finished - started) * 1000)), 'recorded': False, 'run_id': None,
+            **result}
+    own = saved is not None and not saved.get('is_system')
+    if saved is not None and result.get('available') and (own or is_admin):
+        run_id = dry_run.record_preview(database, automation_id, result, started_at=started,
+                                        finished_at=finished)
+        body.update(recorded=run_id is not None, run_id=run_id)
+    return body, 200

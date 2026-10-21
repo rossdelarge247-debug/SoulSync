@@ -73,23 +73,35 @@ def create_blueprint() -> Blueprint:
     @bp.route('/api/deleted-files/purge-preview', methods=['POST'])
     def preview_purge_deleted_files():
         """What a purge WOULD delete for good: ``{all: true}`` for the whole
-        bin, or ``{ids: [...]}``. Records a plan and deletes nothing; POST its
-        plan_id to /api/deleted-files/purge to delete exactly these files."""
+        bin, ``{ids: [...]}``, or ``{retention: true}`` for what the keep
+        window lets go now (the whole bin when it keeps forever), which is
+        what the Weekly Cleanup automation empties. Records a plan and deletes
+        nothing; POST its plan_id to /api/deleted-files/purge to delete
+        exactly these files."""
         from core.library.action_plans import plan_store
-        from core.library.cleanup import RECYCLE_PURGE_TOOL, preview_recycle_entries, removal_stats
+        from core.library.cleanup import (
+            RECYCLE_PURGE_TOOL, preview_recycle_entries, preview_recycle_purge, removal_stats,
+        )
         try:
             payload = request.get_json(silent=True) or {}
             ids = payload.get('ids')
             purge_all = bool(payload.get('all'))
-            if not purge_all and (not isinstance(ids, list) or not ids):
-                return jsonify({"success": False, "error": "ids or all required"}), 400
-            items = preview_recycle_entries(_transfer_folder(), None if purge_all else ids)
+            retention = bool(payload.get('retention'))
+            if not purge_all and not retention and (not isinstance(ids, list) or not ids):
+                return jsonify({"success": False, "error": "ids, all or retention required"}), 400
+            if retention and not purge_all:
+                planned = preview_recycle_purge(_transfer_folder(), _keep_days())
+                wanted = [i["recycle_id"] for i in planned]
+                items = preview_recycle_entries(_transfer_folder(), wanted) if wanted else []
+                scope = "retention"
+            else:
+                items = preview_recycle_entries(_transfer_folder(), None if purge_all else ids)
+                scope = "all" if purge_all else "selected"
             stats = removal_stats(items, "deleted_at")
             if not items:
                 return jsonify({"success": True, "plan_id": None, "total": 0, "sample": [],
                                 "truncated": False, **stats})
-            plan = plan_store.create(RECYCLE_PURGE_TOOL, items,
-                                     meta={"scope": "all" if purge_all else "selected"})
+            plan = plan_store.create(RECYCLE_PURGE_TOOL, items, meta={"scope": scope})
             return jsonify({"success": True, **plan.summary(), **stats})
         except Exception as e:
             logger.error(f"[DeletedFiles] purge preview failed: {e}")

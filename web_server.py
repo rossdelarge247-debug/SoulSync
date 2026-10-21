@@ -23802,7 +23802,8 @@ app.register_blueprint(_bp_verif())
 from api.automations import configure as _cfg_autom, create_blueprint as _bp_autom
 _cfg_autom(get_database_=get_database, config_manager_=config_manager,
            docker_resolve_path_=docker_resolve_path,
-           automation_engine_=automation_engine)
+           automation_engine_=automation_engine,
+           spotify_ready_=lambda: bool(spotify_client and spotify_client.is_authenticated()))
 app.register_blueprint(_bp_autom())
 # Login/session endpoints (api/login.py).
 from api.login import configure as _cfg_login, create_blueprint as _bp_login

@@ -260,6 +260,24 @@ def test_a_failed_automation_pins_until_a_later_run_works(build, rows):
     assert [i["status"] for i in page["items"]] == ["ok", "error"]
 
 
+def test_a_preview_run_is_tagged_and_never_hides_a_failure(build, rows):
+    aid = rows.automation(next_in=2 * HOUR)
+    rows.run(aid, status="error", summary="Soulseek wasn't reachable", ago=2 * HOUR)
+    rows.run(aid, status="preview", summary="Would search 41 · nothing changed", ago=HOUR)
+    page = build()
+    assert [i["title"] for i in page["needs_you"]] == ['Automation "Fill Wanted" failed']
+    preview = page["items"][0]
+    assert preview["title"] == 'Automation "Fill Wanted": preview'
+    assert preview["status"] == "info" and preview["detail"] == "Would search 41 · nothing changed"
+    assert preview["ref"] == {"automation_id": aid, "run_id": preview["ref"]["run_id"], "preview": True}
+
+
+def test_automation_items_link_to_the_automation(build, rows):
+    aid = rows.automation()
+    rows.run(aid, ago=HOUR)
+    assert build()["items"][0]["link"] == f"/automations?automation={aid}"
+
+
 def test_a_switched_off_automation_does_not_pin(build, rows):
     aid = rows.automation(enabled=0)
     rows.run(aid, status="error", summary="boom")

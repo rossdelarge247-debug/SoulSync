@@ -182,3 +182,20 @@ def test_traversal_ids_bounce_off_the_http_layer_too(client):
     plan = _preview(client, {'ids': ['deleted:../victim.mp3']})
     assert plan['plan_id'] is None and plan['files'] == 0
     assert os.path.isfile(victim)
+
+
+def test_retention_previews_what_the_keep_window_lets_go(client):
+    """{retention: true}: what the Weekly Cleanup's recycle half would delete;
+    the whole bin while it keeps files forever."""
+    _quarantine(client.transfer, 'old.flac')
+    _quarantine(client.transfer, 'new.flac')
+    plan = _preview(client, {'retention': True})
+    assert plan['total'] == 2 and plan['meta'] == {'scope': 'retention'}
+    client.cfg.set('library.deleted_keep_days', 30)
+    assert _preview(client, {'retention': True})['total'] == 0      # nothing is 30 days old yet
+    assert client.get('/api/deleted-files').get_json()['count'] == 2
+
+
+def test_purge_preview_still_needs_a_scope(client):
+    r = client.post('/api/deleted-files/purge-preview', json={})
+    assert r.status_code == 400 and r.get_json()['error'] == 'ids, all or retention required'

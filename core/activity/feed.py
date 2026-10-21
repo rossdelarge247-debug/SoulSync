@@ -727,6 +727,14 @@ _AUTOMATION_RULE = ("h.status != 'skipped' AND (h.status IN ('error', 'timeout')
                     "a.action_type = 'scan_watchlist')")
 
 
+def automation_link(automation_id: Any) -> str:
+    """The Automations page with this automation selected."""
+    try:
+        return f"/automations?automation={int(automation_id)}"
+    except (TypeError, ValueError):
+        return "/automations"
+
+
 def _automation_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
     auto = ctx.automations.get(int(row["automation_id"]), {})
     name = auto.get("name") or "Automation"
@@ -736,7 +744,15 @@ def _automation_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
         summary = summary[:197].rstrip() + "…"
     took = duration_words(row.get("duration_seconds"))
     retry_at = None
-    if status_raw in ("error", "timeout"):
+    ref = {"automation_id": int(row["automation_id"]), "run_id": row["id"]}
+    if status_raw == "preview":
+        # a preview run (core/automation/dry_run.py): what a run would have
+        # done, with nothing changed; the summary already says so
+        status = "info"
+        title = f'Automation "{name}": preview'
+        detail = summary or "Nothing was changed."
+        ref["preview"] = True
+    elif status_raw in ("error", "timeout"):
         status = "error"
         title = f'Automation "{name}" ' + ("timed out" if status_raw == "timeout" else "failed")
         why = summary.rstrip(".") or "It stopped with an error"
@@ -758,8 +774,8 @@ def _automation_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
         title = f'Automation "{name}" ran'
         detail = _sentence(summary, took)
     return _item("automation", row["id"], id=f"automation:{row['id']}", time=int(row["_t"] or 0), kind="automation",
-                 status=status, title=title, detail=detail, link="/automations", retry_at=retry_at,
-                 has_log=bool(row.get("has_log")), ref={"automation_id": int(row["automation_id"]), "run_id": row["id"]})
+                 status=status, title=title, detail=detail, link=automation_link(row["automation_id"]),
+                 retry_at=retry_at, has_log=bool(row.get("has_log")), ref=ref)
 
 
 _AUTOMATION_COLS = ("h.id, h.automation_id, h.started_at, h.finished_at, h.duration_seconds, h.status, h.summary, "
@@ -800,7 +816,7 @@ def _live_automation_items(ctx: _Ctx, cursor, limit: int) -> List[Dict[str, Any]
         detail = _sentence(phase, f"{pct}%" if isinstance(pct, (int, float)) and pct else "")
         out.append(_item("automation_live", int(aid), id=f"automation-live:{aid}", time=started,
                          kind="automation", status="running", title=f'Running "{auto.get("name") or "automation"}"',
-                         detail=detail, link="/automations", ref={"automation_id": int(aid)}))
+                         detail=detail, link=automation_link(aid), ref={"automation_id": int(aid)}))
     out.sort(key=lambda i: i["_key"], reverse=True)
     return out[:limit]
 
@@ -859,9 +875,11 @@ def _needs_you_automation_ids(ctx: _Ctx) -> List[int]:
 
 def _latest_failed_runs_sql(ids: List[int]) -> str:
     """FROM/WHERE for each automation's latest run, when it failed. The
-    GROUP BY walks idx_arh_automation_id instead of a subquery per run."""
+    GROUP BY walks idx_arh_automation_id instead of a subquery per run. A
+    preview isn't a run, so it never hides a failure."""
     return ("FROM (SELECT MAX(id) AS mid FROM automation_run_history "
-            f"WHERE automation_id IN ({','.join('?' * len(ids))}) GROUP BY automation_id) m "
+            f"WHERE automation_id IN ({','.join('?' * len(ids))}) AND status != 'preview' "
+            "GROUP BY automation_id) m "
             "JOIN automation_run_history h ON h.id = m.mid WHERE h.status IN ('error', 'timeout')")
 
 
