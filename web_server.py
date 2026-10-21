@@ -294,6 +294,11 @@ app = Flask(
     template_folder=os.path.join(base_dir, 'webui'),
     static_folder=os.path.join(base_dir, 'webui', 'static')
 )
+# gzip/brotli for the page shell, static JS/CSS and API JSON. Registered before
+# any other after_request hook so it runs after all of them (Flask runs them in
+# reverse order); see core/webui/compression.py for what is never compressed.
+from core.webui.compression import init_compression
+init_compression(app)
 
 # The browser's media engine buffers audio in bursts: it opens a Range
 # request, kills it once its internal buffer is full, and re-requests as
