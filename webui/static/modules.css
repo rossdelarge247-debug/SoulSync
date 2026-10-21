@@ -9,38 +9,68 @@
    (index.html head script + src/shell/modules.ts), not by rules here.
 
    Dark only. Reading text is 14px or larger (the uppercase labels are 12px),
-   radii come from tokens.css, every status pairs its colour with a word, and
-   the primary buttons put dark text on the accent, like Save Settings. */
+   colours and radii are the --ss-* tokens in tokens.css, every status pairs
+   its colour with a word, and the primary buttons put dark text on
+   accent-light, like the shared React Button. */
 
 /* ── 1. Settings → Modules ─────────────────────────────────────────────── */
+/* Restyled in place to the "Settings Modules" board (docs/design/
+   DESIGN-SYSTEM.md): a 14px card, rows on hairlines, a 44px switch control
+   (10px radius, the round 40x24 track inside) with "On"/"Off" beside the
+   track, a status dot on the result line, 14px confirm and restart boxes,
+   and the shared Button styles for the confirm's two buttons. */
 
+#settings-page .settings-group.modules-settings {
+    background: var(--ss-surface-card) !important;
+    border-color: var(--ss-surface-card-border) !important;
+    border-radius: var(--ss-radius-card) !important;
+    padding: 24px !important;
+}
+/* The card's title, 18/600 in sentence case: not the small uppercase
+   sub-heading the other settings cards use (style.css). */
+#settings-page .settings-group.modules-settings > h3,
+#settings-page .settings-group.modules-settings:hover > h3,
+#settings-page .settings-group.modules-settings:focus-within > h3 {
+    display: block;
+    margin: 0 0 8px;
+    padding: 0;
+    border: 0;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--ss-text);
+}
 #settings-page .modules-settings .modules-intro {
     max-width: 72ch;
     margin: 0 0 8px;
-    font-size: 14px;
-    line-height: 1.55;
-    color: var(--white-a80);
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ss-text-secondary);
 }
 #settings-page .modules-settings .modules-apply-note {
-    margin: 0 0 18px;
+    max-width: 72ch;
+    margin: 0 0 16px;
     font-size: 14px;
     line-height: 1.5;
-    color: var(--white-a65);
+    color: var(--ss-text-tertiary);
 }
 #settings-page .modules-settings .modules-readonly-note,
 #settings-page .modules-settings .modules-load-error {
     margin: 0 0 16px;
     padding: 12px 14px;
     border: 1px solid var(--white-a12);
-    border-radius: var(--radius-lg);
-    background: var(--white-a04);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-surface-card);
     font-size: 14px;
     line-height: 1.5;
-    color: var(--white-a85);
+    color: var(--ss-text-secondary);
 }
 #settings-page .modules-settings .modules-load-error {
-    border-color: rgba(var(--danger-rgb), 0.4);
-    background: rgba(var(--danger-rgb), 0.08);
+    border-color: rgba(var(--ss-danger-rgb), 0.35);
+    border-radius: var(--ss-radius-card);
+    background: rgba(var(--ss-danger-rgb), 0.07);
 }
 #settings-page .modules-settings .modules-readonly-note[hidden],
 #settings-page .modules-settings .modules-load-error[hidden] {
@@ -50,11 +80,11 @@
     margin: 0;
     padding: 0;
     list-style: none;
-    border-top: 1px solid var(--white-a09);
+    border-top: 1px solid var(--ss-surface-card-border);
 }
 #settings-page .module-row {
     padding: 18px 0;
-    border-bottom: 1px solid var(--white-a09);
+    border-bottom: 1px solid var(--ss-surface-card-border);
 }
 #settings-page .module-row:last-child {
     padding-bottom: 2px;
@@ -67,22 +97,25 @@
     gap: 20px;
 }
 #settings-page .module-row-text {
+    display: flex;
     flex: 1;
+    flex-direction: column;
+    gap: 6px;
     min-width: 0;
 }
 #settings-page .module-row-name {
     margin: 0;
     font-size: 16px;
-    font-weight: 650;
+    font-weight: 600;
     line-height: 1.35;
-    color: #fff;
+    color: var(--ss-text);
 }
 #settings-page .module-row-desc {
     max-width: 72ch;
-    margin: 6px 0 0;
+    margin: 0;
     font-size: 14px;
     line-height: 1.5;
-    color: var(--white-a70);
+    color: var(--ss-text-tertiary);
 }
 #settings-page .module-row-desc:empty {
     display: none;
@@ -92,29 +125,37 @@
 }
 
 /* The switch: a real button (role="switch", aria-checked) with its state
-   written next to the track. 44px tall so it is easy to hit. */
+   written next to the track. A 44px control with a 10px radius (not a
+   pill); the track inside stays round because it is a switch. */
 #settings-page .module-switch {
     display: inline-flex;
     align-items: center;
     gap: 10px;
+    box-sizing: border-box;
     min-width: 104px;
     min-height: 44px;
     padding: 0 16px 0 10px;
-    border: 1px solid var(--white-a15);
-    border-radius: var(--radius-pill);
-    background: var(--white-a04);
-    color: #fff;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-surface-card);
+    color: var(--ss-text);
     font: inherit;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
-    transition: border-color var(--dur-fast) var(--ease-standard),
-        background var(--dur-fast) var(--ease-standard);
+    transition: var(--ss-transition);
 }
 #settings-page .module-switch:hover:not([aria-disabled="true"]) {
-    border-color: rgba(var(--accent-rgb), 0.55);
-    background: var(--white-a06);
+    border-color: rgba(var(--ss-accent-rgb), 0.55);
+    background: var(--ss-hover-wash);
 }
+/* Keyboard focus only: the accent-light ring, 2px out (beats the settings
+   page's own !important ring). */
+#settings-page .modules-settings .module-switch:focus-visible {
+    outline: var(--ss-focus-ring) !important;
+    outline-offset: var(--ss-focus-offset);
+}
+/* In flight: still focusable (aria-disabled), says "Turning off…". */
 #settings-page .module-switch[aria-disabled="true"] {
     cursor: progress;
 }
@@ -124,8 +165,11 @@
     width: 40px;
     height: 24px;
     border-radius: var(--radius-pill);
-    background: var(--white-a20);
-    transition: background var(--dur-fast) var(--ease-standard);
+    background: rgba(255, 255, 255, 0.2);
+    transition: var(--ss-transition);
+}
+#settings-page .module-switch:hover:not([aria-disabled="true"]) .module-switch-track {
+    background: rgba(255, 255, 255, 0.28);
 }
 #settings-page .module-switch-thumb {
     position: absolute;
@@ -136,19 +180,37 @@
     border-radius: var(--radius-circle);
     background: #fff;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-    transition: transform var(--dur-fast) var(--ease-standard);
+    transition: transform var(--ss-motion) var(--ss-ease), width var(--ss-motion) var(--ss-ease);
 }
-#settings-page .module-switch[aria-checked="true"] .module-switch-track {
-    background: var(--accent);
+#settings-page .module-switch[aria-checked="true"] .module-switch-track,
+#settings-page .module-switch[aria-checked="true"]:hover:not([aria-disabled="true"]) .module-switch-track {
+    background: rgb(var(--ss-accent-rgb));
 }
 #settings-page .module-switch[aria-checked="true"] .module-switch-thumb {
     transform: translateX(16px);
+}
+/* Pressed: the knob stretches to 22px, no other movement. */
+#settings-page .module-switch:active:not([aria-disabled="true"]) .module-switch-thumb {
+    width: 22px;
+    border-radius: 9px;
+}
+#settings-page .module-switch[aria-checked="true"]:active:not([aria-disabled="true"]) .module-switch-thumb {
+    transform: translateX(12px);
+}
+@media (prefers-reduced-motion: reduce) {
+    #settings-page .module-switch:active:not([aria-disabled="true"]) .module-switch-thumb {
+        width: 18px;
+        border-radius: var(--radius-circle);
+    }
+    #settings-page .module-switch[aria-checked="true"]:active:not([aria-disabled="true"]) .module-switch-thumb {
+        transform: translateX(16px);
+    }
 }
 #settings-page .module-switch-label {
     white-space: nowrap;
 }
 
-/* Read-only (non-admins): the state as a dot and a word. */
+/* Read-only (non-admins): the state as a dot and a word, no switch. */
 #settings-page .module-state {
     display: inline-flex;
     align-items: center;
@@ -156,7 +218,7 @@
     min-height: 44px;
     font-size: 14px;
     font-weight: 600;
-    color: #fff;
+    color: var(--ss-text);
 }
 #settings-page .module-state-dot {
     width: 10px;
@@ -165,16 +227,19 @@
     background: var(--white-a40);
 }
 #settings-page .module-state[data-state="on"] .module-state-dot {
-    background: var(--success);
+    background: var(--ss-success);
 }
 
 /* "Turn off Podcasts?" */
 #settings-page .module-confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     margin-top: 14px;
-    padding: 14px 16px;
-    border: 1px solid rgba(var(--warning-rgb), 0.35);
-    border-radius: var(--radius-lg);
-    background: rgba(var(--warning-rgb), 0.07);
+    padding: 16px;
+    border: 1px solid rgba(var(--ss-warning-rgb), 0.35);
+    border-radius: var(--ss-radius-card);
+    background: rgba(var(--ss-warning-rgb), 0.07);
 }
 #settings-page .module-confirm[hidden] {
     display: none;
@@ -182,75 +247,105 @@
 #settings-page .module-confirm-title {
     margin: 0;
     font-size: 15px;
-    font-weight: 650;
-    color: #fff;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--ss-text);
 }
 #settings-page .module-confirm-body {
-    margin: 4px 0 12px;
+    margin: 0 0 8px;
     font-size: 14px;
     line-height: 1.5;
-    color: var(--white-a85);
+    color: var(--ss-text-secondary);
 }
 #settings-page .module-confirm-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
 }
+/* The shared Button styles (components/form): 44px, 10px radius, 15px/500;
+   primary is dark text on accent-light, secondary the 6% fill. */
 #settings-page .module-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
     min-height: 44px;
     padding: 0 18px;
-    border-radius: var(--radius-md);
+    border-radius: var(--ss-radius-control);
     font: inherit;
-    font-size: 14px;
-    font-weight: 650;
+    font-size: 15px;
+    font-weight: 500;
     cursor: pointer;
+    transition: var(--ss-transition);
+}
+#settings-page .modules-settings .module-btn:focus-visible {
+    outline: var(--ss-focus-ring) !important;
+    outline-offset: var(--ss-focus-offset);
+}
+#settings-page .module-btn:active {
+    opacity: var(--ss-pressed-opacity);
 }
 #settings-page .module-btn--primary {
-    border: 1px solid rgba(var(--accent-rgb), 0.35);
-    background: var(--accent);
-    color: #07190e;
+    border: 1px solid rgba(var(--ss-accent-light-rgb), 0.45);
+    background: rgb(var(--ss-accent-light-rgb));
+    color: var(--ss-text-on-accent);
 }
 #settings-page .module-btn--primary:hover {
-    background: var(--accent-light);
+    opacity: var(--ss-pressed-opacity);
+}
+#settings-page .module-btn--primary:active {
+    opacity: var(--ss-pressed-opacity-primary);
 }
 #settings-page .module-btn--secondary {
-    border: 1px solid var(--white-a20);
-    background: transparent;
-    color: #fff;
+    border: 1px solid var(--ss-control-border);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
 }
 #settings-page .module-btn--secondary:hover {
-    background: var(--white-a06);
+    background: var(--ss-control-fill-hover);
 }
 
 /* What happened after a switch changed (a live region, so never display:none). */
 #settings-page .module-row-status {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
     margin: 10px 0 0;
     font-size: 14px;
     line-height: 1.5;
-    color: var(--white-a80);
+    color: rgba(255, 255, 255, 0.9);
 }
 #settings-page .module-row-status:empty {
     margin: 0;
 }
-#settings-page .module-row-status[data-tone="success"] {
-    color: var(--white-a90);
-}
-#settings-page .module-row-status[data-tone="success"]::before {
-    content: '✓';
-    margin-right: 6px;
-    color: var(--success);
+/* A status dot, not a glyph. */
+#settings-page .module-row-status[data-tone="success"]::before,
+#settings-page .module-row-status[data-tone="error"]::before {
+    content: '';
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 6.5px; /* centred on the first line, however many it wraps to */
+    border-radius: var(--radius-circle);
+    background: var(--ss-success);
 }
 #settings-page .module-row-status[data-tone="error"] {
-    color: #fecaca;
+    color: var(--ss-text);
+}
+#settings-page .module-row-status[data-tone="error"]::before {
+    background: var(--ss-danger);
 }
 
 /* A module that still needs a restart to fully stop or start. */
 #settings-page .module-restart {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     margin-top: 12px;
-    padding: 12px 14px;
-    border: 1px solid rgba(var(--warning-rgb), 0.45);
-    border-radius: var(--radius-lg);
-    background: rgba(var(--warning-rgb), 0.08);
+    padding: 16px;
+    border: 1px solid rgba(var(--ss-warning-rgb), 0.45);
+    border-radius: var(--ss-radius-card);
+    background: rgba(var(--ss-warning-rgb), 0.08);
 }
 #settings-page .module-restart[hidden] {
     display: none;
@@ -261,34 +356,41 @@
     gap: 7px;
     margin: 0;
     font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--warning);
+    color: var(--ss-warning);
 }
 #settings-page .module-restart-dot {
     width: 8px;
     height: 8px;
     border-radius: var(--radius-circle);
-    background: var(--warning);
+    background: var(--ss-warning);
 }
 #settings-page .module-restart-title {
-    margin: 6px 0 0;
+    margin: 0;
     font-size: 14px;
-    font-weight: 650;
-    color: #fff;
+    font-weight: 600;
+    color: var(--ss-text);
 }
 #settings-page .module-restart-body {
-    margin: 4px 0 0;
+    margin: 0;
     font-size: 14px;
     line-height: 1.5;
-    color: var(--white-a85);
+    color: var(--ss-text-secondary);
 }
 
 @media (max-width: 560px) {
+    #settings-page .settings-group.modules-settings {
+        padding: 16px !important;
+    }
     #settings-page .module-row-main {
         flex-direction: column;
         gap: 12px;
+    }
+    #settings-page .module-confirm-actions {
+        flex-direction: column;
+        align-items: stretch;
     }
 }
 

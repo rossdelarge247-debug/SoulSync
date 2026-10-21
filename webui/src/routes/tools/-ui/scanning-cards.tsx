@@ -34,7 +34,12 @@ import {
   saveTextFile,
   toCsv,
 } from '@/features/safe-action/plan';
-import { GuardBox, SafeActionDialog, StatusTag } from '@/features/safe-action/safe-action-dialog';
+import {
+  GuardBox,
+  LARGE_MOVE_REASON,
+  SafeActionDialog,
+  StatusTag,
+} from '@/features/safe-action/safe-action-dialog';
 import safeStyles from '@/features/safe-action/safe-action.module.css';
 import { useNow } from '@/features/safe-action/use-now';
 
@@ -334,6 +339,7 @@ export function DbUpdaterCard() {
                 size="lg"
                 variant="primary"
                 disabled={!deep.largeOk}
+                disabledReason={LARGE_MOVE_REASON}
                 onClick={() => void deep.confirmMove()}
               >
                 Move {countLabel(deepScanMoveCount(deepPreview), 'file')}
@@ -703,7 +709,12 @@ export function DuplicateCleanerCard() {
   // What the dialog shows: a refusal, the confirmed run, or the plan itself.
   let dialogPhase: SafeActionPhase = { kind: 'review' };
   if (refusal) {
-    dialogPhase = { kind: 'refused', message: refusal.message, previewAgain: refusal.previewAgain };
+    dialogPhase = {
+      kind: 'refused',
+      message: refusal.message,
+      previewAgain: refusal.previewAgain,
+      code: refusal.code,
+    };
   } else if (watchingApply && planRefused) {
     dialogPhase = {
       kind: 'refused',

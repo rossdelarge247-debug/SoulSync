@@ -123,6 +123,97 @@
        .settings-content (settings-premier.css). The nav row and the columns
        fill it, so the tabs and the content below them always line up. */
     --settings-max-width: 1240px;
+
+    /* ══ Design system (docs/design/DESIGN-SYSTEM.md) ═══════════════════
+       The --ss-* names are the handoff's tokens, shared by the React app and
+       the legacy sheets. New and restyled screens use these; the older names
+       above stay for the rules that already read them.
+
+       Accent: aliases of the pair init.js / the server already compute from
+       the user's preset (--accent-light-rgb is the accent at +16% HSL
+       lightness, capped at 95%). Resolved on :root, so they follow
+       applyAccentColor() but not an element that rescopes --accent-rgb. */
+    --ss-accent-rgb: var(--accent-rgb);
+    --ss-accent-light-rgb: var(--accent-light-rgb);
+
+    /* Ground */
+    --ss-ground-page: #0c0c0c;
+    --ss-ground-sidebar: #101010;   /* sidebar and phone tab bar */
+    --ss-ground-dialog: #17171c;
+    --ss-ground-note: #141416;      /* note cards, popovers, bottom sheets */
+    --ss-ground-scrim: #0a0c11;     /* behind a dialog */
+    --ss-ground-table-head: #1d1d23; /* sample-table headers inside a dialog */
+
+    /* Surfaces: white washes */
+    --ss-surface-card: rgba(255, 255, 255, 0.04);
+    --ss-surface-card-border: rgba(255, 255, 255, 0.09);
+    --ss-surface-quiet: rgba(255, 255, 255, 0.02);  /* not set up / paused */
+    --ss-hairline: rgba(255, 255, 255, 0.08);
+    --ss-control-fill: rgba(255, 255, 255, 0.06);   /* secondary button */
+    --ss-control-fill-hover: rgba(255, 255, 255, 0.1);
+    --ss-control-border: rgba(255, 255, 255, 0.16);
+    --ss-input-fill: rgba(255, 255, 255, 0.04);
+    --ss-input-border: rgba(255, 255, 255, 0.24);   /* meets 3:1 */
+    --ss-input-border-hover: rgba(255, 255, 255, 0.32);
+    --ss-hover-wash: rgba(255, 255, 255, 0.06);     /* +6% on hover */
+    --ss-row-hover: rgba(255, 255, 255, 0.08);      /* a 4% row goes to 8% */
+
+    /* Text (never below 0.62 on a card) */
+    --ss-text: #fff;
+    --ss-text-secondary: rgba(255, 255, 255, 0.86);
+    --ss-text-tertiary: rgba(255, 255, 255, 0.72);
+    --ss-text-meta: rgba(255, 255, 255, 0.62);
+    --ss-text-on-accent: #0b0b0f;   /* dark text on accent-light and danger fills */
+
+    /* Status: tags put the colour at 12% behind the colour as text */
+    --ss-success-rgb: 74, 222, 128;
+    --ss-success: #4ade80;
+    --ss-info-rgb: 56, 189, 248;
+    --ss-info: #38bdf8;
+    --ss-warning-rgb: 251, 191, 36;
+    --ss-warning: #fbbf24;
+    --ss-danger-rgb: 248, 113, 113;
+    --ss-danger: #f87171;
+    --ss-neutral: rgba(255, 255, 255, 0.86);
+    --ss-neutral-fill: rgba(255, 255, 255, 0.06);
+
+    /* Interaction states */
+    --ss-selected-fill: rgba(var(--ss-accent-rgb), 0.14);
+    --ss-selected-border: rgba(var(--ss-accent-rgb), 0.45);
+    --ss-focus-ring: 2px solid rgb(var(--ss-accent-light-rgb));
+    --ss-focus-offset: 2px;
+    --ss-focus-offset-inset: -2px;  /* inside list rows, so it isn't clipped */
+    --ss-input-focus-border: rgba(var(--ss-accent-light-rgb), 0.6);
+    --ss-input-error-border: rgba(248, 113, 113, 0.6);
+    --ss-disabled-fill: rgba(255, 255, 255, 0.06);
+    --ss-disabled-border: rgba(255, 255, 255, 0.16);
+    --ss-disabled-text: rgba(255, 255, 255, 0.62);
+    --ss-pressed-opacity: 0.92;
+    --ss-pressed-opacity-primary: 0.84;
+
+    /* Radii */
+    --ss-radius-tag: 6px;       /* tags, badges, art */
+    --ss-radius-control: 10px;  /* buttons, inputs, switch controls */
+    --ss-radius-card: 14px;     /* cards, notices, guard boxes */
+    --ss-radius-dialog: 16px;
+
+    /* Spacing */
+    --ss-gutter: 40px;          /* desktop page gutter */
+    --ss-gutter-phone: 12px;    /* the app's shared phone page padding */
+
+    /* Motion: 120ms on background, border and opacity; nothing on layout */
+    --ss-motion: 120ms;
+    --ss-ease: ease;
+    --ss-transition: background-color var(--ss-motion) var(--ss-ease),
+        border-color var(--ss-motion) var(--ss-ease), opacity var(--ss-motion) var(--ss-ease);
+    --ss-live-pulse: 1.6s;      /* a live status dot */
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --ss-motion: 0ms;
+        --ss-transition: none;
+    }
 }
 
 /* ── Shared keyframes ─────────────────────────────────────────────────
@@ -148,4 +239,11 @@
 @keyframes fade-in {
     from { opacity: 0; }
     to { opacity: 1; }
+}
+
+/* A live status dot ("Running", "Searching"): a slow fade, no movement.
+   Use with var(--ss-live-pulse); drop it under prefers-reduced-motion. */
+@keyframes ss-live-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
 }

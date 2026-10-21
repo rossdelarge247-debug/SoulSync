@@ -49,16 +49,32 @@
   font-size: 1.4rem;
 }
 
+/* 44px: the touch target. 10px radius like every control. */
 .close {
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--white-a08);
-  border-radius: 14px;
+  border-radius: var(--ss-radius-control);
   background: var(--white-a05);
   color: #fff;
-  font-size: 16px;
+  font-size: 18px;
+  line-height: 1;
   cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.close:hover {
+  background: var(--ss-control-fill-hover);
+}
+
+.close:active {
+  opacity: var(--ss-pressed-opacity);
+}
+
+.close:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
 }
 
 .body {
@@ -101,7 +117,7 @@
   .footer {
     flex-direction: column;
     align-items: stretch;
-    padding: 0 18px 18px;
+    padding: 16px 18px 18px;
   }
 
   .footer > button {

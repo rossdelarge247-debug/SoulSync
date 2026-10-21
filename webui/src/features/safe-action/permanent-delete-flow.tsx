@@ -44,7 +44,9 @@ function rows(preview: PermanentDeletePreview, target: PermanentDeleteTarget): S
       key: `${item.id ?? item.name ?? item.path}-${index}`,
       cells: [
         <div key="file">
-          <div className={styles.primaryCell}>{item.name || pathTail(item.path, 1)}</div>
+          <div className={`${styles.primaryCell} ${styles.pathCell}`}>
+            {item.name || pathTail(item.path, 1)}
+          </div>
           {target.kind === 'recycle-bin' && item.path ? (
             <div className={styles.secondary} title={item.path}>
               from {pathTail(item.path, 3)}
@@ -112,7 +114,12 @@ export function usePermanentDelete(): PermanentDeleteFlow {
     try {
       const { result, refusal } = await confirmPermanentDelete(current.target, planId);
       if (refusal) {
-        setPhase({ kind: 'refused', message: refusal.message, previewAgain: refusal.previewAgain });
+        setPhase({
+          kind: 'refused',
+          message: refusal.message,
+          previewAgain: refusal.previewAgain,
+          code: refusal.code,
+        });
         return;
       }
       const outcome = permanentDeleteOutcome(current.target, result);

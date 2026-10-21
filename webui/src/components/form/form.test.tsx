@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   Button,
@@ -195,5 +195,100 @@ describe('form primitives', () => {
     );
 
     expect(screen.getByLabelText('Compact')).toHaveAttribute('data-size', 'sm');
+  });
+});
+
+describe('Button: disabled is neutral, with its reason', () => {
+  const REASON = 'Tick "I checked the list" to move the files.';
+
+  it('with a reason: stays focusable (aria-disabled), neutral, and says why', () => {
+    const onClick = vi.fn();
+    render(
+      <Button variant="primary" size="lg" disabled disabledReason={REASON} onClick={onClick}>
+        Move 1,204 files
+      </Button>,
+    );
+    const button = screen.getByRole('button', { name: 'Move 1,204 files' });
+
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).not.toHaveAttribute('disabled');
+    expect(button.className).toMatch(/disabledNeutral/);
+    // the reason is on screen, beside the button, and read out with it
+    const reason = screen.getByText(REASON);
+    expect(reason).toHaveAttribute('data-slot', 'disabled-reason');
+    expect(button.nextElementSibling).toBe(reason);
+    expect(button).toHaveAccessibleDescription(REASON);
+
+    button.focus();
+    expect(button).toHaveFocus();
+    fireEvent.click(button);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('keeps a caller aria-describedby alongside the reason', () => {
+    render(
+      <>
+        <p id="extra">Large move.</p>
+        <Button disabled disabledReason="Not yet." aria-describedby="extra">
+          Go
+        </Button>
+      </>,
+    );
+    expect(screen.getByRole('button', { name: 'Go' })).toHaveAccessibleDescription(
+      'Large move. Not yet.',
+    );
+  });
+
+  it('without a reason: the native disabled attribute, still the neutral class', () => {
+    render(
+      <Button variant="primary" disabled>
+        Save
+      </Button>,
+    );
+    const button = screen.getByRole('button', { name: 'Save' });
+    expect(button).toBeDisabled();
+    expect(button.className).toMatch(/disabledNeutral/);
+  });
+
+  it('once enabled: no reason, no aria-disabled, no neutral class', () => {
+    const onClick = vi.fn();
+    render(
+      <Button variant="primary" disabledReason={REASON} onClick={onClick}>
+        Move 1,204 files
+      </Button>,
+    );
+    const button = screen.getByRole('button', { name: 'Move 1,204 files' });
+    expect(screen.queryByText(REASON)).toBeNull();
+    expect(button).not.toHaveAttribute('aria-disabled');
+    expect(button).not.toHaveAttribute('aria-describedby');
+    expect(button.className).not.toMatch(/disabledNeutral/);
+    fireEvent.click(button);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks lg buttons for the 44px size', () => {
+    render(<Button size="lg">Cancel</Button>);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveAttribute('data-size', 'lg');
+  });
+});
+
+describe('FormField error', () => {
+  it('marks the control invalid and shows the message', () => {
+    render(
+      <FormField label="Playlist link" htmlFor="link" error="That isn't a playlist link.">
+        <TextInput id="link" defaultValue="spotify.com/sunday" />
+      </FormField>,
+    );
+    expect(screen.getByLabelText('Playlist link')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent("That isn't a playlist link.");
+  });
+
+  it('supports the 44px select', () => {
+    render(
+      <Select aria-label="Search for" defaultValue="all" size="lg">
+        <option value="all">everything on Wanted</option>
+      </Select>,
+    );
+    expect(screen.getByLabelText('Search for')).toHaveAttribute('data-size', 'lg');
   });
 });

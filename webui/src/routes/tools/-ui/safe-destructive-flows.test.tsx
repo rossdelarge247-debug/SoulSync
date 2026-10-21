@@ -348,14 +348,21 @@ describe('Deep Scan: preview, then confirm', () => {
       within(dialog).getByText('This would move 120 files, 40% of your library.'),
     ).toBeTruthy();
     expect(within(dialog).getByText(/more than the 25% safety limit/)).toBeTruthy();
+    // disabled the neutral way: still focusable (aria-disabled), with the
+    // reason written beside it and read out with it
     const dialogMove = within(dialog).getByRole('button', { name: 'Move 120 files' });
-    expect((dialogMove as HTMLButtonElement).disabled).toBe(true);
+    expect(dialogMove).toHaveAttribute('aria-disabled', 'true');
+    expect(dialogMove).toHaveAccessibleDescription('Tick "I checked the list" to move the files.');
+    fireEvent.click(dialogMove);
+    await flush();
+    expect(fetchMock.mock.calls.some(([url]) => url === '/api/database/update')).toBe(false);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await flush();
 
     // and on the card
     const cardMove = await screen.findByRole('button', { name: 'Move 120 files' });
-    expect((cardMove as HTMLButtonElement).disabled).toBe(true);
+    expect(cardMove).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByText('Tick "I checked the list" to move the files.')).toBeTruthy();
     fireEvent.click(cardMove);
     await flush();
     expect(fetchMock.mock.calls.some(([url]) => url === '/api/database/update')).toBe(false);
@@ -363,9 +370,10 @@ describe('Deep Scan: preview, then confirm', () => {
     fireEvent.click(
       screen.getByLabelText('I checked the list and expected this many files to move'),
     );
-    expect(
-      (screen.getByRole('button', { name: 'Move 120 files' }) as HTMLButtonElement).disabled,
-    ).toBe(false);
+    const ticked = screen.getByRole('button', { name: 'Move 120 files' });
+    expect(ticked).not.toHaveAttribute('aria-disabled');
+    expect((ticked as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText('Tick "I checked the list" to move the files.')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Move 120 files' }));
     await flush();
     expect(bodyOf('/api/database/update')).toEqual({

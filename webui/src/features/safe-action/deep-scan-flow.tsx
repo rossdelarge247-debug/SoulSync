@@ -100,7 +100,7 @@ function sampleRows(preview: DeepScanPreview, withDest: boolean): SafeActionRow[
   return (preview.sample ?? []).map((item: DeepScanItem, index) => {
     const file = (
       <div key="file">
-        <div className={styles.primaryCell}>{baseName(item.path)}</div>
+        <div className={`${styles.primaryCell} ${styles.pathCell}`}>{baseName(item.path)}</div>
         <div className={styles.secondary}>{folderTail(item.path)}</div>
       </div>
     );
@@ -132,6 +132,8 @@ export interface DeepScanFlow {
 
 export function useDeepScanFlow({ onStarted }: { onStarted?: () => void } = {}): DeepScanFlow {
   const [preview, setPreview] = useState<DeepScanPreview | null>(null);
+  // the preview a refused confirm was for: the dialog's title and faded counts
+  const [refusedPreview, setRefusedPreview] = useState<DeepScanPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<SafeActionPhase>({ kind: 'review' });
@@ -152,6 +154,7 @@ export function useDeepScanFlow({ onStarted }: { onStarted?: () => void } = {}):
       }
       if (result.kind === 'no-moves') return 'no-moves' as const;
       setPreview(result.preview);
+      setRefusedPreview(null);
       setLargeOk(false);
       setPhase({ kind: 'review' });
       setOpen(true);
@@ -182,8 +185,14 @@ export function useDeepScanFlow({ onStarted }: { onStarted?: () => void } = {}):
           kind: 'refused',
           message: result.refusal.message,
           previewAgain: result.refusal.previewAgain,
+          code: result.refusal.code,
         });
-        if (result.refusal.previewAgain) setPreview(null);
+        if (result.refusal.previewAgain) {
+          // the card must not offer it again, but the dialog keeps its title
+          // and faded counts so you remember what you were confirming
+          setRefusedPreview(preview);
+          setPreview(null);
+        }
         return;
       }
       confirmedCount.current = deepScanMoveCount(preview);
@@ -298,14 +307,15 @@ export function useDeepScanFlow({ onStarted }: { onStarted?: () => void } = {}):
   const close = useCallback(() => setOpen(false), []);
   const clear = useCallback(() => setPreview(null), []);
 
+  const dialogPreview = preview ?? (phase.kind === 'refused' ? refusedPreview : null);
   const dialog = (
     <SafeActionDialog
       open={open}
       onClose={close}
       phase={phase}
       onPreviewAgain={() => void begin()}
-      {...(preview
-        ? deepScanDialogContent(preview, {
+      {...(dialogPreview
+        ? deepScanDialogContent(dialogPreview, {
             largeOk,
             setLargeOk,
             busy,

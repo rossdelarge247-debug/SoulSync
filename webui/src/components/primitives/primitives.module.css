@@ -44,6 +44,165 @@
   color: rgba(255, 214, 214, 0.94);
 }
 
+/* The titled Notice: the design system's attention box for failures and
+   steps the user must take (docs/design/DESIGN-SYSTEM.md, "Failure"). Danger
+   is "this didn't work", warning is "fine, but needs a step from you". */
+.noticeTitled {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-card);
+  color: var(--ss-text-secondary);
+  --notice-dot: var(--ss-neutral);
+}
+
+.noticeTitled[data-tone='info'] {
+  border-color: rgba(var(--ss-info-rgb), 0.35);
+  background: rgba(var(--ss-info-rgb), 0.07);
+  --notice-dot: var(--ss-info);
+}
+
+.noticeTitled[data-tone='success'] {
+  border-color: rgba(var(--ss-success-rgb), 0.35);
+  background: rgba(var(--ss-success-rgb), 0.07);
+  --notice-dot: var(--ss-success);
+}
+
+.noticeTitled[data-tone='warning'] {
+  border-color: rgba(var(--ss-warning-rgb), 0.35);
+  background: rgba(var(--ss-warning-rgb), 0.07);
+  --notice-dot: var(--ss-warning);
+}
+
+.noticeTitled[data-tone='danger'] {
+  border-color: rgba(var(--ss-danger-rgb), 0.35);
+  background: rgba(var(--ss-danger-rgb), 0.07);
+  --notice-dot: var(--ss-danger);
+}
+
+.noticeMain {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.noticeDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: var(--radius-circle);
+  background: var(--notice-dot);
+}
+
+.noticeText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.noticeTitle {
+  margin: 0;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.noticeBody {
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.noticeBody > p {
+  margin: 0;
+}
+
+.noticeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .noticeTitled {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .noticeActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .noticeActions > * {
+    width: 100%;
+  }
+}
+
+/* A status tag: 6px radius, 8px dot, the colour at 12% behind the colour as
+   text. Never reacts to hover. */
+.statusTag {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--ss-radius-tag);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: var(--ss-neutral-fill);
+  color: var(--ss-neutral);
+  cursor: default;
+  transition: none;
+}
+
+.statusTag[data-tone='info'] {
+  background: rgba(var(--ss-info-rgb), 0.12);
+  color: var(--ss-info);
+}
+
+.statusTag[data-tone='success'] {
+  background: rgba(var(--ss-success-rgb), 0.12);
+  color: var(--ss-success);
+}
+
+.statusTag[data-tone='warning'] {
+  background: rgba(var(--ss-warning-rgb), 0.12);
+  color: var(--ss-warning);
+}
+
+.statusTag[data-tone='danger'] {
+  background: rgba(var(--ss-danger-rgb), 0.12);
+  color: var(--ss-danger);
+}
+
+.statusTagDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-circle);
+  background: currentColor;
+}
+
+.statusTag[data-live='true'] .statusTagDot {
+  /* global(): the shared keyframes in static/tokens.css */
+  animation: global(ss-live-pulse) var(--ss-live-pulse, 1.6s) ease-in-out infinite;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -165,12 +324,199 @@
   color: var(--white-a35);
 }
 
+/* Placeholder rows in a list's real shape (SkeletonList). */
+.skeletonList {
+  overflow: hidden;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-card);
+}
+
+.skeletonList[data-faded='true'] {
+  background: var(--ss-surface-quiet);
+  opacity: 0.6;
+  --skeleton-base: var(--white-a06);
+  --skeleton-highlight: var(--white-a06);
+}
+
+.skeletonList[data-faded='true'] .skeletonArt,
+.skeletonList[data-faded='true'] .skeletonTitle,
+.skeletonList[data-faded='true'] .skeletonMeta,
+.skeletonList[data-faded='true'] .skeletonTag {
+  animation: none;
+}
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 12px 24px;
+}
+
+.skeletonRow + .skeletonRow {
+  border-top: 1px solid var(--ss-hairline);
+}
+
+.skeletonRow[data-art='true'] {
+  grid-template-columns: var(--skeleton-art, 48px) minmax(0, 1fr);
+}
+
+.skeletonRow[data-tag='true'] {
+  grid-template-columns: minmax(0, 1fr) 120px;
+}
+
+.skeletonRow[data-art='true'][data-tag='true'] {
+  grid-template-columns: var(--skeleton-art, 48px) minmax(0, 1fr) 120px;
+}
+
+.skeletonArt {
+  width: var(--skeleton-art, 48px);
+  height: var(--skeleton-art, 48px);
+  border-radius: var(--ss-radius-tag);
+}
+
+.skeletonArt[data-round='true'] {
+  border-radius: var(--radius-circle);
+}
+
+.skeletonLines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skeletonTitle {
+  max-width: 100%;
+  height: 16px;
+  border-radius: var(--ss-radius-tag);
+}
+
+.skeletonMeta {
+  max-width: 100%;
+  height: 14px;
+  border-radius: var(--ss-radius-tag);
+}
+
+.skeletonTag {
+  justify-self: end;
+  width: 96px;
+  height: 26px;
+  border-radius: var(--ss-radius-tag);
+}
+
+@media (max-width: 640px) {
+  .skeletonRow,
+  .skeletonRow[data-art='true'],
+  .skeletonRow[data-tag='true'],
+  .skeletonRow[data-art='true'][data-tag='true'] {
+    grid-template-columns: var(--skeleton-art, 44px) minmax(0, 1fr);
+    gap: 12px;
+    min-height: 0;
+    padding: 12px 14px;
+  }
+
+  .skeletonRow:not([data-art='true']) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .skeletonArt {
+    width: min(var(--skeleton-art, 48px), 44px);
+    height: min(var(--skeleton-art, 48px), 44px);
+  }
+
+  .skeletonTag {
+    display: none;
+  }
+}
+
+/* LoadingState: the words beside the spinner, then the placeholders. */
+.loadingState {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.loadingStatus {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  color: var(--ss-text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* EmptyState variant="panel": a card, an 18px title, two short paragraphs
+   and one primary action. */
+.emptyPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+  padding: 40px;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-card);
+  text-align: left;
+}
+
+.emptyPanelText {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 560px;
+}
+
+.emptyPanelTitle {
+  margin: 0;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.emptyPanelBody {
+  margin: 0;
+  color: var(--ss-text-tertiary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.emptyPanelActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .emptyPanel {
+    padding: 24px 16px;
+  }
+
+  .emptyPanelActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .emptyPanelActions > * {
+    width: 100%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :where(.spinner) {
     animation-duration: 2s;
   }
 
   :where(.skeleton) {
+    animation: none;
+  }
+
+  .statusTag[data-live='true'] .statusTagDot {
     animation: none;
   }
 }
