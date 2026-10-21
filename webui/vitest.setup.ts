@@ -60,6 +60,10 @@ beforeEach(() => {
     // cause false positive tests". A test that cares about the badge overrides
     // this with its own handler.
     http.get('/api/issues/counts', () => HttpResponse.json({ success: true, counts: {} })),
+    // Module switches: the module pages (podcasts, audiobooks, sample studio,
+    // the downloads Video view) read these before rendering. Every module on,
+    // like a fresh install; a test about a turned-off module overrides it.
+    http.get('/api/modules', () => HttpResponse.json({ success: true, modules: [] })),
   );
 });
 

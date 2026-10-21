@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
+import { ModuleGate } from '@/features/modules/module-gate';
 import { guardPageAccess } from '@/platform/shell/route-guard';
 
 import { PodcastProvider } from './-ui/podcast-context';
@@ -14,8 +15,10 @@ export const Route = createFileRoute('/podcasts')({
 
 function PodcastsRouteComponent() {
   return (
-    <PodcastProvider>
-      <PodcastsLayout />
-    </PodcastProvider>
+    <ModuleGate module="podcasts" pageId="podcasts">
+      <PodcastProvider>
+        <PodcastsLayout />
+      </PodcastProvider>
+    </ModuleGate>
   );
 }

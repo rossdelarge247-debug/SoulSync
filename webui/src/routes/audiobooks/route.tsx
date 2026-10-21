@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
+import { ModuleGate } from '@/features/modules/module-gate';
 import { guardPageAccess } from '@/platform/shell/route-guard';
 
 import { AudiobookProvider } from './-ui/audiobook-context';
@@ -14,8 +15,10 @@ export const Route = createFileRoute('/audiobooks')({
 
 function AudiobooksRouteComponent() {
   return (
-    <AudiobookProvider>
-      <AudiobooksLayout />
-    </AudiobookProvider>
+    <ModuleGate module="audiobooks" pageId="audiobooks">
+      <AudiobookProvider>
+        <AudiobooksLayout />
+      </AudiobookProvider>
+    </ModuleGate>
   );
 }

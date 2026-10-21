@@ -110,3 +110,40 @@ describe('the unified downloads page', () => {
     await screen.findByRole('tab', { name: /Downloads/ });
   });
 });
+
+describe('with the Video module turned off', () => {
+  beforeEach(() => {
+    server.use(
+      http.get('/api/modules', () =>
+        HttpResponse.json({
+          success: true,
+          modules: [
+            { name: 'video', display_name: 'Video', enabled: false, pages: ['video-downloads'] },
+          ],
+        }),
+      ),
+    );
+  });
+
+  it('has no Video tab', async () => {
+    renderRoute('/active-downloads');
+    await screen.findByRole('tab', { name: /Downloads/ });
+    expect(musicTab()).toHaveAttribute('aria-selected', 'true');
+    // (no page-shell states in a test: the tab goes once GET /api/modules answers)
+    await waitFor(() => expect(screen.queryByRole('tab', { name: '🎬 Video' })).toBeNull());
+  });
+
+  it('an old ?media=video link says Video is off instead of loading the view', async () => {
+    const videoCalls = vi.fn();
+    server.use(
+      http.get('/api/video/*', () => {
+        videoCalls();
+        return HttpResponse.json({}, { status: 409 });
+      }),
+    );
+    renderRoute('/active-downloads?media=video');
+    expect(await screen.findByRole('heading', { name: 'Video is turned off' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /History/ })).toBeNull();
+    expect(videoCalls).not.toHaveBeenCalled();
+  });
+});
