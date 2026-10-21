@@ -432,6 +432,9 @@ def test_reachable_gets_write_nothing_when_run(client, keys, monkeypatch):
     monkeypatch.setattr(web_server.config_manager, 'set',
                         lambda name, value, *a, **kw: config_writes.append(name))
     monkeypatch.setattr(sqlite3, 'connect', connect)
+    # connections kept from before the patch have no authorizer
+    from database.music_database import close_pooled_connections
+    close_pooled_connections()
 
     ran = 0
     culprits = {}
@@ -444,5 +447,6 @@ def test_reachable_gets_write_nothing_when_run(client, keys, monkeypatch):
         if (len(writes), len(config_writes)) != before:
             culprits[rule.rule] = (writes[before[0]:], config_writes[before[1]:])
     monkeypatch.undo()
+    close_pooled_connections()  # and the ones made with it refuse writes
     assert ran > 20
     assert not culprits, f'a GET open to read keys tried to write: {culprits}'

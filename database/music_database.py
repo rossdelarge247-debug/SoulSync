@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from utils.logging_config import get_logger
 from core.quality.schema import normalize_release_import_mode
+from database.connection_pool import ConnectionPool, PooledConnection
 
 logger = get_logger("music_database")
 
@@ -69,6 +70,32 @@ _NORM_STATS_MIN_ROWS = 1000
 _PLANNER_ANALYSIS_LIMIT = 1000
 _planner_stats_lock = threading.Lock()
 _planner_stats_threads = {}
+
+# closed connections are kept and reused, per thread, instead of opening a
+# new one (~3 ms on this schema) for every call. see database/connection_pool.py
+# for what a reused connection is reset to. SOULSYNC_DB_CONNECTION_POOL=0
+# turns it off: every call opens and returns a plain new connection again.
+_connection_pool = ConnectionPool()
+_CONNECTION_POOL_ENABLED = os.environ.get('SOULSYNC_DB_CONNECTION_POOL', '1').strip().lower() not in ('0', 'false', 'no', 'off')
+# (name, value) set on every new connection, and set again on a reused one
+# that a caller changed. values as `PRAGMA name` reads them back.
+_CONNECTION_PRAGMAS = (
+    # busy_timeout first, so anything below that has to wait for a
+    # writer waits politely instead of failing
+    ("busy_timeout", 30000),  # 30 second timeout
+    ("foreign_keys", 1),
+)
+# synchronous is per-connection, unlike journal_mode.
+_WAL_CONNECTION_PRAGMAS = (("synchronous", 1),)  # NORMAL
+
+
+def close_pooled_connections(collect: bool = False) -> None:
+    """Close the kept connections of every thread, and keep checked-out ones
+    from going back. For shutdown, a restore, and after ANALYZE (an open
+    connection keeps the planner statistics it opened with). ``collect``
+    also runs the garbage collector, which is what closes other threads'
+    connections (see ConnectionPool.invalidate)."""
+    _connection_pool.invalidate(collect=collect)
 
 
 def _calling_functions(depth: int = 3) -> str:
@@ -543,14 +570,25 @@ class MusicDatabase:
         except Exception as e:
             logger.warning("wal mode check failed for %s: %s", self.database_path, e)
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get a NEW database connection for each operation (thread-safe)"""
+    def _get_connection(self) -> PooledConnection:
+        """A connection for one operation, which nobody else is using.
+
+        Reuses a connection this thread closed (or let go of) before, reset
+        to how a new one starts: see database/connection_pool.py. Treat it
+        like a new sqlite3.Connection; a caller that changes per-connection
+        state the pool doesn't reset (other pragmas, ATTACH) must undo it."""
+        key = str(self.database_path)
+        if _CONNECTION_POOL_ENABLED:
+            pooled = _connection_pool.checkout(key)
+            if pooled is not None:
+                return pooled
+            ticket = _connection_pool.ticket(key)
         last_error = None
         for attempt in range(4):
             connection = None
             _t_open = time.perf_counter()
             try:
-                connection = sqlite3.connect(str(self.database_path), timeout=30.0)
+                connection = sqlite3.connect(key, timeout=30.0)
                 _t_connected = time.perf_counter()
                 connection.row_factory = sqlite3.Row
                 # Register Unicode-normalizing function for diacritics-aware LIKE queries
@@ -566,14 +604,14 @@ class MusicDatabase:
                 # Enable foreign key constraints and WAL mode for better concurrency.
                 # Docker Desktop bind mounts can briefly fail while SQLite opens the
                 # sidecar WAL/SHM files; retrying avoids surfacing transient 500s.
-                # busy_timeout first, so anything below that has to wait for a
-                # writer waits politely instead of failing
-                connection.execute("PRAGMA busy_timeout = 30000")  # 30 second timeout
-                connection.execute("PRAGMA foreign_keys = ON")
-                # synchronous is per-connection, unlike journal_mode.
+                pragmas = _CONNECTION_PRAGMAS
+                for name, value in pragmas:
+                    connection.execute(f"PRAGMA {name} = {value}")
                 journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
                 if journal_mode and str(journal_mode[0]).lower() == "wal":
-                    connection.execute("PRAGMA synchronous = NORMAL")
+                    pragmas = pragmas + _WAL_CONNECTION_PRAGMAS
+                    for name, value in _WAL_CONNECTION_PRAGMAS:
+                        connection.execute(f"PRAGMA {name} = {value}")
                 # NOT `PRAGMA journal_mode = WAL` here. wal mode is persistent in
                 # the file and is set once per process in _ensure_wal_mode; the
                 # pragma takes a lock, and on an install with enrichment
@@ -591,7 +629,9 @@ class MusicDatabase:
                         _elapsed * 1000, (_t_connected - _t_open) * 1000,
                         (time.perf_counter() - _t_connected) * 1000, self.database_path,
                         _calling_functions(), threading.current_thread().name)
-                return connection
+                if not _CONNECTION_POOL_ENABLED:
+                    return connection
+                return _connection_pool.wrap(connection, key, ticket, pragmas)
             except sqlite3.OperationalError as e:
                 last_error = e
                 if connection is not None:
@@ -4855,6 +4895,10 @@ class MusicDatabase:
                 conn.commit()
             finally:
                 conn.close()
+                # sqlite reads the statistics when a connection opens; one
+                # that is already open (a kept one) would go on planning
+                # with the old ones
+                close_pooled_connections()
         except Exception as e:
             logger.debug(f"ANALYZE skipped: {e}")
 
@@ -9899,8 +9943,9 @@ class MusicDatabase:
             logger.info("Per-profile recovery-question migration completed")
 
     def close(self):
-        """Close database connection (no-op since we create connections per operation)"""
-        # Each operation creates and closes its own connection, so nothing to do here
+        """Nothing to close per instance: connections are per operation, and
+        the ones kept for reuse are shared by every instance for the same
+        file (close_pooled_connections closes those)."""
         pass
     
     def get_statistics(self) -> Dict[str, int]:
@@ -27916,3 +27961,5 @@ def close_database():
                 # Ignore threading errors during shutdown
                 logger.debug("db instance close: %s", e)
         _database_instances.clear()
+    # and the connections kept for reuse (a restore calls this first)
+    close_pooled_connections()
