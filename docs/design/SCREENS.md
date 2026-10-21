@@ -16,7 +16,7 @@ Every screen we're designing or have built. Artboards are files on the [SoulSync
 | Top bar (back, breadcrumb, search, activity) | Proposed | `TopBar.dc.html` | none | Shared by every page in the prototypes. |
 | One artist page | Proposed | `Artist.dc.html` | `src/routes/artist-detail` and legacy library views | Replaces three artist screens. |
 | Wanted and Followed artists | Proposed | `Wanted.dc.html` | `src/routes/wishlist`, `src/routes/watchlist` | Merges Wishlist and Watchlist; explains the difference. |
-| Activity | Proposed | `Activity.dc.html` | `src/routes/active-downloads` | One timeline. Backend built: `GET /api/activity` (`CONTRACTS.md`). |
+| Activity | Building | `Activity v3 (populated).dc.html`, `Activity v2 (empty and loading).dc.html` | `src/routes/activity` (`/activity`) | Built on `ux/activity-page`: one timeline over `GET /api/activity` with Needs you pinned, filters and range in the URL, logs on demand, live while something runs. `/active-downloads` stays as it is; running downloads link to it. The sidebar row comes with `ux/shell-a`. |
 | Clearer names across the app | Idea | none | everywhere | Wishlist/Watchlist → Wanted/Following, Sync → Mirrored playlists, Tools → Maintenance. |
 
 When a screen changes status, Dev updates this table and adds a line to `HANDOFF.md`.
