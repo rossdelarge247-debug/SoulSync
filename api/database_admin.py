@@ -703,106 +703,199 @@ def _run_soulsync_full_refresh():
         _db_update_error_callback(f"Full refresh failed: {e}")
 
 
-def _run_soulsync_deep_scan():
+def _deep_scan_guard_settings():
+    """(never_move, max_move_fraction) from config. Transfer-is-permanent is
+    on unless the user turned it off; the ratio guard is a percentage of the
+    library one run may relocate without explicit confirmation."""
+    from core.library.standalone_scan import DEFAULT_MAX_MOVE_FRACTION
+    never_move = bool(config_manager.get('import.transfer_is_permanent', True))
+    try:
+        pct = float(config_manager.get('library.deep_scan_max_move_percent',
+                                       DEFAULT_MAX_MOVE_FRACTION * 100))
+    except (TypeError, ValueError):
+        pct = DEFAULT_MAX_MOVE_FRACTION * 100
+    pct = min(100.0, max(0.0, pct))
+    return never_move, pct / 100.0
+
+
+def _collect_soulsync_deep_scan_inputs():
+    """(transfer_path, staging_path, transfer_files, db_paths) or raises
+    FileNotFoundError when the output folder is missing."""
+    from core.library.standalone_scan import collect_transfer_audio
+    transfer_path = docker_resolve_path(config_manager.get('soulseek.transfer_path', './Transfer'))
+    staging_path = docker_resolve_path(config_manager.get('import.staging_path', './Staging'))
+    if not os.path.isdir(transfer_path):
+        raise FileNotFoundError(f"Output folder not found: {transfer_path}")
+    transfer_files = collect_transfer_audio(transfer_path, staging_path)
+    db = get_database()
+    db_paths = set()
+    try:
+        with db._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT file_path FROM tracks WHERE server_source = 'soulsync' AND file_path IS NOT NULL")
+            for row in cursor.fetchall():
+                if row['file_path']:
+                    db_paths.add(row['file_path'])
+    except Exception as e:
+        logger.error(f"[SoulSync Deep Scan] Error reading DB paths: {e}")
+    return transfer_path, staging_path, transfer_files, db_paths
+
+
+def _deep_scan_move_summary(plan, items, *, mode, plan_id=None, moved=0):
+    """JSON-safe description of what the deep scan's Staging move did or
+    would do — the preview payload and the db_update_state report."""
+    from core.library.action_plans import summarize_items
+    from core.library.standalone_scan import block_message
+    summary = summarize_items(items)
+    summary.update({
+        "mode": mode,                       # preview | moved | blocked | clean
+        "plan_id": plan_id,
+        "moved": moved,
+        "would_move": 0 if plan["move_blocked"] and not plan["needs_confirmation"] else len(items),
+        "library_files": plan["total"],
+        "database_tracks": plan["db_count"],
+        "untracked": len(plan["untracked"]),
+        "untracked_percent": round(100 * plan["untracked_fraction"], 1),
+        "move_blocked": plan["move_blocked"],
+        "block_reason": plan["block_reason"],
+        "needs_confirmation": plan["needs_confirmation"],
+        "message": block_message(plan) if plan["move_blocked"] else "",
+    })
+    return summary
+
+
+def build_soulsync_deep_scan_preview():
+    """Preview the standalone deep scan's untracked → Staging move. Moves
+    nothing. Records a plan (when anything could move) whose id confirms the
+    move: POST /api/database/update {deep_scan, plan_id[, confirm_large_move]}."""
+    from core.library.action_plans import plan_store
+    from core.library.standalone_scan import (
+        DEEP_SCAN_TOOL, build_move_items, plan_standalone_deep_scan,
+    )
+    transfer_path, staging_path, transfer_files, db_paths = _collect_soulsync_deep_scan_inputs()
+    never_move, max_move_fraction = _deep_scan_guard_settings()
+    plan = plan_standalone_deep_scan(transfer_files, db_paths, never_move=never_move,
+                                     max_move_fraction=max_move_fraction)
+    items = build_move_items(plan['untracked'], transfer_path, staging_path)
+    plan_id = None
+    if items and (not plan['move_blocked'] or plan['needs_confirmation']):
+        stored = plan_store.create(DEEP_SCAN_TOOL, items, meta={
+            'transfer_path': transfer_path, 'staging_path': staging_path,
+            'needs_confirmation': plan['needs_confirmation'], 'block_reason': plan['block_reason']})
+        plan_id = stored.plan_id
+    mode = "clean" if not items else ("blocked" if plan['move_blocked'] else "preview")
+    return _deep_scan_move_summary(plan, items, mode=mode, plan_id=plan_id)
+
+
+def _run_soulsync_deep_scan(plan_id=None, *, confirm_moves=False, allow_large_move=False):
     """Deep scan for SoulSync standalone mode.
 
     1. Scans the output folder for all audio files
     2. Compares against soulsync DB records (by file_path)
-    3. Untracked files → moved to import folder for auto-import processing
+    3. Untracked files → Staging for auto-import, ONLY when confirmed:
+       * ``plan_id`` from a preview (the move is exactly that preview's files
+         that are still there and still untracked), or
+       * ``confirm_moves`` — an automation the user explicitly set to act.
+       Otherwise the scan records a plan, reports what it WOULD move, and
+       moves nothing. Guards (#904): permanent-library setting and desync are
+       hard stops; an empty database or a move above the ratio limit needs
+       ``allow_large_move`` on top of a confirmed preview.
     4. Stale DB records (file gone) → removed from DB
     """
     try:
-        import shutil
-        transfer_path = docker_resolve_path(config_manager.get('soulseek.transfer_path', './Transfer'))
-        staging_path = docker_resolve_path(config_manager.get('import.staging_path', './Staging'))
+        from core.library.action_plans import PlanError, plan_store
+        from core.library.standalone_scan import (
+            DEEP_SCAN_TOOL, build_move_items, move_files_to_staging, plan_standalone_deep_scan,
+            BLOCK_DESYNC,
+        )
+        with db_update_lock:
+            db_update_state["deep_scan_moves"] = None
 
-        if not os.path.isdir(transfer_path):
-            _db_update_error_callback(f"Output folder not found: {transfer_path}")
+        try:
+            transfer_path, staging_path, transfer_files, db_paths = _collect_soulsync_deep_scan_inputs()
+        except FileNotFoundError as e:
+            _db_update_error_callback(str(e))
             return
 
+        db = get_database()
         logger.info(f"[SoulSync Deep Scan] Starting — Transfer: {transfer_path}")
         _db_update_phase_callback('scanning')
-
-        # Phase 1: Collect all audio files in Transfer
-        audio_extensions = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.aac', '.wav', '.wma', '.aiff', '.aif', '.ape'}
-        transfer_files = set()
-        for root, _dirs, files in os.walk(transfer_path):
-            for filename in files:
-                if os.path.splitext(filename)[1].lower() in audio_extensions:
-                    transfer_files.add(os.path.join(root, filename))
-
         logger.info(f"[SoulSync Deep Scan] Found {len(transfer_files)} audio files in Transfer")
-
-        # Phase 2: Get all soulsync file paths from DB
-        db = get_database()
-        db_paths = set()
-        try:
-            with db._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT file_path FROM tracks WHERE server_source = 'soulsync' AND file_path IS NOT NULL")
-                for row in cursor.fetchall():
-                    if row['file_path']:
-                        db_paths.add(row['file_path'])
-        except Exception as e:
-            logger.error(f"[SoulSync Deep Scan] Error reading DB paths: {e}")
-
         logger.info(f"[SoulSync Deep Scan] {len(db_paths)} tracks in soulsync DB")
 
-        # Phase 3: Plan the untracked → Staging move, with the data-loss guard (#904).
-        # A path-only diff treats EVERY file the DB doesn't know about as "a new arrival
-        # to relocate". When the DB is empty/out of sync with disk (volume swap, DB reset,
-        # external tag edits) but Transfer holds the real library, that flags the whole
-        # library as untracked and relocates all of it. The planner refuses the move when
-        # the untracked share is implausibly large (the desync signature) or when the user
-        # marked Transfer as their permanent library — leaving files in place and warning.
-        from core.library.standalone_scan import (
-            plan_standalone_deep_scan, BLOCK_TRANSFER_PERMANENT, BLOCK_DESYNC,
-        )
-        never_move = bool(config_manager.get('import.transfer_is_permanent', True))
-        plan = plan_standalone_deep_scan(transfer_files, db_paths, never_move=never_move)
+        # A confirmed preview is spent here, whatever happens next: it
+        # authorised one run, not "this run and the next one too".
+        confirmed = None
+        if plan_id:
+            try:
+                confirmed = plan_store.consume(plan_id, DEEP_SCAN_TOOL)
+            except PlanError as exc:
+                warn = f"Deep scan: {exc.message} Nothing was moved."
+                logger.warning(f"[SoulSync Deep Scan] {warn}")
+                add_activity_item("", "SoulSync Deep Scan — move not confirmed", warn, "Now")
+
+        # Phase 3: plan the untracked → Staging move with the data-loss guards (#904).
+        never_move, max_move_fraction = _deep_scan_guard_settings()
+        plan = plan_standalone_deep_scan(
+            transfer_files, db_paths, never_move=never_move, max_move_fraction=max_move_fraction,
+            # an empty-DB / large move is only ever lifted by a person who
+            # confirmed a preview AND ticked the large-move confirmation
+            allow_large_move=bool(allow_large_move and confirmed is not None))
         untracked = plan['untracked']
         move_blocked = plan['move_blocked']
         block_reason = plan['block_reason']
+        items = build_move_items(untracked, transfer_path, staging_path)
 
-        # Phase 4: Move untracked files to Staging for auto-import — unless guarded.
+        # Phase 4: move — only what was confirmed, only when unguarded.
         moved_count = 0
         blocked_count = 0
+        would_move = 0
+        report = None
         if untracked and move_blocked:
             blocked_count = len(untracked)
-            if block_reason == BLOCK_TRANSFER_PERMANENT:
-                warn = (f"Deep scan: {blocked_count} file(s) in your Music Library aren't in the database, "
-                        f"but it's marked your permanent library — nothing was moved.")
-            else:  # BLOCK_DESYNC
-                pct = round(100 * blocked_count / max(1, len(transfer_files)))
-                warn = (f"Deep scan STOPPED to protect your library: {blocked_count} of "
-                        f"{len(transfer_files)} files in your Music Library ({pct}%) aren't in the database. "
-                        f"That usually means the database is out of sync with disk, not that you "
-                        f"have {blocked_count} new files — so NOTHING was moved. Re-sync/import "
-                        f"before scanning, or enable 'Music Library is my permanent library'.")
+            new_plan_id = None
+            if plan['needs_confirmation']:
+                # confirmable (empty DB / large move): record the plan so the
+                # user can review it and confirm the large move explicitly
+                new_plan_id = plan_store.create(DEEP_SCAN_TOOL, items, meta={
+                    'transfer_path': transfer_path, 'staging_path': staging_path,
+                    'needs_confirmation': True, 'block_reason': block_reason}).plan_id
+            report = _deep_scan_move_summary(plan, items, mode="blocked", plan_id=new_plan_id)
+            logger.warning(f"[SoulSync Deep Scan] {report['message']}")
+            add_activity_item("", "SoulSync Deep Scan — move blocked", report['message'], "Now")
+        elif untracked and (confirmed is not None or confirm_moves):
+            if confirmed is not None:
+                # exactly the previewed files that are still there + untracked
+                to_move = [i['path'] for i in confirmed.items if i.get('path') in untracked]
+            else:
+                to_move = sorted(untracked)
+            if to_move and os.path.isdir(staging_path):
+                _db_update_phase_callback('moving_untracked')
+                moved_count, _errors = move_files_to_staging(to_move, transfer_path, staging_path)
+                # Clean up empty directories in Transfer after moving files
+                for root, dirs, _files in os.walk(transfer_path, topdown=False):
+                    for d in dirs:
+                        dir_path = os.path.join(root, d)
+                        try:
+                            if not os.listdir(dir_path):
+                                os.rmdir(dir_path)
+                        except OSError:
+                            pass
+            report = _deep_scan_move_summary(plan, items, mode="moved", moved=moved_count)
+        elif untracked:
+            # Not confirmed: plan mode. Record what would move so the user can
+            # confirm exactly this list; touch nothing.
+            would_move = len(items)
+            stored = plan_store.create(DEEP_SCAN_TOOL, items, meta={
+                'transfer_path': transfer_path, 'staging_path': staging_path,
+                'needs_confirmation': False, 'block_reason': ''})
+            report = _deep_scan_move_summary(plan, items, mode="preview", plan_id=stored.plan_id)
+            warn = (f"Deep scan: {would_move} file(s) in your Music Library aren't in the database and "
+                    f"would move to Staging. Nothing was moved — review the preview and confirm it.")
             logger.warning(f"[SoulSync Deep Scan] {warn}")
-            add_activity_item("", "SoulSync Deep Scan — move blocked", warn, "Now")
-        elif untracked and os.path.isdir(staging_path):
-            _db_update_phase_callback('moving_untracked')
-            for file_path in untracked:
-                try:
-                    # Preserve relative folder structure from Transfer
-                    rel_path = os.path.relpath(file_path, transfer_path)
-                    dest_path = os.path.join(staging_path, rel_path)
-                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                    shutil.move(file_path, dest_path)
-                    moved_count += 1
-                except Exception as e:
-                    logger.error(f"[SoulSync Deep Scan] Could not move {os.path.basename(file_path)}: {e}")
-
-            # Clean up empty directories in Transfer after moving files
-            for root, dirs, _files in os.walk(transfer_path, topdown=False):
-                for d in dirs:
-                    dir_path = os.path.join(root, d)
-                    try:
-                        if not os.listdir(dir_path):
-                            os.rmdir(dir_path)
-                    except OSError:
-                        pass
+            add_activity_item("", "SoulSync Deep Scan — preview", warn, "Now")
+        with db_update_lock:
+            db_update_state["deep_scan_moves"] = report
 
         # Phase 5: Find stale DB records (in DB but file gone from disk)
         _db_update_phase_callback('cleanup')
@@ -864,9 +957,11 @@ def _run_soulsync_deep_scan():
             summary += f", {moved_count} untracked files moved to Staging"
         if blocked_count > 0:
             summary += f", {blocked_count} untracked files LEFT IN PLACE (move blocked — see warning)"
+        if would_move > 0:
+            summary += f", {would_move} untracked files would move to Staging (preview only, nothing moved)"
         if stale_count > 0:
             summary += f", {stale_count} stale records removed"
-        if moved_count == 0 and blocked_count == 0 and stale_count == 0:
+        if moved_count == 0 and blocked_count == 0 and would_move == 0 and stale_count == 0:
             summary += " — library is clean"
 
         logger.info(f"[SoulSync Deep Scan] {summary}")
@@ -1066,10 +1161,14 @@ def _run_db_update_task(full_refresh, server_type, run_epoch=None):
     db_update_worker.run()
 
 
-def _run_deep_scan_task(server_type, run_epoch=None):
+def _run_deep_scan_task(server_type, run_epoch=None, *, plan_id=None, confirm_moves=False,
+                        allow_large_move=False):
     """Run a deep library scan in the background thread.
 
     run_epoch is the epoch assigned at submit time (see _run_db_update_task).
+    plan_id / confirm_moves / allow_large_move only matter in SoulSync
+    standalone mode, the one deep scan that moves files (see
+    _run_soulsync_deep_scan); media-server deep scans only touch the DB.
     """
     global db_update_worker, _active_task_epoch
 
@@ -1086,7 +1185,8 @@ def _run_deep_scan_task(server_type, run_epoch=None):
     elif server_type == "soulsync":
         # SoulSync standalone deep scan: find untracked files → move to Staging,
         # remove stale DB records where files no longer exist on disk
-        _run_soulsync_deep_scan()
+        _run_soulsync_deep_scan(plan_id, confirm_moves=confirm_moves,
+                                allow_large_move=allow_large_move)
         return
 
     if not media_client:
@@ -1147,10 +1247,27 @@ def start_database_update():
         if db_update_state["status"] == "running":
             return jsonify({"success": False, "error": "An update is already in progress."}), 409
 
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         full_refresh = data.get('full_refresh', False)
         deep_scan = data.get('deep_scan', False)
+        # SoulSync standalone deep scan moves untracked files to Staging only
+        # for a confirmed preview (POST /api/database/deep-scan/preview).
+        plan_id = data.get('plan_id') or None
+        confirm_large_move = data.get('confirm_large_move') is True
         active_server = config_manager.get_active_media_server()
+        if deep_scan and plan_id:
+            from core.library.action_plans import PlanError, plan_store
+            from core.library.standalone_scan import DEEP_SCAN_TOOL
+            try:
+                _plan = plan_store.peek(plan_id, DEEP_SCAN_TOOL)
+            except PlanError as exc:
+                return jsonify({"success": False, "error": exc.message, "code": exc.code}), 409
+            if _plan.meta.get('needs_confirmation') and not confirm_large_move:
+                return jsonify({
+                    "success": False, "code": "confirm_large_move_required",
+                    "error": "This preview needs the large-move confirmation "
+                             "(confirm_large_move: true) before anything moves.",
+                }), 409
 
         scan_type = "Deep scan" if deep_scan else ("Full" if full_refresh else "Incremental")
         db_update_state.update({
@@ -1172,11 +1289,32 @@ def start_database_update():
 
         # Submit the appropriate worker
         if deep_scan:
-            db_update_executor.submit(_run_deep_scan_task, active_server, db_update_state["run_epoch"])
+            db_update_executor.submit(_run_deep_scan_task, active_server, db_update_state["run_epoch"],
+                                      plan_id=plan_id, allow_large_move=confirm_large_move)
         else:
             db_update_executor.submit(_run_db_update_task, full_refresh, active_server, db_update_state["run_epoch"])
 
     return jsonify({"success": True, "message": "Database update started."})
+
+@bp.route('/api/database/deep-scan/preview', methods=['POST'])
+@admin_only
+def preview_deep_scan():
+    """What a SoulSync standalone deep scan would move to Staging, file by file,
+    without moving anything. Media-server deep scans never move files."""
+    active_server = config_manager.get_active_media_server()
+    if active_server != "soulsync":
+        return jsonify({"success": True, "moves_files": False, "server": active_server,
+                        "message": "Deep scan on a media server only updates the database; it never moves files."})
+    try:
+        summary = build_soulsync_deep_scan_preview()
+    except FileNotFoundError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    except Exception as e:
+        logger.error(f"[SoulSync Deep Scan] preview failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    summary.update({"success": True, "moves_files": True, "server": active_server})
+    return jsonify(summary)
+
 
 @bp.route('/api/database/update/status', methods=['GET'])
 def get_database_update_status():
