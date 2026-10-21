@@ -1425,6 +1425,14 @@ duplicate_cleaner_state = {
     "deleted": 0,
     "space_freed": 0,  # in bytes
     "error_message": "",
+    # preview-then-confirm (#1210): a run without a plan id only previews.
+    "mode": "plan",        # plan (preview, nothing moved) | apply
+    "plan_id": None,       # set by a preview; POST it back to /start to act
+    "plan": None,          # preview summary: counts, sample paths + reasons
+    "refused": 0,          # files kept because the copy to keep failed verification
+    "refused_items": [],
+    "skipped": 0,
+    "error_code": "",
 }
 duplicate_cleaner_lock = threading.Lock()
 duplicate_cleaner_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="DuplicateCleaner")
@@ -16123,32 +16131,82 @@ _init_duplicate_cleaner(
     engine=automation_engine,
 )
 
-@app.route('/api/duplicate-cleaner/start', methods=['POST'])
-def start_duplicate_cleaner():
-    """Start the duplicate cleaner"""
+def _start_duplicate_cleaner_run(plan_id=None):
+    """Shared by /start and /preview. Without a plan id the run is a preview:
+    it records what it WOULD move (status → plan_id / plan) and moves nothing.
+    With a plan id it moves exactly that preview's files (#1210)."""
+    from core.library.action_plans import PlanError, plan_store
+    from core.library.duplicate_cleaner import TOOL as _DUP_TOOL
     with duplicate_cleaner_lock:
         if duplicate_cleaner_state["status"] == "running":
             return jsonify({"success": False, "error": "A scan is already in progress"}), 409
 
-        logger.warning("[Duplicate Cleaner API] Starting duplicate cleaner...")
+        if plan_id:
+            # refuse a stale/unknown plan now, not after a background start
+            try:
+                plan = plan_store.peek(plan_id, _DUP_TOOL)
+            except PlanError as exc:
+                return jsonify({"success": False, "error": exc.message, "code": exc.code}), 409
+
+        logger.warning("[Duplicate Cleaner API] Starting duplicate cleaner (%s)...",
+                       "confirmed plan" if plan_id else "preview")
 
         # Reset state
-        duplicate_cleaner_state["status"] = "running"
-        duplicate_cleaner_state["phase"] = "Initializing..."
-        duplicate_cleaner_state["progress"] = 0
-        duplicate_cleaner_state["files_scanned"] = 0
-        duplicate_cleaner_state["total_files"] = 0
-        duplicate_cleaner_state["duplicates_found"] = 0
-        duplicate_cleaner_state["deleted"] = 0
-        duplicate_cleaner_state["space_freed"] = 0
-        duplicate_cleaner_state["error_message"] = ""
+        duplicate_cleaner_state.update({
+            "status": "running", "phase": "Initializing...", "progress": 0,
+            "files_scanned": 0, "total_files": 0, "duplicates_found": 0,
+            "deleted": 0, "space_freed": 0, "error_message": "", "error_code": "",
+            "mode": "apply" if plan_id else "plan", "plan_id": None, "plan": None,
+            "refused": 0, "refused_items": [], "skipped": 0,
+        })
 
         # Submit worker
-        duplicate_cleaner_executor.submit(_run_duplicate_cleaner)
+        duplicate_cleaner_executor.submit(_run_duplicate_cleaner, plan_id)
 
-        add_activity_item("", "Duplicate Cleaner Started", "Scanning Transfer folder", "Now")
+        if plan_id:
+            add_activity_item("", "Duplicate Cleaner Started",
+                              f"Moving {len(plan.items)} previewed duplicate(s) to the recycle bin", "Now")
+            return jsonify({"success": True, "mode": "apply", "message": "Duplicate cleaner started"})
+        add_activity_item("", "Duplicate Cleaner Preview", "Scanning Transfer folder (nothing will be moved)", "Now")
+        return jsonify({"success": True, "mode": "plan",
+                        "message": "Scanning for duplicates. This is a preview: nothing is moved until you "
+                                   "confirm it with the plan_id the status reports."})
 
-        return jsonify({"success": True, "message": "Duplicate cleaner started"})
+
+@app.route('/api/duplicate-cleaner/start', methods=['POST'])
+def start_duplicate_cleaner():
+    """Start the duplicate cleaner. Body ``{"plan_id": ...}`` (from a finished
+    preview) moves that preview's files; no plan id runs a preview."""
+    payload = request.get_json(silent=True) or {}
+    return _start_duplicate_cleaner_run(payload.get('plan_id') or None)
+
+
+@app.route('/api/duplicate-cleaner/preview', methods=['POST'])
+def preview_duplicate_cleaner():
+    """Scan only: record the files a cleanup would move, move nothing. Poll
+    /status; when it finishes, ``plan_id`` + ``plan`` describe the preview."""
+    return _start_duplicate_cleaner_run(None)
+
+
+@app.route('/api/duplicate-cleaner/plan', methods=['GET'])
+def get_duplicate_cleaner_plan():
+    """The full item list of a preview, paged: ``?plan_id=&offset=&limit=``.
+    Each item: path, action, reason, keep (the copy that stays), size."""
+    from core.library.action_plans import PlanError, plan_store
+    from core.library.duplicate_cleaner import TOOL as _DUP_TOOL
+    try:
+        plan = plan_store.peek(request.args.get('plan_id'), _DUP_TOOL)
+    except PlanError as exc:
+        return jsonify({"success": False, "error": exc.message, "code": exc.code}), 404
+    try:
+        offset = max(0, int(request.args.get('offset', 0)))
+        limit = min(1000, max(1, int(request.args.get('limit', 200))))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "offset and limit must be numbers"}), 400
+    summary = plan.summary(sample_size=0)
+    summary.update({"success": True, "offset": offset, "limit": limit,
+                    "items": plan.items[offset:offset + limit]})
+    return jsonify(summary)
 
 @app.route('/api/duplicate-cleaner/status', methods=['GET'])
 def get_duplicate_cleaner_status():

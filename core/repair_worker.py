@@ -4127,6 +4127,18 @@ class RepairWorker:
                 'files_deleted': 0,
                 'files_failed': 0,
             }
+        # The resolver proved a path existed a moment ago; the keeper also has
+        # to be a real, non-empty, readable file NOW, or removing the others
+        # leaves the user with nothing playable (#1210).
+        from core.library.duplicate_keep import keeper_problem
+        problem = keeper_problem(keep_resolved)
+        if problem:
+            return {
+                'success': False,
+                'error': f'{problem[0].upper()}{problem[1:]}, so no duplicate was removed.',
+                'files_deleted': 0,
+                'files_failed': 0,
+            }
 
         def _is_keeper_file(candidate):
             if not keep_resolved or not candidate:
