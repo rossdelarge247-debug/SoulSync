@@ -1437,7 +1437,11 @@ describe('bulk selection', () => {
     expect(
       screen.getByText('Moves the file to Staging, where you can review and import it'),
     ).toBeTruthy();
-    expect(screen.getByText(/2 fixes move files without deleting them/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        '2 fixes move files without deleting them. The other 1 only changes tags, library entries or the wishlist.',
+      ),
+    ).toBeTruthy();
     const confirm = screen.getByRole('button', { name: 'Fix 3 findings' });
     expect(confirm.getAttribute('data-tone')).toBe('primary');
 

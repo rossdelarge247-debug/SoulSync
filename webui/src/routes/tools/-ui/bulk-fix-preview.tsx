@@ -101,6 +101,12 @@ export function effectSentences(preview: BulkFixPreview | undefined): string[] {
       `${countLabel(folders, 'fix', 'fixes')} ${folders === 1 ? 'deletes' : 'delete'} empty folders.`,
     );
   }
+  const others = (preview?.total ?? 0) - permanent - recycled - moved - folders;
+  if (out.length && others > 0) {
+    out.push(
+      `The other ${others.toLocaleString()} only ${others === 1 ? 'changes' : 'change'} tags, library entries or the wishlist.`,
+    );
+  }
   return out;
 }
 
