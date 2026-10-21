@@ -391,13 +391,27 @@ def repair_finding_dismiss(finding_id):
         logger.error(f"Error dismissing finding {finding_id}: {e}")
         return jsonify({'error': str(e)}), 500
 
+def _fix_actions_from(data):
+    """``fix_actions`` from a request body: one action per finding type, for a
+    mixed selection ("Fix selected"). Returns (actions or None, refusal)."""
+    raw = data.get('fix_actions')
+    if raw in (None, {}):
+        return None, None
+    if not isinstance(raw, dict) or not all(
+            isinstance(k, str) and isinstance(v, (str, type(None))) for k, v in raw.items()):
+        return None, (jsonify({'success': False, 'started': False, 'invalid': True,
+                               'error': 'fix_actions must map finding types to actions'}), 400)
+    return ({k: v for k, v in raw.items() if v} or None), None
+
+
 def _bulk_fix_selection(data):
     """Resolve a bulk-fix request to (filters, refusal).
 
     A request carrying ``plan_id`` runs exactly the confirmed preview: its
-    finding ids and action, nothing from the request body. A request without
-    one is refused (409, with a fresh preview attached) when the selection
-    would move or delete files — a stray Fix All can't act blind."""
+    finding ids and action(s), nothing from the request body. A request
+    without one is refused (409, with a fresh preview attached) when the
+    selection would move or delete files — a stray Fix All, or a Fix selected
+    over orphans and duplicates, can't act blind."""
     from core.library.action_plans import PlanError
     worker = _repair_worker()
     plan_id = data.get('plan_id') or None
@@ -408,18 +422,24 @@ def _bulk_fix_selection(data):
             return None, (jsonify({'success': False, 'started': False, 'error': exc.message,
                                    'code': exc.code}), 409)
         return {'job_id': None, 'severity': None, 'finding_ids': plan['ids'] or [-1],
-                'fix_action': plan['fix_action'], 'finding_type': None, 'safe_only': False}, None
+                'fix_action': plan['fix_action'], 'fix_actions': plan.get('fix_actions'),
+                'finding_type': None, 'safe_only': False}, None
+    fix_actions, refusal = _fix_actions_from(data)
+    if refusal:
+        return None, refusal
     filters = {
         'job_id': data.get('job_id') or None,
         'severity': data.get('severity') or None,
         'finding_ids': data.get('ids') or None,
         'fix_action': data.get('fix_action') or None,
+        'fix_actions': fix_actions,
         'finding_type': data.get('finding_type') or None,
         'safe_only': bool(data.get('safe_only')),
     }
     if worker.bulk_fix_needs_plan(job_id=filters['job_id'], severity=filters['severity'],
                                   finding_ids=filters['finding_ids'], finding_type=filters['finding_type'],
-                                  safe_only=filters['safe_only']):
+                                  safe_only=filters['safe_only'], fix_action=filters['fix_action'],
+                                  fix_actions=filters['fix_actions']):
         preview = worker.preview_bulk_fix(**filters)
         if preview.get('invalid'):
             return None, (jsonify({'success': False, 'started': False, **preview}), 400)
@@ -436,11 +456,17 @@ def _bulk_fix_selection(data):
 def repair_findings_bulk_fix_preview():
     """Preview a bulk fix: every finding it would fix, what it would do and
     why, recorded as a plan. Changes nothing. Same filters as bulk-fix-start;
-    POST the returned plan_id to bulk-fix-start to run exactly this."""
+    POST the returned plan_id to bulk-fix-start to run exactly this.
+
+    "Fix selected" sends ``ids`` (the ticked findings) and ``fix_actions``
+    (the action chosen for each finding type in the selection)."""
     try:
         if _repair_worker() is None:
             return jsonify({'error': 'Repair worker not initialized'}), 400
         data = request.get_json(silent=True) or {}
+        fix_actions, refusal = _fix_actions_from(data)
+        if refusal:
+            return refusal
         preview = _repair_worker().preview_bulk_fix(
             job_id=data.get('job_id') or None,
             severity=data.get('severity') or None,
@@ -448,6 +474,7 @@ def repair_findings_bulk_fix_preview():
             fix_action=data.get('fix_action') or None,
             finding_type=data.get('finding_type') or None,
             safe_only=bool(data.get('safe_only')),
+            fix_actions=fix_actions,
         )
         if preview.get('invalid'):
             return jsonify({'success': False, **preview}), 400
@@ -471,7 +498,8 @@ def repair_findings_bulk_fix():
 
         result = _repair_worker().bulk_fix_findings(
             job_id=filters['job_id'], severity=filters['severity'],
-            finding_ids=filters['finding_ids'], fix_action=filters['fix_action']
+            finding_ids=filters['finding_ids'], fix_action=filters['fix_action'],
+            fix_actions=filters['fix_actions'],
         )
         return jsonify({
             'success': True,

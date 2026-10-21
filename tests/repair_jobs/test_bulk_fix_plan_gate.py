@@ -161,3 +161,164 @@ def test_harmless_fix_all_still_runs_without_a_plan(env):
     res = client.post("/api/repair/findings/bulk-fix-start", json={"job_id": "genre_cleanup"})
     assert res.status_code == 200
     assert _wait(worker)["fixed"] == 2
+
+
+# ── "Fix selected": a ticked selection goes through the same plan ───────────
+#
+# The findings list used to loop the single-finding fix endpoint over every
+# ticked row, so one prompt about orphans moved or deleted every selected
+# file with no preview. A selection is now previewed with the action chosen
+# for each kind (fix_actions) and confirmed by plan id.
+
+
+class _Cfg:
+    def __init__(self, **values):
+        self._values = {k.replace("__", "."): v for k, v in values.items()}
+
+    def get(self, key, default=None):
+        return self._values.get(key, default)
+
+
+def _genre_id(db, n):
+    _genre(db, n)
+    with db._get_connection() as conn:
+        return conn.execute(
+            "SELECT id FROM repair_findings WHERE entity_id = ? AND finding_type = 'genre_cleanup'",
+            (f"AR{n}",)).fetchone()[0]
+
+
+def _fake_lossless(db, worker, name):
+    path = os.path.join(worker.transfer_folder, "Fake", name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(b"audio")
+    with db._get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO repair_findings (job_id, finding_type, severity, status, entity_type, file_path, title) "
+            "VALUES ('fake_lossless_detector', 'fake_lossless', 'warning', 'pending', 'file', ?, ?)",
+            (path, f"Fake lossless: {name}"))
+        conn.commit()
+        return cur.lastrowid, path
+
+
+def test_fix_selected_with_a_destructive_type_is_refused_without_a_plan(env):
+    db, worker, client = env
+    orphan_id, path = _orphan(db, worker, "o.mp3")
+    genre_id = _genre_id(db, 1)
+
+    res = client.post("/api/repair/findings/bulk-fix-start",
+                      json={"ids": [orphan_id, genre_id], "fix_actions": {"orphan_file": "delete"}})
+
+    assert res.status_code == 409
+    body = res.get_json()
+    assert body["code"] == "plan_required" and body["plan"]["destructive"] == 1
+    assert os.path.isfile(path)
+    assert _pending(db) == 2
+
+
+def test_fix_selected_preview_lists_each_item_and_what_happens(env):
+    db, worker, client = env
+    orphan_id, path = _orphan(db, worker, "o.mp3")
+    genre_id = _genre_id(db, 1)
+
+    body = client.post("/api/repair/findings/bulk-fix-preview",
+                       json={"ids": [orphan_id, genre_id],
+                             "fix_actions": {"orphan_file": "delete"}}).get_json()
+
+    assert body["success"] is True and body["total"] == 2 and body["plan_id"]
+    assert body["destructive"] == 1
+    assert body["recycle_deletes"] is True
+    assert body["by_effect"] == {"recycle": 1, "write": 1}
+    items = {i["finding_id"]: i for i in body["sample"]}
+    assert items[orphan_id]["path"] == path
+    assert items[orphan_id]["action"] == "delete"
+    assert items[orphan_id]["effect"] == "Moves the file to the recycle bin"
+    assert items[orphan_id]["destructive"] is True
+    assert items[genre_id]["effect"] == "Clean Genres"
+    assert items[genre_id]["destructive"] is False
+    assert os.path.isfile(path) and _pending(db) == 2      # changed nothing
+
+
+def test_fix_selected_confirm_applies_exactly_the_plan_with_each_kinds_action(env):
+    db, worker, client = env
+    orphan_id, path = _orphan(db, worker, "picked.mp3")
+    genre_id = _genre_id(db, 1)
+    _unticked_id, unticked = _orphan(db, worker, "unticked.mp3")
+    preview = client.post("/api/repair/findings/bulk-fix-preview",
+                          json={"ids": [orphan_id, genre_id],
+                                "fix_actions": {"orphan_file": "delete"}}).get_json()
+
+    # whatever else the confirm says, only the plan's ids and actions count
+    res = client.post("/api/repair/findings/bulk-fix-start",
+                      json={"plan_id": preview["plan_id"], "ids": [_unticked_id],
+                            "fix_actions": {"orphan_file": "staging"}})
+
+    assert res.status_code == 200 and res.get_json()["started"] is True
+    status = _wait(worker)
+    # the orphan only fixes when it gets the previewed 'delete' for its type
+    assert status["fixed"] == 2 and status["failed"] == 0
+    assert not os.path.exists(path)
+    assert os.path.isfile(unticked)
+    assert list_entries(worker.transfer_folder)["count"] == 1
+    assert _pending(db) == 1
+
+
+def test_fix_selected_without_destructive_types_runs_without_a_plan(env):
+    db, worker, client = env
+    ids = [_genre_id(db, i) for i in range(2)]
+    res = client.post("/api/repair/findings/bulk-fix-start", json={"ids": ids, "fix_actions": {}})
+    assert res.status_code == 200 and res.get_json()["started"] is True
+    assert _wait(worker)["fixed"] == 2
+
+
+def test_preview_says_permanent_when_recycling_is_off(env):
+    db, worker, client = env
+    orphan_id, _path = _orphan(db, worker, "o.mp3")
+    worker._config_manager = _Cfg(library__recycle_deletes=False)
+
+    body = client.post("/api/repair/findings/bulk-fix-preview",
+                       json={"ids": [orphan_id], "fix_actions": {"orphan_file": "delete"}}).get_json()
+
+    assert body["recycle_deletes"] is False
+    assert body["by_effect"] == {"delete": 1}
+    assert body["sample"][0]["effect"] == "Deletes the file permanently"
+
+
+def test_one_action_and_per_type_actions_together_are_refused(env):
+    db, worker, client = env
+    orphan_id, path = _orphan(db, worker, "o.mp3")
+    for url in ("/api/repair/findings/bulk-fix-preview", "/api/repair/findings/bulk-fix-start"):
+        res = client.post(url, json={"ids": [orphan_id], "fix_action": "delete",
+                                     "fix_actions": {"orphan_file": "delete"}})
+        assert res.status_code == 400, url
+    bad = client.post("/api/repair/findings/bulk-fix-start",
+                      json={"ids": [orphan_id], "fix_actions": ["delete"]})
+    assert bad.status_code == 400
+    assert os.path.isfile(path)
+
+
+def test_an_explicit_delete_needs_a_plan_even_on_a_type_that_defaults_to_safe(env):
+    db, worker, client = env
+    fid, path = _fake_lossless(db, worker, "fake.flac")
+    for body in ({"finding_type": "fake_lossless", "fix_action": "delete"},
+                 {"ids": [fid], "fix_actions": {"fake_lossless": "delete"}}):
+        res = client.post("/api/repair/findings/bulk-fix-start", json=body)
+        assert res.status_code == 409, body
+        assert res.get_json()["plan"]["sample"][0]["effect"] == (
+            "Moves the file to the recycle bin and removes the track")
+    assert os.path.isfile(path)
+
+
+@pytest.mark.parametrize("ftype,action,recycle,expected", [
+    ("orphan_file", "staging", True, ("Moves the file to Staging, where you can review and import it", "move")),
+    ("orphan_file", "delete", False, ("Deletes the file permanently", "delete")),
+    ("duplicate_tracks", None, False, ("Keeps the best copy and moves the others to the recycle bin", "recycle")),
+    ("expired_download", None, True, ("Deletes the file permanently and removes the track", "delete")),
+    ("corrupt_audio", None, False,
+     ("Moves the damaged file to the recycle bin and re-downloads the track", "recycle")),
+    ("quality_upgrade", None, True, ("Adds the better version to the wishlist. The current file stays", "write")),
+    ("empty_folder", None, True, ("Deletes the empty folder and any junk files left in it", "folder")),
+])
+def test_bulk_fix_effect_mirrors_what_each_fixer_does(ftype, action, recycle, expected):
+    from core.repair_worker import bulk_fix_effect
+    assert bulk_fix_effect(ftype, action, recycle) == expected
