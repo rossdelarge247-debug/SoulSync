@@ -602,11 +602,16 @@ class MusicDatabase:
     
     def _initialize_database(self):
         """Create database tables if they don't exist"""
+        conn = None
+        restore_foreign_keys = False
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
             # this start's failed schema steps, see _migration_step
             self._migration_failures = []
+            # before anything opens a transaction: see _foreign_keys_off
+            restore_foreign_keys = self._foreign_keys_off(cursor)
+            tables_before = self._table_definitions(cursor)
 
             # Metadata table for storing system information like last refresh dates
             # first: schema steps check and write their done markers in it
@@ -1938,9 +1943,13 @@ class MusicDatabase:
             # Unify scattered migration state into the ledger + stamp the schema
             # version. Additive backstop — runs last, gates nothing.
             self._sync_migration_ledger(cursor)
+            self._check_foreign_keys(cursor, tables_before)
             failed_steps = self._report_migration_failures(cursor)
 
             conn.commit()
+            if restore_foreign_keys:
+                cursor.execute("PRAGMA foreign_keys = ON")
+                restore_foreign_keys = False
 
             # Any config.json write the quality-profile migration queued (e.g.
             # pointing Auto-Import at its migrated relaxed profile) is applied
@@ -1968,6 +1977,14 @@ class MusicDatabase:
         except Exception as e:
             logger.error(f"Error initializing database: {e}")
             raise
+        finally:
+            if restore_foreign_keys:
+                # an error left the transaction open, where this is a no-op;
+                # it matters for a connection the caller goes on using
+                try:
+                    conn.cursor().execute("PRAGMA foreign_keys = ON")
+                except Exception as fk_err:
+                    logger.debug("could not turn foreign keys back on: %s", fk_err)
 
         self._init_manual_library_match_table()
         self._backfill_mirrored_track_source_ids()
@@ -2217,6 +2234,91 @@ class MusicDatabase:
                 "again on the next start; the errors above say why.",
                 len(failures), ', '.join(f['step'] for f in failures))
         return failures
+
+    # ── foreign keys during the schema steps ────────────────────────────────
+    # _get_connection turns foreign keys on, and with them on a DROP TABLE
+    # first deletes every row, which fires ON DELETE CASCADE in the tables that
+    # point at it. a table rebuild (create new, copy, drop old, rename) keeps
+    # the ids, so the children were fine, but the drop deleted them anyway:
+    # upgrading a pre-profiles database lost every recent_releases row to the
+    # watchlist_artists rebuild and every listenbrainz_tracks row to the
+    # listenbrainz_playlists one. sqlite's documented way to change a table
+    # (https://sqlite.org/lang_altertable.html#otheralter) is foreign keys off
+    # for the change, PRAGMA foreign_key_check after it, then on again, so the
+    # init connection runs every step that way. a step that deletes rows can't
+    # lean on a cascade, it removes the dependent rows itself.
+
+    # the "step" that names foreign key violations in schema_health
+    _FOREIGN_KEY_CHECK_STEP = 'foreign_key_check'
+
+    @staticmethod
+    def _foreign_keys_off(cursor) -> bool:
+        """Turn foreign keys off on the init connection. Returns whether they
+        were on, so they can be put back. The pragma does nothing inside a
+        transaction, so it has to come before the first statement that opens
+        one."""
+        was_on = bool(cursor.execute("PRAGMA foreign_keys").fetchone()[0])
+        if was_on:
+            cursor.execute("PRAGMA foreign_keys = OFF")
+            if cursor.execute("PRAGMA foreign_keys").fetchone()[0]:
+                logger.warning("could not turn foreign keys off for the schema steps (a transaction "
+                               "is already open); a table rebuild can delete the rows that point at it")
+        return was_on
+
+    @staticmethod
+    def _table_definitions(cursor) -> Dict[str, str]:
+        """{table: CREATE TABLE sql} for the ordinary tables."""
+        cursor.execute("SELECT name, sql FROM sqlite_master WHERE type = 'table' "
+                       "AND name NOT LIKE 'sqlite_%' AND sql LIKE 'CREATE TABLE%'")
+        return {row[0]: row[1] for row in cursor.fetchall()}
+
+    def _check_foreign_keys(self, cursor, tables_before: Dict[str, str]) -> None:
+        """PRAGMA foreign_key_check after the schema steps, on the tables this
+        start created or changed and the tables whose foreign keys point at
+        them: what foreign keys being off could have broken. A start that
+        changes no table checks nothing, so a large library doesn't pay for a
+        full scan on every start. Violations are recorded like a failed step
+        (log, schema_health, metadata row), and once found every table is
+        checked again on each start until they are gone."""
+        try:
+            tables_after = self._table_definitions(cursor)
+            if self._last_start_found_foreign_key_violations(cursor):
+                to_check = set(tables_after)
+            else:
+                to_check = {t for t, sql in tables_after.items() if tables_before.get(t) != sql}
+                if to_check:
+                    changed = {t.lower() for t in to_check}
+                    for table in tables_after:
+                        cursor.execute(f'PRAGMA foreign_key_list("{table}")')
+                        if any(fk[2].lower() in changed for fk in cursor.fetchall()):
+                            to_check.add(table)
+            violations: Dict[tuple, int] = {}
+            for table in sorted(to_check):
+                cursor.execute(f'PRAGMA foreign_key_check("{table}")')
+                for row in cursor.fetchall():
+                    key = (row[0], row[2])
+                    violations[key] = violations.get(key, 0) + 1
+        except sqlite3.Error as e:
+            logger.warning("foreign key check after the schema steps could not run: %s", e)
+            return
+        if not violations:
+            return
+        detail = '; '.join(f"{count} {child} row(s) point at a missing {parent} row"
+                           for (child, parent), count in sorted(violations.items()))
+        failures = getattr(self, '_migration_failures', None)
+        if failures is not None:
+            failures.append({'step': self._FOREIGN_KEY_CHECK_STEP, 'error': detail})
+        logger.error("Foreign key check after the schema steps found violations: %s. "
+                     "PRAGMA foreign_key_check lists the rows.", detail)
+
+    def _last_start_found_foreign_key_violations(self, cursor) -> bool:
+        cursor.execute("SELECT value FROM metadata WHERE key = ?", (self._SCHEMA_FAILURES_KEY,))
+        row = cursor.fetchone()
+        try:
+            steps = json.loads(row[0]) if row and row[0] else []
+        except (TypeError, ValueError):
+            return False
+        return any(isinstance(s, dict) and s.get('step') == self._FOREIGN_KEY_CHECK_STEP for s in steps)
 
     def schema_health(self) -> Dict[str, Any]:
         """Did this database's schema setup finish cleanly the last time it ran
@@ -6441,16 +6543,16 @@ class MusicDatabase:
                 cursor.execute("DROP TABLE listenbrainz_playlists")
                 cursor.execute("ALTER TABLE listenbrainz_playlists_new RENAME TO listenbrainz_playlists")
 
-                # Clean up playlists that lost their tracks during table recreation
-                # (track playlist_id foreign keys may reference stale IDs).
-                # This forces a fresh re-fetch from ListenBrainz on next page load.
+                # the copy keeps the ids, so every track still points at its
+                # playlist (this used to delete the playlists left without
+                # tracks, after the DROP's cascade had emptied
+                # listenbrainz_tracks; see _foreign_keys_off). only a playlist
+                # OR IGNORE skipped takes its tracks with it, the part of the
+                # cascade that was meant.
                 cursor.execute("""
-                    DELETE FROM listenbrainz_playlists
-                    WHERE id NOT IN (SELECT DISTINCT playlist_id FROM listenbrainz_tracks)
+                    DELETE FROM listenbrainz_tracks
+                    WHERE playlist_id NOT IN (SELECT id FROM listenbrainz_playlists)
                 """)
-                cleaned = cursor.rowcount
-                if cleaned:
-                    logger.info(f"Cleaned up {cleaned} stale playlists (will re-fetch from ListenBrainz)")
 
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_lb_playlists_profile ON listenbrainz_playlists (profile_id)")
 

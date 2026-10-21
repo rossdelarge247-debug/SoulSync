@@ -43,28 +43,9 @@ def _release_key(name: str) -> tuple:
 
 RELEASES = sorted((p.name for p in FIXTURES.iterdir() if (p / "music.sql").exists()), key=_release_key)
 
-_FK_CASCADE = (
-    "with PRAGMA foreign_keys=ON (set by _get_connection) the DROP TABLE of a table rebuild runs an implicit "
-    "DELETE that fires ON DELETE CASCADE on child tables: "
-)
-
 # (release, database, check) -> why it fails. check is "schema", "logs",
 # "integrity" or "rows:<table>".
-KNOWN_BUGS = {
-    ("1.3", "music", "rows:recent_releases"): _FK_CASCADE + (
-        "_add_profile_support rebuilds watchlist_artists (ids preserved) and the DROP deletes every "
-        "recent_releases row on a pre-profiles database"
-    ),
-    ("1.3", "music", "rows:listenbrainz_tracks"): _FK_CASCADE + (
-        "_add_profile_listenbrainz_support rebuilds listenbrainz_playlists (ids preserved) and the DROP "
-        "deletes every listenbrainz_tracks row on a pre-profiles database"
-    ),
-    ("1.3", "music", "rows:listenbrainz_playlists"): _FK_CASCADE + (
-        "_add_profile_listenbrainz_support's DROP empties listenbrainz_tracks, then its cleanup deletes "
-        "every playlist left without tracks (a cache that is fetched again, so it was written as a "
-        "cleanup, but nothing about the rebuild needs the rows gone)"
-    ),
-}
+KNOWN_BUGS: dict = {}
 
 # Changes a migration makes to existing rows on purpose: (database, table, column) -> why.
 _INTENDED_CHANGES = {
