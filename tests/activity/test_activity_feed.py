@@ -228,6 +228,19 @@ def test_imports_waiting_for_you_pin_whatever_their_age(build, rows):
     assert decision["detail"] == '90% match to "Lantern" by Saltmarsh. The files stay in the import folder until you choose.'
 
 
+def test_import_items_carry_the_auto_import_status(build, rows):
+    """The page picks its action from it: Choose for a decision, Retry now
+    for a failed folder, Open otherwise."""
+    ids = {status: rows.auto_import(status=status, folder=status, ago=HOUR)
+           for status in ("pending_review", "needs_identification", "partial", "failed", "completed")}
+    page = build(range_key="7d")
+    refs = {i["id"]: i["ref"] for i in page["items"]}
+    for status, rid in ids.items():
+        assert refs[f"import:{rid}"] == {"auto_import_id": rid, "import_status": status}
+    pinned = {i["ref"]["import_status"] for i in page["needs_you"]}
+    assert pinned == {"pending_review", "needs_identification", "partial", "failed"}
+
+
 def test_imports_are_hidden_without_the_import_page(build, rows):
     rows.auto_import(status="pending_review")
     page = build(Viewer(profile_id=2, is_admin=False, can_see_imports=False))

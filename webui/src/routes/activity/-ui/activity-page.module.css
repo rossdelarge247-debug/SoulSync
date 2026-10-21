@@ -1,0 +1,638 @@
+/* Activity, to the "Activity v3" (2e, 2f) and "Activity v2" (1h, 1i) boards.
+   Reading text is 14px or larger; text stays at 62% white or brighter. Radii
+   6 (tags), 10 (controls), 14 (cards). */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  color: var(--ss-text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--ss-text-tertiary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.subtitleShort {
+  display: none;
+}
+
+.running {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--ss-info);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.runningDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  /* global(): the shared keyframes in static/tokens.css */
+  animation: global(ss-live-pulse) var(--ss-live-pulse, 1.6s) ease-in-out infinite;
+}
+
+/* ── Filters and range ──────────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.filters,
+.ranges {
+  display: flex;
+  gap: 8px;
+}
+
+.filters {
+  flex-wrap: wrap;
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--ss-radius-tag);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ss-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.count[data-tone='warning'] {
+  background: rgba(var(--ss-warning-rgb), 0.12);
+  color: var(--ss-warning);
+}
+
+.countLoading {
+  display: inline-block;
+  width: 28px;
+  height: 22px;
+  border-radius: var(--ss-radius-tag);
+}
+
+/* ── Sections ───────────────────────────────────────────────────────── */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.sectionNote {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── Needs you ──────────────────────────────────────────────────────── */
+
+.needsCard {
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid rgba(var(--ss-warning-rgb), 0.35);
+  border-radius: var(--ss-radius-card);
+  background: rgba(var(--ss-warning-rgb), 0.07);
+}
+
+.needsRow {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  grid-template-areas: 'time text action';
+  gap: 16px;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 64px;
+  padding: 12px 24px;
+}
+
+.needsRow + .needsRow {
+  border-top: 1px solid rgba(var(--ss-warning-rgb), 0.25);
+}
+
+.needsActions {
+  grid-area: action;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.needsActions > * {
+  white-space: nowrap;
+}
+
+/* the board's 18px button padding */
+.needsActions > [data-size='lg'],
+.more > [data-size='lg'] {
+  padding-inline: 18px;
+}
+
+/* LinkButton: an <a> in the shared Button's clothes */
+.linkButton,
+.linkButton:hover {
+  text-decoration: none;
+}
+
+.needsError {
+  grid-column: 2 / -1;
+  margin: 0;
+  color: var(--ss-danger);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── Timeline ───────────────────────────────────────────────────────── */
+
+.dayLabel {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* 12px more above every day after the first, as the board spaces them */
+.dayLabel:not(:first-child) {
+  margin-top: 12px;
+}
+
+.list {
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-card);
+}
+
+.item + .item {
+  border-top: 1px solid var(--ss-hairline);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 72px 150px minmax(0, 1fr) 120px;
+  grid-template-areas: 'time tag text action';
+  gap: 16px;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 64px;
+  padding: 12px 24px;
+}
+
+.time {
+  grid-area: time;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.tag {
+  grid-area: tag;
+  justify-self: start;
+  align-self: center;
+}
+
+.text {
+  grid-area: text;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Desktop rows are 64px with one line each, as drawn; wrapped lines and the
+   phone layout get the full 1.5. */
+.itemTitle {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.detail {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* In the warning card the detail sits at 72%, as drawn. */
+.needsRow .detail {
+  color: var(--ss-text-tertiary);
+}
+
+/* The 44px touch target reaches into the row's padding so the row keeps
+   the board's 64px height. */
+.action {
+  grid-area: action;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  margin-block: -10px;
+}
+
+/* Row actions: accent-light text, no fill, 44px tall for touch. */
+.actionLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.actionLink:hover:not([aria-disabled='true']) {
+  text-decoration: underline;
+}
+
+.actionLink:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+  border-radius: 4px;
+}
+
+.actionLink[aria-disabled='true'] {
+  color: var(--ss-disabled-text);
+  cursor: default;
+}
+
+.actionNote {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+/* The log, unfolded under its row. */
+.log {
+  padding: 0 24px 16px 254px;
+}
+
+.pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-ground-page);
+  color: var(--ss-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.logStatus {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-ground-page);
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.logStatus[data-tone='danger'] {
+  border-color: rgba(var(--ss-danger-rgb), 0.35);
+}
+
+.logLinks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 6px;
+  margin: 8px 0 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Inline links under the log read as text links, so no 44px height. */
+.logLinks .actionLink {
+  min-height: 0;
+  justify-content: flex-start;
+}
+
+/* ── Paging ─────────────────────────────────────────────────────────── */
+
+.more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.endNote {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* ── Loading and failure placeholders, in the timeline's shape ──────── */
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton[data-faded='true'] {
+  opacity: 0.6;
+  --skeleton-base: rgba(255, 255, 255, 0.06);
+  --skeleton-highlight: rgba(255, 255, 255, 0.06);
+}
+
+.skeleton[data-faded='true'] .list {
+  background: var(--ss-surface-quiet);
+}
+
+.skeleton[data-faded='true'] [data-slot='skeleton'] {
+  animation: none;
+}
+
+.skeletonDay {
+  width: 64px;
+  height: 14px;
+  border-radius: var(--ss-radius-tag);
+}
+
+.skeletonGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeletonGroup + .skeletonGroup {
+  margin-top: 8px;
+}
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns: 72px 140px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 64px;
+  padding: 12px 24px;
+}
+
+.skeletonRow + .skeletonRow {
+  border-top: 1px solid var(--ss-hairline);
+}
+
+.skeletonTime {
+  width: 44px;
+  height: 14px;
+  border-radius: var(--ss-radius-tag);
+}
+
+.skeletonTag {
+  max-width: 100%;
+  height: 26px;
+  border-radius: var(--ss-radius-tag);
+}
+
+.skeletonLines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skeletonTitle {
+  max-width: 100%;
+  height: 16px;
+  border-radius: var(--ss-radius-tag);
+}
+
+.skeletonMeta {
+  max-width: 100%;
+  height: 14px;
+  border-radius: var(--ss-radius-tag);
+}
+
+/* ── Phone (2f) ─────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .page {
+    gap: 16px;
+  }
+
+  .title {
+    font-size: 24px;
+  }
+
+  .subtitleLong {
+    display: none;
+  }
+
+  .subtitleShort {
+    display: inline;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  /* nowrap: a wrapping column would size its line to the filters' full
+     width and stretch the range buttons past the screen */
+  .controls {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  /* filters scroll sideways; the range is three equal buttons */
+  .filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .filters > button {
+    flex: none;
+    padding: 0 14px;
+    white-space: nowrap;
+  }
+
+  .ranges > button {
+    flex: 1;
+  }
+
+  /* as drawn on the phone board: no note beside "Needs you", and the
+     running count stays with the shell's Activity button */
+  .sectionNote,
+  .running {
+    display: none;
+  }
+
+  .needsRow {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    min-height: 0;
+    padding: 14px 16px;
+  }
+
+  .needsRow > .time {
+    display: none;
+  }
+
+  .needsRow .text {
+    gap: 10px;
+  }
+
+  .needsActions {
+    flex-wrap: nowrap;
+    justify-content: stretch;
+  }
+
+  .needsActions > :first-child {
+    flex: 1;
+  }
+
+  .row {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'time tag'
+      'text text'
+      'action action';
+    gap: 8px 10px;
+    min-height: 0;
+    padding: 14px 16px;
+  }
+
+  .text {
+    gap: 8px;
+  }
+
+  .itemTitle,
+  .detail {
+    line-height: 1.5;
+  }
+
+  /* the 44px target overlaps the row's padding, so the link sits close to
+     the text the way the board draws "Show log" */
+  .action {
+    justify-self: start;
+    margin: -8px 0 -12px;
+  }
+
+  .actionLink {
+    justify-content: flex-start;
+  }
+
+  .log {
+    padding: 0 16px 14px;
+  }
+
+  .pre {
+    padding: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .dayDate {
+    display: none;
+  }
+
+  .skeletonRow {
+    grid-template-columns: 44px 80px minmax(0, 1fr);
+    gap: 10px;
+    padding: 14px 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runningDot {
+    animation: none;
+  }
+}

@@ -28,6 +28,7 @@ import { Route as DiscoverRouteRouteImport } from './routes/discover/route'
 import { Route as DashboardRouteRouteImport } from './routes/dashboard/route'
 import { Route as AutomationsRouteRouteImport } from './routes/automations/route'
 import { Route as AudiobooksRouteRouteImport } from './routes/audiobooks/route'
+import { Route as ActivityRouteRouteImport } from './routes/activity/route'
 import { Route as ActiveDownloadsRouteRouteImport } from './routes/active-downloads/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PodcastsIndexRouteImport } from './routes/podcasts/index'
@@ -141,6 +142,11 @@ const AudiobooksRouteRoute = AudiobooksRouteRouteImport.update({
   path: '/audiobooks',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ActivityRouteRoute = ActivityRouteRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ActiveDownloadsRouteRoute = ActiveDownloadsRouteRouteImport.update({
   id: '/active-downloads',
   path: '/active-downloads',
@@ -230,6 +236,7 @@ const ArtistDetailSourceIdRoute = ArtistDetailSourceIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/active-downloads': typeof ActiveDownloadsRouteRoute
+  '/activity': typeof ActivityRouteRoute
   '/audiobooks': typeof AudiobooksRouteRouteWithChildren
   '/automations': typeof AutomationsRouteRoute
   '/dashboard': typeof DashboardRouteRoute
@@ -268,6 +275,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/active-downloads': typeof ActiveDownloadsRouteRoute
+  '/activity': typeof ActivityRouteRoute
   '/automations': typeof AutomationsRouteRoute
   '/dashboard': typeof DashboardRouteRoute
   '/discover': typeof DiscoverRouteRoute
@@ -304,6 +312,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/active-downloads': typeof ActiveDownloadsRouteRoute
+  '/activity': typeof ActivityRouteRoute
   '/audiobooks': typeof AudiobooksRouteRouteWithChildren
   '/automations': typeof AutomationsRouteRoute
   '/dashboard': typeof DashboardRouteRoute
@@ -344,6 +353,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/active-downloads'
+    | '/activity'
     | '/audiobooks'
     | '/automations'
     | '/dashboard'
@@ -382,6 +392,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/active-downloads'
+    | '/activity'
     | '/automations'
     | '/dashboard'
     | '/discover'
@@ -417,6 +428,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/active-downloads'
+    | '/activity'
     | '/audiobooks'
     | '/automations'
     | '/dashboard'
@@ -456,6 +468,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ActiveDownloadsRouteRoute: typeof ActiveDownloadsRouteRoute
+  ActivityRouteRoute: typeof ActivityRouteRoute
   AudiobooksRouteRoute: typeof AudiobooksRouteRouteWithChildren
   AutomationsRouteRoute: typeof AutomationsRouteRoute
   DashboardRouteRoute: typeof DashboardRouteRoute
@@ -612,6 +625,13 @@ declare module '@tanstack/react-router' {
       path: '/audiobooks'
       fullPath: '/audiobooks'
       preLoaderRoute: typeof AudiobooksRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/activity': {
+      id: '/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof ActivityRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/active-downloads': {
@@ -795,6 +815,7 @@ const PodcastsRouteRouteWithChildren = PodcastsRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActiveDownloadsRouteRoute: ActiveDownloadsRouteRoute,
+  ActivityRouteRoute: ActivityRouteRoute,
   AudiobooksRouteRoute: AudiobooksRouteRouteWithChildren,
   AutomationsRouteRoute: AutomationsRouteRoute,
   DashboardRouteRoute: DashboardRouteRoute,
