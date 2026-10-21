@@ -1,0 +1,332 @@
+/*
+ * Preview-then-confirm screens.
+ *
+ * The visual rules these follow: reading text 14px or larger (only the
+ * uppercase column labels drop to 12px), white text at 60% or brighter,
+ * radii from tokens.css (6px tags, 12px boxes), status always carries a word
+ * next to its colour, and the primary button is the shared Button primary
+ * (dark text on the accent).
+ */
+
+/* ── On a tool card ─────────────────────────────────────────────────────── */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tag {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  background: var(--white-a06);
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.tag[data-tone='info'] {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+}
+
+.tag[data-tone='success'] {
+  background: rgba(74, 222, 128, 0.12);
+  color: #4ade80;
+}
+
+.tag[data-tone='warning'] {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+}
+
+.tag[data-tone='danger'] {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-circle);
+  background: currentColor;
+}
+
+.note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ── The large-move warning ─────────────────────────────────────────────── */
+
+.guard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.07);
+}
+
+.guardText {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.guardText strong {
+  font-weight: 600;
+  color: #fff;
+}
+
+.guardIcon {
+  flex: none;
+  margin-top: 2px;
+  color: #fbbf24;
+}
+
+.guardCheck {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 14px;
+  color: #fff;
+  cursor: pointer;
+}
+
+.guardCheck input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #fbbf24;
+  cursor: pointer;
+}
+
+/* ── The confirm dialog ─────────────────────────────────────────────────── */
+
+/* Doubled so it beats the shared popup's width and radius whatever order the
+   two stylesheets load in. */
+.popup.popup {
+  width: min(680px, 100%);
+  border-radius: var(--radius-xl);
+  background: #17171c;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.stat {
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--white-a05);
+}
+
+.stat dt {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.stat dd {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.lead {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  word-break: break-all;
+}
+
+.notice {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--white-a10);
+  background: var(--white-a04);
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.notice[data-tone='warning'] {
+  border-color: rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.07);
+}
+
+.notice[data-tone='danger'] {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.07);
+}
+
+.sample {
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--white-a10);
+}
+
+.sampleScroll {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+  background: #1d1d23;
+}
+
+.table td {
+  padding: 10px 14px;
+  border-top: 1px solid var(--white-a08);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.primaryCell {
+  font-weight: 600;
+  color: #fff;
+}
+
+.secondary {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.keep {
+  color: #4ade80;
+}
+
+.sampleFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 14px;
+  border-top: 1px solid var(--white-a08);
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.sampleFoot:only-child {
+  border-top: 0;
+}
+
+.linkButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgb(var(--accent-light-rgb));
+  cursor: pointer;
+}
+
+.linkButton:disabled {
+  color: rgba(255, 255, 255, 0.6);
+  cursor: progress;
+}
+
+.linkButton:focus-visible {
+  outline: 2px solid rgba(var(--accent-light-rgb), 0.6);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+.window {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.windowIcon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.working {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 0;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.resultIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: rgba(74, 222, 128, 0.12);
+  color: #4ade80;
+}
+
+.resultIcon[data-tone='warning'] {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+}
