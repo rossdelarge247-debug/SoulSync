@@ -20,6 +20,7 @@ class _Executor:
 @pytest.fixture()
 def client(monkeypatch):
     from core.security import session_profile as _sp
+    from api import database_admin as da
     _resolve = _sp.resolve_session_profile
     with patch.object(_sp, "resolve_session_profile",
                       lambda **kw: _resolve(**{**kw, "profile_count": 1})), \
@@ -30,7 +31,17 @@ def client(monkeypatch):
         web_server.duplicate_cleaner_state["status"] = "idle"
         web_server.app.config["TESTING"] = True
         plan_store.clear()
+        # A Deep Scan started here bumps db_update_state's run_epoch with no
+        # worker to match it, and _db_update_finished_callback then drops
+        # every later callback on this xdist worker as a superseded run.
+        with da.db_update_lock:
+            saved_state = dict(da.db_update_state)
+        saved_epoch = da._active_task_epoch
         yield web_server.app.test_client(), executor, web_server
+        with da.db_update_lock:
+            da.db_update_state.clear()
+            da.db_update_state.update(saved_state)
+        da._active_task_epoch = saved_epoch
         web_server.duplicate_cleaner_state["status"] = "idle"
         plan_store.clear()
 
