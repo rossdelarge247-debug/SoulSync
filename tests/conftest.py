@@ -1609,3 +1609,18 @@ def _no_background_playlist_identify(monkeypatch):
     threads. unhooked here; the auto_identify tests hook their own runner."""
     from core.playlists import auto_identify
     monkeypatch.setattr(auto_identify, "_runner", None)
+
+
+@pytest.fixture(autouse=True)
+def _no_pooled_db_connections_across_tests():
+    """every test starts with no kept music-db connections. a kept connection
+    carries whatever a test did to it outside what the pool resets (a test
+    that patches sqlite3.connect to add an authorizer, say) into the next
+    test on the same thread, and each test's tmp database would otherwise
+    stay open until the thread's pool evicts it."""
+    yield
+    import sys
+
+    mdb = sys.modules.get('database.music_database')
+    if mdb is not None:
+        mdb.close_pooled_connections()

@@ -2895,6 +2895,14 @@ def _shutdown_runtime_components():
     # Give daemon cleanup threads a moment to observe the shutdown flag.
     time.sleep(0.2)
 
+    # Close the database connections kept for reuse, so the last close can
+    # checkpoint the wal and remove the -wal/-shm files like a clean exit.
+    try:
+        from database.music_database import close_pooled_connections
+        close_pooled_connections(collect=True)
+    except Exception as e:
+        logger.debug(f"closing pooled database connections: {e}")
+
 _runtime_shutdown_lock = threading.RLock()
 
 def shutdown_runtime_services():
