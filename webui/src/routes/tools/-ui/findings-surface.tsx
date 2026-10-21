@@ -1268,6 +1268,8 @@ export function FindingsSurface({
               <button
                 className="btn btn--sm btn--primary"
                 type="button"
+                // one bulk run at a time, as with the group buttons
+                disabled={Boolean(bulkRun?.running)}
                 onClick={() => void bulkFix()}
               >
                 Fix Selected

@@ -241,10 +241,19 @@ export function useBulkFixPreview(
           return null;
         }
         const result = await startBulkFix({ planId });
-        if (result.started || result.already_running) {
+        if (result.started) {
           onStartedRef.current(result, ctx);
           await ctx.afterStart?.();
           return null;
+        }
+        if (result.already_running) {
+          // the backend keeps the plan when another run is going, but this
+          // run has not started: say so rather than close as if it had
+          return {
+            message:
+              'Another bulk fix is still running, so this one has not started. Wait for it to finish, then confirm again.',
+            previewAgain: true,
+          };
         }
         return {
           message: result.error || 'Bulk fix failed to start',

@@ -322,3 +322,21 @@ def test_an_explicit_delete_needs_a_plan_even_on_a_type_that_defaults_to_safe(en
 def test_bulk_fix_effect_mirrors_what_each_fixer_does(ftype, action, recycle, expected):
     from core.repair_worker import bulk_fix_effect
     assert bulk_fix_effect(ftype, action, recycle) == expected
+
+
+def test_a_plan_is_not_spent_while_another_run_is_going(env):
+    db, worker, client = env
+    orphan_id, path = _orphan(db, worker, "o.mp3")
+    preview = client.post("/api/repair/findings/bulk-fix-preview",
+                          json={"ids": [orphan_id], "fix_actions": {"orphan_file": "delete"}}).get_json()
+    worker._bulk_fix_state = {**worker.get_bulk_fix_status(), "running": True}
+
+    busy = client.post("/api/repair/findings/bulk-fix-start", json={"plan_id": preview["plan_id"]})
+    assert busy.status_code == 200 and busy.get_json()["already_running"] is True
+    assert os.path.isfile(path)
+
+    worker._bulk_fix_state = {**worker.get_bulk_fix_status(), "running": False}
+    res = client.post("/api/repair/findings/bulk-fix-start", json={"plan_id": preview["plan_id"]})
+    assert res.status_code == 200 and res.get_json()["started"] is True
+    _wait(worker)
+    assert not os.path.exists(path)

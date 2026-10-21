@@ -528,6 +528,11 @@ def repair_findings_bulk_fix_start():
             return jsonify({'error': 'Repair worker not initialized'}), 400
 
         data = request.get_json(silent=True) or {}
+        # A confirmed plan is single use: don't spend it on a run that can't
+        # start because another one is still going.
+        if data.get('plan_id') and _repair_worker().get_bulk_fix_status().get('running'):
+            return jsonify({'started': False, 'already_running': True,
+                            'error': 'A bulk fix is already running'}), 200
         filters, refusal = _bulk_fix_selection(data)
         if refusal:
             return refusal

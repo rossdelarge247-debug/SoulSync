@@ -1523,6 +1523,32 @@ describe('bulk selection', () => {
     expect(fixCalls()).toEqual([]);
   });
 
+  it('a confirm while another run is going says it did not start, and keeps the selection', async () => {
+    routes({
+      [FINDINGS]: page([finding({ id: 1 })]),
+      [PREVIEW]: selectionPlan({ total: 1 }),
+      [START]: { started: false, already_running: true, error: 'A bulk fix is already running' },
+    });
+    await renderList();
+    await flush();
+
+    fireEvent.click(document.getElementById('repair-select-all-cb') as HTMLElement);
+    await flush();
+    fireEvent.click(screen.getByText('Fix Selected'));
+    await flush();
+    clickPrompt('_orphan-staging');
+    await flush();
+    await flush();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fix 1 finding' }));
+    await flush();
+    expect(await screen.findByText(/Another bulk fix is still running/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Preview again' })).toBeTruthy();
+    expect((document.getElementById('repair-select-all-cb') as HTMLInputElement).checked).toBe(
+      true,
+    );
+  });
+
   it('dismisses "Just Clear" rows only after the confirmed run started', async () => {
     routes({
       [FINDINGS]: page([
