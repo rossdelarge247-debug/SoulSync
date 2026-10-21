@@ -67,8 +67,8 @@ export function deepScanGuardMessage(preview: DeepScanPreview): ReactNode {
         This would move {files}, {pct}% of your library.
       </strong>{' '}
       {typeof limit === 'number'
-        ? `That's more than the ${limit}% safety limit, which usually means a folder or drive is missing rather than ${files} new.`
-        : `That's more than Deep Scan moves in one run without a check, which usually means a folder or drive is missing rather than ${files} new.`}{' '}
+        ? `That's more than the ${limit}% safety limit, which usually means a folder or drive is missing rather than ${countLabel(n, 'new file')}.`
+        : `That's more than Deep Scan moves in one run without a check, which usually means a folder or drive is missing rather than ${countLabel(n, 'new file')}.`}{' '}
       It won&apos;t run unless you confirm.
     </>
   );

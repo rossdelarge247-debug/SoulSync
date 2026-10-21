@@ -141,9 +141,6 @@ describe('Duplicate cleaner: preview, then confirm', () => {
     serve({ '/api/duplicate-cleaner/status': { body: finishedPreview() } });
     render(<DuplicateCleanerCard />);
     expect(await screen.findByText('Preview ready · 3 files')).toBeTruthy();
-    expect(
-      screen.getByText(/would move to the recycle bin\. Nothing has moved yet\./),
-    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Review preview' }));
     const dialog = await screen.findByRole('dialog');

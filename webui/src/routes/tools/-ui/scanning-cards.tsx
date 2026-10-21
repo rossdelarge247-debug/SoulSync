@@ -693,6 +693,7 @@ export function DuplicateCleanerCard() {
   } else if (state) {
     phase = state.phase || 'Ready to preview';
     barColor = ACCENT_BAR;
+    if (state.status === 'finished') details = `${state.files_scanned ?? 0} files scanned`;
   }
 
   let buttonLabel = planReady || plan || applied ? 'Preview Again' : 'Preview Duplicates';
@@ -810,10 +811,6 @@ export function DuplicateCleanerCard() {
           {planReady && plan ? (
             <>
               <StatusTag tone="info">Preview ready · {countLabel(plan.total, 'file')}</StatusTag>
-              <p className={safeStyles.note}>
-                {countLabel(plan.total, 'file')} ({formatBytes(plan.total_bytes)}) would move to the
-                recycle bin. Nothing has moved yet.
-              </p>
               <div className={safeStyles.actions}>
                 <Button variant="primary" size="lg" onClick={openReview}>
                   Review preview
