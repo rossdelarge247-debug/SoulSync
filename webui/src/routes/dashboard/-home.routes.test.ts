@@ -20,9 +20,13 @@ afterEach(() => {
 });
 
 describe('the route map', () => {
-  it('falls back to Wishlist until the Wanted page exists', () => {
-    expect(resolveHomeRoute('wanted')).toMatchObject({ href: '/wishlist', pageId: 'wishlist' });
-    expect(resolveHomeRoute('followed')).toMatchObject({ href: '/watchlist' });
+  it('sends Wanted and Followed artists to the Wanted page and its tab', () => {
+    expect(resolveHomeRoute('wanted')).toMatchObject({ href: '/wanted', pageId: 'wanted' });
+    expect(resolveHomeRoute('followed')).toMatchObject({
+      href: '/wanted?tab=followed',
+      pageId: 'wanted',
+    });
+    expect(resolveHomeRoute('followArtist').href).toBe('/wanted?tab=followed');
   });
 
   it('sends activity to the Activity page', () => {

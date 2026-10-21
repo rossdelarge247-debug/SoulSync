@@ -245,7 +245,7 @@ describe('Targets', () => {
     );
     expect(
       within(card('followed')).getByRole('link', { name: 'Follow an artist' }),
-    ).toHaveAttribute('href', '/watchlist');
+    ).toHaveAttribute('href', '/wanted?tab=followed');
   });
 
   it('can\'t search: keeps its numbers, a danger tag, "—", and Run Setup check · Try now', async () => {
@@ -307,7 +307,7 @@ describe('Targets', () => {
     ).toEqual([
       ['Add to Wanted', '/search'],
       ['Mirror a playlist', '/sync'],
-      ['Follow an artist', '/watchlist'],
+      ['Follow an artist', '/wanted?tab=followed'],
       ['Set a quality target', '/settings?tab=quality'],
     ]);
   });
@@ -347,13 +347,24 @@ describe('the links', () => {
     await screen.findByText('312 tracks');
 
     const open = within(card('wanted')).getByRole('link', { name: 'Open Wanted' });
-    expect(open).toHaveAttribute('href', '/wishlist');
+    expect(open).toHaveAttribute('href', '/wanted');
     fireEvent.click(open);
-    expect(navigateToPage).toHaveBeenLastCalledWith('wishlist');
+    expect(navigateToPage).toHaveBeenLastCalledWith('wanted');
 
     fireEvent.click(within(card('quality')).getByRole('link', { name: 'Change target' }));
     expect(requestSettingsTab).toHaveBeenCalledWith('quality');
     expect(navigateToPage).toHaveBeenLastCalledWith('settings');
+  });
+
+  it('load a link with a query normally, so the tab survives', async () => {
+    mockSummary([T.wanted, T.mirroredOff, T.followedOff, T.quality]);
+    renderWith(<Targets />);
+    await screen.findByText('312 tracks');
+    const stop = (event: Event) => event.preventDefault();
+    document.addEventListener('click', stop);
+    fireEvent.click(within(card('followed')).getByRole('link', { name: 'Follow an artist' }));
+    document.removeEventListener('click', stop);
+    expect(navigateToPage).not.toHaveBeenCalled();
   });
 
   it('leave a modified click (new tab) to the browser', async () => {

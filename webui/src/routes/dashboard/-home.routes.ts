@@ -2,10 +2,8 @@
  * Every page Home links to, in one place, so a page that moves is a one-line
  * change here.
  *
- * `path` is where the link should go; `fallback` is where it goes until that
- * page exists. Wanted (`/wanted`) and Activity (`/activity`) are being built
- * on their own branches: until their routes are in the shell's route manifest
- * the links use today's Wishlist and Downloads pages.
+ * `path` is where the link should go; `fallback` is where it goes when that
+ * page isn't in the shell's route manifest.
  */
 
 import { getShellRouteByPath, type ShellPageId } from '@/platform/shell/route-manifest';
@@ -16,16 +14,16 @@ export interface HomeRoute {
 }
 
 export const HOME_ROUTES = {
-  /** The Wanted page (Wanted + Followed artists); today, Wishlist. */
+  /** The Wanted page (Wanted + Followed artists). */
   wanted: { path: '/wanted', fallback: '/wishlist' },
-  /** Followed artists. Point this at the Wanted page's Followed tab once it lands. */
-  followed: { path: '/wanted', fallback: '/watchlist' },
-  /** The Activity timeline; today, Downloads. */
+  /** The Wanted page's Followed artists tab. */
+  followed: { path: '/wanted?tab=followed', fallback: '/watchlist' },
+  /** The Activity timeline. */
   activity: { path: '/activity', fallback: '/active-downloads' },
   /** Mirrored playlists: Sync opens on its Mirrored tab, where "Add playlist" starts a mirror. */
   mirrored: { path: '/sync' },
-  /** Follow an artist: the artist search on Followed artists (Watchlist's "Add Artist"). */
-  followArtist: { path: '/wanted', fallback: '/watchlist' },
+  /** Follow an artist: Followed artists, whose header action is "Follow an artist". */
+  followArtist: { path: '/wanted?tab=followed', fallback: '/watchlist' },
   search: { path: '/search' },
   /** The quality target is the default quality profile, on Settings → Quality. */
   quality: { path: '/settings?tab=quality' },

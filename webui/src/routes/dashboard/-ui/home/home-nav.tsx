@@ -38,10 +38,15 @@ export function useHomeNav(): HomeNav {
   return useContext(HomeNavContext);
 }
 
-/** Open a link inside the app; false when it has to be a normal page load. */
+/**
+ * Open a link inside the app; false when it has to be a normal page load.
+ * navigateToPage takes a page, not a query, so a link with one (other than
+ * Settings' tab) loads normally to keep it, e.g. /wanted?tab=followed.
+ */
 export function openInApp(link: ResolvedLink): boolean {
   const go = window.navigateToPage;
   if (!go || !link.pageId) return false;
+  if (link.href.includes('?') && !link.settingsTab) return false;
   if (link.settingsTab) window.requestSettingsTab?.(link.settingsTab);
   void go(link.pageId);
   return true;
