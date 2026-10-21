@@ -11686,6 +11686,55 @@ class MusicDatabase:
             logger.error(f"Error getting track {track_id}: {e}")
             return None
     
+    def get_track_by_id_many(self, track_ids) -> Dict[str, Optional[DatabaseTrackWithMetadata]]:
+        """get_track_by_id for many ids: ``{str(id): track or None}``, with the
+        same row, the same library scope and the same None for an id that
+        isn't there. One connection, one query per 500 ids. On an error it
+        logs and leaves the ids it couldn't read out of the result."""
+        ids = list(dict.fromkeys(str(track_id) for track_id in track_ids))
+        found: Dict[str, Optional[DatabaseTrackWithMetadata]] = {}
+        if not ids:
+            return found
+        conn = None
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            scope_sql, scope_params = self._current_scope_sql('t.owner_profile_id')
+            for start in range(0, len(ids), self._ID_LOOKUP_CHUNK):
+                chunk = ids[start:start + self._ID_LOOKUP_CHUNK]
+                cursor.execute(f"""
+                    SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number,
+                           t.duration, t.created_at, t.updated_at, t.track_artist,
+                           a.name as artist_name, al.title as album_title
+                    FROM tracks t
+                    JOIN artists a ON t.artist_id = a.id
+                    JOIN albums al ON t.album_id = al.id
+                    WHERE t.id IN ({','.join('?' for _ in chunk)}) AND {scope_sql}
+                """, (*chunk, *scope_params))
+                rows = {}
+                for row in cursor.fetchall():
+                    rows.setdefault(str(row['id']), DatabaseTrackWithMetadata(
+                        id=row['id'],
+                        album_id=row['album_id'],
+                        artist_id=row['artist_id'],
+                        title=row['title'],
+                        artist_name=row['artist_name'],
+                        album_title=row['album_title'],
+                        track_number=row['track_number'],
+                        duration=row['duration'],
+                        created_at=row['created_at'],
+                        updated_at=row['updated_at'],
+                        track_artist=row['track_artist'] if 'track_artist' in row.keys() else None
+                    ))
+                for track_id in chunk:
+                    found[track_id] = rows.get(track_id)
+        except Exception as e:
+            logger.error(f"Error getting {len(ids)} tracks by id: {e}")
+        finally:
+            if conn is not None:
+                conn.close()
+        return found
+
     def get_tracks_by_album(self, album_id: int) -> List[DatabaseTrack]:
         """Get all tracks by album ID"""
         try:
@@ -21431,6 +21480,54 @@ class MusicDatabase:
         except Exception as e:
             logger.error(f"Error bulk-reading sync match cache: {e}")
             return out
+
+    def peek_sync_match_cache_bulk(self, spotify_track_ids, server_source: str) -> Dict[str, Dict]:
+        """read_sync_match_cache's rows for many ids, read ahead: no use-count
+        bump (record the uses actually made with bump_sync_match_cache_uses),
+        and an error raises instead of reading as a miss, so a caller can't
+        mistake a failed read for an empty cache."""
+        ids = list(dict.fromkeys(str(i) for i in (spotify_track_ids or []) if i))
+        out: Dict[str, Dict] = {}
+        if not ids:
+            return out
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            for start in range(0, len(ids), self._ID_LOOKUP_CHUNK):
+                chunk = ids[start:start + self._ID_LOOKUP_CHUNK]
+                cursor.execute(f"""
+                    SELECT spotify_track_id, server_track_id, server_track_title, confidence
+                    FROM sync_match_cache
+                    WHERE server_source = ? AND spotify_track_id IN ({','.join('?' for _ in chunk)})
+                """, [server_source, *chunk])
+                for row in cursor.fetchall():
+                    out[str(row['spotify_track_id'])] = {
+                        'server_track_id': row['server_track_id'],
+                        'server_track_title': row['server_track_title'],
+                        'confidence': row['confidence'],
+                    }
+        finally:
+            conn.close()
+        return out
+
+    def bump_sync_match_cache_uses(self, uses, server_source: str) -> None:
+        """Record cache hits read ahead with peek_sync_match_cache_bulk:
+        ``uses`` maps spotify_track_id -> how many times it was used, and each
+        use bumps the row the way read_sync_match_cache's hit does. One
+        transaction for all of them."""
+        rows = [(int(count), server_source, str(spotify_track_id))
+                for spotify_track_id, count in (uses or {}).items() if count]
+        if not rows:
+            return
+        try:
+            with self._get_connection() as conn:
+                conn.executemany("""
+                    UPDATE sync_match_cache
+                    SET last_used_at = CURRENT_TIMESTAMP, use_count = use_count + ?
+                    WHERE server_source = ? AND spotify_track_id = ?
+                """, rows)
+        except Exception as e:
+            logger.error(f"Error recording sync match cache uses: {e}")
 
     def find_manual_library_matches_bulk(self, profile_id: int, source_track_ids,
                                          server_source: str = '') -> Dict[str, Dict[str, Any]]:
