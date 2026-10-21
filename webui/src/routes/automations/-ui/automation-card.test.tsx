@@ -126,6 +126,31 @@ describe('AutomationCard markup', () => {
   });
 });
 
+describe('AutomationCard: actions that move or delete files', () => {
+  it('says a gated automation only makes a preview unless it was set to act', () => {
+    render(<AutomationCard automation={auto({ id: 1, action_type: 'run_duplicate_cleaner' })} />);
+    expect(screen.getByText('Makes a preview, moves nothing')).toBeTruthy();
+  });
+
+  it('says so when it acts without a preview', () => {
+    render(
+      <AutomationCard
+        automation={auto({
+          id: 2,
+          action_type: 'deep_scan_library',
+          action_config: { confirm: true },
+        })}
+      />,
+    );
+    expect(screen.getByText('Acts without a preview')).toBeTruthy();
+  });
+
+  it('adds nothing to an action that never touches files', () => {
+    render(<AutomationCard automation={auto({ id: 3, action_type: 'scan_watchlist' })} />);
+    expect(screen.queryByText(/preview/i)).toBeNull();
+  });
+});
+
 describe('AutomationCard actions', () => {
   it('fires each handler with the automation', () => {
     const onRun = vi.fn();

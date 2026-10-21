@@ -63,6 +63,38 @@ export const MAINTENANCE_ACTIONS = new Set([
   'video_reenrich_stale',
 ]);
 
+/**
+ * Actions that move or delete files (core/automation_engine.PLAN_GATED_ACTIONS).
+ * They act only when their config says `confirm: true` — the builder's "Act
+ * without a preview" box. Without it a run reports what it WOULD do and
+ * touches nothing.
+ */
+export const PLAN_GATED_ACTIONS = new Set([
+  'run_duplicate_cleaner',
+  'clear_quarantine',
+  'library_cleanup',
+  'full_cleanup',
+  'video_full_cleanup',
+  'deep_scan_library',
+]);
+
+const TRUTHY = new Set(['1', 'true', 'yes', 'on']);
+
+/**
+ * 'preview' when a run only reports, 'acts' when it moves or deletes files
+ * straight away, null for an action that never touches files. Mirrors
+ * core/library/action_plans.automation_may_act exactly.
+ */
+export function automationActMode(a: Automation): 'preview' | 'acts' | null {
+  if (!a.action_type || !PLAN_GATED_ACTIONS.has(a.action_type)) return null;
+  const value = (a.action_config as { confirm?: unknown } | null | undefined)?.confirm;
+  const acts =
+    value === true ||
+    value === 1 ||
+    (typeof value === 'string' && TRUTHY.has(value.trim().toLowerCase()));
+  return acts ? 'acts' : 'preview';
+}
+
 export function isMaintenanceAutomation(a: Automation): boolean {
   if (a.owned_by === 'system:repair_job') return true;
   return Boolean(a.action_type && MAINTENANCE_ACTIONS.has(a.action_type));

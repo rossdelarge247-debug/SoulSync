@@ -25,6 +25,7 @@ import { useVanillaBuilder } from '../-automations.builder';
 import { useAutomationDnd } from '../-automations.dnd';
 import { blockLabelLookup, formatAction, formatTrigger } from '../-automations.format';
 import {
+  automationActMode,
   buildCollections,
   collectionAutomations,
   collectionGroupName,
@@ -83,8 +84,13 @@ export function AutomationsPage() {
 
   const run = useMutation({
     mutationFn: (a: Automation) => runAutomation(a.id),
-    onSuccess: () => {
-      window.showToast?.('Automation triggered', 'success');
+    onSuccess: (_data, a) => {
+      window.showToast?.(
+        automationActMode(a) === 'preview'
+          ? 'Automation triggered. It makes a preview and moves or deletes nothing.'
+          : 'Automation triggered',
+        'success',
+      );
       // The run is async server-side; the vanilla page waited 1.5s before
       // refetching so last_run/run_count have a chance to move. Refetching
       // immediately would just redraw the same card.
@@ -92,6 +98,26 @@ export function AutomationsPage() {
     },
     onError: fail,
   });
+
+  /** Run now. One that moves or deletes files without a preview says so
+   *  first: "Run now" must not be a one-click delete. */
+  const runNow = useCallback(
+    async (a: Automation) => {
+      if (automationActMode(a) === 'acts') {
+        const ok = await window.showConfirmDialog?.({
+          title: `Run "${a.name}" now?`,
+          message:
+            'This automation is set to act without a preview, so it moves or deletes files straight away. ' +
+            "Turn off 'Act without a preview' in its settings to get a report of what it would do instead.",
+          confirmText: 'Run now',
+          destructive: true,
+        });
+        if (!ok) return;
+      }
+      run.mutate(a);
+    },
+    [run],
+  );
 
   const duplicate = useMutation({
     mutationFn: (a: Automation) => duplicateAutomation(a.id),
@@ -314,7 +340,7 @@ export function AutomationsPage() {
     // countdowns and "Listening" for runs the engine is skipping.
     paused: !masterOn,
     onToggle: (a: Automation) => toggle.mutate(a),
-    onRun: (a: Automation) => run.mutate(a),
+    onRun: (a: Automation) => void runNow(a),
     onDuplicate: (a: Automation) => duplicate.mutate(a),
     onDelete: (a: Automation) => void confirmDelete(a),
     onEdit: (a: Automation) => openBuilder(a.id),
@@ -365,7 +391,7 @@ export function AutomationsPage() {
               automations={automations}
               paused={!masterOn}
               blockLabel={blockLabel}
-              onRun={(a) => run.mutate(a)}
+              onRun={(a) => void runNow(a)}
               onEdit={(a) => openBuilder(a.id)}
               onReviewAttention={() => goCollection('attention')}
               onFind={onFind}

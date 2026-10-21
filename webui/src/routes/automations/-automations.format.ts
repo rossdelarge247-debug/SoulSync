@@ -121,8 +121,16 @@ const ACTION_SENTENCES: Record<string, Sentence> = {
     if (!queued && !pruned) parts.push('up to date');
     return parts.join(', ');
   },
-  // files_scanned / duplicates_found / files_deleted / space_freed_mb
+  // files_scanned / duplicates_found / files_deleted / space_freed_mb, and in
+  // preview mode (no "Act without a preview") mode / would_remove / would_free_mb
   run_duplicate_cleaner: (r) => {
+    if (r.mode === 'plan') {
+      const would = num(r.would_remove);
+      if (!would)
+        return `Preview only: checked ${plural(num(r.files_scanned), 'file')}, no duplicates`;
+      const mb = num(r.would_free_mb);
+      return `Preview only: ${plural(would, 'duplicate')} would move to the recycle bin${mb ? ` (${mb} MB)` : ''}. Nothing moved; review it on the Tools page`;
+    }
     const scanned = num(r.files_scanned);
     const removed = num(r.files_deleted);
     const found = num(r.duplicates_found);
@@ -141,6 +149,34 @@ const ACTION_SENTENCES: Record<string, Sentence> = {
     if (!refreshed && !errors) return null;
     const base = `Refreshed ${plural(refreshed, 'playlist')}`;
     return errors ? `${base}, ${plural(errors, 'error')}` : base;
+  },
+  // removed, and in preview mode mode / would_remove
+  clear_quarantine: (r) => {
+    if (r.mode === 'plan') {
+      return `Preview only: would delete ${plural(num(r.would_remove), 'quarantined item')}. Nothing deleted`;
+    }
+    return `Removed ${plural(num(r.removed), 'quarantined item')}`;
+  },
+  // quarantine_removed / recycle_purged, and in preview mode
+  // mode / would_remove_quarantine / would_purge_recycle
+  library_cleanup: (r) => {
+    if (r.mode === 'plan') {
+      return `Preview only: would delete ${plural(num(r.would_remove_quarantine), 'quarantined item')} and ${plural(num(r.would_purge_recycle), 'recycle-bin file')}. Nothing deleted`;
+    }
+    return `Deleted ${plural(num(r.quarantine_removed), 'quarantined item')} and ${plural(num(r.recycle_purged), 'recycle-bin file')}`;
+  },
+  // staging_moves_mode / staging_moved / staging_would_move (standalone only)
+  deep_scan_library: (r) => {
+    const mode = typeof r.staging_moves_mode === 'string' ? r.staging_moves_mode : '';
+    if (mode === 'moved') return `Moved ${plural(num(r.staging_moved), 'file')} to Staging`;
+    if (mode === 'preview') {
+      const would = num(r.staging_would_move);
+      return would
+        ? `Preview only: ${plural(would, 'file')} could move to Staging. Nothing moved`
+        : null;
+    }
+    if (mode === 'blocked') return 'Nothing moved: the move to Staging was held back';
+    return null;
   },
   // artists / albums / tracks
   start_database_update: (r) => {

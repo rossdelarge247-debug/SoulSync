@@ -259,6 +259,39 @@ describe('AutomationsPage interactions', () => {
     expect(window.showToast).toHaveBeenCalledWith('Automation triggered', 'success');
   });
 
+  it('a preview-mode run says it moves nothing', async () => {
+    renderLibrary([auto({ id: 8, name: 'Dedupe', action_type: 'run_duplicate_cleaner' })]);
+    await screen.findByText('Dedupe');
+
+    fireEvent.click(document.querySelector('.automation-run-btn')!);
+    await waitFor(() => expect(sent('/automations/8/run')).toHaveLength(1));
+    expect(window.showToast).toHaveBeenCalledWith(
+      'Automation triggered. It makes a preview and moves or deletes nothing.',
+      'success',
+    );
+  });
+
+  it('asks before running one that acts without a preview, and does nothing if declined', async () => {
+    window.showConfirmDialog = vi.fn(async () => false);
+    renderLibrary([
+      auto({
+        id: 9,
+        name: 'Weekly Cleanup',
+        action_type: 'library_cleanup',
+        action_config: { confirm: true },
+      }),
+    ]);
+    await screen.findByText('Weekly Cleanup');
+
+    fireEvent.click(document.querySelector('.automation-run-btn')!);
+    await waitFor(() =>
+      expect(window.showConfirmDialog).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Run "Weekly Cleanup" now?', destructive: true }),
+      ),
+    );
+    expect(sent('/automations/9/run')).toHaveLength(0);
+  });
+
   it('confirms before deleting, and does nothing if declined', async () => {
     window.showConfirmDialog = vi.fn(async () => false);
     renderLibrary([auto({ id: 7, name: 'Nightly' })]);
