@@ -142,6 +142,25 @@ const t = async () => {
         'URL input refused');
     assert(wire.length === 0, 'none of those hit the wire');
 
+    // 7) the Video module turned off: its api answers 409 here, like the server
+    w = bootAs(ADMIN);
+    w.SOULSYNC_MODULES = [{ name: 'video', display_name: 'Video', enabled: false, pages: [] },
+        { name: 'podcasts', display_name: 'Podcasts', enabled: false, pages: [] }];
+    const off = await w.fetch('/api/video/dashboard');
+    assert(off.status === 409, `video api answers 409 while the module is off, got ${off.status}`);
+    const offBody = await off.json();
+    assert(offBody.error === 'module_disabled' && offBody.module === 'video'
+        && offBody.message === 'Video is turned off. An admin can turn it back on in Settings.',
+        'the body matches the server (core/modules.py disabled_payload)');
+    const offV1 = await (await w.fetch('/api/v1/video/stats')).json();
+    assert(offV1.error.code === 'MODULE_DISABLED' && offV1.error.module === 'video', 'v1 callers get the v1 envelope');
+    await w.fetch('/api/podcasts/search?q=x');
+    await w.fetch('/api/videos-not-video');
+    assert(wire.length === 2 && !wire.some((u) => /\/api\/video\//.test(u)),
+        `only the video api is answered locally, sent ${wire.join(', ')}`);
+    w.SOULSYNC_MODULES = [{ name: 'video', enabled: true, pages: [] }];
+    assert((await w.fetch('/api/video/dashboard')).status === 200, 'back on: video calls go out again');
+
     console.log('all assertions passed');
 };
 await t();
