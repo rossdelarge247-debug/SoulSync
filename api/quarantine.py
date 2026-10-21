@@ -58,20 +58,54 @@ def configure(*, config_manager_, docker_resolve_path_,
 bp = Blueprint('quarantine', __name__)
 
 
+@bp.route('/api/quarantine/clear-preview', methods=['POST'])
+def preview_clear_quarantine():
+    """What clearing the quarantine WOULD delete for good: every entry, with
+    the file count, total size, oldest and newest date and a sample. Records
+    a plan and deletes nothing; POST its plan_id to /api/quarantine/clear."""
+    from core.library.action_plans import DEFAULT_SAMPLE_SIZE, plan_store
+    from core.library.cleanup import QUARANTINE_CLEAR_TOOL, preview_quarantine, removal_stats
+    try:
+        items = preview_quarantine(_get_quarantine_dir())
+        stats = removal_stats(items, "modified")
+        if not items:
+            return jsonify({"success": True, "plan_id": None, "total": 0, "sample": [],
+                            "truncated": False, **stats})
+        plan = plan_store.create(QUARANTINE_CLEAR_TOOL, items)
+        summary = plan.summary()
+        # the sidecars go too, but the list shows the downloads themselves
+        files = [dict(i) for i in plan.items if i.get("kind") != "info"]
+        summary.update({"sample": files[:DEFAULT_SAMPLE_SIZE],
+                        "truncated": len(files) > DEFAULT_SAMPLE_SIZE})
+        return jsonify({"success": True, **summary, **stats})
+    except Exception as e:
+        logger.error(f"[Quarantine] Error previewing clear: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @bp.route('/api/quarantine/clear', methods=['POST'])
 def clear_quarantine():
-    """Delete all files and folders inside the ss_quarantine directory."""
-    from core.library.cleanup import clear_quarantine_folder
+    """Delete for good exactly the entries a fresh clear-preview plan listed
+    (``{plan_id}``); anything quarantined since stays. Without a usable plan
+    nothing is deleted: 409 with ``code`` plan_required / plan_unknown /
+    plan_expired / plan_wrong_tool."""
+    from core.library.action_plans import PlanError, plan_store
+    from core.library.cleanup import QUARANTINE_CLEAR_TOOL, clear_planned_quarantine
     try:
-        result = clear_quarantine_folder(_get_quarantine_dir())
-        if not result["existed"]:
-            return jsonify({"success": True, "message": "Quarantine folder is already empty."})
+        payload = request.get_json(silent=True) or {}
+        try:
+            plan = plan_store.consume(payload.get('plan_id'), QUARANTINE_CLEAR_TOOL)
+        except PlanError as exc:
+            return jsonify({"success": False, "code": exc.code, "error": exc.message}), 409
+        result = clear_planned_quarantine(_get_quarantine_dir(), plan.items)
         for err in result["errors"]:
             logger.error(f"[Quarantine] Failed to remove {err['entry']}: {err['error']}")
-        removed_files = result["removed"]
-
-        logger.info(f"[Quarantine] Cleared {removed_files} item(s) from quarantine folder")
-        return jsonify({"success": True, "message": f"Quarantine cleared ({removed_files} item{'s' if removed_files != 1 else ''} removed)."})
+        files = result["files_removed"]
+        logger.info(f"[Quarantine] Cleared {result['removed']} item(s) from quarantine folder")
+        message = f"Deleted {files} quarantined file{'s' if files != 1 else ''}."
+        if result["errors"]:
+            message += f" {len(result['errors'])} could not be deleted."
+        return jsonify({"success": True, "message": message, **result})
     except Exception as e:
         logger.error(f"[Quarantine] Error clearing quarantine: {e}")
         return jsonify({"success": False, "error": str(e)}), 500

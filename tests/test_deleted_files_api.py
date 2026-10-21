@@ -66,16 +66,103 @@ def test_restore_requires_ids(client):
     assert client.post('/api/deleted-files/restore', json={'ids': []}).status_code == 400
 
 
-def test_purge_all_empties_the_bin(client):
+def _preview(client, body):
+    r = client.post('/api/deleted-files/purge-preview', json=body)
+    assert r.status_code == 200
+    return r.get_json()
+
+
+def test_purge_all_empties_the_bin_against_its_preview(client):
     _quarantine(client.transfer, 'x.mp3')
     _quarantine(client.transfer, 'y.mp3')
-    r = client.post('/api/deleted-files/purge', json={'all': True})
+    plan = _preview(client, {'all': True})
+    assert client.get('/api/deleted-files').get_json()['count'] == 2   # preview deleted nothing
+    r = client.post('/api/deleted-files/purge', json={'plan_id': plan['plan_id']})
+    assert r.status_code == 200
     assert len(r.get_json()['purged']) == 2
     assert client.get('/api/deleted-files').get_json()['count'] == 0
 
 
-def test_purge_requires_ids_or_all(client):
-    assert client.post('/api/deleted-files/purge', json={}).status_code == 400
+def test_purge_preview_says_how_many_how_big_and_from_when(client):
+    from core.library import deleted_quarantine
+    _quarantine(client.transfer, 'Old/a.flac')
+    _quarantine(client.transfer, 'New/b.flac')
+    root = os.path.join(client.transfer, '.deleted')
+    manifest = deleted_quarantine._load_manifest(root)
+    manifest['Old/a.flac']['deleted_at'] = '2026-01-02T03:04:05+00:00'
+    manifest['New/b.flac']['deleted_at'] = '2026-09-10T11:12:13+00:00'
+    deleted_quarantine._save_manifest(root, manifest)
+
+    plan = _preview(client, {'all': True})
+
+    assert plan['success'] is True and plan['plan_id']
+    assert plan['files'] == 2 and plan['total'] == 2
+    assert plan['total_bytes'] == 2
+    assert plan['oldest'] == '2026-01-02T03:04:05+00:00'
+    assert plan['newest'] == '2026-09-10T11:12:13+00:00'
+    assert {i['name'] for i in plan['sample']} == {'a.flac', 'b.flac'}
+    assert plan['expires_at'] > plan['created_at']
+
+
+def test_purge_preview_of_selected_ids_lists_only_those(client):
+    _quarantine(client.transfer, 'x.mp3')
+    _quarantine(client.transfer, 'y.mp3')
+    plan = _preview(client, {'ids': ['deleted:x.mp3']})
+    assert plan['files'] == 1 and plan['sample'][0]['id'] == 'deleted:x.mp3'
+    client.post('/api/deleted-files/purge', json={'plan_id': plan['plan_id']})
+    assert [e['id'] for e in client.get('/api/deleted-files').get_json()['entries']] == ['deleted:y.mp3']
+
+
+def test_an_empty_bin_previews_nothing_to_confirm(client):
+    plan = _preview(client, {'all': True})
+    assert plan['plan_id'] is None and plan['files'] == 0
+
+
+@pytest.mark.parametrize('body,code', [
+    ({'all': True}, 'plan_required'),
+    ({'ids': ['deleted:x.mp3']}, 'plan_required'),
+    ({}, 'plan_required'),
+    ({'plan_id': 'nope'}, 'plan_unknown'),
+])
+def test_purge_without_a_usable_plan_deletes_nothing(client, body, code):
+    _quarantine(client.transfer, 'x.mp3')
+    r = client.post('/api/deleted-files/purge', json=body)
+    assert r.status_code == 409
+    assert r.get_json()['code'] == code
+    assert client.get('/api/deleted-files').get_json()['count'] == 1
+
+
+def test_a_purge_plan_is_spent_and_belongs_to_its_tool(client):
+    from core.library.action_plans import plan_store
+    _quarantine(client.transfer, 'x.mp3')
+    plan = _preview(client, {'all': True})
+    assert client.post('/api/deleted-files/purge', json={'plan_id': plan['plan_id']}).status_code == 200
+    again = client.post('/api/deleted-files/purge', json={'plan_id': plan['plan_id']})
+    assert again.status_code == 409 and again.get_json()['code'] == 'plan_unknown'
+    other = plan_store.create('quarantine_clear', [{'name': 'x'}])
+    wrong = client.post('/api/deleted-files/purge', json={'plan_id': other.plan_id})
+    assert wrong.status_code == 409 and wrong.get_json()['code'] == 'plan_wrong_tool'
+
+
+def test_a_purge_keeps_what_arrived_or_changed_after_the_preview(client):
+    _quarantine(client.transfer, 'x.mp3')
+    _quarantine(client.transfer, 'y.mp3')
+    plan = _preview(client, {'all': True})
+    _quarantine(client.transfer, 'late.mp3')
+    with open(os.path.join(client.transfer, '.deleted', 'y.mp3'), 'wb') as f:
+        f.write(b'a different, bigger file')
+
+    r = client.post('/api/deleted-files/purge', json={'plan_id': plan['plan_id']}).get_json()
+
+    assert r['purged'] == ['deleted:x.mp3']
+    assert r['skipped'] == ['deleted:y.mp3']
+    left = sorted(e['id'] for e in client.get('/api/deleted-files').get_json()['entries'])
+    assert left == ['deleted:late.mp3', 'deleted:y.mp3']
+
+
+def test_purge_preview_requires_ids_or_all(client):
+    assert client.post('/api/deleted-files/purge-preview', json={}).status_code == 400
+    assert client.post('/api/deleted-files/purge-preview', json={'ids': []}).status_code == 400
 
 
 def test_retention_saves_and_validates(client):
@@ -92,6 +179,6 @@ def test_traversal_ids_bounce_off_the_http_layer_too(client):
     with open(victim, 'wb') as f:
         f.write(b'v')
     os.makedirs(os.path.join(client.transfer, '.deleted'), exist_ok=True)
-    r = client.post('/api/deleted-files/purge', json={'ids': ['deleted:../victim.mp3']})
-    assert r.get_json()['purged'] == []
+    plan = _preview(client, {'ids': ['deleted:../victim.mp3']})
+    assert plan['plan_id'] is None and plan['files'] == 0
     assert os.path.isfile(victim)
