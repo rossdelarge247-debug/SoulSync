@@ -11463,6 +11463,12 @@ class MusicDatabase:
         if not written:
             return
         cursor = conn.cursor()
+        try:
+            provenance = self._provenance_by_file_paths(
+                cursor, [file_path for _i, fields, (_new, file_path) in written if fields['track_id'] and file_path])
+        except Exception as exc:  # noqa: BLE001 - ask path by path below
+            logger.debug(f"Batched provenance lookup failed: {exc}")
+            provenance = None
         plans = []
         for i, fields, (is_new_track, file_path) in written:
             track_id = fields['track_id']
@@ -11470,7 +11476,8 @@ class MusicDatabase:
             backfill = None
             if track_id and file_path:
                 try:
-                    prov = self._provenance_by_file_path(cursor, file_path)
+                    prov = (provenance[file_path] if provenance is not None
+                            else self._provenance_by_file_path(cursor, file_path))
                 except Exception as exc:  # noqa: BLE001
                     logger.debug(f"get_provenance_by_file_path failed: {exc}")
                     prov = None
@@ -22414,6 +22421,92 @@ class MusicDatabase:
         except (TypeError, ValueError):
             cols = [c[0] for c in cursor.description]
             return dict(zip(cols, row, strict=False))
+
+    # SQLite's LIKE folds ASCII letters only (no ICU build, case_sensitive_like off)
+    _LIKE_CASE_FOLD = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
+
+    @classmethod
+    def _provenance_by_file_paths(cls, cursor, file_paths) -> Dict[str, Optional[Dict[str, Any]]]:
+        """_provenance_by_file_path for many paths at once, with the same
+        answer for each: ``{path: row dict or None}``.
+
+        The exact-path lookups go in one IN query per 500 paths. The basename
+        fallback (``file_path LIKE '%/name' OR file_path LIKE '%\\name'``, the
+        highest id winning) scans the whole table once per path; here one scan
+        indexes every row by the text after its last '/' and after its last
+        '\\', case-folded the way LIKE folds it, and each name is a dictionary
+        lookup. That is the same test: the name holds no separator, so
+        "ends with /name" means "the text after the last / is name". A name
+        holding a LIKE wildcard (% or _) keeps the per-path query."""
+        paths = list(dict.fromkeys(p for p in file_paths if p))
+        found: Dict[str, Optional[Dict[str, Any]]] = {}
+        if not paths:
+            return found
+
+        def as_dict(row):
+            try:
+                return dict(row)
+            except (TypeError, ValueError):
+                cols = [c[0] for c in cursor.description]
+                return dict(zip(cols, row, strict=False))
+
+        for start in range(0, len(paths), cls._ID_LOOKUP_CHUNK):
+            chunk = paths[start:start + cls._ID_LOOKUP_CHUNK]
+            cursor.execute(
+                f"SELECT * FROM track_downloads WHERE file_path IN ({','.join('?' for _ in chunk)}) ORDER BY id DESC",
+                chunk)
+            for row in cursor.fetchall():
+                record = as_dict(row)
+                found.setdefault(record['file_path'], record)
+
+        by_name = {}
+        for path in paths:
+            if path in found:
+                continue
+            fname = os.path.basename(path.replace('\\', '/'))
+            if not fname:
+                found[path] = None
+            elif '%' in fname or '_' in fname:
+                found[path] = cls._provenance_by_file_path(cursor, path)
+            else:
+                by_name[path] = fname.translate(cls._LIKE_CASE_FOLD)
+        if not by_name:
+            return found
+
+        wanted = set(by_name.values())
+        fold = cls._LIKE_CASE_FOLD
+        newest = {}
+        scan = cursor.connection.cursor()
+        scan.row_factory = None  # plain tuples: this reads the whole table
+        scan.execute("SELECT id, file_path FROM track_downloads")
+        for row_id, stored in scan:
+            if stored is None:
+                continue
+            if not isinstance(stored, str):
+                # LIKE would read it as text; leave this lot to the query
+                for path in by_name:
+                    found[path] = cls._provenance_by_file_path(cursor, path)
+                return found
+            for sep in ('/', '\\'):
+                cut = stored.rfind(sep)
+                if cut >= 0:
+                    name = stored[cut + 1:]
+                    # str.lower is LIKE's folding for ASCII text, and quicker
+                    name = name.lower() if name.isascii() else name.translate(fold)
+                    if name in wanted and row_id > newest.get(name, -1):
+                        newest[name] = row_id
+        winners = {path: newest.get(name) for path, name in by_name.items()}
+        ids = sorted({row_id for row_id in winners.values() if row_id is not None})
+        rows = {}
+        for start in range(0, len(ids), cls._ID_LOOKUP_CHUNK):
+            chunk = ids[start:start + cls._ID_LOOKUP_CHUNK]
+            cursor.execute(f"SELECT * FROM track_downloads WHERE id IN ({','.join('?' for _ in chunk)})", chunk)
+            for row in cursor.fetchall():
+                record = as_dict(row)
+                rows[record['id']] = record
+        for path, row_id in winners.items():
+            found[path] = rows.get(row_id) if row_id is not None else None
+        return found
 
     def backfill_track_external_ids_from_provenance(self, track_id: str, file_path: Optional[str]) -> int:
         """Copy external IDs from ``track_downloads`` onto a ``tracks`` row.
