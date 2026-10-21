@@ -110,7 +110,12 @@ export function ArtistMenu({
         <MoreIcon vertical={variant === 'bare'} />
       </Menu.Trigger>
       <Menu.Portal>
-        <Menu.Positioner className={styles.menuPositioner} align="end" sideOffset={6}>
+        <Menu.Positioner
+          className={styles.menuPositioner}
+          align="end"
+          sideOffset={6}
+          collisionPadding={12}
+        >
           <Menu.Popup className={styles.menu}>
             {shown.map((entry) => {
               if ('separator' in entry) {

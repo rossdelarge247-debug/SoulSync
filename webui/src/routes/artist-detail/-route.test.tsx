@@ -411,6 +411,30 @@ describe('the header', () => {
     expect(screen.queryByText(/Following since/)).toBeNull();
   });
 
+  it('falls back from the artist photo to Deezer’s, then the placeholder', async () => {
+    stubApi({
+      detail: detail({
+        artist: {
+          id: 42,
+          name: 'Pale Harbour',
+          server_source: 'plex',
+          image_url: 'https://img/ph.jpg',
+          deezer_id: 77,
+        },
+      }),
+    });
+    renderArtist();
+    await screen.findByRole('heading', { level: 1, name: 'Pale Harbour' });
+    const img = () => document.querySelector('header img');
+    await waitFor(() => expect(img()).toHaveAttribute('src', 'https://img/ph.jpg'));
+    fireEvent.error(img()!);
+    await waitFor(() =>
+      expect(img()).toHaveAttribute('src', 'https://api.deezer.com/artist/77/image?size=big'),
+    );
+    fireEvent.error(img()!);
+    await waitFor(() => expect(img()).toBeNull());
+  });
+
   it('says an artist who is not in the library is not, and runs no library check', async () => {
     stubApi({
       detail: detail({ artist: { id: 'dz1', name: 'Pale Harbour' }, spotify_artist: undefined }),
@@ -954,13 +978,33 @@ describe('the "…" menu keeps what the old page did', () => {
     expect(window.playArtistRadio).toHaveBeenCalled();
   });
 
-  it('tells the artist’s story in About', async () => {
+  it('tells the artist’s story in About, with what the followed-artist check knows', async () => {
+    fixture.handlers.push((call) =>
+      call.path === '/api/watchlist/artist/sp-artist-ph/config'
+        ? json({
+            success: true,
+            config: {},
+            artist: {
+              id: 'sp-artist-ph',
+              name: 'Pale Harbour',
+              followers: 52000,
+              popularity: 64,
+              label: 'Tide Records',
+            },
+          })
+        : undefined,
+    );
     renderArtist();
     await ready();
     await choose('More actions for Pale Harbour', 'About Pale Harbour…');
     const dialog = await screen.findByRole('dialog', { name: 'About Pale Harbour' });
     expect(within(dialog).getByText('A four-piece from the north coast.')).toBeInTheDocument();
     expect(within(dialog).getByText('182.3K')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/Following since March 2025 · last checked/),
+    ).toBeInTheDocument();
+    expect(await within(dialog).findByText('52,000')).toBeInTheDocument();
+    expect(within(dialog).getByText('Tide Records')).toBeInTheDocument();
   });
 
   it('removes the artist from the library only after a danger confirm', async () => {

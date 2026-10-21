@@ -198,6 +198,8 @@ export interface AboutFacts {
   formats: string[];
   links: { key: string; label: string; url: string }[];
   following: { since: string; lastChecked: string } | null;
+  /** What the followed-artist check knows (the old Wanted panel): followers, popularity, style, mood, label. */
+  followedFacts?: { label: string; value: string }[];
 }
 
 /**
@@ -290,6 +292,12 @@ export function AboutDialog({
                 </dd>
               </>
             ) : null}
+            {(facts.followedFacts ?? []).map((fact) => (
+              <span key={fact.label} style={{ display: 'contents' }}>
+                <dt>{fact.label}</dt>
+                <dd>{fact.value}</dd>
+              </span>
+            ))}
             {facts.links.length > 0 ? (
               <>
                 <dt>Matched on</dt>

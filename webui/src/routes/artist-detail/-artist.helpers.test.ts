@@ -276,6 +276,11 @@ describe('card states', () => {
       '2024 · Single',
     );
     expect(formatLabel(['FLAC', 'MP3-320'])).toBe('FLAC and 1 more');
+    const explicit = buildReleases(
+      disc({ albums: [{ id: 'x', title: 'X', year: 2020, explicit: true }] }),
+      NOW,
+    )[0];
+    expect(releaseMeta(explicit, { kind: 'missing' })).toBe('2020 · Album · Explicit');
   });
 
   it('filters: Albums are albums, Missing is anything not fully in the library', () => {

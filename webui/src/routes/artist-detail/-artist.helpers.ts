@@ -447,6 +447,8 @@ export function releaseMeta(release: ArtistRelease, state: CardState, short = fa
     const format = formatLabel(release.formats);
     if (format) parts.push(format);
   }
+  // the old card's "E" badge, as a word
+  if (!short && release.raw.explicit === true) parts.push('Explicit');
   return parts.filter(Boolean).join(' · ');
 }
 

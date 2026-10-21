@@ -13,7 +13,7 @@ import { useModuleOff } from '@/features/modules/module-gate';
 import { profileAsksFirst } from '@/platform/shell/download-rights';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
-import type { ArtistTab, Discography, ReleaseFilter } from '../-artist-detail.types';
+import type { ArtistInfo, ArtistTab, Discography, ReleaseFilter } from '../-artist-detail.types';
 import type { ArtistRelease, CardState, QualityAlbum } from '../-artist.helpers';
 import type { WishlistApiTrack } from '../../wanted/-wanted.helpers';
 
@@ -35,7 +35,14 @@ import {
   type DiscographyFilterState,
 } from '../-artist-detail.filters';
 import { mergeGapReleases } from '../-artist-detail.gap-fill';
-import { heroImage, resolvedCategoryStats } from '../-artist-detail.hero-stats';
+import {
+  heroImage,
+  type HeroImage,
+  type HeroImageStage,
+  heroImageSrc,
+  nextHeroImageStage,
+  resolvedCategoryStats,
+} from '../-artist-detail.hero-stats';
 import { showsFixMatchButton } from '../-artist-detail.matches';
 import { syncResultMessage } from '../-artist-detail.meta';
 import { scrollArtistDetailToTop } from '../-artist-detail.scroll';
@@ -71,6 +78,7 @@ import { useReleaseActions } from '../-artist.release-actions';
 import { whyItFailed } from '../../wanted/-wanted.helpers';
 import { WatchlistArtistConfigModal } from '../../watchlist/-ui/watchlist-artist-config-modal';
 import {
+  watchlistArtistConfigQueryOptions,
   watchlistArtistsQueryOptions,
   watchlistGlobalConfigQueryOptions,
 } from '../../watchlist/-watchlist.api';
@@ -129,11 +137,35 @@ function CheckIcon() {
   );
 }
 
-function HeaderArt({ src }: { src: string }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
-  if (!src || failed) return <span className={styles.art} aria-hidden="true" />;
-  return <img className={styles.art} src={src} alt="" onError={() => setFailed(true)} />;
+/**
+ * The artist's photo with the old hero's fallbacks: their own image, then
+ * Deezer's, then the first release cover, then the plain placeholder.
+ */
+function HeaderArt({
+  artist,
+  image,
+  applied,
+}: {
+  artist: ArtistInfo;
+  image: HeroImage | null;
+  applied: string | null;
+}) {
+  const [stage, setStage] = useState<HeroImageStage>('primary');
+  const primary = applied || image?.primary || '';
+  useEffect(() => setStage(primary ? 'primary' : 'fallback'), [primary]);
+  if (!image || stage === 'fallback' || !primary) {
+    return <span className={styles.art} aria-hidden="true" />;
+  }
+  const src = stage === 'primary' ? primary : heroImageSrc(stage, artist, image);
+  return (
+    <img
+      key={stage}
+      className={styles.art}
+      src={src}
+      alt=""
+      onError={() => setStage((s) => (applied ? 'fallback' : nextHeroImageStage(s, artist, image)))}
+    />
+  );
 }
 
 /** Card-shaped placeholders, in the grid's real shape (faded behind a failure). */
@@ -150,6 +182,30 @@ function CardSkeletons({ count, faded = false }: { count: number; faded?: boolea
       ))}
     </div>
   );
+}
+
+/** Followers, popularity, style, mood and label from the followed-artist check. */
+function followedFacts(
+  artist:
+    | {
+        followers?: number | null;
+        popularity?: number | null;
+        style?: string | null;
+        mood?: string | null;
+        label?: string | null;
+      }
+    | null
+    | undefined,
+): { label: string; value: string }[] {
+  if (!artist) return [];
+  const facts: { label: string; value: string }[] = [];
+  if (artist.followers)
+    facts.push({ label: 'Followers', value: artist.followers.toLocaleString() });
+  if (artist.popularity) facts.push({ label: 'Popularity', value: `${artist.popularity} of 100` });
+  if (artist.style) facts.push({ label: 'Style', value: artist.style });
+  if (artist.mood) facts.push({ label: 'Mood', value: artist.mood });
+  if (artist.label) facts.push({ label: 'Label', value: artist.label });
+  return facts;
 }
 
 /** Search params without the defaults, so a default never sits in the URL. */
@@ -235,6 +291,10 @@ export function ArtistPage() {
   const tab: ArtistTab = search.tab ?? 'releases';
   const filter: ReleaseFilter = search.show ?? 'all';
   const asksFirst = profileAsksFirst();
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [appliedPhoto, setAppliedPhoto] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const go = (patch: Record<string, unknown>, options?: { replace?: boolean }) =>
     void navigate({
@@ -338,6 +398,15 @@ export function ArtistPage() {
     enabled: follow.following,
   });
 
+  // what the followed-artist check knows about them, for About (read when it opens)
+  const followedConfig = useQuery({
+    ...watchlistArtistConfigQueryOptions(
+      profileId,
+      followedRow ? (primaryArtistId(followedRow) ?? '') : '',
+    ),
+    enabled: dialog === 'about' && Boolean(followedRow && primaryArtistId(followedRow)),
+  });
+
   const similar = useQuery(similarArtistsQueryOptions(payload?.artist?.name ? artistName : ''));
   const topTracks = useQuery(
     topTracksQueryOptions(payload?.artist?.id, payload?.artist?.name ? artistName : ''),
@@ -388,10 +457,6 @@ export function ArtistPage() {
     };
   }, [payload]);
 
-  const [dialog, setDialog] = useState<Dialog>(null);
-  const [appliedPhoto, setAppliedPhoto] = useState<string | null>(null);
-  const [removing, setRemoving] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   useEffect(() => {
     setDialog(null);
     setAppliedPhoto(null);
@@ -601,7 +666,7 @@ export function ArtistPage() {
 
   const header = (
     <header className={styles.header}>
-      <HeaderArt src={payload ? photo : ''} />
+      <HeaderArt artist={artist} image={payload ? image : null} applied={appliedPhoto} />
       <div className={styles.headText}>
         <p className={styles.label}>Artist</p>
         {artistName ? (
@@ -979,6 +1044,7 @@ export function ArtistPage() {
                   : 'not checked yet',
               }
             : null,
+          followedFacts: followedFacts(followedConfig.data?.artist),
         }}
         onClose={() => setDialog(null)}
       >
