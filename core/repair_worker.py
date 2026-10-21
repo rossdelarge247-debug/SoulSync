@@ -54,6 +54,9 @@ RESOLVED_RECURRENCE_GRACE_DAYS = 7
 _ABSENCE_IS_THE_FINDING = frozenset({'dead_file', 'empty_folder'})
 
 
+# Action-plan tool name for a confirmed bulk fix (core.library.action_plans).
+REPAIR_BULK_FIX_TOOL = 'repair_bulk_fix'
+
 DESTRUCTIVE_FINDING_TYPES = frozenset({
     'orphan_file',            # default 'staging' MOVES the file; 'delete' removes it
     'dead_file',              # 'remove' drops the library row + file
@@ -6270,6 +6273,102 @@ class RepairWorker:
     # before the loop ends while the server quietly keeps fixing, so the
     # user is told it failed while it's actually still working. These run
     # the same loop on a worker thread instead; the UI polls for progress.
+
+    # ------------------------------------------------------------------
+    # Preview-then-confirm for bulk fixes that move or delete files
+    # ------------------------------------------------------------------
+    # A bulk run over DESTRUCTIVE_FINDING_TYPES must be confirmed against a
+    # preview: the API refuses it without a plan id from preview_bulk_fix(),
+    # and a confirmed run fixes exactly the previewed findings (still pending)
+    # with the previewed action. Single-finding fixes are not gated — that is
+    # one explicit click on one item.
+
+    def preview_bulk_fix(self, job_id: str = None, severity: str = None,
+                         finding_ids: List[int] = None, fix_action: str = None,
+                         finding_type: str = None, safe_only: bool = False) -> dict:
+        """What a bulk fix with these filters WOULD do, finding by finding,
+        recorded as a plan. Changes nothing.
+
+        Returns the plan summary (``plan_id``, ``total``, ``counts`` per
+        action, ``sample`` items with ``path`` / ``reason``) plus
+        ``destructive`` (how many items move or delete files) and
+        ``per_type``. ``{'invalid': True, ...}`` for an action spanning types,
+        ``total == 0`` (and no plan id) when nothing matches."""
+        from core.library.action_plans import plan_store
+        ids = self._pending_fixable_ids(
+            job_id=job_id, severity=severity, finding_ids=finding_ids,
+            finding_type=finding_type, safe_only=safe_only)
+        types = self._types_for_findings(ids)
+        if fix_action and len(set(types.values())) > 1:
+            return {'invalid': True, 'error': (
+                f"'{fix_action}' would be applied to {len(set(types.values()))} different finding "
+                "types. Narrow the run to a single type, or run it without an action.")}
+        rows = self._finding_rows_for_plan(ids)
+        items = []
+        for fid in ids:
+            row = rows.get(fid) or {}
+            ftype = row.get('finding_type') or types.get(fid) or ''
+            meta = FINDING_TYPE_META.get(ftype, {})
+            items.append({
+                'finding_id': fid,
+                'finding_type': ftype,
+                'path': row.get('file_path') or '',
+                'action': fix_action or meta.get('verb') or 'fix',
+                'reason': row.get('title') or meta.get('label') or ftype,
+                'destructive': ftype in DESTRUCTIVE_FINDING_TYPES,
+            })
+        if not items:
+            return {'total': 0, 'plan_id': None, 'destructive': 0, 'per_type': {},
+                    'counts': {}, 'by_reason': {}, 'sample': [], 'truncated': False}
+        plan = plan_store.create(REPAIR_BULK_FIX_TOOL, items, meta={
+            'ids': list(ids), 'fix_action': fix_action})
+        summary = plan.summary()
+        per_type: Dict[str, int] = {}
+        for item in items:
+            per_type[item['finding_type']] = per_type.get(item['finding_type'], 0) + 1
+        summary['per_type'] = per_type
+        summary['destructive'] = sum(1 for i in items if i['destructive'])
+        return summary
+
+    def _finding_rows_for_plan(self, ids: List[int]) -> Dict[int, dict]:
+        if not ids:
+            return {}
+        conn = None
+        try:
+            conn = self.db._get_connection()
+            cursor = conn.cursor()
+            placeholders = ','.join(['?'] * len(ids))
+            cursor.execute(
+                f"SELECT id, finding_type, file_path, title FROM repair_findings WHERE id IN ({placeholders})",
+                list(ids))
+            return {row[0]: {'finding_type': row[1], 'file_path': row[2], 'title': row[3]}
+                    for row in cursor.fetchall()}
+        except Exception as e:
+            logger.debug("Could not read findings for a bulk-fix preview: %s", e)
+            return {}
+        finally:
+            if conn:
+                conn.close()
+
+    def bulk_fix_needs_plan(self, job_id: str = None, severity: str = None,
+                            finding_ids: List[int] = None, finding_type: str = None,
+                            safe_only: bool = False) -> bool:
+        """True when this selection would move or delete files, so a bulk run
+        of it must come with a confirmed preview."""
+        if safe_only:
+            return False
+        ids = self._pending_fixable_ids(
+            job_id=job_id, severity=severity, finding_ids=finding_ids,
+            finding_type=finding_type, safe_only=False)
+        return bool(set(self._types_for_findings(ids).values()) & DESTRUCTIVE_FINDING_TYPES)
+
+    @staticmethod
+    def consume_bulk_fix_plan(plan_id: str) -> dict:
+        """The finding ids and action a confirmed preview authorised. Raises
+        ``PlanError`` for a missing / used / expired plan."""
+        from core.library.action_plans import plan_store
+        plan = plan_store.consume(plan_id, REPAIR_BULK_FIX_TOOL)
+        return {'ids': list(plan.meta.get('ids') or []), 'fix_action': plan.meta.get('fix_action')}
 
     def start_bulk_fix(self, job_id: str = None, severity: str = None,
                        finding_ids: List[int] = None, fix_action: str = None,
