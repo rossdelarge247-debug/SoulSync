@@ -11,9 +11,9 @@
  *
  *   - **Static assets** (/static/*.js, /static/*.css, /static/*.png):
  *     stale-while-revalidate. Serve from cache instantly, refresh in
- *     the background. Combined with the existing ?v=static_v cache
- *     bust, deploys still ship live — a new query string means a
- *     different cache entry, the old one ages out naturally.
+ *     the background. Combined with the per-file ?v=<content hash>
+ *     cache bust, deploys still ship live — a changed file gets a new
+ *     query string, so a different cache entry; the old one ages out.
  *
  *   - **Everything else** (HTML, /api/*, etc.): no caching. Pass
  *     through to the network. We deliberately do NOT cache HTML or

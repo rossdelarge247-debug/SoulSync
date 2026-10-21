@@ -8,8 +8,8 @@ import { defineConfig } from 'vite';
  * synchronous classic <script> - the remaining vanilla scripts and inline
  * onclick handlers consume its window globals, and a deferred `type="module"`
  * bundle would run after them. Fixed filename (no hash): index.html loads it
- * through url_for with v=static_v, the same cache-busting every static file
- * uses.
+ * through url_for, which adds ?v=<hash of the file>, the same cache-busting
+ * every static file uses.
  *
  * Runs AFTER the react build in `npm run build` - the react build empties
  * static/dist, so order matters.
