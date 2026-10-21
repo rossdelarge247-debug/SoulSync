@@ -280,7 +280,9 @@ export function useDeepScanFlow({ onStarted }: { onStarted?: () => void } = {}):
             title: 'Nothing was moved',
             body:
               report?.message ||
-              'The deep scan finished, but the preview could no longer be used, so no files moved. Preview again to move them.',
+              (report?.mode === 'preview'
+                ? 'The deep scan finished, but the preview could no longer be used, so no files moved. Preview again to move them.'
+                : status.phase || 'The deep scan finished without moving any files.'),
           });
         }
       } catch {
