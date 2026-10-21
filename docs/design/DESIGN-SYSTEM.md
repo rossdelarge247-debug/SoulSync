@@ -24,21 +24,77 @@ Weights: 400 body, 500 controls, 600 headings, 700 page titles and big numbers. 
 - **Ground:** page `#0c0c0c`, sidebar `#101010`.
 - **Surfaces** are white washes: card `rgba(255,255,255,0.04)` with a `0.09` border; hairline `0.08`; control border `0.16`; input and checkbox border at least `0.24`, which meets 3:1.
 - **Text:** primary `#ffffff`; secondary `rgba(255,255,255,0.72–0.86)`; meta `0.62`. Never below `0.60`, which keeps 4.5:1 on cards.
-- **Accent** is the user's choice. Use the light variant (the accent with +16% HSL lightness, called `accent-light` in code) for:
+- **Accent** is the user's choice. Use the light variant (the accent with +16% HSL lightness, capped at 95%, called `accent-light` in code) for:
     - links and accent text;
     - primary button fills, with **dark text** (`#0b0b0f`), which passes for all 7 presets (white on the accent fails for all of them);
     - focus.
 
   Selected states use a 14% accent wash with a 45% accent border.
-- **Status:** success `#4ade80`, warning `#fbbf24`, danger `#f87171`, info `#38bdf8`. Tags use the colour at 12% as the background and the colour as the text. Status always comes with a word, and an icon where there's room.
+
+  The presets (Settings → Appearance, `#accent-preset` in `index.html`), with the accent-light the app computes for each and the contrast of `#0b0b0f` on it:
+
+  | Preset | Accent | Accent-light | Dark text on accent-light |
+  | --- | --- | --- | --- |
+  | Spotify Green (default) | `#1db954` | `#46e27d` | 11.6:1 |
+  | Ocean Blue | `#1d8ab9` | `#46b3e2` | 8.2:1 |
+  | Purple | `#a78bfa` | `#e2d9fd` | 14.6:1 |
+  | Boulder Purple | `#8b5cf6` | `#c2a9fa` | 9.7:1 |
+  | Sunset Orange | `#f59e0b` | `#f8bd59` | 11.6:1 |
+  | Rose | `#f43f5e` | `#f88c9f` | 8.6:1 |
+  | Teal | `#14b8a6` | `#35e9d5` | 12.9:1 |
+
+  There is also "Custom" (any hex). The server (`web_server.py`) and `init.js` (`applyAccentColor`) compute the pair; CSS reads them as `--ss-accent-rgb` and `--ss-accent-light-rgb`.
+- **Status:** success `#4ade80`, warning `#fbbf24`, danger `#f87171`, info `#38bdf8`, neutral 86% white on a 6% wash. Tags use the colour at 12% as the background and the colour as the text, with an 8px dot. Status always comes with a word, and an icon where there's room.
+- **Grounds:** dialogs `#17171c`, note cards and popovers `#141416`, the scrim behind a dialog `#0a0c11`, sample-table headers in a dialog `#1d1d23`.
 - No gradient washes, no left-border accent cards, no emoji.
 
 ## Shape and space
 
 - **Radii:** 6px tags, 10px controls and buttons, 14px cards, 16px dialogs. Circles only for avatars and status dots. No pill-shaped statuses or option buttons.
-- **Touch targets:** at least 44px tall for buttons, switches and nav items.
-- **Spacing:** cards pad 20–24px; gaps 8, 12, 16 or 24px; page gutter 40px on desktop, 16px on phones.
+- **Touch targets:** at least 44px tall for buttons, switches, nav items and row actions. The shared `Button` size `lg` is 44px; use it for page and dialog actions.
+- **Spacing:** cards pad 20–24px; gaps 8, 12, 16 or 24px; page gutter 40px on desktop, **12px on phones** (the app's shared page padding).
 - **Layout:** pages are fluid, max content width about 1200px; sidebar plus content wrap to one column on phones; wide tables scroll inside their own box.
+
+## Tokens
+
+`webui/static/tokens.css` is the one global `:root`, loaded first by `index.html`, so the legacy sheets and the React CSS modules read the same values. The design system's tokens are the `--ss-*` names:
+
+| Group | Tokens |
+| --- | --- |
+| Accent | `--ss-accent-rgb`, `--ss-accent-light-rgb` (comma triples for `rgba(var(--x), a)`) |
+| Ground | `--ss-ground-page`, `--ss-ground-sidebar`, `--ss-ground-dialog`, `--ss-ground-note`, `--ss-ground-scrim`, `--ss-ground-table-head` |
+| Surfaces | `--ss-surface-card`, `--ss-surface-card-border`, `--ss-surface-quiet`, `--ss-hairline`, `--ss-control-fill`, `--ss-control-fill-hover`, `--ss-control-border`, `--ss-input-fill`, `--ss-input-border`, `--ss-input-border-hover`, `--ss-hover-wash`, `--ss-row-hover` |
+| Text | `--ss-text`, `--ss-text-secondary` (0.86), `--ss-text-tertiary` (0.72), `--ss-text-meta` (0.62), `--ss-text-on-accent` (`#0b0b0f`) |
+| Status | `--ss-success`, `--ss-info`, `--ss-warning`, `--ss-danger` (each with an `-rgb` triple), `--ss-neutral`, `--ss-neutral-fill` |
+| States | `--ss-selected-fill`, `--ss-selected-border`, `--ss-focus-ring`, `--ss-focus-offset`, `--ss-focus-offset-inset`, `--ss-input-focus-border`, `--ss-input-error-border`, `--ss-disabled-fill`, `--ss-disabled-border`, `--ss-disabled-text`, `--ss-pressed-opacity`, `--ss-pressed-opacity-primary` |
+| Radii | `--ss-radius-tag` 6, `--ss-radius-control` 10, `--ss-radius-card` 14, `--ss-radius-dialog` 16 |
+| Spacing | `--ss-gutter` 40, `--ss-gutter-phone` 12 |
+| Motion | `--ss-motion` (120ms, 0 under `prefers-reduced-motion`), `--ss-ease`, `--ss-transition`, `--ss-live-pulse` (1.6s, with the `ss-live-pulse` keyframes) |
+
+The older names in the same file (`--accent-rgb`, `--white-a*`, `--radius-*`) stay for the rules that already read them.
+
+## Interaction states
+
+Every control follows these. Transitions are 120ms ease on background, border and opacity only (`--ss-transition`); nothing animates layout, and `prefers-reduced-motion` turns the transitions, the live-dot pulse and the switch knob stretch off.
+
+| State | Rule | Notes |
+| --- | --- | --- |
+| Hover | +6% white wash | A filled secondary goes 6% → 10%; a 4% row or card goes to 8%. The primary button drops to 92% opacity instead. |
+| Focus (keyboard) | `:focus-visible` only: `outline: 2px solid` accent-light, `outline-offset: 2px` | Inside list rows the offset is `-2px`, so the rounded list doesn't clip it. Never shows on a mouse click. |
+| Focus (inputs) | The border turns accent-light at 60%; no outline, no glow | Inputs show focus whatever the pointer, because you type into them. |
+| Pressed | Hover plus 92% opacity (primary 84%) | No translate, no scale. The switch knob stretches to 22px, the one bit of motion. |
+| Selected | 14% accent wash, 45% accent border | `aria-pressed`, `aria-selected` or `aria-current`. |
+| Disabled | Neutral, at full opacity: the primary goes to a 6% fill, 16% border and 62% text; secondary and option buttons to 3% / 10% / 62% | **Never a faded accent.** Write the reason beside it, and use `aria-disabled` (not `disabled`) where the reason must stay focusable. |
+| Input error | Danger border at 60%, the message under the field in `#f87171` at 14px | |
+| Status tags | Never react to hover | They aren't interactive, even inside a hovered row. |
+
+In React: `Button`'s `disabledReason` does the disabled rule in one prop (neutral style, `aria-disabled`, the reason rendered right after the button and linked with `aria-describedby`); `FormField`'s `error` marks its control invalid. Links are accent-light and underline on hover; they're never disabled (hide the action instead).
+
+## Loading, empty and failure
+
+- **Loading** says so in words beside the spinner ("Loading your list…", "Loading the last 7 days…"), as a live region, then shows placeholders in the content's real shape (rows of art, title, meta line and tag; a timeline's day label and rows). The page header, tabs and filters stay in place and usable. `LoadingState` + `SkeletonList`.
+- **Empty** keeps the page header and controls in place. A card with an 18px title, two sentences (what the list is for, then how things get onto it) and one primary action, at most one secondary. No illustration. `EmptyState variant="panel"`.
+- **Failure** is one pattern everywhere: a `Notice` with a `title`, in the colour of the problem. Danger means "this didn't work", warning "this is fine but needs a step from you". The title says what didn't happen, the sentence says why and whether anything is at risk, and the one or two actions that help sit beside it. A page that couldn't load keeps its header and tabs, and shows faded placeholders (`SkeletonList faded`) behind the Notice. Never show an error code alone.
 
 ## Icons
 
@@ -51,10 +107,37 @@ Use these before drawing new ones. Paths are under `webui/src/`.
 | Component | Where | Notes |
 | --- | --- | --- |
 | `PageHeader` | `components/page-header` | page title, subtitle, actions |
-| `Button`, `FormField`, `TextInput`, `TextArea`, `Select`, `Checkbox`, `Switch`, `RangeInput`, `OptionCard(Group)`, `OptionButton(Group)`, `FormError`, `FormActions` | `components/form` | Button primary is already dark text on `accent-light` |
-| `Badge`, `Notice`, `Spinner`, `Skeleton`, `EmptyState` | `components/primitives` | `Badge` is a pill; use `StatusTag` for statuses in new work |
-| `DialogFrame`, `DialogHeader`, `DialogBody`, `DialogFooter` | `components/dialog` | accessible modal |
-| `SafeActionDialog`, `StatusTag`, `GuardBox` | `features/safe-action` | preview, then confirm, for anything that moves or deletes files |
+| `Button`, `FormField`, `TextInput`, `TextArea`, `Select`, `Checkbox`, `Switch`, `RangeInput`, `OptionCard(Group)`, `OptionButton(Group)`, `FormError`, `FormActions` | `components/form` | Follow the interaction states above. Button primary is dark text on `accent-light`; size `lg` is 44px; `disabledReason` writes why it's disabled. `Select size="lg"` is the 44px select. `OptionButton` is the 44px option, tab or filter (10px radius). |
+| `StatusTag` | `components/primitives` | the status for new work: dot + word, `tone`, `live` for a slow pulse. Also exported from `features/safe-action`. |
+| `Notice` | `components/primitives` | with `title` (and `actions`) it's the failure / attention box; without, the compact note |
+| `LoadingState`, `SkeletonList`, `Spinner`, `Skeleton` | `components/primitives` | loading in words, then placeholders in the content's shape |
+| `EmptyState` | `components/primitives` | `variant="panel"` with `title`, `description`, `hint`, `actions` is the design-system empty state; the default is the older centred line |
+| `Badge` | `components/primitives` | a pill; use `StatusTag` for statuses in new work |
+| `DialogFrame`, `DialogHeader`, `DialogBody`, `DialogFooter` | `components/dialog` | accessible modal; 44px close button |
+| `SafeActionDialog`, `GuardBox` | `features/safe-action` | preview, then confirm, for anything that moves or deletes files |
+
+A page builder's loading and empty states, for example:
+
+```tsx
+{query.isPending ? (
+  <LoadingState label="Loading your list…" />
+) : query.isError ? (
+  <>
+    <Notice tone="danger" role="alert" title="Couldn't load your list"
+      actions={<Button size="lg" onClick={() => query.refetch()}>Try again</Button>}>
+      SoulSync didn't answer. Your list is safe; this is a display problem.
+    </Notice>
+    <SkeletonList rows={2} faded />
+  </>
+) : rows.length === 0 ? (
+  <EmptyState variant="panel" title="Nothing wanted yet"
+    description="Add tracks or albums you want and SoulSync looks for them on every scheduled search."
+    hint="You can add from Search, from a playlist, or from an artist page."
+    actions={<Button variant="primary" size="lg">Search for music</Button>} />
+) : (
+  <List rows={rows} />
+)}
+```
 
 ## Patterns already built
 
@@ -64,6 +147,8 @@ Use these before drawing new ones. Paths are under `webui/src/`.
     - Cancel, plus a button that names the action ("Move 214 files");
     - a done state afterwards.
 
-  Large moves show a warning box with an "I checked the list" checkbox that unlocks the button. Permanent deletes use `confirmTone="danger"`: dark text on `#f87171`, a title that says "Permanently delete …?" and a first line that says "This can't be undone."
+  The dialog is 680px wide, 16px radius, `#17171c`, with 44px footer buttons. Large moves show a warning box (14px radius, 35% border, 7% fill) with an "I checked the list" checkbox. Until it's ticked the confirm is the neutral disabled button, and the footer says why beside it ("Tick "I checked the list" to move the files."). Permanent deletes use `confirmTone="danger"`: dark text on `#f87171`, a title that says "Permanently delete …?" and a first line that says "This can't be undone."
+
+  A refused confirm keeps the dialog's title and fades the counts to 50%. A warning Notice says "This preview has expired" (409 `plan_expired`) or "This preview can no longer be used" (other plan codes), with the backend's sentence and "Nothing was moved or deleted."; the footer has Cancel and a primary "Preview again". Any other failure is a danger Notice, "That didn't go through", with Close.
 - **Setup check** (`routes/setup-check`): summary tiles, then checks grouped by area with problems first. Anything not OK gets a "How to fix it" box with copyable lines.
-- **Modules** (Settings → Modules): one row per module with a labelled switch ("On"/"Off" beside the colour). Turning one off asks first and says what disappears.
+- **Modules** (Settings → Modules, legacy page restyled in `static/modules.css`): a 14px card; one row per module on hairlines, with a 104 × 44px switch control (10px radius, a round 40 × 24px track inside, "On"/"Off" beside it). Turning one off asks first in a warning box with "Turn off X" and "Keep it on"; afterwards the row says so with a status dot; a restart notice shows when the server says it's needed. Non-admins see a dot and a word, no switch.
