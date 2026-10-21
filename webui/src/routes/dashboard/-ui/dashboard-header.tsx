@@ -1,9 +1,9 @@
 /**
- * The dashboard hero (Sept 2026 redesign): the greeting, the library's size
- * and controls on the left, and the 17 worker orbs + Manage Workers on their
- * own stage on the right. Watchlist/wishlist moved to the rail as tiles
- * (QuickNavTiles). The orb strip is transcribed 1:1 from the old index.html
- * and still pinned by the artefact differential against it.
+ * The enrichment workers (the 17 worker orbs + Manage Workers on their own
+ * stage) and the rail's watchlist/wishlist tiles (QuickNavTiles). On Home they
+ * sit under "Library and system"; the Home header replaced the old hero's
+ * greeting. The orb strip is transcribed 1:1 from the old index.html and still
+ * pinned by the artefact differential against it.
  *
  * Chrome vs behaviour: the ORB MARKUP is genuinely regular (same shape, per-orb
  * ids/classes/copy), so it is table-driven below — every difference is an
@@ -19,15 +19,12 @@
  * render, so the orb layer's captured element references never go stale.
  */
 
-import type { CSSProperties, ReactNode } from 'react';
-
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import type { CSSProperties } from 'react';
 
 import type { HeaderPill, HeaderPillId } from '../-dash.header';
 
 import { useDashboardHeader } from '../-dash.header';
-import { countBusyWorkers, greetingForHour, heroNumbers } from '../-dash.hello';
-import { lastDbStats, subscribeDbStats } from '../-dash.library';
+import { countBusyWorkers } from '../-dash.hello';
 
 interface OrbChrome {
   id: HeaderPillId;
@@ -519,76 +516,9 @@ function Orb({
   );
 }
 
-/**
- * The hero's left side: who's here, how big the library is, and the library
- * controls. The numbers are the db stats the library card publishes (zero
- * fetches of their own), each a shortcut to the library.
- */
-function HeroIntro({ library }: { library?: ReactNode }) {
-  const stats = useSyncExternalStore(subscribeDbStats, lastDbStats);
-
-  // The active profile's name, mirrored by init.js (set before the app
-  // mounts, so the plain read is fresh); the event re-reads it on an
-  // in-session profile switch.
-  const [profileName, setProfileName] = useState((window._currentProfileName ?? '').trim());
-  useEffect(() => {
-    const onProfileChange = () => setProfileName((window._currentProfileName ?? '').trim());
-    window.addEventListener('ss:webui-profile-context-changed', onProfileChange);
-    return () => window.removeEventListener('ss:webui-profile-context-changed', onProfileChange);
-  }, []);
-
-  const greeting = greetingForHour(new Date().getHours());
-  const numbers = heroNumbers(stats);
-  // The date eyebrow above the greeting — the quiet editorial kicker.
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  });
-  // Two-tone greeting: the moment in muted lead, the name in full white.
-  // A question keeps its mark at the end: "up late, Boulder?" — the same
-  // strings greetingLine produced, split for styling, not reworded.
-  const question = greeting.endsWith('?');
-  const lead = question ? greeting.slice(0, -1) : greeting;
-  return (
-    <div className="header-text header-hello dash-hero-main">
-      <p className="dash-hero-eyebrow">{today}</p>
-      <h2 className="hello-greeting">
-        <span>
-          {profileName ? (
-            <>
-              <span className="hello-greet-lead">{lead}, </span>
-              <span className="hello-greet-name">{profileName}</span>
-              {question ? '?' : null}
-            </>
-          ) : (
-            greeting
-          )}
-        </span>
-      </h2>
-      {numbers.length ? (
-        <div className="hello-stats dash-hero-numbers">
-          {numbers.map((n) => (
-            <button
-              key={n.id}
-              type="button"
-              className="hello-stat dash-hero-number"
-              onClick={() => void window.navigateToPage?.('library')}
-            >
-              <span className="dash-hero-number-value">{n.value}</span>
-              <span className="dash-hero-number-label">{n.label}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {library}
-    </div>
-  );
-}
-
 /** The orbs' own stage. worker-orbs.js anchors its canvas here, orbits the
  * nucleus at the stage centre, and opens the worker grid on hover of the
- * stage only, so reading the greeting or pressing Scan never pops it. */
+ * stage only, so reading the panel around it never pops it. */
 function OrbStage({ header }: { header: DashboardHeaderState }) {
   const { pills, repairBadge, onOrbClick, jiosaavnVisible, hydrabaseVisible } = header;
   const busy = countBusyWorkers(pills);
@@ -635,30 +565,30 @@ function OrbStage({ header }: { header: DashboardHeaderState }) {
 
 type DashboardHeaderState = ReturnType<typeof useDashboardHeader>;
 
-/** The hero. The page owns the header hook (its counts also feed the rail's
- * watchlist/wishlist tiles), so this is a view over that state. */
-export function DashboardHeaderView({
-  header,
-  library,
-}: {
-  header: DashboardHeaderState;
-  library?: ReactNode;
-}) {
+/**
+ * The workers on Home ("Library and system"): the orb stage under a heading.
+ * The `dashboard-header` class stays on the panel for the tour, which points
+ * at `.dashboard-header .header-actions`; worker-orbs.js finds the stage
+ * itself (`#dashboard-page .orb-stage`). The page owns the header hook (its
+ * counts also feed the rail's watchlist/wishlist tiles), so this is a view
+ * over that state.
+ */
+export function EnrichmentWorkers({ header }: { header: DashboardHeaderState }) {
   return (
-    <div className="dashboard-header dash-hero">
-      <div className="dashboard-header-sweep" aria-hidden="true">
-        <span></span>
-      </div>
-      <HeroIntro library={library} />
+    <section
+      className="dashboard-header home-more-card home-more-workers"
+      aria-labelledby="home-workers-title"
+    >
+      <h3 className="home-more-card-title" id="home-workers-title">
+        Enrichment workers
+      </h3>
+      <p className="home-more-card-sub">
+        They fill in artist, album and track details from each service. Hover a worker to see what
+        it’s doing.
+      </p>
       <OrbStage header={header} />
-    </div>
+    </section>
   );
-}
-
-/** The hero on its own, owning the hook. */
-export function DashboardHeader({ library }: { library?: ReactNode }) {
-  const header = useDashboardHeader();
-  return <DashboardHeaderView header={header} library={library} />;
 }
 
 /** Watchlist + wishlist, as two quiet count tiles in the rail. The ids,

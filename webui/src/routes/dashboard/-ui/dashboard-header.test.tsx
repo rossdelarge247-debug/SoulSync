@@ -2,11 +2,11 @@
  * DashboardHeader — the artefact differential against the RECORDED vanilla
  * orb strip (dash-vanilla-fixture.html's .header-actions) plus the click seams.
  *
- * The Sept 2026 redesign rebuilt the header around it (a hero with the
- * greeting and library on the left, the orbs on their own stage on the
- * right, watchlist/wishlist moved to the rail as tiles). What worker-orbs.js
- * reads every frame, the orb containers, their buttons and tooltips, stays
- * pinned 1:1, now inside `.orb-stage`.
+ * The Sept 2026 redesign put the orbs on their own stage and moved
+ * watchlist/wishlist to the rail as tiles; Home (Oct 2026) moved the stage
+ * into the "Enrichment workers" panel under "Library and system". What
+ * worker-orbs.js reads every frame, the orb containers, their buttons and
+ * tooltips, stays pinned 1:1, inside `.orb-stage`.
  *
  * The differential walks both trees and compares tag, id, class list, the
  * attributes that matter (src/alt/title/aria-hidden/style.display) and
@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useDashboardHeader } from '../-dash.header';
 import { vanillaDashboardHtml } from './dash-artefact';
-import { DashboardHeaderView, QuickNavTiles } from './dashboard-header';
+import { EnrichmentWorkers, QuickNavTiles } from './dashboard-header';
 
 function extractVanillaOrbStrip(): string {
   const html = vanillaDashboardHtml();
@@ -108,13 +108,13 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'navigateToPage');
 });
 
-/** The hero plus the rail's tiles, sharing one header hook the way the page
- *  does. */
+/** The workers panel plus the rail's tiles, sharing one header hook the way
+ *  the page does. */
 function HeaderAndTiles() {
   const header = useDashboardHeader();
   return (
     <>
-      <DashboardHeaderView header={header} />
+      <EnrichmentWorkers header={header} />
       <QuickNavTiles header={header} />
     </>
   );
@@ -187,8 +187,9 @@ describe('the orb stage', () => {
     const view = await mountHeader();
     const stage = view.container.querySelector('.dashboard-header > .orb-stage')!;
     expect(stage.querySelector(':scope > .header-actions')).not.toBeNull();
-    // the greeting lives outside the stage, so orbs never drift over it
-    expect(stage.querySelector('.hello-greeting')).toBeNull();
+    // the panel's heading lives outside the stage, so orbs never drift over it
+    expect(stage.querySelector('h3')).toBeNull();
+    expect(view.getByRole('heading', { name: 'Enrichment workers' })).toBeInTheDocument();
   });
 
   it('says how many workers are busy', async () => {
@@ -197,23 +198,6 @@ describe('the orb stage', () => {
   });
 });
 
-describe('the hello strip', () => {
-  it('greets by the mirrored profile name, and plainly without one', async () => {
-    window._currentProfileName = 'BoulderBadgeDad';
-    const view = await mountHeader();
-    const greeting = view.container.querySelector('.hello-greeting span')!;
-    expect(greeting.textContent).toMatch(
-      /^(good (morning|afternoon|evening), BoulderBadgeDad|up late, BoulderBadgeDad\?)$/,
-    );
-    view.unmount();
-
-    delete window._currentProfileName;
-    const bare = await mountHeader();
-    expect(bare.container.querySelector('.hello-greeting span')!.textContent).toMatch(
-      /^(good (morning|afternoon|evening)|up late\?)$/,
-    );
-  });
-});
 describe('state rendering', () => {
   it('writes the pill state class onto the button and the strings into the tooltip', async () => {
     const view = await mountHeader();
