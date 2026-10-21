@@ -20,7 +20,9 @@ _ALLOWED = {_WEBUI / "src" / "features" / "safe-action" / "permanent-delete.ts"}
 
 def _client_sources():
     yield _WEBUI / "index.html"
-    yield from (_WEBUI / "static").rglob("*.js")
+    for path in (_WEBUI / "static").rglob("*.js"):
+        if "dist" not in path.relative_to(_WEBUI / "static").parts:   # the build of src/
+            yield path
     for path in (_WEBUI / "src").rglob("*"):
         if path.suffix not in (".ts", ".tsx", ".js"):
             continue
