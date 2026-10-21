@@ -1,7 +1,7 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 
 /**
- * The audiobook wishlist lives on the wishlist page, not here.
+ * The audiobook wishlist lives on the Wanted page (Wanted → Audiobooks), not here.
  *
  * It started out as its own page under /audiobooks because every other
  * audiobook file already lived here — convenience, not design. It left the app
@@ -10,6 +10,10 @@ import { createFileRoute, redirect } from '@tanstack/react-router';
  */
 export const Route = createFileRoute('/audiobooks/wishlist')({
   beforeLoad: () => {
-    throw redirect({ to: '/wishlist', search: { media: 'audiobooks' }, replace: true });
+    throw redirect({
+      to: '/wanted',
+      search: { tab: 'wanted', media: 'audiobooks' },
+      replace: true,
+    });
   },
 });

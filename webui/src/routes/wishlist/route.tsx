@@ -1,39 +1,12 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
-import { guardPageAccess } from '@/platform/shell/route-guard';
-
-import { WishlistPage } from './-ui/wishlist-page';
-import {
-  wishlistArtistPhotosQueryOptions,
-  wishlistCycleQueryOptions,
-  wishlistStatsQueryOptions,
-  wishlistTracksQueryOptions,
-} from './-wishlist.api';
+import { wantedSearchFromWishlist } from '../wanted/-wanted.redirects';
 import { wishlistSearchSchema } from './-wishlist.types';
 
+/** The Wishlist is the Wanted tab of /wanted now; old links keep what they meant. */
 export const Route = createFileRoute('/wishlist')({
   validateSearch: wishlistSearchSchema,
-  beforeLoad: ({ context }) => {
-    guardPageAccess(context.shell.bridge, 'wishlist');
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: '/wanted', search: wantedSearchFromWishlist(search), replace: true });
   },
-  loader: async ({ context }) => {
-    const { profile } = context.shell;
-    const { queryClient } = context;
-
-    // All five feed the first paint: the nebula needs both track categories,
-    // the header needs stats + cycle, and the orbs want the artist photos.
-    // allSettled, not all: this loader WARMS the cache for the first paint, it
-    // does not gate the route. A rejection here would hand the page to
-    // defaultErrorComponent ("Something went wrong") on any backend hiccup,
-    // where the vanilla page stayed usable. The components read the same
-    // failures through useQuery and render their own error states.
-    await Promise.allSettled([
-      queryClient.ensureQueryData(wishlistStatsQueryOptions(profile.profileId)),
-      queryClient.ensureQueryData(wishlistCycleQueryOptions(profile.profileId)),
-      queryClient.ensureQueryData(wishlistTracksQueryOptions(profile.profileId, 'albums')),
-      queryClient.ensureQueryData(wishlistTracksQueryOptions(profile.profileId, 'singles')),
-      queryClient.ensureQueryData(wishlistArtistPhotosQueryOptions(profile.profileId)),
-    ]);
-  },
-  component: WishlistPage,
 });

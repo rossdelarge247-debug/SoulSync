@@ -7,7 +7,9 @@ tracks at the threshold are marked, the count rolls up to the artist orb, the
 bar has a Failing-only chip, and both track surfaces offer the manual-search
 jump.
 
-The wishlist page is a React route now (webui/src/routes/wishlist), so these
+The wishlist is the Wanted tab of the React /wanted route now: the list and
+its "Not found yet" filter live in webui/src/routes/wanted, and the artist
+nebula (orbs, moons) is still drawn by webui/src/routes/wishlist/-ui. These
 assert against that source rather than api-monitor.js. The behaviour is
 unchanged; only its home moved. Two of the original assertions are gone on
 purpose and are recorded at the bottom.
@@ -23,7 +25,10 @@ _WL = _ROOT / "webui" / "src" / "routes" / "wishlist"
 _HELPERS = (_WL / "-wishlist.helpers.ts").read_text(encoding="utf-8", errors="replace")
 _TYPES = (_WL / "-wishlist.types.ts").read_text(encoding="utf-8", errors="replace")
 _ORB = (_WL / "-ui" / "wishlist-orb.tsx").read_text(encoding="utf-8", errors="replace")
-_PAGE = (_WL / "-ui" / "wishlist-page.tsx").read_text(encoding="utf-8", errors="replace")
+_WANTED = _ROOT / "webui" / "src" / "routes" / "wanted"
+_WANTED_TAB = (_WANTED / "-ui" / "wanted-tab.tsx").read_text(encoding="utf-8", errors="replace")
+_WANTED_HELPERS = (_WANTED / "-wanted.helpers.ts").read_text(encoding="utf-8", errors="replace")
+_NEBULA = (_WANTED / "-ui" / "legacy-views.tsx").read_text(encoding="utf-8", errors="replace")
 _CSS = (_ROOT / "webui" / "static" / "style.css").read_text(encoding="utf-8", errors="replace")
 
 
@@ -51,9 +56,14 @@ def test_failing_rollup_counts_albums_and_singles():
 
 
 def test_failing_filter_chip_is_wired():
-    assert "wlp-chip--warn" in _PAGE  # React rewrite renamed the old wl-failing-filter class
-    assert "failing: !prev.failing" in _PAGE
-    # and the filter respects the rollup
+    # the Failing chip is the Wanted tab's "Not found yet" filter now, at the
+    # same threshold
+    assert "{ key: 'not-found', label: 'Not found yet'" in _WANTED_TAB
+    assert "tries >= WL_FAILING_ATTEMPTS ? 'not-found' : 'searching'" in _WANTED_HELPERS
+    assert "filter === 'not-found' && (row.type !== 'wanted' || row.item.status !== 'not-found')" in _WANTED_HELPERS
+    # the nebula follows the same filter, and respects the rollup
+    assert "notFoundOnly={filter === 'not-found'}" in _WANTED_TAB
+    assert "notFoundOnly," in _NEBULA
     assert "failingOnly && group.failingCount === 0" in _HELPERS
 
 
