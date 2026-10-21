@@ -11,6 +11,9 @@
 
 import { useNavigate } from '@tanstack/react-router';
 
+import { ModuleOffNotice, useModuleOff } from '@/features/modules/module-gate';
+import { useProfile } from '@/platform/shell/route-controllers';
+
 import { Route } from '../route';
 import { ActiveDownloadsPage } from './active-downloads-page';
 import { VideoDownloadsView } from './video-downloads-view';
@@ -20,6 +23,10 @@ export type DownloadsMedia = 'music' | 'video';
 export function UnifiedDownloadsPage() {
   const { media } = Route.useSearch();
   const navigate = useNavigate();
+  const profile = useProfile();
+  // the Video module turned off: no Video tab, and an old ?media=video link
+  // says so rather than loading a view whose API answers 409
+  const videoOff = useModuleOff('video');
 
   const setMedia = (next: DownloadsMedia) => {
     if (next === media) return;
@@ -42,19 +49,27 @@ export function UnifiedDownloadsPage() {
           >
             🎵 Music
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={media === 'video'}
-            className={`adl-view-tab${media === 'video' ? ' active' : ''}`}
-            onClick={() => setMedia('video')}
-          >
-            🎬 Video
-          </button>
+          {videoOff ? null : (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={media === 'video'}
+              className={`adl-view-tab${media === 'video' ? ' active' : ''}`}
+              onClick={() => setMedia('video')}
+            >
+              🎬 Video
+            </button>
+          )}
         </div>
       </div>
 
-      {media === 'video' ? <VideoDownloadsView /> : <ActiveDownloadsPage />}
+      {media !== 'video' ? (
+        <ActiveDownloadsPage />
+      ) : videoOff ? (
+        <ModuleOffNotice module={videoOff} isAdmin={profile.isAdmin} />
+      ) : videoOff === null ? (
+        <VideoDownloadsView />
+      ) : null}
     </div>
   );
 }

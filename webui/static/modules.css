@@ -1,0 +1,375 @@
+/* Module switches (core/modules.py; src/shell/modules.ts).
+
+   1. Settings → Modules: one row per module with its on/off switch, the
+      "turn it off?" confirmation, the result line and the restart notice.
+   2. The "turned off" notice a module's page shows in place of itself: the
+      legacy #chat-page and the React module pages render the same markup.
+
+   The sidebar entries are hidden by the #soulsync-module-guard <style>
+   (index.html head script + src/shell/modules.ts), not by rules here.
+
+   Dark only. Reading text is 14px or larger (the uppercase labels are 12px),
+   radii come from tokens.css, every status pairs its colour with a word, and
+   the primary buttons put dark text on the accent, like Save Settings. */
+
+/* ── 1. Settings → Modules ─────────────────────────────────────────────── */
+
+#settings-page .modules-settings .modules-intro {
+    max-width: 72ch;
+    margin: 0 0 8px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--white-a80);
+}
+#settings-page .modules-settings .modules-apply-note {
+    margin: 0 0 18px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--white-a65);
+}
+#settings-page .modules-settings .modules-readonly-note,
+#settings-page .modules-settings .modules-load-error {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--white-a12);
+    border-radius: var(--radius-lg);
+    background: var(--white-a04);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--white-a85);
+}
+#settings-page .modules-settings .modules-load-error {
+    border-color: rgba(var(--danger-rgb), 0.4);
+    background: rgba(var(--danger-rgb), 0.08);
+}
+#settings-page .modules-settings .modules-readonly-note[hidden],
+#settings-page .modules-settings .modules-load-error[hidden] {
+    display: none;
+}
+#settings-page .modules-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--white-a09);
+}
+#settings-page .module-row {
+    padding: 18px 0;
+    border-bottom: 1px solid var(--white-a09);
+}
+#settings-page .module-row:last-child {
+    padding-bottom: 2px;
+    border-bottom: 0;
+}
+#settings-page .module-row-main {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+}
+#settings-page .module-row-text {
+    flex: 1;
+    min-width: 0;
+}
+#settings-page .module-row-name {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 650;
+    line-height: 1.35;
+    color: #fff;
+}
+#settings-page .module-row-desc {
+    max-width: 72ch;
+    margin: 6px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--white-a70);
+}
+#settings-page .module-row-desc:empty {
+    display: none;
+}
+#settings-page .module-row-control {
+    flex: none;
+}
+
+/* The switch: a real button (role="switch", aria-checked) with its state
+   written next to the track. 44px tall so it is easy to hit. */
+#settings-page .module-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 104px;
+    min-height: 44px;
+    padding: 0 16px 0 10px;
+    border: 1px solid var(--white-a15);
+    border-radius: var(--radius-pill);
+    background: var(--white-a04);
+    color: #fff;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease-standard),
+        background var(--dur-fast) var(--ease-standard);
+}
+#settings-page .module-switch:hover:not([aria-disabled="true"]) {
+    border-color: rgba(var(--accent-rgb), 0.55);
+    background: var(--white-a06);
+}
+#settings-page .module-switch[aria-disabled="true"] {
+    cursor: progress;
+}
+#settings-page .module-switch-track {
+    position: relative;
+    flex: none;
+    width: 40px;
+    height: 24px;
+    border-radius: var(--radius-pill);
+    background: var(--white-a20);
+    transition: background var(--dur-fast) var(--ease-standard);
+}
+#settings-page .module-switch-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--radius-circle);
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    transition: transform var(--dur-fast) var(--ease-standard);
+}
+#settings-page .module-switch[aria-checked="true"] .module-switch-track {
+    background: var(--accent);
+}
+#settings-page .module-switch[aria-checked="true"] .module-switch-thumb {
+    transform: translateX(16px);
+}
+#settings-page .module-switch-label {
+    white-space: nowrap;
+}
+
+/* Read-only (non-admins): the state as a dot and a word. */
+#settings-page .module-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+}
+#settings-page .module-state-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-circle);
+    background: var(--white-a40);
+}
+#settings-page .module-state[data-state="on"] .module-state-dot {
+    background: var(--success);
+}
+
+/* "Turn off Podcasts?" */
+#settings-page .module-confirm {
+    margin-top: 14px;
+    padding: 14px 16px;
+    border: 1px solid rgba(var(--warning-rgb), 0.35);
+    border-radius: var(--radius-lg);
+    background: rgba(var(--warning-rgb), 0.07);
+}
+#settings-page .module-confirm[hidden] {
+    display: none;
+}
+#settings-page .module-confirm-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 650;
+    color: #fff;
+}
+#settings-page .module-confirm-body {
+    margin: 4px 0 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--white-a85);
+}
+#settings-page .module-confirm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+#settings-page .module-btn {
+    min-height: 44px;
+    padding: 0 18px;
+    border-radius: var(--radius-md);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 650;
+    cursor: pointer;
+}
+#settings-page .module-btn--primary {
+    border: 1px solid rgba(var(--accent-rgb), 0.35);
+    background: var(--accent);
+    color: #07190e;
+}
+#settings-page .module-btn--primary:hover {
+    background: var(--accent-light);
+}
+#settings-page .module-btn--secondary {
+    border: 1px solid var(--white-a20);
+    background: transparent;
+    color: #fff;
+}
+#settings-page .module-btn--secondary:hover {
+    background: var(--white-a06);
+}
+
+/* What happened after a switch changed (a live region, so never display:none). */
+#settings-page .module-row-status {
+    margin: 10px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--white-a80);
+}
+#settings-page .module-row-status:empty {
+    margin: 0;
+}
+#settings-page .module-row-status[data-tone="success"] {
+    color: var(--white-a90);
+}
+#settings-page .module-row-status[data-tone="success"]::before {
+    content: '✓';
+    margin-right: 6px;
+    color: var(--success);
+}
+#settings-page .module-row-status[data-tone="error"] {
+    color: #fecaca;
+}
+
+/* A module that still needs a restart to fully stop or start. */
+#settings-page .module-restart {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid rgba(var(--warning-rgb), 0.45);
+    border-radius: var(--radius-lg);
+    background: rgba(var(--warning-rgb), 0.08);
+}
+#settings-page .module-restart[hidden] {
+    display: none;
+}
+#settings-page .module-restart-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--warning);
+}
+#settings-page .module-restart-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-circle);
+    background: var(--warning);
+}
+#settings-page .module-restart-title {
+    margin: 6px 0 0;
+    font-size: 14px;
+    font-weight: 650;
+    color: #fff;
+}
+#settings-page .module-restart-body {
+    margin: 4px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--white-a85);
+}
+
+@media (max-width: 560px) {
+    #settings-page .module-row-main {
+        flex-direction: column;
+        gap: 12px;
+    }
+}
+
+/* ── 2. "Podcasts is turned off" ───────────────────────────────────────── */
+
+/* A legacy page (#chat-page) hides everything but the notice. */
+.page.module-off-page > :not(.module-off-notice) {
+    display: none !important;
+}
+.module-off-notice {
+    box-sizing: border-box;
+    max-width: 640px;
+    margin: 56px auto;
+    padding: 28px 30px;
+    border: 1px solid var(--white-a10);
+    border-radius: var(--radius-xl);
+    background: rgba(22, 27, 38, 0.72);
+    color: #fff;
+}
+.module-off-notice .module-off-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--white-a75);
+}
+.module-off-notice .module-off-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-circle);
+    background: var(--white-a45);
+}
+.module-off-notice .module-off-title {
+    margin: 10px 0 0;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    color: #fff;
+}
+.module-off-notice .module-off-body {
+    margin: 10px 0 0;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--white-a85);
+}
+.module-off-notice .module-off-hint {
+    margin: 6px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--white-a70);
+}
+.module-off-notice .module-off-action {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-top: 18px;
+    padding: 0 18px;
+    border: 1px solid rgba(var(--accent-rgb), 0.35);
+    border-radius: var(--radius-md);
+    background: var(--accent);
+    color: #07190e;
+    font-size: 14px;
+    font-weight: 700;
+    text-decoration: none;
+}
+.module-off-notice .module-off-action:hover {
+    background: var(--accent-light);
+}
+.module-off-notice .module-off-action:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 3px;
+}
+
+@media (max-width: 560px) {
+    .module-off-notice {
+        margin: 24px auto;
+        padding: 22px 18px;
+    }
+}

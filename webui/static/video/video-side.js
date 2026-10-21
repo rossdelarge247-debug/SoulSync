@@ -294,6 +294,9 @@
     // Per-profile side access — mirrors init.js's profileAllowedSides(), local
     // so this module keeps working if load order ever changes.
     function sideAllowed(side) {
+        // Video turned off for the whole install (Settings → Modules): nobody
+        // gets the video side until it is back on (src/shell/modules.ts).
+        if (side === 'video' && window.moduleIsOff && window.moduleIsOff('video')) return false;
         var cp = (typeof currentProfile !== 'undefined') ? currentProfile : null;
         if (!cp || cp.is_admin || cp.id === 1) return true;
         var s = (cp.allowed_sides === 'video' || cp.allowed_sides === 'both') ? cp.allowed_sides : 'music';

@@ -39,6 +39,13 @@ import {
   openManualLibraryMatchTool,
 } from './manual-library-match';
 import {
+  initModules,
+  loadModulesSettings,
+  moduleIsOff,
+  noteModuleDisabled,
+  openModulesSettings,
+} from './modules';
+import {
   connectMyAccount,
   closeMyAccountsModal,
   disconnectMyAccount,
@@ -147,9 +154,17 @@ export const SHELL_WINDOW_EXPORTS = {
   getWeatherPreview,
   setWeatherPreview,
   weatherPreviewPresets,
+  // module switches (oct 21): settings > modules, the sidebar, module pages
+  moduleIsOff,
+  noteModuleDisabled,
+  openModulesSettings,
+  loadModulesSettings,
 } as const;
 
 Object.assign(window, SHELL_WINDOW_EXPORTS);
+// before DOMContentLoaded: the sidebar and #chat-page are parsed by now, and
+// video-side.js reads moduleIsOff when it picks the side
+initModules();
 startDiscoverInboxBadge();
 initSidebarWeather();
 const onReady = () => {

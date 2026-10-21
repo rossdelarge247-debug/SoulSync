@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import threading
 from unittest.mock import MagicMock
 
@@ -177,6 +179,22 @@ def test_non_admin_can_read_but_not_change_modules(switches):
     assert member.get("/api/modules").status_code == 200
     assert member.put("/api/modules/video", json={"enabled": False}).status_code == 403
     assert "modules.video.enabled" not in switches.data
+
+
+def test_the_page_shell_renders_the_switches_for_the_sidebar(client, switches):
+    """index.html hides a turned-off module's nav entries before first paint
+    from window.SOULSYNC_MODULES, so the page has to carry the states."""
+    _off(switches, "podcasts")
+    page = client.get("/").get_data(as_text=True)
+    found = re.search(r"window\.SOULSYNC_MODULES = (\[.*?\]);\n", page)
+    assert found, "the page shell lost window.SOULSYNC_MODULES"
+    rendered = {m["name"]: m for m in json.loads(found.group(1))}
+    assert list(rendered) == list(modules.MODULES)
+    assert rendered["podcasts"] == {"name": "podcasts", "display_name": "Podcasts",
+                                    "enabled": False, "pages": ["podcasts"]}
+    assert rendered["video"]["enabled"] is True
+    # the page renders before sign-in: no descriptions or restart reasons
+    assert all(set(m) == {"name", "display_name", "enabled", "pages"} for m in rendered.values())
 
 
 # ── deferred starts ──────────────────────────────────────────────────────────

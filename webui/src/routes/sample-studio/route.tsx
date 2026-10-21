@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
+import { ModuleGate } from '@/features/modules/module-gate';
 import { LegacyRouteController } from '@/platform/shell/route-controllers';
 import { guardPageAccess } from '@/platform/shell/route-guard';
 import { getShellRouteByPageId } from '@/platform/shell/route-manifest';
@@ -29,5 +30,9 @@ function SampleStudioRouteComponent() {
   if (!isReactOwned()) {
     return <LegacyRouteController pathname="/sample-studio" />;
   }
-  return <SampleStudioPage />;
+  return (
+    <ModuleGate module="sample_studio" pageId="sample-studio">
+      <SampleStudioPage />
+    </ModuleGate>
+  );
 }

@@ -872,6 +872,21 @@ declare global {
     /** Ask the tools page to show whichever tab holds `selector`. True when it
      *  had to switch, so the caller knows to wait a frame before measuring. */
     revealToolsTabFor?: (selector: string) => boolean;
+
+    /* ── Module switches (core/modules.py; src/shell/modules.ts) ──────────── */
+    /** The page shell's module states (api/modules.py initial_modules); the
+     *  shell keeps it current after every change. */
+    SOULSYNC_MODULES?: unknown;
+    /** true when the module is known to be turned off. */
+    moduleIsOff?: (name: string) => boolean;
+    /** a 409 module_disabled body: mark the module off and show its notice. */
+    noteModuleDisabled?: (payload: unknown) => void;
+    /** Settings -> Modules, from anywhere. */
+    openModulesSettings?: () => void;
+    /** settings.js: the tab Settings opens on next (once). */
+    requestSettingsTab?: (tab: string) => void;
+    /** init.js: a legacy page's loader (what navigation runs on arrival). */
+    loadPageData?: (pageId: string) => void | Promise<void>;
   }
 }
 

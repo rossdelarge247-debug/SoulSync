@@ -4824,7 +4824,7 @@ async function loadPageData(pageId) {
                 window._suppressSettingsAutoSave = true;
                 try {
                     initializeSettings();
-                    switchSettingsTab('connections');
+                    switchSettingsTab(takeRequestedSettingsTab());
                     await loadSettingsData();
                     await loadQualityProfile();
                     loadApiKeys();

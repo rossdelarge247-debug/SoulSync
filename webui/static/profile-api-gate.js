@@ -86,6 +86,35 @@
         return '';
     }
 
+    // module switches (core/modules.py): while the Video module is off its
+    // api answers 409 module_disabled for every profile, and the video
+    // scripts' boot calls would send a dozen of those on every page load.
+    // answer them here with the server's body. the states come with the page
+    // (window.SOULSYNC_MODULES); src/shell/modules.ts keeps them current.
+    function videoModuleOff() {
+        var states = window.SOULSYNC_MODULES;
+        if (!Array.isArray(states)) return null;
+        for (var i = 0; i < states.length; i++) {
+            var m = states[i];
+            if (m && m.name === 'video') return m.enabled === false ? m : null;
+        }
+        return null;
+    }
+
+    function moduleDisabled(path) {
+        if (!under(path, '/api/video') && !under(path, '/api/v1/video')) return null;
+        var m = videoModuleOff();
+        if (!m) return null;
+        var message = (m.display_name || 'Video') + ' is turned off. An admin can turn it back on in Settings.';
+        var body = path.indexOf('/api/v1/') === 0
+            ? { success: false, data: null, pagination: null,
+                error: { code: 'MODULE_DISABLED', message: message, module: 'video' } }
+            : { success: false, error: 'module_disabled', module: 'video', message: message };
+        return new Response(JSON.stringify(body), {
+            status: 409, headers: { 'Content-Type': 'application/json' },
+        });
+    }
+
     function requestOf(input, init) {
         try {
             var isRequest = typeof Request !== 'undefined' && input instanceof Request;
@@ -120,6 +149,8 @@
             return raw.apply(self, args);
         }
         var decide = function () {
+            var off = moduleDisabled(req.path);
+            if (off) return Promise.resolve(off);
             var why = refusal(req.path, profile);
             return why ? Promise.resolve(refused(why)) : raw.apply(self, args);
         };
@@ -140,6 +171,7 @@
             queued.forEach(function (resolve) { resolve(); });
         },
         refusal: refusal,
+        moduleDisabled: moduleDisabled,
         blockedWithoutProfile: blockedWithoutProfile,
     };
 })();
