@@ -311,10 +311,14 @@ def test_s1_lossy_converter_db_failure_keeps_source_and_reports_failure(
 #        file delete fails ──
 
 def _fail_remove(monkeypatch):
-    def _raise(path):
+    """Removal fails the way a read-only / wrong-PUID volume makes it fail.
+    Deletes now go to the recycle bin (a move) unless recycling is off (an
+    unlink), so both paths are made to fail."""
+    def _raise(path, *_a, **_k):
         raise PermissionError(13, "Permission denied", str(path))
 
     monkeypatch.setattr(os, "remove", _raise)
+    monkeypatch.setattr(shutil, "move", _raise)
 
 
 def test_s2_single_dedup_file_delete_failure_keeps_db_row(tmp_path: Path, monkeypatch):

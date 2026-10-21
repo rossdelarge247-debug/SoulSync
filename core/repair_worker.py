@@ -312,8 +312,79 @@ def _path_mapping_hint(config_manager) -> str:
     return 'Check Settings -> Library -> Music Paths so SoulSync can map this path.'
 
 
-def _delete_file_if_present(file_path, transfer_folder, config_manager=None, download_folder=None):
-    """Best-effort delete with an explicit reason when the path cannot be mapped."""
+def _recycle_deletes_enabled(config_manager) -> bool:
+    """Whether a library delete goes to the recycle bin (the default).
+
+    Only an explicit ``library.recycle_deletes`` of false/0/"off" makes deletes
+    permanent: that is the user choosing permanent deletion. A missing key, a
+    missing config manager or an unreadable value all mean "recycle".
+    """
+    if config_manager is None:
+        return True
+    try:
+        value = config_manager.get('library.recycle_deletes', True)
+    except Exception:  # noqa: BLE001 - fail toward keeping the file
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() not in ('0', 'false', 'no', 'off')
+    return value is not False and value != 0
+
+
+def _recycle_resolved(resolved, transfer_folder, source):
+    """Move an existing, already-resolved file into the music recycle bin
+    (``<transfer>/.deleted``), recorded in its manifest so the Recycle Bin tab
+    can restore it and retention can age it. Returns ``(moved, note, dest)``.
+    The file keeps its path relative to the transfer folder, or its name when
+    it lives outside it; a name clash gets a numeric suffix, never a clobber."""
+    from core.repair_jobs.base import deleted_quarantine_root
+    from core.library.deleted_quarantine import record_deleted_entry
+    deleted_root = deleted_quarantine_root(transfer_folder)
+    try:
+        rel = os.path.relpath(resolved, transfer_folder)
+    except ValueError:
+        rel = os.path.basename(resolved)
+    if rel.startswith('..') or os.path.isabs(rel):
+        rel = os.path.basename(resolved)
+    dest = os.path.join(deleted_root, rel)
+    base, ext = os.path.splitext(dest)
+    n = 1
+    while os.path.exists(dest):
+        dest = f"{base}_{n}{ext}"
+        n += 1
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.move(resolved, dest)
+    except OSError as e:
+        logger.warning("Could not move %s to the deleted folder: %s", resolved, e)
+        return False, str(e), None
+    record_deleted_entry(deleted_root, dest, resolved, source)
+    return True, None, dest
+
+
+def _remove_library_file(resolved, transfer_folder, source, config_manager=None):
+    """Remove a file the user approved removing.
+
+    Goes to the recycle bin unless the user explicitly turned recycling off
+    (``library.recycle_deletes``), in which case it is deleted for good. Raises
+    ``OSError`` when nothing was removed, exactly like the ``os.remove`` this
+    replaces, so every caller's failure handling still applies. Returns the
+    recycle-bin path, or None for a permanent delete.
+    """
+    if _recycle_deletes_enabled(config_manager):
+        moved, note, dest = _recycle_resolved(resolved, transfer_folder, source)
+        if not moved:
+            raise OSError(note or 'could not move the file to the recycle bin')
+        return dest
+    os.remove(resolved)
+    return None
+
+
+def _delete_file_if_present(file_path, transfer_folder, config_manager=None, download_folder=None,
+                            source='repair'):
+    """Best-effort delete with an explicit reason when the path cannot be mapped.
+
+    "Delete" means the recycle bin unless the user turned recycling off — see
+    ``_remove_library_file``."""
     if not file_path:
         return False, None
     resolved = _resolve_file_path(
@@ -322,7 +393,7 @@ def _delete_file_if_present(file_path, transfer_folder, config_manager=None, dow
         config_manager=config_manager)
     if resolved and os.path.exists(resolved):
         try:
-            os.remove(resolved)
+            _remove_library_file(resolved, transfer_folder, source, config_manager)
             return True, None
         except Exception as e:
             logger.warning("Could not delete file %s: %s", resolved, e)
@@ -365,29 +436,7 @@ def _quarantine_file_if_present(file_path, transfer_folder, source,
         return False, f'file could not be located ({_path_mapping_hint(config_manager)})', None
     if not os.path.exists(resolved):
         return False, 'file was already gone', None
-    from core.repair_jobs.base import deleted_quarantine_root
-    from core.library.deleted_quarantine import record_deleted_entry
-    deleted_root = deleted_quarantine_root(transfer_folder)
-    try:
-        rel = os.path.relpath(resolved, transfer_folder)
-    except ValueError:
-        rel = os.path.basename(resolved)
-    if rel.startswith('..') or os.path.isabs(rel):
-        rel = os.path.basename(resolved)
-    dest = os.path.join(deleted_root, rel)
-    base, ext = os.path.splitext(dest)
-    n = 1
-    while os.path.exists(dest):
-        dest = f"{base}_{n}{ext}"
-        n += 1
-    try:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.move(resolved, dest)
-    except OSError as e:
-        logger.warning("Could not move %s to the deleted folder: %s", resolved, e)
-        return False, str(e), None
-    record_deleted_entry(deleted_root, dest, resolved, source)
-    return True, None, dest
+    return _recycle_resolved(resolved, transfer_folder, source)
 
 
 class RepairWorker:
@@ -3295,9 +3344,15 @@ class RepairWorker:
                         'message': message}
 
             elif fix_action == 'delete':
-                os.remove(resolved)
+                recycled = _remove_library_file(
+                    resolved, self.transfer_folder, 'orphan-file', self._config_manager)
                 self._cleanup_empty_parents(resolved)
-                return {'success': True, 'action': 'deleted_file',
+                # same action name either way (the UI keys its label on it);
+                # 'recycled' says whether it can still be restored
+                if recycled:
+                    return {'success': True, 'action': 'deleted_file', 'recycled': True,
+                            'message': 'Moved orphan file to the recycle bin'}
+                return {'success': True, 'action': 'deleted_file', 'recycled': False,
                         'message': 'Deleted orphan file from disk'}
 
         except OSError as e:
@@ -4275,7 +4330,8 @@ class RepairWorker:
             try:
                 resolved = _resolve_file_path(single_path, self.transfer_folder, download_folder, config_manager=self._config_manager)
                 if resolved and os.path.exists(resolved):
-                    os.remove(resolved)
+                    _remove_library_file(resolved, self.transfer_folder, 'redundant-single',
+                                         self._config_manager)
                     file_deleted = True
                     # Clean up empty parent directories (never a configured root)
                     self._cleanup_empty_parents(resolved)
@@ -4326,7 +4382,8 @@ class RepairWorker:
             try:
                 resolved = _resolve_file_path(track_path, self.transfer_folder, download_folder, config_manager=self._config_manager)
                 if resolved and os.path.exists(resolved):
-                    os.remove(resolved)
+                    _remove_library_file(resolved, self.transfer_folder, 'unwanted-content',
+                                         self._config_manager)
                     file_deleted = True
                     # Clean up empty parent directories (never a configured root)
                     self._cleanup_empty_parents(resolved)
@@ -6059,7 +6116,10 @@ class RepairWorker:
                             if conn:
                                 conn.close()
                         try:
-                            os.remove(resolved)
+                            # the original is lossless audio the conversion can
+                            # never give back: recycle bin, not unlink
+                            _remove_library_file(resolved, self.transfer_folder,
+                                                 'lossy-converter', self._config_manager)
                         except OSError as e:
                             return {'success': False,
                                     'error': f'Converted to {quality_label} (the library now '

@@ -947,6 +947,12 @@ class ConfigManager:
                 # the artist instead of guessing by name. Off by default —
                 # the Artist NFO Backfill repair job covers existing folders.
                 "write_artist_nfo": False,
+                # Library Maintenance deletes (orphan files, redundant singles,
+                # unwanted content, quality/AcoustID/fake-lossless deletes, the
+                # original after a lossy conversion) move the file into the
+                # recycle bin (<transfer>/.deleted), restorable from the
+                # Recycle Bin tab. Set False to delete for good instead.
+                "recycle_deletes": True,
             },
             "file_organization": {
                 "enabled": True,
