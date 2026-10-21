@@ -15,7 +15,7 @@ Every screen we're designing or have built. Artboards are files on the [SoulSync
 | Navigation: 4 groups | Proposed | `Nav.dc.html`, `Sidebar.dc.html` | `index.html` sidebar | A proposal for the upstream maintainers too. |
 | Top bar (back, breadcrumb, search, activity) | Proposed | `TopBar.dc.html` | none | Shared by every page in the prototypes. |
 | One artist page | Proposed | `Artist.dc.html` | `src/routes/artist-detail` and legacy library views | Replaces three artist screens. |
-| Wanted and Followed artists | Proposed | `Wanted.dc.html` | `src/routes/wishlist`, `src/routes/watchlist` | Merges Wishlist and Watchlist; explains the difference. |
+| Wanted and Followed artists | Building (`ux/wanted-page`) | `Wanted v3 (populated).dc.html`, `Wanted v2 (empty and loading).dc.html`, `Wanted (390).dc.html` | `src/routes/wanted` (`/wishlist` and `/watchlist` redirect there) | One page, two tabs. What it does beyond the boards is in its "…" menus; see `HANDOFF.md`. |
 | Activity | Proposed | `Activity.dc.html` | `src/routes/active-downloads` | One timeline. Needs a backend activity feed: see `CONTRACTS.md`. |
 | Clearer names across the app | Idea | none | everywhere | Wishlist/Watchlist → Wanted/Following, Sync → Mirrored playlists, Tools → Maintenance. |
 
