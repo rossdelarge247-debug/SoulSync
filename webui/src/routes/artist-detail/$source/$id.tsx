@@ -1,11 +1,11 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useLayoutEffect } from 'react';
 
 import { useShellBridge } from '@/platform/shell/route-controllers';
 import { getShellRouteByPageId } from '@/platform/shell/route-manifest';
 
 import { artistDetailSearchSchema } from '../-artist-detail.types';
-import { ArtistDetailPage } from '../-ui/artist-detail-page';
+import { ArtistPage } from '../-ui/artist-page';
 
 /**
  * Whether the shell has handed artist detail over to React yet.
@@ -24,8 +24,29 @@ function isReactOwned(): boolean {
   return getShellRouteByPageId('artist-detail')?.kind === 'react';
 }
 
+/**
+ * The one Artist page: /artist-detail/<source>/<id>, where <source> is
+ * "library" for a library artist and a metadata source for anyone else.
+ * `?tab=tracks|similar` and `?show=albums|missing` keep the tab and filter in
+ * the URL, so Back steps between them.
+ *
+ * Old links keep their meaning: `?album=<id>` (the library's album grid, an
+ * issue's "edit details") used to open that album in the "Your library" view,
+ * which is the Tracks tab now (with its tag and file tools for an admin).
+ */
 export const Route = createFileRoute('/artist-detail/$source/$id')({
   validateSearch: artistDetailSearchSchema,
+  beforeLoad: ({ params, search, context }) => {
+    if (search.album && !search.tab) {
+      const admin = Boolean(context.shell?.profile?.isAdmin);
+      throw redirect({
+        to: '/artist-detail/$source/$id',
+        params,
+        search: { ...search, tab: 'tracks', ...(admin ? { manage: true } : {}) },
+        replace: true,
+      });
+    }
+  },
   component: ArtistDetailRouteComponent,
 });
 
@@ -33,7 +54,7 @@ function ArtistDetailRouteComponent() {
   if (!isReactOwned()) {
     return <LegacyArtistDetailHandoff />;
   }
-  return <ArtistDetailPage />;
+  return <ArtistPage />;
 }
 
 /**

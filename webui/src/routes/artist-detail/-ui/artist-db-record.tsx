@@ -68,7 +68,7 @@ export function ArtistDbRecord({ artist, isSourceArtist }: Props) {
   );
 }
 
-function ArtistRecordModal({
+export function ArtistRecordModal({
   artistId,
   artistName,
   onClose,

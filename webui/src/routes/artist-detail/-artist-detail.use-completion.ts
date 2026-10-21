@@ -28,6 +28,12 @@ export interface CompletionState {
    * them from a discography that was never fully checked.
    */
   completed: boolean;
+  /**
+   * True once a stream that was started has stopped, for any reason (done,
+   * truncated, failed). Lets a page stop waiting on releases the check never
+   * reported, without pretending they were checked.
+   */
+  ended: boolean;
 }
 
 /**
@@ -52,6 +58,7 @@ export function useCompletionStream(
     counts: null,
     streaming: false,
     completed: false,
+    ended: false,
   });
 
   // Kept in a ref so the merge always sees the latest merged copy rather than
@@ -71,7 +78,13 @@ export function useCompletionStream(
     discographyRef.current = initial;
     countsRef.current = null;
     completeRef.current = false;
-    setState({ discography: initial, counts: null, streaming: false, completed: false });
+    setState({
+      discography: initial,
+      counts: null,
+      streaming: false,
+      completed: false,
+      ended: false,
+    });
   }
 
   useEffect(() => {
@@ -123,6 +136,7 @@ export function useCompletionStream(
               counts: countsRef.current,
               streaming: true,
               completed: completeRef.current,
+              ended: false,
             });
           }
         }
@@ -131,7 +145,7 @@ export function useCompletionStream(
         // vanilla treated it; any other failure leaves the page as-is rather
         // than tearing it down over a background check.
       } finally {
-        if (!cancelled) setState((s) => ({ ...s, streaming: false }));
+        if (!cancelled) setState((s) => ({ ...s, streaming: false, ended: true }));
       }
     };
 
