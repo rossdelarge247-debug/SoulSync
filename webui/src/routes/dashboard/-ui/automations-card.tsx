@@ -257,6 +257,8 @@ export function QuickSettings() {
             }
             style={{ background: preset.hex }}
             title={preset.name}
+            aria-label={`Accent colour: ${preset.name}`}
+            aria-pressed={accent.toLowerCase() === preset.hex}
             onClick={() => pickAccent(preset.hex, false)}
           />
         ))}
@@ -271,6 +273,7 @@ export function QuickSettings() {
           }
           value={accent}
           title="Custom color"
+          aria-label="Accent colour: custom"
           onInput={(event) => {
             const hex = (event.target as HTMLInputElement).value;
             setAccent(hex);
