@@ -797,6 +797,12 @@
         (p.music_library_paths || []).forEach(lp => {
             out.push(`Library:  ${lp.path} [${lp.exists ? ck + ' ok' : ex + ' missing'}]`);
         });
+        const sc = data.setup_check;
+        if (sc && sc.summary) {
+            const s = sc.summary;
+            out.push(`Setup check (folders): ${sc.status} (${s.error || 0} error, ${s.warning || 0} warning, ${s.ok || 0} ok, ${s.skipped || 0} skipped)`);
+            (sc.problems || []).forEach(pr => out.push(`  ${pr.status === 'error' ? ex : '!'} ${pr.id}`));
+        }
         out.push('');
 
         out.push('── Config ──');
