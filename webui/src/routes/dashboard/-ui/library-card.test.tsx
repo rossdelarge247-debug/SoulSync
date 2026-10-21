@@ -3,7 +3,7 @@
  * scan flows (start/stop/deep, the 2s poll, terminal toasts).
  */
 
-import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fetchReviewQueueSummary } from '@/routes/active-downloads/-adl.api';
@@ -259,13 +259,14 @@ describe('the scan flow', () => {
     );
   });
 
-  it('deep scan confirms first and posts deep_scan', async () => {
+  it('deep scan on a media server confirms first and posts deep_scan', async () => {
     const confirm = vi.fn(() => Promise.resolve(true));
     window.showConfirmDialog = confirm;
     const view = await mountCard();
     fireStatus(CONNECTED);
     fireDbStats({ tracks: 300 });
     routes({
+      '/api/database/deep-scan/preview': { success: true, moves_files: false, server: 'plex' },
       '/api/database/update/status': { status: 'running' },
       '/api/database/update': { success: true },
     });
@@ -287,12 +288,70 @@ describe('the scan flow', () => {
     const view = await mountCard();
     fireStatus(CONNECTED);
     fireDbStats({ tracks: 300 });
+    routes({
+      '/api/database/deep-scan/preview': { success: true, moves_files: false, server: 'plex' },
+    });
     fetchMock.mockClear();
     await act(async () => {
       fireEvent.click(view.container.querySelector('#library-status-deep-btn')!);
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    // the preview is a read; nothing is started
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      '/api/database/deep-scan/preview',
+    ]);
     expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('a standalone deep scan previews the move and only moves on the confirmed plan', async () => {
+    const confirm = vi.fn(() => Promise.resolve(true));
+    window.showConfirmDialog = confirm;
+    const view = await mountCard();
+    fireStatus(CONNECTED);
+    fireDbStats({ tracks: 300 });
+    routes({
+      '/api/database/deep-scan/preview': {
+        success: true,
+        moves_files: true,
+        mode: 'preview',
+        plan_id: 'deep-1',
+        would_move: 3,
+        total: 3,
+        total_bytes: 3 * 1024 * 1024,
+        library_files: 303,
+        untracked: 3,
+        needs_confirmation: false,
+        staging_path: '/data/Staging',
+        sample: [
+          { path: '/music/New/a.flac', dest: '/data/Staging/New/a.flac', size: 1 },
+          { path: '/music/New/b.flac', dest: '/data/Staging/New/b.flac', size: 1 },
+          { path: '/music/New/c.flac', dest: '/data/Staging/New/c.flac', size: 1 },
+        ],
+        created_at: 1_800_000_000,
+        expires_at: 1_800_000_900,
+      },
+      '/api/database/update/status': { status: 'running' },
+      '/api/database/update': { success: true },
+    });
+    await act(async () => {
+      fireEvent.click(view.container.querySelector('#library-status-deep-btn')!);
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some((call) => String(call[0]) === '/api/database/update')).toBe(
+      false,
+    );
+    expect(await screen.findByText('Move 3 files to Staging?')).toBeTruthy();
+    expect(screen.getByText('Staging/New/a.flac')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Move 3 files' }));
+    });
+    const updateCall = fetchMock.mock.calls.find(
+      (call) => String(call[0]) === '/api/database/update',
+    )!;
+    expect(JSON.parse((updateCall[1] as RequestInit).body as string)).toEqual({
+      deep_scan: true,
+      plan_id: 'deep-1',
+    });
   });
 });
 

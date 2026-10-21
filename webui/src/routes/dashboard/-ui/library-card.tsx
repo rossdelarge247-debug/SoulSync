@@ -26,6 +26,7 @@ import type { RefObject } from 'react';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useDeepScanFlow } from '@/features/safe-action/deep-scan-flow';
 import { fetchReviewQueueSummary } from '@/routes/active-downloads/-adl.api';
 
 import type { ServiceStatusPayload } from '../-dash.api';
@@ -208,14 +209,34 @@ export function useLibraryCard() {
     [applyDbStats, refreshStats, setScanningBoth, startPoll],
   );
 
+  /** A deep scan the preview flow started (a confirmed move, or the scan
+   *  alone): the same scanning state and poll as the flow below. */
+  const deepScanStarted = useCallback(() => {
+    window.showToast?.('Deep scan started — this may take a while', 'success');
+    setScanningBoth(true);
+    applyDbStats(null);
+    setProgress({ ...IDLE_PROGRESS, phase: 'Deep scanning...' });
+    startPoll('Deep scanning...', 'Deep scan complete', 'Deep scan error');
+  }, [applyDbStats, setScanningBoth, startPoll]);
+
+  // SoulSync standalone Deep Scan can move files to Staging, so it previews
+  // first and only moves on a confirmed plan (#904).
+  const deepFlow = useDeepScanFlow({ onStarted: deepScanStarted });
+  const beginDeepPreview = deepFlow.begin;
+
   /** dashboardLibraryDeepScan (wishlist-tools.js:7400), verbatim flow —
    *  incl. the confirm dialog and the failed-start stats refetch the
-   *  incremental flow does NOT do. */
+   *  incremental flow does NOT do — behind a preview: in standalone mode
+   *  the preview's own confirm takes over; a media server ('no-moves')
+   *  keeps this flow. */
   const deepScan = useCallback(async () => {
     if (scanningRef.current) {
       window.showToast?.('A scan is already running', 'warning');
       return;
     }
+
+    const outcome = await beginDeepPreview();
+    if (outcome !== 'no-moves') return;
 
     const confirmed = await window.showConfirmDialog?.({
       title: 'Deep Scan Library',
@@ -248,9 +269,18 @@ export function useLibraryCard() {
       setScanningBoth(false);
       window.showToast?.(`Deep scan failed: ${(error as Error).message}`, 'error');
     }
-  }, [applyDbStats, refreshStats, setScanningBoth, startPoll]);
+  }, [applyDbStats, beginDeepPreview, refreshStats, setScanningBoth, startPoll]);
 
-  return { dbStats, dbStatsSeen, status, scanning, progress, scan, deepScan };
+  return {
+    dbStats,
+    dbStatsSeen,
+    status,
+    scanning,
+    progress,
+    scan,
+    deepScan,
+    deepScanDialog: deepFlow.dialog,
+  };
 }
 
 /** The markup's pre-data shell — shown until the first dbStats payload. */
@@ -365,7 +395,8 @@ function useDismiss(open: boolean, close: () => void, ref: RefObject<HTMLElement
  * stays mounted (just hidden) so those ids always resolve.
  */
 export function LibraryCard() {
-  const { dbStats, dbStatsSeen, status, scanning, progress, scan, deepScan } = useLibraryCard();
+  const { dbStats, dbStatsSeen, status, scanning, progress, scan, deepScan, deepScanDialog } =
+    useLibraryCard();
   const reviewCount = useReviewCount();
   const view = dbStatsSeen ? libraryCardView(dbStats, status, scanning, new Date()) : CHECKING;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -537,6 +568,7 @@ export function LibraryCard() {
           ) : null}
         </div>
       </div>
+      {deepScanDialog}
     </div>
   );
 }
