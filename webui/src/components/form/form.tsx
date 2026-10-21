@@ -8,6 +8,7 @@ import { Toggle as BaseToggle } from '@base-ui/react/toggle';
 import clsx from 'clsx';
 import {
   forwardRef,
+  useId,
   type CSSProperties,
   type ComponentPropsWithoutRef,
   type ButtonHTMLAttributes,
@@ -36,7 +37,9 @@ export function FormField({
   label,
 }: FormFieldProps) {
   return (
-    <Field.Root className={clsx(styles.field, className)}>
+    // invalid marks a Base UI control inside (TextInput) with aria-invalid,
+    // which draws the danger border; native selects take aria-invalid directly
+    <Field.Root className={clsx(styles.field, className)} invalid={error ? true : undefined}>
       <div className={styles.fieldHeader}>
         {htmlFor ? (
           <label className={styles.fieldLabel} htmlFor={htmlFor}>
@@ -77,7 +80,8 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
   return <textarea ref={ref} className={clsx(styles.textArea, className)} {...props} />;
 });
 
-export type SelectSize = 'sm' | 'md';
+/** `lg` is the 44px select the step editor's sentences use. */
+export type SelectSize = 'sm' | 'md' | 'lg';
 
 export type SelectProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, 'className' | 'size'> & {
   className?: string;
@@ -287,23 +291,66 @@ type BaseButtonProps = ComponentPropsWithoutRef<typeof BaseButton>;
 
 export type ButtonProps = Omit<BaseButtonProps, 'className'> & {
   className?: string;
+  /**
+   * Why the button is disabled, written beside it ("Tick 'I checked the
+   * list' to move the files."). Used only while `disabled`: the button then
+   * stays focusable (`aria-disabled`, not `disabled`), points at the reason
+   * with `aria-describedby`, and the reason renders as a sibling right after
+   * the button (`data-slot="disabled-reason"`), so the parent's layout places
+   * it.
+   */
+  disabledReason?: ReactNode;
+  /** `lg` is 44px tall, the touch target; use it for page and dialog actions. */
   size?: 'sm' | 'md' | 'lg' | 'icon';
   variant?: 'default' | 'primary' | 'secondary' | 'ghost';
 };
 
+/**
+ * The shared button. Disabled is neutral for every variant, never a faded
+ * accent: 62% text at full opacity, on a 6% fill and 16% border for the
+ * primary (quieter for the others). It should come with a reason: pass
+ * `disabledReason`, or `focusableWhenDisabled` when the reason is already on
+ * screen.
+ */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { className, size = 'md', type = 'button', variant = 'default', ...props },
+  {
+    className,
+    disabled,
+    disabledReason,
+    focusableWhenDisabled,
+    size = 'md',
+    type = 'button',
+    variant = 'default',
+    ...props
+  },
   ref,
 ) {
-  return (
+  const reasonId = useId();
+  const showReason = Boolean(disabled) && disabledReason != null && disabledReason !== false;
+  const describedBy = showReason
+    ? clsx(props['aria-describedby'], reasonId) || undefined
+    : props['aria-describedby'];
+  const button = (
     <BaseButton
       ref={ref}
-      className={clsx(styles.button, className)}
+      className={clsx(styles.button, disabled && styles.disabledNeutral, className)}
       data-variant={variant}
       data-size={size}
       type={type}
+      disabled={disabled}
+      focusableWhenDisabled={focusableWhenDisabled || showReason}
       {...props}
+      aria-describedby={describedBy}
     />
+  );
+  if (!showReason) return button;
+  return (
+    <>
+      {button}
+      <span id={reasonId} className={styles.disabledReason} data-slot="disabled-reason">
+        {disabledReason}
+      </span>
+    </>
   );
 });
 
