@@ -3344,6 +3344,12 @@ def spa_catch_all(page):
         abort(404)
     return index()
 
+
+# Liveness for the Docker HEALTHCHECK: the app and its database answer, without
+# rendering the page shell (api/health.py). Open to every session gate.
+from api.health import create_blueprint as _create_health_blueprint
+app.register_blueprint(_create_health_blueprint(get_database=lambda: get_database()))
+
 # --- API Endpoints ---
 
 # Tracks cumulative item-processed totals over time for windowed counting.

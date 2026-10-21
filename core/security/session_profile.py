@@ -68,10 +68,13 @@ _ALLOWED_POST = frozenset({
 
 def is_open_profile_path(path: str, method: str) -> bool:
     """paths every gate leaves open: accepting an invite link (the token is
-    the credential, an admin minted it) and a profile's avatar image, which
-    the picker draws before anyone is signed in."""
+    the credential, an admin minted it), a profile's avatar image, which
+    the picker draws before anyone is signed in, and the health check the
+    docker healthcheck and uptime monitors poll (it says only up or down)."""
     import re
     method = (method or 'GET').upper()
+    if path == '/api/health' and method in ('GET', 'HEAD'):
+        return True
     if path.startswith('/api/invite/') and method in ('GET', 'POST'):
         return True
     return method == 'GET' and re.fullmatch(r'/api/profiles/\d+/avatar', path or '') is not None
