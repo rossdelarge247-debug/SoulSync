@@ -11,6 +11,17 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Log
 
+### 2026-10-21: Dev, the last preview-then-confirm gaps
+
+- **Repair "Fix selected" and album "Resolve all"** now preview. The confirm shows a "What happens" column per file. Tag-only fixes still run straight away.
+- **Empty recycle bin and Clear quarantine** now preview, with a danger-styled confirm: "Permanently delete 418 files (5.1 GB)? This can't be undone." Stat tiles show files, size, oldest and newest.
+- Copy follows the real setting: when recycling is off, it says files are deleted permanently.
+- **Still without a preview** (for Ross to decide):
+    - the recycle bin's age-based auto-delete;
+    - the video and audiobook bins;
+    - video repair bulk fixes;
+    - the Lossy Converter's "delete original" option.
+
 ### 2026-10-21: Dev, screens built from the prototypes
 
 Built and merged into `integration` (4f1448c), following the canvas:

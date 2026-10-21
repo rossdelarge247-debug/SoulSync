@@ -64,6 +64,6 @@ Use these before drawing new ones. Paths are under `webui/src/`.
     - Cancel, plus a button that names the action ("Move 214 files");
     - a done state afterwards.
 
-  Large moves show a warning box with an "I checked the list" checkbox that unlocks the button.
+  Large moves show a warning box with an "I checked the list" checkbox that unlocks the button. Permanent deletes use `confirmTone="danger"`: dark text on `#f87171`, a title that says "Permanently delete …?" and a first line that says "This can't be undone."
 - **Setup check** (`routes/setup-check`): summary tiles, then checks grouped by area with problems first. Anything not OK gets a "How to fix it" box with copyable lines.
 - **Modules** (Settings → Modules): one row per module with a labelled switch ("On"/"Off" beside the colour). Turning one off asks first and says what disappears.

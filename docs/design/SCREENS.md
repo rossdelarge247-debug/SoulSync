@@ -9,7 +9,7 @@ Every screen we're designing or have built. Artboards are files on the [SoulSync
 | Setup check | Built | `SetupCheck.dc.html` | `src/routes/setup-check` | Sidebar entry next to Settings, for admins. First-run steps show until the setup wizard is finished. |
 | Preview, then confirm (Maintenance) | Built | `SafeAction.dc.html` | `src/features/safe-action`, `src/routes/tools` | Duplicate cleaner, Deep Scan (25% limit), repair group fixes, Dashboard deep scan, automations. |
 | Settings → Modules | Built | none | `static/` settings, `src/features/modules` | On/off for Video, Podcasts, Audiobooks, Chat & Arcade, Sample Studio. All on by default. |
-| Fix selected and Empty recycle bin previews | Building | `SafeAction.dc.html` (same pattern) | branch `ux/safe-actions-gaps` | Empty recycle bin is permanent, so its wording says so. |
+| Fix selected, Empty recycle bin, Clear quarantine | Built | `SafeAction.dc.html` (same pattern) | `src/features/safe-action` (`permanent-delete-flow.tsx`), Repair findings | Permanent deletes use the danger-styled confirm and say "This can't be undone". |
 | Home: downloads against targets | Proposed | `Main.dc.html` | `src/routes/dashboard` | Needs a backend summary of targets: see `CONTRACTS.md`. |
 | Automations with run history | Proposed | `Automation.dc.html` | `src/routes/automations` | Rules written as steps; "Preview a run"; run log per run. |
 | Navigation: 4 groups | Proposed | `Nav.dc.html`, `Sidebar.dc.html` | `index.html` sidebar | A proposal for the upstream maintainers too. |
