@@ -216,7 +216,7 @@ export function IssueDetailModal({
     if (ok) deleteMutation.mutate(issue.id);
   };
 
-  const openArtistPage = (hint?: string) => {
+  const openArtistPage = (hint?: string, tools = false) => {
     if (!artistLink) {
       notify("This report didn't keep a link to the item", 'warning');
       return;
@@ -226,9 +226,14 @@ export function IssueDetailModal({
     void navigate({
       to: '/artist-detail/$source/$id',
       params: { source: 'library', id: artistLink.artistId },
-      search: { name: artistLink.artistName },
+      // the fixes live in the library's tag, file and match tools, which are
+      // on the Artist page's Tracks tab
+      search: tools
+        ? { name: artistLink.artistName, tab: 'tracks', manage: true }
+        : { name: artistLink.artistName },
     });
   };
+  const openArtistTools = (hint?: string) => openArtistPage(hint, true);
 
   const runFixAction = () => {
     if (!issue?.fix_action) return;
@@ -239,7 +244,7 @@ export function IssueDetailModal({
           setTool({ kind: 'reidentify' });
           return;
         }
-        openArtistPage('Open the track there and pick Re-identify from its menu');
+        openArtistTools('Open the track there and pick Re-identify from its menu');
         return;
       case 'pick_art': {
         const target = artTarget(issue, snapshot);
@@ -247,7 +252,7 @@ export function IssueDetailModal({
           setTool({ kind: 'art', target: target.target, subtitle: target.subtitle });
           return;
         }
-        openArtistPage('Pick the new art from the album there');
+        openArtistTools('Pick the new art from the album there');
         return;
       }
       case 'redownload':
@@ -255,20 +260,20 @@ export function IssueDetailModal({
           setTool({ kind: 'redownload', track: presence.track, album: presence.album });
           return;
         }
-        openArtistPage('Open the track there and pick Redownload from its menu');
+        openArtistTools('Open the track there and pick Redownload from its menu');
         return;
       case 'wishlist_missing':
         if (entity !== 'artist' && albumWorkflowInput.albumName) {
           wishlistWorkflowMutation.mutate(albumWorkflowInput);
           return;
         }
-        openArtistPage('Wishlist the missing tracks from the album there');
+        openArtistTools('Wishlist the missing tracks from the album there');
         return;
       case 'edit_metadata': {
         // the details form lives in the artist's enhanced view: land there
         // with this album open and its form up (or the track row in view)
         if (!artistLink) {
-          openArtistPage();
+          openArtistTools();
           return;
         }
         const albumId = entity === 'album' ? issue.entity_id : snapshot.album_id;
@@ -277,7 +282,7 @@ export function IssueDetailModal({
           albumId: albumId != null ? String(albumId) : undefined,
           trackId: entity === 'track' ? issue.entity_id : undefined,
         });
-        openArtistPage(
+        openArtistTools(
           entity === 'track'
             ? 'Click a field in the track row to change it'
             : entity === 'artist'
@@ -297,7 +302,7 @@ export function IssueDetailModal({
         void navigate({ to: '/tools' });
         return;
       default:
-        openArtistPage();
+        openArtistTools();
     }
   };
 
