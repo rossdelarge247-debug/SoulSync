@@ -188,6 +188,16 @@ def get_debug_info():
         info['paths']['music_videos_path'] = music_videos_path
         info['paths']['music_videos_path_exists'] = os.path.isdir(music_videos_path)
 
+    # Setup check, local part only (folders, layout, running user): counts and
+    # the ids of anything wrong. The network checks stay on /api/setup/check so
+    # debug-info never waits on slskd or a media server.
+    try:
+        from core.setup_check import debug_summary
+        info['setup_check'] = debug_summary()
+    except Exception as e:
+        logger.debug("setup check summary failed: %s", e)
+        info['setup_check'] = {'status': 'unknown', 'summary': {}, 'problems': []}
+
     # Services. `_status_cache` only carries 'media_server' and 'soulseek'
     # (no 'spotify' key) so anything we used to read from `spotify_cache`
     # silently defaulted to the missing-value fallback — that's the

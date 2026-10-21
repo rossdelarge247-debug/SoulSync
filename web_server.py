@@ -23653,6 +23653,14 @@ from api.media_servers import configure as _configure_media_servers_api, create_
 _configure_media_servers_api(config_manager_=config_manager, engine_getter=lambda: media_server_engine)
 app.register_blueprint(_create_media_servers_blueprint())
 
+# Setup check (folders, permissions, slskd, media server) - api/setup_check.py.
+# The orchestrator's slskd client is passed so the check reuses its own
+# check_connection() instead of building a client (which mkdirs the download path).
+from api.setup_check import configure as _cfg_setup_check, create_blueprint as _bp_setup_check
+_cfg_setup_check(config_manager_=config_manager,
+                 soulseek_client_getter=lambda: download_orchestrator.client('soulseek') if download_orchestrator else None)
+app.register_blueprint(_bp_setup_check())
+
 # Quality profiles / auto-import watcher / metadata-cache browser - three
 # self-contained clusters lifted to their own api/ modules.
 from api.quality_profiles import configure as _cfg_qp, create_blueprint as _bp_qp
