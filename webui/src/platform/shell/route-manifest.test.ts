@@ -71,6 +71,11 @@ describe('shellRouteManifest', () => {
       path: '/setup-check',
       kind: 'react',
     });
+    expect(getShellRouteByPageId('activity')).toEqual({
+      pageId: 'activity',
+      path: '/activity',
+      kind: 'react',
+    });
     expect(reactShellRoutes.map((route) => route.pageId)).toEqual([
       'dashboard',
       'sync',
@@ -81,6 +86,7 @@ describe('shellRouteManifest', () => {
       'wishlist',
       'automations',
       'active-downloads',
+      'activity',
       'import',
       'library',
       'tools',
