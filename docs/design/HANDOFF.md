@@ -97,7 +97,7 @@ Built on `ux/wanted-page` from the "Wanted v3 (populated)" boards (2a–2d), "Wa
 **For the navigation shell**
 
 - `isPageAllowed('wanted')` in `static/init.js` is true when the profile may see Wishlist or Watchlist.
-- The page asks for a `.nav-button[data-page="wanted"]`. Until the shell has one, it lights the old Wishlist or Watchlist button for the tab in view.
+- The page asks for a `.nav-button[data-page="wanted"]`; the shell's Wanted row has it now, and /wishlist and /watchlist redirect here.
 
 **Questions for Design**
 
