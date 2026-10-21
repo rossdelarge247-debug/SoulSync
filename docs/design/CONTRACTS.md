@@ -49,6 +49,113 @@ Plan routes that exist today:
 - **Repair fixes:** `POST /api/repair/findings/bulk-fix-preview`, then `/api/repair/findings/bulk-fix-start` with `{plan_id}`. Both take a whole type, or a selection as `ids` plus `fix_actions` (finding type → action). Each preview item has a plain sentence ("Moves the file to the recycle bin") and an `effect_kind`. The preview also returns `recycle_deletes`, so copy can say "recycle bin" or "deleted permanently" correctly.
 - **Recycle bin and quarantine (permanent):** `POST /api/deleted-files/purge-preview` (`{all}` or `{ids}`) and `POST /api/quarantine/clear-preview` return the count, total size, oldest and newest dates and a sample. `/api/deleted-files/purge` and `/api/quarantine/clear` only accept `{plan_id}`.
 
+### Activity feed: `GET /api/activity`
+
+One newest-first list of what SoulSync did, plus what needs you. Query: `range` (`today`, `7d` default, `30d`), `kind` (`all`, `download`, `import`, `automation`, `sync`, `safety`, `needs_you`), `limit` (1–200, default 50), `before` (the previous page's `next_before`, or unix seconds) and `since` (unix seconds; use it to send the browser's own midnight for "Today", since `today` alone means the server's midnight).
+
+```json
+{
+  "items": [
+    {"id": "automation:812", "time": 1792569302, "kind": "automation", "status": "error",
+     "title": "Automation \"Fill Wanted\" failed",
+     "detail": "Soulseek wasn't reachable. Next run in about 2 hours.",
+     "link": "/automations", "needs_you": true, "has_log": true, "retry_at": 1792576500,
+     "ref": {"automation_id": 4, "run_id": 812}},
+    {"id": "lh:5120", "time": 1792561320, "kind": "download", "status": "ok",
+     "title": "Downloaded 12 tracks", "detail": "Lantern by Saltmarsh and 1 more · Soulseek · FLAC",
+     "link": "/active-downloads", "needs_you": false,
+     "ref": {"first_history_id": 5109, "last_history_id": 5120, "tracks": 12}}
+  ],
+  "next_before": "WzE3OTI1NjEzMjAsMSw1MTIwXQ", "range": "7d", "since": 1791964800, "kind": "all",
+  "counts": {"download": 14, "import": 2, "automation": 6, "sync": 3, "safety": 1, "needs_you": 2},
+  "running_count": 1,
+  "needs_you": [{"id": "safety:31", "kind": "safety", "status": "warning",
+                 "title": "Duplicate cleaner preview expired",
+                 "detail": "Nothing was changed. Preview again to recycle 214 duplicate files (3.2 GB).",
+                 "link": "/tools", "needs_you": true, "ref": {"tool": "duplicate_cleaner", "plan_id": "…"}, "…": "…"}],
+  "generated_at": 1792570000
+}
+```
+
+- `status` is `running`, `ok`, `warning`, `error` or `info`. `detail` is one line; on a failure it says why and, when an automation will retry, when (`retry_at` is that time).
+- `counts` covers the range, per kind, whatever `kind` and `before` are. `needs_you` (and `counts.needs_you`) ignores the range. `kind=needs_you` returns that list as `items`.
+- `running_count`: download batches in progress, automations running, auto-imports processing.
+- **Badges:** `GET /api/activity/status` returns just `{"running_count": 1, "needs_you_count": 2, "generated_at": 1792570000}`, with the same visibility and no list or per-kind counts, so the shell can poll it from every page (about 30 ms on a very large install, a few ms on a typical one).
+- Logs aren't in the list: `has_log` says one exists, `GET /api/activity/log/<id>` returns `{"log_lines": [{"type", "text"}]}` for `automation:` and `mirror:` items.
+- `ref` carries the ids an action needs (automation id, auto-import id, tool and plan id, batch id).
+- Library history is one row per track, so tracks landing within 15 minutes of each other are one item. A download batch shows on its own only while it runs, if it stopped part way, or if tracks failed; otherwise the tracks it landed are the item. Seeded system automations show only when a run fails (Auto-Scan Watchlist always shows).
+- Who sees what follows the history routes: downloads and imports are the shared library's; auto-imports need the Import page; automation runs are your automations plus the system ones; mirror runs and playlist syncs are yours; preview outcomes are admins' or the previewer's.
+
+**Needs you** comes from current state and clears itself when the thing is dealt with:
+
+| Kind | Needs you while | Clears when |
+| --- | --- | --- |
+| import | an auto-import folder is waiting for a choice (`pending_review`, `needs_identification`), was only partly imported, or failed | it's approved, imported by hand, retried or dismissed on Import |
+| sync | a mirrored playlist's latest mirror run failed, or had a phase fail, on authorisation (401/403, token, login) | a later mirror run works |
+| automation | an enabled automation's latest run failed or timed out (system automations: admins only) | a later run works, or it's switched off |
+| download | an album or track download finished with failed tracks, none of them on Wanted, so nothing retries them | that release is downloaded again |
+| safety | a preview expired without being confirmed | the same tool is previewed again or confirmed, or `POST /api/activity/dismiss {"id": "safety:31"}` |
+
+Only `safety` items can be dismissed. Expired and confirmed previews are recorded from this release on (`action_plan_events`); earlier ones, and previews pending when SoulSync restarts, leave no record.
+
+### Home targets: `GET /api/targets/summary`
+
+The four targets in fixed order: `wanted`, `mirrored`, `followed`, `quality`. For each, `items` = `have` + `in_progress` + `not_found_yet`, in tracks.
+
+```json
+{
+  "targets": [
+    {"key": "wanted", "set_up": true, "items": 312, "have": 248, "in_progress": 41, "not_found_yet": 23,
+     "unit": "tracks", "found_window_days": 30,
+     "next_search_at": 1792577000, "next_search_automation": {"id": 3, "name": "Auto-Process Wishlist"},
+     "schedule_paused": false, "status": "searching", "reason": null},
+    {"key": "mirrored", "set_up": false, "items": 0, "have": 0, "in_progress": 0, "not_found_yet": 0,
+     "playlists": 0, "status": "not_set_up", "…": "…"},
+    {"key": "followed", "set_up": true, "artists": 18, "status": "cant_search",
+     "reason_code": "download_source_unreachable",
+     "reason": "Soulseek (slskd) didn't answer when SoulSync last checked, 4 minutes ago, so searches can't run.",
+     "checked_at": 1792569760, "…": "…"},
+    {"key": "quality", "set_up": true, "name": "FLAC or better", "preset": "flac",
+     "tracks_checked": 4980, "meeting_target": 4512, "items": 4980, "have": 4512, "in_progress": 120,
+     "not_found_yet": 348, "quality_profile_id": 1, "quality_profile_name": "Balanced", "…": "…"}
+  ],
+  "any_set_up": true,
+  "download_source": {"reachable": true, "checked_at": 1792569760},
+  "generated_at": 1792570000
+}
+```
+
+- **wanted**: your Wanted tracks, plus the ones found from it in the last 30 days (`have`). `in_progress` is still retried every cycle or soon; `not_found_yet` has reached the slowest retry cadence (4+ tries with the standard retry profile).
+- **mirrored**: tracks across your mirrored playlists: in the library (`have`), on Wanted (`in_progress`), neither (`not_found_yet`). `playlists` counts them.
+- **followed**: new-release tracks from the artists you follow: on Wanted from the watchlist scan (split as for Wanted), and downloaded for one of them in the last 30 days (`have`). `artists` counts who you follow.
+- **quality**: library tracks checked against the default quality profile (`tracks_checked`, `meeting_target`); `in_progress` is upgrades queued on Wanted. Checked from the file type and stored bitrate, no file reads.
+- `status` is `not_set_up`, `cant_search` (the download source failed its last check, within 30 minutes; the check /status already makes, never a new probe), `searching` (something in progress) or `ok`. `reason` is set only for `cant_search`.
+- `next_search_at` is the soonest run of an enabled automation you can see that serves the target; null when none, or when automations are paused (`schedule_paused`).
+- `any_set_up` ignores quality: a default quality profile ships with every install, so that card is never "not set up". With the other three not set up, Home shows its single setup panel.
+- Numbers refresh at most every 30 seconds; quality counts at most every 10 minutes.
+
+### Quality presets: `GET /api/quality/presets`
+
+For the "Set a quality target" dialog.
+
+```json
+{
+  "total": 4980, "unknown_format": 12,
+  "presets": [
+    {"key": "mp3_320", "name": "MP3 320", "meeting": 4931, "total": 4980, "estimated": false},
+    {"key": "flac", "name": "FLAC", "meeting": 4512, "total": 4980, "estimated": false},
+    {"key": "flac_24", "name": "FLAC 24-bit", "meeting": 612, "total": 4980, "estimated": true},
+    {"key": "lossless", "name": "Any lossless", "meeting": 4560, "total": 4980, "estimated": false}
+  ],
+  "current": {"preset": "flac", "name": "FLAC or better", "quality_profile_id": 1,
+              "quality_profile_name": "Balanced", "updated_at": 1773446400}
+}
+```
+
+- Counted from each track's file type and stored bitrate. `estimated` marks FLAC 24-bit: bit depth isn't stored, so a FLAC counts as 24-bit at 1450 kbps or more (the rule downloads already use). `.m4a` counts as ALAC at 500 kbps or more.
+- MP3 320 counts lossless files and lossy ones at 320 kbps or more. Any lossless is FLAC, ALAC, WAV/AIFF and DSD.
+- `current` is the default quality profile; `preset` is null when its targets don't match a preset, and `name` then comes from its lowest target. `updated_at` is when that profile was last saved or made the default; SoulSync doesn't record when the target itself changed.
+
 ## Available today, not yet designed for
 
 - **Automation run history:** `GET /api/automations/<id>/history?limit=&offset=`. Each run has `started_at`, `finished_at`, `duration_seconds`, `status`, `summary`, `result` (counts the run produced) and `log_lines`. The Automations prototype can use this as it is.
@@ -56,9 +163,10 @@ Plan routes that exist today:
 - **Sync history:** `GET /api/sync/history`. Playlist mirror runs.
 - **Download batches:** `GET /api/downloads/batch-history`.
 
+The Activity feed above already merges these (and the mirror runs behind `GET /api/playlist-pipeline/history`); use them for a page about one of them.
+
 ## Needs building
 
-- **Activity feed:** one time-ordered list across downloads, imports, automation runs, playlist mirrors, previews that expired, and problems that need the user. Today it's spread across the four history endpoints above, and Dev would merge them into one endpoint. Proposed item: `time`, `kind` (`download` | `import` | `automation` | `sync` | `safety`), `status` (`ok` | `warning` | `error` | `info`), `title`, `detail`, `link`.
-- **Targets summary (Home):** for each target (Wanted, mirrored playlists, followed artists' new releases, quality), how many items, how many you have, how many are in progress or not found yet, and when the next search runs. The counts exist in different places; Dev would add one summary endpoint once Ross approves the Home design.
+Nothing at the moment. Ask in `HANDOFF.md`.
 
 Shapes under "Needs building" are proposals until built. Dev updates this file when they are.

@@ -126,3 +126,16 @@ def test_quick_switch_editable_agrees_with_the_gate(client, nonadmin):
     db = web_server.get_database()
     db.update_profile(nonadmin, is_admin=1)
     assert client.get('/api/profiles/me/active-sources').get_json()['editable'] is True
+
+
+# ---------------------------------------------------------------------------
+# the Activity feed and Home's targets are profile-scoped reads: a member gets
+# their own view, never a 403 (api/activity.py, api/targets.py)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('path', ['/api/activity', '/api/activity/status', '/api/targets/summary',
+                                  '/api/quality/presets'])
+def test_profile_scoped_activity_and_targets_not_overgated(client, nonadmin, path):
+    r = client.get(path)
+    assert r.status_code == 200, f"{path} -> {r.status_code}"
+    assert r.get_json()['success'] is True

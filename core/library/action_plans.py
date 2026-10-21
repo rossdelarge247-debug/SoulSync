@@ -16,16 +16,24 @@ Plans live in memory. SoulSync runs one gunicorn worker (gunicorn.conf.py), so
 a process-wide store is shared by every request; a restart drops pending plans
 and the user simply previews again. Plans are single use and expire after
 ``PLAN_TTL_SECONDS`` so an old preview cannot authorise today's state.
+
+Listeners (``PlanStore.add_listener``) hear what happens to a plan: it was
+created, confirmed, or it expired unused. The Activity feed records the last
+two (core/activity/safety_log.py). Listeners run outside the store's lock and
+a failing one never breaks the plan flow.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
 from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional
+
+logger = logging.getLogger(__name__)
 
 PLAN_TTL_SECONDS = 15 * 60
 DEFAULT_SAMPLE_SIZE = 50
@@ -65,6 +73,9 @@ class ActionPlan:
     created_at: float
     expires_at: float
     meta: Dict[str, Any] = field(default_factory=dict)
+    # The profile whose request made the preview; None when an automation or
+    # other background job made it. Not part of the summary.
+    owner: Optional[int] = None
 
     def summary(self, sample_size: int = DEFAULT_SAMPLE_SIZE, now: Optional[float] = None) -> Dict[str, Any]:
         """JSON-safe description for a preview screen: counts, a sample of the
@@ -115,12 +126,31 @@ class PlanStore:
         self._clock = clock
         self._lock = threading.Lock()
         self._plans: "OrderedDict[str, ActionPlan]" = OrderedDict()
+        self._listeners: List[Callable[[str, ActionPlan], None]] = []
 
-    def _prune(self, now: float) -> None:
-        for pid in [p for p, plan in self._plans.items() if plan.expires_at <= now]:
-            self._plans.pop(pid, None)
+    def add_listener(self, listener: Callable[[str, ActionPlan], None]) -> None:
+        """Call ``listener(event, plan)`` when a plan is ``created``,
+        ``confirmed`` (consumed) or ``expired`` (dropped unused after its TTL)."""
+        with self._lock:
+            if listener not in self._listeners:
+                self._listeners.append(listener)
+
+    def _emit(self, events: Iterable[tuple]) -> None:
+        for event, plan in events:
+            for listener in list(self._listeners):
+                try:
+                    listener(event, plan)
+                except Exception as exc:  # noqa: BLE001 - a listener must never break a plan
+                    logger.debug("plan listener failed on %s: %s", event, exc)
+
+    def _prune(self, now: float) -> List[tuple]:
+        """Drop expired plans (returned as events) and the oldest beyond the cap."""
+        expired = [plan for plan in self._plans.values() if plan.expires_at <= now]
+        for plan in expired:
+            self._plans.pop(plan.plan_id, None)
         while len(self._plans) > self._max:
             self._plans.popitem(last=False)
+        return [("expired", plan) for plan in expired]
 
     def create(self, tool: str, items: Iterable[Dict[str, Any]], meta: Optional[Dict[str, Any]] = None) -> ActionPlan:
         now = self._clock()
@@ -131,22 +161,25 @@ class PlanStore:
             created_at=now,
             expires_at=now + self._ttl,
             meta=dict(meta or {}),
+            owner=_request_profile(),
         )
         with self._lock:
             self._plans[plan.plan_id] = plan
-            self._prune(now)
+            events = self._prune(now)
+        self._emit(events + [("created", plan)])
         return plan
 
-    def _lookup(self, plan_id: Optional[str], tool: str) -> ActionPlan:
+    def _lookup(self, plan_id: Optional[str], tool: str, events: List[tuple]) -> ActionPlan:
         if not plan_id or not isinstance(plan_id, str):
             raise PlanError(PLAN_MISSING)
         now = self._clock()
         plan = self._plans.get(plan_id)
         if plan is None:
-            self._prune(now)
+            events.extend(self._prune(now))
             raise PlanError(PLAN_UNKNOWN)
         if plan.expires_at <= now:
             self._plans.pop(plan_id, None)
+            events.append(("expired", plan))
             raise PlanError(PLAN_EXPIRED)
         if plan.tool != tool:
             raise PlanError(PLAN_WRONG_TOOL)
@@ -154,28 +187,61 @@ class PlanStore:
 
     def peek(self, plan_id: Optional[str], tool: str) -> ActionPlan:
         """The plan, still valid and unused, without spending it."""
-        with self._lock:
-            return self._lookup(plan_id, tool)
+        events: List[tuple] = []
+        try:
+            with self._lock:
+                return self._lookup(plan_id, tool, events)
+        finally:
+            self._emit(events)
 
     def consume(self, plan_id: Optional[str], tool: str) -> ActionPlan:
         """The plan, removed so it cannot authorise a second run."""
-        with self._lock:
-            plan = self._lookup(plan_id, tool)
-            self._plans.pop(plan.plan_id, None)
+        events: List[tuple] = []
+        try:
+            with self._lock:
+                plan = self._lookup(plan_id, tool, events)
+                self._plans.pop(plan.plan_id, None)
+            events.append(("confirmed", plan))
             return plan
+        finally:
+            self._emit(events)
 
     def latest(self, tool: str) -> Optional[ActionPlan]:
         """Most recent unexpired plan for ``tool`` (for status screens)."""
+        found = None
         with self._lock:
-            self._prune(self._clock())
+            events = self._prune(self._clock())
             for plan in reversed(self._plans.values()):
                 if plan.tool == tool:
-                    return plan
-        return None
+                    found = plan
+                    break
+        self._emit(events)
+        return found
+
+    def sweep(self) -> int:
+        """Drop expired plans now, so their listeners hear about it without
+        waiting for the next preview. Returns how many expired."""
+        with self._lock:
+            events = self._prune(self._clock())
+        self._emit(events)
+        return len(events)
 
     def clear(self) -> None:
         with self._lock:
             self._plans.clear()
+
+
+def _request_profile() -> Optional[int]:
+    """The profile of the web request making a plan, or None outside one."""
+    try:
+        from flask import has_request_context
+        if not has_request_context():
+            return None
+        from core.profile_context import get_current_profile_id
+        pid = get_current_profile_id()
+        return int(pid) if pid is not None else None
+    except Exception:  # noqa: BLE001 - owner is informational only
+        return None
 
 
 # The process-wide store every tool shares.
