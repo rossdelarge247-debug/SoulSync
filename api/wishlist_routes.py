@@ -350,6 +350,30 @@ def get_wishlist_tracks():
         logger.error(f"Error getting wishlist tracks: {e}")
         return jsonify({"error": str(e)}), 500
 
+@bp.route('/api/wishlist/found', methods=['GET'])
+def get_wishlist_found():
+    """Tracks Wanted found recently (the Wanted page's "Found this week").
+
+    Read-only: the wishlist removal audit joined to the library history on the
+    published path. Scoped to the profiles whose library holds the file; see
+    core.wishlist.found for the rule.
+
+    Query: days (1-30, default 7).
+    Returns: {"success": true, "days": 7, "count": 2, "items": [{id, title,
+    artist, album, quality, image, found_at, reason}]}
+    """
+    try:
+        from core.wishlist.found import clamp_days, recently_found
+        from database.music_database import MusicDatabase
+
+        days = clamp_days(request.args.get('days'))
+        items = recently_found(MusicDatabase(), get_current_profile_id(), days=days)
+        return jsonify({"success": True, "days": days, "count": len(items), "items": items})
+    except Exception as e:
+        logger.error(f"Error reading recently found wishlist tracks: {e}")
+        return jsonify({"success": False, "error": str(e), "items": []}), 500
+
+
 def _build_wishlist_route_runtime(
     *,
     is_actually_processing_fn=None,

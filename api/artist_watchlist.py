@@ -138,6 +138,34 @@ def get_watchlist_recent_releases():
         logger.error(f"Error getting watchlist recent releases: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@bp.route('/api/watchlist/artists/summary', methods=['GET'])
+def get_watchlist_artist_summary():
+    """Per followed artist: releases in the library, the latest cached release,
+    the last release a followed-artist check found, and whether that was in the
+    last week (the Wanted page's Followed artists tab).
+
+    Read-only and profile-scoped; see core.watchlist.summary for where each
+    number comes from.
+
+    Returns: {"success": true, "new_release_days": 7, "artists": [{id,
+    library_releases, latest_release, last_found, new_release}]}
+    """
+    try:
+        from core.watchlist.summary import NEW_RELEASE_DAYS, followed_artist_summary
+
+        active_server = None
+        try:
+            active_server = config_manager.get_active_media_server() if config_manager else None
+        except Exception as e:
+            logger.debug("active media server lookup failed: %s", e)
+        artists = followed_artist_summary(
+            get_database(), get_current_profile_id(), active_server=active_server)
+        return jsonify({"success": True, "new_release_days": NEW_RELEASE_DAYS, "artists": artists})
+    except Exception as e:
+        logger.error(f"Error building followed artist summary: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @bp.route('/api/watchlist/artists', methods=['GET'])
 def get_watchlist_artists():
     """Get all artists in the watchlist with cached images"""

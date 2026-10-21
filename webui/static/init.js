@@ -630,6 +630,11 @@ function isPageAllowed(pageId) {
         if (!ap) return true;
         return ap.includes('search') || ap.includes('watchlist') || ap.includes('library');
     }
+    // the Wanted page holds the wishlist (its Wanted tab) and the watchlist
+    // (Followed artists): either page opens it, and it shows the tabs allowed
+    if (normalizedPageId === 'wanted') {
+        return isPageAllowed('wishlist') || isPageAllowed('watchlist');
+    }
     const ap = normalizeProfilePageList(currentProfile.allowed_pages);
     if (!ap) return true; // null = all pages
     if (ap.includes(normalizedPageId)) return true;

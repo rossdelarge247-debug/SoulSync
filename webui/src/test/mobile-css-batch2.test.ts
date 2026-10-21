@@ -19,7 +19,8 @@ const STYLE = read('static/style.css');
 const PLAYER_V2 = read('static/media-player-v2.css');
 const PREMIER = read('static/dashboard-premier.css');
 const VIDEO_SIDE = read('static/video/video-side.css');
-const WATCHLIST_TSX = read('src/routes/watchlist/-ui/watchlist-page.tsx');
+// the Watchlist is the Followed artists tab of the Wanted page now
+const WANTED_TSX = read('src/routes/wanted/-ui/wanted-page.tsx');
 const INBOX_TSX = read('src/routes/import/-ui/inbox.tsx');
 const AUDIOBOOKS_CSS = read('src/routes/audiobooks/-ui/audiobooks-page.module.css');
 const AUDIOBOOK_OVERLAY_TSX = read('src/routes/audiobooks/-ui/audiobook-overlay.tsx');
@@ -57,9 +58,9 @@ describe('RC1 — the global 38px touch-target rule must not stretch designed-sh
 });
 
 describe('RC2 — tab rails that #1661 could not reach', () => {
-  it('watchlist page tabs opt into the global [role="tablist"] rail rule', () => {
-    expect(WATCHLIST_TSX).toContain('role="tablist"');
-    expect(WATCHLIST_TSX).toContain('aria-selected={search.tab ===');
+  it('the Wanted page tabs (the old watchlist tabs) opt into the global [role="tablist"] rail rule', () => {
+    expect(WANTED_TSX).toContain('role="tablist"');
+    expect(WANTED_TSX).toContain('aria-selected={tab ===');
   });
 
   it('the folders media switcher scrolls instead of squeezing its labels', () => {

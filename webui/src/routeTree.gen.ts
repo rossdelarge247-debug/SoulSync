@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SplatRouteImport } from './routes/$'
 import { Route as WishlistRouteRouteImport } from './routes/wishlist/route'
 import { Route as WatchlistRouteRouteImport } from './routes/watchlist/route'
+import { Route as WantedRouteRouteImport } from './routes/wanted/route'
 import { Route as ToolsRouteRouteImport } from './routes/tools/route'
 import { Route as SyncRouteRouteImport } from './routes/sync/route'
 import { Route as StatsRouteRouteImport } from './routes/stats/route'
@@ -60,6 +61,11 @@ const WishlistRouteRoute = WishlistRouteRouteImport.update({
 const WatchlistRouteRoute = WatchlistRouteRouteImport.update({
   id: '/watchlist',
   path: '/watchlist',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WantedRouteRoute = WantedRouteRouteImport.update({
+  id: '/wanted',
+  path: '/wanted',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ToolsRouteRoute = ToolsRouteRouteImport.update({
@@ -253,6 +259,7 @@ export interface FileRoutesByFullPath {
   '/stats': typeof StatsRouteRoute
   '/sync': typeof SyncRouteRoute
   '/tools': typeof ToolsRouteRoute
+  '/wanted': typeof WantedRouteRoute
   '/watchlist': typeof WatchlistRouteRoute
   '/wishlist': typeof WishlistRouteRoute
   '/$': typeof SplatRoute
@@ -289,6 +296,7 @@ export interface FileRoutesByTo {
   '/stats': typeof StatsRouteRoute
   '/sync': typeof SyncRouteRoute
   '/tools': typeof ToolsRouteRoute
+  '/wanted': typeof WantedRouteRoute
   '/watchlist': typeof WatchlistRouteRoute
   '/wishlist': typeof WishlistRouteRoute
   '/$': typeof SplatRoute
@@ -329,6 +337,7 @@ export interface FileRoutesById {
   '/stats': typeof StatsRouteRoute
   '/sync': typeof SyncRouteRoute
   '/tools': typeof ToolsRouteRoute
+  '/wanted': typeof WantedRouteRoute
   '/watchlist': typeof WatchlistRouteRoute
   '/wishlist': typeof WishlistRouteRoute
   '/$': typeof SplatRoute
@@ -370,6 +379,7 @@ export interface FileRouteTypes {
     | '/stats'
     | '/sync'
     | '/tools'
+    | '/wanted'
     | '/watchlist'
     | '/wishlist'
     | '/$'
@@ -406,6 +416,7 @@ export interface FileRouteTypes {
     | '/stats'
     | '/sync'
     | '/tools'
+    | '/wanted'
     | '/watchlist'
     | '/wishlist'
     | '/$'
@@ -445,6 +456,7 @@ export interface FileRouteTypes {
     | '/stats'
     | '/sync'
     | '/tools'
+    | '/wanted'
     | '/watchlist'
     | '/wishlist'
     | '/$'
@@ -485,6 +497,7 @@ export interface RootRouteChildren {
   StatsRouteRoute: typeof StatsRouteRoute
   SyncRouteRoute: typeof SyncRouteRoute
   ToolsRouteRoute: typeof ToolsRouteRoute
+  WantedRouteRoute: typeof WantedRouteRoute
   WatchlistRouteRoute: typeof WatchlistRouteRoute
   WishlistRouteRoute: typeof WishlistRouteRoute
   SplatRoute: typeof SplatRoute
@@ -513,6 +526,13 @@ declare module '@tanstack/react-router' {
       path: '/watchlist'
       fullPath: '/watchlist'
       preLoaderRoute: typeof WatchlistRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/wanted': {
+      id: '/wanted'
+      path: '/wanted'
+      fullPath: '/wanted'
+      preLoaderRoute: typeof WantedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tools': {
@@ -832,6 +852,7 @@ const rootRouteChildren: RootRouteChildren = {
   StatsRouteRoute: StatsRouteRoute,
   SyncRouteRoute: SyncRouteRoute,
   ToolsRouteRoute: ToolsRouteRoute,
+  WantedRouteRoute: WantedRouteRoute,
   WatchlistRouteRoute: WatchlistRouteRoute,
   WishlistRouteRoute: WishlistRouteRoute,
   SplatRoute: SplatRoute,

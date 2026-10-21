@@ -164,6 +164,53 @@ What the shell (`src/shell/nav-shell.ts`) reads, and how:
 - **`GET /api/activity/status`** → `{"success", "running_count", "needs_you_count", "generated_at"}` for the top bar's "N running" link and Activity's needs-you badge. Built (Activity feed above). The shell polls it every 30 seconds while the tab is visible and again soon after the app's activity socket events (`ss:dashboard-activity`, `ss:automation-progress`, a change in active downloads). A 404, an error or `success: false` is unknown: no count, no badge, never "0". After a 404 it asks every 5 minutes instead.
 - **The Setup check dot**: the fast local run, `GET /api/setup/check?scope=local` (admin only), once per visit about four seconds after the app is up, cached in the tab's `sessionStorage` for 10 minutes; and every report the Setup check page itself gets (it announces each one as the `ss:setup-check-report` window event, so the full run's answer replaces the local one). Warnings and problems both light the dot. Non-admins don't ask; they don't see the row.
 
+### Wanted page
+
+Two read-only routes, scoped to the current profile and open to every profile, like the wishlist and watchlist routes beside them.
+
+**What Wanted found: `GET /api/wishlist/found?days=7`.** `days` is 1 to 30. Tracks Wanted downloaded in that window, newest first, each once:
+
+```json
+{
+  "success": true, "days": 7, "count": 1,
+  "items": [
+    {"id": "4uLU6hMCjMI75M1A2tKUQC", "title": "Static Bloom", "artist": "Saltmarsh", "album": "Lantern",
+     "quality": "FLAC 24/96", "image": "https://…", "found_at": "2026-10-21T14:02:00Z", "reason": "download_complete"}
+  ]
+}
+```
+
+`reason` is `download_complete` or `atomic_published`. The title, artist, album, quality and art come from the library history entry for the downloaded file; a profile sees a find when that entry lists the profile or lists none.
+
+**Followed-artist numbers: `GET /api/watchlist/artists/summary`.** One entry per followed artist, matched to `/api/watchlist/artists` by `id`:
+
+```json
+{
+  "success": true, "new_release_days": 7,
+  "artists": [
+    {"id": 12, "library_releases": 9,
+     "latest_release": {"album_name": "Tidewater", "release_date": "2026-10-03"},
+     "last_found": {"album_name": "Tidewater", "found_at": "2026-10-19T06:00:00Z", "added_to_wanted": true},
+     "new_release": true}
+  ]
+}
+```
+
+- `library_releases` counts the library's albums, EPs and singles under the artist's name, on the active media server when one is set.
+- `latest_release` (or `null`) is the newest row of the per-artist release cache.
+- `last_found` (or `null`) is the newest release a followed-artist check found, from the check history. `added_to_wanted` is false when the release was found but not added.
+- `new_release` is true when something was found in the last `new_release_days` days.
+
+There's no total of an artist's releases: SoulSync doesn't store discographies.
+
+**Also read by the page, unchanged:**
+
+- `/api/wishlist/tracks?category=albums|singles`, `/api/wishlist/stats` and `/api/wishlist/cycle`;
+- `/api/watchlist/artists`, `/api/watchlist/count`, `/api/watchlist/scan/status` and `/api/watchlist/global-config`;
+- `/api/automations` and `/api/automations/master`, for the schedule line's name, interval and paused state;
+- `/api/quality-profile/custom`, for quality names on rows;
+- `/api/library/artists?search=`, for Open artist.
+
 ## Available today, not yet designed for
 
 - **Automation run history:** `GET /api/automations/<id>/history?limit=&offset=`. Each run has `started_at`, `finished_at`, `duration_seconds`, `status`, `summary`, `result` (counts the run produced) and `log_lines`. The Automations prototype can use this as it is.
