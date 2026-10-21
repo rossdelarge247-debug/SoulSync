@@ -131,6 +131,36 @@ _sync_is_request_list: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
 _sync_auto_remove_fulfilled: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
     "sync_auto_remove_fulfilled", default=False)
 
+# the cache rows and library rows this sync's matching pass will read,
+# loaded up front (core.sync.match_prefetch). task-scoped like the rest;
+# None outside a sync, and the matcher reads the database itself.
+_sync_match_prefetch: "contextvars.ContextVar[Optional[Any]]" = contextvars.ContextVar(
+    "sync_match_prefetch", default=None)
+
+
+def _load_match_prefetch(tracks):
+    """read every cache row and cached library row the matcher will ask
+    about for these tracks, in a few queries. None when that fails: the
+    matcher then reads per track, as it always did."""
+    try:
+        from core.settings import config_manager
+        from core.sync.match_overrides import match_lookup_ids
+        from core.sync.match_prefetch import SyncMatchPrefetch
+        from database.music_database import MusicDatabase
+        ids = [match_id for track in tracks for match_id in match_lookup_ids(track)]
+        return SyncMatchPrefetch.load(MusicDatabase(), config_manager.get_active_media_server(), ids)
+    except Exception as e:  # noqa: BLE001 - a read-ahead must never cost the sync
+        logger.debug("sync match prefetch unavailable: %s", e)
+        return None
+
+
+def _flush_match_prefetch(prefetch) -> None:
+    try:
+        from database.music_database import MusicDatabase
+        prefetch.flush(MusicDatabase())
+    except Exception as e:  # noqa: BLE001 - use counts are bookkeeping
+        logger.debug("sync match cache use counts not recorded: %s", e)
+
 # the sync ids a mirrored playlist syncs under. bare digits don't count: a
 # deezer playlist id is all digits and would land on a random mirror
 _MIRROR_SYNC_ID_RE = re.compile(r'^(?:auto_mirror_|mirrored_|youtube_mirrored_)(\d+)$')
@@ -682,37 +712,47 @@ class PlaylistSyncService:
             # caches pay zero pool cost.
             candidate_pool: Dict[str, list] = {}
 
+            # every cache row and cached library row the matcher will read, in
+            # a few queries instead of ~3 connections per track
+            match_prefetch = await asyncio.to_thread(_load_match_prefetch, playlist.tracks)
+            _prefetch_token = _sync_match_prefetch.set(match_prefetch)
+
             # Use the same robust matching approach as "Download Missing Tracks"
             match_results = []
-            for i, track in enumerate(playlist.tracks):
-                if self._is_cancelled(playlist.name):
-                    return self._create_error_result(playlist.name, ["Sync cancelled"])
+            try:
+                for i, track in enumerate(playlist.tracks):
+                    if self._is_cancelled(playlist.name):
+                        return self._create_error_result(playlist.name, ["Sync cancelled"])
 
-                # Update progress for each track
-                progress_percent = 20 + (40 * (i + 1) / total_tracks)  # 20-60% for matching
-                if track.artists:
-                    current_track_name = f"{_artist_name(track.artists[0]) or 'Unknown'} - {track.name}"
-                else:
-                    current_track_name = track.name
-                self._update_progress(playlist.name, "Matching tracks", current_track_name, progress_percent, 5, 2,
-                                    total_tracks=total_tracks,
-                                    matched_tracks=len([r for r in match_results if r.is_match]),
-                                    failed_tracks=len([r for r in match_results if not r.is_match]))
+                    # Update progress for each track
+                    progress_percent = 20 + (40 * (i + 1) / total_tracks)  # 20-60% for matching
+                    if track.artists:
+                        current_track_name = f"{_artist_name(track.artists[0]) or 'Unknown'} - {track.name}"
+                    else:
+                        current_track_name = track.name
+                    self._update_progress(playlist.name, "Matching tracks", current_track_name, progress_percent, 5, 2,
+                                        total_tracks=total_tracks,
+                                        matched_tracks=len([r for r in match_results if r.is_match]),
+                                        failed_tracks=len([r for r in match_results if not r.is_match]))
 
-                # Use the robust search approach
-                plex_match, confidence = await self._find_track_in_media_server(track, candidate_pool=candidate_pool)
-                
-                match_result = MatchResult(
-                    spotify_track=track,
-                    plex_track=plex_match,
-                    confidence=confidence,
-                    match_type="robust_search" if plex_match else "no_match",
-                    # The finder accepts db matches at 0.7 (the app-wide "you
-                    # own this" bar) — is_match must agree, or the 0.70-0.79
-                    # band is wishlisted AND left off the playlist (#1047).
-                    match_threshold=0.7,
-                )
-                match_results.append(match_result)
+                    # Use the robust search approach
+                    plex_match, confidence = await self._find_track_in_media_server(track, candidate_pool=candidate_pool)
+
+                    match_result = MatchResult(
+                        spotify_track=track,
+                        plex_track=plex_match,
+                        confidence=confidence,
+                        match_type="robust_search" if plex_match else "no_match",
+                        # The finder accepts db matches at 0.7 (the app-wide "you
+                        # own this" bar) — is_match must agree, or the 0.70-0.79
+                        # band is wishlisted AND left off the playlist (#1047).
+                        match_threshold=0.7,
+                    )
+                    match_results.append(match_result)
+            finally:
+                _sync_match_prefetch.reset(_prefetch_token)
+                if match_prefetch is not None:
+                    await asyncio.to_thread(_flush_match_prefetch, match_prefetch)
             
             matched_tracks = [r for r in match_results if r.is_match]
             unmatched_tracks = [r for r in match_results if not r.is_match]
@@ -1352,13 +1392,24 @@ class PlaylistSyncService:
             from core.sync.match_overrides import (
                 cached_match_is_stale, drop_stale_cached_match, match_lookup_ids)
             cache_db = MusicDatabase()
+            # rows this sync read ahead; None outside sync_playlist's loop
+            prefetch = _sync_match_prefetch.get()
+
+            def _track_row(track_id):
+                if prefetch is not None:
+                    return prefetch.get_track_by_id(cache_db, track_id)
+                return cache_db.get_track_by_id(track_id)
+
+            def _rewrote_cache(source_id):
+                if prefetch is not None:
+                    prefetch.rewrote(source_id)
 
             def _materialize(server_track_id):
                 """Turn a stored library track id into the actual server item the
                 sync needs (DB row for Jellyfin/Navidrome/SoulSync, Plex fetchItem)."""
                 if server_track_id is None:
                     return None
-                dbt = cache_db.get_track_by_id(server_track_id)
+                dbt = _track_row(server_track_id)
                 if not dbt:
                     return None
                 if server_type in ("jellyfin", "navidrome", "soulsync"):
@@ -1381,7 +1432,10 @@ class PlaylistSyncService:
             for _match_id in match_lookup_ids(spotify_track):
                 # 1) Volatile sync_match_cache — fast, but wiped on every library rescan.
                 try:
-                    cached = cache_db.read_sync_match_cache(_match_id, active_server)
+                    if prefetch is not None:
+                        cached = prefetch.read_sync_match_cache(cache_db, _match_id, active_server)
+                    else:
+                        cached = cache_db.read_sync_match_cache(_match_id, active_server)
                     if cached:
                         actual_track = _materialize(cached['server_track_id'])
                         if actual_track:
@@ -1401,7 +1455,7 @@ class PlaylistSyncService:
                                 album=getattr(spotify_track, 'album', None),
                                 server_source=active_server,
                                 cached_track_id=cached['server_track_id'],
-                                cached_track_row=cache_db.get_track_by_id(cached['server_track_id']),
+                                cached_track_row=_track_row(cached['server_track_id']),
                                 threshold=0.7,
                             ):
                                 logger.info(
@@ -1409,6 +1463,7 @@ class PlaylistSyncService:
                                     f"{cached['server_track_id']} no longer matches under "
                                     f"current rules; dropping the cached pairing")
                                 drop_stale_cached_match(cache_db, _match_id, active_server)
+                                _rewrote_cache(_match_id)
                             else:
                                 logger.debug(f"Sync cache hit: '{original_title}' → server track {cached['server_track_id']}")
                                 return actual_track, cached['confidence']
@@ -1449,6 +1504,7 @@ class PlaylistSyncService:
                                         active_server, actual_track.ratingKey, getattr(actual_track, 'title', original_title), 1.0)
                                 except Exception as _cache_err:
                                     logger.debug("sync cache heal failed: %s", _cache_err)
+                                _rewrote_cache(_match_id)
                         if actual_track:
                             logger.info(f"Durable manual match honored for '{original_title}' → {getattr(actual_track, 'ratingKey', m.get('library_track_id'))}")
                             return actual_track, 1.0
@@ -1511,6 +1567,7 @@ class PlaylistSyncService:
                                 )
                             except Exception as e:
                                 logger.debug("save sync match cache failed: %s", e)
+                            _rewrote_cache(spotify_id)
                         
                         # Fetch the actual track object from active media server using the database track ID
                         try:

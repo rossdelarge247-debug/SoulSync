@@ -11167,208 +11167,265 @@ class MusicDatabase:
         """Insert or update track from Plex track object - DEPRECATED: Use insert_or_update_media_track instead"""
         return self.insert_or_update_media_track(plex_track, album_id, artist_id, server_source='plex')
     
+    def _media_track_fields(self, track_obj, server_source: str) -> dict:
+        """Everything insert_or_update_media_track reads off the server's track
+        object, before it touches the database.
+
+        No database access in here: the batch writer runs this before it takes
+        the write lock, because a plexapi object can go back to the server for
+        an attribute it doesn't have loaded yet."""
+        # Convert track ID to string (handles both Plex integer IDs and Jellyfin GUIDs)
+        track_id = str(track_obj.ratingKey)
+        title = track_obj.title
+        track_number = getattr(track_obj, 'trackNumber', None)
+        # Multi-disc: capture the disc number so multi-disc albums don't all
+        # collapse onto disc 1 (which mis-files disc-2+ tracks and flags them
+        # "missing"). Jellyfin/Navidrome wrappers set .discNumber; plexapi's Track
+        # exposes .parentIndex. Floor to >=1 — a missing/0 disc is disc 1.
+        _raw_disc = getattr(track_obj, 'discNumber', None)
+        if _raw_disc is None:
+            _raw_disc = getattr(track_obj, 'parentIndex', None)
+        try:
+            disc_number = int(_raw_disc)
+            if disc_number < 1:
+                disc_number = 1
+        except (TypeError, ValueError):
+            disc_number = 1
+        duration = getattr(track_obj, 'duration', None)
+
+        # Get file path and media info (Plex-specific, Jellyfin may not have these)
+        file_path = None
+        bitrate = None
+        file_size = None
+        if hasattr(track_obj, 'media') and track_obj.media:
+            media = track_obj.media[0] if track_obj.media else None
+            if media:
+                if hasattr(media, 'parts') and media.parts:
+                    part = media.parts[0]
+                    file_path = getattr(part, 'file', None)
+                    # Plex's MediaPart exposes the file size in bytes
+                    # via plexapi — pull it for the Library Disk
+                    # Usage card on Stats. None when the server
+                    # didn't report a size.
+                    _plex_size = getattr(part, 'size', None)
+                    if isinstance(_plex_size, int) and _plex_size > 0:
+                        file_size = _plex_size
+                bitrate = getattr(media, 'bitrate', None)
+
+        # Fallback for Navidrome/Subsonic tracks
+        if file_path is None and hasattr(track_obj, 'path') and track_obj.path:
+            file_path = track_obj.path
+        if bitrate is None and hasattr(track_obj, 'bitRate') and track_obj.bitRate:
+            bitrate = track_obj.bitRate
+        # Do NOT fabricate a bare filename when path is missing —
+        # the Subsonic API can omit 'path' transiently (e.g. during
+        # a Navidrome library rescan).  A bogus relative name like
+        # "My Song.flac" would overwrite the correct value on the
+        # next UPDATE.  Leave file_path as None instead; the
+        # COALESCE guard in the UPDATE statement protects the
+        # existing row.
+        # File size: Jellyfin / Navidrome / SoulSync-standalone
+        # all set track_obj.file_size on their wrapper class.
+        # Plex came in via the media.parts[0].size path above —
+        # don't clobber that.
+        if file_size is None and hasattr(track_obj, 'file_size'):
+            _wrapper_size = getattr(track_obj, 'file_size', None)
+            if isinstance(_wrapper_size, int) and _wrapper_size > 0:
+                file_size = _wrapper_size
+
+        # #1573: keep the server's path as reported, and store where
+        # SoulSync itself opens the file. the standalone server scans
+        # SoulSync's own disk, its path already is the local one. when
+        # the file can't be found from here, file_path falls back to
+        # the server's path (see _write_media_track_row).
+        server_path = file_path
+        if file_path and server_source != 'soulsync':
+            from core.library.server_paths import local_path_for
+            try:
+                from core.settings import config_manager as _cm
+            except Exception:  # noqa: BLE001 - no config, raw path only
+                _cm = None
+            file_path = local_path_for(file_path, _cm) or None
+
+        # Extract per-track artist for compilations/DJ mixes.
+        # Only stored when it differs from the album artist.
+        track_artist = None
+        # Plex: originalTitle holds the per-track artist on compilation albums
+        plex_original = getattr(track_obj, 'originalTitle', None)
+        if plex_original and plex_original.strip():
+            track_artist = plex_original.strip()
+        # Jellyfin/Emby: store ALL ArtistItems, not just [0]. A track
+        # like "Super Single" by Artist1 feat. Artist2 has both names in
+        # ArtistItems; if we kept only the first, completion checks for
+        # Artist2's discography (where the same track also appears as a
+        # single) would never find this row in the library. Joining with
+        # "; " matches Jellyfin's own UI convention and lets the search
+        # path treat each name as a separate artist credit.
+        if not track_artist and hasattr(track_obj, '_data'):
+            raw = getattr(track_obj, '_data', {}) or {}
+            artist_items = raw.get('ArtistItems', [])
+            if artist_items:
+                jf_track_artist_names = [
+                    a.get('Name', '') for a in artist_items if a.get('Name')
+                ]
+                jf_track_artist = '; '.join(jf_track_artist_names)
+                album_artists = raw.get('AlbumArtists', [])
+                jf_album_artist = album_artists[0].get('Name', '') if album_artists else ''
+                # Store when the track has multiple artists OR when the
+                # single-artist credit differs from the album artist.
+                if jf_track_artist and (
+                    len(jf_track_artist_names) > 1
+                    or jf_track_artist != jf_album_artist
+                ):
+                    track_artist = jf_track_artist
+        # the tagged artist of a payload without per-track credits; it
+        # becomes the track artist when it differs from the album artist's
+        # name, which needs the database (see _write_media_track_row)
+        raw_artist = ''
+        if not track_artist:
+            for _payload_attr in ('_data', '_tags'):
+                _payload = getattr(track_obj, _payload_attr, None)
+                if isinstance(_payload, dict):
+                    raw_artist = (_payload.get('artist') or '').strip()
+                    if raw_artist:
+                        break
+
+        # Extract MusicBrainz recording ID from server if available (Navidrome provides this)
+        mbid = getattr(track_obj, 'musicBrainzId', None) or None
+
+        return {
+            'track_id': track_id, 'title': title, 'track_number': track_number,
+            'disc_number': disc_number, 'duration': duration, 'file_path': file_path,
+            'server_path': server_path, 'bitrate': bitrate, 'file_size': file_size,
+            'track_artist': track_artist, 'raw_artist': raw_artist, 'mbid': mbid,
+        }
+
+    def _write_media_track_row(self, cursor, fields: dict, album_id, artist_id, server_source: str, owner_profile_id):
+        """The database half of insert_or_update_media_track: one track's row
+        and credits on ``cursor``, without committing.
+
+        Returns ``(is_new_track, file_path)`` with the path actually stored, or
+        None when the row belongs to another library owner (logged, nothing
+        written)."""
+        track_id = fields['track_id']
+        title = fields['title']
+        file_path = fields['file_path']
+        server_path = fields['server_path']
+        mbid = fields['mbid']
+        track_artist = fields['track_artist']
+        raw_artist = fields['raw_artist']
+        if not track_artist and raw_artist:
+            try:
+                artist_row = cursor.execute("SELECT name FROM artists WHERE id = ?", (artist_id,)).fetchone()
+                album_artist_name = (artist_row[0] or '') if artist_row else ''
+                if raw_artist.lower() != album_artist_name.lower():
+                    track_artist = raw_artist
+            except Exception as e:
+                logger.debug("Failed to load album artist for track_artist comparison: %s", e)
+
+        # Check if track already exists — UPDATE to preserve enrichment columns,
+        # INSERT only for genuinely new tracks
+        cursor.execute("SELECT owner_profile_id FROM tracks WHERE id = ? LIMIT 1", (track_id,))
+        existing = cursor.fetchone()
+        if existing is not None and existing['owner_profile_id'] != owner_profile_id:
+            logger.error('Refusing to move track %s between library owners; check server library selections', track_id)
+            return None
+        is_new_track = existing is None
+
+        # the scan is the bulk writer, so it fills the normalized
+        # columns itself instead of leaving a library-sized gap for the
+        # backfill after every deep scan
+        title_norm = self._normalize_for_comparison(title) if title else ''
+        track_artist_norm = self._normalize_for_comparison(track_artist) if track_artist else None
+
+        if not file_path and server_path:
+            # not reachable from here: keep a local path SoulSync set
+            # earlier if that file is still there, else the server's
+            if not is_new_track:
+                cursor.execute("SELECT file_path FROM tracks WHERE id = ?", (track_id,))
+                _prev = cursor.fetchone()
+                _prev_path = _prev[0] if _prev else None
+                if _prev_path and os.path.exists(_prev_path):
+                    file_path = _prev_path
+            if not file_path:
+                file_path = server_path
+
+        track_number = fields['track_number']
+        disc_number = fields['disc_number']
+        duration = fields['duration']
+        bitrate = fields['bitrate']
+        file_size = fields['file_size']
+        if is_new_track:
+            cursor.execute("""
+                INSERT INTO tracks
+                (id, album_id, artist_id, title, track_number, disc_number, duration, file_path, server_path, bitrate, file_size, server_source, track_artist, musicbrainz_recording_id, title_norm, track_artist_norm, owner_profile_id, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (track_id, album_id, artist_id, title, track_number, disc_number, duration, file_path, server_path, bitrate, file_size, server_source, track_artist, mbid, title_norm, track_artist_norm or '', owner_profile_id))
+        else:
+            # Update server-provided fields only — preserves spotify_track_id, deezer_id,
+            # isrc, bpm, and all other enrichment data. file_size uses
+            # COALESCE(?, file_size) so a NULL from the server (e.g.
+            # Jellyfin sometimes omits Size on first sync) doesn't wipe
+            # an existing value.
+            cursor.execute("""
+                UPDATE tracks
+                SET album_id = ?, artist_id = ?, title = ?, track_number = ?, disc_number = ?,
+                    duration = ?, file_path = COALESCE(?, file_path),
+                    server_path = COALESCE(?, server_path), bitrate = ?,
+                    file_size = COALESCE(?, file_size),
+                    server_source = ?,
+                    track_artist = COALESCE(?, track_artist),
+                    recording_disambiguation = CASE
+                        WHEN ? IS NOT NULL AND (musicbrainz_recording_id IS NULL
+                             OR LOWER(?) != LOWER(musicbrainz_recording_id))
+                        THEN NULL ELSE recording_disambiguation END,
+                    musicbrainz_recording_id = COALESCE(?, musicbrainz_recording_id),
+                    title_norm = ?,
+                    track_artist_norm = COALESCE(?, track_artist_norm),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (album_id, artist_id, title, track_number, disc_number, duration, file_path, server_path, bitrate, file_size, server_source, track_artist, mbid, mbid, mbid, title_norm, track_artist_norm, track_id))
+
+        if is_new_track or track_artist_norm is not None:
+            cursor.execute("DELETE FROM track_credits WHERE track_id = ?", (track_id,))
+            cursor.executemany(
+                "INSERT OR IGNORE INTO track_credits (track_id, name_norm) VALUES (?, ?)",
+                [(track_id, name) for name in split_credit_names(track_artist_norm or '')])
+
+        return is_new_track, file_path
+
     def insert_or_update_media_track(self, track_obj, album_id: str, artist_id: str, server_source: str = 'plex', owner_profile_id=None) -> bool:
         """Insert or update track from media server track object (Plex or Jellyfin) with retry logic"""
+        return self._insert_or_update_media_track(track_obj, album_id, artist_id, server_source, owner_profile_id)
+
+    def _insert_or_update_media_track(self, track_obj, album_id, artist_id, server_source, owner_profile_id, prepared_fields=None):
+        """insert_or_update_media_track. ``prepared_fields`` is what
+        _media_track_fields already read off ``track_obj`` (the batch writer
+        hands over a track it couldn't write); the first attempt uses it
+        instead of reading the object again."""
         from core.library_scope import library_artist_id
         artist_id = library_artist_id(artist_id, server_source, owner_profile_id)
         max_retries = 3
         retry_count = 0
-        
+
         while retry_count < max_retries:
             try:
                 conn = self._get_connection()
                 cursor = conn.cursor()
-                
+
                 # Set shorter timeout to prevent long locks
                 cursor.execute("PRAGMA busy_timeout = 10000")  # 10 second timeout
-                
-                # Convert track ID to string (handles both Plex integer IDs and Jellyfin GUIDs)
-                track_id = str(track_obj.ratingKey)
-                title = track_obj.title
-                track_number = getattr(track_obj, 'trackNumber', None)
-                # Multi-disc: capture the disc number so multi-disc albums don't all
-                # collapse onto disc 1 (which mis-files disc-2+ tracks and flags them
-                # "missing"). Jellyfin/Navidrome wrappers set .discNumber; plexapi's Track
-                # exposes .parentIndex. Floor to >=1 — a missing/0 disc is disc 1.
-                _raw_disc = getattr(track_obj, 'discNumber', None)
-                if _raw_disc is None:
-                    _raw_disc = getattr(track_obj, 'parentIndex', None)
-                try:
-                    disc_number = int(_raw_disc)
-                    if disc_number < 1:
-                        disc_number = 1
-                except (TypeError, ValueError):
-                    disc_number = 1
-                duration = getattr(track_obj, 'duration', None)
-                
-                # Get file path and media info (Plex-specific, Jellyfin may not have these)
-                file_path = None
-                bitrate = None
-                file_size = None
-                if hasattr(track_obj, 'media') and track_obj.media:
-                    media = track_obj.media[0] if track_obj.media else None
-                    if media:
-                        if hasattr(media, 'parts') and media.parts:
-                            part = media.parts[0]
-                            file_path = getattr(part, 'file', None)
-                            # Plex's MediaPart exposes the file size in bytes
-                            # via plexapi — pull it for the Library Disk
-                            # Usage card on Stats. None when the server
-                            # didn't report a size.
-                            _plex_size = getattr(part, 'size', None)
-                            if isinstance(_plex_size, int) and _plex_size > 0:
-                                file_size = _plex_size
-                        bitrate = getattr(media, 'bitrate', None)
 
-                # Fallback for Navidrome/Subsonic tracks
-                if file_path is None and hasattr(track_obj, 'path') and track_obj.path:
-                    file_path = track_obj.path
-                if bitrate is None and hasattr(track_obj, 'bitRate') and track_obj.bitRate:
-                    bitrate = track_obj.bitRate
-                # Do NOT fabricate a bare filename when path is missing —
-                # the Subsonic API can omit 'path' transiently (e.g. during
-                # a Navidrome library rescan).  A bogus relative name like
-                # "My Song.flac" would overwrite the correct value on the
-                # next UPDATE.  Leave file_path as None instead; the
-                # COALESCE guard in the UPDATE statement protects the
-                # existing row.
-                # File size: Jellyfin / Navidrome / SoulSync-standalone
-                # all set track_obj.file_size on their wrapper class.
-                # Plex came in via the media.parts[0].size path above —
-                # don't clobber that.
-                if file_size is None and hasattr(track_obj, 'file_size'):
-                    _wrapper_size = getattr(track_obj, 'file_size', None)
-                    if isinstance(_wrapper_size, int) and _wrapper_size > 0:
-                        file_size = _wrapper_size
-
-                # #1573: keep the server's path as reported, and store where
-                # SoulSync itself opens the file. the standalone server scans
-                # SoulSync's own disk, its path already is the local one. when
-                # the file can't be found from here, file_path falls back to
-                # the server's path below, same as before.
-                server_path = file_path
-                if file_path and server_source != 'soulsync':
-                    from core.library.server_paths import local_path_for
-                    try:
-                        from core.settings import config_manager as _cm
-                    except Exception:  # noqa: BLE001 - no config, raw path only
-                        _cm = None
-                    file_path = local_path_for(file_path, _cm) or None
-
-                # Extract per-track artist for compilations/DJ mixes.
-                # Only stored when it differs from the album artist.
-                track_artist = None
-                # Plex: originalTitle holds the per-track artist on compilation albums
-                plex_original = getattr(track_obj, 'originalTitle', None)
-                if plex_original and plex_original.strip():
-                    track_artist = plex_original.strip()
-                # Jellyfin/Emby: store ALL ArtistItems, not just [0]. A track
-                # like "Super Single" by Artist1 feat. Artist2 has both names in
-                # ArtistItems; if we kept only the first, completion checks for
-                # Artist2's discography (where the same track also appears as a
-                # single) would never find this row in the library. Joining with
-                # "; " matches Jellyfin's own UI convention and lets the search
-                # path treat each name as a separate artist credit.
-                if not track_artist and hasattr(track_obj, '_data'):
-                    raw = getattr(track_obj, '_data', {}) or {}
-                    artist_items = raw.get('ArtistItems', [])
-                    if artist_items:
-                        jf_track_artist_names = [
-                            a.get('Name', '') for a in artist_items if a.get('Name')
-                        ]
-                        jf_track_artist = '; '.join(jf_track_artist_names)
-                        album_artists = raw.get('AlbumArtists', [])
-                        jf_album_artist = album_artists[0].get('Name', '') if album_artists else ''
-                        # Store when the track has multiple artists OR when the
-                        # single-artist credit differs from the album artist.
-                        if jf_track_artist and (
-                            len(jf_track_artist_names) > 1
-                            or jf_track_artist != jf_album_artist
-                        ):
-                            track_artist = jf_track_artist
-                if not track_artist:
-                    raw_artist = ''
-                    for _payload_attr in ('_data', '_tags'):
-                        _payload = getattr(track_obj, _payload_attr, None)
-                        if isinstance(_payload, dict):
-                            raw_artist = (_payload.get('artist') or '').strip()
-                            if raw_artist:
-                                break
-                    if raw_artist:
-                        try:
-                            artist_row = cursor.execute("SELECT name FROM artists WHERE id = ?", (artist_id,)).fetchone()
-                            album_artist_name = (artist_row[0] or '') if artist_row else ''
-                            if raw_artist.lower() != album_artist_name.lower():
-                                track_artist = raw_artist
-                        except Exception as e:
-                            logger.debug("Failed to load album artist for track_artist comparison: %s", e)
-
-                # Extract MusicBrainz recording ID from server if available (Navidrome provides this)
-                mbid = getattr(track_obj, 'musicBrainzId', None) or None
-
-                # Check if track already exists — UPDATE to preserve enrichment columns,
-                # INSERT only for genuinely new tracks
-                cursor.execute("SELECT owner_profile_id FROM tracks WHERE id = ? LIMIT 1", (track_id,))
-                existing = cursor.fetchone()
-                if existing is not None and existing['owner_profile_id'] != owner_profile_id:
-                    logger.error('Refusing to move track %s between library owners; check server library selections', track_id)
-                    return False
-                is_new_track = existing is None
-
-                # the scan is the bulk writer, so it fills the normalized
-                # columns itself instead of leaving a library-sized gap for the
-                # backfill after every deep scan
-                title_norm = self._normalize_for_comparison(title) if title else ''
-                track_artist_norm = self._normalize_for_comparison(track_artist) if track_artist else None
-
-                if not file_path and server_path:
-                    # not reachable from here: keep a local path SoulSync set
-                    # earlier if that file is still there, else the server's
-                    if not is_new_track:
-                        cursor.execute("SELECT file_path FROM tracks WHERE id = ?", (track_id,))
-                        _prev = cursor.fetchone()
-                        _prev_path = _prev[0] if _prev else None
-                        if _prev_path and os.path.exists(_prev_path):
-                            file_path = _prev_path
-                    if not file_path:
-                        file_path = server_path
-
-                if is_new_track:
-                    cursor.execute("""
-                        INSERT INTO tracks
-                        (id, album_id, artist_id, title, track_number, disc_number, duration, file_path, server_path, bitrate, file_size, server_source, track_artist, musicbrainz_recording_id, title_norm, track_artist_norm, owner_profile_id, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    """, (track_id, album_id, artist_id, title, track_number, disc_number, duration, file_path, server_path, bitrate, file_size, server_source, track_artist, mbid, title_norm, track_artist_norm or '', owner_profile_id))
+                if prepared_fields is not None:
+                    fields, prepared_fields = prepared_fields, None
                 else:
-                    # Update server-provided fields only — preserves spotify_track_id, deezer_id,
-                    # isrc, bpm, and all other enrichment data. file_size uses
-                    # COALESCE(?, file_size) so a NULL from the server (e.g.
-                    # Jellyfin sometimes omits Size on first sync) doesn't wipe
-                    # an existing value.
-                    cursor.execute("""
-                        UPDATE tracks
-                        SET album_id = ?, artist_id = ?, title = ?, track_number = ?, disc_number = ?,
-                            duration = ?, file_path = COALESCE(?, file_path),
-                            server_path = COALESCE(?, server_path), bitrate = ?,
-                            file_size = COALESCE(?, file_size),
-                            server_source = ?,
-                            track_artist = COALESCE(?, track_artist),
-                            recording_disambiguation = CASE
-                                WHEN ? IS NOT NULL AND (musicbrainz_recording_id IS NULL
-                                     OR LOWER(?) != LOWER(musicbrainz_recording_id))
-                                THEN NULL ELSE recording_disambiguation END,
-                            musicbrainz_recording_id = COALESCE(?, musicbrainz_recording_id),
-                            title_norm = ?,
-                            track_artist_norm = COALESCE(?, track_artist_norm),
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    """, (album_id, artist_id, title, track_number, disc_number, duration, file_path, server_path, bitrate, file_size, server_source, track_artist, mbid, mbid, mbid, title_norm, track_artist_norm, track_id))
-
-                if is_new_track or track_artist_norm is not None:
-                    cursor.execute("DELETE FROM track_credits WHERE track_id = ?", (track_id,))
-                    cursor.executemany(
-                        "INSERT OR IGNORE INTO track_credits (track_id, name_norm) VALUES (?, ?)",
-                        [(track_id, name) for name in split_credit_names(track_artist_norm or '')])
+                    fields = self._media_track_fields(track_obj, server_source)
+                written = self._write_media_track_row(cursor, fields, album_id, artist_id, server_source, owner_profile_id)
+                if written is None:
+                    return False
+                is_new_track, file_path = written
+                track_id = fields['track_id']
+                title = fields['title']
 
                 conn.commit()
 
@@ -11398,19 +11455,8 @@ class MusicDatabase:
                 # Log new imports to library history
                 if is_new_track:
                     try:
-                        cursor.execute("SELECT name FROM artists WHERE id = ?", (artist_id,))
-                        artist_row = cursor.fetchone()
-                        cursor.execute("SELECT title, thumb_url FROM albums WHERE id = ?", (album_id,))
-                        album_row = cursor.fetchone()
-                        self.add_library_history_entry(
-                            event_type='import',
-                            title=title,
-                            artist_name=artist_row[0] if artist_row else None,
-                            album_name=album_row[0] if album_row else None,
-                            server_source=server_source,
-                            file_path=file_path,
-                            thumb_url=album_row[1] if album_row and len(album_row) > 1 else None
-                        )
+                        self.add_library_history_entry(**self._import_history_entry(
+                            cursor, title, album_id, artist_id, server_source, file_path))
                     except Exception as e:
                         logger.debug("history logging: %s", e)
 
@@ -11448,9 +11494,261 @@ class MusicDatabase:
                 else:
                     logger.error(f"Error inserting/updating {server_source} track {getattr(track_obj, 'title', 'Unknown')}: {e}")
                     return False
-        
+
         return False
-    
+
+    @staticmethod
+    def _import_history_entry(cursor, title, album_id, artist_id, server_source, file_path) -> dict:
+        """The library history entry a scan logs for a track it inserted."""
+        cursor.execute("SELECT name FROM artists WHERE id = ?", (artist_id,))
+        artist_row = cursor.fetchone()
+        cursor.execute("SELECT title, thumb_url FROM albums WHERE id = ?", (album_id,))
+        album_row = cursor.fetchone()
+        return dict(
+            event_type='import',
+            title=title,
+            artist_name=artist_row[0] if artist_row else None,
+            album_name=album_row[0] if album_row else None,
+            server_source=server_source,
+            file_path=file_path,
+            thumb_url=album_row[1] if album_row and len(album_row) > 1 else None,
+        )
+
+    # tracks per write transaction in insert_or_update_media_tracks
+    MEDIA_TRACK_WRITE_BATCH = 250
+
+    def insert_or_update_media_tracks(self, items, server_source: str = 'plex', owner_profile_id=None) -> list:
+        """insert_or_update_media_track for many tracks at once: the library
+        scans' bulk writer.
+
+        ``items`` is a sequence of ``(track_obj, album_id, artist_id)``. Returns
+        one result per item, in order, each exactly what
+        insert_or_update_media_track returns for it ('inserted', 'updated' or
+        False), having written the same rows, provenance IDs, manual locks and
+        library history.
+
+        The single-track method opens a connection and commits once per track,
+        and its follow-ups open up to three more. Here one connection serves
+        every track, and each batch of MEDIA_TRACK_WRITE_BATCH tracks is one
+        short write transaction for the rows plus one for the follow-ups. Each
+        track is written inside its own savepoint, so one that fails rolls back
+        alone, without its batch-mates, and is then written by itself, in its
+        place, through insert_or_update_media_track, which handles it exactly
+        as it always has (schema repair, locked retries, the error log). A
+        batch whose transaction can't be had or committed goes the same way,
+        whole.
+
+        Items are written in order. A track id that repeats starts a new batch,
+        so a repeat sees its predecessor's follow-ups, as it would one by one.
+        Everything read off the track objects is read before the write lock is
+        taken.
+        """
+        from core.library_scope import library_artist_id
+        items = list(items)
+        results = [False] * len(items)
+        # resolved up front, as the single path does before its try: an error
+        # here raises before anything has been written
+        artist_ids = [library_artist_id(artist_id, server_source, owner_profile_id)
+                      for _track, _album, artist_id in items]
+        conn = None
+
+        def write_alone(i, fields):
+            track_obj, album_id, artist_id = items[i]
+            results[i] = self._insert_or_update_media_track(
+                track_obj, album_id, artist_id, server_source, owner_profile_id, prepared_fields=fields)
+
+        def write(chunk):
+            nonlocal conn
+            while chunk:
+                try:
+                    if conn is None:
+                        conn = self._get_connection()
+                        conn.execute("PRAGMA busy_timeout = 10000")
+                    done = self._write_media_track_chunk(conn, chunk, items, artist_ids, results,
+                                                         server_source, owner_profile_id)
+                except Exception as e:  # noqa: BLE001 - nothing was kept; every track gets its own attempt
+                    logger.warning("Batched write of %d tracks failed (%s); writing them one at a time", len(chunk), e)
+                    for i, fields in chunk:
+                        write_alone(i, fields)
+                    return
+                if done < len(chunk):
+                    # the batch stopped at a track it couldn't write: that one
+                    # goes alone, in its place, and the rest batch on after it
+                    write_alone(*chunk[done])
+                    done += 1
+                chunk = chunk[done:]
+
+        try:
+            chunk, chunk_ids = [], set()
+            for i, (track_obj, _album_id, _artist_id) in enumerate(items):
+                try:
+                    fields = self._media_track_fields(track_obj, server_source)
+                except Exception as e:  # noqa: BLE001
+                    # what insert_or_update_media_track does with an error
+                    # before the database: this log line, and False
+                    try:
+                        title = getattr(track_obj, 'title', 'Unknown')
+                    except Exception:  # noqa: BLE001 - the title itself is what failed
+                        title = 'Unknown'
+                    logger.error(f"Error inserting/updating {server_source} track {title}: {e}")
+                    continue
+                if len(chunk) >= self.MEDIA_TRACK_WRITE_BATCH or fields['track_id'] in chunk_ids:
+                    write(chunk)
+                    chunk, chunk_ids = [], set()
+                chunk.append((i, fields))
+                chunk_ids.add(fields['track_id'])
+            write(chunk)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception as close_err:  # noqa: BLE001
+                    logger.debug("Error closing track batch connection: %s", close_err)
+        return results
+
+    def _write_media_track_chunk(self, conn, chunk, items, artist_ids, results, server_source, owner_profile_id) -> list:
+        """One batch of insert_or_update_media_tracks: the rows in one
+        transaction, then their follow-ups. Fills ``results`` for what it wrote
+        and returns how many leading entries of ``chunk`` it handled. A track
+        whose write fails is rolled back to its savepoint and the batch stops
+        there, keeping the tracks before it; the caller writes that one alone.
+        Raises, with nothing kept, when the transaction itself fails."""
+        cursor = conn.cursor()
+        written = []
+        done = len(chunk)
+        try:
+            cursor.execute("BEGIN IMMEDIATE")
+            for position, (i, fields) in enumerate(chunk):
+                cursor.execute("SAVEPOINT media_track")
+                try:
+                    row = self._write_media_track_row(cursor, fields, items[i][1], artist_ids[i],
+                                                      server_source, owner_profile_id)
+                except Exception as e:  # noqa: BLE001 - written alone next, with today's handling
+                    cursor.execute("ROLLBACK TO SAVEPOINT media_track")
+                    cursor.execute("RELEASE SAVEPOINT media_track")
+                    logger.debug("Batched write of track %s failed, writing it alone: %s", fields['track_id'], e)
+                    done = position
+                    break
+                cursor.execute("RELEASE SAVEPOINT media_track")
+                if row is not None:
+                    written.append((i, fields, row))
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception as rollback_err:  # noqa: BLE001
+                logger.debug("Track batch rollback failed: %s", rollback_err)
+            raise
+        for i, _fields, (is_new_track, _file_path) in written:
+            results[i] = 'inserted' if is_new_track else 'updated'
+        # an owner refusal stays False, as on the single path
+        try:
+            self._media_track_followups(conn, written, items, artist_ids, server_source)
+        except Exception as e:  # noqa: BLE001 - the rows are in; follow-ups never cost a track
+            logger.debug("Track batch follow-ups skipped: %s", e)
+        return done
+
+    def _media_track_followups(self, conn, written, items, artist_ids, server_source) -> None:
+        """What insert_or_update_media_track does after its commit -- provenance
+        backfill, manual lock, library history -- for a committed batch.
+
+        The lookups run first, outside any write transaction; then one
+        transaction applies them, each step in its own savepoint so a step that
+        fails costs only itself, as on the single path. If that transaction
+        fails as a whole, each track's follow-ups run the single path's way."""
+        if not written:
+            return
+        cursor = conn.cursor()
+        try:
+            provenance = self._provenance_by_file_paths(
+                cursor, [file_path for _i, fields, (_new, file_path) in written if fields['track_id'] and file_path])
+        except Exception as exc:  # noqa: BLE001 - ask path by path below
+            logger.debug(f"Batched provenance lookup failed: {exc}")
+            provenance = None
+        plans = []
+        for i, fields, (is_new_track, file_path) in written:
+            track_id = fields['track_id']
+            album_id = items[i][1]
+            backfill = None
+            if track_id and file_path:
+                try:
+                    prov = (provenance[file_path] if provenance is not None
+                            else self._provenance_by_file_path(cursor, file_path))
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(f"get_provenance_by_file_path failed: {exc}")
+                    prov = None
+                if prov:
+                    backfill = self._provenance_backfill_statement(track_id, prov)
+            history = None
+            if is_new_track:
+                try:
+                    history = self._import_history_entry(cursor, fields['title'], album_id, artist_ids[i],
+                                                         server_source, file_path)
+                except Exception as e:  # noqa: BLE001
+                    logger.debug("history logging: %s", e)
+            plans.append((track_id, album_id, file_path, backfill, history))
+
+        def step(work, failure):
+            try:
+                with self._savepoint(cursor, 'track_followup'):
+                    work()
+            except Exception as exc:  # noqa: BLE001
+                if not conn.in_transaction:
+                    # the error ended the whole transaction, not just the step
+                    raise
+                logger.debug(failure, exc)
+
+        try:
+            cursor.execute("BEGIN IMMEDIATE")
+            for track_id, album_id, file_path, backfill, history in plans:
+                if backfill:
+                    step(lambda backfill=backfill: cursor.execute(*backfill),
+                         "backfill_track_external_ids_from_provenance failed: %s")
+                step(lambda track_id=track_id, album_id=album_id, file_path=file_path:
+                     self._apply_manual_lock_for_track(cursor, track_id, album_id, file_path),
+                     f"Manual lock check skipped for track {track_id}: %s")
+                if history:
+                    step(lambda history=history: self._insert_library_history_row(cursor, **history),
+                         "Error adding library history entry: %s")
+            conn.commit()
+            return
+        except Exception as e:  # noqa: BLE001 - redo them one track at a time below
+            try:
+                conn.rollback()
+            except Exception as rollback_err:  # noqa: BLE001
+                logger.debug("Track follow-up rollback failed: %s", rollback_err)
+            logger.debug("Batched track follow-ups failed (%s); running them per track", e)
+
+        for track_id, album_id, file_path, _backfill, history in plans:
+            try:
+                self.backfill_track_external_ids_from_provenance(track_id, file_path)
+            except Exception as backfill_err:  # noqa: BLE001
+                logger.debug(f"Provenance ID backfill skipped for track {track_id}: {backfill_err}")
+            try:
+                if self._apply_manual_lock_for_track(cursor, track_id, album_id, file_path):
+                    conn.commit()
+            except Exception as lock_err:  # noqa: BLE001
+                logger.debug(f"Manual lock check skipped for track {track_id}: {lock_err}")
+                try:
+                    conn.rollback()
+                except Exception as rollback_err:  # noqa: BLE001
+                    logger.debug("Manual lock rollback failed: %s", rollback_err)
+            if history:
+                self.add_library_history_entry(**history)
+
+    @contextmanager
+    def _savepoint(self, cursor, name: str):
+        """A block that rolls back alone when it raises, inside a transaction
+        the caller already holds. Re-raises."""
+        cursor.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        except BaseException:
+            cursor.execute(f"ROLLBACK TO SAVEPOINT {name}")
+            cursor.execute(f"RELEASE SAVEPOINT {name}")
+            raise
+        cursor.execute(f"RELEASE SAVEPOINT {name}")
+
     def track_exists(self, track_id) -> bool:
         """Check if a track exists in the database by ID (supports both int and string IDs)"""
         try:
@@ -11484,7 +11782,66 @@ class MusicDatabase:
         except Exception as e:
             logger.error(f"Error checking if track {track_id} exists for server {server_source}: {e}")
             return False
-    
+
+    # ids per IN (...) list: sqlite caps host parameters (999 on older builds)
+    _ID_LOOKUP_CHUNK = 500
+
+    def track_exists_by_server_many(self, track_ids, server_source: str) -> set:
+        """track_exists_by_server for many ids: the subset of ``track_ids`` (as
+        strings) that have a row for ``server_source``.
+
+        For loops that ask about a whole album or scan page at once: one
+        connection and one query per 500 ids instead of a connection per
+        track. On an error it logs and returns the ids found before it, so an
+        id it couldn't check reads as missing, which is what
+        track_exists_by_server answers on an error."""
+        ids = list(dict.fromkeys(str(track_id) for track_id in track_ids))
+        found = set()
+        if not ids:
+            return found
+        conn = None
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            for start in range(0, len(ids), self._ID_LOOKUP_CHUNK):
+                chunk = ids[start:start + self._ID_LOOKUP_CHUNK]
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(
+                    f"SELECT id FROM tracks WHERE server_source = ? AND id IN ({placeholders})",
+                    (server_source, *chunk))
+                found.update(str(row[0]) for row in cursor.fetchall())
+        except Exception as e:
+            logger.error(f"Error checking which of {len(ids)} tracks exist for server {server_source}: {e}")
+        finally:
+            if conn is not None:
+                conn.close()
+        return found & set(ids)
+
+    def existing_album_ids(self, album_ids) -> set:
+        """The subset of ``album_ids`` (as strings) that already have an albums
+        row, whatever its server or owner -- the same test
+        insert_or_update_media_album makes before it picks UPDATE over INSERT.
+        On an error it logs and returns the ids found before it."""
+        ids = list(dict.fromkeys(str(album_id) for album_id in album_ids))
+        found = set()
+        if not ids:
+            return found
+        conn = None
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            for start in range(0, len(ids), self._ID_LOOKUP_CHUNK):
+                chunk = ids[start:start + self._ID_LOOKUP_CHUNK]
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(f"SELECT id FROM albums WHERE id IN ({placeholders})", chunk)
+                found.update(str(row[0]) for row in cursor.fetchall())
+        except Exception as e:
+            logger.error(f"Error checking which of {len(ids)} albums exist: {e}")
+        finally:
+            if conn is not None:
+                conn.close()
+        return found & set(ids)
+
     def get_track_by_id(self, track_id) -> Optional[DatabaseTrackWithMetadata]:
         """Get a track with artist and album names by ID (supports both int and string IDs)"""
         try:
@@ -11525,6 +11882,55 @@ class MusicDatabase:
             logger.error(f"Error getting track {track_id}: {e}")
             return None
     
+    def get_track_by_id_many(self, track_ids) -> Dict[str, Optional[DatabaseTrackWithMetadata]]:
+        """get_track_by_id for many ids: ``{str(id): track or None}``, with the
+        same row, the same library scope and the same None for an id that
+        isn't there. One connection, one query per 500 ids. On an error it
+        logs and leaves the ids it couldn't read out of the result."""
+        ids = list(dict.fromkeys(str(track_id) for track_id in track_ids))
+        found: Dict[str, Optional[DatabaseTrackWithMetadata]] = {}
+        if not ids:
+            return found
+        conn = None
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            scope_sql, scope_params = self._current_scope_sql('t.owner_profile_id')
+            for start in range(0, len(ids), self._ID_LOOKUP_CHUNK):
+                chunk = ids[start:start + self._ID_LOOKUP_CHUNK]
+                cursor.execute(f"""
+                    SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number,
+                           t.duration, t.created_at, t.updated_at, t.track_artist,
+                           a.name as artist_name, al.title as album_title
+                    FROM tracks t
+                    JOIN artists a ON t.artist_id = a.id
+                    JOIN albums al ON t.album_id = al.id
+                    WHERE t.id IN ({','.join('?' for _ in chunk)}) AND {scope_sql}
+                """, (*chunk, *scope_params))
+                rows = {}
+                for row in cursor.fetchall():
+                    rows.setdefault(str(row['id']), DatabaseTrackWithMetadata(
+                        id=row['id'],
+                        album_id=row['album_id'],
+                        artist_id=row['artist_id'],
+                        title=row['title'],
+                        artist_name=row['artist_name'],
+                        album_title=row['album_title'],
+                        track_number=row['track_number'],
+                        duration=row['duration'],
+                        created_at=row['created_at'],
+                        updated_at=row['updated_at'],
+                        track_artist=row['track_artist'] if 'track_artist' in row.keys() else None
+                    ))
+                for track_id in chunk:
+                    found[track_id] = rows.get(track_id)
+        except Exception as e:
+            logger.error(f"Error getting {len(ids)} tracks by id: {e}")
+        finally:
+            if conn is not None:
+                conn.close()
+        return found
+
     def get_tracks_by_album(self, album_id: int) -> List[DatabaseTrack]:
         """Get all tracks by album ID"""
         try:
@@ -21271,6 +21677,54 @@ class MusicDatabase:
             logger.error(f"Error bulk-reading sync match cache: {e}")
             return out
 
+    def peek_sync_match_cache_bulk(self, spotify_track_ids, server_source: str) -> Dict[str, Dict]:
+        """read_sync_match_cache's rows for many ids, read ahead: no use-count
+        bump (record the uses actually made with bump_sync_match_cache_uses),
+        and an error raises instead of reading as a miss, so a caller can't
+        mistake a failed read for an empty cache."""
+        ids = list(dict.fromkeys(str(i) for i in (spotify_track_ids or []) if i))
+        out: Dict[str, Dict] = {}
+        if not ids:
+            return out
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            for start in range(0, len(ids), self._ID_LOOKUP_CHUNK):
+                chunk = ids[start:start + self._ID_LOOKUP_CHUNK]
+                cursor.execute(f"""
+                    SELECT spotify_track_id, server_track_id, server_track_title, confidence
+                    FROM sync_match_cache
+                    WHERE server_source = ? AND spotify_track_id IN ({','.join('?' for _ in chunk)})
+                """, [server_source, *chunk])
+                for row in cursor.fetchall():
+                    out[str(row['spotify_track_id'])] = {
+                        'server_track_id': row['server_track_id'],
+                        'server_track_title': row['server_track_title'],
+                        'confidence': row['confidence'],
+                    }
+        finally:
+            conn.close()
+        return out
+
+    def bump_sync_match_cache_uses(self, uses, server_source: str) -> None:
+        """Record cache hits read ahead with peek_sync_match_cache_bulk:
+        ``uses`` maps spotify_track_id -> how many times it was used, and each
+        use bumps the row the way read_sync_match_cache's hit does. One
+        transaction for all of them."""
+        rows = [(int(count), server_source, str(spotify_track_id))
+                for spotify_track_id, count in (uses or {}).items() if count]
+        if not rows:
+            return
+        try:
+            with self._get_connection() as conn:
+                conn.executemany("""
+                    UPDATE sync_match_cache
+                    SET last_used_at = CURRENT_TIMESTAMP, use_count = use_count + ?
+                    WHERE server_source = ? AND spotify_track_id = ?
+                """, rows)
+        except Exception as e:
+            logger.error(f"Error recording sync match cache uses: {e}")
+
     def find_manual_library_matches_bulk(self, profile_id: int, source_track_ids,
                                          server_source: str = '') -> Dict[str, Dict[str, Any]]:
         """Bulk ``find_manual_library_match_by_source_track_id`` (#1005) — one
@@ -22228,31 +22682,124 @@ class MusicDatabase:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM track_downloads WHERE file_path = ? ORDER BY id DESC LIMIT 1",
-                (file_path,),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                import os as _os
-                fname = _os.path.basename(file_path.replace('\\', '/'))
-                if fname:
-                    cursor.execute(
-                        "SELECT * FROM track_downloads WHERE file_path LIKE ? OR file_path LIKE ? "
-                        "ORDER BY id DESC LIMIT 1",
-                        (f'%/{fname}', f'%\\{fname}'),
-                    )
-                    row = cursor.fetchone()
-            if row is None:
-                return None
+            return self._provenance_by_file_path(cursor, file_path)
+        except Exception as exc:
+            logger.debug(f"get_provenance_by_file_path failed: {exc}")
+            return None
+
+    @staticmethod
+    def _provenance_by_file_path(cursor, file_path: str) -> Optional[Dict[str, Any]]:
+        """get_provenance_by_file_path's lookup on a cursor the caller holds."""
+        if not file_path:
+            return None
+        cursor.execute(
+            "SELECT * FROM track_downloads WHERE file_path = ? ORDER BY id DESC LIMIT 1",
+            (file_path,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            import os as _os
+            fname = _os.path.basename(file_path.replace('\\', '/'))
+            if fname:
+                cursor.execute(
+                    "SELECT * FROM track_downloads WHERE file_path LIKE ? OR file_path LIKE ? "
+                    "ORDER BY id DESC LIMIT 1",
+                    (f'%/{fname}', f'%\\{fname}'),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return None
+        try:
+            return dict(row)
+        except (TypeError, ValueError):
+            cols = [c[0] for c in cursor.description]
+            return dict(zip(cols, row, strict=False))
+
+    # SQLite's LIKE folds ASCII letters only (no ICU build, case_sensitive_like off)
+    _LIKE_CASE_FOLD = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
+
+    @classmethod
+    def _provenance_by_file_paths(cls, cursor, file_paths) -> Dict[str, Optional[Dict[str, Any]]]:
+        """_provenance_by_file_path for many paths at once, with the same
+        answer for each: ``{path: row dict or None}``.
+
+        The exact-path lookups go in one IN query per 500 paths. The basename
+        fallback (``file_path LIKE '%/name' OR file_path LIKE '%\\name'``, the
+        highest id winning) scans the whole table once per path; here one scan
+        indexes every row by the text after its last '/' and after its last
+        '\\', case-folded the way LIKE folds it, and each name is a dictionary
+        lookup. That is the same test: the name holds no separator, so
+        "ends with /name" means "the text after the last / is name". A name
+        holding a LIKE wildcard (% or _) keeps the per-path query."""
+        paths = list(dict.fromkeys(p for p in file_paths if p))
+        found: Dict[str, Optional[Dict[str, Any]]] = {}
+        if not paths:
+            return found
+
+        def as_dict(row):
             try:
                 return dict(row)
             except (TypeError, ValueError):
                 cols = [c[0] for c in cursor.description]
                 return dict(zip(cols, row, strict=False))
-        except Exception as exc:
-            logger.debug(f"get_provenance_by_file_path failed: {exc}")
-            return None
+
+        for start in range(0, len(paths), cls._ID_LOOKUP_CHUNK):
+            chunk = paths[start:start + cls._ID_LOOKUP_CHUNK]
+            cursor.execute(
+                f"SELECT * FROM track_downloads WHERE file_path IN ({','.join('?' for _ in chunk)}) ORDER BY id DESC",
+                chunk)
+            for row in cursor.fetchall():
+                record = as_dict(row)
+                found.setdefault(record['file_path'], record)
+
+        by_name = {}
+        for path in paths:
+            if path in found:
+                continue
+            fname = os.path.basename(path.replace('\\', '/'))
+            if not fname:
+                found[path] = None
+            elif '%' in fname or '_' in fname:
+                found[path] = cls._provenance_by_file_path(cursor, path)
+            else:
+                by_name[path] = fname.translate(cls._LIKE_CASE_FOLD)
+        if not by_name:
+            return found
+
+        wanted = set(by_name.values())
+        fold = cls._LIKE_CASE_FOLD
+        newest = {}
+        scan = cursor.connection.cursor()
+        scan.row_factory = None  # plain tuples: this reads the whole table
+        scan.execute("SELECT id, file_path FROM track_downloads")
+        for row_id, stored in scan:
+            if stored is None:
+                continue
+            if not isinstance(stored, str):
+                # LIKE would read it as text; leave this lot to the query
+                for path in by_name:
+                    found[path] = cls._provenance_by_file_path(cursor, path)
+                return found
+            for sep in ('/', '\\'):
+                cut = stored.rfind(sep)
+                if cut >= 0:
+                    name = stored[cut + 1:]
+                    # str.lower is LIKE's folding for ASCII text, and quicker
+                    name = name.lower() if name.isascii() else name.translate(fold)
+                    if name in wanted and row_id > newest.get(name, -1):
+                        newest[name] = row_id
+        winners = {path: newest.get(name) for path, name in by_name.items()}
+        ids = sorted({row_id for row_id in winners.values() if row_id is not None})
+        rows = {}
+        for start in range(0, len(ids), cls._ID_LOOKUP_CHUNK):
+            chunk = ids[start:start + cls._ID_LOOKUP_CHUNK]
+            cursor.execute(f"SELECT * FROM track_downloads WHERE id IN ({','.join('?' for _ in chunk)})", chunk)
+            for row in cursor.fetchall():
+                record = as_dict(row)
+                rows[record['id']] = record
+        for path, row_id in winners.items():
+            found[path] = rows.get(row_id) if row_id is not None else None
+        return found
 
     def backfill_track_external_ids_from_provenance(self, track_id: str, file_path: Optional[str]) -> int:
         """Copy external IDs from ``track_downloads`` onto a ``tracks`` row.
@@ -22270,7 +22817,25 @@ class MusicDatabase:
         prov = self.get_provenance_by_file_path(file_path)
         if not prov:
             return 0
+        statement = self._provenance_backfill_statement(track_id, prov)
+        if statement is None:
+            return 0
 
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(*statement)
+            conn.commit()
+            return cursor.rowcount or 0
+        except Exception as exc:
+            logger.debug(f"backfill_track_external_ids_from_provenance failed: {exc}")
+            return 0
+
+    @staticmethod
+    def _provenance_backfill_statement(track_id: str, prov: Dict[str, Any]):
+        """The UPDATE backfill_track_external_ids_from_provenance runs for one
+        provenance row, as ``(sql, params)``, or None when the row carries
+        nothing to copy."""
         # Map provenance column -> tracks column. Different naming
         # conventions because tracks.* uses shorter names (``deezer_id``,
         # ``tidal_id``, ``qobuz_id``) while track_downloads uses the
@@ -22296,40 +22861,29 @@ class MusicDatabase:
                 continue
             updates[track_col] = str(val)
         if not updates:
-            return 0
+            return None
 
-        try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            # Coalesce-update: only fill empty columns. Preserves any IDs
-            # the enrichment worker already populated (those are usually
-            # more reliable than provenance for non-primary sources).
-            set_clauses = []
-            params = []
-            for track_col, val in updates.items():
-                set_clauses.append(f"{track_col} = COALESCE(NULLIF({track_col}, ''), ?)")
-                params.append(val)
-            disambiguation = prov.get('recording_disambiguation')
-            prov_mbid = prov.get('musicbrainz_recording_id')
-            if disambiguation and prov_mbid:
-                set_clauses.append(
-                    "recording_disambiguation = CASE "
-                    "WHEN musicbrainz_recording_id IS NULL OR musicbrainz_recording_id = '' "
-                    "OR LOWER(musicbrainz_recording_id) = LOWER(?) "
-                    "THEN COALESCE(NULLIF(recording_disambiguation, ''), ?) "
-                    "ELSE recording_disambiguation END"
-                )
-                params.extend((prov_mbid, disambiguation))
-            params.append(track_id)
-            cursor.execute(
-                f"UPDATE tracks SET {', '.join(set_clauses)} WHERE id = ?",
-                params,
+        # Coalesce-update: only fill empty columns. Preserves any IDs
+        # the enrichment worker already populated (those are usually
+        # more reliable than provenance for non-primary sources).
+        set_clauses = []
+        params = []
+        for track_col, val in updates.items():
+            set_clauses.append(f"{track_col} = COALESCE(NULLIF({track_col}, ''), ?)")
+            params.append(val)
+        disambiguation = prov.get('recording_disambiguation')
+        prov_mbid = prov.get('musicbrainz_recording_id')
+        if disambiguation and prov_mbid:
+            set_clauses.append(
+                "recording_disambiguation = CASE "
+                "WHEN musicbrainz_recording_id IS NULL OR musicbrainz_recording_id = '' "
+                "OR LOWER(musicbrainz_recording_id) = LOWER(?) "
+                "THEN COALESCE(NULLIF(recording_disambiguation, ''), ?) "
+                "ELSE recording_disambiguation END"
             )
-            conn.commit()
-            return cursor.rowcount or 0
-        except Exception as exc:
-            logger.debug(f"backfill_track_external_ids_from_provenance failed: {exc}")
-            return 0
+            params.extend((prov_mbid, disambiguation))
+        params.append(track_id)
+        return f"UPDATE tracks SET {', '.join(set_clauses)} WHERE id = ?", params
 
     def get_track_downloads(self, track_id: str) -> list:
         """Get all download records for a library track."""
@@ -23119,16 +23673,10 @@ class MusicDatabase:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO library_history (event_type, title, artist_name, album_name,
-                                             quality, server_source, file_path, thumb_url, download_source,
-                                             source_track_id, source_track_title, source_filename,
-                                             acoustid_result, source_artist, origin, origin_context,
-                                             verification_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (event_type, title, artist_name, album_name, quality, server_source, file_path, thumb_url,
-                  download_source, source_track_id, source_track_title, source_filename,
-                  acoustid_result, source_artist, origin, origin_context, verification_status))
+            self._insert_library_history_row(
+                cursor, event_type, title, artist_name, album_name, quality, server_source, file_path,
+                thumb_url, download_source, source_track_id, source_track_title, source_filename,
+                acoustid_result, source_artist, origin, origin_context, verification_status)
             conn.commit()
             # Return the new row id (truthy on success) so callers can link the
             # live download task to its library_history row — e.g. the Unverified
@@ -23137,6 +23685,24 @@ class MusicDatabase:
         except Exception as e:
             logger.debug(f"Error adding library history entry: {e}")
             return False
+
+    @staticmethod
+    def _insert_library_history_row(cursor, event_type, title, artist_name=None, album_name=None,
+                                    quality=None, server_source=None, file_path=None, thumb_url=None,
+                                    download_source=None, source_track_id=None, source_track_title=None,
+                                    source_filename=None, acoustid_result=None, source_artist=None,
+                                    origin=None, origin_context=None, verification_status=None):
+        """add_library_history_entry's INSERT on a cursor the caller holds; no commit."""
+        cursor.execute("""
+            INSERT INTO library_history (event_type, title, artist_name, album_name,
+                                         quality, server_source, file_path, thumb_url, download_source,
+                                         source_track_id, source_track_title, source_filename,
+                                         acoustid_result, source_artist, origin, origin_context,
+                                         verification_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (event_type, title, artist_name, album_name, quality, server_source, file_path, thumb_url,
+              download_source, source_track_id, source_track_title, source_filename,
+              acoustid_result, source_artist, origin, origin_context, verification_status))
 
     def save_watchlist_scan_run(self, run_id, profile_id=1, status='completed',
                                 started_at=None, completed_at=None,
@@ -26102,43 +26668,113 @@ class MusicDatabase:
             return False
 
     def update_mirrored_track_extra_data(self, track_id: int, extra_data_dict: dict) -> bool:
-        """Merge new data into a mirrored track's extra_data JSON field."""
+        """Merge new data into a mirrored track's extra_data JSON field.
+
+        The read, the merge and the write run under one BEGIN IMMEDIATE, so a
+        second writer merging other keys into the same row waits for this one
+        and merges into its result. Without it, two read-merge-writes racing
+        on one row (a discovery worker and a sync, say) both read the old
+        JSON and the later write silently dropped the earlier one's keys."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT extra_data FROM mirrored_playlist_tracks WHERE id = ?",
-                    (track_id,)
-                )
-                row = cursor.fetchone()
-                if not row:
-                    return False
-                existing = {}
-                if row['extra_data']:
-                    try:
-                        existing = json.loads(row['extra_data'])
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                existing.update(extra_data_dict)
-                cursor.execute(
-                    "UPDATE mirrored_playlist_tracks SET extra_data = ? WHERE id = ?",
-                    (json.dumps(existing), track_id)
-                )
-                # A newly discovered track can change what the collage should
-                # be, so drop the cached tiles and let the next library read
-                # rebuild them. Cheaper than recomputing four distinct covers on
-                # every single track write, and it is the read that needs them.
-                if mirrored_cover_from_match(existing):
-                    cursor.execute(
-                        "UPDATE mirrored_playlists SET cover_tiles = NULL "
-                        "WHERE id = (SELECT playlist_id FROM mirrored_playlist_tracks WHERE id = ?)",
-                        (track_id,)
-                    )
-                conn.commit()
-                return cursor.rowcount > 0
+                cursor.execute("BEGIN IMMEDIATE")
+                return self._merge_mirrored_track_extra_data(cursor, track_id, extra_data_dict)
         except Exception as e:
             logger.error(f"Error updating mirrored track extra_data: {e}")
             return False
+
+    # mirrored tracks merged per write transaction in update_mirrored_tracks_extra_data
+    _EXTRA_DATA_WRITE_BATCH = 500
+
+    def update_mirrored_tracks_extra_data(self, updates) -> List[bool]:
+        """update_mirrored_track_extra_data for many rows: ``updates`` is a
+        sequence of ``(track_id, extra_data_dict)``, applied in order (a
+        repeated id merges into the previous merge, as one by one). Returns
+        what each single call would have returned.
+
+        One connection, and one BEGIN IMMEDIATE per 500 rows instead of a
+        connection and a commit per row. Each row merges in its own savepoint:
+        one that fails is logged exactly as the single call logs it, returns
+        False and costs only itself. A batch whose transaction can't be had or
+        committed is merged row by row through the single call."""
+        updates = list(updates)
+        results = [False] * len(updates)
+        if not updates:
+            return results
+        conn = None
+        try:
+            for start in range(0, len(updates), self._EXTRA_DATA_WRITE_BATCH):
+                chunk = list(enumerate(updates[start:start + self._EXTRA_DATA_WRITE_BATCH], start))
+                try:
+                    if conn is None:
+                        conn = self._get_connection()
+                    cursor = conn.cursor()
+                    chunk_results = {}
+                    cursor.execute("BEGIN IMMEDIATE")
+                    for i, (track_id, extra_data_dict) in chunk:
+                        try:
+                            with self._savepoint(cursor, 'extra_data'):
+                                chunk_results[i] = self._merge_mirrored_track_extra_data(cursor, track_id, extra_data_dict)
+                        except Exception as e:  # noqa: BLE001 - the single call's outcome for this row
+                            if not conn.in_transaction:
+                                raise
+                            logger.error(f"Error updating mirrored track extra_data: {e}")
+                            chunk_results[i] = False
+                    conn.commit()
+                except Exception as e:  # noqa: BLE001 - nothing of this chunk was kept
+                    if conn is not None:
+                        try:
+                            conn.rollback()
+                        except Exception as rollback_err:  # noqa: BLE001
+                            logger.debug("extra_data batch rollback failed: %s", rollback_err)
+                    logger.warning("Batched extra_data merge of %d rows failed (%s); merging them one at a time",
+                                   len(chunk), e)
+                    chunk_results = {i: self.update_mirrored_track_extra_data(track_id, extra_data_dict)
+                                     for i, (track_id, extra_data_dict) in chunk}
+                for i, result in chunk_results.items():
+                    results[i] = result
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception as close_err:  # noqa: BLE001
+                    logger.debug("Error closing extra_data batch connection: %s", close_err)
+        return results
+
+    @staticmethod
+    def _merge_mirrored_track_extra_data(cursor, track_id, extra_data_dict) -> bool:
+        """update_mirrored_track_extra_data's read-merge-write on a cursor
+        whose transaction the caller holds; no commit."""
+        cursor.execute(
+            "SELECT extra_data FROM mirrored_playlist_tracks WHERE id = ?",
+            (track_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+        existing = {}
+        if row['extra_data']:
+            try:
+                existing = json.loads(row['extra_data'])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        existing.update(extra_data_dict)
+        cursor.execute(
+            "UPDATE mirrored_playlist_tracks SET extra_data = ? WHERE id = ?",
+            (json.dumps(existing), track_id)
+        )
+        # A newly discovered track can change what the collage should
+        # be, so drop the cached tiles and let the next library read
+        # rebuild them. Cheaper than recomputing four distinct covers on
+        # every single track write, and it is the read that needs them.
+        if mirrored_cover_from_match(existing):
+            cursor.execute(
+                "UPDATE mirrored_playlists SET cover_tiles = NULL "
+                "WHERE id = (SELECT playlist_id FROM mirrored_playlist_tracks WHERE id = ?)",
+                (track_id,)
+            )
+        return cursor.rowcount > 0
 
     def get_mirrored_tracks_extra_data_map(self, playlist_id: int) -> dict:
         """Return {source_track_id: extra_data_json_string} for a playlist.
