@@ -23752,10 +23752,16 @@ _cfg_setup_check(config_manager_=config_manager,
                  soulseek_client_getter=lambda: download_orchestrator.client('soulseek') if download_orchestrator else None)
 app.register_blueprint(_bp_setup_check())
 
-# Activity feed (api/activity.py).
+# Activity feed + Home targets (api/activity.py, api/targets.py). Targets read
+# the download-source check /status already caches; they never probe slskd.
 from api.activity import configure as _cfg_activity, create_blueprint as _bp_activity
+from api.targets import configure as _cfg_targets, create_blueprint as _bp_targets
 _cfg_activity(get_database_=get_database)
 app.register_blueprint(_bp_activity())
+_cfg_targets(get_database_=get_database,
+             download_source_state_=lambda: {**_status_cache.get('soulseek', {}),
+                                             'checked_at': _status_cache_timestamps.get('soulseek') or None})
+app.register_blueprint(_bp_targets())
 
 # Quality profiles / auto-import watcher / metadata-cache browser - three
 # self-contained clusters lifted to their own api/ modules.
