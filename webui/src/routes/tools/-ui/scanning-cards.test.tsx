@@ -309,13 +309,35 @@ describe('ReconcileIdsCard', () => {
 });
 
 describe('DuplicateCleanerCard', () => {
-  it('toggles between Clean Duplicates and Stop Cleaning', async () => {
+  it('says Stop Preview while a preview scans, and shows the scan progress', async () => {
     routes({
       '/api/duplicate-cleaner/status': {
         status: 'running',
+        mode: 'plan',
         progress: 20,
         files_scanned: 2,
         total_files: 10,
+      },
+    });
+    const { container } = render(<DuplicateCleanerCard />);
+    await waitFor(() =>
+      expect((container.querySelector('#duplicate-clean-button') as HTMLElement).textContent).toBe(
+        'Stop Preview',
+      ),
+    );
+    expect(container.querySelector('#duplicate-progress-label')?.textContent).toBe(
+      '2 / 10 files scanned (20.0%)',
+    );
+  });
+
+  it('says Stop Cleaning while a confirmed run moves files, with its own progress', async () => {
+    routes({
+      '/api/duplicate-cleaner/status': {
+        status: 'running',
+        mode: 'apply',
+        progress: 0,
+        duplicates_found: 8,
+        deleted: 3,
       },
     });
     const { container } = render(<DuplicateCleanerCard />);
@@ -325,16 +347,16 @@ describe('DuplicateCleanerCard', () => {
       ),
     );
     expect(container.querySelector('#duplicate-progress-label')?.textContent).toBe(
-      '2 / 10 files scanned (20.0%)',
+      '3 / 8 files moved to the recycle bin',
     );
   });
 
   it('posts stop when clicked while running', async () => {
-    routes({ '/api/duplicate-cleaner/status': { status: 'running', progress: 0 } });
+    routes({ '/api/duplicate-cleaner/status': { status: 'running', mode: 'plan', progress: 0 } });
     const { container } = render(<DuplicateCleanerCard />);
     await waitFor(() =>
       expect((container.querySelector('#duplicate-clean-button') as HTMLElement).textContent).toBe(
-        'Stop Cleaning',
+        'Stop Preview',
       ),
     );
     fireEvent.click(container.querySelector('#duplicate-clean-button') as Element);
@@ -352,21 +374,48 @@ describe('DuplicateCleanerCard', () => {
     );
   });
 
-  it('announces completion ONCE, with ONE decimal in the toast', async () => {
+  it('announces a clean-up it saw running ONCE, with ONE decimal in the toast', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    fetchMock.mockImplementation(() => {
+      calls += 1;
+      const body =
+        calls === 1
+          ? { status: 'running', mode: 'apply', progress: 50 }
+          : { status: 'finished', mode: 'apply', deleted: 9, space_freed_mb: 12.345 };
+      return Promise.resolve({ ok: true, status: 200, json: async () => body } as never);
+    });
+    render(<DuplicateCleanerCard />);
+    await act(async () => {});
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(toastSpy).toHaveBeenCalledWith(
+      'Moved 9 files to the recycle bin, 12.3 MB freed',
+      'success',
+    );
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT announce a run that had finished before the page opened', async () => {
     routes({
       '/api/duplicate-cleaner/status': {
         status: 'finished',
+        mode: 'apply',
         deleted: 9,
         space_freed_mb: 12.345,
       },
     });
-    render(<DuplicateCleanerCard />);
-    await waitFor(() => expect(toastSpy).toHaveBeenCalled());
-    expect(toastSpy).toHaveBeenCalledWith(
-      'Cleaning complete! 9 files removed, 12.3 MB freed',
-      'success',
+    const { container } = render(<DuplicateCleanerCard />);
+    await waitFor(() =>
+      expect(container.querySelector('[data-slot="safe-action-tag"]')?.textContent).toBe(
+        'Done · moved 9 files',
+      ),
     );
-    expect(toastSpy).toHaveBeenCalledTimes(1);
+    expect(toastSpy).not.toHaveBeenCalled();
   });
 
   it('turns the bar red on error', async () => {
@@ -440,7 +489,7 @@ describe('polling lifecycle', () => {
     });
     // still running, and the bar advanced — the blip did not end the poll
     expect((container.querySelector('#duplicate-clean-button') as HTMLElement).textContent).toBe(
-      'Stop Cleaning',
+      'Stop Preview',
     );
     expect(calls).toBeGreaterThanOrEqual(3);
   });
@@ -550,7 +599,7 @@ describe('network failure paths (the vanilla catch branches)', () => {
     await flush();
     expect(toastSpy).toHaveBeenCalledWith('Failed to start duplicate cleaner.', 'error');
     expect((container.querySelector('#duplicate-clean-button') as HTMLElement).textContent).toBe(
-      'Clean Duplicates',
+      'Preview Duplicates',
     );
   });
 
@@ -560,7 +609,7 @@ describe('network failure paths (the vanilla catch branches)', () => {
         ? Promise.resolve({
             ok: true,
             status: 200,
-            json: async () => ({ status: 'running', progress: 1 }),
+            json: async () => ({ status: 'running', mode: 'apply', progress: 1 }),
           } as never)
         : Promise.reject(new Error('offline')),
     );

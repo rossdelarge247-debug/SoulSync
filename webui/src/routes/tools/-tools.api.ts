@@ -16,6 +16,10 @@
  * not re-implemented. Their endpoints stay there.
  */
 
+import type { PlanItem, PlanRefusal, PlanSummary } from '@/features/safe-action/plan';
+
+import { fetchAllPlanItems, readRefusal } from '@/features/safe-action/plan';
+
 import type { FindingGroup, FindingTypeInfo } from './-tools.groups';
 import type {
   BackupListResponse,
@@ -26,6 +30,7 @@ import type {
   DbUpdateState,
   DiscoveryPoolStats,
   DuplicateCleanState,
+  DuplicatePlanItem,
   MediaScanStatus,
   MetadataCacheStats,
   MetadataUpdateState,
@@ -400,20 +405,40 @@ export async function clearFindings(
   return (await response.json()) as ClearFindingsResult;
 }
 
+/** One finding a bulk-fix preview would fix (RepairWorker.preview_bulk_fix). */
+export interface BulkFixPlanItem extends PlanItem {
+  finding_id: number;
+  finding_type: string;
+  path: string;
+  action: string;
+  reason: string;
+  /** Moves or deletes a file. */
+  destructive: boolean;
+}
+
+/** `POST /api/repair/findings/bulk-fix-preview`: the plan summary plus how
+ *  many items move or delete files. `invalid` when an action spans types. */
+export interface BulkFixPreview extends PlanSummary<BulkFixPlanItem> {
+  success?: boolean;
+  destructive?: number;
+  per_type?: Record<string, number>;
+  invalid?: boolean;
+  error?: string;
+}
+
 export interface BulkFixStartResult {
   started?: boolean;
   already_running?: boolean;
   total?: number;
   error?: string;
+  /** A 409: plan_required (the preview is attached as `plan`), or a plan
+   *  refusal (plan_unknown / plan_expired / plan_wrong_tool). */
+  code?: string;
+  plan_required?: boolean;
+  plan?: BulkFixPreview;
 }
 
-/**
- * `fixAllMatchingFindings`. Runs in the BACKGROUND: at library scale a
- * synchronous fix-all outlives every browser and proxy timeout, so the user was
- * told it failed while the server quietly kept going. This returns immediately
- * and the caller polls `fetchBulkFixStatus`.
- */
-export async function startBulkFix(options: {
+export interface BulkFixOptions {
   jobId?: string;
   severity?: string;
   fixAction?: string | null;
@@ -423,13 +448,45 @@ export async function startBulkFix(options: {
   findingType?: string;
   /** Skips every destructive type. What "Fix all safe" sends. */
   safeOnly?: boolean;
-}): Promise<BulkFixStartResult> {
+}
+
+function bulkFixBody(options: BulkFixOptions): Record<string, string | boolean> {
   const body: Record<string, string | boolean> = {};
   if (options.jobId) body.job_id = options.jobId;
   if (options.severity) body.severity = options.severity;
   if (options.fixAction) body.fix_action = options.fixAction;
   if (options.findingType) body.finding_type = options.findingType;
   if (options.safeOnly) body.safe_only = true;
+  return body;
+}
+
+/**
+ * What a bulk fix with these filters WOULD do, finding by finding, recorded
+ * as a plan. Changes nothing. A run that moves or deletes files is only
+ * accepted with the returned `plan_id`.
+ */
+export async function previewBulkFix(options: BulkFixOptions): Promise<BulkFixPreview> {
+  const response = await postJson('/api/repair/findings/bulk-fix-preview', bulkFixBody(options));
+  const data = (await response.json().catch(() => ({}))) as BulkFixPreview;
+  if (!response.ok && !data.error) data.error = 'Could not preview the fix.';
+  if (!response.ok) data.success = false;
+  return data;
+}
+
+/**
+ * `fixAllMatchingFindings`. Runs in the BACKGROUND: at library scale a
+ * synchronous fix-all outlives every browser and proxy timeout, so the user was
+ * told it failed while the server quietly kept going. This returns immediately
+ * and the caller polls `fetchBulkFixStatus`.
+ *
+ * A selection that moves or deletes files is refused (409, `plan_required`)
+ * unless it comes as `planId` from `previewBulkFix`. A confirmed plan runs
+ * exactly the previewed findings, so nothing else is sent with it.
+ */
+export async function startBulkFix(
+  options: BulkFixOptions & { planId?: string },
+): Promise<BulkFixStartResult> {
+  const body = options.planId ? { plan_id: options.planId } : bulkFixBody(options);
   const response = await postJson('/api/repair/findings/bulk-fix-start', body);
   return (await response.json()) as BulkFixStartResult;
 }
@@ -495,6 +552,10 @@ export interface StartDbUpdateResult {
  * `success: false` must not be mistaken for a started job (#859). Deep scan and
  * full refresh use distinct backend flags and deep takes precedence server-side,
  * so only its flag is sent when it is selected.
+ *
+ * A deep scan sent from here carries no plan id, so in SoulSync standalone
+ * mode it moves nothing: the move to Staging goes through the preview flow
+ * (features/safe-action/deep-scan-flow).
  */
 export async function startDatabaseUpdate(
   refreshType: DbRefreshType,
@@ -567,15 +628,39 @@ export interface StartDuplicateCleanResult {
   error?: string;
 }
 
-/** `handleDuplicateCleanButtonClick`. */
-export async function startDuplicateClean(): Promise<StartDuplicateCleanResult> {
-  const response = await fetch('/api/duplicate-cleaner/start', {
+/**
+ * Preview the duplicate cleaner: scan and record what a clean-up WOULD move
+ * to the recycle bin, moving nothing. Poll the status; when it finishes,
+ * `plan_id` + `plan` describe the preview.
+ */
+export async function previewDuplicateClean(): Promise<StartDuplicateCleanResult> {
+  const response = await fetch('/api/duplicate-cleaner/preview', {
     method: 'POST',
     headers: JSON_HEADERS,
   });
   if (response.ok) return { ok: true };
   const data = (await response.json().catch(() => ({}))) as { error?: string };
   return { ok: false, error: data.error };
+}
+
+export type ConfirmDuplicateCleanResult = { ok: true } | { ok: false; refusal: PlanRefusal };
+
+/** Move exactly the previewed files to the recycle bin. A used, expired or
+ *  unknown preview is refused (409) before anything runs. */
+export async function confirmDuplicateClean(planId: string): Promise<ConfirmDuplicateCleanResult> {
+  const response = await postJson('/api/duplicate-cleaner/start', { plan_id: planId });
+  const data = (await response.json().catch(() => ({}))) as {
+    success?: boolean;
+    code?: string;
+    error?: string;
+  };
+  const refusal = readRefusal(response.status, data, 'Could not start the clean-up.');
+  return refusal ? { ok: false, refusal } : { ok: true };
+}
+
+/** Every file in a duplicate-cleaner preview (`/api/duplicate-cleaner/plan`). */
+export function fetchDuplicatePlanItems(planId: string): Promise<DuplicatePlanItem[]> {
+  return fetchAllPlanItems<DuplicatePlanItem>('/api/duplicate-cleaner/plan', planId);
 }
 
 /** `handleDuplicateCleanButtonClick`'s stop branch. */

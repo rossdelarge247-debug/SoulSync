@@ -12,6 +12,32 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { PlanRefusal } from '@/features/safe-action/plan';
+import type { SafeActionPhase } from '@/features/safe-action/safe-action-dialog';
+
+import { Button } from '@/components/form';
+import {
+  deepScanCanMove,
+  deepScanMoveCount,
+  deepScanNeedsCheck,
+} from '@/features/safe-action/deep-scan';
+import {
+  deepScanBlockedCopy,
+  deepScanGuardMessage,
+  useDeepScanFlow,
+} from '@/features/safe-action/deep-scan-flow';
+import {
+  countLabel,
+  formatBytes,
+  isPlanRefusalCode,
+  planExpired,
+  saveTextFile,
+  toCsv,
+} from '@/features/safe-action/plan';
+import { GuardBox, SafeActionDialog, StatusTag } from '@/features/safe-action/safe-action-dialog';
+import safeStyles from '@/features/safe-action/safe-action.module.css';
+import { useNow } from '@/features/safe-action/use-now';
+
 import type {
   DatabaseStats,
   DbRefreshType,
@@ -21,18 +47,21 @@ import type {
 } from '../-tools.types';
 
 import {
+  confirmDuplicateClean,
   fetchDatabaseStats,
   fetchDbUpdateStatus,
   fetchDuplicateCleanStatus,
+  fetchDuplicatePlanItems,
   fetchReconcileIdsStatus,
+  previewDuplicateClean,
   startDatabaseUpdate,
-  startDuplicateClean,
   startReconcileIds,
   stopDatabaseUpdate,
   stopDuplicateClean,
 } from '../-tools.api';
 import { formatFreedSpace } from '../-tools.core';
 import { usePolledStatus, useSafetyPoll } from '../-tools.polling';
+import { duplicateDialogContent } from './duplicate-cleaner-preview';
 import { ToolCard, ToolProgress } from './tool-card';
 
 const ACCENT_BAR = 'rgb(var(--accent-rgb))';
@@ -86,13 +115,41 @@ export function DbUpdaterCard() {
     setStarting(false),
   );
 
+  // SoulSync standalone Deep Scan can move files to Staging, so it previews
+  // first and only moves on a confirmed plan (#904). On a media server the
+  // preview answers "moves nothing" and the ordinary confirm below runs.
+  const deep = useDeepScanFlow({
+    onStarted: () => {
+      toast('Database update started!', 'success');
+      void poll.refresh().then(() => {
+        poll.arm();
+        safety.arm();
+      });
+    },
+  });
+
   const state = poll.state;
   const running = Boolean(state && isRunning(state));
+  const standalone = stats?.server_source === 'soulsync';
+  const idleLabel = refreshType === 'deep' && standalone ? 'Preview Deep Scan' : 'Update Database';
   // 'Starting…' also counts as busy for the label, but the button stays live.
-  const buttonLabel = running ? 'Stop Update' : starting ? 'Starting...' : 'Update Database';
+  const buttonLabel = running
+    ? 'Stop Update'
+    : starting
+      ? 'Starting...'
+      : deep.previewing
+        ? 'Previewing...'
+        : idleLabel;
 
   const onClick = useCallback(async () => {
-    if (buttonLabel === 'Update Database') {
+    if (buttonLabel === 'Previewing...') return;
+    if (buttonLabel === 'Update Database' || buttonLabel === 'Preview Deep Scan') {
+      if (refreshType === 'deep') {
+        // Preview first: in standalone mode this opens the confirm on what
+        // would move; only a media server ('no-moves') falls through.
+        const outcome = await deep.begin();
+        if (outcome !== 'no-moves') return;
+      }
       if (refreshType === 'full') {
         const ok = await window.showConfirmDialog?.({
           title: 'Full Refresh',
@@ -138,7 +195,15 @@ export function DbUpdaterCard() {
     } catch {
       toast('Error sending stop request.', 'error');
     }
-  }, [buttonLabel, poll, refreshType, safety]);
+  }, [buttonLabel, deep, poll, refreshType, safety]);
+
+  const deepPreview = refreshType === 'deep' && !running ? deep.preview : null;
+  const now = useNow(Boolean(deepPreview));
+  const deepStale = Boolean(
+    deepPreview && deepScanCanMove(deepPreview) && planExpired(deepPreview, now),
+  );
+  const lastMoves =
+    refreshType === 'deep' && !running && !deepPreview ? state?.deep_scan_moves : null;
 
   const processed = state?.processed ?? 0;
   const total = state?.total ?? 0;
@@ -224,7 +289,12 @@ export function DbUpdaterCard() {
             <option value="full">Full Refresh</option>
             <option value="deep">Deep Scan</option>
           </select>
-          <button type="button" id="db-update-button" onClick={() => void onClick()}>
+          <button
+            type="button"
+            id="db-update-button"
+            disabled={buttonLabel === 'Previewing...'}
+            onClick={() => void onClick()}
+          >
             {buttonLabel}
           </button>
         </>
@@ -240,7 +310,77 @@ export function DbUpdaterCard() {
           detailsId="db-progress-label"
         />
       }
-    />
+    >
+      {deepPreview ? (
+        <div className={safeStyles.panel} data-testid="deep-scan-preview-state">
+          {deepStale ? (
+            <>
+              <StatusTag>Preview out of date</StatusTag>
+              <p className={safeStyles.note}>
+                A preview works for 15 minutes. Preview again so you confirm what&apos;s on disk
+                now.
+              </p>
+            </>
+          ) : deepScanNeedsCheck(deepPreview) ? (
+            <GuardBox
+              message={deepScanGuardMessage(deepPreview)}
+              checked={deep.largeOk}
+              onChange={deep.setLargeOk}
+            >
+              <Button size="lg" onClick={deep.openReview}>
+                See the {countLabel(deepScanMoveCount(deepPreview), 'file')}
+              </Button>
+              <Button
+                size="lg"
+                variant="primary"
+                disabled={!deep.largeOk}
+                onClick={() => void deep.confirmMove()}
+              >
+                Move {countLabel(deepScanMoveCount(deepPreview), 'file')}
+              </Button>
+            </GuardBox>
+          ) : deepScanCanMove(deepPreview) ? (
+            <>
+              <StatusTag tone="info">
+                Preview ready · {countLabel(deepScanMoveCount(deepPreview), 'file')}
+              </StatusTag>
+              <p className={safeStyles.note}>
+                {countLabel(deepScanMoveCount(deepPreview), 'file')} (
+                {formatBytes(deepPreview.total_bytes)}) would move to Staging. Nothing has moved
+                yet.
+              </p>
+              <div className={safeStyles.actions}>
+                <Button size="lg" variant="primary" onClick={deep.openReview}>
+                  Review preview
+                </Button>
+              </div>
+            </>
+          ) : deepPreview.mode === 'blocked' ? (
+            <>
+              <StatusTag tone="warning">Nothing will move</StatusTag>
+              <p className={safeStyles.note}>{deepScanBlockedCopy(deepPreview)}</p>
+            </>
+          ) : (
+            <StatusTag tone="success">Nothing to move</StatusTag>
+          )}
+        </div>
+      ) : lastMoves?.mode === 'moved' ? (
+        <div className={safeStyles.panel}>
+          <StatusTag tone="success">
+            Last deep scan moved {countLabel(lastMoves.moved ?? 0, 'file')} to Staging
+          </StatusTag>
+        </div>
+      ) : lastMoves?.mode === 'preview' && (lastMoves.would_move ?? 0) > 0 ? (
+        <div className={safeStyles.panel}>
+          <StatusTag>
+            Last deep scan moved nothing · {countLabel(lastMoves.would_move ?? 0, 'file')} could
+            move
+          </StatusTag>
+          <p className={safeStyles.note}>Preview the deep scan to review and move them.</p>
+        </div>
+      ) : null}
+      {deep.dialog}
+    </ToolCard>
   );
 }
 
@@ -384,10 +524,28 @@ export function ReconcileIdsCard() {
 
 // ── Duplicate Cleaner ────────────────────────────────────────────────────────
 
-/** `handleDuplicateCleanButtonClick` + `updateDuplicateCleanProgressUI`. */
+/**
+ * Preview, then confirm (#1210: the cleaner once removed the only copy of a
+ * song). The card's button only ever PREVIEWS: the backend scans and records a
+ * plan of every file it would move to the recycle bin and which copy it keeps.
+ * The card then says "Preview ready", and the dialog shows the plan and only
+ * moves files when its own button, named for the move, sends the plan id
+ * back. An automation in preview mode leaves a plan here too.
+ */
 export function DuplicateCleanerCard() {
   const [starting, setStarting] = useState(false);
-  const announcedRef = useRef(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  // a confirmed run started from the dialog, which then reports on it
+  const [watchingApply, setWatchingApply] = useState(false);
+  const [refusal, setRefusal] = useState<PlanRefusal | null>(null);
+  const [listBusy, setListBusy] = useState(false);
+  // a preview the backend refused (used, expired, SoulSync restarted): the
+  // status still names it, but it must not read as ready any more
+  const [deadPlanId, setDeadPlanId] = useState<string | null>(null);
+  // toasts only for a run this card SAW running, so opening the page after a
+  // finished preview or clean-up doesn't announce it all over again
+  const sawRunningRef = useRef(false);
 
   const poll = usePolledStatus<DuplicateCleanState>({
     fetcher: fetchDuplicateCleanStatus,
@@ -396,20 +554,65 @@ export function DuplicateCleanerCard() {
     onState: (state) => {
       setStarting(false);
       if (isRunning(state)) {
-        announcedRef.current = false;
+        sawRunningRef.current = true;
         return;
       }
-      if (state.status === 'finished' && !announcedRef.current) {
-        announcedRef.current = true;
+      if (!sawRunningRef.current) return;
+      sawRunningRef.current = false;
+      if (state.status !== 'finished') return;
+      if (state.mode === 'apply') {
         // The toast uses ONE decimal for MB; the stat row uses two.
         const freed = formatFreedSpace(state.space_freed_mb || 0, 1);
-        toast(`Cleaning complete! ${state.deleted} files removed, ${freed} freed`, 'success');
+        toast(
+          `Moved ${countLabel(state.deleted ?? 0, 'file')} to the recycle bin, ${freed} freed`,
+          'success',
+        );
+      } else if (state.plan_id) {
+        const found = state.plan?.total ?? state.duplicates_found ?? 0;
+        toast(
+          found
+            ? `Preview ready: ${countLabel(found, 'duplicate file')} found. Nothing was moved.`
+            : 'Preview ready: no duplicates found.',
+          'success',
+        );
       }
     },
   });
 
   const state = poll.state;
   const running = Boolean(state && isRunning(state));
+  const finished = Boolean(state && !running && state.status === 'finished');
+  const plan =
+    finished && state?.mode === 'plan' && state.plan_id && state.plan ? state.plan : null;
+  const planId = plan ? (state?.plan_id ?? null) : null;
+  const now = useNow(Boolean(plan));
+  const planStale = Boolean(
+    plan && plan.total > 0 && (planExpired(plan, now) || planId === deadPlanId),
+  );
+  const planReady = Boolean(plan && plan.total > 0 && !planStale);
+  const applied = finished && state?.mode === 'apply';
+  const planRefused = state?.status === 'error' && isPlanRefusalCode(state.error_code);
+
+  const preview = useCallback(async () => {
+    setDialogOpen(false);
+    setRefusal(null);
+    setWatchingApply(false);
+    setStarting(true);
+    try {
+      const result = await previewDuplicateClean();
+      if (!result.ok) {
+        setStarting(false);
+        toast(`Error: ${result.error}`, 'error');
+        return;
+      }
+      toast('Previewing duplicates. Nothing will move until you confirm.', 'info');
+      await poll.refresh();
+      poll.arm();
+    } catch {
+      setStarting(false);
+      toast('Failed to start duplicate cleaner.', 'error');
+    }
+  }, [poll]);
 
   const onClick = useCallback(async () => {
     if (running) {
@@ -421,48 +624,147 @@ export function DuplicateCleanerCard() {
       }
       return;
     }
-    setStarting(true);
+    await preview();
+  }, [preview, running]);
+
+  const openReview = useCallback(() => {
+    setRefusal(null);
+    setWatchingApply(false);
+    setDialogOpen(true);
+  }, []);
+
+  const confirm = useCallback(async () => {
+    if (!planId) return;
+    setConfirming(true);
     try {
-      const result = await startDuplicateClean();
+      const result = await confirmDuplicateClean(planId);
       if (!result.ok) {
-        setStarting(false);
-        toast(`Error: ${result.error}`, 'error');
+        setRefusal(result.refusal);
+        if (result.refusal.previewAgain) setDeadPlanId(planId);
         return;
       }
-      toast('Duplicate cleaner started!', 'success');
+      setWatchingApply(true);
+      sawRunningRef.current = true;
       await poll.refresh();
       poll.arm();
     } catch {
-      setStarting(false);
-      toast('Failed to start duplicate cleaner.', 'error');
+      setRefusal({ code: '', message: 'Could not start the clean-up.', previewAgain: false });
+    } finally {
+      setConfirming(false);
     }
-  }, [poll, running]);
+  }, [planId, poll]);
+
+  const downloadList = useCallback(async () => {
+    if (!planId) return;
+    setListBusy(true);
+    try {
+      const items = await fetchDuplicatePlanItems(planId);
+      const csv = toCsv([
+        ['Moves to the recycle bin', 'Copy kept', 'Size (bytes)', 'Reason'],
+        ...items.map((item) => [item.path, item.keep ?? '', item.size ?? '', item.reason ?? '']),
+      ]);
+      if (!saveTextFile('duplicate-cleaner-preview.csv', csv)) {
+        toast('Could not save the list.', 'error');
+      }
+    } catch (error) {
+      toast((error as Error).message, 'error');
+    } finally {
+      setListBusy(false);
+    }
+  }, [planId]);
 
   const percent = state?.progress ?? 0;
 
-  let phase = 'Ready to scan';
+  let phase = 'Ready to preview';
   let details = '0 files scanned (0.0%)';
   let barPercent = 0;
   let barColor: string | undefined;
 
   if (running) {
     phase = state?.phase || 'Scanning...';
-    details = `${state?.files_scanned ?? 0} / ${state?.total_files ?? 0} files scanned (${percent.toFixed(1)}%)`;
+    details =
+      state?.mode === 'apply'
+        ? `${state?.deleted ?? 0} / ${state?.duplicates_found ?? 0} files moved to the recycle bin`
+        : `${state?.files_scanned ?? 0} / ${state?.total_files ?? 0} files scanned (${percent.toFixed(1)}%)`;
     barPercent = percent;
   } else if (state?.status === 'error') {
     phase = `Error: ${state.error_message}`;
     barColor = ERROR_BAR;
   } else if (state) {
-    phase = state.phase || 'Ready to scan';
+    phase = state.phase || 'Ready to preview';
     barColor = ACCENT_BAR;
   }
+
+  let buttonLabel = planReady || plan || applied ? 'Preview Again' : 'Preview Duplicates';
+  if (running) buttonLabel = state?.mode === 'apply' ? 'Stop Cleaning' : 'Stop Preview';
+  else if (starting) buttonLabel = 'Starting...';
+
+  // What the dialog shows: a refusal, the confirmed run, or the plan itself.
+  let dialogPhase: SafeActionPhase = { kind: 'review' };
+  if (refusal) {
+    dialogPhase = { kind: 'refused', message: refusal.message, previewAgain: refusal.previewAgain };
+  } else if (watchingApply && planRefused) {
+    dialogPhase = {
+      kind: 'refused',
+      message: state?.error_message || 'That preview could no longer be used.',
+      previewAgain: true,
+    };
+  } else if (watchingApply && state?.status === 'error') {
+    dialogPhase = {
+      kind: 'done',
+      tone: 'warning',
+      title: 'The clean-up stopped',
+      body: state.error_message || 'The clean-up stopped before it finished.',
+    };
+  } else if (watchingApply && applied) {
+    const moved = state?.deleted ?? 0;
+    const refused = state?.refused ?? 0;
+    const skipped = state?.skipped ?? 0;
+    dialogPhase = {
+      kind: 'done',
+      title: `Moved ${countLabel(moved, 'file')} to the recycle bin`,
+      body: (
+        <>
+          {formatFreedSpace(state?.space_freed_mb ?? 0, 1)} freed. Nothing was deleted: you can put
+          any of them back from the recycle bin (Downloads, Review, Deleted).
+          {refused
+            ? ` ${countLabel(refused, 'file')} stayed because the copy to keep could not be checked.`
+            : ''}
+          {skipped
+            ? ` ${countLabel(skipped, 'file')} had changed since the preview and stayed.`
+            : ''}
+        </>
+      ),
+      extra: {
+        label: 'Open Downloads',
+        onClick: () => {
+          setDialogOpen(false);
+          void window.navigateToPage?.('active-downloads');
+        },
+      },
+    };
+  } else if (watchingApply) {
+    dialogPhase = {
+      kind: 'working',
+      message: `Moving ${countLabel(state?.duplicates_found ?? plan?.total ?? 0, 'file')} to the recycle bin… ${state?.deleted ?? 0} done.`,
+    };
+  }
+
+  const dialogContent = plan
+    ? duplicateDialogContent(plan, {
+        busy: confirming,
+        listBusy,
+        onConfirm: () => void confirm(),
+        onDownload: () => void downloadList(),
+      })
+    : { title: 'Duplicate Cleaner' };
 
   return (
     <ToolCard
       id="duplicate-cleaner-card"
       title="Duplicate Cleaner"
       helpTool="duplicate-cleaner"
-      info="Detect and remove duplicate tracks in output folder"
+      info="Finds the same track saved in more than one format in your output folder, keeps the best copy and moves the others to the recycle bin."
       stats={[
         {
           label: 'Files Scanned:',
@@ -474,7 +776,7 @@ export function DuplicateCleanerCard() {
           valueId: 'duplicate-stat-found',
           value: state?.duplicates_found ?? 0,
         },
-        { label: 'Deleted:', valueId: 'duplicate-stat-deleted', value: state?.deleted ?? 0 },
+        { label: 'Moved to Bin:', valueId: 'duplicate-stat-deleted', value: state?.deleted ?? 0 },
         {
           label: 'Space Freed:',
           valueId: 'duplicate-stat-space',
@@ -488,7 +790,7 @@ export function DuplicateCleanerCard() {
           disabled={starting}
           onClick={() => void onClick()}
         >
-          {running ? 'Stop Cleaning' : starting ? 'Starting...' : 'Clean Duplicates'}
+          {buttonLabel}
         </button>
       }
       progress={
@@ -502,6 +804,65 @@ export function DuplicateCleanerCard() {
           detailsId="duplicate-progress-label"
         />
       }
-    />
+    >
+      {running ? null : (
+        <div className={safeStyles.panel} data-testid="duplicate-preview-state">
+          {planReady && plan ? (
+            <>
+              <StatusTag tone="info">Preview ready · {countLabel(plan.total, 'file')}</StatusTag>
+              <p className={safeStyles.note}>
+                {countLabel(plan.total, 'file')} ({formatBytes(plan.total_bytes)}) would move to the
+                recycle bin. Nothing has moved yet.
+              </p>
+              <div className={safeStyles.actions}>
+                <Button variant="primary" size="lg" onClick={openReview}>
+                  Review preview
+                </Button>
+              </div>
+            </>
+          ) : planStale ? (
+            <>
+              <StatusTag>Preview out of date</StatusTag>
+              <p className={safeStyles.note}>
+                A preview works for 15 minutes and only once. Preview again so you confirm
+                what&apos;s on disk now.
+              </p>
+            </>
+          ) : plan ? (
+            <StatusTag tone="success">No duplicates found</StatusTag>
+          ) : applied ? (
+            <>
+              <StatusTag tone="success">
+                Done · moved {countLabel(state?.deleted ?? 0, 'file')}
+              </StatusTag>
+              {state?.refused ? (
+                <p className={safeStyles.note}>
+                  {countLabel(state.refused, 'file')} stayed because the copy to keep could not be
+                  checked.
+                </p>
+              ) : null}
+            </>
+          ) : planRefused ? (
+            <>
+              <StatusTag tone="warning">Preview no longer usable</StatusTag>
+              <p className={safeStyles.note}>{state?.error_message}</p>
+            </>
+          ) : (
+            <StatusTag>No preview yet</StatusTag>
+          )}
+        </div>
+      )}
+      <SafeActionDialog
+        open={dialogOpen && (Boolean(plan) || dialogPhase.kind !== 'review')}
+        onClose={() => {
+          setDialogOpen(false);
+          setRefusal(null);
+          setWatchingApply(false);
+        }}
+        phase={dialogPhase}
+        onPreviewAgain={() => void preview()}
+        {...dialogContent}
+      />
+    </ToolCard>
   );
 }

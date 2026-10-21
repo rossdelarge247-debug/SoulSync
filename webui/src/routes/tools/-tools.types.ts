@@ -8,6 +8,9 @@
  * can't pretend to a guarantee the server doesn't make.
  */
 
+import type { DeepScanPreview } from '@/features/safe-action/deep-scan';
+import type { PlanItem, PlanSummary } from '@/features/safe-action/plan';
+
 /**
  * A known set of values that the server is nonetheless free to extend.
  *
@@ -213,14 +216,43 @@ export interface DbUpdateState extends ToolRunState {
   total?: number;
   /** What processed/total count: "artists" during scan phases, "tracks" during the post-scan tag reconcile. */
   unit?: string;
+  /** SoulSync standalone deep scan only: what its move to Staging did or
+   *  would do (`_deep_scan_move_summary`). null while a scan runs. */
+  deep_scan_moves?: DeepScanPreview | null;
+}
+
+/** One file a duplicate-cleaner preview would move (scan_duplicates). */
+export interface DuplicatePlanItem extends PlanItem {
+  path: string;
+  action?: string;
+  reason?: string;
+  /** The copy that stays. */
+  keep?: string;
+  size?: number;
+  extension?: string;
+  keep_extension?: string;
+  keep_size?: number;
 }
 
 export interface DuplicateCleanState extends ToolRunState {
   files_scanned?: number;
   total_files?: number;
   duplicates_found?: number;
+  /** Files moved to the recycle bin by a confirmed run. */
   deleted?: number;
   space_freed_mb?: number;
+  /** plan = a preview (nothing moves); apply = a confirmed run. */
+  mode?: LiteralUnion<'plan' | 'apply'>;
+  /** Set by a finished preview: POST it back to /start to act on it. */
+  plan_id?: string | null;
+  plan?: PlanSummary<DuplicatePlanItem> | null;
+  /** Files kept because the copy to keep failed verification. */
+  refused?: number;
+  refused_items?: Array<{ path?: string; keep?: string; reason?: string }>;
+  /** Files that vanished or changed since the preview. */
+  skipped?: number;
+  /** A plan refusal code when the worker could not use the plan. */
+  error_code?: string;
 }
 
 export interface ReconcileIdsState extends ToolRunState {
