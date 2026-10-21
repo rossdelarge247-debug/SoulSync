@@ -78,14 +78,43 @@ def auto_start_database_update(config: Dict[str, Any], deps: AutomationDeps) -> 
 
 
 def auto_deep_scan_library(config: Dict[str, Any], deps: AutomationDeps) -> Dict[str, Any]:
-    """Run a deep library scan via ``run_deep_scan_task``."""
+    """Run a deep library scan via ``run_deep_scan_task``.
+
+    In SoulSync standalone mode a deep scan can move untracked files to
+    Staging. The automation only lets it when its config has
+    ``confirm: true``; otherwise the scan reports what it WOULD move. The
+    empty-database and ratio guards hold either way (no automation can
+    confirm a large move)."""
+    from core.library.action_plans import automation_may_act
+    act = automation_may_act(config)
+    automation_id = config.get('_automation_id')
+
+    def _extras():
+        report = (deps.get_db_update_state() or {}).get('deep_scan_moves') or {}
+        if not report:
+            return {}
+        mode = report.get('mode')
+        if mode == 'preview':
+            deps.update_progress(
+                automation_id, log_type='info',
+                log_line=(f"Preview only: {report.get('would_move', 0)} untracked file(s) would move to "
+                          f"Staging. Nothing was moved. Review and confirm the deep scan, or turn on "
+                          f"'Act without a preview' in this automation."))
+        elif mode == 'blocked' and report.get('message'):
+            deps.update_progress(automation_id, log_type='warning', log_line=report['message'])
+        return {'staging_moves_mode': mode or '',
+                'staging_moved': report.get('moved', 0),
+                'staging_would_move': report.get('would_move', 0) if mode != 'moved' else 0,
+                'staging_block_reason': report.get('block_reason') or ''}
+
     return _run_with_progress(
         config, deps,
         task=deps.run_deep_scan_task,
         task_args=(deps.config_manager.get_active_media_server(),),
+        task_kwargs={'confirm_moves': act},
         initial_phase='Deep scan: Initializing...',
         stall_label='Deep scan',
-        finished_extras=lambda: {},
+        finished_extras=_extras,
         timeout_label='Deep scan timed out after 24 hours',
     )
 
@@ -96,6 +125,7 @@ def _run_with_progress(
     *,
     task,
     task_args: tuple,
+    task_kwargs: Dict[str, Any] = None,
     initial_phase: str,
     stall_label: str,
     finished_extras,
@@ -121,7 +151,7 @@ def _run_with_progress(
             'run_epoch': state.get('run_epoch', 0) + 1,
             'last_progress_at': time.time(),
         })
-    deps.db_update_executor.submit(task, *task_args, state['run_epoch'])
+    deps.db_update_executor.submit(task, *task_args, state['run_epoch'], **(task_kwargs or {}))
 
     # Monitor progress (callbacks handle card updates, we just block until done).
     # We time out on STALL, not total runtime: ``processed`` advances on every

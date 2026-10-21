@@ -29,6 +29,11 @@ from core.automation_engine import SYSTEM_AUTOMATIONS, AutomationEngine
 from database.music_database import MusicDatabase
 
 
+# The action deletes for good, so it only acts with the "act without a
+# preview" switch on (plan mode is pinned in test_destructive_automations_plan_mode.py).
+ACT = {'confirm': True}
+
+
 class _StubLogger:
     def debug(self, *a, **k): pass
     def info(self, *a, **k): pass
@@ -122,7 +127,7 @@ def _deps_for(tmp_path, keep_days=None, **more):
 class TestHandler:
     def test_an_empty_config_runs_both_halves(self, tmp_path):
         deps, lines, qfile, binned = _deps_for(tmp_path, keep_days=7)
-        out = auto_library_cleanup({'_automation_id': 42}, deps)
+        out = auto_library_cleanup({'_automation_id': 42, 'confirm': True}, deps)
         assert out == {'status': 'completed', 'removed': 2, 'quarantine_removed': 1,
                        'recycle_purged': 1, 'errors': 0}
         assert not qfile.exists() and not binned.exists()
@@ -134,27 +139,27 @@ class TestHandler:
 
     def test_keep_forever_empties_the_bin(self, tmp_path):
         deps, lines, qfile, binned = _deps_for(tmp_path)   # no retention key at all
-        out = auto_library_cleanup({}, deps)
+        out = auto_library_cleanup(ACT, deps)
         assert out['recycle_purged'] == 1 and not binned.exists()
         assert 'Recycle bin: emptied, 1 file(s) deleted for good' in [
             line.get('log_line') for line in lines]
 
     def test_a_fresh_file_survives_the_keep_window(self, tmp_path):
         deps, lines, qfile, binned = _deps_for(tmp_path, keep_days=60)
-        out = auto_library_cleanup({}, deps)
+        out = auto_library_cleanup(ACT, deps)
         assert out['recycle_purged'] == 0 and binned.exists()
         assert out['quarantine_removed'] == 1
 
     @pytest.mark.parametrize('off', [False, 'false', '0', 'off', ''])
     def test_the_quarantine_half_can_be_switched_off(self, tmp_path, off):
         deps, lines, qfile, binned = _deps_for(tmp_path)
-        out = auto_library_cleanup({'quarantine': off}, deps)
+        out = auto_library_cleanup({'quarantine': off, 'confirm': True}, deps)
         assert out['quarantine_removed'] == 0 and qfile.exists()
         assert out['recycle_purged'] == 1 and not binned.exists()
 
     def test_the_bin_half_can_be_switched_off(self, tmp_path):
         deps, lines, qfile, binned = _deps_for(tmp_path)
-        out = auto_library_cleanup({'recycle_bin': False}, deps)
+        out = auto_library_cleanup({'recycle_bin': False, 'confirm': True}, deps)
         assert out['recycle_purged'] == 0 and binned.exists()
         assert out['quarantine_removed'] == 1 and not qfile.exists()
 
@@ -177,7 +182,7 @@ class TestHandler:
 
     def test_a_bad_keep_value_reads_as_keep_forever(self, tmp_path):
         deps, lines, qfile, binned = _deps_for(tmp_path, keep_days='lots')
-        out = auto_library_cleanup({}, deps)
+        out = auto_library_cleanup(ACT, deps)
         assert out['recycle_purged'] == 1
 
     def test_a_crash_is_an_error_result_not_an_exception(self, tmp_path, monkeypatch):
@@ -187,7 +192,7 @@ class TestHandler:
         def _boom(**kw):
             raise RuntimeError('no disk')
         monkeypatch.setattr(mod, 'run_library_cleanup', _boom)
-        out = auto_library_cleanup({'_automation_id': 7}, deps)
+        out = auto_library_cleanup({'_automation_id': 7, 'confirm': True}, deps)
         assert out == {'status': 'error', 'error': 'no disk'}
         assert {'automation_id': 7, 'log_line': 'no disk', 'log_type': 'error'} in lines
 
@@ -201,7 +206,7 @@ class TestHandler:
                 raise PermissionError('locked')
             real_remove(p)
         monkeypatch.setattr(core_cleanup.os, 'remove', _remove)
-        out = auto_library_cleanup({}, deps)
+        out = auto_library_cleanup(ACT, deps)
         assert out['status'] == 'completed'
         assert out['quarantine_removed'] == 0 and out['errors'] == 1
         assert out['recycle_purged'] == 1
@@ -230,7 +235,7 @@ def test_register_all_wires_the_action_to_the_handler(tmp_path):
                        update_progress=deps.update_progress, web_scan_manager=_Scan())
     register_all(deps)
     assert 'library_cleanup' in engine.handlers
-    out = engine.handlers['library_cleanup']({})
+    out = engine.handlers['library_cleanup'](dict(ACT))
     assert out['status'] == 'completed' and out['removed'] == 2
     assert not qfile.exists() and not binned.exists()
 

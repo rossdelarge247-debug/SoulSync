@@ -74,6 +74,15 @@ def _resolve_system_default_tz() -> str:
 # ``automation.default_timezone`` config key.
 _SYSTEM_DEFAULT_TZ = _resolve_system_default_tz()
 
+# Actions that move or delete files: they act only when their config says
+# ``confirm: true`` (core.library.action_plans.automation_may_act); without it
+# they run in plan mode and report what they would do.
+PLAN_GATED_ACTIONS = frozenset({
+    'run_duplicate_cleaner', 'clear_quarantine', 'library_cleanup',
+    'full_cleanup', 'video_full_cleanup', 'deep_scan_library',
+})
+PLAN_GATE_MIGRATION_KEY = 'automation_plan_gate_opt_in_v1'
+
 SYSTEM_AUTOMATIONS = [
     {
         'name': 'Auto-Process Wishlist',
@@ -752,6 +761,59 @@ class AutomationEngine:
         self._fix_rss_sync_cadence()
         self._fix_orphaned_system_actions()
         self._fix_refresh_stale_catchup()
+        self._fix_plan_gated_opt_in()
+
+    def _fix_plan_gated_opt_in(self):
+        """One-time: keep automations people built to act, acting.
+
+        Actions that move or delete files (PLAN_GATED_ACTIONS) now run in plan
+        mode unless their config says ``confirm: true``. Before that switch
+        existed, creating such an automation WAS the user's instruction to act,
+        so every user-created row gets ``confirm: true``. A seeded system row
+        only counts as an opt-in when it ships switched OFF and the user turned
+        it on (Weekly Cleanup); one that ships ON (Auto-Deep Scan, Full
+        Cleanup) never had anyone choose it, so it goes to plan mode.
+
+        Runs once (a metadata marker), so an automation created later without
+        the switch is never flipped on behind the user's back. A row that
+        already has a ``confirm`` key is left exactly as it is.
+        """
+        get_meta = getattr(self.db, 'get_metadata', None)
+        set_meta = getattr(self.db, 'set_metadata', None)
+        if not callable(get_meta) or not callable(set_meta):
+            return
+        try:
+            if get_meta(PLAN_GATE_MIGRATION_KEY):
+                return
+            specs = {spec['action_type']: spec for spec in SYSTEM_AUTOMATIONS}
+            migrated = 0
+            for auto in (self.db.get_all_automations() or []):
+                action = auto.get('action_type') or ''
+                if action not in PLAN_GATED_ACTIONS:
+                    continue
+                try:
+                    cfg = json.loads(auto.get('action_config') or '{}')
+                except (TypeError, ValueError):
+                    cfg = {}
+                if not isinstance(cfg, dict) or 'confirm' in cfg:
+                    continue
+                if auto.get('is_system'):
+                    spec = specs.get(action) or {}
+                    opted_in = spec.get('enabled_on_create') is False and bool(auto.get('enabled'))
+                else:
+                    opted_in = True
+                if not opted_in:
+                    continue
+                cfg['confirm'] = True
+                if self.db.update_automation(auto['id'], action_config=json.dumps(cfg)):
+                    migrated += 1
+                    logger.info("Kept automation %r acting without a preview (created before "
+                                "plan mode existed)", auto.get('name'))
+            set_meta(PLAN_GATE_MIGRATION_KEY, _utcnow_str())
+            if migrated:
+                logger.info("Plan-mode migration: %d existing automation(s) keep acting", migrated)
+        except Exception:
+            logger.exception("plan-mode opt-in migration failed")
 
     def _fix_orphaned_system_actions(self):
         """Delete system rows whose action_type has NO registered handler.

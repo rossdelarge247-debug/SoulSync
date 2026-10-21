@@ -252,12 +252,13 @@ def purge_entries(transfer_folder: str, ids: Optional[List[str]] = None,
     return {"purged": purged, "errors": errors}
 
 
-def purge_expired(transfer_folder: str, keep_days: float) -> int:
-    """Age-purge manifested entries past retention. Unmanifested files are
-    left alone - no deleted_at means no honest age (mtime survives the
-    move, so it dates the file, not the deletion)."""
+def expired_entry_ids(transfer_folder: str, keep_days: float) -> List[str]:
+    """Ids of manifested entries past retention, without touching them (the
+    preview half of purge_expired). Unmanifested files never expire - no
+    deleted_at means no honest age (mtime survives the move, so it dates
+    the file, not the deletion)."""
     if not keep_days or keep_days <= 0:
-        return 0
+        return []
     cutoff = time.time() - keep_days * 86400
     expired: List[str] = []
     for tag, root in _roots(transfer_folder):
@@ -271,6 +272,13 @@ def purge_expired(transfer_folder: str, keep_days: float) -> int:
                 continue
             if stamp < cutoff:
                 expired.append(f"{tag}:{rel}")
+    return expired
+
+
+def purge_expired(transfer_folder: str, keep_days: float) -> int:
+    """Age-purge manifested entries past retention. Unmanifested files are
+    left alone - see expired_entry_ids."""
+    expired = expired_entry_ids(transfer_folder, keep_days)
     if not expired:
         return 0
     result = purge_entries(transfer_folder, expired)

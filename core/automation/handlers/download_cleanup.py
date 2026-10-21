@@ -119,14 +119,27 @@ def auto_full_cleanup(config: Dict[str, Any], deps: AutomationDeps) -> Dict[str,
     steps = []
 
     # --- 1. Clear quarantine ---
+    # Quarantined files are deleted for good, and they are not only failed
+    # downloads: auto-import quarantines the user's own Staging files when a
+    # check fails. The seeded Full Cleanup runs every 12 hours without anyone
+    # choosing that, so this step only reports unless the automation's config
+    # says ``confirm: true``. The other steps are unchanged.
     deps.update_progress(automation_id, phase='Clearing quarantine...', progress=0)
-    from core.library.cleanup import clear_quarantine_folder, quarantine_path as _qpath
-    q_removed = clear_quarantine_folder(_qpath(
-        deps.docker_resolve_path(deps.config_manager.get('soulseek.download_path', './downloads'))))['removed']
-    steps.append(f'Quarantine: removed {q_removed} items')
+    from core.library.action_plans import automation_may_act
+    from core.library.cleanup import clear_quarantine_folder, preview_quarantine, quarantine_path as _qpath
+    qdir = _qpath(deps.docker_resolve_path(deps.config_manager.get('soulseek.download_path', './downloads')))
+    if automation_may_act(config):
+        q_removed = clear_quarantine_folder(qdir)['removed']
+        q_line = f'Quarantine: removed {q_removed} items'
+    else:
+        q_removed = 0
+        q_would = len(preview_quarantine(qdir))
+        q_line = (f'Quarantine: {q_would} item(s) left in place (preview only; turn on '
+                  f"'Act without a preview' to delete them)")
+    steps.append(q_line)
     deps.update_progress(
         automation_id,
-        log_line=f'Quarantine: removed {q_removed} items',
+        log_line=q_line,
         log_type='success' if q_removed else 'info',
     )
 

@@ -29,11 +29,23 @@ from core.automation.deps import AutomationDeps
 
 
 def auto_clear_quarantine(config: Dict[str, Any], deps: AutomationDeps) -> Dict[str, Any]:
-    """Purge every file/folder under the configured ss_quarantine path."""
+    """Purge every file/folder under the configured ss_quarantine path.
+
+    Permanent, so plan-only unless the automation's config has
+    ``confirm: true``: without it the run reports what it would delete."""
     automation_id = config.get('_automation_id')
-    from core.library.cleanup import clear_quarantine_folder, quarantine_path as _qpath
-    result = clear_quarantine_folder(_qpath(
-        deps.docker_resolve_path(deps.config_manager.get('soulseek.download_path', './downloads'))))
+    from core.library.action_plans import automation_may_act
+    from core.library.cleanup import clear_quarantine_folder, preview_quarantine, quarantine_path as _qpath
+    qdir = _qpath(deps.docker_resolve_path(deps.config_manager.get('soulseek.download_path', './downloads')))
+    if not automation_may_act(config):
+        would = len(preview_quarantine(qdir))
+        deps.update_progress(
+            automation_id,
+            log_line=(f'Preview only: would delete {would} quarantined item(s) for good. Nothing was '
+                      f"deleted. Turn on 'Act without a preview' in this automation to let it delete."),
+            log_type='info')
+        return {'status': 'completed', 'mode': 'plan', 'removed': '0', 'would_remove': str(would)}
+    result = clear_quarantine_folder(qdir)
     if not result['existed']:
         deps.update_progress(automation_id, log_line='No quarantine folder found', log_type='info')
         return {'status': 'completed', 'removed': '0'}

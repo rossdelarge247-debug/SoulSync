@@ -10,6 +10,10 @@ the recycle bin's retention only ever ran when someone opened the Recycle Bin
 tab. LettuceSnob (Sep 17 2026) asked for a way to trigger the scrub; this is
 the switch. The sweep itself lives in core.library.cleanup, this is the
 schedule plus progress.
+
+Both halves delete for good, so the action is plan-only unless its config
+carries ``confirm: true`` (the "act without a preview" switch): without it a
+run reports exactly what it WOULD delete and deletes nothing.
 """
 
 from __future__ import annotations
@@ -17,7 +21,8 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from core.automation.deps import AutomationDeps
-from core.library.cleanup import run_library_cleanup
+from core.library.action_plans import automation_may_act
+from core.library.cleanup import preview_library_cleanup, run_library_cleanup
 from utils.logging_config import get_logger
 
 logger = get_logger("automation.library_cleanup")
@@ -56,6 +61,23 @@ def auto_library_cleanup(config: Dict[str, Any], deps: AutomationDeps) -> Dict[s
 
     def _say(line: str, kind: str) -> None:
         deps.update_progress(automation_id, log_line=line, log_type=kind)
+
+    if not automation_may_act(config):
+        try:
+            plan = preview_library_cleanup(
+                download_path=download_path, transfer_folder=transfer_folder, keep_days=keep_days,
+                clear_quarantine=do_quarantine, empty_recycle_bin=do_recycle)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("library cleanup preview failed")
+            deps.update_progress(automation_id, log_line=str(exc), log_type="error")
+            return {"status": "error", "error": str(exc)}
+        nq, nr = len(plan["quarantine"]), len(plan["recycle_bin"])
+        _say(f"Preview only: would delete {nq} quarantined item(s) and {nr} recycle-bin file(s) "
+             f"for good. Nothing was deleted. Turn on 'Act without a preview' in this automation "
+             f"to let it delete.", "info")
+        return {"status": "completed", "mode": "plan", "removed": 0, "quarantine_removed": 0,
+                "recycle_purged": 0, "errors": 0, "would_remove": nq + nr,
+                "would_remove_quarantine": nq, "would_purge_recycle": nr}
 
     try:
         deps.update_progress(automation_id, phase="Cleaning up…", progress=10)
