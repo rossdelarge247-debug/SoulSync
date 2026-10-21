@@ -5,8 +5,8 @@
  * uppercase column labels drop to 12px), white text at 60% or brighter,
  * radii from tokens.css (6px tags, 12px boxes), status always carries a word
  * next to its colour, and the primary button is the shared Button primary
- * (dark text on the accent). A confirm that deletes files for good is the
- * danger button instead: white on red, never the accent.
+ * (dark text on the accent). A confirm that deletes files is the danger
+ * button instead: dark text on the danger red, never the accent.
  */
 
 /* ── On a tool card ─────────────────────────────────────────────────────── */
@@ -332,26 +332,28 @@
   color: #fbbf24;
 }
 
-/* A confirm that deletes files. Doubled so it beats the shared button's own
-   background and border whatever order the stylesheets load in. White on
-   #b91c1c is 6.5:1. */
+/* A confirm that deletes files: the danger colour (#f87171) with dark text,
+   the same way the primary button is dark text on the light accent (dark on
+   #f87171 is 7.1:1). Doubled so it beats the shared button's background and
+   border whatever order the stylesheets load in. */
 .dangerButton.dangerButton {
-  border-color: #dc2626;
-  background: #b91c1c;
-  color: #fff;
+  border-color: #fca5a5;
+  background: #f87171;
+  color: #0b0b0f;
 }
 
 .dangerButton.dangerButton:hover:not(:disabled) {
-  border-color: #ef4444;
-  background: #991b1b;
-  color: #fff;
+  border-color: #fecaca;
+  background: #fca5a5;
+  color: #0b0b0f;
 }
 
 .dangerButton.dangerButton:focus-visible {
-  border-color: #fca5a5;
+  border-color: #fecaca;
   box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.35);
 }
 
 .dangerButton.dangerButton:disabled {
   opacity: 0.62;
+  color: rgba(11, 11, 15, 0.7);
 }

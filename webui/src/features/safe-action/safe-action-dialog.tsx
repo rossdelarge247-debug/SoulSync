@@ -136,8 +136,8 @@ export interface SafeActionDialogProps {
   /** The primary button, named for the action ("Move 214 files"). Omitted
    *  when there is nothing to confirm. */
   confirmLabel?: string;
-  /** `danger` for a confirm that deletes files (red, white text); the
-   *  default is the accent primary. */
+  /** `danger` for a confirm that deletes files (dark text on the danger
+   *  red); the default is the accent primary. */
   confirmTone?: 'primary' | 'danger';
   confirmDisabled?: boolean;
   confirmBusy?: boolean;
