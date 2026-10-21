@@ -27,14 +27,33 @@ const MIME: Record<string, string> = {
   '.html': 'text/html',
 };
 
+type ManifestChunk = { file: string; css?: string[]; imports?: string[] };
+
+/** Mirrors build_webui_vite_assets (core/webui/assets.py). */
 function viteAssets(placement: 'head' | 'body') {
   const manifestPath = resolve(STATIC, 'dist/.vite/manifest.json');
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  const entry = manifest['src/app/main.tsx'];
+  const manifest: Record<string, ManifestChunk> = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const entryKey = 'src/app/main.tsx';
+  const entry = manifest[entryKey];
   if (placement === 'head') {
-    return (entry.css ?? [])
-      .map((css: string) => `<link rel="stylesheet" href="/static/dist/${css}">`)
-      .join('\n');
+    // the entry's static imports (route chunks load on demand): their CSS,
+    // dependencies first, and a modulepreload for each chunk
+    const chunks: string[] = [];
+    const css: string[] = [];
+    const seen = new Set<string>();
+    const visit = (key: string) => {
+      const chunk = manifest[key];
+      if (seen.has(key) || !chunk) return;
+      seen.add(key);
+      if (key !== entryKey && !chunks.includes(chunk.file)) chunks.push(chunk.file);
+      (chunk.imports ?? []).forEach(visit);
+      (chunk.css ?? []).forEach((file) => css.includes(file) || css.push(file));
+    };
+    visit(entryKey);
+    return [
+      ...css.map((file) => `<link rel="stylesheet" href="/static/dist/${file}">`),
+      ...chunks.map((file) => `<link rel="modulepreload" href="/static/dist/${file}">`),
+    ].join('\n');
   }
   return `<script type="module" src="/static/dist/${entry.file}"></script>`;
 }

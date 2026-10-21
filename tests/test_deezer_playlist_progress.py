@@ -209,7 +209,8 @@ def test_the_public_playlist_fetch_accepts_a_callback():
 def test_the_built_bundle_carries_the_listener():
     """webui/src compiles into static/dist, so editing the source without
     rebuilding ships a bundle that ignores these frames entirely — the React
-    listener simply is not in the file the browser loads.
+    listener simply is not in the files the browser loads. The app is split
+    per route, so the listener can sit in any chunk, not just main-*.js.
 
     Skipped when there is no build: ``webui/static/dist`` is gitignored
     (webui/.gitignore:3), so a fresh clone and CI have no bundle at all, and a
@@ -218,7 +219,7 @@ def test_the_built_bundle_carries_the_listener():
     assets = pathlib.Path('webui/static/dist/assets')
     if not assets.is_dir():
         pytest.skip('no built bundle in this checkout (static/dist is gitignored)')
-    dist = list(assets.glob('main-*.js'))
+    dist = list(assets.glob('*.js'))
     if not dist:
         pytest.skip('no built bundle in this checkout (static/dist is gitignored)')
     assert any(EVENT in p.read_text(encoding='utf-8', errors='ignore') for p in dist), \

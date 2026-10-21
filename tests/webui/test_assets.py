@@ -48,6 +48,56 @@ def test_build_webui_vite_assets_renders_manifest_assets():
     assert html_body == '<script type="module" src="/assets/dist/assets/main.js"></script>'
 
 
+def test_build_webui_vite_assets_handles_code_split_manifests():
+    """With route code splitting the entry statically imports shared chunks:
+    their CSS (dependencies first) and a modulepreload for each go in the head.
+    Route chunks are dynamic imports the router loads itself, so they stay out."""
+    manifest = {
+        "src/app/main.tsx": {
+            "file": "assets/main-1.js",
+            "isEntry": True,
+            "css": ["assets/main-1.css"],
+            "imports": ["_react-dom.js", "_bridge.js"],
+            "dynamicImports": ["src/routes/stats/route.tsx?tsr-split=component"],
+        },
+        "_react-dom.js": {"file": "assets/react-dom-2.js"},
+        "_bridge.js": {
+            "file": "assets/bridge-3.js",
+            "css": ["assets/bridge-3.css"],
+            "imports": ["_react-dom.js", "src/app/main.tsx"],
+        },
+        "src/routes/stats/route.tsx?tsr-split=component": {
+            "file": "assets/route-4.js",
+            "isDynamicEntry": True,
+            "css": ["assets/route-4.css"],
+            "imports": ["_bridge.js"],
+        },
+    }
+
+    def render(placement):
+        return build_webui_vite_assets(
+            placement,
+            manifest_loader=lambda: manifest,
+            static_url_builder=lambda filename: f"/static/{filename}",
+        )
+
+    assert render("head").splitlines() == [
+        '<link rel="stylesheet" href="/static/dist/assets/bridge-3.css">',
+        '<link rel="stylesheet" href="/static/dist/assets/main-1.css">',
+        '<link rel="modulepreload" href="/static/dist/assets/react-dom-2.js">',
+        '<link rel="modulepreload" href="/static/dist/assets/bridge-3.js">',
+    ]
+    assert render("body") == '<script type="module" src="/static/dist/assets/main-1.js"></script>'
+
+
+def test_build_webui_vite_assets_ignores_unknown_imports():
+    manifest = {"src/app/main.tsx": {"file": "assets/main.js", "imports": ["_gone.js"]}}
+
+    html_head = build_webui_vite_assets("head", manifest_loader=lambda: manifest)
+
+    assert html_head == ""
+
+
 @pytest.mark.parametrize(
     "pathname",
     [
