@@ -11288,6 +11288,40 @@ class MusicDatabase:
         except Exception as e:
             logger.error(f"Error checking if track {track_id} exists for server {server_source}: {e}")
             return False
+
+    # ids per IN (...) list: sqlite caps host parameters (999 on older builds)
+    _ID_LOOKUP_CHUNK = 500
+
+    def track_exists_by_server_many(self, track_ids, server_source: str) -> set:
+        """track_exists_by_server for many ids: the subset of ``track_ids`` (as
+        strings) that have a row for ``server_source``.
+
+        For loops that ask about a whole album or scan page at once: one
+        connection and one query per 500 ids instead of a connection per
+        track. On an error it logs and returns the ids found before it, so an
+        id it couldn't check reads as missing, which is what
+        track_exists_by_server answers on an error."""
+        ids = list(dict.fromkeys(str(track_id) for track_id in track_ids))
+        found = set()
+        if not ids:
+            return found
+        conn = None
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            for start in range(0, len(ids), self._ID_LOOKUP_CHUNK):
+                chunk = ids[start:start + self._ID_LOOKUP_CHUNK]
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(
+                    f"SELECT id FROM tracks WHERE server_source = ? AND id IN ({placeholders})",
+                    (server_source, *chunk))
+                found.update(str(row[0]) for row in cursor.fetchall())
+        except Exception as e:
+            logger.error(f"Error checking which of {len(ids)} tracks exist for server {server_source}: {e}")
+        finally:
+            if conn is not None:
+                conn.close()
+        return found & set(ids)
     
     def get_track_by_id(self, track_id) -> Optional[DatabaseTrackWithMetadata]:
         """Get a track with artist and album names by ID (supports both int and string IDs)"""

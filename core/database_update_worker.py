@@ -912,6 +912,8 @@ class DatabaseUpdateWorker:
                     try:
                         tracks = list(album.tracks())
                         logger.debug(f"Checking {len(tracks)} tracks in album '{album_title}'")
+                        # the whole album's existence in one query
+                        existing_ids = self._existing_track_ids(tracks)
                         
                         for track in tracks:
                             total_tracks_checked += 1
@@ -921,7 +923,9 @@ class DatabaseUpdateWorker:
                                 track_title = getattr(track, 'title', 'Unknown Track')
                                 
                                 # Use server-aware track existence check
-                                if hasattr(self.database, 'track_exists_by_server'):
+                                if existing_ids is not None:
+                                    track_exists = track_id in existing_ids
+                                elif hasattr(self.database, 'track_exists_by_server'):
                                     track_exists = self.database.track_exists_by_server(track_id, self.server_type)
                                 else:
                                     # Fallback to generic check (works for string IDs)
@@ -1059,9 +1063,15 @@ class DatabaseUpdateWorker:
                     try:
                         album_tracks = album.tracks()
                         total_tracks_checked += len(album_tracks)
+                        # the whole album's existence in one query
+                        existing_ids = self._existing_track_ids(album_tracks)
 
                         for track in album_tracks:
-                            if not self.database.track_exists_by_server(track.ratingKey, self.server_type):
+                            if existing_ids is not None:
+                                track_exists = str(track.ratingKey) in existing_ids
+                            else:
+                                track_exists = self.database.track_exists_by_server(track.ratingKey, self.server_type)
+                            if not track_exists:
                                 album_has_new_tracks = True
                                 consecutive_complete_albums = 0  # Reset counter
                                 break
@@ -1135,12 +1145,19 @@ class DatabaseUpdateWorker:
             consecutive_existing_tracks = 0
             processed_artists = set()
             
+            existing_ids = None
             for i, track in enumerate(all_recent_tracks):
+                # existence for the next window of tracks in one query; the
+                # early stop below wastes at most the rest of one window
+                if i % self._EXISTS_LOOKUP_WINDOW == 0:
+                    existing_ids = self._existing_track_ids(all_recent_tracks[i:i + self._EXISTS_LOOKUP_WINDOW])
                 try:
                     track_id = str(track.ratingKey)
                     
                     # Check if track exists in database
-                    if hasattr(self.database, 'track_exists_by_server'):
+                    if existing_ids is not None:
+                        track_exists = track_id in existing_ids
+                    elif hasattr(self.database, 'track_exists_by_server'):
                         track_exists = self.database.track_exists_by_server(track_id, self.server_type)
                     else:
                         track_exists = self.database.track_exists(track_id)
@@ -1883,6 +1900,34 @@ class DatabaseUpdateWorker:
             if seen_track_ids is not None:
                 self._unverified_artist_ids.add(self._library_artist_id(getattr(media_artist, 'ratingKey', '')))
             return False, f"Processing error: {str(e)}", 0, 0
+
+    # ids per existence lookup in the incremental scans
+    _EXISTS_LOOKUP_WINDOW = 500
+
+    @staticmethod
+    def _track_ids_of(tracks) -> List[str]:
+        """str(track.ratingKey) for every track that has one; a track whose id
+        raises is left for the caller's loop to report, as before."""
+        ids = []
+        for track in tracks:
+            try:
+                ids.append(str(track.ratingKey))
+            except Exception:  # noqa: BLE001
+                continue
+        return ids
+
+    def _existing_track_ids(self, tracks) -> Optional[set]:
+        """track_exists_by_server for a list of tracks in one query: the ids
+        that have a row for this server. None when the database has no batch
+        lookup, and the caller asks track by track as before."""
+        lookup = getattr(self.database, 'track_exists_by_server_many', None)
+        if not callable(lookup):
+            return None
+        try:
+            return lookup(self._track_ids_of(tracks), self.server_type)
+        except Exception as e:
+            logger.debug(f"Batched track existence lookup failed, asking per track: {e}")
+            return None
 
     def run_with_callback(self, completion_callback=None):
         """
