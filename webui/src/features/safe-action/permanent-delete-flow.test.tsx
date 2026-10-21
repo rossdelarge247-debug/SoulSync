@@ -317,3 +317,81 @@ describe('the copy', () => {
     );
   });
 });
+
+describe('an automation’s two halves (Weekly Cleanup)', () => {
+  function NextHarness({ next }: { next: () => void }) {
+    const flow = usePermanentDelete();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() =>
+            void flow.begin({ kind: 'recycle-bin', retention: true }, undefined, {
+              label: 'Next: empty the recycle bin',
+              run: next,
+            })
+          }
+        >
+          Start
+        </button>
+        {flow.dialog}
+      </>
+    );
+  }
+
+  it('previews what the keep window lets go, and offers the next half when done', async () => {
+    server.use(
+      http.post(
+        '/api/deleted-files/purge-preview',
+        record('preview', () => HttpResponse.json(binPlan())),
+      ),
+      http.post(
+        '/api/deleted-files/purge',
+        record('purge', () =>
+          HttpResponse.json({
+            success: true,
+            purged: ['deleted:1'],
+            skipped: [],
+            errors: [],
+            freed_bytes: MB,
+          }),
+        ),
+      ),
+    );
+    const next = vi.fn();
+    render(<NextHarness next={next} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    });
+    const dialog = await screen.findByRole('dialog');
+    expect(posted('preview')).toEqual([{ url: 'preview', body: { retention: true } }]);
+    expect(within(dialog).getByText(/past its keep window/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete 418 files permanently' }));
+    fireEvent.click(
+      await within(dialog).findByRole('button', { name: 'Next: empty the recycle bin' }),
+    );
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('goes straight to the next half when there is nothing to delete', async () => {
+    server.use(
+      http.post(
+        '/api/deleted-files/purge-preview',
+        record('preview', () =>
+          HttpResponse.json({ success: true, plan_id: null, total: 0, files: 0, sample: [] }),
+        ),
+      ),
+    );
+    const next = vi.fn();
+    render(<NextHarness next={next} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    });
+    await waitFor(() => expect(next).toHaveBeenCalledTimes(1));
+    expect(toasts).toContainEqual({
+      message: 'Nothing in the recycle bin is past its keep window.',
+      type: 'info',
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
