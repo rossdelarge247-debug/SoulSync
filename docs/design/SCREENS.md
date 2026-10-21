@@ -12,8 +12,8 @@ Every screen we're designing or have built. Artboards are files on the [SoulSync
 | Fix selected, Empty recycle bin, Clear quarantine | Built | `SafeAction.dc.html` (same pattern) | `src/features/safe-action` (`permanent-delete-flow.tsx`), Repair findings | Permanent deletes use the danger-styled confirm and say "This can't be undone". |
 | Home: downloads against targets | Proposed | `Main.dc.html` | `src/routes/dashboard` | Needs a backend summary of targets: see `CONTRACTS.md`. |
 | Automations with run history | Proposed | `Automation.dc.html` | `src/routes/automations` | Rules written as steps; "Preview a run"; run log per run. |
-| Navigation: 4 groups | Proposed | `Nav.dc.html`, `Sidebar.dc.html` | `index.html` sidebar | A proposal for the upstream maintainers too. |
-| Top bar (back, breadcrumb, search, activity) | Proposed | `TopBar.dc.html` | none | Shared by every page in the prototypes. |
+| Navigation: 4 groups (Shell A) | Building on `ux/shell-a` | `Nav v2 (Shell A).dc.html` (1m, 1n) | `index.html` sidebar, `src/shell/nav-shell.ts`, `src/shell/nav-routes.ts`, `static/shell.css` | Sidebar, compact rail, phone tab bar and sheets. The app keeps the name SoulSync. A proposal for the upstream maintainers too. Dev's placements for pages the board doesn't show are questions in `HANDOFF.md`. |
+| Top bar (back, page name, search, activity) | Building on `ux/shell-a` | `Nav v2 (Shell A).dc.html` (1m, 1n) | `index.html` `#ss-topbar`, `src/shell/nav-shell.ts` | Back / forward, the page name, one search field (⌘K), the live "N running" link. The running count needs `GET /api/activity/status` (`CONTRACTS.md`). |
 | One artist page | Proposed | `Artist.dc.html` | `src/routes/artist-detail` and legacy library views | Replaces three artist screens. |
 | Wanted and Followed artists | Proposed | `Wanted.dc.html` | `src/routes/wishlist`, `src/routes/watchlist` | Merges Wishlist and Watchlist; explains the difference. |
 | Activity | Proposed | `Activity.dc.html` | `src/routes/active-downloads` | One timeline. Needs a backend activity feed: see `CONTRACTS.md`. |
