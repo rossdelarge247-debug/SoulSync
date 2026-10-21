@@ -1780,6 +1780,10 @@ class DatabaseUpdateWorker:
             skip_existing_tracks: If True, skip tracks already in the DB (deep scan mode)
             seen_track_ids: If provided, collect all server track IDs into this set (deep scan mode)
         """
+        # tracks wait here and reach the database in batches (one connection
+        # and transaction each, see _write_tracks) instead of a connection and
+        # a commit apiece
+        pending = []
         try:
             artist_name = getattr(media_artist, 'title', 'Unknown Artist')
 
@@ -1811,6 +1815,24 @@ class DatabaseUpdateWorker:
             track_count = 0
             skipped_count = 0
 
+            def flush_tracks():
+                nonlocal track_count, skipped_count
+                batch = pending[:]
+                pending.clear()
+                if batch:
+                    written, skipped = self._write_tracks(batch, skip_existing_tracks)
+                    track_count += written
+                    skipped_count += skipped
+
+            # an album the database doesn't have yet can take over an old row
+            # with the same title (a ratingKey change), carrying that row's
+            # tracks along and deleting it. tracks waiting for the old row must
+            # be in before that happens, as they were when every track went in
+            # straight away: so the batch is flushed before every album unless
+            # all of this artist's albums so far, and this one, already exist.
+            known_album_ids = self._existing_album_ids(albums)
+            album_rows_settled = known_album_ids is not None
+
             # 3. Process albums in smaller batches to reduce memory usage
             batch_size = 10  # Process 10 albums at a time
             for i in range(0, len(albums), batch_size):
@@ -1826,6 +1848,9 @@ class DatabaseUpdateWorker:
                     try:
                         # Insert/update album using server-agnostic method
                         album_id = str(album.ratingKey)
+                        if not (album_rows_settled and album_id in known_album_ids):
+                            album_rows_settled = False
+                            flush_tracks()
                         album_success = self.database.insert_or_update_media_album(album, artist_id, server_source=self.server_type, owner_profile_id=self.owner_profile_id)
                         if not album_success and seen_track_ids is not None:
                             # deep scan: the album's tracks were never listed
@@ -1846,7 +1871,6 @@ class DatabaseUpdateWorker:
                                         self._unverified_album_ids.add(album_id)
                                     tracks = []
 
-                                # Batch insert tracks for better database performance
                                 track_batch = []
                                 for track in tracks:
                                     if self.should_stop:
@@ -1868,16 +1892,11 @@ class DatabaseUpdateWorker:
 
                                         # Deep scan: always call insert_or_update to refresh file_path
                                         # and other server-provided fields. UPDATE preserves enrichment.
-                                        is_existing = skip_existing_tracks and self.database.track_exists_by_server(track_id_str, self.server_type)
-                                        track_success = self.database.insert_or_update_media_track(track, alb_id, art_id, server_source=self.server_type, owner_profile_id=self.owner_profile_id)
-                                        if is_existing:
-                                            skipped_count += 1
-                                        elif track_success:
-                                            track_count += 1
-                                            if track_success == 'inserted':
-                                                self._new_track_ids.add(track_id_str)
+                                        pending.append((track, alb_id, art_id, track_id_str))
                                     except Exception as e:
                                         logger.warning(f"Failed to process track '{getattr(track, 'title', 'Unknown')}': {e}")
+                                if len(pending) >= self._TRACK_WRITE_BATCH:
+                                    flush_tracks()
 
                             except Exception as e:
                                 logger.warning(f"Could not get tracks for album '{getattr(album, 'title', 'Unknown')}': {e}")
@@ -1889,6 +1908,8 @@ class DatabaseUpdateWorker:
                         if seen_track_ids is not None:
                             self._unverified_album_ids.add(str(getattr(album, 'ratingKey', '')))
 
+            flush_tracks()
+
             if skip_existing_tracks:
                 details = f"{album_count} albums, {track_count} new tracks ({skipped_count} existing updated)"
             else:
@@ -1897,6 +1918,9 @@ class DatabaseUpdateWorker:
             
         except Exception as e:
             logger.error(f"Error processing artist '{getattr(media_artist, 'title', 'Unknown')}': {e}")
+            # what was collected before the error still goes in, as it did
+            # when each track was written the moment it was read
+            self._write_tracks(pending, skip_existing_tracks)
             if seen_track_ids is not None:
                 self._unverified_artist_ids.add(self._library_artist_id(getattr(media_artist, 'ratingKey', '')))
             return False, f"Processing error: {str(e)}", 0, 0
@@ -1927,6 +1951,88 @@ class DatabaseUpdateWorker:
             return lookup(self._track_ids_of(tracks), self.server_type)
         except Exception as e:
             logger.debug(f"Batched track existence lookup failed, asking per track: {e}")
+            return None
+
+    # an artist's tracks are written once this many have been collected, and
+    # at the end of the artist
+    _TRACK_WRITE_BATCH = 250
+
+    def _write_tracks(self, pending, skip_existing_tracks) -> tuple[int, int]:
+        """Write collected ``(track, album_id, artist_id, track_id)`` entries.
+
+        Returns ``(track_count, skipped_count)`` for them, counted exactly as
+        when each track was checked and written on its own: in deep scan mode a
+        track that already had a row for this server counts as skipped, any
+        other successful write counts, and a new row joins _new_track_ids."""
+        if not pending:
+            return 0, 0
+        batch_write = getattr(self.database, 'insert_or_update_media_tracks', None)
+        batch_exists = getattr(self.database, 'track_exists_by_server_many', None)
+        if not callable(batch_write) or (skip_existing_tracks and not callable(batch_exists)):
+            return self._write_tracks_one_by_one(pending, skip_existing_tracks)
+
+        try:
+            existed = batch_exists([tid for *_rest, tid in pending], self.server_type) if skip_existing_tracks else set()
+            results = batch_write([(track, alb_id, art_id) for track, alb_id, art_id, _tid in pending],
+                                  server_source=self.server_type, owner_profile_id=self.owner_profile_id)
+        except Exception as e:
+            # the batch writer raises only before it has written anything,
+            # which is when each single write would have raised too
+            for track, *_rest in pending:
+                logger.warning(f"Failed to process track '{getattr(track, 'title', 'Unknown')}': {e}")
+            return 0, 0
+
+        track_count = 0
+        skipped_count = 0
+        # a repeated id exists by the time its repeat is checked, if the first
+        # write went in: the one-at-a-time check would have seen that row
+        written = set()
+        for (_track, _alb_id, _art_id, tid), track_success in zip(pending, results, strict=True):
+            if skip_existing_tracks and (tid in existed or tid in written):
+                skipped_count += 1
+            elif track_success:
+                track_count += 1
+                if track_success == 'inserted':
+                    self._new_track_ids.add(tid)
+            if track_success:
+                written.add(tid)
+        return track_count, skipped_count
+
+    def _write_tracks_one_by_one(self, pending, skip_existing_tracks) -> tuple[int, int]:
+        """_write_tracks for a database without the batch methods: each track
+        checked and written on its own."""
+        track_count = 0
+        skipped_count = 0
+        for track, alb_id, art_id, track_id_str in pending:
+            try:
+                is_existing = skip_existing_tracks and self.database.track_exists_by_server(track_id_str, self.server_type)
+                track_success = self.database.insert_or_update_media_track(track, alb_id, art_id, server_source=self.server_type, owner_profile_id=self.owner_profile_id)
+                if is_existing:
+                    skipped_count += 1
+                elif track_success:
+                    track_count += 1
+                    if track_success == 'inserted':
+                        self._new_track_ids.add(track_id_str)
+            except Exception as e:
+                logger.warning(f"Failed to process track '{getattr(track, 'title', 'Unknown')}': {e}")
+        return track_count, skipped_count
+
+    def _existing_album_ids(self, albums) -> Optional[set]:
+        """Which of these albums already have a row, in one query; None when
+        the database can't say (every album then counts as possibly new)."""
+        lookup = getattr(self.database, 'existing_album_ids', None)
+        if not callable(lookup):
+            return None
+        ids = []
+        for album in albums:
+            try:
+                ids.append(str(album.ratingKey))
+            except Exception:  # noqa: BLE001 - the album loop reports it
+                continue
+        try:
+            return lookup(ids)
+        except Exception as e:
+            logger.debug(f"Album existence lookup failed: {e}")
             return None
 
     def run_with_callback(self, completion_callback=None):
