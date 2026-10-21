@@ -1,0 +1,925 @@
+/*
+ * Wanted (Wanted + Followed artists), built to the "Wanted v3", "Wanted v2"
+ * and "Wanted (390)" boards. Reading text is 14px or larger; text stays at 62%
+ * white or brighter; radii are 6 (tags, art, badges), 10 (controls) and 14
+ * (cards). Hover adds a 6% wash, rows go 4% → 8%, keyboard focus is the
+ * accent-light ring (inside rows, -2px), selected is the 14% accent wash.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  color: var(--ss-text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--ss-text-tertiary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.headActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.primary.primary {
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+/* ── Square icon buttons (the "…" menus) ─────────────────────────────── */
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-control-fill);
+  color: var(--ss-text);
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.iconButton:hover,
+.iconButton[data-popup-open] {
+  background: var(--ss-control-fill-hover);
+}
+
+.iconButton:active {
+  opacity: var(--ss-pressed-opacity);
+}
+
+.iconButton:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.iconButton svg {
+  display: block;
+}
+
+/* The phone row's "⋮": no fill, no border, until it's hovered or open. */
+.iconButton[data-variant='bare'] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ss-text-secondary);
+}
+
+.iconButton[data-variant='bare']:hover,
+.iconButton[data-variant='bare'][data-popup-open] {
+  background: var(--ss-hover-wash);
+  color: var(--ss-text);
+}
+
+/* ── Menus ──────────────────────────────────────────────────────────── */
+
+.menuPositioner {
+  z-index: 11050;
+}
+
+.menu {
+  box-sizing: border-box;
+  min-width: 240px;
+  max-width: min(340px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-ground-note);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  outline: none;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--ss-radius-control);
+  color: var(--ss-text-secondary);
+  font-size: 15px;
+  line-height: 1.3;
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+  transition: var(--ss-transition);
+}
+
+.menuItem[data-highlighted] {
+  background: var(--ss-hover-wash);
+  color: var(--ss-text);
+}
+
+.menuItem[data-disabled] {
+  color: var(--ss-disabled-text);
+  cursor: not-allowed;
+}
+
+.menuItem[data-tone='danger'] {
+  color: var(--ss-danger);
+}
+
+.menuSeparator {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--ss-hairline);
+}
+
+.menuGroupLabel {
+  margin: 6px 12px 2px;
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── Tabs, filters and sort ─────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  background: transparent;
+  color: var(--ss-text-secondary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.tab:hover {
+  background: var(--ss-hover-wash);
+  color: var(--ss-text);
+  text-decoration: none;
+}
+
+.tab:active {
+  opacity: var(--ss-pressed-opacity);
+}
+
+.tab:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.tab[aria-selected='true'],
+.tab[aria-selected='true']:hover {
+  border-color: var(--ss-selected-border);
+  background: var(--ss-selected-fill);
+  color: var(--ss-text);
+}
+
+.tabShort {
+  display: none;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--ss-radius-tag);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ss-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.badgeLoading {
+  width: 28px;
+  height: 22px;
+  border-radius: var(--ss-radius-tag);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filters [data-slot='filter'] {
+  white-space: nowrap;
+}
+
+.sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
+}
+
+.sort select {
+  font-weight: 500;
+}
+
+/* ── The line above the list ─────────────────────────────────────────── */
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.lineShort {
+  display: none;
+}
+
+.linkButton {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}
+
+.linkButton:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+  border-radius: 2px;
+}
+
+.link {
+  color: rgb(var(--ss-accent-light-rgb));
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.link:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+  border-radius: 2px;
+}
+
+/* A running search or check, said with a live tag and words. */
+.live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.liveDetail {
+  color: var(--ss-text-meta);
+}
+
+/* ── Find in this list ───────────────────────────────────────────────── */
+
+.find {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+}
+
+.find input {
+  min-height: 44px;
+  font-size: 15px;
+}
+
+/* ── The list ────────────────────────────────────────────────────────── */
+
+.list {
+  overflow: hidden;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-card);
+}
+
+.listEmpty {
+  margin: 0;
+  padding: 24px;
+  color: var(--ss-text-tertiary);
+  font-size: 15px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 150px 160px 224px;
+  grid-template-areas: 'art main added status actions';
+  gap: 16px;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 12px 24px;
+  transition: var(--ss-transition);
+}
+
+.row[data-layout='followed'] {
+  grid-template-columns: 48px minmax(0, 1fr) 260px 160px 224px;
+  grid-template-areas: 'art main latest status actions';
+}
+
+.row[data-selecting='true'] {
+  grid-template-columns: 24px 48px minmax(0, 1fr) 150px 160px;
+  grid-template-areas: 'check art main added status';
+}
+
+.row[data-layout='followed'][data-selecting='true'] {
+  grid-template-columns: 24px 48px minmax(0, 1fr) 260px 160px;
+  grid-template-areas: 'check art main latest status';
+}
+
+.item + .item {
+  border-top: 1px solid var(--ss-hairline);
+}
+
+.row:hover,
+.row:focus-within {
+  background: var(--ss-surface-card);
+}
+
+.row[data-selected='true'] {
+  background: var(--ss-selected-fill);
+}
+
+.check {
+  grid-area: check;
+  display: flex;
+  align-items: center;
+}
+
+.art {
+  grid-area: art;
+  display: block;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--ss-radius-tag);
+  background: rgba(255, 255, 255, 0.08);
+  object-fit: cover;
+}
+
+.art[data-round='true'] {
+  border-radius: 50%;
+}
+
+.main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowTitle {
+  overflow: hidden;
+  margin: 0;
+  color: var(--ss-text);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.metaWarning {
+  color: var(--ss-warning);
+}
+
+.metaPhoneOnly {
+  display: none;
+}
+
+.added,
+.latest {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.added {
+  grid-area: added;
+}
+
+.latest {
+  grid-area: latest;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  grid-area: status;
+  display: flex;
+  min-width: 0;
+}
+
+.status [data-slot='status-tag'] {
+  justify-self: start;
+  max-width: 100%;
+  white-space: normal;
+}
+
+/* the time of a find; phones show only the day (board 2c) */
+.statusTime {
+  white-space: nowrap;
+}
+
+/* Row actions: shown on hover and keyboard focus, always on touch. */
+.actions {
+  grid-area: actions;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ss-motion) var(--ss-ease);
+}
+
+.row:hover .actions,
+.row:focus-within .actions,
+.row:has([data-popup-open]) .actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.rowAction.rowAction {
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.phoneMenu {
+  grid-area: menu;
+  display: none;
+}
+
+/* A release's tracks, opened from its menu. */
+.tracks {
+  margin: 0;
+  padding: 0 24px 12px 88px;
+  list-style: none;
+}
+
+.track {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  border-top: 1px solid var(--ss-hairline);
+}
+
+.trackText {
+  min-width: 0;
+}
+
+.trackTitle {
+  overflow: hidden;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trackMeta {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+.trackActions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Selection ───────────────────────────────────────────────────────── */
+
+.bulkBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--ss-selected-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-selected-fill);
+}
+
+.bulkCount {
+  margin-right: auto;
+  color: var(--ss-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────── */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.footerCount {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+/* ── Secondary views (nebula, audiobooks, labels, podcasts) ─────────── */
+
+.subHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.subTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.subNote {
+  margin: 0;
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
+}
+
+.legacyView {
+  min-width: 0;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Dialogs ─────────────────────────────────────────────────────────── */
+
+.dialog.dialog {
+  width: min(680px, 100%);
+  border-radius: var(--ss-radius-dialog);
+  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--ss-ground-dialog);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
+}
+
+.dialog.dialog [data-slot='disabled-reason'] {
+  order: -1;
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  text-align: right;
+}
+
+.dialog.dialog h2 {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.dialogText {
+  margin: 0;
+  color: var(--ss-text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.dialogNote {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.searchRow {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.searchRow input {
+  min-height: 44px;
+  font-size: 15px;
+}
+
+.results {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-card);
+  list-style: none;
+}
+
+.result {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 16px;
+}
+
+.result + .result {
+  border-top: 1px solid var(--ss-hairline);
+}
+
+.resultArt {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  object-fit: cover;
+}
+
+/* ── Phones (the 390 boards) ─────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .page {
+    gap: 16px;
+  }
+
+  /* single-line: a wrapping column sizes its line to the widest child's
+     max-content (the filter row), not to the page */
+  .header {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .title {
+    font-size: 24px;
+  }
+
+  .subtitleMore {
+    display: none;
+  }
+
+  .headActions {
+    width: 100%;
+  }
+
+  .headActions .primary {
+    flex: 1;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .tabs {
+    flex-wrap: nowrap;
+  }
+
+  .tab {
+    flex: 1 1 0;
+    padding: 0 12px;
+  }
+
+  .tabLong {
+    display: none;
+  }
+
+  .tabShort {
+    display: inline;
+  }
+
+  .controls {
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .controls::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filters {
+    flex-wrap: nowrap;
+  }
+
+  .filters [data-slot='filter'] {
+    flex: none;
+    padding: 0 14px;
+  }
+
+  .sort {
+    flex: none;
+  }
+
+  .sortLabel {
+    display: none;
+  }
+
+  .lineLong {
+    display: none;
+  }
+
+  .lineShort {
+    display: inline;
+  }
+
+  .find {
+    max-width: none;
+  }
+
+  .row,
+  .row[data-layout='followed'] {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-areas:
+      'art main menu'
+      'art status menu';
+    gap: 4px 12px;
+    min-height: 0;
+    padding: 12px 8px 12px 14px;
+  }
+
+  .row[data-selecting='true'],
+  .row[data-layout='followed'][data-selecting='true'] {
+    grid-template-columns: 24px 44px minmax(0, 1fr);
+    grid-template-areas:
+      'check art main'
+      'check art status';
+  }
+
+  .art {
+    align-self: center;
+    width: 44px;
+    height: 44px;
+  }
+
+  .main {
+    align-self: end;
+    gap: 4px;
+  }
+
+  .status {
+    align-self: start;
+  }
+
+  .metaWide,
+  .metaErrorPrefix,
+  .statusTime,
+  .added,
+  .latest,
+  .actions {
+    display: none;
+  }
+
+  .metaPhoneOnly {
+    display: inline;
+  }
+
+  .phoneMenu {
+    display: flex;
+    align-self: center;
+  }
+
+  .row[data-selecting='true'] .phoneMenu {
+    display: none;
+  }
+
+  .tracks {
+    padding: 0 14px 12px 70px;
+  }
+
+  .footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .footerCount {
+    display: none;
+  }
+
+  .footer button {
+    width: 100%;
+  }
+
+  .bulkBar > button {
+    flex: 1 1 auto;
+  }
+
+  .searchRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* mobile.css gives every bare button a 38px floor through a long
+     :not() chain; the inline "Search now" in the line is text, not a box. */
+  :global(#webui-react-root) .linkButton {
+    min-height: 0;
+  }
+}

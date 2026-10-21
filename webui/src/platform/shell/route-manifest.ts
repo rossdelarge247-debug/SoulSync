@@ -6,6 +6,7 @@ export const shellPageIds = [
   'playlist-explorer',
   'watchlist',
   'wishlist',
+  'wanted',
   'automations',
   'active-downloads',
   'library',
@@ -41,8 +42,11 @@ export const shellRouteManifest: readonly ShellRouteDefinition[] = [
   { pageId: 'search', path: '/search', kind: 'react' },
   { pageId: 'discover', path: '/discover', kind: 'react' },
   { pageId: 'playlist-explorer', path: '/playlist-explorer', kind: 'react' },
+  // /wishlist and /watchlist redirect to the two tabs of /wanted; their page
+  // ids stay, so navigateToPage('wishlist') and old bookmarks still land.
   { pageId: 'watchlist', path: '/watchlist', kind: 'react' },
   { pageId: 'wishlist', path: '/wishlist', kind: 'react' },
+  { pageId: 'wanted', path: '/wanted', kind: 'react' },
   { pageId: 'automations', path: '/automations', kind: 'react' },
   { pageId: 'active-downloads', path: '/active-downloads', kind: 'react' },
   { pageId: 'import', path: '/import', kind: 'react' },

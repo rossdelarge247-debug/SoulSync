@@ -86,9 +86,23 @@ interface Props {
   artistId: string;
   onClose: () => void;
   onOpenSettings: () => void;
+  /** The back button's words; the Wanted page says where it goes back to. */
+  backLabel?: string;
+  /**
+   * Set on the Wanted page, where unfollowing asks first: the button reads
+   * "Unfollow…" and hands over instead of removing straight away.
+   */
+  onUnfollow?: () => void;
 }
 
-export function WatchlistArtistDetail({ profileId, artistId, onClose, onOpenSettings }: Props) {
+export function WatchlistArtistDetail({
+  profileId,
+  artistId,
+  onClose,
+  onOpenSettings,
+  backLabel = 'Back to Watchlist',
+  onUnfollow,
+}: Props) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const configQuery = useQuery(watchlistArtistConfigQueryOptions(profileId, artistId));
@@ -148,7 +162,7 @@ export function WatchlistArtistDetail({ profileId, artistId, onClose, onOpenSett
 
       <div className={`watchlist-detail-content${artist?.banner_url ? ' has-banner' : ''}`}>
         <button type="button" className="watchlist-detail-back" onClick={onClose}>
-          ← Back to Watchlist
+          ← {backLabel}
         </button>
 
         <div className="watchlist-detail-hero">
@@ -294,9 +308,9 @@ export function WatchlistArtistDetail({ profileId, artistId, onClose, onOpenSett
             type="button"
             className="watchlist-detail-remove-btn"
             disabled={remove.isPending}
-            onClick={() => remove.mutate()}
+            onClick={() => (onUnfollow ? onUnfollow() : remove.mutate())}
           >
-            Remove from Watchlist
+            {onUnfollow ? 'Unfollow…' : 'Remove from Watchlist'}
           </button>
         </div>
       </div>

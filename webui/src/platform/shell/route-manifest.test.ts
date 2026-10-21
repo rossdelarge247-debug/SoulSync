@@ -66,6 +66,12 @@ describe('shellRouteManifest', () => {
     expect(getShellRouteByPageId('playlist-explorer')?.kind).toBe('react');
     expect(getShellRouteByPageId('tools')?.kind).toBe('react');
     expect(getShellRouteByPageId('sync')?.kind).toBe('react');
+    // /wishlist and /watchlist redirect to the tabs of /wanted
+    expect(getShellRouteByPageId('wanted')).toEqual({
+      pageId: 'wanted',
+      path: '/wanted',
+      kind: 'react',
+    });
     expect(getShellRouteByPageId('setup-check')).toEqual({
       pageId: 'setup-check',
       path: '/setup-check',
@@ -79,6 +85,7 @@ describe('shellRouteManifest', () => {
       'playlist-explorer',
       'watchlist',
       'wishlist',
+      'wanted',
       'automations',
       'active-downloads',
       'import',
