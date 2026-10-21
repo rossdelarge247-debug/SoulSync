@@ -1164,6 +1164,17 @@ class ConfigManager:
                 # JioSaavn is opt-in only — see Settings → Advanced → Experimental.
                 "jiosaavn_enabled": False,
             },
+            # Module switches (core/modules.py). Changed through
+            # PUT /api/modules/<name>, which also starts/stops the module's
+            # workers; a missing key reads as on, so older installs keep
+            # every module.
+            "modules": {
+                "video": {"enabled": True},
+                "podcasts": {"enabled": True},
+                "audiobooks": {"enabled": True},
+                "chat": {"enabled": True},
+                "sample_studio": {"enabled": True},
+            },
         }
 
     def _load_config(self):

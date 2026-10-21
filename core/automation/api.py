@@ -354,6 +354,17 @@ def run_automation(automation_engine, automation_id: int, profile_id: int) -> tu
     """Manually trigger an automation."""
     if not automation_engine:
         return {'error': 'Automation engine not available'}, 500
+    # A turned-off module's automations don't run; say so instead of queuing
+    # a run that will only record itself as skipped.
+    from core.modules import disabled_module_for_automation, disabled_payload
+    try:
+        auto = automation_engine.db.get_automation(automation_id)
+    except Exception as exc:  # noqa: BLE001 - run_now below reports a missing row
+        logger.debug("module check for automation %s failed: %s", automation_id, exc)
+        auto = None
+    module = disabled_module_for_automation(auto)
+    if module:
+        return disabled_payload(module), 409
     success = automation_engine.run_now(automation_id, profile_id=profile_id)
     if not success:
         return {'error': 'Automation not found'}, 404

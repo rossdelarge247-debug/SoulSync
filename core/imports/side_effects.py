@@ -468,6 +468,26 @@ def is_active_media_server_ready() -> tuple[bool, str]:
     )
 
 
+def queue_sample_analysis(track_id: Any) -> bool:
+    """Queue a freshly imported track for Sample Studio background analysis.
+
+    Skipped while the Sample Studio module is off (core/modules.py): the
+    analysis loads librosa and runs per track, which is what turning the
+    module off is meant to save. Lazy import + never raises: analysis must
+    not break imports. True when the track was queued.
+    """
+    try:
+        from core.modules import is_enabled
+        if not is_enabled("sample_studio"):
+            return False
+        from core.sample.worker import enqueue_analysis as _enqueue_sample_analysis
+        _enqueue_sample_analysis(track_id)
+        return True
+    except Exception as hook_exc:  # noqa: BLE001
+        logger.debug("Sample analysis enqueue failed for track %s: %s", track_id, hook_exc)
+        return False
+
+
 def record_soulsync_library_entry(context: Dict[str, Any], artist_context: Dict[str, Any], album_info: Dict[str, Any]) -> None:
     """Write imported media to the SoulSync library tables when the active server is SoulSync."""
     try:
@@ -1066,13 +1086,6 @@ def record_soulsync_library_entry(context: Dict[str, Any], artist_context: Dict[
             conn.commit()
             logger.info("[SoulSync Library] Added: %s / %s / %s", artist_name, album_name, track_name)
             if not existing_track:
-                # Fresh import — queue Sample Studio background analysis.
-                # Lazy import + never raises: analysis must not break imports.
-                try:
-                    from core.sample.worker import enqueue_analysis as _enqueue_sample_analysis
-                    _enqueue_sample_analysis(track_id)
-                except Exception as hook_exc:  # noqa: BLE001
-                    logger.debug("Sample analysis enqueue failed for track %s: %s",
-                                 track_id, hook_exc)
+                queue_sample_analysis(track_id)
     except Exception as exc:
         logger.error("[SoulSync Library] Could not record library entry: %s", exc)
