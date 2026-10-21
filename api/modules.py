@@ -13,6 +13,11 @@
 These paths sit outside every module's API prefix, so they keep answering
 while a module is off. The general POST /api/settings save does not write
 ``modules.*``: it would skip the start/stop step.
+
+The page shell also gets each module's on/off state and pages when it renders
+(``initial_modules``), so the sidebar can hide a turned-off module's entries
+before first paint and a bookmarked module page knows straight away that it is
+off, without waiting for GET /api/modules.
 """
 
 from __future__ import annotations
@@ -30,6 +35,23 @@ bp = Blueprint("modules_api", __name__)
 
 def create_blueprint():
     return bp
+
+
+@bp.app_context_processor
+def _inject_initial_modules():
+    """The switches as the page shell renders: name, display name, on/off and
+    pages only. The shell renders before sign-in, so descriptions and restart
+    reasons stay behind GET /api/modules."""
+    try:
+        states = modules.list_modules()
+    except Exception as exc:  # noqa: BLE001 - never break the page over this
+        logger.debug("module states for the page shell failed: %s", exc)
+        states = []
+    return {"initial_modules": [
+        {"name": s["name"], "display_name": s["display_name"],
+         "enabled": s["enabled"], "pages": s["pages"]}
+        for s in states
+    ]}
 
 
 @bp.route("/api/modules", methods=["GET"])
