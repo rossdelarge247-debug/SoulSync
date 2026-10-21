@@ -11376,10 +11376,19 @@
     }
 
     function open() {
+        // Chat & Arcade turned off in Settings → Modules: the shell shows its
+        // notice on this page instead, and /api/chat would only answer 409.
+        if (window.moduleIsOff && window.moduleIsOff('chat')) return;
         bind();
         _updateSocialBadges();
         if (state.configured !== true) {
             getJSON('/api/chat/status').then(function (res) {
+                if (res.status === 409 && res.body && res.body.error === 'module_disabled') {
+                    // turned off since this page loaded: same notice, no "not configured"
+                    stopPolling();
+                    if (window.noteModuleDisabled) window.noteModuleDisabled(res.body);
+                    return;
+                }
                 state.configured = !!(res.ok && res.body.configured);
                 state.homeRoom = (res.body && res.body.room) || 'SoulSync';
                 state.room = state.room || state.homeRoom;

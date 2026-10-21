@@ -1121,6 +1121,48 @@ function handleLibraryMediaTabKey(event) {
     tabs[index].focus();
 }
 
+// Settings opens on Connections unless something asked for a tab: a link to
+// /settings?tab=modules, or requestSettingsTab('modules') just before
+// navigating here (the "turned off" notices on module pages do that). The
+// link's query is read while this script loads: by the time the page data
+// loads, the router has settled the URL on a bare /settings.
+let _requestedSettingsTab = (function () {
+    try {
+        const path = window.SoulSyncURL?.strip(window.location.pathname) ?? window.location.pathname;
+        if (path.replace(/\/+$/, '') !== '/settings') return null;
+        return new URLSearchParams(window.location.search).get('tab');
+    } catch (e) {
+        return null;
+    }
+})();
+
+function requestSettingsTab(tab) {
+    _requestedSettingsTab = tab || null;
+}
+
+function takeRequestedSettingsTab() {
+    const tab = _requestedSettingsTab;
+    const known = !!tab && Array.from(document.querySelectorAll('#settings-page .stg-tab'))
+        .some(t => t.dataset.tab === tab);
+    return known ? tab : 'connections';
+}
+
+// A request lasts for one visit. Startup can load Settings twice for a single
+// arrival, so reading it doesn't use it up; leaving Settings or picking a tab
+// does.
+(function () {
+    const page = document.getElementById('settings-page');
+    if (!page) return;
+    page.querySelector('.stg-tabbar')?.addEventListener('click', () => { _requestedSettingsTab = null; });
+    if (typeof MutationObserver === 'undefined') return;
+    let wasActive = page.classList.contains('active');
+    new MutationObserver(() => {
+        const active = page.classList.contains('active');
+        if (wasActive && !active) _requestedSettingsTab = null;
+        wasActive = active;
+    }).observe(page, { attributes: true, attributeFilter: ['class'] });
+})();
+
 // Settings redesign — tab switching + service accordions
 function switchSettingsTab(tab) {
     const search = document.getElementById('stg-search-input');
@@ -1170,6 +1212,11 @@ function switchSettingsTab(tab) {
     if (tab === 'advanced' && typeof loadSidebarWeatherSettings === 'function') {
         try { loadSidebarWeatherSettings(); } catch (e) { }
     }
+    // Modules: the switches apply on their own (PUT /api/modules/<name>), so
+    // the rows load fresh states every time the tab opens (src/shell/modules.ts)
+    if (tab === 'modules' && typeof window.loadModulesSettings === 'function') {
+        try { window.loadModulesSettings(); } catch (e) { }
+    }
     // First time the Downloads tab is shown, auto-probe source status so the
     // dots reflect real connection state without a manual "Test all sources".
     if (tab === 'downloads' && typeof autoTestSourcesOnce === 'function') {
@@ -1205,6 +1252,7 @@ function switchSettingsTab(tab) {
         quality: { title: 'Quality', sub: 'Audio and video formats, release profiles, and ladders' },
         library: { title: 'Library', sub: 'Folders, file organization, tagging, and collection preferences' },
         appearance: { title: 'Appearance', sub: 'Visual themes, accents, GPU animations, and interface controls' },
+        modules: { title: 'Modules', sub: 'Turn the optional parts of SoulSync on or off' },
         advanced: { title: 'Advanced', sub: 'Database tools, cache management, networking, and system diagnostics' },
         logs: { title: 'Logs', sub: 'Live streaming logs and real-time operational diagnostics' }
     };

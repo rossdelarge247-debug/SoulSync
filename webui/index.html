@@ -118,6 +118,9 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='dashboard-premier.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='profiles.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='docs.css') }}">
+    <!-- Module switches: Settings → Modules and the "turned off" notice a
+         module's page shows in place of itself (src/shell/modules.ts). -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='modules.css') }}">
     <!-- Sidebar weather: time/temp/condition line, forecast popover, particle
          scene. Additive — only #sidebar-weather-* selectors inside. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='sidebar-weather.css') }}">
@@ -151,6 +154,29 @@
                 document.documentElement.classList.add('side-locked');
             }
         } catch (e) { /* no localStorage → default (show) */ }
+    </script>
+    <script>
+        // Module switches (core/modules.py): the on/off state each module had
+        // when this page rendered. Hide a turned-off module's sidebar entries
+        // (and the Audio/Video switch while Video is off) before first paint.
+        // src/shell/modules.ts keeps this <style> and the list current, with
+        // the same rules (navGuardCss in src/features/modules/modules.helpers.ts).
+        window.SOULSYNC_MODULES = {{ initial_modules | default([]) | tojson }};
+        (function () {
+            var css = '';
+            (Array.isArray(window.SOULSYNC_MODULES) ? window.SOULSYNC_MODULES : []).forEach(function (m) {
+                if (!m || m.enabled !== false) return;
+                (m.pages || []).forEach(function (p) {
+                    if (typeof p !== 'string' || !/^[a-z0-9-]+$/.test(p)) return;
+                    css += '.nav-button[data-page="' + p + '"],.nav-button[data-video-page="' + p + '"]{display:none!important}';
+                });
+                if (m.name === 'video') css += '.side-toggle{display:none!important}';
+            });
+            var style = document.createElement('style');
+            style.id = 'soulsync-module-guard';
+            style.textContent = css;
+            document.head.appendChild(style);
+        })();
     </script>
     {{ vite_assets('head')|safe }}
 </head>
@@ -3158,6 +3184,16 @@
                                         </svg>
                                     </span>
                                     <span class="stg-tab-label">Appearance</span>
+                                </button>
+                                <button type="button" class="stg-tab" data-tab="modules"
+                                    onclick="switchSettingsTab('modules')">
+                                    <span class="stg-tab-badge badge-modules">
+                                        <svg viewBox="0 0 24 24">
+                                            <path
+                                                d="M4 4h7v7H4V4zm2 2v3h3V6H6zm7-2h7v7h-7V4zm2 2v3h3V6h-3zM4 13h7v7H4v-7zm2 2v3h3v-3H6zm7-2h7v7h-7v-7z" />
+                                        </svg>
+                                    </span>
+                                    <span class="stg-tab-label">Modules</span>
                                 </button>
                                 <button type="button" class="stg-tab" data-tab="advanced"
                                     onclick="switchSettingsTab('advanced')">
@@ -10498,6 +10534,21 @@
                                         </div>
                                     </div><!-- end Experimental body -->
                                 </div>
+                            </div>
+
+                            <!-- ═══ MODULES TAB ═══ rows rendered by src/shell/modules.ts -->
+                            <div class="settings-group modules-settings" data-stg="modules" id="modules-settings">
+                                <h3>Modules</h3>
+                                <p class="modules-intro">Video, Podcasts, Audiobooks, Chat &amp; Arcade and Sample
+                                    Studio are modules: optional parts of SoulSync. Turn one off and its pages leave
+                                    the sidebar, its downloads and background jobs stop, and its automations are
+                                    skipped. Music is always on.</p>
+                                <p class="modules-apply-note">Each switch applies as soon as you flip it. You don't
+                                    need to press Save Settings.</p>
+                                <p class="modules-readonly-note" id="modules-settings-readonly" hidden>Only an admin
+                                    can turn modules on or off. This is what's on right now.</p>
+                                <p class="modules-load-error" id="modules-settings-error" role="alert" hidden></p>
+                                <ul class="modules-list" id="modules-settings-list" aria-label="Modules"></ul>
                             </div>
 
                             <!-- ═══ LOGS TAB ═══ -->
