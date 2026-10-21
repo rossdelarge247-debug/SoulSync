@@ -40,7 +40,7 @@ def configure(*, get_database_, config_manager_, docker_resolve_path_,
     config_manager = config_manager_
     docker_resolve_path = docker_resolve_path_
     automation_engine = automation_engine_
-    # whether the followed-artist check's metadata source is signed in (the
+    # whether the followed-artist check's metadata source is ready (the
     # preview of scan_watchlist says so when it isn't)
     spotify_ready = spotify_ready_
 

@@ -54,7 +54,9 @@ class DryRunContext:
     docker_resolve_path: Callable[[str], str] = field(default=lambda p: p)
     #: The profile the run acts as (the automation's owner).
     profile_id: int = 1
-    #: Whether the metadata source the followed-artist check needs is signed in.
+    #: Whether the metadata source the followed-artist check needs is ready
+    #: (the Spotify client, which falls back to iTunes or Deezer when it isn't
+    #: signed in; the check stops only when there's no client at all).
     spotify_ready: Optional[Callable[[], bool]] = None
     now: Optional[datetime] = None
 
@@ -238,8 +240,8 @@ def preview_scan_watchlist(ctx: DryRunContext, config: Dict[str, Any]) -> Dict[s
             ready = True
         if not ready:
             raise PreviewUnavailable(
-                "Spotify isn't connected, and the followed-artist check needs it, so a run now would "
-                "stop before checking anyone. Connect Spotify in Settings.")
+                "SoulSync's metadata source isn't ready, and the followed-artist check needs it, so a run "
+                "now would stop before checking anyone. Check Settings → Connections.")
     never = sum(1 for a in artists if not _attr(a, "last_scan_timestamp"))
     summary = (f"A run now would check {_plural(len(artists), 'followed artist')} for new releases and add what "
                f"it finds to Wanted. What's new is only known by asking the metadata source, so nothing was "

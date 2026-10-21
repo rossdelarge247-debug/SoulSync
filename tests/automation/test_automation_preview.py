@@ -137,12 +137,12 @@ def test_watchlist_preview_lists_who_a_check_would_look_at():
                              {"title": "Low Tide", "detail": "never checked"}]
 
 
-def test_watchlist_preview_is_unavailable_without_spotify():
+def test_watchlist_preview_is_unavailable_without_a_metadata_source():
     db = _FakeDB(artists={1: [{"artist_name": "Saltmarsh", "last_scan_timestamp": None}]})
     out = dry_run.preview_steps(DryRunContext(database=db, now=NOW, spotify_ready=lambda: False),
                                 action_type="scan_watchlist")
     assert out["available"] is False
-    assert "Spotify isn't connected" in out["reason"]
+    assert "metadata source isn't ready" in out["reason"]
     assert out["steps"][0]["previewed"] is False
 
 
