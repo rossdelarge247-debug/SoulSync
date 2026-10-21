@@ -42,6 +42,7 @@ GATED = [
     ('DELETE', '/api/metadata-cache/clear'),
     ('DELETE', '/api/metadata-cache/clear-musicbrainz'),
     ('POST', '/api/metadata-cache/evict'),
+    ('GET', '/api/setup/check'),
 ]
 
 
