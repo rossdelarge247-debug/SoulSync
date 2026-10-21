@@ -1768,49 +1768,6 @@ function stopReconcileIdsPolling() {
 // == DUPLICATE CLEANER FUNCTIONS            ==
 // ============================================
 
-async function handleDuplicateCleanButtonClick() {
-    const button = document.getElementById('duplicate-clean-button');
-    const currentAction = button.textContent;
-
-    if (currentAction === 'Clean Duplicates') {
-        try {
-            button.disabled = true;
-            button.textContent = 'Starting...';
-            const response = await fetch('/api/duplicate-cleaner/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-
-            if (response.ok) {
-                showToast('Duplicate cleaner started!', 'success');
-                // Start polling immediately to get live status
-                checkAndUpdateDuplicateCleanProgress();
-            } else {
-                const errorData = await response.json();
-                showToast(`Error: ${errorData.error}`, 'error');
-                button.disabled = false;
-                button.textContent = 'Clean Duplicates';
-            }
-        } catch (error) {
-            showToast('Failed to start duplicate cleaner.', 'error');
-            button.disabled = false;
-            button.textContent = 'Clean Duplicates';
-        }
-
-    } else { // "Stop Cleaning"
-        try {
-            const response = await fetch('/api/duplicate-cleaner/stop', { method: 'POST' });
-            if (response.ok) {
-                showToast('Stop request sent.', 'info');
-            } else {
-                showToast('Failed to send stop request.', 'error');
-            }
-        } catch (error) {
-            showToast('Error sending stop request.', 'error');
-        }
-    }
-}
-
 async function checkAndUpdateDuplicateCleanProgress() {
     if (socketConnected) return; // WebSocket handles this
     try {
@@ -6181,24 +6138,12 @@ let toolsPageState = { isInitialized: false };
 
 async function initializeToolsPage() {
     // Attach event listeners for tool buttons (idempotent — getElementById returns null if already wired)
-    const updateButton = document.getElementById('db-update-button');
-    if (updateButton && !updateButton._toolsWired) {
-        updateButton.addEventListener('click', handleDbUpdateButtonClick);
-        updateButton._toolsWired = true;
-    }
-
     const metadataButton = document.getElementById('metadata-update-button');
     if (metadataButton && !metadataButton._toolsWired) {
         metadataButton.addEventListener('click', handleMetadataUpdateButtonClick);
         metadataButton._toolsWired = true;
     }
 
-
-    const duplicateCleanButton = document.getElementById('duplicate-clean-button');
-    if (duplicateCleanButton && !duplicateCleanButton._toolsWired) {
-        duplicateCleanButton.addEventListener('click', handleDuplicateCleanButtonClick);
-        duplicateCleanButton._toolsWired = true;
-    }
 
     const reconcileIdsButton = document.getElementById('reconcile-ids-button');
     if (reconcileIdsButton && !reconcileIdsButton._toolsWired) {
