@@ -454,8 +454,11 @@ def _auto_import_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
         st, title, detail = "info", f'Import dismissed: "{folder}"', "You dismissed this folder; nothing was imported."
     else:
         st, title, detail = "info", f'Import of "{folder}"', status.replace("_", " ").capitalize()
+    # import_status says which Import action fits: a choice to make
+    # (pending_review, needs_identification), or a retry (failed, partial)
     return _item("auto_import", row["id"], id=f"import:{row['id']}", time=t, kind="import", status=st,
-                 title=title, detail=detail, link="/import", ref={"auto_import_id": row["id"]})
+                 title=title, detail=detail, link="/import",
+                 ref={"auto_import_id": row["id"], "import_status": status or None})
 
 
 def _auto_import_query(ctx: _Ctx) -> Tuple[str, list]:
