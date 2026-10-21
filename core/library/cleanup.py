@@ -179,8 +179,9 @@ def removal_stats(items: Iterable[Dict[str, Any]], date_key: str) -> Dict[str, A
 def clear_planned_quarantine(path: str, items: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     """Delete exactly the planned quarantine entries that are still there.
 
-    Anything quarantined after the preview stays. An entry that is gone, or
-    a name that is not a plain entry of this folder, is skipped. Returns
+    Anything quarantined after the preview stays. An entry that is gone, a
+    file whose size changed since the preview, or a name that is not a plain
+    entry of this folder, is skipped. Returns
     ``{'existed', 'removed', 'files_removed', 'freed_bytes', 'skipped',
     'errors': [{'entry', 'error'}]}``; ``files_removed`` leaves out
     sidecars."""
@@ -198,6 +199,9 @@ def clear_planned_quarantine(path: str, items: Iterable[Dict[str, Any]]) -> Dict
             out["skipped"] += 1
             continue
         size = _entry_size(fp)
+        if os.path.isfile(fp) and "size" in item and size != item.get("size"):
+            out["skipped"] += 1
+            continue
         try:
             if os.path.isfile(fp) or os.path.islink(fp):
                 os.remove(fp)

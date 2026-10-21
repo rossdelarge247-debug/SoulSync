@@ -120,6 +120,18 @@ def test_clear_deletes_exactly_the_previewed_entries(client):
     assert os.listdir(client.quarantine_dir) == ['20260401_late.flac.quarantined']
 
 
+def test_a_file_that_changed_since_the_preview_is_kept(client):
+    _put(client, 'a.flac', b'one')
+    _put(client, 'b.flac', b'two')
+    plan = _preview(client)
+    _put(client, 'b.flac', b'a different, longer file')
+
+    body = client.post('/api/quarantine/clear', json={'plan_id': plan['plan_id']}).get_json()
+
+    assert body['removed'] == 1 and body['skipped'] == 1
+    assert os.listdir(client.quarantine_dir) == ['b.flac']
+
+
 def test_a_clear_plan_is_single_use(client):
     _put(client, 'a.flac')
     plan = _preview(client)
