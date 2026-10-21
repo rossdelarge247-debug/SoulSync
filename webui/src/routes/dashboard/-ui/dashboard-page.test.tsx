@@ -1,75 +1,127 @@
 /**
- * The Dashboard page shell — the flip invariants:
- * - id="dashboard-page" on the page-shell div (worker-orbs' anchor, the CSS
- *   overrides, the tour), WITHOUT the `page` class (the label-detail trap:
+ * /dashboard is Home: the page shell, end to end through the router.
+ *
+ * - id="dashboard-page" on the root (worker-orbs' anchor, the stylesheet's
+ *   scope, the tour), WITHOUT the `page` class (the label-detail trap:
  *   `.page` is display:none unless the vanilla shell adds `.active`).
- * - the eight bento cards in the vanilla dash-grid order.
+ * - the design's content first: the header, Targets, Latest; then "Library
+ *   and system" with everything the dashboard had, the tour's ids and the
+ *   orb stage intact.
  * - the worker-orbs re-ping on mount (the shell bridge's setPage fires before
  *   React paints; the orb layer re-anchors lazily on this second call).
  */
 
-import { act, cleanup, render } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createMemoryHistory } from '@tanstack/react-router';
+import { cleanup, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DashboardPage } from './dashboard-page';
+import { AppRouterProvider, createAppRouter } from '@/app/router';
+import { HttpResponse, http, server } from '@/test/msw';
+import { createTestQueryClient } from '@/test/query-client';
+import { createShellBridge } from '@/test/shell-bridge';
 
-const fetchMock = vi.fn((..._args: unknown[]) => Promise.reject(new Error('down')));
+function mockApi() {
+  server.use(
+    http.get('/api/targets/summary', () =>
+      HttpResponse.json({
+        success: true,
+        any_set_up: true,
+        targets: [
+          { key: 'wanted', set_up: true, status: 'searching', items: 12, have: 2, in_progress: 10 },
+          { key: 'mirrored', set_up: false, status: 'not_set_up' },
+          { key: 'followed', set_up: false, status: 'not_set_up' },
+          { key: 'quality', set_up: true, status: 'ok', name: 'FLAC or better', items: 4, have: 4 },
+        ],
+      }),
+    ),
+    http.get('/api/activity', () => HttpResponse.json({ success: true, items: [] })),
+    // the rest of the page ("Library and system") renders around failures
+    http.all('*', () => HttpResponse.json({}, { status: 404 })),
+  );
+}
 
-beforeEach(() => {
-  fetchMock.mockClear();
-  vi.stubGlobal('fetch', fetchMock);
-});
+function renderHome() {
+  window.SoulSyncWebShellBridge = createShellBridge({
+    getProfileHomePage: vi.fn(() => 'dashboard' as const),
+  });
+  const queryClient = createTestQueryClient();
+  const history = createMemoryHistory({ initialEntries: ['/dashboard'] });
+  const router = createAppRouter({ history, queryClient });
+  return render(<AppRouterProvider router={router} queryClient={queryClient} />);
+}
 
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
+  window.SoulSyncWebShellBridge = undefined;
   delete window.workerOrbs;
 });
 
-describe('the page shell', () => {
-  it('keeps the id, drops the .page class, hero then music and the system rail', async () => {
-    let view!: ReturnType<typeof render>;
-    await act(async () => {
-      view = render(<DashboardPage />);
-    });
-    const root = view.container.firstElementChild!;
-    expect(root.id).toBe('dashboard-page');
-    expect(root.className).toBe('page-shell dashboard-container');
+describe('the Home page shell', () => {
+  it('keeps the id, drops the .page class, and puts the design first', async () => {
+    mockApi();
+    const view = renderHome();
+    await screen.findByText('12 tracks', undefined, { timeout: 10_000 });
 
-    // the hero: greeting + library on the left, the orb stage on the right
-    const hero = root.firstElementChild!;
-    expect(hero.className).toBe('dashboard-header dash-hero');
-    expect(hero.querySelector('.dash-hero-main [data-card="library"]')).not.toBeNull();
-    expect(hero.querySelector(':scope > .orb-stage > .header-actions')).not.toBeNull();
+    const root = view.container.querySelector('#dashboard-page')!;
+    expect(root).not.toBeNull();
+    expect(root.classList.contains('page')).toBe(false);
 
-    // The calm page: the AlertsBand renders NOTHING while healthy (and under
-    // the test's dead fetch mock — no payload, no false alarms); the content
-    // and history bands render nothing until a feed has rows.
-    const cards = (sel: string) =>
-      Array.from(root.querySelectorAll(`${sel} > [data-card]`)).map((card) =>
-        card.getAttribute('data-card'),
-      );
-    expect(cards('.dash-main')).toEqual(['active-downloads', 'listen']);
-    expect(cards('.dash-side')).toEqual(['sync', 'automations']);
-    // watchlist + wishlist are rail tiles, keeping the tour's ids
-    expect(root.querySelector('.dash-side #watchlist-button')).not.toBeNull();
-    expect(root.querySelector('.dash-side #wishlist-button')).not.toBeNull();
-    // Boulder's quick switches: their own footer, not inside a card
-    expect(root.querySelector('.dash-footer .dash-quick-settings')).not.toBeNull();
-    expect(root.querySelector('[data-card="automations"] .dash-quick-settings')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1, name: 'Home' })).toBeInTheDocument();
+    expect(
+      screen.getByText('What you want, what you have, and what SoulSync is doing about the gap.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Search for music' })).toHaveAttribute(
+      'href',
+      '/search',
+    );
 
-    // worker-orbs' anchor selector must resolve against this tree.
+    // in page order: Targets, Latest, then the rest under its own heading
+    const headings = screen
+      .getAllByRole('heading', { level: 2 })
+      .map((h) => h.textContent)
+      .filter((t) => ['Targets', 'Latest', 'Library and system'].includes(t ?? ''));
+    expect(headings).toEqual(['Targets', 'Latest', 'Library and system']);
+    expect(screen.getAllByTestId('home-target')).toHaveLength(4);
+  });
+
+  it('keeps every section of the old dashboard under "Library and system"', async () => {
+    mockApi();
+    const view = renderHome();
+    await screen.findByText('12 tracks', undefined, { timeout: 10_000 });
+    const more = screen.getByTestId('home-more');
+
+    expect(within(more).getByRole('heading', { level: 3, name: 'Library' })).toBeInTheDocument();
+    expect(within(more).getByRole('heading', { name: 'Enrichment workers' })).toBeInTheDocument();
+    const cards = Array.from(more.querySelectorAll('[data-card]')).map((c) =>
+      c.getAttribute('data-card'),
+    );
+    for (const card of ['library', 'active-downloads', 'listen', 'sync', 'automations']) {
+      expect(cards, card).toContain(card);
+    }
+    // the tour's anchors and worker-orbs' stage
+    for (const selector of [
+      '#library-status-card',
+      '#watchlist-button',
+      '#wishlist-button',
+      '#manage-enrichment-btn',
+      '.dashboard-header .header-actions',
+      '.dash-footer .dash-quick-settings',
+    ]) {
+      expect(more.querySelector(selector), selector).not.toBeNull();
+    }
     expect(
       view.container.querySelector('#dashboard-page .orb-stage .header-actions'),
     ).not.toBeNull();
+    // the greeting went with the old hero; Home's header replaced it
+    expect(view.container.querySelector('.hello-greeting')).toBeNull();
   });
 
-  it('re-pings worker-orbs after mount so the lazy re-anchor finds the header', async () => {
+  it('re-pings worker-orbs after mount so the lazy re-anchor finds the stage', async () => {
+    mockApi();
     const setPage = vi.fn();
     window.workerOrbs = { setPage, onStatus: vi.fn() } as never;
-    await act(async () => {
-      render(<DashboardPage />);
-    });
+    renderHome();
+    await screen.findByText('12 tracks', undefined, { timeout: 10_000 });
     expect(setPage).toHaveBeenCalledWith('dashboard');
   });
 });

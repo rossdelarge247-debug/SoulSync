@@ -1445,3 +1445,692 @@ body.max-performance #dashboard-page .listen-hero-play::after {
     border: 0;
     box-shadow: none;
 }
+
+/* ── 9. HOME — "Library and system" (Oct 2026) ───────────────────────── */
+/* /dashboard is Home now. Its own content (header, Targets, Latest) is a CSS
+   module (src/routes/dashboard/-ui/home/home.module.css). Under it, the old
+   dashboard's sections sit beneath "Library and system", restyled here to
+   the evolved rules in docs/design/DESIGN-SYSTEM.md until Design places
+   them: cards are a 4% wash with a 9% border and a 14px radius; reading
+   text is 14px or larger (12px only for uppercase labels) and 62% white or
+   brighter; weights 400-600, 700 only for big numbers; radii 6 / 10 / 14;
+   44px buttons; no glows, gradient washes or pills. Markup, ids and every
+   JS hook are untouched. Scoped by .home-more, so these rules beat the
+   sections above (one more class) and reach nothing outside Home. */
+
+#dashboard-page .home-more {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding-top: 32px;
+    border-top: 1px solid var(--ss-hairline);
+    color: var(--ss-text);
+    font-size: 15px;
+    line-height: 1.5;
+}
+#dashboard-page .home-more-head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+#dashboard-page .home-more-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: 0;
+    color: var(--ss-text);
+}
+#dashboard-page .home-more-sub,
+#dashboard-page .home-more-card-sub {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-text-meta);
+}
+#dashboard-page .home-more-top {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: stretch;
+}
+
+/* One card look for every section. */
+#dashboard-page .home-more .home-more-card,
+#dashboard-page .home-more .dash-card,
+#dashboard-page .home-more .weekly-digest,
+#dashboard-page .home-more .dash-tiles .dash-tile.header-button {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 24px;
+    border: 1px solid var(--ss-surface-card-border);
+    border-radius: var(--ss-radius-card);
+    background: var(--ss-surface-card);
+    box-shadow: none;
+    backdrop-filter: none;
+}
+#dashboard-page .home-more .home-more-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+#dashboard-page .home-more .home-more-card-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--ss-text);
+}
+
+/* Card titles: 16px / 600, sentence case (no uppercase transform). */
+#dashboard-page .home-more .dash-side-title,
+#dashboard-page .home-more .dash-card__title,
+#dashboard-page .home-more .dash-rail-title,
+#dashboard-page .home-more .wd-kicker,
+#dashboard-page .home-more .listen-hero-text strong {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ss-text);
+}
+#dashboard-page .home-more .dash-card__head,
+#dashboard-page .home-more .dash-side-head {
+    margin: 0 0 16px;
+    padding: 0 0 12px;
+    border-bottom: 1px solid var(--ss-hairline);
+}
+
+/* Secondary and meta text: 14px at 62% or brighter. */
+#dashboard-page .home-more .dash-card__sub,
+#dashboard-page .home-more .dash-rail-subtitle,
+#dashboard-page .home-more .dash-rail-badge,
+#dashboard-page .home-more .dash-rail-caption,
+#dashboard-page .home-more .wd-range,
+#dashboard-page .home-more .dash-tile-sub,
+#dashboard-page .home-more .dash-autom-meta,
+#dashboard-page .home-more .dash-autom-last,
+#dashboard-page .home-more .dash-side-empty,
+#dashboard-page .home-more .autosync-empty,
+#dashboard-page .home-more .syncband-sub,
+#dashboard-page .home-more .syncband-when,
+#dashboard-page .home-more .syncband-next,
+#dashboard-page .home-more .syncband-ago,
+#dashboard-page .home-more .syncband-owned-text,
+#dashboard-page .home-more .dash-side-card p,
+#dashboard-page .home-more .ya-card-sub,
+#dashboard-page .home-more .listen-hero-text > span:last-child,
+#dashboard-page .home-more .dsc-quick-sub,
+#dashboard-page .home-more .library-status-subtitle,
+#dashboard-page .home-more .library-status-menu-hint,
+#dashboard-page .home-more .library-status-progress-detail {
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ss-text-meta);
+}
+#dashboard-page .home-more .library-status-message,
+#dashboard-page .home-more .library-status-phase {
+    font-size: 14px;
+    color: var(--ss-text-tertiary);
+}
+
+/* Row and tile titles: 15px / 600. */
+#dashboard-page .home-more .ya-card-name,
+#dashboard-page .home-more .dash-sync-name,
+#dashboard-page .home-more .syncband-name,
+#dashboard-page .home-more .dash-autom-name,
+#dashboard-page .home-more .library-status-title,
+#dashboard-page .home-more .dsc-quick-name {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--ss-text);
+}
+
+/* The only text under 14px: uppercase section labels, 12px / 600. */
+#dashboard-page .home-more .wd-label,
+#dashboard-page .home-more .wd-day,
+#dashboard-page .home-more .dash-sync-of,
+#dashboard-page .home-more .hero-btn-label,
+#dashboard-page .home-more .listen-kicker,
+#dashboard-page .home-more .dash-quick-settings-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ss-text-meta);
+}
+
+/* Big numbers: 700, never 800. */
+#dashboard-page .home-more .wd-num,
+#dashboard-page .home-more .home-more-number-value {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0;
+    color: var(--ss-text);
+}
+#dashboard-page .home-more .dash-sync-pct {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+#dashboard-page .home-more .dash-tiles .dash-tile .hero-btn-badge {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 0;
+    color: var(--ss-text);
+    text-shadow: none;
+}
+#dashboard-page .home-more .dash-tiles .dash-tile .hero-btn-badge::after {
+    display: none;
+}
+
+/* Statuses are 6px tags with a word, never pills. */
+#dashboard-page .home-more .dash-rail-count,
+#dashboard-page .home-more .dash-sync-missing,
+#dashboard-page .home-more .dash-sync-done,
+#dashboard-page .home-more .dash-sync-live,
+#dashboard-page .home-more .dash-autom-when,
+#dashboard-page .home-more .dash-autom-live-pill,
+#dashboard-page .home-more .dash-autom-paused,
+#dashboard-page .home-more .syncband-chip,
+#dashboard-page .home-more .syncband-live-pill,
+#dashboard-page .home-more .syncband-paused,
+#dashboard-page .home-more .autosync-count-pill,
+#dashboard-page .home-more .library-status-menu-item .library-status-btn-badge {
+    display: inline-flex;
+    align-items: center;
+    height: auto;
+    min-height: 0;
+    padding: 3px 8px;
+    border: 0;
+    border-radius: var(--ss-radius-tag);
+    background: var(--ss-neutral-fill);
+    color: var(--ss-neutral);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0;
+    text-transform: none;
+    box-shadow: none;
+}
+#dashboard-page .home-more .dash-sync-done,
+#dashboard-page .home-more .dash-rail-count {
+    background: rgba(var(--ss-success-rgb), 0.12);
+    color: var(--ss-success);
+}
+#dashboard-page .home-more .dash-sync-live,
+#dashboard-page .home-more .dash-autom-live-pill,
+#dashboard-page .home-more .syncband-live-pill {
+    background: rgba(var(--ss-info-rgb), 0.12);
+    color: var(--ss-info);
+}
+#dashboard-page .home-more .syncband-chip--fail,
+#dashboard-page .home-more .library-status-menu-item .library-status-btn-badge {
+    background: rgba(var(--ss-warning-rgb), 0.12);
+    color: var(--ss-warning);
+}
+
+/* Links: accent-light, 14px / 500, sentence case; 44px when they are buttons. */
+#dashboard-page .home-more .dash-side-link,
+#dashboard-page .home-more .wd-link,
+#dashboard-page .home-more .dash-side-more,
+#dashboard-page .home-more .dash-rail-titlelink:hover,
+#dashboard-page .home-more .autosync-manage-btn {
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: rgb(var(--ss-accent-light-rgb));
+}
+#dashboard-page .home-more .dash-side-link,
+#dashboard-page .home-more .wd-link,
+#dashboard-page .home-more .dash-side-more {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ss-radius-tag);
+    background: none;
+    cursor: pointer;
+}
+#dashboard-page .home-more .dash-side-link:hover,
+#dashboard-page .home-more .wd-link:hover,
+#dashboard-page .home-more .dash-side-more:hover {
+    background: none;
+    text-decoration: underline;
+}
+
+/* Buttons: the shared secondary, 44px, 10px radius, 15px / 500. */
+#dashboard-page .home-more .dash-hero-library .library-status-btn,
+#dashboard-page .home-more .orb-stage .em-manage-btn,
+#dashboard-page .home-more .autosync-empty-cta,
+#dashboard-page .home-more .dash-side-cta,
+#dashboard-page .home-more .dash-alert-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 18px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    box-shadow: none;
+    transition: var(--ss-transition);
+}
+#dashboard-page .home-more .dash-hero-library .library-status-btn:hover,
+#dashboard-page .home-more .orb-stage .em-manage-btn:hover,
+#dashboard-page .home-more .autosync-empty-cta:hover,
+#dashboard-page .home-more .dash-side-cta:hover {
+    border-color: var(--ss-control-border);
+    background: var(--ss-control-fill-hover);
+    color: var(--ss-text);
+    transform: none;
+}
+#dashboard-page .home-more .dash-hero-library .library-status-btn:active,
+#dashboard-page .home-more .orb-stage .em-manage-btn:active {
+    opacity: var(--ss-pressed-opacity);
+    transform: none;
+}
+#dashboard-page .home-more .dash-hero-library .library-status-btn.scanning {
+    border-color: rgba(var(--ss-warning-rgb), 0.35);
+    background: rgba(var(--ss-warning-rgb), 0.12);
+    color: var(--ss-warning);
+}
+#dashboard-page .home-more :is(button, a, input, [role='menuitem']):focus-visible {
+    outline: var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* ── Library ── */
+#dashboard-page .home-more-numbers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 32px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+#dashboard-page .home-more-number {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-radius: var(--ss-radius-tag);
+    color: var(--ss-text);
+    text-decoration: none;
+}
+#dashboard-page .home-more-number-label {
+    order: -1;
+    font-size: 14px;
+    color: var(--ss-text-meta);
+}
+#dashboard-page .home-more-number:hover .home-more-number-value {
+    color: rgb(var(--ss-accent-light-rgb));
+}
+#dashboard-page .home-more .dash-hero-library .library-status-header {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 0;
+}
+#dashboard-page .home-more .dash-hero-library .library-status-info {
+    order: 1;
+    flex: 1 1 220px;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+}
+#dashboard-page .home-more .dash-hero-library .library-status-subtitle {
+    flex-basis: 100%;
+    white-space: normal;
+    overflow: visible;
+}
+#dashboard-page .home-more .dash-hero-library .library-status-actions {
+    order: 2;
+}
+#dashboard-page .home-more .dash-hero-library .library-status-dot {
+    box-shadow: none;
+}
+#dashboard-page .home-more .library-status-more {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
+}
+#dashboard-page .home-more .library-status-more:hover,
+#dashboard-page .home-more .library-status-more[aria-expanded="true"] {
+    border-color: var(--ss-control-border);
+    background: var(--ss-control-fill-hover);
+}
+#dashboard-page .home-more .library-status-menu {
+    left: auto;
+    right: 0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--ss-radius-card);
+    background: var(--ss-ground-note);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+#dashboard-page .home-more .library-status-menu-item {
+    min-height: 44px;
+    border-radius: var(--ss-radius-control);
+    font-size: 15px;
+}
+#dashboard-page .home-more .library-status-menu-item:hover,
+#dashboard-page .home-more .library-status-menu-item:focus-visible {
+    background: var(--ss-hover-wash);
+}
+#dashboard-page .home-more .library-status-bar {
+    height: 8px;
+    border-radius: var(--ss-radius-tag);
+    background: rgba(255, 255, 255, 0.08);
+}
+#dashboard-page .home-more .library-status-bar-fill {
+    border-radius: var(--ss-radius-tag);
+    background: rgb(var(--ss-accent-light-rgb));
+    box-shadow: none;
+}
+
+/* ── Enrichment workers ── the panel keeps .dashboard-header for the tour;
+   none of that header's chrome (negative margins, accent wash, glow line). */
+#dashboard-page .home-more .home-more-workers.dashboard-header {
+    align-items: stretch;
+    margin: 0;
+    padding: 24px;
+    z-index: 10;
+}
+#dashboard-page .home-more .home-more-workers.dashboard-header::after {
+    display: none;
+}
+#dashboard-page .home-more .home-more-workers .orb-stage {
+    flex: 1 1 auto;
+    min-height: 220px;
+    padding: 8px 0 36px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+}
+#dashboard-page .home-more .orb-stage-caption {
+    left: 0;
+    bottom: 0;
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ss-text-meta);
+}
+#dashboard-page .home-more .orb-stage-dot--busy {
+    box-shadow: none;
+}
+
+/* ── Listening and new music ── */
+#dashboard-page .home-more .dash-layout {
+    gap: 24px;
+}
+#dashboard-page .home-more .dash-main,
+#dashboard-page .home-more .dash-side {
+    gap: 16px;
+}
+#dashboard-page .home-more .wd-day {
+    letter-spacing: 0.02em;
+}
+#dashboard-page .home-more .wd-bar {
+    border-radius: var(--ss-radius-tag) var(--ss-radius-tag) 0 0;
+    background: rgb(var(--ss-accent-light-rgb));
+    box-shadow: none;
+}
+#dashboard-page .home-more .dash-rail-head {
+    margin-bottom: 16px;
+}
+#dashboard-page .home-more .dash-band-tab {
+    min-height: 44px;
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+}
+#dashboard-page .home-more .dash-rail-card .ya-card-img,
+#dashboard-page .home-more .dsc-quick-tile,
+#dashboard-page .home-more .dsc-quick-art {
+    border-radius: var(--ss-radius-tag);
+}
+#dashboard-page .home-more .listen-hero {
+    border: 1px solid var(--ss-surface-card-border);
+    border-radius: var(--ss-radius-card);
+    background: var(--ss-surface-quiet);
+    box-shadow: none;
+}
+#dashboard-page .home-more .listen-hero:hover {
+    background: var(--ss-row-hover);
+    transform: none;
+}
+#dashboard-page .home-more .listen-hero-play {
+    box-shadow: none;
+    color: var(--ss-text-on-accent);
+    background: rgb(var(--ss-accent-light-rgb));
+}
+#dashboard-page .home-more .listen-hero-play::after {
+    display: none;
+}
+
+/* ── Playlists and automations ── */
+#dashboard-page .home-more .dash-side-card[data-card="automations"] .dash-autom-row,
+#dashboard-page .home-more .dash-sync-row {
+    border-radius: var(--ss-radius-control);
+}
+#dashboard-page .home-more .dash-side-card[data-card="automations"] .dash-autom-row:hover,
+#dashboard-page .home-more .dash-sync-row:hover {
+    background: var(--ss-hover-wash);
+}
+#dashboard-page .home-more .dash-sync-bar,
+#dashboard-page .home-more .dash-sync-bar > span,
+#dashboard-page .home-more .syncband-owned-bar,
+#dashboard-page .home-more .syncband-owned-fill {
+    border-radius: var(--ss-radius-tag);
+    box-shadow: none;
+}
+#dashboard-page .home-more .dash-autom-run,
+#dashboard-page .home-more .syncband-btn {
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: var(--ss-radius-control);
+}
+#dashboard-page .home-more .dash-tiles .dash-tile.header-button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    text-align: left;
+}
+#dashboard-page .home-more .dash-tiles .dash-tile.header-button:hover {
+    background: var(--ss-row-hover);
+    transform: none;
+}
+
+/* ── Quick settings ── 44px switches with the word beside the knob. */
+#dashboard-page .home-more .dash-footer {
+    margin: 0;
+    padding: 0;
+}
+#dashboard-page .home-more .dash-quick-settings {
+    gap: 8px 12px;
+    margin: 0;
+    padding: 16px 0 0;
+    border-top: 1px solid var(--ss-hairline);
+}
+#dashboard-page .home-more .dash-qs-toggle {
+    min-height: 44px;
+    padding: 0 14px 0 10px;
+    gap: 10px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-surface-card);
+    color: var(--ss-text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+}
+#dashboard-page .home-more .dash-qs-toggle:hover:not(:disabled) {
+    background: var(--ss-row-hover);
+}
+#dashboard-page .home-more .dash-qs-toggle--on {
+    border-color: var(--ss-selected-border);
+    background: var(--ss-selected-fill);
+    color: var(--ss-text);
+}
+#dashboard-page .home-more .dash-qs-toggle:disabled {
+    opacity: 1;
+    color: var(--ss-disabled-text);
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+#dashboard-page .home-more .dash-qs-knob {
+    width: 32px;
+    height: 18px;
+}
+#dashboard-page .home-more .dash-qs-knob::after {
+    width: 14px;
+    height: 14px;
+}
+#dashboard-page .home-more .dash-qs-toggle--on .dash-qs-knob {
+    background: rgb(var(--ss-accent-rgb));
+}
+#dashboard-page .home-more .dash-qs-toggle--on .dash-qs-knob::after {
+    transform: translateX(14px);
+}
+#dashboard-page .home-more .dash-qs-accent {
+    gap: 24px;
+    padding: 0 12px;
+}
+/* each swatch is a 44px target around its 20px circle */
+#dashboard-page .home-more .dash-qs-swatch {
+    position: relative;
+    width: 20px;
+    height: 20px;
+    flex: none;
+}
+#dashboard-page .home-more button.dash-qs-swatch::before {
+    content: '';
+    position: absolute;
+    inset: -12px;
+    border-radius: var(--ss-radius-control);
+}
+#dashboard-page .home-more .dash-qs-swatch:hover {
+    transform: none;
+    box-shadow: 0 0 0 4px var(--ss-hover-wash);
+}
+
+/* Rules above with longer selectors, matched one class deeper. */
+#dashboard-page .home-more .dash-side-card[data-card="automations"] .dash-autom-name {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+#dashboard-page .home-more .dash-side-card[data-card="automations"] .dash-autom-last,
+#dashboard-page .home-more .dash-side-card[data-card="automations"] .dash-autom-meta {
+    font-size: 14px;
+    color: var(--ss-text-meta);
+}
+#dashboard-page .home-more .dash-side-card[data-card="automations"] .dash-autom-row {
+    border-radius: var(--ss-radius-control);
+}
+#dashboard-page .home-more .dash-side-card[data-card="automations"] .dash-autom-when,
+#dashboard-page .home-more .dash-side-card[data-card="automations"] .dash-autom-next {
+    padding: 3px 8px;
+    border: 0;
+    border-radius: var(--ss-radius-tag);
+    background: var(--ss-neutral-fill);
+    color: var(--ss-neutral);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+}
+#dashboard-page .home-more .dash-side-card[data-card="automations"] .dash-autom-when .dash-autom-next {
+    padding: 0;
+    background: none;
+}
+#dashboard-page .home-more .dash-autom-run {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 10px;
+    border-radius: var(--ss-radius-control);
+    font-size: 14px;
+    color: var(--ss-text-secondary);
+}
+#dashboard-page .home-more .dash-tiles .dash-tile .hero-btn-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--ss-text-meta);
+}
+#dashboard-page .home-more .dash-tiles .dash-tile .hero-btn-badge {
+    border-radius: 0;
+    background: none;
+    padding: 0;
+}
+#dashboard-page .home-more .dash-rail-caption {
+    border-radius: var(--ss-radius-tag);
+}
+#dashboard-page .home-more .listen-mixes-grid .dsc-quick-tile .dsc-quick-name {
+    font-size: 14px;
+    font-weight: 600;
+}
+#dashboard-page .home-more .listen-mixes-grid .dsc-quick-tile .dsc-quick-sub {
+    font-size: 14px;
+    color: var(--ss-text-meta);
+}
+/* discover-premier.css sets every .ya-card-name / .ya-card-sub with
+   !important; only !important brings the rail cards to 15 and 14px here. */
+#dashboard-page .home-more .ya-card .ya-card-name {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+}
+#dashboard-page .home-more .ya-card .ya-card-sub {
+    font-size: 14px !important;
+    color: var(--ss-text-meta) !important;
+}
+#dashboard-page .home-more .dash-card-action {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+}
+#dashboard-page .home-more .dash-card-actions {
+    gap: 4px;
+}
+
+@media (max-width: 900px) {
+    #dashboard-page .home-more-top {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+@media (max-width: 640px) {
+    #dashboard-page .home-more {
+        gap: 16px;
+        padding-top: 24px;
+    }
+    #dashboard-page .home-more .home-more-card,
+    #dashboard-page .home-more .dash-card,
+    #dashboard-page .home-more .weekly-digest {
+        padding: 20px;
+    }
+    #dashboard-page .home-more .dash-hero-library .library-status-actions {
+        width: 100%;
+    }
+    #dashboard-page .home-more .dash-qs-accent {
+        margin-left: 0;
+        flex-wrap: wrap;
+    }
+}

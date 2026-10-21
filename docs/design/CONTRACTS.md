@@ -133,6 +133,7 @@ The four targets in fixed order: `wanted`, `mirrored`, `followed`, `quality`. Fo
 - `next_search_at` is the soonest run of an enabled automation you can see that serves the target; null when none, or when automations are paused (`schedule_paused`).
 - `any_set_up` ignores quality: a default quality profile ships with every install, so that card is never "not set up". With the other three not set up, Home shows its single setup panel.
 - Numbers refresh at most every 30 seconds; quality counts at most every 10 minutes.
+- **"Try now" on a card that can't search** uses the existing download-source check, `POST /api/test-connection` with `{"service": "soulseek"}` (it tests whichever download source is configured, as Settings' test button does): `{"success": true, "message": "…"}` updates the cached check, so the next summary stops saying `cant_search`; `{"success": false, "error": "slskd is not connected to the Soulseek network. …"}` leaves it, and Home shows that sentence. It doesn't start a search.
 
 ### Quality presets: `GET /api/quality/presets`
 

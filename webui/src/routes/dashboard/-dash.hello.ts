@@ -1,24 +1,9 @@
 /**
- * The hero's words: a greeting and the library's size, from data the page
- * already holds (the db stats the library card publishes). No fetch of its
- * own, /api/database/stats is not free on a big library and must stay single.
+ * The library's size in words, from data the page already holds (the db stats
+ * the library card publishes), and the busy-worker count under the orbs. No
+ * fetch of its own: /api/database/stats is not free on a big library and must
+ * stay single. (The old hero's greeting went when Home got its own header.)
  */
-
-export function greetingForHour(hour: number): string {
-  if (hour >= 5 && hour < 12) return 'good morning';
-  if (hour >= 12 && hour < 18) return 'good afternoon';
-  if (hour >= 18) return 'good evening';
-  // 0-4: the overnight-automation crowd gets acknowledged.
-  return 'up late?';
-}
-
-/** the greeting with the name worked in. a question keeps its mark at the
- * end: "up late, Boulder?" not "up late?, Boulder". */
-export function greetingLine(greeting: string, name: string): string {
-  if (!name) return greeting;
-  if (greeting.endsWith('?')) return `${greeting.slice(0, -1)}, ${name}?`;
-  return `${greeting}, ${name}`;
-}
 
 export interface HeroNumber {
   id: 'tracks' | 'albums' | 'artists';
@@ -26,8 +11,8 @@ export interface HeroNumber {
   label: string;
 }
 
-/** The hero's three big numbers. Anything unknown is OMITTED, not zeroed —
- *  a fresh boot shows a bare greeting rather than "0 tracks". */
+/** The library's three numbers. Anything unknown is OMITTED, not zeroed —
+ *  a fresh boot shows no numbers rather than "0 tracks". */
 export function heroNumbers(
   stats: { tracks?: number | null; albums?: number | null; artists?: number | null } | null,
 ): HeroNumber[] {
