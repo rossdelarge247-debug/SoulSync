@@ -109,6 +109,30 @@ const typeInfo = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+/** A bulk-fix preview as RepairWorker.preview_bulk_fix serves it. */
+const bulkPlan = (total: number, findingType: string, action: string) => ({
+  success: true,
+  plan_id: `plan-${findingType}`,
+  tool: 'repair_bulk_fix',
+  total,
+  destructive: total,
+  counts: { [action]: total },
+  by_reason: {},
+  total_bytes: 0,
+  per_type: { [findingType]: total },
+  sample: Array.from({ length: Math.min(total, 3) }, (_, i) => ({
+    finding_id: i + 1,
+    finding_type: findingType,
+    path: `/music/Artist/Album/${i + 1}.flac`,
+    action,
+    reason: `Finding ${i + 1}`,
+    destructive: true,
+  })),
+  truncated: total > 3,
+  created_at: 1_800_000_000,
+  expires_at: 1_800_000_900,
+});
+
 function renderSurface(jobs: RepairJob[] = JOBS) {
   const onStatusChanged = vi.fn();
   const result = render(
@@ -500,7 +524,7 @@ describe('the findings inbox', () => {
     expect(bodyOf('/bulk-fix-start')).toEqual({ finding_type: 'missing_cover_art' });
   });
 
-  it('marks a destructive group fix destructive and says files are touched', async () => {
+  it('previews a destructive group fix instead of starting it, and says files are touched', async () => {
     routes({
       [GROUPS]: { groups: [group({ finding_type: 'empty_folder', pending: 4 })] },
       [TYPES]: {
@@ -513,6 +537,7 @@ describe('the findings inbox', () => {
           }),
         ],
       },
+      '/bulk-fix-preview': bulkPlan(4, 'empty_folder', 'Delete Folder'),
       '/bulk-fix-start': { started: true, total: 4 },
     });
     renderSurface();
@@ -520,15 +545,15 @@ describe('the findings inbox', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete Folder all (4)' }));
     await flush();
-    expect(confirmSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        destructive: true,
-        message: expect.stringContaining('deletes files on disk'),
-      }),
-    );
+    await flush();
+    expect(bodyOf('/bulk-fix-preview')).toEqual({ finding_type: 'empty_folder' });
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('bulk-fix-start'))).toBe(false);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(await screen.findByText('Delete Folder: 4 empty folders?')).toBeTruthy();
+    expect(screen.getByText(/move or delete files on disk/)).toBeTruthy();
   });
 
-  it("uses the type's own confirmation when the generic warning would be wrong", async () => {
+  it("uses the type's own explanation when the generic warning would be wrong", async () => {
     // Corrupt files are quarantined, not deleted: "cannot be undone" is untrue.
     routes({
       [GROUPS]: { groups: [group({ finding_type: 'corrupt_audio', pending: 2 })] },
@@ -543,6 +568,7 @@ describe('the findings inbox', () => {
           }),
         ],
       },
+      '/bulk-fix-preview': bulkPlan(2, 'corrupt_audio', 'redownload'),
       '/bulk-fix-start': { started: true, total: 2 },
     });
     renderSurface();
@@ -550,21 +576,18 @@ describe('the findings inbox', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Re-download all (2)' }));
     await flush();
-    expect(confirmSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        destructive: true,
-        message: expect.stringContaining('The damaged files move to the deleted-files folder.'),
-      }),
-    );
-    expect(confirmSpy).not.toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('cannot be undone') }),
-    );
+    await flush();
+    expect(
+      await screen.findByText('The damaged files move to the deleted-files folder.'),
+    ).toBeTruthy();
+    expect(screen.queryByText(/cannot be undone/)).toBeNull();
   });
 
   it('still gates a mass orphan delete behind the witness-me phrase', async () => {
     routes({
       [GROUPS]: { groups: [group({ finding_type: 'orphan_file', pending: 120 })] },
       [TYPES]: { types: [typeInfo()] },
+      '/bulk-fix-preview': bulkPlan(120, 'orphan_file', 'delete'),
       '/bulk-fix-start': { started: true, total: 120 },
     });
     renderSurface();
@@ -580,10 +603,16 @@ describe('the findings inbox', () => {
     fireEvent.change(input, { target: { value: 'Witness Me' } });
     fireEvent.click(document.getElementById('witness-confirm') as HTMLElement);
     await flush();
-    expect(bodyOf('/bulk-fix-start')).toEqual({
+    await flush();
+    // …and then the preview, which is what the run is confirmed against
+    expect(bodyOf('/bulk-fix-preview')).toEqual({
       finding_type: 'orphan_file',
       fix_action: 'delete',
     });
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('bulk-fix-start'))).toBe(false);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove 120 files' }));
+    await flush();
+    expect(bodyOf('/bulk-fix-start')).toEqual({ plan_id: 'plan-orphan_file' });
   });
 
   it('dismisses a whole group by type rather than by shipping ids', async () => {
@@ -1607,23 +1636,91 @@ describe('the background bulk run', () => {
     expect(after).toBeGreaterThan(before);
   });
 
-  it('uses the ordinary confirm for a smaller orphan delete', async () => {
-    await fixGroup('orphan_file', 30, {});
+  it('previews a smaller orphan delete without the witness-me phrase', async () => {
+    await fixGroup(
+      'orphan_file',
+      30,
+      {},
+      {
+        '/bulk-fix-preview': bulkPlan(30, 'orphan_file', 'delete'),
+      },
+    );
     clickPrompt('_orphan-delete');
     await flush();
+    await flush();
     expect(document.getElementById('witness-me-input')).toBeNull();
-    expect(confirmSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Delete Orphan Files', destructive: true }),
-    );
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(await screen.findByText('Remove 30 orphan files?')).toBeTruthy();
+    expect(screen.getByText(/go to the recycle bin/)).toBeTruthy();
   });
 
-  it('confirms a staging move without marking it destructive', async () => {
-    await fixGroup('orphan_file', 30, {});
+  it('previews a staging move and says nothing is deleted', async () => {
+    await fixGroup(
+      'orphan_file',
+      30,
+      {},
+      {
+        '/bulk-fix-preview': bulkPlan(30, 'orphan_file', 'staging'),
+      },
+    );
     clickPrompt('_orphan-staging');
     await flush();
-    expect(confirmSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Move to Staging', destructive: false }),
+    await flush();
+    expect(await screen.findByText('Move 30 orphan files to Staging?')).toBeTruthy();
+    expect(screen.getByText(/Nothing is deleted/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Move 30 files' })).toBeTruthy();
+  });
+
+  it("a refused bulk-fix plan shows the backend's message and previews again", async () => {
+    await fixGroup(
+      'empty_folder',
+      4,
+      { label: 'Empty Folders', verb: 'Delete Folder', destructive: true },
+      {
+        '/bulk-fix-preview': bulkPlan(4, 'empty_folder', 'Delete Folder'),
+        '/bulk-fix-start': {
+          success: false,
+          started: false,
+          code: 'plan_expired',
+          error: 'That preview is out of date. Preview again so you confirm what is on disk now.',
+        },
+      },
     );
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Folder: 4 findings' }));
+    await flush();
+    expect(bodyOf('/bulk-fix-start')).toEqual({ plan_id: 'plan-empty_folder' });
+    expect(await screen.findByText(/That preview is out of date/)).toBeTruthy();
+    const before = fetchMock.mock.calls.filter((c) => String(c[0]).includes('bulk-fix-preview'));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview again' }));
+    await flush();
+    const after = fetchMock.mock.calls.filter((c) => String(c[0]).includes('bulk-fix-preview'));
+    expect(after.length).toBe(before.length + 1);
+  });
+
+  it('opens the preview the server attaches when a run it thought safe touches files', async () => {
+    await fixGroup(
+      'metadata_gap',
+      5,
+      { label: 'Metadata Gaps', verb: 'Auto-Fill', destructive: false },
+      {
+        '/bulk-fix-start': {
+          success: false,
+          started: false,
+          plan_required: true,
+          code: 'plan_required',
+          error: '5 of these fixes move or delete files.',
+          plan: bulkPlan(5, 'metadata_gap', 'Auto-Fill'),
+        },
+      },
+    );
+    expect(await screen.findByText('Auto-Fill: 5 metadata gaps?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Auto-Fill: 5 findings' }));
+    await flush();
+    expect(bodyOf('/bulk-fix-start')).toEqual({ finding_type: 'metadata_gap' });
+    const confirmed = fetchMock.mock.calls
+      .filter((c) => String(c[0]).includes('bulk-fix-start'))
+      .map((c) => JSON.parse(((c[1] as RequestInit).body as string) ?? '{}'));
+    expect(confirmed.at(-1)).toEqual({ plan_id: 'plan-metadata_gap' });
   });
 
   it('sends discography "Just Clear" through the clear endpoint, never bulk-fix', async () => {

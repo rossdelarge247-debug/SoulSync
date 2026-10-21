@@ -947,6 +947,16 @@ class ConfigManager:
                 # the artist instead of guessing by name. Off by default —
                 # the Artist NFO Backfill repair job covers existing folders.
                 "write_artist_nfo": False,
+                # Library Maintenance deletes (orphan files, redundant singles,
+                # unwanted content, quality/AcoustID/fake-lossless deletes, the
+                # original after a lossy conversion) move the file into the
+                # recycle bin (<transfer>/.deleted), restorable from the
+                # Recycle Bin tab. Set False to delete for good instead.
+                "recycle_deletes": True,
+                # Deep Scan ratio guard: one run may move at most this share of
+                # the Music Library to Staging; more needs an explicit
+                # confirmation on a preview.
+                "deep_scan_max_move_percent": 25,
             },
             "file_organization": {
                 "enabled": True,
@@ -1024,7 +1034,13 @@ class ConfigManager:
                 # off: staging keeps whatever an import didn't move (the user's
                 # own files). on: a folder whose every track was imported or
                 # found already in the library is removed from staging.
-                "clear_finished_from_staging": False
+                "clear_finished_from_staging": False,
+                # Deep Scan (SoulSync standalone) moves files it can't find in
+                # the database from the Music Library into Staging. On (the
+                # default) = the Music Library is your permanent library and
+                # Deep Scan never moves anything out of it (#904). Turn off
+                # only if Transfer is a scratch/landing folder.
+                "transfer_is_permanent": True
             },
             "m3u_export": {
                 "enabled": False,

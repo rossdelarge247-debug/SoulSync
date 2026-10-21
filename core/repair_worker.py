@@ -54,6 +54,9 @@ RESOLVED_RECURRENCE_GRACE_DAYS = 7
 _ABSENCE_IS_THE_FINDING = frozenset({'dead_file', 'empty_folder'})
 
 
+# Action-plan tool name for a confirmed bulk fix (core.library.action_plans).
+REPAIR_BULK_FIX_TOOL = 'repair_bulk_fix'
+
 DESTRUCTIVE_FINDING_TYPES = frozenset({
     'orphan_file',            # default 'staging' MOVES the file; 'delete' removes it
     'dead_file',              # 'remove' drops the library row + file
@@ -312,8 +315,79 @@ def _path_mapping_hint(config_manager) -> str:
     return 'Check Settings -> Library -> Music Paths so SoulSync can map this path.'
 
 
-def _delete_file_if_present(file_path, transfer_folder, config_manager=None, download_folder=None):
-    """Best-effort delete with an explicit reason when the path cannot be mapped."""
+def _recycle_deletes_enabled(config_manager) -> bool:
+    """Whether a library delete goes to the recycle bin (the default).
+
+    Only an explicit ``library.recycle_deletes`` of false/0/"off" makes deletes
+    permanent: that is the user choosing permanent deletion. A missing key, a
+    missing config manager or an unreadable value all mean "recycle".
+    """
+    if config_manager is None:
+        return True
+    try:
+        value = config_manager.get('library.recycle_deletes', True)
+    except Exception:  # noqa: BLE001 - fail toward keeping the file
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() not in ('0', 'false', 'no', 'off')
+    return value is not False and value != 0
+
+
+def _recycle_resolved(resolved, transfer_folder, source):
+    """Move an existing, already-resolved file into the music recycle bin
+    (``<transfer>/.deleted``), recorded in its manifest so the Recycle Bin tab
+    can restore it and retention can age it. Returns ``(moved, note, dest)``.
+    The file keeps its path relative to the transfer folder, or its name when
+    it lives outside it; a name clash gets a numeric suffix, never a clobber."""
+    from core.repair_jobs.base import deleted_quarantine_root
+    from core.library.deleted_quarantine import record_deleted_entry
+    deleted_root = deleted_quarantine_root(transfer_folder)
+    try:
+        rel = os.path.relpath(resolved, transfer_folder)
+    except ValueError:
+        rel = os.path.basename(resolved)
+    if rel.startswith('..') or os.path.isabs(rel):
+        rel = os.path.basename(resolved)
+    dest = os.path.join(deleted_root, rel)
+    base, ext = os.path.splitext(dest)
+    n = 1
+    while os.path.exists(dest):
+        dest = f"{base}_{n}{ext}"
+        n += 1
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.move(resolved, dest)
+    except OSError as e:
+        logger.warning("Could not move %s to the deleted folder: %s", resolved, e)
+        return False, str(e), None
+    record_deleted_entry(deleted_root, dest, resolved, source)
+    return True, None, dest
+
+
+def _remove_library_file(resolved, transfer_folder, source, config_manager=None):
+    """Remove a file the user approved removing.
+
+    Goes to the recycle bin unless the user explicitly turned recycling off
+    (``library.recycle_deletes``), in which case it is deleted for good. Raises
+    ``OSError`` when nothing was removed, exactly like the ``os.remove`` this
+    replaces, so every caller's failure handling still applies. Returns the
+    recycle-bin path, or None for a permanent delete.
+    """
+    if _recycle_deletes_enabled(config_manager):
+        moved, note, dest = _recycle_resolved(resolved, transfer_folder, source)
+        if not moved:
+            raise OSError(note or 'could not move the file to the recycle bin')
+        return dest
+    os.remove(resolved)
+    return None
+
+
+def _delete_file_if_present(file_path, transfer_folder, config_manager=None, download_folder=None,
+                            source='repair'):
+    """Best-effort delete with an explicit reason when the path cannot be mapped.
+
+    "Delete" means the recycle bin unless the user turned recycling off — see
+    ``_remove_library_file``."""
     if not file_path:
         return False, None
     resolved = _resolve_file_path(
@@ -322,7 +396,7 @@ def _delete_file_if_present(file_path, transfer_folder, config_manager=None, dow
         config_manager=config_manager)
     if resolved and os.path.exists(resolved):
         try:
-            os.remove(resolved)
+            _remove_library_file(resolved, transfer_folder, source, config_manager)
             return True, None
         except Exception as e:
             logger.warning("Could not delete file %s: %s", resolved, e)
@@ -365,29 +439,7 @@ def _quarantine_file_if_present(file_path, transfer_folder, source,
         return False, f'file could not be located ({_path_mapping_hint(config_manager)})', None
     if not os.path.exists(resolved):
         return False, 'file was already gone', None
-    from core.repair_jobs.base import deleted_quarantine_root
-    from core.library.deleted_quarantine import record_deleted_entry
-    deleted_root = deleted_quarantine_root(transfer_folder)
-    try:
-        rel = os.path.relpath(resolved, transfer_folder)
-    except ValueError:
-        rel = os.path.basename(resolved)
-    if rel.startswith('..') or os.path.isabs(rel):
-        rel = os.path.basename(resolved)
-    dest = os.path.join(deleted_root, rel)
-    base, ext = os.path.splitext(dest)
-    n = 1
-    while os.path.exists(dest):
-        dest = f"{base}_{n}{ext}"
-        n += 1
-    try:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.move(resolved, dest)
-    except OSError as e:
-        logger.warning("Could not move %s to the deleted folder: %s", resolved, e)
-        return False, str(e), None
-    record_deleted_entry(deleted_root, dest, resolved, source)
-    return True, None, dest
+    return _recycle_resolved(resolved, transfer_folder, source)
 
 
 class RepairWorker:
@@ -3295,9 +3347,15 @@ class RepairWorker:
                         'message': message}
 
             elif fix_action == 'delete':
-                os.remove(resolved)
+                recycled = _remove_library_file(
+                    resolved, self.transfer_folder, 'orphan-file', self._config_manager)
                 self._cleanup_empty_parents(resolved)
-                return {'success': True, 'action': 'deleted_file',
+                # same action name either way (the UI keys its label on it);
+                # 'recycled' says whether it can still be restored
+                if recycled:
+                    return {'success': True, 'action': 'deleted_file', 'recycled': True,
+                            'message': 'Moved orphan file to the recycle bin'}
+                return {'success': True, 'action': 'deleted_file', 'recycled': False,
                         'message': 'Deleted orphan file from disk'}
 
         except OSError as e:
@@ -4072,6 +4130,18 @@ class RepairWorker:
                 'files_deleted': 0,
                 'files_failed': 0,
             }
+        # The resolver proved a path existed a moment ago; the keeper also has
+        # to be a real, non-empty, readable file NOW, or removing the others
+        # leaves the user with nothing playable (#1210).
+        from core.library.duplicate_keep import keeper_problem
+        problem = keeper_problem(keep_resolved)
+        if problem:
+            return {
+                'success': False,
+                'error': f'{problem[0].upper()}{problem[1:]}, so no duplicate was removed.',
+                'files_deleted': 0,
+                'files_failed': 0,
+            }
 
         def _is_keeper_file(candidate):
             if not keep_resolved or not candidate:
@@ -4275,7 +4345,8 @@ class RepairWorker:
             try:
                 resolved = _resolve_file_path(single_path, self.transfer_folder, download_folder, config_manager=self._config_manager)
                 if resolved and os.path.exists(resolved):
-                    os.remove(resolved)
+                    _remove_library_file(resolved, self.transfer_folder, 'redundant-single',
+                                         self._config_manager)
                     file_deleted = True
                     # Clean up empty parent directories (never a configured root)
                     self._cleanup_empty_parents(resolved)
@@ -4326,7 +4397,8 @@ class RepairWorker:
             try:
                 resolved = _resolve_file_path(track_path, self.transfer_folder, download_folder, config_manager=self._config_manager)
                 if resolved and os.path.exists(resolved):
-                    os.remove(resolved)
+                    _remove_library_file(resolved, self.transfer_folder, 'unwanted-content',
+                                         self._config_manager)
                     file_deleted = True
                     # Clean up empty parent directories (never a configured root)
                     self._cleanup_empty_parents(resolved)
@@ -6059,7 +6131,10 @@ class RepairWorker:
                             if conn:
                                 conn.close()
                         try:
-                            os.remove(resolved)
+                            # the original is lossless audio the conversion can
+                            # never give back: recycle bin, not unlink
+                            _remove_library_file(resolved, self.transfer_folder,
+                                                 'lossy-converter', self._config_manager)
                         except OSError as e:
                             return {'success': False,
                                     'error': f'Converted to {quality_label} (the library now '
@@ -6198,6 +6273,102 @@ class RepairWorker:
     # before the loop ends while the server quietly keeps fixing, so the
     # user is told it failed while it's actually still working. These run
     # the same loop on a worker thread instead; the UI polls for progress.
+
+    # ------------------------------------------------------------------
+    # Preview-then-confirm for bulk fixes that move or delete files
+    # ------------------------------------------------------------------
+    # A bulk run over DESTRUCTIVE_FINDING_TYPES must be confirmed against a
+    # preview: the API refuses it without a plan id from preview_bulk_fix(),
+    # and a confirmed run fixes exactly the previewed findings (still pending)
+    # with the previewed action. Single-finding fixes are not gated — that is
+    # one explicit click on one item.
+
+    def preview_bulk_fix(self, job_id: str = None, severity: str = None,
+                         finding_ids: List[int] = None, fix_action: str = None,
+                         finding_type: str = None, safe_only: bool = False) -> dict:
+        """What a bulk fix with these filters WOULD do, finding by finding,
+        recorded as a plan. Changes nothing.
+
+        Returns the plan summary (``plan_id``, ``total``, ``counts`` per
+        action, ``sample`` items with ``path`` / ``reason``) plus
+        ``destructive`` (how many items move or delete files) and
+        ``per_type``. ``{'invalid': True, ...}`` for an action spanning types,
+        ``total == 0`` (and no plan id) when nothing matches."""
+        from core.library.action_plans import plan_store
+        ids = self._pending_fixable_ids(
+            job_id=job_id, severity=severity, finding_ids=finding_ids,
+            finding_type=finding_type, safe_only=safe_only)
+        types = self._types_for_findings(ids)
+        if fix_action and len(set(types.values())) > 1:
+            return {'invalid': True, 'error': (
+                f"'{fix_action}' would be applied to {len(set(types.values()))} different finding "
+                "types. Narrow the run to a single type, or run it without an action.")}
+        rows = self._finding_rows_for_plan(ids)
+        items = []
+        for fid in ids:
+            row = rows.get(fid) or {}
+            ftype = row.get('finding_type') or types.get(fid) or ''
+            meta = FINDING_TYPE_META.get(ftype, {})
+            items.append({
+                'finding_id': fid,
+                'finding_type': ftype,
+                'path': row.get('file_path') or '',
+                'action': fix_action or meta.get('verb') or 'fix',
+                'reason': row.get('title') or meta.get('label') or ftype,
+                'destructive': ftype in DESTRUCTIVE_FINDING_TYPES,
+            })
+        if not items:
+            return {'total': 0, 'plan_id': None, 'destructive': 0, 'per_type': {},
+                    'counts': {}, 'by_reason': {}, 'sample': [], 'truncated': False}
+        plan = plan_store.create(REPAIR_BULK_FIX_TOOL, items, meta={
+            'ids': list(ids), 'fix_action': fix_action})
+        summary = plan.summary()
+        per_type: Dict[str, int] = {}
+        for item in items:
+            per_type[item['finding_type']] = per_type.get(item['finding_type'], 0) + 1
+        summary['per_type'] = per_type
+        summary['destructive'] = sum(1 for i in items if i['destructive'])
+        return summary
+
+    def _finding_rows_for_plan(self, ids: List[int]) -> Dict[int, dict]:
+        if not ids:
+            return {}
+        conn = None
+        try:
+            conn = self.db._get_connection()
+            cursor = conn.cursor()
+            placeholders = ','.join(['?'] * len(ids))
+            cursor.execute(
+                f"SELECT id, finding_type, file_path, title FROM repair_findings WHERE id IN ({placeholders})",
+                list(ids))
+            return {row[0]: {'finding_type': row[1], 'file_path': row[2], 'title': row[3]}
+                    for row in cursor.fetchall()}
+        except Exception as e:
+            logger.debug("Could not read findings for a bulk-fix preview: %s", e)
+            return {}
+        finally:
+            if conn:
+                conn.close()
+
+    def bulk_fix_needs_plan(self, job_id: str = None, severity: str = None,
+                            finding_ids: List[int] = None, finding_type: str = None,
+                            safe_only: bool = False) -> bool:
+        """True when this selection would move or delete files, so a bulk run
+        of it must come with a confirmed preview."""
+        if safe_only:
+            return False
+        ids = self._pending_fixable_ids(
+            job_id=job_id, severity=severity, finding_ids=finding_ids,
+            finding_type=finding_type, safe_only=False)
+        return bool(set(self._types_for_findings(ids).values()) & DESTRUCTIVE_FINDING_TYPES)
+
+    @staticmethod
+    def consume_bulk_fix_plan(plan_id: str) -> dict:
+        """The finding ids and action a confirmed preview authorised. Raises
+        ``PlanError`` for a missing / used / expired plan."""
+        from core.library.action_plans import plan_store
+        plan = plan_store.consume(plan_id, REPAIR_BULK_FIX_TOOL)
+        return {'ids': list(plan.meta.get('ids') or []), 'fix_action': plan.meta.get('fix_action')}
 
     def start_bulk_fix(self, job_id: str = None, severity: str = None,
                        finding_ids: List[int] = None, fix_action: str = None,

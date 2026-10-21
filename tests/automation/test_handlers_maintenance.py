@@ -346,7 +346,7 @@ class TestClearQuarantine:
             config_manager=_StubConfig({'soulseek.download_path': str(tmp_path / 'nonexistent')}),
             docker_resolve_path=lambda p: p,
         )
-        result = auto_clear_quarantine({}, deps)
+        result = auto_clear_quarantine({'confirm': True}, deps)
         assert result == {'status': 'completed', 'removed': '0'}
 
     def test_clears_files_from_quarantine(self, tmp_path):
@@ -359,7 +359,7 @@ class TestClearQuarantine:
             config_manager=_StubConfig({'soulseek.download_path': str(download_path)}),
             docker_resolve_path=lambda p: p,
         )
-        result = auto_clear_quarantine({}, deps)
+        result = auto_clear_quarantine({'confirm': True}, deps)
         assert result == {'status': 'completed', 'removed': '2'}
 
 
@@ -584,7 +584,7 @@ class TestFullCleanupQuarantineStep:
         (q / 'a.flac').write_bytes(b'')
         (q / 'album').mkdir()
         run, deps, lines = self._deps(tmp_path)
-        result = run({}, deps)
+        result = run({'confirm': True}, deps)   # the automation is set to act
         assert result['status'] == 'completed'
         assert result['quarantine_removed'] == '2'
         assert os.listdir(q) == []
@@ -594,6 +594,6 @@ class TestFullCleanupQuarantineStep:
         from core.downloads import cleanup as dl_cleanup
         monkeypatch.setattr(dl_cleanup, 'sweep_orphaned_download_audio', lambda *a, **k: [])
         run, deps, lines = self._deps(tmp_path)
-        result = run({}, deps)
+        result = run({'confirm': True}, deps)
         assert result['quarantine_removed'] == '0'
         assert {'log_line': 'Quarantine: removed 0 items', 'log_type': 'info'} in lines

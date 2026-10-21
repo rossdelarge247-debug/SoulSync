@@ -78,6 +78,54 @@ def purge_recycle_bin(transfer_folder: str, keep_days: float) -> Dict[str, Any]:
             "errors": list(result.get("errors") or [])}
 
 
+def preview_quarantine(path: str) -> List[Dict[str, Any]]:
+    """What clear_quarantine_folder WOULD delete, one item per entry. Reads only."""
+    if not os.path.isdir(path):
+        return []
+    items: List[Dict[str, Any]] = []
+    for entry in sorted(os.listdir(path)):
+        fp = os.path.join(path, entry)
+        try:
+            size = os.path.getsize(fp) if os.path.isfile(fp) else 0
+        except OSError:
+            size = 0
+        items.append({"path": fp, "action": "delete_permanently",
+                      "reason": "held in the download quarantine (failed verification)", "size": size})
+    return items
+
+
+def preview_recycle_purge(transfer_folder: str, keep_days: float) -> List[Dict[str, Any]]:
+    """What purge_recycle_bin WOULD delete for good, with the same keep-window
+    rule (0 = an automation empties the whole bin). Reads only: it lists with
+    keep_days=0 so the listing's own opportunistic purge never fires."""
+    from core.library import deleted_quarantine
+
+    try:
+        days = float(keep_days or 0)
+    except (TypeError, ValueError):
+        days = 0.0
+    entries = deleted_quarantine.list_entries(transfer_folder, keep_days=0)["entries"]
+    if days > 0:
+        expired = set(deleted_quarantine.expired_entry_ids(transfer_folder, days))
+        entries = [e for e in entries if e["id"] in expired]
+        reason = f"in the recycle bin longer than the {days:g}-day keep window"
+    else:
+        reason = "recycle bin is set to keep forever, so an automation empties all of it"
+    return [{"path": e["original_path"], "recycle_id": e["id"], "action": "delete_permanently",
+             "reason": reason, "size": e["size"], "deleted_at": e["deleted_at"], "source": e["source"]}
+            for e in entries]
+
+
+def preview_library_cleanup(*, download_path: str, transfer_folder: str, keep_days: float,
+                            clear_quarantine: bool = True, empty_recycle_bin: bool = True) -> Dict[str, Any]:
+    """The plan for run_library_cleanup: every file it would delete for good
+    and why. Deletes nothing. Returns ``{'quarantine': [...], 'recycle_bin':
+    [...], 'items': [...]}``."""
+    quarantine = preview_quarantine(quarantine_path(download_path)) if clear_quarantine else []
+    recycle = preview_recycle_purge(transfer_folder, keep_days) if empty_recycle_bin else []
+    return {"quarantine": quarantine, "recycle_bin": recycle, "items": quarantine + recycle}
+
+
 def run_library_cleanup(*, download_path: str, transfer_folder: str, keep_days: float,
                         clear_quarantine: bool = True, empty_recycle_bin: bool = True,
                         say: Optional[Any] = None) -> Dict[str, Any]:

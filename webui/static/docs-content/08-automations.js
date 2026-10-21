@@ -167,11 +167,11 @@ Automations can be organized into named **groups** (e.g. "Nightly Operations", "
 | **Scan Library** | Trigger a media server library scan |
 | **Update Database** | Refresh the library database (incremental or full) |
 | **Update Database (Hourly)** | Lightweight incremental refresh that catches files added outside SoulSync |
-| **Deep Scan Library** | Full library comparison without losing enrichment data |
+| **Deep Scan Library** | Full library comparison without losing enrichment data. In SoulSync standalone mode it only moves untracked files to Staging when **Act without a preview** is on |
 | **Run Quality Scan** | Scan for low-quality audio files |
-| **Run Duplicate Cleaner** | Scan for and remove duplicate files |
-| **Clear Quarantine** | Delete all quarantined files |
-| **Clear Quarantine + Empty Recycle Bin** | Combined destructive cleanup sweep |
+| **Run Duplicate Cleaner** | Previews the duplicates (confirm on the Tools page); moves the lower-quality copies to the recycle bin only when **Act without a preview** is on |
+| **Clear Quarantine** | Reports what it would delete; deletes all quarantined files only when **Act without a preview** is on |
+| **Clear Quarantine + Empty Recycle Bin** | Combined destructive cleanup sweep; reports only unless **Act without a preview** is on |
 
 ## Playlists
 
@@ -197,7 +197,7 @@ Automations can be organized into named **groups** (e.g. "Nightly Operations", "
 | **Refresh Beatport Cache** | Scrape the Beatport homepage and warm the data cache |
 | **Clean Search History** | Remove old Soulseek searches (keeps the 50 most recent) |
 | **Clean Completed Downloads** | Clear completed downloads and empty directories from the input folder |
-| **Full Cleanup** | Quarantine, download queue, import folder, and search history in one sweep |
+| **Full Cleanup** | Quarantine, download queue, import folder, and search history in one sweep. The quarantine step only reports unless **Act without a preview** is on |
 | **Backup Database** | Create a timestamped database backup |
 
 ## Utility

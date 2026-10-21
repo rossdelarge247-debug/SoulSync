@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { StatusTag } from '@/features/safe-action/safe-action-dialog';
+
 import type { AutomationSchedule } from '../-automations.format';
 import type { Automation } from '../-automations.types';
 
@@ -11,6 +13,7 @@ import {
   formatInterval,
   formatTrigger,
 } from '../-automations.format';
+import { automationActMode } from '../-automations.helpers';
 import { automationIcon, formatNotify } from '../-automations.icons';
 import {
   type AutomationRunState,
@@ -336,6 +339,9 @@ export function AutomationCard({
    */
   const errored = Boolean(meta.error) && !running;
   const thenItems = a.then_actions ?? [];
+  // Actions that move or delete files run in preview mode unless the builder's
+  // "Act without a preview" is on; the card says which, in a word.
+  const actMode = automationActMode(a);
   const delay = (a.action_config as { delay?: number } | null)?.delay ?? 0;
 
   const triggerLabel = `${automationIcon(a.trigger_type)} ${formatTrigger(a.trigger_type, a.trigger_config, blockLabel)}`;
@@ -440,6 +446,11 @@ export function AutomationCard({
         ) : (
           <ScheduleLabel schedule={schedule} />
         )}
+        {actMode === 'preview' ? (
+          <StatusTag tone="info">Makes a preview, moves nothing</StatusTag>
+        ) : actMode === 'acts' ? (
+          <StatusTag tone="warning">Acts without a preview</StatusTag>
+        ) : null}
       </div>
 
       <div className="auto-tile-foot">

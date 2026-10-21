@@ -1,5 +1,9 @@
 """the movers actually feed the manifest - end-to-end through the real
-duplicate cleaner worker against a tmp transfer folder."""
+duplicate cleaner worker against a tmp transfer folder.
+
+These drive a run that ACTS (confirm=True, what an automation the user set to
+act does); a plain run is only a preview now, see
+tests/library/test_duplicate_cleaner_safety.py."""
 
 import os
 import sqlite3
@@ -47,7 +51,7 @@ def test_the_duplicate_cleaner_records_what_it_quarantines(cleaner):
     with open(os.path.join(album, 'song.mp3'), 'wb') as f:
         f.write(b'mp3')
 
-    dc._run_duplicate_cleaner()
+    dc._run_duplicate_cleaner(confirm=True)
 
     assert state['status'] == 'finished'
     assert state['deleted'] == 1
@@ -78,7 +82,7 @@ def test_the_duplicate_cleaner_keeps_an_intentional_lossy_copy(cleaner, monkeypa
     with open(mp3, 'wb') as handle:
         handle.write(b'mp3')
 
-    dc._run_duplicate_cleaner()
+    dc._run_duplicate_cleaner(confirm=True)
 
     assert os.path.isfile(flac)
     assert os.path.isfile(mp3)
@@ -114,7 +118,7 @@ def test_a_quality_profile_also_protects_its_lossy_copy(cleaner, monkeypatch, tm
     with open(opus, 'wb') as handle:
         handle.write(b'opus')
 
-    dc._run_duplicate_cleaner()
+    dc._run_duplicate_cleaner(confirm=True)
 
     assert os.path.isfile(flac)
     assert os.path.isfile(opus)
@@ -138,7 +142,7 @@ def test_the_duplicate_cleaner_still_removes_a_real_cross_format_duplicate(
     with open(ogg, 'wb') as handle:
         handle.write(b'ogg')
 
-    dc._run_duplicate_cleaner()
+    dc._run_duplicate_cleaner(confirm=True)
 
     assert os.path.isfile(flac)
     assert not os.path.isfile(ogg)

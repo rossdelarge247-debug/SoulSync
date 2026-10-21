@@ -54,6 +54,29 @@ def duplicate_keep_sort_key(track: Dict) -> Tuple[int, int, int, float, int]:
     )
 
 
+def keeper_problem(path: Optional[str]) -> Optional[str]:
+    """Why ``path`` cannot be trusted as the surviving copy of a duplicate
+    group, or ``None`` when it can.
+
+    Every tool that removes "the other copies" asks this first (#1210: the
+    cleaner removed the only copy there was). The keeper must be a regular
+    file, non-empty, and readable right now — a dangling path, a zero-byte
+    stub or a permission-denied file would leave the user with nothing.
+    """
+    if not path:
+        return 'no copy to keep was found'
+    try:
+        if not os.path.isfile(path):
+            return 'the copy being kept is missing'
+        if os.path.getsize(path) <= 0:
+            return 'the copy being kept is an empty file'
+        with open(path, 'rb') as handle:
+            handle.read(1)
+    except OSError as exc:
+        return f'the copy being kept cannot be read ({exc.strerror or exc})'
+    return None
+
+
 def pick_duplicate_to_keep(tracks: List[Dict]) -> Optional[Dict]:
     """Return the copy to keep from a duplicate group (highest sort key), or
     ``None`` if the group is empty."""

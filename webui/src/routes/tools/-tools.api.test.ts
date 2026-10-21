@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   backupDownloadUrl,
   bulkFindingAction,
+  confirmDuplicateClean,
   clearFindings,
   clearMetadataCacheBySource,
   clearMusicBrainzCache,
@@ -25,6 +26,7 @@ import {
   fetchDbUpdateStatus,
   fetchDiscoveryPoolStats,
   fetchDuplicateCleanStatus,
+  fetchDuplicatePlanItems,
   fetchFindingCounts,
   fetchMediaScanStatus,
   fetchMetadataCacheStats,
@@ -37,6 +39,8 @@ import {
   fetchRepairStatus,
   findExactArtist,
   fixFinding,
+  previewBulkFix,
+  previewDuplicateClean,
   removeBlacklistEntry,
   requestMediaScan,
   resolveFinding,
@@ -47,7 +51,6 @@ import {
   setRepairJobEnabled,
   startBulkFix,
   startDatabaseUpdate,
-  startDuplicateClean,
   startMetadataUpdate,
   startReconcileIds,
   stopBulkFix,
@@ -303,6 +306,29 @@ describe('bulk fix', () => {
     expect(lastCall().body).toEqual({});
   });
 
+  it('previews with the same filters and changes nothing', async () => {
+    jsonOnce({ success: true, plan_id: 'p1', total: 2, destructive: 2, sample: [] });
+    await expect(
+      previewBulkFix({ findingType: 'orphan_file', fixAction: 'delete' }),
+    ).resolves.toMatchObject({ plan_id: 'p1', destructive: 2 });
+    expect(lastCall().url).toBe('/api/repair/findings/bulk-fix-preview');
+    expect(lastCall().body).toEqual({ finding_type: 'orphan_file', fix_action: 'delete' });
+  });
+
+  it('marks a refused preview as failed with its message', async () => {
+    jsonOnce({ success: false, invalid: true, error: 'spans types' }, false, 400);
+    await expect(previewBulkFix({ fixAction: 'delete' })).resolves.toMatchObject({
+      success: false,
+      error: 'spans types',
+    });
+  });
+
+  it('sends ONLY the plan id for a confirmed plan: the plan decides what runs', async () => {
+    jsonOnce({ started: true, total: 2 });
+    await startBulkFix({ planId: 'p1', findingType: 'orphan_file', fixAction: 'delete' });
+    expect(lastCall().body).toEqual({ plan_id: 'p1' });
+  });
+
   it('returns null on a transient status failure so the poll keeps running', async () => {
     // Returning a finished-looking {} here would end the run's progress display
     // while the server is still fixing.
@@ -400,13 +426,57 @@ describe('reconcile ids + duplicate cleaner', () => {
     await expect(fetchDuplicateCleanStatus()).resolves.toBeNull();
   });
 
-  it('starts and stops the duplicate cleaner', async () => {
-    jsonOnce({});
-    await expect(startDuplicateClean()).resolves.toEqual({ ok: true });
+  it('previews and stops the duplicate cleaner', async () => {
+    jsonOnce({ success: true, mode: 'plan' });
+    await expect(previewDuplicateClean()).resolves.toEqual({ ok: true });
+    expect(lastCall().url).toBe('/api/duplicate-cleaner/preview');
     jsonOnce({ error: 'busy' }, false, 409);
-    await expect(startDuplicateClean()).resolves.toEqual({ ok: false, error: 'busy' });
+    await expect(previewDuplicateClean()).resolves.toEqual({ ok: false, error: 'busy' });
     jsonOnce({}, true);
     await expect(stopDuplicateClean()).resolves.toBe(true);
+  });
+
+  it('confirms a duplicate-cleaner preview by sending its plan id', async () => {
+    jsonOnce({ success: true, mode: 'apply' });
+    await expect(confirmDuplicateClean('abc')).resolves.toEqual({ ok: true });
+    expect(lastCall()).toMatchObject({
+      url: '/api/duplicate-cleaner/start',
+      method: 'POST',
+      body: { plan_id: 'abc' },
+    });
+  });
+
+  it("returns a refused confirm with the backend's message and a way back", async () => {
+    jsonOnce(
+      { success: false, code: 'plan_expired', error: 'That preview is out of date.' },
+      false,
+      409,
+    );
+    await expect(confirmDuplicateClean('old')).resolves.toEqual({
+      ok: false,
+      refusal: {
+        code: 'plan_expired',
+        message: 'That preview is out of date.',
+        previewAgain: true,
+      },
+    });
+    jsonOnce({ success: false, error: 'A scan is already in progress' }, false, 409);
+    await expect(confirmDuplicateClean('p')).resolves.toEqual({
+      ok: false,
+      refusal: { code: '', message: 'A scan is already in progress', previewAgain: false },
+    });
+  });
+
+  it('pages through the full preview list', async () => {
+    const page1 = Array.from({ length: 1000 }, (_, i) => ({ path: `/m/${i}.mp3` }));
+    jsonOnce({ success: true, total: 1001, items: page1 });
+    jsonOnce({ success: true, total: 1001, items: [{ path: '/m/last.mp3' }] });
+    const items = await fetchDuplicatePlanItems('p1');
+    expect(items).toHaveLength(1001);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      '/api/duplicate-cleaner/plan?plan_id=p1&offset=0&limit=1000',
+    );
+    expect(String(fetchMock.mock.calls[1][0])).toContain('offset=1000');
   });
 });
 

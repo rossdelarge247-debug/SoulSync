@@ -321,6 +321,67 @@ describe('automationOutcome — the handler stops speaking its own dialect', () 
     ).toBe('Checked 12,000 files, no duplicates');
   });
 
+  it('says a preview-only run moved nothing, in the words of each tool', () => {
+    expect(
+      automationOutcome('run_duplicate_cleaner', {
+        status: 'completed',
+        mode: 'plan',
+        files_scanned: 900,
+        duplicates_found: 14,
+        files_deleted: 0,
+        would_remove: 14,
+        would_free_mb: 96.5,
+        plan_id: 'abc',
+      })?.text,
+    ).toBe(
+      'Preview only: 14 duplicates would move to the recycle bin (96.5 MB). Nothing moved; review it on the Tools page',
+    );
+    expect(
+      automationOutcome('clear_quarantine', {
+        status: 'completed',
+        mode: 'plan',
+        removed: '0',
+        would_remove: '3',
+      })?.text,
+    ).toBe('Preview only: would delete 3 quarantined items. Nothing deleted');
+    expect(
+      automationOutcome('library_cleanup', {
+        status: 'completed',
+        mode: 'plan',
+        would_remove_quarantine: 2,
+        would_purge_recycle: 40,
+      })?.text,
+    ).toBe(
+      'Preview only: would delete 2 quarantined items and 40 recycle-bin files. Nothing deleted',
+    );
+    expect(
+      automationOutcome('deep_scan_library', {
+        status: 'completed',
+        artists: 10,
+        tracks: 200,
+        staging_moves_mode: 'preview',
+        staging_would_move: 6,
+      })?.text,
+    ).toBe('Preview only: 6 files could move to Staging. Nothing moved');
+  });
+
+  it('reports a run that did act', () => {
+    expect(
+      automationOutcome('deep_scan_library', {
+        status: 'completed',
+        staging_moves_mode: 'moved',
+        staging_moved: 6,
+      })?.text,
+    ).toBe('Moved 6 files to Staging');
+    expect(
+      automationOutcome('library_cleanup', {
+        status: 'completed',
+        quarantine_removed: 1,
+        recycle_purged: 2,
+      })?.text,
+    ).toBe('Deleted 1 quarantined item and 2 recycle-bin files');
+  });
+
   it('reads counters the handler stringified', () => {
     // refresh_mirrored returns str(n) for both of these.
     expect(

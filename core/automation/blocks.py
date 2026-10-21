@@ -25,6 +25,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# The "act without a preview" switch on every action that moves or deletes
+# files (core.library.action_plans.automation_may_act). Off = the automation
+# runs in plan mode: it reports exactly what it would move/delete and touches
+# nothing. A default or forgotten automation therefore can't act blind.
+_ACT_WITHOUT_PREVIEW = {
+    "key": "confirm", "type": "checkbox", "default": False,
+    "label": "Act without a preview (off = only report what it would move or delete)",
+}
+
 # a pipeline's own sync mode (#1704), '' = the global setting. the builder
 # reads these labels from here, the sync page's card menu matches them
 _SYNC_MODE_OPTIONS = [
@@ -409,9 +418,13 @@ ACTIONS: list[dict] = [
          {"key": "full_refresh", "type": "checkbox", "label": "Full refresh (slower)", "default": False}
      ]},
     {"type": "run_duplicate_cleaner", "label": "Run Duplicate Cleaner", "icon": "layers",
-     "description": "Scan for and remove duplicate files", "available": True},
+     "description": "Scan for duplicate files and move the lower-quality copies to the recycle bin. "
+                    "Reports only, unless 'Act without a preview' is on.", "available": True,
+     "config_fields": [dict(_ACT_WITHOUT_PREVIEW)]},
     {"type": "clear_quarantine", "label": "Clear Quarantine", "icon": "trash",
-     "description": "Delete all quarantined files", "available": True},
+     "description": "Delete all quarantined files for good. Reports only, unless 'Act without a preview' is on.",
+     "available": True,
+     "config_fields": [dict(_ACT_WITHOUT_PREVIEW)]},
     {"type": "library_cleanup", "label": "Clear Quarantine + Empty Recycle Bin", "icon": "trash",
      "description": "One sweep for both bins: delete the download quarantine, then empty the recycle bin "
                     "(files deleted by the duplicate cleaner and repair tools). The recycle bin honours the keep "
@@ -422,6 +435,7 @@ ACTIONS: list[dict] = [
      "config_fields": [
          {"key": "quarantine", "type": "checkbox", "label": "Clear the download quarantine", "default": True},
          {"key": "recycle_bin", "type": "checkbox", "label": "Empty the recycle bin", "default": True},
+         dict(_ACT_WITHOUT_PREVIEW),
      ]},
     {"type": "cleanup_wishlist", "label": "Clean Up Wishlist", "icon": "filter",
      "description": "Remove duplicate/owned tracks from wishlist", "available": True},
@@ -453,11 +467,16 @@ ACTIONS: list[dict] = [
     {"type": "seeding_sweep", "label": "Seeding Sweep", "icon": "download",
      "description": "Radarr's seed-until-done tail for music torrents: once a completed torrent grab reaches your seed ratio or seed time goal (Settings → Downloads), remove it from the torrent client — including the client's copy of the file (your imported library copy is separate and never touched). Off until you set a goal. Pair with a half-hourly schedule.", "available": True},
     {"type": "full_cleanup", "label": "Full Cleanup", "icon": "trash",
-     "description": "Clear quarantine, download queue, import folder, and search history in one sweep", "available": True},
+     "description": "Clear quarantine, download queue, import folder, and search history in one sweep. "
+                    "The quarantine step only reports unless 'Act without a preview' is on.", "available": True,
+     "config_fields": [dict(_ACT_WITHOUT_PREVIEW)]},
     {"type": "start_database_update_hourly", "label": "Update Database (Hourly)", "icon": "database",
      "description": "The same incremental server-read on an hourly schedule, so music added to the library by hand (which Plex/Jellyfin/Navidrome index on their own) appears within the hour instead of waiting for the weekly deep scan. Pair with a 1-hour Schedule trigger.", "available": True},
     {"type": "deep_scan_library", "label": "Deep Scan Library", "icon": "search",
-     "description": "Full library comparison without losing enrichment data", "available": True},
+     "description": "Full library comparison without losing enrichment data. In SoulSync standalone mode, "
+                    "files missing from the database only move to Staging when 'Act without a preview' is on.",
+     "available": True,
+     "config_fields": [dict(_ACT_WITHOUT_PREVIEW)]},
     {"type": "run_script", "label": "Run Script", "icon": "terminal", "scope": "both",
      "description": "Execute a script from the scripts folder", "available": True},
     {"type": "complete_incomplete_albums", "label": "Complete Incomplete Albums", "icon": "disc",
@@ -598,7 +617,9 @@ ACTIONS: list[dict] = [
     {"type": "video_clean_completed_downloads", "label": "Clean Completed Downloads", "icon": "check-square", "scope": "video",
      "description": "Clear completed downloads and empty directories", "available": True},
     {"type": "video_full_cleanup", "label": "Full Cleanup", "icon": "trash", "scope": "video",
-     "description": "Clear quarantine, download queue, import folder, and search history in one sweep", "available": True},
+     "description": "Clear quarantine, download queue, import folder, and search history in one sweep. "
+                    "The quarantine step only reports unless 'Act without a preview' is on.", "available": True,
+     "config_fields": [dict(_ACT_WITHOUT_PREVIEW)]},
     # Custom (NOT a shared handler): backs up video_library.db, not the music DB.
     {"type": "video_backup_database", "label": "Backup Database", "icon": "save", "scope": "video",
      "description": "Create a timestamped backup of the video library database", "available": True},

@@ -83,6 +83,7 @@ import { safeFixablePending, visibleGroups } from '../-tools.groups';
 import { RedownloadModal } from '../../artist-detail/-ui/redownload-modal';
 import { ReidentifyModal } from '../../artist-detail/-ui/reidentify-modal';
 import { AlbumInspectionTray } from './album-inspection-tray';
+import { type BulkFixContext, useBulkFixPreview } from './bulk-fix-preview';
 import { FindingDetail } from './finding-detail';
 import { useFindingPrompts } from './finding-prompts';
 import { FindingsAlbumGrid } from './findings-album-grid';
@@ -814,10 +815,34 @@ export function FindingsSurface({
 
   // ── Group-scoped actions ───────────────────────────────────────────────────
 
+  /** A run the server accepted: say so and follow its progress. */
+  const reportBulkStart = useCallback(
+    (result: { started?: boolean; already_running?: boolean; total?: number }, label: string) => {
+      if (result.started) {
+        toast(`Fixing ${result.total} ${label.toLowerCase()} in the background…`, 'info');
+        watchBulkFixRun();
+      } else if (result.already_running) {
+        toast('A bulk fix is already running — showing its progress', 'info');
+        watchBulkFixRun();
+      }
+    },
+    [watchBulkFixRun],
+  );
+
+  // A group fix that moves or deletes files previews first and runs only the
+  // confirmed plan (the backend refuses it otherwise).
+  const bulkPreview = useBulkFixPreview((result, ctx: BulkFixContext) =>
+    reportBulkStart(result, ctx.label),
+  );
+
   /**
    * Fix a whole group. Every run is scoped to ONE finding type, which is the
    * only way `fix_action` can mean anything — 'delete' removes the file for
    * an orphan and names the track to KEEP for a duplicate.
+   *
+   * A type that moves or deletes files (`info.destructive`, the backend's own
+   * DESTRUCTIVE_FINDING_TYPES) never starts from here: once its action is
+   * chosen it previews, and the confirm dialog sends the plan id.
    */
   const fixGroup = useCallback(
     async (group: FindingGroup, info: FindingTypeInfo | undefined) => {
@@ -888,52 +913,40 @@ export function FindingsSurface({
       } else if (group.finding_type === TYPE_ORPHAN) {
         fixAction = await prompts.promptOrphan();
         if (!fixAction) return;
+        // The witness-me phrase still guards a MASS delete; the preview that
+        // follows is the confirmation for every orphan run.
         if (fixAction === 'delete' && count > GROUP_MASS_DELETE_THRESHOLD) {
           if (!(await prompts.promptWitnessMe(count))) return;
-        } else if (fixAction === 'delete') {
-          const confirmed = await window.showConfirmDialog?.({
-            title: 'Delete Orphan Files',
-            message: `Permanently delete ${count.toLocaleString()} orphan files from disk? This cannot be undone.`,
-            confirmText: 'Delete',
-            destructive: true,
-          });
-          if (!confirmed) return;
-        } else {
-          const confirmed = await window.showConfirmDialog?.({
-            title: 'Move to Staging',
-            message: `Move ${count.toLocaleString()} orphan files to the import folder? Files are NOT deleted — you can review and import them.`,
-            confirmText: 'Move All to Staging',
-            destructive: false,
-          });
-          if (!confirmed) return;
         }
-      } else {
-        // Everything else takes its default action. Destructive types still
-        // spell out what happens to files; safe ones just confirm the scale.
+      } else if (!info?.destructive) {
+        // Everything else takes its default action. Safe types confirm the
+        // scale here; destructive ones go to the preview below instead.
         const confirmed = await window.showConfirmDialog?.({
           title: `${info?.verb || 'Fix'} ${label}`,
           message: info?.confirm
             ? `Apply "${info.verb || 'Fix'}" to all ${count.toLocaleString()} ${label.toLowerCase()} findings? ${info.confirm}`
-            : info?.destructive
-              ? `Apply "${info.verb || 'Fix'}" to all ${count.toLocaleString()} ${label.toLowerCase()} findings? This moves or deletes files on disk and cannot be undone.`
-              : `Apply "${info?.verb || 'Fix'}" to all ${count.toLocaleString()} ${label.toLowerCase()} findings? This only writes metadata — no files are deleted or moved.`,
+            : `Apply "${info?.verb || 'Fix'}" to all ${count.toLocaleString()} ${label.toLowerCase()} findings? This only writes metadata — no files are deleted or moved.`,
           confirmText: info?.verb || 'Fix',
-          destructive: Boolean(info?.destructive),
+          destructive: false,
         });
         if (!confirmed) return;
       }
 
+      const options = { findingType: group.finding_type, fixAction };
+      const ctx: BulkFixContext = { findingType: group.finding_type, fixAction, label, info };
+      if (group.finding_type === TYPE_ORPHAN || info?.destructive) {
+        await bulkPreview.begin(options, ctx);
+        return;
+      }
+
       try {
-        const result = await startBulkFix({
-          findingType: group.finding_type,
-          fixAction,
-        });
-        if (result.started) {
-          toast(`Fixing ${result.total} ${label.toLowerCase()} in the background…`, 'info');
-          watchBulkFixRun();
-        } else if (result.already_running) {
-          toast('A bulk fix is already running — showing its progress', 'info');
-          watchBulkFixRun();
+        const result = await startBulkFix(options);
+        if (result.started || result.already_running) {
+          reportBulkStart(result, label);
+        } else if (result.plan_required && result.plan) {
+          // The server knows this run touches files even though the type list
+          // here said otherwise: confirm the preview it attached.
+          bulkPreview.show(result.plan, options, ctx);
         } else {
           toast(result.error || 'Bulk fix failed to start', 'error');
         }
@@ -941,7 +954,7 @@ export function FindingsSurface({
         toast('Error starting bulk fix', 'error');
       }
     },
-    [prompts, refreshAll, watchBulkFixRun],
+    [bulkPreview, prompts, refreshAll, reportBulkStart],
   );
 
   const dismissGroup = useCallback(
@@ -1011,19 +1024,15 @@ export function FindingsSurface({
     if (!confirmed) return;
     try {
       const result = await startBulkFix({ safeOnly: true });
-      if (result.started) {
-        toast(`Fixing ${result.total} findings in the background…`, 'info');
-        watchBulkFixRun();
-      } else if (result.already_running) {
-        toast('A bulk fix is already running — showing its progress', 'info');
-        watchBulkFixRun();
+      if (result.started || result.already_running) {
+        reportBulkStart(result, 'findings');
       } else {
         toast(result.error || 'Bulk fix failed to start', 'error');
       }
     } catch {
       toast('Error starting bulk fix', 'error');
     }
-  }, [safeCount, watchBulkFixRun]);
+  }, [reportBulkStart, safeCount]);
 
   /** `clearRepairFindings` — deletes rows outright, filter-scoped. */
   const clearAll = useCallback(async () => {
@@ -1547,6 +1556,8 @@ export function FindingsSurface({
       )}
 
       {prompts.promptNode}
+
+      {bulkPreview.dialog}
 
       {reidentifyingFinding ? (
         <ReidentifyModal

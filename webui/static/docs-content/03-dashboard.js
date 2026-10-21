@@ -531,29 +531,32 @@ After the scan, SoulSync updates its own database automatically via the **Auto-U
         {
             id: 'dash-tool-duplicate-cleaner',
             title: 'Duplicate Cleaner',
-            lede: 'One-click automatic duplicate removal — best copy wins, losers go to the recycle bin.',
+            lede: 'Preview the duplicates first, then confirm — best copy wins, the others go to the recycle bin.',
             body: `
-The **Duplicate Cleaner** card ("Detect and remove duplicate tracks in output folder") is fully automatic — **there are no review or keep options on the card; removal happens on click**. Card stats: **Files Scanned** / **Duplicates Found** / **Deleted** / **Space Freed**.
+The **Duplicate Cleaner** card never removes anything on the first click: it **previews** what a clean-up would move, and only moves files when you confirm that preview. Card stats: **Files Scanned** / **Duplicates Found** / **Moved to Bin** / **Space Freed**.
 
 ## How it decides
 
 It scans the Transfer/output folder and groups audio files (FLAC, MP3, M4A, AAC, Opus, OGG, WAV, APE, WMA, ALAC, AIFF, DSF, DFF) by **same directory + same filename ignoring extension**.
 
 - **Keep rule:** best format wins — FLAC/lossless tier > OPUS/OGG > M4A/AAC > MP3/WMA; same-format ties broken by **larger file size**.
-- **Losers are moved, not deleted** — into \`Transfer/.deleted/\` with relative paths preserved, recorded in the deleted-files quarantine so they can be restored and aged by your retention policy (see the 🗑 Deleted view on [Active Downloads](#dash-downloads-deep)).
+- **The others are moved, not deleted** — into \`Transfer/.deleted/\` with relative paths preserved, recorded in the deleted-files quarantine so they can be restored and aged by your retention policy (see the 🗑 Deleted view on [Active Downloads](#dash-downloads-deep)).
+- **Never the last copy:** before anything moves, the copy being kept must exist, be non-empty and readable. If it isn't, that group is left alone and reported.
 
 Protected from ever being flagged: intentionally created **lossy companions** (the lossy-copy feature's same-stem MP3/Opus/M4A next to a lossless source), the \`.deleted\` quarantine itself, and the atomic-publish staging tree (which holds half-downloaded albums — a textbook false duplicate).
 
 ## Running it
 
 ::: steps
-1. Click **Clean Duplicates** (the button shows **Starting…**, then **Stop Cleaning** while running — a second start is rejected with "A scan is already in progress").
-2. Watch the stats climb as it works.
-3. Completion toast: "Cleaning complete! N files removed, X freed".
+1. Click **Preview Duplicates**. It scans and moves nothing (**Stop Preview** cancels it).
+2. The card says **Preview ready · N files**. Click **Review preview** to see how many files and how much space, where they go, a sample of each file to move next to the copy that stays (download the full list as CSV), and when the preview stops working.
+3. Click **Move N files** to move exactly those files. The dialog then says what happened, including any file kept because its copy to keep could not be checked.
 :::
 
+A preview works for **15 minutes and once**. After that (or after a restart), confirming shows "That preview is out of date" with **Preview again**, so you always confirm what is on disk now. A **Run Duplicate Cleaner** automation also only previews unless its **Act without a preview** box is ticked; its preview shows up on this card.
+
 > [!TIP]
-> Want per-file decisions instead? The Library Maintenance findings surface offers a per-finding duplicate fix where you pick which track to keep — that's the review UI; this card is the one-click automatic version.
+> Want per-file decisions instead? The Library Maintenance findings surface offers a per-finding duplicate fix where you pick which track to keep.
 `
         },
         {
@@ -570,6 +573,7 @@ Pick from the update-type select, then click **Update Database** (the button sta
 - **Incremental Update** (default) — only new artists/albums/tracks since the last update. Fast. (In SoulSync standalone this is a no-op — the library updates at download time — so use Deep Scan or Full Refresh there.)
 - **Full Refresh** — confirm dialog: "This will clear and rebuild the database for the active server. It can take a long time." Clears and rebuilds everything from the active media server.
 - **Deep Scan** — confirm dialog: "A deep scan re-checks every track in your media server library… Adds any new tracks that were missed · Removes tracks no longer on your server · Preserves all existing metadata and enrichment data."
+  In **SoulSync standalone** mode a deep scan can also move files that aren't in the database from your music folder to Staging, so the button reads **Preview Deep Scan**: it shows what would move first, and **Move N files** moves exactly those. When the move would be more than the safety limit (25% of the library by default) or the database is empty, a warning appears and the move button stays off until you tick **I checked the list and expected this many files to move**. With "Music Library is my permanent library" on (the default) nothing ever moves; **Scan without moving** runs the scan alone.
 
 Progress shows phase text plus "N / M artists (P%)"; the card stats refresh when the run lands.
 `
