@@ -754,8 +754,14 @@ def blocks_for_scope(scope: str = "music") -> dict:
     palette without re-deriving the taxonomy in JavaScript — one source of
     truth, and the video builder gets it for free.
     """
+    from core.modules import module_for_block
+
+    # ``module``: the module switch (core/modules.py) the block belongs to, or
+    # None. The builder joins it with GET /api/modules to hide or flag blocks
+    # of a turned-off module.
     def _tagged(blocks):
-        return [{**_with_live_options(b), "category": block_category(b.get("type", ""))}
+        return [{**_with_live_options(b), "category": block_category(b.get("type", "")),
+                 "module": module_for_block(b.get("type", ""))}
                 for b in blocks if _in_scope(b, scope)]
 
     return {

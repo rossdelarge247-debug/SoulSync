@@ -631,6 +631,49 @@ class AutomationEngine:
         self.db.set_metadata(key, '1' if enabled else '0')
         return True
 
+    # --- Module switches (core/modules.py) ---
+    # An automation whose action or trigger belongs to a module that is turned
+    # off does not run: not on schedule, not on an event, not on Run now (the
+    # module's workers and API are off too). The run is recorded as 'skipped'
+    # with the module named, never as an error, and a timer-based schedule
+    # stays alive so turning the module back on resumes the normal cadence.
+
+    @staticmethod
+    def disabled_module(auto):
+        """The turned-off module this automation depends on, or None."""
+        try:
+            from core.modules import disabled_module_for_automation
+            return disabled_module_for_automation(auto)
+        except Exception as e:
+            logger.debug("module switch check failed: %s", e)
+            return None
+
+    @staticmethod
+    def module_skip_result(module):
+        try:
+            from core.modules import display_name
+            label = display_name(module)
+        except Exception:
+            label = module
+        return {'status': 'skipped', 'reason': f'the {label} module is turned off',
+                'module': module}
+
+    def _record_event_module_skip(self, auto, automation_id, module, progress_inited=False):
+        """Record an event automation dropped because its module is off."""
+        result = self.module_skip_result(module)
+        logger.info(f"Event automation '{auto.get('name')}' skipped — {result['reason']}")
+        if progress_inited and self._progress_finish_fn:
+            try:
+                self._progress_finish_fn(automation_id, result)
+            except Exception as e:
+                logger.debug("event progress finish (module off): %s", e)
+        self.db.update_automation_run(automation_id, error=None, last_result=json.dumps(result))
+        if self._history_record_fn:
+            try:
+                self._history_record_fn(automation_id, result)
+            except Exception as e:
+                logger.debug("history record failed: %s", e)
+
     # --- Action Handler Registration ---
 
     def register_action_handler(self, action_type, handler_fn, guard_fn=None):
@@ -1083,6 +1126,10 @@ class AutomationEngine:
             for aid in self._event_automations.get(event_type, []):
                 auto = self.db.get_automation(aid)
                 if auto and auto.get('enabled') and auto.get('action_type') == action_type:
+                    # A turned-off module's effects don't fire through the
+                    # direct-effect paths either.
+                    if self.disabled_module(auto):
+                        return False
                     # Direct-effect callers honor the per-side master pause too —
                     # otherwise a paused side's effects would still fire through
                     # the code paths that never route via _run_event_automation.
@@ -1221,6 +1268,11 @@ class AutomationEngine:
             logger.info(f"Event automation '{auto.get('name')}' skipped — {side} automations are paused")
             return
 
+        module = self.disabled_module(auto)
+        if module:
+            self._record_event_module_skip(auto, automation_id, module)
+            return
+
         action_type = auto.get('action_type')
 
         # Check for action delay
@@ -1280,6 +1332,13 @@ class AutomationEngine:
                         phase=f'Delay: {mins}m {secs}s remaining',
                         progress=int((delay_seconds - remaining) / delay_seconds * 10))
                 time.sleep(1)
+
+            # The module may have been turned off during the wait.
+            module = self.disabled_module(auto)
+            if module:
+                self._record_event_module_skip(auto, automation_id, module,
+                                               progress_inited=_delay_already_inited)
+                return
 
         # notify_only = no action, just send notification with event data
         if action_type == 'notify_only':
@@ -1361,6 +1420,15 @@ class AutomationEngine:
         if not auto or (not auto.get('enabled') and not skip_delay):
             # A disabled automation never runs on schedule, but an explicit
             # manual Run Now (skip_delay=True) always executes it.
+            return
+
+        # A turned-off module outranks Run now as well: its workers and API
+        # are off, so its actions have nothing to run against.
+        module = self.disabled_module(auto)
+        if module:
+            result = self.module_skip_result(module)
+            logger.info(f"Automation '{auto.get('name')}' skipped — {result['reason']}")
+            self._finish_run(auto, automation_id, result, error=None)
             return
 
         # Global per-side pause: a scheduled slot is skipped but the schedule
@@ -1458,6 +1526,19 @@ class AutomationEngine:
                         phase=f'Delay: {mins}m {secs}s remaining',
                         progress=int((delay_seconds - remaining) / delay_seconds * 10))
                 time.sleep(1)
+
+            # The module may have been turned off during the wait.
+            module = self.disabled_module(auto)
+            if module:
+                result = self.module_skip_result(module)
+                logger.info(f"Automation '{auto.get('name')}' abandoned after its delay — {result['reason']}")
+                if _delay_already_inited and self._progress_finish_fn:
+                    try:
+                        self._progress_finish_fn(automation_id, result)
+                    except Exception as e:
+                        logger.debug("scheduled progress finish (module off): %s", e)
+                self._finish_run(auto, automation_id, result, error=None)
+                return
 
         # Check guard (is the operation already running?)
         guard_fn = handler_info.get('guard')
