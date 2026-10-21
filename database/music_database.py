@@ -1675,6 +1675,29 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_aih_status ON auto_import_history (status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_aih_folder_hash ON auto_import_history (folder_hash)")
 
+            # Preview-then-confirm outcomes (core/library/action_plans.py keeps
+            # the plans themselves in memory). One row when a preview expired
+            # unused or was confirmed, so the Activity feed can say so after the
+            # plan is gone. resolved_at closes an expired preview: previewed
+            # again, confirmed, or dismissed. Written by core/activity/safety_log.py.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS action_plan_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    plan_id TEXT NOT NULL,
+                    tool TEXT NOT NULL,
+                    event TEXT NOT NULL,          -- 'expired' | 'confirmed'
+                    total INTEGER DEFAULT 0,
+                    total_bytes INTEGER DEFAULT 0,
+                    counts_json TEXT,
+                    profile_id INTEGER,           -- who previewed; NULL = an automation
+                    occurred_at REAL NOT NULL,    -- unix seconds
+                    resolved_at REAL,
+                    resolution TEXT,              -- 'previewed_again' | 'confirmed' | 'dismissed'
+                    UNIQUE(plan_id, event)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ape_occurred ON action_plan_events (occurred_at)")
+
             # Re-identify hints (#889) — a user-designated, single-use answer to "which
             # release does this track belong to". Written when the user picks a release in
             # the Re-identify modal and the file is staged for auto-import; the import flow
