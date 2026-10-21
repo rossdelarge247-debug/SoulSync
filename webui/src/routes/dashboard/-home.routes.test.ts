@@ -20,13 +20,13 @@ afterEach(() => {
 });
 
 describe('the route map', () => {
-  it('falls back to Wishlist and Downloads until Wanted and Activity exist', () => {
+  it('falls back to Wishlist until the Wanted page exists', () => {
     expect(resolveHomeRoute('wanted')).toMatchObject({ href: '/wishlist', pageId: 'wishlist' });
-    expect(resolveHomeRoute('activity')).toMatchObject({
-      href: '/active-downloads',
-      pageId: 'active-downloads',
-    });
     expect(resolveHomeRoute('followed')).toMatchObject({ href: '/watchlist' });
+  });
+
+  it('sends activity to the Activity page', () => {
+    expect(resolveHomeRoute('activity')).toMatchObject({ href: '/activity', pageId: 'activity' });
   });
 
   it('uses /wanted and /activity once the shell has them', () => {

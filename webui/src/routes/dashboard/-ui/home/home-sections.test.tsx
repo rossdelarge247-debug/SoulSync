@@ -410,16 +410,16 @@ describe('Latest', () => {
     expect(within(rows[0]).queryByRole('link')).toBeNull();
   });
 
-  it('"See all activity" goes to Downloads until the Activity page exists', async () => {
+  it('"See all activity" goes to the Activity page', async () => {
     server.use(
       http.get('/api/activity', () => HttpResponse.json({ success: true, items: LATEST })),
     );
     renderWith(<Latest />);
     await screen.findAllByTestId('home-latest-row');
     const all = screen.getByRole('link', { name: /See all activity/ });
-    expect(all).toHaveAttribute('href', '/active-downloads');
+    expect(all).toHaveAttribute('href', '/activity');
     fireEvent.click(all);
-    expect(navigateToPage).toHaveBeenCalledWith('active-downloads');
+    expect(navigateToPage).toHaveBeenCalledWith('activity');
   });
 
   it('says "Nothing yet" with no activity', async () => {

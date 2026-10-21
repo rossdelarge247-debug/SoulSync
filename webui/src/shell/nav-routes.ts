@@ -9,15 +9,15 @@
  */
 
 /**
- * Where Wanted and Activity point until their own pages land (/wanted and
- * /activity are being built on sibling branches). Changing a target is one
+ * Where Wanted and Activity point. Activity has its page; Wanted points at
+ * the Wishlist until /wanted lands (a sibling branch). Changing a target is one
  * line here: nav-shell.ts writes these onto the rows, the top bar's running
  * link and the phone Activity button at boot. Pages that used to own the
  * row stay mapped to it in PAGE_ROWS below, so they keep it lit meanwhile.
  */
 export const NAV_TARGETS = {
   wanted: { pageId: 'wishlist', path: '/wishlist' },
-  activity: { pageId: 'active-downloads', path: '/active-downloads' },
+  activity: { pageId: 'activity', path: '/activity' },
 } as const;
 
 export type NavTargetKey = keyof typeof NAV_TARGETS;
