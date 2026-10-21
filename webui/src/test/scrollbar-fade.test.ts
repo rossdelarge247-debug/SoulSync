@@ -70,7 +70,7 @@ describe('fading scrollbar — the style.css baseline it builds on', () => {
 
 describe('fading scrollbar — wiring', () => {
   it('index.html loads scrollbar-fade.js as a static script tag', () => {
-    expect(HTML).toMatch(/<script src="\{\{ url_for\('static', filename='scrollbar-fade\.js',/);
+    expect(HTML).toMatch(/<script src="\{\{ url_for\('static', filename='scrollbar-fade\.js'[,)]/);
   });
 
   it('the marker listener is capture-phase and passive', () => {
