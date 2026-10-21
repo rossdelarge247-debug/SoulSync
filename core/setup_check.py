@@ -75,9 +75,11 @@ SLSKD_LOGIN_TIMEOUT_S = 8.0
 DEFAULT_DEADLINE_S = 25.0
 LOCAL_DEADLINE_S = 6.0
 
-# Where each folder is changed in the UI, for the fix text.
+# Where each setting is changed in the UI, for the fix text. These follow what
+# the Settings page shows: tab → section → sub-tab or tile.
 _MUSIC_FOLDERS_SETTING = "Settings → Library → Folders → Music"
-_CONNECTIONS_SETTING = "Settings → Connections"
+_SLSKD_SETTING = "Settings → Sources → Download Sources → Soulseek"
+_MEDIA_SERVER_SETTING = "Settings → Connections → Server Connections"
 
 _CONTAINER_ROOT = "/"
 _CIFS_TYPES = frozenset({"cifs", "smb3", "smbfs"})
@@ -870,7 +872,7 @@ def _slskd_headers(ctx: SetupCheckContext) -> Dict[str, str]:
 def _slskd_unreachable(ctx: SetupCheckContext, url: str, res: HttpResult) -> Tuple[str, str]:
     if res.kind == "bad_url":
         return (f"The slskd address '{url}' isn't a valid web address.",
-                f"Use the full address including http://, e.g. http://slskd:5030, in {_CONNECTIONS_SETTING}.")
+                f"Use the full address including http://, e.g. http://slskd:5030, in {_SLSKD_SETTING}.")
     if res.kind == "timeout":
         return (f"slskd at {url} didn't answer within {HTTP_TIMEOUT[1]:g} seconds.",
                 "Check that slskd is running and not overloaded, and that the address and port are right.")
@@ -926,7 +928,7 @@ def check_slskd_connection(ctx: SetupCheckContext) -> Dict[str, Any]:
     if not raw:
         if used:
             return make_result(cid, title, ERROR, "Soulseek is one of your download sources, but no slskd address is set.",
-                               f"Enter slskd's address and API key in {_CONNECTIONS_SETTING} (e.g. http://slskd:5030 when "
+                               f"Enter slskd's address and API key in {_SLSKD_SETTING} (e.g. http://slskd:5030 when "
                                "both run in the same docker-compose file).", cat)
         return make_result(cid, title, SKIPPED, "Soulseek isn't one of your download sources, so there's no slskd connection to check.",
                            category=cat)
@@ -946,7 +948,7 @@ def check_slskd_connection(ctx: SetupCheckContext) -> Dict[str, Any]:
         else:
             detail = f"slskd is running at {url} but rejected SoulSync's API key."
         return make_result(cid, title, bad, detail + note,
-                           f"Make sure the API key in {_CONNECTIONS_SETTING} matches one configured in slskd (the "
+                           f"Make sure the API key in {_SLSKD_SETTING} matches one configured in slskd (the "
                            "SLSKD_API_KEY setting or the api_keys section of slskd.yml), then save.", cat, **data)
     if res.status != 200:
         return make_result(cid, title, bad,
@@ -1263,7 +1265,7 @@ def check_media_server(ctx: SetupCheckContext) -> List[Dict[str, Any]]:
     cfg = {f.key: ctx.cfg(f"{desc.config_section}.{f.key}", f.default) for f in desc.fields}
     if not desc.is_configured(cfg):
         msg = "No media server is connected."
-        fix = f"If you use Plex, Jellyfin or Navidrome, connect it in {_CONNECTIONS_SETTING} so SoulSync can refresh its library after downloads."
+        fix = f"If you use Plex, Jellyfin or Navidrome, connect it in {_MEDIA_SERVER_SETTING} so SoulSync can refresh its library after downloads."
         return [make_result(conn_id, conn_title, SKIPPED, msg, fix, cat),
                 make_result(lib_id, lib_title, SKIPPED, msg, category=cat)]
 
@@ -1275,19 +1277,20 @@ def check_media_server(ctx: SetupCheckContext) -> List[Dict[str, Any]]:
         if kind == "auth":
             key_name = {"plex": "X-Plex-Token", "jellyfin": "API key", "navidrome": "username and password"}.get(desc.name, "credentials")
             conn = make_result(conn_id, conn_title, ERROR, f"{label} at {url} is running but {why}.",
-                               f"Re-enter the {key_name} in {_CONNECTIONS_SETTING} and use Test Connection.", cat, **data)
+                               f"Re-enter the {key_name} in {_MEDIA_SERVER_SETTING} and press "
+                               f"{'Connect' if desc.name == 'plex' else 'Test'}.", cat, **data)
         elif kind == "bad_url":
             conn = make_result(conn_id, conn_title, ERROR, f"The {label} address '{url}' isn't a valid web address.",
-                               f"Use the full address including http://, in {_CONNECTIONS_SETTING}.", cat, **data)
+                               f"Use the full address including http://, in {_MEDIA_SERVER_SETTING}.", cat, **data)
         elif kind in ("timeout", "unreachable", "ssl"):
             what = (f"didn't answer within {HTTP_TIMEOUT[1]:g} seconds" if kind == "timeout" else "can't be reached")
-            fix = f"Check that {label} is running and that the address in {_CONNECTIONS_SETTING} is right."
+            fix = f"Check that {label} is running and that the address in {_MEDIA_SERVER_SETTING} is right."
             if ctx.in_container:
                 fix += " Inside a container 'localhost' means the SoulSync container itself; use the server's LAN IP or its container name."
             conn = make_result(conn_id, conn_title, ERROR, f"{label} at {url} {what}.", fix, cat, **data)
         else:
             conn = make_result(conn_id, conn_title, ERROR, f"Something answered at {url}, but not like {label} does ({why}).",
-                               f"Check the {label} address in {_CONNECTIONS_SETTING}.", cat, **data)
+                               f"Check the {label} address in {_MEDIA_SERVER_SETTING}.", cat, **data)
         return [conn, make_result(lib_id, lib_title, SKIPPED, f"Couldn't check, because SoulSync can't talk to {label}.",
                                   category=cat)]
 

@@ -465,6 +465,8 @@ def test_slskd_not_used_and_not_set_is_skipped():
 def test_slskd_used_but_no_url():
     r = sc.check_slskd_connection(make_ctx({"download_source.mode": "soulseek"}))
     assert r["status"] == sc.ERROR and "no slskd address" in r["detail"]
+    # slskd's address and key live on the Sources tab, not Connections
+    assert "Settings → Sources → Download Sources → Soulseek" in r["fix"]
 
 
 def test_hybrid_with_soulseek_counts_as_used():
@@ -490,6 +492,7 @@ def test_slskd_not_logged_in_to_soulseek():
 def test_slskd_wrong_key():
     r = sc.check_slskd_connection(make_ctx(SLSKD, http=FakeHttp({"/api/v0/session": FakeResp(401)})))
     assert r["status"] == sc.ERROR and "rejected" in r["detail"] and "API key" in r["fix"]
+    assert "Settings → Sources → Download Sources → Soulseek" in r["fix"]
 
 
 def test_slskd_missing_key():
@@ -715,6 +718,8 @@ def test_plex_bad_token():
     conn, lib = sc.check_media_server(make_ctx(PLEX, http=http))
     assert conn["status"] == sc.ERROR and "rejected the token" in conn["detail"]
     assert lib["status"] == sc.SKIPPED
+    # Plex's button on Settings → Connections → Server Connections says Connect
+    assert "Settings → Connections → Server Connections" in conn["fix"] and "press Connect" in conn["fix"]
 
 
 def test_plex_timeout():
