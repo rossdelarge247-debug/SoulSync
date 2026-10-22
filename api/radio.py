@@ -113,11 +113,23 @@ def default_fingerprint_available():
 
 
 def start_watcher() -> None:
-    watcher.start()
+    """Module on, or boot: allow the watcher, and start it only if a station
+    is already watched (auto-add, or a radio automation's favourites)."""
+    watcher.enable()
+    watcher.ensure()
+
+
+def _wake_watcher() -> None:
+    try:
+        watcher.ensure()
+    except Exception as exc:  # noqa: BLE001 - never fail a request over the watcher
+        logger.debug("radio watcher didn't start: %s", exc)
 
 
 def stop_watcher() -> None:
+    """Module off: stop the watcher and end every listening session."""
     watcher.stop()
+    hub.reset()
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -221,6 +233,7 @@ def _my_session(pid: int) -> Optional[Dict[str, Any]]:
 
 @bp.route("/api/radio/stations", methods=["GET"])
 def list_stations():
+    _wake_watcher()  # picks up a radio automation made since boot
     pid = _pid()
     if pid is None:
         return _need_profile()
@@ -289,6 +302,7 @@ def favourite(station_id):
     if station is None:
         return _err(404, "not_found", "That station isn't in the list, the directory or your links.")
     store.add_favourite(db, pid, station.id, _snapshot(station) if station.source == "directory" else None)
+    _wake_watcher()
     return jsonify({"success": True, "favourite": True})
 
 
@@ -347,6 +361,7 @@ def play():
         return jsonify({"success": False, "error": "busy",
                         "message": "Two stations are already playing through this server, which is as many as it "
                                    "relays at once. Try again when one stops."}), 409
+    _wake_watcher()
     play_url = stream.url if direct else f"/api/radio/relay/{sess.id}"
     return jsonify({"success": True, "play_url": play_url, "mode": mode, "session_id": sess.id,
                     "station": _public(station, pid), "stream": {"id": stream.id, "label": stream.label(),
@@ -541,6 +556,8 @@ def auto_add(station_id):
                 return _err(409, "identification_off", "Track identification is off in Settings → Radio.")
         store.set_auto_add(_db(), pid, station.id, station.name, body["enabled"],
                            _snapshot(station) if station.source == "directory" else None)
+        if body["enabled"]:
+            _wake_watcher()
     return jsonify({"success": True, **_auto_add_numbers(pid, station)})
 
 

@@ -295,3 +295,40 @@ def test_watched_stations_need_auto_add_or_a_radio_automation(app, db, monkeypat
     # a station without a feed is never polled (nothing to read without audio)
     turn_on(db, st=dublab())
     assert "dublab" not in [s.id for s in hub.stations_to_poll()]
+
+
+# ── the watcher runs only while it has work ─────────────────────────────────
+
+def test_the_watcher_only_starts_when_a_station_needs_watching(app, db, monkeypatch):
+    from core.internet_radio import watcher as watcher_mod
+
+    w = watcher_mod.Watcher(hub)
+    started = []
+    monkeypatch.setattr(w, "_start_locked", lambda: started.append(1))
+    assert hub.has_work() is False
+    assert w.ensure() is False and started == []
+    turn_on(db, st=builtin_station("kexp"))
+    assert hub.has_work() is True
+    assert w.ensure() is True and started == [1]
+    # turned off (module off): nothing restarts it until it's enabled again
+    w.stop()
+    assert w.ensure() is False and started == [1]
+    w.enable()
+    assert w.ensure() is True and started == [1, 1]
+
+
+def test_a_listening_session_is_work(app):
+    hub.start_session(1, somafm(), somafm().streams[0], "direct")
+    assert hub.has_work() is True
+
+
+def test_the_watcher_stops_itself_after_idling(app, monkeypatch):
+    from core.internet_radio import watcher as watcher_mod
+
+    monkeypatch.setattr(watcher_mod, "TICK_SECONDS", 0)
+    monkeypatch.setattr(watcher_mod, "IDLE_STOP_SECONDS", 0)
+    w = watcher_mod.Watcher(hub)
+    monkeypatch.setattr(w, "tick", lambda: None)
+    w.start()
+    w._thread.join(timeout=5)
+    assert not w.running() and w._thread is None

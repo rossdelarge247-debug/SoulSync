@@ -12,7 +12,14 @@ stations that publish a feed. A station without a feed is identified only
 from its stream (titles and fingerprints), which means only while someone is
 listening through the relay.
 
-Once a day it drops Heard rows older than Settings → Radio's days.
+It only runs while it has work. :meth:`Watcher.ensure` starts it when
+something needs it (a station is played, auto-add is turned on, a favourite
+is added, the module is turned on, or at boot when a station is already
+watched), and it stops itself once it has had nothing to do for
+:data:`IDLE_STOP_SECONDS`.
+
+While running it drops Heard rows older than Settings → Radio's days, at
+most every :data:`PRUNE_EVERY` seconds.
 """
 
 from __future__ import annotations
@@ -30,6 +37,8 @@ logger = get_logger("internet_radio.watcher")
 
 TICK_SECONDS = 5
 PRUNE_EVERY = 6 * 3600
+#: the watcher stops after this long with nothing to watch
+IDLE_STOP_SECONDS = 60
 
 
 class Watcher:
@@ -38,11 +47,35 @@ class Watcher:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._last_prune = 0.0
+        self._lock = threading.Lock()
+        self._enabled = True
 
     def running(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
 
     def start(self) -> None:
+        """Start the thread now, whether or not there's work yet."""
+        with self._lock:
+            self._enabled = True
+            self._start_locked()
+
+    def ensure(self) -> bool:
+        """Start the thread if something needs it; True when it's running."""
+        with self._lock:
+            if not self._enabled:
+                return False
+            if self.running():
+                return True
+            try:
+                needed = self.hub.has_work()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("radio watcher work check failed: %s", exc)
+                needed = False
+            if needed:
+                self._start_locked()
+            return needed
+
+    def _start_locked(self) -> None:
         if self.running():
             return
         self._stop.clear()
@@ -50,15 +83,41 @@ class Watcher:
         self._thread.start()
 
     def stop(self) -> None:
-        self._stop.set()
-        self.hub.reset()
+        """Stop for good (the module was turned off); ensure() won't restart it."""
+        with self._lock:
+            self._enabled = False
+            self._stop.set()
+
+    def enable(self) -> None:
+        """Allow ensure() again (the module was turned back on)."""
+        with self._lock:
+            self._enabled = True
 
     def _loop(self) -> None:
+        idle_since: Optional[float] = None
         while not self._stop.is_set():
             try:
                 self.tick()
             except Exception:  # noqa: BLE001 - the watcher never dies of one bad tick
                 logger.exception("radio watcher tick failed")
+            try:
+                busy = self.hub.has_work()
+            except Exception:  # noqa: BLE001
+                busy = True
+            if busy:
+                idle_since = None
+            else:
+                now = time.monotonic()
+                idle_since = idle_since if idle_since is not None else now
+                if now - idle_since >= IDLE_STOP_SECONDS:
+                    with self._lock:
+                        # re-check under the lock so a concurrent ensure()
+                        # either sees this thread running or starts a new one
+                        if not self.hub.has_work():
+                            self._thread = None
+                            logger.debug("radio watcher stopping: nothing to watch")
+                            return
+                    idle_since = None
             self._stop.wait(TICK_SECONDS)
 
     def tick(self) -> None:
@@ -89,4 +148,4 @@ class Watcher:
                 logger.debug("pruning Heard failed: %s", exc)
 
 
-__all__ = ["Watcher", "TICK_SECONDS"]
+__all__ = ["Watcher", "TICK_SECONDS", "IDLE_STOP_SECONDS"]

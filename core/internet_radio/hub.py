@@ -317,6 +317,17 @@ class RadioHub:
             logger.debug("watched stations unreadable: %s", exc)
             return []
 
+    def has_work(self) -> bool:
+        """True while the watcher has something to do: a listening session,
+        or a station watched by feed alone (auto-add on, or a favourite of a
+        profile with a radio automation)."""
+        if not self.deps:
+            return False
+        with self._lock:
+            if any(not s.ended for s in self._sessions.values()):
+                return True
+        return bool(self._watched_station_ids())
+
     def stations_to_poll(self) -> List[Station]:
         """Every station with a now-playing feed that someone is listening
         to, that has auto-add on, or that a radio automation watches."""
