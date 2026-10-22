@@ -593,7 +593,7 @@ Deleting a book from the library doesn't nuke it — with **Recycle deleted audi
 
 The **Bin** button in the browse header opens the **Removed & refused** review modal with two panes:
 
-- **🗑 Recycle bin (N)** — restore or purge individual books, or empty the whole bin (purge/empty erase immediately).
+- **🗑 Recycle bin (N)** — restore or purge individual books, or empty the whole bin. Purging is permanent, so it previews first: how many books, their size, the oldest and newest date and a sample, then **Delete N books permanently** erases exactly those. A book restored or changed since the preview is kept.
 - **⛔ Blocklist (N)** — releases you've refused.
 
 ## Blocklist
@@ -753,8 +753,10 @@ Base path: \`/api/audiobooks\`.
 | DELETE | \`/library/<asin>\` | Delete book → recycle bin; removes the library record |
 | GET | \`/library/recycle\` | Bin entries + keep_days |
 | POST | \`/library/recycle/<name>\` | Restore one book |
-| DELETE | \`/library/recycle/<name>\` | Purge one book |
-| DELETE | \`/library/recycle\` | Empty the bin |
+| POST | \`/library/recycle/purge-preview\` | What erasing would delete: \`{all: true}\` or \`{names: [...]}\` → a plan (\`plan_id\`, count, size, dates, sample). Erases nothing |
+| POST | \`/library/recycle/purge\` | Erase for good exactly a fresh preview's books: \`{plan_id}\`. Without a usable plan: \`409\` (\`plan_required\`, \`plan_unknown\`, \`plan_expired\`, \`plan_wrong_tool\`) |
+| DELETE | \`/library/recycle/<name>\` | Same as purge: needs the preview's \`{plan_id}\` |
+| DELETE | \`/library/recycle\` | Same as purge: needs the preview's \`{plan_id}\` |
 | GET | \`/blocklist\` | Blocked releases |
 | POST | \`/blocklist\` | Block one release (never the book) |
 | DELETE | \`/blocklist/<key>\` | Unblock |

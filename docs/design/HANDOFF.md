@@ -45,7 +45,58 @@ Everything in the handoff package is built and in `integration`. These are the q
 **Phone (all pages)**
 25. The floating notification, help and activity buttons now hide while a dialog is open; elsewhere they sit above the tab bar. Should they move into the top bar on phones?
 
+**The last preview gaps (no boards)**
+26. Video repair's title stays "Fix 4 findings?" when some deletes are permanent (the lead starts "This can't be undone."). Should it say "Permanently delete …"?
+27. The "Keep lossy output only" turn-on confirm: the shared dialog with three points and no file list. Draw it?
+28. The audiobook bin's confirm opens over the Removed & refused modal. Fine, or should the modal step aside?
+
 ## Log
+
+### 2026-10-22: Dev, the last preview gaps closed
+
+Built on `ux/safe-actions-final`. Everything that moves or deletes files now shows exactly what it will do and waits for a confirm. It reuses what was there: the plans in `core/library/action_plans.py` (plan id, 15 minutes, single use, 409 `plan_required` / `plan_unknown` / `plan_expired` / `plan_wrong_tool`), `SafeActionDialog` with the danger tone, and the expired state. The routes are in `CONTRACTS.md`.
+
+**What's covered now**
+
+- **Video recycle bin** (Downloads → Video → Review): a row's Delete and Empty bin preview first. "Permanently delete 3 files (30.2 GB)?", "This can't be undone.", tiles Files, Size, Oldest and Newest, each file with where it came from, and the danger "Delete 3 files permanently". An entry restored or replaced since the preview is kept.
+- **Audiobook recycle bin** (Audiobooks → Bin → Recycle bin): Delete and "Empty the bin and free the space" do the same, counted in books: "Permanently delete 2 books (1.0 GB)?", each book with all its files. The old `DELETE` routes now need the preview's plan id too. The dialog opens over the Removed & refused modal; Escape closes the dialog, not the modal.
+- **Video repair, Approve Selected** (video Tools → Library Maintenance → Findings): previews when the selection includes Watched Cleanup (moves a movie's files to the recycle bin; deletes them for good when recycling is off or the file is outside every library folder) or Naming Conformance (renames). The dialog has a "What happens" column per finding, tiles Findings / Move or delete a file / Deleted for good, the danger button when files leave the library, and "This can't be undone." first when a delete is permanent. A selection that only touches the wishlist, the library record or the download queue runs straight away, as the music side's Fix selected does. The bulk route refuses a file-touching selection without a plan (409 `plan_required`, the preview attached).
+- **Lossy Converter, "Keep lossy output only"** (the quality profile option that deletes the lossless original after converting):
+    - Convert previews whenever a finding's profile deletes the original, whether it's a group's Convert, Fix selected, an album's Resolve all or a single finding's Convert: "Convert 8 lossless files and delete the originals?", tiles Files to convert / Originals deleted / Space freed ("About 142 MB": the originals' size less the copies', estimated from each track's duration and the bitrate; "Up to …" when a duration is missing), and per file "Converts to MP3-320, then moves the lossless original to the recycle bin". With recycling off it says "permanently delete" and leads with "This can't be undone." Converting while keeping the originals runs straight away.
+    - A confirmed plan deletes an original only where its preview said it would. A bulk run without a plan, including the automation path that calls bulk fixes directly, converts and keeps every original. Even with a plan, the original goes only once its copy is checked (below).
+    - "Fix all safe" leaves out Converts that delete originals, and the Tools catalogue marks the Lossy Converter as moving files while any profile keeps lossy only, so the page previews it instead of saying "only writes metadata".
+    - **Turning the option on asks first.** Ticking it in Settings → Quality opens the shared dialog: "Delete the lossless files after converting?", what happens to new downloads and to files already in the library, and the danger "Delete originals after converting". Nothing saves until it's confirmed; Cancel leaves it off. Turning it off needs no confirm.
+
+**The Lossy Converter's scheduled and automation runs (decision)**
+
+- The Lossy Converter job, whether on its Tools interval, run by hand or from a "Run a maintenance job" automation (Run now included), only scans and raises findings. It never converts or deletes, so there is nothing to preview there. Converting happens from Convert, which previews, as above. This follows the Automations precedent: what moves files goes through the preview when a person runs it.
+- The one unattended path that deletes originals is the post-download conversion: every import while "Keep lossy output only" is on. It stays automatic, or the option couldn't work for new downloads. The safest behaviour that keeps it usable:
+    - The original is deleted only after a successful, verified conversion: ffmpeg exits 0, and the copy exists, isn't empty, reads as audio and plays as long as the original (within 2 seconds or 2%). A copy that fails the check keeps its original, and the log says why. (Before, a zero exit was enough.)
+    - Each original deleted is written down in Activity (Safety, admins): "Lossy copy: lossless original deleted", with the file name, its size and the copy kept in its place.
+    - It's deleted for good, not moved to the recycle bin: a lossy-only library would otherwise fill the bin with every lossless download, and the music bin keeps files forever unless told otherwise. The Settings help under the option and the turn-on confirm both say so.
+- The Lossy Converter's own Convert, which a person confirms, uses the same check before it deletes, and sends originals to the recycle bin as before (deleted for good only when recycling is off, and the preview says so).
+
+**Still without a preview, and why**
+
+- The recycle bins' age-based auto-delete (music, video, audiobooks): a setting the user chose, left as it is.
+- Single-finding fixes, one click on one named finding, on both sides (a lone Clean Up included): the music side's rule, unchanged, and the server's single-fix routes are as they were. The one exception is the Lossy Converter's Convert, whose button doesn't say it deletes anything: the Tools page previews it as a selection of one when its profile deletes the original.
+- The post-download lossy conversion: unattended by design, so it is checked and recorded instead (above).
+- Upgrade replaces, YouTube retention and dismissed imports still send video files to the video bin, where they can be restored.
+
+**Also changed**
+
+- Activity: the three new tools have their own words ("Empty video recycle bin", "Empty audiobook recycle bin", "Video repair fixes"), and their rows open their own pages.
+- In-app help: Video Library Maintenance (approving several at once previews first), the video and audiobook bin API tables, the Lossy Converter's row, Settings → Lossy copy, and the job help for the Lossy Converter, Watched Cleanup (which no longer says "never a hard delete": with recycling off it is one) and Naming Conformance.
+- `useAccessibleModal`: a dialog opened over an overlay keeps its own Escape and Tab.
+- `SafeActionDialog`'s lead is a `div`, so it can carry a list (the turn-on confirm's three points).
+
+**Questions for Design**
+
+1. Video repair keeps the title "Fix 4 findings?" when some fixes delete for good; the lead starts "This can't be undone." Should the title say "Permanently delete …" whenever any delete is permanent?
+2. The turn-on confirm is the shared dialog with three points and no list of files, because nothing is deleted at that moment. Draw it, or is this right?
+3. The audiobook bin's dialog opens over the Removed & refused modal. Fine, or should the modal step aside?
+
+Screenshots (1440×900 and 390×844: the video bin, the video bin's expired state, the audiobook bin, video repair with and without recycling, the Lossy Converter with and without recycling, and the turn-on confirm) are in the session scratchpad. They aren't in the repo.
 
 ### 2026-10-22: Dev, Search and the Mirror and Quality dialogs
 
