@@ -127,9 +127,9 @@
 
 .text {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 2px;
-  flex-grow: 1;
   min-width: 0;
 }
 
@@ -167,8 +167,9 @@
     flex-wrap: wrap;
   }
 
+  /* the tick and the words keep their row; the action goes under the words */
   .action {
-    width: calc(100% - 44px);
+    width: calc(100% - 32px);
     margin-left: 32px;
   }
 }
