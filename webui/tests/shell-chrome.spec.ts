@@ -9,7 +9,10 @@ import { expect, test, type Page } from '@playwright/test';
 
 // The global search bar and its aura were removed from the shell (they
 // duplicated the Search page), so the chrome they left behind is the bell and
-// the helper FAB. The suppression contracts below are unchanged.
+// the helper FAB. The suppression contracts below are unchanged. Phones (the
+// app's 768px breakpoint) have no floating chrome at all (docs/design
+// HANDOFF 25): the top bar's Activity icon opens the notifications and a page
+// header's "?" the help menu, so there the chrome stays hidden throughout.
 const chromeSelectors = ['#notif-bell-btn', '#helper-float-btn'];
 
 const viewports = [
@@ -82,8 +85,11 @@ async function expectChromeHidden(page: Page) {
 }
 
 async function expectChromeVisible(page: Page) {
+  const phone = (page.viewportSize()?.width ?? 1440) <= 768;
   for (const selector of chromeSelectors) {
-    await expect(page.locator(selector), `${selector} should be back`).toBeVisible();
+    if (phone)
+      await expect(page.locator(selector), `${selector} has no place on phones`).toBeHidden();
+    else await expect(page.locator(selector), `${selector} should be back`).toBeVisible();
   }
 }
 
@@ -108,20 +114,28 @@ for (const viewport of viewports) {
       await expect(page.locator('#gsearch-input')).toHaveCount(0);
     });
 
+    const phone = viewport.width <= 768;
+
     test('notification bell toggles its panel', async ({ page }) => {
-      await page.locator('#notif-bell-btn').click();
+      // phones: the top bar's Activity icon, and Activity heads the panel
+      const opener = page.locator(phone ? '#ss-phone-activity' : '#notif-bell-btn');
+      await opener.click();
       await expect(page.locator('#notif-panel')).toBeVisible();
       await expect(page.locator('#notif-panel')).toContainText('Notifications');
+      if (phone)
+        await expect(page.locator('#notif-panel .ss-notif-links')).toContainText('Activity');
 
-      await page.locator('#notif-bell-btn').click();
+      await opener.click();
       await expect(page.locator('#notif-panel')).toHaveCount(0);
     });
 
     test('helper button toggles its menu', async ({ page }) => {
-      await page.locator('#helper-float-btn').click();
+      // phones: the "?" in Home's header
+      const opener = page.locator(phone ? '[data-page-help="dashboard"]' : '#helper-float-btn');
+      await opener.click();
       await expect(page.locator('.helper-menu')).toBeVisible();
 
-      await page.locator('#helper-float-btn').click();
+      await opener.click();
       await expect(page.locator('.helper-menu')).toHaveCount(0);
     });
 
