@@ -187,17 +187,38 @@ def warm_dsp() -> None:
         logger.debug("DSP warmup skipped", exc_info=True)
 
 
-def compute_peaks(file_path: str, buckets: int = 1500) -> Dict[str, Any]:
+def decode_mono_at(file_path: str, sample_rate: int) -> Tuple[Any, int]:
+    """Decode to mono float32 at ``sample_rate``, streamed through ffmpeg.
+
+    ffmpeg downmixes and resamples as it reads, so only the low-rate result is
+    ever in memory: a 24/96 album track or a two-hour mix costs a few MB here,
+    where decode_mono would hold the whole file at its own rate. Without
+    ffmpeg, falls back to decode_mono (the file's own rate).
+    """
+    if not os.path.isfile(file_path):
+        raise FileNotFoundError(f"audio file not found: {file_path}")
+    try:
+        ffmpeg_bin()
+    except RuntimeError:
+        return decode_mono(file_path)
+    return _decode_via_ffmpeg(file_path, target_sr=int(sample_rate))
+
+
+def compute_peaks(file_path: str, buckets: int = 1500, sample_rate: int | None = None) -> Dict[str, Any]:
     """Min/max waveform peaks for the editor canvas.
 
     Returns {"buckets": n, "duration_s": float, "min": [...], "max": [...]}.
     ~0.1s for a 4-minute track — cheap enough to compute on demand and cache.
+
+    ``sample_rate`` decodes at that rate (decode_mono_at) instead of the
+    file's own, for callers that only need a coarse outline, like the
+    player's 200-bar waveform.
     """
     import numpy as np
 
     if buckets < 16 or buckets > 20000:
         raise ValueError(f"buckets must be 16..20000, got {buckets}")
-    mono, sr = decode_mono(file_path)
+    mono, sr = decode_mono_at(file_path, sample_rate) if sample_rate else decode_mono(file_path)
     duration_s = float(len(mono) / sr)
 
     # Pad so the samples divide evenly, then one vectorized min/max.
