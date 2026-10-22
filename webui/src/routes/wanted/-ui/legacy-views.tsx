@@ -10,9 +10,6 @@ import type {
   WishlistBulkAction,
 } from '../../wishlist/-wishlist.types';
 
-import { WatchlistAudiobooksTab } from '../../watchlist/-ui/watchlist-audiobooks-tab';
-import { WatchlistLabelsTab } from '../../watchlist/-ui/watchlist-labels-tab';
-import { WatchlistPodcastsTab } from '../../watchlist/-ui/watchlist-podcasts-tab';
 import { NebulaStage, NebulaZone } from '../../wishlist/-ui/nebula-parts';
 import { WishlistArtistSheet } from '../../wishlist/-ui/wishlist-artist-sheet';
 import { WishlistAudiobooks } from '../../wishlist/-ui/wishlist-audiobooks';
@@ -35,11 +32,11 @@ import {
 } from '../../wishlist/-wishlist.helpers';
 
 /*
- * The views the Wanted and Followed artists boards don't draw, kept so nothing
- * the Wishlist and Watchlist pages did is lost: the artist nebula, the
- * audiobook wishlist, and followed labels, podcasts and audiobook authors.
- * They are today's components as they are, reached from the page's "…" menu
- * (see HANDOFF.md, "Dev, Wanted page").
+ * The views the Wanted boards don't draw, kept so nothing the Wishlist page
+ * did is lost: the artist nebula and the audiobook wishlist. They are today's
+ * components as they are, reached from the Wanted tab's "…" menu (see
+ * HANDOFF.md, "Dev, Wanted page"). Followed labels, podcasts and audiobook
+ * authors were here too; they're rows of the Following tab now (board 5e).
  */
 
 function groupIds(group: WishlistArtistGroup): string[] {
@@ -336,20 +333,4 @@ export function AudiobooksView({
       ) : null}
     </div>
   );
-}
-
-/** Followed labels, podcasts and audiobook authors (the old Watchlist tabs). */
-export function FollowedListView({
-  list,
-  profileId,
-  query,
-}: {
-  list: 'labels' | 'podcasts' | 'audiobooks';
-  profileId: number;
-  query: string;
-}) {
-  if (list === 'labels') return <WatchlistLabelsTab profileId={profileId} />;
-  if (list === 'podcasts')
-    return <WatchlistPodcastsTab profileId={profileId} searchFilter={query} />;
-  return <WatchlistAudiobooksTab searchFilter={query} />;
 }

@@ -11,6 +11,7 @@ import {
   watchlistArtistsQueryOptions,
   watchlistCountQueryOptions,
   watchlistGlobalConfigQueryOptions,
+  watchlistLabelsQueryOptions,
   watchlistScanStatusQueryOptions,
 } from '../watchlist/-watchlist.api';
 import {
@@ -27,8 +28,9 @@ import {
 import { resolveTab, wantedSearchSchema } from './-wanted.types';
 
 /**
- * Wanted: what you want (the old Wishlist) and who you follow (the old
- * Watchlist), as two tabs. `?tab=wanted|followed` so each tab is a link and
+ * Wanted: what you want (the old Wishlist) and what you follow (the old
+ * Watchlist: artists, labels, podcasts and audiobook authors), as two tabs,
+ * Wanted and Following. `?tab=wanted|followed` so each tab is a link and
  * Back steps between them.
  *
  * Permissions follow the two pages it replaces: a profile allowed either one
@@ -65,12 +67,15 @@ export const Route = createFileRoute('/wanted')({
     // and says "Loading your list…" until these land (the Wanted v2 loading
     // board). Each part reads its own failure through useQuery.
     //
-    // Both tabs show both counts, and Followed artists counts what each
-    // artist has on Wanted, so the wishlist loads either way.
+    // Both tabs show both counts, and Following counts what each artist and
+    // label has on Wanted, so the wishlist loads either way.
     // prefetchQuery never throws; a failure stays in the cache for useQuery
     void queryClient.prefetchQuery(wishlistTracksQueryOptions(id, 'albums'));
     void queryClient.prefetchQuery(wishlistTracksQueryOptions(id, 'singles'));
     void queryClient.prefetchQuery(watchlistCountQueryOptions(id));
+    // the Following count adds labels (podcasts and audiobook follows load
+    // with the page, behind their module switches)
+    void queryClient.prefetchQuery(watchlistLabelsQueryOptions(id));
     void queryClient.prefetchQuery(automationsListQueryOptions(id));
     void queryClient.prefetchQuery(automationsMasterQueryOptions());
     if (deps.tab === 'followed') {

@@ -7,11 +7,11 @@ import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
 /*
- * The Watchlist page is the Followed artists tab of /wanted now. These pin
- * what moved: old links land on the same thing, and what the Watchlist page
- * did that the Followed boards don't draw (Labels, Podcasts, the settings
- * modals, the artist panel, the live scan deck, the shared vanilla modals) is
- * still there.
+ * The Watchlist page is the Following tab of /wanted now. These pin what
+ * moved: old links land on the same thing, its Labels and Podcasts tabs are
+ * kinds of row on the Following tab (board 5e), and what the Watchlist page
+ * did that the boards don't draw (the settings modals, the artist panel, the
+ * live scan deck, the shared vanilla modals) is still there.
  */
 
 // whole-page route tests: role queries over the page are slow in jsdom
@@ -191,6 +191,18 @@ function stubFetch(options: StubOptions = {}) {
       if (url.includes('/api/labels/watchlist')) {
         return createResponse({ labels });
       }
+      if (url.includes('/api/podcasts/watchlist/summary')) {
+        return createResponse({ success: true, new_episode_days: 7, podcasts: [] });
+      }
+      if (url.includes('/api/audiobooks/watchlist')) {
+        return createResponse({ success: true, authors: [] });
+      }
+      if (url.includes('/api/audiobooks/wishlist')) {
+        return createResponse({ success: true, items: [], counts: {} });
+      }
+      if (url.includes('/api/labels/watchlist/backlog')) {
+        return createResponse({ success: true });
+      }
       if (url.includes('/api/podcasts/watchlist/settings')) {
         return createResponse({ success: true });
       }
@@ -286,7 +298,7 @@ const params = (router: ReturnType<typeof createAppRouter>) =>
   Object.fromEntries(new URLSearchParams(router.state.location.searchStr));
 
 const followedNames = () =>
-  [...document.querySelectorAll('ul[aria-label="Followed artists"] > li')].map(
+  [...document.querySelectorAll('ul[aria-label="Following"] > li')].map(
     (row) => row.querySelector('p')?.textContent,
   );
 
@@ -313,7 +325,7 @@ afterEach(() => {
 });
 
 describe('old Watchlist links', () => {
-  it('/watchlist opens Followed artists', async () => {
+  it('/watchlist opens Following', async () => {
     stubFetch();
     const { router } = renderRoute('/watchlist');
     await waitFor(() => expect(router.state.location.pathname).toBe('/wanted'));
@@ -344,15 +356,20 @@ describe('old Watchlist links', () => {
     );
   });
 
-  it('the Labels tab opens Labels you follow', async () => {
+  it('the Labels tab opens Following on the Labels kind', async () => {
     const calls = stubFetch({ labels: [WARP] });
     const { router } = renderRoute('/watchlist?tab=labels');
-    await waitFor(() => expect(params(router)).toEqual({ tab: 'followed', list: 'labels' }));
+    await waitFor(() => expect(params(router)).toEqual({ tab: 'followed', kind: 'labels' }));
     expect(await screen.findByText('Warp Records')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Labels you follow' })).toBeInTheDocument();
     expect(calls.some((url) => url.includes('/api/labels/watchlist'))).toBe(true);
-    // the artist list belongs to the other view
+    // the artists are the Artists kind
     expect(screen.queryByText('Aphex Twin')).not.toBeInTheDocument();
+  });
+
+  it('the Audiobooks tab opens the Authors kind', async () => {
+    stubFetch();
+    const { router } = renderRoute('/watchlist?tab=audiobooks');
+    await waitFor(() => expect(params(router)).toEqual({ tab: 'followed', kind: 'authors' }));
   });
 
   it('settings and an artist’s settings stay open', async () => {
@@ -396,23 +413,29 @@ describe('Followed artists, from the URL', () => {
     stubFetch({ artists: THREE, routed: ['Clark'] });
     renderRoute();
     await screen.findByText('Clark');
-    const rows = [...document.querySelectorAll('ul[aria-label="Followed artists"] > li')];
+    const rows = [...document.querySelectorAll('ul[aria-label="Following"] > li')];
     await waitFor(() => expect(rows[2].textContent).toContain('Filed in your audiobook library'));
     expect(rows[0].textContent).not.toContain('audiobook');
   });
 
-  it('does not fetch labels until they are asked for', async () => {
-    const calls = stubFetch();
+  it('lists followed labels with the artists, each row saying its kind', async () => {
+    stubFetch({ labels: [WARP] });
     renderRoute();
-    await screen.findByText('Aphex Twin');
-    expect(calls.some((url) => url.includes('/api/labels/watchlist'))).toBe(false);
+    await waitFor(() => expect(followedNames()).toContain('Warp Records'));
+    const rows = [...document.querySelectorAll('ul[aria-label="Following"] > li')];
+    expect(rows.find((r) => r.textContent?.includes('Warp Records'))?.textContent).toContain(
+      'Label · new releases only',
+    );
+    expect(rows.find((r) => r.textContent?.includes('Aphex Twin'))?.textContent).toContain(
+      'Artist',
+    );
   });
 
   it('Select all takes only the artists shown when the list is narrowed', async () => {
     stubFetch({ artists: THREE });
     renderRoute('/wanted?tab=followed&q=canada');
     await waitFor(() => expect(followedNames()).toEqual(['Boards of Canada']));
-    await menuItem('More for Followed artists', 'Select several');
+    await menuItem('More for Following', 'Select several');
     const bar = await screen.findByRole('region', { name: 'Selected' });
     fireEvent.click(within(bar).getByRole('button', { name: 'Select all 1 shown' }));
     // one shown, so one selected, not all three: a narrowed Select all must
@@ -437,75 +460,73 @@ describe('Followed artists, from the URL', () => {
   });
 });
 
-describe('labels, podcasts and audiobook authors you follow', () => {
-  it('the page menu opens each list, and Back returns to the artists', async () => {
-    stubFetch({ labels: [WARP] });
-    const { router } = renderRoute();
-    await screen.findByText('Aphex Twin');
-    await menuItem('More for Followed artists', 'Labels you follow');
-    expect(await screen.findByText('Warp Records')).toBeInTheDocument();
-    expect(params(router)).toMatchObject({ list: 'labels' });
-
-    fireEvent.click(screen.getByRole('button', { name: '← Followed artists' }));
-    await waitFor(() => expect(params(router)).toEqual({ tab: 'followed' }));
-    expect(await screen.findByText('Aphex Twin')).toBeInTheDocument();
-  });
-
-  it('renders followed labels with their backlog and scan state', async () => {
+describe('labels and podcasts you follow, as rows', () => {
+  it('a label says whether it takes the whole catalogue, and whether it has been checked', async () => {
     stubFetch({ labels: [{ ...WARP, backlog: true }] });
-    renderRoute('/wanted?tab=followed&list=labels');
+    renderRoute('/wanted?tab=followed&kind=labels');
     expect(await screen.findByText('Warp Records')).toBeInTheDocument();
-    expect(screen.getByText('Full backlog')).toBeInTheDocument();
-    expect(screen.getByText('Not scanned yet')).toBeInTheDocument();
+    expect(screen.getByText('Label · the whole catalogue')).toBeInTheDocument();
+    expect(
+      screen.getByText('Not checked yet', { selector: '[data-slot="status-tag"]' }),
+    ).toBeInTheDocument();
   });
 
-  it('toggles label backlog without opening the label', async () => {
+  it('turns a label’s back catalogue on from its menu, without opening it', async () => {
     const calls = stubFetch({ labels: [WARP] });
-    renderRoute('/wanted?tab=followed&list=labels');
+    renderRoute('/wanted?tab=followed&kind=labels');
     await screen.findByText('Warp Records');
-    fireEvent.click(screen.getByTitle('Monitoring new releases only — click for full backlog'));
+    await menuItem('More actions for Warp Records', 'Also get the whole catalogue');
     await waitFor(() => {
       expect(calls.some((url) => url.includes('/api/labels/watchlist/backlog'))).toBe(true);
     });
     expect(window.SoulSyncWebShellBridge?.navigateToLabelDetail).not.toHaveBeenCalled();
   });
 
-  it('opens the label when the card is clicked', async () => {
+  it('Open label opens the label', async () => {
     stubFetch({ labels: [WARP] });
-    renderRoute('/wanted?tab=followed&list=labels');
-    fireEvent.click(await screen.findByText('Warp Records'));
+    renderRoute('/wanted?tab=followed&kind=labels');
+    await screen.findByText('Warp Records');
+    fireEvent.click(screen.getByRole('button', { name: 'Open label' }));
     expect(window.SoulSyncWebShellBridge?.navigateToLabelDetail).toHaveBeenCalledWith(
       'mb-warp',
       'Warp Records',
     );
   });
 
-  it('shows the labels empty state when no label is followed', async () => {
+  it('no labels followed says where to follow one', async () => {
     stubFetch({ labels: [] });
-    renderRoute('/wanted?tab=followed&list=labels');
-    expect(await screen.findByText('No labels followed yet')).toBeInTheDocument();
+    renderRoute('/wanted?tab=followed&kind=labels');
+    expect(
+      await screen.findByText(
+        'You don’t follow any labels yet. Search for one, open it, and choose Follow.',
+      ),
+    ).toBeInTheDocument();
   });
 
-  it('renders followed podcasts', async () => {
-    stubFetch({ podcasts: [{ ...SYNTAX, author: 'Wes Bos & Scott Tolinski' }] });
-    renderRoute('/wanted?tab=followed&list=podcasts');
+  it('a podcast shows its episodes and whether new ones download', async () => {
+    stubFetch({ podcasts: [SYNTAX] });
+    renderRoute('/wanted?tab=followed&kind=podcasts');
     expect(await screen.findByText('Syntax Podcast')).toBeInTheDocument();
-    expect(screen.getByText('Wes Bos & Scott Tolinski')).toBeInTheDocument();
-    expect(screen.getByText('700 eps')).toBeInTheDocument();
+    expect(
+      screen.getByText('Podcast · 700 episodes · new episodes aren’t downloaded'),
+    ).toBeInTheDocument();
   });
 
-  it('shows the podcasts empty state when no podcast is followed', async () => {
+  it('no podcasts followed says where to follow one', async () => {
     stubFetch({ podcasts: [] });
-    renderRoute('/wanted?tab=followed&list=podcasts');
-    expect(await screen.findByText('No podcasts in watchlist')).toBeInTheDocument();
+    renderRoute('/wanted?tab=followed&kind=podcasts');
+    expect(
+      await screen.findByText(
+        'You don’t follow any podcasts yet. Find one on the Podcasts page and follow it.',
+      ),
+    ).toBeInTheDocument();
   });
 
-  it('saves a podcast’s download settings', async () => {
+  it('saves a podcast’s keep and download settings', async () => {
     const calls = stubFetch({ podcasts: [SYNTAX] });
-    renderRoute('/wanted?tab=followed&list=podcasts');
+    renderRoute('/wanted?tab=followed&kind=podcasts');
     await screen.findByText('Syntax Podcast');
-    fireEvent.click(screen.getByRole('button', { name: 'Podcast options' }));
-    fireEvent.click(screen.getByRole('button', { name: /Download Settings/ }));
+    await menuItem('More actions for Syntax Podcast', 'Keep and download settings…');
     const dialog = await screen.findByRole('dialog', { name: 'Podcast Settings' });
     fireEvent.click(within(dialog).getByRole('button', { name: '30 days' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Changes' }));
@@ -516,13 +537,15 @@ describe('labels, podcasts and audiobook authors you follow', () => {
 
   it('stops following a podcast after asking', async () => {
     const calls = stubFetch({ podcasts: [SYNTAX] });
-    window.showConfirmDialog = vi.fn().mockResolvedValue(true);
-    renderRoute('/wanted?tab=followed&list=podcasts');
+    renderRoute('/wanted?tab=followed&kind=podcasts');
     await screen.findByText('Syntax Podcast');
-    fireEvent.click(screen.getByRole('button', { name: 'Podcast options' }));
-    fireEvent.click(screen.getByRole('button', { name: /Remove from Watchlist/ }));
+    await menuItem('More actions for Syntax Podcast', 'Unfollow…');
+    const dialog = await screen.findByRole('dialog', { name: 'Unfollow Syntax Podcast?' });
+    expect(dialog).toHaveTextContent(
+      'SoulSync stops checking Syntax Podcast for new episodes. Episodes you’ve downloaded stay.',
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Unfollow' }));
     await waitFor(() => {
-      expect(window.showConfirmDialog).toHaveBeenCalled();
       expect(calls.some((url) => url.includes('/api/podcasts/watchlist/remove'))).toBe(true);
     });
   });
@@ -773,7 +796,9 @@ describe('checking for new releases', () => {
         }),
       );
     });
-    expect(await screen.findByText('Checking now')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Checking…', { selector: '[data-slot="status-tag"]' }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Stop checking' })).toBeInTheDocument();
     expect(screen.queryByText('Geogaddi')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
@@ -824,7 +849,7 @@ describe('checking for new releases', () => {
     const calls = stubFetch();
     renderRoute();
     await screen.findByText('Aphex Twin');
-    await menuItem('More for Followed artists', 'Update similar artists');
+    await menuItem('More for Following', 'Update similar artists');
     await waitFor(() => {
       expect(calls.some((url) => url.includes('/api/watchlist/update-similar-artists'))).toBe(true);
     });
@@ -842,9 +867,9 @@ describe('checking for new releases', () => {
     window.openBlocklistModal = vi.fn();
     renderRoute();
     await screen.findByText('Aphex Twin');
-    await menuItem('More for Followed artists', 'Check history…');
-    await menuItem('More for Followed artists', 'Downloads from followed artists…');
-    await menuItem('More for Followed artists', 'Blocklist…');
+    await menuItem('More for Following', 'Check history…');
+    await menuItem('More for Following', 'Downloads from followed artists…');
+    await menuItem('More for Following', 'Blocklist…');
     expect(window.openWatchlistHistoryModal).toHaveBeenCalled();
     expect(window.openDownloadOriginsModal).toHaveBeenCalledWith('watchlist');
     expect(window.openBlocklistModal).toHaveBeenCalledWith('artist');
@@ -864,7 +889,7 @@ describe('Followed artists survive a backend outage', () => {
     expect(screen.queryByText('Something went wrong')).toBeNull();
     expect(router.state.location.pathname).toBe('/wanted');
     expect(
-      await screen.findByText("Couldn't load the artists you follow", {}, { timeout: 20_000 }),
+      await screen.findByText("Couldn't load who you follow", {}, { timeout: 20_000 }),
     ).toBeInTheDocument();
   });
 });

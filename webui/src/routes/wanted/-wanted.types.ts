@@ -12,20 +12,45 @@ export type WantedTab = (typeof WANTED_TABS)[number];
 export const WANTED_FILTERS = ['all', 'searching', 'not-found', 'found'] as const;
 export type WantedFilter = (typeof WANTED_FILTERS)[number];
 
-export const FOLLOWED_FILTERS = ['all', 'new', 'unchecked', 'stale', 'own-settings'] as const;
+/**
+ * The Following tab's Show filters (HANDOFF answer 7): New release, Not
+ * checked yet, Nothing new. "Checked 30+ days ago" and "Own settings" are
+ * artist-only extras, offered under Kind → Artists.
+ */
+export const FOLLOWED_FILTERS = [
+  'all',
+  'new',
+  'unchecked',
+  'quiet',
+  'stale',
+  'own-settings',
+] as const;
 export type FollowedFilter = (typeof FOLLOWED_FILTERS)[number];
+
+/** The Following tab's Kind row (board 5e). "Authors" holds every audiobook
+ *  follow: authors, narrators and series. */
+export const FOLLOW_KINDS = ['all', 'artists', 'labels', 'podcasts', 'authors'] as const;
+export type FollowKindFilter = (typeof FOLLOW_KINDS)[number];
 
 export const WANTED_SORTS = ['newest', 'oldest', 'most-tries', 'artist'] as const;
 export type WantedSort = (typeof WANTED_SORTS)[number];
 
-/** The Followed tab keeps the watchlist page's sort values, so an old
- *  /watchlist?sort= link means the same thing after the redirect. */
-export const FOLLOWED_SORTS = WATCHLIST_SORT_VALUES;
-export type FollowedSort = WatchlistSort;
+/** The Following tab's sorts: newest activity first (the default, board 5e),
+ *  then the watchlist page's values, so an old /watchlist?sort= link means
+ *  the same thing after the redirect. */
+export const FOLLOWED_SORTS = ['activity', ...WATCHLIST_SORT_VALUES] as const;
+export type FollowedSort = 'activity' | WatchlistSort;
 
-/** Followed things that aren't artists, kept from the old Watchlist tabs. */
+/** The old Watchlist's other tabs (?list=), now a Kind on the Following tab. */
 export const FOLLOWED_LISTS = ['labels', 'podcasts', 'audiobooks'] as const;
 export type FollowedList = (typeof FOLLOWED_LISTS)[number];
+
+/** Where an old ?list= link lands on the Kind row. */
+export const LIST_TO_KIND: Record<FollowedList, Exclude<FollowKindFilter, 'all' | 'artists'>> = {
+  labels: 'labels',
+  podcasts: 'podcasts',
+  audiobooks: 'authors',
+};
 
 /** Rows per page; "Show 50 more" adds one page. */
 export const PAGE_SIZE = 50;
@@ -67,7 +92,9 @@ export const wantedSearchSchema = z.object({
   view: z.enum(['nebula']).optional().catch(undefined),
   /** The Wanted tab's audiobooks (the old Wishlist → Audiobooks tab). */
   media: z.enum(['audiobooks']).optional().catch(undefined),
-  /** A Followed tab list other than artists (the old Watchlist tabs). */
+  /** The Following tab's Kind row. */
+  kind: z.enum(FOLLOW_KINDS).optional().catch(undefined),
+  /** An old link to a Watchlist tab other than artists; read as `kind`. */
   list: z.enum(FOLLOWED_LISTS).optional().catch(undefined),
   /** Which followed artist's settings or profile is open, by provider id. */
   configId: z.preprocess(optionalString, z.string().optional()).catch(undefined),
@@ -105,7 +132,12 @@ export function resolveWantedSort(value: string | undefined): WantedSort {
 export function resolveFollowedSort(value: string | undefined): FollowedSort {
   return (FOLLOWED_SORTS as readonly string[]).includes(value ?? '')
     ? (value as FollowedSort)
-    : 'name-asc';
+    : 'activity';
+}
+
+export function resolveFollowKind(search: Pick<WantedSearch, 'kind' | 'list'>): FollowKindFilter {
+  if (search.kind) return search.kind;
+  return search.list ? LIST_TO_KIND[search.list] : 'all';
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +240,23 @@ export interface FollowedSummaryResponse {
   success?: boolean;
   new_release_days?: number;
   artists?: FollowedArtistSummary[];
+  error?: string;
+}
+
+/** GET /api/podcasts/watchlist/summary: what came in for each followed show. */
+export interface PodcastSummaryEntry {
+  feed_url: string;
+  /** Downloaded episodes still on disk. */
+  kept: number;
+  latest_episode: { title: string; downloaded_at: string } | null;
+  /** The latest was downloaded in the last `new_episode_days` days. */
+  new_episode: boolean;
+}
+
+export interface PodcastSummaryResponse {
+  success?: boolean;
+  new_episode_days?: number;
+  podcasts?: PodcastSummaryEntry[];
   error?: string;
 }
 

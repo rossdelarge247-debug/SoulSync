@@ -4,13 +4,11 @@ import type { Automation } from '../automations/-automations.types';
 import type { WatchlistArtist } from '../watchlist/-watchlist.types';
 import type { ParsedWishlistTrack } from '../wishlist/-wishlist.types';
 
-import { primaryArtistId, sortArtists } from '../watchlist/-watchlist.helpers';
+import { primaryArtistId } from '../watchlist/-watchlist.helpers';
 import { describeTrouble } from '../wishlist/-wishlist.helpers';
 import { WL_FAILING_ATTEMPTS } from '../wishlist/-wishlist.types';
 import {
   type FollowedArtistSummary,
-  type FollowedFilter,
-  type FollowedSort,
   type FoundItem,
   type FoundResponse,
   type QualityProfileRow,
@@ -655,50 +653,6 @@ export function buildFollowedRows(
       stale: checkedDays !== null && checkedDays >= STALE_DAYS,
     };
   });
-}
-
-export function followedStatusTag(status: FollowedStatus): {
-  text: string;
-  tone: 'info' | 'neutral';
-} {
-  if (status === 'new') return { text: 'New release', tone: 'info' };
-  if (status === 'unchecked') return { text: 'Not checked yet', tone: 'neutral' };
-  return { text: 'Nothing new', tone: 'neutral' };
-}
-
-export function followedCounts(rows: FollowedRow[]) {
-  return {
-    all: rows.length,
-    new: rows.filter((row) => row.status === 'new').length,
-    unchecked: rows.filter((row) => row.status === 'unchecked').length,
-    stale: rows.filter((row) => row.stale).length,
-    ownSettings: rows.filter((row) => row.ownSettings).length,
-  };
-}
-
-export function filterFollowedRows(
-  rows: FollowedRow[],
-  filter: FollowedFilter,
-  query = '',
-): FollowedRow[] {
-  const needle = query.trim().toLowerCase();
-  return rows.filter((row) => {
-    if (filter === 'new' && row.status !== 'new') return false;
-    if (filter === 'unchecked' && row.status !== 'unchecked') return false;
-    if (filter === 'stale' && !row.stale) return false;
-    if (filter === 'own-settings' && !row.ownSettings) return false;
-    return needle ? row.name.toLowerCase().includes(needle) : true;
-  });
-}
-
-export function sortFollowedRows(rows: FollowedRow[], sort: FollowedSort): FollowedRow[] {
-  const order = new Map(
-    sortArtists(
-      rows.map((row) => row.artist),
-      sort,
-    ).map((a, i) => [a.id, i]),
-  );
-  return [...rows].sort((a, b) => (order.get(a.artist.id) ?? 0) - (order.get(b.artist.id) ?? 0));
 }
 
 /** "9 releases in your library · 5 on Wanted". */
