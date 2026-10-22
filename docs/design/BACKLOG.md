@@ -9,6 +9,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Automation assistant (AI) and a block editor | Built | [below](#automation-assistant-ai-and-a-block-editor) |
 | Internet radio with track identification | Built | [below](#internet-radio-with-track-identification) |
 | Merge duplicate artist | Exploring | [below](#merge-duplicate-artist) |
+| Classic Winamp visualisers (MilkDrop, AVS, bars and scope) | Ready for Design | [below](#classic-winamp-visualisers-milkdrop-avs-bars-and-scope) |
 
 ---
 
@@ -185,4 +186,59 @@ A Maintenance tool, not an artist-page action, because it rewrites files' metada
 ### Next
 
 Dev to check how artists are keyed across the library, Wanted and Following before Design draws it.
+
+---
+
+## Classic Winamp visualisers (MilkDrop, AVS, bars and scope)
+
+**Status:** Ready for Design · raised by Ross, 2026-10-22
+
+### The problem
+
+Ross wants the visualisers Winamp was loved for inside SYNCHRO.S's Visuals overlay: MilkDrop above all, AVS, and Winamp's own little spectrum bars and oscilloscope. The overlay has 18 visuals today, drawn by the app; none is MilkDrop-class.
+
+### What Ross wants
+
+- **Which:** MilkDrop, AVS, and the classic Winamp bars and scope. Not the Winamp skin look: they sit in the design system's overlay.
+- **Where:** the Visuals overlay only (the player's "…" → Visuals, or F), alongside the existing visuals. Not the tray, not a page background.
+- **Presets:** the huge MilkDrop library with search, not a small curated pack.
+
+### What the app gives today (Dev checked)
+
+- **The Visuals overlay** (`#np-modal-overlay`, `static/media-player-v2.js`): a full-screen canvas, a grid of visuals in its panel, ‹ › to step through them, F to open, V for the next one, the choice remembered per browser.
+- **Live audio data:** the player builds one Web Audio graph per page (`static/media-player.js`: a `MediaElementSource` and an analyser), which the existing visuals and the radio level meter read. A new visualiser connects to the same graph; it doesn't open the audio again.
+- **No WebGL visuals yet;** everything draws on a 2D canvas.
+
+### Where they come from (all free; licences to confirm before building)
+
+- **MilkDrop:** [Butterchurn](https://www.npmjs.com/package/butterchurn), an MIT-licensed WebGL 2 reimplementation of MilkDrop 2, with [butterchurn-presets](https://www.jsdelivr.com/package/npm/butterchurn-presets) (MIT packaging of converted classic presets; each preset's art and name stay its creator's, and the preset name carries the credit). It plays the original `.milk` community presets, and the big packs run to thousands. It needs WebGL 2; Butterchurn has its own "is it supported" check.
+- **AVS:** harder. Winamp's 2024 source release is under a restrictive licence that doesn't allow reuse, so it's out ([context](https://liliputing.com/winamp-source-code-is-now-available-under-a-pretty-restrictive-license/)). A separate JavaScript/WebGL port of AVS and its presets exists in the community, but Dev hasn't confirmed which one or its licence yet. AVS may land later than MilkDrop or with fewer presets.
+- **Classic bars and scope:** drawn by the app itself (no licence question), matching Winamp's 75×16 spectrum and oscilloscope look scaled up.
+
+### Constraints for the design
+
+- **Size:** thousands of presets are several MB. Load them on demand (the list and search index first, each preset when picked), never on page load.
+- **Performance:** WebGL MilkDrop is heavy on older laptops and phones. Offer a quality setting (resolution scale) and fall back calmly when WebGL 2 isn't there ("This visual needs WebGL 2, which this browser doesn't offer"). Honour "Reduce visual effects" and `prefers-reduced-motion`.
+- **Credit:** show each preset's author in the picker and while it plays.
+- **Radio:** works the same on radio (the level meter already reads the graph); direct streams that don't allow cross-origin audio give silence to any visual, so those show the "can't read this stream's sound" note.
+
+### States Design needs to draw
+
+- The Visuals panel with three families: SYNCHRO.S's own visuals, MilkDrop, AVS, and Classic (bars and scope).
+- The MilkDrop browser: search, categories or authors, favourites, recently used, preview on hover or focus, and how a preset's author is credited.
+- Auto-cycle: every N seconds, on track change, or off; "next preset" key; a short blend between presets.
+- Playing: the preset name and author briefly on change, then gone; quality setting.
+- Loading a preset, a preset that fails to load, WebGL 2 unavailable, reduced motion on.
+- Phone: whether MilkDrop is offered there at all, or only the light visuals.
+
+### Questions for Design
+
+1. How do three families sit in the existing panel: tabs, sections, or a family switch?
+2. How much of the MilkDrop browser shows at once over a full-screen visual?
+3. Where does the preset credit go, and for how long?
+
+### Questions for Ross (later)
+
+- Default for auto-cycle: on track change, or every 30 seconds?
+- Offer MilkDrop on phones, or keep phones to the light visuals?
 
