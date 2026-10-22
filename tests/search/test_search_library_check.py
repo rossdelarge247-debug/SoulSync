@@ -85,14 +85,14 @@ def _seed_album(db, artist_id, title, thumb=None):
         conn.close()
 
 
-def _seed_track(db, album_id, artist_id, title, file_path=None):
+def _seed_track(db, album_id, artist_id, title, file_path=None, bitrate=None):
     tid = _next_id('trk')
     conn = db._get_connection()
     try:
         c = conn.cursor()
         c.execute(
-            "INSERT INTO tracks (id, album_id, artist_id, title, file_path) VALUES (?, ?, ?, ?, ?)",
-            (tid, album_id, artist_id, title, file_path),
+            "INSERT INTO tracks (id, album_id, artist_id, title, file_path, bitrate) VALUES (?, ?, ?, ?, ?, ?)",
+            (tid, album_id, artist_id, title, file_path, bitrate),
         )
         conn.commit()
         return tid
@@ -230,6 +230,22 @@ def test_track_in_library_returns_full_match_metadata(db):
     assert track['album_title'] == 'DSOTM'
     assert 'X-Plex-Token=abc123' in track['album_thumb_url']
     assert track['album_thumb_url'].startswith('https://plex.local:32400')
+
+
+def test_a_matched_track_carries_the_stored_bitrate(db):
+    # the Search page names the copy you have ("your MP3 320 copy") from the
+    # file type in file_path and this bitrate
+    aid = _seed_artist(db, 'Saltmarsh')
+    alb = _seed_album(db, aid, 'Lantern')
+    _seed_track(db, alb, aid, 'Static Bloom', file_path='/m/static.mp3', bitrate=320)
+    _seed_track(db, alb, aid, 'No Rate', file_path='/m/norate.flac')
+    result = library_check.check_library_presence(
+        db, _NoServerPlexClient(), _FakeConfigManager({}), profile_id=1,
+        albums=[],
+        tracks=[{'name': 'Static Bloom', 'artist': 'Saltmarsh'}, {'name': 'No Rate', 'artist': 'Saltmarsh'}],
+    )
+    assert result['tracks'][0]['bitrate'] == 320
+    assert result['tracks'][1]['in_library'] is True and result['tracks'][1]['bitrate'] is None
 
 
 def test_track_not_in_library_returns_minimal_shape(db):

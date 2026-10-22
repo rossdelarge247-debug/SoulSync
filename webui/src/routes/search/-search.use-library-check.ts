@@ -13,12 +13,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import type { OwnershipState } from './-search.ownership';
 import type { LibraryCheckTrack, SearchAlbum, SearchTrack } from './-search.types';
-import type { OwnershipState } from './-ui/search-results';
 
 import { fetchLibraryCheck } from './-search.api';
 import { albumIdentity, trackIdentity } from './-search.helpers';
-import { EMPTY_OWNERSHIP } from './-ui/search-results';
+import { EMPTY_OWNERSHIP } from './-search.ownership';
 
 /**
  * Fold the response into ownership sets.

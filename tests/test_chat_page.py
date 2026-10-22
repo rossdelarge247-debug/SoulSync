@@ -120,8 +120,9 @@ class TestMessageUserHooks:
         """Every surface listing a Soulseek peer offers "message this user".
 
         The basic-search album and track cards used to live in downloads.js;
-        they are React now (webui/src/routes/search/-ui/basic-results.tsx), so
-        the guard follows them there rather than shrinking to whatever is left.
+        they are React now, in the Search page's Soulseek section
+        (webui/src/routes/search/-ui/soulseek-section.tsx), so the guard
+        follows them there rather than shrinking to whatever is left.
         """
         dl = (_ROOT / "webui" / "static" / "downloads.js").read_text(
             encoding="utf-8", errors="replace")
@@ -130,16 +131,18 @@ class TestMessageUserHooks:
         # candidates: only SOULSEEK peers are messageable (torrent rows aren't users)
         assert "/soulseek/i.test(String(c.source))" in dl
 
-        # ...and the two that moved. React escapes attribute values itself, so
+        # ...and the ones that moved. React escapes attribute values itself, so
         # there is no manual quote-stripping to assert here — the thing that
-        # matters is that both card types still render the hook.
+        # matters is that every folder and file row still renders the hook.
         results = (_ROOT / "webui" / "src" / "routes" / "search" / "-ui"
-                   / "basic-results.tsx").read_text(encoding="utf-8", errors="replace")
-        assert "data-chat-msg-user={username}" in results
-        # the uploader lives in the shared facts line, and both the album row
-        # and the track row render that line
-        assert results.count("<Uploader username=") == 1
-        assert results.count("<Facts result=") == 2
+                   / "soulseek-section.tsx").read_text(encoding="utf-8", errors="replace")
+        assert "data-chat-msg-user={result.username}" in results
+        # one row renderer draws every row — a folder or a file, the best copy
+        # and each other copy under it — and it renders the hook once
+        assert results.count("data-chat-msg-user=") == 1
+        assert results.count("const renderRow = (") == 1
+        assert "renderRow(group, group.best, false)" in results
+        assert "renderRow(group, copy, true)" in results
 
 
 class TestChatModalStandard:

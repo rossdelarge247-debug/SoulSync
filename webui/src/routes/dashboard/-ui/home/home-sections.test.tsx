@@ -14,6 +14,7 @@ import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 
 import { latestActivityQueryOptions, targetsSummaryQueryOptions } from '../../-home.api';
+import { HomeDialogsProvider } from './home-dialogs';
 import { HomeNavProvider, type HomeNav } from './home-nav';
 import { LatestSection } from './latest-section';
 import { TargetsSection } from './targets-section';
@@ -145,7 +146,9 @@ function renderWith(ui: React.ReactNode, nav: HomeNav = allowAll) {
   const queryClient = createTestQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
-      <HomeNavProvider value={nav}>{ui}</HomeNavProvider>
+      <HomeNavProvider value={nav}>
+        <HomeDialogsProvider>{ui}</HomeDialogsProvider>
+      </HomeNavProvider>
     </QueryClientProvider>,
   );
 }
@@ -237,11 +240,12 @@ describe('Targets', () => {
     expect(
       mirrored.getByRole('heading', { name: 'Keep a playlist complete in your library' }),
     ).toBeInTheDocument();
-    expect(card('mirrored').querySelectorAll('a')).toHaveLength(1);
+    expect(card('mirrored').querySelectorAll('a, button')).toHaveLength(1);
     expect(card('mirrored').querySelector('dd')).toBeNull();
-    expect(mirrored.getByRole('link', { name: 'Mirror a playlist' })).toHaveAttribute(
-      'href',
-      '/sync',
+    // mirroring happens in its dialog, on Home
+    expect(mirrored.getByRole('button', { name: 'Mirror a playlist' })).toHaveAttribute(
+      'aria-haspopup',
+      'dialog',
     );
     expect(
       within(card('followed')).getByRole('link', { name: 'Follow an artist' }),
@@ -300,15 +304,17 @@ describe('Targets', () => {
     expect(
       within(panel).getByRole('heading', { name: 'Tell SoulSync what you want' }),
     ).toBeInTheDocument();
+    // pages are links; the two jobs done in a dialog on Home are buttons
     expect(
-      within(panel)
-        .getAllByRole('link')
-        .map((a) => [a.textContent, a.getAttribute('href')]),
+      Array.from(panel.querySelectorAll('a, button')).map((el) => [
+        el.textContent,
+        el.getAttribute('href') ?? el.getAttribute('aria-haspopup'),
+      ]),
     ).toEqual([
       ['Add to Wanted', '/search'],
-      ['Mirror a playlist', '/sync'],
+      ['Mirror a playlist', 'dialog'],
       ['Follow an artist', '/wanted?tab=followed'],
-      ['Set a quality target', '/settings?tab=quality'],
+      ['Set a quality target', 'dialog'],
     ]);
   });
 
@@ -341,7 +347,7 @@ describe('Targets', () => {
 });
 
 describe('the links', () => {
-  it('open in the app through navigateToPage, Settings on its Quality tab', async () => {
+  it('open in the app through navigateToPage', async () => {
     mockSummary([T.wanted, T.mirroredOff, T.followedOff, T.quality]);
     renderWith(<Targets />);
     await screen.findByText('312 tracks');
@@ -350,10 +356,7 @@ describe('the links', () => {
     expect(open).toHaveAttribute('href', '/wanted');
     fireEvent.click(open);
     expect(navigateToPage).toHaveBeenLastCalledWith('wanted');
-
-    fireEvent.click(within(card('quality')).getByRole('link', { name: 'Change target' }));
-    expect(requestSettingsTab).toHaveBeenCalledWith('quality');
-    expect(navigateToPage).toHaveBeenLastCalledWith('settings');
+    expect(requestSettingsTab).not.toHaveBeenCalled();
   });
 
   it('load a link with a query normally, so the tab survives', async () => {
@@ -385,8 +388,75 @@ describe('the links', () => {
     mockSummary([T.wanted, T.mirroredOff, T.followedOff, T.quality]);
     renderWith(<Targets />, { isAdmin: false, isPageAllowed: (id) => id !== 'settings' });
     await screen.findByText('312 tracks');
-    expect(within(card('quality')).queryByRole('link', { name: 'Change target' })).toBeNull();
+    // setting the target is admin only, so a member gets no button for it
+    expect(within(card('quality')).queryByRole('button', { name: 'Change target' })).toBeNull();
     expect(within(card('wanted')).getByRole('link', { name: 'Open Wanted' })).toBeInTheDocument();
+  });
+});
+
+describe('the dialogs Home opens', () => {
+  function dialogRoutes() {
+    server.use(
+      http.get('/api/spotify/playlists', () =>
+        HttpResponse.json([{ id: 'p1', name: 'Coastal evenings', owner: 'Ross', track_count: 3 }]),
+      ),
+      http.get('/api/mirrored-playlists', () => HttpResponse.json([])),
+      http.get('/api/quality/presets', () =>
+        HttpResponse.json({
+          success: true,
+          total: 10,
+          unknown_format: 0,
+          presets: [
+            { key: 'mp3_320', name: 'MP3 320', meeting: 10, total: 10, estimated: false },
+            { key: 'flac', name: 'FLAC', meeting: 8, total: 10, estimated: false },
+            { key: 'flac_24', name: 'FLAC 24-bit', meeting: 1, total: 10, estimated: true },
+            { key: 'lossless', name: 'Any lossless', meeting: 8, total: 10, estimated: false },
+          ],
+          current: { preset: 'flac', name: 'FLAC or better', updated_at: null },
+        }),
+      ),
+      http.get('/api/automations', () => HttpResponse.json([])),
+      http.get('/api/automations/master', () => HttpResponse.json({ music: true })),
+    );
+  }
+
+  it('"Mirror a playlist" opens the mirror dialog', async () => {
+    mockSummary([T.wanted, T.mirroredOff, T.followedOff, T.quality]);
+    dialogRoutes();
+    renderWith(<Targets />);
+    await screen.findByText('312 tracks');
+
+    fireEvent.click(within(card('mirrored')).getByRole('button', { name: 'Mirror a playlist' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Mirror a playlist' })).toBeInTheDocument();
+    expect(await within(dialog).findByText('Coastal evenings')).toBeInTheDocument();
+    expect(navigateToPage).not.toHaveBeenCalled();
+  });
+
+  it('"Change target" opens the quality dialog on the current target', async () => {
+    mockSummary([T.wanted, T.mirroredOff, T.followedOff, T.quality]);
+    dialogRoutes();
+    renderWith(<Targets />);
+    await screen.findByText('312 tracks');
+
+    fireEvent.click(within(card('quality')).getByRole('button', { name: 'Change target' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Quality target' })).toBeInTheDocument();
+    const flac = await within(dialog).findByTestId('preset-flac');
+    expect(flac).toHaveTextContent('8 of 10 tracks already meet it');
+    expect(within(flac).getByRole('radio')).toBeChecked();
+    expect(within(dialog).getByRole('button', { name: 'Set target to FLAC' })).toBeInTheDocument();
+    expect(requestSettingsTab).not.toHaveBeenCalled();
+  });
+
+  it('"Set a quality target" on the setup panel opens it too', async () => {
+    mockSummary([T.wantedOff, T.mirroredOff, T.followedOff, T.quality]);
+    dialogRoutes();
+    renderWith(<Targets />);
+    const panel = await screen.findByTestId('home-setup-panel');
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Set a quality target' }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Quality target');
   });
 });
 

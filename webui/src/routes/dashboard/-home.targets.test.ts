@@ -92,7 +92,8 @@ describe('a live card', () => {
     expect(view.tag.word).toBe('Upgrading');
     expect(view.stats.map((s) => s.label)).toEqual(['At target', 'Upgrading', 'Not found yet']);
     expect(view.meta).toEqual(['4,980 tracks checked', 'Next search tonight at 02:00']);
-    expect(view.link).toEqual({ route: 'quality', label: 'Change target' });
+    // the quality target is changed in its dialog, on Home
+    expect(view.link).toEqual({ dialog: 'quality', label: 'Change target' });
     expect(targetTag(target({ key: 'quality', items: 10, have: 10 })).word).toBe('At target');
   });
 
@@ -135,13 +136,14 @@ describe("the can't search card", () => {
 
 describe('a card that is not set up', () => {
   it('has one sentence and one button that goes where the job is done today', () => {
+    // a page to go to, or the dialog that does the job on Home
     const cases = [
-      ['wanted', 'Add to Wanted', 'search'],
-      ['mirrored', 'Mirror a playlist', 'mirrored'],
-      ['followed', 'Follow an artist', 'followArtist'],
-      ['quality', 'Set a quality target', 'quality'],
+      ['wanted', 'Add to Wanted', { route: 'search' }],
+      ['mirrored', 'Mirror a playlist', { dialog: 'mirror' }],
+      ['followed', 'Follow an artist', { route: 'followArtist' }],
+      ['quality', 'Set a quality target', { dialog: 'quality' }],
     ] as const;
-    for (const [key, label, route] of cases) {
+    for (const [key, label, where] of cases) {
       const view = targetCardView(
         normalizeTarget(key, { set_up: false, status: 'not_set_up' }),
         NOW,
@@ -149,7 +151,7 @@ describe('a card that is not set up', () => {
       expect(view.kind).toBe('not-set-up');
       if (view.kind !== 'not-set-up') continue;
       expect(view.tag).toEqual({ word: 'Not set up', tone: 'neutral' });
-      expect(view.action).toEqual({ route, label });
+      expect(view.action).toEqual({ ...where, label });
       expect(view.sentence.split('. ').length).toBeLessThanOrEqual(2);
     }
     const mirrored = targetCardView(normalizeTarget('mirrored', undefined), NOW);

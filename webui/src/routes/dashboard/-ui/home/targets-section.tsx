@@ -14,6 +14,7 @@ import { LoadingState, Notice, Skeleton } from '@/components/primitives';
 import type { TargetsSummary } from '../../-home.api';
 
 import { SETUP_PANEL_ITEMS, soonestSearchShort, targetCardView } from '../../-home.targets';
+import { HomeAction } from './home-dialogs';
 import { HomeLink, useHomeNav } from './home-nav';
 import styles from './home.module.css';
 import { TargetCard } from './target-card';
@@ -77,9 +78,11 @@ function SetupPanel() {
             <h3 className={styles.cardTitle}>{item.title}</h3>
             <p className={styles.cardText}>{item.sentence}</p>
             <div className={styles.cardAction}>
-              <HomeLink route={item.action.route} className={styles.buttonLink}>
-                {item.action.label}
-              </HomeLink>
+              <HomeAction
+                action={item.action}
+                className={styles.buttonLink}
+                buttonClassName={`${styles.buttonLink} ${styles.asButton}`}
+              />
             </div>
           </li>
         ))}

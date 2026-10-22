@@ -24,8 +24,7 @@ const DOCS_CSS = read('static/docs.css');
 const DOCS_JS = read('static/docs.js');
 const YEAR_STORY_TSX = read('src/routes/stats/-ui/year-story.tsx');
 const YEAR_STORY_CSS = read('src/routes/stats/-ui/year-story.module.css');
-const SEARCH_CSS = read('src/routes/search/-ui/search.module.css');
-const SOURCE_ROW_TSX = read('src/routes/search/-ui/source-row.tsx');
+const SEARCH_CSS = read('src/routes/search/-ui/search-page.module.css');
 const MY_ACCOUNTS_TS = read('src/shell/my-accounts.ts');
 const ARTMAP_OVERLAY_TSX = read('src/routes/discover/-ui/artist-map-overlay.tsx');
 const ARTMAP_ASSEMBLY_TSX = read('src/routes/discover/-ui/artist-map-assembly.tsx');
@@ -228,19 +227,22 @@ describe('M-03 — Discover sticky chip bar clears the hamburger', () => {
 });
 
 describe('M-06 — the search field stays inside its container', () => {
-  it('the search page source pill is capped so the input keeps its room', () => {
-    const at = SEARCH_CSS.indexOf('@media (max-width: 640px)');
-    expect(at).toBeGreaterThan(-1);
-    expect(blockAfter(SEARCH_CSS.slice(at), '.searchBox {')).toContain('max-width: 100%');
-    expect(blockAfter(SEARCH_CSS.slice(at), '.source {')).toContain('max-width: 42%');
+  // The source pill this pinned is gone: Search (boards 2m, 2n) searches every
+  // source at once, so the field has the row to itself and the type buttons
+  // stack under it on a phone.
+  it('the field can shrink and never grows past its row', () => {
+    const field = blockAfter(SEARCH_CSS, '.field {');
+    expect(field).toContain('min-width: 0');
+    expect(field).toContain('max-width: 100%');
+    expect(blockAfter(SEARCH_CSS, '.input {')).toContain('min-width: 0');
   });
 
-  it('the pill label ellipsises in its own element and the caret cannot be clipped off', () => {
-    const label = blockAfter(SEARCH_CSS, '.sourceLabel {');
-    expect(label).toContain('text-overflow: ellipsis');
-    expect(label).toContain('min-width: 0');
-    expect(blockAfter(SEARCH_CSS, '.caret {')).toContain('flex-shrink: 0');
-    expect(SOURCE_ROW_TSX).toContain('styles.sourceLabel');
+  it('on a phone the type buttons go under the field and scroll sideways', () => {
+    const at = SEARCH_CSS.indexOf('@container (max-width: 720px)');
+    expect(at).toBeGreaterThan(-1);
+    const phone = SEARCH_CSS.slice(at);
+    expect(blockAfter(phone, '.fieldRow {')).toContain('flex-direction: column');
+    expect(blockAfter(phone, '.types {')).toContain('overflow-x: auto');
   });
 });
 

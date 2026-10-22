@@ -38,6 +38,24 @@ PRESETS: Tuple[Dict[str, Any], ...] = (
 )
 
 _FLAC_24 = QualityTarget(label="FLAC 24-bit", format="flac", bit_depth=24)
+
+# What each preset writes into the default quality profile's ranked targets,
+# best first (the same ladders Settings → Quality shows). ``preset_for`` reads
+# each one back as its own preset, which tests/quality pins.
+_HIRES_FLAC = (
+    {"label": "FLAC 24-bit/192kHz", "format": "flac", "bit_depth": 24, "min_sample_rate": 192000},
+    {"label": "FLAC 24-bit/96kHz", "format": "flac", "bit_depth": 24, "min_sample_rate": 96000},
+    {"label": "FLAC 24-bit/48kHz", "format": "flac", "bit_depth": 24, "min_sample_rate": 48000},
+    {"label": "FLAC 24-bit/44.1kHz", "format": "flac", "bit_depth": 24, "min_sample_rate": 44100},
+)
+_CD_FLAC = {"label": "FLAC 16-bit", "format": "flac", "bit_depth": 16}
+PRESET_LADDERS: Dict[str, Tuple[Dict[str, Any], ...]] = {
+    "mp3_320": _HIRES_FLAC + (_CD_FLAC, {"label": "MP3 320kbps", "format": "mp3", "min_bitrate": 320}),
+    "flac": _HIRES_FLAC + (_CD_FLAC,),
+    "flac_24": _HIRES_FLAC,
+    "lossless": _HIRES_FLAC + (_CD_FLAC, {"label": "ALAC", "format": "alac"},
+                               {"label": "WAV", "format": "wav"}, {"label": "DSD", "format": "dsf"}),
+}
 _UNTIL_CUTOFF = ("until_cutoff", "until_top")
 
 _cache: Dict[tuple, Tuple[float, List[tuple]]] = {}
@@ -164,8 +182,8 @@ def current_target(database) -> Dict[str, Any]:
     try:
         with closing(database._get_connection()) as conn:
             row = conn.execute(
-                "SELECT id, name, ranked_targets, upgrade_policy, upgrade_cutoff_index, updated_at "
-                "FROM quality_profiles WHERE is_default = 1 ORDER BY id LIMIT 1").fetchone()
+                "SELECT id, name, ranked_targets, upgrade_policy, upgrade_cutoff_index, fallback_enabled, "
+                "updated_at FROM quality_profiles WHERE is_default = 1 ORDER BY id LIMIT 1").fetchone()
     except Exception:  # noqa: BLE001 - no table yet: fall back below
         row = None
     if row is not None:
@@ -174,7 +192,8 @@ def current_target(database) -> Dict[str, Any]:
         except (TypeError, ValueError):
             raw = []
         profile = {"id": row["id"], "name": row["name"], "ranked_targets": raw,
-                   "upgrade_policy": row["upgrade_policy"], "upgrade_cutoff_index": row["upgrade_cutoff_index"]}
+                   "upgrade_policy": row["upgrade_policy"], "upgrade_cutoff_index": row["upgrade_cutoff_index"],
+                   "fallback_enabled": bool(row["fallback_enabled"])}
         updated_at = parse_utc(row["updated_at"])
     else:
         profile = database.get_quality_profile() or {}
@@ -193,6 +212,11 @@ def current_target(database) -> Dict[str, Any]:
         "name": target_name(bar),
         "targets": bar,
         "updated_at": updated_at,
+        # the profile keeps upgrading tracks below the bar (apply_quality_upgrades
+        # only queues upgrades for a profile that says so)
+        "upgrade_existing": (profile.get("upgrade_policy") or "acceptable") in _UNTIL_CUTOFF,
+        # a search that finds nothing at the target still takes the best other copy
+        "fallback_enabled": bool(profile.get("fallback_enabled", True)),
     }
 
 
@@ -208,7 +232,8 @@ def preset_counts(database) -> Dict[str, Any]:
         presets.append({"key": p["key"], "name": p["name"], "meeting": meeting, "total": total,
                         "estimated": p["estimated"]})
     current = current_target(database)
-    current.pop("targets", None)
+    # the bar as plain dicts, so a page can judge a search result against it
+    current["targets"] = [t.to_dict() for t in current["targets"]]
     return {"total": total, "unknown_format": unknown, "presets": presets, "current": current}
 
 
@@ -281,6 +306,52 @@ def artist_album_quality(database, artist_id) -> Optional[Dict[str, Any]]:
     }
 
 
-__all__ = ["PRESETS", "CACHE_TTL_SECONDS", "clear_cache", "library_quality_groups", "audio_quality",
+# ── setting the target ────────────────────────────────────────────────────────
+
+class TargetChanged(Exception):
+    """The default profile was saved after the caller read it."""
+
+
+def apply_preset(database, key: str, *, upgrade_existing: bool,
+                 based_on: Optional[float] = None) -> Dict[str, Any]:
+    """Make preset ``key`` the quality target: write its ladder into the
+    default quality profile's ranked targets, and with ``upgrade_existing``
+    set the profile to keep upgrading until the last of them (what
+    apply_quality_upgrades honours), otherwise to accept any of them.
+
+    Everything else the profile holds (fallback, search mode, AcoustID,
+    lossy copies, its name) stays as it is. Goes through the same writes as
+    Settings → Quality: ``update_quality_profile`` then
+    ``apply_quality_profile_to_settings``, which pushes the profile into the
+    live settings.
+
+    ``based_on`` is the ``updated_at`` the caller read; when the profile has
+    been saved since, nothing is written and :class:`TargetChanged` is raised.
+    Raises ``KeyError`` for an unknown preset and ``LookupError`` when there
+    is no default profile. Returns the new ``preset_counts``.
+    """
+    if key not in PRESET_LADDERS:
+        raise KeyError(key)
+    profile = database.get_quality_profile() or {}
+    profile_id = profile.get("id")
+    if not profile_id:
+        raise LookupError("no default quality profile")
+    if based_on is not None:
+        current = current_target(database).get("updated_at")
+        if current is not None and int(current) != int(based_on):
+            raise TargetChanged()
+    ladder = [dict(t) for t in PRESET_LADDERS[key]]
+    updated = dict(profile)
+    updated["ranked_targets"] = ladder
+    updated["upgrade_policy"] = "until_cutoff" if upgrade_existing else "acceptable"
+    updated["upgrade_cutoff_index"] = len(ladder) - 1 if upgrade_existing else 0
+    if not database.update_quality_profile(profile_id, updated):
+        raise LookupError("the default quality profile could not be saved")
+    database.apply_quality_profile_to_settings(profile_id)
+    return preset_counts(database)
+
+
+__all__ = ["PRESETS", "PRESET_LADDERS", "TargetChanged", "apply_preset", "CACHE_TTL_SECONDS", "clear_cache",
+           "library_quality_groups", "audio_quality",
            "meets_preset", "meets_targets", "count", "preset_for", "target_name", "current_target",
            "preset_counts", "quality_label", "artist_album_quality"]

@@ -153,6 +153,14 @@
   }
 }
 
+/* the same secondary button as a real button: it opens a dialog on Home */
+.asButton {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
 .ghostButtonLink {
   background: transparent;
   color: var(--ss-text-secondary);

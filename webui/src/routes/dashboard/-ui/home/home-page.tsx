@@ -18,6 +18,7 @@ import type { useDashboardHeader } from '../../-dash.header';
 
 import { latestActivityQueryOptions, targetsSummaryQueryOptions } from '../../-home.api';
 import { AlertsBand } from '../alerts-band';
+import { HomeDialogsProvider } from './home-dialogs';
 import { HomeMore } from './home-more';
 import { HomeLink, HomeNavProvider, type HomeNav } from './home-nav';
 import styles from './home.module.css';
@@ -65,18 +66,20 @@ export function HomePage({ header, profileId, nav }: HomePageProps) {
 
   return (
     <HomeNavProvider value={nav}>
-      <div className={`${styles.page} home-page`} id="dashboard-page">
-        <div className={styles.main}>
-          <div className={styles.mainInner}>
-            <HomeHeader />
-            {/* Renders nothing while every core connection is healthy. */}
-            <AlertsBand />
-            <TargetsSection query={targets} nowMs={nowMs} />
-            <LatestSection query={latest} nowMs={nowMs} />
+      <HomeDialogsProvider>
+        <div className={`${styles.page} home-page`} id="dashboard-page">
+          <div className={styles.main}>
+            <div className={styles.mainInner}>
+              <HomeHeader />
+              {/* Renders nothing while every core connection is healthy. */}
+              <AlertsBand />
+              <TargetsSection query={targets} nowMs={nowMs} />
+              <LatestSection query={latest} nowMs={nowMs} />
+            </div>
           </div>
+          <HomeMore header={header} />
         </div>
-        <HomeMore header={header} />
-      </div>
+      </HomeDialogsProvider>
     </HomeNavProvider>
   );
 }

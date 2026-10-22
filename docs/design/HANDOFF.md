@@ -8,6 +8,106 @@ None open. Questions raised while building go in the log entry that raised them.
 
 ## Log
 
+### 2026-10-22: Dev, Search and the Mirror and Quality dialogs
+
+Built on `ux/search-flows` from "Search results" (2m, 2n), "Flows (mirror, quality, failure)" (2o–2r, the 2s failure pattern, 2t for timing) and "Interaction states". The code is in `webui/src/routes/search`, `webui/src/features/mirror` and `webui/src/features/quality`.
+
+**What's built**
+
+- **Search** at `/search?q=pale+harbour&type=albums&files=1`. The query, the type (Everything, Artists, Albums, Tracks) and whether the query was submitted (`files=1`) are in the URL, so back, forward, reload and links work. Typing searches your library and the metadata service once it settles (0.6 s, two characters or more); the first search of a visit is its own history entry and refinements replace it. The field is 48px with a clear button; the types are OptionButtons beside it, under it on a phone.
+- **Soulseek is searched only for a submitted query:** Enter, the "Search Soulseek" button, a hand-off (the top bar, chat, the library, the global widget), a recent search or Browse tile, arriving with `?q=` from a link, or back/forward to a submitted search; a type change keeps it. Each Soulseek search holds one of the server's 8 request threads until slskd finishes, and partial words ("pale", "pale har") are bad manners on the network and can get you rate-limited, so searching per pause in typing isn't safe. Until then the section says "Press Enter to search Soulseek for “pale har”" with a secondary "Search Soulseek" button. The stream also sends a keep-alive line every 2 seconds, so a search whose tab has gone frees its thread straight away.
+- **Three sections, in this order:**
+    - **In your library:** artists, albums and tracks from the library's own searches, each with a status tag (Following, In your library, Below quality target), Play and Open. An album's quality comes from its files against your target. The header counts what was found; "All library results" opens the Library on the same search.
+    - **Soulseek** (or whichever download source is set up): streamed over the new `POST /api/search/stream`, with "Still searching · 48 files from 12 users so far", Stop, and "Search again" after a stop. Filters: At your target (the default, from the target's own rules), Any quality, Whole albums, Not in my library, plus Format, Sort and reverse order. Rows are grouped by folder with the best copy first; other copies open under the row. Each row's consequence is in colour: "has the 1 track you're missing", "upgrades your MP3 320 copy", "on your Wanted list", "you have all 12 tracks", "not in your library". Only the first row that completes something you already want gets the primary button ("Download missing" beside "Download all"); everything else is secondary. Every download opens today's chooser (as shared, enriched or tagged by hand), so the download modes are unchanged.
+    - **Spotify** (or the connected metadata service): releases, playlists, tracks, artists and labels you don't have yet, with "Add to Wanted" (today's add-to-Wanted modal), "Mirror this playlist", Play or Preview, and links to the artist and label pages. "Showing what you don't have yet · All 8" shows the rest.
+- **States:** each section loads, fails and empties on its own. Loading is skeleton rows in the section's shape with a sentence ("Asking Soulseek users for files…"). A failure is the 2s Notice (Try again, Run Setup check for admins) over faded placeholders, and the other sections still answer. Nothing anywhere is the page's empty state: "Nothing found for “…”" with what was searched and one button.
+- **Phones** (2n): the field and types stack, Soulseek rows become cards with the consequence on its own line and a full-width button, meta lines shorten, and Everything shows 2, 2 and 1 rows per section.
+- **Mirror a playlist** (2o, 2p): Your Spotify playlists or Paste a link; Find a playlist; a radio list where playlists you already mirror are disabled and tagged "Already mirrored"; "Keep it in sync" (on by default); a consequence line with the real counts from a library check of the chosen playlist ("17 tracks will be added to Wanted at FLAC or better, your quality target, and SoulSync starts looking for them now. 3 more tracks are on Wanted already."); and the primary `Mirror "Sunday Mornings"`. It uses today's routes: save the mirror, give it the Auto-Sync schedule the Auto-Sync board makes (every 24 hours), and run its first check. A first check refused because another playlist is being checked (409) is the 2s dialog pattern: the mirror and schedule are kept, a warning says why, and the primary becomes "Start the first check again". A full-screen sheet on phones.
+    - Opened from Search ("Mirror this playlist" on a row and in the playlist preview), from Home's Mirrored playlists card and from Home's setup panel. Home's button opens the dialog instead of going to the Sync page.
+- **Set a quality target** (2q, 2r): the four presets as cards with "4,512 of 4,980 tracks already meet it" from `GET /api/quality/presets` ("About" for FLAC 24-bit, which is estimated). The consequence panel says what new searches do and what happens to the tracks below the target, naming the real "Apply Quality Upgrades" automation and its schedule. "Upgrade what I already have" shows only when an enabled one can act on it. The footer shows the current target. The primary "Set target to FLAC" saves through the new `PUT /api/quality/target`, which edits the default quality profile the way Settings → Quality does. A 409 (the profile was saved somewhere else meanwhile) fades the cards, says so, and offers "Show the new numbers".
+    - Opened from Home's Quality card ("Change target") and the setup panel ("Set a quality target"), for admins; members don't get the button, since the write is admin only.
+
+**Differs from the boards, and why**
+
+- **The Soulseek filters stay on phones**, scrolling sideways. 2n leaves them out, but without them a phone couldn't leave "At your target".
+- **The metadata section has a service picker** beside its counts. It's how you reach Deezer, iTunes, Discogs, MusicBrainz and music videos, which today's page searched; "(not set up)" sources open their Settings.
+- **A library album below the target shows Play and Open, not Upgrade.** Nothing can upgrade one album from here; the Soulseek section's Upgrade row, or the "Apply Quality Upgrades" automation, does it.
+- **A library artist says "9 albums · 93 tracks in your library"**, not "9 of 14 releases": SoulSync doesn't store discographies.
+- **Playlist rows on Search don't say "31 of 40" or "you have 31".** Counting needs each playlist's tracks; the Mirror dialog counts the one you pick.
+- **Soulseek rows can have a third line:** "Show tracks" (today's expand-a-folder, with a Download on each track) and "1 other copy" (the folder grouping).
+- **The Soulseek table has fixed columns** so Quality, Size and User line up; at 721–1040px wide it drops Size.
+- **Search's subtitle names the sources** it searched ("Your library, Soulseek and Spotify, in one go.").
+- **Mirror a playlist:**
+    - It says "Spotify connected" without the account name.
+    - Rows say "by ross · 48 tracks" with no "updated 2 days ago": the playlists list doesn't carry either.
+    - "You have N" shows on the chosen playlist only; the others would each need their tracks loaded.
+    - "Also make a playlist in your library" is left out. The mirror's check already keeps the playlist on your media server in step (its sync step), so there's nothing separate to turn on.
+    - "Keep it in sync" says "Checks it every 24 hours", the Auto-Sync default, not "daily at 06:00". The Auto-Sync board can change it.
+    - The line ends "SoulSync starts looking for them now", because the first check runs straight away.
+    - Paste a link reads Spotify playlist links (Spotify connected) and Deezer ones; other services are pointed to Add playlist on Mirrored playlists, which reads 12 sources.
+- **Set a quality target:**
+    - Any lossless reads "FLAC, ALAC, WAV or DSD", not APE: APE isn't a format a quality profile can target, and DSD is.
+    - The panel says the automation "adds better copies to Wanted", which is what it does, rather than "replaces the file, keeping tags and play counts".
+    - The footer says "saved 14 March 2026": that's when the profile was last saved; SoulSync doesn't record when the target alone changed.
+- **The Sync page's own add-playlist sheet is unchanged.** It routes to 12 sources (files, links, services), so swapping in this dialog wouldn't be clean.
+- **Searches no longer toast "Search Complete".** The page shows its own status; the activity record stays, without a toast or a "Search Started" line.
+- **The old page also searched files only on submit,** and that's kept: the library and the metadata service follow your typing, Soulseek waits for Enter (above).
+
+**Data left out** (nothing in SoulSync to read it from)
+
+- Total releases per artist ("9 of 14").
+- How much of a search-result playlist you have, before you pick it.
+- The Spotify account name, and when a playlist was last updated.
+- An "Upgrade this album" action.
+
+**Today's Search page, feature by feature**
+
+| Old page | Feature | Where it is now |
+| --- | --- | --- |
+| Search bar | Catalog / Videos / Files modes | All three at once: Spotify (or the chosen service) is its own section, Soulseek is its own section, and music videos are "Music videos (YouTube)" in the service picker |
+| Search bar | Service picker (Spotify, iTunes, Deezer, Discogs, MusicBrainz, and the experimental ones you've turned on); "(not set up)" opens Settings | The metadata section's picker, same list |
+| Search bar | Pasted link or MusicBrainz ID looks the thing up | Unchanged: a link or ID goes to the lookup, and says so when there's no match |
+| Search bar | SoundCloud links search the files | Unchanged: they go to the Soulseek section |
+| Results | Filter pills (All, Artists, Albums, Singles & EPs, Tracks, Playlists, Labels) | The type buttons. Singles and EPs are in Albums, named in the meta line. Playlists and labels are in Everything, under "All N" |
+| Results | Top result | Left out: the library's artist row leads instead (question 3) |
+| Results | Shelves of covers and faces with "Show all" | Rows, with "All N" |
+| Results | In library / In wishlist badges | Status tags ("In your library", "On Wanted", "Not in library") |
+| Results | Album opens the download-missing modal | The album title, unchanged; "Add to Wanted" beside it |
+| Results | Track opens the download search; play or stream preview | The track title, unchanged; Play (owned) or Preview |
+| Results | Add a track to a playlist | The playlist button on track rows |
+| Results | Playlist preview | The playlist title, plus "Mirror this playlist" in the preview |
+| Results | Artist and label pages | Links, unchanged |
+| Results | "Served by another source" banner | Notice under the section's heading (`#enh-fallback-banner`) |
+| Results | Artist pictures | Unchanged |
+| Results | Music videos: download, or request for a profile that asks first | Unchanged, under "Music videos (YouTube)" |
+| Idle page | Recent searches (run, remove one, clear all) | Unchanged |
+| Idle page | Browse categories | "Browse" tiles (plain tiles: the design system has no gradient washes) |
+| Basic search | Its own search box | The one field |
+| Basic search | Source chips in hybrid mode | The Soulseek section's source picker |
+| Basic search | Type (all, albums, tracks) | Whole albums filter, and the Tracks type |
+| Basic search | Format and Sort | Format and Sort, plus reverse order |
+| Basic search | Expand a folder, download one of its tracks | "Show tracks", with a Download on each |
+| Basic search | Download as shared, enriched, or tagged by hand | Unchanged chooser on every Download |
+| Basic search | Message the user who shares it | The user name, unchanged |
+| Hand-offs | The global search widget's Soulseek icon (`_searchPageSetQuery`) | Searches for that query, then scrolls to the Soulseek section |
+| Hand-offs | Top bar search, chat and the library writing into `#enhanced-search-input` | Unchanged |
+| Hand-offs | Download bubbles in `#enhanced-main-results-area` | Unchanged |
+| Hand-offs | "Request" instead of "Download" for profiles that ask first | Unchanged |
+
+**For the navigation shell**
+
+- On phones the shell gives the React host 70px of top padding, so the page starts lower than 2n. That's the shell, not this page.
+- The help tour (`static/helper.js`) points at the new section ids.
+
+**Questions for Design**
+
+1. **Phone filters:** keep the Soulseek filter row on phones, or hide it as 2n does and offer "Any quality" another way?
+2. **Service picker:** is the select beside the metadata section's counts the right place?
+3. **Top result:** today's page had one; is the library's artist row enough?
+4. **Below-target library albums:** what should their action be, if not Open?
+
+Screenshots (1440×900 and 390×844: Search populated, streaming, typed but not submitted, empty, failure and idle; each dialog's default, selected and failure), with the board renders beside them, are in the session scratchpad. They aren't in the repo.
+
 ### 2026-10-22: Dev, Automations
 
 Built on `ux/automations` from "Automations v2" (2i–2l), the SafeAction v2 dialog and the 2s/2t failure pattern. The pages are in `webui/src/routes/automations`; Preview a run is `core/automation/dry_run.py`, behind the routes in `CONTRACTS.md`.

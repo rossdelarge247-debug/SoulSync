@@ -1,25 +1,56 @@
+/**
+ * Search (boards 2m, 2n): one query, three sources, grouped in the order that
+ * costs least: your library (instant), the download source (Soulseek streams
+ * in with a running count), then the connected metadata service. The query
+ * and the type (Everything / Artists / Albums / Tracks) are in the URL.
+ *
+ * Only one primary button on the page: the Soulseek row that completes
+ * something you already want. Everything else is secondary.
+ *
+ * Typing searches the library and the metadata service as it settles. The
+ * download source is searched only for a submitted query (`files=1` in the
+ * URL): Enter, a hand-off from another page, a recent search, or a link that
+ * arrives with `?q=`. Every Soulseek search holds a server thread until slskd
+ * answers, and partial words are bad manners on the network.
+ *
+ * Hand-offs kept from today's page:
+ *   - `#enhanced-search-input` honours a native `input` event (the top bar's
+ *     search field, ⌘K, the library and chat hand a query over that way);
+ *   - `window._searchPageSetQuery(q)` searches for `q` (the global download
+ *     widget);
+ *   - `#enhanced-main-results-area` is where the legacy painter draws the
+ *     bubbles of downloads started from this page.
+ */
+
+import { useQuery } from '@tanstack/react-query';
+import { getRouteApi } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { Skeleton } from '@/components/primitives';
-import { profileAsksFirst } from '@/platform/shell/download-rights';
+import type { MirrorCandidate } from '@/features/mirror/mirror.model';
+
+import { Button, OptionButton } from '@/components/form';
+import { EmptyState } from '@/components/primitives';
+import { MirrorPlaylistDialog } from '@/features/mirror/mirror-playlist-dialog';
+import { candidateLink } from '@/features/mirror/mirror.model';
+import { qualityPresetsQueryOptions } from '@/features/quality/quality.api';
+import { acquireVerb, profileAsksFirst } from '@/platform/shell/download-rights';
+import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
 import type { BasicSource } from '../-basic.types';
-import type {
-  SearchAlbum,
-  SearchArtist,
-  SearchLabel,
-  SearchPlaylist,
-  SearchTrack,
-  SearchVideo,
-} from '../-search.types';
-import type { LibraryCheckTrack } from '../-search.types';
-import type { ResultFilter } from './search-results';
+import type { SearchLabel, SearchPlaylist, SearchVideo } from '../-search.types';
+import type { SearchType } from '../-search.url';
+import type { SoulseekFilters } from '../-soulseek.model';
+import type { CatalogActions } from './catalog-section';
 import type { VideoProgress } from './video-grid';
 
-import { startDownload } from '../-basic.actions';
-import { sourceLabel as basicSourceLabel } from '../-basic.api';
-import { useBasicSearchController } from '../-basic.use-controller';
 import {
+  fetchBasicSources,
+  isSingleSourceMode,
+  sourceLabel as downloadSourceLabel,
+} from '../-basic.api';
+import {
+  addSearchAlbumToWanted,
+  addSearchTrackToWanted,
   openSearchAlbum,
   openSearchTrack,
   playOwnedTrack,
@@ -27,566 +58,668 @@ import {
 } from '../-search.actions';
 import { fetchLabels, lookupById } from '../-search.api';
 import {
-  artistDetailPath,
-  fallbackBannerText,
   isIdLookupQuery,
-  labelDetailPath,
   loadRecentSearches,
   removeRecentSearch,
   saveRecentSearch,
   SEARCH_DEBOUNCE_MS,
   shouldSearch,
   sourceLabel,
+  visibleSources,
 } from '../-search.helpers';
+import { libraryResultsQueryOptions } from '../-search.library';
+import {
+  parseSubmitted,
+  parseType,
+  SEARCH_TYPE_LABELS,
+  SEARCH_TYPES,
+  searchUrlFor,
+} from '../-search.url';
 import { useArtistImages } from '../-search.use-artist-images';
-import { activeResults, getPersistedQuery, useSearchController } from '../-search.use-controller';
+import { activeResults, useSearchController } from '../-search.use-controller';
 import { useLibraryCheck } from '../-search.use-library-check';
 import { useVideoDownloads } from '../-search.use-video-downloads';
-import { BasicSearch } from './basic-search';
+import { DEFAULT_SOULSEEK_FILTERS } from '../-soulseek.model';
+import { useFileSearch } from '../-soulseek.stream';
+import { CatalogSection } from './catalog-section';
+import { libraryRows, LibrarySection } from './library-section';
 import { PlaylistPreviewModal } from './playlist-preview-modal';
-import { SearchBar } from './search-bar';
-import { ClockIcon } from './search-icons';
-import { FilterPills, resultCounts, SearchResults } from './search-results';
-import styles from './search.module.css';
-import { catalogSources, ModeTabs, modeOf, SourcePicker } from './source-row';
+import styles from './search-page.module.css';
+import { SoulseekPrompt, SoulseekSection } from './soulseek-section';
 
-/** the idle page's browse tiles. quiet two-stop gradients, no emoji */
-const EXPLORE_CATEGORIES = [
-  { id: 'trending', label: 'Top trending', query: 'Trending', from: '#7a1f3d', to: '#3b0f1f' },
-  {
-    id: 'new_releases',
-    label: 'New releases',
-    query: 'New Releases',
-    from: '#3a3a8c',
-    to: '#1c1c48',
-  },
-  {
-    id: 'electronic',
-    label: 'Electronic & dance',
-    query: 'Electronic',
-    from: '#0f5e6e',
-    to: '#082f38',
-  },
-  { id: 'rock', label: 'Rock & alternative', query: 'Rock', from: '#7a4a12', to: '#3d250a' },
-  { id: 'hiphop', label: 'Hip-hop & rap', query: 'Hip Hop', from: '#5a2d8c', to: '#2c1646' },
-  { id: 'chill', label: 'Lo-fi & chill', query: 'Chill', from: '#1f6b4f', to: '#0f3528' },
-  { id: 'jazz', label: 'Jazz & soul', query: 'Jazz', from: '#80305e', to: '#401830' },
-  {
-    id: 'soundtracks',
-    label: 'Soundtracks & score',
-    query: 'Soundtrack',
-    from: '#284f8c',
-    to: '#142846',
-  },
+const routeApi = getRouteApi('/search');
+
+/** Browse ideas for the empty page. Plain tiles: the design system has no gradient washes. */
+const BROWSE = [
+  { label: 'Top trending', query: 'Trending' },
+  { label: 'New releases', query: 'New Releases' },
+  { label: 'Electronic and dance', query: 'Electronic' },
+  { label: 'Rock and alternative', query: 'Rock' },
+  { label: 'Hip-hop and rap', query: 'Hip Hop' },
+  { label: 'Lo-fi and chill', query: 'Chill' },
+  { label: 'Jazz and soul', query: 'Jazz' },
+  { label: 'Soundtracks and score', query: 'Soundtrack' },
 ];
 
-/** Which of the dropdown's three bodies is showing. */
-type DropdownView = 'hidden' | 'loading' | 'empty' | 'results';
+const SOUNDCLOUD_RE = /soundcloud\.com|snd\.sc/i;
 
-/**
- * The enhanced search page.
- *
- * The state machine is the vanilla's `_renderFromState` (search.js:109-200),
- * and its order matters: mid-fetch with no cache is LOADING even though a
- * previous source's results may still be in the cache; a settled fetch with
- * nothing in it is EMPTY; and an empty query hides the dropdown outright rather
- * than showing "no results" for a question nobody asked.
- *
- * Labels are counted out of that total on purpose. They come from a separate
- * endpoint and are purely additive, so a query that matched ONLY labels shows
- * the empty state — exactly as it does today.
- */
+/** Choices that outlive a visit to another page, like today's page kept them. */
+let keptFilters: SoulseekFilters = DEFAULT_SOULSEEK_FILTERS;
+let keptSource: string | null = null;
+
+/** Test seam. */
+export function resetSearchPageMemory(): void {
+  keptFilters = DEFAULT_SOULSEEK_FILTERS;
+  keptSource = null;
+}
+
+/** Marker the native listener stamps on an input event it has already handled. */
+type ClaimedEvent = { _nativeHandled?: boolean };
+
+function candidateFromPlaylist(playlist: SearchPlaylist): MirrorCandidate | null {
+  const source =
+    playlist.source === 'deezer'
+      ? 'deezer'
+      : playlist.source === 'spotify' || !playlist.source
+        ? 'spotify'
+        : null;
+  if (!source || playlist.id == null || playlist.id === '') return null;
+  const id = String(playlist.id);
+  return {
+    source,
+    id,
+    name: playlist.name || 'Playlist',
+    owner: playlist.creator,
+    imageUrl: playlist.image_url,
+    trackCount: playlist.track_count,
+    link: playlist.link || candidateLink(source, id),
+  };
+}
+
 export function SearchPage() {
-  // Seeded from the restored cache: coming back to results sitting above an
-  // empty search box reads as a bug even when the results are right.
-  const [query, setQuery] = useState(getPersistedQuery);
-  const [filter, setFilter] = useState<ResultFilter>('all');
-  const [dismissed, setDismissed] = useState(false);
-  const [labels, setLabels] = useState<SearchLabel[]>([]);
-  const [idLookupPending, setIdLookupPending] = useState(false);
+  useReactPageShell('search');
+  const { isAdmin } = useProfile();
+  const search = routeApi.useSearch();
+  const navigate = routeApi.useNavigate();
+  const committed = search.q ?? '';
+  const type: SearchType = parseType(search.type);
+  const submitted = Boolean(committed) && parseSubmitted(search.files);
+
+  const [input, setInput] = useState(committed);
   const [recents, setRecents] = useState<string[]>(loadRecentSearches);
-  const [previewPlaylist, setPreviewPlaylist] = useState<SearchPlaylist | null>(null);
+  const [filters, setFiltersState] = useState<SoulseekFilters>(keptFilters);
+  const [preview, setPreview] = useState<SearchPlaylist | null>(null);
+  const [mirror, setMirror] = useState<{ open: boolean; initial: MirrorCandidate | null }>({
+    open: false,
+    initial: null,
+  });
 
-  const basic = useBasicSearchController();
-  const basicSearchRef = useRef(basic.search);
-  basicSearchRef.current = basic.search;
+  // the URL moved (back, forward, a link): the field follows
+  useEffect(() => {
+    setInput((prev) => (prev.trim() === committed ? prev : committed));
+  }, [committed]);
 
-  const controller = useSearchController({
-    onSoulseekSelected: (handoffQuery) => {
-      // Soulseek is not a metadata source: selecting it shows the basic panel
-      // and runs the file search there.
-      setDismissed(true);
-      // Only with something to search for — clicking the icon on an empty page
-      // should switch panels, not scold the user for an empty query.
-      if (handoffQuery) basicSearchRef.current(handoffQuery);
+  /** Typing settled: the library and the metadata service search; Soulseek waits. */
+  const commit = useCallback(
+    (raw: string, { push = false }: { push?: boolean } = {}) => {
+      const q = raw.trim();
+      void navigate({ search: (prev) => searchUrlFor(q, parseType(prev.type)), replace: !push });
     },
+    [navigate],
+  );
+
+  /**
+   * A submitted query: every section searches, Soulseek included. A new
+   * search is its own history entry; submitting what was typed takes over the
+   * typed entry, so back doesn't land on the same query unsearched.
+   */
+  const urlRef = useRef({ committed, submitted });
+  urlRef.current = { committed, submitted };
+  const submit = useCallback(
+    (raw: string) => {
+      const q = raw.trim();
+      if (!shouldSearch(q)) return;
+      const now = urlRef.current;
+      const push = !now.committed || (now.submitted && now.committed !== q);
+      setInput(q);
+      void navigate({
+        search: (prev) => searchUrlFor(q, parseType(prev.type), true),
+        replace: !push,
+      });
+    },
+    [navigate],
+  );
+
+  // arriving with ?q= (a link, the top bar, a bookmark) is a submitted search
+  const arrivedRef = useRef(committed && !submitted ? committed : '');
+  useEffect(() => {
+    const arrived = arrivedRef.current;
+    arrivedRef.current = '';
+    if (arrived)
+      void navigate({
+        search: (prev) => searchUrlFor(arrived, parseType(prev.type), true),
+        replace: true,
+      });
+  }, [navigate]);
+
+  // typing settles into a search; the first search of a visit is its own
+  // history entry, refinements replace it. Typing away from a submitted search
+  // starts a new entry, so back still finds that search's results.
+  useEffect(() => {
+    const q = input.trim();
+    if (q === committed) return;
+    if (q && !shouldSearch(q)) return;
+    const timer = window.setTimeout(
+      () => commit(q, { push: (!committed && Boolean(q)) || submitted }),
+      SEARCH_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [input, committed, submitted, commit]);
+
+  const isLink = isIdLookupQuery(committed);
+  const searchable = shouldSearch(committed);
+
+  useEffect(() => {
+    if (searchable && !isLink) setRecents(saveRecentSearch(committed));
+  }, [committed, searchable, isLink]);
+
+  // a type change keeps whether the query was submitted
+  const setType = (next: SearchType) => {
+    void navigate({
+      search: (prev) => searchUrlFor(prev.q ?? '', next, parseSubmitted(prev.files)),
+    });
+  };
+
+  const setFilters = useCallback((patch: Partial<SoulseekFilters>) => {
+    setFiltersState((prev) => {
+      const next = { ...prev, ...patch };
+      keptFilters = next;
+      return next;
+    });
+  }, []);
+
+  // ── the quality target, for "At your target" and the consequences ─────
+  const presets = useQuery(qualityPresetsQueryOptions());
+  const bar = presets.data?.current?.targets ?? (presets.isError ? [] : null);
+  const targetName = presets.data?.current?.name ?? null;
+
+  // ── library ──────────────────────────────────────────────────────────
+  const libraryEnabled = searchable && !isLink;
+  const library = useQuery({ ...libraryResultsQueryOptions(committed), enabled: libraryEnabled });
+
+  // ── download source ──────────────────────────────────────────────────
+  const downloadSources = useQuery({
+    queryKey: ['search', 'download-sources'],
+    queryFn: fetchBasicSources,
+    staleTime: 5 * 60_000,
+  });
+  const sourceList: BasicSource[] = downloadSources.data?.sources ?? [];
+  const single = downloadSources.data ? isSingleSourceMode(downloadSources.data) : true;
+  const [fileSourcePick, setFileSourcePick] = useState<string | null>(keptSource);
+  const fileSource = single
+    ? null
+    : fileSourcePick && sourceList.some((s) => s.name === fileSourcePick)
+      ? fileSourcePick
+      : (sourceList[0]?.name ?? null);
+  // an Artists search has no files to show, so Soulseek isn't asked
+  // only a submitted query goes to Soulseek
+  const filesApply = (q: string) =>
+    type !== 'artists' && (!isIdLookupQuery(q) || SOUNDCLOUD_RE.test(q));
+  const fileQuery =
+    submitted && searchable && filesApply(committed) && (single || downloadSources.data)
+      ? committed
+      : null;
+  const typed = input.trim();
+  const filesPrompt =
+    shouldSearch(typed) && filesApply(typed) && !(submitted && typed === committed);
+  const files = useFileSearch(fileQuery, fileSource);
+  const downloadName = single
+    ? sourceList[0]
+      ? downloadSourceLabel(sourceList[0])
+      : 'Soulseek'
+    : (sourceList.find((s) => s.name === fileSource) ?? sourceList[0])?.display_name || 'Soulseek';
+
+  // ── metadata service ─────────────────────────────────────────────────
+  const controller = useSearchController({
     onUnconfiguredSource: (source) => window.openSettingsForSource?.(source),
   });
-  const { state, submitQuery, setActiveSource, syncQuery, seedFromIdLookup } = controller;
-
-  const results = activeResults(state);
-  const soulseekActive = state.activeSource === 'soulseek';
-
-  // Catalog returns to the metadata source the user was last on, not the default
-  const catalogRef = useRef('');
-  if (modeOf(state.activeSource) === 'catalog') catalogRef.current = state.activeSource;
-  const catalogSource = catalogRef.current || catalogSources(state)[0] || 'spotify';
-
-  // a new question, or a new source, starts from All
+  const { state: catalog, submitQuery, setActiveSource, seedFromIdLookup } = controller;
+  const catalogSources = visibleSources(catalog.enabledExperimental).filter(
+    (s) => s !== 'soulseek',
+  );
+  // today's page could be left on its Files tab; this page searches a service here
   useEffect(() => {
-    setFilter('all');
-  }, [state.query, state.activeSource]);
+    if (catalog.activeSource === 'soulseek') {
+      const fallback =
+        catalogSources.find((s) => catalog.configuredSources[s] !== false) ?? 'spotify';
+      setActiveSource(fallback);
+    }
+  }, [catalog.activeSource, catalog.configuredSources, catalogSources, setActiveSource]);
+
+  const [lookupPending, setLookupPending] = useState(false);
+  const [attempted, setAttempted] = useState('');
+  const submitRef = useRef(submitQuery);
+  submitRef.current = submitQuery;
+  useEffect(() => {
+    if (!searchable) return;
+    let live = true;
+    if (isLink) {
+      setLookupPending(true);
+      void lookupById(committed)
+        .then((data) => {
+          if (!live) return;
+          if (data?.available && data.source) seedFromIdLookup(committed, data);
+          else window.showToast?.(data?.message || 'No match for that link.', 'warning');
+        })
+        .catch(() => {
+          if (live) window.showToast?.('Link or ID lookup failed.', 'error');
+        })
+        .finally(() => {
+          if (live) setLookupPending(false);
+        });
+    } else if (catalog.activeSource !== 'soulseek') {
+      submitRef.current(committed);
+    }
+    setAttempted(committed);
+    return () => {
+      live = false;
+    };
+    // the active source is followed by setActiveSource itself
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committed, searchable, isLink, seedFromIdLookup]);
+
+  const results = activeResults(catalog);
+  const catalogLoading = catalog.loadingSources.has(catalog.activeSource) || lookupPending;
+  const catalogCached = Boolean(catalog.sources[catalog.activeSource]);
+  const catalogFailed =
+    searchable &&
+    attempted === committed &&
+    !catalogLoading &&
+    !catalogCached &&
+    catalog.query === committed &&
+    !isLink;
+
+  const hasCatalogResults =
+    results.artists.length +
+      results.albums.length +
+      results.tracks.length +
+      results.playlists.length >
+    0;
+  const [labels, setLabels] = useState<SearchLabel[]>([]);
+  useEffect(() => {
+    if (!searchable || isLink || !hasCatalogResults) {
+      setLabels([]);
+      return;
+    }
+    let live = true;
+    void fetchLabels(committed).then((found) => {
+      if (live) setLabels(found);
+    });
+    return () => {
+      live = false;
+    };
+  }, [committed, searchable, isLink, hasCatalogResults]);
 
   const ownership = useLibraryCheck(results.albums, results.tracks);
-  const artistImages = useArtistImages(results.db_artists, results.artists, state.activeSource);
+  const artistImages = useArtistImages([], results.artists, catalog.activeSource);
   const {
     progress: videoProgress,
     download: downloadVideo,
     request: requestVideo,
     requested: requestedVideos,
   } = useVideoDownloads();
-
-  // a profile without download rights asks instead of downloading. read at
-  // click time, not render time: a profile switch changes the answer.
-  const handleVideoAcquire = useCallback(
-    (video: SearchVideo) => {
-      if (profileAsksFirst()) {
-        void requestVideo(video);
-      } else {
-        downloadVideo(video);
-      }
-    },
-    [downloadVideo, requestVideo],
-  );
-
-  // Requested videos show the saved tick so the card stops looking clickable.
-  // Display-only: the grid's states are download-shaped, and a requested video
-  // never enters the download flow (request() no-ops on re-click).
   const videoProgressForGrid = useMemo(() => {
     if (requestedVideos.size === 0) return videoProgress;
     const merged: Record<string, VideoProgress> = { ...videoProgress };
-    for (const id of requestedVideos) {
+    for (const id of requestedVideos)
       if (!merged[id]) merged[id] = { state: 'completed', percent: 100 };
-    }
     return merged;
   }, [videoProgress, requestedVideos]);
 
-  /**
-   * Resolve a pasted link or id on its owning source (#775).
-   *
-   * The backend answers with the single hit plus the source that served it, and
-   * that source is adopted so the album re-fetch and download flow route the
-   * same way a normal search would.
-   */
-  const runIdLookup = useCallback(
-    async (raw: string) => {
-      const value = raw.trim();
-      if (!value) return;
-      setDismissed(false);
-      setIdLookupPending(true);
-      try {
-        const data = await lookupById(value);
-        if (data?.available && data.source) {
-          seedFromIdLookup(value, data);
-        } else {
-          // The backend's own hint, surfaced without destroying what is on
-          // screen — the vanilla toasts and shows the empty state.
-          window.showToast?.(data?.message || 'No match for that link.', 'warning');
-        }
-      } catch {
-        window.showToast?.('Link/ID lookup failed.', 'error');
-      } finally {
-        setIdLookupPending(false);
-      }
+  const catalogActions: CatalogActions = {
+    onAddAlbum: (album) => void addSearchAlbumToWanted(album, catalog.activeSource),
+    onAddTrack: (track) => void addSearchTrackToWanted(track),
+    onOpenAlbum: (album) => void openSearchAlbum(album, catalog.activeSource),
+    onOpenTrack: (track) => void openSearchTrack(track),
+    onPlayTrack: (track, owned) => {
+      if (owned) playOwnedTrack(owned);
+      else void streamSearchTrack(track);
     },
-    [seedFromIdLookup],
-  );
-
-  /**
-   * Enter and the debounce share this.
-   *
-   * A bare MusicBrainz UUID or a pasted link is an exact identifier, not a
-   * name, so it goes to the id resolver from BOTH paths rather than being
-   * fuzzy-searched. that is why there is no separate link box any more.
-   */
-  const runSearch = useCallback(
-    (raw: string) => {
-      const trimmed = raw.trim();
-      if (!shouldSearch(trimmed)) return;
-      if (isIdLookupQuery(trimmed)) {
-        void runIdLookup(trimmed);
-        return;
-      }
-      setRecents(saveRecentSearch(trimmed));
-      setDismissed(false);
-      submitQuery(trimmed);
+    onPreviewPlaylist: (playlist) => setPreview(playlist),
+    onMirrorPlaylist: (playlist) =>
+      setMirror({ open: true, initial: candidateFromPlaylist(playlist) }),
+    onVideo: (video: SearchVideo) => {
+      if (profileAsksFirst()) void requestVideo(video);
+      else downloadVideo(video);
     },
-    [submitQuery, runIdLookup],
-  );
+  };
 
-  /** The debounce. Raised to 600ms for #751 so a name coalesces into ONE search. */
+  // ── the legacy hand-offs ─────────────────────────────────────────────
+  const handOffRef = useRef(submit);
+  handOffRef.current = submit;
   useEffect(() => {
-    const trimmed = query.trim();
-    if (!shouldSearch(trimmed)) {
-      setDismissed(true);
-      return;
-    }
-    const timer = setTimeout(() => runSearch(trimmed), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [query, runSearch]);
-
-  /**
-   * Labels, fetched once per query and rendered alongside the source results.
-   *
-   * Only when there is something else to show: the vanilla reaches
-   * _maybeFetchLabels AFTER the empty-state return, so a labels-only match never
-   * appears on its own.
-   */
-  const hasSourceResults =
-    results.db_artists.length +
-      results.artists.length +
-      results.albums.length +
-      results.tracks.length +
-      results.playlists.length +
-      results.videos.length >
-    0;
-  useEffect(() => {
-    const trimmed = state.query.trim();
-    if (!trimmed || !hasSourceResults) {
-      setLabels([]);
-      return;
-    }
-    let live = true;
-    void fetchLabels(trimmed).then((found) => {
-      if (live) setLabels(found);
-    });
-    return () => {
-      live = false;
-    };
-  }, [state.query, hasSourceResults]);
-
-  const loading = state.loadingSources.has(state.activeSource) || idLookupPending;
-  const cached = Boolean(state.sources[state.activeSource]);
-
-  const view: DropdownView = useMemo(() => {
-    if (dismissed || soulseekActive) return 'hidden';
-    if (idLookupPending) return 'loading';
-    if (loading && !cached) return 'loading';
-    if (!cached) return state.query ? 'empty' : 'hidden';
-    return hasSourceResults ? 'results' : 'empty';
-  }, [dismissed, soulseekActive, idLookupPending, loading, cached, state.query, hasSourceResults]);
-
-  // results are the page now, not a dropdown over it, so a click elsewhere no
-  // longer throws them away. clearing the box does.
-  const open = view !== 'hidden';
-
-  /**
-   * The global download widget syncs its query here before clicking the
-   * Soulseek icon (downloads.js:5710-5740). Without it the click hands off THIS
-   * page's last query — which, now that results survive navigation, can be a
-   * stale one — and overwrites what the widget just typed.
-   *
-   * It SYNCS and does not search. The widget writes the basic input and then
-   * clicks the icon, which is what runs the search; searching here as well
-   * would run it twice, and updating the enhanced input would start the
-   * debounce and run it a third time.
-   */
-  const syncRef = useRef(syncQuery);
-  syncRef.current = syncQuery;
-  useEffect(() => {
-    window._searchPageSetQuery = (next: string) => syncRef.current(next.trim());
+    window._searchPageSetQuery = (next: string) => handOffRef.current(next);
     return () => {
       delete window._searchPageSetQuery;
     };
   }, []);
-
-  /**
-   * Repaint the download bubbles on mount. The bubble STORE and painter are
-   * vanilla (shared-helpers.js showSearchDownloadBubbles → innerHTML into
-   * #enhanced-main-results-area); the vanilla page never unmounted, so
-   * painting only on download events was enough. This page recreates the
-   * container with a static placeholder every mount — without this ask,
-   * in-flight downloads vanish after navigating away and back, and the boot
-   * hydrate (init.js) paints into a container that doesn't exist yet when the
-   * app starts on any other page.
-   */
   useEffect(() => {
     window.showSearchDownloadBubbles?.();
   }, []);
 
-  const served = state.fallbacks[state.activeSource];
+  const inputRef = useRef<HTMLInputElement>(null);
+  const inputValueRef = useRef(input);
+  inputValueRef.current = input;
+  useEffect(() => {
+    const element = inputRef.current;
+    if (!element) return;
+    // a programmatic write plus a native input event (the top bar, chat,
+    // the library) never reaches React's onChange; this listener does. Those
+    // hand-offs are searches someone asked for, so they're submitted; real
+    // keystrokes (trusted events) are typing.
+    const onNativeInput = (event: Event) => {
+      (event as ClaimedEvent)._nativeHandled = true;
+      const value = (event.target as HTMLInputElement).value;
+      if (!event.isTrusted) {
+        if (shouldSearch(value)) handOffRef.current(value);
+        else setInput(value);
+        return;
+      }
+      if (value !== inputValueRef.current) setInput(value);
+    };
+    element.addEventListener('input', onNativeInput);
+    return () => element.removeEventListener('input', onNativeInput);
+  }, []);
 
-  /**
-   * A library artist resolves under 'library'; a found one under the source it
-   * came from, with its name in tow. Both need the source SEGMENT — the route is
-   * /artist-detail/$source/$id and a two-segment path resolves to nothing.
-   */
-  const onArtistHref = (artist: SearchArtist, inLibrary: boolean) =>
-    inLibrary
-      ? artistDetailPath(artist.id ?? '')
-      : artistDetailPath(artist.id ?? '', state.activeSource, artist.name);
-
-  const onLabelHref = (label: SearchLabel) => labelDetailPath(label.id ?? '', label.name);
-
-  const counts = resultCounts({
-    dbArtists: results.db_artists,
-    artists: results.artists,
-    albums: results.albums,
-    tracks: results.tracks,
-    playlists: results.playlists,
-    labels,
-    activeSource: state.activeSource,
-  });
-  const videosMode = state.activeSource === 'youtube_videos';
-  // files mode searches whatever download source is picked, not only soulseek
-  const filesSource = basic.state.singleSource
-    ? basic.state.sources[0]
-    : basic.state.sources.find((source) => source.name === basic.state.activeSource);
-  const idle = !open && !soulseekActive && !query.trim();
+  // ── what to show ─────────────────────────────────────────────────────
+  const catalogCount =
+    catalog.activeSource === 'youtube_videos'
+      ? results.videos.length
+      : type === 'artists'
+        ? results.artists.length
+        : type === 'albums'
+          ? results.albums.length
+          : type === 'tracks'
+            ? results.tracks.length
+            : results.albums.length +
+              results.playlists.length +
+              results.tracks.length +
+              results.artists.length +
+              labels.length;
+  const libraryEmpty =
+    !libraryEnabled || (library.isSuccess && libraryRows(library.data, type).length === 0);
+  // nothing found means looked everywhere: an unsubmitted query hasn't asked Soulseek
+  const filesEmpty =
+    !filesApply(committed) ||
+    (fileQuery != null && files.state.status === 'done' && files.state.results.length === 0);
+  const catalogEmpty = !catalogLoading && catalogCached && catalogCount === 0;
+  const nothingFound = searchable && libraryEmpty && filesEmpty && catalogEmpty;
+  const idle = !committed && !input.trim();
+  const catalogName =
+    catalog.activeSource === 'youtube_videos' ? 'YouTube' : sourceLabel(catalog.activeSource);
 
   return (
-    <div className="downloads-content">
-      <div className={`downloads-main-panel ${styles.page}`}>
-        <header className={styles.head} id="search-head">
-          <div>
+    <div className={styles.page} data-testid="search-page">
+      <div className={styles.inner}>
+        <header className={styles.header} id="search-head">
+          <div className={styles.headText}>
             <h1 className={styles.title}>Search</h1>
             <p className={styles.subtitle}>
-              {soulseekActive
-                ? filesSubtitle(filesSource)
-                : videosMode
-                  ? 'Music videos from YouTube, straight to your library'
-                  : 'Find any artist, album or track, then download it tagged and filed'}
+              Your library, {downloadName} and {catalogName}, in one go.
             </p>
           </div>
-          <ModeTabs state={state} catalogSource={catalogSource} onSelect={setActiveSource} />
+          <div className={styles.fieldRow}>
+            <form
+              role="search"
+              className={styles.field}
+              id="enhanced-search-bar"
+              data-active={committed ? 'true' : undefined}
+              onSubmit={(event) => {
+                event.preventDefault();
+                const q = input.trim();
+                if (!q) return;
+                if (q === committed && submitted) return;
+                submit(q);
+              }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.fieldIcon}>
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.3-4.3" />
+              </svg>
+              <input
+                ref={inputRef}
+                id="enhanced-search-input"
+                className={styles.input}
+                type="search"
+                aria-label="Search"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Artists, albums, tracks, or paste a link"
+                value={input}
+                onChange={(event) => {
+                  if ((event.nativeEvent as ClaimedEvent)._nativeHandled) return;
+                  setInput(event.currentTarget.value);
+                }}
+              />
+              {input ? (
+                <button
+                  type="button"
+                  className={styles.clear}
+                  aria-label="Clear search"
+                  title="Clear search"
+                  onClick={() => {
+                    setInput('');
+                    commit('', { push: false });
+                    inputRef.current?.focus();
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              ) : null}
+            </form>
+            <div className={styles.types} role="group" aria-label="Show" id="search-type-row">
+              {SEARCH_TYPES.map((t) => (
+                <OptionButton key={t} selected={type === t} onClick={() => setType(t)}>
+                  {SEARCH_TYPE_LABELS[t]}
+                </OptionButton>
+              ))}
+            </div>
+          </div>
         </header>
 
-        <BasicSearch controller={basic} onDownload={startDownload} active={soulseekActive} />
+        {/* React renders no children here: the legacy painter owns them */}
+        <div className={styles.bubbles} id="enhanced-main-results-area" />
 
-        <div
-          className={`search-section${soulseekActive ? '' : ' active'}`}
-          id="enhanced-search-section"
-          style={soulseekActive ? undefined : { display: 'flex', flexDirection: 'column', gap: 18 }}
-        >
-          <SearchBar
-            query={query}
-            onQueryChange={setQuery}
-            onSubmit={() => runSearch(query)}
-            onClear={() => {
-              setQuery('');
-              setDismissed(true);
-            }}
-            searching={loading}
-            placeholder={
-              videosMode ? 'Search music videos' : 'Artists, albums, tracks, or paste a link'
-            }
-            picker={
-              <SourcePicker
-                state={state}
-                onSelect={setActiveSource}
-                onOpenSettings={openSettings}
-              />
-            }
-          />
-
-          {/* the idle page: recent searches and browse tiles. only when nothing
-              else is showing and nothing is typed */}
-          {idle ? (
-            <div className={styles.idle}>
-              {recents.length > 0 ? (
-                <section id="enh-recent-searches">
-                  <div className={styles.sectionHead}>
-                    <h2 className={styles.sectionTitle}>Recent</h2>
-                    <button
-                      type="button"
-                      className={styles.textLink}
-                      onClick={() => {
-                        try {
-                          window.localStorage.removeItem('soulsyncRecentSearches');
-                        } catch {}
-                        setRecents([]);
-                      }}
-                    >
-                      Clear all
-                    </button>
-                  </div>
-                  <div className={styles.chips}>
-                    {recents.map((entry) => (
-                      <span key={entry} className={styles.chip}>
-                        <button
-                          type="button"
-                          className={styles.chipLabel}
-                          onClick={() => {
-                            setQuery(entry);
-                            runSearch(entry);
-                          }}
-                        >
-                          <ClockIcon />
-                          {entry}
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.chipX}
-                          aria-label={`Remove ${entry} from recent searches`}
-                          title="Remove"
-                          onClick={() => setRecents(removeRecentSearch(entry))}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              {!videosMode ? (
-                <section id="enh-explore-section">
-                  <div className={styles.sectionHead}>
-                    <h2 className={styles.sectionTitle}>Browse</h2>
-                  </div>
-                  <div className={styles.explore}>
-                    {EXPLORE_CATEGORIES.map((cat) => (
+        {idle ? (
+          <div className={styles.idle}>
+            {recents.length ? (
+              <section
+                className={styles.section}
+                aria-labelledby="search-recent-title"
+                id="enh-recent-searches"
+              >
+                <div className={styles.sectionHead}>
+                  <h2 className={styles.sectionTitle} id="search-recent-title">
+                    Recent searches
+                  </h2>
+                  <button
+                    type="button"
+                    className={styles.linkButton}
+                    onClick={() => {
+                      try {
+                        window.localStorage.removeItem('soulsyncRecentSearches');
+                      } catch {
+                        /* not remembered, nothing to forget */
+                      }
+                      setRecents([]);
+                    }}
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <div className={styles.chips}>
+                  {recents.map((entry) => (
+                    <span className={styles.chip} key={entry}>
                       <button
-                        key={cat.id}
                         type="button"
-                        className={styles.tile}
-                        style={{ background: `linear-gradient(135deg, ${cat.from}, ${cat.to})` }}
-                        onClick={() => {
-                          setQuery(cat.query);
-                          runSearch(cat.query);
-                        }}
+                        className={styles.chipLabel}
+                        onClick={() => submit(entry)}
                       >
-                        <b>{cat.label}</b>
+                        {entry}
                       </button>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div id="enhanced-dropdown" className={open ? undefined : 'hidden'}>
-            {view === 'loading' ? (
-              <div className={styles.state} id="enhanced-loading" role="status">
-                <div className={styles.skeletons} aria-hidden="true">
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <Skeleton
-                      key={i}
-                      className={`${styles.skel}${i < 2 ? ` ${styles.skelRound}` : ''}`}
-                    />
+                      <button
+                        type="button"
+                        className={styles.chipRemove}
+                        aria-label={`Remove ${entry} from recent searches`}
+                        onClick={() => setRecents(removeRecentSearch(entry))}
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="16"
+                          height="16"
+                          aria-hidden="true"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        >
+                          <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </span>
                   ))}
                 </div>
-                <p className={styles.stateText} id="enhanced-loading-text" style={{ margin: 0 }}>
-                  {idLookupPending
-                    ? 'Looking up that link…'
-                    : `Searching ${sourceLabel(state.activeSource)}…`}
-                </p>
-              </div>
+              </section>
             ) : null}
-
-            {view === 'empty' ? (
-              <div className={styles.state} id="enhanced-empty">
-                <p className={styles.stateTitle}>
-                  {query.trim() ? `Nothing for “${query.trim()}”` : 'No results'}
-                </p>
-                <p className={styles.stateText}>
-                  Check the spelling, try fewer words, or search another source.
-                </p>
-              </div>
-            ) : null}
-
-            <div
-              id="enhanced-results-container"
-              className={view === 'results' ? styles.results : 'hidden'}
+            <section
+              className={styles.section}
+              aria-labelledby="search-browse-title"
+              id="enh-explore-section"
             >
-              {served ? (
-                <div className={styles.notice} id="enh-fallback-banner">
-                  {fallbackBannerText(state.activeSource, served)}
-                </div>
-              ) : null}
-
-              {view === 'results' && !videosMode ? (
-                <FilterPills
-                  counts={counts}
-                  filter={filter}
-                  onFilter={(next) => {
-                    setFilter(next);
-                    document
-                      .getElementById('enhanced-results-container')
-                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }}
-                  servedBy={served ? sourceLabel(served) : sourceLabel(state.activeSource)}
-                />
-              ) : null}
-
-              <SearchResults
-                activeSource={state.activeSource}
-                dbArtists={results.db_artists}
-                artists={results.artists}
-                albums={results.albums}
-                tracks={results.tracks}
-                playlists={results.playlists}
-                labels={labels}
-                query={state.query}
-                videos={results.videos}
-                videoProgress={videoProgressForGrid}
-                ownership={ownership}
-                artistImages={artistImages}
-                filter={filter}
-                onFilter={setFilter}
-                onArtistHref={onArtistHref}
-                onLabelHref={onLabelHref}
-                onAlbumClick={(album: SearchAlbum) =>
-                  void openSearchAlbum(album, state.activeSource)
-                }
-                onTrackClick={(track: SearchTrack) => void openSearchTrack(track)}
-                onPlaylistClick={(playlist: SearchPlaylist) => setPreviewPlaylist(playlist)}
-                onTrackPlay={(track: SearchTrack, row: LibraryCheckTrack | undefined) => {
-                  if (row) playOwnedTrack(row);
-                  else void streamSearchTrack(track);
-                }}
-                onVideoDownload={handleVideoAcquire}
-              />
-            </div>
-          </div>
-
-          {/*
-            NOT decoration. showSearchDownloadBubbles (shared-helpers.js:2385)
-            renders the download-progress bubbles into #enhanced-main-results-area,
-            fed by the registerSearchDownload call every album and track download
-            makes. Without this container those downloads have nowhere to draw and
-            the function silently returns. Its children are static so React never
-            re-renders over what the vanilla writes there.
-          */}
-          <div className={`search-results-container${open ? ' enh-results-active-hide' : ''}`}>
-            <div className="search-results-header">
-              <h3>Search Results</h3>
-            </div>
-            <div className="search-results-scroll-area" id="enhanced-main-results-area">
-              <div className="search-results-placeholder">
-                <p>Search results will appear here when you select an album or track.</p>
+              <div className={styles.sectionHead}>
+                <h2 className={styles.sectionTitle} id="search-browse-title">
+                  Browse
+                </h2>
               </div>
-            </div>
+              <div className={styles.tiles}>
+                {BROWSE.map((tile) => (
+                  <button
+                    type="button"
+                    className={styles.tile}
+                    key={tile.query}
+                    onClick={() => submit(tile.query)}
+                  >
+                    {tile.label}
+                  </button>
+                ))}
+              </div>
+            </section>
           </div>
-        </div>
+        ) : !searchable ? null : nothingFound ? (
+          <EmptyState
+            variant="panel"
+            title={`Nothing found for “${committed}”`}
+            description={`SoulSync looked in your library, on ${downloadName} and on ${catalogName}${type === 'everything' ? '' : `, for ${type}`}.`}
+            hint="Check the spelling or try fewer words; an artist’s name on its own often finds the most."
+            actions={
+              type === 'everything' ? (
+                <Button
+                  size="lg"
+                  onClick={() => {
+                    setInput('');
+                    commit('');
+                    inputRef.current?.focus();
+                  }}
+                >
+                  Clear the search
+                </Button>
+              ) : (
+                <Button size="lg" onClick={() => setType('everything')}>
+                  Search everything
+                </Button>
+              )
+            }
+          />
+        ) : (
+          <>
+            {libraryEnabled ? (
+              <LibrarySection
+                results={library}
+                query={committed}
+                type={type}
+                bar={bar}
+                isAdmin={isAdmin}
+              />
+            ) : null}
+            {filesPrompt ? (
+              <SoulseekPrompt title={downloadName} query={typed} onSearch={() => submit(typed)} />
+            ) : fileQuery != null ? (
+              <SoulseekSection
+                search={files}
+                query={committed}
+                type={type}
+                filters={filters}
+                onFilters={setFilters}
+                bar={bar}
+                targetName={targetName}
+                sources={sourceList}
+                source={fileSource}
+                singleSource={single}
+                onSource={(name) => {
+                  keptSource = name;
+                  setFileSourcePick(name);
+                }}
+                isAdmin={isAdmin}
+              />
+            ) : null}
+            <CatalogSection
+              query={committed}
+              type={type}
+              activeSource={catalog.activeSource}
+              sources={catalogSources}
+              configured={catalog.configuredSources}
+              onSource={(source) => {
+                setAttempted(committed);
+                setActiveSource(source);
+              }}
+              loading={catalogLoading || (!catalogCached && attempted !== committed)}
+              failed={catalogFailed}
+              onRetry={() => submitQuery(committed)}
+              served={catalog.fallbacks[catalog.activeSource] ?? null}
+              results={results}
+              labels={labels}
+              ownership={ownership}
+              artistImages={artistImages}
+              videoProgress={videoProgressForGrid}
+              acquireVerb={acquireVerb()}
+              actions={catalogActions}
+            />
+          </>
+        )}
       </div>
 
-      {previewPlaylist && (
-        <PlaylistPreviewModal playlist={previewPlaylist} onClose={() => setPreviewPlaylist(null)} />
-      )}
+      {preview ? (
+        <PlaylistPreviewModal
+          playlist={preview}
+          onClose={() => setPreview(null)}
+          onMirror={
+            candidateFromPlaylist(preview)
+              ? () => {
+                  const initial = candidateFromPlaylist(preview);
+                  setPreview(null);
+                  setMirror({ open: true, initial });
+                }
+              : undefined
+          }
+        />
+      ) : null}
+      <MirrorPlaylistDialog
+        open={mirror.open}
+        initial={mirror.initial}
+        onClose={() => setMirror((prev) => ({ ...prev, open: false }))}
+      />
     </div>
   );
-}
-
-/** Jump to the Settings card for a source that has no credentials. */
-function openSettings(source: string) {
-  window.openSettingsForSource?.(source);
-}
-
-function filesSubtitle(source: BasicSource | undefined): string {
-  // before the source list loads there's nothing to name, and guessing
-  // soulseek is what put "from Soulseek" over deezer results (#1313)
-  if (!source) return 'Raw files from your download sources, grabbed as they come';
-  if (source.name === 'soulseek') return 'Raw files from Soulseek, grabbed exactly as shared';
-  return `Files straight from ${basicSourceLabel(source)}, grabbed as they come`;
 }

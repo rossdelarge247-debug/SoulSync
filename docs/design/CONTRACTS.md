@@ -150,13 +150,53 @@ For the "Set a quality target" dialog.
     {"key": "lossless", "name": "Any lossless", "meeting": 4560, "total": 4980, "estimated": false}
   ],
   "current": {"preset": "flac", "name": "FLAC or better", "quality_profile_id": 1,
-              "quality_profile_name": "Balanced", "updated_at": 1773446400}
+              "quality_profile_name": "Balanced", "updated_at": 1773446400,
+              "upgrade_existing": true, "fallback_enabled": true,
+              "targets": [{"label": "FLAC 24-bit/192kHz", "format": "flac", "bit_depth": 24, "min_sample_rate": 192000},
+                          {"label": "FLAC 16-bit", "format": "flac", "bit_depth": 16}]}
 }
 ```
 
 - Counted from each track's file type and stored bitrate. `estimated` marks FLAC 24-bit: bit depth isn't stored, so a FLAC counts as 24-bit at 1450 kbps or more (the rule downloads already use). `.m4a` counts as ALAC at 500 kbps or more.
 - MP3 320 counts lossless files and lossy ones at 320 kbps or more. Any lossless is FLAC, ALAC, WAV/AIFF and DSD.
 - `current` is the default quality profile; `preset` is null when its targets don't match a preset, and `name` then comes from its lowest target. `updated_at` is when that profile was last saved or made the default; SoulSync doesn't record when the target itself changed.
+- `current.upgrade_existing` is true when the profile keeps upgrading tracks below the target (`upgrade_policy` `until_cutoff`); the "Apply Quality Upgrades" automation acts only on those. `current.fallback_enabled` is true when a search that finds nothing at the target takes the best other copy. `current.targets` is the target's bar: a file meets the target when it meets any one of them (the Search page's "At your target" filter uses it).
+
+### Quality target: `PUT /api/quality/target`
+
+Admin only (403 otherwise). Makes a preset the target by writing its ladder into the default quality profile, through the same writes Settings → Quality uses.
+
+```json
+{"preset": "flac", "upgrade_existing": true, "based_on": 1773446400}
+```
+
+- `preset` is `mp3_320`, `flac`, `flac_24` or `lossless`. `upgrade_existing` sets the profile's upgrade policy (`until_cutoff` when true, `acceptable` when false). The rest of the profile (fallback, size limits, per-format settings) is left as it was.
+- `based_on` (optional) is the `current.updated_at` the dialog showed. When the profile was saved since, nothing changes: `409 {"success": false, "error": "target_changed", "message": "The quality target was changed somewhere else while this was open. Nothing was saved."}`.
+- `400 unknown_preset` or `bad_based_on`; `500 no_profile` or `write_failed`, each with a `message` sentence.
+- Success answers with the presets payload above (`{"success": true, "presets": [...], "current": {...}}`), so the dialog shows the new numbers without asking again. Home's quality counts are recounted on the next summary.
+
+### Search: `POST /api/search/stream`
+
+The Search page's file search. The same search as `POST /api/search` (same `{"query", "source"}`; `source` picks one download source in hybrid mode), answered as newline-delimited JSON while it runs:
+
+```
+{"type": "progress", "files": 48, "users": 12, "results": [ … ]}
+{"type": "waiting"}
+{"type": "progress", "files": 55, "users": 12, "results": [ … ]}
+{"type": "done", "files": 55, "users": 12, "results": [ … ]}
+```
+
+- `waiting` comes every 2 seconds while nothing new has arrived. It carries nothing to show; it's there so a closed tab is noticed on the next write and the search's request thread is freed instead of waiting out slskd. Clients skip any line type they don't know.
+
+- `results` is the whole list so far each time (the same album and track shapes as `/api/search`), not just what's new. Progress lines come at most once a second, as Soulseek reports; other sources answer once, with `done`.
+- `files` counts every file, tracks inside folders included. `users` is how many Soulseek users answered, or `null` when the source doesn't say.
+- A failed search ends with `{"type": "error", "error": "<a sentence>"}`. An empty query is `400 {"error": "No search query provided."}`.
+- Closing the connection ends the stream within about 2 seconds, but doesn't cancel the search on slskd; that finishes on its own timeout, as `/api/search` does.
+- The Search page calls it only for a submitted query (`files=1` in its URL), never while you type.
+
+### Library check: `POST /api/enhanced-search/library-check`
+
+Already used by search; one addition. For each `{"name", "artist"}` in `tracks`, the answer at the same position now also carries the owned copy's stored `bitrate` (kbps, or `null`) beside `file_path`, so a page can name the copy you have ("upgrades your MP3 320 copy").
 
 ### Navigation shell badges
 

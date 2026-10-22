@@ -36,21 +36,15 @@ describe('VideoGrid', () => {
     expect(screen.getByText('Warp · 1.5M views')).toBeInTheDocument();
   });
 
-  it('heads its section with a count', () => {
+  it('is the grid alone: the Search section around it carries the heading', () => {
     renderGrid([video()]);
-    expect(screen.getByRole('heading', { name: /Music videos/ })).toBeInTheDocument();
-    expect(document.getElementById('enh-videos-count')?.textContent).toBe('1');
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect(document.getElementById('enh-videos-list')?.children).toHaveLength(1);
   });
 
   it('omits the duration chip rather than printing an empty one', () => {
     renderGrid([video({ duration: undefined })]);
     expect(screen.queryByText(/^\d+:\d\d$/)).toBeNull();
-  });
-
-  it('shows an empty state when the stream returned nothing', () => {
-    renderGrid([]);
-    expect(screen.getByText('No music videos found.')).toBeInTheDocument();
-    expect(document.getElementById('enh-videos-count')?.textContent).toBe('0');
   });
 
   it('downloads the whole video object from a real button', () => {

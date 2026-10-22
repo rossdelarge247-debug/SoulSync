@@ -18,12 +18,19 @@ export interface PlaylistPreviewModalProps {
   playlist: SearchPlaylist;
   onClose: () => void;
   onPlayTrack?: (track: unknown) => void;
+  /**
+   * Mirror through the "Mirror a playlist" dialog instead of saving the mirror
+   * straight from here (Search passes it; the dialog shows what mirroring
+   * means before it happens).
+   */
+  onMirror?: () => void;
 }
 
 export function PlaylistPreviewModal({
   playlist,
   onClose,
   onPlayTrack,
+  onMirror,
 }: PlaylistPreviewModalProps) {
   const [tracks, setTracks] = useState<unknown[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -180,15 +187,21 @@ export function PlaylistPreviewModal({
           covers={playlist.image_url ? [playlist.image_url] : mixCoverArt(rows)}
           onClose={onClose}
           actions={
-            <button
-              type="button"
-              className="btn btn--sm btn--primary"
-              disabled={mirroring || mirrored || loading || !tracks || tracks.length === 0}
-              onClick={() => void handleMirror()}
-              title="Add as a mirrored playlist in Playlists"
-            >
-              {mirroring ? 'Mirroring…' : mirrored ? 'Added ✓' : '+ Add to Playlists'}
-            </button>
+            onMirror ? (
+              <button type="button" className="btn btn--sm btn--primary" onClick={onMirror}>
+                Mirror this playlist
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn--sm btn--primary"
+                disabled={mirroring || mirrored || loading || !tracks || tracks.length === 0}
+                onClick={() => void handleMirror()}
+                title="Add as a mirrored playlist in Playlists"
+              >
+                {mirroring ? 'Mirroring…' : mirrored ? 'Added ✓' : '+ Add to Playlists'}
+              </button>
+            )
           }
         />
 

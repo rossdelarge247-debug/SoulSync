@@ -32,7 +32,7 @@ from core.webui.mimetypes_fix import corrected_script_content_type, ensure_web_m
 # registry (Windows: .js -> text/plain) otherwise blanks the module-loaded React
 # pages (Import/Stats) via strict module MIME checking. (#979)
 ensure_web_mimetypes()
-from flask import Flask, abort, render_template, request, jsonify, redirect, send_file, send_from_directory, Response, session, g
+from flask import Flask, abort, render_template, request, jsonify, redirect, send_file, send_from_directory, Response, session, g, stream_with_context
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from utils.logging_config import get_logger, setup_logging
 from utils.async_helpers import run_async
@@ -6421,6 +6421,41 @@ def search_music():
     except Exception as e:
         logger.error(f"Search error: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/search/stream', methods=['POST'])
+def search_music_stream():
+    """Basic file search that reports as it goes, for the Search page.
+
+    The same search as ``/api/search`` (same ``query`` and optional
+    ``source``), answered as newline-delimited JSON: ``progress`` lines with
+    the results so far, the file count and how many users answered, then one
+    ``done`` line with the final results, or an ``error`` line. See
+    ``core.search.basic.stream_basic_search``.
+    """
+    data = request.get_json(silent=True) or {}
+    query = (data.get('query') or '').strip()
+    if not query:
+        return jsonify({"error": "No search query provided."}), 400
+
+    requested_source = (data.get('source') or '').strip().lower() or None
+    logger.info(f"Web UI streamed search for: '{query}'" + (f" (source={requested_source})" if requested_source else ""))
+
+    def generate():
+        for event in _search_basic.stream_basic_search(
+                query, download_orchestrator, run_async, source=requested_source):
+            if event.get("type") == "done":
+                # the page searches as you type and shows its own status, so
+                # this is recorded without a toast and without a "started" line
+                add_activity_item("", "Search Complete", f"'{query}' - {len(event['results'])} results", "Now",
+                                  show_toast=False)
+            yield json.dumps(event) + "\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='application/x-ndjson',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+    )
 
 
 def _mark_request_free_ok_for_spotify(source: str) -> None:

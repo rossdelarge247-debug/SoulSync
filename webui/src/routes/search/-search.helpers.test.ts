@@ -38,7 +38,6 @@ import {
   splitTitleExtra,
 } from './-search.helpers';
 import { SOURCE_LABELS, SOURCE_ORDER } from './-search.types';
-import { shelfColumns } from './-search.use-shelf-columns';
 
 const album = (over: Partial<SearchAlbum> = {}): SearchAlbum => ({
   id: 'a1',
@@ -498,14 +497,6 @@ describe('the results layout helpers', () => {
     expect(splitTitleExtra('Pride (In The Name Of Love)').extra).toBe('');
     expect(splitTitleExtra('One').extra).toBe('');
     expect(splitTitleExtra('(Live)').extra).toBe('');
-  });
-
-  it('counts columns the way repeat(auto-fill, minmax(min, 1fr)) does', () => {
-    // 168px cards, 14px gap: 1920 fits 10, 1000 fits 5, anything fits 1
-    expect(shelfColumns(1920, 168, 14)).toBe(10);
-    expect(shelfColumns(1000, 168, 14)).toBe(5);
-    expect(shelfColumns(168 * 3 + 14 * 2, 168, 14)).toBe(3);
-    expect(shelfColumns(80, 168, 14)).toBe(1);
   });
 });
 

@@ -856,96 +856,59 @@ const HELPER_CONTENT = {
 
     // ─── SEARCH / DOWNLOADS PAGE ────────────────────────────────────
 
-    // Header & Mode Toggle
+    // The Search page (webui/src/routes/search): one query against your
+    // library, the download source and the metadata service.
     '#search-head': {
         title: 'Search',
-        description: 'Find music across your metadata sources and download it tagged and filed. Catalog searches a metadata source, Videos searches YouTube music videos, Files searches Soulseek directly.',
+        description: 'One search covers your library, your download source (usually Soulseek) and your connected metadata service, grouped in that order. The query and the type are kept in the address, so back and forward work.',
         docsId: 'search'
     },
-    '#enh-source-row': {
-        title: 'What to Search',
-        description: 'Catalog searches the metadata source picked in the search field. Videos finds music videos on YouTube. Files is the raw Soulseek search, for grabbing exactly what someone shares.',
-        tips: [
-            'Catalog returns to the source you were last on',
-            'Files downloads can still be tagged: as-is, enriched from one provider, or by hand'
-        ],
-        docsId: 'search-enhanced'
-    },
-
-    // Enhanced Search
     '#enhanced-search-bar': {
         title: 'Search Field',
-        description: 'Type an artist, album, or track. The pill on the left picks the metadata source; only that source is searched. Paste a Spotify, Apple Music, Deezer or MusicBrainz link (or a MusicBrainz ID) to jump straight to that release.',
+        description: 'Type an artist, album, or track. Paste a Spotify, Apple Music, Deezer or MusicBrainz link (or a MusicBrainz ID) to jump straight to that release.',
         tips: [
-            'Results are cached per source, so switching back is instant',
-            'A source that is not set up opens Settings instead',
-            'If a source is unavailable the menu says which one answered instead'
+            'The search runs a moment after you stop typing, or straight away on Enter',
+            'The search field in the top bar and Cmd/Ctrl K land here too'
         ],
         docsId: 'search-enhanced'
     },
-    '#enh-spotify-artists-section': {
-        title: 'Artists',
-        description: 'Artists matching the search. The ones already in your library come first and are marked. Click one to open their page.',
+    '#search-type-row': {
+        title: 'What to Show',
+        description: 'Everything, or only artists, albums or tracks, in every section at once.',
+        docsId: 'search-enhanced'
     },
-    '#enh-albums-section': {
-        title: 'Albums',
-        description: 'Full-length albums matching the search. Click to open the download modal where you can select tracks and start downloading. "In Library" badge means you already own it.',
-        docsId: 'search-downloading'
+    '#search-library': {
+        title: 'In Your Library',
+        description: 'What you already have that matches: artists (and whether you follow them), albums and tracks, with a tag when a copy is below your quality target. Play and Open sit on each row.',
     },
-    '#enh-singles-section': {
-        title: 'Singles & EPs',
-        description: 'Singles and EPs matching the search. Same as albums — click to open the download modal.',
-        docsId: 'search-downloading'
-    },
-    '#enh-tracks-section': {
-        title: 'Tracks',
-        description: 'Individual tracks matching the search. Click to search your download source for that specific track. Play button streams a preview. "In Library" badge means it\'s already in your collection.',
-        docsId: 'search-downloading'
-    },
-
-    // Basic Search
-    //
-    // These selectors are the React panel's (webui/src/routes/search/-ui/).
-    // Four of them used to point at elements that did not exist —
-    // `.search-bar-container`, `#filter-toggle-btn`, `#filter-content` and
-    // `.search-status-container` — so those tour steps silently highlighted
-    // nothing. document.querySelector just returns null and the step is skipped.
-    '#bs-source-row': {
-        title: 'Search Source',
-        description: 'Which download source the search goes to. With one source configured this is a label; with several, click it to pick another.',
+    '#search-soulseek': {
+        title: 'Soulseek',
+        description: 'Files other people share, streaming in while the search runs. Rows are grouped by folder with the best copy first, and the coloured line says what each one means for your library.',
+        tips: [
+            'The green button is the one row that completes something you already want',
+            'Download asks how the file should come in: as-is, enriched (tagged and filed), or tagged by you',
+            'Show tracks opens a folder; other copies are under the row',
+            'Click an uploader to message them on Soulseek',
+            'With several download sources, pick which one to search in the section heading'
+        ],
         docsId: 'search-basic'
     },
-    '.bs-search-bar': {
-        title: 'Basic Search',
-        description: 'Searches the download source directly. Enter artist name, song title, or any keywords. Results are raw file listings.',
-        docsId: 'search-basic'
-    },
-    '#filters-container': {
+    '#search-soulseek-filters': {
         title: 'Filter and sort',
-        description: 'How many results came back, then filter by type and format and change the sort.',
+        description: 'At your target shows copies that meet your quality target; Any quality shows everything. Whole albums keeps folders only, and Not in my library hides what you already have.',
         tips: [
-            'Type: All, Albums (whole folders), or Tracks (single files)',
-            'Format: FLAC for lossless, MP3 for compressed, or another format',
-            'Sort: Quality weighs format, bitrate and how fast the uploader is',
-            'The arrow flips the order: down is best first, up reverses it'
+            'Format and sort are at the end of the row; the arrow reverses the order'
         ],
         docsId: 'search-basic'
     },
-    '.bs-status-bar': {
-        title: 'Search Status',
-        description: 'Before a search, a hint. While one runs, what it is searching for. After, what happened if nothing came back.',
-    },
-    '#search-results-area': {
-        title: 'Search Results',
-        description: 'One row per file or album: quality badge, size, length and who shares it. Each row has one Download button, which asks how the file should come in.',
+    '#search-catalog': {
+        title: 'Your Metadata Service',
+        description: 'Releases, playlists and tracks the connected service found, showing what you don\'t have yet first. Add to Wanted, or Mirror this playlist. A title opens the download window or the playlist\'s tracks.',
         tips: [
-            'Download as-is keeps the file exactly as shared',
-            'Enriched download matches it to a release, then tags it and files it into your library',
-            'Tag it yourself is for recordings no service knows: you type the details, and SoulSync keeps them',
-            'Albums expand to show their tracks, each downloadable on its own',
-            'Click an uploader to message them on Soulseek'
+            'Pick another service, or music videos from YouTube, in the section heading',
+            'A service that is not set up opens Settings instead'
         ],
-        docsId: 'search-basic'
+        docsId: 'search-downloading'
     },
 
     // (Download Manager side-panel was retired — see the dedicated Downloads page)
@@ -1206,8 +1169,8 @@ const HELPER_CONTENT = {
         title: 'Similar Artist',
         description: 'An artist similar to the one you\'re viewing. Click to load their discography and browse their releases.',
     },
-    // (Search source picker annotation lives under `#enh-source-row` above —
-    //  the old `.search-source-picker-container` dropdown is gone.)
+    // (The Search page's service picker lives in its section heading, under
+    //  `#search-catalog` above.)
 
     // ─── AUTOMATIONS PAGE ─────────────────────────────────────────────
 
@@ -2327,10 +2290,10 @@ const HELPER_TOURS = {
         description: 'Step-by-step guide to downloading your first album.',
         icon: '⬇️',
         steps: [
-            { page: 'search', selector: '#enh-source-row', title: 'Pick What to Search', description: 'Catalog searches a metadata source like Spotify, Deezer or MusicBrainz. Videos finds music videos on YouTube. Files is the raw Soulseek search.' },
-            { page: 'search', selector: '#enhanced-search-bar', title: 'Search for Music', description: 'Type an artist or album name. The pill on the left picks which source to search. You can also paste a link to a release and it opens that exact one. Try searching for your favorite artist now!' },
-            { page: 'search', selector: '#enhanced-results-container', title: 'Search Results', description: 'The top result sits next to the first few tracks, then artists, albums, singles and EPs. The pills along the top narrow it to one kind. "In library" marks things you already own.' },
-            { page: 'search', selector: '#enhanced-search-bar', title: 'Downloading an Album', description: 'Click any album to open the download modal with its tracklist and quality options, or use the download button on the cover. Tracks have a play button to preview before downloading.' },
+            { page: 'search', selector: '#enhanced-search-bar', title: 'Search for Music', description: 'Type an artist or album name. One search covers your library, Soulseek and your metadata service. You can also paste a link to a release and it opens that exact one. Try searching for your favorite artist now!' },
+            { page: 'search', selector: '#search-type-row', title: 'Narrow It Down', description: 'Everything, or just artists, albums or tracks, in every section at once.' },
+            { page: 'search', selector: '#search-soulseek', title: 'Files on Soulseek', description: 'Files stream in while the search runs, grouped by folder with the best copy first. The coloured line says what a row means for your library, and the green button completes something you already want.' },
+            { page: 'search', selector: '#search-catalog', title: 'Releases You Don\'t Have', description: 'Your metadata service shows what you don\'t have yet. Add a release to Wanted, or mirror a playlist so SoulSync keeps up with it.' },
             { page: 'search', selector: '#enhanced-search-bar', title: 'That\'s It!', description: 'Search, click, download. Albums go to your configured download path, get tagged with metadata, and sync to your media server automatically. Active downloads live on the dedicated Downloads page.' },
         ]
     },

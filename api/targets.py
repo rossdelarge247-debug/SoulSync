@@ -15,13 +15,17 @@ GET /api/quality/artist/<artist_id>
     One library artist's albums against the current target: per album, its
     tracks with a file, how many are below the target, and the formats held.
     The artist page's "Below quality target" tag. Read-only, any profile.
+PUT /api/quality/target
+    Admin only. Makes a preset the target by writing its ladder into the
+    default quality profile (core/quality/presets.py apply_preset), the same
+    profile Settings → Quality edits. Answers with the presets payload.
 """
 
 from __future__ import annotations
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
-from core.profile_context import get_current_profile_id
+from core.profile_context import admin_only, get_current_profile_id
 from core.quality import presets as _presets
 from core.targets import summary as _summary
 from utils.logging_config import get_logger
@@ -81,6 +85,46 @@ def get_artist_quality(artist_id):
     if data is None:
         return jsonify({"success": False, "error": "Artist not found in the library"}), 404
     return jsonify({"success": True, **data})
+
+@bp.route("/api/quality/target", methods=["PUT"])
+@admin_only
+def put_quality_target():
+    """Body: ``{"preset": "flac", "upgrade_existing": true, "based_on": 1773446400}``.
+
+    ``based_on`` (optional) is the ``current.updated_at`` the dialog showed;
+    when the profile was saved since, nothing changes and the answer is
+    ``409 target_changed``.
+    """
+    data = request.get_json(silent=True) or {}
+    key = data.get("preset")
+    if key not in _presets.PRESET_LADDERS:
+        return jsonify({"success": False, "error": "unknown_preset",
+                        "message": "Choose MP3 320, FLAC, FLAC 24-bit or Any lossless."}), 400
+    based_on = data.get("based_on")
+    if based_on is not None:
+        try:
+            based_on = float(based_on)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "bad_based_on",
+                            "message": "based_on must be the target's updated_at."}), 400
+    try:
+        body = _presets.apply_preset(get_database(), key, upgrade_existing=bool(data.get("upgrade_existing")),
+                                     based_on=based_on)
+    except _presets.TargetChanged:
+        return jsonify({"success": False, "error": "target_changed",
+                        "message": "The quality target was changed somewhere else while this was open. "
+                                   "Nothing was saved."}), 409
+    except LookupError as exc:
+        logger.error("quality target write failed: %s", exc)
+        return jsonify({"success": False, "error": "no_profile",
+                        "message": "SoulSync couldn't find its default quality profile, so nothing changed."}), 500
+    except Exception as exc:  # noqa: BLE001
+        logger.error("quality target write failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "write_failed",
+                        "message": "SoulSync couldn't save the target. Nothing changed."}), 500
+    # Home's Quality card reads the new bar now, not in 30 seconds
+    _summary.clear_cache()
+    return jsonify({"success": True, **body})
 
 
 def create_blueprint():
