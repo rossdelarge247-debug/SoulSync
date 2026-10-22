@@ -3364,6 +3364,20 @@ from core.connection_test import (
 from core.connection_detect import run_detection
 from core.media_server import specs as _media_specs
 
+
+def _media_server_status():
+    """The cached media server status plus ``configured``, from settings only
+    (no network): Standalone always is; an unknown, empty or 'none' choice
+    isn't, so the UI can say no library is chosen instead of "Disconnected"."""
+    status = dict(_status_cache.get('media_server', {}))
+    try:
+        descriptor = _media_specs.describe(config_manager.get_active_media_server())
+        status['configured'] = bool(descriptor) and descriptor.is_configured_in(config_manager)
+    except Exception as e:
+        logger.debug("media server configured check failed: %s", e)
+    return status
+
+
 # --- Web UI Routes ---
 
 @app.route('/')
@@ -3644,7 +3658,7 @@ def get_status():
         status_data = {
             'metadata_source': metadata_status['metadata_source'],
             'spotify': _spotify_status_with_availability(metadata_status['spotify']),
-            'media_server': _status_cache['media_server'],
+            'media_server': _media_server_status(),
             'soulseek': soulseek_data,
             'active_media_server': active_server,
             'enrichment': _get_enrichment_status(),
@@ -22951,7 +22965,7 @@ def _build_status_payload():
     return {
         'metadata_source': metadata_status['metadata_source'],
         'spotify': _spotify_status_with_availability(metadata_status['spotify']),
-        'media_server': _status_cache.get('media_server', {}),
+        'media_server': _media_server_status(),
         'soulseek': soulseek_data,
         'active_media_server': config_manager.get_active_media_server(),
         'enrichment': _get_enrichment_status(),
