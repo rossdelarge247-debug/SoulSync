@@ -379,7 +379,7 @@ describe('the header', () => {
     renderArtist();
     await ready();
     expect(
-      screen.getByText('14 releases · 9 in your library · 5 on Wanted · 132 tracks'),
+      screen.getByText('14 releases · 9 in your library (132 tracks) · 5 on Wanted'),
     ).toBeInTheDocument();
     expect(screen.getByText('14 releases · 9 in library · 5 wanted')).toBeInTheDocument();
     expect(screen.getAllByText('Following since March 2025').length).toBeGreaterThan(0);
@@ -1089,7 +1089,7 @@ describe('the "…" menu keeps what the old page did', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
     await waitFor(() =>
       expect(
-        screen.getByText('8 releases · 6 in your library · 2 on Wanted · 132 tracks'),
+        screen.getByText('8 releases · 6 in your library (132 tracks) · 2 on Wanted'),
       ).toBeInTheDocument(),
     );
   });

@@ -513,19 +513,27 @@ export function plural(count: number, one: string, many = `${one}s`): string {
   return `${count.toLocaleString()} ${count === 1 ? one : many}`;
 }
 
-/** "14 releases · 9 in your library · 5 on Wanted · 132 tracks"; phones get the 2h short form. */
+/**
+ * "14 releases · 9 in your library (132 tracks) · 5 on Wanted": the tracks
+ * belong to the library part, so the line can't read as a total (Design,
+ * HANDOFF 13). Nothing on Wanted is left out rather than said as "0 on
+ * Wanted". Phones get the 2h short form, without the tracks.
+ */
 export function countsLine(counts: HeaderCounts, sourceOnly: boolean, short = false): string {
   const parts = [plural(counts.releases, 'release')];
   if (sourceOnly) {
     parts.push(short ? 'not in library' : 'not in your library');
   } else if (counts.checking && counts.inLibrary === 0) {
     parts.push(short ? 'checking library…' : 'checking your library…');
+  } else if (short) {
+    parts.push(`${counts.inLibrary} in library`);
   } else {
-    parts.push(short ? `${counts.inLibrary} in library` : `${counts.inLibrary} in your library`);
+    const tracks =
+      counts.tracks !== null && counts.tracks > 0 ? ` (${plural(counts.tracks, 'track')})` : '';
+    parts.push(`${counts.inLibrary} in your library${tracks}`);
   }
-  parts.push(short ? `${counts.onWanted} wanted` : `${counts.onWanted} on Wanted`);
-  if (!short && counts.tracks !== null && counts.tracks > 0)
-    parts.push(plural(counts.tracks, 'track'));
+  if (counts.onWanted > 0)
+    parts.push(short ? `${counts.onWanted} wanted` : `${counts.onWanted} on Wanted`);
   return parts.join(' · ');
 }
 

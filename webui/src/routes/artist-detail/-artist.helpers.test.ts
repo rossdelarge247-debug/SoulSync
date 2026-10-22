@@ -321,16 +321,24 @@ describe('the header', () => {
     const counts = headerCounts(list, states, 132);
     expect(counts).toEqual({ releases: 6, inLibrary: 2, onWanted: 1, tracks: 132, checking: true });
     expect(countsLine(counts, false)).toBe(
-      '6 releases · 2 in your library · 1 on Wanted · 132 tracks',
+      '6 releases · 2 in your library (132 tracks) · 1 on Wanted',
     );
     expect(countsLine(counts, false, true)).toBe('6 releases · 2 in library · 1 wanted');
   });
 
   it('says not in your library for a source artist, and checking before anything is known', () => {
     const counts = { releases: 1, inLibrary: 0, onWanted: 0, tracks: null, checking: false };
-    expect(countsLine(counts, true)).toBe('1 release · not in your library · 0 on Wanted');
+    // nothing on Wanted is left out rather than said as "0 on Wanted"
+    expect(countsLine(counts, true)).toBe('1 release · not in your library');
     expect(countsLine({ ...counts, checking: true }, false)).toBe(
-      '1 release · checking your library… · 0 on Wanted',
+      '1 release · checking your library…',
+    );
+    expect(countsLine({ ...counts, onWanted: 2 }, true, true)).toBe(
+      '1 release · not in library · 2 wanted',
+    );
+    // no library tracks: no brackets
+    expect(countsLine({ ...counts, inLibrary: 1, tracks: 0 }, false)).toBe(
+      '1 release · 1 in your library',
     );
   });
 
