@@ -7,6 +7,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Feature | Status | Entry |
 | --- | --- | --- |
 | Automation assistant (AI) and a block editor | Ready for Design | [below](#automation-assistant-ai-and-a-block-editor) |
+| Internet radio with track identification | Ready for Design | [below](#internet-radio-with-track-identification) |
 
 ---
 
@@ -73,3 +74,69 @@ An automation is one trigger, one action (with an optional wait before it), then
 
 - A monthly spending cap or usage display in Settings → AI?
 - Which model by default: the best answers, or the cheaper, faster one?
+
+---
+
+## Internet radio with track identification
+
+**Status:** Ready for Design · raised by Ross, 2026-10-22
+
+### The problem
+
+Good radio is one of the best ways to find music, but what you hear is gone the moment it ends. You have to catch the track name, search for it later, and add it by hand. Ross wants the best free stations inside SoulSync, with whatever's playing identified and one click from Wanted.
+
+### What Ross wants
+
+- **An Internet radio area** with built-in picks of high-quality free stations in four kinds: **electronic** (house, techno, ambient, downtempo, leftfield), **world**, **eclectic tastemakers**, and **jazz, soul and funk**. Plus a search across a large free directory.
+- **Now playing, identified:** the artist and title of what's on, matched to your library: "In your library" or "Add to Wanted".
+- **Adding to Wanted both ways:** one click per track by default, plus an optional **auto-add switch per station** that sends everything identified on it to Wanted (skipping what you already have).
+- **Heard on radio:** a running list of identified tracks, so you can add them later.
+- **Favourite stations,** including your own stream links.
+- **Lossless where offered:** prefer FLAC or high-bitrate streams when a station has them, and show each stream's quality.
+- **Tracklists after shows** for stations that publish them, with Add to Wanted on each line.
+- **Radio in automations:** a new trigger such as "a track I don't have was played on a favourite station".
+- Free only: no paid services.
+
+### What the app gives today (Dev checked)
+
+- **No internet radio.** "Library Radio" and Discover's "Recommended Stations" play tracks from your own library; this is a separate thing and needs a name that doesn't clash ("Internet radio", "Stations"…).
+- **A player that keeps playing between pages** (the app's media player): radio should use it, so a station keeps going while you browse.
+- **Add to Wanted from an artist and title** already exists (Search uses it), with the "already in your library?" check (`POST /api/enhanced-search/library-check`) and the quality target.
+- **Track identification tools** are installed: Chromaprint (`fpcalc`), ffmpeg and AcoustID, used today to identify whole downloaded files.
+- **Module switches** exist, so radio can be a module people turn off.
+
+### Where stations and track names come from (all free)
+
+- **Built-in picks:** a curated list Dev maintains, e.g. SomaFM, Radio Paradise (including lossless FLAC streams), FIP and its genre channels (Electro, Groove, Monde, Jazz), KEXP, NTS, Worldwide FM, dublab. Many publish what's playing now, and some publish tracklists after shows.
+- **The Radio Browser directory:** about 50,000 community-listed stations, searchable by genre, country, codec and bitrate, with no account or key.
+- **Identification, in order:** (1) the station's own now-playing information, the most accurate; (2) the artist and title many streams send alongside the audio; (3) a fingerprint fallback with the tools already installed. Expect gaps: DJ mixes, talk and live sessions often won't be identified, and the design should say "Not identified" calmly rather than guess.
+
+### Constraints for the design
+
+- **Identification lags a little.** Station data and fingerprints arrive a few seconds to a minute after a track starts. "Now playing" needs a "Listening…" state and a short history.
+- **Auto-add needs guards:** skip anything already in the library or on Wanted, never add the same track twice, and show what it added (Activity already records what happens). A daily limit per station is worth considering.
+- **Streams and safety:** the server reads stream titles (browsers can't) and, when needed, relays the audio. It only does this for stations from the built-in list, the directory or a link an admin added, only for audio, and only while someone is listening.
+- **Quality labels** come from what the station declares (codec, bitrate); a stream can be lower than it claims.
+
+### States Design needs to draw
+
+- The radio home: built-in picks by kind, favourites, search.
+- A station playing: now playing (identified / Listening… / Not identified), In your library or Add to Wanted, the auto-add switch, stream quality, Heard on radio.
+- A show's tracklist after broadcast.
+- Search results from the directory, with quality and country.
+- Adding your own stream link.
+- A station that's offline or won't play, and identification switched off or unavailable.
+- Phone: playing and adding from the player, and the Heard list.
+
+### Questions for Design
+
+1. Where does radio live in the navigation: Get music, Library, or its own row? And its name, since "Library Radio" already exists.
+2. How much of now playing sits in the persistent player versus the radio page?
+3. How does the auto-add switch read, so people understand it can fill Wanted?
+4. Does "Heard on radio" belong on the radio page, in Activity, or both?
+
+### Questions for Ross (later)
+
+- A daily auto-add limit per station?
+- Should radio count towards Home (for example, a "Heard this week" number)?
+
