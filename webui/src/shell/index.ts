@@ -66,6 +66,7 @@ import {
   toggleOriginEntry,
   toggleOriginGroup,
 } from './origin-history';
+import { bootPlayer } from './player';
 import { initPlexSignIn } from './plex-signin';
 import {
   closeServiceSwitchModal,
@@ -176,6 +177,8 @@ bootNavShell();
 startDiscoverInboxBadge();
 initSidebarWeather();
 const onReady = () => {
+  // the player's bar and tray (board 6a) over media-player.js, which loaded first
+  bootPlayer();
   initWeatherPreviewSettings();
   initAppearanceSettings();
   void initPlexSignIn();
