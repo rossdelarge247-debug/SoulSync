@@ -689,12 +689,6 @@ async function initProfileSystem() {
         if (currentData.success && currentData.profile) {
             setCurrentProfile(currentData.profile);
 
-            // Login mode → reveal the Sign out button in the profile bar.
-            if (currentData.login_mode) {
-                const lb = document.getElementById('logout-btn');
-                if (lb) lb.style.display = '';
-            }
-
             // Check if launch PIN is required
             if (currentData.launch_pin_required) {
                 showLaunchPinScreen();
@@ -2044,12 +2038,6 @@ function updateProfileIndicator() {
     // for non-admins so it doesn't look interactive.
     const statusSection = document.querySelector('.status-section--clickable');
     if (statusSection) statusSection.classList.toggle('status-section--locked', !currentProfile.is_admin);
-
-    // My Account (your media server identity + your own music services) is
-    // inert for the admin, who uses the app's accounts and the full Settings
-    // page. hidden for the admin, shown to everyone else.
-    const myAccountsBtn = document.getElementById('my-accounts-btn');
-    if (myAccountsBtn) myAccountsBtn.style.display = currentProfile.is_admin ? 'none' : '';
 
     // the avatar + name is a real button that opens the quick switch menu
     const indicatorButton = document.getElementById('profile-indicator-button');

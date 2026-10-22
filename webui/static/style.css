@@ -40246,27 +40246,6 @@ body.downloads-disabled .discog-download-btn[data-request-action] {
     white-space: nowrap;
 }
 
-/* Personal Settings Trigger (gear icon) */
-.personal-settings-trigger {
-    background: none;
-    border: none;
-    color: var(--white-a30);
-    cursor: pointer;
-    padding: 2px;
-    margin-left: auto;
-    border-radius: var(--radius-xs);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all var(--dur-base) ease;
-    flex-shrink: 0;
-}
-.personal-settings-trigger:hover {
-    color: var(--white-a80);
-    background: var(--white-a08);
-    transform: rotate(30deg);
-}
-
 /* ListenBrainz empty state on Discover page */
 .lb-empty-state {
     text-align: center;

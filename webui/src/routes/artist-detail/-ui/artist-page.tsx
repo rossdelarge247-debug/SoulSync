@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { Button, OptionButton } from '@/components/form';
+import { TitleWithHelp } from '@/components/page-header';
 import { EmptyState, LoadingState, Notice, Skeleton, StatusTag } from '@/components/primitives';
 import {
   routedNamesQueryOptions,
@@ -282,10 +283,12 @@ function TabBar({
   );
 }
 
+/** All · In your library · Missing · Albums (Design, HANDOFF 11). */
 const FILTERS: { key: ReleaseFilter; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'albums', label: 'Albums' },
+  { key: 'library', label: 'In your library' },
   { key: 'missing', label: 'Missing' },
+  { key: 'albums', label: 'Albums' },
 ];
 
 export function ArtistPage() {
@@ -679,14 +682,16 @@ export function ArtistPage() {
       <HeaderArt artist={artist} image={payload ? image : null} applied={appliedPhoto} />
       <div className={styles.headText}>
         <p className={styles.label}>Artist</p>
-        {artistName ? (
-          <h1 className={styles.name}>{artistName}</h1>
-        ) : (
-          <h1 className={styles.name}>
-            <Skeleton className={styles.nameLoading} />
-            <span className="ss-sr">Loading the artist</span>
-          </h1>
-        )}
+        <TitleWithHelp page="artist-detail">
+          {artistName ? (
+            <h1 className={styles.name}>{artistName}</h1>
+          ) : (
+            <h1 className={styles.name}>
+              <Skeleton className={styles.nameLoading} />
+              <span className="ss-sr">Loading the artist</span>
+            </h1>
+          )}
+        </TitleWithHelp>
         {payload ? (
           <p className={styles.counts}>
             <span className={styles.countsLong}>{countsLine(counts, sourceOnly)}</span>
@@ -873,9 +878,13 @@ export function ArtistPage() {
               ? stillChecking
                 ? 'Still checking your library. Missing releases show here as soon as it knows.'
                 : `Nothing missing: you have every release of ${artistName} listed here, or it's on Wanted.`
-              : filter === 'albums'
-                ? `No albums listed for ${artistName}. Their EPs and singles are under All.`
-                : 'Nothing here with the current filters. Check More filters in the … menu.'}
+              : filter === 'library'
+                ? stillChecking
+                  ? 'Still checking your library. What you have shows here as soon as it knows.'
+                  : 'None of these releases are in your library yet. Missing lists what you can add to Wanted.'
+                : filter === 'albums'
+                  ? `No albums listed for ${artistName}. Their EPs and singles are under All.`
+                  : 'Nothing here with the current filters. Check More filters in the … menu.'}
           </p>
         ) : (
           <ul

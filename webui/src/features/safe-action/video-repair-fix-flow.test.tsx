@@ -24,6 +24,7 @@ function plan(over: Record<string, unknown> = {}) {
     total: 3,
     destructive: 2,
     by_effect: { recycle: 1, move: 1, write: 1 },
+    files_by_effect: { recycle: 1, move: 1 },
     recycle_deletes: true,
     sample: [
       {
@@ -142,8 +143,12 @@ describe('Video repair: Approve selected', () => {
         "Moves the movie's file to the recycle bin and marks the movie as not in your library",
       ),
     ).toBeTruthy();
-    expect(within(dialog).getByText(/1 fix moves a movie's files to the recycle bin/)).toBeTruthy();
-    expect(within(dialog).getByText(/1 fix renames files\. Nothing is deleted\./)).toBeTruthy();
+    // nothing is deleted for good, so the title stays "Fix 3 findings?"
+    expect(
+      within(dialog).getByText(
+        'Fixes 3 findings: 1 file moved to the recycle bin, 1 renamed; the other 1 only changes the wishlist, the library record or the download queue.',
+      ),
+    ).toBeTruthy();
     expect(within(dialog).queryByText(/This can't be undone/)).toBeNull();
     expect(within(dialog).getByText('All 3 findings shown')).toBeTruthy();
 
@@ -164,6 +169,8 @@ describe('Video repair: Approve selected', () => {
             total: 1,
             destructive: 1,
             by_effect: { delete: 1 },
+            // one movie with two files
+            files_by_effect: { delete: 2 },
             recycle_deletes: false,
             sample: [
               {
@@ -179,8 +186,14 @@ describe('Video repair: Approve selected', () => {
     );
     await start();
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText(/^This can't be undone\. 1 fix deletes/)).toBeTruthy();
-    expect(within(dialog).getByText('Deleted for good')).toBeTruthy();
+    expect(
+      within(dialog).getByRole('heading', { name: 'Permanently delete 2 files?' }),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText("This can't be undone. Fixes 1 finding: 2 files deleted for good."),
+    ).toBeTruthy();
+    const tile = within(dialog).getByText('Deleted for good').parentElement!;
+    expect(tile.textContent).toContain('2');
     expect(
       within(dialog).getByRole('button', { name: 'Fix 1 finding' }).getAttribute('data-tone'),
     ).toBe('danger');

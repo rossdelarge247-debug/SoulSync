@@ -391,6 +391,7 @@ function IssueBoardHeader({
 }) {
   return (
     <PageHeader
+      help="issues"
       id="issues-header"
       icon={
         <svg

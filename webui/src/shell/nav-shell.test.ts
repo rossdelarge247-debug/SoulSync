@@ -151,7 +151,8 @@ describe('the current row', () => {
     expect(row('wanted').getAttribute('data-page')).toBe(NAV_TARGETS.wanted.pageId);
     expect(row('activity').getAttribute('href')).toBe(NAV_TARGETS.activity.path);
     expect($('#ss-running').getAttribute('href')).toBe(NAV_TARGETS.activity.path);
-    expect($('#ss-phone-activity').getAttribute('href')).toBe(NAV_TARGETS.activity.path);
+    // the phone's Activity icon opens the notifications, which lead to Activity
+    expect($('#ss-phone-activity').tagName).toBe('BUTTON');
   });
 
   it('names the page from the video sidebar on the video side', async () => {
@@ -357,6 +358,57 @@ describe('Admin and help', () => {
     expect($('#ss-admin-note').textContent).toBe('');
   });
 
+  it('a service that is down lights the fold and says so on the Connections row', () => {
+    start();
+    const status = (detail: unknown) =>
+      window.dispatchEvent(new CustomEvent('ss:service-status', { detail }));
+    const healthy = {
+      metadata_source: { source: 'deezer', connected: true },
+      media_server: { type: 'plex', connected: true, configured: true },
+      soulseek: { source: 'soulseek', connected: true },
+    };
+    status(healthy);
+    expect($('#ss-connections-word').hidden).toBe(true);
+    expect($('#ss-admin-dot').hidden).toBe(true);
+
+    status({ ...healthy, media_server: { type: 'plex', connected: false, configured: true } });
+    expect($('#ss-connections-word').hidden).toBe(false);
+    expect($('#ss-connections-word').textContent).toBe('Plex is down');
+    expect($('#ss-admin-dot').hidden).toBe(false);
+    expect($('#ss-admin-note').textContent).toBe(', Plex is down');
+
+    // with a setup problem too, both are in the fold's words
+    shell!.applySetupReport('local', { ok: 3, warning: 1, error: 0 });
+    expect($('#ss-admin-note').textContent).toBe(', setup check: 1 problem, Plex is down');
+    shell!.applySetupReport('local', { ok: 4, warning: 0, error: 0 });
+
+    // a media server that was never set up isn't down (Home says no library is chosen)
+    status({ ...healthy, media_server: { type: 'plex', connected: false, configured: false } });
+    expect($('#ss-connections-word').hidden).toBe(true);
+    expect($('#ss-admin-dot').hidden).toBe(true);
+    expect($('#ss-admin-note').textContent).toBe('');
+
+    status({
+      ...healthy,
+      soulseek: { source: 'soulseek', connected: false },
+      metadata_source: { source: 'deezer', connected: false },
+    });
+    expect($('#ss-connections-word').textContent).toBe('Soulseek and Deezer are down');
+  });
+
+  it('keeps the music services off the video side', () => {
+    start();
+    window.dispatchEvent(
+      new CustomEvent('ss:service-status', {
+        detail: { media_server: { type: 'plex', connected: false, configured: true } },
+      }),
+    );
+    expect($('#ss-admin-dot').hidden).toBe(false);
+    document.body.setAttribute('data-side', 'video');
+    shell!.refresh();
+    expect($('#ss-admin-dot').hidden).toBe(true);
+  });
+
   it('follows the reports the Setup check page announces', () => {
     start();
     window.dispatchEvent(
@@ -409,7 +461,7 @@ describe('the activity badges', () => {
     expect($('#ss-running').dataset.state).toBe('unknown');
     expect($('#ss-needs-you-badge').hidden).toBe(true);
     expect($('#ss-phone-activity-dot').hidden).toBe(true);
-    expect($('#ss-phone-activity').getAttribute('aria-label')).toBe('Activity');
+    expect($('#ss-phone-activity').getAttribute('aria-label')).toBe('Activity and notifications');
   });
 
   it('zero: says nothing is running and shows no badge', () => {
@@ -432,7 +484,7 @@ describe('the activity badges', () => {
     expect(row('activity').textContent).toContain('2');
     expect($('#ss-phone-activity-dot').hidden).toBe(false);
     expect($('#ss-phone-activity').getAttribute('aria-label')).toBe(
-      'Activity, 3 running, 2 need you',
+      'Activity and notifications, 3 running, 2 need you',
     );
   });
 
@@ -523,6 +575,152 @@ describe('the activity badges', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('phones: no floating buttons (HANDOFF 25)', () => {
+  const unread = (count: number) =>
+    window.dispatchEvent(new CustomEvent('ss:notifications-unread', { detail: { count } }));
+
+  afterEach(() => {
+    delete window.toggleNotifPanel;
+    delete window.openHelperMenu;
+    delete window.ServerActivity;
+    document.getElementById('notif-panel')?.remove();
+  });
+
+  /** downloads.js's panel, as far as the shell sees it: a div and two events. */
+  function fakePanel() {
+    let panel: HTMLElement | null = null;
+    const toggle = vi.fn((anchor?: Element | null) => {
+      if (panel) {
+        const closing = panel;
+        panel.remove();
+        panel = null;
+        window.dispatchEvent(
+          new CustomEvent('ss:notif-panel', { detail: { open: false, panel: closing } }),
+        );
+        return;
+      }
+      panel = document.createElement('div');
+      panel.id = 'notif-panel';
+      panel.innerHTML = '<div class="notif-panel-header">Notifications</div>';
+      document.body.append(panel);
+      window.dispatchEvent(new CustomEvent('ss:notif-panel', { detail: { open: true, panel } }));
+      return anchor;
+    });
+    window.toggleNotifPanel = toggle;
+    return { toggle, panel: () => panel };
+  }
+
+  it('the Activity icon carries the notifications: one dot for either, in words too', () => {
+    const nav = start();
+    nav.applyActivityStatus({ running: 0, needsYou: 0 });
+    expect($('#ss-phone-activity-dot').hidden).toBe(true);
+    unread(3);
+    expect($('#ss-phone-activity-dot').hidden).toBe(false);
+    expect($('#ss-phone-activity').getAttribute('aria-label')).toBe(
+      'Activity and notifications, 3 new notifications',
+    );
+    unread(0);
+    expect($('#ss-phone-activity-dot').hidden).toBe(true);
+    nav.applyActivityStatus({ running: 1, needsYou: 1 });
+    expect($('#ss-phone-activity-dot').hidden).toBe(false);
+  });
+
+  it('opens the notifications, with Activity at the top of them', () => {
+    phone(true);
+    const { toggle, panel } = fakePanel();
+    const nav = start();
+    nav.applyActivityStatus({ running: 2, needsYou: 1 });
+    const button = $<HTMLButtonElement>('#ss-phone-activity');
+    button.click();
+    expect(toggle).toHaveBeenCalledWith(button);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(button.getAttribute('aria-controls')).toBe('notif-panel');
+    const link = panel()!.querySelector<HTMLAnchorElement>('.ss-notif-links a')!;
+    expect(link.getAttribute('href')).toBe(NAV_TARGETS.activity.path);
+    expect(link.textContent).toContain('Activity');
+    expect(link.textContent).toContain('2 running · 1 needs you');
+    // it's first, before the notifications' own header
+    expect(panel()!.firstElementChild?.classList.contains('ss-notif-links')).toBe(true);
+
+    // Activity: the panel closes and the page opens
+    const navigateToPage = vi.fn();
+    window.navigateToPage = navigateToPage as unknown as typeof window.navigateToPage;
+    link.click();
+    expect(navigateToPage).toHaveBeenCalledWith(NAV_TARGETS.activity.pageId);
+    expect(panel()).toBeNull();
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    delete window.navigateToPage;
+  });
+
+  it('offers Server activity there while the media server reports live streams', () => {
+    phone(true);
+    const { panel } = fakePanel();
+    const streams = document.createElement('button');
+    streams.id = 'activity-float-btn';
+    document.body.append(streams);
+    const serverActivity = { toggle: vi.fn() };
+    window.ServerActivity = serverActivity as unknown as typeof window.ServerActivity;
+    start();
+    $<HTMLButtonElement>('#ss-phone-activity').click();
+    const rows = [...panel()!.querySelectorAll('.ss-notif-link')].map((el) => el.textContent);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toContain('Server activity');
+    panel()!.querySelectorAll<HTMLElement>('.ss-notif-link')[1].click();
+    expect(serverActivity.toggle).toHaveBeenCalled();
+    streams.remove();
+  });
+
+  it('Escape closes the panel and goes back to the icon', () => {
+    phone(true);
+    const { panel } = fakePanel();
+    start();
+    $<HTMLButtonElement>('#ss-phone-activity').click();
+    expect(panel()).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(panel()).toBeNull();
+    expect(document.activeElement).toBe($('#ss-phone-activity'));
+  });
+
+  it('leaves the bell alone on wide screens: no Activity row in its panel', () => {
+    phone(false);
+    const { toggle, panel } = fakePanel();
+    start();
+    toggle(null);
+    expect(panel()!.querySelector('.ss-notif-links')).toBeNull();
+  });
+
+  it("the Settings sheet's Help row opens the help menu instead of the Help page", () => {
+    phone(true);
+    const openHelperMenu = vi.fn();
+    window.openHelperMenu = openHelperMenu;
+    const nav = start();
+    nav.openSheet('settings', tab('settings'));
+    const help = row('help');
+    const pressed = new PointerEvent('pointerdown', { bubbles: true, cancelable: true });
+    const reached = vi.fn();
+    document.addEventListener('pointerdown', reached, true);
+    help.dispatchEvent(pressed);
+    document.removeEventListener('pointerdown', reached, true);
+    // the shell bridge navigates a mouse press on pointerdown: it never hears this one
+    expect(reached).not.toHaveBeenCalled();
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    help.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(openHelperMenu).toHaveBeenCalledWith(null);
+    expect(document.documentElement.hasAttribute('data-sheet')).toBe(false);
+  });
+
+  it('keeps the Help row a link on wide screens', () => {
+    phone(false);
+    const openHelperMenu = vi.fn();
+    window.openHelperMenu = openHelperMenu;
+    start();
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    row('help').dispatchEvent(click);
+    expect(openHelperMenu).not.toHaveBeenCalled();
   });
 });
 
@@ -728,6 +926,25 @@ describe('the markup', () => {
       (el) => (el as HTMLElement).dataset.navRow,
     );
     expect(admin).toEqual(['setup-check', 'hydrabase', 'maintenance', 'issues', 'help']);
+  });
+
+  it('pins three rows at the foot: Admin and help, the side switch and the profile', () => {
+    const bottom = $('#app-sidebar .ss-nav-bottom');
+    const pinned = [...bottom.children].map((el) => el.id || el.className);
+    expect(pinned).toEqual(['ss-admin', 'side-toggle', 'profile-indicator']);
+    // the profile row is the avatar and name alone; its menu has the rest
+    const profile = $('#profile-indicator');
+    expect(profile.querySelectorAll('button')).toHaveLength(1);
+    expect(profile.querySelector('#profile-indicator-avatar')).not.toBeNull();
+    expect(profile.querySelector('#profile-indicator-name')).not.toBeNull();
+    // Connections, What's new and Support live in Admin and help only
+    const panel = $('#ss-admin-panel');
+    expect(panel.querySelector('.ss-connections')).not.toBeNull();
+    expect(panel.querySelector('.ss-version-row')).not.toBeNull();
+    expect(panel.textContent).toContain('Support SoulSync');
+    expect(bottom.querySelectorAll('.ss-connections')).toHaveLength(
+      panel.querySelectorAll('.ss-connections').length,
+    );
   });
 
   it('names the app SoulSync, with SS on the rail', () => {

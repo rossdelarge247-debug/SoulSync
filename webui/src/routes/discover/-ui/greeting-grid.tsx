@@ -1,3 +1,5 @@
+import { TitleWithHelp } from '@/components/page-header';
+
 import type { QuickTile } from '../-discover.greeting';
 
 import { greeting } from '../-discover.greeting';
@@ -114,10 +116,12 @@ export function GreetingGrid({
   const first = (name ?? '').trim().split(/\s+/)[0];
   return (
     <section className="dsc-greeting" aria-label="Jump back in">
-      <h1 className="dsc-greeting-title">
-        {greeting(hour)}
-        {first ? `, ${first}` : ''}
-      </h1>
+      <TitleWithHelp page="discover">
+        <h1 className="dsc-greeting-title">
+          {greeting(hour)}
+          {first ? `, ${first}` : ''}
+        </h1>
+      </TitleWithHelp>
       <QuickTilesGrid
         tiles={tiles}
         onOpenMix={onOpenMix}

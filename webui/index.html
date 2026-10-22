@@ -493,12 +493,14 @@
                         </a>
                         <hr class="ss-hairline" aria-hidden="true">
                         <!-- Service status: one row per side; the dots follow shared-helpers.js
-                             updateSidebarServiceStatus and video-service-status.js as before. -->
+                             updateSidebarServiceStatus and video-service-status.js as before. On the
+                             music side a service that's down says so in words under "Connections"
+                             (nav-shell.ts, from the /status frames) and lights Admin and help's dot. -->
                         <div class="status-section status-section--clickable ss-item ss-connections" data-music-only
                             onclick="openServiceSwitchModal('metadata')" title="Change active sources for your profile"
                             role="button" tabindex="0">
                             <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01M6 18h.01"/></svg>
-                            <span class="ss-label status-title">Connections</span>
+                            <span class="ss-connections-text"><span class="ss-label status-title">Connections</span><span class="ss-connections-word" id="ss-connections-word" hidden></span></span>
                             <span class="ss-status-dots">
                                 <span class="status-indicator" id="metadata-source-indicator" data-status-ready="false"
                                     onclick="event.stopPropagation(); openServiceSwitchModal('metadata')">
@@ -580,22 +582,13 @@
                     </button>
                 </div>
                 <div id="profile-indicator" class="profile-indicator ss-profile" style="display: none;">
-                    <!-- opens the quick switch menu (init.js toggleProfileQuickSwitch), which also holds
-                         "Profile & account" and "Sign out" when they apply -->
+                    <!-- The profile row is the only one at the foot (Design, HANDOFF 2): it opens the
+                         quick switch menu (init.js toggleProfileQuickSwitch), which also holds
+                         "Profile & account" (My Account) and "Sign out" when they apply. -->
                     <button type="button" id="profile-indicator-button" class="profile-indicator-main ss-item"
                         aria-haspopup="menu" aria-expanded="false" title="Switch profile">
                         <span id="profile-indicator-avatar" class="profile-indicator-avatar"></span>
                         <span id="profile-indicator-name" class="profile-indicator-name ss-label"></span>
-                    </button>
-                    <!-- My Account: your media server login + your own music services, one modal (#1293) -->
-                    <button id="my-accounts-btn" class="personal-settings-trigger ss-icon-btn"
-                        onclick="event.stopPropagation(); openMyAccountsModal()" title="My Account"
-                        aria-label="My Account">
-                        <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-                    </button>
-                    <button id="logout-btn" class="personal-settings-trigger ss-icon-btn" style="display:none"
-                        onclick="event.stopPropagation(); soulsyncLogout()" title="Sign out" aria-label="Sign out">
-                        <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
                     </button>
                 </div>
                 <!-- the sidebar weather line (src/shell/sidebar-weather.ts) mounts after the profile row -->
@@ -632,11 +625,14 @@
                     <button type="button" class="ss-icon-btn ss-phone-only" id="ss-phone-search" aria-label="Search">
                         <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
                     </button>
-                    <a class="ss-icon-btn ss-phone-only" id="ss-phone-activity" href="/activity"
-                        data-nav-target="activity" aria-label="Activity">
+                    <!-- Phones: Activity and the notifications in one icon (Design, HANDOFF 25).
+                         It opens the notifications panel, which starts with a link to Activity;
+                         its dot is something needing you or a notification you haven't seen. -->
+                    <button type="button" class="ss-icon-btn ss-phone-only" id="ss-phone-activity"
+                        aria-label="Activity and notifications" aria-expanded="false">
                         <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
                         <span class="ss-dot ss-dot--warning" id="ss-phone-activity-dot" aria-hidden="true" hidden></span>
-                    </a>
+                    </button>
                 </div>
             </header>
         <!-- Main Content Area -->
@@ -2748,8 +2744,14 @@
                     <div class="settings-content">
                         <nav class="stg-category-nav" aria-label="Settings categories">
                             <div class="stg-navigation-heading">
-                                <div><span class="stg-eyebrow">YOUR WORKSPACE</span>
-                                    <h2>Settings</h2>
+                                <!-- phones: the "?" for this page's tour (Design, HANDOFF 25; shell.css) -->
+                                <div class="ss-page-title-row">
+                                    <div><span class="stg-eyebrow">YOUR WORKSPACE</span>
+                                        <h2>Settings</h2>
+                                    </div>
+                                    <button type="button" class="ss-page-help" data-page-help="settings"
+                                        aria-label="Help and a tour of this page" title="Help and a tour of this page"
+                                        onclick="toggleHelperMode(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg></button>
                                 </div>
                                 <div class="stg-nav-search-wrap">
                                     <svg class="stg-search-icon" viewBox="0 0 24 24">

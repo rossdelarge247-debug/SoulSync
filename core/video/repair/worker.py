@@ -336,7 +336,9 @@ class VideoRepairWorker:
     def _fix_effect(self, finding: dict, fix_action, settings: dict, base_dirs) -> dict:
         """What fixing one finding would do: ``effect`` (a sentence),
         ``effect_kind`` (move / recycle / delete / library / write / none),
-        the file it touches and its size. Reads only; mirrors the fixers."""
+        the file it touches, its size and ``files`` (how many files it moves,
+        recycles or deletes; a rename's sidecars aside). Reads only; mirrors
+        the fixers."""
         ftype = finding.get("finding_type") or ""
         d = finding.get("details") or {}
         if ftype == "watched_cleanup":
@@ -345,16 +347,16 @@ class VideoRepairWorker:
             want = os.path.basename(str(d.get("expected_path") or "")) or "the template's name"
             return {"effect": f"Renames the file to {want}, with its sidecars. Nothing is deleted",
                     "effect_kind": "move", "path": d.get("current_path") or "",
-                    "size": int(d.get("size_bytes") or 0)}
+                    "size": int(d.get("size_bytes") or 0), "files": 1}
         if ftype == "youtube_ghost":
             text = ("Forgets the download record, so the video can be fetched again"
                     if fix_action == "forget" else "Marks the download as deleted in your history")
-            return {"effect": text, "effect_kind": "library", "path": "", "size": 0}
+            return {"effect": text, "effect_kind": "library", "path": "", "size": 0, "files": 0}
         if ftype in ("duplicate_movie", "duplicate_episode"):
             return {"effect": "Nothing: choose the copy to keep by hand", "effect_kind": "none",
-                    "path": "", "size": 0}
+                    "path": "", "size": 0, "files": 0}
         return {"effect": _PLAIN_EFFECTS.get(ftype, "Applies the fix"), "effect_kind": "write",
-                "path": "", "size": 0}
+                "path": "", "size": 0, "files": 0}
 
     def _watched_cleanup_effect(self, d: dict, settings: dict, base_dirs) -> dict:
         from core.video import recycle
@@ -377,28 +379,29 @@ class VideoRepairWorker:
         if not located:
             return {"effect": "Can't find the file on disk, so nothing is deleted and this fix fails",
                     "effect_kind": "none", "path": d.get("relative_path") or "",
-                    "size": int(d.get("size_bytes") or 0)}
+                    "size": int(d.get("size_bytes") or 0), "files": 0}
         size = sum(s for _p, s in located)
         if not settings.get("recycle_deletes", True):
             return {"effect": (f"Deletes the movie's {what} permanently (recycling is off) and "
                                "marks the movie as not in your library"),
-                    "effect_kind": "delete", "path": located[0][0], "size": size}
+                    "effect_kind": "delete", "path": located[0][0], "size": size, "files": len(located)}
         if any(recycle.trash_dir_for(p, settings, self.db) is None for p, _s in located):
             return {"effect": (f"Deletes the movie's {what} permanently: it is outside every "
                                "library folder, so it can't go to the recycle bin"),
-                    "effect_kind": "delete", "path": located[0][0], "size": size}
+                    "effect_kind": "delete", "path": located[0][0], "size": size, "files": len(located)}
         return {"effect": (f"Moves the movie's {what} to the recycle bin and marks the movie "
                            "as not in your library"),
-                "effect_kind": "recycle", "path": located[0][0], "size": size}
+                "effect_kind": "recycle", "path": located[0][0], "size": size, "files": len(located)}
 
     def preview_bulk_fix(self, job_id=None, severity=None, ids=None, fix_action=None) -> dict:
         """What a bulk fix with these filters WOULD do, finding by finding,
         recorded as a plan. Changes nothing.
 
         Returns the plan summary (``plan_id``, ``total``, ``sample`` items with
-        ``path`` / ``reason`` / ``effect`` / ``effect_kind``) plus
-        ``destructive`` (how many move or delete a file), ``by_effect``,
-        ``per_type`` and ``recycle_deletes``. ``total == 0`` and no plan id
+        ``path`` / ``reason`` / ``effect`` / ``effect_kind`` / ``files``) plus
+        ``destructive`` (how many move or delete a file), ``by_effect`` (fixes
+        per effect), ``files_by_effect`` (the files those fixes move, recycle
+        or delete), ``per_type`` and ``recycle_deletes``. ``total == 0`` and no plan id
         when nothing matches."""
         from core.library.action_plans import plan_store
         from core.video import organization
@@ -417,22 +420,26 @@ class VideoRepairWorker:
                 "path": effect["path"], "size": effect["size"],
                 "action": fix_action or "fix", "reason": f.get("title") or ftype,
                 "effect": effect["effect"], "effect_kind": effect["effect_kind"],
+                "files": int(effect.get("files") or 0),
                 "destructive": effect["effect_kind"] in ("move", "recycle", "delete"),
             })
         if not items:
             return {"total": 0, "plan_id": None, "destructive": 0, "per_type": {}, "by_effect": {},
-                    "recycle_deletes": recycle_on, "counts": {}, "by_reason": {}, "sample": [],
-                    "truncated": False}
+                    "files_by_effect": {}, "recycle_deletes": recycle_on, "counts": {},
+                    "by_reason": {}, "sample": [], "truncated": False}
         plan = plan_store.create(VIDEO_REPAIR_BULK_FIX_TOOL, items, meta={
             "ids": [i["finding_id"] for i in items], "fix_action": fix_action})
         summary = plan.summary()
         per_type: dict = {}
         by_effect: dict = {}
+        files_by_effect: dict = {}
         for item in items:
             per_type[item["finding_type"]] = per_type.get(item["finding_type"], 0) + 1
             by_effect[item["effect_kind"]] = by_effect.get(item["effect_kind"], 0) + 1
-        summary.update(per_type=per_type, by_effect=by_effect, recycle_deletes=recycle_on,
-                       destructive=sum(1 for i in items if i["destructive"]))
+            if item["files"]:
+                files_by_effect[item["effect_kind"]] = files_by_effect.get(item["effect_kind"], 0) + item["files"]
+        summary.update(per_type=per_type, by_effect=by_effect, files_by_effect=files_by_effect,
+                       recycle_deletes=recycle_on, destructive=sum(1 for i in items if i["destructive"]))
         return summary
 
     def bulk_fix_needs_plan(self, job_id=None, severity=None, ids=None) -> bool:

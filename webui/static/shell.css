@@ -247,7 +247,6 @@
 }
 #app-sidebar .ss-item:focus-visible,
 #app-sidebar .ss-count-link:focus-visible,
-#app-sidebar .ss-icon-btn:focus-visible,
 #app-sidebar .ss-wordmark:focus-visible,
 #app-sidebar .ss-section-toggle:focus-visible {
     outline: var(--ss-focus-ring);
@@ -346,7 +345,8 @@
     padding-right: 56px;
 }
 
-/* the bottom block: hairline, Admin and help, Switch to Video, the profile */
+/* the bottom block, three rows at most: hairline, Admin and help, Switch to Video,
+   the profile (avatar and name; My Account and Sign out are in its menu) */
 #app-sidebar .ss-nav-bottom {
     flex: none;
     display: flex;
@@ -416,6 +416,22 @@ html[data-admin-open='true'] #app-sidebar .ss-admin-panel { display: flex; }
     letter-spacing: 0;
     text-transform: none;
 }
+/* a service that's down: the word under "Connections", in the warning colour */
+#app-sidebar .ss-connections-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    padding: 4px 0;
+}
+#app-sidebar .ss-connections-text > .ss-label { flex: none; }
+#app-sidebar .ss-connections-word {
+    color: var(--ss-warning);
+    font: 400 14px/1.3 var(--ss-shell-font);
+    white-space: normal;
+}
+#app-sidebar .ss-connections-word[hidden] { display: none; }
 #app-sidebar .ss-status-dots {
     display: inline-flex;
     align-items: center;
@@ -518,7 +534,7 @@ html.side-locked #app-sidebar .side-toggle { display: none; }
     color: var(--ss-text-meta);
 }
 
-/* the profile: avatar + name opens the quick switch menu */
+/* the profile: avatar + name, the only row at the foot; it opens the quick switch menu */
 #app-sidebar .ss-profile {
     align-items: center;
     gap: 2px;
@@ -542,29 +558,6 @@ html.side-locked #app-sidebar .side-toggle { display: none; }
     font-weight: 600;
 }
 #app-sidebar .profile-indicator-name { font-size: 15px; }
-#app-sidebar .ss-icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    margin: 0;
-    padding: 0;
-    flex: none;
-    border: 1px solid transparent;
-    border-radius: var(--ss-radius-control);
-    background: none;
-    color: var(--ss-text-meta);
-    cursor: pointer;
-    transform: none;
-    transition: var(--ss-transition);
-}
-#app-sidebar .ss-icon-btn:hover {
-    background: var(--ss-hover-wash);
-    color: var(--ss-text);
-    transform: none;
-}
-#app-sidebar .ss-icon-btn .ss-icon { width: 18px; height: 18px; }
 
 /* the video sidebar: same rows; its sections still fold (init.js toggleNavSection) */
 #app-sidebar .video-nav .ss-section-toggle {
@@ -947,7 +940,7 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
     }
     html[data-sidebar='collapsed'] #app-sidebar .ss-admin-panel .ss-item > .ss-dot { position: static; }
 
-    /* the profile is its avatar; My Account and Sign out are in its menu */
+    /* the profile is its avatar (its menu has Profile & account and Sign out) */
     html[data-sidebar='collapsed'] #app-sidebar .ss-profile {
         justify-content: center;
         flex-wrap: nowrap;
@@ -956,7 +949,6 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
         flex: none;
         width: 48px;
     }
-    html[data-sidebar='collapsed'] #app-sidebar .ss-profile .ss-icon-btn { display: none; }
 }
 
 /* An open dialog covers the page. The floating notification, help and
@@ -1160,31 +1152,136 @@ body:has([role='dialog'][data-open]) :is(.notif-bell-btn, .helper-float-btn, .ac
         background: transparent;
     }
 
-    /* the floating buttons and the mini player sit above the tab bar, and
-       step aside while a sheet is open (init.js's old drawer class) */
+    /* No floating buttons on phones (Design, HANDOFF 25): the notifications
+       are in the top bar's Activity icon (nav-shell.ts), help in the Settings
+       sheet's Help row and a "?" in the header of a page with a tour. The
+       mini player sits above the tab bar. */
     .notif-bell-btn,
     .helper-float-btn,
-    .activity-float-btn {
-        bottom: calc(var(--ss-tabbar-h) + 16px + env(safe-area-inset-bottom, 0px));
-    }
+    .activity-float-btn,
+    #notif-bell-btn,
+    #helper-float-btn,
+    #activity-float-btn { display: none !important; }
     .media-player {
-        bottom: calc(var(--ss-tabbar-h) + 62px + env(safe-area-inset-bottom, 0px));
-    }
-    .notif-panel {
-        bottom: calc(var(--ss-tabbar-h) + 62px + env(safe-area-inset-bottom, 0px)) !important;
-    }
-    body.mobile-nav-open .notif-bell-btn,
-    body.mobile-nav-open .helper-float-btn,
-    body.mobile-nav-open .activity-float-btn,
-    body.mobile-nav-open #notif-bell-btn { display: none !important; }
-}
-
-@media (max-width: 480px) {
-    .notif-bell-btn,
-    .helper-float-btn,
-    .activity-float-btn {
         bottom: calc(var(--ss-tabbar-h) + 12px + env(safe-area-inset-bottom, 0px));
     }
+
+    /* the notifications open under the top bar's Activity icon, full width */
+    .notif-panel {
+        top: calc(var(--ss-topbar-h-phone) + 8px) !important;
+        bottom: auto !important;
+        left: 12px !important;
+        right: 12px !important;
+        width: auto !important;
+        max-width: none !important;
+        max-height: calc(100dvh - var(--ss-topbar-h-phone) - var(--ss-tabbar-h) - 24px - env(safe-area-inset-bottom, 0px));
+        transform-origin: top right;
+    }
+    /* Activity, and Server activity where there's one, at the top of it */
+    .notif-panel .ss-notif-links {
+        display: flex;
+        flex: none;
+        flex-direction: column;
+        gap: 2px;
+        padding: 8px;
+        border-bottom: 1px solid var(--ss-hairline);
+        font-family: var(--ss-shell-font);
+    }
+    .notif-panel .ss-notif-link {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        /* mobile.css caps every button at 38px with a long :not() chain */
+        min-height: 48px !important;
+        margin: 0;
+        padding: 4px 12px;
+        box-sizing: border-box;
+        border: 1px solid transparent;
+        border-radius: var(--ss-radius-control);
+        background: none;
+        color: var(--ss-text-secondary);
+        font: 500 15px/1.3 var(--ss-shell-font);
+        text-align: left;
+        text-decoration: none;
+        cursor: pointer;
+        transition: var(--ss-transition);
+    }
+    .notif-panel .ss-notif-link:hover { background: var(--ss-hover-wash); color: var(--ss-text); }
+    .notif-panel .ss-notif-link:focus-visible {
+        outline: var(--ss-focus-ring);
+        outline-offset: var(--ss-focus-offset-inset);
+    }
+    .notif-panel .ss-notif-link-icon { display: inline-flex; flex: none; }
+    .notif-panel .ss-notif-link-icon svg { width: 20px; height: 20px; }
+    .notif-panel .ss-notif-link-text {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-width: 0;
+    }
+    .notif-panel .ss-notif-link-meta {
+        color: var(--ss-text-meta);
+        font: 400 14px/1.3 var(--ss-shell-font);
+    }
+    .notif-panel .ss-notif-link-trail {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        color: var(--ss-text-meta);
+    }
+
+    /* the help menu opens from a page header's "?" or the Help row: full rows */
+    .helper-menu-item {
+        min-height: 44px !important;
+        font-size: 14px;
+        text-align: left;
+    }
+    .helper-menu,
+    .helper-popover,
+    .helper-search-panel {
+        max-width: calc(100vw - 24px);
+    }
+}
+
+/* a page header's "?" (Design, HANDOFF 25), phones only: the Settings page's
+   static header, and the React pages through components/page-header
+   (PageHelpButton, TitleWithHelp). The title row wraps the page's own title
+   and its "?"; on wide screens it isn't there as far as layout goes. */
+.ss-page-help { display: none; }
+.ss-page-title-row { display: contents; }
+@media (max-width: 768px) {
+    .ss-page-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-width: 0;
+    }
+    .ss-page-title-row > :first-child { flex: 1 1 auto; min-width: 0; }
+    .ss-page-help {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        width: 44px;
+        height: 44px;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        border: 1px solid var(--ss-control-border);
+        border-radius: var(--ss-radius-control);
+        background: none;
+        color: var(--ss-text-secondary);
+        cursor: pointer;
+        transition: var(--ss-transition);
+    }
+    .ss-page-help:hover { background: var(--ss-hover-wash); color: var(--ss-text); }
+    .ss-page-help:focus-visible {
+        outline: var(--ss-focus-ring);
+        outline-offset: var(--ss-focus-offset);
+    }
+    .ss-page-help svg { width: 20px; height: 20px; pointer-events: none; }
 }
 
 @media (max-width: 480px) {

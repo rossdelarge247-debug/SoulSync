@@ -34,7 +34,10 @@ export interface VideoRepairFixPreview extends PlanSummary<VideoRepairFixItem> {
   error?: string;
   /** How many fixes move or delete a file. */
   destructive?: number;
+  /** Fixes per effect kind. */
   by_effect?: Record<string, number>;
+  /** The files those fixes move, recycle or delete, per effect kind. */
+  files_by_effect?: Record<string, number>;
   per_type?: Record<string, number>;
   recycle_deletes?: boolean;
 }
@@ -117,38 +120,61 @@ export function videoRepairFixDeletes(preview: Pick<VideoRepairFixPreview, 'by_e
   return permanent + recycled > 0;
 }
 
-/** The confirm's title, explanation and button. A permanent delete says so first. */
-export function videoRepairFixCopy(preview: Pick<VideoRepairFixPreview, 'by_effect' | 'total'>) {
+/**
+ * How many files the fixes delete for good or move to the recycle bin
+ * (files_by_effect). A movie can have several files, so this can be more
+ * than the fixes. null when the preview doesn't say.
+ */
+export function videoRepairFiles(
+  preview: Pick<VideoRepairFixPreview, 'files_by_effect'>,
+): { permanent: number; recycled: number } | null {
+  const files = preview.files_by_effect;
+  if (!files) return null;
+  return { permanent: files.delete ?? 0, recycled: files.recycle ?? 0 };
+}
+
+/**
+ * The confirm's title, explanation and button. The title names the worst
+ * thing that happens (Design, HANDOFF 26): "Permanently delete 2 files?"
+ * whenever any delete is permanent, "Fix 4 findings?" only when nothing is.
+ * The lead has the full picture: "This can't be undone. Fixes 4 findings: 2
+ * files deleted for good, 1 moved to the recycle bin, 1 renamed."
+ */
+export function videoRepairFixCopy(
+  preview: Pick<VideoRepairFixPreview, 'by_effect' | 'files_by_effect' | 'total'>,
+) {
   const n = preview.total;
   const { permanent, recycled, moved } = videoRepairEffects(preview);
-  const sentences: string[] = [];
-  if (permanent) {
-    sentences.push(
-      `${countLabel(permanent, 'fix', 'fixes')} ${permanent === 1 ? 'deletes' : 'delete'} a movie's files permanently. They can't be put back.`,
-    );
-  }
-  if (recycled) {
-    sentences.push(
-      `${countLabel(recycled, 'fix', 'fixes')} ${recycled === 1 ? 'moves' : 'move'} a movie's files to the recycle bin, where you can restore them until it is emptied.`,
-    );
-  }
-  if (moved) {
-    sentences.push(
-      `${countLabel(moved, 'fix', 'fixes')} ${moved === 1 ? 'renames' : 'rename'} files. Nothing is deleted.`,
-    );
-  }
+  const files = videoRepairFiles(preview);
+  // an older preview has no file counts: count the movies instead
+  const noun = files ? 'file' : 'movie';
+  const deleted = files ? files.permanent : permanent;
+  const binned = files ? files.recycled : recycled;
+
+  const parts: string[] = [];
+  const part = (count: number, what: string) =>
+    parts.push(`${parts.length ? count.toLocaleString() : countLabel(count, noun)} ${what}`);
+  if (permanent) part(deleted, 'deleted for good');
+  if (recycled) part(binned, 'moved to the recycle bin');
+  if (moved) part(moved, 'renamed');
   const others = n - permanent - recycled - moved;
-  if (others > 0) {
-    sentences.push(
-      sentences.length
-        ? `The other ${others.toLocaleString()} only ${others === 1 ? 'changes' : 'change'} the wishlist, the library record or the download queue.`
-        : 'These fixes only change the wishlist, the library record or the download queue.',
-    );
+  let picture = `Fixes ${countLabel(n, 'finding')}`;
+  if (parts.length) {
+    picture += `: ${parts.join(', ')}`;
+    if (others > 0)
+      picture += `; the other ${others.toLocaleString()} only ${others === 1 ? 'changes' : 'change'} the wishlist, the library record or the download queue`;
+  } else if (others > 0) {
+    picture += ': they only change the wishlist, the library record or the download queue';
   }
+
   return {
-    title: `Fix ${countLabel(n, 'finding')}?`,
-    lead: `${permanent ? "This can't be undone. " : ''}${sentences.join(' ')}`,
+    title: permanent
+      ? `Permanently delete ${countLabel(deleted, noun)}?`
+      : `Fix ${countLabel(n, 'finding')}?`,
+    lead: `${permanent ? "This can't be undone. " : ''}${picture}.`,
     confirm: `Fix ${countLabel(n, 'finding')}`,
+    /** What the "Deleted for good" count shows. */
+    deleted,
   };
 }
 

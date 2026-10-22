@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MirrorCandidate } from '@/features/mirror/mirror.model';
 
 import { Button, OptionButton } from '@/components/form';
+import { TitleWithHelp } from '@/components/page-header';
 import { EmptyState } from '@/components/primitives';
 import { MirrorPlaylistDialog } from '@/features/mirror/mirror-playlist-dialog';
 import { candidateLink } from '@/features/mirror/mirror.model';
@@ -273,6 +274,14 @@ export function SearchPage() {
   const filesPrompt =
     shouldSearch(typed) && filesApply(typed) && !(submitted && typed === committed);
   const files = useFileSearch(fileQuery, fileSource);
+  // "Better copies below" (HANDOFF 18): the folders the download source has at
+  // your target, and the one a library album asked to go to
+  const [betterCopies, setBetterCopies] = useState<ReadonlySet<string>>(() => new Set());
+  const [jumpTo, setJumpTo] = useState<{ key: string; n: number } | null>(null);
+  const goToBetterCopies = useCallback(
+    (key: string) => setJumpTo((prev) => ({ key, n: (prev?.n ?? 0) + 1 })),
+    [],
+  );
   const downloadName = single
     ? sourceList[0]
       ? downloadSourceLabel(sourceList[0])
@@ -469,56 +478,59 @@ export function SearchPage() {
             </p>
           </div>
           <div className={styles.fieldRow}>
-            <form
-              role="search"
-              className={styles.field}
-              id="enhanced-search-bar"
-              data-active={committed ? 'true' : undefined}
-              onSubmit={(event) => {
-                event.preventDefault();
-                const q = input.trim();
-                if (!q) return;
-                if (q === committed && submitted) return;
-                submit(q);
-              }}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.fieldIcon}>
-                <circle cx="11" cy="11" r="7" />
-                <path d="M21 21l-4.3-4.3" />
-              </svg>
-              <input
-                ref={inputRef}
-                id="enhanced-search-input"
-                className={styles.input}
-                type="search"
-                aria-label="Search"
-                autoComplete="off"
-                spellCheck={false}
-                placeholder="Artists, albums, tracks, or paste a link"
-                value={input}
-                onChange={(event) => {
-                  if ((event.nativeEvent as ClaimedEvent)._nativeHandled) return;
-                  setInput(event.currentTarget.value);
+            {/* phones: the title is hidden there, so the "?" sits by the field */}
+            <TitleWithHelp page="search">
+              <form
+                role="search"
+                className={styles.field}
+                id="enhanced-search-bar"
+                data-active={committed ? 'true' : undefined}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const q = input.trim();
+                  if (!q) return;
+                  if (q === committed && submitted) return;
+                  submit(q);
                 }}
-              />
-              {input ? (
-                <button
-                  type="button"
-                  className={styles.clear}
-                  aria-label="Clear search"
-                  title="Clear search"
-                  onClick={() => {
-                    setInput('');
-                    commit('', { push: false });
-                    inputRef.current?.focus();
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.fieldIcon}>
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M21 21l-4.3-4.3" />
+                </svg>
+                <input
+                  ref={inputRef}
+                  id="enhanced-search-input"
+                  className={styles.input}
+                  type="search"
+                  aria-label="Search"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Artists, albums, tracks, or paste a link"
+                  value={input}
+                  onChange={(event) => {
+                    if ((event.nativeEvent as ClaimedEvent)._nativeHandled) return;
+                    setInput(event.currentTarget.value);
                   }}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M18 6L6 18M6 6l12 12" />
-                  </svg>
-                </button>
-              ) : null}
-            </form>
+                />
+                {input ? (
+                  <button
+                    type="button"
+                    className={styles.clear}
+                    aria-label="Clear search"
+                    title="Clear search"
+                    onClick={() => {
+                      setInput('');
+                      commit('', { push: false });
+                      inputRef.current?.focus();
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                ) : null}
+              </form>
+            </TitleWithHelp>
             <div className={styles.types} role="group" aria-label="Show" id="search-type-row">
               {SEARCH_TYPES.map((t) => (
                 <OptionButton key={t} selected={type === t} onClick={() => setType(t)}>
@@ -651,6 +663,8 @@ export function SearchPage() {
                 type={type}
                 bar={bar}
                 isAdmin={isAdmin}
+                betterCopies={filesPrompt || fileQuery == null ? undefined : betterCopies}
+                onBetterCopies={goToBetterCopies}
               />
             ) : null}
             {filesPrompt ? (
@@ -672,6 +686,8 @@ export function SearchPage() {
                   setFileSourcePick(name);
                 }}
                 isAdmin={isAdmin}
+                onBetterCopies={setBetterCopies}
+                jumpTo={jumpTo}
               />
             ) : null}
             <CatalogSection

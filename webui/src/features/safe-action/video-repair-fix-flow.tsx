@@ -6,7 +6,8 @@
  * dialog through `window.openVideoRepairBulkFix`, which the host below
  * registers once for the whole app. The dialog shows each finding with what
  * happens to it ("What happens"), the counts, and the danger button when the
- * fix removes files; "This can't be undone" leads when a delete is permanent.
+ * fix removes files. When a delete is permanent the title says so ("Permanently
+ * delete 2 files?") and "This can't be undone" leads.
  * A selection that only touches the wishlist or the library record runs
  * straight away, as the music side's Fix selected does.
  */
@@ -156,6 +157,7 @@ export function useVideoRepairFix(): VideoRepairFixFlow {
   const shown = preview?.sample.length ?? 0;
   const copy = preview ? videoRepairFixCopy(preview) : null;
   const permanent = preview ? videoRepairEffects(preview).permanent : 0;
+  const deletedForGood = copy?.deleted ?? permanent;
 
   const dialog = (
     <SafeActionDialog
@@ -178,7 +180,7 @@ export function useVideoRepairFix(): VideoRepairFixFlow {
                 ? [
                     {
                       label: 'Deleted for good',
-                      value: permanent.toLocaleString(),
+                      value: deletedForGood.toLocaleString(),
                     },
                   ]
                 : []),

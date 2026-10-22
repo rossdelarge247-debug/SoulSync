@@ -14,6 +14,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
+import { TitleWithHelp } from '@/components/page-header';
 import { FinishSetupCard } from '@/features/onboarding/checklist-card';
 
 import type { useDashboardHeader } from '../../-dash.header';
@@ -43,7 +44,9 @@ export function HomeHeader() {
   return (
     <header className={styles.header} data-tour="home-header">
       <div className={styles.headText}>
-        <h1 className={styles.title}>Home</h1>
+        <TitleWithHelp page="dashboard">
+          <h1 className={styles.title}>Home</h1>
+        </TitleWithHelp>
         <p className={styles.subtitle}>
           What you want, what you have, and what SoulSync is doing about the gap.
         </p>

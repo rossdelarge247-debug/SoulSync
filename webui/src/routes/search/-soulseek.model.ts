@@ -113,9 +113,16 @@ export function normalizeName(value: string | null | undefined): string {
     .trim();
 }
 
+/** The key a folder of this album groups under: a library album finds its row by it. */
+export function albumGroupKey(
+  artist: string | null | undefined,
+  album: string | null | undefined,
+): string {
+  return `album:${normalizeName(artist)}|${normalizeName(album)}`;
+}
+
 export function groupKey(result: BasicResult): string {
-  if (isAlbum(result))
-    return `album:${normalizeName(result.artist)}|${normalizeName(result.album_title)}`;
+  if (isAlbum(result)) return albumGroupKey(result.artist, result.album_title);
   return `track:${normalizeName(result.artist)}|${normalizeName(result.title || result.filename)}`;
 }
 
@@ -173,6 +180,23 @@ export function groupResults(
     const copies = [...group.copies].sort(betterCopy);
     return { ...group, best: copies[0], copies };
   });
+}
+
+/**
+ * The folder rows a library album below your quality target can point at
+ * ("Better copies below", Design HANDOFF 18): folders whose best copy meets
+ * the target. Nothing while the target is still loading.
+ */
+export function betterCopyFolders(
+  groups: readonly FileGroup[],
+  bar: readonly QualityRule[] | null,
+): Set<string> {
+  const keys = new Set<string>();
+  if (!bar || !bar.length) return keys;
+  for (const group of groups) {
+    if (group.kind === 'folder' && meetsTargetResult(group.best, bar)) keys.add(group.key);
+  }
+  return keys;
 }
 
 export function countUsers(results: readonly BasicResult[]): number {

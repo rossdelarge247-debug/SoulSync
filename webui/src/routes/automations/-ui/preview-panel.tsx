@@ -43,12 +43,10 @@ function noun(n: number, one: string): string {
 /** The numbers, the sample and the follow-up notes of one preview. */
 export function PreviewBody({ result }: { result: PreviewResult }) {
   if (!result.available) {
+    // "Can't be previewed: Deep Scan decides what to move while it runs. Run
+    // now shows you the list before anything moves." (Design, HANDOFF 22)
     return (
-      <Notice
-        tone="neutral"
-        title="A preview isn't available for this step"
-        data-testid="preview-unavailable"
-      >
+      <Notice tone="neutral" title="Can't be previewed" data-testid="preview-unavailable">
         {result.reason}
       </Notice>
     );

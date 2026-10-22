@@ -689,6 +689,15 @@ declare global {
       _onSocket: (d: unknown) => void;
       _wantsLive: () => boolean;
     };
+    /** helper.js: the help menu. `anchor` is the button it sits by; phones
+     *  open it from a page header's "?" or, with none, the Settings sheet's
+     *  Help row (Design, HANDOFF 25). */
+    toggleHelperMode?: (anchor?: Element | null) => void;
+    openHelperMenu?: (anchor?: Element | null) => void;
+    /** helper.js: the tour a page has (its "?"), or null. */
+    pageTourFor?: (pageId: string) => string | null;
+    /** downloads.js: the notifications panel, by the button that opened it. */
+    toggleNotifPanel?: (anchor?: Element | null) => void;
     SoulSyncActivitySocket?: {
       isConnected: () => boolean;
       subscribe: () => void;

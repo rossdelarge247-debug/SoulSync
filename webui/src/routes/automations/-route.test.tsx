@@ -383,6 +383,10 @@ describe('automations list', () => {
     ).toBeInTheDocument();
     expect(within(card(4)).getByText('On')).toBeInTheDocument();
     expect(within(card(6)).getByText('Paused')).toBeInTheDocument();
+    // the built-in ones say so on their schedule line, so they stand out under All
+    expect(within(card(9)).getByText('Built-in · Every 3 days · 1 step')).toBeInTheDocument();
+    expect(within(card(10)).getByText(/^Built-in · Every 7 days/)).toBeInTheDocument();
+    expect(within(card(4)).queryByText(/Built-in/)).toBeNull();
 
     const runs = await screen.findByTestId('runs-panel');
     expect(within(runs).getByRole('heading', { name: 'Runs: Fill Wanted' })).toBeInTheDocument();
@@ -628,9 +632,7 @@ describe('automations list', () => {
     await waitFor(() => expect(card(5)).toHaveAttribute('aria-current', 'true'), { timeout: 5000 });
     fireEvent.click(within(card(5)).getByRole('button', { name: 'Preview a run' }));
     let dialog = await screen.findByRole('dialog');
-    expect(
-      await within(dialog).findByText("A preview isn't available for this step"),
-    ).toBeInTheDocument();
+    expect(await within(dialog).findByText("Can't be previewed")).toBeInTheDocument();
     expect(within(dialog).getByText('The metadata source isn’t ready.')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -812,9 +814,7 @@ describe('automation editor', () => {
       target: { value: 'scan_library' },
     });
     fireEvent.click(screen.getAllByRole('button', { name: 'Preview a run' })[0]);
-    expect(
-      await within(panel).findByText("A preview isn't available for this step"),
-    ).toBeInTheDocument();
+    expect(await within(panel).findByText("Can't be previewed")).toBeInTheDocument();
     expect(within(panel).getByText('It asks your media server to rescan.')).toBeInTheDocument();
     // unsaved changes: Run this now runs the saved steps, so it waits for a save
     expect(within(panel).getByRole('button', { name: 'Run this now' })).toHaveAttribute(

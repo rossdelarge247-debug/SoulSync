@@ -28,14 +28,18 @@ import {
 import { ActionMenu, type MenuEntry } from './action-menu';
 import styles from './automations.module.css';
 
-/** "Every 6 hours · next at 16:00 · 3 steps". */
+/**
+ * "Every 6 hours · next at 16:00 · 3 steps"; a built-in one starts with
+ * "Built-in", so it's recognisable under All (Design, HANDOFF 23 and 3a).
+ */
 export function scheduleLine(
   a: Automation,
   ctx: SentenceContext,
   masterOn: boolean,
   now = Date.now(),
 ): string {
-  const parts = [schedulePhrase(a, ctx.blocks)];
+  const parts = isSystem(a) ? ['Built-in'] : [];
+  parts.push(schedulePhrase(a, ctx.blocks));
   if (isEnabled(a) && masterOn) {
     const next = nextPhrase(a, now);
     if (next) parts.push(next);

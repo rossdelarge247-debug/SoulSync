@@ -16,8 +16,9 @@
  * - the phone tab bar: a group's tab opens its rows as a bottom sheet, which
  *   is the sidebar itself, filtered by CSS;
  * - the badges this shell adds: Activity's needs-you count and the running
- *   count (GET /api/activity/status, polled gently), and the Setup check dot
- *   (the setup check's own report).
+ *   count (GET /api/activity/status, polled gently), the Setup check dot
+ *   (the setup check's own report), and a service that's down (the /status
+ *   frames) in words on the Connections row; either lights Admin and help.
  *
  * The legacy badges (Wanted, Discover, Chat, Issues, Requests) keep their
  * ids and their owners; this only reads them for the rail's labels.
@@ -29,14 +30,18 @@ import { MODULES_CHANGED_EVENT } from '@/features/modules/modules.helpers';
 
 import {
   activityLabel,
+  activityRowMeta,
   COUNT_NOUNS,
   countedLabel,
+  downServices,
+  downServicesText,
   NAV_GROUPS,
   NAV_TARGETS,
   navGroupFor,
   navRowFor,
   pageTitle,
   parseActivityStatus,
+  phoneActivityLabel,
   runningCopy,
   setupProblemCount,
   setupProblemText,
@@ -210,6 +215,7 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
   const adminNote = $('ss-admin-note');
   const setupDot = $('ss-setup-dot');
   const setupNote = $('ss-setup-note');
+  const connectionsWord = $('ss-connections-word');
   const needsYouBadge = $('ss-needs-you-badge');
   const pageName = $('ss-page-name');
   const back = $<HTMLButtonElement>('ss-back');
@@ -220,7 +226,7 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
   const running = $<HTMLAnchorElement>('ss-running');
   const runningText = $('ss-running-text');
   const phoneSearch = $<HTMLButtonElement>('ss-phone-search');
-  const phoneActivity = $<HTMLAnchorElement>('ss-phone-activity');
+  const phoneActivity = $<HTMLButtonElement>('ss-phone-activity');
   const phoneActivityDot = $('ss-phone-activity-dot');
   const tabbar = $('ss-tabbar');
   const sheetTitle = $('ss-sheet-title');
@@ -564,7 +570,8 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
       ? bridge.isPageAllowed(NAV_TARGETS.activity.pageId as ShellPageId)
       : true;
     if (running) running.hidden = !allowed;
-    if (phoneActivity) phoneActivity.hidden = !allowed;
+    // the phone's Activity icon stays: it holds the notifications too
+    activityAllowed = allowed;
   }
 
   // ── badges ────────────────────────────────────────────────────────────────
@@ -583,9 +590,147 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
         ...(n > 0 ? [String(n), srSpan(doc, ` need${n === 1 ? 's' : ''} you`)] : []),
       );
     }
-    if (phoneActivityDot) phoneActivityDot.hidden = !(status.needsYou && status.needsYou > 0);
-    phoneActivity?.setAttribute('aria-label', activityLabel(status));
+    lastStatus = status;
+    syncPhoneActivity();
     syncRailLabels();
+  }
+
+  // ── phones: Activity and the notifications in one icon (HANDOFF 25) ───────
+  let lastStatus: ActivityStatus = UNKNOWN_ACTIVITY;
+  let unread = 0;
+  let activityAllowed = true;
+  let notifPanel: HTMLElement | null = null;
+
+  /** One warning dot for something that needs you or a notification you haven't seen. */
+  function syncPhoneActivity(): void {
+    const show = (lastStatus.needsYou ?? 0) > 0 || unread > 0;
+    if (phoneActivityDot && phoneActivityDot.hidden === show) phoneActivityDot.hidden = !show;
+    phoneActivity?.setAttribute('aria-label', phoneActivityLabel(lastStatus, unread));
+  }
+
+  function onUnread(event: Event): void {
+    const count = (event as CustomEvent<{ count?: unknown }>).detail?.count;
+    unread = typeof count === 'number' && count > 0 ? count : 0;
+    syncPhoneActivity();
+  }
+
+  function onPhoneActivity(event: Event): void {
+    event.preventDefault();
+    if (typeof view.toggleNotifPanel === 'function') view.toggleNotifPanel(phoneActivity);
+    else goToPage(NAV_TARGETS.activity.pageId, NAV_TARGETS.activity.path);
+  }
+
+  const CHEVRON =
+    '<svg class="ss-notif-link-trail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 18l6-6-6-6"/></svg>';
+
+  function notifLink(
+    tag: 'a' | 'button',
+    icon: string,
+    title: string,
+    meta: string,
+    onPick: (event: Event) => void,
+  ): HTMLElement {
+    const el = doc.createElement(tag);
+    el.className = 'ss-notif-link';
+    if (el instanceof HTMLButtonElement) el.type = 'button';
+    const glyph = doc.createElement('span');
+    glyph.className = 'ss-notif-link-icon';
+    glyph.innerHTML = icon;
+    const text = doc.createElement('span');
+    text.className = 'ss-notif-link-text';
+    const name = doc.createElement('span');
+    name.className = 'ss-notif-link-title';
+    name.textContent = title;
+    const line = doc.createElement('span');
+    line.className = 'ss-notif-link-meta';
+    line.textContent = meta;
+    text.append(name, line);
+    el.append(glyph, text);
+    el.insertAdjacentHTML('beforeend', CHEVRON);
+    el.addEventListener('click', onPick);
+    return el;
+  }
+
+  /**
+   * The phone's panel starts with Activity (one tap to the page) and, where
+   * the media server reports live streams, Server activity: the floating
+   * buttons that led to them are gone on phones.
+   */
+  function addActivityLinks(panel: HTMLElement): void {
+    if (panel.querySelector('.ss-notif-links')) return;
+    const links = doc.createElement('div');
+    links.className = 'ss-notif-links';
+    if (activityAllowed) {
+      const activity = notifLink(
+        'a',
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+        'Activity',
+        activityRowMeta(lastStatus),
+        (event) => {
+          view.toggleNotifPanel?.();
+          goToPage(NAV_TARGETS.activity.pageId, NAV_TARGETS.activity.path, event);
+        },
+      );
+      activity.setAttribute('href', NAV_TARGETS.activity.path);
+      links.append(activity);
+    }
+    const streams = doc.getElementById('activity-float-btn');
+    if (streams && streams.style.display !== 'none' && view.ServerActivity) {
+      const badge = doc.getElementById('activity-float-badge');
+      const live = badge && badge.style.display !== 'none' ? Number(badge.textContent) || 0 : 0;
+      links.append(
+        notifLink(
+          'button',
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+          'Server activity',
+          live ? `${live} playing now` : 'What your media server is playing',
+          () => {
+            view.toggleNotifPanel?.();
+            view.ServerActivity?.toggle();
+          },
+        ),
+      );
+    }
+    if (links.childElementCount) panel.prepend(links);
+  }
+
+  function onNotifPanel(event: Event): void {
+    const detail = (event as CustomEvent<{ open?: boolean; panel?: HTMLElement }>).detail;
+    if (detail?.open && detail.panel) {
+      notifPanel = detail.panel;
+      if (phoneActivity && isPhone()) {
+        phoneActivity.setAttribute('aria-expanded', 'true');
+        phoneActivity.setAttribute('aria-controls', 'notif-panel');
+        addActivityLinks(detail.panel);
+      }
+    } else if (!detail?.open && (!detail?.panel || detail.panel === notifPanel)) {
+      notifPanel = null;
+      phoneActivity?.setAttribute('aria-expanded', 'false');
+      phoneActivity?.removeAttribute('aria-controls');
+    }
+  }
+
+  /** The Settings sheet's Help row, on phones, while the help menu can open. */
+  function sheetHelpRow(event: Event): Element | null {
+    if (!isPhone() || !sheet || typeof view.openHelperMenu !== 'function') return null;
+    const target = event.target as Element | null;
+    const help = target?.closest?.('[data-nav-row="help"], [data-video-page="video-help"]');
+    return help && sidebar!.contains(help) ? help : null;
+  }
+
+  /** The shell bridge navigates a mouse press on pointerdown: not this row's. */
+  function onSheetHelpPress(event: Event): void {
+    if (sheetHelpRow(event)) event.stopPropagation();
+  }
+
+  /** Phones: the Settings sheet's Help row opens the help menu (the floating "?" is gone). */
+  function onSheetHelp(event: Event): void {
+    if (!sheetHelpRow(event) || typeof view.openHelperMenu !== 'function') return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeSheet(false);
+    view.openHelperMenu(null);
+    doc.querySelector<HTMLElement>('.helper-menu .helper-menu-item')?.focus();
   }
 
   let pollTimer: number | null = null;
@@ -657,11 +802,23 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
   let lastActiveDownloads: unknown;
   function onServiceStatus(event: Event): void {
     const detail = (event as CustomEvent<{ active_downloads?: unknown }>).detail;
+    applyDownServices(downServices(detail));
     const value = detail?.active_downloads;
     if (value === undefined || value === lastActiveDownloads) return;
     const first = lastActiveDownloads === undefined;
     lastActiveDownloads = value;
     if (!first) refreshSoon();
+  }
+
+  // a service that's down: its words on the Connections row, and the fold's dot
+  let downText = '';
+  function applyDownServices(names: readonly string[]): void {
+    downText = downServicesText(names);
+    if (connectionsWord) {
+      if (connectionsWord.textContent !== downText) connectionsWord.textContent = downText;
+      connectionsWord.hidden = !downText;
+    }
+    syncAdminDot();
   }
 
   // the Setup check dot
@@ -675,10 +832,18 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
     syncAdminDot();
   }
 
-  /** The fold's dot speaks for the Setup check row, which is music-side only. */
+  /**
+   * The fold's dot speaks for the Setup check row and the music Connections
+   * row (a service that's down), both music-side only.
+   */
   function syncAdminDot(): void {
-    const show = setupProblems !== null && setupProblems > 0 && side() === 'music';
-    const text = show ? `, setup check: ${setupProblemText(setupProblems!)}` : '';
+    const music = side() === 'music';
+    const setup = music && setupProblems !== null && setupProblems > 0;
+    const down = music && Boolean(downText);
+    const show = setup || down;
+    const text =
+      (setup ? `, setup check: ${setupProblemText(setupProblems!)}` : '') +
+      (down ? `, ${downText}` : '');
     if (adminDot && adminDot.hidden === show) adminDot.hidden = !show;
     if (adminNote && adminNote.textContent !== text) adminNote.textContent = text;
   }
@@ -886,7 +1051,18 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
   const toActivity = (event: Event) =>
     goToPage(NAV_TARGETS.activity.pageId, NAV_TARGETS.activity.path, event);
   on(running, 'click', toActivity);
-  on(phoneActivity, 'click', toActivity);
+  on(phoneActivity, 'click', onPhoneActivity);
+  on(view, 'ss:notifications-unread', onUnread);
+  on(view, 'ss:notif-panel', onNotifPanel);
+  // window, capturing: ahead of the app's own link handling on document
+  on(view, 'click', onSheetHelp, true);
+  on(view, 'pointerdown', onSheetHelpPress, true);
+  on(doc, 'keydown', (event) => {
+    // the panel the Activity icon opened closes on Escape, back to the icon
+    if ((event as KeyboardEvent).key !== 'Escape' || !notifPanel || !isPhone()) return;
+    view.toggleNotifPanel?.();
+    phoneActivity?.focus();
+  });
 
   // the music Home tab is a .nav-button, the bridge routes it; the video one
   // is wired by video-side.js (data-video-goto)

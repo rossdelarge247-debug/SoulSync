@@ -129,6 +129,8 @@ def test_the_preview_says_what_happens_to_each_file_and_changes_nothing(env):
     assert plan["success"] is True and plan["plan_id"] and plan["tool"] == VIDEO_REPAIR_BULK_FIX_TOOL
     assert plan["total"] == 3 and plan["destructive"] == 2
     assert plan["by_effect"] == {"recycle": 1, "move": 1, "write": 1}
+    # the files those fixes touch, for the confirm's "2 files deleted for good"
+    assert plan["files_by_effect"] == {"recycle": 1, "move": 1}
     assert plan["recycle_deletes"] is True
     effects = {i["finding_id"]: i for i in plan["sample"]}
     assert effects[w]["path"] == str(real) and effects[w]["size"] == 16
@@ -146,6 +148,28 @@ def test_with_recycling_off_the_preview_says_the_delete_is_permanent(env):
     plan = client.post("/api/video/repair/findings/bulk-fix-preview", json={"ids": [w]}).get_json()
     assert plan["recycle_deletes"] is False and plan["by_effect"] == {"delete": 1}
     assert "permanently" in plan["sample"][0]["effect"]
+    assert plan["files_by_effect"] == {"delete": 1} and plan["sample"][0]["files"] == 1
+
+
+def test_the_preview_counts_every_file_a_delete_takes(env):
+    """A movie with two files on disk is one finding and two files deleted."""
+    db, client, tmp = env
+    from core.video import organization
+    organization.save(db, {**organization.load(db), "recycle_deletes": False})
+    w, real = _watched(db, tmp, "Heat")
+    extra = real.with_name("Heat (Director's Cut).mkv")
+    extra.write_bytes(b"z" * 4)
+    mid = db.repair_get_finding(w)["details"]["movie_id"]
+    conn = db._get_connection()
+    conn.execute("INSERT INTO media_files (movie_id, relative_path, size_bytes) VALUES (?,?,?)",
+                 (mid, str(extra), 4))
+    conn.commit()
+    conn.close()
+    plan = client.post("/api/video/repair/findings/bulk-fix-preview", json={"ids": [w]}).get_json()
+    assert plan["by_effect"] == {"delete": 1}
+    assert plan["files_by_effect"] == {"delete": 2}
+    assert plan["sample"][0]["files"] == 2 and "2 files" in plan["sample"][0]["effect"]
+    assert real.exists() and extra.exists()
 
 
 def test_a_fresh_plan_fixes_exactly_the_previewed_findings(env):

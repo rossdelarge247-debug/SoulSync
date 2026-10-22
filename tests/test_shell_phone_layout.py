@@ -65,3 +65,29 @@ def test_the_floating_buttons_step_aside_for_an_open_dialog():
     names = {name.strip() for name in rule.group(1).split(',')}
     assert names == {'.notif-bell-btn', '.helper-float-btn', '.activity-float-btn'}
     assert 'visibility: hidden' in rule.group(2)
+
+
+def test_phones_have_no_floating_buttons():
+    """Design, HANDOFF 25: on phones the notifications live in the top bar's
+    Activity icon and help in the Settings sheet and the page headers, so the
+    floating buttons go at the app's mobile breakpoint; wide screens keep them."""
+    shell = read(SHELL_CSS)
+    hidden = False
+    for body in media_blocks(shell, 'max-width: 768px'):
+        body = re.sub(r'/\*.*?\*/', '', body, flags=re.S)
+        for rule in re.finditer(r'([^{}]+)\{([^}]*)\}', body):
+            names = {name.strip() for name in rule.group(1).split(',')}
+            if {'.notif-bell-btn', '.helper-float-btn', '.activity-float-btn'} <= names:
+                assert 'display: none !important' in rule.group(2)
+                hidden = True
+    assert hidden, 'no phone rule hides the floating buttons'
+    # outside the phone blocks nothing hides them
+    outside = re.sub(r'@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^{}]*\}', '', shell)
+    assert not re.search(r'\.notif-bell-btn[^{]*\{[^}]*display:\s*none', outside)
+
+
+def test_the_phone_activity_icon_opens_the_notifications():
+    html = read(HTML)
+    start = html.index('id="ss-phone-activity"')
+    tag = html[html.rindex('<', 0, start):html.index('>', start)]
+    assert tag.startswith('<button') and 'aria-expanded' in tag

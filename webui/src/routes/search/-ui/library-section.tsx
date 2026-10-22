@@ -2,7 +2,9 @@
  * "In your library" (board 2m): artists, albums and tracks you have that match
  * the query, each with a status tag (Following, In your library, Below quality
  * target) and its actions (Open artist; Play and Open). Everything shows the
- * first three and links to the Library page for the rest.
+ * first three and links to the Library page for the rest. An album below your
+ * quality target that has a folder at your target in the download source's
+ * results below says "Better copies below", which goes to that row (HANDOFF 18).
  */
 
 import { useQueries, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
@@ -35,6 +37,7 @@ import {
   shortMeta,
   trackMeta,
 } from '../-search.library';
+import { albumGroupKey } from '../-soulseek.model';
 import styles from './search-page.module.css';
 import { Art, ButtonLink, ofLine, rowLimit, SectionHead, usePhoneWidth } from './search-parts';
 
@@ -91,12 +94,18 @@ export function LibrarySection({
   type,
   bar,
   isAdmin,
+  betterCopies,
+  onBetterCopies,
 }: {
   results: UseQueryResult<LibraryResults>;
   query: string;
   type: SearchType;
   bar: readonly QualityRule[] | null;
   isAdmin: boolean;
+  /** Folder keys (albumGroupKey) the download source's section has at your target. */
+  betterCopies?: ReadonlySet<string>;
+  /** Go to that folder's row. */
+  onBetterCopies?: (key: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [more, setMore] = useState(false);
@@ -231,6 +240,24 @@ export function LibrarySection({
               const album = row.item;
               const to = albumPath(album);
               const verdict = verdictFor(album.id);
+              const folder = albumGroupKey(album.artist_name, album.title);
+              // under the meta line, like a Soulseek row's links, so it never gets cut off
+              const better =
+                verdict?.below && onBetterCopies && betterCopies?.has(folder) ? (
+                  <span className={styles.rowLinks}>
+                    <a
+                      href="#search-soulseek"
+                      className={styles.link}
+                      aria-label={`Better copies of ${album.title} below`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        onBetterCopies(folder);
+                      }}
+                    >
+                      Better copies below
+                    </a>
+                  </span>
+                ) : null;
               return (
                 <div className={styles.row} data-kind="library" key={`album:${album.id}`}>
                   <Art url={album.thumb_url} />
@@ -248,6 +275,7 @@ export function LibrarySection({
                     <span className={`${styles.rowMeta} ${styles.phoneOnly}`}>
                       {shortMeta(row, verdict)}
                     </span>
+                    {better}
                   </div>
                   <span className={styles.tagCell}>
                     <QualityTag verdict={verdict} />

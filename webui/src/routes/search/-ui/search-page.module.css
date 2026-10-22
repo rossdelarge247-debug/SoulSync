@@ -667,6 +667,13 @@ button.rowTitle:focus-visible {
   background: rgba(255, 255, 255, 0.04);
 }
 
+/* the row "Better copies below" jumped to: the selected wash until focus leaves it */
+.fileRow[data-jumped='true'] {
+  background: var(--ss-selected-fill);
+  outline: 1px solid var(--ss-selected-border);
+  outline-offset: -1px;
+}
+
 /* a shared folder's name is long and says what's in it: wrap, don't cut */
 .fileRow .rowTitle,
 .fileRow .rowMeta {
@@ -780,6 +787,15 @@ button.rowTitle:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 16px;
+}
+
+/* a library album's "Better copies below": the same size and height as the
+   Soulseek rows' disclosures */
+.rowLinks .link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: 14px;
 }
 
 .tracks {

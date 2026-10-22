@@ -6,6 +6,8 @@ import type { BasicAlbum, BasicTrack } from './-basic.types';
 import type { Consequence, FileOwnership } from './-soulseek.model';
 
 import {
+  albumGroupKey,
+  betterCopyFolders,
   checkRowsFor,
   consequenceFor,
   countFiles,
@@ -129,6 +131,31 @@ describe('grouping by folder', () => {
     const results = [folder(), folder({ username: 'nightowl' }), track()];
     expect(countFiles(results)).toBe(7);
     expect(countUsers(results)).toBe(3);
+  });
+});
+
+describe('better copies of a library album', () => {
+  it("finds a library album's folder by its artist and title, tags and all", () => {
+    expect(albumGroupKey('Pale Harbour', 'Tidewater (Deluxe)')).toBe(groupKey(folder()));
+    expect(albumGroupKey('Pale Harbour', 'Low Light')).not.toBe(groupKey(folder()));
+  });
+
+  it('offers only folders whose best copy meets the target', () => {
+    const mp3 = folder(
+      { album_title: 'Low Light', album_path: 'rips/Pale Harbour - Low Light MP3' },
+      { quality: 'mp3', bitrate: 320, bit_depth: null, sample_rate: null },
+    );
+    const groups = groupResults(
+      [folder({}, { bit_depth: 24, sample_rate: 96000 }), mp3, track({ title: 'Gull' })],
+      { ...DEFAULT_SOULSEEK_FILTERS, quality: 'any' },
+      'pale harbour',
+      FLAC_BAR,
+    );
+    expect([...betterCopyFolders(groups, FLAC_BAR)]).toEqual([
+      albumGroupKey('Pale Harbour', 'Tidewater'),
+    ]);
+    // no target yet: nothing to say
+    expect(betterCopyFolders(groups, null).size).toBe(0);
   });
 });
 

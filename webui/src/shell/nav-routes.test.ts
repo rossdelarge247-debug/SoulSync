@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activityLabel,
+  activityRowMeta,
   countedLabel,
+  downServices,
+  downServicesText,
   NAV_ROWS,
   NAV_TARGETS,
   navGroupFor,
   navRowFor,
   pageTitle,
   parseActivityStatus,
+  phoneActivityLabel,
   runningCopy,
   setupProblemCount,
   setupProblemText,
@@ -169,5 +173,97 @@ describe('labels', () => {
     expect(shortcutHint('iPhone')).toBe('⌘K');
     expect(shortcutHint('Win32')).toBe('Ctrl K');
     expect(shortcutHint('')).toBe('Ctrl K');
+  });
+});
+
+describe('services that are down', () => {
+  const healthy = {
+    metadata_source: { source: 'deezer', connected: true },
+    spotify: {},
+    media_server: { type: 'jellyfin', connected: true, configured: true },
+    soulseek: { source: 'soulseek', connected: true },
+  };
+
+  it('names the ones set up but not connected', () => {
+    expect(downServices(healthy)).toEqual([]);
+    expect(
+      downServices({ ...healthy, media_server: { type: 'jellyfin', connected: false } }),
+    ).toEqual(['Jellyfin']);
+    expect(
+      downServices({ ...healthy, soulseek: { source: 'soulseek', connected: false } }),
+    ).toEqual(['Soulseek']);
+    expect(
+      downServices({ ...healthy, metadata_source: { source: 'musicbrainz', connected: false } }),
+    ).toEqual(['MusicBrainz']);
+  });
+
+  it("doesn't count a media server that was never set up, or a slice that hasn't arrived", () => {
+    expect(
+      downServices({
+        ...healthy,
+        media_server: { type: 'plex', connected: false, configured: false },
+      }),
+    ).toEqual([]);
+    expect(downServices({ media_server: { type: 'plex' } })).toEqual([]);
+    expect(downServices(null)).toEqual([]);
+    expect(downServices('nope')).toEqual([]);
+  });
+
+  it('treats a paused Spotify as paused, not down', () => {
+    expect(
+      downServices({
+        ...healthy,
+        metadata_source: { source: 'spotify', connected: false },
+        spotify: { rate_limited: true, rate_limit: { remaining_seconds: 600 } },
+      }),
+    ).toEqual([]);
+    expect(
+      downServices({ ...healthy, metadata_source: { source: 'spotify', connected: false } }),
+    ).toEqual(['Spotify']);
+  });
+
+  it('falls back to what a service is when it has no one name', () => {
+    expect(
+      downServices({
+        media_server: { connected: false },
+        soulseek: { source: 'hybrid', connected: false },
+        metadata_source: { source: 'something-new', connected: false },
+      }),
+    ).toEqual(['Your media server', 'Your download source', 'Your metadata source']);
+    expect(downServices({ media_server: { type: 'soulsync', connected: false } })).toEqual([
+      'Standalone',
+    ]);
+  });
+
+  it('says it in one line', () => {
+    expect(downServicesText([])).toBe('');
+    expect(downServicesText(['Plex'])).toBe('Plex is down');
+    expect(downServicesText(['Plex', 'Soulseek'])).toBe('Plex and Soulseek are down');
+    expect(downServicesText(['Plex', 'Your download source'])).toBe(
+      'Plex and your download source are down',
+    );
+    expect(downServicesText(['Plex', 'Soulseek', 'Deezer'])).toBe('3 services are down');
+  });
+});
+
+describe("the phone's Activity icon", () => {
+  it('names the notifications with the activity', () => {
+    expect(phoneActivityLabel({ running: null, needsYou: null }, 0)).toBe(
+      'Activity and notifications',
+    );
+    expect(phoneActivityLabel({ running: 2, needsYou: 1 }, 1)).toBe(
+      'Activity and notifications, 2 running, 1 needs you, 1 new notification',
+    );
+    expect(phoneActivityLabel({ running: 0, needsYou: 0 }, 4)).toBe(
+      'Activity and notifications, 4 new notifications',
+    );
+  });
+
+  it("says what's going on under Activity at the top of the notifications", () => {
+    expect(activityRowMeta({ running: 2, needsYou: 1 })).toBe('2 running · 1 needs you');
+    expect(activityRowMeta({ running: 0, needsYou: 3 })).toBe('Nothing running · 3 need you');
+    expect(activityRowMeta({ running: null, needsYou: null })).toBe(
+      'Downloads, imports and automation runs',
+    );
   });
 });

@@ -452,13 +452,23 @@ export function releaseMeta(release: ArtistRelease, state: CardState, short = fa
   return parts.filter(Boolean).join(' · ');
 }
 
-/** The release filters: Albums are albums and compilations; Missing is anything not fully in the library. */
+/**
+ * The release filters. In your library is anything you have, whole or in
+ * part (the header's "9 in your library" counts the same); Missing is
+ * anything not fully in the library, so a partly complete album is in both;
+ * Albums are albums and compilations.
+ */
 export function filterReleases(
   releases: ArtistRelease[],
   filter: ReleaseFilter,
   stateOf: (release: ArtistRelease) => CardState,
 ): ArtistRelease[] {
   if (filter === 'albums') return releases.filter((r) => isAlbumKind(r.kind));
+  if (filter === 'library')
+    return releases.filter((r) => {
+      const state = stateOf(r);
+      return state.kind === 'owned' || state.kind === 'partial';
+    });
   if (filter === 'missing')
     return releases.filter((r) => {
       const state = stateOf(r);
@@ -503,19 +513,27 @@ export function plural(count: number, one: string, many = `${one}s`): string {
   return `${count.toLocaleString()} ${count === 1 ? one : many}`;
 }
 
-/** "14 releases · 9 in your library · 5 on Wanted · 132 tracks"; phones get the 2h short form. */
+/**
+ * "14 releases · 9 in your library (132 tracks) · 5 on Wanted": the tracks
+ * belong to the library part, so the line can't read as a total (Design,
+ * HANDOFF 13). Nothing on Wanted is left out rather than said as "0 on
+ * Wanted". Phones get the 2h short form, without the tracks.
+ */
 export function countsLine(counts: HeaderCounts, sourceOnly: boolean, short = false): string {
   const parts = [plural(counts.releases, 'release')];
   if (sourceOnly) {
     parts.push(short ? 'not in library' : 'not in your library');
   } else if (counts.checking && counts.inLibrary === 0) {
     parts.push(short ? 'checking library…' : 'checking your library…');
+  } else if (short) {
+    parts.push(`${counts.inLibrary} in library`);
   } else {
-    parts.push(short ? `${counts.inLibrary} in library` : `${counts.inLibrary} in your library`);
+    const tracks =
+      counts.tracks !== null && counts.tracks > 0 ? ` (${plural(counts.tracks, 'track')})` : '';
+    parts.push(`${counts.inLibrary} in your library${tracks}`);
   }
-  parts.push(short ? `${counts.onWanted} wanted` : `${counts.onWanted} on Wanted`);
-  if (!short && counts.tracks !== null && counts.tracks > 0)
-    parts.push(plural(counts.tracks, 'track'));
+  if (counts.onWanted > 0)
+    parts.push(short ? `${counts.onWanted} wanted` : `${counts.onWanted} on Wanted`);
   return parts.join(' · ');
 }
 

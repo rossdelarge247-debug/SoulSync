@@ -214,6 +214,18 @@ def test_steps_that_cant_be_tried_say_why(ctx, action):
                                "note": out["reason"]}
 
 
+def test_deep_scan_and_the_duplicate_cleaner_say_why_and_what_run_now_does(ctx):
+    """Design's wording (HANDOFF 22): the editor puts "Can't be previewed:" before it."""
+    deep = dry_run.preview_steps(ctx, action_type="deep_scan_library")
+    assert deep["reason"] == ("Deep Scan decides what to move while it runs. Run now shows you the list "
+                              "before anything moves.")
+    dupes = dry_run.preview_steps(ctx, action_type="run_duplicate_cleaner")
+    assert dupes["reason"] == ("The duplicate cleaner decides what to move while it runs. Run now opens it "
+                               "on Maintenance, which shows you the list before anything moves.")
+    # the title already says it can't be previewed, so the generic reason doesn't repeat it
+    assert "previewed" not in dry_run.unavailable_reason("something_new")
+
+
 def test_follow_up_steps_are_never_run_and_say_so(ctx, monkeypatch):
     monkeypatch.setattr(dry_run, "_wishlist_rows", lambda c: [])
     out = dry_run.preview_steps(ctx, action_type="process_wishlist", then_actions=[
