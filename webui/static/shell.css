@@ -126,7 +126,7 @@
 #app-sidebar .ss-wordmark {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
     min-height: 44px;
     margin: 0;
@@ -142,11 +142,15 @@
 }
 #app-sidebar .ss-wordmark:hover { background: var(--ss-hover-wash); }
 #app-sidebar .ss-wordmark:active { opacity: var(--ss-pressed-opacity); }
+/* the wordmark (HANDOFF 57, board 8a): plain text, 18/700, 0.02em tracking,
+   white, the dot a full stop in the same colour */
 .ss-wordmark-name {
+    font-family: var(--ss-shell-font);
     font-size: 18px;
     font-weight: 700;
-    letter-spacing: -0.01em;
-    line-height: 1.2;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    color: var(--ss-text);
     white-space: nowrap;
 }
 .ss-wordmark-version {
@@ -796,17 +800,14 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
     html[data-sidebar='collapsed'] #app-sidebar .ss-wordmark-name,
     html[data-sidebar='collapsed'] #app-sidebar .ss-wordmark-version,
     html[data-sidebar='collapsed'] #app-sidebar .ss-wordmark-chevrons { display: none; }
+    /* the rail's monogram: a single "S" at 18/700 in the 48×44 button (8a) */
     html[data-sidebar='collapsed'] #app-sidebar .ss-monogram {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        height: 28px;
-        padding: 0 6px;
-        box-sizing: border-box;
-        border: 1.5px solid currentColor;
-        border-radius: var(--ss-radius-tag);
-        font: 700 13px/1 var(--ss-shell-font);
-        letter-spacing: -0.01em;
+        font: 700 18px/1 var(--ss-shell-font);
+        letter-spacing: 0;
+        color: var(--ss-text);
     }
 
     html[data-sidebar='collapsed'] #app-sidebar .ss-nav-scroll {
@@ -997,6 +998,9 @@ body:has([role='dialog'][data-open]) :is(.notif-bell-btn, .helper-float-btn, .ac
         font-weight: 600;
         letter-spacing: -0.01em;
     }
+    /* Home on a phone: the name in the page name's place, same tracking as
+       the wordmark (8a) */
+    .ss-page-name--wordmark { letter-spacing: 0.02em; }
 
     /* tab bar: Home and the four groups */
     .ss-tabbar {

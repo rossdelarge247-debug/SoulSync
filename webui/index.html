@@ -313,7 +313,7 @@
                     aria-label="Collapse navigation" title="Collapse navigation" aria-expanded="true">
                     <span class="ss-wordmark-name" role="img" aria-label="SYNCHRO.S">SYNCHRO.S</span>
                     <span class="ss-wordmark-version">v{{ soulsync_base_version }}</span>
-                    <span class="ss-monogram" aria-hidden="true">SS</span>
+                    <span class="ss-monogram" aria-hidden="true">S</span>
                     <svg class="ss-wordmark-chevrons" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg>
                 </button>
             </div>
@@ -566,10 +566,6 @@
                             <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
                             <span class="ss-label">What&rsquo;s new</span>
                             <span class="version-button">v{{ soulsync_base_version }}</span>
-                        </button>
-                        <button type="button" class="ss-item" onclick="showSupportModal()">
-                            <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><path d="M6 1v3M10 1v3M14 1v3"/></svg>
-                            <span class="ss-label">Support SoulSync</span>
                         </button>
                     </div>
                 </div>
@@ -10818,6 +10814,14 @@
                         </div>
                         <div class="docs-nav" id="docs-nav">
                             <!-- Populated by JS -->
+                        </div>
+                        <!-- HANDOFF 57: the support goes to upstream's maintainer, so it lives
+                             here rather than in the sidebar; same modal (settings.js). -->
+                        <div class="docs-sidebar-foot">
+                            <button type="button" class="docs-support-row" id="docs-support-row" onclick="showSupportModal()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><path d="M6 1v3M10 1v3M14 1v3"/></svg>
+                                <span>Support upstream SoulSync</span>
+                            </button>
                         </div>
                     </nav>
                     <main class="docs-content" id="docs-content">

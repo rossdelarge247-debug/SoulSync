@@ -5,7 +5,7 @@
     screen real estate."
 
 The collapse toggle became the navigation shell's compact mode: clicking the
-"SoulSync" wordmark folds the 256px sidebar to a 72px rail, the "SS" monogram
+"SYNCHRO.S" wordmark folds the 256px sidebar to a 72px rail, the "S" monogram
 expands it again. Behaviour lives in webui/src/shell/nav-shell.ts (tested in
 nav-shell.test.ts), the look in webui/static/shell.css. These pin the parts
 that span files and that no browser test sees:
@@ -152,7 +152,7 @@ def test_the_wordmark_is_the_toggle(html):
     brand = html[html.index('class="sidebar-header ss-brand"'):html.index('class="sidebar-scroll ss-nav-scroll"')]
     assert 'id="sidebar-collapse-toggle"' in brand
     assert '<span class="ss-wordmark-name" role="img" aria-label="SYNCHRO.S">SYNCHRO.S</span>' in brand
-    assert '<span class="ss-monogram" aria-hidden="true">SS</span>' in brand
+    assert '<span class="ss-monogram" aria-hidden="true">S</span>' in brand
     assert 'aria-label="Collapse navigation"' in brand
 
 
