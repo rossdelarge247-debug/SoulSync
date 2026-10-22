@@ -163,6 +163,7 @@ def stream_basic_search(
     source: Optional[str] = None,
     min_interval: float = 1.0,
     poll: float = 0.25,
+    keepalive: float = 2.0,
 ) -> Iterator[dict]:
     """``run_basic_search``, reporting results while the search still runs.
 
@@ -175,6 +176,11 @@ def stream_basic_search(
     ``files`` counts every file, including the tracks inside a folder;
     ``users`` is how many Soulseek users answered (``None`` when the source
     doesn't say).
+
+    While nothing new arrives it yields ``{"type": "waiting"}`` every
+    ``keepalive`` seconds. A browser that left closes the connection; the next
+    write then fails, the server closes this generator, and the request's
+    thread is free again instead of waiting out slskd's whole search.
 
     The search itself runs on its own thread, so a slow network never stops
     the progress lines; the source calls back on the shared event loop and
@@ -215,6 +221,7 @@ def stream_basic_search(
 
     sent_seq = 0
     last_sent = 0.0
+    last_write = time.monotonic()
     while True:
         changed.wait(poll)
         changed.clear()
@@ -225,13 +232,16 @@ def stream_basic_search(
             snapshot = dict(latest)
         now = time.monotonic()
         if seq > sent_seq and now - last_sent >= min_interval:
-            sent_seq, last_sent = seq, now
+            sent_seq, last_sent, last_write = seq, now, now
             yield {
                 "type": "progress",
                 "files": _file_count(snapshot['tracks'], snapshot['albums']),
                 "users": snapshot['users'],
                 "results": serialize_results(snapshot['tracks'], snapshot['albums']),
             }
+        elif now - last_write >= keepalive:
+            last_write = now
+            yield {"type": "waiting"}
 
     if 'error' in outcome:
         exc = outcome['error']

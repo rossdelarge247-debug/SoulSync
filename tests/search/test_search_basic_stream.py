@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 import time
 
 import pytest
@@ -147,6 +148,46 @@ def test_a_named_source_is_searched_directly():
     events = list(basic.stream_basic_search('q', orch, _run_async, source='tidal', min_interval=0, poll=0.01))
     assert orch.asked == ['tidal']
     assert events[-1]['results'][0]['title'] == 'from tidal'
+
+
+class _Stalled:
+    """A search that hasn't heard from anyone yet and won't end until told to."""
+
+    def __init__(self):
+        self.release = threading.Event()
+
+    async def search(self, query, timeout=None, progress_callback=None):
+        while not self.release.is_set():
+            await asyncio.sleep(0.01)
+        return [], []
+
+
+def test_a_quiet_search_says_it_is_still_waiting():
+    client = _Stalled()
+    stream = basic.stream_basic_search('pale harbour', client, _run_async,
+                                       min_interval=0, poll=0.01, keepalive=0.05)
+    try:
+        assert [next(stream)['type'] for _ in range(3)] == ['waiting', 'waiting', 'waiting']
+    finally:
+        client.release.set()
+    assert [e['type'] for e in stream][-1] == 'done'
+
+
+def test_closing_the_stream_mid_search_ends_it():
+    # what the server does when the browser has gone: the keep-alive write
+    # fails and the generator is closed, freeing the request's thread
+    client = _Stalled()
+    stream = basic.stream_basic_search('pale harbour', client, _run_async,
+                                       min_interval=0, poll=0.01, keepalive=0.05)
+    try:
+        assert next(stream)['type'] == 'waiting'
+        started = time.monotonic()
+        stream.close()
+        assert time.monotonic() - started < 1
+        with pytest.raises(StopIteration):
+            next(stream)
+    finally:
+        client.release.set()
 
 
 # ── the endpoint ─────────────────────────────────────────────────────────────
