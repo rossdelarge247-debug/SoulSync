@@ -959,6 +959,14 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
     html[data-sidebar='collapsed'] #app-sidebar .ss-profile .ss-icon-btn { display: none; }
 }
 
+/* An open dialog covers the page. The floating notification, help and
+   activity buttons sit at z-index 999999, above the dialogs' 11000, so they
+   would cover a dialog's footer buttons (on phones, a full-screen sheet's).
+   Shared dialogs (components/dialog, Base UI) mark the open popup data-open. */
+body:has([role='dialog'][data-open]) :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn) {
+    visibility: hidden;
+}
+
 /* ── phone ───────────────────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
@@ -987,6 +995,10 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
         padding: 0 4px 0 12px;
     }
     #ss-back { margin-left: -8px; }
+
+    /* The top bar sits in the flow here, so mobile.css's 70px top padding on
+       .page (clearance for the old floating menu button) is only a gap. */
+    .ss-main .page { padding-top: 16px; }
     .ss-page-name {
         margin: 0;
         font-size: 17px;
@@ -1173,4 +1185,9 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
     .activity-float-btn {
         bottom: calc(var(--ss-tabbar-h) + 12px + env(safe-area-inset-bottom, 0px));
     }
+}
+
+@media (max-width: 480px) {
+    /* mobile.css's 12px gutter on the smallest phones, without its 70px top */
+    .ss-main .page { padding-top: 12px; }
 }
