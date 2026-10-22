@@ -987,6 +987,10 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
         padding: 0 4px 0 12px;
     }
     #ss-back { margin-left: -8px; }
+
+    /* The top bar sits in the flow here, so mobile.css's 70px top padding on
+       .page (clearance for the old floating menu button) is only a gap. */
+    .ss-main .page { padding-top: 16px; }
     .ss-page-name {
         margin: 0;
         font-size: 17px;
@@ -1173,4 +1177,9 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
     .activity-float-btn {
         bottom: calc(var(--ss-tabbar-h) + 12px + env(safe-area-inset-bottom, 0px));
     }
+}
+
+@media (max-width: 480px) {
+    /* mobile.css's 12px gutter on the smallest phones, without its 70px top */
+    .ss-main .page { padding-top: 12px; }
 }

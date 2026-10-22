@@ -1,0 +1,53 @@
+"""On phones the navigation shell's top bar is part of the page's flow
+(webui/static/shell.css), not a floating button over it, so the 70px top
+padding mobile.css gives every .page for that old button would leave a gap
+under the bar. The shell takes it back to the phone gutter."""
+
+import re
+
+SHELL_CSS = 'webui/static/shell.css'
+MOBILE_CSS = 'webui/static/mobile.css'
+HTML = 'webui/index.html'
+
+
+def read(path):
+    with open(path, encoding='utf-8') as handle:
+        return handle.read()
+
+
+def media_blocks(css, query):
+    """Bodies of every @media block for ``query`` (brace-matched)."""
+    bodies = []
+    for match in re.finditer(r'@media\s*\(' + re.escape(query) + r'\)\s*\{', css):
+        depth, start = 1, match.end()
+        for i in range(start, len(css)):
+            if css[i] == '{':
+                depth += 1
+            elif css[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    bodies.append(css[start:i])
+                    break
+    return bodies
+
+
+def top_padding(blocks):
+    for body in blocks:
+        rule = re.search(r'\.ss-main \.page\s*\{([^}]*)\}', body)
+        if rule:
+            found = re.search(r'padding-top:\s*(\d+)px', rule.group(1))
+            if found:
+                return int(found.group(1))
+    return None
+
+
+def test_the_shell_loads_after_mobile_css():
+    html = read(HTML)
+    assert html.index('mobile.css') < html.index('shell.css')
+
+
+def test_phone_pages_start_at_the_gutter_not_under_an_old_button():
+    assert '70px' in read(MOBILE_CSS)
+    shell = read(SHELL_CSS)
+    assert top_padding(media_blocks(shell, 'max-width: 768px')) == 16
+    assert top_padding(media_blocks(shell, 'max-width: 480px')) == 12
