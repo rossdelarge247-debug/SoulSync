@@ -23,6 +23,7 @@ export interface Station {
   genre: string;
   city: string;
   country: string;
+  /** our own /api/radio/stations/<id>/logo (the server fetches and caches it), or '' */
   logo_url: string;
   logo_text?: string;
   homepage: string;
@@ -253,6 +254,8 @@ export interface RadioLink {
   check_error: string | null;
   added_by: string | null;
   added_at: number | null;
+  /** the logo address the admin gave (fetched and cached by the server) */
+  logo_url?: string | null;
 }
 
 export interface PlayResponse {

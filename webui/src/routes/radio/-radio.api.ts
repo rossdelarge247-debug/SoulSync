@@ -174,10 +174,17 @@ export async function checkLink(url: string): Promise<LinkCheck> {
   );
 }
 
-export async function addLink(url: string, name: string, kind: StationKind): Promise<RadioLink> {
+export async function addLink(
+  url: string,
+  name: string,
+  kind: StationKind,
+  logoUrl = '',
+): Promise<RadioLink> {
+  const json: Record<string, string> = { url, name, kind };
+  if (logoUrl) json.logo_url = logoUrl;
   const body = await ok(
     readJson<{ success: boolean; link: RadioLink }>(
-      apiClient.post('radio/links', { json: { url, name, kind }, timeout: 30_000 }),
+      apiClient.post('radio/links', { json, timeout: 30_000 }),
     ),
   );
   return body.link;

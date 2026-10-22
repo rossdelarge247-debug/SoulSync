@@ -428,6 +428,56 @@ describe('the Radio pages', () => {
     );
   });
 
+  it('Add a stream link sends the optional logo address (HANDOFF 55)', async () => {
+    mockApi();
+    const added: Record<string, unknown>[] = [];
+    server.use(
+      http.post('/api/radio/links/check', () =>
+        HttpResponse.json({
+          success: true,
+          ok: true,
+          codec: 'MP3',
+          bitrate_kbps: 320,
+          sends_titles: true,
+          allows_direct: false,
+          answered_in_s: 1.2,
+        }),
+      ),
+      http.post('/api/radio/links', async ({ request }) => {
+        added.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({
+          success: true,
+          link: {
+            id: 9,
+            station_id: 'link-9',
+            name: 'Lowlands',
+            url: 'https://x.example.org/live.mp3',
+          },
+        });
+      }),
+    );
+    renderAt('/radio?add=link');
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Stream link'), {
+      target: { value: 'https://x.example.org/live.mp3' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Check' }));
+    await within(dialog).findByText('Playing.');
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Lowlands' } });
+    fireEvent.change(within(dialog).getByLabelText('Kind'), { target: { value: 'electronic' } });
+    const logo = within(dialog).getByLabelText('Logo address (optional)');
+    expect(logo).toHaveAccessibleDescription(/not SVG/);
+    fireEvent.change(logo, { target: { value: 'https://x.example.org/logo.png' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add Lowlands' }));
+    await waitFor(() => expect(added).toHaveLength(1));
+    expect(added[0]).toEqual({
+      url: 'https://x.example.org/live.mp3',
+      name: 'Lowlands',
+      kind: 'electronic',
+      logo_url: 'https://x.example.org/logo.png',
+    });
+  });
+
   it('members don’t get Add a stream link', async () => {
     mockApi({ admin: false });
     renderAt('/radio', false);

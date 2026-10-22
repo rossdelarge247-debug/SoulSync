@@ -5,7 +5,7 @@
  */
 
 import { Link } from '@tanstack/react-router';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import type { HeardItem, RadioSessionState, Station } from '@/features/radio/radio.types';
 
@@ -109,7 +109,16 @@ export function NoteIcon() {
   );
 }
 
-/** The 56px logo tile (120px on the station page): the station's art over https, or its initials. */
+/** Our own logo address (the server fetches and caches the station's), never another host. */
+export function isOwnLogo(url: string | null | undefined): url is string {
+  return typeof url === 'string' && /^\/api\/radio\/stations\/[A-Za-z0-9-]+\/logo(\?|$)/.test(url);
+}
+
+/**
+ * The 56px logo tile (120px on the station page): the station's letters,
+ * with its logo over them once it has loaded (HANDOFF 55). The letters stay
+ * while it loads, when it can't be fetched and when there's none.
+ */
 export function StationLogo({
   station,
   big = false,
@@ -117,15 +126,24 @@ export function StationLogo({
   station: Pick<Station, 'name' | 'logo_url' | 'logo_text'>;
   big?: boolean;
 }) {
-  const [broken, setBroken] = useState(false);
-  const art = station.logo_url && station.logo_url.startsWith('https://') && !broken;
+  const [state, setState] = useState<'loading' | 'loaded' | 'broken'>('loading');
+  const src = isOwnLogo(station.logo_url) ? station.logo_url : '';
+  useEffect(() => setState('loading'), [src]);
   return (
     <span className={big ? `${styles.logo} ${styles.logoBig}` : styles.logo} aria-hidden="true">
-      {art ? (
-        <img src={station.logo_url} alt="" onError={() => setBroken(true)} />
-      ) : (
-        logoText(station.name, station.logo_text)
-      )}
+      {state !== 'loaded' ? (
+        <span className={styles.logoText}>{logoText(station.name, station.logo_text)}</span>
+      ) : null}
+      {src && state !== 'broken' ? (
+        <img
+          src={src}
+          alt=""
+          decoding="async"
+          data-loaded={state === 'loaded' ? 'true' : undefined}
+          onLoad={() => setState('loaded')}
+          onError={() => setState('broken')}
+        />
+      ) : null}
     </span>
   );
 }

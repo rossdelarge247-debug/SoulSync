@@ -110,7 +110,7 @@ def station_snapshot(db, station_id: str) -> Optional[Dict[str, Any]]:
 # ── your links ───────────────────────────────────────────────────────────────
 
 _LINK_COLS = ("id, name, url, kind, codec, bitrate_kbps, sends_titles, allows_direct, check_ok, checked_at, "
-              "check_error, added_by, added_at")
+              "check_error, added_by, added_at, logo_url")
 
 
 def _link(row) -> Dict[str, Any]:
@@ -131,13 +131,13 @@ def get_link(db, link_id: int) -> Optional[Dict[str, Any]]:
 
 
 def add_link(db, *, name: str, url: str, kind: str, codec: str, bitrate_kbps: int, sends_titles: bool,
-             allows_direct: bool, added_by: str) -> int:
+             allows_direct: bool, added_by: str, logo_url: Optional[str] = None) -> int:
     with db._get_connection() as conn:
         cur = conn.execute(
             "INSERT INTO radio_links (name, url, kind, codec, bitrate_kbps, sends_titles, allows_direct, check_ok, "
-            "checked_at, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
+            "checked_at, added_by, added_at, logo_url) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
             (name, url, kind, codec, int(bitrate_kbps or 0), 1 if sends_titles else 0, 1 if allows_direct else 0,
-             _now(), added_by, _now()))
+             _now(), added_by, _now(), logo_url or None))
         conn.commit()
         return int(cur.lastrowid)
 

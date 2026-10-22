@@ -3,6 +3,7 @@
 Everyone with a profile:
 GET    /api/radio/stations                        built-in picks by kind, Favourites (incl. your links)
 GET    /api/radio/stations/<id>                   one station, with what's playing and Heard counts
+GET    /api/radio/stations/<id>/logo              its logo, fetched and cached by the server
 POST   /api/radio/favourites/<id>                 favourite (per profile)
 DELETE /api/radio/favourites/<id>
 GET    /api/radio/directory                       Radio Browser search (?q=&codec=&min_bitrate=&country=&page=)
@@ -25,7 +26,7 @@ GET    /api/radio/scan/<scan_id>                  the scan: listening | identifi
 Admins:
 GET    /api/radio/links                           your stream links
 POST   /api/radio/links/check                     {url}: listen to a link from this server
-POST   /api/radio/links                           {url, name, kind}: add (needs a passing check)
+POST   /api/radio/links                           {url, name, kind, logo_url?}: add (needs a passing check)
 POST   /api/radio/links/<id>/check
 DELETE /api/radio/links/<id>
 GET    /api/radio/settings, PUT /api/radio/settings
@@ -44,9 +45,9 @@ import json
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, jsonify, request, send_file
 
-from core.internet_radio import directory, feeds, net, setup_rows, store
+from core.internet_radio import directory, feeds, logos, net, setup_rows, store
 from core.internet_radio import settings as radio_settings
 from core.internet_radio import stations as st
 from core.internet_radio.hub import Busy, HubDeps, hub, track_key
@@ -180,6 +181,7 @@ def link_station(link: Dict[str, Any]) -> Optional[st.Station]:
     kind = link.get("kind") if link.get("kind") in st.KINDS else "eclectic"
     return st.Station(id=f"link-{int(link['id'])}", name=str(link.get("name") or "Your link"), kind=kind,
                       source="your_link", streams=[stream], genre=st.KIND_LABELS.get(kind, ""),
+                      logo_url=str(link.get("logo_url") or ""),
                       sends_titles=None if link.get("sends_titles") is None else bool(link.get("sends_titles")),
                       added_by=str(link.get("added_by") or ""), note="Added by an admin")
 
@@ -188,6 +190,7 @@ def _snapshot(station: st.Station) -> Dict[str, Any]:
     """A directory station as the server looked it up (kept with a favourite)."""
     return {"id": station.id, "name": station.name, "kind": station.kind, "genre": station.genre,
             "country": station.country, "homepage": station.homepage, "tags": station.tags,
+            "logo_url": station.logo_url,
             "streams": [{"id": s.id, "url": s.url, "codec": s.codec, "bitrate_kbps": s.bitrate_kbps}
                         for s in station.streams]}
 
@@ -201,7 +204,8 @@ def _from_snapshot(data: Dict[str, Any]) -> Optional[st.Station]:
     return st.Station(id=str(data["id"]), name=str(data.get("name") or "Station"),
                       kind=data.get("kind") if data.get("kind") in st.KINDS else "eclectic", source="directory",
                       streams=streams, genre=str(data.get("genre") or ""), country=str(data.get("country") or ""),
-                      homepage=str(data.get("homepage") or ""), tags=list(data.get("tags") or [])[:8])
+                      homepage=str(data.get("homepage") or ""), tags=list(data.get("tags") or [])[:8],
+                      logo_url=directory._favicon(data.get("logo_url")))
 
 
 def resolve_station(station_id: str) -> Optional[st.Station]:
@@ -303,6 +307,30 @@ def get_station(station_id):
                     "heard_today": store.count_heard(db, pid, since=today, station_id=station.id),
                     "identification": _settings()["identification"], "is_admin": bool(is_admin_request()),
                     "can_download": _download_denied(pid) is None, "scan": scanner.availability()})
+
+
+@bp.route("/api/radio/stations/<station_id>/logo", methods=["GET"])
+def station_logo(station_id):
+    """A station's logo from our own origin (HANDOFF 55). Only a station the
+    server resolved itself (built-in, directory by uuid, an admin's link), and
+    only its own logo address: nothing here takes an address from the request.
+    404 when there's none or it couldn't be used; the page shows the letters."""
+    pid = _pid()
+    if pid is None:
+        return _need_profile()
+    station = resolve_station(station_id)
+    if station is None or not station.logo_url:
+        return _err(404, "no_logo", "This station has no logo.")
+    found = logos.logo_for(station.logo_url)
+    if not found:
+        return _err(404, "no_logo", "This station's logo couldn't be fetched.")
+    path, mime = found
+    response = send_file(path, mimetype=mime, conditional=True, max_age=86400)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; sandbox"
+    response.headers["Content-Disposition"] = f"inline; filename=logo{logos.MIME_EXT[mime]}"
+    response.headers["Cache-Control"] = "private, max-age=86400"
+    return response
 
 
 @bp.route("/api/radio/favourites/<station_id>", methods=["POST", "DELETE"])
@@ -806,7 +834,8 @@ def _public_link(link: Dict[str, Any]) -> Dict[str, Any]:
             "sends_titles": None if link.get("sends_titles") is None else bool(link["sends_titles"]),
             "check_ok": None if link.get("check_ok") is None else bool(link["check_ok"]),
             "checked_at": link.get("checked_at"), "check_error": link.get("check_error"),
-            "added_by": link.get("added_by"), "added_at": link.get("added_at")}
+            "added_by": link.get("added_by"), "added_at": link.get("added_at"),
+            "logo_url": link.get("logo_url") or None}
 
 
 def _checked(url: str) -> Dict[str, Any]:
@@ -815,6 +844,27 @@ def _checked(url: str) -> Dict[str, Any]:
         return {"ok": False, "error": reason, "codec": "", "bitrate_kbps": 0, "sends_titles": False,
                 "allows_direct": False, "answered_in_s": None}
     return check_link(url)
+
+
+def _check_logo(url: str) -> Optional[str]:
+    """None when an admin's logo address is usable, else the sentence to show.
+    Checked the way a stream link is (an http(s) address on the internet), and
+    then fetched once: it has to be a PNG, JPEG, GIF, WebP or ICO image of at
+    most 512 KB, which also puts it in the cache."""
+    ok, reason = logos.check_source(url)
+    if ok:
+        ok, reason = check_url(url)
+    if not ok:
+        return reason
+    try:
+        data, mime = logos.fetch(url)
+    except logos.LogoError as exc:
+        return str(exc)
+    try:
+        logos._store(url, data, mime)  # noqa: SLF001 - the check's fetch is the first cache fill
+    except OSError:
+        pass
+    return None
 
 
 @bp.route("/api/radio/links", methods=["GET"])
@@ -846,13 +896,19 @@ def add_link():
         return _err(400, "bad_request", "Give the station a name.")
     if kind not in st.KINDS:
         return _err(400, "bad_request", "Choose a kind.")
+    logo_url = str(body.get("logo_url") or "").strip()
+    if logo_url:
+        error = _check_logo(logo_url)
+        if error:
+            return _err(400, "logo_failed", error)
     result = _checked(url)
     if not result.get("ok"):
         return _err(400, "check_failed", str(result.get("error") or "This link didn't pass the check."))
     link_id = store.add_link(_db(), name=name, url=url, kind=kind, codec=str(result.get("codec") or ""),
                              bitrate_kbps=int(result.get("bitrate_kbps") or 0),
                              sends_titles=bool(result.get("sends_titles")),
-                             allows_direct=bool(result.get("allows_direct")), added_by=_actor_name())
+                             allows_direct=bool(result.get("allows_direct")), added_by=_actor_name(),
+                             logo_url=logo_url or None)
     return jsonify({"success": True, "link": _public_link(store.get_link(_db(), link_id))})
 
 

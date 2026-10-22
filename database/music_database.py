@@ -1566,6 +1566,7 @@ class MusicDatabase:
             self._add_automation_paused_at_column(cursor)
             self._add_ai_assistant_tables(cursor)
             self._add_internet_radio_tables(cursor)
+            self._add_radio_link_logo_column(cursor)
             self._add_spoken_word_tables(cursor)
 
             # Library issues — user-reported problems with tracks/albums/artists
@@ -3524,6 +3525,15 @@ class MusicDatabase:
                     PRIMARY KEY (profile_id, suggestion_key)
                 )
             """)
+
+    def _add_radio_link_logo_column(self, cursor):
+        """radio_links.logo_url: the logo address an admin may give a stream
+        link (HANDOFF 55); fetched and cached by the server like the others."""
+        with self._migration_step(cursor, 'radio_link_logo_column', atomic=False):
+            cursor.execute("PRAGMA table_info(radio_links)")
+            cols = {c[1] for c in cursor.fetchall()}
+            if cols and 'logo_url' not in cols:
+                cursor.execute("ALTER TABLE radio_links ADD COLUMN logo_url TEXT")
 
     def _add_spoken_word_tables(self, cursor):
         """Podcasts and audiobooks in the player (core/playback/spoken.py,

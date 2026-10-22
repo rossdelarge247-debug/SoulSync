@@ -27,6 +27,7 @@ Issue/
 # logo packs, cached clean bases + first-touch backups, rendered thumbnails, uploads
 database/video_poster_assets/
 storage/image_cache/
+storage/radio_logos/
 logs/*.log
 logs/*.log.*
 
