@@ -1563,6 +1563,7 @@ class MusicDatabase:
             self._add_automation_group_name_column(cursor)
             self._add_automation_owned_by_column(cursor)
             self._add_automation_paused_at_column(cursor)
+            self._add_ai_assistant_tables(cursor)
 
             # Library issues — user-reported problems with tracks/albums/artists
             cursor.execute("""
@@ -3470,6 +3471,33 @@ class MusicDatabase:
                     "UPDATE automations SET paused_at = COALESCE(updated_at, CURRENT_TIMESTAMP) "
                     "WHERE enabled = 0 OR enabled IS NULL")
                 logger.info("Added paused_at column to automations table")
+
+    def _add_ai_assistant_tables(self, cursor):
+        """The Automation Assistant's two tables (core/ai/store.py): usage per
+        month for Settings → AI and its monthly cap, and each profile's "Not
+        now" on the Automations list's suggestion card."""
+        with self._migration_step(cursor, 'ai_assistant_tables', atomic=False):
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ai_usage (
+                    month TEXT PRIMARY KEY,
+                    requests INTEGER NOT NULL DEFAULT 0,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_usd REAL NOT NULL DEFAULT 0,
+                    drafts_saved INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ai_suggestion_dismissals (
+                    profile_id INTEGER NOT NULL,
+                    suggestion_key TEXT NOT NULL,
+                    dismissed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (profile_id, suggestion_key)
+                )
+            """)
 
     def _add_automation_then_actions_column(self, cursor):
         """Add then_actions column to automations table and migrate existing notify data."""

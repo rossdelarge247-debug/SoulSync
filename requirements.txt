@@ -17,6 +17,11 @@ PlexAPI==4.18.1
 requests==2.33.1
 aiohttp==3.14.5
 
+# The Automation Assistant's model calls (core/ai/provider.py): the official
+# Anthropic SDK, for streaming, typed errors and the refusal fallback. Only
+# used once an admin adds a key in Settings → AI; the app starts without it.
+anthropic==1.12.1
+
 # Security and encryption
 cryptography==50.0.2
 

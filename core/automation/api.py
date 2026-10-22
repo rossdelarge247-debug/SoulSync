@@ -51,6 +51,41 @@ def _hydrate_automation(auto: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Admin-only steps
+# ---------------------------------------------------------------------------
+
+# Steps a member never gets from the Assistant: scripts, clean-ups, repairs,
+# backups, purges and anything on the video side. Read by the Assistant's
+# draft check (core/ai/drafts.py) and the block editor's "/" menu.
+ADMIN_ONLY_TYPES = frozenset({
+    'run_script',                      # runs any file in the scripts folder
+    'clear_quarantine', 'library_cleanup', 'full_cleanup',
+    'clean_completed_downloads', 'clean_search_history', 'seeding_sweep',
+    'run_duplicate_cleaner', 'deep_scan_library', 'run_repair_job',
+    'backup_database',
+})
+_ADMIN_ONLY_WORDS = ('purge', 'cleanup', 'clean_', 'repair', 'backup', 'recycle', 'quarantine')
+
+
+def needs_admin(block_type: str) -> bool:
+    """True for a trigger, action or follow-up only an admin may put in an
+    automation the Assistant drafts: a script, a clean-up, a repair, a
+    backup, a purge, or a video step. Everything in the music catalogue's
+    Maintenance drawer counts too (core/automation/blocks.py), so a new
+    maintenance block is admin-only the day it ships."""
+    from core.automation.blocks import block_category
+
+    name = str(block_type or '')
+    if not name:
+        return False
+    if name in ADMIN_ONLY_TYPES or name.startswith('video_'):
+        return True
+    if any(word in name for word in _ADMIN_ONLY_WORDS):
+        return True
+    return block_category(name) == 'Maintenance'
+
+
+# ---------------------------------------------------------------------------
 # Signal cycle detection
 # ---------------------------------------------------------------------------
 

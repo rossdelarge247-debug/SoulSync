@@ -324,6 +324,8 @@ def get_debug_info():
         'allow_duplicate_tracks': config_manager.get('wishlist.allow_duplicate_tracks', True),
         'replace_lower_quality': config_manager.get('import.replace_lower_quality', False),
         'auto_import_enabled': config_manager.get('import.auto_import_enabled', False),
+        # whether the Assistant has a key: never the key
+        'ai_assistant_configured': bool(config_manager.get('ai.anthropic_api_key', '')),
     }
     # Hybrid source priority order
     if source_mode == 'hybrid':

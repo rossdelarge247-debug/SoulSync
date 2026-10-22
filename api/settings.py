@@ -25,6 +25,7 @@ _SENSITIVE_KEYS = {
     "lastfm.api_key",
     "genius.access_token",
     "hydrabase.api_key",
+    "ai.anthropic_api_key",
 }
 
 
