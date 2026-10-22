@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { Button, OptionButton } from '@/components/form';
+import { TitleWithHelp } from '@/components/page-header';
 import { EmptyState, LoadingState, Notice, Skeleton, StatusTag } from '@/components/primitives';
 import {
   routedNamesQueryOptions,
@@ -681,14 +682,16 @@ export function ArtistPage() {
       <HeaderArt artist={artist} image={payload ? image : null} applied={appliedPhoto} />
       <div className={styles.headText}>
         <p className={styles.label}>Artist</p>
-        {artistName ? (
-          <h1 className={styles.name}>{artistName}</h1>
-        ) : (
-          <h1 className={styles.name}>
-            <Skeleton className={styles.nameLoading} />
-            <span className="ss-sr">Loading the artist</span>
-          </h1>
-        )}
+        <TitleWithHelp page="artist-detail">
+          {artistName ? (
+            <h1 className={styles.name}>{artistName}</h1>
+          ) : (
+            <h1 className={styles.name}>
+              <Skeleton className={styles.nameLoading} />
+              <span className="ss-sr">Loading the artist</span>
+            </h1>
+          )}
+        </TitleWithHelp>
         {payload ? (
           <p className={styles.counts}>
             <span className={styles.countsLong}>{countsLine(counts, sourceOnly)}</span>

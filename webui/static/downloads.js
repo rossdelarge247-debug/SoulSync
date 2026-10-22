@@ -5802,6 +5802,11 @@ function _updateNotifBadge() {
         badge.textContent = _notifState.unreadCount > 99 ? '99+' : _notifState.unreadCount;
         badge.style.display = _notifState.unreadCount > 0 ? '' : 'none';
     }
+    // phones have no bell: the top bar's Activity icon carries the unread
+    // count as its dot (src/shell/nav-shell.ts, Design HANDOFF 25)
+    window.dispatchEvent(new CustomEvent('ss:notifications-unread', {
+        detail: { count: _notifState.unreadCount },
+    }));
 }
 
 // ── system health, as symbols in the panel header ────────────────────────────
@@ -5885,15 +5890,17 @@ function _openHealthModal() {
     });
 }
 
-function toggleNotifPanel() {
+// `anchor` is the button that opened it: the bell, or on phones the top
+// bar's Activity icon (Design, HANDOFF 25).
+function toggleNotifPanel(anchor) {
     if (_notifState.panelOpen) {
         _closeNotifPanel();
     } else {
-        _openNotifPanel();
+        _openNotifPanel(anchor);
     }
 }
 
-function _openNotifPanel() {
+function _openNotifPanel(anchor) {
     _closeNotifPanel(); // Remove existing
 
     _notifState.panelOpen = true;
@@ -5901,7 +5908,8 @@ function _openNotifPanel() {
     _notifState.history.forEach(e => e.read = true);
     _updateNotifBadge();
 
-    const btn = document.getElementById('notif-bell-btn');
+    const btn = (anchor instanceof Element && anchor.isConnected)
+        ? anchor : document.getElementById('notif-bell-btn');
     const panel = document.createElement('div');
     panel.id = 'notif-panel';
     panel.className = 'notif-panel';
@@ -5934,19 +5942,27 @@ function _openNotifPanel() {
     _seedMusicMediaScanTask();
     _seedLastfmImportTask();
 
-    // Position above the bell button
+    // Above the bell button; under a button near the top (phones' Activity
+    // icon, where shell.css docks it under the top bar)
     if (btn) {
         const rect = btn.getBoundingClientRect();
         panel.style.right = (window.innerWidth - rect.right) + 'px';
-        panel.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+        if (rect.top < window.innerHeight / 2) {
+            panel.style.top = (rect.bottom + 8) + 'px';
+            panel.style.bottom = 'auto';
+        } else {
+            panel.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+        }
     }
 
     requestAnimationFrame(() => panel.classList.add('visible'));
+    window.dispatchEvent(new CustomEvent('ss:notif-panel', { detail: { open: true, panel } }));
 
-    // Close on outside click
+    // Close on outside click (the button that opened it toggles it itself)
     setTimeout(() => {
         const closeHandler = e => {
-            if (!panel.contains(e.target) && e.target.id !== 'notif-bell-btn') {
+            if (!panel.contains(e.target) && e.target.id !== 'notif-bell-btn'
+                && !(btn && btn.contains(e.target))) {
                 _closeNotifPanel();
                 document.removeEventListener('click', closeHandler);
             }
@@ -5960,7 +5976,10 @@ function _closeNotifPanel() {
     const panel = document.getElementById('notif-panel');
     if (panel) {
         panel.classList.remove('visible');
+        // a new panel may open before this one has faded: it takes the id
+        panel.removeAttribute('id');
         setTimeout(() => panel.remove(), 200);
+        window.dispatchEvent(new CustomEvent('ss:notif-panel', { detail: { open: false, panel } }));
     }
 }
 

@@ -32,6 +32,7 @@ export function ImportPage() {
     <div id="import-page" data-testid="import-page">
       <div className={styles.page}>
         <PageHeader
+          help="import"
           icon={<img src="/static/import.png" alt="" />}
           title="Import"
           subtitle="What is in your import folder, and what to do about it"

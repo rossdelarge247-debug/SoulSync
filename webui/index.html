@@ -622,11 +622,14 @@
                     <button type="button" class="ss-icon-btn ss-phone-only" id="ss-phone-search" aria-label="Search">
                         <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
                     </button>
-                    <a class="ss-icon-btn ss-phone-only" id="ss-phone-activity" href="/activity"
-                        data-nav-target="activity" aria-label="Activity">
+                    <!-- Phones: Activity and the notifications in one icon (Design, HANDOFF 25).
+                         It opens the notifications panel, which starts with a link to Activity;
+                         its dot is something needing you or a notification you haven't seen. -->
+                    <button type="button" class="ss-icon-btn ss-phone-only" id="ss-phone-activity"
+                        aria-label="Activity and notifications" aria-expanded="false">
                         <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
                         <span class="ss-dot ss-dot--warning" id="ss-phone-activity-dot" aria-hidden="true" hidden></span>
-                    </a>
+                    </button>
                 </div>
             </header>
         <!-- Main Content Area -->
@@ -2738,8 +2741,14 @@
                     <div class="settings-content">
                         <nav class="stg-category-nav" aria-label="Settings categories">
                             <div class="stg-navigation-heading">
-                                <div><span class="stg-eyebrow">YOUR WORKSPACE</span>
-                                    <h2>Settings</h2>
+                                <!-- phones: the "?" for this page's tour (Design, HANDOFF 25; shell.css) -->
+                                <div class="ss-page-title-row">
+                                    <div><span class="stg-eyebrow">YOUR WORKSPACE</span>
+                                        <h2>Settings</h2>
+                                    </div>
+                                    <button type="button" class="ss-page-help" data-page-help="settings"
+                                        aria-label="Help and a tour of this page" title="Help and a tour of this page"
+                                        onclick="toggleHelperMode(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg></button>
                                 </div>
                                 <div class="stg-nav-search-wrap">
                                     <svg class="stg-search-icon" viewBox="0 0 24 24">

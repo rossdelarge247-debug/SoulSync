@@ -223,6 +223,27 @@ export function activityLabel(status: ActivityStatus): string {
   return parts.join(', ');
 }
 
+/**
+ * The phone top bar's Activity icon, which carries the notifications too
+ * (Design, HANDOFF 25): "Activity and notifications, 2 running, 1 needs you,
+ * 3 new notifications".
+ */
+export function phoneActivityLabel(status: ActivityStatus, unread: number): string {
+  const parts = ['Activity and notifications'];
+  if (status.running) parts.push(`${status.running} running`);
+  if (status.needsYou) parts.push(`${status.needsYou} need${status.needsYou === 1 ? 's' : ''} you`);
+  if (unread > 0) parts.push(`${unread} new notification${unread === 1 ? '' : 's'}`);
+  return parts.join(', ');
+}
+
+/** The Activity row at the top of the phone's notifications: "2 running · 1 needs you". */
+export function activityRowMeta(status: ActivityStatus): string {
+  const parts: string[] = [];
+  if (status.running !== null) parts.push(runningCopy(status.running).text);
+  if (status.needsYou) parts.push(`${status.needsYou} need${status.needsYou === 1 ? 's' : ''} you`);
+  return parts.length ? parts.join(' · ') : 'Downloads, imports and automation runs';
+}
+
 /** A setup check report's summary -> how many checks need a look (warnings and problems). */
 export function setupProblemCount(summary: unknown): number | null {
   if (!summary || typeof summary !== 'object') return null;

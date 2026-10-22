@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activityLabel,
+  activityRowMeta,
   countedLabel,
   downServices,
   downServicesText,
@@ -11,6 +12,7 @@ import {
   navRowFor,
   pageTitle,
   parseActivityStatus,
+  phoneActivityLabel,
   runningCopy,
   setupProblemCount,
   setupProblemText,
@@ -241,5 +243,27 @@ describe('services that are down', () => {
       'Plex and your download source are down',
     );
     expect(downServicesText(['Plex', 'Soulseek', 'Deezer'])).toBe('3 services are down');
+  });
+});
+
+describe("the phone's Activity icon", () => {
+  it('names the notifications with the activity', () => {
+    expect(phoneActivityLabel({ running: null, needsYou: null }, 0)).toBe(
+      'Activity and notifications',
+    );
+    expect(phoneActivityLabel({ running: 2, needsYou: 1 }, 1)).toBe(
+      'Activity and notifications, 2 running, 1 needs you, 1 new notification',
+    );
+    expect(phoneActivityLabel({ running: 0, needsYou: 0 }, 4)).toBe(
+      'Activity and notifications, 4 new notifications',
+    );
+  });
+
+  it("says what's going on under Activity at the top of the notifications", () => {
+    expect(activityRowMeta({ running: 2, needsYou: 1 })).toBe('2 running · 1 needs you');
+    expect(activityRowMeta({ running: 0, needsYou: 3 })).toBe('Nothing running · 3 need you');
+    expect(activityRowMeta({ running: null, needsYou: null })).toBe(
+      'Downloads, imports and automation runs',
+    );
   });
 });

@@ -2119,7 +2119,10 @@ const HELPER_MENU_ITEMS = [
     { id: 'troubleshoot', icon: '🔧', label: 'Troubleshoot',    desc: 'Fix common issues' },
 ];
 
-function toggleHelperMode() {
+// `anchor` is the button that opened it: the floating "?" on wide screens; on
+// phones (no floating buttons) a page header's "?", or nothing when the
+// Settings sheet's Help row opens it (Design, HANDOFF 25).
+function toggleHelperMode(anchor) {
     // If a mode is active, deactivate everything
     if (HelperState.mode) {
         exitHelperMode();
@@ -2131,7 +2134,7 @@ function toggleHelperMode() {
         return;
     }
     // Otherwise, open the menu
-    openHelperMenu();
+    openHelperMenu(anchor);
 }
 
 // Map page IDs → tour IDs (only where they differ)
@@ -2150,17 +2153,70 @@ const PAGE_TOUR_MAP = {
     'issues':      'issues-tour',
 };
 
-function openHelperMenu() {
+// The tour a page has, for its "?" (pages pass their own id; a tour that
+// needs its page, like the artist one, counts only there). null for none.
+function pageTourFor(pageId) {
+    const tourId = PAGE_TOUR_MAP[pageId];
+    const tour = tourId && HELPER_TOURS[tourId];
+    if (!tour || (tour.onlyOn && tour.onlyOn !== pageId)) return null;
+    return tourId;
+}
+
+function _helperShown(el) {
+    if (!el || !el.isConnected) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+}
+
+let _helperMenuOpener = null;
+// the button that last opened the menu: the panels its items open sit by it too
+let _helperLastOpener = null;
+
+// Where the menu and the panels it opens sit: by the button that opened the
+// menu (or the floating "?" where it shows), under it when it's near the top
+// (a page header's "?"), above it when it's near the bottom; with no button
+// (phones, from the Settings sheet's Help row), above the tab bar.
+function _helperPlace(panel) {
+    const floatBtn = document.getElementById('helper-float-btn');
+    const anchor = _helperShown(_helperLastOpener) ? _helperLastOpener
+        : (_helperShown(floatBtn) ? floatBtn : null);
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    panel.style.left = 'auto';
+    if (anchor) {
+        const btnRect = anchor.getBoundingClientRect();
+        panel.style.right = Math.max(12, vw - btnRect.right) + 'px';
+        if (btnRect.top < vh / 2) {
+            panel.style.top = (btnRect.bottom + 8) + 'px';
+            panel.style.bottom = 'auto';
+        } else {
+            panel.style.bottom = (vh - btnRect.top + 8) + 'px';
+            panel.style.top = 'auto';
+        }
+    } else {
+        const tabbar = document.getElementById('ss-tabbar');
+        const tabTop = _helperShown(tabbar) ? tabbar.getBoundingClientRect().top : vh;
+        panel.style.right = '12px';
+        panel.style.bottom = (vh - tabTop + 12) + 'px';
+        panel.style.top = 'auto';
+    }
+}
+
+function openHelperMenu(anchor) {
     closeHelperMenu();
     HelperState.menuOpen = true;
 
     const floatBtn = document.getElementById('helper-float-btn');
-    if (!floatBtn) return;
+    // what the menu sits by: the button that opened it, else the floating "?"
+    // where it shows; phones have neither from the Settings sheet's Help row
+    const opener = _helperShown(anchor) ? anchor : (_helperShown(floatBtn) ? floatBtn : null);
+    _helperMenuOpener = opener;
+    _helperLastOpener = opener;
 
     // User has discovered the help system — stop the idle glow permanently
-    floatBtn.classList.remove('undiscovered');
+    if (floatBtn) floatBtn.classList.remove('undiscovered');
     localStorage.setItem('soulsync_helper_discovered', '1');
-    floatBtn.classList.add('menu-open');
+    if (opener) opener.classList.add('menu-open');
 
     // Detect current page for contextual tour suggestion
     const suggestedTourId = PAGE_TOUR_MAP[_helperCurrentPage()];
@@ -2183,20 +2239,25 @@ function openHelperMenu() {
     }
 
     const offset = suggestedTour ? 1 : 0;
+    // phones reach the help pages from here: the Help row opens this menu
+    const docsItem = _tourIsPhone() ? `
+        <div class="helper-menu-divider"></div>
+        <button class="helper-menu-item" onclick="closeHelperMenu();navigateToPage('help')" style="animation-delay:${(HELPER_MENU_ITEMS.length + offset) * 0.04}s">
+            <span class="helper-menu-icon">📖</span>
+            <span class="helper-menu-label">Help pages</span>
+        </button>
+    ` : '';
     menu.innerHTML = contextualBtn + HELPER_MENU_ITEMS.map((item, i) => `
         <button class="helper-menu-item" onclick="activateHelperMode('${item.id}')" style="animation-delay:${(i + offset) * 0.04}s">
             <span class="helper-menu-icon">${item.icon}</span>
             <span class="helper-menu-label">${item.label}</span>
         </button>
-    `).join('');
+    `).join('') + docsItem;
 
     document.body.appendChild(menu);
     _helperMenu = menu;
 
-    // Position above the float button
-    const btnRect = floatBtn.getBoundingClientRect();
-    menu.style.right = (window.innerWidth - btnRect.right) + 'px';
-    menu.style.bottom = (window.innerHeight - btnRect.top + 8) + 'px';
+    _helperPlace(menu);
 
     requestAnimationFrame(() => menu.classList.add('visible'));
 
@@ -2208,7 +2269,8 @@ function openHelperMenu() {
 
 function _helperMenuOutsideClick(e) {
     const floatBtn = document.getElementById('helper-float-btn');
-    if (_helperMenu && !_helperMenu.contains(e.target) && !(floatBtn && floatBtn.contains(e.target))) {
+    if (_helperMenu && !_helperMenu.contains(e.target) && !(floatBtn && floatBtn.contains(e.target))
+        && !(_helperMenuOpener && _helperMenuOpener.contains(e.target))) {
         closeHelperMenu();
     }
 }
@@ -2222,6 +2284,8 @@ function closeHelperMenu() {
     HelperState.menuOpen = false;
     const floatBtn = document.getElementById('helper-float-btn');
     if (floatBtn) floatBtn.classList.remove('menu-open');
+    if (_helperMenuOpener) _helperMenuOpener.classList.remove('menu-open');
+    _helperMenuOpener = null;
 }
 
 function activateHelperMode(mode) {
@@ -2291,7 +2355,7 @@ const HELPER_TOURS = {
             { page: 'dashboard', selector: '#sidebar-collapse-toggle', phone: false, title: 'The compact rail', description: 'Select the SoulSync name to fold the sidebar into a narrow rail of icons, and SS to open it again. SoulSync remembers which you chose.' },
             { page: 'dashboard', selector: '#ss-admin', phoneSelector: '#ss-tabbar [data-tab="settings"]', title: 'Admin and help', description: 'Help, Requests and issues, Maintenance, your connections and what’s new; admins also find the Setup check here. Select Admin and help to open or fold the list.', phoneDescription: 'Tap Settings: Admin and help is at the end of its list, with Switch to Video and your profile. It has Help, Requests and issues, Maintenance, your connections and what’s new.' },
             { page: 'dashboard', selector: '#ss-search', phoneSelector: '#ss-phone-search', title: 'Search from any page', description: 'Type here and press Enter to open Search with your words. Press ⌘K (Ctrl K on Windows and Linux) to jump here from anywhere.', phoneDescription: 'Search is in the top bar on every page.' },
-            { page: 'dashboard', selector: '#ss-running', phoneSelector: '#ss-phone-activity', title: 'What’s running', description: 'How many downloads, imports and automation runs are going right now. It opens Activity, and says Nothing running when all is quiet.', phoneTitle: 'Activity', phoneDescription: 'Opens Activity. A dot here means something needs you.' },
+            { page: 'dashboard', selector: '#ss-running', phoneSelector: '#ss-phone-activity', title: 'What’s running', description: 'How many downloads, imports and automation runs are going right now. It opens Activity, and says Nothing running when all is quiet.', phoneTitle: 'Activity and notifications', phoneDescription: 'Your notifications, with Activity at the top of them. A dot here means something needs you or a notification is new.' },
             { page: 'dashboard', selector: '[data-tour="home-targets"]', phoneSelector: '[data-tour="home-targets"] h2', title: 'Your targets', description: 'Wanted, Mirrored playlists, Followed artists and Quality. Each card says how much you have, what’s still missing and when SoulSync searches next. One you haven’t set up yet has a button to start.' },
             { page: 'dashboard', selector: '[data-tour="home-latest"]', phoneSelector: '[data-tour="home-latest"] h2', title: 'Latest', description: 'The newest things SoulSync did, with See all activity for the rest. Further down, Library and system keeps your library, the enrichment workers and quick settings.' },
             { page: 'wanted', selector: '[data-tour="wanted-tabs"]', title: 'Wanted', description: 'Everything you want, and every artist you follow, in two tabs. SoulSync searches for what’s wanted on a schedule and checks followed artists for new releases; the line below says when it runs next.' },
@@ -2303,7 +2367,7 @@ const HELPER_TOURS = {
             { page: 'automations', selector: '[data-tour="automation-preview"]', title: 'Preview a run', description: 'Shows what a run would do right now, with counts and a sample, and changes nothing. When you run a step that moves or deletes files yourself, it shows you the list before anything changes.' },
             { page: 'automations', selector: '[data-tour="automation-runs"]', phoneSelector: '[data-tour="automation-runs-link"]', title: 'Runs', description: 'Every run of the selected automation: how many in the last 30 days, how many failed, the typical time, and a log for each one. All runs in Activity opens them on the timeline.', phoneDescription: 'Tap the runs line to see every run of this automation, how many failed, and a log for each one.' },
             { page: 'setup-check', selector: '[data-tour="setup-check"]', admin: true, title: 'Setup check', description: 'Checks your folders, slskd and your media server, and says how to fix anything that’s wrong, with lines you can copy. Run it again after you change docker-compose or a setting.' },
-            { selector: '#helper-float-btn', title: 'That’s the tour', description: 'The ? button brings it back, along with tours of single pages, help search, keyboard shortcuts and what’s new.' },
+            { selector: '#helper-float-btn', phoneSelector: '#ss-tabbar [data-tab="settings"]', title: 'That’s the tour', description: 'The ? button brings it back, along with tours of single pages, help search, keyboard shortcuts and what’s new.', phoneDescription: 'Help in the Settings tab (Admin and help, then Help) brings it back, along with help search and what’s new. A page with a tour of its own has a ? beside its title.' },
         ]
     },
     'search': {
@@ -2532,15 +2596,8 @@ function openTourSelector() {
     document.body.appendChild(popover);
     _helperPopover = popover;
 
-    // Position near the float button
-    const floatBtn = document.getElementById('helper-float-btn');
-    if (floatBtn) {
-        const btnRect = floatBtn.getBoundingClientRect();
-        popover.style.right = (window.innerWidth - btnRect.right) + 'px';
-        popover.style.bottom = (window.innerHeight - btnRect.top + 8) + 'px';
-        popover.style.left = 'auto';
-        popover.style.top = 'auto';
-    }
+    // Position near the button that opened the menu
+    _helperPlace(popover);
     requestAnimationFrame(() => popover.classList.add('visible'));
 }
 
@@ -3429,13 +3486,8 @@ function openHelperSearch() {
         });
     });
 
-    // Position near float button
-    const floatBtn = document.getElementById('helper-float-btn');
-    if (floatBtn) {
-        const btnRect = floatBtn.getBoundingClientRect();
-        panel.style.right = (window.innerWidth - btnRect.right) + 'px';
-        panel.style.bottom = (window.innerHeight - btnRect.top + 8) + 'px';
-    }
+    // Position near the button that opened the menu
+    _helperPlace(panel);
 
     requestAnimationFrame(() => {
         panel.classList.add('visible');
@@ -3747,14 +3799,7 @@ function openWhatsNew() {
     document.body.appendChild(panel);
     _helperPopover = panel;
 
-    const floatBtn = document.getElementById('helper-float-btn');
-    if (floatBtn) {
-        const btnRect = floatBtn.getBoundingClientRect();
-        panel.style.right = (window.innerWidth - btnRect.right) + 'px';
-        panel.style.bottom = (window.innerHeight - btnRect.top + 8) + 'px';
-        panel.style.left = 'auto';
-        panel.style.top = 'auto';
-    }
+    _helperPlace(panel);
     requestAnimationFrame(() => panel.classList.add('visible'));
 }
 
@@ -3976,14 +4021,7 @@ function _runTroubleshootScan() {
 }
 
 function _positionPanelNearFloatBtn(panel) {
-    const floatBtn = document.getElementById('helper-float-btn');
-    if (floatBtn) {
-        const btnRect = floatBtn.getBoundingClientRect();
-        panel.style.right = (window.innerWidth - btnRect.right) + 'px';
-        panel.style.bottom = (window.innerHeight - btnRect.top + 8) + 'px';
-        panel.style.left = 'auto';
-        panel.style.top = 'auto';
-    }
+    _helperPlace(panel);
     requestAnimationFrame(() => panel.classList.add('visible'));
 }
 

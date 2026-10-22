@@ -9,6 +9,7 @@ import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { useCallback, useMemo, useState } from 'react';
 
 import { Button, OptionButton, Select, TextInput } from '@/components/form';
+import { TitleWithHelp } from '@/components/page-header';
 import { EmptyState, LoadingState, Notice, Skeleton } from '@/components/primitives';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
@@ -403,7 +404,9 @@ export function AutomationsListPage() {
   const header = (
     <header className={styles.header}>
       <div className={styles.headText}>
-        <h1 className={styles.title}>Automations</h1>
+        <TitleWithHelp page="automations">
+          <h1 className={styles.title}>Automations</h1>
+        </TitleWithHelp>
         <p className={styles.subtitle}>
           <span className={styles.wide}>
             Rules that run on a schedule or after something happens. Each one shows its runs, and

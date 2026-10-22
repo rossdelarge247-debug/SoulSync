@@ -25,6 +25,8 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { TitleWithHelp } from '@/components/page-header';
+
 import {
   SYNC_DEFAULT_TAB,
   SYNC_PRIMARY_TAB_IDS,
@@ -187,10 +189,12 @@ export function SyncShell({
       <div className="sync-header">
         <div className="sync-header-row">
           <div>
-            <h2 className="sync-title">
-              <img src="/static/sync.png" className="page-header-icon" alt="" />
-              <span>Playlists</span>
-            </h2>
+            <TitleWithHelp page="sync">
+              <h2 className="sync-title">
+                <img src="/static/sync.png" className="page-header-icon" alt="" />
+                <span>Playlists</span>
+              </h2>
+            </TitleWithHelp>
             <p className="sync-subtitle">
               Manage, mirror, and synchronize your playlists with your media server
             </p>

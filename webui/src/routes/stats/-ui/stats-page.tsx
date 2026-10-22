@@ -255,6 +255,7 @@ export function StatsPage() {
   return (
     <div id="stats-container" className={styles.statsContainer} data-testid="stats-page">
       <PageHeader
+        help="stats"
         icon={<img src="/static/trans2.png" alt="" />}
         title="Listening Stats"
         actions={

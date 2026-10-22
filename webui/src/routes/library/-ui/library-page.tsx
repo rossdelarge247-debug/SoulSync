@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { PageHelpButton } from '@/components/page-header';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
 import type { LibraryAlbum, LibraryArtist, LibraryArtistsResponse } from '../-library.types';
@@ -435,6 +436,9 @@ export function LibraryPage() {
             <span className="watchlist-all-text">Export</span>
           </button>
         )}
+        {/* phones: the "?" for this page's tour, with the header's buttons so
+            the title keeps its one line (HANDOFF 25) */}
+        <PageHelpButton page="library" />
         {exporting ? <ExportArtistsModal onClose={() => setExporting(false)} /> : null}
         {watchingAll ? <WatchAllModal onClose={() => setWatchingAll(false)} /> : null}
       </div>
