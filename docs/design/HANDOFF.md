@@ -101,6 +101,8 @@ Built on `ux/artist-page` from "Artist v2" (2g at 1440, 2h at 390), the interact
 
 - The guided tour's artist-page stops point at controls that moved (`#artist-hero-section`, `#library-artist-watchlist-btn`, `#discography-filters` and so on); those steps now centre themselves. The tour's copy describes the old page, so it needs rewriting rather than re-pointing.
 - The phone padding in difference 13.
+- **The old page's stylesheet block is unused now.** The page has its own CSS module and no longer wears the `.artist-detail-page` class, so the `style.css` rules scoped to it (the hero, the old release cards and their play button, and the rules that hid Artist Radio, Enhance Quality, the enrichment rings and the library view for an artist not in your library) match nothing. Dropping the class was deliberate: the page leaves those library-only parts out itself (`!sourceOnly`, a library artist id), so there's no class-to-stylesheet pairing left to keep. `tests/test_artist_detail_css_hook.py` checks those conditions in the page instead, and its two class-pairing checks are gone. The rules, and the comment above them that calls the class load-bearing, are left for a stylesheet clean-up, along with `webui/src/test/release-card-play-placement.test.ts`, which still reads them. The Tracks tab's "Edit tags and files" view keeps `#enhanced-view-container`, which those tools are styled by.
+- A metadata source that didn't answer is a warning Notice on the page, not a toast; `tests/metadata/test_discography_web_integration.py` checks for the Notice.
 
 **Questions for Design**
 

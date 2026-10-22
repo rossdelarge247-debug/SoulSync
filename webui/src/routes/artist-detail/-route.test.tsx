@@ -1041,6 +1041,42 @@ describe('the "…" menu keeps what the old page did', () => {
     );
   });
 
+  it('lists releases only another source knows (#1067), badged, adding from that source', async () => {
+    window.localStorage.removeItem('discog_gapfill');
+    fixture.handlers.push((call) => {
+      if (call.path === '/api/artist/42/discography/gap-fill')
+        return json({
+          success: true,
+          gaps: {
+            albums: [{ id: 'dz-777', title: 'Tidal Atlas', year: 2025, gap_source: 'deezer' }],
+          },
+        });
+      if (call.path === '/api/artist/42/download-discography')
+        return ndjson(
+          { album_id: 'dz-777', status: 'done', tracks_added: 8 },
+          { status: 'complete', total_added: 8, failed_releases: [] },
+        );
+      return undefined;
+    });
+    renderArtist('/artist-detail/library/42?name=Pale%20Harbour&all=true');
+    await ready();
+    expect(screen.queryByRole('article', { name: 'Tidal Atlas' })).toBeNull();
+    await choose('More actions for Pale Harbour', 'More filters…');
+    const dialog = await screen.findByRole('dialog', { name: 'More filters' });
+    fireEvent.click(within(dialog).getByText('Releases only your other metadata sources list'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    const gap = await screen.findByRole('article', { name: 'Tidal Atlas' });
+    expect(gap).toHaveAttribute('data-gap-source', 'deezer');
+    expect(within(gap).getByText('Listed by Deezer only')).toBeInTheDocument();
+    expect(callsTo('/api/artist/42/discography/gap-fill')[0].url).toContain('base_source=spotify');
+    fireEvent.click(within(gap).getByRole('button', { name: 'Add to Wanted' }));
+    await waitFor(() => expect(callsTo('/api/artist/42/download-discography')).toHaveLength(1));
+    expect(JSON.parse(callsTo('/api/artist/42/download-discography')[0].body).albums).toEqual([
+      expect.objectContaining({ id: 'dz-777', source: 'deezer' }),
+    ]);
+    window.localStorage.removeItem('discog_gapfill');
+  });
+
   it('hides the library-only tools for an artist who is not in the library', async () => {
     stubApi({
       detail: detail({ artist: { id: 'dz1', name: 'Pale Harbour' }, spotify_artist: undefined }),

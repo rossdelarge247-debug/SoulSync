@@ -133,6 +133,8 @@ export function ArtistReleaseCard({
       className={styles.card}
       data-quiet={quiet ? 'true' : undefined}
       data-state={state.kind}
+      // gap-fill (#1067): listed only by another source; its tracks open from there
+      data-gap-source={release.gapSource ?? undefined}
       aria-label={release.title}
     >
       <Art src={release.image} empty={quiet} />

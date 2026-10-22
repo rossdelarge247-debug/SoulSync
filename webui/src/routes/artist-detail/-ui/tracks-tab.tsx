@@ -399,7 +399,8 @@ export function TracksTab({
             Tags, files and matches
           </h2>
         </div>
-        <div className={`${styles.legacy} artist-detail-page`} id="enhanced-view-container">
+        {/* the id carries the tools' own style variables (style.css) */}
+        <div className={styles.legacy} id="enhanced-view-container">
           <EnhancedView
             data={library.data ?? null}
             status={{

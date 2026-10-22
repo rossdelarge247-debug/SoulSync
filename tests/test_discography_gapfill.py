@@ -181,9 +181,11 @@ def test_frontend_contract():
     # cards slot into the REAL sections rather than a bolted-on extra one
     assert re.search(r"export function mergeGapReleases\b", gapfill), "mergeGapReleases is gone"
 
-    card = (react / "-ui" / "release-card.tsx").read_text(encoding="utf-8")
-    assert "gapfill-card" in card
-    assert "gapSourceLabel" in card                  # the source badge
+    # the Artist page's card (artist-release-card.tsx replaced release-card.tsx):
+    # a gap card is marked with its source and says which source lists it
+    card = (react / "-ui" / "artist-release-card.tsx").read_text(encoding="utf-8")
+    assert "data-gap-source={release.gapSource" in card
+    assert "gapSourceLabel" in card                  # "Listed by Deezer only"
 
     # the click override routes the card's OWN source into the tracks fetch
     open_release = (react / "-artist-detail.open-release.ts").read_text(encoding="utf-8")
@@ -206,11 +208,13 @@ def test_download_discography_modal_includes_gaps():
         _ROOT / "webui" / "src" / "routes" / "artist-detail"
         / "-artist-detail.gap-fill.ts"
     ).read_text(encoding="utf-8")
+    # the Artist page (artist-page.tsx) replaced artist-detail-page.tsx and the
+    # hero; it opens the chooser itself, with the list it shows
     page = (
-        _ROOT / "webui" / "src" / "routes" / "artist-detail" / "-ui" / "artist-detail-page.tsx"
+        _ROOT / "webui" / "src" / "routes" / "artist-detail" / "-ui" / "artist-page.tsx"
     ).read_text(encoding="utf-8")
-    hero = (
-        _ROOT / "webui" / "src" / "routes" / "artist-detail" / "-ui" / "artist-hero.tsx"
+    hooks = (
+        _ROOT / "webui" / "src" / "routes" / "artist-detail" / "-artist.hooks.ts"
     ).read_text(encoding="utf-8")
     module = (
         _ROOT / "webui" / "src" / "routes" / "artist-detail"
@@ -220,9 +224,10 @@ def test_download_discography_modal_includes_gaps():
         _ROOT / "webui" / "src" / "routes" / "artist-detail" / "-ui" / "discography-modal.tsx"
     ).read_text(encoding="utf-8")
     assert "discography/gap-fill" in gapfill
-    assert "mergeGapReleases(streamed, gapFill.releases)" in page
-    assert "discography={displayed}" in page
-    assert "discography={discography}" in hero
+    assert "mergeGapReleases(stream.discography, gapFill.releases)" in page
+    assert re.search(r"<DiscographyModal[^>]*discography=\{displayed\}", page, re.S)
+    # the page's own Add to Wanted posts each gap release with ITS source too
+    assert "gapSource: release.gapSource" in hooks
     assert "_gap_source: (release._gap_source" in module
     assert "source: e.gapSource || sourceForBatch" in module
     assert "data-gap-source=" in component
