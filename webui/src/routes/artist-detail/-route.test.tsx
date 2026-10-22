@@ -834,6 +834,36 @@ describe('tabs, filters and paging live in the URL', () => {
     expect(screen.getByRole('button', { name: 'Show all 14' })).toBeInTheDocument();
   });
 
+  it('offers All, In your library, Missing and Albums, in that order', async () => {
+    renderArtist();
+    await ready();
+    const group = screen.getByRole('group', { name: 'Show' });
+    expect(
+      within(group)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['All', 'In your library', 'Missing', 'Albums']);
+  });
+
+  it('filters In your library: whole or in part, as the header counts it', async () => {
+    const { router } = renderArtist();
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: 'In your library' }));
+    await waitFor(() => expect(search(router).show).toBe('library'));
+    const titles = within(screen.getByRole('list', { name: 'Releases by Pale Harbour' }))
+      .getAllByRole('article')
+      .map((a) => a.getAttribute('aria-label'));
+    // the header's 9 in your library, the first 8 of them on the page
+    expect(titles).toHaveLength(8);
+    expect(screen.getByText('8 of 9 releases')).toBeInTheDocument();
+    expect(titles).toContain('Tidewater');
+    expect(titles).not.toContain('Pale Harbour');
+    expect(screen.getByRole('button', { name: 'In your library' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
   it('filters Albums and Missing', async () => {
     const { router } = renderArtist();
     await ready();

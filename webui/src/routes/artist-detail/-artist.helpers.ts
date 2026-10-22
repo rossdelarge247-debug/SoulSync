@@ -452,13 +452,23 @@ export function releaseMeta(release: ArtistRelease, state: CardState, short = fa
   return parts.filter(Boolean).join(' · ');
 }
 
-/** The release filters: Albums are albums and compilations; Missing is anything not fully in the library. */
+/**
+ * The release filters. In your library is anything you have, whole or in
+ * part (the header's "9 in your library" counts the same); Missing is
+ * anything not fully in the library, so a partly complete album is in both;
+ * Albums are albums and compilations.
+ */
 export function filterReleases(
   releases: ArtistRelease[],
   filter: ReleaseFilter,
   stateOf: (release: ArtistRelease) => CardState,
 ): ArtistRelease[] {
   if (filter === 'albums') return releases.filter((r) => isAlbumKind(r.kind));
+  if (filter === 'library')
+    return releases.filter((r) => {
+      const state = stateOf(r);
+      return state.kind === 'owned' || state.kind === 'partial';
+    });
   if (filter === 'missing')
     return releases.filter((r) => {
       const state = stateOf(r);

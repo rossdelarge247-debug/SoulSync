@@ -283,7 +283,7 @@ describe('card states', () => {
     expect(releaseMeta(explicit, { kind: 'missing' })).toBe('2020 · Album · Explicit');
   });
 
-  it('filters: Albums are albums, Missing is anything not fully in the library', () => {
+  it('filters: In your library, Missing (anything not fully in the library) and Albums', () => {
     const list = releases();
     const states = new Map<string, CardState>(
       list.map((r) => [r.key, cardState(r, undefined, null, false)]),
@@ -299,6 +299,11 @@ describe('card states', () => {
       'Pale Harbour',
       'Night Ferry (Live)',
       'Slack Water',
+    ]);
+    // whole or in part: Tidewater is 11 of 12, so it's in Missing too
+    expect(filterReleases(list, 'library', stateOf).map((r) => r.title)).toEqual([
+      'Tidewater',
+      'Low Light',
     ]);
     expect(filterReleases(list, 'all', stateOf)).toHaveLength(list.length);
   });

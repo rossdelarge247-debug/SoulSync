@@ -27,7 +27,7 @@ function isReactOwned(): boolean {
 /**
  * The one Artist page: /artist-detail/<source>/<id>, where <source> is
  * "library" for a library artist and a metadata source for anyone else.
- * `?tab=tracks|similar` and `?show=albums|missing` keep the tab and filter in
+ * `?tab=tracks|similar` and `?show=library|missing|albums` keep the tab and filter in
  * the URL, so Back steps between them.
  *
  * Old links keep their meaning: `?album=<id>` (the library's album grid, an

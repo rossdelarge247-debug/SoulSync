@@ -19,8 +19,8 @@ import { z } from 'zod';
 export const ARTIST_TABS = ['releases', 'tracks', 'similar'] as const;
 export type ArtistTab = (typeof ARTIST_TABS)[number];
 
-/** The release filters (the boards' All / Albums / Missing). */
-export const RELEASE_FILTERS = ['all', 'albums', 'missing'] as const;
+/** The release filters, in the order the page shows them: All · In your library · Missing · Albums. */
+export const RELEASE_FILTERS = ['all', 'library', 'missing', 'albums'] as const;
 export type ReleaseFilter = (typeof RELEASE_FILTERS)[number];
 
 /** A flag in the URL: present and true, or absent. */

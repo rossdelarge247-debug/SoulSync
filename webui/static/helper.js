@@ -2342,7 +2342,7 @@ const HELPER_TOURS = {
             { page: 'artist-detail', selector: '[data-tour="artist-header"]', title: 'The artist', description: 'How many releases there are, how many are in your library and on Wanted, and the tracks you have. Below that: since when you’ve followed them, their latest release, and the services SoulSync matched them on.' },
             { page: 'artist-detail', selector: '[data-tour="artist-actions"]', title: 'Follow and add', description: 'Add all missing to Wanted asks first and says what it would add. Follow adds each new release to Wanted as it comes out. The … menu has the rest: artist radio, a new photo, better copies, matches and more filters.' },
             { page: 'artist-detail', selector: '[data-tour="artist-tabs"]', title: 'Three views', description: 'Releases, Tracks (the popular ones and the ones you have) and Similar artists.' },
-            { page: 'artist-detail', selector: '[data-tour="artist-filters"]', title: 'Filters', description: 'All releases, albums only, or only what’s missing. The tab and filter are part of the address, so Back steps through them.' },
+            { page: 'artist-detail', selector: '[data-tour="artist-filters"]', title: 'Filters', description: 'All releases, what’s in your library (whole or in part), what’s missing, or albums only. The tab and filter are part of the address, so Back steps through them.' },
             { page: 'artist-detail', selector: '[data-tour="artist-releases"]', title: 'Releases', description: 'Each card says where the release stands: in your library, below your quality target, partly there, on Wanted, or Add to Wanted. Select the title for its tracks; the ⋮ menu has Play and MusicBrainz.' },
         ]
     },

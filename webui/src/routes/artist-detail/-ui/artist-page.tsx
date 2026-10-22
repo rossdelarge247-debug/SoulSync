@@ -282,10 +282,12 @@ function TabBar({
   );
 }
 
+/** All · In your library · Missing · Albums (Design, HANDOFF 11). */
 const FILTERS: { key: ReleaseFilter; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'albums', label: 'Albums' },
+  { key: 'library', label: 'In your library' },
   { key: 'missing', label: 'Missing' },
+  { key: 'albums', label: 'Albums' },
 ];
 
 export function ArtistPage() {
@@ -873,9 +875,13 @@ export function ArtistPage() {
               ? stillChecking
                 ? 'Still checking your library. Missing releases show here as soon as it knows.'
                 : `Nothing missing: you have every release of ${artistName} listed here, or it's on Wanted.`
-              : filter === 'albums'
-                ? `No albums listed for ${artistName}. Their EPs and singles are under All.`
-                : 'Nothing here with the current filters. Check More filters in the … menu.'}
+              : filter === 'library'
+                ? stillChecking
+                  ? 'Still checking your library. What you have shows here as soon as it knows.'
+                  : 'None of these releases are in your library yet. Missing lists what you can add to Wanted.'
+                : filter === 'albums'
+                  ? `No albums listed for ${artistName}. Their EPs and singles are under All.`
+                  : 'Nothing here with the current filters. Check More filters in the … menu.'}
           </p>
         ) : (
           <ul
