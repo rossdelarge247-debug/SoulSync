@@ -161,21 +161,25 @@ export function normalizeSummary(payload: unknown): TargetsSummary {
 export function normalizeLatest(payload: unknown): LatestItem[] {
   const body = (payload && typeof payload === 'object' ? payload : {}) as Raw;
   const items = Array.isArray(body.items) ? (body.items as Raw[]) : [];
-  return items
-    .filter((raw): raw is Raw => Boolean(raw) && typeof raw === 'object')
-    .map((raw, index) => ({
-      id: text(raw.id) ?? `item-${index}`,
-      time: seconds(raw.time) ?? 0,
-      kind: text(raw.kind) ?? 'other',
-      status: ACTIVITY_STATUSES.includes(raw.status as ActivityStatus)
-        ? (raw.status as ActivityStatus)
-        : 'info',
-      title: text(raw.title) ?? 'Something happened',
-      detail: text(raw.detail) ?? '',
-      link: text(raw.link),
-      needsYou: raw.needs_you === true,
-    }))
-    .slice(0, LATEST_LIMIT);
+  return (
+    items
+      .filter((raw): raw is Raw => Boolean(raw) && typeof raw === 'object')
+      // radio's auto-add roll-ups don't count towards Home (Ross, 22 October)
+      .filter((raw) => raw.kind !== 'radio')
+      .map((raw, index) => ({
+        id: text(raw.id) ?? `item-${index}`,
+        time: seconds(raw.time) ?? 0,
+        kind: text(raw.kind) ?? 'other',
+        status: ACTIVITY_STATUSES.includes(raw.status as ActivityStatus)
+          ? (raw.status as ActivityStatus)
+          : 'info',
+        title: text(raw.title) ?? 'Something happened',
+        detail: text(raw.detail) ?? '',
+        link: text(raw.link),
+        needsYou: raw.needs_you === true,
+      }))
+      .slice(0, LATEST_LIMIT)
+  );
 }
 
 export async function fetchTargetsSummary(): Promise<TargetsSummary> {

@@ -14,7 +14,7 @@ import pytest
 from core import modules
 from core.automation_engine import AutomationEngine
 
-ALL = ["video", "podcasts", "audiobooks", "chat", "sample_studio"]
+ALL = ["video", "podcasts", "audiobooks", "chat", "sample_studio", "radio"]
 
 
 class _Config:

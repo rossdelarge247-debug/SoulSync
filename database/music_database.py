@@ -1564,6 +1564,7 @@ class MusicDatabase:
             self._add_automation_owned_by_column(cursor)
             self._add_automation_paused_at_column(cursor)
             self._add_ai_assistant_tables(cursor)
+            self._add_internet_radio_tables(cursor)
 
             # Library issues — user-reported problems with tracks/albums/artists
             cursor.execute("""
@@ -3506,6 +3507,109 @@ class MusicDatabase:
                     PRIMARY KEY (profile_id, suggestion_key)
                 )
             """)
+
+    def _add_internet_radio_tables(self, cursor):
+        """Internet radio's tables (core/internet_radio/store.py): favourites per
+        profile, admins' stream links, what was heard (per profile), auto-add
+        per station and profile, what auto-add added (so nothing is added
+        twice), its hourly Activity roll-ups, and tracklists already fetched."""
+        with self._migration_step(cursor, 'internet_radio_tables', atomic=False):
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS radio_favourites (
+                    profile_id INTEGER NOT NULL,
+                    station_id TEXT NOT NULL,
+                    station_json TEXT,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (profile_id, station_id)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS radio_links (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'eclectic',
+                    codec TEXT,
+                    bitrate_kbps INTEGER,
+                    sends_titles INTEGER,
+                    allows_direct INTEGER NOT NULL DEFAULT 0,
+                    check_ok INTEGER,
+                    checked_at INTEGER,
+                    check_error TEXT,
+                    added_by TEXT,
+                    added_at INTEGER NOT NULL
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS radio_heard (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile_id INTEGER NOT NULL,
+                    station_id TEXT NOT NULL,
+                    station_name TEXT NOT NULL,
+                    heard_at INTEGER NOT NULL,
+                    artist TEXT,
+                    title TEXT,
+                    release TEXT,
+                    art_url TEXT,
+                    source TEXT,
+                    track_key TEXT,
+                    identified INTEGER NOT NULL DEFAULT 1,
+                    duration_s INTEGER,
+                    reason TEXT,
+                    added_at INTEGER,
+                    added_by_auto INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_radio_heard_profile ON radio_heard (profile_id, heard_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_radio_heard_station ON radio_heard (station_id, heard_at)")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS radio_auto_add (
+                    profile_id INTEGER NOT NULL,
+                    station_id TEXT NOT NULL,
+                    station_name TEXT NOT NULL,
+                    station_json TEXT,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    changed_at INTEGER NOT NULL,
+                    PRIMARY KEY (profile_id, station_id)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS radio_auto_added (
+                    profile_id INTEGER NOT NULL,
+                    track_key TEXT NOT NULL,
+                    station_id TEXT NOT NULL,
+                    added_at INTEGER NOT NULL,
+                    PRIMARY KEY (profile_id, track_key)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_radio_auto_added_day ON radio_auto_added (profile_id, station_id, added_at)")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS radio_activity (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile_id INTEGER NOT NULL,
+                    station_id TEXT NOT NULL,
+                    station_name TEXT NOT NULL,
+                    hour_start INTEGER NOT NULL,
+                    added INTEGER NOT NULL DEFAULT 0,
+                    titles_json TEXT,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE (profile_id, station_id, hour_start)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_radio_activity_time ON radio_activity (updated_at)")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS radio_shows (
+                    id TEXT PRIMARY KEY,
+                    station_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    aired_at INTEGER,
+                    ended_at INTEGER,
+                    ref_json TEXT,
+                    tracks_json TEXT,
+                    fetched_at INTEGER
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_radio_shows_station ON radio_shows (station_id, aired_at)")
 
     def _add_automation_then_actions_column(self, cursor):
         """Add then_actions column to automations table and migrate existing notify data."""

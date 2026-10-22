@@ -23,7 +23,8 @@ def test_an_empty_feed_still_has_every_part(build):
     page = build()
     assert page["items"] == [] and page["needs_you"] == []
     assert page["next_before"] is None
-    assert page["counts"] == {"download": 0, "import": 0, "automation": 0, "sync": 0, "safety": 0, "needs_you": 0}
+    assert page["counts"] == {"download": 0, "import": 0, "automation": 0, "sync": 0, "safety": 0, "radio": 0,
+                              "needs_you": 0}
     assert page["running_count"] == 0
     assert page["range"] == "30d" and page["kind"] == "all"
     assert page["since"] == NOW - 30 * DAY and page["generated_at"] == NOW
@@ -513,7 +514,8 @@ def test_counts_cover_the_range_per_kind(build, rows):
     rows.plan_event(ago=6 * DAY)
     rows.plan_event(ago=40 * DAY)
     counts = build(range_key="7d")["counts"]
-    assert counts == {"download": 3, "import": 2, "automation": 0, "sync": 1, "safety": 1, "needs_you": 2}
+    assert counts == {"download": 3, "import": 2, "automation": 0, "sync": 1, "safety": 1, "radio": 0,
+                      "needs_you": 2}
 
 
 # ── the badge poll ────────────────────────────────────────────────────────────

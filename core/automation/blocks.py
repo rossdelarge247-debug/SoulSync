@@ -139,6 +139,15 @@ TRIGGERS: list[dict] = [
      "available": True,
      "has_conditions": True, "condition_fields": ["status", "artist", "album_name"],
      "variables": ["folder_name", "status", "reason", "album_name", "artist", "confidence", "track_count"]},
+    # Internet radio (core/internet_radio): fired when a station's track is
+    # identified and the automation's owner doesn't have it. By default only
+    # the owner's favourite stations count; trigger_config "stations" may list
+    # station ids instead (core/automation_engine.py, _radio_scope_matches).
+    {"type": "radio_track_heard", "label": "A track I don't have played on a favourite station", "icon": "radio",
+     "description": "When Internet radio identifies a track that isn't in your library on one of your favourite "
+                    "stations", "available": True,
+     "has_conditions": True, "condition_fields": ["station", "artist", "title"],
+     "variables": ["station", "artist", "title", "release", "source"]},
     # Audiobooks — twins of the music triggers above. Separate types rather than
     # reused ones, so a music automation never fires for a book (and a
     # "Track Downloaded" alert never reads as a book). A finished audiobook
@@ -718,6 +727,7 @@ _CATEGORY_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("Playlists", ("playlist", "mirrored", "discover", "collections", "personalized")),
     ("Downloads", ("download", "grab", "batch", "import", "rss", "seeding",
                    "quarantine", "request", "search_and", "upgrade")),
+    ("Radio", ("radio_",)),
     ("Library", ("scan", "database", "library", "enrich", "airing", "retag", "youtube", "issue",
                  # filling out albums you already own (#1711)
                  "incomplete_albums")),
@@ -736,7 +746,7 @@ def block_category(block_type: str) -> str:
 #: Drawer order in the sidebar — timing first because every automation starts
 #: with "when", then the things people automate most.
 CATEGORY_ORDER = [
-    "Timing", "Downloads", "Library", "Playlists", "Wishlist", "Watchlist",
+    "Timing", "Downloads", "Library", "Playlists", "Wishlist", "Watchlist", "Radio",
     "Maintenance", "External", "Notify", "Advanced", "Other",
 ]
 

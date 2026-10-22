@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button, OptionButton } from '@/components/form';
 import { EmptyState, LoadingState, Notice, Skeleton } from '@/components/primitives';
+import { useModuleOff } from '@/features/modules/module-gate';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
 import type { ActivityRange, ActivityResponse, ActivityShow } from '../-activity.types';
@@ -39,6 +40,7 @@ export function ActivityPage() {
   const navigate = routeApi.useNavigate();
   const show: ActivityShow = search.show ?? 'all';
   const range: ActivityRange = search.range ?? readRememberedRange();
+  const radioOn = useModuleOff('radio') === null;
 
   const query = useInfiniteQuery(activityQueryOptions(show, range));
   const pages = query.data?.pages;
@@ -101,7 +103,7 @@ export function ActivityPage() {
 
       <div className={styles.controls} data-tour="activity-controls">
         <div className={styles.filters} role="group" aria-label="Show">
-          {SHOW_OPTIONS.map((option) => (
+          {SHOW_OPTIONS.filter((option) => option.value !== 'radio' || radioOn).map((option) => (
             <OptionButton
               key={option.value}
               selected={show === option.value}

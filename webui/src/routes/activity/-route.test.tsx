@@ -80,7 +80,7 @@ function response(over: Partial<ActivityResponse> = {}): ActivityResponse {
     range: '7d',
     since: NOW_S - 7 * 86400,
     kind: 'all',
-    counts: { download: 1, import: 1, automation: 1, sync: 0, safety: 0, needs_you: 2 },
+    counts: { download: 1, import: 1, automation: 1, sync: 0, safety: 0, radio: 0, needs_you: 2 },
     running_count: 0,
     needs_you: [PREVIEW, DECISION],
     generated_at: NOW_S,

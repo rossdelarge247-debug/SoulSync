@@ -1260,6 +1260,9 @@ function switchSettingsTab(tab) {
     }
     // AI (admins): its own routes, read fresh each time the tab opens
     // (src/shell/ai-settings.ts)
+    if (tab === 'radio' && typeof window.loadRadioSettings === 'function') {
+        try { window.loadRadioSettings(); } catch (e) { }
+    }
     if (tab === 'ai' && typeof window.loadAiSettings === 'function') {
         try { window.loadAiSettings(); } catch (e) { }
     }
@@ -1299,6 +1302,7 @@ function switchSettingsTab(tab) {
         library: { title: 'Library', sub: 'Folders, file organization, tagging, and collection preferences' },
         appearance: { title: 'Appearance', sub: 'Visual themes, accents, GPU animations, and interface controls' },
         ai: { title: 'AI', sub: 'The Automation Assistant: provider, key, model, who can use it and usage' },
+        radio: { title: 'Radio', sub: 'Track identification, auto-add limits, streams and your stream links' },
         modules: { title: 'Modules', sub: 'Turn the optional parts of SoulSync on or off' },
         advanced: { title: 'Advanced', sub: 'Database tools, cache management, networking, and system diagnostics' },
         logs: { title: 'Logs', sub: 'Live streaming logs and real-time operational diagnostics' }

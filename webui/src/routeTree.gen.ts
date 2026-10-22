@@ -20,6 +20,7 @@ import { Route as SetupCheckRouteRouteImport } from './routes/setup-check/route'
 import { Route as SearchRouteRouteImport } from './routes/search/route'
 import { Route as SampleStudioRouteRouteImport } from './routes/sample-studio/route'
 import { Route as RequestsRouteRouteImport } from './routes/requests/route'
+import { Route as RadioRouteRouteImport } from './routes/radio/route'
 import { Route as PodcastsRouteRouteImport } from './routes/podcasts/route'
 import { Route as PlaylistExplorerRouteRouteImport } from './routes/playlist-explorer/route'
 import { Route as LibraryRouteRouteImport } from './routes/library/route'
@@ -32,10 +33,13 @@ import { Route as AudiobooksRouteRouteImport } from './routes/audiobooks/route'
 import { Route as ActivityRouteRouteImport } from './routes/activity/route'
 import { Route as ActiveDownloadsRouteRouteImport } from './routes/active-downloads/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as RadioIndexRouteImport } from './routes/radio/index'
 import { Route as PodcastsIndexRouteImport } from './routes/podcasts/index'
 import { Route as ImportIndexRouteImport } from './routes/import/index'
 import { Route as AutomationsIndexRouteImport } from './routes/automations/index'
 import { Route as AudiobooksIndexRouteImport } from './routes/audiobooks/index'
+import { Route as RadioTracklistRouteImport } from './routes/radio/tracklist'
+import { Route as RadioSearchRouteImport } from './routes/radio/search'
 import { Route as PodcastsPodcastIdRouteImport } from './routes/podcasts/$podcastId'
 import { Route as LabelDetailIdRouteImport } from './routes/label-detail/$id'
 import { Route as ImportSinglesRouteImport } from './routes/import/singles'
@@ -46,6 +50,7 @@ import { Route as AudiobooksWishlistRouteImport } from './routes/audiobooks/wish
 import { Route as AudiobooksLibraryRouteImport } from './routes/audiobooks/library'
 import { Route as AudiobooksAsinRouteImport } from './routes/audiobooks/$asin'
 import { Route as AutomationsAutomationIdIndexRouteImport } from './routes/automations/$automationId/index'
+import { Route as RadioStationStationIdRouteImport } from './routes/radio/station.$stationId'
 import { Route as ImportMatchKeyRouteImport } from './routes/import/match.$key'
 import { Route as AutomationsAutomationIdEditRouteImport } from './routes/automations/$automationId/edit'
 import { Route as AudiobooksNarratorNameRouteImport } from './routes/audiobooks/narrator/$name'
@@ -105,6 +110,11 @@ const SampleStudioRouteRoute = SampleStudioRouteRouteImport.update({
 const RequestsRouteRoute = RequestsRouteRouteImport.update({
   id: '/requests',
   path: '/requests',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RadioRouteRoute = RadioRouteRouteImport.update({
+  id: '/radio',
+  path: '/radio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PodcastsRouteRoute = PodcastsRouteRouteImport.update({
@@ -167,6 +177,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RadioIndexRoute = RadioIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RadioRouteRoute,
+} as any)
 const PodcastsIndexRoute = PodcastsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -186,6 +201,16 @@ const AudiobooksIndexRoute = AudiobooksIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AudiobooksRouteRoute,
+} as any)
+const RadioTracklistRoute = RadioTracklistRouteImport.update({
+  id: '/tracklist',
+  path: '/tracklist',
+  getParentRoute: () => RadioRouteRoute,
+} as any)
+const RadioSearchRoute = RadioSearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => RadioRouteRoute,
 } as any)
 const PodcastsPodcastIdRoute = PodcastsPodcastIdRouteImport.update({
   id: '/$podcastId',
@@ -238,6 +263,11 @@ const AutomationsAutomationIdIndexRoute =
     path: '/$automationId/',
     getParentRoute: () => AutomationsRouteRoute,
   } as any)
+const RadioStationStationIdRoute = RadioStationStationIdRouteImport.update({
+  id: '/station/$stationId',
+  path: '/station/$stationId',
+  getParentRoute: () => RadioRouteRoute,
+} as any)
 const ImportMatchKeyRoute = ImportMatchKeyRouteImport.update({
   id: '/match/$key',
   path: '/match/$key',
@@ -278,6 +308,7 @@ export interface FileRoutesByFullPath {
   '/library': typeof LibraryRouteRoute
   '/playlist-explorer': typeof PlaylistExplorerRouteRoute
   '/podcasts': typeof PodcastsRouteRouteWithChildren
+  '/radio': typeof RadioRouteRouteWithChildren
   '/requests': typeof RequestsRouteRoute
   '/sample-studio': typeof SampleStudioRouteRoute
   '/search': typeof SearchRouteRoute
@@ -298,15 +329,19 @@ export interface FileRoutesByFullPath {
   '/import/singles': typeof ImportSinglesRoute
   '/label-detail/$id': typeof LabelDetailIdRoute
   '/podcasts/$podcastId': typeof PodcastsPodcastIdRoute
+  '/radio/search': typeof RadioSearchRoute
+  '/radio/tracklist': typeof RadioTracklistRoute
   '/audiobooks/': typeof AudiobooksIndexRoute
   '/automations/': typeof AutomationsIndexRoute
   '/import/': typeof ImportIndexRoute
   '/podcasts/': typeof PodcastsIndexRoute
+  '/radio/': typeof RadioIndexRoute
   '/artist-detail/$source/$id': typeof ArtistDetailSourceIdRoute
   '/audiobooks/author/$name': typeof AudiobooksAuthorNameRoute
   '/audiobooks/narrator/$name': typeof AudiobooksNarratorNameRoute
   '/automations/$automationId/edit': typeof AutomationsAutomationIdEditRoute
   '/import/match/$key': typeof ImportMatchKeyRoute
+  '/radio/station/$stationId': typeof RadioStationStationIdRoute
   '/automations/$automationId/': typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -338,15 +373,19 @@ export interface FileRoutesByTo {
   '/import/singles': typeof ImportSinglesRoute
   '/label-detail/$id': typeof LabelDetailIdRoute
   '/podcasts/$podcastId': typeof PodcastsPodcastIdRoute
+  '/radio/search': typeof RadioSearchRoute
+  '/radio/tracklist': typeof RadioTracklistRoute
   '/audiobooks': typeof AudiobooksIndexRoute
   '/automations': typeof AutomationsIndexRoute
   '/import': typeof ImportIndexRoute
   '/podcasts': typeof PodcastsIndexRoute
+  '/radio': typeof RadioIndexRoute
   '/artist-detail/$source/$id': typeof ArtistDetailSourceIdRoute
   '/audiobooks/author/$name': typeof AudiobooksAuthorNameRoute
   '/audiobooks/narrator/$name': typeof AudiobooksNarratorNameRoute
   '/automations/$automationId/edit': typeof AutomationsAutomationIdEditRoute
   '/import/match/$key': typeof ImportMatchKeyRoute
+  '/radio/station/$stationId': typeof RadioStationStationIdRoute
   '/automations/$automationId': typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRoutesById {
@@ -363,6 +402,7 @@ export interface FileRoutesById {
   '/library': typeof LibraryRouteRoute
   '/playlist-explorer': typeof PlaylistExplorerRouteRoute
   '/podcasts': typeof PodcastsRouteRouteWithChildren
+  '/radio': typeof RadioRouteRouteWithChildren
   '/requests': typeof RequestsRouteRoute
   '/sample-studio': typeof SampleStudioRouteRoute
   '/search': typeof SearchRouteRoute
@@ -383,15 +423,19 @@ export interface FileRoutesById {
   '/import/singles': typeof ImportSinglesRoute
   '/label-detail/$id': typeof LabelDetailIdRoute
   '/podcasts/$podcastId': typeof PodcastsPodcastIdRoute
+  '/radio/search': typeof RadioSearchRoute
+  '/radio/tracklist': typeof RadioTracklistRoute
   '/audiobooks/': typeof AudiobooksIndexRoute
   '/automations/': typeof AutomationsIndexRoute
   '/import/': typeof ImportIndexRoute
   '/podcasts/': typeof PodcastsIndexRoute
+  '/radio/': typeof RadioIndexRoute
   '/artist-detail/$source/$id': typeof ArtistDetailSourceIdRoute
   '/audiobooks/author/$name': typeof AudiobooksAuthorNameRoute
   '/audiobooks/narrator/$name': typeof AudiobooksNarratorNameRoute
   '/automations/$automationId/edit': typeof AutomationsAutomationIdEditRoute
   '/import/match/$key': typeof ImportMatchKeyRoute
+  '/radio/station/$stationId': typeof RadioStationStationIdRoute
   '/automations/$automationId/': typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -409,6 +453,7 @@ export interface FileRouteTypes {
     | '/library'
     | '/playlist-explorer'
     | '/podcasts'
+    | '/radio'
     | '/requests'
     | '/sample-studio'
     | '/search'
@@ -429,15 +474,19 @@ export interface FileRouteTypes {
     | '/import/singles'
     | '/label-detail/$id'
     | '/podcasts/$podcastId'
+    | '/radio/search'
+    | '/radio/tracklist'
     | '/audiobooks/'
     | '/automations/'
     | '/import/'
     | '/podcasts/'
+    | '/radio/'
     | '/artist-detail/$source/$id'
     | '/audiobooks/author/$name'
     | '/audiobooks/narrator/$name'
     | '/automations/$automationId/edit'
     | '/import/match/$key'
+    | '/radio/station/$stationId'
     | '/automations/$automationId/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -469,15 +518,19 @@ export interface FileRouteTypes {
     | '/import/singles'
     | '/label-detail/$id'
     | '/podcasts/$podcastId'
+    | '/radio/search'
+    | '/radio/tracklist'
     | '/audiobooks'
     | '/automations'
     | '/import'
     | '/podcasts'
+    | '/radio'
     | '/artist-detail/$source/$id'
     | '/audiobooks/author/$name'
     | '/audiobooks/narrator/$name'
     | '/automations/$automationId/edit'
     | '/import/match/$key'
+    | '/radio/station/$stationId'
     | '/automations/$automationId'
   id:
     | '__root__'
@@ -493,6 +546,7 @@ export interface FileRouteTypes {
     | '/library'
     | '/playlist-explorer'
     | '/podcasts'
+    | '/radio'
     | '/requests'
     | '/sample-studio'
     | '/search'
@@ -513,15 +567,19 @@ export interface FileRouteTypes {
     | '/import/singles'
     | '/label-detail/$id'
     | '/podcasts/$podcastId'
+    | '/radio/search'
+    | '/radio/tracklist'
     | '/audiobooks/'
     | '/automations/'
     | '/import/'
     | '/podcasts/'
+    | '/radio/'
     | '/artist-detail/$source/$id'
     | '/audiobooks/author/$name'
     | '/audiobooks/narrator/$name'
     | '/automations/$automationId/edit'
     | '/import/match/$key'
+    | '/radio/station/$stationId'
     | '/automations/$automationId/'
   fileRoutesById: FileRoutesById
 }
@@ -538,6 +596,7 @@ export interface RootRouteChildren {
   LibraryRouteRoute: typeof LibraryRouteRoute
   PlaylistExplorerRouteRoute: typeof PlaylistExplorerRouteRoute
   PodcastsRouteRoute: typeof PodcastsRouteRouteWithChildren
+  RadioRouteRoute: typeof RadioRouteRouteWithChildren
   RequestsRouteRoute: typeof RequestsRouteRoute
   SampleStudioRouteRoute: typeof SampleStudioRouteRoute
   SearchRouteRoute: typeof SearchRouteRoute
@@ -632,6 +691,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RequestsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/radio': {
+      id: '/radio'
+      path: '/radio'
+      fullPath: '/radio'
+      preLoaderRoute: typeof RadioRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/podcasts': {
       id: '/podcasts'
       path: '/podcasts'
@@ -716,6 +782,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/radio/': {
+      id: '/radio/'
+      path: '/'
+      fullPath: '/radio/'
+      preLoaderRoute: typeof RadioIndexRouteImport
+      parentRoute: typeof RadioRouteRoute
+    }
     '/podcasts/': {
       id: '/podcasts/'
       path: '/'
@@ -743,6 +816,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/audiobooks/'
       preLoaderRoute: typeof AudiobooksIndexRouteImport
       parentRoute: typeof AudiobooksRouteRoute
+    }
+    '/radio/tracklist': {
+      id: '/radio/tracklist'
+      path: '/tracklist'
+      fullPath: '/radio/tracklist'
+      preLoaderRoute: typeof RadioTracklistRouteImport
+      parentRoute: typeof RadioRouteRoute
+    }
+    '/radio/search': {
+      id: '/radio/search'
+      path: '/search'
+      fullPath: '/radio/search'
+      preLoaderRoute: typeof RadioSearchRouteImport
+      parentRoute: typeof RadioRouteRoute
     }
     '/podcasts/$podcastId': {
       id: '/podcasts/$podcastId'
@@ -813,6 +900,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/automations/$automationId/'
       preLoaderRoute: typeof AutomationsAutomationIdIndexRouteImport
       parentRoute: typeof AutomationsRouteRoute
+    }
+    '/radio/station/$stationId': {
+      id: '/radio/station/$stationId'
+      path: '/station/$stationId'
+      fullPath: '/radio/station/$stationId'
+      preLoaderRoute: typeof RadioStationStationIdRouteImport
+      parentRoute: typeof RadioRouteRoute
     }
     '/import/match/$key': {
       id: '/import/match/$key'
@@ -925,6 +1019,24 @@ const PodcastsRouteRouteWithChildren = PodcastsRouteRoute._addFileChildren(
   PodcastsRouteRouteChildren,
 )
 
+interface RadioRouteRouteChildren {
+  RadioSearchRoute: typeof RadioSearchRoute
+  RadioTracklistRoute: typeof RadioTracklistRoute
+  RadioIndexRoute: typeof RadioIndexRoute
+  RadioStationStationIdRoute: typeof RadioStationStationIdRoute
+}
+
+const RadioRouteRouteChildren: RadioRouteRouteChildren = {
+  RadioSearchRoute: RadioSearchRoute,
+  RadioTracklistRoute: RadioTracklistRoute,
+  RadioIndexRoute: RadioIndexRoute,
+  RadioStationStationIdRoute: RadioStationStationIdRoute,
+}
+
+const RadioRouteRouteWithChildren = RadioRouteRoute._addFileChildren(
+  RadioRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActiveDownloadsRouteRoute: ActiveDownloadsRouteRoute,
@@ -938,6 +1050,7 @@ const rootRouteChildren: RootRouteChildren = {
   LibraryRouteRoute: LibraryRouteRoute,
   PlaylistExplorerRouteRoute: PlaylistExplorerRouteRoute,
   PodcastsRouteRoute: PodcastsRouteRouteWithChildren,
+  RadioRouteRoute: RadioRouteRouteWithChildren,
   RequestsRouteRoute: RequestsRouteRoute,
   SampleStudioRouteRoute: SampleStudioRouteRoute,
   SearchRouteRoute: SearchRouteRoute,

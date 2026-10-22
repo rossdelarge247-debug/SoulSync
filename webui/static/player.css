@@ -1264,3 +1264,178 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     .ss-player-themes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     #np-v2-visuals-header { flex-direction: column; right: 72px; }
 }
+
+/* ── radio (build e; boards 4a, 4i, 4j) ─────────────────────────────────
+   src/shell/player-radio.ts fills the seam: the identified track and ONE
+   action in the bar's slot, Station and Stop on the right, Add and Stop on
+   the phone's mini bar, and the station's card in the sheet. While a station
+   plays (data-source="radio") the queue, Expand, Pause, the record, the deck
+   and the list step aside. */
+.ss-player-radio-only { display: none !important; }
+.ss-player[data-source='radio'] .ss-player-radio-only { display: inline-flex !important; }
+.ss-player[data-source='radio'] [data-player-upnext],
+.ss-player[data-source='radio'] .ss-player-bar .ss-player-ghost[data-player-toggle],
+.ss-player[data-source='radio'] .ss-player-bar .ss-player-output-icon,
+.ss-player[data-source='radio'] .ss-player-centre [data-player-action='toggle'],
+.ss-player[data-source='radio'] .ss-player-mini-play,
+.ss-player[data-source='radio'] .ss-player-record,
+.ss-player[data-source='radio'] .ss-player-deck,
+.ss-player[data-source='radio'] .ss-player-list,
+.ss-player[data-source='radio'] .ss-player-sheet-head .ss-player-sheet-title { display: none !important; }
+.ss-player[data-source='radio'] .ss-player-centre { justify-content: flex-end; }
+.ss-player[data-source='radio'] .ss-player-meter:not(.ss-player-meter--deck) { flex: 0 1 160px; }
+.ss-player-action-slot { align-items: center; gap: 16px; min-width: 0; }
+.ss-player-radio-now {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    min-width: 0;
+    text-align: right;
+}
+.ss-player-radio-now > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-player-radio-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    min-height: 44px;
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-control);
+    background: rgb(var(--ss-accent-light-rgb));
+    color: #0b0b0f;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+.ss-player-radio-add:hover { opacity: var(--ss-pressed-opacity); }
+.ss-player-radio-add[aria-disabled='true'] {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--ss-control-border);
+    color: var(--ss-disabled-text);
+    cursor: default;
+    opacity: 1;
+}
+.ss-player-radio-add:focus-visible,
+.ss-player-radio-switch:focus-visible,
+.ss-player-radio-heard:focus-visible { outline: var(--ss-focus-ring); outline-offset: 2px; }
+.ss-player-radio-tag { flex: none; }
+.ss-player-text-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 8px;
+    color: rgb(var(--ss-accent-light-rgb));
+    font-size: 15px;
+    font-weight: 500;
+    text-decoration: none;
+}
+.ss-player-text-link:hover { text-decoration: underline; }
+.ss-player-radio-stop {
+    border: 1px solid var(--ss-control-border);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
+}
+.ss-player-radio-stop svg { width: 16px; height: 16px; }
+.ss-player-mini-slot { align-items: center; gap: 8px; }
+.ss-player[data-source='radio'] .ss-player-mini-slot { display: inline-flex !important; }
+.ss-player-mini-slot .ss-player-radio-add { min-height: 44px; padding: 0 14px; }
+.ss-player[data-source='radio'] .ss-player-mini { grid-template-columns: minmax(0, 1fr) auto; }
+
+/* the sheet's station card (4j) */
+.ss-player[data-source='radio'] .ss-player-radio { display: flex !important; }
+.ss-player-radio { flex-direction: column; gap: 16px; }
+.ss-player-radio-head { display: flex; align-items: center; gap: 8px; }
+.ss-player-radio-name { font-size: 17px; font-weight: 600; }
+.ss-player-radio-head .ss-player-link { margin-left: auto; font-size: 15px; }
+.ss-player-radio-art {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 200px;
+    height: 200px;
+    margin: 0 auto;
+    border-radius: var(--ss-radius-card);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ss-text-meta);
+    overflow: hidden;
+}
+.ss-player-radio-art svg { width: 56px; height: 56px; }
+.ss-player-radio-art img { width: 100%; height: 100%; object-fit: cover; }
+.ss-player-radio-card { display: flex; flex-direction: column; gap: 4px; }
+.ss-player-radio-card .ss-player-label { margin: 0; }
+.ss-player-radio-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.ss-player-radio-line { margin: 0; font-size: 15px; color: var(--ss-text-secondary); }
+.ss-player-radio-source { margin: 0; font-size: 14px; color: var(--ss-text-meta); }
+.ss-player-radio-actions { display: flex; }
+.ss-player-radio-add--wide { width: 100%; }
+.ss-player-radio-auto {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px;
+    border: 1px solid var(--ss-surface-card-border);
+    border-radius: var(--ss-radius-card);
+    background: var(--ss-surface-card);
+}
+.ss-player-radio-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+    min-width: 104px;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+}
+.ss-player-radio-switch-track {
+    position: relative;
+    width: 40px;
+    height: 24px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.24);
+}
+.ss-player-radio-switch-track::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    transition: var(--ss-transition);
+}
+.ss-player-radio-switch[aria-checked='true'] .ss-player-radio-switch-track { background: rgb(var(--ss-accent-light-rgb)); }
+.ss-player-radio-switch[aria-checked='true'] .ss-player-radio-switch-track::after { left: 19px; background: #0b0b0f; }
+.ss-player-radio-auto-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ss-player-radio-auto-title { font-size: 15px; font-weight: 600; }
+.ss-player-radio-heard {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+    color: var(--ss-text);
+    font-size: 15px;
+    text-decoration: none;
+}
+.ss-player-radio-chevron svg { width: 18px; height: 18px; color: var(--ss-text-meta); }
+@media (max-width: 768px) {
+    html[data-player-sheet] .ss-player[data-source='radio'] .ss-player-deck {
+        display: flex !important;
+    }
+    html[data-player-sheet] .ss-player[data-source='radio'] .ss-player-deck > :not(.ss-player-volume-row) { display: none !important; }
+}
+.ss-player-radio-controls { display: flex; justify-content: flex-end; }
+
+.ss-player-radio-auto-text .ss-player-meta { white-space: normal; overflow: visible; text-overflow: clip; }

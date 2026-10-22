@@ -148,6 +148,13 @@ export function bindWindowWebRouter(router: AnyRouter) {
       await router.navigate({ href: appURL(href), replace: options?.replace === true });
       return true;
     },
+    // the shell's own links into a React page (the player's "Station"), so a
+    // station keeps playing instead of the page reloading
+    async navigateHref(href, options) {
+      if (!href.startsWith('/') || href.startsWith('//')) return false;
+      await router.navigate({ href: appURL(href), replace: options?.replace === true });
+      return true;
+    },
   };
 }
 

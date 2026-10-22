@@ -23904,6 +23904,82 @@ from api.ai import configure as _cfg_ai_assistant, create_blueprint as _bp_ai_as
 _cfg_ai_assistant(get_database_=get_database, config_manager_=config_manager,
                   docker_resolve_path_=docker_resolve_path)
 app.register_blueprint(_bp_ai_assistant())
+# Internet radio (api/radio.py, core/internet_radio): the "radio" module.
+from api import radio as _radio_api
+
+
+def _radio_library_presence(profile_id, tracks):
+    from core.search import library_check as _lc
+    return _lc.check_library_presence(
+        database=get_database(),
+        plex_client=media_server_engine.client('plex') if media_server_engine else None,
+        config_manager=config_manager, profile_id=profile_id, albums=[], tracks=tracks)['tracks']
+
+
+def _radio_wishlist_runtime(profile_id):
+    from dataclasses import replace as _replace
+    from core.profile_context import reset_background_profile, set_background_profile
+    from api.wishlist_routes import _build_wishlist_route_runtime
+    token = set_background_profile(int(profile_id))
+    try:
+        runtime = _build_wishlist_route_runtime()
+    finally:
+        reset_background_profile(token)
+    return _replace(runtime, profile_id=int(profile_id))
+
+
+def _radio_fingerprint(path):
+    from core.internet_radio.fingerprint import lookup
+    return lookup(path)
+
+
+def _radio_automation_profiles():
+    try:
+        with get_database()._get_connection() as conn:
+            rows = conn.execute("SELECT DISTINCT COALESCE(profile_id, 1) FROM automations "
+                                "WHERE trigger_type = 'radio_track_heard' AND enabled = 1").fetchall()
+        return [int(r[0]) for r in rows]
+    except Exception as exc:
+        logger.debug("radio automation owners unreadable: %s", exc)
+        return []
+
+
+def _radio_actor_name():
+    pid = get_current_profile_id()
+    try:
+        profile = get_database().get_profile(int(pid)) if pid is not None else None
+    except Exception:
+        profile = None
+    return str((profile or {}).get('name') or ('admin' if pid == 1 else f'profile {pid}'))
+
+
+def _radio_download_denied(pid):
+    from core.permissions import download_denied_reason
+    return download_denied_reason(pid, lambda p: get_database().get_profile(p))
+
+
+def _radio_add_to_wanted(profile_id, heard):
+    from core.internet_radio.wanted import make_adder
+    adder = make_adder(search_tracks=lambda q, limit: _get_metadata_fallback_client().search_tracks(q, limit=limit),
+                       runtime_for=_radio_wishlist_runtime)
+    return adder(profile_id, heard)
+
+
+_radio_api.configure(
+    get_database_=get_database, config_manager_=config_manager,
+    library_presence_=_radio_library_presence, add_to_wanted_=_radio_add_to_wanted,
+    download_denied_=_radio_download_denied,
+    emit_event_=lambda t, d: automation_engine.emit(t, d) if automation_engine else None,
+    fingerprint_=_radio_fingerprint, radio_automation_profiles_=_radio_automation_profiles,
+    actor_name_=_radio_actor_name)
+app.register_blueprint(_radio_api.create_blueprint())
+
+
+@_deferred_start("Internet radio watcher", module="radio")
+def _start_radio_watcher():
+    _radio_api.start_watcher()
+
+
 # Login/session endpoints (api/login.py).
 from api.login import configure as _cfg_login, create_blueprint as _bp_login
 _cfg_login(get_database_=get_database, config_manager_=config_manager,
@@ -24438,6 +24514,10 @@ def _register_module_runtime_hooks():
     _modules.register_runtime_hooks('audiobooks', on_enable=lambda: _start_module_workers('audiobooks'),
                                     on_disable=_stop_audiobooks_module)
     _modules.register_runtime_hooks('sample_studio', on_disable=_stop_sample_studio_module)
+    # radio: the now-playing watcher stops and every listening session ends
+    # (a running relay sees its stop flag and closes)
+    _modules.register_runtime_hooks('radio', on_enable=lambda: _radio_api.start_watcher(),
+                                    on_disable=lambda: _radio_api.stop_watcher())
     # podcasts and chat run nothing that outlives a request; their gates (API,
     # automations, the chat push loop) already follow the switch live.
 

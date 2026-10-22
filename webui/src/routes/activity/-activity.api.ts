@@ -35,6 +35,7 @@ export function normalizeActivity(payload: Partial<ActivityResponse>): ActivityR
       automation: 0,
       sync: 0,
       safety: 0,
+      radio: 0,
       needs_you: 0,
       ...payload.counts,
     },

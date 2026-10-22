@@ -1234,6 +1234,8 @@ class AutomationEngine:
                         logger.debug(f"Event '{event_type}' — automation {aid} disabled or not found, skipping")
                         continue
                     config = json.loads(auto.get('trigger_config') or '{}')
+                    if event_type == 'radio_track_heard' and not self._radio_scope_matches(auto, config, data):
+                        continue
                     if self._evaluate_conditions(config, data):
                         logger.info(f"Event '{event_type}' MATCHED automation '{auto.get('name')}' (id={aid})")
                         # Run in separate thread so delays don't block the event loop
@@ -1249,6 +1251,24 @@ class AutomationEngine:
                     logger.error(f"Event automation {aid} error: {e}")
         except Exception as e:
             logger.error(f"Event processing error for '{event_type}': {e}")
+
+    @staticmethod
+    def _radio_scope_matches(auto, config, data):
+        """radio_track_heard: the owner hasn't got the track, and the station
+        is one of the owner's favourites (the default) or in the automation's
+        own "stations" list."""
+        try:
+            owner = int(auto.get('profile_id') or 1)
+        except (TypeError, ValueError):
+            owner = 1
+        missing = data.get('_missing_for')
+        if isinstance(missing, list) and owner not in [int(p) for p in missing]:
+            return False
+        stations = config.get('stations', 'favourites')
+        if isinstance(stations, list):
+            return str(data.get('station_id') or '') in [str(s) for s in stations]
+        favourites = data.get('_favourite_of') or []
+        return owner in [int(p) for p in favourites]
 
     def _rebuild_event_cache(self):
         """Cache which automations listen to which event types."""

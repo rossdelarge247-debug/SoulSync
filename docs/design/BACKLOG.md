@@ -7,7 +7,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Feature | Status | Entry |
 | --- | --- | --- |
 | Automation assistant (AI) and a block editor | Built | [below](#automation-assistant-ai-and-a-block-editor) |
-| Internet radio with track identification | Approved | [below](#internet-radio-with-track-identification) |
+| Internet radio with track identification | Built | [below](#internet-radio-with-track-identification) |
 | Merge duplicate artist | Exploring | [below](#merge-duplicate-artist) |
 
 ---
@@ -91,7 +91,7 @@ An automation is one trigger, one action (with an optional wait before it), then
 
 ## Internet radio with track identification
 
-**Status:** Approved · raised by Ross, 2026-10-22 · drawn by Design and approved by Ross the same day: `Internet radio.dc.html` (4a–4k) and Settings → Radio in `Settings AI and Radio.dc.html` (5b–5d). Design's answers are in `HANDOFF.md` (2026-10-22); the build is (e) there, after the player (c).
+**Status:** Built · raised by Ross, 2026-10-22 · drawn by Design and approved by Ross the same day: `Internet radio.dc.html` (4a–4k) and Settings → Radio in `Settings AI and Radio.dc.html` (5b–5d). Design's answers are in `HANDOFF.md` (2026-10-22); the build is (e) there. Built on `ux/radio`: `HANDOFF.md`, "Dev, Internet radio and Settings → Radio"; the routes are in `CONTRACTS.md`, "Internet radio".
 
 ### The problem
 

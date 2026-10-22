@@ -17,7 +17,6 @@ re-joins whenever slskd reports us absent — idempotent, one extra call only
 when actually needed.
 """
 
-import ipaddress
 import math as _math
 import os
 import re as _re
@@ -527,10 +526,9 @@ def _resolve_host(host: str, port: int) -> list[str]:
 
 
 def _is_public_ip(addr: str) -> bool:
-    ip = ipaddress.ip_address(addr.split("%", 1)[0])
-    if getattr(ip, "ipv4_mapped", None):
-        ip = ip.ipv4_mapped
-    return ip.is_global and not ip.is_multicast
+    # one test for every server-side fetch of an outside address
+    from core.security.outbound import is_public_ip
+    return is_public_ip(addr)
 
 
 _PREVIEW_MAX_REDIRECTS = 3

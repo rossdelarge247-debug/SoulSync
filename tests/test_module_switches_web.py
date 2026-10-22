@@ -204,6 +204,7 @@ def test_module_workers_are_tagged_with_their_module():
         "video repair worker": "video",
         "audiobook download monitor": "audiobooks",
         "video download monitor": "video",
+        "Internet radio watcher": "radio",
     }
 
 
@@ -339,7 +340,7 @@ def test_turning_podcasts_and_chat_off_needs_no_restart(switches):
 
 
 def test_web_server_registers_the_runtime_hooks():
-    assert set(modules._hooks) == {"video", "audiobooks", "sample_studio"}
+    assert set(modules._hooks) == {"video", "audiobooks", "sample_studio", "radio"}
 
 
 # ── socket loops + clients tab ───────────────────────────────────────────────

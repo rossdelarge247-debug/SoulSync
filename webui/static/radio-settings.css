@@ -1,0 +1,213 @@
+/* Settings → Radio, restyled in place to the "Settings AI and Radio" board
+   (5b–5d; docs/design/DESIGN-SYSTEM.md). Markup in index.html
+   (#radio-settings), behaviour in src/shell/radio-settings.ts. The same
+   cards as Settings → AI: 14px, 24px padding, an 18/600 title. Reading text
+   is 14px or more; colours and radii are the --ss-* tokens; ids in the
+   selectors so the legacy settings rules don't win. */
+
+#settings-page #radio-settings { display: grid; gap: 24px; }
+
+#settings-page #radio-settings > .radio-card {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+    margin: 0;
+    background: var(--ss-surface-card) !important;
+    border: 1px solid var(--ss-surface-card-border) !important;
+    border-radius: var(--ss-radius-card) !important;
+    padding: 24px !important;
+}
+
+#settings-page #radio-settings h3,
+#settings-page #radio-settings .radio-card:hover h3,
+#settings-page #radio-settings .radio-card:focus-within h3 {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    font-family: inherit;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--ss-text);
+}
+#settings-page #radio-settings h3::after { content: none !important; display: none !important; }
+
+#settings-page #radio-settings .radio-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+#settings-page #radio-settings .radio-card-head > div { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#settings-page #radio-settings .radio-card > h3 + .radio-intro { margin-top: -12px; }
+#settings-page #radio-settings .radio-intro { max-width: 78ch; margin: 0; font-size: 15px; line-height: 1.5; color: var(--ss-text-secondary); }
+#settings-page #radio-settings .radio-help { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ss-text-meta); }
+#settings-page #radio-settings .radio-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
+#settings-page #radio-settings .radio-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#settings-page #radio-settings .radio-field--narrow { max-width: 240px; }
+#settings-page #radio-settings .radio-label { display: block; margin: 0; font-size: 15px; font-weight: 500; color: var(--ss-text); text-transform: none; letter-spacing: normal; }
+#settings-page #radio-settings .radio-value { margin: 0; font-size: 15px; color: var(--ss-text-secondary); }
+
+#settings-page #radio-settings .radio-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 14px;
+    border: 1px solid var(--ss-input-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-input-fill, rgba(255, 255, 255, 0.04));
+    color: var(--ss-text);
+    font: inherit;
+    font-size: 15px;
+}
+#settings-page #radio-settings .radio-input:hover { border-color: var(--ss-input-border-hover); }
+#settings-page #radio-settings .radio-input:focus { outline: none !important; border-color: var(--ss-input-focus-border); }
+#settings-page #radio-settings .radio-key-row { display: flex; gap: 8px; }
+#settings-page #radio-settings .radio-key-input { flex: 1 1 auto; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+#settings-page #radio-settings .radio-suffix { position: relative; }
+#settings-page #radio-settings .radio-suffix .radio-input { padding-right: 72px; }
+#settings-page #radio-settings .radio-suffix-text { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); color: var(--ss-text-meta); font-size: 15px; pointer-events: none; }
+
+#settings-page #radio-settings .radio-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    box-sizing: border-box;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 16px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+#settings-page #radio-settings .radio-button:hover { background: var(--ss-control-fill-hover); }
+#settings-page #radio-settings .radio-button--ghost { border-color: transparent; background: transparent; }
+#settings-page #radio-settings .radio-button--ghost:hover { background: var(--ss-hover-wash); }
+#settings-page #radio-settings .radio-link { align-self: flex-start; color: rgb(var(--ss-accent-light-rgb)); font-size: 15px; font-weight: 500; text-decoration: none; }
+#settings-page #radio-settings .radio-link:hover { text-decoration: underline; }
+#settings-page #radio-settings :focus-visible { outline: var(--ss-focus-ring) !important; outline-offset: var(--ss-focus-offset); }
+
+/* the switch (the Modules one: 104 × 44 with its word) */
+#settings-page #radio-settings .radio-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    flex: none;
+    min-width: 104px;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+}
+#settings-page #radio-settings .radio-switch-track { position: relative; width: 40px; height: 24px; border-radius: 12px; background: rgba(255, 255, 255, 0.24); }
+#settings-page #radio-settings .radio-switch-track::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    transition: var(--ss-transition);
+}
+#settings-page #radio-settings .radio-switch[aria-checked='true'] .radio-switch-track { background: rgb(var(--ss-accent-light-rgb)); }
+#settings-page #radio-settings .radio-switch[aria-checked='true'] .radio-switch-track::after { left: 19px; background: #0b0b0f; }
+
+/* the status line: a dot and words */
+#settings-page #radio-settings .radio-status,
+#settings-page #radio-settings .radio-save-status {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-height: 21px;
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ss-text-secondary);
+}
+#settings-page #radio-settings .radio-status::before {
+    content: '';
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 8px;
+    border-radius: 50%;
+    background: var(--ss-neutral);
+}
+#settings-page #radio-settings .radio-status:empty::before { display: none; }
+#settings-page #radio-settings .radio-status[data-tone='success']::before { background: var(--ss-success); }
+#settings-page #radio-settings .radio-status[data-tone='warning']::before { background: var(--ss-warning); }
+#settings-page #radio-settings .radio-status[data-tone='danger']::before { background: var(--ss-danger); }
+#settings-page #radio-settings .radio-save-status[data-tone='danger'] { color: var(--ss-danger); }
+#settings-page #radio-settings .radio-save-status[data-tone='success'] { color: var(--ss-text-tertiary); }
+#settings-page #radio-settings .radio-load-error {
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid rgba(var(--ss-danger-rgb), 0.35);
+    border-radius: var(--ss-radius-card);
+    background: rgba(var(--ss-danger-rgb), 0.07);
+    font-size: 14px;
+    color: var(--ss-text-secondary);
+}
+#settings-page #radio-settings .radio-load-error[hidden] { display: none; }
+
+#settings-page #radio-settings .radio-check { display: flex; align-items: flex-start; gap: 12px; font-size: 15px; color: var(--ss-text); cursor: pointer; }
+#settings-page #radio-settings .radio-check input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: rgb(var(--ss-accent-light-rgb)); }
+
+/* your stream links */
+#settings-page #radio-settings .radio-links-card { padding-bottom: 0 !important; }
+#settings-page #radio-settings .radio-links { margin: 0 -24px; padding: 0; list-style: none; }
+#settings-page #radio-settings .radio-link-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 150px 190px auto auto;
+    gap: 12px;
+    align-items: center;
+    min-height: 80px;
+    padding: 8px 24px;
+    border-top: 1px solid var(--ss-hairline);
+}
+#settings-page #radio-settings .radio-link-text { display: flex; flex-direction: column; min-width: 0; }
+#settings-page #radio-settings .radio-link-name { font-size: 15px; font-weight: 500; }
+#settings-page #radio-settings .radio-link-url { overflow: hidden; color: var(--ss-text-meta); font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+#settings-page #radio-settings .radio-link-quality { font-size: 15px; color: var(--ss-text-secondary); }
+#settings-page #radio-settings .radio-link-quality[data-tone='warning'] { display: inline-flex; align-items: center; gap: 6px; color: var(--ss-warning); }
+#settings-page #radio-settings .radio-link-quality[data-tone='warning']::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+#settings-page #radio-settings .radio-link-who { color: var(--ss-text-meta); font-size: 14px; }
+#settings-page #radio-settings .radio-links-empty { padding: 20px 24px; border-top: 1px solid var(--ss-hairline); color: var(--ss-text-meta); font-size: 15px; }
+
+@media (max-width: 768px) {
+    #settings-page #radio-settings > .radio-card { padding: 16px !important; gap: 16px; }
+    #settings-page #radio-settings .radio-row { grid-template-columns: 1fr; gap: 16px; }
+    #settings-page #radio-settings .radio-card-head { flex-direction: column; gap: 12px; }
+    #settings-page #radio-settings .radio-card-head .radio-switch { order: -1; align-self: flex-end; }
+    #settings-page #radio-settings .radio-links-card .radio-card-head .radio-button { align-self: stretch; }
+    #settings-page #radio-settings .radio-links { margin: 0 -16px; }
+    #settings-page #radio-settings .radio-link-row {
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-areas: 'text check remove' 'quality check remove';
+        padding: 10px 16px;
+        min-height: 64px;
+    }
+    #settings-page #radio-settings .radio-link-text { grid-area: text; }
+    #settings-page #radio-settings .radio-link-quality { grid-area: quality; font-size: 14px; }
+    #settings-page #radio-settings .radio-link-url,
+    #settings-page #radio-settings .radio-link-who { display: none; }
+    #settings-page #radio-settings .radio-field--narrow { max-width: none; }
+    #settings-page #radio-settings .radio-help#radio-acoustid-help { display: none; }
+}

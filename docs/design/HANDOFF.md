@@ -4,7 +4,7 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, 34–36 with build (b) 37–40 with build (d) and 41–48 with build (c), so they are still open. Answer on the canvas, naming the board, as before.
+Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, 34–36 with build (b) 37–40 with build (d), 41–48 with build (c) and 49–56 with build (e), so they are still open. Answer on the canvas, naming the board, as before.
 
 **Upstream sync (no boards)**
 29. Home's "Finish setting up" card sits under Latest. Right place, or above Targets while setup is fresh?
@@ -34,7 +34,79 @@ Questions 1–28 were answered in Design's session of 22 October (the log entry 
 47. The "…" menu holds 16 rows. Is there anything you'd rather see in the record itself (Add to playlist, Sleep timer), or anything that can go?
 48. With nothing playing the bar isn't shown at all (the page gets the full height). 6a doesn't draw an empty state: keep it hidden, or show an empty bar ("Nothing playing")?
 
+**Internet radio (build e; boards 4a–4k, 5b–5d)**
+49. The radio bar keeps Live and the level meter in the centre, where the player's seam put them, beside the track and its one action; 4a puts Live beside the station's name and draws no meter. Keep, or move Live to the left and drop the meter from the bar?
+50. Radio has Stop and no Pause (4a draws only Stop). A paused relay keeps a server thread busy, so Stop is honest; is that right, or should Pause exist for direct streams?
+51. The phone sheet's auto-add switch turns it off at once, but turning it on takes you to the station's page for the confirm (4d asks first). Draw an in-sheet confirm instead?
+52. Heard on radio is per profile. Two profiles listening to the same station each get the rows; "Identified yesterday" on the confirm counts anyone's. Is per profile right for the list?
+53. A station without a now-playing feed can only be identified while someone listens (the server never opens the audio by itself), so its auto-add works only while you listen. The card says so in a sentence; draw something clearer?
+54. Settings → Radio's relay rule is a select under Streams ("Only when a browser can't play the stream itself" / "Always…"); 5b has no relay control. Right words and place?
+55. No station logos are fetched; tiles show letters. Would you like real logos (an https logo per station in the list), or keep the letters?
+56. NTS's tracklists list only shows SoulSync saw on NTS's live feed (while watching or listening), so a fresh install shows "No tracklists yet". Is that empty state enough, or should the card point to NTS's own site?
+
 ## Log
+
+### 2026-10-22: Dev, Internet radio and Settings → Radio
+
+Built on `ux/radio` from `Internet radio` (4a–4k), `Settings AI and Radio` (5b–5d), BACKLOG's entry and Design's radio answers 1–4. The routes are in `CONTRACTS.md`, "Internet radio"; the patterns in `DESIGN-SYSTEM.md`, "Station card" and "Radio in the player".
+
+**What's built**
+
+- **The module** "Internet radio" (`radio`), on by default like the others. While it's off the Radio row and Settings → Radio are hidden, the pages say it's off, every radio route answers 409, the watcher stops and every listening session ends.
+- **Radio in Get music** after Mirrored playlists (sidebar, compact rail, the phone's Get music sheet), at `/radio`: Stations / Heard on radio (count); Favourites (with admins' links, "Your link · added by ross"), then Electronic, World, Eclectic tastemakers and Jazz, soul and funk as rows of four with "All N"; the directory search field. Admins get "Add a stream link".
+- **A station** (`/radio/station/<id>`, 4b): breadcrumb, 120px logo, name with Playing, the station line ("Eclectic · London · Built-in pick · Publishes what's playing and tracklists after shows"), the description, the stream picker ("AAC 256 kbps (best offered)") with the lossless note, Favourite / Play or Stop / "…" (the station's website). Now playing in every state of 4c (identified with In your library, Below quality target with Upgrade via Wanted, or the primary Add to Wanted; Listening… as a live region with the disabled Add and its reason; Not identified, calm, with the station's schedule), the auto-add card and its confirm with the three numbers (4d), Heard on the station (today, five rows), Shows with tracklists and How tracks are identified.
+- **A show's tracklist** (`/radio/tracklist?show=<id>`, 4e): "Add the N you don't have to Wanted", each row's state and its own Add, "Can't be matched" for rows without an artist.
+- **Directory search** (`/radio/search`, 4f): the field, Any codec / FLAC / AAC / MP3, a minimum bitrate and a country; rows with tags, country, declared quality, Favourite and Play; "Show 20 more".
+- **Add a stream link** (4g): Check listens from the server; the success line ("Playing. MP3 320 kbps · sends track names with the stream · answered in 0.4 s…") or the danger Notice ("This link isn't an audio stream" with the web-page explanation); Add stays disabled with its reason until a check passes.
+- **Failures** (4h): the station won't play (danger Notice with Try again and "Try the MP3 128 stream", the page faded), identification off (warning, Open Settings → Radio for admins, the sentence for members), identification unavailable (warning naming no feed / no names / fingerprint down, Run Setup check for admins).
+- **The player's radio mode** on its seam: Live tag, level meter, the identified track with "identified 40 s ago", ONE action (Add to Wanted or In your library), Station and Stop. Phone (4i, 4j): the mini bar with Add and Stop, the sheet with the card, Add, the auto-add switch, Stop, volume and "Heard on NTS 1 today · 14". A station keeps playing (and being identified) between pages.
+- **Heard on radio** (4k): every station, All stations / Not in your library (count) / how far back, grouped by day.
+- **Settings → Radio** (5b–5d), a Settings tab while the module is on, restyled in place like AI: Track identification (the switch, the AcoustID key, the status line from Setup check's radio rows, Run Setup check), Auto-add (daily limit per station, the stations with it on and this week's count, "See what it added in Activity"), Streams (the relay rule, prefer lossless, keep Heard for 7 / 30 / 90 / 365 days), Your stream links (name and address, quality or "Didn't answer …", added by, Check, Remove).
+- **Auto-add**: off by default per station and profile; turning it on asks first with the numbers and needs download rights. It skips what's in the library or on Wanted, never adds a track twice, stops at the daily limit (50), and adds through Search's add at the quality target. Activity gets a new kind, **Radio** (a filter while the module is on): one item per station per hour, "Auto-add added 3 tracks from NTS 1". Radio's items don't show on Home.
+- **The radio trigger** "A track I don't have played on a favourite station" in the block editor's new Radio drawer; the Assistant's drafts accept it.
+- **Setup check** gains "Chromaprint (fpcalc) for radio" and "AcoustID key for radio" (group "Internet radio") while the module is on.
+
+**The built-in stations** (`core/internet_radio/stations.json`, easy to edit; each entry says where its addresses came from). The sandbox this was built in can't reach the internet, so none of the addresses could be fetched: they're the stations' published addresses as known, and want a look on a real install (Settings → Radio's Check and the station pages show a station that won't play). Free only.
+
+| Kind | Station | Streams | What's playing |
+| --- | --- | --- | --- |
+| Electronic | SomaFM · Drone Zone, Groove Salad, Deep Space One, Beat Blender, Fluid | `ice1.somafm.com/<channel>-<kbps>-<codec>` (MP3 256 where offered, AAC/MP3 128) | `somafm.com/songs/<channel>.json` |
+| Electronic | FIP Electro | `icecast.radiofrance.fr/fipelectro-hifi.aac` (AAC 192), `-midfi.mp3` | radiofrance.fr's live API (undocumented; falls back to stream titles and fingerprints) |
+| Electronic | dublab | `dublab.out.airtime.pro/dublab_a` | stream titles |
+| Electronic | Radio Paradise · Mellow Mix | `stream.radioparadise.com/mellow-flac` (FLAC), `-320`, `-128` | `api.radioparadise.com/api/now_playing?chan=1` |
+| World | FIP Monde | `fipworld-hifi.aac`, `-midfi.mp3` | radiofrance.fr |
+| World | Worldwide FM | `worldwidefm.out.airtime.pro/worldwidefm_a` | stream titles |
+| World | Radio Paradise · Global Mix | `global-flac`, `-320`, `-128` | RP `chan=3` |
+| World | SomaFM · Suburbs of Goa, ThistleRadio | SomaFM | SomaFM |
+| Eclectic | KEXP | `kexp.streamguys1.com/kexp160.aac`, `kexp-mp3-128.streamguys1.com/kexp128.mp3` | `api.kexp.org/v2/plays`; tracklists `api.kexp.org/v2/shows` |
+| Eclectic | NTS 1, NTS 2 | `stream-relay-geo.ntslive.net/stream`, `/stream2` | `nts.live/api/v2/live` (shows only); tracklists from `nts.live/api/v2/shows/<show>/episodes/<episode>/tracklist` |
+| Eclectic | FIP | `fip-hifi.aac`, `-midfi.mp3` | radiofrance.fr |
+| Eclectic | Radio Paradise · Main Mix (FLAC), Rock Mix (FLAC) | `stream.radioparadise.com/flac`, `aac-320`, `mp3-192`; `rock-flac`, `-320`, `-128` | RP `chan=0`, `chan=2` |
+| Jazz, soul and funk | FIP Groove, FIP Jazz | `fipgroove-hifi.aac`, `fipjazz-hifi.aac` | radiofrance.fr |
+| Jazz, soul and funk | SomaFM · Sonic Universe, Seven Inch Soul | SomaFM | SomaFM |
+| Jazz, soul and funk | Jazz24 | `live.wostreaming.net/direct/ppm-jazz24aac256-ibc1` | stream titles |
+| Jazz, soul and funk | WWOZ | `wwoz-sc.streamguys1.com/wwoz-hi.mp3` | stream titles |
+
+**Decided by Dev (the boards don't show these; redraw where you'd do it differently)**
+
+1. **Direct or relayed:** a station plays in the browser directly only when its stream is `https`, is known to allow other sites (SomaFM's, in the list; a link whose check saw it), the station has a now-playing feed (the browser can't read stream titles, and the server never opens a second connection to read them), and Settings → Radio says "only when needed". Everything else is relayed. If the browser can't play a direct stream, the player asks again through the relay without saying anything.
+2. **Two relays at once** (each holds one of the server's 8 threads); a third listener gets "Two stations are already playing through this server…". One station at a time per profile: starting another ends the first.
+3. **Identification without listening:** a light watcher reads the now-playing feeds (never the audio) of stations someone is listening to, stations with auto-add on, and favourites of anyone with a radio automation, every 20 seconds at most, cached. So auto-add and the trigger work on stations with a feed while nobody listens; a station without a feed is identified only while someone listens through the relay (its stream titles, then fingerprints). The auto-add card says so for those stations.
+4. **Fingerprints** only when the feed and the stream titles don't name the track, at least 25 seconds into a stretch, one per station every 2½ minutes and one across all stations every 20 seconds, on a 12-second clip the relay keeps. The AcoustID key is the download identifier's; Settings → Radio shows it masked.
+5. **Heard is per profile** (what that profile heard, and what auto-add found for it). "Identified yesterday" on the confirm counts the station's distinct tracks heard by anyone.
+6. **Polled, not pushed:** the player asks what's on every 10 seconds (30 while the tab is hidden); what it says about the library is per profile, so it isn't broadcast over Socket.IO.
+7. **The bar for radio:** Live and the meter stay where the player's seam put them (centre), the track and its one action beside them, Station and Stop on the right; there's no Pause and no tray on a desktop (the bar's left button opens the station's page). On a phone the sheet is the station card.
+8. **The sheet's auto-add switch** turns auto-add off at once, but turning it on opens the station's page with the confirm, since 4d asks first.
+9. **Each tracklist row has its own Add to Wanted**, as 4e draws, as well as the "Add the N" button. NTS tracklists are for shows SoulSync saw on NTS's live feed while watching or listening (NTS's API lists episodes by show, not by channel).
+10. **Settings → Radio's relay rule** is a select ("Only when a browser can't play the stream itself" / "Always, so the server reads every stream's track names"); 5b doesn't draw it, the brief lists it.
+11. **Setup check's radio rows** read "skipped" while there's no key, so turning radio on adds no warning for an optional fallback; fpcalc missing with a key set is a warning, a refused key a problem.
+12. **Logos:** no station art is fetched (the server would have to fetch it, or the browser hot-link it); tiles show the station's letters ("NTS", "RP", "SF", "KX"). `logo_url` exists for an https logo if you'd like real ones.
+
+**Questions for Design** (49–56 in the list above)
+
+**Tests:** Python: `tests/internet_radio/` (154: which addresses the server will fetch; the audio-only gate and the relay's headers; the relay cap and session ownership; admin, member and download-rights gating; auto-add's guards, never twice and the daily limit; ICY parsing; the module off), plus the activity, automation, AI, chat, module, setup check and schema tests near the changes and every test that reads the web files changed: all pass; `ruff check` is clean on the Python touched. Web: vitest for radio (the session, the player's radio mode, Settings → Radio, the pages and the words) and the shell, platform, activity, dashboard, setup check and modules suites; `npm run check` has no errors, `tsc --noEmit` and `npm run build` are clean.
+
+**Screenshots** (in the session scratchpad; not in the repo), 1440×900 unless noted: the radio home with a station playing in the bar; a station identified (In your library), on Wanted, Listening… and Not identified; the auto-add confirm; identification off; a station that won't play; a tracklist; directory search; Heard on radio; Add a stream link refusing a web page; Settings → Radio; and at 390×844 the radio home with the mini bar, the player sheet, Heard on radio, a station and Settings → Radio.
 
 ### 2026-10-22: Dev, the Assistant, the block editor and Settings → AI
 
