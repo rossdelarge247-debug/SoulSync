@@ -463,6 +463,74 @@ Three reads for the bar and tray (`api/player.py`). All need a profile (401 `pro
 
 **Unchanged:** the queue stays in the browser as the player kept it; podcasts and audiobooks keep their own routes (the stream address and the PodcastIndex chapters URL go to the player as they are).
 
+### Internet radio (boards 4a–4k, Settings → Radio 5b–5d)
+
+Code: `api/radio.py` (routes), `core/internet_radio/` (stations, directory, feeds, ICY, hub, relay, watcher, store, settings, Wanted add, fingerprint, Setup check rows), `webui/src/routes/radio` (the pages), `src/shell/radio-session.ts` (`window.SoulSyncRadio`), `src/shell/player-radio.ts` (the player's radio mode), `src/shell/radio-settings.ts` (Settings → Radio).
+
+Everything is behind the "Internet radio" module (`radio` in `GET /api/modules`, on by default like the others): while it's off every `/api/radio/*` route answers 409 `module_disabled`, the sidebar row and the Settings tab are hidden, the watcher stops and every listening session ends. Every route needs a profile (401 `profile_required` without one). Members can listen, favourite and add to Wanted; adding links and Settings → Radio are admins only (403); turning auto-add on needs download rights (403 `no_download_rights`). Errors are `{success: false, error, message}`, `message` being the sentence to show.
+
+**Stations.** A station's id says where it comes from: a built-in pick (`core/internet_radio/stations.json`, e.g. `nts-1`), the Radio Browser directory (`rb-<uuid>`, looked up again by uuid whenever it's played) or an admin's link (`link-<n>`). The server fetches nothing else.
+
+```json
+{"id": "nts-1", "name": "NTS 1", "kind": "eclectic", "kind_label": "Eclectic tastemakers", "genre": "Eclectic",
+ "city": "London", "country": "United Kingdom", "logo_url": "", "logo_text": "", "homepage": "https://www.nts.live/",
+ "description": "…plain text…", "source": "built_in", "favourite": true, "auto_add": false,
+ "has_now_playing": true, "has_tracklists": true,
+ "quality": {"codec": "MP3", "bitrate_kbps": 256, "lossless": false, "label": "MP3 256 kbps"},
+ "tags": [], "sends_titles": null, "added_by": null,
+ "streams": [{"id": "mp3-256", "codec": "MP3", "bitrate_kbps": 256, "lossless": false, "label": "MP3 256 kbps (best offered)"}]}
+```
+
+- `GET /api/radio/stations` → `{favourites, kinds: [{kind, label, blurb, stations}], heard_count, session, identification, is_admin}`. Kinds in the order electronic, world, eclectic, jazz_soul_funk. Favourites are the profile's, then every admin's link (`source: "your_link"`, with `link_ok`). `session` is this profile's listening session (`{session_id, station_id, mode, stream_id}`) or null. Stream addresses are never in these answers.
+- `GET /api/radio/stations/<id>` → `{station, now_playing, session, heard_today: {identified, not_identified}, identification, is_admin, can_download}`.
+- `POST` / `DELETE /api/radio/favourites/<id>`, per profile. A directory favourite keeps a snapshot of what the directory said, so Favourites draws it and it still plays when the directory is down.
+- `GET /api/radio/directory?q=&codec=FLAC|AAC|MP3&min_bitrate=&country=<ISO 2>&page=` → `{results: [station], more, page, total}`, 20 a page, sorted by listeners in the directory. `total` counts what's been fetched (the directory doesn't give a total). Searches the name and the genre tags; HLS-only entries are left out. Cached 5 minutes, with a descriptive User-Agent. 502 `directory_unavailable` when no mirror answers. `GET /api/radio/directory/countries` → `{countries: [{code, name, stations}]}`.
+
+**Playing.**
+- `POST /api/radio/play` `{station_id, stream_id?, force_relay?}` → `{play_url, mode, session_id, station, stream: {id, label, codec, bitrate_kbps, lossless}}`. `mode` is `direct` only for an `https` stream the list marks as playable elsewhere (`direct` in stations.json, or a link whose check saw `Access-Control-Allow-Origin: *`), on a station with a now-playing feed, while Settings → Radio's relay rule is "when needed"; otherwise `relay` and `play_url` is `/api/radio/relay/<session_id>`. 409 `busy` when two relays are already live (counting ones waiting for the browser). Starting a station ends the profile's other session.
+- `GET /api/radio/relay/<session_id>`: the audio, for the profile that made the session, once. Audio types only (`audio/*` except playlists, and Ogg); anything else is 502 `stream_failed` with the reason ("This link isn't an audio stream. The address answered with a web page."). Answers carry `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` and none of the station's headers. Ends when the listener goes, on Stop, after 20 seconds without audio, or after 6 hours.
+- `POST /api/radio/stop` `{session_id}` → `{stopped}`.
+
+**Now playing: `GET /api/radio/now-playing?station_id=&session_id=`** (polled every 10 s by the player, 30 s while the tab is hidden; the poll keeps a direct session alive, which otherwise ends after 90 s). Not pushed over Socket.IO: what it says about the library is per profile.
+
+```json
+{"station_id": "nts-1", "state": "identified", "source": "station_feed",
+ "track": {"artist": "Pale Harbour", "title": "Harbour Light", "release": "Lantern", "art_url": null},
+ "identified_at": 1761130000, "started_at": 1761130000, "reason": null,
+ "library": {"in_library": true, "below_target": false, "track_id": "981"}, "on_wanted": false,
+ "previous_title": "Night Ferry (Dub)", "now": 1761130040, "playing": true, "session_active": true,
+ "heard_id": 312, "added_at": null}
+```
+
+- `state`: `identified`, `listening` (nothing named yet: "Its name usually arrives within a minute."), `not_identified` (`reason` says why: a show, a break, the station's own name, no fingerprint match), `off` (identification is off) or `unavailable` (no feed, no stream titles and no working fingerprint; `reason` names each).
+- `source`: `station_feed`, `stream_titles` or `fingerprint`, in that order of preference: the station's feed is trusted over stream titles while it names tracks.
+- `now` is the server's clock, for "identified 40 s ago". `heard_id` is the profile's Heard row for this track (what the player's Add to Wanted uses), null until it's written.
+
+**Heard on radio**
+- `GET /api/radio/heard?station_id=&days=&missing=1` → `{items, days, keep_days, counts: {total, not_in_library, identified, not_identified}}`, newest first, the profile's own, at most 200. An item is `{id, heard_at, station_id, station_name, artist, title, release, source, state, added_at, added_by_auto_add, duration_s, reason, below_target, track_id}`; `state` is `in_library`, `on_wanted`, `added_by_auto_add`, `not_added`, `cant_match` (no artist) or `not_identified` (an unnamed stretch of 90 s or more, with `duration_s`). Library state is checked when read, the same check as Search.
+- `POST /api/radio/heard/<id>/want` → `{item, skipped, message}`: adds it to Wanted at the quality target (the default quality profile) through Search's add (`add_album_track_to_wishlist`), after asking the metadata source for the track. `skipped` when the library already has it.
+
+**Auto-add**
+- `GET /api/radio/stations/<id>/auto-add` → `{enabled, identified_yesterday, already_have, would_add, would_add_without_limit, daily_limit, added_today, can_download, has_now_playing}`. Yesterday's numbers count distinct tracks identified on the station by anyone (local days).
+- `PUT` the same route `{enabled}`. On: download rights (403 `no_download_rights`) and identification on (409 `identification_off`). Off by default, per profile and station.
+- Guards, in order, on every add: download rights, in the library, on Wanted, added before by auto-add (never twice), the daily limit per station (Settings → Radio, 50 by default). Each addition is counted in Activity, kind `radio`: one item per station per hour, "Auto-add added 3 tracks from NTS 1", for the profile whose auto-add it was. Radio's items don't show on Home.
+
+**Tracklists** (KEXP's show API; NTS's episode tracklists, for shows SoulSync saw on NTS's live feed while watching or listening).
+- `GET /api/radio/stations/<id>/shows` → `{shows: [{id, title, aired_at, ended_at, track_count, missing_count}], publishes}`; counts for the first three.
+- `GET /api/radio/shows/<id>` → `{show: {id, title, aired_at, ended_at, station_id, station_name, fetched_at, homepage}, tracks: [{position, time, artist, title, release, state, below_target, track_id}]}`; `state` is `in_library`, `on_wanted`, `not_added` or `cant_match`.
+- `POST /api/radio/shows/<id>/want` `{position}` adds one row; `POST /api/radio/shows/<id>/want-missing` → `{added, skipped}`.
+
+**Your stream links (admins)**
+- `GET /api/radio/links` → `{links: [{id, station_id, name, url, kind, codec, bitrate_kbps, sends_titles, check_ok, checked_at, check_error, added_by, added_at}]}`.
+- `POST /api/radio/links/check` `{url}` → `{ok, codec, bitrate_kbps, sends_titles, allows_direct, answered_in_s, error}`: the server listens for a few seconds. The only routes that take an address from a request; private, loopback, link-local and multicast addresses are refused before and after DNS and on every redirect.
+- `POST /api/radio/links` `{url, name, kind}` runs the check again and adds only when it passes; `POST /api/radio/links/<id>/check`; `DELETE /api/radio/links/<id>` (also drops it from favourites and auto-add).
+
+**Settings (admins): `GET`, `PUT /api/radio/settings`** → `{settings: {identification, daily_limit, relay: "when_needed"|"always", prefer_lossless, keep_heard_days: 7|30|90|365, acoustid_api_key: {set, masked}}, status: {fpcalc: {found, detail}, acoustid: {state: "missing"|"untested"|"ok"|"refused"|"unreachable", detail, checked_at}}, auto_add: {stations, added_this_week}, links}`. `PUT` takes any of those keys; `acoustid_api_key` is the existing `acoustid.api_key`, write-only (an empty one leaves it alone). A bad value is 400 and nothing is saved.
+
+**The radio trigger:** `radio_track_heard` in `GET /api/automations/blocks` (drawer "Radio"), label "A track I don't have played on a favourite station", conditions on `station`, `artist`, `title`; variables `station`, `artist`, `title`, `release`, `source`. It fires when a track is identified, for an owner who doesn't have it, on the owner's favourite stations, or on the stations a `trigger_config` `stations: [ids]` list names (API and Assistant only; the editor keeps the default). Stations favourited by owners of such automations are watched by feed without anyone listening.
+
+**Setup check:** `radio.fpcalc` and `radio.acoustid` (category `radio`, "Internet radio"), while the module is on. Not configured is `skipped`; fpcalc missing with a key set is a warning; a refused key is a problem.
+
 ## Available today, not yet designed for
 
 - **Library history:** `GET /api/library/history?type=download|import|podcast`. Past downloads and imports.
@@ -475,50 +543,6 @@ The Activity feed above already merges these (and the mirror runs behind `GET /a
 
 For the boards Ross approved on 22 October (`HANDOFF.md`). Field names may change while they're built; Dev moves each section to "Built" when it lands.
 
-### Internet radio (build e; boards 4a–4k, Settings → Radio 5b–5d)
-
-All behind the "Internet radio" module (`radio` in `GET /api/modules`).
-
-**Stations**
-- `GET /api/radio/stations` returns `{favourites: [station], kinds: [{kind, label, stations: [station]}]}` for the built-in picks, in the order electronic, world, eclectic, jazz_soul_funk.
-- A station is `{id, name, kind, city, country, logo_url, homepage, description, source, favourite, auto_add, has_now_playing, has_tracklists, streams}`. `source` is `built_in`, `directory` or `your_link`. `streams` is `[{id, codec, bitrate_kbps, lossless, label}]`, best first ("AAC 256 kbps (best offered)").
-- `GET /api/radio/stations/<id>` returns one station, with `now_playing` (below) when it's playing.
-- `POST`, `DELETE /api/radio/favourites/<station_id>`: favourites are per profile.
-- `GET /api/radio/directory?q=&codec=&min_bitrate=&country=&page=` searches the Radio Browser directory: `{results: [station], total}`.
-
-**Playing**
-- `POST /api/radio/play` `{station_id, stream_id?}` returns `{play_url, mode, session_id}`. `mode` is `direct` (an `https` stream that allows it) or `relay`, where `play_url` is `/api/radio/relay/<session_id>`. A relay passes on audio only and ends when the listener stops. Relays are capped (two at once to start; a third gets `{error: "busy"}`), because each holds one of the server's threads.
-- `POST /api/radio/stop` `{session_id}`.
-
-**Now playing:** `GET /api/radio/now-playing?station_id=`, also pushed over Socket.IO as `radio:now_playing` while a station plays. It returns `{state, track, source, identified_at, library, on_wanted, reason}`.
-- `state`: `identified`, `listening`, `not_identified`, `off` (identification turned off) or `unavailable`.
-- `track`: `{artist, title, release, art_url}` or `null`.
-- `source`: `station_feed`, `stream_titles` or `fingerprint`.
-- `library`: `{in_library, below_target, track_id}`.
-- `reason`: why when not identified, for example "This is a live DJ mix", or "The station doesn't publish what's playing and the fingerprint service didn't recognise it".
-
-**Heard on radio**
-- `GET /api/radio/heard?station_id=&days=` returns `{items: [{id, heard_at, station_id, station_name, artist, title, state, source}]}`, newest first, kept for Settings → Radio's days. `state` is `in_library`, `on_wanted`, `added_by_auto_add`, `not_added` or `cant_match`.
-- `POST /api/radio/heard/<id>/want` adds one to Wanted at the quality target; the reply is the item with its new state.
-
-**Auto-add**
-- `GET /api/radio/stations/<id>/auto-add` returns `{enabled, identified_yesterday, already_have, would_add, daily_limit}`: the numbers the confirm (4d) shows.
-- `PUT` the same route with `{enabled}`; turning it on needs download rights.
-- Auto-add skips what's in the library or on Wanted, never adds a track twice, stops at the daily limit, and records an Activity item of a new kind, `radio`, one per station per hour ("Auto-add added 3 tracks from NTS 1").
-
-**Tracklists**
-- `GET /api/radio/stations/<id>/shows` returns `{shows: [{id, title, aired_at, track_count}]}` for stations that publish them.
-- `GET /api/radio/shows/<id>` returns `{show, tracks: [{position, time, artist, title, state}]}`; a track without an artist has `state: "cant_match"`.
-- `POST /api/radio/shows/<id>/want-missing` adds the ones you don't have and returns `{added, skipped}`.
-
-**Your stream links (admins)**
-- `POST /api/radio/links/check` `{url}` returns `{ok, codec, bitrate_kbps, sends_titles, error}`. It refuses private and link-local addresses and anything that isn't audio ("This link isn't an audio stream").
-- `POST /api/radio/links` `{url, name, kind}` adds a link and needs a passing check; `DELETE /api/radio/links/<id>` removes one.
-
-**Settings (admins):** `GET`, `PUT /api/radio/settings` with `{identification, acoustid_api_key, daily_limit, relay: "when_needed"|"always", prefer_lossless, keep_heard_days}`. `daily_limit` defaults to 50. The AcoustID key is the existing `acoustid.api_key`.
-
-**The radio trigger:** `radio_track_heard` in `GET /api/automations/blocks`, "A track I don't have played on a favourite station", with `{stations: "favourites" | [station ids]}`.
-
-**Setup check:** new rows `radio.fpcalc` (Chromaprint installed) and `radio.acoustid` (key set and accepted), shown while the module is on.
+Nothing is waiting here now: Internet radio moved to "Built" above (built on `ux/radio`).
 
 Shapes under "Needs building" are proposals until built. Dev updates this file when they are.
