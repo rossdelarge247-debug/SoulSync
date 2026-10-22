@@ -4,9 +4,16 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+
+import {
+  playInAppPlayer,
+  toggleAppPlayer,
+  useAppPlayerMedia,
+} from '@/features/playback/app-player';
 
 import type {
   AudiobookItem,
@@ -15,15 +22,20 @@ import type {
   AudiobookWishlistCounts,
 } from '../-audiobooks.types';
 
-import { addToWishlist, fetchWishlist, removeFromWishlist } from '../-audiobooks.api';
+import {
+  addToWishlist,
+  fetchWishlist,
+  removeFromWishlist,
+  sampleStreamUrl,
+} from '../-audiobooks.api';
 
 /**
  * Sample playback, shared by every /audiobooks/* route.
  *
  * Every Audible title ships a real preview mp3, so a card anywhere on the page
- * can be auditioned without leaving it. The player bar lives in the layout and
- * survives navigation between browse and detail, which is the whole point of
- * hoisting this to a context rather than keeping it per page.
+ * can be auditioned without leaving it. It plays in the app's player (the bar
+ * along the bottom, board 6a), so it survives navigation anywhere; this
+ * context mirrors what that player has loaded.
  */
 
 export interface AudiobookContextValue {
@@ -68,7 +80,12 @@ const EMPTY_COUNTS: AudiobookWishlistCounts = {
 };
 
 export function AudiobookProvider({ children }: { children: ReactNode }) {
-  const [playback, setPlayback] = useState<AudiobookPlayback | null>(null);
+  const media = useAppPlayerMedia('audiobook');
+  const books = useRef(new Map<string, Omit<AudiobookPlayback, 'isPlaying'>>());
+  const playback = useMemo<AudiobookPlayback | null>(() => {
+    const hit = media.id ? books.current.get(media.id) : undefined;
+    return hit ? { ...hit, isPlaying: media.playing } : null;
+  }, [media]);
 
   /**
    * The wishlist is held as a set of ASINs rather than asked about per card.
@@ -134,29 +151,36 @@ export function AudiobookProvider({ children }: { children: ReactNode }) {
 
   const playSample = useCallback((book: AudiobookItem) => {
     if (!book.sample_url) return;
-    setPlayback((current) => {
-      // Same title already loaded: this is a toggle, not a restart. Restarting
-      // would drop the listener back to zero mid-preview.
-      if (current && current.asin === book.asin) {
-        return { ...current, isPlaying: !current.isPlaying };
-      }
-      return {
-        asin: book.asin,
-        title: book.title,
-        author: book.author_names[0] || '',
-        narrator: book.narrator_names[0] || '',
-        coverUrl: book.cover_url || book.cover_url_large,
-        sampleUrl: book.sample_url as string,
-        isPlaying: true,
-      };
+    const entry = {
+      asin: book.asin,
+      title: book.title,
+      author: book.author_names[0] || '',
+      narrator: book.narrator_names[0] || '',
+      coverUrl: book.cover_url || book.cover_url_large,
+      sampleUrl: book.sample_url as string,
+    };
+    books.current.set(book.asin, entry);
+    // Same title already loaded: the player toggles it rather than restarting,
+    // which would drop the listener back to zero mid-preview.
+    playInAppPlayer({
+      kind: 'audiobook',
+      id: book.asin,
+      // Through the server proxy: the sample CDNs send no CORS headers, and
+      // the proxy forwards Range so the scrubber can actually seek.
+      src: sampleStreamUrl(entry.sampleUrl),
+      title: entry.title,
+      subtitle: [entry.author, entry.narrator && `Narrated by ${entry.narrator}`]
+        .filter(Boolean)
+        .join(' · '),
+      artUrl: entry.coverUrl,
     });
   }, []);
 
-  const togglePlay = useCallback(() => {
-    setPlayback((current) => (current ? { ...current, isPlaying: !current.isPlaying } : current));
-  }, []);
+  const togglePlay = useCallback(() => toggleAppPlayer(), []);
 
-  const closePlayer = useCallback(() => setPlayback(null), []);
+  const closePlayer = useCallback(() => {
+    if (media.playing) toggleAppPlayer();
+  }, [media.playing]);
 
   const isPlaying = useCallback(
     (asin: string) => Boolean(playback && playback.asin === asin && playback.isPlaying),

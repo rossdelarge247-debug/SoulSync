@@ -4,9 +4,16 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+
+import {
+  playInAppPlayer,
+  toggleAppPlayer,
+  useAppPlayerMedia,
+} from '@/features/playback/app-player';
 
 import type {
   ActivePlaybackState,
@@ -58,7 +65,25 @@ export function usePodcastContext(): PodcastContextValue {
 }
 
 export function PodcastProvider({ children }: { children: ReactNode }) {
-  const [activePlayback, setActivePlayback] = useState<ActivePlaybackState | null>(null);
+  // Episodes play in the app's player (the bar along the bottom), so they
+  // keep playing when you leave Podcasts; this mirrors what it has loaded.
+  const media = useAppPlayerMedia('podcast');
+  const played = useRef(
+    new Map<string, { episode: PodcastEpisodeItem; show: PodcastShowDetail }>(),
+  );
+  const activePlayback = useMemo<ActivePlaybackState | null>(() => {
+    const hit = media.id ? played.current.get(media.id) : undefined;
+    if (!hit) return null;
+    return {
+      episode: hit.episode,
+      showTitle: hit.show.title,
+      showArtwork: hit.show.artwork_url,
+      isPlaying: media.playing,
+      currentTime: 0,
+      duration: hit.episode.duration_seconds || 0,
+      playbackRate: 1,
+    };
+  }, [media]);
   const [downloads, setDownloads] = useState<Record<string, PodcastDownloadItem>>({});
   const [watchlist, setWatchlist] = useState<any[]>([]);
   const [watchlistBusyMap, setWatchlistBusyMap] = useState<Record<string, boolean>>({});
@@ -198,32 +223,32 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const handlePlayEpisode = (ep: PodcastEpisodeItem, show: PodcastShowDetail) => {
-    if (activePlayback?.episode.guid === ep.guid) {
-      setActivePlayback((prev) => (prev ? { ...prev, isPlaying: !prev.isPlaying } : null));
-    } else {
-      setActivePlayback({
-        episode: ep,
-        showTitle: show.title,
-        showArtwork: show.artwork_url,
-        isPlaying: true,
-        currentTime: 0,
-        duration: ep.duration_seconds || 0,
-        playbackRate: 1,
-      });
-    }
+    if (!ep.enclosure_url) return;
+    const id = ep.guid || ep.enclosure_url;
+    played.current.set(id, { episode: ep, show });
+    // the same episode again is play / pause (the player knows it by id)
+    const ok = playInAppPlayer({
+      kind: 'podcast',
+      id,
+      src: ep.enclosure_url,
+      title: ep.title,
+      subtitle: show.title,
+      artUrl: ep.artwork_url || show.artwork_url,
+      durationHint: ep.duration_seconds,
+      chaptersUrl: ep.chapter_url,
+    });
+    if (!ok) window.showToast?.("The player isn't ready yet. Try again in a moment.", 'error');
   };
 
-  const handleTogglePlay = () => {
-    setActivePlayback((prev) => (prev ? { ...prev, isPlaying: !prev.isPlaying } : null));
-  };
+  const handleTogglePlay = () => toggleAppPlayer();
 
+  // the bar has its own Stop (in the record's "…"); pausing is all a page does
   const closePlayer = () => {
-    setActivePlayback(null);
+    if (media.playing) toggleAppPlayer();
   };
 
-  const updateProgress = (cur: number, dur: number) => {
-    setActivePlayback((prev) => (prev ? { ...prev, currentTime: cur, duration: dur } : null));
-  };
+  // the player follows its own progress
+  const updateProgress = (_cur: number, _dur: number) => {};
 
   const handleDownloadEpisode = async (
     ep: PodcastEpisodeItem,

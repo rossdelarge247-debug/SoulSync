@@ -15,10 +15,6 @@
   transition: padding-top 0.25s ease;
 }
 
-.podcastsContainerWithTopPlayer {
-  padding-top: 110px !important;
-}
-
 .podcastsContainer > * {
   flex-shrink: 0;
 }
@@ -2570,10 +2566,6 @@
     padding: 20px 24px 80px;
   }
 
-  .podcastsContainerWithTopPlayer {
-    padding-top: 105px !important;
-  }
-
   .spotlightCard {
     padding: 28px 32px;
     gap: 32px;
@@ -2652,10 +2644,6 @@
 @media (max-width: 1024px) {
   .podcastsContainer {
     padding: 18px 20px 80px;
-  }
-
-  .podcastsContainerWithTopPlayer {
-    padding-top: 110px !important;
   }
 
   .spotlightMetaPanel {
@@ -2773,10 +2761,6 @@
 @media (max-width: 768px) {
   .podcastsContainer {
     padding: 72px 14px 84px;
-  }
-
-  .podcastsContainerWithTopPlayer {
-    padding-top: 185px !important;
   }
 
   /* Header & Search */
@@ -3314,10 +3298,6 @@
 
   .billboardTitle {
     font-size: 19px;
-  }
-
-  .podcastsContainerWithTopPlayer {
-    padding-top: 180px !important;
   }
 }
 
