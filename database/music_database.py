@@ -2017,6 +2017,14 @@ class MusicDatabase:
             with self._migration_step(cursor, "lidarr_compat_schema"):
                 from core.lidarr_compat.store import ensure_schema as _ensure_lidarr_compat
                 _ensure_lidarr_compat(cursor)
+            # the player (board 6a): the waveform cache, and the readout's bit
+            # depth and sample rate on tracks, read from the file once
+            with self._migration_step(cursor, "player_peaks_schema"):
+                from core.playback.peaks import ensure_schema as _ensure_player_peaks
+                _ensure_player_peaks(cursor)
+            with self._migration_step(cursor, "player_audio_columns", atomic=False):
+                from core.playback.audio_details import ensure_track_columns as _ensure_audio_columns
+                _ensure_audio_columns(cursor)
             self._requeue_similar_artists_rematch(cursor)
             self._purge_beatport_positional_matches(cursor)
             self._normalize_genres_to_json(cursor)
