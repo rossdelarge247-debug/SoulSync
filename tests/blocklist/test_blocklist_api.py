@@ -24,8 +24,7 @@ def _skip_download(coro):
 
 def test_search_proxies_active_source(client):
     # the route lives in api/discover_routes.py and calls the _search_service
-    # it imported. patching web_server's copy let a real metadata search run,
-    # which left process-wide state behind and broke later matching tests.
+    # it imported; patching web_server's copy let a real metadata search run
     from api import discover_routes
 
     with patch.object(discover_routes, "_search_service", return_value=[
