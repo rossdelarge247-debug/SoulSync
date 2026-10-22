@@ -357,6 +357,57 @@ describe('Admin and help', () => {
     expect($('#ss-admin-note').textContent).toBe('');
   });
 
+  it('a service that is down lights the fold and says so on the Connections row', () => {
+    start();
+    const status = (detail: unknown) =>
+      window.dispatchEvent(new CustomEvent('ss:service-status', { detail }));
+    const healthy = {
+      metadata_source: { source: 'deezer', connected: true },
+      media_server: { type: 'plex', connected: true, configured: true },
+      soulseek: { source: 'soulseek', connected: true },
+    };
+    status(healthy);
+    expect($('#ss-connections-word').hidden).toBe(true);
+    expect($('#ss-admin-dot').hidden).toBe(true);
+
+    status({ ...healthy, media_server: { type: 'plex', connected: false, configured: true } });
+    expect($('#ss-connections-word').hidden).toBe(false);
+    expect($('#ss-connections-word').textContent).toBe('Plex is down');
+    expect($('#ss-admin-dot').hidden).toBe(false);
+    expect($('#ss-admin-note').textContent).toBe(', Plex is down');
+
+    // with a setup problem too, both are in the fold's words
+    shell!.applySetupReport('local', { ok: 3, warning: 1, error: 0 });
+    expect($('#ss-admin-note').textContent).toBe(', setup check: 1 problem, Plex is down');
+    shell!.applySetupReport('local', { ok: 4, warning: 0, error: 0 });
+
+    // a media server that was never set up isn't down (Home says no library is chosen)
+    status({ ...healthy, media_server: { type: 'plex', connected: false, configured: false } });
+    expect($('#ss-connections-word').hidden).toBe(true);
+    expect($('#ss-admin-dot').hidden).toBe(true);
+    expect($('#ss-admin-note').textContent).toBe('');
+
+    status({
+      ...healthy,
+      soulseek: { source: 'soulseek', connected: false },
+      metadata_source: { source: 'deezer', connected: false },
+    });
+    expect($('#ss-connections-word').textContent).toBe('Soulseek and Deezer are down');
+  });
+
+  it('keeps the music services off the video side', () => {
+    start();
+    window.dispatchEvent(
+      new CustomEvent('ss:service-status', {
+        detail: { media_server: { type: 'plex', connected: false, configured: true } },
+      }),
+    );
+    expect($('#ss-admin-dot').hidden).toBe(false);
+    document.body.setAttribute('data-side', 'video');
+    shell!.refresh();
+    expect($('#ss-admin-dot').hidden).toBe(true);
+  });
+
   it('follows the reports the Setup check page announces', () => {
     start();
     window.dispatchEvent(
@@ -728,6 +779,25 @@ describe('the markup', () => {
       (el) => (el as HTMLElement).dataset.navRow,
     );
     expect(admin).toEqual(['setup-check', 'hydrabase', 'maintenance', 'issues', 'help']);
+  });
+
+  it('pins three rows at the foot: Admin and help, the side switch and the profile', () => {
+    const bottom = $('#app-sidebar .ss-nav-bottom');
+    const pinned = [...bottom.children].map((el) => el.id || el.className);
+    expect(pinned).toEqual(['ss-admin', 'side-toggle', 'profile-indicator']);
+    // the profile row is the avatar and name alone; its menu has the rest
+    const profile = $('#profile-indicator');
+    expect(profile.querySelectorAll('button')).toHaveLength(1);
+    expect(profile.querySelector('#profile-indicator-avatar')).not.toBeNull();
+    expect(profile.querySelector('#profile-indicator-name')).not.toBeNull();
+    // Connections, What's new and Support live in Admin and help only
+    const panel = $('#ss-admin-panel');
+    expect(panel.querySelector('.ss-connections')).not.toBeNull();
+    expect(panel.querySelector('.ss-version-row')).not.toBeNull();
+    expect(panel.textContent).toContain('Support SoulSync');
+    expect(bottom.querySelectorAll('.ss-connections')).toHaveLength(
+      panel.querySelectorAll('.ss-connections').length,
+    );
   });
 
   it('names the app SoulSync, with SS on the rail', () => {

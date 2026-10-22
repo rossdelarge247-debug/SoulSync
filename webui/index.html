@@ -490,12 +490,14 @@
                         </a>
                         <hr class="ss-hairline" aria-hidden="true">
                         <!-- Service status: one row per side; the dots follow shared-helpers.js
-                             updateSidebarServiceStatus and video-service-status.js as before. -->
+                             updateSidebarServiceStatus and video-service-status.js as before. On the
+                             music side a service that's down says so in words under "Connections"
+                             (nav-shell.ts, from the /status frames) and lights Admin and help's dot. -->
                         <div class="status-section status-section--clickable ss-item ss-connections" data-music-only
                             onclick="openServiceSwitchModal('metadata')" title="Change active sources for your profile"
                             role="button" tabindex="0">
                             <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01M6 18h.01"/></svg>
-                            <span class="ss-label status-title">Connections</span>
+                            <span class="ss-connections-text"><span class="ss-label status-title">Connections</span><span class="ss-connections-word" id="ss-connections-word" hidden></span></span>
                             <span class="ss-status-dots">
                                 <span class="status-indicator" id="metadata-source-indicator" data-status-ready="false"
                                     onclick="event.stopPropagation(); openServiceSwitchModal('metadata')">

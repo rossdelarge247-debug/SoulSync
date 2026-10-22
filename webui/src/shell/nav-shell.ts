@@ -16,8 +16,9 @@
  * - the phone tab bar: a group's tab opens its rows as a bottom sheet, which
  *   is the sidebar itself, filtered by CSS;
  * - the badges this shell adds: Activity's needs-you count and the running
- *   count (GET /api/activity/status, polled gently), and the Setup check dot
- *   (the setup check's own report).
+ *   count (GET /api/activity/status, polled gently), the Setup check dot
+ *   (the setup check's own report), and a service that's down (the /status
+ *   frames) in words on the Connections row; either lights Admin and help.
  *
  * The legacy badges (Wanted, Discover, Chat, Issues, Requests) keep their
  * ids and their owners; this only reads them for the rail's labels.
@@ -31,6 +32,8 @@ import {
   activityLabel,
   COUNT_NOUNS,
   countedLabel,
+  downServices,
+  downServicesText,
   NAV_GROUPS,
   NAV_TARGETS,
   navGroupFor,
@@ -210,6 +213,7 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
   const adminNote = $('ss-admin-note');
   const setupDot = $('ss-setup-dot');
   const setupNote = $('ss-setup-note');
+  const connectionsWord = $('ss-connections-word');
   const needsYouBadge = $('ss-needs-you-badge');
   const pageName = $('ss-page-name');
   const back = $<HTMLButtonElement>('ss-back');
@@ -657,11 +661,23 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
   let lastActiveDownloads: unknown;
   function onServiceStatus(event: Event): void {
     const detail = (event as CustomEvent<{ active_downloads?: unknown }>).detail;
+    applyDownServices(downServices(detail));
     const value = detail?.active_downloads;
     if (value === undefined || value === lastActiveDownloads) return;
     const first = lastActiveDownloads === undefined;
     lastActiveDownloads = value;
     if (!first) refreshSoon();
+  }
+
+  // a service that's down: its words on the Connections row, and the fold's dot
+  let downText = '';
+  function applyDownServices(names: readonly string[]): void {
+    downText = downServicesText(names);
+    if (connectionsWord) {
+      if (connectionsWord.textContent !== downText) connectionsWord.textContent = downText;
+      connectionsWord.hidden = !downText;
+    }
+    syncAdminDot();
   }
 
   // the Setup check dot
@@ -675,10 +691,18 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
     syncAdminDot();
   }
 
-  /** The fold's dot speaks for the Setup check row, which is music-side only. */
+  /**
+   * The fold's dot speaks for the Setup check row and the music Connections
+   * row (a service that's down), both music-side only.
+   */
   function syncAdminDot(): void {
-    const show = setupProblems !== null && setupProblems > 0 && side() === 'music';
-    const text = show ? `, setup check: ${setupProblemText(setupProblems!)}` : '';
+    const music = side() === 'music';
+    const setup = music && setupProblems !== null && setupProblems > 0;
+    const down = music && Boolean(downText);
+    const show = setup || down;
+    const text =
+      (setup ? `, setup check: ${setupProblemText(setupProblems!)}` : '') +
+      (down ? `, ${downText}` : '');
     if (adminDot && adminDot.hidden === show) adminDot.hidden = !show;
     if (adminNote && adminNote.textContent !== text) adminNote.textContent = text;
   }

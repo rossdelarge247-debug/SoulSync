@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   activityLabel,
   countedLabel,
+  downServices,
+  downServicesText,
   NAV_ROWS,
   NAV_TARGETS,
   navGroupFor,
@@ -169,5 +171,75 @@ describe('labels', () => {
     expect(shortcutHint('iPhone')).toBe('⌘K');
     expect(shortcutHint('Win32')).toBe('Ctrl K');
     expect(shortcutHint('')).toBe('Ctrl K');
+  });
+});
+
+describe('services that are down', () => {
+  const healthy = {
+    metadata_source: { source: 'deezer', connected: true },
+    spotify: {},
+    media_server: { type: 'jellyfin', connected: true, configured: true },
+    soulseek: { source: 'soulseek', connected: true },
+  };
+
+  it('names the ones set up but not connected', () => {
+    expect(downServices(healthy)).toEqual([]);
+    expect(
+      downServices({ ...healthy, media_server: { type: 'jellyfin', connected: false } }),
+    ).toEqual(['Jellyfin']);
+    expect(
+      downServices({ ...healthy, soulseek: { source: 'soulseek', connected: false } }),
+    ).toEqual(['Soulseek']);
+    expect(
+      downServices({ ...healthy, metadata_source: { source: 'musicbrainz', connected: false } }),
+    ).toEqual(['MusicBrainz']);
+  });
+
+  it("doesn't count a media server that was never set up, or a slice that hasn't arrived", () => {
+    expect(
+      downServices({
+        ...healthy,
+        media_server: { type: 'plex', connected: false, configured: false },
+      }),
+    ).toEqual([]);
+    expect(downServices({ media_server: { type: 'plex' } })).toEqual([]);
+    expect(downServices(null)).toEqual([]);
+    expect(downServices('nope')).toEqual([]);
+  });
+
+  it('treats a paused Spotify as paused, not down', () => {
+    expect(
+      downServices({
+        ...healthy,
+        metadata_source: { source: 'spotify', connected: false },
+        spotify: { rate_limited: true, rate_limit: { remaining_seconds: 600 } },
+      }),
+    ).toEqual([]);
+    expect(
+      downServices({ ...healthy, metadata_source: { source: 'spotify', connected: false } }),
+    ).toEqual(['Spotify']);
+  });
+
+  it('falls back to what a service is when it has no one name', () => {
+    expect(
+      downServices({
+        media_server: { connected: false },
+        soulseek: { source: 'hybrid', connected: false },
+        metadata_source: { source: 'something-new', connected: false },
+      }),
+    ).toEqual(['Your media server', 'Your download source', 'Your metadata source']);
+    expect(downServices({ media_server: { type: 'soulsync', connected: false } })).toEqual([
+      'Standalone',
+    ]);
+  });
+
+  it('says it in one line', () => {
+    expect(downServicesText([])).toBe('');
+    expect(downServicesText(['Plex'])).toBe('Plex is down');
+    expect(downServicesText(['Plex', 'Soulseek'])).toBe('Plex and Soulseek are down');
+    expect(downServicesText(['Plex', 'Your download source'])).toBe(
+      'Plex and your download source are down',
+    );
+    expect(downServicesText(['Plex', 'Soulseek', 'Deezer'])).toBe('3 services are down');
   });
 });

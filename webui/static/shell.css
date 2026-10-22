@@ -416,6 +416,22 @@ html[data-admin-open='true'] #app-sidebar .ss-admin-panel { display: flex; }
     letter-spacing: 0;
     text-transform: none;
 }
+/* a service that's down: the word under "Connections", in the warning colour */
+#app-sidebar .ss-connections-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    padding: 4px 0;
+}
+#app-sidebar .ss-connections-text > .ss-label { flex: none; }
+#app-sidebar .ss-connections-word {
+    color: var(--ss-warning);
+    font: 400 14px/1.3 var(--ss-shell-font);
+    white-space: normal;
+}
+#app-sidebar .ss-connections-word[hidden] { display: none; }
 #app-sidebar .ss-status-dots {
     display: inline-flex;
     align-items: center;

@@ -8,6 +8,13 @@
  * row carries a `data-nav-row` key from NAV_ROWS.
  */
 
+import {
+  DOWNLOAD_SOURCE_NAMES,
+  getMetadataSourceLabel,
+  getMetadataSourcePresentation,
+  type SpotifyStatus,
+} from '@/routes/dashboard/-dash.services';
+
 /**
  * Where Wanted and Activity point: their own pages. Changing a target is one
  * line here: nav-shell.ts writes these onto the rows, the top bar's running
@@ -228,6 +235,76 @@ export function setupProblemCount(summary: unknown): number | null {
 
 export function setupProblemText(problems: number): string {
   return problems === 1 ? '1 problem' : `${problems} problems`;
+}
+
+// ── services that are down ───────────────────────────────────────────────────
+
+/** A media server type ("plex") as its name; the sidebar's Connections row does the same. */
+function serverName(type: unknown): string {
+  const value = typeof type === 'string' ? type.trim() : '';
+  if (!value) return 'Your media server';
+  if (value === 'soulsync') return 'Standalone';
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function downloadSourceName(source: unknown): string {
+  const value = typeof source === 'string' ? source : '';
+  // a hybrid source has no one name worth saying
+  if (!value || value === 'hybrid') return 'Your download source';
+  return DOWNLOAD_SOURCE_NAMES[value] ?? 'Your download source';
+}
+
+function slice(payload: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = payload[key];
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+/**
+ * The services on a `/status` payload (or its `ss:service-status` frame)
+ * that are set up but not connected, by name: the media server, the download
+ * source (Soulseek / slskd) and the metadata source. Only an explicit
+ * `connected: false` counts, so a slice that hasn't arrived isn't an outage.
+ * A media server that was never set up (`configured: false`) isn't down: no
+ * library is chosen, which Home and the Setup check say. A metadata source
+ * that is rate limited or cooling down is paused, not down.
+ */
+export function downServices(payload: unknown): string[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const value = payload as Record<string, unknown>;
+  const down: string[] = [];
+
+  const server = slice(value, 'media_server');
+  if (server && server.connected === false && server.configured !== false) {
+    down.push(serverName(server.type ?? value.active_media_server));
+  }
+
+  const download = slice(value, 'soulseek');
+  if (download && download.connected === false) down.push(downloadSourceName(download.source));
+
+  const metadata = slice(value, 'metadata_source');
+  const source = typeof metadata?.source === 'string' ? metadata.source : '';
+  if (metadata && metadata.connected === false && source) {
+    const presentation = getMetadataSourcePresentation(
+      metadata,
+      (slice(value, 'spotify') ?? {}) as SpotifyStatus,
+    );
+    if (presentation.dotClass === 'disconnected') {
+      const label = getMetadataSourceLabel(source);
+      down.push(label === 'Unmapped' ? 'Your metadata source' : label);
+    }
+  }
+  return down;
+}
+
+/** "Plex is down", "Plex and Soulseek are down", "3 services are down"; '' for none. */
+export function downServicesText(names: readonly string[]): string {
+  if (names.length === 0) return '';
+  if (names.length === 1) return `${names[0]} is down`;
+  if (names.length === 2) {
+    const second = names[1].startsWith('Your ') ? `your ${names[1].slice(5)}` : names[1];
+    return `${names[0]} and ${second} are down`;
+  }
+  return `${names.length} services are down`;
 }
 
 /**
