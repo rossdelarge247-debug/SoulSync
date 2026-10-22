@@ -154,4 +154,22 @@ describe('rows', () => {
     expect(durationWords(3900)).toBe('1\u00a0h\u00a05\u00a0min');
     expect(durationWords(null)).toBe('');
   });
+
+  it('counts what Wanted searches found, once their runs carry it', () => {
+    const runs = [
+      run(1, 0, {
+        summary: 'Started: 2 album batch(es), 1 per-track for cycle albums',
+        result_json: { found: { tracks: 7, albums: 1 }, searched: { tracks: 9, albums: 2 } },
+      }),
+      run(2, 1, { result_json: JSON.stringify({ found: { tracks: 3, albums: 0 } }) }),
+      run(3, 2, { summary: 'Started: no batches for cycle singles' }),
+    ];
+    expect(runNumbers(runs, 'process_wishlist')[0]).toEqual({ label: 'Found', value: '10' });
+    expect(runRow(runs[0], NOW).summary).toBe(
+      'Started 2 album and 1 track searches · albums turn · 7 found · 4\u00a0min',
+    );
+    // older runs say nothing about what they found
+    expect(runRow(runs[2], NOW).summary).not.toMatch(/found/);
+    expect(runNumbers([runs[2]], 'process_wishlist')[0].label).toBe('Done');
+  });
 });
