@@ -1,11 +1,9 @@
 """Fetching an address somebody else chose, without reaching the local network.
 
-Chat's link previews were the first server-side fetch of an outside address
-(``api/chat.py``): they resolve the name, refuse it unless every address is on
-the internet, and walk redirects by hand so each hop is checked again. This is
-that guard, shared, with the gap it left closed: the name was resolved once for
-the check and again by the HTTP stack to connect, so a name whose answer
-changed between the two (DNS rebinding) could still reach a private address.
+Chat's link previews resolve the name, refuse it unless every address is on
+the internet, and walk redirects by hand so each hop is checked again. This
+module shares that address test and adds a transport for fetches that may
+run for hours (a radio stream).
 
 Here the connection itself is pinned. :func:`guarded_session` mounts adapters
 whose connections resolve the host themselves, refuse it unless every address
