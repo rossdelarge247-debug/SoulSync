@@ -607,6 +607,11 @@ class MusicDatabase:
                 # COALESCE a not-yet-backfilled row to the same value
                 from core.text.normalize import normalize_for_comparison as _nfc
                 connection.create_function("norm_text", 1, lambda x: _nfc(x) if x else "", deterministic=True)
+                # python's lower() for the downloads page's name lookups
+                # (sqlite's LOWER() only folds ascii). registered here, on
+                # open, so those lookups don't make the pool drop the
+                # connection the way a per-call create_function would.
+                _register_py_lower(connection)
                 # Enable foreign key constraints and WAL mode for better concurrency.
                 # Docker Desktop bind mounts can briefly fail while SQLite opens the
                 # sidecar WAL/SHM files; retrying avoids surfacing transient 500s.
@@ -24813,8 +24818,7 @@ class MusicDatabase:
             return []
         out = []
         try:
-            conn = self._get_connection()
-            _register_py_lower(conn)
+            conn = self._get_connection()  # PY_LOWER is registered on open
             cursor = conn.cursor()
             for i in range(0, len(names), 500):
                 chunk = names[i:i + 500]
@@ -24842,8 +24846,7 @@ class MusicDatabase:
             return []
         out = []
         try:
-            conn = self._get_connection()
-            _register_py_lower(conn)
+            conn = self._get_connection()  # PY_LOWER is registered on open
             cursor = conn.cursor()
             for i in range(0, len(titles), 500):
                 chunk = titles[i:i + 500]

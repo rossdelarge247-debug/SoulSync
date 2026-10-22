@@ -113,3 +113,24 @@ def test_the_unified_response_runs_the_art_hook_over_every_row(monkeypatch):
     out = st.build_unified_downloads_response(100, deps)
     assert seen == [1]
     assert out['downloads'][0]['artist_image'] == 'x'
+
+
+def test_the_lookups_leave_the_pooled_connection_reusable(tmp_path, monkeypatch):
+    # the downloads page polls these every 2s. PY_LOWER is registered when a
+    # connection opens, so a lookup never calls create_function itself, which
+    # would make the connection pool close the connection instead of keeping it
+    import sqlite3
+
+    import database.music_database as mdb
+
+    if not mdb._CONNECTION_POOL_ENABLED:
+        return
+    db = MusicDatabase(str(tmp_path / 'm.db'))
+    db.get_artist_thumbs_by_names(['warm'])  # opens one and gives it back
+    opened = []
+    real_connect = sqlite3.connect
+    monkeypatch.setattr(mdb.sqlite3, 'connect', lambda *a, **k: opened.append(a) or real_connect(*a, **k))
+    for _ in range(3):
+        db.get_artist_thumbs_by_names(['a'])
+        db.get_album_thumbs_by_titles(['b'])
+    assert opened == []
