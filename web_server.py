@@ -6440,13 +6440,15 @@ def search_music_stream():
 
     requested_source = (data.get('source') or '').strip().lower() or None
     logger.info(f"Web UI streamed search for: '{query}'" + (f" (source={requested_source})" if requested_source else ""))
-    add_activity_item("", "Search Started", f"'{query}'", "Now")
 
     def generate():
         for event in _search_basic.stream_basic_search(
                 query, download_orchestrator, run_async, source=requested_source):
             if event.get("type") == "done":
-                add_activity_item("", "Search Complete", f"'{query}' - {len(event['results'])} results", "Now")
+                # the page searches as you type and shows its own status, so
+                # this is recorded without a toast and without a "started" line
+                add_activity_item("", "Search Complete", f"'{query}' - {len(event['results'])} results", "Now",
+                                  show_toast=False)
             yield json.dumps(event) + "\n"
 
     return Response(

@@ -165,6 +165,9 @@ def test_the_endpoint_streams_ndjson(web_server, monkeypatch):
     fake = _StreamingSoulseek(snapshots=[([], [folder], 1)], final=([], [folder]), pause=0.02)
     monkeypatch.setattr(web_server, 'download_orchestrator', fake)
     monkeypatch.setattr(web_server, 'run_async', _run_async)
+    recorded = []
+    monkeypatch.setattr(web_server, 'add_activity_item',
+                        lambda *args, **kwargs: recorded.append((args, kwargs)))
     client = web_server.app.test_client()
     started = time.monotonic()
     response = client.post('/api/search/stream', json={'query': 'pale harbour'})
@@ -173,6 +176,8 @@ def test_the_endpoint_streams_ndjson(web_server, monkeypatch):
     lines = [json.loads(line) for line in response.get_data(as_text=True).splitlines() if line.strip()]
     assert lines[-1]['type'] == 'done' and lines[-1]['files'] == 1
     assert time.monotonic() - started < 30
+    # searching as you type shouldn't toast: one quiet "Search Complete"
+    assert [(args[1], kwargs.get('show_toast')) for args, kwargs in recorded] == [('Search Complete', False)]
 
 
 def test_the_endpoint_needs_a_query(web_server):
