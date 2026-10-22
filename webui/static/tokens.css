@@ -21,9 +21,9 @@
        triplets are comma-separated so rgba(var(--accent-rgb), a) works.
        --accent / --accent-light resolve on :root: an element that scopes its
        own --accent-rgb must also set --accent if it wants it to follow. */
-    --accent-rgb: 29, 185, 84;
-    --accent-light-rgb: 30, 215, 96;
-    --accent-neon-rgb: 34, 255, 107;
+    --accent-rgb: 139, 92, 246; /* Lilac, the default accent */
+    --accent-light-rgb: 194, 169, 250;
+    --accent-neon-rgb: 237, 230, 255;
     --accent: rgb(var(--accent-rgb));
     --accent-light: rgb(var(--accent-light-rgb));
     --accent-color: var(--accent);

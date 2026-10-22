@@ -20,6 +20,12 @@ Questions 1–28 were answered in Design's session of 22 October (the log entry 
 
 ## Log
 
+### 2026-10-22: Dev, Lilac is the default accent
+
+On `ux/lilac-default`, as Ross decided on 22 October. An install with no accent saved now gets Lilac (`#8b5cf6`, accent-light `#c2a9fa`) instead of Spotify Green: the fresh-install config (`core/settings.py`, from `DEFAULT_ACCENT` in `core/ui_appearance.py`), the page shell's fallback (`web_server.py`), `init.js` (`applyAccentColor`, the bootstrap and the fallback colours), `settings.js`, the `tokens.css` `:root` triplets, `particles.js`, `DEFAULT_ACCENT` in `src/features/settings/accent.ts`, the Appearance markup and labels, Home's quick swatches and the visual harness. What's saved is never rewritten, so an install that chose Spotify Green (or any preset) keeps it. Lilac's card was already first; it now says "The default", and Spotify Green is a normal preset. Spotify's brand green stays on everything that marks Spotify itself. Three hover borders in `downloads.js` that hard-coded the old green now use the accent.
+
+**Tests:** vitest on `src/features/settings`, `src/shell`, `src/routes/dashboard` and `src/features/onboarding`, with new tests that the default is Lilac everywhere and that a saved Spotify Green stays; pytest for a fresh config and the shell (`tests/test_initial_appearance_template.py`) and every test file that reads the files touched. The visual baselines (`webui/tests/visual/`, Docker) aren't refreshed: the harness renders in Lilac now.
+
 ### 2026-10-22: Dev, Design's small changes (answers 2, 11, 13, 18, 22, 23, 25, 26)
 
 Built on `ux/design-1022-small` from Design's answers in the entry below and the boards they name (`Nav v2 (Shell A)` 1m/1n, `Artist v2` 2g/2h, `Search results` 2m/2n, `Automation assistant (block editor)` 3a). Answer 7 ("Checking…") and the Following tab are on another branch; the nebula half of 9 waits for open question 32.
@@ -142,7 +148,7 @@ From Design's session in the Claude Design project: `design_handoff_syncfm_ui/RE
 - **The accent is Lilac:** today's "Boulder Purple" preset, `#8b5cf6` with accent-light `#c2a9fa` (dark text 9.7:1). Rename "Boulder Purple" to "Lilac" and "Purple" (`#a78bfa`) to "Pale Purple" in `#accent-preset`. Every board from this session renders in Lilac; the earlier boards stay green.
 - **Names:** "Library Radio" becomes "Shuffle your library" if it gets confused with Radio once Radio exists (Ross to say). Merge duplicate artist goes to `BACKLOG.md` as Exploring, as a Maintenance tool with preview-then-confirm.
 - **Settled with Ross (BACKLOG "Questions for Ross"):** Settings → AI shows usage and an optional monthly cap, estimated locally from token counts; the default model is the faster, cheaper one, with the best one a click away. Auto-add is limited to 50 a day per station; radio doesn't count towards Home.
-- **Still Ross's to decide:** Lilac as the default for new installs, or keep Spotify Green upstream and set Lilac on his install. Until he says, the default stays Spotify Green.
+- **Decided by Ross (22 October):** Lilac is the default for new installs (see "Dev, Lilac is the default accent" above).
 
 **BACKLOG: Questions for Design, answered**
 

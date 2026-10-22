@@ -7139,7 +7139,7 @@ const additionalStyles = `
 
 .search-result-item:hover {
     background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(29, 185, 84, 0.2);
+    border-color: rgba(var(--accent-rgb), 0.2);
 }
 
 .result-header {
@@ -7198,8 +7198,8 @@ const additionalStyles = `
 }
 
 .stream-button:hover {
-    background: rgba(29, 185, 84, 0.2);
-    border-color: rgba(29, 185, 84, 0.5);
+    background: rgba(var(--accent-rgb), 0.2);
+    border-color: rgba(var(--accent-rgb), 0.5);
 }
 
 .download-button {
@@ -7244,7 +7244,7 @@ const additionalStyles = `
 
 .artist-card:hover {
     background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(29, 185, 84, 0.2);
+    border-color: rgba(var(--accent-rgb), 0.2);
 }
 
 .artist-image {

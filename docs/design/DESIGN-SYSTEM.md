@@ -35,15 +35,15 @@ Weights: 400 body, 500 controls, 600 headings, 700 page titles and big numbers. 
 
   | Preset | Accent | Accent-light | Dark text on accent-light |
   | --- | --- | --- | --- |
-  | Spotify Green (default) | `#1db954` | `#46e27d` | 11.6:1 |
+  | **Lilac** (default; was "Boulder Purple") | `#8b5cf6` | `#c2a9fa` | 9.7:1 |
+  | Spotify Green | `#1db954` | `#46e27d` | 11.6:1 |
   | Ocean Blue | `#1d8ab9` | `#46b3e2` | 8.2:1 |
   | Pale Purple (was "Purple") | `#a78bfa` | `#e2d9fd` | 14.6:1 |
-  | **Lilac** (was "Boulder Purple") | `#8b5cf6` | `#c2a9fa` | 9.7:1 |
   | Sunset Orange | `#f59e0b` | `#f8bd59` | 11.6:1 |
   | Rose | `#f43f5e` | `#f88c9f` | 8.6:1 |
   | Teal | `#14b8a6` | `#35e9d5` | 12.9:1 |
 
-  **Lilac is the fork's accent** (Ross, 2026-10-22): every board from Design's 22 October session renders in it (`--ss-accent-rgb: 139,92,246; --ss-accent-light-rgb: 194,169,250`), while the earlier boards still show green. Whether it becomes the default for new installs is Ross's to say; until then the default stays Spotify Green. Settings → Appearance (5f, built) shows each preset as a radio card with a 60×40 two-tone swatch (accent | accent-light) and a preview strip of the five things the accent touches: the primary button, a selected row, a link, the focus ring and the played waveform.
+  **Lilac is the default accent** (Ross, 2026-10-22): every board from Design's 22 October session renders in it (`--ss-accent-rgb: 139,92,246; --ss-accent-light-rgb: 194,169,250`), while the earlier boards still show green. An install with no accent saved gets Lilac (`DEFAULT_ACCENT` in `core/ui_appearance.py` and `accent.ts`, the `tokens.css` defaults, `init.js`); one that saved a preset, Spotify Green included, keeps it. Spotify's own green stays wherever it marks Spotify itself (service badges, source pills, stats). Lilac's card comes first and says "The default". Settings → Appearance (5f, built) shows each preset as a radio card with a 60×40 two-tone swatch (accent | accent-light) and a preview strip of the five things the accent touches: the primary button, a selected row, a link, the focus ring and the played waveform.
 
   There is also "Custom" (any hex). On Settings → Appearance it's checked for 4.5:1 dark text on its accent-light, used and saved only when it passes; a hex that fails says so and offers the nearest preset (by hue). The server (`web_server.py`) and `init.js` (`applyAccentColor`) compute the pair; CSS reads them as `--ss-accent-rgb` and `--ss-accent-light-rgb`. The presets, the light shade and the contrast check are in `src/features/settings/accent.ts` for anything else that needs them (Home's quick swatches use it). What's saved is a preset's hex, never its name.
 - **Status:** success `#4ade80`, warning `#fbbf24`, danger `#f87171`, info `#38bdf8`, neutral 86% white on a 6% wash. Tags use the colour at 12% as the background and the colour as the text, with an 8px dot. Status always comes with a word, and an icon where there's room.

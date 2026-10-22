@@ -13,7 +13,7 @@
   --ob-soft: #d4d4d8;
   --ob-muted: #a1a1aa;
   --ob-faint: #8b8b93;
-  --ob-accent: rgb(var(--accent-rgb, 29, 185, 84));
+  --ob-accent: rgb(var(--accent-rgb, 139, 92, 246));
   --ob-on-accent: #05140b;
   --ob-warn: #fbbf24;
   position: fixed;
