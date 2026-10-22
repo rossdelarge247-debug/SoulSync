@@ -4,7 +4,7 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). These five came in with the upstream sync after that session read the repository, so they are still open. Answer on the canvas, naming the board, as before.
+Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, and 34–36 with build (b), so they are still open. Answer on the canvas, naming the board, as before.
 
 **Upstream sync (no boards)**
 29. Home's "Finish setting up" card sits under Latest. Right place, or above Targets while setup is fresh?
@@ -13,7 +13,83 @@ Questions 1–28 were answered in Design's session of 22 October (the log entry 
 32. Wanted's nebula now groups artists by what's stuck and opens an artist panel beside the field (upstream's look, kept). Answer 9 says the nebula isn't coming back, but it was written before this version arrived: remove "Show as a nebula", or keep this one?
 33. The video side's Wishlist is upstream's React page with the old music Wishlist's look (an ambient gradient hero, pill chips). Draw the video side's version of Wanted?
 
+**Settings → Appearance and Following (build b; boards 5e, 5f)**
+34. Following: a podcast that doesn't download new episodes says "Not downloading", and an audiobook follow whose last check failed says "Check failed" (warning), because "Nothing new" would be untrue for both. Right words, or should they live in the latest column with one of answer 7's tags?
+35. 5f says "Yours only; each profile picks its own", but the accent is one setting for the whole install, set by an admin. Should each profile pick its own accent (a new per-profile setting, so members could change it too), or keep one accent and the board's line goes?
+36. "Follow…" opens the artist search in place, but takes you to Search, Podcasts or Audiobooks to follow a label, a podcast or an author. Draw an in-place follow for those three?
+
 ## Log
+
+### 2026-10-22: Dev, Settings → Appearance (Lilac) and Following with kinds
+
+Build (b), on `ux/design-1022-appearance`: Settings → Appearance from "Settings Appearance" (5f) and Wanted's Following tab from "Followed (kind filter)" (5e), with the Lilac rename. Nothing from the other boards of this session is built here, and the nebula is untouched (question 32).
+
+**Settings → Appearance (5f)**
+
+The legacy Settings page's Appearance tab, restyled in place like Modules: markup in `webui/index.html` (`#appearance-settings`), look in `webui/static/appearance.css`, behaviour in `webui/src/shell/appearance.ts`, the presets and the contrast sums in `webui/src/features/settings/accent.ts`.
+
+- **Accent colour:** a 4-up grid of radio cards (14px; selected = 14% accent wash + 45% accent border), each a 60×40 swatch of the accent and the light shade the app makes from it (10px radius), its name, and "Selected" or "The default" under it. A real radio group: one tab stop, the arrow keys (and Home/End) move the choice and the focus together.
+- **The rename:** "Boulder Purple" is **Lilac** and "Purple" is **Pale Purple**. What's saved (`ui_appearance.accent_preset`) was always the preset's hex, never its name, so nothing in anyone's config changes: an install that chose Boulder Purple has `#8b5cf6` saved and now sees the Lilac card selected, in the same colour. The default stays Spotify Green.
+- **Custom…** takes any hex (`#8b5cf6`, `8b5cf6` or `#85f`; a native colour picker sits beside the field) and checks dark text `#0b0b0f` on its light shade, computed as `applyAccentColor` and the page shell do (+16% HSL lightness, capped at 95%). One that reaches 4.5:1 is used and saved as you type; one that doesn't says so ("#1e3a8a is too dark for an accent. Dark text on its light shade, #2d56cd, is 3.1:1, and buttons need 4.5:1. Your accent stays Lilac.") with "Use Ocean Blue instead" for the nearest preset, and nothing changes.
+- **The preview strip** on the page ground: the primary button, a selected row, a link, the focus ring and a played waveform, all following the accent live, with the mono line "#8b5cf6 → light #c2a9fa · dark text on it 9.7:1".
+- **Theme:** "Dark only for now…" with a neutral Dark tag.
+- **Motion and effects:** the settings that were already on the tab (sidebar visualizer, particles, worker orbs, reduce visual effects, max performance) as one card of rows on hairlines, with a 44px select or the design system's 20px checkbox. Everything still saves the way it did.
+
+Decisions the board doesn't show:
+
+- **"Yours only; each profile picks its own" isn't true today:** the accent is install-wide config, set by an admin (Settings is admin-only), so the card says "It applies to everyone using this SoulSync." Question 35 below. The board's "Sync.FM" is "SoulSync", as everywhere else.
+- **Choosing Custom starts from the accent in use**, so it never changes the colour by itself. A saved custom colour that fails today's check (from before the check) is shown as it is, with the warning and the offer, and isn't changed.
+- **The nearest preset** is the one with the nearest hue (a custom accent fails for being too dark, so lightness is the one thing not to match on); a grey goes by plain colour distance.
+- **Saving:** the page's existing autosave (a change on the hidden `#accent-preset` select), so the card behaves like every other setting on the page; no Save click needed.
+- **A saved hex that matches no preset** (one of upstream's older presets, or a hand-edited config) now shows as Custom in that colour, which is what the page shell already painted; Settings used to show the custom field's colour instead. An upper-case saved hex now matches its preset.
+- **The preview samples aren't controls** (they're hidden from screen readers; the mono line is read).
+- **Phones** (no board): two cards a row with the swatch above the name; the strip wraps and the mono line takes its own row.
+- **Max performance** still turns the three switches it overrides off; their rows say "Off while Max performance is on." in words, neutral, not faded.
+- **Home's quick swatches** (the "Library and system" footer) use the same preset list, so they say Lilac and Pale Purple too, and their custom swatch refuses a colour that fails the same check.
+
+**Following with kinds (5e)**
+
+`webui/src/routes/wanted`: the tab in `-ui/followed-tab.tsx`, rows in `-ui/rows.tsx`, the per-kind rules in `-wanted.following.ts`.
+
+- **The tab is "Following"** with the combined count of artists, labels, podcasts and audiobook follows (`?tab=followed` stays, so links keep working).
+- **Show:** All / New release / Not checked yet / Nothing new, with counts on the first two, and a live **"Checking…"** tag with the pulsing dot beside them while a check runs; the row being checked shows a live "Checking" tag and "Checking…" in its latest column.
+- **Kind:** All / Artists / Labels / Podcasts / Authors with counts, and the sort select at the row's end, defaulting to **Newest activity first**. Podcasts and Authors are there only while their modules are on (and Authors only for a profile that may see Audiobooks). Kind, filter and sort are in the URL; an old `?list=labels|podcasts|audiobooks` or `/watchlist?tab=…` link lands on its kind.
+- **Rows** keep the `48px 1fr 260px 160px 224px` grid. The meta line starts with the kind ("Label · 6 on Wanted · new releases only", "Podcast · 212 episodes · 40 kept for 30 days · new episodes download", "Author · 4 found since you followed · 1 on Wanted"); art is round for people (artists, authors, narrators) and square for labels (their initials) and podcasts (a microphone when there's no art). The hover action is Open artist / label / podcast / author; the row menu has Unfollow… (asks first, and says what stays) plus each kind's own settings.
+- **The primary is "Follow…"**, a menu that asks what: "An artist…" opens the follow search as before; a label, a podcast or an audiobook author take you to where those are followed (Search, Podcasts, Audiobooks).
+- **The schedule line** names each kind's check ("Artists and labels are checked every 24 hours (Auto-Scan Watchlist) and new releases go to Wanted; the next check is in about 9 hours. Podcasts are checked every hour; audiobook authors every 7 days."), and **Check now** checks the kind on show: artists and labels share one check; podcasts and authors have their own ("Check podcasts now", "Check authors now").
+- **Select several → Unfollow…** works across kinds.
+
+Decisions the board doesn't show:
+
+- **What "new" means per kind**, from what's stored (the board's note asked for a kind on the summary, podcast episode counts and author book counts): an artist, as before (a check found something in the last 7 days); a **label**, a release its check put on Wanted in the last 7 days that's still there (wishlist source `watchlist_label`); a **podcast**, an episode downloaded in the last 7 days ("New episode", from the new route below); an **audiobook follow**, a book by them, published after the follow's date, added to the audiobook wishlist in the last 7 days.
+- **Two words outside answer 7's set**, because "Nothing new" would be untrue: a podcast that doesn't download new episodes says **"Not downloading"** (its check only counts episodes, so SoulSync can't know), and an audiobook follow whose last check failed says **"Check failed"** (warning) with the reason in the latest column. Question 34 below.
+- **No library counts for labels, podcasts or authors** ("42 releases in your library", "4 audiobooks in your library"): SoulSync doesn't store them per label or author. Labels say what's on Wanted from them; podcasts what's kept; authors what following them has found.
+- **"Authors" holds every audiobook follow:** authors, narrators and series, each saying which on its meta line ("Narrator", "Series"); a series has square art and "Open series" searches the audiobook catalogue for it.
+- **The latest column wraps to two lines** instead of cutting off, since it now says where the new thing went ("· on Wanted", "· downloaded").
+- **Newest activity first** orders by the newest find, or the follow itself when there's none. It's the default, so an old `/watchlist` link without a sort no longer lands on A–Z.
+- **Show counts are within the chosen kind**; "Nothing new" has no count, as drawn. "Checked 30+ days ago" and "Own settings" stay as artist-only extras, offered under Kind → Artists when they have something in them.
+- **Labels are install-wide** (the label watchlist has no profile), as they were on the old Labels view.
+- **Each kind's row menu:** an artist's "Settings for this artist…"; a label's "Also get the whole catalogue" / "Only new releases from now on"; a podcast's "Stop downloading new episodes" / "Download new episodes" and "Keep and download settings…"; an author's "Settings for this author…" (narrator, series).
+
+**The old-look views in the "…" menu**
+
+- **Removed:** Labels you follow, Podcasts you follow and Audiobook authors you follow. Their rows on this tab do everything those cards did: open, the latest and check state, the label's back-catalogue switch, the podcast's download and keep settings, the author's settings, unfollow, find, and the authors' Check now. Their components are deleted.
+- **Kept,** because 5e doesn't cover them: Followed artist settings…, Update similar artists, Check history…, Downloads from followed artists… and Blocklist… in the tab's "…" menu; the old-look podcast and author settings dialogs, opened from those rows' menus (5e asks for "the options that exist today"); the live check details and the artist panel fallback, as before.
+
+**New route (`CONTRACTS.md`, "Wanted page")**
+
+`GET /api/podcasts/watchlist/summary`: per show the profile follows, the downloaded episodes still kept, the newest episode downloaded and when, and whether that was in the last 7 days. Read-only, from the download record; the watchlist list route has neither. Tests in `tests/test_podcasts_watchlist_api.py`.
+
+**Tests:** vitest for the accent sums and the preset list against `#accent-preset` (`src/features/settings/accent.test.ts`), the cards, keyboard and custom check over the real markup (`src/shell/appearance.test.ts`), the per-kind rows (`-wanted.following.test.ts`) and the tab end to end (`routes/wanted/-route.test.tsx`, `routes/watchlist/-route.test.tsx`); pytest for the route. The visual baselines (`webui/tests/visual/`, Docker) aren't refreshed: Settings and `/watchlist` look different now.
+
+Screenshots (in the session scratchpad; not in the repo), 1440×900 and 390×844, in Lilac and in the default green:
+
+- `appearance-lilac-1440(-full)`, `appearance-lilac-390(-full)`, `appearance-green-1440(-full)`, `appearance-green-390(-full)`;
+- `appearance-keyboard-focus-1440`, `appearance-custom-pass-1440`, `appearance-custom-fail-1440`, `appearance-custom-fail-390`;
+- `following-1440-lilac(-full)`, `following-390-lilac`, `following-1440-green(-full)`, `following-390-green`;
+- `following-checking-1440-lilac(-full)`, `following-checking-1440-green(-full)`;
+- `following-podcasts-1440-lilac` (hover), `following-row-menu-1440-lilac`, `following-authors-1440-lilac`, `following-labels-390-lilac`, `following-follow-menu-1440-lilac`;
+- `before-appearance-1440`, `before-appearance-390` (the tab before).
 
 ### 2026-10-22: Design, the two BACKLOG features, the player and Lilac (approved by Ross)
 
