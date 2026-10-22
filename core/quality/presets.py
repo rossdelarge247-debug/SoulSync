@@ -212,6 +212,75 @@ def preset_counts(database) -> Dict[str, Any]:
     return {"total": total, "unknown_format": unknown, "presets": presets, "current": current}
 
 
+# ── one artist's albums against the target ──────────────────────────────────
+
+_FORMAT_NAMES = {"flac": "FLAC", "alac": "ALAC", "wav": "WAV", "dsf": "DSD", "mp3": "MP3",
+                 "aac": "AAC", "ogg": "OGG", "opus": "Opus", "wma": "WMA"}
+
+
+def quality_label(aq: AudioQuality) -> str:
+    """What a file is, the way the artist page's cards say it: "FLAC",
+    "MP3 320", "AAC 256". Lossless formats leave the bitrate out."""
+    name = _FORMAT_NAMES.get(aq.format)
+    if not name:
+        return "Unknown format"
+    if aq.format in LOSSLESS_FORMATS or not aq.bitrate:
+        return name
+    return f"{name} {aq.bitrate}"
+
+
+def artist_album_quality(database, artist_id) -> Optional[Dict[str, Any]]:
+    """Each of a library artist's albums against the current quality target.
+
+    For the artist page's "Below quality target" tag: per album, how many of
+    its tracks with a file are below the default quality profile's bar, judged
+    by the same extension + stored bitrate rules as ``preset_counts`` (no file
+    reads), plus the formats it holds, most tracks first. Albums are the
+    artist's own rows (``albums.artist_id``) in the caller's library scope;
+    tracks without a file are left out. ``None`` when the artist isn't in the
+    library.
+    """
+    scope_sql, scope_params = database._current_scope_sql("t.owner_profile_id")
+    with closing(database._get_connection()) as conn:
+        artist = conn.execute("SELECT id FROM artists WHERE id = ?", (artist_id,)).fetchone()
+        if artist is None:
+            return None
+        rows = conn.execute(
+            f"SELECT al.id AS album_id, al.title AS title, {_EXT_SQL.replace('file_path', 't.file_path')} AS ext, "
+            f"COALESCE(t.bitrate, 0) AS br, COUNT(*) AS n FROM albums al "
+            f"JOIN tracks t ON t.album_id = al.id "
+            f"WHERE al.artist_id = ? AND t.file_path IS NOT NULL AND t.file_path != '' AND {scope_sql} "
+            f"GROUP BY al.id, ext, br ORDER BY al.id",
+            [artist["id"], *scope_params]).fetchall()
+    current = current_target(database)
+    targets = current.pop("targets", [])
+    albums: Dict[Any, Dict[str, Any]] = {}
+    for row in rows:
+        album = albums.setdefault(row["album_id"], {
+            "id": row["album_id"], "title": row["title"] or "", "tracks": 0, "below_target": 0,
+            "_formats": {}})
+        aq = audio_quality(row["ext"] or "", int(row["br"] or 0))
+        n = int(row["n"])
+        album["tracks"] += n
+        # a profile with no targets imposes nothing, so nothing is below it
+        if targets and not meets_targets(aq, targets):
+            album["below_target"] += n
+        label = quality_label(aq)
+        album["_formats"][label] = album["_formats"].get(label, 0) + n
+    out = []
+    for album in albums.values():
+        formats = album.pop("_formats")
+        album["formats"] = [label for label, _n in sorted(formats.items(), key=lambda kv: (-kv[1], kv[0]))]
+        out.append(album)
+    return {
+        "artist_id": artist["id"],
+        "target": {k: current.get(k) for k in ("name", "preset", "quality_profile_id", "quality_profile_name")},
+        "tracks": sum(a["tracks"] for a in out),
+        "below_target": sum(a["below_target"] for a in out),
+        "albums": out,
+    }
+
+
 __all__ = ["PRESETS", "CACHE_TTL_SECONDS", "clear_cache", "library_quality_groups", "audio_quality",
            "meets_preset", "meets_targets", "count", "preset_for", "target_name", "current_target",
-           "preset_counts"]
+           "preset_counts", "quality_label", "artist_album_quality"]

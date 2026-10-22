@@ -15,6 +15,22 @@ import { z } from 'zod';
  * arrives as a NUMBER and a bare z.string() throws SearchParamError, killing
  * the route. That bug has been fixed once already — keep the coercion.
  */
+/** The Artist page's tabs; Releases is the default and never in the URL. */
+export const ARTIST_TABS = ['releases', 'tracks', 'similar'] as const;
+export type ArtistTab = (typeof ARTIST_TABS)[number];
+
+/** The release filters (the boards' All / Albums / Missing). */
+export const RELEASE_FILTERS = ['all', 'albums', 'missing'] as const;
+export type ReleaseFilter = (typeof RELEASE_FILTERS)[number];
+
+/** A flag in the URL: present and true, or absent. */
+const searchFlag = z
+  .preprocess(
+    (v) => (v === true || v === 'true' || v === 1 || v === '1' ? true : undefined),
+    z.boolean().optional(),
+  )
+  .catch(undefined);
+
 export const artistDetailSearchSchema = z.object({
   name: z
     .preprocess((v) => (v == null ? '' : String(v)), z.string())
@@ -23,6 +39,14 @@ export const artistDetailSearchSchema = z.object({
   album: z
     .preprocess((v) => (v == null || v === '' ? undefined : String(v)), z.string().optional())
     .optional(),
+  /** Which tab is open, so Back steps between them. */
+  tab: z.enum(ARTIST_TABS).optional().catch(undefined),
+  /** The release filter. */
+  show: z.enum(RELEASE_FILTERS).optional().catch(undefined),
+  /** Every release, not the first page ("Show all 14"). */
+  all: searchFlag,
+  /** Tracks tab: the library's tag and file tools (admins). */
+  manage: searchFlag,
 });
 
 export type ArtistDetailSearch = z.infer<typeof artistDetailSearchSchema>;

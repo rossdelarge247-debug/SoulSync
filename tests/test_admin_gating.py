@@ -139,3 +139,10 @@ def test_profile_scoped_activity_and_targets_not_overgated(client, nonadmin, pat
     r = client.get(path)
     assert r.status_code == 200, f"{path} -> {r.status_code}"
     assert r.get_json()['success'] is True
+
+
+def test_artist_quality_is_a_member_read_not_admin_only(client, nonadmin):
+    # the artist page's quality tags (api/targets.py): a member reads them like
+    # the artist page itself. an artist the library doesn't hold is a 404 for
+    # them, never a 403 or a 401
+    assert client.get('/api/quality/artist/no-such-artist').status_code == 404

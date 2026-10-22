@@ -10,6 +10,11 @@ GET /api/quality/presets
     For each preset (mp3_320, flac, flac_24, lossless) how many library tracks
     already meet it, out of how many, plus the current target (the default
     quality profile) and when that profile was last saved.
+
+GET /api/quality/artist/<artist_id>
+    One library artist's albums against the current target: per album, its
+    tracks with a file, how many are below the target, and the formats held.
+    The artist page's "Below quality target" tag. Read-only, any profile.
 """
 
 from __future__ import annotations
@@ -61,6 +66,20 @@ def get_quality_presets():
     except Exception as exc:  # noqa: BLE001
         logger.error("quality preset counts failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't count your library's quality"}), 500
+    return jsonify({"success": True, **data})
+
+
+@bp.route("/api/quality/artist/<artist_id>", methods=["GET"])
+def get_artist_quality(artist_id):
+    if get_current_profile_id() is None:
+        return jsonify({"success": False, "error": "profile_required"}), 401
+    try:
+        data = _presets.artist_album_quality(get_database(), artist_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("artist quality failed for %s: %s", artist_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't check this artist's quality"}), 500
+    if data is None:
+        return jsonify({"success": False, "error": "Artist not found in the library"}), 404
     return jsonify({"success": True, **data})
 
 

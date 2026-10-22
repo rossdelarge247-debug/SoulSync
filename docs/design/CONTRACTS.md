@@ -211,6 +211,43 @@ There's no total of an artist's releases: SoulSync doesn't store discographies.
 - `/api/quality-profile/custom`, for quality names on rows;
 - `/api/library/artists?search=`, for Open artist.
 
+### Artist page
+
+`/artist-detail/<source>/<id>`, where `<source>` is `library` for a library artist (the id is the library's) or a metadata source (`spotify`, `deezer`, …) for anyone else; `?name=` travels with it for sources that can only look an artist up by name. Search params: `tab` (`tracks`, `similar`; Releases is the default), `show` (`albums`, `missing`; All is the default), `all=true` (every release), `manage=true` (Tracks: the tag and file tools, admins), `album=<library album id>` (old links; opens Tracks on that album).
+
+**One artist's albums against the quality target: `GET /api/quality/artist/<artist_id>`.** New. `artist_id` is the library's artist id. Any profile may read it (the library is shared reading, like the page); it needs a profile (401 without one), and an artist the library doesn't hold is a 404.
+
+```json
+{
+  "success": true, "artist_id": "42",
+  "target": {"name": "FLAC or better", "preset": "flac", "quality_profile_id": 1, "quality_profile_name": "Balanced"},
+  "tracks": 132, "below_target": 12,
+  "albums": [
+    {"id": "811", "title": "Low Light", "tracks": 11, "below_target": 11, "formats": ["MP3 320"]},
+    {"id": "812", "title": "Night Ferry", "tracks": 10, "below_target": 0, "formats": ["FLAC"]}
+  ]
+}
+```
+
+- Per album (the artist's own album rows, in the caller's library scope): its tracks with a file, how many are below the default quality profile's bar, and the formats it holds, most tracks first ("FLAC", "MP3 320", "AAC 256"; lossless formats carry no bitrate).
+- Judged from each file's type and stored bitrate by the same rules as `/api/quality/presets` (`core/quality/presets.py`): no file reads, FLAC 24-bit by the 1450 kbps estimate, `.m4a` as ALAC at 500 kbps or more. A profile with no targets puts nothing below. Ids are the library's own, as text.
+- `tracks` is also the page's "132 tracks" and the Tracks tab's count.
+
+**Which library album a release is: `library_album_id` on completion results.** Each owned result of the library completion stream (`POST /api/library/completion-stream`, and the artist completion routes) now names the library album row the check matched; missing releases carry `null`. The page joins the quality answer on it, and uses it for "Show in your library".
+
+**Also read by the page, unchanged:**
+
+- `GET /api/artist-detail/<id>` (`?source=&name=`): the artist and the discography (the provider's, or the library's albums when the provider fails, with `provider_error`); `enrichment_coverage`.
+- `POST /api/library/completion-stream`: ownership per release (`status`, `owned_tracks`, `expected_tracks`, `formats`).
+- `GET /api/artist/<id>/discography/gap-fill` and its own completion stream, when "Releases only your other metadata sources list" is on.
+- `/api/wishlist/tracks?category=albums|singles`: what's on Wanted, matched to a release by the album id the track was added with, else by title.
+- `POST /api/watchlist/check`, `/api/watchlist/artists` (following and "since"), `POST /api/watchlist/add` and `/api/watchlist/remove` (the toggle), `/api/watchlist/artist/<id>/config` (Following settings, About), `/api/watchlist/global-config`.
+- `POST /api/artist/<id>/download-discography`: Add to Wanted and Add all missing (NDJSON: a line per release, then `{"status": "complete"}`); it skips tracks you own, tracks already on Wanted and what the release filters leave out.
+- `GET /api/artist/similar/<name>`, `GET /api/artist/<id>/top-tracks` and `GET /api/artist/0/lastfm-top-tracks?name=`, `GET /api/library/artist/<id>/enhanced` (Tracks), `GET /api/album/<id>/tracks` (a release's tracks), `POST /api/library/check-tracks` (play what you have), `GET /api/artist/<id>/appears-on`, `GET /api/artist/<name>/concerts`.
+- Admin tools, unchanged: `POST /api/library/artist/<id>/sync`, `DELETE /api/library/artist/<id>`, the art and match routes behind Change photo and Check matches.
+
+What the data can't say: a release's full tracklist without fetching it (so "132 tracks" is the tracks you have); whether a whole discography is complete beyond what the provider lists; "Hide" or "Merge" for an artist (neither exists).
+
 ## Available today, not yet designed for
 
 - **Automation run history:** `GET /api/automations/<id>/history?limit=&offset=`. Each run has `started_at`, `finished_at`, `duration_seconds`, `status`, `summary`, `result` (counts the run produced) and `log_lines`. The Automations prototype can use this as it is.

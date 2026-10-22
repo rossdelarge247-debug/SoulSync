@@ -8,6 +8,112 @@ None open. Questions raised while building go in the log entry that raised them.
 
 ## Log
 
+### 2026-10-21: Dev, Artist page
+
+Built on `ux/artist-page` from "Artist v2" (2g at 1440, 2h at 390), the interaction-state rules (2u) and the failure pattern (2s). The code is in `webui/src/routes/artist-detail` (`-ui/artist-page.tsx` and its neighbours).
+
+**One artist page.** There were three artist screens: the library's artist view and the source-artist view (the same `/artist-detail/<source>/<id>` route, drawn two ways), and the followed-artist panel on Wanted ("About this artist…"). The route stays the one Artist page, so every link, bookmark and the shell's routing land on it without a hop; it now draws one way for everyone, with library-only parts left out for an artist who isn't in the library.
+
+- Search, Discover, Library (artists and the album grid), label pages, Home's rails, Stats, Maintenance findings, Issues, Playlist explorer and Wanted already linked to `/artist-detail/…` and land on the new page.
+- Wanted's followed-artist row has no "About this artist…" any more; Open artist lands here. Old `/watchlist?detailId=` and `/wanted?tab=followed&detailId=` links hand over to the Artist page (replacing the history entry). The old panel stays only for an artist whose page can't be opened (matched only on switched-off sources), because it says so and links to the artist's settings.
+- `?album=<id>` (the library's album grid, issue fixes) used to open that album in the "Your library" view. It opens the Tracks tab now: admins get the tag, file and match tools with the album open, everyone else the track list scrolled to it. Issue fix buttons land on the same tools.
+- Discover's "Your artists" quick look stays a preview inside Discover (it carries the map's Explore and related-artist hops); its "View Discography" opens the Artist page.
+
+**What's built**
+
+- **Header** (2g): art, the "Artist" label, the name, "14 releases · 9 in your library · 5 on Wanted · 132 tracks", the following tag ("Following since March 2025") and "Latest: Tidewater, March 2026 · Spotify · MusicBrainz" with the services SoulSync matched the artist on. Phones (2h): 96px art, "14 releases · 9 in library · 5 wanted", the tag on its own line.
+- **Actions:** "Add all missing to Wanted", the Follow / Following toggle (selected style with a check; icon-only on phones) and a "…" menu. While you don't follow the artist, the one-line notice says what following does (desktop, as drawn).
+- **Tabs** Releases / Tracks / Similar artists with counts, and **filters** All / Albums / Missing, kept in the URL (`?tab=tracks`, `?show=missing`) so Back steps between them. Arrow keys move between tabs.
+- **Release cards** (4 across at 1440, 3 between, 2 on phones): square art, the title (opens the release's tracks: the old card's download modal, where you can pick tracks, download them or add them to Wanted), "2026 · Album · 12 tracks · FLAC", and the state in Wanted's words: In your library, Below quality target, a partly complete album with the 8px bar and "11 of 12 · Searching" (or "· not found yet", or "11 of 12 in your library" with Add to Wanted when nothing of the rest is wanted), Wanted · Searching / Wanted · not found yet, or Add to Wanted on the quiet 2% card. A release still being checked says "Checking your library…".
+- **Ordering:** albums (and compilations) newest first, then EPs and singles newest first. **Paging:** "8 of 14 releases · Show all 14" (4 on phones), `?all=true` in the URL.
+- **Follow / unfollow** use the existing watchlist routes, optimistically: the button flips at once and flips back with a message if the server says no. Unfollow asks first: "SoulSync stops checking Pale Harbour for new releases. The 5 things already on Wanted stay there and keep being searched for. Nothing in your library changes."
+- **Add to Wanted** uses the Download Discography endpoint the old page used (it adds the tracks you don't have and skips what you own, what's queued and what your release filters leave out). Optimistic: the card reads "Wanted · Searching" at once, and goes back to Add to Wanted, with the reason, for any release that ends up with nothing on Wanted. "Add all missing to Wanted" asks first ("Add 6 releases to Wanted?", with the album/EP split and what's skipped), offers "Choose releases…" (the old chooser), and is the neutral disabled button, with the reason beside it, while the library check runs or when nothing is missing.
+- **Tracks tab:** Popular (the metadata source's top ten, or Last.fm's most played; play, Add to Wanted, add to a playlist, "Get these…") and In your library (every track with a file, grouped by release, newest first; play, play next, add to queue, add to a playlist; 50 then Show all). Admins get "Edit tags and files", which opens the old "Your library" tools in place (`?manage=true`), unchanged.
+- **Similar artists tab:** MusicMap's neighbours as cards with round avatars, each opening its own Artist page; one without a match on your sources is shown, not linked.
+- **Loading, empty and failure:** the header (with the name from the link), tabs and filters stay; "Loading Pale Harbour…" beside card-shaped placeholders; a failed load is a danger Notice ("Couldn't load Pale Harbour", why, "Your library and Wanted are safe; this is a display problem.", Try again, and Run Setup check for admins) over faded, still placeholders. No releases at all is the empty panel ("No releases listed for Pale Harbour", Search for music). A metadata source that didn't answer is a warning Notice ("Showing only what's in your library") instead of the old toast.
+
+**Where the numbers come from**
+
+| Number | Source |
+| --- | --- |
+| Releases | The discography `GET /api/artist-detail/<id>` returns (the metadata provider's, merged with the library's when the provider fails), under the page's release-type filters. The Releases tab count is the same number. |
+| In your library | Releases the library completion stream (`POST /api/library/completion-stream`) reports owned, fully or partly. |
+| On Wanted | Releases with at least one of this artist's tracks on Wanted (`/api/wishlist/tracks`, both categories), matched by the album id the track was added with, else by title. "Searching" / "not found yet" follows the Wanted page: not found yet once the most-tried track has had 3+ tries. |
+| Tracks | Your library's tracks with a file for this artist (`GET /api/quality/artist/<id>`), or the artist-detail payload's track count until that answers. The Tracks tab count is the same. |
+| Below quality target | `GET /api/quality/artist/<id>` (new, `CONTRACTS.md`), joined on the library album the completion stream matched (`library_album_id`, now on each owned result). |
+| Following since | The followed row's `date_added` from `/api/watchlist/artists`; following itself from `/api/watchlist/check`. |
+| Latest | The newest release date in the discography. |
+
+**Differs from the boards, and why**
+
+1. **Each release card has a quiet "⋮" beside its title** (Tracks and download…, Play, Show in your library, Add to Wanted, Open on MusicBrainz). The old cards had a play button and a MusicBrainz link; the board's card has room for neither.
+2. **"Add all missing to Wanted" asks first.** It can add hundreds of tracks that then download on the next search. The dialog also holds "Choose releases…", the old Download Discography chooser.
+3. **The "…" menu holds more than the board's three entries** (list below). "Refresh from source" is "Refresh from your media server" (the existing sync, admins, library artists). **"Merge duplicate artist" and "Hide" are left out:** SoulSync has no artist merge and no "hide an artist" (the nearest are moving one album to another artist in the tag tools, and the download blocklist, which is stronger than hiding).
+4. **"132 tracks" counts the tracks you have**, not every track of the discography: SoulSync doesn't fetch every release's tracklist for the page. The Tracks tab lists those tracks.
+5. **The filters keep the board's three.** The old bar's release types, live / compilations / featured, and "+ Other sources" are in "…" → More filters…. The old "Owned" filter is not anywhere (question 2).
+6. **Phones keep the filters** (a sideways-scrolling row under the tabs) and the "…" button beside Follow; 2h draws neither, but both hold things you can't reach otherwise. The not-following notice is left off phones, as drawn.
+7. **A partly complete album shows no format in its meta line**, as drawn; an album you have whole does.
+8. **Similar artists, Tracks and About aren't drawn**; they follow the evolved rules (rows like Wanted's, cards like the release cards, a 680px dialog).
+9. **Appears on and Music videos** sit under the release grid, and **live dates** in About, in their existing look. They show nothing when there's nothing to show.
+10. **Width:** at 1440 the content pane is about 1104px (the sidebar takes 256), so cards are about 264px, not the board's 287.
+11. **Primary fill** is the computed accent-light (`#46e27d` for the default green), not the board's `#1ed760` stand-in, as on every other page.
+12. **The page's own "← Back" button is gone;** the top bar's Back does it.
+13. **Phones start 70px below the top bar,** not 2h's 20px: `mobile.css` still pads every `.page` for the old floating menu button. That's the shell's to change (every page has it), so this branch leaves it.
+
+**Kept, and where it went** (old artist page, and Wanted's artist panel)
+
+| Old screen | Feature | Where it is now |
+| --- | --- | --- |
+| Artist page | Photo, with Deezer and release-cover fallbacks | Header art (same fallbacks) |
+| Artist page | Change photo (art picker) | "…" → Change photo… (library artists) |
+| Artist page | Provider badges | Header links after "Latest:"; About → Matched on |
+| Artist page | Artist Radio | "…" → Play artist radio (library artists) |
+| Artist page | Add to Watchlist / Watching, settings pop-in | Follow / Following; "…" → Following settings… once followed; the pop-in's "download what's out" is Add all missing |
+| Artist page | Treat as audiobook | "…" → File as audiobooks (hidden while Audiobooks is off) |
+| Artist page | Download / Request Discography (choose releases, editions, wishlist + watchlist) | "…" → Choose releases to add…, and "Choose releases…" in the Add all missing dialog (same chooser) |
+| Artist page | Enhance Quality | "…" → Find better copies… (same picker) |
+| Artist page | Delete Artist (database only) | "…" → Remove from library… (admins; danger confirm that says no file is deleted) |
+| Artist page | Report | "…" → Report a problem… |
+| Artist page | Genres and Last.fm tags, bio, listeners and plays | "…" → About |
+| Artist page | Albums / EPs / Singles completion bars | The counts line, and About ("3 of 5 in your library" per type) |
+| Artist page | Format tags | Each card's meta line; About → Formats you have |
+| Artist page | Enrichment coverage rings | About (same rings) |
+| Artist page | Top tracks (play, playlist, wishlist, download all) | Tracks → Popular |
+| Artist page | Wrong match? | "…" → Check matches on each source… (admins, library artists) |
+| Artist page | DB Record | "…" → Database record… |
+| Artist page | Filters: types, live / non-studio, compilations, featured, + Other sources | "…" → More filters… (MusicBrainz still starts with non-studio hidden, never what you own) |
+| Artist page | Filter: All / Owned / Missing | All / Albums / Missing (Owned: question 2) |
+| Artist page | View: Discography / Your library (tags, files, matches, bulk edits, reorganize, sync) | Releases tab / Tracks → Edit tags and files (admins), unchanged |
+| Artist page | Release card: open (download modal), play, completion overlay, explicit, gap-source badge, MusicBrainz link, watchlist exclusion label | Title (same modal), "⋮" → Play / Open on MusicBrainz, the state tag and bar, "Explicit" in the meta line, "Listed by Deezer only" under it, "Following skips live releases." under a missing release |
+| Artist page | Music videos, Appears on | Releases tab, under the grid |
+| Artist page | Live dates and setlists | About |
+| Artist page | Similar artists bubbles | Similar artists tab |
+| Artist page | Back button | Top bar Back |
+| Wanted panel | Image, genres, summary | Header, About |
+| Wanted panel | Followers, popularity, style, mood, label | About |
+| Wanted panel | Last checked, followed since | Header tag, About |
+| Wanted panel | Release types followed | "…" → Following settings… |
+| Wanted panel | Recent releases | The release grid (the cache the panel read isn't written any more) |
+| Wanted panel | View Discography, Settings, Unfollow | The page itself, Following settings…, the Following toggle |
+| Wanted panel | Banner image | Left out: the page has no banner (question 3) |
+
+**For the shell**
+
+- The guided tour's artist-page stops point at controls that moved (`#artist-hero-section`, `#library-artist-watchlist-btn`, `#discography-filters` and so on); those steps now centre themselves. The tour's copy describes the old page, so it needs rewriting rather than re-pointing.
+- The phone padding in difference 13.
+- **The old page's stylesheet block is unused now.** The page has its own CSS module and no longer wears the `.artist-detail-page` class, so the `style.css` rules scoped to it (the hero, the old release cards and their play button, and the rules that hid Artist Radio, Enhance Quality, the enrichment rings and the library view for an artist not in your library) match nothing. Dropping the class was deliberate: the page leaves those library-only parts out itself (`!sourceOnly`, a library artist id), so there's no class-to-stylesheet pairing left to keep. `tests/test_artist_detail_css_hook.py` checks those conditions in the page instead, and its two class-pairing checks are gone. The rules, and the comment above them that calls the class load-bearing, are left for a stylesheet clean-up, along with `webui/src/test/release-card-play-placement.test.ts`, which still reads them. The Tracks tab's "Edit tags and files" view keeps `#enhanced-view-container`, which those tools are styled by.
+- A metadata source that didn't answer is a warning Notice on the page, not a toast; `tests/metadata/test_discography_web_integration.py` checks for the Notice.
+
+**Questions for Design**
+
+1. **The release card's "⋮"** (difference 1): is that the right home for Play, the tracklist and MusicBrainz, or should the card do more on click?
+2. **The old "Owned" filter:** add "In your library" as a fourth filter, or leave it out?
+3. **Tracks, Similar artists and About** aren't drawn; please draw them, and say whether About deserves a tab rather than a dialog (and a banner image).
+4. **"132 tracks"** (difference 4): keep it as the library's count, or drop it from the line?
+5. **Hide and Merge duplicate artist** need features SoulSync doesn't have; draw them out, or ask for them?
+
+Screenshots (1440×900 and 390×844: following, not following, a partly complete album, loading, failure, the Missing filter, Show all, Tracks, Similar artists, the menu, the unfollow and add-all dialogs), with the board renders beside them, are in the session scratchpad. They aren't in the repo.
+
 ### 2026-10-21: Dev, Wanted page
 
 Built on `ux/wanted-page` from the "Wanted v3 (populated)" boards (2a–2d), "Wanted v2 (empty and loading)" (1d–1f), "Wanted (390)" (1g) and the 2s failure pattern (2t for timing). The code is in `webui/src/routes/wanted`.

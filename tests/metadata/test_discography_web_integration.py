@@ -158,7 +158,10 @@ def test_artist_detail_frontend_surfaces_api_and_owned_provider_errors():
     assert re.search(r"payload\.success === false", api)
     assert re.search(r"throw new Error\(payload\?\.error \|\|", api)
 
-    page = (react / "-ui" / "artist-detail-page.tsx").read_text(encoding="utf-8")
-    assert re.search(r"payload\?\.provider_error\?\.error", page)
-    # Non-fatal: warned about, page still renders.
-    assert "showToast" in page
+    # The Artist page (-ui/artist-page.tsx) replaced artist-detail-page.tsx.
+    page = (react / "-ui" / "artist-page.tsx").read_text(encoding="utf-8")
+    assert re.search(r"payload\??\.provider_error\?\.error", page)
+    # Non-fatal: the page still renders, and says so on the page itself (a
+    # warning Notice over the release grid, where the old page toasted).
+    assert 'tone="warning"' in page
+    assert "Showing only what's in your library" in page

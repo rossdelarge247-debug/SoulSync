@@ -1,18 +1,17 @@
-"""The artist-detail stylesheet hangs off ONE class. Keep it attached.
+"""What a source artist must not be offered, and the stylesheet's dead container.
 
-The React page renders inside #webui-react-root, not the old #artist-detail-page
-container, so 17 rules in style.css are scoped to `.artist-detail-page` -- the
-wrapper the page puts around itself. Nothing enforces that pairing: rename or
-drop the className and every one of those rules stops matching. There is no
-error and no failing render test, because jsdom does not apply CSS at all. That
-is exactly how a SOURCE artist once ended up offering Artist Radio and Enhance
-Quality -- the rules that hide them had stopped applying.
+The React artist page used to wear the `.artist-detail-page` class so that a
+block of rules in style.css applied to it -- among them the ones that hide
+Artist Radio, Enhance Quality, the enrichment rings and the library view for a
+SOURCE artist (one that isn't in the library). Nothing tied the class to the
+rules, which is how a source artist once ended up offering Artist Radio and
+Enhance Quality: the hiding rules had stopped applying.
 
-This started as scripts/artist_detail_css_audit.py, a manual script from the
-port. Its other half ("every rule naming the legacy container must also name the
-React class") retired with the vanilla page: no rule names that container any
-more. This half outlives the port, so it belongs in the suite where it runs on
-its own.
+The Artist page (webui/src/routes/artist-detail/-ui/artist-page.tsx) no longer
+renders that markup or that class: it is styled by its own CSS module, and the
+hides are decided in the page itself, so there is no stylesheet pairing left to
+keep attached. What still matters is the behaviour, pinned below against the
+page's source, and that no rule names the vanilla page's long-gone container.
 """
 
 from __future__ import annotations
@@ -21,6 +20,9 @@ import re
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
+_ARTIST = _ROOT / "webui/src/routes/artist-detail"
+
+
 def _without_comments(css: str) -> str:
     """A selector named only in prose is not a rule.
 
@@ -34,26 +36,27 @@ def _without_comments(css: str) -> str:
 _CSS = _without_comments(
     (_ROOT / "webui/static/style.css").read_text(encoding="utf-8", errors="replace")
 )
-_PAGE = (_ROOT / "webui/src/routes/artist-detail/-ui/artist-detail-page.tsx").read_text(
-    encoding="utf-8"
-)
-
-HOOK = "artist-detail-page"
+_PAGE = (_ARTIST / "-ui/artist-page.tsx").read_text(encoding="utf-8")
+_DIALOGS = (_ARTIST / "-ui/artist-dialogs.tsx").read_text(encoding="utf-8")
+_TRACKS = (_ARTIST / "-ui/tracks-tab.tsx").read_text(encoding="utf-8")
 
 
-def test_the_page_still_renders_the_class_the_stylesheet_targets():
-    assert f'className="{HOOK}"' in _PAGE, (
-        f"the page no longer renders className={HOOK!r}, so every rule scoped to it "
-        f"is dead — the hero, the release cards' big-photo treatment and the "
-        f"source-artist hides all stop applying, silently"
+def test_a_source_artist_is_not_offered_artist_radio():
+    assert re.search(r"!sourceOnly && payload\s*\?\s*\[\{\s*key: 'radio'", _PAGE), (
+        "Play artist radio must stay behind the library-artist check: a source artist "
+        "has no library tracks to make a radio from"
     )
 
 
-def test_the_stylesheet_still_has_rules_that_depend_on_it():
-    # If this ever drops to zero the test above is guarding nothing, and the
-    # pair would pass while meaning nothing at all.
-    scoped = len(re.findall(rf"\.{HOOK}\b[^{{}}]*\{{", _CSS))
-    assert scoped >= 10, f"only {scoped} rules scoped to .{HOOK}; expected the page's whole block"
+def test_a_source_artist_is_not_offered_enhance_quality():
+    # "Find better copies…" is the old Enhance Quality, and it needs a library id
+    assert re.search(r"libraryArtistId && \(libraryTracks \?\? 0\) > 0\s*\?\s*\[\{\s*key: 'better'", _PAGE)
+
+
+def test_a_source_artist_gets_no_enrichment_rings_or_library_tools():
+    assert re.search(r"!sourceOnly \? \(\s*<div[^>]*>\s*<EnrichmentCoverage", _DIALOGS)
+    # the library's tag and file tools open only for an admin on a library artist
+    assert "if (manage && isAdmin && libraryArtistId)" in _TRACKS
 
 
 def test_no_rule_still_names_the_deleted_container():

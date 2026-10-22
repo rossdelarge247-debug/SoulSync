@@ -609,6 +609,9 @@ def check_album_completion(
             "confidence": round(confidence, 2) if confidence else 0.0,
             "found_in_db": db_album is not None,
             "formats": formats,
+            # the library row the card matched, so a page can join per-album
+            # data (quality, tracks) onto the card without matching titles again
+            "library_album_id": _extract_lookup_value(db_album, 'id') if db_album is not None else None,
         }
 
     except Exception as e:
@@ -856,6 +859,7 @@ def check_single_completion(
                 "found_in_db": db_album is not None,
                 "type": album_type,
                 "formats": formats,
+                "library_album_id": _extract_lookup_value(db_album, 'id') if db_album is not None else None,
             }
         else:
             # Release-aware ownership for 1-track singles (discord, SeadogsBooty:
@@ -868,6 +872,7 @@ def check_single_completion(
             db_track = None
             confidence = 0.0
             single_owned = False
+            matched_album_id = None
             try:
                 from core.settings import config_manager
 
@@ -992,10 +997,13 @@ def check_single_completion(
                         # the release itself is in the library — credit it.
                         single_owned = True
                         confidence = album_confidence
+                    if single_owned:
+                        matched_album_id = _album_id
             except Exception as db_error:
                 logger.error(f"Database error for single '{single_name}': {db_error}")
                 db_track, confidence = None, 0.0
                 single_owned = False
+                matched_album_id = None
 
             owned_tracks = 1 if single_owned else 0
             expected_tracks = 1
@@ -1029,6 +1037,7 @@ def check_single_completion(
                 "found_in_db": single_owned,
                 "type": album_type,
                 "formats": formats,
+                "library_album_id": matched_album_id,
             }
 
     except Exception as e:

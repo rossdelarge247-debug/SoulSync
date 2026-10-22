@@ -308,7 +308,6 @@ export function FoundRowView({
 export interface FollowedRowHandlers {
   onOpenArtist: (row: FollowedRow) => void;
   onSettings: (row: FollowedRow) => void;
-  onAbout: (row: FollowedRow) => void;
   onUnfollow: (row: FollowedRow) => void;
 }
 
@@ -349,14 +348,11 @@ export function FollowedRowView({
       list.push({ key: 'open', label: 'Open artist', onSelect: () => handlers.onOpenArtist(row) });
     }
     if (row.id) {
-      list.push(
-        {
-          key: 'settings',
-          label: 'Settings for this artist…',
-          onSelect: () => handlers.onSettings(row),
-        },
-        { key: 'about', label: 'About this artist…', onSelect: () => handlers.onAbout(row) },
-      );
+      list.push({
+        key: 'settings',
+        label: 'Settings for this artist…',
+        onSelect: () => handlers.onSettings(row),
+      });
     }
     list.push(
       { key: 'sep', separator: true },

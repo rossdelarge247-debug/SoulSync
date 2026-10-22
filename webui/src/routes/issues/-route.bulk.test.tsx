@@ -154,9 +154,13 @@ describe('issue fix hand-offs (admin)', () => {
 
   it('edit details asks the artist page to open that album', async () => {
     stubFetch({ fix_action: { id: 'edit_metadata', label: 'Edit details' } });
-    renderIssuesRoute(['/issues?issueId=1']);
+    const { history } = renderIssuesRoute(['/issues?issueId=1']);
     fireEvent.click(await screen.findByRole('button', { name: 'Edit details' }));
     expect(peekArtistEdit('55')).toMatchObject({ artistId: '55', albumId: '101' });
+    // on the Artist page's Tracks tab, with the tag and file tools open
+    await waitFor(() => expect(history.location.pathname).toBe('/artist-detail/library/55'));
+    expect(history.location.search).toContain('tab=tracks');
+    expect(history.location.search).toContain('manage=true');
   });
 
   it('find duplicates lands on the duplicate detector, searched', async () => {

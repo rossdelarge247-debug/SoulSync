@@ -22,6 +22,8 @@ export interface CompletionEvent {
   /** #1550: watchlist content-type exclusion ('remix', 'live', ...) that
    * explains why the scan will never pick up this missing release. */
   watchlist_excluded?: string | null;
+  /** The library album row the check matched, when it is owned. */
+  library_album_id?: string | number | null;
 }
 
 /** Anything but 'missing' or 'error' counts as owned — including partials. */
@@ -100,6 +102,15 @@ export function applyCompletionEvent(
       // it must not clobber a label set by an earlier one.
       if ('watchlist_excluded' in event) {
         merged.watchlist_excluded = event.watchlist_excluded ?? null;
+      }
+      // What the Artist page joins per-album data on (its library row) and
+      // the formats it shows on the card. Only carried when the event has
+      // them, like the exclusion label above.
+      if ('library_album_id' in event) {
+        merged.library_album_id = event.library_album_id ?? null;
+      }
+      if ('formats' in event) {
+        merged.library_formats = Array.isArray(event.formats) ? event.formats : [];
       }
       return merged;
     });
