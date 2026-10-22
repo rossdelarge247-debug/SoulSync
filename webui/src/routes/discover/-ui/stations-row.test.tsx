@@ -212,7 +212,9 @@ describe('library radio, the first station', () => {
     const cards = container.querySelectorAll('.discover-station-card');
     expect(cards[0]).toHaveClass('discover-station-card--library');
     fireEvent.click(screen.getByLabelText('Shuffle your library'));
-    fireEvent.click(screen.getByText('Shuffle your library', { selector: '.discover-station-name' }));
+    fireEvent.click(
+      screen.getByText('Shuffle your library', { selector: '.discover-station-name' }),
+    );
     expect(onPlayLibraryRadio).toHaveBeenCalledTimes(2);
   });
 
