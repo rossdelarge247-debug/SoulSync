@@ -1009,17 +1009,19 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     const meta =
       loadingWords && !/^\d+%$/.test(loadingWords)
         ? loadingWords
-        : [
-            artist,
-            ro.short && kind !== 'podcast' && kind !== 'audiobook'
-              ? ro.short
-              : sv.speedButton
-                ? kind
-                : '',
-            preview,
-          ]
-            .filter(Boolean)
-            .join(' · ');
+        : kind === 'radio'
+          ? artist
+          : [
+              artist,
+              ro.short && kind !== 'podcast' && kind !== 'audiobook'
+                ? ro.short
+                : sv.speedButton
+                  ? kind
+                  : '',
+              preview,
+            ]
+              .filter(Boolean)
+              .join(' · ');
     if (loadingWords && loadingWords !== lastLoadingText && !/^\d+%$/.test(loadingWords)) {
       lastLoadingText = loadingWords;
       announce(loadingWords);

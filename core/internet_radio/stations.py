@@ -64,6 +64,7 @@ class Station:
     homepage: str = ""
     description: str = ""
     logo_url: str = ""
+    logo_text: str = ""
     now_playing: Optional[Dict[str, Any]] = None
     tracklists: Optional[Dict[str, Any]] = None
     tags: List[str] = field(default_factory=list)
@@ -126,6 +127,7 @@ def parse_builtin(data: Dict[str, Any]) -> List[Station]:
                 genre=str(raw.get("genre") or ""), city=str(raw.get("city") or ""),
                 country=str(raw.get("country") or ""), homepage=str(raw.get("homepage") or ""),
                 description=str(raw.get("description") or ""), logo_url=str(raw.get("logo_url") or ""),
+                logo_text=str(raw.get("logo_text") or "")[:4],
                 now_playing=raw.get("now_playing") or None, tracklists=raw.get("tracklists") or None,
                 note=str(raw.get("source") or "")))
         except Exception as exc:  # noqa: BLE001 - one bad entry doesn't hide the rest
@@ -196,6 +198,7 @@ def public_station(station: Station, *, favourite: bool = False, auto_add: bool 
         "id": station.id, "name": station.name, "kind": station.kind,
         "kind_label": KIND_LABELS.get(station.kind, ""), "genre": station.genre,
         "city": station.city, "country": station.country, "logo_url": station.logo_url,
+        "logo_text": station.logo_text,
         "homepage": station.homepage, "description": station.description, "source": station.source,
         "favourite": bool(favourite), "auto_add": bool(auto_add),
         "has_now_playing": station.has_now_playing, "has_tracklists": station.has_tracklists,

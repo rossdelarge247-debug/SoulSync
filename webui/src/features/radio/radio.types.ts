@@ -24,6 +24,7 @@ export interface Station {
   city: string;
   country: string;
   logo_url: string;
+  logo_text?: string;
   homepage: string;
   description: string;
   source: StationSource;

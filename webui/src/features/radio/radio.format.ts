@@ -81,12 +81,17 @@ export function cardSubline(station: Station): string {
   return [kind, station.city || station.country].filter(Boolean).join(' · ');
 }
 
-/** Initials for the logo tile: "NTS", "RP", "SF". */
-export function logoText(name: string): string {
+/** Initials for the logo tile: "NTS", "RP", "SF" (SomaFM), "FIP". */
+export function logoText(name: string, override?: string): string {
+  if (override) return override.slice(0, 4);
   const head = name.split(' · ')[0] ?? name;
   if (/^[A-Z0-9]{2,4}\b/.test(head)) return head.split(/\s+/)[0]!.slice(0, 4);
   const words = head.split(/\s+/).filter(Boolean);
-  if (words.length === 1) return words[0]!.slice(0, 2);
+  if (words.length === 1) {
+    const caps = words[0]!.match(/[A-Z]/g);
+    if (caps && caps.length >= 2) return caps.slice(0, 2).join('');
+    return words[0]!.slice(0, 2);
+  }
   return words
     .slice(0, 2)
     .map((w) => w[0])

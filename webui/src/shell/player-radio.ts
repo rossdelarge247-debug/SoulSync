@@ -124,7 +124,9 @@ export function bootRadioChrome(
     const np = st.nowPlaying;
     const kind = playerAction(np);
     if (kind === 'in_library') {
-      return el(doc, 'span', 'ss-player-tag ss-player-radio-tag', 'In your library');
+      const tag = el(doc, 'span', 'ss-player-tag ss-player-radio-tag', 'In your library');
+      tag.dataset.tone = 'success';
+      return tag;
     }
     if (kind === 'on_wanted') {
       const tag = el(doc, 'span', 'ss-player-tag ss-player-radio-tag', 'On Wanted');
@@ -263,7 +265,9 @@ export function bootRadioChrome(
       if (kind === 'adding_disabled' || st.adding) b.setAttribute('aria-disabled', 'true');
       actions.append(b);
     } else if (kind === 'in_library') {
-      actions.append(el(doc, 'span', 'ss-player-tag ss-player-radio-tag', 'In your library'));
+      const tag = el(doc, 'span', 'ss-player-tag ss-player-radio-tag', 'In your library');
+      tag.dataset.tone = 'success';
+      actions.append(tag);
     } else if (kind === 'on_wanted') {
       const tag = el(doc, 'span', 'ss-player-tag ss-player-radio-tag', 'On Wanted');
       tag.dataset.tone = 'info';

@@ -114,7 +114,7 @@ export function StationLogo({
   station,
   big = false,
 }: {
-  station: Pick<Station, 'name' | 'logo_url'>;
+  station: Pick<Station, 'name' | 'logo_url' | 'logo_text'>;
   big?: boolean;
 }) {
   const [broken, setBroken] = useState(false);
@@ -124,7 +124,7 @@ export function StationLogo({
       {art ? (
         <img src={station.logo_url} alt="" onError={() => setBroken(true)} />
       ) : (
-        logoText(station.name)
+        logoText(station.name, station.logo_text)
       )}
     </span>
   );

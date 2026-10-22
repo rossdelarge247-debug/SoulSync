@@ -879,6 +879,9 @@
   .favRows .card .quality {
     display: none;
   }
+  .favRows .card .cardFoot > [data-slot='status-tag']:not([data-live]) {
+    display: none;
+  }
   .stationHead {
     grid-template-columns: 72px minmax(0, 1fr);
   }

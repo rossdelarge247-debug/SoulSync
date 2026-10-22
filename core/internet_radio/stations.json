@@ -2,6 +2,7 @@
   "_about": [
     "The built-in stations on the Radio page, in the order they show. Free stations only.",
     "Edit freely: each station needs id (lowercase, hyphens), name, kind (electronic, world, eclectic, jazz_soul_funk), streams (best first) and source.",
+    "logo_text: up to four letters for the logo tile when there is no logo (optional).",
     "streams[].direct: the browser may play this stream itself (https, and the server allows other sites). Everything else is relayed by the server.",
     "now_playing.type: somafm, radioparadise, kexp, nts or radiofrance (core/internet_radio/feeds.py). tracklists.type: kexp or nts.",
     "source says where each address came from. None of these could be fetched from the sandbox this list was written in; they are the stations' published addresses as of 2026 and want a check on a real install (Setup check and Settings > Radio > Check do that)."
@@ -47,7 +48,7 @@
       "source": "Radio France's Icecast addresses (icecast.radiofrance.fr/<station>-hifi.aac, -midfi.mp3). The now-playing address is radiofrance.fr's live API and isn't documented; when it doesn't answer, stream titles and fingerprints take over."
     },
     {
-      "id": "dublab", "name": "dublab", "kind": "electronic", "genre": "Leftfield",
+      "id": "dublab", "logo_text": "dl", "name": "dublab", "kind": "electronic", "genre": "Leftfield",
       "city": "Los Angeles", "country": "United States", "homepage": "https://www.dublab.com/",
       "description": "Listener-supported radio from Los Angeles since 1999: leftfield, experimental, electronic and beyond, all DJ-presented.",
       "streams": [
@@ -113,7 +114,7 @@
       "source": "Radio France's Icecast addresses; now playing from radiofrance.fr's undocumented live API (see FIP Electro)."
     },
     {
-      "id": "worldwide-fm", "name": "Worldwide FM", "kind": "world", "genre": "Global sounds",
+      "id": "worldwide-fm", "logo_text": "WW", "name": "Worldwide FM", "kind": "world", "genre": "Global sounds",
       "city": "London", "country": "United Kingdom", "homepage": "https://worldwidefm.net/",
       "description": "Gilles Peterson's station: global sounds, jazz, soul and dance music from London and around the world.",
       "streams": [
@@ -157,7 +158,7 @@
       "source": "SomaFM's channel list and stream naming; now playing from somafm.com/songs/thistle.json."
     },
     {
-      "id": "kexp", "name": "KEXP", "kind": "eclectic", "genre": "Eclectic",
+      "id": "kexp", "logo_text": "KX", "name": "KEXP", "kind": "eclectic", "genre": "Eclectic",
       "city": "Seattle", "country": "United States", "homepage": "https://www.kexp.org/",
       "description": "Listener-powered radio from Seattle, with DJs who choose every song. Publishes every play, and each show's playlist.",
       "streams": [
@@ -270,7 +271,7 @@
       "source": "SomaFM's channel list and stream naming; now playing from somafm.com/songs/7soul.json."
     },
     {
-      "id": "jazz24", "name": "Jazz24", "kind": "jazz_soul_funk", "genre": "Jazz",
+      "id": "jazz24", "logo_text": "J24", "name": "Jazz24", "kind": "jazz_soul_funk", "genre": "Jazz",
       "city": "Seattle", "country": "United States", "homepage": "https://www.jazz24.org/",
       "description": "Jazz around the clock from KNKX in Seattle: the great recordings and today's players. Public radio, listener-supported.",
       "streams": [

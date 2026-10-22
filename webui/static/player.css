@@ -1437,3 +1437,5 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     html[data-player-sheet] .ss-player[data-source='radio'] .ss-player-deck > :not(.ss-player-volume-row) { display: none !important; }
 }
 .ss-player-radio-controls { display: flex; justify-content: flex-end; }
+
+.ss-player-radio-auto-text .ss-player-meta { white-space: normal; overflow: visible; text-overflow: clip; }
