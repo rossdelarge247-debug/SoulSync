@@ -161,8 +161,8 @@ export function libraryCardView(
   if (!hasServer) {
     return {
       cardClass: 'library-status-card needs-setup',
-      title: 'No Media Server',
-      subtitle: 'Connect a server to get started',
+      title: 'No library chosen',
+      subtitle: 'Choose where your library lives',
       scanVisible: false,
       scanScanning: false,
       scanLabel: 'Quick Scan',

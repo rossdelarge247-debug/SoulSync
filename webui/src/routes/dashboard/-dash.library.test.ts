@@ -75,8 +75,8 @@ describe('libraryCardView — the five states', () => {
   it('no server configured', () => {
     const view = libraryCardView(stats, { active_media_server: 'none' }, false, NOW);
     expect(view.cardClass).toBe('library-status-card needs-setup');
-    expect(view.title).toBe('No Media Server');
-    expect(view.subtitle).toBe('Connect a server to get started');
+    expect(view.title).toBe('No library chosen');
+    expect(view.subtitle).toBe('Choose where your library lives');
     expect(view.scanVisible).toBe(false);
     expect(view.message).toEqual({ kind: 'no-server', serverName: '' });
   });

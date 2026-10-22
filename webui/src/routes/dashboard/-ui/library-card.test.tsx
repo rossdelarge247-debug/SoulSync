@@ -166,6 +166,31 @@ describe('the state machine in the DOM', () => {
       'Click Scan Now to pull your artists',
     );
   });
+
+  it('with no library chosen, names Standalone and where to choose it', async () => {
+    const navigateToPage = vi.fn();
+    window.navigateToPage = navigateToPage;
+    try {
+      const view = await mountCard();
+      fireStatus({ active_media_server: 'none' });
+      fireDbStats({ tracks: 0 });
+      const card = view.container;
+      expect(card.querySelector('#library-status-title')!.textContent).toBe('No library chosen');
+      expect(card.querySelector('#library-status-subtitle')!.textContent).toBe(
+        'Choose where your library lives',
+      );
+      const message = card.querySelector('#library-status-message')!;
+      expect(message.textContent).toBe(
+        'Downloads won’t show in your library until you choose where it lives. Go to ' +
+          'Settings → Connections → Server Connections and choose Standalone, or connect ' +
+          'Plex, Jellyfin or Navidrome.',
+      );
+      fireEvent.click(screen.getByText('Settings'));
+      expect(navigateToPage).toHaveBeenCalledWith('settings');
+    } finally {
+      Reflect.deleteProperty(window, 'navigateToPage');
+    }
+  });
 });
 
 describe('the scan flow', () => {
