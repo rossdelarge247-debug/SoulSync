@@ -2055,11 +2055,11 @@ const HELPER_CONTENT = {
         description: 'Albums you\'ve saved or liked across connected services (Spotify, Tidal, Deezer). Shows which are already in your library and lets you download missing ones.',
     },
 
-    // ─── MY ACCOUNT ────────────────────────────────────────────────
+    // ─── YOUR PROFILE ──────────────────────────────────────────────
 
-    '#my-accounts-btn': {
-        title: 'My Account',
-        description: 'Everything that\'s yours: who you are on the media server, plus your own Spotify, Tidal, ListenBrainz and Last.fm. Connect ListenBrainz or Last.fm and your stats and recommendations use your own listening.',
+    '#profile-indicator-button': {
+        title: 'Your profile',
+        description: 'Switch profile, edit yours, and open Profile & account: who you are on the media server, plus your own Spotify, Tidal, ListenBrainz and Last.fm. Connect ListenBrainz or Last.fm and your stats and recommendations use your own listening. Sign out is here too when SoulSync asks for a password.',
     },
 };
 

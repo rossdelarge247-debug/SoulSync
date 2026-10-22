@@ -247,7 +247,6 @@
 }
 #app-sidebar .ss-item:focus-visible,
 #app-sidebar .ss-count-link:focus-visible,
-#app-sidebar .ss-icon-btn:focus-visible,
 #app-sidebar .ss-wordmark:focus-visible,
 #app-sidebar .ss-section-toggle:focus-visible {
     outline: var(--ss-focus-ring);
@@ -346,7 +345,8 @@
     padding-right: 56px;
 }
 
-/* the bottom block: hairline, Admin and help, Switch to Video, the profile */
+/* the bottom block, three rows at most: hairline, Admin and help, Switch to Video,
+   the profile (avatar and name; My Account and Sign out are in its menu) */
 #app-sidebar .ss-nav-bottom {
     flex: none;
     display: flex;
@@ -518,7 +518,7 @@ html.side-locked #app-sidebar .side-toggle { display: none; }
     color: var(--ss-text-meta);
 }
 
-/* the profile: avatar + name opens the quick switch menu */
+/* the profile: avatar + name, the only row at the foot; it opens the quick switch menu */
 #app-sidebar .ss-profile {
     align-items: center;
     gap: 2px;
@@ -542,29 +542,6 @@ html.side-locked #app-sidebar .side-toggle { display: none; }
     font-weight: 600;
 }
 #app-sidebar .profile-indicator-name { font-size: 15px; }
-#app-sidebar .ss-icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    margin: 0;
-    padding: 0;
-    flex: none;
-    border: 1px solid transparent;
-    border-radius: var(--ss-radius-control);
-    background: none;
-    color: var(--ss-text-meta);
-    cursor: pointer;
-    transform: none;
-    transition: var(--ss-transition);
-}
-#app-sidebar .ss-icon-btn:hover {
-    background: var(--ss-hover-wash);
-    color: var(--ss-text);
-    transform: none;
-}
-#app-sidebar .ss-icon-btn .ss-icon { width: 18px; height: 18px; }
 
 /* the video sidebar: same rows; its sections still fold (init.js toggleNavSection) */
 #app-sidebar .video-nav .ss-section-toggle {
@@ -947,7 +924,7 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
     }
     html[data-sidebar='collapsed'] #app-sidebar .ss-admin-panel .ss-item > .ss-dot { position: static; }
 
-    /* the profile is its avatar; My Account and Sign out are in its menu */
+    /* the profile is its avatar (its menu has Profile & account and Sign out) */
     html[data-sidebar='collapsed'] #app-sidebar .ss-profile {
         justify-content: center;
         flex-wrap: nowrap;
@@ -956,7 +933,6 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
         flex: none;
         width: 48px;
     }
-    html[data-sidebar='collapsed'] #app-sidebar .ss-profile .ss-icon-btn { display: none; }
 }
 
 /* An open dialog covers the page. The floating notification, help and

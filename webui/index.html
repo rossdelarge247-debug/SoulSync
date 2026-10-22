@@ -577,22 +577,13 @@
                     </button>
                 </div>
                 <div id="profile-indicator" class="profile-indicator ss-profile" style="display: none;">
-                    <!-- opens the quick switch menu (init.js toggleProfileQuickSwitch), which also holds
-                         "Profile & account" and "Sign out" when they apply -->
+                    <!-- The profile row is the only one at the foot (Design, HANDOFF 2): it opens the
+                         quick switch menu (init.js toggleProfileQuickSwitch), which also holds
+                         "Profile & account" (My Account) and "Sign out" when they apply. -->
                     <button type="button" id="profile-indicator-button" class="profile-indicator-main ss-item"
                         aria-haspopup="menu" aria-expanded="false" title="Switch profile">
                         <span id="profile-indicator-avatar" class="profile-indicator-avatar"></span>
                         <span id="profile-indicator-name" class="profile-indicator-name ss-label"></span>
-                    </button>
-                    <!-- My Account: your media server login + your own music services, one modal (#1293) -->
-                    <button id="my-accounts-btn" class="personal-settings-trigger ss-icon-btn"
-                        onclick="event.stopPropagation(); openMyAccountsModal()" title="My Account"
-                        aria-label="My Account">
-                        <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-                    </button>
-                    <button id="logout-btn" class="personal-settings-trigger ss-icon-btn" style="display:none"
-                        onclick="event.stopPropagation(); soulsyncLogout()" title="Sign out" aria-label="Sign out">
-                        <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
                     </button>
                 </div>
                 <!-- the sidebar weather line (src/shell/sidebar-weather.ts) mounts after the profile row -->
