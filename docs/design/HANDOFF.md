@@ -74,7 +74,7 @@ Upstream's `dev` (Nezreka/SoulSync, release 3.5.9: 77 commits since 20 October) 
 **Ported into the fork's pages**
 
 - **Home**: upstream put a "Finish setting up" checklist at the top of the old dashboard. It's on Home under Latest, drawn to the design system: a 14px card, the progress in words ("2 of 5 done") instead of a ring, 44px secondary buttons instead of 32px pills, a 44px hide button, the tick as a 20px box in a 44px target, nothing under 14px. Admins only, as upstream has it. "Finish movies and TV" is left out while the Video module is off.
-- **Wanted**: the nebula (⋯ → Show as a nebula) files artists into zones, worst first (Downloaded, then rejected; No match found; Download keeps failing; Still hunting), each stuck zone with its own Retry. Opening an orb opens the artist panel beside the field (a drawer under 1300px, a bottom sheet on phones), which says what went wrong in plain words before it lists the tracks. The panel says Wanted, not the wishlist. Each row's "last try:" uses the same plain words ("only ~30s of 3:54 played, so it was thrown out", "the wrong song came back ("Xtal" by Aphex Twin)") instead of the raw log line.
+- **Wanted**: the nebula (⋯ → Show as a nebula) files artists into zones, worst first (Downloaded, then rejected; No match found; Download keeps failing; Still hunting), each stuck zone with its own Retry. Opening an orb opens the artist panel beside the field (a drawer under 1300px, a bottom sheet on phones), which says what went wrong in plain words before it lists the tracks. The panel says Wanted, not the wishlist. Upstream styles the orbs' names, their try counts and the zone headings only inside its own page, so on Wanted they follow the design system: 14px and up, meta at 62% white, a 44px secondary Retry per zone. The panel itself keeps upstream's look (question 32). Each row's "last try:" uses the same plain words ("only ~30s of 3:54 played, so it was thrown out", "the wrong song came back ("Xtal" by Aphex Twin)") instead of the raw log line.
 - **Downloads page and module switches**: with the Video module off, the header's switch has no Video side, the hidden video side isn't polled, and `?media=video` says Video is turned off.
 - **Preview, then confirm stays**: in upstream's new rows, Delete forever and Empty bin sit in ⋯ menus; for the music bin, the video bin and Clear quarantine they still open the shared preview-then-confirm dialog, and the purge routes still need a plan.
 - **Help**: the wishlist help points at Wanted's ⋯ menu.
@@ -100,7 +100,7 @@ No new rows or pages. The video wishlist uses the video sidebar's existing Wishl
 
 `wishlist-premier.css` keeps the `.wlp` rules the tidy-up had removed, because upstream's code uses them again: the video wishlist page (its wrapper, hero, command bar, posters, diagnostics and cast) and the zones and artist panel Wanted's nebula now uses. Every other deletion stays: the selectors removed since the upstream merge that could still match are the same ones the tidy-up checked by hand. The tour needs no new steps.
 
-Screenshots: none this time. This session had no browser to take them with.
+Screenshots (1440×900 and 390×844: Home with the checklist, Wanted's nebula with its zones and the artist panel, the rebuilt Downloads page, the video wishlist) are in the session scratchpad. They aren't in the repo.
 
 ### 2026-10-22: Dev, tidy-up after the redesign
 
