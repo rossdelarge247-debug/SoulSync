@@ -1402,7 +1402,34 @@ def _tasks(ctx: SetupCheckContext, include_network: bool) -> Tuple[List[_Task], 
         # settings only, so it's cheap enough here; the Setup check dot polls
         # this scope and should show that downloads can't reach the Library
         tasks.append(_Task(_MEDIA_CONN_ID, _MEDIA_CONN_TITLE, _MEDIA_CAT, lambda: check_library_choice(ctx)))
+    tasks += _radio_tasks(ctx, include_network)
     return tasks, skipped
+
+
+def _radio_tasks(ctx: SetupCheckContext, include_network: bool) -> List[_Task]:
+    """fpcalc and the AcoustID key, while the Internet radio module is on
+    (core/internet_radio/setup_rows.py)."""
+    from core.modules import is_enabled
+    if not is_enabled("radio", _ModulesConfig(ctx)):
+        return []
+    from core.internet_radio import setup_rows
+    key = ctx.cfg_str("acoustid.api_key")
+    return [
+        _Task("radio.fpcalc", "Chromaprint (fpcalc) for radio", "radio",
+              lambda: setup_rows.check_fpcalc(make_result, key_set=bool(key))),
+        _Task("radio.acoustid", "AcoustID key for radio", "radio",
+              lambda: setup_rows.check_acoustid(make_result, key, network=include_network), include_network),
+    ]
+
+
+class _ModulesConfig:
+    """The context's settings in the shape core.modules reads."""
+
+    def __init__(self, ctx: SetupCheckContext) -> None:
+        self._ctx = ctx
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._ctx.cfg(key, default)
 
 
 def _run_tasks(tasks: Sequence[_Task], deadline_s: float) -> List[Dict[str, Any]]:

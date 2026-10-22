@@ -32,9 +32,10 @@ const CATEGORY_LABELS: Record<string, string> = {
   downloads: 'Downloads (slskd)',
   media_server: 'Media server',
   system: 'System',
+  radio: 'Internet radio',
 };
 
-const CATEGORY_ORDER = ['folders', 'downloads', 'media_server', 'system'];
+const CATEGORY_ORDER = ['folders', 'downloads', 'media_server', 'system', 'radio'];
 
 /** The checks that only the full run (not `?scope=local`) includes. */
 export const NETWORK_CATEGORIES = new Set(['downloads', 'media_server']);
