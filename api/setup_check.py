@@ -5,7 +5,8 @@ runs as, the same class of detail as /api/debug-info. Read-only apart from the
 check's own temp-file write test.
 
 Query: ``scope=local`` runs only the on-disk checks (folders, folder layout,
-running user) and skips slskd and the media server; the default runs all.
+running user) plus the settings-only "is a library chosen" warning, and skips
+talking to slskd and the media server; the default runs all.
 
 Response (always 200 when the run itself worked, whatever it found)::
 

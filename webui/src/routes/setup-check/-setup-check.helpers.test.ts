@@ -201,6 +201,24 @@ describe('firstRunSteps', () => {
     ]);
   });
 
+  it('asks for a fix when no library is chosen', () => {
+    const steps = firstRunSteps(
+      [
+        check({ id: 'folder.transfer' }),
+        check({
+          id: 'media_server.connection',
+          category: 'media_server',
+          title: 'Where your library lives',
+          status: 'warning',
+          fix: 'Choose Standalone in Settings → Connections → Server Connections',
+        }),
+      ],
+      true,
+    );
+    // settled from the local run alone, without waiting for the full one
+    expect(steps.find((s) => s.id === 'media-server')!.state).toBe('attention');
+  });
+
   it('marks the network steps as checking while the full run is going', () => {
     const steps = firstRunSteps([check({ id: 'folder.transfer', status: 'error' })], true);
     expect(steps.map((s) => s.state)).toEqual(['checking', 'attention', 'checking', 'checking']);
