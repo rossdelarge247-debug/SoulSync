@@ -347,9 +347,72 @@ What the data can't say: a release's full tracklist without fetching it (so "132
 - **Who:** the automation must be your own or a built-in one, else `404`; no profile is `401`. A body without `action_type` (and none saved) is `400`. A failure is `500` with "The preview didn't work. Nothing was changed."
 - **Recorded:** when `available`, a preview of your own automation, or of any as an admin, is kept in the run history as `status: preview` (`recorded`, `run_id`). At most 20 previews are kept per automation, so they never push real runs out of the 100 kept. A draft preview is never recorded.
 
-**Run history: `GET /api/automations/<id>/history?limit=&offset=`** returns `{history, total, automation_id}`, newest first. Each run has `id`, `started_at`, `finished_at`, `duration_seconds`, `status` (`completed`, `error`, `timeout`, `skipped`, or `preview`), `summary`, `result_json` (the facts the run produced, when the action records any) and `log_lines` (`[{"type", "text"}]`). `total` counts the runs kept, at most 100 per automation. The Wanted search's runs record only that it started its batches ("Started: 3 album batch(es), 4 per-track for cycle albums"); what they find isn't kept on the run.
+**Run history: `GET /api/automations/<id>/history?limit=&offset=`** returns `{history, total, automation_id}`, newest first. Each run has `id`, `started_at`, `finished_at`, `duration_seconds`, `status` (`completed`, `error`, `timeout`, `skipped`, or `preview`), `summary`, `result_json` (the facts the run produced, when the action records any) and `log_lines` (`[{"type", "text"}]`). `total` counts the runs kept, at most 100 per automation. The Wanted search's runs record that they started their batches ("Started: 3 album batch(es), 4 per-track for cycle albums"), and when the batches finish the server writes what they found onto the run's `result_json`: `{searched: {tracks, albums}, found: {tracks, albums}}`. `found.tracks` counts tracks downloaded; `found.albums` counts album batches that downloaded at least one. Runs from before this have neither, and a run whose batches are still going has `searched` only. The Runs panel shows "Found" and "· N found" from it.
+
+**When it was paused:** automations (`GET /api/automations`, `GET /api/automations/<id>`) carry `paused_at`, when they were last turned off (UTC text), or `null` while on. Turning one on clears it; automations that were already off when the column arrived have it set to their last change.
+
+**Saving an Assistant draft:** `POST /api/automations` and `PUT /api/automations/<id>` take an optional `assistant_draft: true` when the editor saves a draft that came from the Assistant; it only adds one to this month's "drafts saved" in Settings → AI.
 
 **Also used by the pages, unchanged:** `GET`, `POST` `/api/automations`; `GET`, `PUT`, `DELETE` `/api/automations/<id>`; `POST /api/automations/<id>/run`, `/toggle` and `/duplicate`; `POST /api/automations/bulk-toggle`; `PUT /api/automations/group`; `GET /api/automations/blocks`, `/progress` and `/master` (and `POST /master`, admins); `POST /api/automations/test-notify`; `GET /api/scripts`; `GET /api/mirrored-playlists/list`.
+
+### The Assistant (boards 3a–3l, Settings → AI 5a)
+
+Code: `api/ai.py` (routes), `core/ai/` (settings, context, prompt, provider, drafts, suggestions, usage), `webui/src/routes/automations/-automations.assistant.ts` (client) and `-automations.conversation.ts` (the conversation in the browser).
+
+**Status: `GET /api/ai/status`** (anyone with a profile; none is `401`):
+
+```json
+{"success": true, "configured": true, "can_use": true, "reason": null,
+ "model": "fast", "provider": "anthropic", "provider_name": "Anthropic", "is_admin": true,
+ "usage": {"month": "2026-10", "requests": 41, "input_tokens": 460000, "output_tokens": 52000,
+           "estimated_cost_usd": 1.42, "drafts_saved": 6, "cap_usd": 10.0}}
+```
+
+- `reason` is `null` when it can be used, else (in this order) `not_configured` (no key), `members_not_allowed` (Settings → AI says admins only and you aren't one), `key_refused` (the last test or call was refused) or `cap_reached` (this month's estimated cost has reached the cap).
+- `model` is `fast` ("Faster and cheaper", the default) or `best` ("Best answers").
+- `usage` is for admins only. `input_tokens` includes cached input. The cost is estimated locally from token counts and each model's price; `cap_usd` is `null` without a cap. Months roll over on the 1st (UTC).
+
+**Settings (admins; anyone else `403`): `GET`, `PUT /api/ai/settings`.** Both return:
+
+```json
+{"success": true,
+ "settings": {"provider": "anthropic",
+              "api_key": {"set": true, "masked": "sk-ant-••••••••••••••••••••XYZ"},
+              "model": "fast", "who_can_use": "admins", "monthly_cap_usd": 10.0,
+              "key_status": {"state": "ok", "message": "Anthropic accepted the key.",
+                             "tested_at": "2026-10-22T14:03:00Z", "tested_by": "Admin",
+                             "added_at": "2026-10-22T14:02:41Z", "added_by": "Admin"}},
+ "usage": {"month": "2026-10", "requests": 41, "...": "as in status"},
+ "providers": [{"value": "anthropic", "label": "Anthropic (Claude)", "name": "Anthropic"}],
+ "models": [{"value": "fast", "label": "Faster and cheaper", "name": "Claude Sonnet", "description": "…"},
+            {"value": "best", "label": "Best answers", "name": "Claude Opus", "description": "…"}]}
+```
+
+- `PUT` takes any of `{provider, api_key, model, who_can_use: "admins"|"everyone", monthly_cap_usd}` (`null` or `""` clears the cap). A bad value is `400` with the sentence to show; nothing is saved.
+- `api_key` is write-only: it's stored encrypted with the app's other secrets and never returned, here or by `GET /api/settings`, `/api/v1/settings` or the debug info (which says only whether one is set). An empty `api_key` leaves the saved one alone. A new key resets `key_status.state` to `untested`.
+- `key_status.state` is `missing`, `untested`, `ok` or `refused`.
+
+**`POST /api/ai/test`** (admins) tests the key in the body (`{api_key?}`), or the saved one, without spending tokens: `{ok, message, saved_key, key_status}`. `message` is "Anthropic accepted the key." or the provider's reason in plain words. Testing the saved key records the result.
+
+**The conversation: `POST /api/ai/assistant`**, answered as server-sent events (`text/event-stream`).
+- Body: `{message, conversation_id?, context}`; `context` is `{page: "list"|"editor", automation_id?, run_id?, draft?}`, what's on screen. `draft` is the editor's unsaved draft in the shape below. An empty message or a bad body is `400`. `not_configured`, `members_not_allowed` and `key_refused` are `403` `{error, reason}` before any stream.
+- A `: keep-alive` comment goes out every few seconds while it thinks.
+- Events, in order:
+    - `status` `{reading}`: what it's reading ("your automations and Fill Wanted's last 10 runs").
+    - `quote` `{run_id, started_at, lines}`: when asked about a run, the last lines of its log, shown in a `<pre>` before the answer.
+    - `text` `{delta}`: the answer, a piece at a time.
+    - `draft` `{draft, summary, why, facts, notes, automation_id}`. `draft` is `{name, trigger_type, trigger_config, action_type, action_config, then_actions}`, exactly what `POST /api/automations/preview` and `POST /api/automations` take. `notes` are sentences about anything the server left out ("I left out “Run Script”: only admins can add it."). `automation_id` is set when the draft changes one of your automations, else `null`.
+    - `cant_build` `{missing, nearest}`: what the engine can't do, and the nearest draft (same shape as `draft`'s body) or `null`.
+    - `suggestions` `{items: [{key, title, reason, draft, summary, why, facts, notes}]}`: at most three, each `reason` with a number in it.
+    - `error` `{code, message}`: `bad_key`, `no_credit`, `rate_limited`, `offline`, `provider_error`, `cap_reached` or `busy` (two answers are already streaming). `message` is the sentence to show.
+    - `done` `{conversation_id, usage: {input_tokens, output_tokens, estimated_cost_usd}}`.
+- Stop: the browser aborts the request; the server stops the provider call and still counts what was used.
+- Every draft is checked on the server before it's sent: the parts must be in `blocks_for_scope('music')`, the settings must match each part's fields (unknown keys dropped, choices from the lists, playlists and scripts that exist), notification credentials are never taken from the model, `confirm` is always off, and a member never gets a step `needs_admin()` marks (scripts, clean-up, repair, backup, purge, quarantine, video). What's dropped is said in `notes`.
+- The Assistant writes drafts only: nothing is saved, run, turned on or sent (not even a test notification) until someone saves the draft in the editor.
+- Library text (track, playlist and automation names, run logs) goes to the model only inside one quoted `<library_data>` block, with `<`, `>` and `&` escaped, capped in length, and the system prompt says it is information, never instructions. Context is limited to what the profile can see.
+- The server keeps the last six turns of a conversation for two hours, per profile; the browser keeps the thread for the session.
+
+**The suggestion card: `GET /api/ai/suggestion`** returns `{success, suggestion}`; `suggestion` is `{key, title, reason, draft_prompt, automation_id}` or `null`. It's worked out locally (no model call), only when the Assistant can be used, one at a time, and only when `reason` has a number in it. Keys today: `failing:<id>` (an automation that failed at least twice in 30 days with no notification step), `paused:<id>` (paused 14 days or more) and `wanted_stale` (10 or more Wanted tracks waiting over a month). "Use this" sends `draft_prompt` to the conversation. **`POST /api/ai/suggestion/<key>/dismiss`** is "Not now", kept per profile; an unknown key is `404`.
 
 ## Available today, not yet designed for
 
@@ -362,35 +425,6 @@ The Activity feed above already merges these (and the mirror runs behind `GET /a
 ## Needs building
 
 For the boards Ross approved on 22 October (`HANDOFF.md`). Field names may change while they're built; Dev moves each section to "Built" when it lands.
-
-### The Assistant (build d; boards 3a–3l, Settings → AI 5a)
-
-**Status: `GET /api/ai/status`** returns `{success, configured, can_use, reason, model}` for everyone, plus `usage` for admins.
-- `reason` is `null` when the Assistant can be used, else `not_configured` (no key), `members_not_allowed` (Settings → AI says admins only), `cap_reached` (this month's cap is spent) or `key_refused` (the last test or call was refused).
-- `model` is `fast` (the default, "Faster and cheaper") or `best`.
-- `usage` is `{month, requests, input_tokens, output_tokens, estimated_cost_usd, drafts_saved, cap_usd}`. The cost is estimated locally from token counts; `cap_usd` is `null` without a cap.
-
-**Settings (admins): `GET`, `PUT /api/ai/settings`; `POST /api/ai/test`.** Settings are `{provider: "anthropic", api_key, model, who_can_use: "admins"|"everyone", monthly_cap_usd}`. `api_key` is write-only: `GET` returns it masked, and it's stored encrypted with the app's other secrets. `POST /api/ai/test` returns `{ok, message}` ("Key accepted", or the provider's reason in plain words).
-
-**The conversation: `POST /api/ai/assistant`**, streamed as server-sent events.
-- Body: `{conversation_id?, message, context}`. `context` is `{page: "list"|"editor", automation_id?, draft?, run_id?}`: what's on screen, so "explain this" and "fix this run" need no ids typed.
-- Events:
-    - `status` `{reading}`: what it's looking at ("your automations and their last 10 runs"), for the Thinking state.
-    - `text` `{delta}`: the reply, a piece at a time.
-    - `draft` `{draft, summary, why, facts}`: `draft` is exactly the body `POST /api/automations/preview` takes, already checked against `GET /api/automations/blocks` and the viewer's role; `why` is the "Why this shape" line and `facts` the numbers it used.
-    - `cant_build` `{missing, nearest}`: what the engine can't do (for example "several actions in a row") and the nearest draft it can build.
-    - `suggestions` `{items: [{key, title, reason, draft}]}`.
-    - `error` `{code, message}`: `code` is `bad_key`, `no_credit`, `rate_limited`, `offline`, `cap_reached` or `busy` (two streams are already running). Nothing typed is lost.
-    - `done` `{conversation_id, usage}`.
-- Stop: the browser closes the stream and the server stops calling the provider.
-- Library text (track, playlist and automation names, run logs) goes to the model only as quoted data, and every draft is re-checked before it's sent.
-- The conversation is kept per profile in the browser session; `conversation_id` lets the server keep the last few turns for context.
-
-**The suggestion card: `GET /api/ai/suggestion`** returns `{suggestion: {key, title, reason, draft_prompt} | null}`: one at a time, only when the Assistant can be used and the reason has a number in it. It's worked out locally from the library's facts (no model call); "Use this" sends `draft_prompt` to the conversation. **`POST /api/ai/suggestion/<key>/dismiss`** is "Not now", kept per profile.
-
-**Additions to existing routes:**
-- Automations (`GET /api/automations`, `GET /api/automations/<id>`) gain `paused_at`: when it was turned off, or `null`.
-- The Wanted search's runs record what they found on `result_json`: `{found: {tracks, albums}, searched: {tracks, albums}}`, written back when the run's batches finish (HANDOFF 19).
 
 ### Internet radio (build e; boards 4a–4k, Settings → Radio 5b–5d)
 

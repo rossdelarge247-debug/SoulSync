@@ -4,7 +4,7 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, and 34–36 with build (b), so they are still open. Answer on the canvas, naming the board, as before.
+Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, 34–36 with build (b) and 37–40 with build (d), so they are still open. Answer on the canvas, naming the board, as before.
 
 **Upstream sync (no boards)**
 29. Home's "Finish setting up" card sits under Latest. Right place, or above Targets while setup is fresh?
@@ -13,12 +13,61 @@ Questions 1–28 were answered in Design's session of 22 October (the log entry 
 32. Wanted's nebula now groups artists by what's stuck and opens an artist panel beside the field (upstream's look, kept). Answer 9 says the nebula isn't coming back, but it was written before this version arrived: remove "Show as a nebula", or keep this one?
 33. The video side's Wishlist is upstream's React page with the old music Wishlist's look (an ambient gradient hero, pill chips). Draw the video side's version of Wanted?
 
+**The Assistant and the block editor (build d; boards 3a–3l, 5a)**
+37. The panel's "New chat" sits in its header even on a phone, where the board shows only the title and close. Keep it there, or move it into the thread?
+38. A draft for an existing automation keeps the name on screen. Should the Assistant be able to rename it (the draft has a name), or is the name always yours?
+39. Usage is one figure for the whole install. Should Settings → AI break it down by profile once everyone can use the Assistant?
+40. The "/" menu's "Ask the Assistant" opens the panel with "Add a follow-up that …" in the box. Is that the right start, or should it send straight away with what was typed after "/"?
+
 **Settings → Appearance and Following (build b; boards 5e, 5f)**
 34. Following: a podcast that doesn't download new episodes says "Not downloading", and an audiobook follow whose last check failed says "Check failed" (warning), because "Nothing new" would be untrue for both. Right words, or should they live in the latest column with one of answer 7's tags?
 35. 5f says "Yours only; each profile picks its own", but the accent is one setting for the whole install, set by an admin. Should each profile pick its own accent (a new per-profile setting, so members could change it too), or keep one accent and the board's line goes?
 36. "Follow…" opens the artist search in place, but takes you to Search, Podcasts or Audiobooks to follow a label, a podcast or an author. Draw an in-place follow for those three?
 
 ## Log
+
+### 2026-10-22: Dev, the Assistant, the block editor and Settings → AI
+
+Built on `ux/assistant` from `Automation assistant (block editor)` (3a–3l), `Settings AI and Radio` (5a) and Design's answers 1–4, 19, 21 and 24 below. The routes are in `CONTRACTS.md`, "The Assistant"; the patterns in `DESIGN-SYSTEM.md`, "Block card", "Assistant panel" and "Suggestion card".
+
+**What's built**
+
+- **Settings → AI** (5a), a new tab after Quality, admins only (members don't see it): provider (Anthropic), the API key (write-only, masked, "Save and test", Replace, Test, and a status line saying when it was added or tested and by whom), Model ("Faster and cheaper", the default, or "Best answers", one click), Who can use it (admins by default, or everyone with a profile), this month's usage (requests, estimated cost, drafts saved) and an optional monthly cap, which stops new requests only. The key is stored encrypted with the app's other secrets and never comes back from any settings or debug route. Code: `webui/index.html` `#ai-settings`, `static/ai-settings.css`, `src/shell/ai-settings.ts`, `core/ai/config.py`.
+- **The block editor** (3b, 3l) on `/automations/new` and `/automations/<id>/edit`: one When, one Do ("after waiting N minutes" beside it), up to three Then. Thens reorder by dragging their grip or from the grip's Move up / Move down; the dashed line under them takes "/" (Notify, Fire a signal, Run a script for admins, Ask the Assistant). Name, Group, Preview a run and Save work as before.
+- **The Assistant** (3a, 3c–3k): "Assistant" in the header of the list and the editor. On the list it takes the Runs column (440px); in the editor it shares the right column with Preview as tabs; on a phone it's a full-screen sheet. One conversation per profile follows you between them for the session. Every state on the boards: not set up (admin and member), admins only, first use, thinking with Stop, draft ready, couldn't build with the nearest draft, suggestions, explaining an automation ("Explain" on the selected card) or a failed run ("Ask the Assistant why it failed" under the run, with its log quoted in a `<pre>`), and the provider errors with the message kept in the box. A draft opens in the editor unsaved, under "Draft from the Assistant." Saving it counts towards "drafts saved".
+- **The suggestion card** at the top of the list: one at a time, only while the Assistant can be used and only with a number in its reason (a failing automation without a notification, one paused for two weeks or more, Wanted tracks waiting over a month). It's worked out on the server without calling the model. "Not now" holds per profile.
+- **`paused_at`** on automations, and **what the Wanted search found** on each run (answer 19): the Runs panel's first number becomes "Found" and each run's line adds "· N found" once runs carry it.
+- **Phones' filter row** (answer 21): the Show filters scroll sideways in one row, and the search folds into an icon button at its end that opens the field under the row.
+
+**Where the old editor's features went**
+
+| Before | Now |
+| --- | --- |
+| Runs: Every… / Daily at… / Weekly… / Monthly… / After something happens buttons | The When block's select ("Every", "Daily at", "Weekly on", "Monthly on", "After something happens") with the same fields beside it. Event conditions (all or any) and signal names are unchanged. The next-run line sits under the block. |
+| Step 1: the action, its options and its wait | The Do block. The wait is the "after waiting" select (0 minutes to 24 hours; an unusual saved value is kept as it is). |
+| Steps 2–4 and their "⋮" (Move up, Move down, Duplicate, Remove) | Then blocks with the same "⋮", plus the grip: drag, or open it for Move up / Move down from the keyboard. "Only when…" conditions and Send a test are unchanged. |
+| Add a step: Notify / Fire a signal / Run a script | The "/" line. At three it says so instead. |
+| Step 1's "Open in the full builder" | The header's "…" only (answer 24). The list card's "…" no longer has it; the list header's "…" keeps "Build one in the full builder". |
+| Footer: Cancel, Preview a run, Save | The header on a desktop (with Assistant); on a phone a full-width Save, then Preview, Assistant and Cancel. |
+| Preview panel | Unchanged; it shares the right column with the Assistant as a tab while the Assistant is open. |
+| Leaving with unsaved changes, the save check, built-in automations' limits | Unchanged. |
+
+**Decisions**
+
+- **Provider SDK:** the official `anthropic` Python package, pinned to `anthropic==1.12.1` in `requirements.txt` (CI installs it through `requirements-dev.txt`). 1.12.1 has been out two weeks; 2.x came out on 21 October and is too new to pin. The app starts without it: it's imported only when the Assistant answers or a key is tested.
+- **Model:** "Faster and cheaper" is the default, "Best answers" one click away in Settings → AI. Testing a key reads the model's details, which costs no tokens.
+- **Streams:** two at once (the server has 8 threads); a third gets the `busy` error. Closing the panel, Stop or leaving the page stops the provider call; what was used is still counted. A keep-alive comment goes every few seconds.
+- **Drafts only:** the server never saves, runs, turns on or sends anything for the Assistant, not even a test notification. Every draft is rebuilt from the parts list on the server: settings must match the part's fields, playlists and scripts must exist, notification credentials (tokens, webhook URLs) are never taken from the model and are left for you to fill in, a file step's "act without a preview" is always off, and members never get an admin-only step. What's dropped is said on the draft card. Tests check that every kind of draft goes through `POST /api/automations/preview` unchanged.
+- **Library text** goes to the model only inside one quoted block, escaped and capped, and the instructions say it's information, never instructions. The model sees only what the profile can see.
+- **Members:** they aren't offered admin-only actions in the Do list, the "/" menu or a Then, in the editor as well as in drafts.
+- **Usage** is one figure for the install per month (UTC), not per profile, estimated from token counts at each model's price.
+- **Editing with a draft:** "Put it in the editor" on an existing automation replaces the blocks but keeps the name and group on screen, and asks first when there are changes. On a built-in automation the draft keeps how it starts and what Do does, as the editor already does.
+- **A failed run without a log** still offers "Ask the Assistant why it failed", under its row.
+- **Error codes** add `provider_error` (anything the others don't cover) and the `quote` event (the run log the answer is about), both in `CONTRACTS.md`.
+
+**Questions for Design** (37–40 in the list above)
+
+**Screenshots** (in the session scratchpad; not in the repo), each at 1440×900 and 390×844: Settings → AI empty and with a key; the list with the suggestion card; the panel not set up, first use, thinking, draft ready, couldn't build, suggestions, explaining a failed run, a refused key and a rate limit; the phone filter row closed and with the search open; the editor's blocks, the "/" menu, three Thens, the Assistant tab with a draft and a draft opened from the list.
 
 ### 2026-10-22: Dev, Design's small changes (answers 2, 11, 13, 18, 22, 23, 25, 26)
 

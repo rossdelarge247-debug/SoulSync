@@ -167,23 +167,6 @@ A page builder's loading and empty states, for example:
 
 Drawn by Design and approved by Ross on 22 October (`HANDOFF.md`). They move to "Components" or "Patterns already built" when they land.
 
-### Block card (the automation editor, 3b)
-
-- An automation is a stack of block cards: one **When**, one **Do** (with "after waiting N minutes"), and up to three **Then**. Each card is a 14px card in a `72px 1fr 44px` grid: a 12px uppercase label column ("WHEN", "DO", "THEN"), the block's settings inline (the selects and fields as before), and a 44px "…" or drag handle.
-- Then cards have a drag handle and reorder by dragging (and with the keyboard, through the handle's menu).
-- The line under the last Then card reads "Type / to add a follow-up · N of 3 left". Typing "/" there opens a `#141416` menu with Notify, Fire a signal, Run a script (admins only) and Ask the Assistant.
-- A draft from the Assistant opens with an info `Notice` at the top saying where it came from; every block it added can be changed or removed like any other.
-- The editor shows the engine's shape honestly: no second Do, and a fourth Then isn't offered.
-
-### Assistant panel (3a–3l)
-
-- Opened by "Assistant" in the Automations header. On the list it takes the right column (440px) in place of Runs; in the editor it shares the right column with Preview as two tabs. One conversation follows you between the two. On a phone it's a full-screen sheet.
-- Header: the title at 18px, "New chat" and a 44px close. Then the thread: paragraphs labelled "You" and "Assistant". Library text the Assistant quotes (names, run logs) is shown as data, logs in Activity's `<pre>` style.
-- **Draft card:** a "Draft ready" info tag, a one-line summary, a "Why this shape" line naming the facts used, a When / Do / Then mini list, then "Open in the editor" (primary on the list), "Preview a run" and "Try again".
-- **Composer:** a textarea with a 44px send button; under it the data line "Writes drafts only. Sends … to Anthropic (Settings → AI)." The first time someone uses it, the same sentence shows as a Notice above the thread.
-- **States:** Not set up (admins get "Open Settings → AI"; members get a sentence and no composer); Thinking (spinner, what it's reading, Stop); Couldn't build (a warning Notice naming the engine's limit, then a "Nearest I can build" card); provider errors as Notices: a wrong key or offline is danger, out of credit or rate-limited is warning, and the message stays in the composer.
-- **Suggestion card on the list:** one at a time at the top of the list, a quiet card with a dashed 16% border, labelled "Suggested by the Assistant", with its reason (always with a number), "Use this" and "Not now".
-
 ### Player bar and tray (6a)
 
 One component with two states, remembered per browser like the compact rail; both toggles carry `aria-expanded` pointing at the tray. It replaces the media player's chrome.
@@ -205,6 +188,9 @@ A 14px card: a 56px logo (6px radius), the name at 16/600, "kind · city", the d
 
 ## Patterns already built
 
+- **Block card** (the automation editor, 3b, 3l; `routes/automations/-ui/editor-fields.tsx` `BlockCard`, `DoBlock`, `ThenBlock`, and `-ui/block-editor.tsx`): an automation is a stack of 14px cards, one **When**, one **Do** ("after waiting N minutes" beside the action) and up to three **Then**, each a `72px 1fr 44px` grid: the 12px uppercase label (`--ss-text-meta`, 0.08em tracking), the settings inline, and the "⋮" on Then cards. Then cards carry a grip under the label: drag it to reorder (the card under it gets the selected wash), or press it for Move up / Move down. The dashed line under the last Then reads "Type / to add a follow-up · N of 3 left"; "/" opens a `--ss-ground-note` menu (Notify, Fire a signal, Run a script for admins, then Ask the Assistant under a hairline) that narrows as you type and works with the arrows, Enter and Escape. On a phone the line is a button and the label sits above the settings. At three Thens the line says "Three follow-ups is the most an automation can have. Remove one to add another." A draft from the Assistant opens under an info Notice. Members aren't offered admin-only actions in the Do list, the menu or a Then.
+- **Assistant panel** (3a, 3c–3k; `routes/automations/-ui/assistant-panel.tsx`, `-ui/suggestion-card.tsx`): opened by "Assistant" in the Automations header (and the editor's). On the list it takes the Runs column at 440px; in the editor it shares the right column with Preview as two tabs; on a phone it's a full-screen `role="dialog"` sheet that Escape closes. Header: title, "New chat", 44px close. The thread labels "You" (with where it was asked from) and "Assistant" in the 12px uppercase style; a quoted run log uses Activity's `<pre>`. The draft card (`--ss-ground-note`) has a "Draft ready" info tag, the summary at 15/600, "Why this shape", any notes in warning colour, a When / Do / Then list, then "Open in the editor" (primary on the list; "Put it in the editor" in the editor, which asks before replacing changes), "Preview a run" and "Try again". The composer is a textarea with a 44px send button and the data line under it ("Writes drafts only. Sends … to Anthropic (Settings → AI)."; "Drafts only · sent to Anthropic (Settings → AI)" on a phone). States: checking; not set up (admins get "Open Settings → AI", members a sentence, no composer); admins only; first use (the data sentence with "Got it", remembered per profile); thinking (spinner, what it's reading, Stop); stopped ("Stopped. Nothing was changed."); couldn't build (warning Notice, then "Nearest I can build" with "Use the nearest"); suggestions (cards with "Use this" and "Not now"); errors as Notices, danger for a refused key, offline or an unknown failure, warning for no credit, rate limits, the monthly cap and busy, with the message back in the composer.
+- **Suggestion card** (top of the Automations list): one at a time, a quiet card with a dashed 16% border, "Suggested by the Assistant" in the 12px label style, the title at 16/600, the reason, then "Use this" and "Not now". Only while the Assistant can be used.
 - **Preview, then confirm** (`features/safe-action`):
     - counts first, a plain sentence saying what happens, then a sample list with "Download the full list";
     - when the preview stops working;
