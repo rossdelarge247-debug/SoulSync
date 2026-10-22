@@ -2,6 +2,7 @@ import '@vitejs/plugin-react/preamble';
 import { createRoot } from 'react-dom/client';
 
 import { mountCandidateInspectorHost } from '@/features/downloads/inspector-modal';
+import { mountOnboardingHost } from '@/features/onboarding/host';
 import { mountAddToPlaylistHost } from '@/features/playlists/add-to-playlist';
 import { mountLossyDeleteOriginalHost } from '@/features/safe-action/lossy-delete-original';
 import { mountPermanentDeleteHost } from '@/features/safe-action/permanent-delete-flow';
@@ -64,6 +65,8 @@ export async function bootstrapApp() {
   return { queryClient, router };
 }
 
+// before init.js's DOMContentLoaded handler, which opens it on first run
+mountOnboardingHost();
 void mountLibraryDiscographySourceSelector();
 mountCandidateInspectorHost();
 mountAddToPlaylistHost();

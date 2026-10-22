@@ -56,14 +56,14 @@ afterEach(() => {
 });
 
 const switcher = () => screen.getByRole('tablist', { name: 'Downloads media' });
-const musicTab = () => screen.getByRole('tab', { name: '🎵 Music' });
-const videoTab = () => screen.getByRole('tab', { name: '🎬 Video' });
+const musicTab = () => screen.getByRole('tab', { name: 'Music' });
+const videoTab = () => screen.getByRole('tab', { name: 'Video' });
 
 describe('the unified downloads page', () => {
   it('shows the Music | Video switcher with Music active by default', async () => {
     renderRoute('/active-downloads');
     // the router's beforeLoad is async — wait for the first paint
-    await screen.findByRole('tab', { name: '🎵 Music' });
+    await screen.findByRole('tab', { name: 'Music' });
     expect(switcher()).toBeInTheDocument();
     expect(musicTab()).toHaveAttribute('aria-selected', 'true');
     expect(videoTab()).toHaveAttribute('aria-selected', 'false');
@@ -73,16 +73,17 @@ describe('the unified downloads page', () => {
 
   it('lands on the video view for ?media=video', async () => {
     renderRoute('/active-downloads?media=video');
-    await screen.findByRole('tab', { name: '🎬 Video' });
+    await screen.findByRole('tab', { name: 'Video' });
     expect(videoTab()).toHaveAttribute('aria-selected', 'true');
     // the video view's header: history button + its own filter pills
     await screen.findByRole('button', { name: /History/ });
+    expect(document.querySelector('[data-vdl-root]')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Completed' })).toBeInTheDocument();
   });
 
   it('falls back to music for a bogus ?media=', async () => {
     renderRoute('/active-downloads?media=bogus');
-    await screen.findByRole('tab', { name: '🎵 Music' });
+    await screen.findByRole('tab', { name: 'Music' });
     expect(musicTab()).toHaveAttribute('aria-selected', 'true');
     await screen.findByRole('tab', { name: /Downloads/ });
   });
@@ -97,16 +98,17 @@ describe('the unified downloads page', () => {
       expect(router.state.location.search).toMatchObject({ media: 'video' });
     });
     expect(videoTab()).toHaveAttribute('aria-selected', 'true');
-    await screen.findByRole('button', { name: /History/ });
+    await waitFor(() => expect(document.querySelector('[data-vdl-root]')).not.toBeNull());
   });
 
   it('switching back to Music drops the param and shows the music view', async () => {
     renderRoute('/active-downloads?media=video');
-    await screen.findByRole('button', { name: /History/ });
+    await waitFor(() => expect(document.querySelector('[data-vdl-root]')).not.toBeNull());
     await act(async () => {
       musicTab().click();
     });
     expect(musicTab()).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(document.querySelector('[data-vdl-root]')).toBeNull());
     await screen.findByRole('tab', { name: /Downloads/ });
   });
 });
@@ -130,7 +132,21 @@ describe('with the Video module turned off', () => {
     await screen.findByRole('tab', { name: /Downloads/ });
     expect(musicTab()).toHaveAttribute('aria-selected', 'true');
     // (no page-shell states in a test: the tab goes once GET /api/modules answers)
-    await waitFor(() => expect(screen.queryByRole('tab', { name: '🎬 Video' })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('tab', { name: 'Video' })).toBeNull());
+  });
+
+  it('never polls the hidden video side', async () => {
+    const videoCalls = vi.fn();
+    server.use(
+      http.get('/api/video/*', () => {
+        videoCalls();
+        return HttpResponse.json({}, { status: 409 });
+      }),
+    );
+    renderRoute('/active-downloads');
+    await screen.findByRole('tab', { name: /Downloads/ });
+    await waitFor(() => expect(screen.queryByRole('tab', { name: 'Video' })).toBeNull());
+    expect(videoCalls).not.toHaveBeenCalled();
   });
 
   it('an old ?media=video link says Video is off instead of loading the view', async () => {

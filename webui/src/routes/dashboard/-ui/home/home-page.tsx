@@ -14,6 +14,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
+import { FinishSetupCard } from '@/features/onboarding/checklist-card';
+
 import type { useDashboardHeader } from '../../-dash.header';
 
 import { latestActivityQueryOptions, targetsSummaryQueryOptions } from '../../-home.api';
@@ -75,6 +77,9 @@ export function HomePage({ header, profileId, nav }: HomePageProps) {
               <AlertsBand />
               <TargetsSection query={targets} nowMs={nowMs} />
               <LatestSection query={latest} nowMs={nowMs} />
+              {/* What first-run setup left for later (admins only). Renders
+                  nothing once it's all done or hidden. */}
+              <FinishSetupCard />
             </div>
           </div>
           <HomeMore header={header} />

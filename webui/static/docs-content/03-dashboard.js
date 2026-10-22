@@ -374,6 +374,9 @@ Per-row: Play, Compare, Audit, **✔ Approve** (re-imports this exact file into 
 
 **🗑 Clear all** (and **Clear Quarantine** in Settings) previews first: how many files, how much space, the oldest and newest, and a sample. **Delete N files permanently** deletes exactly those; anything quarantined after the preview stays.
 
+> [!TIP]
+> Lots of **DURATION** quarantines that turn out to be the right song? Raise **Duration tolerance** in Settings > Library > Post-Processing so future downloads with the same small drift go straight through.
+
 ### 🗑 Deleted — the recycle bin
 Files removed by repair tools and the duplicate cleaner land here instead of dying, hidden from media servers. Source chips: "Repair tool", "Duplicate cleaner", "Stalled album download". Per row: **↩ Restore** (back to where it was removed from) or **🗑 Delete permanently**.
 

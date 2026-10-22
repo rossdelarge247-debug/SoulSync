@@ -1,0 +1,174 @@
+/* Home's "Finish setting up" card, on the fork's tokens and rules
+   (docs/design/DESIGN-SYSTEM.md): a 14px card, 44px targets, text at 14px or
+   more, keyboard-only focus rings, no pill shapes. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-card);
+  color: var(--ss-text);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.titles h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.titles p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ss-text-meta);
+}
+
+.close {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  margin: -8px -12px 0 0;
+  border: 1px solid transparent;
+  border-radius: var(--ss-radius-control);
+  background: transparent;
+  color: var(--ss-text-tertiary);
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.close:hover {
+  background: var(--ss-hover-wash);
+  color: var(--ss-text);
+}
+
+.items {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.item + .item {
+  border-top: 1px solid var(--ss-hairline);
+}
+
+/* a 44px target around a 20px box, so the tick is easy to hit on a phone */
+.tick {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  margin-left: -12px;
+  padding: 0;
+  border: none;
+  border-radius: var(--ss-radius-control);
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.tick:hover:not(:disabled) {
+  background: var(--ss-hover-wash);
+}
+
+.box {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--ss-input-border);
+  border-radius: var(--ss-radius-tag);
+  transition: var(--ss-transition);
+}
+
+.tick:hover:not(:disabled) .box {
+  border-color: var(--ss-input-border-hover);
+}
+
+.item[data-done] .tick {
+  cursor: default;
+}
+
+.item[data-done] .box {
+  border-color: transparent;
+  background: rgb(var(--ss-accent-light-rgb));
+  color: var(--ss-text-on-accent);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.itemTitle {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.item[data-done] .itemTitle {
+  color: var(--ss-text-tertiary);
+}
+
+.itemDesc {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ss-text-meta);
+}
+
+.action {
+  flex-shrink: 0;
+}
+
+.tick:focus-visible,
+.close:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 16px;
+  }
+
+  .item {
+    flex-wrap: wrap;
+  }
+
+  .action {
+    width: calc(100% - 44px);
+    margin-left: 32px;
+  }
+}
