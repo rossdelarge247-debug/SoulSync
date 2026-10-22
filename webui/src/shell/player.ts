@@ -45,6 +45,7 @@ import {
   formatReadout,
   formatRemaining,
   formatSpeed,
+  formatSpeedValue,
   fractionAt,
   parseChapters,
   pathLabel,
@@ -54,8 +55,9 @@ import {
   readTrayState,
   seekStep,
   shortFormat,
+  sleepButtonLabel,
+  sleepButtonText,
   sleepChoiceLabel,
-  sleepLabel,
   sourceLabel,
   sourceView,
   timeAgo,
@@ -108,6 +110,8 @@ export interface PlayerSnapshot {
   radio: boolean;
   autoDownload: boolean;
   crossfade: boolean;
+  /** How long a crossfade lasts, in seconds (Player settings). */
+  crossfadeSeconds?: number;
   context: string;
   volume: number;
   muted: boolean;
@@ -147,6 +151,8 @@ interface TheaterApi {
   getSpeed?: () => number;
   speedPresets?: () => number[];
   openVisuals?: () => void;
+  /** The equalizer: on or off, and the preset's name. */
+  getEq?: () => { on: boolean; preset: string };
   closeVisuals?: () => void;
   visualsOpen?: () => boolean;
   updateWakeLock?: () => void;
@@ -252,6 +258,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
   const tray = root.querySelector<HTMLElement>('#ss-player-tray');
   const menu = root.querySelector<HTMLElement>('#ss-player-menu');
   const speedMenu = root.querySelector<HTMLElement>('#ss-player-speed-menu');
+  const sleepMenu = root.querySelector<HTMLElement>('#ss-player-sleep-menu');
   const outputMenu = root.querySelector<HTMLElement>('#ss-player-output-menu');
   const scrim = doc.querySelector<HTMLElement>('[data-player-scrim]');
   const overlay = doc.getElementById('np-modal-overlay');
@@ -395,19 +402,14 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
   // ── menus ────────────────────────────────────────────────────────────────
   function closeMenus(restore = true): void {
     let was = false;
-    for (const m of [menu, speedMenu, outputMenu]) {
+    for (const m of [menu, speedMenu, sleepMenu, outputMenu]) {
       if (m && !m.hidden) {
         m.hidden = true;
         was = true;
       }
     }
     for (const b of root!.querySelectorAll(
-      '[data-player-more], [data-player-action="speed"], [data-player-output]',
-    )) {
-      setAttr(b, 'aria-expanded', 'false');
-    }
-    for (const b of root!.querySelectorAll(
-      '[data-player-menu="speed"], [data-player-menu="sleep"]',
+      '[data-player-more], [data-player-action="speed"], [data-player-output], [data-player-sleep], [data-player-menu="speed"]',
     )) {
       setAttr(b, 'aria-expanded', 'false');
     }
@@ -916,7 +918,6 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     if (!menu) return;
     const st = snapshot;
     const item = (name: string) => menu.querySelector<HTMLElement>(`[data-player-menu="${name}"]`);
-    setHidden(item('playlist'), !st.playlistTrack || typeof view.openAddToPlaylist !== 'function');
     setHidden(item('report'), !st.reportable);
     const spoken = st.kind === 'podcast' || st.kind === 'audiobook';
     setHidden(item('lyrics'), spoken || st.kind === 'radio');
@@ -930,13 +931,35 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     );
     setText(
       menu.querySelector('[data-player-speed-state]'),
-      formatSpeed(view.npV2?.getSpeed?.() ?? 1),
+      formatSpeedValue(view.npV2?.getSpeed?.() ?? 1),
     );
-    setText(
-      menu.querySelector('[data-player-sleep-state]'),
-      sleepLabel(st.sleep, st.sleepEndsAt, Date.now()),
-    );
+    // values in meta on the right (9d): Crossfade · 4 s, Equalizer · Flat
     setAttr(item('crossfade'), 'aria-pressed', st.crossfade ? 'true' : 'false');
+    setText(
+      menu.querySelector('[data-player-crossfade-state]'),
+      st.crossfade ? `${st.crossfadeSeconds ?? 6} s` : 'Off',
+    );
+    const eq = view.npV2?.getEq?.();
+    setText(menu.querySelector('[data-player-eq-state]'), eq?.on ? eq.preset || 'On' : 'Off');
+    setText(menu.querySelector('[data-player-radio-state]'), st.radio ? 'On' : 'Off');
+  }
+
+  /** The record's control row: Add to playlist, Sleep timer (9d). */
+  function drawRecordControls(): void {
+    const st = snapshot;
+    setHidden(
+      root!.querySelector('[data-player-record="playlist"]'),
+      !st.playlistTrack || typeof view.openAddToPlaylist !== 'function',
+    );
+    const now = Date.now();
+    const running = st.sleep === 'track' || Boolean(st.sleep);
+    for (const b of root!.querySelectorAll<HTMLElement>('[data-player-sleep]')) {
+      setAttr(b, 'aria-pressed', running ? 'true' : 'false');
+      setAttr(b, 'aria-label', sleepButtonLabel(st.sleep, st.sleepEndsAt, now));
+      const left = b.querySelector<HTMLElement>('[data-player-sleep-left]');
+      setText(left, sleepButtonText(st.sleep, st.sleepEndsAt, now));
+      setHidden(left, !running);
+    }
   }
 
   function fillSleep(box: HTMLElement): void {
@@ -951,6 +974,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       (value) => {
         engine!.setSleep(value === 'track' ? 'track' : Number(value));
         closeMenus(true);
+        draw();
       },
     );
   }
@@ -1241,6 +1265,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     setHidden(root!.querySelector('[data-player-clear]'), listView !== 'queue' || !st.queue.length);
 
     drawOutput();
+    drawRecordControls();
     if (menu && !menu.hidden) drawMenu();
     drawTime();
   }
@@ -1353,7 +1378,26 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
   }
   for (const w of waves()) wireWave(w);
 
-  // the record's "…"
+  // the record's control row: Add to playlist, Sleep timer, "…" (9d)
+  const openPlaylist = (anchor: HTMLElement | null) => {
+    if (!snapshot.playlistTrack || !anchor) return;
+    const open = view.openAddToPlaylist as unknown as
+      | ((t: Record<string, string>, a: HTMLElement) => void)
+      | undefined;
+    open?.(snapshot.playlistTrack, anchor);
+  };
+  on(root.querySelector('[data-player-record="playlist"]'), 'click', (e) => {
+    closeMenus(false);
+    openPlaylist(e.currentTarget as HTMLElement);
+  });
+  on(root.querySelector('[data-player-sleep]'), 'click', (e) => {
+    if (!sleepMenu) return;
+    fillSleep(sleepMenu);
+    openMenu(sleepMenu, e.currentTarget as HTMLElement);
+    sleepMenu.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+  });
+  const sleepTick = view.setInterval(() => drawRecordControls(), 15000);
+  cleanups.push(() => view.clearInterval(sleepTick));
   on(root.querySelector('[data-player-more]'), 'click', (e) =>
     openMenu(menu, e.currentTarget as HTMLElement),
   );
@@ -1370,15 +1414,6 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       }
       const anchor = menuOpener ?? root!.querySelector<HTMLElement>('[data-player-more]');
       switch (target.dataset.playerMenu) {
-        case 'playlist':
-          closeMenus(true);
-          if (snapshot.playlistTrack && anchor) {
-            const open = view.openAddToPlaylist as unknown as
-              | ((t: Record<string, string>, a: HTMLElement) => void)
-              | undefined;
-            open?.(snapshot.playlistTrack, anchor);
-          }
-          break;
         case 'report': {
           closeMenus(true);
           const t = snapshot.track;
@@ -1410,20 +1445,14 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
             )
             ?.focus();
           break;
-        case 'speed':
-        case 'sleep': {
-          const box = menu.querySelector<HTMLElement>(
-            target.dataset.playerMenu === 'speed'
-              ? '#ss-player-speed-list'
-              : '#ss-player-sleep-list',
-          );
+        case 'speed': {
+          const box = menu.querySelector<HTMLElement>('#ss-player-speed-list');
           if (!box) break;
           const open = box.hidden;
           box.hidden = !open;
           target.setAttribute('aria-expanded', open ? 'true' : 'false');
           if (open) {
-            if (target.dataset.playerMenu === 'speed') fillChoices(box, speedChoices(), pickSpeed);
-            else fillSleep(box);
+            fillChoices(box, speedChoices(), pickSpeed);
             box.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
           }
           if (anchor) placeMenu(menu, anchor);
@@ -1500,7 +1529,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     const ev = e as KeyboardEvent;
     if (ev.defaultPrevented) return;
     if (ev.key === 'Escape') {
-      if ([menu, speedMenu, outputMenu].some((m) => m && !m.hidden)) {
+      if ([menu, speedMenu, sleepMenu, outputMenu].some((m) => m && !m.hidden)) {
         ev.preventDefault();
         closeMenus(true);
         return;
@@ -1540,7 +1569,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
   // a click outside closes a menu
   on(doc, 'pointerdown', (e) => {
     const target = e.target as Node;
-    for (const m of [menu, speedMenu, outputMenu]) {
+    for (const m of [menu, speedMenu, sleepMenu, outputMenu]) {
       if (m && !m.hidden && !m.contains(target)) {
         const opener = menuOpener;
         if (opener && opener.contains(target)) return;

@@ -416,6 +416,39 @@ export function sleepChoiceLabel(value: number | 'track'): string {
     : `${value} minutes`;
 }
 
+/**
+ * The record's Sleep timer button (HANDOFF 47): the time left beside the icon
+ * while it runs ("23 min", "End of track"), nothing while it's off.
+ */
+export function sleepButtonText(
+  value: number | 'track' | null | undefined,
+  endsAt: number,
+  now: number,
+): string {
+  if (value === 'track') return 'End of track';
+  if (!value) return '';
+  const left = endsAt > now ? Math.ceil((endsAt - now) / 60000) : value;
+  return `${left} min`;
+}
+
+/** Its accessible name: "Sleep timer, 23 minutes left", "…, off". */
+export function sleepButtonLabel(
+  value: number | 'track' | null | undefined,
+  endsAt: number,
+  now: number,
+): string {
+  if (value === 'track') return 'Sleep timer, at the end of this track';
+  if (!value) return 'Sleep timer, off';
+  const left = endsAt > now ? Math.ceil((endsAt - now) / 60000) : value;
+  return `Sleep timer, ${left} minute${left === 1 ? '' : 's'} left`;
+}
+
+/** The menu's Speed value, always with a decimal: "1.0×", "1.25×". */
+export function formatSpeedValue(speed: number): string {
+  const n = Number.isFinite(speed) && speed > 0 ? speed : 1;
+  return `${Number.isInteger(n * 10) ? n.toFixed(1) : String(n)}×`;
+}
+
 export function formatSpeed(speed: number): string {
   const n = Number.isFinite(speed) && speed > 0 ? speed : 1;
   return `${Number.isInteger(n) ? n.toFixed(0) : String(n)}×`;
