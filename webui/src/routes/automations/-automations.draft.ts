@@ -122,7 +122,7 @@ export function scheduleFromTrigger(
   };
 }
 
-function thenFromItem(item: ThenAction): ThenDraft {
+export function thenFromItem(item: ThenAction): ThenDraft {
   const { type, config, conditions, ...extra } = item;
   const first = Array.isArray(conditions) && conditions.length ? conditions[0] : null;
   return {
@@ -173,6 +173,78 @@ export function newDraft(): Draft {
     actionConfig: {},
     delay: 0,
     followUps: [],
+  };
+}
+
+/** The parts of an Assistant draft (the preview body plus name and trigger). */
+export interface AssistantDraftParts {
+  name: string;
+  trigger_type: string;
+  trigger_config: Record<string, unknown>;
+  action_type: string;
+  action_config: Record<string, unknown>;
+  then_actions: ThenAction[];
+}
+
+/**
+ * An Assistant draft as the editor holds it. On its own it's a new
+ * automation; over ``base`` (an automation you have) it changes that one,
+ * keeping its id, group and name. A built-in automation keeps how it starts
+ * and what it does, as the editor would: only its timing, its step's options
+ * and its follow-ups take the draft's.
+ */
+export function draftFromAssistant(d: AssistantDraftParts, base?: Draft | null): Draft {
+  const actionConfig = { ...d.action_config };
+  const delay = Math.max(0, int(actionConfig.delay, 0));
+  delete actionConfig.delay;
+  const followUps = (d.then_actions ?? []).map(thenFromItem);
+  const schedule = scheduleFromTrigger(d.trigger_type, d.trigger_config);
+  if (!base) {
+    return {
+      ...newDraft(),
+      name: d.name ?? '',
+      schedule,
+      triggerBase: { ...d.trigger_config },
+      triggerTypeBase: str(d.trigger_type),
+      actionType: str(d.action_type),
+      actionConfig,
+      delay,
+      followUps,
+    };
+  }
+  if (base.isSystem) {
+    const sameKind = schedule.kind === base.schedule.kind;
+    const sameAction = str(d.action_type) === base.actionType;
+    return {
+      ...base,
+      schedule: sameKind ? { ...schedule, eventType: base.schedule.eventType } : base.schedule,
+      actionConfig: sameAction ? actionConfig : base.actionConfig,
+      delay,
+      followUps,
+    };
+  }
+  return {
+    ...base,
+    schedule,
+    triggerBase: { ...d.trigger_config },
+    triggerTypeBase: str(d.trigger_type),
+    actionType: str(d.action_type),
+    actionConfig,
+    delay,
+    followUps,
+  };
+}
+
+/** What's on screen in the editor, for the Assistant's context. */
+export function draftToAssistant(d: Draft): AssistantDraftParts {
+  const payload = draftToPayload(d);
+  return {
+    name: payload.name,
+    trigger_type: payload.trigger_type,
+    trigger_config: payload.trigger_config,
+    action_type: payload.action_type,
+    action_config: payload.action_config,
+    then_actions: payload.then_actions,
   };
 }
 

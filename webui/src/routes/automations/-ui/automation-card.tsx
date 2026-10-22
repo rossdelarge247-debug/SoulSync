@@ -79,7 +79,8 @@ export interface CardHandlers {
   onDuplicate: (a: Automation) => void;
   onGroup: (a: Automation) => void;
   onDelete: (a: Automation) => void;
-  onFullBuilder: (a: Automation) => void;
+  /** "Explain": asks the Assistant about it (only while it can be used). */
+  onExplain?: (a: Automation) => void;
 }
 
 function StateTag({ a, running }: { a: Automation; running: boolean }) {
@@ -153,7 +154,6 @@ export function AutomationCard({
             onSelect: () => on.onGroup(a),
           },
         ]),
-    { key: 'builder', label: 'Open in the full builder', onSelect: () => on.onFullBuilder(a) },
     ...(system
       ? []
       : [
@@ -239,6 +239,16 @@ export function AutomationCard({
             <Button size="lg" variant="ghost" onClick={() => on.onEdit(a)}>
               Edit
             </Button>
+            {on.onExplain ? (
+              <button
+                type="button"
+                className={styles.explainLink}
+                aria-label={`Explain ${a.name}`}
+                onClick={() => on.onExplain?.(a)}
+              >
+                Explain
+              </button>
+            ) : null}
             <ActionMenu label={`More for ${a.name}`} entries={menu} />
           </div>
         ) : !enabled ? (

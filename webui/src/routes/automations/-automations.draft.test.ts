@@ -4,7 +4,9 @@ import type { Automation } from './-automations.types';
 
 import {
   draftChanged,
+  draftFromAssistant,
   draftFromAutomation,
+  draftToAssistant,
   draftToPayload,
   newDraft,
   validateDraft,
@@ -150,5 +152,41 @@ describe('validation', () => {
       }),
     ).toHaveProperty('schedule.signalName');
     expect(validateDraft(base)).toEqual({});
+  });
+});
+
+describe('Assistant drafts', () => {
+  const DRAFT = {
+    name: 'Morning search',
+    trigger_type: 'daily_time',
+    trigger_config: { time: '07:00' },
+    action_type: 'process_wishlist',
+    action_config: { category: 'albums', delay: 10 },
+    then_actions: [{ type: 'fire_signal', config: { signal_name: 'done' } }],
+  };
+
+  it('becomes an editor draft and comes back as the same body', () => {
+    const d = draftFromAssistant(DRAFT);
+    expect(d.name).toBe('Morning search');
+    expect(d.schedule.kind).toBe('daily');
+    expect(d.delay).toBe(10);
+    expect(d.followUps).toHaveLength(1);
+    expect(draftToAssistant(d)).toMatchObject({
+      name: 'Morning search',
+      trigger_type: 'daily_time',
+      trigger_config: { time: '07:00' },
+      action_type: 'process_wishlist',
+      then_actions: [{ type: 'fire_signal', config: { signal_name: 'done' } }],
+    });
+    expect(draftToPayload(d).action_config).toEqual({ category: 'albums', delay: 10 });
+  });
+
+  it('keeps an existing automation’s id, and a built-in one’s start and action', () => {
+    const base = draftFromAutomation(SAVED);
+    expect(draftFromAssistant(DRAFT, base).id).toBe(4);
+    const system = { ...base, isSystem: true };
+    const kept = draftFromAssistant({ ...DRAFT, action_type: 'scan_library' }, system);
+    expect(kept.actionType).toBe('process_wishlist');
+    expect(kept.schedule.kind).toBe(system.schedule.kind);
   });
 });

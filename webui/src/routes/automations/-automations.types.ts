@@ -85,6 +85,15 @@ export function parseListSearch(raw: Record<string, unknown>): AutomationsListSe
   return out;
 }
 
+/** The editor's search: `?from=assistant` opens with the Assistant's draft. */
+export interface EditorSearch {
+  from?: 'assistant';
+}
+
+export function parseEditorSearch(raw: Record<string, unknown>): EditorSearch {
+  return searchString(raw.from) === 'assistant' ? { from: 'assistant' } : {};
+}
+
 /**
  * One row from GET /api/automations.
  *
@@ -115,6 +124,8 @@ export interface Automation {
   profile_id?: number;
   created_at?: string | null;
   updated_at?: string | null;
+  /** When it was turned off; null while it's on. */
+  paused_at?: string | null;
 }
 
 /** One follow-up step (a THEN block). */
@@ -246,6 +257,8 @@ export interface PreviewResult {
 
 /** What POST/PUT /api/automations take. */
 export interface AutomationPayload {
+  /** Saved from an Assistant draft (counts on Settings → AI). */
+  assistant_draft?: boolean;
   name: string;
   trigger_type: string;
   trigger_config: Record<string, unknown>;

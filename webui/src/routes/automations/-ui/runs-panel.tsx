@@ -47,11 +47,14 @@ export function RunsPanel({
   automation,
   progress,
   embedded = false,
+  onAskAboutRun,
 }: {
   automation: Automation;
   progress?: AutomationRunState;
   /** Inside the selected card on a phone, not the sticky side panel. */
   embedded?: boolean;
+  /** "Ask the Assistant why" under a failed run's log (while it can be used). */
+  onAskAboutRun?: (run: { id: number; when: string }) => void;
 }) {
   const query = useQuery(automationHistoryQueryOptions(automation.id));
   const [shown, setShown] = useState(FIRST_ROWS);
@@ -203,6 +206,15 @@ export function RunsPanel({
                         </span>
                       ))}
                     </pre>
+                  ) : null}
+                  {(expanded || !hasLog) && row.tone === 'danger' && onAskAboutRun ? (
+                    <button
+                      type="button"
+                      className={styles.explainLink}
+                      onClick={() => onAskAboutRun({ id: row.id, when: row.when })}
+                    >
+                      Ask the Assistant why it failed
+                    </button>
                   ) : null}
                 </li>
               );

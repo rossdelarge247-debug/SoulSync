@@ -219,6 +219,22 @@ function ConditionsEditor({
   );
 }
 
+/** The When block's choice, as its select words it ("Daily at", then the time). */
+export function kindChoice(kind: ScheduleKind): string {
+  switch (kind) {
+    case 'interval':
+      return 'Every';
+    case 'daily':
+      return 'Daily at';
+    case 'weekly':
+      return 'Weekly on';
+    case 'monthly':
+      return 'Monthly on';
+    default:
+      return 'After something happens';
+  }
+}
+
 export function RunsField({
   schedule: s,
   onChange,
@@ -226,6 +242,7 @@ export function RunsField({
   locked,
   errors,
   phone,
+  variant = 'buttons',
 }: {
   schedule: ScheduleDraft;
   onChange: (patch: Partial<ScheduleDraft>) => void;
@@ -234,7 +251,10 @@ export function RunsField({
   locked: boolean;
   errors: DraftErrors;
   phone: boolean;
+  /** `select`: the When block (3b), a select and its fields in one line. */
+  variant?: 'buttons' | 'select';
 }) {
+  const asSelect = phone || variant === 'select';
   const ids = {
     interval: useId(),
     unit: useId(),
@@ -251,7 +271,9 @@ export function RunsField({
   };
   const timeField = (
     <label className={styles.inlineField} htmlFor={ids.time}>
-      <span className={styles.inlineLabel}>
+      <span
+        className={variant === 'select' && s.kind === 'daily' ? styles.srOnly : styles.inlineLabel}
+      >
         {s.kind === 'weekly' || s.kind === 'monthly' ? 'at' : 'At'}
       </span>
       <TextInput
@@ -267,19 +289,21 @@ export function RunsField({
   );
 
   return (
-    <fieldset className={styles.runsField}>
-      <legend className={styles.fieldLabel}>Runs</legend>
-      {phone ? (
+    <fieldset className={styles.runsField} data-variant={variant}>
+      <legend className={variant === 'select' ? styles.srOnly : styles.fieldLabel}>
+        {variant === 'select' ? 'When' : 'Runs'}
+      </legend>
+      {asSelect ? (
         <Select
           size="lg"
-          aria-label="Runs"
+          aria-label={variant === 'select' ? 'When' : 'Runs'}
           value={s.kind}
           disabled={locked}
           onChange={(e) => pick(e.target.value as ScheduleKind)}
         >
           {KIND_ORDER.map((kind) => (
             <option key={kind} value={kind}>
-              {kindLabel(kind, s, kind === s.kind)}
+              {variant === 'select' ? kindChoice(kind) : kindLabel(kind, s, kind === s.kind)}
             </option>
           ))}
         </Select>
@@ -307,7 +331,9 @@ export function RunsField({
         {s.kind === 'interval' ? (
           <div className={styles.sentence}>
             <label className={styles.inlineField} htmlFor={ids.interval}>
-              <span className={styles.inlineLabel}>Every</span>
+              <span className={variant === 'select' ? styles.srOnly : styles.inlineLabel}>
+                Every
+              </span>
               <TextInput
                 id={ids.interval}
                 type="number"
@@ -469,6 +495,88 @@ export function RunsField({
       </div>
     </fieldset>
   );
+}
+
+// ── the block card (3b) ─────────────────────────────────────────────────────
+
+/**
+ * One block: a 14px card in a `72px 1fr 44px` grid, the 12px uppercase label
+ * ("When", "Do", "Then") with an optional drag handle under it, the block's
+ * settings, and its "⋮".
+ */
+export function BlockCard({
+  label,
+  labelId,
+  handle,
+  menu,
+  children,
+  testId,
+  dragging,
+  dropTarget,
+  ...rest
+}: {
+  label: string;
+  labelId?: string;
+  handle?: ReactNode;
+  menu?: ReactNode;
+  children: ReactNode;
+  testId?: string;
+  dragging?: boolean;
+  dropTarget?: boolean;
+} & Omit<React.HTMLAttributes<HTMLLIElement>, 'children'>) {
+  return (
+    <li
+      className={styles.block}
+      data-testid={testId}
+      data-dragging={dragging ? 'true' : undefined}
+      data-drop={dropTarget ? 'true' : undefined}
+      {...rest}
+    >
+      <div className={styles.blockLabelCol}>
+        <span className={styles.blockLabel} id={labelId}>
+          {label}
+        </span>
+        {handle}
+      </div>
+      <div className={styles.blockBody}>{children}</div>
+      <div className={styles.blockAside}>{menu}</div>
+    </li>
+  );
+}
+
+// The steps a member never gets from the Assistant (core/automation/api.py
+// needs_admin): scripts, clean-ups, repairs, backups, purges, video. The
+// editor offers them to admins only, as the "/" menu's "Run a script".
+const ADMIN_ONLY = new Set([
+  'run_script',
+  'clear_quarantine',
+  'library_cleanup',
+  'full_cleanup',
+  'clean_completed_downloads',
+  'clean_search_history',
+  'seeding_sweep',
+  'run_duplicate_cleaner',
+  'deep_scan_library',
+  'run_repair_job',
+  'backup_database',
+]);
+const ADMIN_WORDS = ['purge', 'cleanup', 'clean_', 'repair', 'backup', 'recycle', 'quarantine'];
+
+export function needsAdmin(type: string, category?: string | null): boolean {
+  if (!type) return false;
+  if (ADMIN_ONLY.has(type) || type.startsWith('video_')) return true;
+  if (ADMIN_WORDS.some((w) => type.includes(w))) return true;
+  return category === 'Maintenance';
+}
+
+/** "after waiting" choices, in minutes; the saved value is always offered. */
+export const WAIT_CHOICES = [0, 1, 2, 5, 10, 15, 30, 45, 60, 90, 120, 180, 240, 360, 720, 1440];
+
+export function waitWords(minutes: number): string {
+  if (minutes < 60) return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+  const hours = minutes / 60;
+  if (Number.isInteger(hours)) return hours === 1 ? '1 hour' : `${hours} hours`;
+  return `${minutes} minutes`;
 }
 
 // ── step 1: the action ──────────────────────────────────────────────────────
@@ -705,17 +813,17 @@ function OptionField({
   );
 }
 
-export function ActionStep({
+export function DoBlock({
   actionType,
   config,
   delay,
   blocks,
   locked,
   error,
+  isAdmin,
   onType,
   onConfig,
   onDelay,
-  menu,
 }: {
   actionType: string;
   config: Record<string, unknown>;
@@ -723,34 +831,34 @@ export function ActionStep({
   blocks?: AutomationBlocks;
   locked: boolean;
   error?: string;
+  /** Members aren't offered the admin-only actions (the saved one stays). */
+  isAdmin: boolean;
   onType: (type: string) => void;
   onConfig: (patch: Record<string, unknown>) => void;
   onDelay: (minutes: number) => void;
-  menu: MenuEntry[];
 }) {
-  const ids = { type: useId(), delay: useId(), script: useId(), timeout: useId() };
+  const ids = { type: useId(), delay: useId(), script: useId(), timeout: useId(), label: useId() };
   const def = findBlock(blocks, 'actions', actionType);
   const ignored = new Set(IGNORED_FIELDS[actionType] ?? []);
   const fields = (def?.config_fields ?? []).filter((f) => !ignored.has(f.key));
   const inline = fields.filter((f) => f.type === 'select' || f.type === 'mirrored_playlist_select');
   const below = fields.filter((f) => !inline.includes(f));
-  const actions = blocks?.actions ?? [];
+  const actions = (blocks?.actions ?? []).filter(
+    (d) => isAdmin || d.type === actionType || !needsAdmin(d.type, d.category),
+  );
   const all = truthy(config.all);
+  const waits = WAIT_CHOICES.includes(delay)
+    ? WAIT_CHOICES
+    : [...WAIT_CHOICES, delay].sort((a, b) => a - b);
 
   return (
-    <li className={styles.step} data-testid="step-1">
-      <span className={styles.stepNumber} aria-hidden="true">
-        1
-      </span>
-      <span className={styles.stepTitle} aria-hidden="true">
-        {def ? actionChoiceLabel(def) : 'What it does'}
-      </span>
-      <div className={styles.stepBody}>
+    <BlockCard label="Do" labelId={ids.label} testId="block-do">
+      <div className={styles.blockStack}>
         <div className={styles.sentence}>
           <Select
             size="lg"
             id={ids.type}
-            aria-label="Step 1: what it does"
+            aria-label="Do: what it does"
             value={actionType}
             disabled={locked}
             aria-invalid={error ? true : undefined}
@@ -802,6 +910,26 @@ export function ActionStep({
               onChange={(v) => onConfig({ script_name: v })}
             />
           ) : null}
+          {actionType ? (
+            <>
+              <span className={styles.word} id={`${ids.delay}-label`}>
+                after waiting
+              </span>
+              <Select
+                size="lg"
+                id={ids.delay}
+                aria-label="Wait before starting"
+                value={String(delay)}
+                onChange={(e) => onDelay(Math.max(0, Number.parseInt(e.target.value, 10) || 0))}
+              >
+                {waits.map((m) => (
+                  <option key={m} value={String(m)}>
+                    {waitWords(m)}
+                  </option>
+                ))}
+              </Select>
+            </>
+          ) : null}
         </div>
         <FieldError id={`${ids.type}-err`} message={error} />
         {locked ? (
@@ -839,26 +967,9 @@ export function ActionStep({
             ) : null}
           </div>
         ) : null}
-        {actionType ? (
-          <div className={styles.option}>
-            <label className={styles.inlineField} htmlFor={ids.delay}>
-              <span className={styles.inlineLabel}>Wait</span>
-              <TextInput
-                id={ids.delay}
-                type="number"
-                min={0}
-                className={styles.numberInput}
-                value={String(delay)}
-                onChange={(e) => onDelay(Math.max(0, Number.parseInt(e.target.value, 10) || 0))}
-              />
-              <span className={styles.inlineLabel}>minutes before starting</span>
-            </label>
-          </div>
-        ) : null}
         {actionType ? <p className={styles.help}>{actionHelp(actionType, def, delay)}</p> : null}
       </div>
-      <ActionMenu label="More for step 1" entries={menu} vertical bare />
-    </li>
+    </BlockCard>
   );
 }
 
@@ -994,21 +1105,32 @@ function ThenField({
   );
 }
 
-export function ThenStep({
+export function ThenBlock({
   step,
-  position,
+  index,
   triggerVariables,
   errors,
+  isAdmin,
   onChange,
   menu,
+  handle,
+  dragProps,
 }: {
   step: ThenDraft;
-  position: number;
+  /** 1-based, among the Then blocks. */
+  index: number;
   triggerVariables: string[];
   errors: DraftErrors;
+  isAdmin: boolean;
   onChange: (patch: Partial<ThenDraft>) => void;
   menu: MenuEntry[];
+  handle?: ReactNode;
+  dragProps?: Omit<React.HTMLAttributes<HTMLLIElement>, 'children'> & {
+    dragging?: boolean;
+    dropTarget?: boolean;
+  };
 }) {
+  const position = `Then ${index}`;
   const ids = { type: useId(), signal: useId(), condField: useId() };
   const [test, setTest] = useState<{ state: 'idle' | 'sending' | 'done'; text?: string }>({
     state: 'idle',
@@ -1037,20 +1159,20 @@ export function ThenStep({
   };
 
   return (
-    <li className={styles.step} data-testid={`step-${position}`}>
-      <span className={styles.stepNumber} aria-hidden="true">
-        {position}
-      </span>
-      <span className={styles.stepTitle} aria-hidden="true">
-        {THEN_LABELS[step.type] ?? step.type}
-      </span>
-      <div className={styles.stepBody}>
+    <BlockCard
+      label="Then"
+      testId={`block-then-${index}`}
+      handle={handle}
+      menu={<ActionMenu label={`More for ${position}`} entries={menu} vertical bare />}
+      {...dragProps}
+    >
+      <div className={styles.blockStack}>
         <div className={styles.sentence}>
           {NOTIFY_TYPES.includes(step.type) ? <span className={styles.word}>Send a</span> : null}
           <Select
             size="lg"
             id={ids.type}
-            aria-label={`Step ${position}: what it does`}
+            aria-label={`${position}: what it does`}
             value={step.type}
             onChange={(e) => onChange({ type: e.target.value })}
           >
@@ -1064,7 +1186,9 @@ export function ThenStep({
             </optgroup>
             <optgroup label="Other">
               <option value="fire_signal">{THEN_LABELS.fire_signal}</option>
-              <option value="run_script">{THEN_LABELS.run_script}</option>
+              {isAdmin || step.type === 'run_script' ? (
+                <option value="run_script">{THEN_LABELS.run_script}</option>
+              ) : null}
             </optgroup>
           </Select>
           {step.type === 'fire_signal' ? (
@@ -1155,7 +1279,7 @@ export function ThenStep({
           <span className={styles.word}>Runs</span>
           <Select
             size="lg"
-            aria-label={`Step ${position}: when it runs`}
+            aria-label={`${position}: when it runs`}
             value={cond ? 'when' : 'always'}
             onChange={(e) =>
               onChange({
@@ -1176,7 +1300,7 @@ export function ThenStep({
               <TextInput
                 id={ids.condField}
                 className={styles.condInput}
-                aria-label={`Step ${position}: value to check`}
+                aria-label={`${position}: value to check`}
                 list={`${ids.condField}-list`}
                 value={cond.field ?? ''}
                 onChange={(e) => onChange({ condition: { ...cond, field: e.target.value } })}
@@ -1188,7 +1312,7 @@ export function ThenStep({
               </datalist>
               <Select
                 size="lg"
-                aria-label={`Step ${position}: how to compare`}
+                aria-label={`${position}: how to compare`}
                 value={cond.operator ?? 'equals'}
                 onChange={(e) => onChange({ condition: { ...cond, operator: e.target.value } })}
               >
@@ -1200,7 +1324,7 @@ export function ThenStep({
               </Select>
               <TextInput
                 className={styles.condInput}
-                aria-label={`Step ${position}: compare with`}
+                aria-label={`${position}: compare with`}
                 value={cond.value ?? ''}
                 onChange={(e) => onChange({ condition: { ...cond, value: e.target.value } })}
               />
@@ -1227,15 +1351,33 @@ export function ThenStep({
           </div>
         ) : null}
       </div>
-      <ActionMenu label={`More for step ${position}`} entries={menu} vertical bare />
-    </li>
+    </BlockCard>
   );
 }
 
-export const ADD_STEP_TYPES: { type: string; label: string }[] = [
-  { type: 'discord_webhook', label: 'Notify' },
-  { type: 'fire_signal', label: 'Fire a signal' },
-  { type: 'run_script', label: 'Run a script' },
+/** The "/" menu's blocks (3b): the follow-ups the engine can run. */
+export const ADD_STEP_TYPES: {
+  type: string;
+  label: string;
+  description: string;
+  adminOnly?: boolean;
+}[] = [
+  {
+    type: 'discord_webhook',
+    label: 'Notify',
+    description: 'Telegram, Discord, ntfy, Gotify, Pushbullet or a webhook',
+  },
+  {
+    type: 'fire_signal',
+    label: 'Fire a signal',
+    description: 'Starts automations that wait for it',
+  },
+  {
+    type: 'run_script',
+    label: 'Run a script',
+    description: 'From the scripts folder · admins',
+    adminOnly: true,
+  },
 ];
 
 export function canAddStep(count: number): boolean {
