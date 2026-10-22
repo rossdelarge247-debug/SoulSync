@@ -18346,6 +18346,41 @@ class MusicDatabase:
             logger.error("get_downloaded_podcast_episodes failed: %s", e)
             return []
 
+    def get_podcast_episode_summary(self, feed_urls: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Per feed: how many downloaded episodes are still on disk, and the
+        newest episode downloaded (pruned or not), from the download record.
+
+        Read-only. Feeds with nothing downloaded are left out. ``downloaded_at``
+        is SQLite's CURRENT_TIMESTAMP, which is UTC. The title comes from the
+        row MAX(downloaded_at) picks (SQLite's bare-column rule).
+        """
+        feeds = sorted({str(url).strip() for url in (feed_urls or []) if str(url or '').strip()})
+        out: Dict[str, Dict[str, Any]] = {}
+        if not feeds:
+            return out
+        try:
+            with self._get_connection() as conn:
+                for start in range(0, len(feeds), 500):
+                    chunk = feeds[start:start + 500]
+                    marks = ",".join("?" * len(chunk))
+                    rows = conn.execute(
+                        "SELECT feed_url, "
+                        "SUM(CASE WHEN pruned_at IS NULL THEN 1 ELSE 0 END) AS kept, "
+                        "title, MAX(downloaded_at) AS latest_at "
+                        f"FROM downloaded_podcast_episodes WHERE feed_url IN ({marks}) "
+                        "GROUP BY feed_url",
+                        chunk,
+                    ).fetchall()
+                    for row in rows:
+                        latest = None
+                        if row["latest_at"]:
+                            latest = {"title": row["title"] or "", "downloaded_at": row["latest_at"]}
+                        out[row["feed_url"]] = {"kept": int(row["kept"] or 0), "latest_episode": latest}
+            return out
+        except Exception as e:
+            logger.error("get_podcast_episode_summary failed: %s", e)
+            return {}
+
     def mark_podcast_episode_pruned(self, episode_id: int, pruned_at: Optional[str] = None) -> bool:
         """Flag a downloaded episode as retention-pruned (file deleted on disk)."""
         try:

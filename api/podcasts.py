@@ -19,7 +19,7 @@ import html
 import os
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from typing import Any, Dict, List, Optional
 import xml.etree.ElementTree as ET
@@ -737,6 +737,21 @@ def queue_podcast_download(data: Dict[str, Any]) -> Dict[str, Any]:
 # Blueprint Factory
 # ---------------------------------------------------------------------------
 
+NEW_EPISODE_DAYS = 7
+
+
+def _utc_stamp(value: Any) -> Optional[datetime]:
+    """A download-record time (SQLite CURRENT_TIMESTAMP: UTC, no zone) as an
+    aware datetime; None when unreadable."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace(" ", "T").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
 def _profile() -> int:
     """Whose podcasts these are.
 
@@ -949,6 +964,46 @@ def create_podcasts_blueprint() -> Blueprint:
         except Exception as exc:
             logger.exception("podcasts_watchlist_list failed: %s", exc)
             return jsonify({"success": True, "podcasts": []})
+
+    @bp.route("/watchlist/summary", methods=["GET"])
+    def podcasts_watchlist_summary():
+        """What came in for each followed show (the Wanted page's Following tab).
+
+        Per podcast this profile follows: how many downloaded episodes are
+        still kept, the newest episode downloaded and when, and whether that
+        was in the last ``new_episode_days`` days. Read-only, from the
+        download record; a show with nothing downloaded has ``kept: 0`` and
+        no latest episode.
+        """
+        from .helpers import acting_profile_id
+
+        db = _db()
+        if db is None:
+            return jsonify({"success": True, "new_episode_days": NEW_EPISODE_DAYS, "podcasts": []})
+        profile_id = acting_profile_id(request, request.args.get("profile_id"))
+        try:
+            feeds = [p.get("feed_url") for p in db.get_watchlist_podcasts(profile_id=profile_id)]
+            feeds = [f for f in feeds if f]
+            episodes = db.get_podcast_episode_summary(feeds)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=NEW_EPISODE_DAYS)
+            out = []
+            for feed in feeds:
+                entry = episodes.get(feed) or {}
+                latest = entry.get("latest_episode")
+                when = _utc_stamp(latest.get("downloaded_at")) if latest else None
+                out.append({
+                    "feed_url": feed,
+                    "kept": int(entry.get("kept") or 0),
+                    "latest_episode": (
+                        {"title": latest.get("title") or "", "downloaded_at": when.strftime("%Y-%m-%dT%H:%M:%SZ")}
+                        if latest and when else None
+                    ),
+                    "new_episode": bool(when and when >= cutoff),
+                })
+            return jsonify({"success": True, "new_episode_days": NEW_EPISODE_DAYS, "podcasts": out})
+        except Exception as exc:
+            logger.exception("podcasts_watchlist_summary failed: %s", exc)
+            return jsonify({"success": False, "error": "Couldn't read the podcast downloads."}), 500
 
     @bp.route("/watchlist/check", methods=["POST"])
     def podcasts_watchlist_check():
