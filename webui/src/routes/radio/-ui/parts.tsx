@@ -199,13 +199,13 @@ export function StationCard({
       <div className={styles.cardText}>
         <span className={styles.cardName}>{station.name}</span>
         <span className={styles.cardSub}>{cardSubline(station)}</span>
-        {/* HANDOFF 53: known before you play */}
-        {!station.has_now_playing ? (
-          <span className={styles.cardTag}>
-            <StatusTag>Identified while you listen</StatusTag>
-          </span>
-        ) : null}
       </div>
+      {/* HANDOFF 53: known before you play */}
+      {!station.has_now_playing ? (
+        <span className={styles.cardTag}>
+          <StatusTag>Identified while you listen</StatusTag>
+        </span>
+      ) : null}
       <div className={styles.cardFoot}>
         {playing ? (
           <StatusTag tone="info" live>

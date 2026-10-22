@@ -258,9 +258,12 @@
   color: var(--ss-text-meta);
   font-size: 14px;
 }
+/* its own row under the name, the card's full width */
 .cardTag {
+  grid-column: 1 / -1;
+  align-self: start;
   display: flex;
-  margin-top: 4px;
+  min-width: 0;
 }
 .cardFoot {
   grid-column: 1 / -1;
