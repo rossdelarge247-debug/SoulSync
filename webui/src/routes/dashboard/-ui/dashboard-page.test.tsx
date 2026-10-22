@@ -40,9 +40,10 @@ function mockApi() {
   );
 }
 
-function renderHome() {
+function renderHome(isAdmin = true) {
   window.SoulSyncWebShellBridge = createShellBridge({
     getProfileHomePage: vi.fn(() => 'dashboard' as const),
+    getCurrentProfileContext: vi.fn(() => ({ profileId: 1, isAdmin })),
   });
   const queryClient = createTestQueryClient();
   const history = createMemoryHistory({ initialEntries: ['/dashboard'] });
@@ -123,5 +124,50 @@ describe('the Home page shell', () => {
     renderHome();
     await screen.findByText('12 tracks', undefined, { timeout: 10_000 });
     expect(setPage).toHaveBeenCalledWith('dashboard');
+  });
+
+  it('shows admins what setup left for later, under Latest, and never asks for a member', async () => {
+    const asked = vi.fn();
+    // after mockApi: msw tries the handlers added last first
+    mockApi();
+    server.use(
+      http.get('/api/onboarding/checklist', () => {
+        asked();
+        return HttpResponse.json({
+          dismissed: false,
+          items: [
+            {
+              id: 'spotify',
+              title: 'Connect Spotify',
+              description: 'Mirror your playlists.',
+              action: 'Connect',
+              done: false,
+            },
+            {
+              id: 'invite',
+              title: 'Invite your household',
+              description: '',
+              action: 'Invite',
+              done: true,
+            },
+          ],
+        });
+      }),
+    );
+    renderHome();
+    expect(await screen.findByRole('heading', { name: 'Finish setting up' })).toBeInTheDocument();
+    expect(screen.getByText(/1 of 2 done/)).toBeInTheDocument();
+    const order = screen
+      .getAllByRole('heading', { level: 2 })
+      .map((h) => h.textContent)
+      .filter((t) => ['Latest', 'Finish setting up', 'Library and system'].includes(t ?? ''));
+    expect(order).toEqual(['Latest', 'Finish setting up', 'Library and system']);
+    cleanup();
+
+    asked.mockClear();
+    renderHome(false);
+    await screen.findByText('12 tracks', undefined, { timeout: 10_000 });
+    expect(screen.queryByRole('heading', { name: 'Finish setting up' })).toBeNull();
+    expect(asked).not.toHaveBeenCalled();
   });
 });

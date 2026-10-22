@@ -77,9 +77,10 @@ export function HomePage({ header, profileId, nav }: HomePageProps) {
               <AlertsBand />
               <TargetsSection query={targets} nowMs={nowMs} />
               <LatestSection query={latest} nowMs={nowMs} />
-              {/* What first-run setup left for later (admins only). Renders
-                  nothing once it's all done or hidden. */}
-              <FinishSetupCard />
+              {/* What first-run setup left for later. Its API is admin only,
+                  so members don't ask; it renders nothing once it's all done
+                  or hidden. */}
+              {nav.isAdmin ? <FinishSetupCard /> : null}
             </div>
           </div>
           <HomeMore header={header} />
