@@ -10580,10 +10580,12 @@
                                         someone is listening.</p>
                                     <div class="radio-field">
                                         <label class="radio-label" for="radio-relay">Relay</label>
-                                        <select id="radio-relay" class="radio-input radio-select">
+                                        <select id="radio-relay" class="radio-input radio-select" aria-describedby="radio-relay-help">
                                             <option value="when_needed">Only when a browser can't play the stream itself</option>
                                             <option value="always">Always, so the server reads every stream's track names</option>
                                         </select>
+                                        <!-- HANDOFF 54: what a relay costs -->
+                                        <p class="radio-help" id="radio-relay-help">Each relayed station holds one of the server's 8 threads; two at a time.</p>
                                     </div>
                                     <label class="radio-check">
                                         <input type="checkbox" id="radio-prefer-lossless">

@@ -317,9 +317,14 @@ function AutoAddCard({
           {on ? 'On' : 'Off'}
         </button>
         <div>
-          <h2 className={styles.autoTitle} id="station-auto-title">
-            Auto-add what {station.name} plays to Wanted
-          </h2>
+          <div className={styles.autoHead}>
+            <h2 className={styles.autoTitle} id="station-auto-title">
+              Auto-add what {station.name} plays to Wanted
+            </h2>
+            {/* HANDOFF 53: a station without a now-playing feed is identified
+                only while someone listens */}
+            {!station.has_now_playing ? <StatusTag>Identified while you listen</StatusTag> : null}
+          </div>
           <p className={styles.autoBody}>
             When on, every track identified on this station that you don’t have goes to Wanted at
             your quality target. What you have or already want is skipped, and each addition shows
@@ -432,13 +437,25 @@ function ShowsCard({ station }: { station: Station }) {
         </div>
       ) : shows.length === 0 ? (
         <div className={styles.panelPad}>
-          <p className={styles.howNote}>
-            No tracklists yet. Shows appear here once {shortName(station.name)} publishes them
-            {station.id.startsWith('nts')
-              ? ' (shows aired while SYNCHRO.S was watching or listening)'
-              : ''}
-            .
-          </p>
+          {station.id.startsWith('nts') ? (
+            // HANDOFF 56: point to the source while SYNCHRO.S hasn't seen a show
+            <p className={styles.howNote}>
+              No tracklists yet. They appear after SYNCHRO.S sees a show on NTS live. Until then,{' '}
+              <a
+                className={styles.inlineLink}
+                href="https://www.nts.live"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                nts.live
+              </a>{' '}
+              has them.
+            </p>
+          ) : (
+            <p className={styles.howNote}>
+              No tracklists yet. Shows appear here once {shortName(station.name)} publishes them.
+            </p>
+          )}
         </div>
       ) : (
         <div className={styles.shows}>

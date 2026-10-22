@@ -258,6 +258,10 @@
   color: var(--ss-text-meta);
   font-size: 14px;
 }
+.cardTag {
+  display: flex;
+  margin-top: 4px;
+}
 .cardFoot {
   grid-column: 1 / -1;
   align-self: end;
@@ -547,6 +551,17 @@
 .switch[aria-checked='true'] .switchTrack::after {
   left: 19px;
   background: #0b0b0f;
+}
+/* HANDOFF 53: the heading row carries "Identified while you listen" */
+.autoHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 0 0 4px;
+}
+.autoHead .autoTitle {
+  margin: 0;
 }
 .autoTitle {
   margin: 0 0 4px;
