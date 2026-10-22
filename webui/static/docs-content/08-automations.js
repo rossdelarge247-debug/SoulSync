@@ -6,7 +6,7 @@ registerDocsSection({
         {
             id: 'auto-overview',
             title: 'Overview',
-            lede: 'Automations run SoulSync on autopilot — schedule maintenance, react to events, and chain workflows together with a visual builder.',
+            lede: 'Automations run SYNCHRO.S on autopilot — schedule maintenance, react to events, and chain workflows together with a visual builder.',
             body: `
 Automations follow a simple **WHEN → DO → THEN** model: a trigger fires, an action runs, and optional follow-up steps (usually notifications) happen after.
 
@@ -21,7 +21,7 @@ Fire custom signals from one automation and listen for them in another to build 
 
 Each automation card shows its trigger and action at a glance, the last run time and result, a countdown to the next scheduled run, and a **Run Now** button for instant execution. Cards for currently-running automations glow so you can spot activity.
 
-SoulSync ships with [system automations](#auto-system) that handle routine maintenance out of the box — you can tune them, but you never have to build the basics yourself.
+SYNCHRO.S ships with [system automations](#auto-system) that handle routine maintenance out of the box — you can tune them, but you never have to build the basics yourself.
 
 > [!TIP]
 > New to automations? Start with a **Notify Only** action on an event trigger (like **Track Downloaded**). You'll see exactly when it fires, then swap in a real action once you're confident.
@@ -69,7 +69,7 @@ Automations can be organized into named **groups** (e.g. "Nightly Operations", "
 | **Daily Time** | Every day at a specific time |
 | **Weekly Schedule** | Specific days of the week at a set time |
 | **Monthly Schedule** | Once a month on a chosen day |
-| **App Started** | Fires when SoulSync starts up |
+| **App Started** | Fires when SYNCHRO.S starts up |
 
 ## Download events
 
@@ -166,8 +166,8 @@ Automations can be organized into named **groups** (e.g. "Nightly Operations", "
 |--------|--------------|
 | **Scan Library** | Trigger a media server library scan |
 | **Update Database** | Refresh the library database (incremental or full) |
-| **Update Database (Hourly)** | Lightweight incremental refresh that catches files added outside SoulSync |
-| **Deep Scan Library** | Full library comparison without losing enrichment data. In SoulSync standalone mode it only moves untracked files to Staging when **Act without a preview** is on |
+| **Update Database (Hourly)** | Lightweight incremental refresh that catches files added outside SYNCHRO.S |
+| **Deep Scan Library** | Full library comparison without losing enrichment data. In SYNCHRO.S standalone mode it only moves untracked files to Staging when **Act without a preview** is on |
 | **Run Quality Scan** | Scan for low-quality audio files |
 | **Run Duplicate Cleaner** | Previews the duplicates (confirm on the Tools page); moves the lower-quality copies to the recycle bin only when **Act without a preview** is on |
 | **Clear Quarantine** | Reports what it would delete; deletes all quarantined files only when **Act without a preview** is on |
@@ -246,7 +246,7 @@ All notification messages support **variable substitution**: \`{name}\`, \`{stat
 3. The script runs with a configurable timeout (default 60 seconds, hard-capped at 300).
 :::
 
-Scripts receive SoulSync context as environment variables:
+Scripts receive SYNCHRO.S context as environment variables:
 
 | Variable | Contents |
 |----------|----------|
@@ -257,7 +257,7 @@ Scripts receive SoulSync context as environment variables:
 \`.py\` files run with \`python\`, \`.sh\` with \`bash\`, anything else executes directly — with the scripts folder as the working directory. Stdout (first 2000 chars) and stderr (first 1000) are captured into the run log; exit code 0 marks the step completed, anything else marks it failed.
 
 > [!IMPORTANT]
-> Scripts run as the SoulSync process user with no sandbox — only put scripts there you wrote or trust. A path-traversal guard blocks \`..\` and symlink escapes: the resolved script must live under the scripts directory or it refuses to run.
+> Scripts run as the SYNCHRO.S process user with no sandbox — only put scripts there you wrote or trust. A path-traversal guard blocks \`..\` and symlink escapes: the resolved script must live under the scripts directory or it refuses to run.
 `
         },
         {
@@ -280,9 +280,9 @@ Each automation card shows its **last run time**, **run count**, and last result
         {
             id: 'auto-system',
             title: 'System Automations',
-            lede: 'Built-in maintenance automations that keep SoulSync healthy out of the box.',
+            lede: 'Built-in maintenance automations that keep SYNCHRO.S healthy out of the box.',
             body: `
-SoulSync ships with built-in **system automations** that handle routine maintenance. You can enable/disable them and adjust their schedules, but you can't delete or rename them.
+SYNCHRO.S ships with built-in **system automations** that handle routine maintenance. You can enable/disable them and adjust their schedules, but you can't delete or rename them.
 
 ![System automations](auto-system.jpg)
 

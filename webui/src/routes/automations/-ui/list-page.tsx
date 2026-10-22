@@ -758,7 +758,7 @@ export function AutomationsListPage() {
             </>
           }
         >
-          SoulSync didn’t answer. Your automations are safe and keep running as set; this is a
+          SYNCHRO.S didn’t answer. Your automations are safe and keep running as set; this is a
           display problem.
         </Notice>
         <CardsSkeleton faded />

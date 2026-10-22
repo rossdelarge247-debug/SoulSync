@@ -58,7 +58,7 @@ export function FirstRunSteps({ steps, problems }: { steps: FirstRunStep[]; prob
         })}
       </ol>
       <p className={styles.stepsNote}>
-        The setup wizard opens each time SoulSync starts until you finish it.{' '}
+        The setup wizard opens each time SYNCHRO.S starts until you finish it.{' '}
         {/* a full load: init.js opens the wizard for ?setup=1 before the app starts */}
         <a className={styles.link} href={appURL('/setup-check?setup=1')}>
           Open the setup wizard

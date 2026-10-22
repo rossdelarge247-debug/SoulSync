@@ -6,9 +6,9 @@ registerDocsSection({
         {
             id: 'set-services',
             title: 'Service Credentials',
-            lede: 'Connect the services SoulSync uses for metadata, matching, and enrichment.',
+            lede: 'Connect the services SYNCHRO.S uses for metadata, matching, and enrichment.',
             body: `
-SoulSync needs credentials for the services it queries for metadata and enrichment. The Settings search finds any setting by name — handy when you're not sure which tab it lives under.
+SYNCHRO.S needs credentials for the services it queries for metadata and enrichment. The Settings search finds any setting by name — handy when you're not sure which tab it lives under.
 
 ## Service list
 
@@ -50,10 +50,10 @@ One **Jellyfin Server URL** field and an **API Key**. After connecting, pick the
 
 ## Standalone
 
-No media server at all: SoulSync itself is the player and library manager. Import your existing files into the Import Folder and let SoulSync organize them into your Music Library Folder.
+No media server at all: SYNCHRO.S itself is the player and library manager. Import your existing files into the Import Folder and let SYNCHRO.S organize them into your Music Library Folder.
 
 > [!NOTE]
-> Exactly one server can be **active** at a time — switching re-points scans, playback, and sync. The scans themselves run from the **Tools** page: *Library Scan* pulls the server's library into SoulSync, *Server Scan* tells the server to rescan its own folders.
+> Exactly one server can be **active** at a time — switching re-points scans, playback, and sync. The scans themselves run from the **Tools** page: *Library Scan* pulls the server's library into SYNCHRO.S, *Server Scan* tells the server to rescan its own folders.
 `
         },
         {
@@ -75,7 +75,7 @@ No media server at all: SoulSync itself is the player and library manager. Impor
 | **SoundCloud** | Download from SoundCloud — nothing to set up |
 | **Torrent** | Search via Prowlarr indexers through your torrent client |
 | **Usenet** | Search via Prowlarr indexers through your usenet client |
-| **Hybrid** | Drag sources into a priority chain — SoulSync works down the list and uses the first source that returns a match |
+| **Hybrid** | Drag sources into a priority chain — SYNCHRO.S works down the list and uses the first source that returns a match |
 
 The chain editor lives on the Downloads tab: drag sources from **Available** into your **Download chain**. One source in the chain means "that source only"; two or more means hybrid. Any source can be configured on the Sources tab first — it doesn't need to be in the chain yet.
 
@@ -154,8 +154,8 @@ Generate API keys for external integrations. A key is either **admin** (full rig
 
 The same section has two switches, both off by default:
 
-- **MCP for AI Clients** answers at \`/mcp\`, so Claude and other AI apps can drive SoulSync with one of these keys. See [MCP for AI clients](#api-mcp).
-- **Lidarr Compatible API** answers at \`/lidarr\`, so request apps that only speak Lidarr can use SoulSync. Pick which profile's wishlist their requests land on. See [Lidarr compatible API](#api-lidarr).
+- **MCP for AI Clients** answers at \`/mcp\`, so Claude and other AI apps can drive SYNCHRO.S with one of these keys. See [MCP for AI clients](#api-mcp).
+- **Lidarr Compatible API** answers at \`/lidarr\`, so request apps that only speak Lidarr can use SYNCHRO.S. Pick which profile's wishlist their requests land on. See [Lidarr compatible API](#api-lidarr).
 
 ## Log level
 
@@ -163,20 +163,20 @@ Controls verbosity: Error, Warning, Info, or Debug. Raise to Debug when troubles
 
 ## Additional Music Libraries
 
-Your **Music Library Folder** above is already covered — you don't need to repeat it here. Register only *extra* **music** folders SoulSync should also read and index: a second collection, an archive drive, or a folder your media server sees at a different path than SoulSync can. They're used for tag writing, streaming, and file detection. Podcasts and audiobooks have their own folder fields — don't point an additional library at those.
+Your **Music Library Folder** above is already covered — you don't need to repeat it here. Register only *extra* **music** folders SYNCHRO.S should also read and index: a second collection, an archive drive, or a folder your media server sees at a different path than SYNCHRO.S can. They're used for tag writing, streaming, and file detection. Podcasts and audiobooks have their own folder fields — don't point an additional library at those.
 
 > [!TIP]
 > Docker users: mount the extra folder(s) into the container with read-write access, then add the container-side path here (e.g. \`/music2\`).
 
 ## Other toggles
 
-- **Replace lower quality files on import** (Quality tab) — when importing a file SoulSync already has, keep the better copy automatically
+- **Replace lower quality files on import** (Quality tab) — when importing a file SYNCHRO.S already has, keep the better copy automatically
 `
         },
         {
             id: 'set-db-maintenance',
             title: 'Database Maintenance',
-            lede: 'Backups, vacuuming, and cache management to keep SoulSync healthy.',
+            lede: 'Backups, vacuuming, and cache management to keep SYNCHRO.S healthy.',
             body: `
 ## Backups
 
@@ -188,7 +188,7 @@ Over time the database accumulates unused space from deleted rows. **Compact Dat
 
 ## Cache management
 
-The **Metadata Cache Browser** on the Tools page shows the cached API responses from metadata searches. Clear them when they grow too large or go stale — SoulSync rebuilds caches on demand.
+The **Metadata Cache Browser** on the Tools page shows the cached API responses from metadata searches. Clear them when they grow too large or go stale — SYNCHRO.S rebuilds caches on demand.
 
 > [!TIP]
 > Most of this runs itself via the [system automations](#auto-system) — backups, search-history cleanup, and full cleanup on a schedule. Come here when you want to run something now or change the cadence.

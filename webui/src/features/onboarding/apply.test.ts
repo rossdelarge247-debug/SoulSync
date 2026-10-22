@@ -104,7 +104,7 @@ describe('a real install', () => {
     expect(follow?.body).toMatchObject({ artist_id: 'id-Radiohead', artist_name: 'Radiohead' });
   });
 
-  it('never marks setup complete on its own, that waits for Open SoulSync', async () => {
+  it('never marks setup complete on its own, that waits for Open SYNCHRO.S', async () => {
     await applyDraft(draft(), realEffects, () => undefined);
     expect(calls.some((c) => c.path === '/api/setup/complete')).toBe(false);
     expect(calls.some((c) => c.path.startsWith('/api/profiles/1/set-pin'))).toBe(false);

@@ -420,7 +420,7 @@ class AudioCorruptionDetectorJob(RepairJob):
             # not a healthy library. Say so where the user is looking.
             msg = ("No library paths could be resolved to readable files — the DB "
                    "stores your media server's paths. Check Settings → Library → "
-                   "Music Paths (or your Docker mounts) so SoulSync can reach them.")
+                   "Music Paths (or your Docker mounts) so SYNCHRO.S can reach them.")
             logger.warning("[Corrupt File Detector] %s", msg)
             if context.report_progress:
                 context.report_progress(phase='No library paths resolved',

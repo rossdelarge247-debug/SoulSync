@@ -120,7 +120,7 @@ The four targets in fixed order: `wanted`, `mirrored`, `followed`, `quality`. Fo
      "playlists": 0, "status": "not_set_up", "…": "…"},
     {"key": "followed", "set_up": true, "artists": 18, "status": "cant_search",
      "reason_code": "download_source_unreachable",
-     "reason": "Soulseek (slskd) didn't answer when SoulSync last checked, 4 minutes ago, so searches can't run.",
+     "reason": "Soulseek (slskd) didn't answer when SYNCHRO.S last checked, 4 minutes ago, so searches can't run.",
      "checked_at": 1792569760, "…": "…"},
     {"key": "quality", "set_up": true, "name": "FLAC or better", "preset": "flac",
      "tracks_checked": 4980, "meeting_target": 4512, "items": 4980, "have": 4512, "in_progress": 120,

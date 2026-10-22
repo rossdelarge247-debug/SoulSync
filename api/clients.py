@@ -451,7 +451,7 @@ def create_blueprint() -> Blueprint:
         store = music_store()
         if store.following(client, ref):
             return jsonify({"success": False,
-                            "error": "SoulSync is already following this download."}), 409
+                            "error": "SYNCHRO.S is already following this download."}), 409
         keep = {k: match.get(k) for k in ('id', 'name', 'artist', 'source', 'image_url', 'album')}
         match_id = store.add(client=client, client_ref=ref, kind=kind, match=keep,
                              release_title=str(payload.get('release_title') or ''),

@@ -238,7 +238,7 @@ class ListenBrainzClient:
             return result
 
         create_body = {"playlist": {
-            "title": (title or "SoulSync Export").strip() or "SoulSync Export",
+            "title": (title or "SYNCHRO.S Export").strip() or "SYNCHRO.S Export",
             "extension": {self._PLAYLIST_EXT: {"public": bool(public)}},
         }}
         try:
@@ -304,7 +304,7 @@ class ListenBrainzClient:
         try:
             self._make_request_with_retry(
                 "POST", f"{self.base_url}/playlist/edit/{playlist_mbid}",
-                json={"playlist": {"title": (title or "SoulSync Export").strip() or "SoulSync Export"}},
+                json={"playlist": {"title": (title or "SYNCHRO.S Export").strip() or "SYNCHRO.S Export"}},
                 headers=headers,
             )
         except Exception as e:

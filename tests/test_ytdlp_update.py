@@ -271,7 +271,7 @@ def test_the_tile_renders_on_both_sides():
 def test_the_tile_states_the_restart_requirement_in_the_markup():
     """Not only in the API response — the user reads this BEFORE clicking, which
     is when it changes what they expect to happen."""
-    assert "restart SoulSync" in _tile()
+    assert "restart SYNCHRO.S" in _tile()
 
 
 def test_nightly_is_the_preselected_channel():

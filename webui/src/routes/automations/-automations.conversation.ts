@@ -211,7 +211,7 @@ export async function ask(
         state: 'error',
         error: {
           code: 'offline',
-          message: (error as Error).message || 'The connection to SoulSync dropped.',
+          message: (error as Error).message || 'The connection to SYNCHRO.S dropped.',
         },
       }));
     }

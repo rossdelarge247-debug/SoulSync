@@ -111,7 +111,7 @@ export function Onboarding() {
       className={s.overlay}
       role="dialog"
       aria-modal="true"
-      aria-label={preview ? 'SoulSync setup preview' : 'SoulSync setup'}
+      aria-label={preview ? 'SYNCHRO.S setup preview' : 'SYNCHRO.S setup'}
       data-onboarding-step={step}
     >
       {body}

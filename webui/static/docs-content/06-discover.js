@@ -23,7 +23,7 @@ The hero showcases **recommended artists** based on your library. Each slide say
             title: 'Discovery Playlists',
             lede: 'Auto-generated playlists from your discovery pool and your own listening data.',
             body: `
-SoulSync auto-generates playlists from your **discovery pool** (similar artists found during watchlist scans) and your **listening data**:
+SYNCHRO.S auto-generates playlists from your **discovery pool** (similar artists found during watchlist scans) and your **listening data**:
 
 | Playlist | Description |
 |----------|-------------|
@@ -91,7 +91,7 @@ If ListenBrainz is configured, the Discover page also shows personalized playlis
             title: 'Build Custom Playlist',
             lede: 'Pick 1–5 seed artists and generate a 50-track playlist from albums by similar artists.',
             body: `
-Search for 1–5 seed artists, select them, and click **Generate**. SoulSync finds similar artists, pulls their albums, and assembles a 50-track playlist mixing your picks with new discoveries. You can then download the generated playlist or sync it to your media server.
+Search for 1–5 seed artists, select them, and click **Generate**. SYNCHRO.S finds similar artists, pulls their albums, and assembles a 50-track playlist mixing your picks with new discoveries. You can then download the generated playlist or sync it to your media server.
 
 ![Build custom playlist](disc-build-playlist.jpg)
 
@@ -179,7 +179,7 @@ Open **Chat** in the sidebar — "Soulseek rooms & private messages". Everything
 - **Main area** — the room head, message list, and composer.
 - **Right rail** — the ♫ Jukebox panel card, the 🎬 Watch Together card, and the user list with a "Find a user…" filter.
 
-The room head shows, in order: **#channel-or-room** title, the room topic as subtitle, **✎** topic edit, **🔍** history search, **📌** pins (with pinned count), **♫ Jukebox**, **🎬 Watch Together**, a **SoulSync only / All messages** filter toggle, and **⚙ Chat settings** (admin only).
+The room head shows, in order: **#channel-or-room** title, the room topic as subtitle, **✎** topic edit, **🔍** history search, **📌** pins (with pinned count), **♫ Jukebox**, **🎬 Watch Together**, a **SYNCHRO.S only / All messages** filter toggle, and **⚙ Chat settings** (admin only).
 
 ## Browsing and joining rooms
 
@@ -229,7 +229,7 @@ A moderator hover action (**🚫 Hidden for the room**) collapses a message for 
 | **Profile** | Avatar picker — saves as soon as you pick one. |
 | **Notifications** | **Mention sound** — "Play a sound when someone mentions or replies to you. This browser only." |
 | **Privacy** | **Share what I'm playing** — "Everyone in the Soulseek room can see it. This browser only." |
-| **Room** | **Room name** ("Soulseek room names are case-sensitive."), **Auto-join** ("Join the community room when SoulSync connects."), **Let other profiles send** ("Non-admin profiles can post as this Soulseek account."), **Answer "prove you're human"** ("Auto-answer the challenges some users send before a download.") |
+| **Room** | **Room name** ("Soulseek room names are case-sensitive."), **Auto-join** ("Join the community room when SYNCHRO.S connects."), **Let other profiles send** ("Non-admin profiles can post as this Soulseek account."), **Answer "prove you're human"** ("Auto-answer the challenges some users send before a download.") |
 | **Integrations** | **GIPHY API key** ("Free at developers.giphy.com. Enables GIF search."), **filepost.dev API key** ("Free at filepost.dev. Enables file sharing in chat."), **Shared files expire after** (Never / 24 hours / 7 days / 30 days) |
 
 Room and profile settings save to the server; mention sound and now-playing sharing are per-browser.
@@ -276,7 +276,7 @@ PMs are **plain-text only** — the formatting toolbar, GIF, poll, now-playing, 
             title: 'Jukebox Auto-DJ',
             lede: 'A room-wide YouTube jukebox: queue tracks, vote on what plays next, and let Auto-DJ keep it fed.',
             body: `
-The Jukebox lives in the Chat page header and the right-rail panel (toggled by the room-head **♫ Jukebox** button — "Room jukebox — listen together, vote on what plays next"). Everything is YouTube-based, and jukebox state is derived from the room's protocol events, so every SoulSync client in the room agrees on the queue.
+The Jukebox lives in the Chat page header and the right-rail panel (toggled by the room-head **♫ Jukebox** button — "Room jukebox — listen together, vote on what plays next"). Everything is YouTube-based, and jukebox state is derived from the room's protocol events, so every SYNCHRO.S client in the room agrees on the queue.
 
 The headbar shows the **♫ Jukebox** brand, **♪ N listening**, the **📻 Auto-DJ** toggle ("Auto-DJ: when the queue runs dry, keep the music going with related tracks"), an **Add a song or paste a YouTube link…** input (200 chars) with an **Add** button, and a results dropdown.
 

@@ -6,7 +6,7 @@ registerDocsSection({
         {
             id: 'ts-logs',
             title: 'Logs',
-            lede: 'Where to find SoulSync\'s logs and what each one contains.',
+            lede: 'Where to find SYNCHRO.S\'s logs and what each one contains.',
             body: `
 Logs live in the \`logs/\` directory (in Docker: \`/app/logs/\`):
 
@@ -71,12 +71,12 @@ Paste it into a GitHub issue or the Discord when asking for help — it answers 
 
 ## PWA install not offered / Spotify needs HTTPS
 
-Both are browser/platform requirements, not SoulSync bugs:
+Both are browser/platform requirements, not SYNCHRO.S bugs:
 
-- **PWA install**: Chrome (and all browsers) only offer "Install app" over **HTTPS** (or localhost). If you access SoulSync via \`http://192.168.x.x:8008\`, the install prompt won't appear. SoulSync ships a valid manifest and service worker — the only blocker is the protocol.
+- **PWA install**: Chrome (and all browsers) only offer "Install app" over **HTTPS** (or localhost). If you access SYNCHRO.S via \`http://192.168.x.x:8008\`, the install prompt won't appear. SYNCHRO.S ships a valid manifest and service worker — the only blocker is the protocol.
 - **Spotify OAuth**: Spotify's developer dashboard now requires **HTTPS** redirect URIs. A local \`http://\` address won't be accepted.
 
-**Workaround**: Serve SoulSync over HTTPS with a reverse proxy. Tailscale works well:
+**Workaround**: Serve SYNCHRO.S over HTTPS with a reverse proxy. Tailscale works well:
 
 \`\`\`bash
 sudo docker exec tailscale tailscale serve --bg --https=443 http://127.0.0.1:8008/
@@ -98,9 +98,9 @@ This gives you an \`https://your-device.tailnet.ts.net\` address that satisfies 
 
 ## Spotify: redirect URI rejected (INVALID_CLIENT / mismatch)
 
-1. The **Redirect URI** in SoulSync Settings and the one in your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) must match **exactly** — scheme, host, port, path, and trailing slash.
+1. The **Redirect URI** in SYNCHRO.S Settings and the one in your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) must match **exactly** — scheme, host, port, path, and trailing slash.
 2. Spotify only allows plain \`http://\` for loopback (\`http://127.0.0.1:8888/callback\` — \`localhost\` is rejected). Any other host — a NAS, a remote server, or Docker reached by hostname or LAN IP — must be **HTTPS**, served through a reverse proxy or Tailscale. See [Connecting services](#gs-connecting).
-3. Save the dashboard change, then click **Authenticate** in SoulSync again.
+3. Save the dashboard change, then click **Authenticate** in SYNCHRO.S again.
 `
         },
         {
@@ -121,7 +121,7 @@ This gives you an \`https://your-device.tailnet.ts.net\` address that satisfies 
 
 ## What to include
 
-- SoulSync version and how you run it (Docker, bare metal, OS)
+- SYNCHRO.S version and how you run it (Docker, bare metal, OS)
 - Steps to reproduce
 - Expected vs. actual behavior
 - Debug info output (credentials are already excluded)

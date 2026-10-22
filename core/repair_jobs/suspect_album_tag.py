@@ -78,7 +78,7 @@ class SuspectAlbumTagDetector(RepairJob):
         'the artist-mismatch half is also waived when the album carries a real '
         'shared provider album id, i.e. a genuine curator/DJ-credited compilation)\n\n'
         'For each finding, click Re-identify to search for the correct album and '
-        'let SoulSync re-file the track automatically.\n\n'
+        'let SYNCHRO.S re-file the track automatically.\n\n'
         'Settings:\n'
         '- Min compilation track count: only flag lone-track albums where the full '
         'release has at least this many tracks (default: 4)\n'

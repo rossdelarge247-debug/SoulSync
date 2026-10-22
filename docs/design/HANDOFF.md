@@ -4,7 +4,7 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, 34–36 with build (b) 37–40 with build (d), 41–48 with build (c) and 49–56 with build (e), so they are still open. Answer on the canvas, naming the board, as before.
+Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, 34–36 with build (b) 37–40 with build (d), 41–48 with build (c), 49–56 with build (e) and 57 with the rename to SYNCHRO.S, so they are still open. Answer on the canvas, naming the board, as before.
 
 **Upstream sync (no boards)**
 29. Home's "Finish setting up" card sits under Latest. Right place, or above Targets while setup is fresh?
@@ -44,7 +44,34 @@ Questions 1–28 were answered in Design's session of 22 October (the log entry 
 55. No station logos are fetched; tiles show letters. Would you like real logos (an https logo per station in the list), or keep the letters?
 56. NTS's tracklists list only shows SoulSync saw on NTS's live feed (while watching or listening), so a fresh install shows "No tracklists yet". Is that empty state enough, or should the card point to NTS's own site?
 
+**The name (no boards)**
+57. The sidebar's wordmark now shows the plain text "SYNCHRO.S" in the old wordmark style (screen readers get `aria-label="SYNCHRO.S"`). What treatment should it have: which font and weight, is the dot accented (the accent colour, a different glyph, a gap), and what does the compact rail's monogram become (it still says "SS")? Also: Admin and help's "Support SoulSync" row still names upstream, because the support goes to upstream's maintainer; keep it, or word it differently? A board for the wordmark at 256px and on the rail would settle it.
+
 ## Log
+
+### 2026-10-22: Dev, the app is named SYNCHRO.S
+
+Ross decided the app is displayed as **SYNCHRO.S**, written exactly that way everywhere: all capitals with the dot, in the wordmark and inside sentences alike. Built on `ux/rename-synchros` from `integration`. Only what a person sees changed.
+
+**What changed**
+
+- **The shell:** the sidebar wordmark reads "SYNCHRO.S" (with `aria-label="SYNCHRO.S"`), the browser tab's title is "SYNCHRO.S - Music Sync & Manager", the top bar's fallback page name is SYNCHRO.S, and the web app manifest's `name` and `short_name` are SYNCHRO.S. The lock screen says "SYNCHRO.S is Locked" / "Sign in to SYNCHRO.S"; the invite pages say "You're invited to SYNCHRO.S" and "Go to SYNCHRO.S".
+- **First-run setup** (`src/features/onboarding`): "Welcome to SYNCHRO.S", "Set up SYNCHRO.S", "Restore from a SYNCHRO.S backup", "What will you use SYNCHRO.S for?", "SYNCHRO.S is ready", "Open SYNCHRO.S" and every step's sentences.
+- **Sentences in React and the legacy pages:** empty states, errors and confirmations ("SYNCHRO.S searches for them on a schedule", "SYNCHRO.S didn't answer", "SYNCHRO.S stops checking …"), source and server labels (the SYNCHRO.S library, SYNCHRO.S Discovery, the SYNCHRO.S chip on Downloads), the welcome tour ("Tour of SYNCHRO.S", "Welcome to SYNCHRO.S"), helper text, What's new ("What's New in SYNCHRO.S", "SYNCHRO.S vX is available!"), Settings copy (Appearance's "It applies to everyone using this SYNCHRO.S.", the SYNCHRO.S API card, Connections and Modules subtitles) and the Help pages (`static/docs-content`).
+- **Server text the app shows or sends:** Setup check's messages and fixes, OAuth callback pages (Spotify, Tidal, Deezer), errors returned to the UI, repair-job descriptions, automation block descriptions, the Assistant's system prompt and its offline messages, the Discord notification's sender name and test notification, the calendar feed's name ("SYNCHRO.S Airings"), the OPML and JSPF export titles, and the tag comments the app writes ("Downloaded via SYNCHRO.S", "Made with SYNCHRO.S Sample Studio").
+- The "SS" abbreviation in the seeding hints became SYNCHRO.S or "it", so nothing relies on the reader knowing the old initials.
+- The root `README.md` gains one line saying this fork's interface is named SYNCHRO.S; the rest of upstream's README is unchanged.
+
+**What deliberately didn't change**
+
+- Code identifiers, `window.SoulSync*` globals, package, image and container names, file and folder names, config keys and paths (`~/SoulSync`, `soulsync_data`, `SOULSYNC_*`), database names, routes, storage keys, API JSON fields, log messages, CSS classes and test ids. Updates, `update.sh` and upstream syncs keep working.
+- **Names other software sees:** the Subsonic/Navidrome client name (`c=SoulSync`, so Navidrome's player is still called "SoulSync" and the "Players → SoulSync" hints keep that name), Jellyfin's client and device name, Plex's product name, MusicBrainz and other User-Agents, the MCP server's title and instructions, the Lidarr-compatible API's values, and the names sync gives playlists on your media server (renaming them would make duplicates).
+- **Chat:** the Soulseek community room is still called "SoulSync", and "SoulSync rooms", "SoulSync clients", "SoulSync only", the SoulSync emoji set, the arcade's game name and the developer badges stay, because they describe upstream's chat network that other people's copies share.
+- **Upstream:** the Support modal (the upstream maintainer's own words and donation links) and helper text pointing at upstream's Discord and GitHub. The Admin and help row "Support SoulSync" keeps its name too: it opens that modal and the support goes to upstream's maintainer ("Support upstream SoulSync" was tried and doesn't fit the 256px sidebar). The debug-info report pasted into upstream's GitHub issues keeps its "SoulSync Debug Info" heading.
+- **Docker wording:** "the SoulSync container", "SoulSync's image" and "SoulSync's volumes" (Setup check, Settings and the Help pages' docker-compose sections, and the install section with upstream's images) name the Docker container and image, which keep their names.
+- The compact rail's monogram still says "SS" (question 57). New mirrors of SYNCHRO.S Discovery playlists store "SYNCHRO.S" as their owner; ones saved before keep "SoulSync" in the database and the mirrored playlist shows them as SYNCHRO.S.
+
+**For Design:** question 57, the wordmark treatment.
 
 ### 2026-10-22: Dev, Internet radio and Settings → Radio
 
@@ -292,7 +319,7 @@ The legacy Settings page's Appearance tab, restyled in place like Modules: marku
 
 Decisions the board doesn't show:
 
-- **"Yours only; each profile picks its own" isn't true today:** the accent is install-wide config, set by an admin (Settings is admin-only), so the card says "It applies to everyone using this SoulSync." Question 35 below. The board's "Sync.FM" is "SoulSync", as everywhere else.
+- **"Yours only; each profile picks its own" isn't true today:** the accent is install-wide config, set by an admin (Settings is admin-only), so the card says "It applies to everyone using this SYNCHRO.S." Question 35 below. The board's "Sync.FM" is "SYNCHRO.S" (it was "SoulSync" until the rename of 2026-10-22), as everywhere else.
 - **Choosing Custom starts from the accent in use**, so it never changes the colour by itself. A saved custom colour that fails today's check (from before the check) is shown as it is, with the warning and the offer, and isn't changed.
 - **The nearest preset** is the one with the nearest hue (a custom accent fails for being too dark, so lightness is the one thing not to match on); a grey goes by plain colour distance.
 - **Saving:** the page's existing autosave (a change on the hidden `#accent-preset` select), so the card behaves like every other setting on the page; no Save click needed.
@@ -505,8 +532,8 @@ Tests that read removed rules lose those checks: `release-card-play-placement.te
 
 **The guided tour** (`static/helper.js`)
 
-- **Tour of SoulSync**, the welcome tour Home's ? suggests: 18 steps on a wide screen, 17 on a phone.
-    1. Welcome to SoulSync (Home's header)
+- **Tour of SYNCHRO.S**, the welcome tour Home's ? suggests: 18 steps on a wide screen, 17 on a phone.
+    1. Welcome to SYNCHRO.S (Home's header)
     2. The sidebar's groups (on a phone, the tab bar)
     3. The compact rail (wide screens only)
     4. Admin and help (on a phone, the Settings tab)
@@ -612,7 +639,7 @@ Built on `ux/search-flows` from "Search results" (2m, 2n), "Flows (mirror, quali
     - "You have N" shows on the chosen playlist only; the others would each need their tracks loaded.
     - "Also make a playlist in your library" is left out. The mirror's check already keeps the playlist on your media server in step (its sync step), so there's nothing separate to turn on.
     - "Keep it in sync" says "Checks it every 24 hours", the Auto-Sync default, not "daily at 06:00". The Auto-Sync board can change it.
-    - The line ends "SoulSync starts looking for them now", because the first check runs straight away.
+    - The line ends "SYNCHRO.S starts looking for them now", because the first check runs straight away.
     - Paste a link reads Spotify playlist links (Spotify connected) and Deezer ones; other services are pointed to Add playlist on Mirrored playlists, which reads 12 sources.
 - **Set a quality target:**
     - Any lossless reads "FLAC, ALAC, WAV or DSD", not APE: APE isn't a format a quality profile can target, and DSD is.
@@ -696,7 +723,7 @@ Built on `ux/automations` from "Automations v2" (2i–2l), the SafeAction v2 dia
     - **Add a step:** Notify, Fire a signal or Run a script, up to three.
     - **Footer:** Cancel, Preview a run and Save. Leaving with unsaved changes asks first. A failed check says "Fix the 2 things marked below, then save." and marks them; a failed save keeps the edits and shows why.
     - **Preview panel** (right, or under the steps on a phone): what a run would do, three numbers, five sample rows ("5 of 35 tracks shown"), a line for each step that wasn't previewed, and "Run this now". Run this now is off while there are unsaved edits, with the reason beside it.
-    - Built-in automations: the name, how it starts (on a timer or after an event) and what step 1 does stay as SoulSync set them; the timing, step 1's options and the follow-ups can change.
+    - Built-in automations: the name, how it starts (on a timer or after an event) and what step 1 does stay as SYNCHRO.S set them; the timing, step 1's options and the follow-ups can change.
 - **Preview a run** is on the selected card (a dialog) and in the editor (the panel, previewing unsaved edits). It changes nothing and never runs a follow-up step.
 
 **How the boards' steps map onto the engine**
@@ -819,7 +846,7 @@ Built on `ux/artist-page` from "Artist v2" (2g at 1440, 2h at 390), the interact
 - **Tabs** Releases / Tracks / Similar artists with counts, and **filters** All / Albums / Missing, kept in the URL (`?tab=tracks`, `?show=missing`) so Back steps between them. Arrow keys move between tabs.
 - **Release cards** (4 across at 1440, 3 between, 2 on phones): square art, the title (opens the release's tracks: the old card's download modal, where you can pick tracks, download them or add them to Wanted), "2026 · Album · 12 tracks · FLAC", and the state in Wanted's words: In your library, Below quality target, a partly complete album with the 8px bar and "11 of 12 · Searching" (or "· not found yet", or "11 of 12 in your library" with Add to Wanted when nothing of the rest is wanted), Wanted · Searching / Wanted · not found yet, or Add to Wanted on the quiet 2% card. A release still being checked says "Checking your library…".
 - **Ordering:** albums (and compilations) newest first, then EPs and singles newest first. **Paging:** "8 of 14 releases · Show all 14" (4 on phones), `?all=true` in the URL.
-- **Follow / unfollow** use the existing watchlist routes, optimistically: the button flips at once and flips back with a message if the server says no. Unfollow asks first: "SoulSync stops checking Pale Harbour for new releases. The 5 things already on Wanted stay there and keep being searched for. Nothing in your library changes."
+- **Follow / unfollow** use the existing watchlist routes, optimistically: the button flips at once and flips back with a message if the server says no. Unfollow asks first: "SYNCHRO.S stops checking Pale Harbour for new releases. The 5 things already on Wanted stay there and keep being searched for. Nothing in your library changes."
 - **Add to Wanted** uses the Download Discography endpoint the old page used (it adds the tracks you don't have and skips what you own, what's queued and what your release filters leave out). Optimistic: the card reads "Wanted · Searching" at once, and goes back to Add to Wanted, with the reason, for any release that ends up with nothing on Wanted. "Add all missing to Wanted" asks first ("Add 6 releases to Wanted?", with the album/EP split and what's skipped), offers "Choose releases…" (the old chooser), and is the neutral disabled button, with the reason beside it, while the library check runs or when nothing is missing.
 - **Tracks tab:** Popular (the metadata source's top ten, or Last.fm's most played; play, Add to Wanted, add to a playlist, "Get these…") and In your library (every track with a file, grouped by release, newest first; play, play next, add to queue, add to a playlist; 50 then Show all). Admins get "Edit tags and files", which opens the old "Your library" tools in place (`?manage=true`), unchanged.
 - **Similar artists tab:** MusicMap's neighbours as cards with round avatars, each opening its own Artist page; one without a match on your sources is shown, not linked.
@@ -928,7 +955,7 @@ Built on `ux/wanted-page` from the "Wanted v3 (populated)" boards (2a–2d), "Wa
     - When automations are paused or the schedule is off, the line says so.
 - **Rows:** actions show on hover and focus-within, always on touch. Each row has a "…" menu.
 - **Paging:** "6 of 312 · Show 50 more", or "Show all" for the last 50 or fewer. The page number is in the URL.
-- **Unfollow asks first:** "SoulSync stops checking X for new releases. The 5 things already on Wanted stay there and keep being searched for. Nothing in your library changes." The artist panel's remove button goes through the same dialog.
+- **Unfollow asks first:** "SYNCHRO.S stops checking X for new releases. The 5 things already on Wanted stay there and keep being searched for. Nothing in your library changes." The artist panel's remove button goes through the same dialog.
 - **Loading, empty and failure** per Wanted v2 and 2s. The header and tabs stay. Failures say why (no answer in 10 seconds, or a server problem) and offer Try again and Run Setup check.
 - **Phone layout** per 1g and 2c–2d:
     - stacked rows with a "⋮" menu that includes Search now;
@@ -1043,7 +1070,7 @@ Not done, for Ross or Design:
 
 Built on `ux/shell-a` from boards 1m (desktop) and 1n (390) in `Nav v2 (Shell A).dc.html`, the handoff README's "Navigation shell", and the design notes. Code: the sidebar, top bar and tab bar markup in `webui/index.html`, behaviour in `webui/src/shell/nav-shell.ts`, the route map in `webui/src/shell/nav-routes.ts`, the look in `webui/static/shell.css`.
 
-**Name.** Ross decided the app keeps the name **SoulSync**: the wordmark reads "SoulSync" and the compact rail's monogram "SS". "Sync.FM" (and "S.FM") from the boards isn't used anywhere; nothing else about naming changed.
+**Name.** Ross decided the app keeps the name **SoulSync**: the wordmark reads "SoulSync" and the compact rail's monogram "SS". "Sync.FM" (and "S.FM") from the boards isn't used anywhere; nothing else about naming changed. *(Superseded 2026-10-22: the app is now displayed as **SYNCHRO.S**, Ross's decision; the wordmark reads "SYNCHRO.S". See that day's log entry.)*
 
 What was built:
 
@@ -1090,7 +1117,7 @@ Built on `ux/home-page`, on `/dashboard` (the Home route), from "Main v2 (target
 
 **Built**
 
-- Header: "Home", "What you want, what you have, and what SoulSync is doing about the gap." and a secondary "Search for music".
+- Header: "Home", "What you want, what you have, and what SYNCHRO.S is doing about the gap." and a secondary "Search for music".
 - **Targets** in the fixed order Wanted, Mirrored playlists, Followed artists, Quality. A live card has the label, title, a status tag with a word, the have-of-items bar, three numbers and a footer with the next search and one link. A target that isn't set up gets the quieter card with one sentence and one button. With none of the first three set up (`any_set_up` false) the grid folds into the one "Tell SoulSync what you want" panel.
 - **Can't search** (`cant_search`): the card keeps its numbers, the tag turns to a danger "Can't search", the middle number is "—", and the footer says why with "Run Setup check · Try now".
 - **Latest**: the newest 3 items of `GET /api/activity` and "See all activity".
@@ -1105,8 +1132,8 @@ Built on `ux/home-page`, on `/dashboard` (the Home route), from "Main v2 (target
 1. Wanted's title counts tracks ("312 tracks"), not "tracks and albums". Followed artists reads "18 artists · 52 new tracks" (tracks from new releases); Mirrored playlists "3 playlists · 1,140 tracks", as on 1c.
 2. Quality's title is the real target's name; a fresh install reads "MP3 192 or better".
 3. Status words the boards don't draw: "Complete" (Quality: "At target") when nothing is missing; "Not found yet" (neutral) when only tracks on the slowest retry remain; "Up to date" when a target has nothing to get, say followed artists with no new releases; "Paused" when the Automations switch is off, with "Automations are paused" in the footer; "No search scheduled" when no enabled automation serves the target.
-4. Can't search: the footer is the API's sentence ("Soulseek (slskd) didn't answer when SoulSync last checked, 4 minutes ago, so searches can't run."), not "since 21:15 yesterday, so the last 2 searches were skipped", which isn't recorded. As on 2s, "Not found yet" then counts everything still missing. "Try now" runs the download-source check again and refreshes the card; if it still fails, the card says what the check said. It doesn't start a search. "Run Setup check" shows only to admins, since the setup check is admin-only.
-5. The not-set-up Wanted and Quality cards aren't drawn in the grid. Copy written to match the others: "Get the music you want / Add tracks and albums you want. SoulSync searches for them on a schedule, at the quality you set. [Add to Wanted]" and "Choose the quality you want / Pick a format or bitrate. SoulSync looks for that quality when it downloads, and can upgrade what you already have. [Set a quality target]". Quality is never not set up in practice.
+4. Can't search: the footer is the API's sentence ("Soulseek (slskd) didn't answer when SYNCHRO.S last checked, 4 minutes ago, so searches can't run."), not "since 21:15 yesterday, so the last 2 searches were skipped", which isn't recorded. As on 2s, "Not found yet" then counts everything still missing. "Try now" runs the download-source check again and refreshes the card; if it still fails, the card says what the check said. It doesn't start a search. "Run Setup check" shows only to admins, since the setup check is admin-only.
+5. The not-set-up Wanted and Quality cards aren't drawn in the grid. Copy written to match the others: "Get the music you want / Add tracks and albums you want. SYNCHRO.S searches for them on a schedule, at the quality you set. [Add to Wanted]" and "Choose the quality you want / Pick a format or bitrate. SoulSync looks for that quality when it downloads, and can upgrade what you already have. [Set a quality target]". Quality is never not set up in practice.
 6. Latest: the tags are Done, Running, Partly done (a warning), Failed, Info, and "Needs you" for anything flagged. Older items show "Yesterday", a weekday or a date in the time column. Only "needs you" rows carry a link, on the words the sentence already uses ("Preview again"). It reads the last 30 days, so a quiet week doesn't say "Nothing yet". Items can't say "for Wanted" (see the API entry below).
 7. Phone: the page title is 24px and the stats 22/700, the handoff README's phone sizes; board 1c draws 28 and 24. "Search for music" stays on the phone: 1c drops it because Shell A's phone top bar has search, and today's shell has no such button.
 8. Between desktop and phone (600 to 1000px of content width, not drawn) the cards sit two by two.
@@ -1154,7 +1181,7 @@ From the handoff package ("Start here - Design notes 2026-10-21" and the board n
 3. **Navigation:** module pages sit inside their groups (Chat & Arcade in Get music; Podcasts, Audiobooks and Sample Studio in Library). No "More" group or tab. Video keeps its own switch and sidebar.
 4. **Legacy pages:** restyle them in place to the evolved rules (CSS first) rather than waiting for their React rebuild.
 
-**Name:** the handoff renames the app "Sync.FM". Ross decided to keep **SoulSync** for now, so the wordmark reads "SoulSync" (compact monogram "SS") and the Home sentences say SoulSync. Please use SoulSync on new boards.
+**Name:** the handoff renames the app "Sync.FM". Ross decided to keep **SoulSync** for now, so the wordmark reads "SoulSync" (compact monogram "SS") and the Home sentences say SoulSync. Please use SoulSync on new boards. *(Superseded 2026-10-22: the app is now displayed as **SYNCHRO.S**, Ross's decision; use SYNCHRO.S on new boards.)*
 
 ### 2026-10-21: Dev, Activity feed and Home targets endpoints
 

@@ -44,7 +44,7 @@ export function lossyDeleteOriginalCopy(options: LossyDeleteOriginalOptions) {
   const copy = lossyCopyName(options);
   return {
     lead:
-      `This can't be undone. With this on, SoulSync keeps only the ${copy} copy of each lossless ` +
+      `This can't be undone. With this on, SYNCHRO.S keeps only the ${copy} copy of each lossless ` +
       'file it converts for this profile, and deletes the lossless original.',
     points: [
       'New downloads: the original is deleted for good as soon as its copy is checked (it plays, and lasts ' +

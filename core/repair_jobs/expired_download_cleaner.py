@@ -118,7 +118,7 @@ def _path_mapping_hint(config_manager) -> str:
             'SoulSync, enable "Report Real Path", then run a full database refresh.'
         )
     return (
-        'Check Settings -> Library -> Music Paths so SoulSync can map media-server '
+        'Check Settings -> Library -> Music Paths so SYNCHRO.S can map media-server '
         'paths to the real files on disk.'
     )
 

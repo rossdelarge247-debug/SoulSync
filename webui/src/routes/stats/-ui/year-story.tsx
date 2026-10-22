@@ -334,7 +334,7 @@ function YearSlide({
             </>
           ) : (
             <p className={styles.lede}>
-              Nothing played in this window yet — once SoulSync has some listening history, your
+              Nothing played in this window yet — once SYNCHRO.S has some listening history, your
               year shows up here.
             </p>
           )}

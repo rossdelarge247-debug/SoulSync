@@ -233,7 +233,7 @@ export function HaveTrackModal({
           <div>
             <h3>I Have This Track</h3>
             <div className="enhanced-have-subtitle">
-              Use an existing file as the source audio. SoulSync will copy it into this album.
+              Use an existing file as the source audio. SYNCHRO.S will copy it into this album.
             </div>
           </div>
           <button
@@ -340,7 +340,7 @@ export function HaveTrackModal({
           <strong>{selectedSummary}</strong>
         </div>
         <div className="enhanced-have-note">
-          The selected file stays in its current album/folder. SoulSync copies it, writes the
+          The selected file stays in its current album/folder. SYNCHRO.S copies it, writes the
           missing track's tags, and places the copy in this album.
         </div>
         {status ? (

@@ -154,7 +154,7 @@ export function PodcastOpmlModal({
           <div>
             <h2 className={styles.modalTitle}>Podcast Subscriptions (OPML)</h2>
             <p className={styles.modalSubtitle}>
-              Migrate subscriptions between SoulSync, Apple Podcasts, Pocket Casts, and Overcast.
+              Migrate subscriptions between SYNCHRO.S, Apple Podcasts, Pocket Casts, and Overcast.
             </p>
           </div>
         </div>
@@ -340,7 +340,7 @@ export function PodcastOpmlModal({
             </div>
             <h3 className={styles.opmlExportTitle}>Export Subscribed Podcasts</h3>
             <p className={styles.opmlExportText}>
-              Download a standard OPML 2.0 XML file containing all your SoulSync podcast
+              Download a standard OPML 2.0 XML file containing all your SYNCHRO.S podcast
               subscriptions. You can import this file into Apple Podcasts, Pocket Casts, Overcast,
               or any other player.
             </p>

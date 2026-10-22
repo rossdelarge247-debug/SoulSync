@@ -615,7 +615,7 @@ const ACTION_HELP: Record<string, string> = {
   scan_watchlist:
     'Checks every artist and label you follow for releases since the last check, and adds the new tracks to Wanted.',
   scan_library: 'Asks your media server to rescan its music library.',
-  start_database_update: 'Reads your media server’s library into SoulSync’s database.',
+  start_database_update: 'Reads your media server’s library into SYNCHRO.S’s database.',
   notify_only: 'Does nothing itself; the steps after it run every time it starts.',
 };
 

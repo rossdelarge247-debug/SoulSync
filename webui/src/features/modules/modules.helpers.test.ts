@@ -136,14 +136,14 @@ describe('copy', () => {
       ...MODULES[0],
       enabled: false,
       restart_required: true,
-      restart_reason: 'The video download monitor keeps running until SoulSync restarts.',
+      restart_reason: 'The video download monitor keeps running until SYNCHRO.S restarts.',
     };
     expect(changeResultCopy(video)).toBe(
-      'Video is off. Its pages are hidden from the sidebar. Restart SoulSync to finish.',
+      'Video is off. Its pages are hidden from the sidebar. Restart SYNCHRO.S to finish.',
     );
     expect(restartCopy(video)).toEqual({
-      title: 'Restart SoulSync to finish turning Video off.',
-      body: 'The video download monitor keeps running until SoulSync restarts.',
+      title: 'Restart SYNCHRO.S to finish turning Video off.',
+      body: 'The video download monitor keeps running until SYNCHRO.S restarts.',
     });
     expect(restartCopy(podcasts)).toBeNull();
   });

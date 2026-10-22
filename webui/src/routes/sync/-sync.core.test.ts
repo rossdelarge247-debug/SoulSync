@@ -147,11 +147,11 @@ describe('heroSourceLabel', () => {
     expect(heroSourceLabel('spotify_public_h4sh')).toBe('Spotify');
     expect(heroSourceLabel('itunes_link_h4sh')).toBe('iTunes');
     expect(heroSourceLabel('spotify:playlist:xyz')).toBe('Spotify');
-    expect(heroSourceLabel('discover_release_radar')).toBe('SoulSync');
-    expect(heroSourceLabel('seasonal_album_1')).toBe('SoulSync');
-    expect(heroSourceLabel('spotify_library_1')).toBe('SoulSync');
-    expect(heroSourceLabel('build_playlist_custom')).toBe('SoulSync');
-    expect(heroSourceLabel('decade_1990')).toBe('SoulSync');
+    expect(heroSourceLabel('discover_release_radar')).toBe('SYNCHRO.S');
+    expect(heroSourceLabel('seasonal_album_1')).toBe('SYNCHRO.S');
+    expect(heroSourceLabel('spotify_library_1')).toBe('SYNCHRO.S');
+    expect(heroSourceLabel('build_playlist_custom')).toBe('SYNCHRO.S');
+    expect(heroSourceLabel('decade_1990')).toBe('SYNCHRO.S');
     expect(heroSourceLabel('youtube_h4sh')).toBe('YouTube');
     expect(heroSourceLabel('anything-else')).toBe('YouTube');
   });
@@ -159,12 +159,12 @@ describe('heroSourceLabel', () => {
   it('spotify_public_ wins over the spotify: arm (ladder order is load-bearing)', () => {
     // A spotify_public_ id never reaches the spotify: branch, and a bare
     // spotify_library_ id must NOT read as public Spotify.
-    expect(heroSourceLabel('spotify_library_x')).toBe('SoulSync');
+    expect(heroSourceLabel('spotify_library_x')).toBe('SYNCHRO.S');
   });
 
   it('anchors the vanilla ladder so a silent edit there fails here', () => {
     expect(SYNC_SERVICES).toContain("virtualPlaylistId.startsWith('spotify_public_') ? 'Spotify'");
-    expect(SYNC_SERVICES).toContain("virtualPlaylistId === 'build_playlist_custom' ? 'SoulSync'");
+    expect(SYNC_SERVICES).toContain("virtualPlaylistId === 'build_playlist_custom' ? 'SYNCHRO.S'");
   });
 });
 

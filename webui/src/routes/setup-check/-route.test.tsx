@@ -213,7 +213,7 @@ describe('setup check route', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy for a bug report' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     const text = writeText.mock.calls[0][0] as string;
-    expect(text).toContain('SoulSync setup check');
+    expect(text).toContain('SYNCHRO.S setup check');
     expect(text).toContain('[Problem] Music library folder');
     expect(text).toContain('[Warning] User SoulSync runs as');
     expect(text).toContain('[OK] slskd connection');

@@ -280,12 +280,12 @@ def _run_hook(name: str, enabled: bool) -> Optional[str]:
         result = hook()
     except Exception as exc:  # noqa: BLE001 - report it; the setting itself is saved
         logger.exception("turning %s %s failed", name, "on" if enabled else "off")
-        return f"Applying the change failed ({exc}); restart SoulSync to finish it."
+        return f"Applying the change failed ({exc}); restart SYNCHRO.S to finish it."
     if result is None or result is True:
         return None
     if isinstance(result, str) and result.strip():
         return result.strip()
-    return "Restart SoulSync to finish applying this change."
+    return "Restart SYNCHRO.S to finish applying this change."
 
 
 def set_enabled(name: str, enabled: bool, config=None) -> Dict[str, Any]:

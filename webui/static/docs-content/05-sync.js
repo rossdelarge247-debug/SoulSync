@@ -8,7 +8,7 @@ registerDocsSection({
             title: 'Overview',
             lede: 'Import playlists from Spotify, YouTube, Tidal, Qobuz, Deezer, Beatport, YouTube Music, iTunes, and your media server — then mirror, refresh, and download them on a schedule.',
             body: `
-The Sync page imports playlists from **Spotify**, **YouTube**, **YouTube Music**, **Tidal**, **Qobuz**, **Deezer**, **Beatport**, **iTunes** links, **ListenBrainz**, and **Last.fm** — as well as **Server Playlists** from your connected media server and track lists from files. Once imported, playlists are **mirrored** — they persist in your SoulSync instance and can be refreshed, discovered, and synced to your wishlist for downloading.
+The Sync page imports playlists from **Spotify**, **YouTube**, **YouTube Music**, **Tidal**, **Qobuz**, **Deezer**, **Beatport**, **iTunes** links, **ListenBrainz**, and **Last.fm** — as well as **Server Playlists** from your connected media server and track lists from files. Once imported, playlists are **mirrored** — they persist in your SYNCHRO.S instance and can be refreshed, discovered, and synced to your wishlist for downloading.
 
 ![Playlist sync page](sync-overview.jpg)
 
@@ -50,7 +50,7 @@ For each playlist you can:
             title: 'Spotify Public Links',
             lede: 'Sync any public Spotify playlist or album by URL — no Spotify account or OAuth required.',
             body: `
-Sync Spotify playlists and albums **without OAuth credentials**. Paste any public Spotify playlist or album URL and SoulSync will load the tracks for download. Useful when you don't want to connect a Spotify account, or want to sync from someone else's public playlist.
+Sync Spotify playlists and albums **without OAuth credentials**. Paste any public Spotify playlist or album URL and SYNCHRO.S will load the tracks for download. Useful when you don't want to connect a Spotify account, or want to sync from someone else's public playlist.
 
 - Paste any \`open.spotify.com/playlist/...\` or \`open.spotify.com/album/...\` URL
 - Works without Spotify API credentials
@@ -61,9 +61,9 @@ Sync Spotify playlists and albums **without OAuth credentials**. Paste any publi
         {
             id: 'sync-youtube',
             title: 'YouTube Playlists',
-            lede: 'Paste a YouTube playlist URL and let SoulSync parse it and match tracks to official metadata.',
+            lede: 'Paste a YouTube playlist URL and let SYNCHRO.S parse it and match tracks to official metadata.',
             body: `
-Paste a YouTube playlist URL into the input field and click **Parse Playlist**. SoulSync extracts the track list and attempts to match each track to official Spotify/iTunes metadata.
+Paste a YouTube playlist URL into the input field and click **Parse Playlist**. SYNCHRO.S extracts the track list and attempts to match each track to official Spotify/iTunes metadata.
 
 ![YouTube playlist import](sync-youtube.jpg)
 
@@ -108,7 +108,7 @@ If you have a **Deezer ARL token** configured (Settings → Connections → Sour
             title: 'Deezer Link',
             lede: 'Import any public Deezer playlist by URL — no ARL token needed.',
             body: `
-Import any public Deezer playlist by URL without needing an ARL token. Paste a Deezer playlist URL, click **Load Playlist**, and SoulSync parses the tracks for discovery and download.
+Import any public Deezer playlist by URL without needing an ARL token. Paste a Deezer playlist URL, click **Load Playlist**, and SYNCHRO.S parses the tracks for discovery and download.
 
 - Paste any \`deezer.com/playlist/...\` URL or raw playlist ID
 - Track matching uses the same fuzzy discovery pipeline as YouTube and Tidal
@@ -167,10 +167,10 @@ Top 100 and Hype charts with full track listings. Each track can be manually mat
             title: 'Import from File',
             lede: 'Turn a CSV, M3U, or plain text track list into a mirrored playlist.',
             body: `
-Import track lists from **CSV, TSV, M3U/M3U8, or plain text files**. Drag and drop a file or click to browse. SoulSync parses the file, lets you preview and map columns, then creates a mirrored playlist for discovery and download.
+Import track lists from **CSV, TSV, M3U/M3U8, or plain text files**. Drag and drop a file or click to browse. SYNCHRO.S parses the file, lets you preview and map columns, then creates a mirrored playlist for discovery and download.
 
 - **CSV/TSV** — auto-detects columns; map Artist, Title, and Album from dropdowns
-- **M3U/M3U8** — read automatically: artist, title, and duration come from \`#EXTINF\` lines (or the file name for simple playlists). Round-trips with SoulSync's own M3U export
+- **M3U/M3U8** — read automatically: artist, title, and duration come from \`#EXTINF\` lines (or the file name for simple playlists). Round-trips with SYNCHRO.S's own M3U export
 - **Text files** — one track per line; choose Artist–Title or Title–Artist order and separator (dash, tab, pipe, etc.)
 - Preview parsed tracks before importing
 - Name your playlist and it becomes a mirrored playlist for sync
@@ -237,7 +237,7 @@ For non-Spotify playlists (YouTube, Tidal, Deezer links, files), tracks need to 
 ::: steps
 1. Import a playlist (YouTube, Tidal, or any non-Spotify source)
 2. Click **Discover** on the playlist card (or automate it with the "Discover Playlist" action)
-3. SoulSync matches each track to official metadata — results are cached globally, so a track discovered once never needs re-matching
+3. SYNCHRO.S matches each track to official metadata — results are cached globally, so a track discovered once never needs re-matching
 4. **Sync** the playlist — only discovered tracks are included; unmatched tracks are skipped
 :::
 

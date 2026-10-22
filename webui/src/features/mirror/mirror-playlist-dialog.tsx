@@ -199,7 +199,7 @@ export function MirrorPlaylistDialog({
       void queryClient.invalidateQueries({ queryKey: ['mirror', 'mirrored'] });
       window.showToast?.(
         keepInSync
-          ? `Mirrored "${name}". SoulSync is checking it now.`
+          ? `Mirrored "${name}". SYNCHRO.S is checking it now.`
           : `Mirrored "${name}". Run it from Mirrored playlists when you're ready.`,
         'success',
       );
@@ -211,7 +211,7 @@ export function MirrorPlaylistDialog({
       setFailure(
         error instanceof StepError
           ? error.failure
-          : { step: 'mirror', message: "SoulSync couldn't mirror the playlist." },
+          : { step: 'mirror', message: "SYNCHRO.S couldn't mirror the playlist." },
       );
     },
   });
@@ -324,7 +324,7 @@ export function MirrorPlaylistDialog({
       <DialogHeader title="Mirror a playlist">
         <p className={styles.subtitle}>
           <span className={styles.wideOnly}>
-            SoulSync finds the tracks you don’t have and keeps up as the playlist changes.
+            SYNCHRO.S finds the tracks you don’t have and keeps up as the playlist changes.
           </span>
           <span className={styles.phoneOnly}>
             Finds what you don’t have and keeps up as it changes.
@@ -474,7 +474,7 @@ export function MirrorPlaylistDialog({
                 </Button>
               }
             >
-              SoulSync didn’t get an answer from Spotify. Nothing changed; you can paste a link
+              SYNCHRO.S didn’t get an answer from Spotify. Nothing changed; you can paste a link
               instead.
             </Notice>
           ) : list.length ? (
@@ -544,7 +544,8 @@ export function MirrorPlaylistDialog({
 
           {selected && tracks.isError ? (
             <p className={styles.fieldError} role="alert">
-              {(tracks.error as Error)?.message || 'SoulSync couldn’t read this playlist’s tracks.'}{' '}
+              {(tracks.error as Error)?.message ||
+                'SYNCHRO.S couldn’t read this playlist’s tracks.'}{' '}
               Try another playlist, or try again later.
             </p>
           ) : null}

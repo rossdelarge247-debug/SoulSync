@@ -149,13 +149,13 @@ A page builder's loading and empty states, for example:
   <>
     <Notice tone="danger" role="alert" title="Couldn't load your list"
       actions={<Button size="lg" onClick={() => query.refetch()}>Try again</Button>}>
-      SoulSync didn't answer. Your list is safe; this is a display problem.
+      SYNCHRO.S didn't answer. Your list is safe; this is a display problem.
     </Notice>
     <SkeletonList rows={2} faded />
   </>
 ) : rows.length === 0 ? (
   <EmptyState variant="panel" title="Nothing wanted yet"
-    description="Add tracks or albums you want and SoulSync looks for them on every scheduled search."
+    description="Add tracks or albums you want and SYNCHRO.S looks for them on every scheduled search."
     hint="You can add from Search, from a playlist, or from an artist page."
     actions={<Button variant="primary" size="lg">Search for music</Button>} />
 ) : (

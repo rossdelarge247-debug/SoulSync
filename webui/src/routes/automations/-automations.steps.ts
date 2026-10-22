@@ -88,7 +88,7 @@ function cfgTime(config: Record<string, unknown>): string {
 // What each event says, where the block's own description doesn't read as
 // "when …". The rest use the block description from /api/automations/blocks.
 const EVENT_PHRASES: Record<string, string> = {
-  app_started: 'When SoulSync starts',
+  app_started: 'When SYNCHRO.S starts',
   track_downloaded: 'After a track downloads',
   batch_complete: 'After an album or playlist download finishes',
   watchlist_new_release: 'When a followed artist has a new release',

@@ -175,7 +175,7 @@ const VIDEO_DETAIL_TITLES: Record<string, string> = {
 export function pageTitle(pageId: string | null | undefined, rowLabel: string | null): string {
   if (pageId && PAGE_TITLES[pageId]) return PAGE_TITLES[pageId];
   if (rowLabel) return rowLabel;
-  return 'SoulSync';
+  return 'SYNCHRO.S';
 }
 
 export function videoPageTitle(videoPageId: string | null, rowLabel: string | null): string {

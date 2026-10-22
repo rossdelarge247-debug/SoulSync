@@ -160,7 +160,7 @@ describe('AdlClientsTab', () => {
     );
     const { container } = render(<AdlClientsTab />);
     await waitFor(() =>
-      expect(container.textContent).toContain("Couldn't ask the SoulSync server"),
+      expect(container.textContent).toContain("Couldn't ask the SYNCHRO.S server"),
     );
     expect(container.textContent).toContain('boom from the bridge');
     expect(container.textContent).not.toContain('Checking the client');
@@ -176,7 +176,7 @@ describe('AdlClientsTab', () => {
     );
     const { container } = render(<AdlClientsTab />);
     await waitFor(() =>
-      expect(container.textContent).toContain("Couldn't ask the SoulSync server"),
+      expect(container.textContent).toContain("Couldn't ask the SYNCHRO.S server"),
     );
   });
 
@@ -305,7 +305,7 @@ describe('AdlClientsTab', () => {
     expect(details.textContent).toContain('Remote path');
     expect(details.textContent).toContain('Music\\Artist\\song.flac');
     expect(details.textContent).not.toContain('Local file');
-    expect(details.textContent).not.toContain('SoulSync');
+    expect(details.textContent).not.toContain('SYNCHRO.S');
   });
 
   it('labels soulsync rows and external rows differently', async () => {
@@ -316,7 +316,7 @@ describe('AdlClientsTab', () => {
     await waitFor(() => expect(container.textContent).toContain('Movie (2026)'));
     // a followed row wears its tag; a stranger's row wears nothing
     const owners = [...container.querySelectorAll('.dlc-owner')].map((el) => el.textContent);
-    expect(owners).toEqual(['SoulSync · Movie']);
+    expect(owners).toEqual(['SYNCHRO.S · Movie']);
   });
 });
 
@@ -413,8 +413,8 @@ describe('the category filter', () => {
     expect(container.textContent).toContain('Blaze.m4b');
     expect(container.textContent).not.toContain('Movie.2026.1080p.mkv');
     expect(container.textContent).toContain('1 shown');
-    // "Not in SoulSync" counts only the chosen category
-    expect(screen.getByRole('radio', { name: 'Not in SoulSync1' })).toBeTruthy();
+    // "Not in SYNCHRO.S" counts only the chosen category
+    expect(screen.getByRole('radio', { name: 'Not in SYNCHRO.S1' })).toBeTruthy();
   });
 
   it('pause all respects the category', async () => {
@@ -641,7 +641,7 @@ describe('match & import', () => {
     expect(screen.getByRole('radio', { name: 'Audiobook' }).getAttribute('aria-checked')).toBe(
       'true',
     );
-    expect(screen.getByText('SoulSync can see the files')).toBeTruthy();
+    expect(screen.getByText('SYNCHRO.S can see the files')).toBeTruthy();
     const submit = screen.getByRole('button', { name: 'Pick a match' }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
 
@@ -762,11 +762,11 @@ describe('soulseek and the owner filter', () => {
     mockAll({ slskd: SLSKD_FOLDER });
     const { container } = render(<AdlClientsTab />);
     await waitFor(() => expect(container.textContent).toContain('15 Step'));
-    expect(screen.getByRole('radio', { name: /Not in SoulSync\s*3/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole('radio', { name: /^SoulSync's\s*1/ }));
+    expect(screen.getByRole('radio', { name: /Not in SYNCHRO\.S\s*3/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: /^SYNCHRO\.S's\s*1/ }));
     expect(container.textContent).not.toContain('15 Step');
     expect(container.textContent).toContain('song.flac');
-    fireEvent.click(screen.getByRole('radio', { name: /Not in SoulSync/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Not in SYNCHRO\.S/ }));
     expect(container.textContent).toContain('15 Step');
     expect(container.textContent).not.toContain('Mine');
   });
@@ -925,7 +925,7 @@ describe('bulk match & import', () => {
     await waitFor(() => expect(pill(view.container, 'torrent')).not.toBeNull());
     fireEvent.click(pill(view.container, 'torrent'));
     await waitFor(() => expect(view.container.textContent).toContain('Blaze'));
-    fireEvent.click(screen.getByRole('radio', { name: /Not in SoulSync/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /Not in SYNCHRO\.S/ }));
     return view.container;
   }
 

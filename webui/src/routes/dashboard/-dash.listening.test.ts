@@ -21,7 +21,7 @@ describe('timeAgo', () => {
 describe('sourceLabel', () => {
   it('maps the known servers and passes unknowns through', () => {
     expect(sourceLabel('plex')).toBe('Plex');
-    expect(sourceLabel('web_player')).toBe('SoulSync');
+    expect(sourceLabel('web_player')).toBe('SYNCHRO.S');
     expect(sourceLabel('winamp')).toBe('winamp');
     expect(sourceLabel(null)).toBe('');
   });

@@ -351,7 +351,7 @@ describe('My Account', () => {
       ),
       http.post('/api/profiles/me/plex-connect/check', () =>
         HttpResponse.json(
-          { success: false, error: 'That Plex account is connected to another SoulSync profile' },
+          { success: false, error: 'That Plex account is connected to another SYNCHRO.S profile' },
           { status: 403 },
         ),
       ),
@@ -364,7 +364,7 @@ describe('My Account', () => {
         async () => {},
       ),
     ).toBe(false);
-    expect(toasts).toContain('That Plex account is connected to another SoulSync profile');
+    expect(toasts).toContain('That Plex account is connected to another SYNCHRO.S profile');
   });
 
   it('connect with plex stops when plex is closed without approving', async () => {

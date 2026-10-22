@@ -135,7 +135,7 @@ _TOOL_LINKS = {
 }
 
 _SERVER_NAMES = {"plex": "Plex", "jellyfin": "Jellyfin", "navidrome": "Navidrome", "emby": "Emby",
-                 "soulsync": "SoulSync", "subsonic": "Subsonic"}
+                 "soulsync": "SYNCHRO.S", "subsonic": "Subsonic"}
 
 
 class CursorError(ValueError):
@@ -443,7 +443,7 @@ def _auto_import_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
     if status in ("processing", "approved", "scanning"):
         if ctx.now - t > STALE_RUNNING_SECONDS:
             st, title = "warning", f"Import of {release} didn't finish"
-            detail = "It stopped part way, most likely because SoulSync restarted. The files are still in the import folder."
+            detail = "It stopped part way, most likely because SYNCHRO.S restarted. The files are still in the import folder."
         else:
             st, title, detail = "running", f"Importing {release}", f"{plural(total, 'file')} from the import folder"
     elif status == "completed":
@@ -604,7 +604,7 @@ def _sync_history_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
     elif not row.get("completed_at"):
         status = "warning"
         title = f'"{name}" stopped before it finished'
-        detail = "It was cut off part way, most likely because SoulSync restarted. Start it again to pick up the rest."
+        detail = "It was cut off part way, most likely because SYNCHRO.S restarted. Start it again to pick up the rest."
     elif kind == "download":
         reasons, _ids, _known = _failed_tracks(row)
         why = _reason_words(reasons) or f"{failed} failed"

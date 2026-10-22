@@ -270,7 +270,7 @@ function Paging({
           </Button>
         }
       >
-        SoulSync didn’t answer. What’s above is still current.
+        SYNCHRO.S didn’t answer. What’s above is still current.
       </Notice>
     );
   }

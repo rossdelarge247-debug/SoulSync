@@ -1235,7 +1235,7 @@
             _ddE('DELETE', '/retag/groups', 'Delete all retag groups', { note: 'Deletes every retag group at once. There is no undo.' }),
             _ddE('GET', '/retag/stats', 'Retag queue statistics'),
         ] },
-        { title: 'Cache', desc: 'Peek at the metadata caches SoulSync keeps warm.', eps: [
+        { title: 'Cache', desc: 'Peek at the metadata caches SYNCHRO.S keeps warm.', eps: [
             _ddE('GET', '/cache/musicbrainz', 'MusicBrainz cache entries', { q: [
                 ['entity_type', 'string', 0, '"artist", "album", or "track"'],
                 ['search', 'string', 0, 'Filter by entity name'],
@@ -1251,7 +1251,7 @@
             ] }),
             _ddE('GET', '/cache/discovery-matches/stats', 'Discovery match cache statistics'),
         ] },
-        { title: 'ListenBrainz', desc: 'Read the ListenBrainz playlists SoulSync has imported or generated.', eps: [
+        { title: 'ListenBrainz', desc: 'Read the ListenBrainz playlists SYNCHRO.S has imported or generated.', eps: [
             _ddE('GET', '/listenbrainz/playlists', 'List ListenBrainz playlists', { q: [
                 ['type', 'string', 0, 'Filter by playlist_type (e.g. "weekly-jams")'],
                 ['page', 'int', 0, 'Page number', '1'],

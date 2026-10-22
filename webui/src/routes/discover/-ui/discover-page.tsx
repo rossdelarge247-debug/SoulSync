@@ -750,7 +750,7 @@ export function DiscoverPage() {
       toSyncTracks([byltTrackToRow(track)]),
       null,
       null,
-      'SoulSync',
+      'SYNCHRO.S',
     );
   }, []);
 
@@ -789,7 +789,7 @@ export function DiscoverPage() {
       toSyncTracks(rows),
       null,
       null,
-      'SoulSync',
+      'SYNCHRO.S',
     );
   }, []);
 
@@ -860,7 +860,7 @@ export function DiscoverPage() {
       toSyncTracks(rows),
       null,
       null,
-      'SoulSync',
+      'SYNCHRO.S',
     );
   }, [stationPreview.snapshot, stationRows]);
 

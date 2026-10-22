@@ -223,7 +223,7 @@ def human_reason(error: Any, *, has_cookies: Optional[bool] = None,
             return "Blocked on copyright grounds."
         return "Gone from YouTube — removed, private or deleted."
     if kind == NOT_YET:
-        return "Hasn't been released yet — SoulSync will keep checking."
+        return "Hasn't been released yet — SYNCHRO.S will keep checking."
     if kind == AGE_GATED:
         return ("Age-restricted — YouTube wants a signed-in adult account. Add browser "
                 "cookies in Settings to fetch this one.")
@@ -256,16 +256,16 @@ def human_reason(error: Any, *, has_cookies: Optional[bool] = None,
                         f"not help and there is no setting that changes it. Use "
                         f"'Paste cookies.txt' in Settings instead — export it with a "
                         f"'Get cookies.txt LOCALLY' extension.")
-            return (f"SoulSync could not read {whose} cookies. Usually one of: the browser "
+            return (f"SYNCHRO.S could not read {whose} cookies. Usually one of: the browser "
                     f"is open and holding its cookie database (close it and retry); "
                     f"Chrome and Edge 127+ encrypt cookies in a way yt-dlp cannot read at "
-                    f"all; or the browser is not reachable from wherever SoulSync itself "
+                    f"all; or the browser is not reachable from wherever SYNCHRO.S itself "
                     f"runs — a container, a headless box, or a Windows browser when "
-                    f"SoulSync runs under WSL. 'Paste cookies.txt' sidesteps all three.")
+                    f"SYNCHRO.S runs under WSL. 'Paste cookies.txt' sidesteps all three.")
         return ("YouTube asked us to prove we're not a bot. Add browser cookies in "
                 "Settings; updating yt-dlp alone won't clear this.")
     if kind == THROTTLED:
-        return "YouTube is rate-limiting us. SoulSync will back off and try later."
+        return "YouTube is rate-limiting us. SYNCHRO.S will back off and try later."
     if kind == POSTPROCESS:
         return ("The video downloaded but couldn't be assembled — this is usually a "
                 "missing or broken ffmpeg on the server, not a problem with the video.")
@@ -282,7 +282,7 @@ def human_reason(error: Any, *, has_cookies: Optional[bool] = None,
             # yt-dlp is current.
             return ("YouTube refused the download even though cookies are configured. "
                     "Two things do this. An out-of-date yt-dlp is the common one — "
-                    "update it in Settings -> Advanced -> yt-dlp, and RESTART SoulSync "
+                    "update it in Settings -> Advanced -> yt-dlp, and RESTART SYNCHRO.S "
                     "afterwards, because the running process keeps the version it "
                     "started with. The other is the cookies themselves: signed-in "
                     "requests need a PO token that YouTube will not always issue, so "

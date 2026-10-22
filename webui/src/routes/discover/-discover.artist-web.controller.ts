@@ -33,7 +33,7 @@ export const WEB_LOAD_FAILED = 'Failed to load the artist web.';
 export const WEB_DISCOVERY_FAILED = 'Failed to load discovery.';
 export const WEB_NO_LIBS = "graphology / sigma didn't load — check the CDN &lt;script&gt; tags.";
 export const WEB_NO_CANDIDATES =
-  'No discovery candidates yet — add artists to your Watchlist so SoulSync can fetch similar artists to explore.';
+  'No discovery candidates yet — add artists to your Watchlist so SYNCHRO.S can fetch similar artists to explore.';
 export const WEB_PATH_PROMPT = 'Click an artist, then a second one, to trace how they connect.';
 export const WEB_PATH_NOT_ARTISTS = 'Pick artists, not genre hubs.';
 export const WEB_FIRST_RUN_HINT =

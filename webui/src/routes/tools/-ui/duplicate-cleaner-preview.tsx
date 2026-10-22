@@ -81,7 +81,7 @@ export function duplicateDialogContent(
     ],
     lead: (
       <>
-        For each track SoulSync keeps the best copy and moves the others to the recycle bin
+        For each track SYNCHRO.S keeps the best copy and moves the others to the recycle bin
         {bin ? (
           <>
             {' '}

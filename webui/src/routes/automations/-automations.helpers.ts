@@ -185,7 +185,7 @@ const SMART_COLLECTIONS: CollectionDef[] = [
     key: 'system',
     kind: 'system',
     label: 'System',
-    description: 'Built-in automations that keep SoulSync healthy',
+    description: 'Built-in automations that keep SYNCHRO.S healthy',
   },
   {
     key: 'ungrouped',

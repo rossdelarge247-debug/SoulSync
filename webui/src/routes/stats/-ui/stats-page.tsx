@@ -322,7 +322,7 @@ export function StatsPage() {
             <span
               className={styles.statsStandaloneNotice}
               role="note"
-              title="SoulSync standalone does not use an external media server, so manual listening stats sync is unavailable."
+              title="SYNCHRO.S standalone does not use an external media server, so manual listening stats sync is unavailable."
             >
               Standalone mode: manual sync unavailable
             </span>

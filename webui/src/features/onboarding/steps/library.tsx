@@ -98,7 +98,8 @@ export function LibraryStep() {
 
   const link = draft.playlistUrl.trim();
   const detection = detectPlaylistUrl(link);
-  let linkHint = "SoulSync keeps a copy in step with the original and fetches what you're missing.";
+  let linkHint =
+    "SYNCHRO.S keeps a copy in step with the original and fetches what you're missing.";
   if (link && isDetected(detection))
     linkHint = `${DETECTED_SOURCE_SERVICE_LABELS[detection.source]} recognised. It opens on the Sync page when setup finishes, ready to mirror.`;
   else if (link && !isDetected(detection)) linkHint = detection.error;

@@ -985,7 +985,7 @@
             '<div class="vht-modal" role="dialog" aria-modal="true" aria-label="I have this">' +
                 '<div class="vht-head"><div>' +
                     '<div class="vht-title">I have this</div>' +
-                    '<div class="vht-sub">SoulSync couldn\u2019t match <b>' + esc(d.title || '') + '</b> ' +
+                    '<div class="vht-sub">SYNCHRO.S couldn\u2019t match <b>' + esc(d.title || '') + '</b> ' +
                     'to your library. Search below for the copy you actually own, then link them.</div>' +
                 '</div><button class="vht-x" type="button" data-vht="close" aria-label="Close">\u2715</button></div>' +
                 '<input class="vht-search" type="search" placeholder="Search your ' + kindNoun + '\u2026" ' +

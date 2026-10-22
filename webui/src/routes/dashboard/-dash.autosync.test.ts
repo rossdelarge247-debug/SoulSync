@@ -45,7 +45,7 @@ describe('weeklyLabel', () => {
 describe('sourceLabel / logos', () => {
   it('uses the vanilla map and capitalizes unknowns', () => {
     expect(sourceLabel('spotify')).toBe('Spotify');
-    expect(sourceLabel('soulsync_discovery')).toBe('SoulSync Discovery');
+    expect(sourceLabel('soulsync_discovery')).toBe('SYNCHRO.S Discovery');
     expect(sourceLabel('lastfm')).toBe('Last.fm Radio');
     expect(sourceLabel('weirdsource')).toBe('Weirdsource');
     expect(sourceLabel(undefined)).toBe('');

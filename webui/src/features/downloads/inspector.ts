@@ -122,7 +122,7 @@ export function overrideConfirm(
     return {
       title: 'Download what may be the wrong song?',
       message:
-        `SoulSync passed over this file (${reason}). It may not be ${song}. ` +
+        `SYNCHRO.S passed over this file (${reason}). It may not be ${song}. ` +
         `Files you pick yourself skip the AcoustID check, so nothing will catch a wrong match. ${scope}`,
       confirmText: 'Download anyway',
       destructive: true,
@@ -146,7 +146,7 @@ export function overrideConfirm(
   }
   return {
     title: 'Download this file anyway?',
-    message: `SoulSync passed over it (${reason}). ${scope}`,
+    message: `SYNCHRO.S passed over it (${reason}). ${scope}`,
     confirmText: 'Download anyway',
     destructive: false,
   };

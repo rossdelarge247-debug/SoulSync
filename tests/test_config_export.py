@@ -127,8 +127,8 @@ def test_video_settings_round_trip():
 
 @pytest.mark.parametrize("bad,reason_frag", [
     ("not a dict", "JSON object"),
-    ({"random": "json"}, "isn't a SoulSync config export"),
-    ({BUNDLE_MARKER: True, "bundle_version": 99, "music": {}, "video": {}}, "newer SoulSync"),
+    ({"random": "json"}, "isn't a SYNCHRO.S config export"),
+    ({BUNDLE_MARKER: True, "bundle_version": 99, "music": {}, "video": {}}, "newer SYNCHRO.S"),
     ({BUNDLE_MARKER: True, "bundle_version": 1, "music": "x", "video": {}}, "missing its music"),
 ])
 def test_validate_rejects_bad_bundles(bad, reason_frag):

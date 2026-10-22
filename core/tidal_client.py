@@ -403,7 +403,7 @@ class TidalClient:
                     handler_self.send_response(200)
                     handler_self.send_header('Content-type', 'text/html')
                     handler_self.end_headers()
-                    handler_self.wfile.write(b'<h1>Success!</h1><p>You can close this window and return to SoulSync.</p>')
+                    handler_self.wfile.write(b'<h1>Success!</h1><p>You can close this window and return to SYNCHRO.S.</p>')
                 elif 'error' in query_params:
                     # Handle OAuth errors
                     error = query_params.get('error', ['unknown'])[0]

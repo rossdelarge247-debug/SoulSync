@@ -113,13 +113,13 @@ function PopularTracks({ artistId, artistName }: { artistId: unknown; artistName
           window.showToast?.(`Added “${track.name}” to Wanted.`, 'success');
       } else {
         window.showToast?.(
-          `Couldn't add “${track.name}” to Wanted: ${data?.error || 'SoulSync said no'}.`,
+          `Couldn't add “${track.name}” to Wanted: ${data?.error || 'SYNCHRO.S said no'}.`,
           'error',
         );
       }
     } catch {
       window.showToast?.(
-        `Couldn't add “${track.name}” to Wanted: SoulSync didn’t answer.`,
+        `Couldn't add “${track.name}” to Wanted: SYNCHRO.S didn’t answer.`,
         'error',
       );
     }
@@ -448,7 +448,7 @@ export function TracksTab({
           <EmptyState
             variant="panel"
             title={`Nothing by ${artistName} in your library yet`}
-            description="Tracks you download or add to your media server show here. Add releases to Wanted from the Releases tab and SoulSync searches for them."
+            description="Tracks you download or add to your media server show here. Add releases to Wanted from the Releases tab and SYNCHRO.S searches for them."
           />
         ) : library.isPending ? (
           <LoadingState label="Loading your tracks…">
@@ -474,7 +474,7 @@ export function TracksTab({
           <EmptyState
             variant="panel"
             title="No tracks with files yet"
-            description={`SoulSync knows ${artistName}, but none of their tracks has a file in your library. Add releases to Wanted from the Releases tab and SoulSync searches for them.`}
+            description={`SYNCHRO.S knows ${artistName}, but none of their tracks has a file in your library. Add releases to Wanted from the Releases tab and SYNCHRO.S searches for them.`}
           />
         ) : (
           <LibraryTracks data={library.data} artistName={artistName} focusAlbumId={focusAlbumId} />

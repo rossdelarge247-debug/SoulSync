@@ -16,7 +16,7 @@ Sample Studio lives at **Sample Studio** in the sidebar. It has three columns:
 - **Editor** — the waveform: set in/out points, loop, zoom, pitch-shift, tempo-match, and separate stems.
 - **Stash** — every chop you save, with playback, delete, and one-click ZIP export.
 
-Pick a track on the left and it opens in the editor. The first time a track is opened, SoulSync analyzes it in the background — BPM, beat grid, and chop-friendly onset points appear on the waveform when ready.
+Pick a track on the left and it opens in the editor. The first time a track is opened, SYNCHRO.S analyzes it in the background — BPM, beat grid, and chop-friendly onset points appear on the waveform when ready.
 
 ## The workflow
 
@@ -38,7 +38,7 @@ Press \`?\` in the editor for the full list. The essentials: \`Space\` play/paus
             body: `
 ## How it works
 
-Open a track, scroll to the **Stems** panel under the editor, and hit **Separate stems**. SoulSync runs Demucs on your server — about a minute for a full song — and caches the four stems permanently. You only ever separate a track once.
+Open a track, scroll to the **Stems** panel under the editor, and hit **Separate stems**. SYNCHRO.S runs Demucs on your server — about a minute for a full song — and caches the four stems permanently. You only ever separate a track once.
 
 ## What you can do with stems
 
@@ -48,7 +48,7 @@ Open a track, scroll to the **Stems** panel under the editor, and hit **Separate
 
 ## About the model
 
-Demucs weights are **not bundled** with SoulSync — on first use your server downloads the model (about 80 MB) once and keeps it. The weights are free for non-commercial use, which covers SoulSync. Separation runs on CPU by default; it is slower than GPU but needs no special hardware.
+Demucs weights are **not bundled** with SYNCHRO.S — on first use your server downloads the model (about 80 MB) once and keeps it. The weights are free for non-commercial use, which covers SYNCHRO.S. Separation runs on CPU by default; it is slower than GPU but needs no special hardware.
 
 If separation fails, the panel shows the error with a **Try again** button — your track and stash are never touched.
 `,

@@ -28,7 +28,7 @@ def _path_mapping_hint(config_manager) -> str:
         return (
             'Active media server: navidrome. In Navidrome, open Profile → Players → '
             'SoulSync and enable "Report Real Path", then run a full database refresh. '
-            'Also confirm Settings → Library → Music Paths contains the path SoulSync can read.'
+            'Also confirm Settings → Library → Music Paths contains the path SYNCHRO.S can read.'
         )
     return (
         f'Active media server: {active}. Check Docker volume mapping and '
@@ -53,7 +53,7 @@ class DeadFileCleanerJob(RepairJob):
     description = 'Finds database entries pointing to missing files'
     help_text = (
         'Checks every track in your database to verify the actual audio file still exists '
-        'on disk. If a file has been moved, renamed, or deleted outside of SoulSync, the '
+        'on disk. If a file has been moved, renamed, or deleted outside of SYNCHRO.S, the '
         'database entry becomes a "dead" reference.\n\n'
         'Each dead reference is reported as a finding. You can then resolve it by re-downloading '
         'the track or dismiss it to clean up the database entry.\n\n'
@@ -219,7 +219,7 @@ class DeadFileCleanerJob(RepairJob):
             if context.report_progress:
                 context.report_progress(
                     phase='Aborted — too many unreachable paths',
-                    log_line=(f"{len(dead_rows)} of {result.scanned} tracks point to paths SoulSync "
+                    log_line=(f"{len(dead_rows)} of {result.scanned} tracks point to paths SYNCHRO.S "
                               f"can't reach — almost always a path-mapping issue, not deleted files. "
                               f"No findings created. Example DB path: {sample_path or 'unknown'}. {hint}"),
                     log_type='error'

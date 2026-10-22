@@ -38,7 +38,7 @@ export interface SoulsyncDiscoveryTabProps {
 
 export function SoulsyncDiscoveryTab({ onOpenMirrored }: SoulsyncDiscoveryTabProps = {}) {
   const [records, setRecords] = useState<SsdRecord[] | null>(null);
-  const [placeholder, setPlaceholder] = useState('🔄 Loading SoulSync Discovery playlists...');
+  const [placeholder, setPlaceholder] = useState('🔄 Loading SYNCHRO.S Discovery playlists...');
   const [refreshing, setRefreshing] = useState(false);
   // Per-card busy + result lines — cards refresh independently (the vanilla
   // disabled each card's own DOM, 136-142).
@@ -46,7 +46,7 @@ export function SoulsyncDiscoveryTab({ onOpenMirrored }: SoulsyncDiscoveryTabPro
   const [resultLines, setResultLines] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
-    setPlaceholder('🔄 Loading SoulSync Discovery playlists...');
+    setPlaceholder('🔄 Loading SYNCHRO.S Discovery playlists...');
     setRecords(null);
     setRefreshing(true);
     try {
@@ -59,7 +59,7 @@ export function SoulsyncDiscoveryTab({ onOpenMirrored }: SoulsyncDiscoveryTabPro
     } catch (err) {
       const message = err instanceof Error ? err.message : 'unknown error';
       setPlaceholder(`❌ Error: ${message}`);
-      window.showToast?.(`Error loading SoulSync Discovery: ${message}`, 'error');
+      window.showToast?.(`Error loading SYNCHRO.S Discovery: ${message}`, 'error');
     } finally {
       setRefreshing(false);
     }
@@ -148,7 +148,7 @@ export function SoulsyncDiscoveryTab({ onOpenMirrored }: SoulsyncDiscoveryTabPro
   return (
     <div>
       <div className="playlist-header">
-        <h3>SoulSync Discovery Playlists</h3>
+        <h3>SYNCHRO.S Discovery Playlists</h3>
         <button
           type="button"
           className="refresh-button soulsync-discovery"
@@ -164,7 +164,7 @@ export function SoulsyncDiscoveryTab({ onOpenMirrored }: SoulsyncDiscoveryTabPro
           <div className="playlist-placeholder">
             {records === null
               ? placeholder
-              : 'No SoulSync Discovery playlists yet. Open the Discover page and generate a few personalized playlists first.'}
+              : 'No SYNCHRO.S Discovery playlists yet. Open the Discover page and generate a few personalized playlists first.'}
           </div>
         ) : (
           records.map((record) => {

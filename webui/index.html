@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>SoulSync - Music Sync & Manager</title>
+    <title>SYNCHRO.S - Music Sync & Manager</title>
     <meta name="soulsync-url-base" content="{{ request.script_root }}">
     <script src="{{ url_for('static', filename='url-base.js') }}"></script>
     <!-- Navigation shell state (src/shell/nav-shell.ts owns it after load). Has to
@@ -204,7 +204,7 @@
             <!-- PIN Entry (default view) -->
             <div id="launch-pin-entry">
                 <div class="launch-pin-icon">🔒</div>
-                <h2 class="launch-pin-title">SoulSync is Locked</h2>
+                <h2 class="launch-pin-title">SYNCHRO.S is Locked</h2>
                 <p class="launch-pin-subtitle">Enter your PIN to continue</p>
                 <input type="password" id="launch-pin-input" class="launch-pin-input" maxlength="20" placeholder="PIN"
                     autocomplete="off">
@@ -216,7 +216,7 @@
             <div id="launch-pin-recovery" style="display: none;">
                 <div class="launch-pin-icon">🔑</div>
                 <h2 class="launch-pin-title">Verify Your Identity</h2>
-                <p class="launch-pin-subtitle">Enter any API key, token, or secret you configured in SoulSync settings
+                <p class="launch-pin-subtitle">Enter any API key, token, or secret you configured in SYNCHRO.S settings
                 </p>
                 <input type="password" id="launch-recovery-input" class="launch-pin-input" maxlength="200"
                     placeholder="Paste any API credential..." autocomplete="off" style="letter-spacing: 1px;">
@@ -234,7 +234,7 @@
             <!-- Sign-in view -->
             <div id="login-entry">
                 <div class="launch-pin-icon">🔐</div>
-                <h2 class="launch-pin-title">Sign in to SoulSync</h2>
+                <h2 class="launch-pin-title">Sign in to SYNCHRO.S</h2>
                 <p class="launch-pin-subtitle">Enter your account name and password</p>
                 <!-- a real form with named fields so password managers pair the username
                      with this password, not the hidden recovery / pin fields -->
@@ -311,7 +311,7 @@
                 <!-- the wordmark collapses the sidebar to the rail; the monogram expands it -->
                 <button type="button" class="ss-wordmark" id="sidebar-collapse-toggle"
                     aria-label="Collapse navigation" title="Collapse navigation" aria-expanded="true">
-                    <span class="ss-wordmark-name">SoulSync</span>
+                    <span class="ss-wordmark-name" role="img" aria-label="SYNCHRO.S">SYNCHRO.S</span>
                     <span class="ss-wordmark-version">v{{ soulsync_base_version }}</span>
                     <span class="ss-monogram" aria-hidden="true">SS</span>
                     <svg class="ss-wordmark-chevrons" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg>
@@ -936,7 +936,7 @@
                                      handler) via video-enrichment.js, never music's. -->
                                 <button class="em-manage-btn" type="button" data-video-manage-workers
                                     title="Manage video enrichment workers">
-                                    <span class="em-manage-btn-icon"><img src="/static/trans2.png" alt="SoulSync"
+                                    <span class="em-manage-btn-icon"><img src="/static/trans2.png" alt="SYNCHRO.S"
                                             class="em-manage-btn-logo"></span>
                                     <span class="em-manage-btn-label">Manage Workers</span>
                                 </button>
@@ -1470,7 +1470,7 @@
                             <div class="vsr-results" data-video-search-results></div>
                             <div class="vsr-state" data-video-search-hint>
                                 <div class="vsr-state-ic">&#127902;</div>
-                                <div class="vsr-state-title">Search SoulSync</div>
+                                <div class="vsr-state-title">Search SYNCHRO.S</div>
                                 <div class="vsr-state-sub">Find any movie, show or person. Owned titles open your
                                     library detail; the rest open a live preview &mdash; no external links.</div>
                             </div>
@@ -2463,7 +2463,7 @@
                                     </div>
                                     <p class="tool-card-info">Tell the media server to scan its folders for
                                         newly-downloaded movies &amp; episodes — then a Library Scan pulls them into
-                                        SoulSync.</p>
+                                        SYNCHRO.S.</p>
                                     <div class="tool-card-controls">
                                         <select data-video-srvscan-target
                                             aria-label="Which library the server should scan"
@@ -2894,7 +2894,7 @@
                                 <div class="stg-active-section-title">
                                     <span class="stg-active-title-text" id="stg-active-title">Connections</span>
                                     <span class="stg-active-sub-text" id="stg-active-sub">Accounts, media servers, and
-                                        API keys SoulSync connects to</span>
+                                        API keys SYNCHRO.S connects to</span>
                                 </div>
                                 <div class="header-actions">
                                     <button class="save-button" id="save-settings">
@@ -2962,7 +2962,7 @@
                                     </div>
                                     <div class="stg-cardgroup" data-stg="connections">
                                         <span class="stg-cardgroup-label">Services</span>
-                                        <span class="stg-cardgroup-sub">Accounts and API keys SoulSync connects
+                                        <span class="stg-cardgroup-sub">Accounts and API keys SYNCHRO.S connects
                                             to</span>
                                     </div>
                                     <div class="dlchain-tabs" id="svc-tabs" role="tablist" data-stg="connections"></div>
@@ -3473,7 +3473,7 @@
                                                         step="any" value="1" aria-describedby="musicbrainz-rate-help">
                                                     <small class="settings-hint" id="musicbrainz-rate-help">For a fixed
                                                         limit, enter requests/second (for example, 10). With No limit
-                                                        (adaptive), SoulSync will try to find the maximum number of
+                                                        (adaptive), SYNCHRO.S will try to find the maximum number of
                                                         requests/second your server can handle. Only use this when you
                                                         host the MusicBrainz server yourself and it has no other traffic.
                                                         Public MusicBrainz always keeps its rate limit. Environment
@@ -4044,7 +4044,7 @@
                                             </button>
                                             <button class="server-toggle-btn" id="soulsync-toggle"
                                                 onclick="toggleServer('soulsync')">
-                                                <img src="/static/trans2.png" alt="SoulSync" class="server-logo">
+                                                <img src="/static/trans2.png" alt="SYNCHRO.S" class="server-logo">
                                                 Standalone
                                             </button>
                                         </div>
@@ -4179,7 +4179,7 @@
                                         <div class="server-config-container hidden" id="navidrome-container">
                                             <div class="setting-help-text">
                                                 Navidrome users should enable <strong>Real Path</strong> in the
-                                                Navidrome player/settings so SoulSync can resolve imported and synced
+                                                Navidrome player/settings so SYNCHRO.S can resolve imported and synced
                                                 files correctly.
                                             </div>
                                             <div class="form-group">
@@ -4236,14 +4236,14 @@
 
                                         <div class="server-config-container hidden" id="soulsync-container">
                                             <div class="soulsync-standalone-info">
-                                                <img src="/static/trans2.png" alt="SoulSync"
+                                                <img src="/static/trans2.png" alt="SYNCHRO.S"
                                                     class="soulsync-standalone-logo">
                                                 <div class="soulsync-standalone-text">
                                                     <h4>Standalone Mode</h4>
-                                                    <p>SoulSync manages your library directly without an external media
+                                                    <p>SYNCHRO.S manages your library directly without an external media
                                                         server. Import your existing music first: move files into the
                                                         import folder, then use a separate music/output folder for the
-                                                        processed library SoulSync creates.</p>
+                                                        processed library SYNCHRO.S creates.</p>
                                                 </div>
                                             </div>
                                             <div class="form-actions">
@@ -4714,7 +4714,7 @@
                                                     class="ind-hero-warning-caret" style="opacity:.6;">▾</span></div>
                                             <div class="ind-hero-warning-body" style="display:none;">
                                                 Torrent and usenet clients write files to <strong>their own download
-                                                    folders</strong>, not Soulseek's. SoulSync needs read access to
+                                                    folders</strong>, not Soulseek's. SYNCHRO.S needs read access to
                                                 those folders to import the files. <strong>Simplest fix:</strong> point
                                                 all your downloaders (Soulseek, qBittorrent, SABnzbd / NZBGet) at the
                                                 <em>same</em> download folder. One folder, one path to worry about,
@@ -4730,7 +4730,7 @@
                                                         <code>docker-compose.yml</code> if you want separate folders.
                                                     </li>
                                                     <li><strong>Remote client (NAS / different host):</strong> mount the
-                                                        remote folder locally (SMB / NFS / rclone) before SoulSync can
+                                                        remote folder locally (SMB / NFS / rclone) before SYNCHRO.S can
                                                         see it.</li>
                                                 </ul>
                                             </div>
@@ -4849,13 +4849,13 @@
                                                 <div class="form-group">
                                                     <label>slskd Cleanup Scope:</label>
                                                     <select id="soulseek-cleanup-scope">
-                                                        <option value="own">Only SoulSync's own transfers</option>
+                                                        <option value="own">Only SYNCHRO.S's own transfers</option>
                                                         <option value="all">Everything in slskd</option>
                                                     </select>
                                                     <small class="settings-hint">Which transfers and searches cleanup
                                                         removes. Leave on "own" if other apps (Lidarr, another
-                                                        SoulSync, slskd's own UI) share this slskd. "Everything" clears
-                                                        all clients' finished downloads and is only safe when SoulSync
+                                                        SYNCHRO.S, slskd's own UI) share this slskd. "Everything" clears
+                                                        all clients' finished downloads and is only safe when SYNCHRO.S
                                                         is the only user.</small>
                                                 </div>
                                                 <div class="form-actions" style="margin-top: 8px;">
@@ -4965,7 +4965,7 @@
                                                         style="margin-top: 8px; padding: 9px 11px; border-radius: 8px; background: rgba(241, 196, 15, 0.08); border: 1px solid rgba(241, 196, 15, 0.28); color: #f1c40f; font-size: 12px; line-height: 1.5;">
                                                         <strong>Heads up:</strong> some HiFi instances only have
                                                         30-second Tidal previews for certain tracks, with headers faked
-                                                        to look like the full song. SoulSync decodes every HiFi download
+                                                        to look like the full song. SYNCHRO.S decodes every HiFi download
                                                         to catch these and never lets a shorter clip replace a good
                                                         library file, but if a track just won't come through at full
                                                         length here, grab it from another source.
@@ -5114,7 +5114,7 @@
                                                         and Premium audio qualities &mdash; public videos download fine
                                                         with <strong>None</strong>.
                                                         Reading a browser only works when that browser is on the same
-                                                        machine as SoulSync,
+                                                        machine as SYNCHRO.S,
                                                         so on a server or in Docker choose <strong>Paste
                                                             cookies.txt</strong>. On Windows,
                                                         Chrome and the other Chromium browsers seal their cookies in a
@@ -5229,7 +5229,7 @@
                                                         When YouTube downloads start failing with <strong>403
                                                             Forbidden</strong>, an out-of-date yt-dlp is nearly always
                                                         the cause.
-                                                        <strong>An update only takes effect after you restart SoulSync</strong> &mdash; the running process keeps using
+                                                        <strong>An update only takes effect after you restart SYNCHRO.S</strong> &mdash; the running process keeps using
                                                         the version it loaded at startup.
                                                     </div>
                                                     <div id="ytdlp-status"
@@ -5258,13 +5258,13 @@
                                                         <div class="setting-help-text setting-help-body"
                                                             style="margin-bottom: 14px;" hidden>
                                                             Prowlarr manages your Usenet and torrent indexers and
-                                                            exposes them through one API. SoulSync uses Prowlarr to
+                                                            exposes them through one API. SYNCHRO.S uses Prowlarr to
                                                             search across every indexer at once for the Torrent and
                                                             Usenet download sources.
                                                             <br><br>
                                                             Don't have it? Grab Prowlarr from <code>prowlarr.com</code>
                                                             (or your *arr stack). You point Prowlarr at your indexers,
-                                                            then point SoulSync at Prowlarr.
+                                                            then point SYNCHRO.S at Prowlarr.
                                                         </div>
                                                         <div class="form-group">
                                                             <label>Prowlarr URL:</label>
@@ -5317,7 +5317,7 @@
                                                             <label>Configured Indexers:</label>
                                                             <div id="prowlarr-indexer-list" class="ind-indexer-list">
                                                                 Connect to Prowlarr and click <strong>Refresh Indexer
-                                                                    List</strong> to see the indexers SoulSync can
+                                                                    List</strong> to see the indexers SYNCHRO.S can
                                                                 search.
                                                             </div>
                                                         </div>
@@ -5343,7 +5343,7 @@
                                                         </div>
                                                         <div class="setting-help-text setting-help-body"
                                                             style="margin-bottom: 14px;" hidden>
-                                                            Where SoulSync sends torrents once Prowlarr finds them. Pick
+                                                            Where SYNCHRO.S sends torrents once Prowlarr finds them. Pick
                                                             the client you already use — only one can be active at a
                                                             time. Add the URL of the client's WebUI, log in if it asks
                                                             for credentials, and hit Test Connection.
@@ -5389,7 +5389,7 @@
                                                             <input type="text" id="torrent-client-category"
                                                                 placeholder="soulsync" value="soulsync">
                                                             <div class="setting-help-text">
-                                                                SoulSync tags every torrent it adds with this label so
+                                                                SYNCHRO.S tags every torrent it adds with this label so
                                                                 it's easy to spot in your client. Deluge needs the Label
                                                                 plugin installed for this to stick.
                                                             </div>
@@ -5401,20 +5401,20 @@
                                                             <div class="setting-help-text">
                                                                 Override where the torrent client writes downloads. This
                                                                 path is on the <strong>torrent client's</strong>
-                                                                machine, not SoulSync's.
+                                                                machine, not SYNCHRO.S's.
                                                             </div>
                                                         </div>
                                                         <div class="form-group">
-                                                            <label>Completed Downloads Path — in SoulSync
+                                                            <label>Completed Downloads Path — in SYNCHRO.S
                                                                 (optional):</label>
                                                             <input type="text" id="torrent-download-path"
                                                                 placeholder="leave blank for the shared-volume default">
                                                             <div class="setting-help-text">
-                                                                Where <strong>SoulSync</strong> can read finished
+                                                                Where <strong>SYNCHRO.S</strong> can read finished
                                                                 torrents — its own in-container path. Set this when your
                                                                 client saves to a category folder (e.g. a "Music"
                                                                 category at <code>/data/downloads/music</code>) that's
-                                                                mounted here at a different path. SoulSync finds the
+                                                                mounted here at a different path. SYNCHRO.S finds the
                                                                 release by name under this folder. Blank = use the
                                                                 Soulseek download/transfer folders.
                                                             </div>
@@ -5481,20 +5481,20 @@
                                                                 <span class="settings-hint">Enforced by</span>
                                                                 <select id="music-seed-mode" class="form-select"
                                                                     style="max-width:260px;">
-                                                                    <option value="soulsync">SoulSync (watches the
+                                                                    <option value="soulsync">SYNCHRO.S (watches the
                                                                         client + removes)</option>
                                                                     <option value="client">Torrent client (writes its
                                                                         own seed limit)</option>
                                                                 </select>
                                                             </div>
                                                             <small class="settings-hint">Both at 0 = never remove (the
-                                                                old behavior). <strong>SoulSync</strong>: SS polls the
+                                                                old behavior). <strong>SYNCHRO.S</strong>: it polls the
                                                                 client and removes when a goal is hit (your imported
                                                                 library copy is separate and never touched).
-                                                                <strong>Torrent client</strong>: SS writes the
+                                                                <strong>Torrent client</strong>: SYNCHRO.S writes the
                                                                 ratio/time limit into the client (arr-style) and lets it
                                                                 enforce — it shows up in the client's share-limit dialog
-                                                                and works even when SS is off.</small>
+                                                                and works even when SYNCHRO.S is off.</small>
                                                         </div>
                                                         <div class="form-group">
                                                             <label>Status:</label>
@@ -5538,19 +5538,19 @@
                                                             <span class="settings-hint">Enforced by</span>
                                                             <select id="video-seed-mode" class="form-select"
                                                                 style="max-width:260px;">
-                                                                <option value="soulsync">SoulSync (watches the client +
+                                                                <option value="soulsync">SYNCHRO.S (watches the client +
                                                                     removes)</option>
                                                                 <option value="client">Torrent client (writes its own
                                                                     seed limit)</option>
                                                             </select>
                                                         </div>
                                                         <small class="settings-hint">Both at 0 = never remove (the old
-                                                            behavior). <strong>SoulSync</strong>: SS polls the client
+                                                            behavior). <strong>SYNCHRO.S</strong>: it polls the client
                                                             and removes when a goal is hit (your imported library copy
                                                             is separate and never touched). <strong>Torrent
-                                                                client</strong>: SS writes the ratio/time limit into the
+                                                                client</strong>: SYNCHRO.S writes the ratio/time limit into the
                                                             client (arr-style) and lets it enforce — it shows in the
-                                                            client's share-limit dialog and works even when SS is
+                                                            client's share-limit dialog and works even when SYNCHRO.S is
                                                             off.</small>
                                                         <div id="video-seed-per-indexer" style="margin-top:12px;">
                                                             <div
@@ -5596,7 +5596,7 @@
                                                         </div>
                                                         <div class="setting-help-text setting-help-body"
                                                             style="margin-bottom: 14px;" hidden>
-                                                            Where SoulSync sends NZBs once Prowlarr finds them. Pick one
+                                                            Where SYNCHRO.S sends NZBs once Prowlarr finds them. Pick one
                                                             usenet downloader. SABnzbd uses an API key for auth; NZBGet
                                                             uses a username + password.
                                                         </div>
@@ -5643,21 +5643,21 @@
                                                             <input type="text" id="usenet-client-category"
                                                                 placeholder="soulsync" value="soulsync">
                                                             <div class="setting-help-text">
-                                                                SoulSync tags every NZB with this category so it ends up
+                                                                SYNCHRO.S tags every NZB with this category so it ends up
                                                                 in a predictable post-processing folder.
                                                             </div>
                                                         </div>
                                                         <div class="form-group">
-                                                            <label>Completed Downloads Path — in SoulSync
+                                                            <label>Completed Downloads Path — in SYNCHRO.S
                                                                 (optional):</label>
                                                             <input type="text" id="usenet-download-path"
                                                                 placeholder="leave blank for the shared-volume default">
                                                             <div class="setting-help-text">
-                                                                Where <strong>SoulSync</strong> can read finished NZB
+                                                                Where <strong>SYNCHRO.S</strong> can read finished NZB
                                                                 downloads — its own in-container path. Set this when
                                                                 SABnzbd/NZBGet writes that category to a folder (e.g.
                                                                 <code>/data/downloads/music</code>) mounted here at a
-                                                                different path. SoulSync finds the release by name under
+                                                                different path. SYNCHRO.S finds the release by name under
                                                                 this folder. Blank = use the Soulseek download/transfer
                                                                 folders.
                                                             </div>
@@ -5799,7 +5799,7 @@
                                                                 <br><br>
                                                                 <strong>Acquisition vs retained output:</strong>
                                                                 Downsample and Lossy Copy run only
-                                                                after the downloaded file passes this gate. SoulSync
+                                                                after the downloaded file passes this gate. SYNCHRO.S
                                                                 remembers the acquired quality,
                                                                 so intentionally retaining 16/44.1 or a lossy-only
                                                                 output does not make the same track
@@ -6178,7 +6178,7 @@
                                                     </div>
                                                     <div class="help-text">
                                                         <strong>One profile, two decisions:</strong> the quality list
-                                                        controls what SoulSync acquires;
+                                                        controls what SYNCHRO.S acquires;
                                                         these options control what it retains. A retained lossless +
                                                         lossy pair is one track with two
                                                         file versions, not two duplicate tracks.
@@ -6446,7 +6446,7 @@
                                                 <div class="setting-help-body" hidden>Controls what happens when a
                                                     downloaded file is rejected (AcoustID mismatch, wrong version, or
                                                     duration/integrity failure) — independent of post-processing. When
-                                                    on, SoulSync automatically tries the next-best candidate instead of
+                                                    on, SYNCHRO.S automatically tries the next-best candidate instead of
                                                     failing the track. <strong>Off</strong> = quarantine and fail
                                                     immediately.</div>
                                             </div>
@@ -6554,7 +6554,7 @@
                                                     so Plex/Jellyfin/Navidrome never shows a half-loaded album while
                                                     it's still downloading. If a batch stalls or fails, its tracks stay
                                                     in staging (never your library) and the failed tracks remain
-                                                    retryable in your wishlist. That private staging area is SoulSync's
+                                                    retryable in your wishlist. That private staging area is SYNCHRO.S's
                                                     own working folder,
                                                     <code>storage/album_bundle_staging/&lt;batch id&gt;</code> — it is
                                                     <strong>not</strong> the Staging path set under Library, which is a
@@ -6579,10 +6579,10 @@
                                                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSettingHelp(this);}">i</span>
                                                 </div>
                                                 <div class="setting-help-body" hidden><strong>On by default</strong>, and
-                                                    only relevant when album publishing above is on. If SoulSync
+                                                    only relevant when album publishing above is on. If SYNCHRO.S
                                                     restarts or crashes part-way through an album, the tracks it had
                                                     already finished are left in the private staging folder, where no
-                                                    media server can see them. On the next start SoulSync moves those
+                                                    media server can see them. On the next start SYNCHRO.S moves those
                                                     finished tracks into your library, and the tracks it never got to
                                                     are still on your wishlist, so the album fills itself in. Turn this
                                                     <strong>off</strong> to keep strict quarantine instead: the
@@ -6644,7 +6644,7 @@
                                                 <div class="setting-help-text" style="margin-bottom: 4px;">
                                                     Changed a folder or your docker-compose? <a href="/setup-check"
                                                         onclick="event.preventDefault(); navigateToPage('setup-check');">Run
-                                                        the setup check</a> to see whether SoulSync, slskd and your media
+                                                        the setup check</a> to see whether SYNCHRO.S, slskd and your media
                                                     server can all reach these folders.
                                                 </div>
                                                 <!-- One of these shows, picked by the detected deployment (settings.js
@@ -6667,7 +6667,7 @@
                                                     data-paths-default-warning>
                                                     ⚠️ <strong>Your Music Library Folder is still the install-folder
                                                         default.</strong> Every finished
-                                                    download is landing on the disk SoulSync is installed on — on a
+                                                    download is landing on the disk SYNCHRO.S is installed on — on a
                                                     Proxmox LXC that's typically an
                                                     8&nbsp;GB root that fills until the container hangs. Unlock the
                                                     field and point it at your real
@@ -6785,7 +6785,7 @@
                                                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSettingHelp(this);}">i</span>
                                                     <div class="setting-help-text setting-help-body" hidden>
                                                         Entries become <code>../Artist/Album/01 - Song.flac</code>
-                                                        instead of the full path SoulSync sees, so a saved M3U still
+                                                        instead of the full path SYNCHRO.S sees, so a saved M3U still
                                                         works when the folder is opened from a network share, another
                                                         machine or a sync tool. Tracks that don't share a folder with
                                                         the playlist keep their full path, and the base path and
@@ -6838,10 +6838,10 @@
 
                                                 <div class="help-text" style="margin-bottom: 12px;">
                                                     Your Music Library Folder above is already covered — <strong>you don't need to repeat it here.</strong>
-                                                    Add entries only for <em>extra</em> libraries SoulSync should read
+                                                    Add entries only for <em>extra</em> libraries SYNCHRO.S should read
                                                     (a second collection, an archive
                                                     drive), or when your media server sees the same files at a different
-                                                    path than SoulSync can.
+                                                    path than SYNCHRO.S can.
                                                     Used for tag writing, streaming, and file detection.
                                                     <strong>Docker users:</strong> mount the extra folder(s) into the
                                                     SoulSync container with read-write access,
@@ -7248,7 +7248,7 @@
                                                         title="What's this?" onclick="toggleSettingHelp(this)"
                                                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSettingHelp(this);}">i</span>
                                                     <small class="settings-hint setting-help-body" hidden>Label for the
-                                                        disc subfolder SoulSync adds automatically on a multi-disc album
+                                                        disc subfolder SYNCHRO.S adds automatically on a multi-disc album
                                                         (<code>Disc 1/</code>). Ignored when your path template already
                                                         places the disc itself with <code>$disc</code>,
                                                         <code>$discnum</code> or <code>$cdnum</code> &mdash; the
@@ -7373,7 +7373,7 @@
                                                         title="What's this?" onclick="toggleSettingHelp(this)"
                                                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSettingHelp(this);}">i</span>
                                                     <small class="settings-hint setting-help-body" hidden>When you
-                                                        remove or cancel a wishlist track, SoulSync remembers not to
+                                                        remove or cancel a wishlist track, SYNCHRO.S remembers not to
                                                         re-add it automatically for this many days. Lower it (e.g. 7) to
                                                         give removed tracks another chance sooner.</small>
                                                 </div>
@@ -7668,7 +7668,7 @@
                                                         title="What's this?" onclick="toggleSettingHelp(this)"
                                                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSettingHelp(this);}">i</span>
                                                     <small class="settings-hint setting-help-body" hidden>The category
-                                                        SoulSync tags audiobook torrents and NZBs with in your download
+                                                        SYNCHRO.S tags audiobook torrents and NZBs with in your download
                                                         client. Keep it different from your music category so a finished
                                                         book is never picked up by anything watching for music. Default:
                                                         <code>audiobooks</code></small>
@@ -8137,7 +8137,7 @@
 
                                                 <div class="form-group">
                                                     <label>Already have it when&hellip;</label>
-                                                    <small class="settings-hint">Before fetching, SoulSync checks what
+                                                    <small class="settings-hint">Before fetching, SYNCHRO.S checks what
                                                         the video already has: any sidecar next to it
                                                         (<code>.en.srt</code>, <code>.eng.srt</code>,
                                                         <code>.English.sdh.srt</code>, or an unlabeled
@@ -9124,7 +9124,7 @@
                                                 <div class="help-text setting-help-body" hidden>
                                                     Replace deletes the playlist on your media server and rebuilds it.
                                                     This copies the old server playlist first, so anything you added to
-                                                    it on the server isn't lost. SoulSync already keeps its own copy of
+                                                    it on the server isn't lost. SYNCHRO.S already keeps its own copy of
                                                     the source playlist, so turn this off if you don't edit playlists on
                                                     the server. Reconcile and Append edit in place, so they normally skip it.
                                                 </div>
@@ -9276,10 +9276,10 @@
                                     <div class="settings-section-body collapsed" data-stg="advanced">
                                         <div class="settings-group security-wrapper" data-stg="advanced">
                                             <div class="setting-help-text" style="margin-bottom: 18px;">
-                                                By default, anyone who can reach SoulSync on your network can use it.
+                                                By default, anyone who can reach SYNCHRO.S on your network can use it.
                                                 Protect access below with a simple shared <strong>PIN</strong>, or full
                                                 <strong>user accounts</strong> with passwords — you only need one. The
-                                                last group is just for exposing SoulSync over the internet.
+                                                last group is just for exposing SYNCHRO.S over the internet.
                                             </div>
 
                                             <!-- ── Method A: PIN ── -->
@@ -9308,7 +9308,7 @@
                                                     <label class="toggle-label">
                                                         <input type="checkbox" id="security-require-pin"
                                                             onchange="handleSecurityPinToggle(this)">
-                                                        <span>Require PIN to access SoulSync</span>
+                                                        <span>Require PIN to access SYNCHRO.S</span>
                                                     </label>
                                                     <div class="setting-help-text">
                                                         A lock screen appears on every page load, verified against the
@@ -9402,7 +9402,7 @@
                                                     <div class="setting-help-text">
                                                         Adds a "Sign in with Plex" button to the sign-in screen. Anyone
                                                         with access to your Plex server signs in with their Plex account
-                                                        (SoulSync never sees their password), and their playlists sync to
+                                                        (SYNCHRO.S never sees their password), and their playlists sync to
                                                         their own Plex account. The server's owner signs in as the admin.
                                                         New Plex profiles start with what New sign-ups below sets;
                                                         widen them per person under Profiles.
@@ -9458,7 +9458,7 @@
                                             <div class="security-subgroup">
                                                 <h4 class="security-subhead">🌐 Reverse proxy &amp; remote access</h4>
                                                 <div class="setting-help-text" style="margin-bottom: 12px;">
-                                                    Only needed if you expose SoulSync to the internet behind nginx /
+                                                    Only needed if you expose SYNCHRO.S to the internet behind nginx /
                                                     Caddy / Traefik. See <code>Support/REVERSE-PROXY.md</code>.
                                                 </div>
 
@@ -9484,8 +9484,8 @@
                                                         style="width: 100%; font-family: monospace; font-size: 12px;">
                                                     <div class="setting-help-text">
                                                         If an auth proxy (Authelia / Authentik / oauth2-proxy) logs
-                                                        users in in front of SoulSync, enter the header it sets and
-                                                        SoulSync trusts it. <strong>Only set this behind a proxy that
+                                                        users in in front of SYNCHRO.S, enter the header it sets and
+                                                        SYNCHRO.S trusts it. <strong>Only set this behind a proxy that
                                                             strips any client-supplied copy of the header.</strong>
                                                         Blank = off.
                                                     </div>
@@ -9702,7 +9702,7 @@
                                         onclick="this.classList.toggle('collapsed'); const b=this.nextElementSibling; b.classList.toggle('collapsed'); b.style.display=b.classList.contains('collapsed')?'none':''"
                                         role="button" tabindex="0" aria-expanded="false">
                                         <span class="settings-section-arrow">&#9660;</span>
-                                        <h3>SoulSync API</h3>
+                                        <h3>SYNCHRO.S API</h3>
                                         <span class="settings-section-hint">REST keys &amp; inbound endpoint</span>
                                     </div>
                                     <div class="settings-section-body collapsed" data-stg="advanced">
@@ -9712,7 +9712,7 @@
                                                 <h4 class="service-title" style="color: #64ffda;">REST API Keys</h4>
                                                 <div class="setting-help-text"
                                                     style="margin-bottom: 12px; color: #888; font-size: 12px;">
-                                                    Generate API keys to access SoulSync remotely via the
+                                                    Generate API keys to access SYNCHRO.S remotely via the
                                                     <code>/api/v1/</code> endpoints.
                                                     Keys are shown once at creation — store them securely.
                                                 </div>
@@ -9796,7 +9796,7 @@
                                                 <div class="setting-help-text"
                                                     style="margin-bottom: 10px; color: #888; font-size: 12px;">
                                                     Lets Claude and other AI apps search, check your library and
-                                                    download through SoulSync. Add
+                                                    download through SYNCHRO.S. Add
                                                     <code>http://&lt;host&gt;:8008/mcp</code> as an MCP server and
                                                     send an API key from above as a Bearer token. A read-only key
                                                     can look but not change anything. Settings, keys and profiles
@@ -9817,7 +9817,7 @@
                                                 <div class="setting-help-text"
                                                     style="margin-bottom: 10px; color: #888; font-size: 12px;">
                                                     Lets request apps that only talk to Lidarr (Singarr, MusicSeerr
-                                                    1.x) use SoulSync instead. In the app, set the Lidarr URL to
+                                                    1.x) use SYNCHRO.S instead. In the app, set the Lidarr URL to
                                                     <code>http://&lt;host&gt;:8008/lidarr</code> and paste an
                                                     <strong>Admin</strong> API key from above. Albums it asks for
                                                     go on the wishlist of the profile below.
@@ -9911,7 +9911,7 @@
                                                 </label>
                                             </div>
                                             <div class="help-text">
-                                                Off by default. When on, SoulSync resizes art server-side so a grid of
+                                                Off by default. When on, SYNCHRO.S resizes art server-side so a grid of
                                                 tiles
                                                 doesn't pull full-size originals — the big win on large libraries, at
                                                 the cost
@@ -10246,9 +10246,9 @@
                                     id="appearance-accent" aria-labelledby="appearance-accent-title">
                                     <h3 id="appearance-accent-title">Accent colour</h3>
                                     <p class="appearance-intro">One colour for buttons, links, selected rows and
-                                        focus. SoulSync makes a lighter shade of it for text and fills, so every
+                                        focus. SYNCHRO.S makes a lighter shade of it for text and fills, so every
                                         preset reads well on the dark ground. It applies to everyone using this
-                                        SoulSync.</p>
+                                        SYNCHRO.S.</p>
                                     <!-- What's saved: a preset's hex, or "custom" with the hex in
                                          #accent-custom-color (settings.js reads and writes both). The
                                          cards below stand in for this list; the options and their order
@@ -10518,7 +10518,7 @@
                                             <p class="radio-intro">Works out what a station is playing: first from the
                                                 station's own now-playing feed, then from the track names sent with the
                                                 stream, and as a fallback from a fingerprint of a few seconds of audio
-                                                (Chromaprint and AcoustID, the tools SoulSync already uses for downloaded
+                                                (Chromaprint and AcoustID, the tools SYNCHRO.S already uses for downloaded
                                                 files). With it off, stations still play, but nothing can be added to
                                                 Wanted from radio.</p>
                                         </div>
@@ -10624,7 +10624,7 @@
                             <div class="settings-group modules-settings" data-stg="modules" id="modules-settings">
                                 <h3>Modules</h3>
                                 <p class="modules-intro">Video, Podcasts, Audiobooks, Chat &amp; Arcade and Sample
-                                    Studio are modules: optional parts of SoulSync. Turn one off and its pages leave
+                                    Studio are modules: optional parts of SYNCHRO.S. Turn one off and its pages leave
                                     the sidebar, its downloads and background jobs stop, and its automations are
                                     skipped. Music is always on.</p>
                                 <p class="modules-apply-note">Each switch applies as soon as you flip it. You don't
@@ -11496,7 +11496,7 @@
                                                     <span class="chat-set-row-text">
                                                         <span class="chat-set-row-title">Auto-join</span>
                                                         <span class="chat-set-desc">Join the community room when
-                                                            SoulSync connects.</span>
+                                                            SYNCHRO.S connects.</span>
                                                     </span>
                                                     <input type="checkbox" class="chat-set-switch" data-chat-set-autojoin>
                                                 </label>
@@ -11906,7 +11906,7 @@
         <div class="version-modal" onclick="event.stopPropagation()">
             <!-- Header -->
             <div class="version-modal-header">
-                <h2 class="version-modal-title">What's New in SoulSync</h2>
+                <h2 class="version-modal-title">What's New in SYNCHRO.S</h2>
                 <div class="version-modal-subtitle">Version {{ soulsync_base_version }} — Latest Changes</div>
             </div>
 

@@ -165,7 +165,7 @@ describe('Mirror a playlist: choosing', () => {
     const line = await screen.findByTestId('mirror-consequence');
     await waitFor(() =>
       expect(line).toHaveTextContent(
-        '1 track will be added to Wanted at FLAC or better, your quality target, and SoulSync starts looking for it now. 1 more track is on Wanted already.',
+        '1 track will be added to Wanted at FLAC or better, your quality target, and SYNCHRO.S starts looking for it now. 1 more track is on Wanted already.',
       ),
     );
     expect(screen.getAllByText('You have 1').length).toBeGreaterThan(0);
@@ -220,7 +220,7 @@ describe('Mirror a playlist: submitting', () => {
     expect(calls.runs).toEqual(['42']);
     expect(onMirrored).toHaveBeenCalledWith(42);
     expect(window.showToast).toHaveBeenCalledWith(
-      'Mirrored "Coastal evenings". SoulSync is checking it now.',
+      'Mirrored "Coastal evenings". SYNCHRO.S is checking it now.',
       'success',
     );
   });

@@ -124,7 +124,7 @@ function TidalBody() {
     <div className={s.sourceBody}>
       {code ? (
         <p className={s.note}>
-          A Tidal window opened. Approve SoulSync there, the code is{' '}
+          A Tidal window opened. Approve SYNCHRO.S there, the code is{' '}
           <span className={s.code}>{code.code}</span>
         </p>
       ) : (
@@ -266,7 +266,7 @@ export function SourcesStep() {
       step="sources"
       wide
       title="Where should music come from?"
-      lead="SoulSync tries your sources in order. When the first can't find a good copy, it moves to the next. The free ones work straight away."
+      lead="SYNCHRO.S tries your sources in order. When the first can't find a good copy, it moves to the next. The free ones work straight away."
     >
       <div className={s.split}>
         <section className={s.splitMain} aria-label="Your sources, in order">

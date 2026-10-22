@@ -94,7 +94,7 @@ describe('the library section', () => {
       http.get('/api/library/search-tracks', () => HttpResponse.json({}, { status: 500 })),
     );
     await expect(fetchLibraryResults('pale')).rejects.toThrow(
-      'SoulSync didn’t answer the library search.',
+      'SYNCHRO.S didn’t answer the library search.',
     );
   });
 });

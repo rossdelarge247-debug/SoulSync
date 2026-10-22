@@ -149,7 +149,7 @@ export const PIPELINE_STATUS_FAILED = 'Failed to read Auto-Sync status';
  * SoulSync runs from a working tree and a stale process is the likely cause.
  */
 export const PIPELINE_ROUTES_MISSING =
-  'Auto-Sync endpoint not found. Restart the SoulSync server so the new backend routes load.';
+  'Auto-Sync endpoint not found. Restart the SYNCHRO.S server so the new backend routes load.';
 
 /**
  * The error a pipeline response should throw, or null when it is good.

@@ -184,7 +184,7 @@ def source_problem(source: Optional[Dict[str, Any]], now: float) -> Optional[Dic
     minutes = max(1, int((now - float(checked)) // 60))
     return {
         "reason_code": "download_source_unreachable",
-        "reason": (f"{_source_label(source.get('source'))} didn't answer when SoulSync last checked, "
+        "reason": (f"{_source_label(source.get('source'))} didn't answer when SYNCHRO.S last checked, "
                    f"{minutes} minute{'s' if minutes != 1 else ''} ago, so searches can't run."),
         "checked_at": int(float(checked)),
     }

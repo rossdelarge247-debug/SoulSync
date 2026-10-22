@@ -140,7 +140,7 @@ export function ToolsPage() {
             I open this section", which a taxonomy title does not. */}
         <ToolsSection
           title="Database &amp; Scanning"
-          blurb="Reading your media server into SoulSync, and keeping the two in step."
+          blurb="Reading your media server into SYNCHRO.S, and keeping the two in step."
           glow="56,189,248"
         >
           <DbUpdaterCard />
@@ -151,7 +151,7 @@ export function ToolsPage() {
 
         <ToolsSection
           title="Metadata &amp; Cache"
-          blurb="Enriching what SoulSync knows, and fixing what it got wrong."
+          blurb="Enriching what SYNCHRO.S knows, and fixing what it got wrong."
           glow="168,85,247"
         >
           <MetadataUpdaterCard />
@@ -161,7 +161,7 @@ export function ToolsPage() {
 
         <ToolsSection
           title="Management"
-          blurb="Backups, moving install, and the lists you have told SoulSync to respect."
+          blurb="Backups, moving install, and the lists you have told SYNCHRO.S to respect."
           glow="245,158,11"
         >
           <BackupManagerCard />

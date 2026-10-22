@@ -72,7 +72,7 @@ TRIGGERS: list[dict] = [
          {"key": "tz", "type": "text", "label": "Timezone (optional)",
           "placeholder": "IANA name, e.g. America/Los_Angeles \u2014 blank = server default"}
      ]},
-    {"type": "app_started", "label": "App Started", "icon": "power", "scope": "both", "description": "When SoulSync starts up", "available": True},
+    {"type": "app_started", "label": "App Started", "icon": "power", "scope": "both", "description": "When SYNCHRO.S starts up", "available": True},
     {"type": "track_downloaded", "label": "Track Downloaded", "icon": "download", "description": "When a track finishes downloading", "available": True,
      "has_conditions": True,
      "condition_fields": ["artist", "title", "album", "quality"],
@@ -351,7 +351,7 @@ TRIGGERS: list[dict] = [
      "description": "When an overlay apply pass finishes", "available": True,
      "variables": ["applied", "errors"]},
     {"type": "video_database_update_completed", "label": "Video Database Updated", "icon": "database", "scope": "video",
-     "description": "When SoulSync finishes reading the server's library into its database", "available": True,
+     "description": "When SYNCHRO.S finishes reading the server's library into its database", "available": True,
      "variables": ["media_type", "mode"]},
 ]
 
@@ -362,7 +362,7 @@ ACTIONS: list[dict] = [
     {"type": "scan_watchlist", "label": "Scan Watchlist", "icon": "eye", "description": "Check watched artists AND followed labels for new releases", "available": True},
     {"type": "scan_watchlist_podcasts", "label": "Scan Watchlist Podcasts", "icon": "mic", "description": "Check watchlisted podcasts for new episodes and prune expired", "available": True},
     {"type": "audiobook_scan_library", "label": "Scan Audiobook Library", "icon": "headphones",
-     "description": "Scan the audiobook folder set in Settings, including books added outside SoulSync. Read tags and sidecars, index local books, and reconcile missing files without changing files on disk.",
+     "description": "Scan the audiobook folder set in Settings, including books added outside SYNCHRO.S. Read tags and sidecars, index local books, and reconcile missing files without changing files on disk.",
      "available": True, "config_fields": [
          {"key": "match_catalog", "type": "checkbox", "label": "Find catalogue matches after scanning", "default": True},
          {"key": "match_batch_size", "type": "number", "label": "Books to match per run", "default": 25, "min": 1, "max": 100},
@@ -406,14 +406,14 @@ ACTIONS: list[dict] = [
          {"key": "sync_mode", "type": "select", "label": "Sync mode", "options": _SYNC_MODE_OPTIONS, "default": ""},
      ]},
     {"type": "import_lastfm_listening", "label": "Import Last.fm Listening", "icon": "activity",
-     "description": "Pull Last.fm scrobbles into SoulSync listening history so Stats and discovery stay current.",
+     "description": "Pull Last.fm scrobbles into SYNCHRO.S listening history so Stats and discovery stay current.",
      "available": True,
      "config_fields": [
          {"key": "username", "type": "text", "label": "Username", "placeholder": "Blank = authorized Last.fm user"},
          {"key": "full", "type": "checkbox", "label": "Force full backfill", "default": False},
      ]},
     {"type": "import_listenbrainz_listening", "label": "Import ListenBrainz Listening", "icon": "activity",
-     "description": "Pull ListenBrainz / Maloja listens into SoulSync listening history so Stats and discovery stay current.",
+     "description": "Pull ListenBrainz / Maloja listens into SYNCHRO.S listening history so Stats and discovery stay current.",
      "available": True,
      "config_fields": [
          {"key": "username", "type": "text", "label": "Username", "placeholder": "Blank = authorized user or token user"},
@@ -482,7 +482,7 @@ ACTIONS: list[dict] = [
     {"type": "start_database_update_hourly", "label": "Update Database (Hourly)", "icon": "database",
      "description": "The same incremental server-read on an hourly schedule, so music added to the library by hand (which Plex/Jellyfin/Navidrome index on their own) appears within the hour instead of waiting for the weekly deep scan. Pair with a 1-hour Schedule trigger.", "available": True},
     {"type": "deep_scan_library", "label": "Deep Scan Library", "icon": "search",
-     "description": "Full library comparison without losing enrichment data. In SoulSync standalone mode, "
+     "description": "Full library comparison without losing enrichment data. In SYNCHRO.S standalone mode, "
                     "files missing from the database only move to Staging when 'Act without a preview' is on.",
      "available": True,
      "config_fields": [dict(_ACT_WITHOUT_PREVIEW)]},
@@ -507,7 +507,7 @@ ACTIONS: list[dict] = [
     # Tagged scope='video' so they appear ONLY on the video automation
     # builder, never the music one. Their handlers bridge into core.video.
     {"type": "video_scan_library", "label": "Scan Video Library", "icon": "refresh", "scope": "video",
-     "description": "Tell the media server to rescan your selected movie/TV sections, then read what it found into SoulSync", "available": True,
+     "description": "Tell the media server to rescan your selected movie/TV sections, then read what it found into SYNCHRO.S", "available": True,
      "config_fields": [
          {"key": "mode", "type": "select", "label": "Mode",
           "options": [{"value": "full", "label": "Full (add + refresh)"},
@@ -536,7 +536,7 @@ ACTIONS: list[dict] = [
          {"key": "debounce_seconds", "type": "number", "label": "Fallback wait if status unknown (sec)", "default": 120, "min": 10}
      ]},
     {"type": "video_update_database", "label": "Update Video Database", "icon": "database", "scope": "video",
-     "description": "Read newly-indexed media from the server into SoulSync (incremental)", "available": True,
+     "description": "Read newly-indexed media from the server into SYNCHRO.S (incremental)", "available": True,
      "config_fields": [
          {"key": "mode", "type": "select", "label": "Mode",
           "options": [{"value": "incremental", "label": "Incremental (recent only)"},

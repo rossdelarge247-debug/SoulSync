@@ -123,7 +123,7 @@ export async function fetchLibraryResults(
     tracks(q, signal),
   ]);
   if (a.status === 'rejected' && b.status === 'rejected' && c.status === 'rejected') {
-    throw new Error('SoulSync didn’t answer the library search.');
+    throw new Error('SYNCHRO.S didn’t answer the library search.');
   }
   const trackRows = c.status === 'fulfilled' ? c.value : [];
   return {

@@ -953,7 +953,7 @@ export function MirroredTab({
         if (next) {
           const ok = await window.showConfirmDialog?.({
             title: 'Remove fulfilled tracks from Spotify?',
-            message: `Once a track from "${row.name}" is in your library, SoulSync deletes it from the playlist on Spotify itself. A wrong match deletes the wrong song.`,
+            message: `Once a track from "${row.name}" is in your library, SYNCHRO.S deletes it from the playlist on Spotify itself. A wrong match deletes the wrong song.`,
             confirmText: 'Turn on',
             destructive: true,
           });

@@ -162,7 +162,7 @@ function Rail({ step }: { step: StepId }) {
     <nav className={s.rail} aria-label="Setup steps">
       <div className={s.brand}>
         <img src={LOGO_SRC} alt="" />
-        SoulSync setup
+        SYNCHRO.S setup
       </div>
       <ol className={s.steps}>
         {steps.map((id, i) => {

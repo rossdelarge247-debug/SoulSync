@@ -151,7 +151,7 @@ def test_the_wordmark_is_the_toggle(html):
     change while looking at the thing. The monogram expands it again."""
     brand = html[html.index('class="sidebar-header ss-brand"'):html.index('class="sidebar-scroll ss-nav-scroll"')]
     assert 'id="sidebar-collapse-toggle"' in brand
-    assert '<span class="ss-wordmark-name">SoulSync</span>' in brand
+    assert '<span class="ss-wordmark-name" role="img" aria-label="SYNCHRO.S">SYNCHRO.S</span>' in brand
     assert '<span class="ss-monogram" aria-hidden="true">SS</span>' in brand
     assert 'aria-label="Collapse navigation"' in brand
 

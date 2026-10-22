@@ -447,7 +447,7 @@ export function AutomationEditorPage({
         >
           {missing
             ? 'It may have been deleted. Nothing else changed.'
-            : 'SoulSync didn’t answer. The automation is safe and keeps running as set; this is a display problem.'}
+            : 'SYNCHRO.S didn’t answer. The automation is safe and keeps running as set; this is a display problem.'}
         </Notice>
         <SkeletonList rows={2} art={0} faded />
       </div>
@@ -741,7 +741,7 @@ export function AutomationEditorPage({
                   </p>
                 ) : null}
                 {draft.isSystem ? (
-                  <p className={styles.help}>Built in: its name stays as SoulSync set it.</p>
+                  <p className={styles.help}>Built in: its name stays as SYNCHRO.S set it.</p>
                 ) : null}
               </div>
               {draft.isSystem ? null : (

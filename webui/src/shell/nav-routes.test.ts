@@ -90,7 +90,7 @@ describe('the top bar page name', () => {
     expect(pageTitle('requests', 'Requests and issues')).toBe('Requests');
     expect(pageTitle('dashboard', 'Home')).toBe('Home');
     expect(pageTitle('artist-detail', 'Artists')).toBe('Artist');
-    expect(pageTitle('nowhere', null)).toBe('SoulSync');
+    expect(pageTitle('nowhere', null)).toBe('SYNCHRO.S');
   });
 
   it("names the video side's drill-in pages", () => {

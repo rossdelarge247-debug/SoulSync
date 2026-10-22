@@ -1295,7 +1295,7 @@ function switchSettingsTab(tab) {
 
     // Update active section title & subtitle in the detail header
     const titles = {
-        connections: { title: 'Connections', sub: 'Accounts, media servers, and API keys SoulSync connects to' },
+        connections: { title: 'Connections', sub: 'Accounts, media servers, and API keys SYNCHRO.S connects to' },
         sources: { title: 'Sources', sub: 'Configure and prioritize acquisition sources and indexers' },
         downloads: { title: 'Downloads', sub: 'Download sources, queue behavior, and transfer preferences' },
         quality: { title: 'Quality', sub: 'Audio and video formats, release profiles, and ladders' },
@@ -1303,7 +1303,7 @@ function switchSettingsTab(tab) {
         appearance: { title: 'Appearance', sub: 'Visual themes, accents, GPU animations, and interface controls' },
         ai: { title: 'AI', sub: 'The Automation Assistant: provider, key, model, who can use it and usage' },
         radio: { title: 'Radio', sub: 'Track identification, auto-add limits, streams and your stream links' },
-        modules: { title: 'Modules', sub: 'Turn the optional parts of SoulSync on or off' },
+        modules: { title: 'Modules', sub: 'Turn the optional parts of SYNCHRO.S on or off' },
         advanced: { title: 'Advanced', sub: 'Database tools, cache management, networking, and system diagnostics' },
         logs: { title: 'Logs', sub: 'Live streaming logs and real-time operational diagnostics' }
     };
@@ -7027,7 +7027,7 @@ async function authorizeLastfmScrobbling() {
         const data = await resp.json();
         if (data.success && data.url) {
             window.open(data.url, '_blank', 'width=600,height=500');
-            showToast('Authorize SoulSync in the Last.fm window that opened', 'info');
+            showToast('Authorize SYNCHRO.S in the Last.fm window that opened', 'info');
         } else {
             showToast(data.error || 'Could not generate auth URL', 'error');
         }
@@ -8948,7 +8948,7 @@ async function loadYtdlpStatus() {
             badge.hidden = !(d.behind || d.restart_pending);
             badge.style.color = '#ffb300';
             badge.title = d.restart_pending
-                ? 'yt-dlp is updated on disk — restart SoulSync to use it'
+                ? 'yt-dlp is updated on disk — restart SYNCHRO.S to use it'
                 : (d.behind ? 'A newer yt-dlp is available' : '');
         }
     } catch (e) {
@@ -8992,7 +8992,7 @@ async function runYtdlpUpdate() {
         if (typeof showToast === 'function') {
             if (d.success) {
                 showToast(d.restart_required
-                    ? 'yt-dlp updated — restart SoulSync to use it'
+                    ? 'yt-dlp updated — restart SYNCHRO.S to use it'
                     : (d.message || 'Already up to date'),
                     d.restart_required ? 'info' : 'success');
             } else {

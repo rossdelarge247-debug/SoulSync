@@ -99,9 +99,9 @@ def reason(verdict: str, idle_seconds: Any, *, at_completion: bool = False) -> s
         mins = 0          # a message is never worth raising over
 
     if at_completion:
-        return ("Finished downloading, but the file never appeared where SoulSync "
+        return ("Finished downloading, but the file never appeared where SYNCHRO.S "
                 "could reach it (%d min). Check the download client's save path "
-                "and SoulSync's library folders." % mins)
+                "and SYNCHRO.S's library folders." % mins)
     return "Stalled — no progress for %d min" % mins
 
 

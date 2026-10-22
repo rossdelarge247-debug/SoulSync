@@ -244,7 +244,7 @@ export async function loadRadioSettings(): Promise<void> {
     body = data;
     render();
   } catch {
-    showError('SoulSync didn’t answer. Try again in a moment.');
+    showError('SYNCHRO.S didn’t answer. Try again in a moment.');
   }
 }
 
@@ -268,7 +268,7 @@ async function save(patch: Record<string, unknown>, done: string): Promise<boole
     setStatus(done, 'success');
     return true;
   } catch {
-    setStatus('SoulSync didn’t answer, so nothing was saved.', 'danger');
+    setStatus('SYNCHRO.S didn’t answer, so nothing was saved.', 'danger');
     return false;
   }
 }

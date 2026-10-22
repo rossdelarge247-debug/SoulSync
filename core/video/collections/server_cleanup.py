@@ -133,7 +133,7 @@ def adopt_collections(db, items, *, source=None) -> dict:
         if not sid:
             continue
         if sid in managed:
-            skipped.append({"server_id": sid, "reason": "already managed by SoulSync"})
+            skipped.append({"server_id": sid, "reason": "already managed by SYNCHRO.S"})
             continue
         try:
             member_ids = source.collection_member_ids(sid)

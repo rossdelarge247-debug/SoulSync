@@ -494,7 +494,7 @@ export function BackupManagerCard() {
         } else if (result.version_mismatch) {
           const confirmed = await window.showConfirmDialog?.({
             title: 'Version Mismatch',
-            message: `This backup was created on SoulSync v${result.backup_version}, but you're running v${result.current_version}.\n\nRestoring an older backup may cause issues if the database schema has changed. A safety backup will be created first.\n\nProceed anyway?`,
+            message: `This backup was created on SYNCHRO.S v${result.backup_version}, but you're running v${result.current_version}.\n\nRestoring an older backup may cause issues if the database schema has changed. A safety backup will be created first.\n\nProceed anyway?`,
             confirmText: 'Restore Anyway',
             destructive: true,
           });

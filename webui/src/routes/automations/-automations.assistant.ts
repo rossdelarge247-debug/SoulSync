@@ -300,7 +300,7 @@ export function errorCopy(
     case 'offline':
       return {
         title: 'Couldn’t reach the AI provider',
-        body: 'SoulSync couldn’t connect to Anthropic. Your server may be offline, or the provider is. Your automations still run on their schedule; your message is still in the box.',
+        body: 'SYNCHRO.S couldn’t connect to Anthropic. Your server may be offline, or the provider is. Your automations still run on their schedule; your message is still in the box.',
         tone: 'danger',
         action: 'retry',
       };

@@ -8,7 +8,7 @@ registerDocsSection({
             title: 'How Profiles Work',
             lede: 'Separate profiles for everyone in the household — each with their own watchlists, wishlists, and permissions.',
             body: `
-Profiles give everyone their own space inside a shared SoulSync installation. Each profile has its own:
+Profiles give everyone their own space inside a shared SYNCHRO.S installation. Each profile has its own:
 
 - Watchlist, wishlist, and discovery queue
 - Mirrored playlists

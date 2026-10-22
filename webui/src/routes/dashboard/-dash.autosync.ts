@@ -119,7 +119,7 @@ export const AUTOSYNC_SOURCE_LABELS: Record<string, string> = {
   itunes_link: 'iTunes Link',
   listenbrainz: 'ListenBrainz',
   lastfm: 'Last.fm Radio',
-  soulsync_discovery: 'SoulSync Discovery',
+  soulsync_discovery: 'SYNCHRO.S Discovery',
 };
 
 export function sourceLabel(source: string | undefined): string {

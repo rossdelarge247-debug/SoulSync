@@ -2,6 +2,8 @@
 
 ## What SoulSync is
 
+The interface is displayed as **SYNCHRO.S** (Ross, 2026-10-22): the wordmark, page titles and every sentence that names the app say SYNCHRO.S. Code, Docker images, paths, settings keys and APIs keep the SoulSync names, and "SoulSync" still means the upstream project.
+
 A self-hosted web app, run in Docker at home, that finds, downloads, tags, files and plays music. It downloads mainly from Soulseek (through slskd), and also handles podcasts, audiobooks, video and YouTube. It checks playlists and recommendations against the library you already have, and it can feed Plex, Jellyfin or Navidrome.
 
 It is one dark, full-screen web app. Two codebases share the screen: the legacy UI (`webui/index.html` and `webui/static/*.js`) and a React app (`webui/src`) that is replacing it page by page. New screens are built in React.
@@ -26,7 +28,7 @@ What people like: it's more reliable than Lidarr at actually getting music.
 
 ## What we're aiming for
 
-- **Downloads against targets.** The home screen shows what you want (Wanted, mirrored playlists, followed artists, a quality target), how much you have, and what SoulSync is doing about the gap.
+- **Downloads against targets.** The home screen shows what you want (Wanted, mirrored playlists, followed artists, a quality target), how much you have, and what SYNCHRO.S is doing about the gap.
 - **Four groups instead of 22 places:** Get music, Library, Automate, Settings. Optional parts (modules) disappear when turned off.
 - **One page per thing:** one artist page, one Wanted page (Wanted + Followed artists), one Activity timeline (downloads, automation runs, imports, problems).
 - **Every automation shows its runs,** and can preview a run without changing anything.

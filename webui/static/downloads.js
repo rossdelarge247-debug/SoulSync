@@ -512,22 +512,22 @@ async function openDownloadMissingModalForYouTube(virtualPlaylistId, playlistNam
 
     // Generate hero section with dynamic source detection
     const source = sourceLabel ? sourceLabel :
-        /^(daily_mix_|release_radar|discovery_weekly|popular_picks|hidden_gems|listening_mix|discovery_shuffle|station_)/.test(virtualPlaylistId) ? 'SoulSync' :
+        /^(daily_mix_|release_radar|discovery_weekly|popular_picks|hidden_gems|listening_mix|discovery_shuffle|station_)/.test(virtualPlaylistId) ? 'SYNCHRO.S' :
         virtualPlaylistId.startsWith('beatport_') ? 'Beatport' :
         virtualPlaylistId.startsWith('tidal_') ? 'Tidal' :
             virtualPlaylistId.startsWith('listenbrainz_') ? 'ListenBrainz' :
                 virtualPlaylistId.startsWith('spotify_public_') ? 'Spotify' :
                     virtualPlaylistId.startsWith('spotify:') ? 'Spotify' :
-                        virtualPlaylistId.startsWith('discover_') ? 'SoulSync' :
-                            virtualPlaylistId.startsWith('seasonal_') ? 'SoulSync' :
-                                virtualPlaylistId.startsWith('spotify_library_') ? 'SoulSync' :
-                                    virtualPlaylistId.startsWith('build_playlist_') ? 'SoulSync' :
-                                        virtualPlaylistId.startsWith('decade_') ? 'SoulSync' :
-                                            virtualPlaylistId === 'build_playlist_custom' ? 'SoulSync' :
+                        virtualPlaylistId.startsWith('discover_') ? 'SYNCHRO.S' :
+                            virtualPlaylistId.startsWith('seasonal_') ? 'SYNCHRO.S' :
+                                virtualPlaylistId.startsWith('spotify_library_') ? 'SYNCHRO.S' :
+                                    virtualPlaylistId.startsWith('build_playlist_') ? 'SYNCHRO.S' :
+                                        virtualPlaylistId.startsWith('decade_') ? 'SYNCHRO.S' :
+                                            virtualPlaylistId === 'build_playlist_custom' ? 'SYNCHRO.S' :
                                                 'YouTube';
 
     // Store metadata for discover download sidebar (will be added when Begin Analysis is clicked)
-    if (source === 'SoulSync' || virtualPlaylistId.startsWith('discover_lb_') || virtualPlaylistId.startsWith('listenbrainz_') || virtualPlaylistId.startsWith('wing_it_')) {
+    if (source === 'SYNCHRO.S' || virtualPlaylistId.startsWith('discover_lb_') || virtualPlaylistId.startsWith('listenbrainz_') || virtualPlaylistId.startsWith('wing_it_')) {
         // Extract image URL from album context or first track's album cover
         let imageUrl = null;
         if (album && album.images && album.images.length > 0) {
@@ -3397,7 +3397,7 @@ function processModalStatusUpdate(playlistId, data) {
         if (downloadFill) downloadFill.style.width = `${percent}%`;
         if (downloadText) {
             downloadText.textContent = _downloadModalBundleProgressText(bundle);
-            downloadText.title = 'SoulSync downloads one album release first, then matches the selected tracks from the staged files. Click for live release status.';
+            downloadText.title = 'SYNCHRO.S downloads one album release first, then matches the selected tracks from the staged files. Click for live release status.';
             downloadText.classList.add('has-candidates');
             _ensureBundleClickListener(downloadText, playlistId);
         }
@@ -4912,7 +4912,7 @@ function _notifSysHTML() {
     if (s.uptime) bits.push('<span class="notif-sys-item" title="Application runtime">⏱ ' + _escToast(String(s.uptime)) + '</span>');
     if (s.memory_usage) {
         bits.push('<span class="notif-sys-item" title="System memory' +
-            (s.process_memory ? ' — SoulSync uses ' + _escAttr(String(s.process_memory)) : '') + '">▦ ' +
+            (s.process_memory ? ' — SYNCHRO.S uses ' + _escAttr(String(s.process_memory)) : '') + '">▦ ' +
             _escToast(String(s.memory_usage)) + '</span>');
     }
     return bits.join('<span class="notif-sys-sep">·</span>');
@@ -6946,8 +6946,8 @@ async function checkForUpdates() {
                 if (notified !== updateKey) {
                     sessionStorage.setItem('soulsync-update-notified', updateKey);
                     const what = data.latest_version
-                        ? `SoulSync v${data.latest_version} is available!`
-                        : 'A new SoulSync update is available!';
+                        ? `SYNCHRO.S v${data.latest_version} is available!`
+                        : 'A new SYNCHRO.S update is available!';
                     showToast(data.is_docker
                         ? what + ' The Docker image will be updated soon.'
                         : what, severity === 'critical' ? 'error' : 'info');
@@ -7001,7 +7001,7 @@ async function showVersionInfo() {
         : [];
     const versionData = {
         version,
-        title: "What's New in SoulSync",
+        title: "What's New in SYNCHRO.S",
         subtitle: version ? `Version ${version} — Latest Changes` : 'Latest Changes',
         sections,
     };

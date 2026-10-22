@@ -187,7 +187,7 @@ describe('pipelineResponseError', () => {
       PIPELINE_ROUTES_MISSING,
     );
     expect(PIPELINE_ROUTES_MISSING).toBe(
-      'Auto-Sync endpoint not found. Restart the SoulSync server so the new backend routes load.',
+      'Auto-Sync endpoint not found. Restart the SYNCHRO.S server so the new backend routes load.',
     );
   });
 });

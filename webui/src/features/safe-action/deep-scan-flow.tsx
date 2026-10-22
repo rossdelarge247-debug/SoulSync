@@ -52,7 +52,7 @@ export function deepScanGuardMessage(preview: DeepScanPreview): ReactNode {
     return (
       <>
         <strong>
-          SoulSync&apos;s database has no tracks, so all {files} in your music folder look new.
+          SYNCHRO.S&apos;s database has no tracks, so all {files} in your music folder look new.
         </strong>{' '}
         That usually means the database was reset or a drive was missing, not that you added {files}
         . It won&apos;t run unless you confirm.
@@ -374,7 +374,7 @@ export function deepScanDialogContent(preview: DeepScanPreview, handlers: Conten
       ],
       lead: (
         <>
-          These files are in your music folder but not in SoulSync&apos;s database. Deep Scan moves
+          These files are in your music folder but not in SYNCHRO.S&apos;s database. Deep Scan moves
           them to Staging
           {preview.staging_path ? (
             <>

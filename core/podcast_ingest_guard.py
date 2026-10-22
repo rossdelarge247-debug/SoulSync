@@ -263,5 +263,5 @@ def parse_xml_safely(content):
     # feed that merely mentions the word in an episode title stays readable
     if _DOCTYPE_RE.search(raw[:4096]):
         raise UnsafeXmlError(
-            "That document declares a DOCTYPE, which SoulSync will not parse")
+            "That document declares a DOCTYPE, which SYNCHRO.S will not parse")
     return ET.fromstring(raw)

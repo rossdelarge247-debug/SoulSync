@@ -651,7 +651,7 @@
     function _ssChip(path, label) {
         // path is regex-whitelisted above — attribute-safe by shape
         return ' <a class="chat-embed-chip chat-ss-chip" href="' + path +
-            '" title="Open in SoulSync">↪ ' + label + '</a>';
+            '" title="Open in SYNCHRO.S">↪ ' + label + '</a>';
     }
 
     function _ssPathChip(u) {
@@ -871,7 +871,7 @@
                     return { ok: r.ok, status: r.status, body: body };
                 });
             }).catch(function () {
-                return { ok: false, status: 0, body: { error: 'Could not reach SoulSync. Your message was not confirmed; check the conversation before trying again.' } };
+                return { ok: false, status: 0, body: { error: 'Could not reach SYNCHRO.S. Your message was not confirmed; check the conversation before trying again.' } };
             });
     }
 
@@ -1421,7 +1421,7 @@
         if (isAudio) {
             actionsHtml += '<button type="button" class="chat-card-btn chat-card-btn--primary" data-chat-file-audio="' + attr(url) + '" title="Preview audio">▶ Preview</button>' +
                 '<button type="button" class="chat-card-btn chat-card-btn--success chat-card-btn--glow chat-file-save" ' +
-                    'data-chat-file-save="' + attr(url) + '" data-chat-file-name="' + attr(name) + '" data-chat-file-mime="' + attr(mime) + '" title="Save to SoulSync Library">➕ Save to Library</button>' +
+                    'data-chat-file-save="' + attr(url) + '" data-chat-file-name="' + attr(name) + '" data-chat-file-mime="' + attr(mime) + '" title="Save to SYNCHRO.S Library">➕ Save to Library</button>' +
                 '<a class="chat-card-btn chat-card-btn--accent" href="' + attr(url) + '" target="_blank" rel="noopener noreferrer" download title="Download file">⬇ Download</a>' +
                 '<button type="button" class="chat-card-btn" data-chat-copy-url="' + attr(url) + '" title="Copy direct link">📋 Copy Link</button>';
         } else if (isVideo) {
@@ -1653,7 +1653,7 @@
                 '<button type="button" class="chat-card-btn chat-card-btn--accent" data-chat-card-dl title="Open Download Tracks modal">📥 Download</button>' +
                 '<button type="button" class="chat-card-btn chat-card-btn--wishlist" data-chat-card-wishlist title="Add to your Wishlist">➕ Wishlist</button>' +
                 '<button type="button" class="chat-card-btn" data-chat-card-artist title="Go to ' + attr(np.a) + ' artist page">👤 Artist</button>' +
-                '<button type="button" class="chat-card-btn" data-chat-card-search title="Search SoulSync for this release">🔍 Search</button>' +
+                '<button type="button" class="chat-card-btn" data-chat-card-search title="Search SYNCHRO.S for this release">🔍 Search</button>' +
             '</div>' +
         '</div>';
     }
@@ -1805,7 +1805,7 @@
                 '<button type="button" class="chat-card-btn chat-card-btn--accent" data-chat-card-dl title="Open Download Tracks modal">📥 Download</button>' +
                 '<button type="button" class="chat-card-btn chat-card-btn--wishlist" data-chat-wanted-wishlist title="Add to your Wishlist">➕ Wishlist</button>' +
                 '<button type="button" class="chat-card-btn" data-chat-card-artist title="Go to ' + attr(w.a) + ' artist page">👤 Artist</button>' +
-                '<button type="button" class="chat-card-btn" data-chat-card-search title="Search SoulSync for this release">🔍 Search</button>' +
+                '<button type="button" class="chat-card-btn" data-chat-card-search title="Search SYNCHRO.S for this release">🔍 Search</button>' +
             '</div>' +
         '</div>';
     }
@@ -1820,7 +1820,7 @@
         var cur = window.__ssCurrentTrack || (typeof window.getCurrentTrack === 'function' ? window.getCurrentTrack() : null) || state.localNowPlaying;
         if (!cur || (!cur.title && !cur.name)) {
             if (typeof showToast === 'function') {
-                showToast('🎵 Nothing is currently playing in SoulSync. Start a track first!', 'info');
+                showToast('🎵 Nothing is currently playing in SYNCHRO.S. Start a track first!', 'info');
             }
             return;
         }

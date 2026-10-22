@@ -141,17 +141,17 @@ export function consequenceText({
   }
   if (!counts) return 'Checking which of its tracks you already have…';
   if (counts.total === 0)
-    return 'This playlist has no tracks yet. SoulSync checks it again every 24 hours.';
+    return 'This playlist has no tracks yet. SYNCHRO.S checks it again every 24 hours.';
   const already = counts.wanted
     ? ` ${plural(counts.wanted, 'more track')} ${counts.wanted === 1 ? 'is' : 'are'} on Wanted already.`
     : '';
   if (counts.toAdd === 0) {
     return counts.have === counts.total
-      ? 'You already have every track. SoulSync keeps checking for new ones every 24 hours.'
+      ? 'You already have every track. SYNCHRO.S keeps checking for new ones every 24 hours.'
       : `Nothing new goes to Wanted.${already}`;
   }
   const at = targetName ? ` at ${targetName}, your quality target` : '';
-  return `${plural(counts.toAdd, 'track')} will be added to Wanted${at}, and SoulSync starts looking for ${counts.toAdd === 1 ? 'it' : 'them'} now.${already}`;
+  return `${plural(counts.toAdd, 'track')} will be added to Wanted${at}, and SYNCHRO.S starts looking for ${counts.toAdd === 1 ? 'it' : 'them'} now.${already}`;
 }
 
 /** The phone's shorter line (board 2p). */

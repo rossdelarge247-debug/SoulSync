@@ -193,7 +193,7 @@ export function serverLabel(kind: Draft['server']['kind']): string {
     case 'navidrome':
       return 'Navidrome';
     case 'soulsync':
-      return 'SoulSync';
+      return 'SYNCHRO.S';
     default:
       return 'a server';
   }

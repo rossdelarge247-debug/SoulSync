@@ -118,7 +118,7 @@ export function RunsPanel({
               </Button>
             }
           >
-            SoulSync didn't answer. The automation keeps running as set; this is a display problem.
+            SYNCHRO.S didn't answer. The automation keeps running as set; this is a display problem.
           </Notice>
         </div>
       ) : (
@@ -133,7 +133,7 @@ export function RunsPanel({
           </dl>
           {!window.complete ? (
             <p className={styles.runsNote}>
-              SoulSync keeps the newest {history.length} runs, so these numbers start{' '}
+              SYNCHRO.S keeps the newest {history.length} runs, so these numbers start{' '}
               {window.label.split('since ')[1]}.
             </p>
           ) : null}

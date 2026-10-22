@@ -275,7 +275,7 @@ export function OtherOwnersBlock({
         return (
           <div className="server-pl-owner-group" key={group.owner}>
             <div className="server-pl-owner-chip">
-              {group.profile ?? 'No SoulSync profile'} · {group.owner}
+              {group.profile ?? 'No SYNCHRO.S profile'} · {group.owner}
             </div>
             <div className="server-pl-grid">
               {group.playlists.map((pl, i) => (

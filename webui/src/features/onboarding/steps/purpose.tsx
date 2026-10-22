@@ -53,7 +53,7 @@ export function PurposeStep() {
     <StepFrame
       step="purpose"
       wide
-      title="What will you use SoulSync for?"
+      title="What will you use SYNCHRO.S for?"
       lead="Pick everything that applies. Setup only asks about what you choose, and you can switch the rest on whenever you like."
     >
       <div className={s.grid3}>

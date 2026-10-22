@@ -11,9 +11,9 @@ registerDocsSection({
         {
             id: 'vid-what',
             title: 'What the Video Side Is',
-            lede: 'A self-hosted movies & TV manager built into SoulSync — Sonarr/Radarr-class downloading plus overlay and collection studios.',
+            lede: 'A self-hosted movies & TV manager built into SYNCHRO.S — Sonarr/Radarr-class downloading plus overlay and collection studios.',
             body: `
-SoulSync's **Video** side is a self-hosted movies & TV manager that lives inside the same app as the music side but runs as an **isolated application** — its own database, its own pages, its own API. Think of it as a Sonarr + Radarr + overlay/collection manager built into SoulSync.
+SYNCHRO.S's **Video** side is a self-hosted movies & TV manager that lives inside the same app as the music side but runs as an **isolated application** — its own database, its own pages, its own API. Think of it as a Sonarr + Radarr + overlay/collection manager built into SYNCHRO.S.
 
 It connects to **Plex** or **Jellyfin** to read your movie and TV libraries, enriches every title from **TMDB**, **TVDB**, **OMDb**, **fanart.tv**, **Trakt**, **TVMaze** and **OpenSubtitles**, and can search, grab, organize, and upgrade downloads to fill the gaps in your collection.
 
@@ -46,7 +46,7 @@ Use the **side switcher** in the app header (the Audio ↔ Video toggle) to flip
 A handful of pages are **shared** across both sides — **Chat**, **Issues**, and this **Help & Docs** page — so you land on the same page no matter which side you were on. Everything else is side-specific: the video sidebar shows Dashboard, Search, Discover, Library, Watchlist, Wishlist, Downloads, Requests, Calendar, Automations, Tools, and Settings for the video side.
 
 > [!TIP]
-> Your last-used side is remembered in this browser (localStorage), so you'll land right back where you left off next time you open SoulSync on this device — it's not tied to your profile.
+> Your last-used side is remembered in this browser (localStorage), so you'll land right back where you left off next time you open SYNCHRO.S on this device — it's not tied to your profile.
 `
         },
         {
@@ -56,9 +56,9 @@ A handful of pages are **shared** across both sides — **Chat**, **Issues**, an
             body: `
 The video side reads your libraries from **Plex** or **Jellyfin**. Configure the connection under **Video → Settings**, pick which libraries to include, then run a scan to import them.
 
-SoulSync stores a lightweight copy of every movie/show/episode row and enriches it in the background — it never modifies your server's files during a scan.
+SYNCHRO.S stores a lightweight copy of every movie/show/episode row and enriches it in the background — it never modifies your server's files during a scan.
 
-| Server | What SoulSync reads | Auth |
+| Server | What SYNCHRO.S reads | Auth |
 |--------|--------------------|------|
 | **Plex** | Movie & TV libraries, watch state, collections, incremental delta via \`addedAt\` | URL + Token |
 | **Jellyfin** | Movie & TV libraries, watch state, BoxSets, incremental delta via \`MinDateLastSaved\` | URL + API Key (+ user for watch state) |
@@ -145,9 +145,9 @@ The Video **Dashboard** is your at-a-glance home for the video side:
             title: 'Continue Watching',
             lede: 'Pick up right where you left off — partially-watched movies and next-up episodes in one rail.',
             body: `
-A **Continue Watching** rail surfaces partially-watched movies and the next unwatched episode of shows in progress, drawn from the watch state SoulSync ingests from your server.
+A **Continue Watching** rail surfaces partially-watched movies and the next unwatched episode of shows in progress, drawn from the watch state SYNCHRO.S ingests from your server.
 
-Each card jumps straight to the title's detail page with a **Next Up** call-to-action, so resuming a series is one click. Watch state syncs from Plex or Jellyfin during library scans — mark something watched in your server app and SoulSync picks it up on the next pass.
+Each card jumps straight to the title's detail page with a **Next Up** call-to-action, so resuming a series is one click. Watch state syncs from Plex or Jellyfin during library scans — mark something watched in your server app and SYNCHRO.S picks it up on the next pass.
 
 See [Watch State & History](#vdet-watch) for how watch state works per title.
 `
@@ -237,7 +237,7 @@ Two things run this same refresh (identical work, identical state):
 
 ## Grabbing from the board
 
-The board is **browse-only**. Grabbing goes through the **identify modal** — click a release, tell SoulSync what the title actually is (movie or episode, which one), and the exact release is handed to the normal download pipeline with the release-parser hints the row already carries (magnet URI, parsed quality, season/episode).
+The board is **browse-only**. Grabbing goes through the **identify modal** — click a release, tell SYNCHRO.S what the title actually is (movie or episode, which one), and the exact release is handed to the normal download pipeline with the release-parser hints the row already carries (magnet URI, parsed quality, season/episode).
 
 > [!IMPORTANT]
 > The board requires **FlareSolverr** (\`flaresolverr.url\` on Settings). Without it the tab tells you so and shows nothing — the scraper can't get past EXT.to's Cloudflare challenge on its own.
@@ -267,7 +267,7 @@ Below the hero, content is organized into rails — personalized picks, recommen
             title: 'For You & Taste',
             lede: 'Personalized rows built from your library\'s taste profile — the sharper your library, the sharper the picks.',
             body: `
-**For You** rows are personalized from your library's **taste** profile — the genres, people, and studios you already own most. The more SoulSync knows about your library, the sharper these get.
+**For You** rows are personalized from your library's **taste** profile — the genres, people, and studios you already own most. The more SYNCHRO.S knows about your library, the sharper these get.
 
 Taste is derived from what you actually own and watch, not from a questionnaire. A library heavy on sci-fi with a Denis Villeneuve streak will surface very different rows than a library full of 90s sitcoms.
 `
@@ -393,7 +393,7 @@ Movies and shows can come from either Plex or Jellyfin and render the same way. 
             title: 'Watch State & History',
             lede: 'Per-episode watch state from your server, a Next Up CTA, and a full per-title history.',
             body: `
-SoulSync ingests per-episode and per-movie **watch state** from your server:
+SYNCHRO.S ingests per-episode and per-movie **watch state** from your server:
 
 - Drives the **Continue Watching** rail on the [dashboard](#vdash-continue)
 - Powers a **Next Up** call-to-action on show pages
@@ -453,9 +453,9 @@ registerDocsSection({
         {
             id: 'vwatch-follow',
             title: 'Following People & Studios',
-            lede: 'Tell SoulSync who to keep an eye on — their new titles flow into your wishlist automatically.',
+            lede: 'Tell SYNCHRO.S who to keep an eye on — their new titles flow into your wishlist automatically.',
             body: `
-The video **Watchlist** is how you tell SoulSync "keep an eye on this." Follow an **actor**, **director**, or **studio** and their upcoming and newly-released titles are automatically added to your [Wishlist](#vwish-wanted) so the download pipeline can go find them.
+The video **Watchlist** is how you tell SYNCHRO.S "keep an eye on this." Follow an **actor**, **director**, or **studio** and their upcoming and newly-released titles are automatically added to your [Wishlist](#vwish-wanted) so the download pipeline can go find them.
 
 Follow from anywhere a follow button appears: [detail pages](#vdet-people), [studio pages](#vsearch-studios), or search results.
 `
@@ -591,7 +591,7 @@ The **Clients** view (Torrents / Usenet / Soulseek tabs) shows per-client health
 A **quality profile** is an ordered ladder of allowed qualities — for example, HDTV-720p → WEBDL-1080p → WEBDL-2160p → Bluray-2160p. Two settings control upgrades:
 
 - **Allowed qualities** — which rungs of the ladder are acceptable at all.
-- **Cutoff** — once a file at or above the cutoff is in your library, SoulSync stops looking for upgrades. Items below the cutoff stay on the wishlist with an "upgrade watch" flag until something better arrives.
+- **Cutoff** — once a file at or above the cutoff is in your library, SYNCHRO.S stops looking for upgrades. Items below the cutoff stay on the wishlist with an "upgrade watch" flag until something better arrives.
 
 ## Custom formats
 
@@ -610,9 +610,9 @@ YouTube grabs use their own separate quality selector rather than the movie/TV l
         {
             id: 'vdl-lists',
             title: 'Import Lists',
-            lede: 'Turn lists you curate elsewhere — TMDB, IMDb, Plex Watchlist — into titles SoulSync goes and gets.',
+            lede: 'Turn lists you curate elsewhere — TMDB, IMDb, Plex Watchlist — into titles SYNCHRO.S goes and gets.',
             body: `
-**Import lists** sync an external list into your video acquisition lists. SoulSync periodically pulls each list in — movies go to the video wishlist, shows are followed on the watchlist with the list's monitor policy — and the pipeline then searches for and downloads them.
+**Import lists** sync an external list into your video acquisition lists. SYNCHRO.S periodically pulls each list in — movies go to the video wishlist, shows are followed on the watchlist with the list's monitor policy — and the pipeline then searches for and downloads them.
 
 ## Supported sources
 
@@ -642,7 +642,7 @@ There's no per-list schedule — syncing runs through the **Sync Import Lists** 
             body: `
 ## Blocklist
 
-When a grab turns out to be a bad file — corrupt, mislabeled, wrong title — SoulSync **blocklists** that specific release (by source + filename). The blocklist is honored at every stage:
+When a grab turns out to be a bad file — corrupt, mislabeled, wrong title — SYNCHRO.S **blocklists** that specific release (by source + filename). The blocklist is honored at every stage:
 
 - The **ranker** filters blocked releases out of future searches.
 - **Retry** and automatic re-queries skip them.
@@ -748,7 +748,7 @@ Alongside the TV grid, a dedicated **movie lane** tracks upcoming releases for y
             title: 'iCal Feed',
             lede: 'Subscribe to upcoming airings and releases from any calendar app.',
             body: `
-Take the calendar with you: SoulSync serves an **iCal feed** you can subscribe to from Apple Calendar, Google Calendar, or anything else that speaks iCal.
+Take the calendar with you: SYNCHRO.S serves an **iCal feed** you can subscribe to from Apple Calendar, Google Calendar, or anything else that speaks iCal.
 
 \`\`\`text
 /api/video/calendar.ics?scope=watchlist
@@ -773,14 +773,14 @@ registerDocsSection({
             title: 'Shared System Automations',
             lede: 'The same automation engine as the music side — scheduled tasks and event workflows for video.',
             body: `
-The video side surfaces the same **system automation engine** the music side uses: scheduled tasks and event-driven workflows, minus the music-only kinds (Beatport, user, playlist triggers). SoulSync seeds **28 system automations** for video — all enabled, all editable or deletable.
+The video side surfaces the same **system automation engine** the music side uses: scheduled tasks and event-driven workflows, minus the music-only kinds (Beatport, user, playlist triggers). SYNCHRO.S seeds **28 system automations** for video — all enabled, all editable or deletable.
 
 ## Seeded video system automations
 
 | Name | Schedule | What it does |
 |------|----------|--------------|
 | **Auto-Scan Video After Downloads** | On *Video Download Batch Done* | Scans the server for new downloads, waits for it to finish, then fires *Video Library Scan Done* |
-| **Auto-Update Video Database After Scan** | On *Video Library Scan Done* | Reads newly-indexed media from the server into SoulSync |
+| **Auto-Update Video Database After Scan** | On *Video Library Scan Done* | Reads newly-indexed media from the server into SYNCHRO.S |
 | **Auto-Update Video Database (Hourly)** | Every hour | Incremental server read so manual additions appear within the hour |
 | **Refresh Airing TV Schedules** | Daily 23:00 | Re-pulls TMDB episode schedules (air dates, stills) for still-airing watchlisted shows |
 | **Auto-Wishlist Episodes Airing Today** | Daily 01:00 | Wishes every episode airing today for followed shows; prunes ended/canceled shows |
@@ -817,9 +817,9 @@ Every action below is a DO block you can drop into your own automations. Config 
 
 | Action | What it does | Key config |
 |--------|--------------|------------|
-| **Scan Video Library** | Tell the media server to rescan your movie/TV sections, then read what it found into SoulSync | Mode (Full), Library (Movies + TV) |
+| **Scan Video Library** | Tell the media server to rescan your movie/TV sections, then read what it found into SYNCHRO.S | Mode (Full), Library (Movies + TV) |
 | **Scan Video Server** | Get the server to index new downloads (skips if it already has them), wait, then fire *Video Library Scan Done* | Library (all), Skip if present (on), Grace 2 min, Max wait 60 min, Fallback wait 120 sec |
-| **Update Video Database** | Read newly-indexed media from the server into SoulSync | Mode (Incremental), Library (all) |
+| **Update Video Database** | Read newly-indexed media from the server into SYNCHRO.S | Mode (Incremental), Library (all) |
 | **Update Video Database (Hourly)** | Same incremental read for an hourly schedule — pair with a 1-hour Schedule trigger | — |
 | **Deep Scan TV Library** | Full reconcile of TV: re-read every show, drop what the server no longer has (never touches movies) | — |
 | **Deep Scan Movie Library** | Full reconcile of the movie library (never touches TV) | — |
@@ -880,7 +880,7 @@ Triggers with conditions let you filter (e.g. only fire when \`kind\` is \`movie
 | **Video Watchlist Unfollow** | A show, person, channel, or playlist is unfollowed | title, kind |
 | **Collections Synced** | A collections sync pass finishes (manual or the nightly automation) | — |
 | **Overlays Applied** | An overlay apply pass finishes | — |
-| **Video Database Updated** | SoulSync finishes reading the server's library into its database | — |
+| **Video Database Updated** | SYNCHRO.S finishes reading the server's library into its database | — |
 
 ::: steps
 1. Pick a trigger — e.g. **Video Downloaded** to react to every finished download.
@@ -908,7 +908,7 @@ registerDocsSection({
             title: 'Following Channels',
             lede: 'Follow a YouTube channel like a show — new uploads flow through the normal download pipeline.',
             body: `
-Follow a **YouTube channel** (or a specific **playlist**) the way you'd follow a TV show. SoulSync uses yt-dlp to track new uploads and bridges them into the video wishlist/watchlist, so channel videos flow through the same download pipeline as everything else.
+Follow a **YouTube channel** (or a specific **playlist**) the way you'd follow a TV show. SYNCHRO.S uses yt-dlp to track new uploads and bridges them into the video wishlist/watchlist, so channel videos flow through the same download pipeline as everything else.
 
 It's visual-first: channels get artwork and a proper detail page showing their videos, what you own, and what's still available.
 
@@ -935,7 +935,7 @@ Already subscribed to dozens of channels on YouTube? Don't re-follow them one by
 
 ::: steps
 1. Open the YouTube section and choose **Import Subscriptions**.
-2. Paste (or upload) your **ytdl-sub / Kometa subscription file** — SoulSync shows a **preview** of every channel it found.
+2. Paste (or upload) your **ytdl-sub / Kometa subscription file** — SYNCHRO.S shows a **preview** of every channel it found.
 3. Hit **Import** — everything in the file is followed at once (there's nothing to pick and choose; already-followed channels are skipped untouched).
 4. Watch live progress as the background job adds each channel and wishes its recent videos.
 :::
@@ -966,7 +966,7 @@ registerDocsSection({
             title: 'Overlay Studio',
             lede: 'A visual, Kometa-style overlay template editor with live preview.',
             body: `
-**Overlay Studio** is a visual editor for poster overlays, Kometa-style. Design **badge templates** — resolution, HDR flavor, ratings, audio codec, awards, custom text, logo packs — on a live preview canvas, assign templates to filtered sets of titles, and **apply** them. SoulSync renders the overlays with Pillow and writes them straight back to your Plex/Jellyfin posters.
+**Overlay Studio** is a visual editor for poster overlays, Kometa-style. Design **badge templates** — resolution, HDR flavor, ratings, audio codec, awards, custom text, logo packs — on a live preview canvas, assign templates to filtered sets of titles, and **apply** them. SYNCHRO.S renders the overlays with Pillow and writes them straight back to your Plex/Jellyfin posters.
 
 When you want the originals back, the **cleanup** tool removes overlays again.
 
@@ -1044,9 +1044,9 @@ From the Enrichment view you can:
         {
             id: 'vtool-activity',
             title: 'Server Activity',
-            lede: 'Tautulli-style live streams and watch history without leaving SoulSync.',
+            lede: 'Tautulli-style live streams and watch history without leaving SYNCHRO.S.',
             body: `
-A **Server Activity** drawer shows live Plex streams and recent watch history app-wide — who's watching what, on which device, with transcoding details. It's the Tautulli glanceable view, built in, so you can see what's playing without leaving SoulSync.
+A **Server Activity** drawer shows live Plex streams and recent watch history app-wide — who's watching what, on which device, with transcoding details. It's the Tautulli glanceable view, built in, so you can see what's playing without leaving SYNCHRO.S.
 `
         },
         {
@@ -1122,7 +1122,7 @@ Turn on **Download subtitles** (Settings → Library → Subtitles) and every im
 
 **Providers.** OpenSubtitles, SubDL and SubSource (free API keys, each with a **Test** button), **Embedded** (extracts a text track already inside the file) and optional **Whisper** local transcription as the last resort. Drag the **provider chain** to set the order. Candidates are scored hash-first: a subtitle timed for your exact file beats one that only shares the release name, and anything under the minimum score is never downloaded.
 
-**Already have it.** Before fetching, SoulSync checks what the video already has, the same way Bazarr does:
+**Already have it.** Before fetching, SYNCHRO.S checks what the video already has, the same way Bazarr does:
 
 - any sidecar named after the video: \`.en.srt\`, \`.eng.srt\`, \`.English.srt\`, \`.pt-BR.srt\`, with \`.hi\` / \`.sdh\` / \`.cc\` for hearing-impaired and \`.forced\` for forced. An unlabeled \`movie.srt\` gets its language detected from the text.
 - the file's **embedded tracks**, unless you switch **Count embedded subtitles** off. You can also ignore PGS, VobSub or ASS tracks if your players can't show them.
@@ -1351,7 +1351,7 @@ Every video delete lands here first (upgrade replaces, YouTube retention, watche
 
 ## Watch party (watch together)
 
-Watch Together runs on what someone can actually play. The chat page's ballot is a deterministic fold over the room's protocol bus — every client sees the same nominations, but **ownership is personal**: each SoulSync checks its own library and renders Play or Grab. "Owned" means a real playable file, not mere library presence.
+Watch Together runs on what someone can actually play. The chat page's ballot is a deterministic fold over the room's protocol bus — every client sees the same nominations, but **ownership is personal**: each SYNCHRO.S checks its own library and renders Play or Grab. "Owned" means a real playable file, not mere library presence.
 
 | Method | Path | Purpose | Auth |
 |--------|------|---------|------|

@@ -321,7 +321,7 @@ describe('ServerPlaylistList by owner (#1414)', () => {
     render(<ServerPlaylistList onOpenCompare={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('Everyone else')).toBeInTheDocument());
     expect(screen.getByText('ThomasClan · thomas')).toBeInTheDocument();
-    expect(screen.getByText('No SoulSync profile · guest')).toBeInTheDocument();
+    expect(screen.getByText('No SYNCHRO.S profile · guest')).toBeInTheDocument();
     expect(screen.getByText('Admin only')).toBeInTheDocument();
   });
 
@@ -490,7 +490,7 @@ describe('LinkServerUserPrompt + OtherOwnersBlock — direct (#1414)', () => {
     expect(document.querySelector('.server-pl-section-count')?.textContent).toBe('2');
     expect(screen.getByText('Admin only')).toBeInTheDocument();
     expect(screen.getByText('ThomasClan · thomas')).toBeInTheDocument();
-    expect(screen.getByText('No SoulSync profile · guest')).toBeInTheDocument();
+    expect(screen.getByText('No SYNCHRO.S profile · guest')).toBeInTheDocument();
   });
 
   it('keeps numbering across groups, so hues never restart (261-263)', () => {

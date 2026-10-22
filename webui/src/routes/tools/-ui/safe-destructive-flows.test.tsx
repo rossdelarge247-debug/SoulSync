@@ -395,7 +395,7 @@ describe('Deep Scan: preview, then confirm', () => {
           success: false,
           code: 'plan_unknown',
           error:
-            'That preview is no longer available (it was used already, or SoulSync restarted). Preview again.',
+            'That preview is no longer available (it was used already, or SYNCHRO.S restarted). Preview again.',
         },
       },
     });

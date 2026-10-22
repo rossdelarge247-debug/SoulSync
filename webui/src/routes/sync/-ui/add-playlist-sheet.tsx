@@ -41,7 +41,7 @@ export const ADD_PLAYLIST_ACCOUNTS: readonly { tab: string; label: string; glyph
   { tab: 'ytmusic', label: 'YouTube Music', glyph: '▶️' },
   { tab: 'listenbrainz-sync', label: 'ListenBrainz', glyph: '🧠' },
   { tab: 'lastfm-sync', label: 'Last.fm', glyph: '📻' },
-  { tab: 'soulsync-discovery-sync', label: 'SoulSync Discovery', glyph: '✨' },
+  { tab: 'soulsync-discovery-sync', label: 'SYNCHRO.S Discovery', glyph: '✨' },
 ];
 
 export interface AddPlaylistSheetProps {

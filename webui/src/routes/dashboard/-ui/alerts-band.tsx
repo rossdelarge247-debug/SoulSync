@@ -41,7 +41,7 @@ function line(alert: DashAlert): string {
 
 function title(alerts: DashAlert[]): string {
   if (alerts.length === 1) return line(alerts[0]);
-  return 'Some of SoulSync’s connections need a look';
+  return 'Some of SYNCHRO.S’s connections need a look';
 }
 
 export function AlertsBand() {

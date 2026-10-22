@@ -64,7 +64,7 @@ export function RetryTimingDialog({
         </p>
         {query.isError ? (
           <Notice tone="danger" role="alert" title="Couldn't load the timings">
-            SoulSync didn&apos;t answer. Nothing changed.
+            SYNCHRO.S didn&apos;t answer. Nothing changed.
           </Notice>
         ) : (
           <OptionCardGroup>

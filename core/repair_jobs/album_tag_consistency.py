@@ -439,7 +439,7 @@ class AlbumTagConsistencyJob(RepairJob):
                 context.report_progress(
                     log_line=(
                         f'{unreadable_albums} album(s) skipped: their audio files '
-                        f'could not be read from SoulSync\'s filesystem — if your '
+                        f'could not be read from SYNCHRO.S\'s filesystem — if your '
                         f'media server runs elsewhere (e.g. Docker), mount the music '
                         f'folder here at the same path the server reports'
                     ),

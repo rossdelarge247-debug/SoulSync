@@ -422,7 +422,7 @@ def _path_mapping_hint(config_manager) -> str:
             'Navidrome may be reporting virtual paths. Enable "Report Real Path" '
             'for the SoulSync player, then run a full database refresh.'
         )
-    return 'Check Settings -> Library -> Music Paths so SoulSync can map this path.'
+    return 'Check Settings -> Library -> Music Paths so SYNCHRO.S can map this path.'
 
 
 def _recycle_deletes_enabled(config_manager) -> bool:
@@ -2039,7 +2039,7 @@ class RepairWorker:
         from core.repair_jobs.dead_file_cleaner import _path_mapping_hint
         return False, (
             f"Refused to run live: only {resolved} of {len(rows)} sampled tracks "
-            f"resolve to files on disk, so SoulSync cannot see the library the "
+            f"resolve to files on disk, so SYNCHRO.S cannot see the library the "
             f"catalogue describes and a live run would move or rewrite the wrong "
             f"files. Fix the path mapping, run a deep scan, then try again. "
             f"{_path_mapping_hint(self._config_manager)}"
@@ -4166,7 +4166,7 @@ class RepairWorker:
         resolved = _resolve_file_path(file_path, self.transfer_folder, download_folder,
                                       config_manager=self._config_manager)
         if not resolved or not os.path.exists(resolved):
-            return ' (file not reachable, saved in SoulSync only)'
+            return ' (file not reachable, saved in SYNCHRO.S only)'
         try:
             from core.tag_writer import write_tags_to_file
             result = write_tags_to_file(resolved, {'bpm': int(round(bpm))}, embed_cover=False)
@@ -5376,7 +5376,7 @@ class RepairWorker:
         if str(active_server).lower() == 'navidrome':
             lines.append(
                 'Navidrome users: open Profile → Players → SoulSync and enable '
-                '"Report Real Path", then run a full database refresh in SoulSync.'
+                '"Report Real Path", then run a full database refresh in SYNCHRO.S.'
             )
         lines.append(
             "Fix: Settings → Library → Music Paths → add the path where "
@@ -7221,7 +7221,7 @@ class RepairWorker:
                 UPDATE repair_job_runs
                 SET status = 'failed', finished_at = CURRENT_TIMESTAMP,
                     error_text = COALESCE(error_text,
-                        'Interrupted — SoulSync stopped while this scan was running')
+                        'Interrupted — SYNCHRO.S stopped while this scan was running')
                 WHERE status = 'running' AND finished_at IS NULL
             """)
             conn.commit()

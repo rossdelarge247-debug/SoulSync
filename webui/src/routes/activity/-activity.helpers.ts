@@ -470,7 +470,7 @@ export function emptyCopy(show: ActivityShow, range: ActivityRange): EmptyCopy {
         title: 'Nothing needs you',
         description:
           'When an import needs a decision, a preview expires, or an automation keeps failing, it shows here until it’s dealt with.',
-        hint: 'Everything else SoulSync does is in the timeline.',
+        hint: 'Everything else SYNCHRO.S does is in the timeline.',
         link: null,
       };
     default:
@@ -489,10 +489,10 @@ export function failureSentence(error: unknown): string {
   const name = error instanceof Error ? error.name : '';
   const why =
     name === 'TimeoutError'
-      ? 'SoulSync didn’t answer in 10 seconds.'
+      ? 'SYNCHRO.S didn’t answer in 10 seconds.'
       : name === 'HTTPError'
-        ? 'SoulSync ran into a problem reading its history.'
-        : 'SoulSync didn’t answer.';
+        ? 'SYNCHRO.S ran into a problem reading its history.'
+        : 'SYNCHRO.S didn’t answer.';
   return `${why} Downloads and automations carry on as normal; this is a display problem. If it keeps happening, the Setup check can tell you why.`;
 }
 

@@ -92,18 +92,18 @@ export function ReadyStep({ onFinished }: { onFinished: () => void }) {
             )}
           </div>
           <h1 className={s.heroTitle} style={{ fontSize: 40 }}>
-            {running ? 'Putting it all together' : failed ? 'Not saved yet' : 'SoulSync is ready'}
+            {running ? 'Putting it all together' : failed ? 'Not saved yet' : 'SYNCHRO.S is ready'}
           </h1>
           <p className={s.heroLead} style={{ fontSize: 16, maxWidth: 540 }}>
             {running
               ? 'Saving your choices and checking each one for real.'
               : failed
-                ? "SoulSync couldn't save your choices, so nothing has changed yet. Try again in a moment."
+                ? "SYNCHRO.S couldn't save your choices, so nothing has changed yet. Try again in a moment."
                 : preview
                   ? `This was the preview, nothing was saved.${warned ? ` In a real setup ${warned === 1 ? 'one thing' : `${warned} things`} would need a look.` : ''}`
                   : warned
                     ? `Everything is saved. ${warned === 1 ? 'One thing needs' : `${warned} things need`} a look, fix ${warned === 1 ? 'it' : 'them'} now or from the dashboard later.`
-                    : 'Everything checked out. Your first library scan starts as soon as you open SoulSync.'}
+                    : 'Everything checked out. Your first library scan starts as soon as you open SYNCHRO.S.'}
           </p>
         </header>
 
@@ -160,7 +160,7 @@ export function ReadyStep({ onFinished }: { onFinished: () => void }) {
               disabled={running || finishing}
             >
               {finishing ? <Spinner /> : null}
-              {preview ? 'Close preview' : 'Open SoulSync'}
+              {preview ? 'Close preview' : 'Open SYNCHRO.S'}
               <ArrowIcon />
             </button>
           )}

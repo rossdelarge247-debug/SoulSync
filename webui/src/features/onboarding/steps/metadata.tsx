@@ -161,7 +161,7 @@ export function MetadataStep() {
     <StepFrame
       step="metadata"
       title="Names, covers and your accounts"
-      lead="SoulSync looks up every track in a music catalogue so titles, track numbers and artwork come out right."
+      lead="SYNCHRO.S looks up every track in a music catalogue so titles, track numbers and artwork come out right."
     >
       <section className={s.section}>
         <h2 className={s.h2}>Main catalogue</h2>

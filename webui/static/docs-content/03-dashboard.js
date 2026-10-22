@@ -169,7 +169,7 @@ The retag operation writes title, artist, album artist, album, track number, dis
             body: `
 ## Where it lives now
 
-The **Backup Manager** is a server card on the **Tools** page. It protects your SoulSync database — library data, watchlists, playlists, automations, and settings.
+The **Backup Manager** is a server card on the **Tools** page. It protects your SYNCHRO.S database — library data, watchlists, playlists, automations, and settings.
 
 - **Backup Now** — creates a timestamped copy of the database.
 - **Download** — save any backup to your local machine.
@@ -346,7 +346,7 @@ Three sub-tabs, each with a live health pill (**checking… / connected / unreac
 
 - 🎧 **Soulseek** (slskd) · 🧲 **Torrents** (qBittorrent / Transmission / Deluge / aria2) · 📰 **Usenet** (SABnzbd / NZBGet)
 
-Clients are configured in **Settings** — an unconfigured client shows "nothing set up — configure a client in Settings and it shows up here". Rows carry a **SoulSync** chip (dispatched by SoulSync) or **external** chip (added outside SoulSync), and expand to a detail grid (state, size, speeds, ETA, seeders/peers/ratio, save path, hash, …).
+Clients are configured in **Settings** — an unconfigured client shows "nothing set up — configure a client in Settings and it shows up here". Rows carry a **SYNCHRO.S** chip (dispatched by SYNCHRO.S) or **external** chip (added outside SYNCHRO.S), and expand to a detail grid (state, size, speeds, ETA, seeders/peers/ratio, save path, hash, …).
 
 - **Per-item controls** — pause/resume, **remove** ("Remove + delete files" vs "Remove only"), and for Soulseek transfers a cancel (✕) that cancels the transfer in slskd.
 - **Toolbar** — name filter, state chips (downloading / queued / seeding / paused / stalled / completed / error / other, with counts), sort (client order, fastest first, most complete, name, largest), aggregate line ("N shown · ↓ 1.2 MB/s · ↑ 300 KB/s"), refresh, and a link opening the client's own web UI.
@@ -452,7 +452,7 @@ The footer shows the section counts (\`<N> music sections\`, \`<N> video setting
 ::: steps
 1. Pick the \`.json\` file or paste the bundle JSON into the textarea.
 2. Click **Import this config** and confirm ("Import this config? — This overwrites your current settings for both sides with the imported ones. A restart is recommended afterward.").
-3. Restart SoulSync to apply everywhere.
+3. Restart SYNCHRO.S to apply everywhere.
 :::
 
 A secrets-redacted bundle never blanks your existing credentials — each setting is guarded so only present values overwrite.
@@ -463,7 +463,7 @@ A secrets-redacted bundle never blanks your existing credentials — each settin
             title: 'Manual Library Match',
             lede: 'Link wishlist and playlist source tracks to library tracks you already own.',
             body: `
-The **Manual Library Match** card ("Map wishlist and playlist source tracks to library tracks you already own") stops SoulSync re-downloading things you already have. Open it with **Open Library Match** (it can also launch prefilled from sync-history rows).
+The **Manual Library Match** card ("Map wishlist and playlist source tracks to library tracks you already own") stops SYNCHRO.S re-downloading things you already have. Open it with **Open Library Match** (it can also launch prefilled from sync-history rows).
 
 ## The modal
 
@@ -532,7 +532,7 @@ The **Media Server Scan** card ("Manually trigger Plex media library scan for mu
 
 Progress also follows live websocket frames — only a genuine scanning → idle transition counts as completion.
 
-After the scan, SoulSync updates its own database automatically via the **Auto-Update Database After Scan** system automation. No admin gate.
+After the scan, SYNCHRO.S updates its own database automatically via the **Auto-Update Database After Scan** system automation. No admin gate.
 `
         },
         {
@@ -569,7 +569,7 @@ A preview works for **15 minutes and once**. After that (or after a restart), co
         {
             id: 'dash-tool-db-updater',
             title: 'Database Updater',
-            lede: 'Rebuild SoulSync’s database from your media server — incremental, full, or deep.',
+            lede: 'Rebuild SYNCHRO.S’s database from your media server — incremental, full, or deep.',
             body: `
 The **\<Server\> Database Updater** card (e.g. "Plex Database Updater") shows **Last Full Refresh** (date or "Never") plus stats: **Artists** / **Albums** / **Tracks** / **Size (MB)**. Starting or stopping a run **requires admin**.
 
@@ -577,10 +577,10 @@ The **\<Server\> Database Updater** card (e.g. "Plex Database Updater") shows **
 
 Pick from the update-type select, then click **Update Database** (the button stays as **Stop Update** while running — even during "Starting…" so a wedged start is cancellable):
 
-- **Incremental Update** (default) — only new artists/albums/tracks since the last update. Fast. (In SoulSync standalone this is a no-op — the library updates at download time — so use Deep Scan or Full Refresh there.)
+- **Incremental Update** (default) — only new artists/albums/tracks since the last update. Fast. (In SYNCHRO.S standalone this is a no-op — the library updates at download time — so use Deep Scan or Full Refresh there.)
 - **Full Refresh** — confirm dialog: "This will clear and rebuild the database for the active server. It can take a long time." Clears and rebuilds everything from the active media server.
 - **Deep Scan** — confirm dialog: "A deep scan re-checks every track in your media server library… Adds any new tracks that were missed · Removes tracks no longer on your server · Preserves all existing metadata and enrichment data."
-  In **SoulSync standalone** mode a deep scan can also move files that aren't in the database from your music folder to Staging, so the button reads **Preview Deep Scan**: it shows what would move first, and **Move N files** moves exactly those. When the move would be more than the safety limit (25% of the library by default) or the database is empty, a warning appears and the move button stays off until you tick **I checked the list and expected this many files to move**. With "Music Library is my permanent library" on (the default) nothing ever moves; **Scan without moving** runs the scan alone.
+  In **SYNCHRO.S standalone** mode a deep scan can also move files that aren't in the database from your music folder to Staging, so the button reads **Preview Deep Scan**: it shows what would move first, and **Move N files** moves exactly those. When the move would be more than the safety limit (25% of the library by default) or the database is empty, a warning appears and the move button stays off until you tick **I checked the list and expected this many files to move**. With "Music Library is my permanent library" on (the default) nothing ever moves; **Scan without moving** runs the scan alone.
 
 Progress shows phase text plus "N / M artists (P%)"; the card stats refresh when the run lands.
 `
@@ -594,7 +594,7 @@ The **Download Blacklist** card ("Blocked sources that won't be used for future 
 
 ## How sources get blacklisted
 
-From the **Source Info (ℹ) button on tracks in the enhanced library view** — blacklist a source that keeps delivering bad files and SoulSync will skip it in every future download.
+From the **Source Info (ℹ) button on tracks in the enhanced library view** — blacklist a source that keeps delivering bad files and SYNCHRO.S will skip it in every future download.
 
 ## The modal
 

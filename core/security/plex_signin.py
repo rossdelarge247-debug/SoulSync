@@ -161,7 +161,7 @@ def _sign_in(db, account: PlexAccount, *, allow_create: bool, default_can_downlo
         # so no per-user link is stored for it
         admin = _admin_profile_id(db)
         if admin is None:
-            return SignInResult(error="SoulSync has no admin profile to sign you in to")
+            return SignInResult(error="SYNCHRO.S has no admin profile to sign you in to")
         return SignInResult(profile_id=admin)
 
     # identity comes only from plex sign-in's own record. the home-user link
@@ -180,7 +180,7 @@ def _sign_in(db, account: PlexAccount, *, allow_create: bool, default_can_downlo
         return SignInResult(profile_id=profile["id"])
 
     if not allow_create:
-        return SignInResult(error="Your Plex account isn't linked to a SoulSync profile yet. Ask your admin.")
+        return SignInResult(error="Your Plex account isn't linked to a SYNCHRO.S profile yet. Ask your admin.")
 
     profile_id = _create_profile(db, account.username, can_download=default_can_download, access=access)
     if profile_id is None:
@@ -211,7 +211,7 @@ def _connect_profile(db, profile_id: int, account: PlexAccount) -> SignInResult:
     holder = db.get_profile_by_plex_account(account.id)
     if holder and holder.get("id") != profile_id:
         # one plex account, one profile: sign-in has to know where it lands
-        return SignInResult(error="That Plex account is connected to another SoulSync profile")
+        return SignInResult(error="That Plex account is connected to another SYNCHRO.S profile")
     if not db.set_profile_plex_account(profile_id, account.id):
         return SignInResult(error="Couldn't save the Plex connection")
     db.set_profile_plex_home_user(profile_id, account.id, account.username, account.server_token)

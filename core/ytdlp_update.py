@@ -174,24 +174,24 @@ def interpret_result(returncode: Any, stdout: Any = "", stderr: Any = "",
                     "message": "Already on the newest build — nothing to update.",
                     "detail": out.strip()}
         return {"ok": True, "changed": True, "restart_required": True,
-                "message": "yt-dlp updated. Restart SoulSync for it to take effect — "
+                "message": "yt-dlp updated. Restart SYNCHRO.S for it to take effect — "
                            "the running process is still using the version it loaded at startup.",
                 "detail": out.strip()}
 
     if "permission denied" in low or "access is denied" in low or "errno 13" in low:
         return {"ok": False, "restart_required": False,
-                "message": "No permission to write to this Python environment. SoulSync would "
+                "message": "No permission to write to this Python environment. SYNCHRO.S would "
                            "need to run as the user that owns it, or you can update it yourself.",
                 "detail": out.strip()}
     if "externally-managed-environment" in low or "externally managed" in low:
         return {"ok": False, "restart_required": False,
                 "message": "This Python is managed by the operating system, so pip won't write "
-                           "to it. Update yt-dlp through your package manager, or run SoulSync "
+                           "to it. Update yt-dlp through your package manager, or run SYNCHRO.S "
                            "in a virtualenv.",
                 "detail": out.strip()}
     if "no module named pip" in low or "no such file" in low:
         return {"ok": False, "restart_required": False,
-                "message": "pip isn't available to this Python, so SoulSync can't install "
+                "message": "pip isn't available to this Python, so SYNCHRO.S can't install "
                            "anything. Update yt-dlp yourself in that environment.",
                 "detail": out.strip()}
     if ("could not find a version" in low or "no matching distribution" in low

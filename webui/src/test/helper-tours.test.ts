@@ -175,14 +175,14 @@ describe('the tours rewritten for the redesign', () => {
     }
   });
 
-  it('follow the copy rules: sentence case, SoulSync, no emoji, no Music Dashboard', () => {
+  it('follow the copy rules: sentence case, SYNCHRO.S, no emoji, no Music Dashboard', () => {
     for (const id of NEW_TOURS) {
       const tour = HELPER_TOURS[id];
       const titles = [tour.title, ...tour.steps.flatMap((s) => [s.title, s.phoneTitle ?? ''])];
       for (const title of titles.filter(Boolean)) {
         const rest = title.split(/\s+/).slice(1);
         expect(
-          rest.filter((w) => /^[A-Z]/.test(w) && w !== 'SoulSync'),
+          rest.filter((w) => /^[A-Z]/.test(w) && w !== 'SYNCHRO.S'),
           `${id}: "${title}" is in sentence case`,
         ).toEqual([]);
       }

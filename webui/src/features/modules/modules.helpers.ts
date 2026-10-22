@@ -205,14 +205,14 @@ export function changeResultCopy(module: ModuleState): string {
   const done = module.enabled
     ? `${name} is on. Its pages are back in the sidebar.`
     : `${name} is off. Its pages are hidden from the sidebar.`;
-  return module.restart_required ? `${done} Restart SoulSync to finish.` : done;
+  return module.restart_required ? `${done} Restart SYNCHRO.S to finish.` : done;
 }
 
 /** The heading of the restart notice, when a module reports restart_required. */
 export function restartCopy(module: ModuleState): { title: string; body: string } | null {
   if (!module.restart_required) return null;
   return {
-    title: `Restart SoulSync to finish turning ${module.display_name} ${module.enabled ? 'on' : 'off'}.`,
+    title: `Restart SYNCHRO.S to finish turning ${module.display_name} ${module.enabled ? 'on' : 'off'}.`,
     body:
       (module.restart_reason || '').trim() ||
       `Some of ${module.display_name}'s background work only ${module.enabled ? 'starts' : 'stops'} on a restart.`,

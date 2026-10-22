@@ -240,7 +240,7 @@ def preview_scan_watchlist(ctx: DryRunContext, config: Dict[str, Any]) -> Dict[s
             ready = True
         if not ready:
             raise PreviewUnavailable(
-                "SoulSync's metadata source isn't ready, and the followed-artist check needs it, so a run "
+                "SYNCHRO.S's metadata source isn't ready, and the followed-artist check needs it, so a run "
                 "now would stop before checking anyone. Check Settings → Connections.")
     never = sum(1 for a in artists if not _attr(a, "last_scan_timestamp"))
     summary = (f"A run now would check {_plural(len(artists), 'followed artist')} for new releases and add what "
@@ -385,14 +385,14 @@ UNAVAILABLE_REASONS: Dict[str, str] = {
                               "Maintenance, which shows you the list before anything moves."),
     "full_cleanup": ("Most of Full Cleanup works on the live download queue and folders, which can't be tried "
                      "without doing it. Its quarantine step is previewed when you run it."),
-    "run_script": "A script can do anything, so SoulSync can't tell what it would do without running it.",
+    "run_script": "A script can do anything, so SYNCHRO.S can't tell what it would do without running it.",
     "search_and_download": "It searches your download source, which can't be tried without doing it.",
     "backup_database": "It writes a backup file, which can't be tried without doing it.",
     "scan_watchlist_podcasts": "It asks each podcast's feed for new episodes, which can't be tried without doing it.",
     "personalized_pipeline": "It regenerates and syncs playlists, which can't be tried without doing it.",
 }
 
-_GENERIC_UNAVAILABLE = "SoulSync can't work out what this step would do without doing it."
+_GENERIC_UNAVAILABLE = "SYNCHRO.S can't work out what this step would do without doing it."
 
 _THEN_NOTES = {
     "fire_signal": "A preview doesn't fire signals, so automations listening for it don't wake.",

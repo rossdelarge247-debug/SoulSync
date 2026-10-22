@@ -42,9 +42,9 @@ MESSAGES = {
     "bad_key": "Anthropic refused the key saved in Settings → AI.",
     "no_credit": "Anthropic says the account behind the key has used up its credit.",
     "rate_limited": "Anthropic asked us to slow down. Try again in about a minute.",
-    "offline": "SoulSync couldn't connect to Anthropic. Your server may be offline, or the provider is.",
+    "offline": "SYNCHRO.S couldn't connect to Anthropic. Your server may be offline, or the provider is.",
     "provider_error": "Anthropic couldn't answer that. Try again, or ask another way.",
-    "missing_sdk": "The anthropic package isn't installed. Reinstall SoulSync's requirements to use the Assistant.",
+    "missing_sdk": "The anthropic package isn't installed. Reinstall SYNCHRO.S's requirements to use the Assistant.",
 }
 
 

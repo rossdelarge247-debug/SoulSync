@@ -355,7 +355,7 @@ def generate_opml_content(shows: List[Dict[str, Any]]) -> str:
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<opml version="2.0">',
         '  <head>',
-        '    <title>SoulSync Podcast Subscriptions</title>',
+        '    <title>SYNCHRO.S Podcast Subscriptions</title>',
         f'    <dateCreated>{now_str}</dateCreated>',
         '  </head>',
         '  <body>',
@@ -930,7 +930,7 @@ def create_podcasts_blueprint() -> Blueprint:
             # do redirect, so a hop is re-checked and followed by hand.
             req = _proxy_get_following_checked_redirects(target_url, headers)
             if req is None:
-                return jsonify({"error": "That host redirected somewhere SoulSync will not fetch"}), 502
+                return jsonify({"error": "That host redirected somewhere SYNCHRO.S will not fetch"}), 502
             forward_headers = {}
             for h in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
                 if h in req.headers:

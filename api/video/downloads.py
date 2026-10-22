@@ -1333,7 +1333,7 @@ def register_routes(bp):
             if (str(existing.get("client_ref") or "").lower() == client_ref.lower()
                     and str(existing.get("status") or "").lower()
                     not in ("failed", "import_failed", "cancelled")):
-                return jsonify({"ok": False, "error": "SoulSync is already following this download."}), 409
+                return jsonify({"ok": False, "error": "SYNCHRO.S is already following this download."}), 409
 
         common, ctx = _grab_common(db, body, target)
         dl_id = _add_client_row(db, common, body, source, client_ref)
@@ -1364,7 +1364,7 @@ def register_routes(bp):
                      if d.get("source") == "soulseek"
                      and str(d.get("status") or "").lower() not in ("failed", "import_failed", "cancelled")}
         if any((username, str(f["filename"])) in following for f in files):
-            return jsonify({"ok": False, "error": "SoulSync is already following this download."}), 409
+            return jsonify({"ok": False, "error": "SYNCHRO.S is already following this download."}), 409
 
         ctx = body.get("search_ctx") if isinstance(body.get("search_ctx"), dict) else {}
         picks = []

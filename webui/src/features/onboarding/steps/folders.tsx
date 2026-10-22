@@ -74,8 +74,8 @@ export function FoldersStep() {
       title="Where files live"
       lead={
         hasMusic(draft.purposes)
-          ? 'Downloads land in one folder. SoulSync checks, tags and files them into your library, so your server never sees a half-finished album.'
-          : 'Downloads land in one folder, then SoulSync checks and files them where your server looks.'
+          ? 'Downloads land in one folder. SYNCHRO.S checks, tags and files them into your library, so your server never sees a half-finished album.'
+          : 'Downloads land in one folder, then SYNCHRO.S checks and files them where your server looks.'
       }
     >
       {hasMusic(draft.purposes) ? (
@@ -98,7 +98,7 @@ export function FoldersStep() {
           <div className={s.pipeLine} />
           <div className={s.pipeNode}>
             <span>4</span>
-            {named ?? 'SoulSync'}
+            {named ?? 'SYNCHRO.S'}
           </div>
         </div>
       ) : null}
@@ -120,8 +120,8 @@ export function FoldersStep() {
           </svg>
           <span>
             {env.docker
-              ? 'SoulSync is running in Docker, so these are paths inside the container. Your compose file decides which real folders they point to, so most people leave them alone.'
-              : "SoulSync is running on its own, so these are real folders on this machine. Point them wherever you like, they're created if they don't exist."}
+              ? 'SYNCHRO.S is running in Docker, so these are paths inside the container. Your compose file decides which real folders they point to, so most people leave them alone.'
+              : "SYNCHRO.S is running on its own, so these are real folders on this machine. Point them wherever you like, they're created if they don't exist."}
           </span>
         </div>
       ) : null}

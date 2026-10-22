@@ -532,7 +532,7 @@ export function AssistantPanel({
   } else if (!status) {
     body = (
       <Notice tone="danger" role="alert" title="Couldn’t check the Assistant">
-        SoulSync didn’t answer. Your automations are safe; try again in a moment.
+        SYNCHRO.S didn’t answer. Your automations are safe; try again in a moment.
       </Notice>
     );
   } else if (!usable) {

@@ -132,7 +132,7 @@ export const MIRRORED_DETAIL_SOURCE_LABELS: Readonly<Record<string, string>> = {
   beatport: 'Beatport',
   deezer: 'Deezer',
   qobuz: 'Qobuz',
-  soulsync: 'SoulSync',
+  soulsync: 'SYNCHRO.S',
 };
 
 export function mirroredDetailSourceIcon(source: string): string {

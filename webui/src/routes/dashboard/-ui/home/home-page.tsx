@@ -48,7 +48,7 @@ export function HomeHeader() {
           <h1 className={styles.title}>Home</h1>
         </TitleWithHelp>
         <p className={styles.subtitle}>
-          What you want, what you have, and what SoulSync is doing about the gap.
+          What you want, what you have, and what SYNCHRO.S is doing about the gap.
         </p>
       </div>
       <HomeLink route="search" className={styles.buttonLink}>
