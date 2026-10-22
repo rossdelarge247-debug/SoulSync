@@ -1,6 +1,6 @@
 # Screens
 
-Every screen we're designing or have built. Artboards are files on the [SoulSync Prototypes](https://claude.ai/artifact/MtjZJfCp3xgtnXFurAdXQa) canvas. Code paths are under `webui/`.
+Every screen we're designing or have built. Artboards are files on the [SoulSync Prototypes](https://claude.ai/artifact/MtjZJfCp3xgtnXFurAdXQa) canvas; the boards from 21 October on are in the Claude Design project and its hand-off folder, `design_handoff_syncfm_ui/`. Code paths are under `webui/`.
 
 **Status:** **Built** = in `integration` · **Building** = on a branch · **Approved** = ready to build · **Proposed** = on the canvas, waiting for Ross · **Idea** = not drawn yet.
 
@@ -20,6 +20,15 @@ Every screen we're designing or have built. Artboards are files on the [SoulSync
 | Search results | Built | `Search results.dc.html` (2m, 2n), `Flows (mirror, quality, failure).dc.html` (2s, 2t) | `src/routes/search` (`/search?q=&type=`) | One query, three sections in order: your library, Soulseek (streamed over `POST /api/search/stream`, grouped by folder, "At your target" by default) and the connected metadata service. Where each of the old page's features went is in `HANDOFF.md`, "Dev, Search and the Mirror and Quality dialogs". |
 | Mirror a playlist (dialog) | Built | `Flows (mirror, quality, failure).dc.html` (2o, 2p, 2s) | `src/features/mirror` | Opened from Search's "Mirror this playlist" and Home. Uses today's mirroring routes and the Auto-Sync schedule. The Mirrored playlists page keeps its own Add playlist (12 sources). |
 | Set a quality target (dialog) | Built | `Flows (mirror, quality, failure).dc.html` (2q, 2r, 2s) | `src/features/quality` | Opened from Home's Quality card. Writes through `PUT /api/quality/target` (admin only). |
+| Player: bar and tray | Approved | `Player rail (exploration).dc.html` (6a; 6b not taken) | `static/media-player.js`, `static/media-player-v2.*` | Build (c). A 72px bar pinned along the bottom of the window that expands into a 360px tray. Needs waveform peaks and per-file audio details (`CONTRACTS.md`, "Needs building"). |
+| Automation assistant and block editor | Approved | `Automation assistant (block editor).dc.html` (3a–3l) | `src/routes/automations` | Build (d). The block editor replaces the step editor (2j/2l); the Assistant opens in the right column. Drafts only. |
+| Settings → AI | Approved | `Settings AI and Radio.dc.html` (5a) | legacy Settings page, restyled in place like Modules | Build (d). Admins: provider, key, model, who can use it, usage and an optional monthly cap. |
+| Internet radio | Approved | `Internet radio.dc.html` (4a–4k) | new `src/routes/radio` | Build (e). Sidebar row "Radio" in Get music after Mirrored playlists; the "Internet radio" module. |
+| Settings → Radio | Approved | `Settings AI and Radio.dc.html` (5b–5d) | legacy Settings page, restyled in place | Build (e). Shown while the module is on. |
+| Following (Kind filter) | Approved | `Followed (kind filter).dc.html` (5e) | `src/routes/wanted` | Build (b). Replaces 2b's filter row; the tab is renamed "Following". |
+| Settings → Appearance (Lilac) | Approved | `Settings Appearance.dc.html` (5f) | legacy Settings page, restyled in place | Build (b). Presets renamed: "Boulder Purple" → "Lilac", "Purple" → "Pale Purple". |
+| Merge duplicate artist (Maintenance) | Idea | none | none | `BACKLOG.md`, Exploring (HANDOFF 14). |
+| Discover inside Search's idle page | Idea | none | `src/routes/discover`, `src/routes/search` | From HANDOFF 1: Get music is getting long. |
 | Clearer names across the app | Idea | none | everywhere | Wishlist/Watchlist → Wanted/Following, Sync → Mirrored playlists, Tools → Maintenance. |
 
 When a screen changes status, Dev updates this table and adds a line to `HANDOFF.md`.
