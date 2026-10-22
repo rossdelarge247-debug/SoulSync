@@ -1705,6 +1705,18 @@
   color: rgba(255, 255, 255, 0.42);
 }
 
+/* where you got to (HANDOFF 46): accent-light while it's under way, meta once played */
+.kickerProgress {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgb(var(--ss-accent-light-rgb));
+}
+
+.kickerProgress[data-finished] {
+  color: var(--ss-text-meta);
+}
+
 .episodeTitle {
   font-size: 16px;
   font-weight: 700;

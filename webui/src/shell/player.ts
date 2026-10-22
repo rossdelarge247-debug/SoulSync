@@ -61,6 +61,7 @@ import {
   sleepChoiceLabel,
   sourceLabel,
   sourceView,
+  spokenRecentMeta,
   timeAgo,
   upNextCount,
   volumeDb,
@@ -143,6 +144,8 @@ export interface PlayerEngine {
   setCrossfade(on: boolean): void;
   setSleep(value: number | 'track'): void;
   playNext(track: Record<string, unknown>): void;
+  /** a podcast episode or an audiobook (static/media-player.js npPlayMedia) */
+  playMedia?(item: Record<string, unknown>): Promise<unknown>;
   setExpanded(open: boolean): void;
 }
 
@@ -160,6 +163,14 @@ interface TheaterApi {
 }
 
 interface RecentItem {
+  /** music, podcast or audiobook (HANDOFF 46: Recent shows every kind) */
+  kind?: 'music' | 'podcast' | 'audiobook';
+  /** podcasts and audiobooks: the item, its show or author, its address */
+  media_id?: string;
+  subtitle?: string | null;
+  src?: string | null;
+  position_s?: number | null;
+  finished?: boolean;
   track_id?: string | null;
   title?: string;
   artist?: string;
@@ -873,6 +884,15 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       const play = doc.createElement('button');
       play.type = 'button';
       play.className = 'ss-player-recent-play';
+      if (item.kind === 'podcast' || item.kind === 'audiobook') {
+        drawSpokenRecent(item, play);
+        const when = doc.createElement('span');
+        when.className = 'ss-player-recent-when';
+        when.textContent = timeAgo(item.played_at, now);
+        row.append(art, play, when);
+        list.appendChild(row);
+        continue;
+      }
       const playable = Boolean(item.file_path);
       play.setAttribute(
         'aria-label',
@@ -913,6 +933,37 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       row.append(art, play, when);
       list.appendChild(row);
     }
+  }
+
+  /** An episode or an audiobook in Recent: "Podcast · Show · 23 min left";
+   *  playing it again picks up where you left it. */
+  function drawSpokenRecent(item: RecentItem, play: HTMLButtonElement): void {
+    const playable = Boolean(item.src && item.media_id && engine?.playMedia);
+    const name = item.title || (item.kind === 'podcast' ? 'An episode' : 'An audiobook');
+    play.setAttribute(
+      'aria-label',
+      playable ? `Play ${name} again` : `${name} can't be played from here`,
+    );
+    if (!playable) play.setAttribute('aria-disabled', 'true');
+    const title = doc.createElement('span');
+    title.className = 'ss-player-recent-title';
+    title.textContent = name;
+    const meta = doc.createElement('span');
+    meta.className = 'ss-player-recent-meta';
+    meta.textContent = spokenRecentMeta(item);
+    play.append(title, meta);
+    play.addEventListener('click', () => {
+      if (!playable) return;
+      void engine!.playMedia!({
+        kind: item.kind,
+        id: item.media_id,
+        src: item.src,
+        title: item.title,
+        subtitle: item.subtitle || '',
+        artUrl: item.image_url || null,
+        durationHint: item.duration_s ?? null,
+      });
+    });
   }
 
   function drawMenu(): void {

@@ -24,6 +24,9 @@ function initializeMediaPlayer() {
         audioPlayer.addEventListener('timeupdate', npThrottledPositionState);
         audioPlayer.addEventListener('timeupdate', npMaybeLogPlay);
         audioPlayer.addEventListener('timeupdate', npMaybeMarkScrobbleEligible);
+        // podcasts and audiobooks: where you got to, and their plays (HANDOFF 46)
+        audioPlayer.addEventListener('timeupdate', npSpokenTick);
+        audioPlayer.addEventListener('pause', npSpokenOnPause);
         audioPlayer.addEventListener('ended', onAudioEnded);
         audioPlayer.addEventListener('error', onAudioError);
         audioPlayer.addEventListener('loadstart', onAudioLoadStart);
@@ -100,6 +103,8 @@ function _stripSourceIdPrefix(value) {
 }
 
 function setTrackInfo(track) {
+    // an episode or a book being left keeps its place
+    npSpokenLeave(track);
     currentTrack = track;
     window.__ssCurrentTrack = track;
     if (typeof window.getCurrentTrack !== 'function') {
@@ -697,6 +702,9 @@ async function startAudioPlayback(isCurrent = () => true, signal, handoff = null
                     // the seek + start latency so the join lands level.
                     const at = handoff.currentTime + 0.15;
                     if (isFinite(at) && at > 0) { try { audioPlayer.currentTime = at; } catch (_) {} }
+                } else if (opts.startAt > 0 && retryCount === 0) {
+                    // an episode or a book picks up where this profile left it
+                    try { audioPlayer.currentTime = opts.startAt; } catch (_) {}
                 }
                 await audioPlayer.play();
                 if (!isCurrent()) return { status: 'superseded' };
@@ -1057,6 +1065,7 @@ function onAudioEnded() {
     // Handle audio playback completion
     console.log('🏁 Audio playback ended');
     setPlayingState(false);
+    npSpokenOnEnded();
 
     // Sleep timer "end of track": pause instead of advancing to the next track.
     if (npSleepEndOfTrack) { npFireSleepTimer(); return; }
@@ -2259,7 +2268,9 @@ async function playQueueItem(index, options = {}) {
             });
             showLoadingAnimation();
             if (audioPlayer) audioPlayer.loop = (npRepeatMode === 'one');
-            const playback = await startAudioPlayback(isCurrent, signal, null, track.media_src);
+            const startAt = await npSpokenResumeAt(track);
+            if (!isCurrent()) return { status: 'superseded' };
+            const playback = await startAudioPlayback(isCurrent, signal, null, track.media_src, { startAt });
             if (playback?.status !== 'played') {
                 if (playback?.status === 'superseded') return playback;
                 throw new Error(playback?.error || 'Playback did not start');
@@ -3494,6 +3505,183 @@ function updateMediaSessionPlaybackState() {
         navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
     }
 }
+
+// ===============================
+// PODCAST AND AUDIOBOOK PROGRESS (HANDOFF 46)
+// ===============================
+
+// Where each profile got to in an episode or an audiobook, kept on the server
+// (core/playback/spoken.py, through /api/player/progress): saved every 15 s
+// while it plays, on pause, at the end, when another item takes over and when
+// the page closes; read back when the item plays again, which then starts
+// there (a finished one starts from the top). A play is logged once an item
+// has played 10 s (/api/player/plays) for Listening history and Recent. None
+// of it goes near listening_history or scrobbling, which stay music only.
+const NP_SPOKEN_SAVE_EVERY_MS = 15000;
+let npSpokenSnap = null;      // {kind, media_id, position, duration} of what's playing
+let npSpokenLastSave = 0;
+let npSpokenPlayLogged = false;
+
+function npSpokenKey(track) {
+    return track && npIsSpokenWord(track) && track.media_id ? track.media_id : null;
+}
+
+function npSpokenDuration() {
+    if (audioPlayer && isFinite(audioPlayer.duration) && audioPlayer.duration > 0) return audioPlayer.duration;
+    const hint = currentTrack && Number(currentTrack.duration);
+    return hint > 0 ? hint : null;
+}
+
+// Read the element into the snapshot. A load resets the position to 0 (and
+// a switch empties src), so a zero or a missing source never overwrites it.
+function npSpokenRead() {
+    if (!audioPlayer || !npSpokenKey(currentTrack)) return false;
+    const pos = audioPlayer.currentTime;
+    if (!audioPlayer.currentSrc || !isFinite(pos) || pos <= 0) return false;
+    npSpokenSnap = {
+        kind: currentTrack.kind,
+        media_id: currentTrack.media_id,
+        position: pos,
+        duration: npSpokenDuration(),
+    };
+    return true;
+}
+
+function npSpokenSend(snap, ended, beacon) {
+    if (!snap) return;
+    const body = JSON.stringify({
+        kind: snap.kind,
+        media_id: snap.media_id,
+        position_s: Math.round(snap.position * 10) / 10,
+        duration_s: snap.duration ? Math.round(snap.duration * 10) / 10 : null,
+        ended: Boolean(ended),
+    });
+    try {
+        if (beacon && navigator.sendBeacon) {
+            navigator.sendBeacon('/api/player/progress', new Blob([body], { type: 'application/json' }));
+            return;
+        }
+        fetch('/api/player/progress', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+            keepalive: true,
+        }).catch(() => {});   // bookkeeping must never affect playback
+    } catch (e) { /* non-fatal */ }
+}
+
+function npSpokenTick() {
+    if (!npSpokenRead()) return;
+    if (!npSpokenPlayLogged && npSpokenSnap.position >= 10) {
+        npSpokenPlayLogged = true;
+        npSpokenLogPlay(currentTrack);
+    }
+    const now = Date.now();
+    if (now - npSpokenLastSave >= NP_SPOKEN_SAVE_EVERY_MS) {
+        npSpokenLastSave = now;
+        npSpokenSend(npSpokenSnap, false);
+    }
+}
+
+function npSpokenOnPause() {
+    if (!npSpokenKey(currentTrack) || (audioPlayer && audioPlayer.ended)) return;
+    npSpokenRead();
+    if (npSpokenSnap && npSpokenSnap.media_id === currentTrack.media_id) {
+        npSpokenLastSave = Date.now();
+        npSpokenSend(npSpokenSnap, false);
+    }
+}
+
+function npSpokenOnEnded() {
+    if (!npSpokenKey(currentTrack)) return;
+    const duration = npSpokenDuration();
+    npSpokenSnap = {
+        kind: currentTrack.kind,
+        media_id: currentTrack.media_id,
+        position: duration || (npSpokenSnap ? npSpokenSnap.position : 0),
+        duration,
+    };
+    npSpokenSend(npSpokenSnap, true);
+}
+
+// Another item is taking over: keep where this one got to.
+function npSpokenLeave(next) {
+    if (npSpokenSnap && (!next || next.media_id !== npSpokenSnap.media_id)) {
+        npSpokenSend(npSpokenSnap, false);
+        npSpokenSnap = null;
+    }
+    if (!next || !currentTrack || next.media_id !== currentTrack.media_id) {
+        npSpokenPlayLogged = false;
+        npSpokenLastSave = 0;
+    }
+}
+
+function npSpokenLogPlay(track) {
+    try {
+        fetch('/api/player/plays', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                kind: track.kind,
+                media_id: track.media_id,
+                title: track.title,
+                subtitle: track.artist || '',
+                art_url: track.image_url || null,
+                src: track.media_src || null,
+                duration_s: npSpokenDuration(),
+            }),
+        }).catch(() => {});
+    } catch (e) { /* non-fatal */ }
+}
+
+function npFormatResume(seconds) {
+    const s = Math.floor(seconds);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+// Where this profile left an episode or a book (0 for the top). Waits at most
+// 2.5 s: playback never hangs on the bookkeeping.
+async function npSpokenResumeAt(track) {
+    if (!npSpokenKey(track)) return 0;
+    const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 2500) : null;
+    try {
+        // a POST: an episode's id is often its whole address, too long for a query
+        const res = await fetch('/api/player/progress/lookup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: track.kind, ids: [track.media_id] }),
+            signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (!res || !res.ok) return 0;
+        const body = await res.json();
+        const row = body && body.items ? body.items[track.media_id] : null;
+        const at = row ? Number(row.resume_at) || 0 : 0;
+        if (at > 0) {
+            npSpokenSnap = { kind: track.kind, media_id: track.media_id, position: at, duration: row.duration_s || null };
+            if (typeof showToast === 'function') showToast(`Picking up where you left off, at ${npFormatResume(at)}`, 'info');
+        }
+        return at;
+    } catch (e) {
+        return 0;
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
+
+// The page is closing or going to the background: keep the place now.
+function npSpokenOnHide() {
+    if (!npSpokenKey(currentTrack)) return;
+    npSpokenRead();
+    if (npSpokenSnap) npSpokenSend(npSpokenSnap, false, true);
+}
+window.addEventListener('pagehide', npSpokenOnHide);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') npSpokenOnHide();
+});
 
 // ===============================
 // PODCASTS AND AUDIOBOOKS

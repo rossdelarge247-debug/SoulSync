@@ -79,6 +79,7 @@ import {
 } from '../-stats.helpers';
 import { STATS_TAB_VALUES } from '../-stats.types';
 import { Route } from '../route';
+import { ListeningHistory } from './listening-history';
 import styles from './stats-page.module.css';
 import { YearStory } from './year-story';
 
@@ -451,10 +452,16 @@ export function StatsPage() {
                   <StatsGenreLegend genres={cachedStats?.genres ?? []} />
                 </div>
               </StatsSectionCard>
-              <StatsSectionCard title="Recently Played">
-                <StatsRecentPlays
-                  tracks={cachedStats?.recent ?? []}
-                  onPlay={(track) => playStatsTrack(bridge, track)}
+              <StatsSectionCard title="Listening history">
+                <ListeningHistory
+                  music={cachedStats?.recent ?? []}
+                  formatPlayedAt={formatRelativePlayedAt}
+                  renderMusic={(tracks) => (
+                    <StatsRecentPlays
+                      tracks={tracks}
+                      onPlay={(track) => playStatsTrack(bridge, track)}
+                    />
+                  )}
                 />
               </StatsSectionCard>
             </div>

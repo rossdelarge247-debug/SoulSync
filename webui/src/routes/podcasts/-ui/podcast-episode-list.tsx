@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Spinner } from '@/components/primitives';
+import { useSpokenProgress } from '@/features/playback/spoken-progress';
+import { spokenProgressWords } from '@/shell/player-state';
 
 import type { PodcastDownloadItem, PodcastEpisodeItem } from '../-podcasts.types';
 
@@ -58,6 +60,18 @@ export function PodcastEpisodeList({
     setVisibleCount(CHUNK_SIZE);
   }, [episodes.length]);
 
+  // where you got to in each episode shown (HANDOFF 46); the player keeps it,
+  // so it's read again when what plays changes
+  const progressIds = useMemo(
+    () => episodes.slice(0, visibleCount).map((ep) => ep.guid || ep.enclosure_url || ''),
+    [episodes, visibleCount],
+  );
+  const progress = useSpokenProgress(
+    'podcast',
+    progressIds,
+    `${activeEpisodeGuid ?? ''}|${isPlaying ? 1 : 0}`,
+  );
+
   if (!episodes.length) {
     return (
       <div className={styles.emptyContainer}>
@@ -76,6 +90,10 @@ export function PodcastEpisodeList({
           const isCurrent = activeEpisodeGuid === ep.guid;
           const isCurrentPlaying = isCurrent && isPlaying;
           const duration = formatDuration(ep.duration_seconds);
+          const saved = progress[ep.guid || ep.enclosure_url || ''];
+          const where = saved
+            ? spokenProgressWords({ ...saved, duration_s: saved.duration_s ?? ep.duration_seconds })
+            : '';
           const fileSize = formatFileSize(ep.enclosure_length);
           const epArt = ep.artwork_url || showArtwork;
           const snippet = stripHtml(ep.description || ep.show_notes);
@@ -140,6 +158,14 @@ export function PodcastEpisodeList({
                   {duration && (
                     <span className={styles.kickerDuration}>• {duration.toUpperCase()}</span>
                   )}
+                  {where && (
+                    <span
+                      className={styles.kickerProgress}
+                      data-finished={saved?.finished || undefined}
+                    >
+                      • {where === 'Finished' ? 'PLAYED' : where.toUpperCase()}
+                    </span>
+                  )}
                   {ep.episode_type && ep.episode_type !== 'full' && (
                     <span className={`${styles.episodeTypePill} ${styles.episodeTypeSpecial}`}>
                       {ep.episode_type.toUpperCase()}
@@ -190,7 +216,9 @@ export function PodcastEpisodeList({
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                           <polygon points="6 4 20 12 6 20 6 4" />
                         </svg>
-                        <span>{duration || 'Play'}</span>
+                        <span>
+                          {where && where !== 'Finished' ? `Resume · ${where}` : duration || 'Play'}
+                        </span>
                       </>
                     )}
                   </button>

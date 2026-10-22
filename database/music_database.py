@@ -1566,6 +1566,7 @@ class MusicDatabase:
             self._add_automation_paused_at_column(cursor)
             self._add_ai_assistant_tables(cursor)
             self._add_internet_radio_tables(cursor)
+            self._add_spoken_word_tables(cursor)
 
             # Library issues — user-reported problems with tracks/albums/artists
             cursor.execute("""
@@ -3508,6 +3509,43 @@ class MusicDatabase:
                     PRIMARY KEY (profile_id, suggestion_key)
                 )
             """)
+
+    def _add_spoken_word_tables(self, cursor):
+        """Podcasts and audiobooks in the player (core/playback/spoken.py,
+        HANDOFF 46): where each profile got to in an episode or a book, and
+        its plays of them. Apart from listening_history, which stays music
+        only for Stats, smart radio, the importers and scrobbling."""
+        with self._migration_step(cursor, 'spoken_word_tables', atomic=False):
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS media_progress (
+                    profile_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    media_id TEXT NOT NULL,
+                    position_s REAL NOT NULL DEFAULT 0,
+                    duration_s REAL,
+                    finished INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (profile_id, kind, media_id)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS media_plays (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    media_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    subtitle TEXT,
+                    art_url TEXT,
+                    src TEXT,
+                    duration_s REAL,
+                    played_at TIMESTAMP NOT NULL
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_plays_profile_played "
+                           "ON media_plays (profile_id, played_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_plays_profile_kind_played "
+                           "ON media_plays (profile_id, kind, played_at)")
 
     def _add_internet_radio_tables(self, cursor):
         """Internet radio's tables (core/internet_radio/store.py): favourites per

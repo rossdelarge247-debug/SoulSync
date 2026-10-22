@@ -455,6 +455,39 @@ export function formatSpeed(speed: number): string {
 }
 
 /** "3 min ago", "2 h ago", "yesterday", "12 Oct". `playedAt` is UTC "YYYY-MM-DD HH:MM:SS". */
+/**
+ * The meta line of an episode or an audiobook in Recent and Listening history:
+ * "Podcast · Quiet Rooms · 23 min left", "Audiobook · Ann Leckie · Finished".
+ */
+export function spokenRecentMeta(item: {
+  kind?: string;
+  subtitle?: string | null;
+  position_s?: number | null;
+  duration_s?: number | null;
+  finished?: boolean;
+}): string {
+  const kind = item.kind === 'audiobook' ? 'Audiobook' : 'Podcast';
+  return [kind, item.subtitle || '', spokenProgressWords(item)].filter(Boolean).join(' · ');
+}
+
+/** "23 min left", "Finished", "1 h 5 min left", or '' when it hasn't started. */
+export function spokenProgressWords(item: {
+  position_s?: number | null;
+  duration_s?: number | null;
+  finished?: boolean;
+}): string {
+  if (item.finished) return 'Finished';
+  const pos = Number(item.position_s) || 0;
+  const dur = Number(item.duration_s) || 0;
+  if (pos < 5) return '';
+  if (!dur || dur <= pos) return `${Math.max(1, Math.round(pos / 60))} min in`;
+  const left = Math.max(1, Math.round((dur - pos) / 60));
+  if (left < 60) return `${left} min left`;
+  const h = Math.floor(left / 60);
+  const m = left % 60;
+  return m ? `${h} h ${m} min left` : `${h} h left`;
+}
+
 export function timeAgo(playedAt: string | null | undefined, now: number): string {
   if (!playedAt) return '';
   const iso = /[zZ]|[+-]\d\d:?\d\d$/.test(playedAt) ? playedAt : `${playedAt.replace(' ', 'T')}Z`;
