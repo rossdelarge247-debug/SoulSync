@@ -54,7 +54,8 @@ def _all_frontend_source() -> str:
     return '\n'.join(chunks)
 
 
-_SELECTORS = sorted(set(re.findall(r"selector:\s*'([^']+)'", _tour_block())))
+# phone variants (phoneSelector) are anchors too: the tab bar, the top bar's icons
+_SELECTORS = sorted(set(re.findall(r"[sS]elector:\s*'([^']+)'", _tour_block())))
 _SOURCE = _all_frontend_source()
 
 
@@ -74,8 +75,8 @@ def test_every_tour_selector_has_a_renderer(selector):
                           or f"'{name}'" in _SOURCE or f'"{name}"' in _SOURCE)
         else:
             checks.append(name in _SOURCE)
-    for value in re.findall(r'\[data-tab="([^"]+)"\]', selector):
-        checks.append(f'data-tab="{value}"' in _SOURCE or f"'{value}'" in _SOURCE)
+    for attr, value in re.findall(r'\[(data-tab|data-tour|data-nav-row)="([^"]+)"\]', selector):
+        checks.append(f'{attr}="{value}"' in _SOURCE or f"'{value}'" in _SOURCE)
     assert checks and all(checks), f'tour anchor has no renderer: {selector}'
 
 
@@ -114,32 +115,81 @@ def test_steps_anchor_to_their_own_page_or_the_shell():
     assert not offenders, f'tour anchors living on the WRONG page: {offenders}'
 
 
-def test_dashboard_tour_matches_the_current_dashboard():
-    # the sections Boulder enumerated, in walk order
+def _tour(name: str) -> str:
+    """One tour's entry in HELPER_TOURS, as text."""
     block = _tour_block()
-    dash = block.split("'dashboard': {")[1].split("'first-download': {")[0]
-    for anchor in ('.dashboard-header', '.header-actions', '#watchlist-button',
-                   '#wishlist-button', '#library-status-card', '.dash-card--rail',
-                   '.listen-hero', '#sync-history-cards', '.dash-autom-rows',
-                   '.status-section',
-                   '.side-toggle', '#profile-indicator', '.version-button'):
-        assert anchor in dash, f'dashboard tour lost its {anchor} step'
-    # the pre-redesign tool cards are gone from the dashboard tour, and so are
-    # the retired ops sections (stats strip, quick actions, activity feed,
-    # services card, enrichment pills — all rehomed off the dashboard)
-    for stale in ('#db-updater-card', '#metadata-updater-card', '#duplicate-cleaner-card',
-                  '#backup-manager-card', '#metadata-cache-card', '#media-scan-card',
-                  '#discovery-pool-card', '.service-status-grid', '.stats-grid-dashboard',
-                  '.dash-card--quick-actions', '#dashboard-activity-feed',
-                  '#enrichment-pills-section'):
-        assert stale not in dash, f'dashboard tour still anchors to the moved {stale}'
+    start = block.index(f"    '{name}': {{")
+    nxt = re.search(r"\n    '[\w-]+': \{", block[start + 1:])
+    return block[start:start + 1 + nxt.start()] if nxt else block[start:]
+
+
+def test_welcome_tour_walks_todays_app():
+    """The redesign's tour: the navigation (groups, the compact rail, Admin
+    and help, ⌘K search, the running link), Home's targets and Latest,
+    Wanted, Activity, Search, the one Artist page, Automations with runs and
+    Preview a run, and the Setup check, in that order."""
+    welcome = _tour('welcome')
+    order = ['#app-sidebar .ss-music-nav', '#sidebar-collapse-toggle', '#ss-admin', '#ss-search',
+             '#ss-running', '[data-tour="home-targets"]', '[data-tour="home-latest"]',
+             '[data-tour="wanted-tabs"]', '[data-tour="activity-controls"]', '#enhanced-search-bar',
+             '#app-sidebar [data-nav-row="artists"]', '[data-tour="automation-card"]',
+             '[data-tour="automation-preview"]', '[data-tour="automation-runs"]',
+             '[data-tour="setup-check"]']
+    positions = [welcome.find(f"'{anchor}'") for anchor in order]
+    assert -1 not in positions, dict(zip(order, positions))
+    assert positions == sorted(positions), 'the welcome tour walks the app in order'
+    # phones point at the tab bar and the top bar's icons instead of the sidebar
+    for phone in ('#ss-tabbar', '#ss-tabbar [data-tab="settings"]', '#ss-phone-search',
+                  '#ss-phone-activity', '[data-tour="automation-runs-link"]'):
+        assert f"phoneSelector: '{phone}'" in welcome, phone
+    assert "selector: '#sidebar-collapse-toggle', phone: false" in welcome
+    assert 'admin: true' in welcome     # the Setup check is admins' only
+
+
+def test_old_dashboard_tour_is_gone():
+    """The old welcome step landed on the workers panel and called the page
+    the Music Dashboard; its stops pointed at the old header's tiles and the
+    old sidebar sections."""
+    block = _tour_block()
+    assert "'dashboard': {" not in block
+    assert "'first-download': {" not in block
+    welcome = _tour('welcome')
+    for stale in ('Music Dashboard', '.dashboard-header', '.header-actions', '#watchlist-button',
+                  '#wishlist-button', '#library-status-card', '.dash-card--rail', '.listen-hero',
+                  '.dash-autom-rows', '#sync-history-cards', '.status-section', '.side-toggle',
+                  '#profile-indicator', '.nav-section-label', '.version-button'):
+        assert stale not in welcome, f'the welcome tour still points at {stale}'
+
+
+def test_rebuilt_pages_anchor_to_data_tour_attributes_they_render():
+    """Each data-tour anchor a step names is rendered by that step's own page
+    (the tours walk the pages in order; an anchor on another page is skipped)."""
+    page_dirs = {
+        'dashboard': 'dashboard', 'wanted': 'wanted', 'activity': 'activity',
+        'search': 'search', 'automations': 'automations', 'setup-check': 'setup-check',
+        'artist-detail': 'artist-detail',
+    }
+    routes = _ROOT / 'webui' / 'src' / 'routes'
+    checked = 0
+    for page, selector, rest in re.findall(
+            r"page:\s*'([\w-]+)',\s*selector:\s*'([^']+)'([^}]*)", _tour_block()):
+        anchors = [selector] + re.findall(r"phoneSelector:\s*'([^']+)'", rest)
+        for anchor in anchors:
+            for value in re.findall(r'\[data-tour="([\w-]+)"\]', anchor):
+                src = '\n'.join(p.read_text(encoding='utf-8') for p in (routes / page_dirs[page]).rglob('*.tsx')
+                                if '.test.' not in p.name)
+                assert f'data-tour="{value}"' in src or f"'{value}'" in src, \
+                    f'{page} renders no data-tour="{value}"'
+                checked += 1
+    assert checked >= 15
 
 
 # ── engine contracts ──────────────────────────────────────────────────────────
 
 def test_anchor_resolution_retries_instead_of_one_fixed_wait():
     assert 'function _resolveTourTarget' in _HELPER
-    assert '_resolveTourTarget(step.selector' in _HELPER
+    # the step's anchor for this screen (a phone has its own, see _tourStepView)
+    assert '_resolveTourTarget(view.selector' in _HELPER
     # visibility gate: a hidden element is NOT an anchor
     assert 'offsetParent !== null' in _HELPER
     # the old blind render-after-350ms path is gone
@@ -164,5 +214,40 @@ def test_the_dead_selectors_stay_dead():
     for dead in ('#enh-results-container', '#retag-tool-card', '.import-page-header',
                  '.import-page-refresh-btn', '.import-page-staging-bar', '.import-page-tab-bar',
                  # the search overhaul took the input wrapper out (Sept 2026)
-                 '.enhanced-search-input-wrapper'):
+                 '.enhanced-search-input-wrapper',
+                 # the redesign (Oct 2026): the old artist page, the old automations
+                 # page, the old sidebar sections and the dashboard header
+                 '#artist-hero-section', '#library-artist-watchlist-btn', '#discography-filters',
+                 '#automations-stats', '.auto-new-btn', '#auto-section-hub', '#automations-list-view',
+                 '.nav-section-label', '.dashboard-header'):
         assert dead not in block, f'{dead} is a dead anchor'
+
+
+def test_a_missing_anchor_skips_the_step_instead_of_centring_it():
+    # the old fallback centred the box over the page with copy about a
+    # control that wasn't there; now the tour moves on the way it was going
+    assert 'function _skipTourStep' in _HELPER
+    show = _HELPER.split('function showTourStep')[1].split('\nfunction ')[0]
+    assert 'if (!target && view.selector)' in show and '_skipTourStep()' in show
+    # a page that is already up gets a short wait before the skip
+    assert 'navigating ? 12 : 3' in show
+
+
+def test_tours_fit_phones_and_profiles():
+    assert 'function _tourIsPhone' in _HELPER and '(max-width: 768px)' in _HELPER
+    assert 'phoneSelector' in _HELPER.split('function _tourStepView')[1][:400]
+    assert 'step.admin' in _HELPER.split('function _tourStepsFor')[1][:400]
+    # the artist tour needs an artist: offered on the artist page only
+    assert "onlyOn: 'artist-detail'" in _tour('artist')
+
+
+def test_the_tour_can_always_be_left():
+    nav = _HELPER.split('function _renderTourStep')[1].split('\nfunction ')[0]
+    assert '>Skip tour</button>' in nav and 'onclick="dismissTour()"' in nav
+    keydown = _HELPER.split("if (e.key === 'Escape') {")[1][:300]
+    assert keydown.index('dismissTour()') < keydown.index('dismissHelperPopover()')
+    # the box sits above the floating bell, activity and help buttons (999999)
+    css = (_ROOT / 'webui' / 'static' / 'style.css').read_text(encoding='utf-8')
+    rule = css.split('.helper-tour-popover {')[1].split('}')[0]
+    assert int(re.search(r'z-index:\s*(\d+)', rule).group(1)) > 999999
+    assert '.helper-popover-arrow.arrow-bottom' in css

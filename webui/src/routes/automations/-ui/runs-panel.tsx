@@ -83,6 +83,7 @@ export function RunsPanel({
       data-embedded={embedded ? 'true' : undefined}
       aria-label={`Runs: ${automation.name}`}
       data-testid="runs-panel"
+      data-tour="automation-runs"
     >
       <div className={styles.runsHead}>
         <h2 className={styles.panelTitle}>

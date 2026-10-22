@@ -81,7 +81,13 @@ function TabBar({
   };
 
   return (
-    <div className={styles.tabs} role="tablist" aria-label="Wanted" onKeyDown={onKeyDown}>
+    <div
+      className={styles.tabs}
+      role="tablist"
+      aria-label="Wanted"
+      onKeyDown={onKeyDown}
+      data-tour="wanted-tabs"
+    >
       {tabs.map((t) => (
         <Link
           key={t.key}

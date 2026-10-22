@@ -410,6 +410,28 @@ describe('automations list', () => {
     expect(within(runs).getByText('12 downloads started')).toBeInTheDocument();
   });
 
+  it('carries the anchors the guided tour points at', async () => {
+    mockApi();
+    await renderPage();
+    await screen.findByTestId('automation-card-4');
+    await screen.findByTestId('runs-panel');
+    expect(document.querySelector('[data-tour="automations-filters"]')).not.toBeNull();
+    // only the selected card is the tour's card, with its Preview a run
+    expect(document.querySelectorAll('[data-tour="automation-card"]')).toHaveLength(1);
+    expect(document.querySelector('[data-tour="automation-card"]')).toBe(card(4));
+    expect(within(card(4)).getByRole('button', { name: 'Preview a run' })).toHaveAttribute(
+      'data-tour',
+      'automation-preview',
+    );
+    expect(document.querySelector('[data-tour="automation-runs"]')).toBe(
+      screen.getByTestId('runs-panel'),
+    );
+    expect(screen.getByRole('button', { name: 'New automation' })).toHaveAttribute(
+      'data-tour',
+      'automation-new',
+    );
+  });
+
   it('selecting a card puts it in the URL, and a link opens with it selected', async () => {
     mockApi();
     const { router } = await renderPage();

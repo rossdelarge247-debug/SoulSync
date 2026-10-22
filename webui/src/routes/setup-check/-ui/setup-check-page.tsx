@@ -47,7 +47,7 @@ function useNow(intervalMs: number): number {
 
 function PageHeading({ actions }: { actions?: ReactNode }) {
   return (
-    <header className={styles.header}>
+    <header className={styles.header} data-tour="setup-check">
       <div className={styles.headText}>
         <h1 className={styles.title}>Setup check</h1>
         <p className={styles.subtitle}>

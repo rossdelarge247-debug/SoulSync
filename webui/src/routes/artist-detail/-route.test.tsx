@@ -446,6 +446,29 @@ describe('the header', () => {
   });
 });
 
+describe('the guided tour', () => {
+  // static/helper.js's artist tour points at these; a step whose anchor is
+  // missing is skipped, so a lost attribute silently shortens the tour
+  it('finds every anchor it points at', async () => {
+    renderArtist();
+    await ready();
+    for (const anchor of [
+      'artist-header',
+      'artist-actions',
+      'artist-tabs',
+      'artist-filters',
+      'artist-releases',
+    ]) {
+      expect(document.querySelector(`[data-tour="${anchor}"]`), anchor).not.toBeNull();
+    }
+    expect(document.querySelector('[data-tour="artist-tabs"]')).toHaveAttribute('role', 'tablist');
+    expect(document.querySelector('[data-tour="artist-releases"]')).toHaveAttribute(
+      'aria-label',
+      'Releases by Pale Harbour',
+    );
+  });
+});
+
 describe('Follow / Following', () => {
   it('follows at once and keeps it when the server agrees', async () => {
     stubApi({ following: false });

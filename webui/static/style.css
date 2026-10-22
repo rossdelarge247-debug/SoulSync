@@ -1578,7 +1578,10 @@ body.max-performance .nav-button.active:hover {
 
 /* Tour Popover additions */
 .helper-tour-popover {
-    z-index: 100001 !important;
+    /* above the floating bell, activity and help buttons (999999), which
+       would otherwise sit on the box's buttons when it opens above the
+       phone tab bar */
+    z-index: 1000001 !important;
 }
 
 /* Tour progress bar */
@@ -1880,6 +1883,15 @@ body.helper-mode-active #dashboard-activity-feed:hover {
     margin-left: -5px;
     border-bottom: none;
     border-right: none;
+}
+
+/* the tour's box sits above an anchor near the bottom (the phone tab bar) */
+.helper-popover-arrow.arrow-bottom {
+    bottom: -6px;
+    left: 50%;
+    margin-left: -5px;
+    border-top: none;
+    border-left: none;
 }
 
 /* Mobile */

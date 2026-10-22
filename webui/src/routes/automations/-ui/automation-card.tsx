@@ -170,6 +170,7 @@ export function AutomationCard({
       data-paused={enabled ? undefined : 'true'}
       aria-current={selected ? 'true' : undefined}
       data-testid={`automation-card-${a.id}`}
+      data-tour={selected ? 'automation-card' : undefined}
     >
       {!selected ? (
         <button
@@ -212,7 +213,12 @@ export function AutomationCard({
         </p>
         {selected ? (
           <div className={styles.cardActions}>
-            <Button size="lg" aria-label="Preview a run" onClick={() => on.onPreview(a)}>
+            <Button
+              size="lg"
+              aria-label="Preview a run"
+              data-tour="automation-preview"
+              onClick={() => on.onPreview(a)}
+            >
               <span>
                 Preview<span className={styles.wordsOnWide}> a run</span>
               </span>
@@ -245,6 +251,7 @@ export function AutomationCard({
           type="button"
           className={styles.runsLink}
           aria-expanded={runsLink.expanded}
+          data-tour="automation-runs-link"
           onClick={runsLink.onToggle}
         >
           {runsLink.label}

@@ -61,6 +61,7 @@ function SetupPanel() {
       className={styles.setupPanel}
       aria-labelledby="home-setup-title"
       data-testid="home-setup-panel"
+      data-tour="home-targets"
     >
       <div className={styles.setupPanelText}>
         <p className={styles.cardLabel}>Targets</p>
@@ -102,7 +103,7 @@ export function TargetsSection({
 
   if (query.isPending) {
     return (
-      <section className={styles.section} aria-labelledby={HEADING_ID}>
+      <section className={styles.section} aria-labelledby={HEADING_ID} data-tour="home-targets">
         <SectionHead />
         <LoadingState label="Loading your targets…">
           <CardSkeletons />
@@ -113,7 +114,7 @@ export function TargetsSection({
 
   if (query.isError && !query.data) {
     return (
-      <section className={styles.section} aria-labelledby={HEADING_ID}>
+      <section className={styles.section} aria-labelledby={HEADING_ID} data-tour="home-targets">
         <SectionHead />
         <Notice
           tone="danger"
@@ -150,7 +151,7 @@ export function TargetsSection({
   if (!summary.anySetUp) return <SetupPanel />;
 
   return (
-    <section className={styles.section} aria-labelledby={HEADING_ID}>
+    <section className={styles.section} aria-labelledby={HEADING_ID} data-tour="home-targets">
       <SectionHead phoneNote={soonestSearchShort(summary.targets, nowMs)} />
       <div className={styles.grid} data-testid="home-targets">
         {summary.targets.map((target) => (

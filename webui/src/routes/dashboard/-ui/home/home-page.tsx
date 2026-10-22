@@ -39,7 +39,7 @@ function useNow(intervalMs: number): number {
 
 export function HomeHeader() {
   return (
-    <header className={styles.header}>
+    <header className={styles.header} data-tour="home-header">
       <div className={styles.headText}>
         <h1 className={styles.title}>Home</h1>
         <p className={styles.subtitle}>

@@ -16,6 +16,7 @@ import { createTestQueryClient } from '@/test/query-client';
 import { latestActivityQueryOptions, targetsSummaryQueryOptions } from '../../-home.api';
 import { HomeDialogsProvider } from './home-dialogs';
 import { HomeNavProvider, type HomeNav } from './home-nav';
+import { HomeHeader } from './home-page';
 import { LatestSection } from './latest-section';
 import { TargetsSection } from './targets-section';
 
@@ -457,6 +458,52 @@ describe('the dialogs Home opens', () => {
 
     fireEvent.click(within(panel).getByRole('button', { name: 'Set a quality target' }));
     expect(await screen.findByRole('dialog')).toHaveTextContent('Quality target');
+  });
+});
+
+// static/helper.js's welcome tour points at these; a step whose anchor is
+// missing is skipped, so every state of each section carries it.
+describe('the guided tour’s anchors', () => {
+  it('the header', () => {
+    renderWith(<HomeHeader />);
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Home' }).closest('header'),
+    ).toHaveAttribute('data-tour', 'home-header');
+  });
+
+  it('Targets while loading, live and with nothing set up', async () => {
+    server.use(
+      http.get('/api/targets/summary', async () => {
+        await delay('infinite');
+        return HttpResponse.json({});
+      }),
+    );
+    const loading = renderWith(<Targets />);
+    expect(await screen.findByText('Loading your targets…')).toBeInTheDocument();
+    expect(document.querySelector('[data-tour="home-targets"]')).not.toBeNull();
+    loading.unmount();
+
+    mockSummary([T.wanted, T.mirroredOff, T.followedOff, T.quality]);
+    const live = renderWith(<Targets />);
+    await screen.findByText('312 tracks');
+    expect(document.querySelector('[data-tour="home-targets"] h2')).toHaveTextContent('Targets');
+    live.unmount();
+
+    mockSummary([T.wantedOff, T.mirroredOff, T.followedOff, T.quality]);
+    renderWith(<Targets />);
+    await screen.findByText('Tell SoulSync what you want');
+    expect(document.querySelector('[data-tour="home-targets"] h2')).toHaveTextContent(
+      'Tell SoulSync what you want',
+    );
+  });
+
+  it('Latest', async () => {
+    server.use(
+      http.get('/api/activity', () => HttpResponse.json({ success: true, items: LATEST })),
+    );
+    renderWith(<Latest />);
+    await screen.findAllByTestId('home-latest-row');
+    expect(document.querySelector('[data-tour="home-latest"] h2')).toHaveTextContent('Latest');
   });
 });
 
