@@ -49,6 +49,16 @@ Questions 1–28 were answered in Design's session of 22 October (the log entry 
 
 ## Log
 
+### 2026-10-22: Dev, the visuals work again
+
+Ross: the Visuals were "just a black screen" after choosing a visual. Built on `fix/visuals` from `integration`.
+
+**The cause.** Choosing "Off" hides the visuals canvas (`#np-v2-bg` gets `display: none`), and the visual you choose is remembered. Only `npv2SetBgOn` showed the canvas again (`static/media-player-v2.js`). Choosing a visual (`npv2SetTheme`) never did, and neither did opening the Visuals, which swaps a remembered Off for Aurora. Before build (c), the theater's "Animated background" switch called `npv2SetBgOn` and so showed it again, and the theater had the cover and glow behind it anyway. The player rebuild removed that switch and made the overlay plain black (`#000`), so with Off remembered, every visual drew onto a hidden canvas. The audio side was fine: the analyser was connected and returning data, the AudioContext was running and the canvas was full size.
+
+**The fix.** `npv2SyncBgCanvas()` shows the canvas whenever the background is on and the visual isn't Off. `npv2SetBgOn` and `npv2SetTheme` both call it, so choosing a visual always shows the canvas and choosing Off hides it. Tests in `src/test/media-player-v2.test.ts` ("the visuals canvas follows the picked visual") fail without the fix.
+
+**Checked in the running app at 1440 with a track playing:** the Visuals open from "…" and from F, and all 18 visuals draw, including after a remembered Off or a saved-off background. In Motion and effects, every sidebar visualizer type works, and so do particles, Reduce visual effects and Max performance. The worker orbs are the same as before build (c), and the waveform is drawn from the track's peaks. Seen but left alone: while a panel is open it covers the header's ‹ › arrows, so you choose visuals from the panel's grid.
+
 ### 2026-10-22: Dev, the app is named SYNCHRO.S
 
 Ross decided the app is displayed as **SYNCHRO.S**, written exactly that way everywhere: all capitals with the dot, in the wordmark and inside sentences alike. Built on `ux/rename-synchros` from `integration`. Only what a person sees changed.
