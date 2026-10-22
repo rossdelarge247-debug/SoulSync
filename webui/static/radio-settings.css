@@ -191,6 +191,51 @@
 #settings-page #radio-settings .radio-link-who { color: var(--ss-text-meta); font-size: 14px; }
 #settings-page #radio-settings .radio-links-empty { padding: 20px 24px; border-top: 1px solid var(--ss-hairline); color: var(--ss-text-meta); font-size: 15px; }
 
+/* Scan now services: one row per service in the order a scan asks them */
+#settings-page #radio-settings .radio-scan-services { margin: 0 -24px; padding: 0; list-style: none; }
+#settings-page #radio-settings .radio-scan-row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 240px 88px 104px;
+    grid-template-areas: 'step text usage test remove';
+    gap: 12px;
+    align-items: center;
+    min-height: 72px;
+    padding: 8px 24px;
+    border-top: 1px solid var(--ss-hairline);
+}
+#settings-page #radio-settings .radio-scan-row:last-child { border-bottom: 1px solid var(--ss-hairline); }
+#settings-page #radio-settings .radio-scan-step {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06); color: var(--ss-text-secondary); font-size: 13px; font-weight: 600;
+}
+#settings-page #radio-settings .radio-scan-text { display: flex; flex-direction: column; min-width: 0; }
+#settings-page #radio-settings .radio-scan-name { font-size: 15px; font-weight: 500; }
+#settings-page #radio-settings .radio-scan-meta { color: var(--ss-text-meta); font-size: 14px; }
+#settings-page #radio-settings .radio-scan-usage { color: var(--ss-text-secondary); font-size: 14px; }
+#settings-page #radio-settings .radio-scan-row .radio-status { font-size: 14px; }
+#settings-page #radio-settings .radio-scan-row .radio-button[hidden] { display: none; }
+#settings-page #radio-settings .radio-scan-step { grid-area: step; }
+#settings-page #radio-settings .radio-scan-text { grid-area: text; }
+#settings-page #radio-settings .radio-scan-usage { grid-area: usage; }
+#settings-page #radio-settings .radio-scan-row [data-radio-scan-test] { grid-area: test; }
+#settings-page #radio-settings .radio-scan-row [data-radio-scan-remove] { grid-area: remove; }
+#settings-page #radio-settings .radio-field .radio-label + .radio-input + .radio-label { margin-top: 4px; }
+
+@media (max-width: 768px) {
+    #settings-page #radio-settings .radio-scan-services { margin: 0 -16px; }
+    #settings-page #radio-settings .radio-scan-row {
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        grid-template-areas: 'step text test' 'step usage remove';
+        padding: 10px 16px;
+    }
+    #settings-page #radio-settings .radio-scan-step { grid-area: step; align-self: start; margin-top: 6px; }
+    #settings-page #radio-settings .radio-scan-text { grid-area: text; }
+    #settings-page #radio-settings .radio-scan-usage { grid-area: usage; }
+    #settings-page #radio-settings .radio-scan-row [data-radio-scan-test] { grid-area: test; }
+    #settings-page #radio-settings .radio-scan-row [data-radio-scan-remove] { grid-area: remove; }
+}
+
 @media (max-width: 768px) {
     #settings-page #radio-settings > .radio-card { padding: 16px !important; gap: 16px; }
     #settings-page #radio-settings .radio-row { grid-template-columns: 1fr; gap: 16px; }
