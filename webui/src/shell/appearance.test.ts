@@ -73,7 +73,7 @@ beforeEach(() => {
     vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe('/api/profiles/me/appearance');
       if (init?.method === 'PUT') {
-        const body = JSON.parse(String(init.body)) as { accent: string | null };
+        const body = JSON.parse(init.body as string) as { accent: string | null };
         puts.push(body);
         if (server.refuse) return json({ success: false, error: server.refuse }, 400);
         server.accent = body.accent;

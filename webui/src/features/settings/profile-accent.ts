@@ -50,7 +50,7 @@ export function onAccentStore(listener: () => void): () => void {
 }
 
 function notify(): void {
-  for (const listener of [...listeners]) listener();
+  for (const listener of Array.from(listeners)) listener();
 }
 
 function take(body: Partial<ProfileAppearance> | null | undefined): void {
