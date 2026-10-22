@@ -266,13 +266,30 @@ _EXPORT_TRACK_COLUMNS = (
 )
 
 
-# Import matching engine for enhanced similarity logic
-try:
-    from core.matching_engine import MusicMatchingEngine
-    _matching_engine = MusicMatchingEngine()
-except ImportError:
-    logger.warning("Could not import MusicMatchingEngine, falling back to basic similarity")
-    _matching_engine = None
+# The matching engine for enhanced similarity. Built on first use, not at
+# import: core.matching_engine imports this module on its way in (through
+# core.spotify_client), so building it at import raised ImportError whenever
+# core.matching_engine was imported first, which web_server does. The
+# database then quietly fell back to the basic similarity, and the discovery
+# pool's playlist filter (which needs the engine) returned nothing.
+_matching_engine = None
+_matching_engine_unavailable = False
+
+
+def _get_matching_engine():
+    """The shared MusicMatchingEngine, or None if it can't be imported."""
+    global _matching_engine, _matching_engine_unavailable
+    if _matching_engine is None and not _matching_engine_unavailable:
+        try:
+            from core.matching_engine import MusicMatchingEngine
+            _matching_engine = MusicMatchingEngine()
+        except ImportError:
+            # mid-import (a call made while core.matching_engine is still
+            # loading) is not "unavailable": try again on the next call
+            if 'core.matching_engine' not in sys.modules:
+                _matching_engine_unavailable = True
+                logger.warning("Could not import MusicMatchingEngine, falling back to basic similarity")
+    return _matching_engine
 
 @dataclass
 class DatabaseArtist:
@@ -13327,8 +13344,9 @@ class MusicDatabase:
                     return 1.0
 
         # Use enhanced similarity from matching engine if available
-        if _matching_engine:
-            return _matching_engine.similarity_score(s1, s2)
+        engine = _get_matching_engine()
+        if engine:
+            return engine.similarity_score(s1, s2)
         
         # Simple Levenshtein distance implementation
         len1, len2 = len(s1), len(s2)
@@ -23006,7 +23024,7 @@ class MusicDatabase:
         """
         keys = set()
         try:
-            engine = _matching_engine
+            engine = _get_matching_engine()
             if engine is None:
                 # #1452: failing closed here would silently empty the Matched
                 # tab whenever a playlist filter is applied, so log loudly —
