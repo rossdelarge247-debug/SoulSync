@@ -50,7 +50,57 @@ Everything in the handoff package is built and in `integration`. These are the q
 27. The "Keep lossy output only" turn-on confirm: the shared dialog with three points and no file list. Draw it?
 28. The audiobook bin's confirm opens over the Removed & refused modal. Fine, or should the modal step aside?
 
+**Upstream sync (no boards)**
+29. Home's "Finish setting up" card sits under Latest. Right place, or above Targets while setup is fresh?
+30. Upstream rebuilt the Downloads page (`/active-downloads`, music and video) in its own look: pill chips, 11–13px text, 30–32px buttons. Restyle it to the design system now, or draw it first?
+31. The first-run setup flow is upstream's full-screen React flow with its own look. Draw it in the design system?
+32. Wanted's nebula now groups artists by what's stuck and opens an artist panel beside the field (upstream's look, kept). Is this the nebula you'd draw (question 9)?
+33. The video side's Wishlist is upstream's React page with the old music Wishlist's look (an ambient gradient hero, pill chips). Draw the video side's version of Wanted?
+
 ## Log
+
+### 2026-10-22: Dev, upstream sync
+
+Upstream's `dev` (Nezreka/SoulSync, release 3.5.9: 77 commits since 20 October) is merged into `sync/upstream-2026-10-22`, with the tidy-up above merged on top. Server changes came in with the fork's behaviour kept beside them; front-end changes to the pages the fork rebuilt were ported into the new pages rather than bringing the old layouts back.
+
+**What came in**
+
+- **First-run setup** rebuilt by upstream as a guided, full-screen React flow in place of the old setup wizard: it looks for servers on the network, checks folders live, saves nothing until its last step, checks every part, and can be finished later. Settings → Advanced → Developer has a Setup preview that saves nothing. Setup check's "Open the setup wizard" opens it.
+- **Downloads page** (`/active-downloads`) rebuilt for music and video: art and status on each row, a detail sheet per download, history grouped by day, the Music | Video switch in the page's header.
+- **Wishlist**: upstream's nebula groups artists by what's stuck, with an artist panel beside the field; the video wishlist is a React page on `/wishlist?media=movies|tv|youtube`.
+- **Settings**: MCP for AI clients and the Lidarr compatible API (both off by default) in Advanced; what new sign-ups start with (side and request limit) in Security; an optional anime folder in video Settings → Downloads; clearer duration-tolerance help. Members can open the video Requests page.
+- Fixes in matching, imports, review, playlist sync, collections, audiobooks and video downloads (the merge commit lists them).
+
+**Ported into the fork's pages**
+
+- **Home**: upstream put a "Finish setting up" checklist at the top of the old dashboard. It's on Home under Latest, drawn to the design system: a 14px card, the progress in words ("2 of 5 done") instead of a ring, 44px secondary buttons instead of 32px pills, a 44px hide button, the tick as a 20px box in a 44px target, nothing under 14px. Admins only, as upstream has it. "Finish movies and TV" is left out while the Video module is off.
+- **Wanted**: the nebula (⋯ → Show as a nebula) files artists into zones, worst first (Downloaded, then rejected; No match found; Download keeps failing; Still hunting), each stuck zone with its own Retry. Opening an orb opens the artist panel beside the field (a drawer under 1300px, a bottom sheet on phones), which says what went wrong in plain words before it lists the tracks. The panel says Wanted, not the wishlist. Each row's "last try:" uses the same plain words ("only ~30s of 3:54 played, so it was thrown out", "the wrong song came back ("Xtal" by Aphex Twin)") instead of the raw log line.
+- **Downloads page and module switches**: with the Video module off, the header's switch has no Video side, the hidden video side isn't polled, and `?media=video` says Video is turned off.
+- **Preview, then confirm stays**: in upstream's new rows, Delete forever and Empty bin sit in ⋯ menus; for the music bin, the video bin and Clear quarantine they still open the shared preview-then-confirm dialog, and the purge routes still need a plan.
+- **Help**: the wishlist help points at Wanted's ⋯ menu.
+
+**Taken as they are**
+
+- The rebuilt Downloads page's look (`downloads-premier.css`): the fork had left `/active-downloads` as it was, so upstream's version replaces it (question 30).
+- The setup flow's look (question 31).
+- The video wishlist page, reached from the video sidebar's Wishlist row, behind the Video module switch (question 33).
+- Modal overlays moved onto `DialogFrame` (podcasts, Sample Studio, Stats, smart delete on the Artist page, Mirrored playlists' source prompt, Maintenance's finding prompts) and upstream's CSS token completion.
+
+**Not ported, and why**
+
+- Upstream's music Wishlist page (hero, stats strip, triage banner, command bar, media tabs): Wanted replaces it, and what it did is already there (How often to try again…, Download everything now…, Removed and skipped tracks…, Remove what's already in your library…, the Not found yet filter, Audiobooks on Wanted).
+- Upstream's zoned list view with its why-and-when column: Wanted's own list replaces it, and its rows carry the last try and its time.
+- Token swaps in the old Search stylesheets, `automations-overhaul.css` and the old automation tile rules: the fork had deleted them.
+
+**Navigation**
+
+No new rows or pages. The video wishlist uses the video sidebar's existing Wishlist row; the new settings are sections of Settings.
+
+**From the tidy-up**
+
+`wishlist-premier.css` keeps the `.wlp` rules the tidy-up had removed, because upstream's code uses them again: the video wishlist page (its wrapper, hero, command bar, posters, diagnostics and cast) and the zones and artist panel Wanted's nebula now uses. Every other deletion stays: the selectors removed since the upstream merge that could still match are the same ones the tidy-up checked by hand. The tour needs no new steps.
+
+Screenshots: none this time. This session had no browser to take them with.
 
 ### 2026-10-22: Dev, tidy-up after the redesign
 
