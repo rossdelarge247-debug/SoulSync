@@ -909,6 +909,58 @@ def m4a_codec(path):
         return None
 
 
+# Activity tool name for a lossless original the post-download conversion
+# deleted, under the profile's "keep lossy output only" (core/activity/feed.py).
+LOSSY_IMPORT_DELETE_TOOL = "lossy_copy_import"
+
+
+def _audio_seconds(path):
+    """How long an audio file plays, in seconds, or None when it can't be read."""
+    try:
+        from mutagen import File as MutagenFile
+        audio = MutagenFile(path)
+        length = float(getattr(getattr(audio, "info", None), "length", 0) or 0)
+        return length if length > 0 else None
+    except Exception:  # noqa: BLE001 - unreadable is an answer, not an error
+        return None
+
+
+def lossy_copy_verified(source_path, out_path) -> bool:
+    """Whether a lossy copy can stand in for its lossless source, so the
+    source may be deleted: it is there and not empty, it reads as audio, and
+    it plays as long as the source (within 2 seconds or 2%, whichever is more;
+    a source that can't be read is judged on the copy alone). Never raises.
+
+    ffmpeg exiting 0 is not enough: a full disk or a killed encoder can leave
+    a short or empty file behind, and the lossless original is the only copy
+    that can't be made again."""
+    try:
+        if not out_path or not os.path.isfile(out_path) or os.path.getsize(out_path) <= 0:
+            return False
+    except OSError:
+        return False
+    out_seconds = _audio_seconds(out_path)
+    if not out_seconds:
+        return False
+    source_seconds = _audio_seconds(source_path)
+    if source_seconds:
+        return abs(out_seconds - source_seconds) <= max(2.0, source_seconds * 0.02)
+    return True
+
+
+def _record_original_deleted(source_path, out_path, size, quality_label):
+    """One Activity line (Safety) per lossless original the post-download
+    conversion deleted: which file, how big, and the copy kept in its place.
+    Best-effort: a bookkeeping failure never fails an import."""
+    try:
+        from core.activity.safety_log import record_unattended_delete
+        from database.music_database import get_database
+        record_unattended_delete(get_database(), tool=LOSSY_IMPORT_DELETE_TOOL, path=source_path,
+                                 size=size, detail={"kept": out_path, "label": quality_label})
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("could not record the deleted original %s: %s", source_path, exc)
+
+
 def create_lossy_copy(final_path, settings=None):
     """Convert a lossless file (FLAC / ALAC / WAV / AIFF / DSD) to a lossy copy
     using the configured codec. Non-lossless inputs are skipped (#941).
@@ -1006,14 +1058,28 @@ def create_lossy_copy(final_path, settings=None):
             # FLAC was always kept alongside the converted MP3/OPUS/AAC even
             # when the user explicitly opted into a lossy-only library
             # (Discord-reported by CAL).
-            if delete_original:
-                if os.path.normpath(out_path) != os.path.normpath(final_path):
+            # This runs on every import, with nobody watching, so the
+            # original only goes once its copy is checked (lossy_copy_verified)
+            # and each one deleted is recorded in Activity.
+            if delete_original and os.path.normpath(out_path) != os.path.normpath(final_path):
+                if not lossy_copy_verified(final_path, out_path):
+                    logger.warning(
+                        f"[Lossy Copy] Kept the lossless original: the {quality_label} copy of "
+                        f"{os.path.basename(final_path)} could not be checked (missing, empty, "
+                        f"unreadable or a different length)"
+                    )
+                else:
                     try:
+                        try:
+                            original_size = os.path.getsize(final_path)
+                        except OSError:
+                            original_size = 0
                         os.remove(final_path)
                         logger.info(
                             f"[Lossy Copy] Deleted original lossless source after conversion: "
                             f"{os.path.basename(final_path)}"
                         )
+                        _record_original_deleted(final_path, out_path, original_size, quality_label)
                     except FileNotFoundError:
                         # Already gone — concurrent cleanup or another worker
                         # handled it. Not an error.

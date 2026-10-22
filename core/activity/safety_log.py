@@ -8,12 +8,18 @@ Writes are best-effort: losing an event must never break a plan.
 
 An expired preview "needs you" until it is closed (previewed again, confirmed,
 or dismissed from Activity).
+
+One kind of row has no plan behind it: ``auto_deleted``, a file an unattended
+run deleted under a setting the user chose (the post-download lossy
+conversion's "keep lossy output only"). Nobody confirmed a list for those, so
+each one is written down here, with what it was and what was kept instead.
 """
 
 from __future__ import annotations
 
 import json
 import time
+import uuid
 from contextlib import closing
 from typing import Any, Callable, Optional
 
@@ -23,6 +29,7 @@ logger = get_logger("activity.safety_log")
 
 EXPIRED = "expired"
 CONFIRMED = "confirmed"
+UNATTENDED_DELETE = "auto_deleted"
 
 
 def _counts(plan) -> tuple:
@@ -65,6 +72,25 @@ def record(database, event: str, plan, *, now: Optional[float] = None) -> None:
         logger.debug("could not record plan event %s for %s: %s", event, getattr(plan, "tool", "?"), exc)
 
 
+def record_unattended_delete(database, *, tool: str, path: str, size: int = 0,
+                             detail: Optional[dict] = None, now: Optional[float] = None) -> None:
+    """Write down one file an unattended run deleted (``auto_deleted``):
+    ``counts_json`` holds its ``path`` plus ``detail`` (what was kept in its
+    place). No profile: it shows to admins. Best-effort, never raises."""
+    now = time.time() if now is None else float(now)
+    try:
+        with closing(database._get_connection()) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO action_plan_events "
+                "(plan_id, tool, event, total, total_bytes, counts_json, profile_id, occurred_at) "
+                "VALUES (?, ?, ?, 1, ?, ?, NULL, ?)",
+                (uuid.uuid4().hex, tool, UNATTENDED_DELETE, int(size or 0),
+                 json.dumps({"path": str(path or ""), **(detail or {})}), now))
+            conn.commit()
+    except Exception as exc:  # noqa: BLE001 - bookkeeping only
+        logger.debug("could not record the unattended delete of %s: %s", path, exc)
+
+
 def install(get_database: Callable[[], Any], store=None) -> None:
     """Listen to ``store`` (the shared plan store by default). Idempotent."""
     if store is None:
@@ -89,4 +115,5 @@ def dismiss(database, event_id: int, *, profile_id: Optional[int], is_admin: boo
         return cur.rowcount > 0
 
 
-__all__ = ["EXPIRED", "CONFIRMED", "record", "install", "dismiss"]
+__all__ = ["EXPIRED", "CONFIRMED", "UNATTENDED_DELETE", "record", "record_unattended_delete",
+           "install", "dismiss"]

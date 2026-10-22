@@ -85,7 +85,12 @@ import { safeFixablePending, visibleGroups } from '../-tools.groups';
 import { RedownloadModal } from '../../artist-detail/-ui/redownload-modal';
 import { ReidentifyModal } from '../../artist-detail/-ui/reidentify-modal';
 import { AlbumInspectionTray } from './album-inspection-tray';
-import { type BulkFixContext, useBulkFixPreview } from './bulk-fix-preview';
+import {
+  type BulkFixContext,
+  type BulkFixPreviewFlow,
+  TYPE_LOSSY,
+  useBulkFixPreview,
+} from './bulk-fix-preview';
 import { FindingDetail } from './finding-detail';
 import { useFindingPrompts } from './finding-prompts';
 import { FindingsAlbumGrid } from './findings-album-grid';
@@ -557,11 +562,31 @@ export function FindingsSurface({
     [refreshAll],
   );
 
+  // the preview flow is made further down; the single fix reaches it here
+  const bulkPreviewRef = useRef<BulkFixPreviewFlow | null>(null);
+
   /** `fixRepairFinding`. The per-type prompts run BEFORE the button is disabled. */
   const fixOne = useCallback(
     async (finding: RepairFinding) => {
       const type = finding.finding_type;
       let fixAction: string | null = null;
+
+      // Convert deletes the lossless original when the track's profile keeps
+      // the lossy copy only: show that file, and what happens to it, first.
+      // Its profile may not delete, and then it runs at once with its plan.
+      if (type === TYPE_LOSSY && typeInfo(type)?.destructive && bulkPreviewRef.current) {
+        await bulkPreviewRef.current.begin(
+          { ids: [finding.id] },
+          {
+            findingType: '',
+            fixAction: null,
+            label: 'this finding',
+            selection: true,
+            confirmOnlyWhenDestructive: true,
+          },
+        );
+        return;
+      }
 
       if (type === TYPE_ORPHAN) {
         fixAction = await prompts.promptOrphan();
@@ -651,7 +676,7 @@ export function FindingsSurface({
         });
       }
     },
-    [dismissOne, prompts, refreshAll],
+    [dismissOne, prompts, refreshAll, typeInfo],
   );
 
   const handleInspectRedownload = useCallback((finding: RepairFinding) => {
@@ -736,6 +761,7 @@ export function FindingsSurface({
   const bulkPreview = useBulkFixPreview((result, ctx: BulkFixContext) =>
     reportBulkStart(result, ctx.label),
   );
+  bulkPreviewRef.current = bulkPreview;
 
   /**
    * `bulkFixFindings` — ask once per finding KIND, then fix the selection.

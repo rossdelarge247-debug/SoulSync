@@ -81,3 +81,14 @@ def test_the_video_tools_page_opens_the_shared_dialog_for_approve_selected():
     assert "window.openVideoRepairBulkFix" in body
     assert "jsend(" not in body
 
+
+def test_settings_asks_before_turning_on_delete_original():
+    src = (_WEBUI / "static" / "settings.js").read_text(encoding="utf-8")
+    assert "settingsPage.addEventListener('change', confirmLossyDeleteOriginalChange, true)" in src
+    start = src.index("async function confirmLossyDeleteOriginalChange(event)")
+    body = src[start:src.index("\n}\n", start)]
+    assert "'lossy-copy-delete-original'" in body
+    assert "window.confirmLossyDeleteOriginal" in body
+    assert "event.stopImmediatePropagation()" in body and "box.checked = false" in body
+    main = (_WEBUI / "src" / "app" / "main.tsx").read_text(encoding="utf-8")
+    assert "mountLossyDeleteOriginalHost()" in main and "mountVideoRepairFixHost()" in main

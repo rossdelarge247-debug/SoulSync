@@ -423,7 +423,8 @@ def _bulk_fix_selection(data):
                                    'code': exc.code}), 409)
         return {'job_id': None, 'severity': None, 'finding_ids': plan['ids'] or [-1],
                 'fix_action': plan['fix_action'], 'fix_actions': plan.get('fix_actions'),
-                'finding_type': None, 'safe_only': False}, None
+                'finding_type': None, 'safe_only': False,
+                'lossy_delete_ids': plan.get('lossy_delete_ids') or []}, None
     fix_actions, refusal = _fix_actions_from(data)
     if refusal:
         return None, refusal
@@ -435,12 +436,14 @@ def _bulk_fix_selection(data):
         'fix_actions': fix_actions,
         'finding_type': data.get('finding_type') or None,
         'safe_only': bool(data.get('safe_only')),
+        # without a confirmed preview no Lossy Converter fix deletes an original
+        'lossy_delete_ids': None,
     }
     if worker.bulk_fix_needs_plan(job_id=filters['job_id'], severity=filters['severity'],
                                   finding_ids=filters['finding_ids'], finding_type=filters['finding_type'],
                                   safe_only=filters['safe_only'], fix_action=filters['fix_action'],
                                   fix_actions=filters['fix_actions']):
-        preview = worker.preview_bulk_fix(**filters)
+        preview = worker.preview_bulk_fix(**{k: v for k, v in filters.items() if k != 'lossy_delete_ids'})
         if preview.get('invalid'):
             return None, (jsonify({'success': False, 'started': False, **preview}), 400)
         return None, (jsonify({
@@ -499,7 +502,7 @@ def repair_findings_bulk_fix():
         result = _repair_worker().bulk_fix_findings(
             job_id=filters['job_id'], severity=filters['severity'],
             finding_ids=filters['finding_ids'], fix_action=filters['fix_action'],
-            fix_actions=filters['fix_actions'],
+            fix_actions=filters['fix_actions'], lossy_delete_ids=filters['lossy_delete_ids'],
         )
         return jsonify({
             'success': True,

@@ -129,6 +129,44 @@ function debouncedAutoSaveSettings(event) {
     settingsAutoSaveTimer = setTimeout(() => saveSettings(true), 2000);
 }
 
+// "Keep lossy output only — delete the lossless source after conversion"
+// deletes lossless originals, so turning it on asks first, in the shared
+// danger confirm (features/safe-action/lossy-delete-original). The change is
+// held back (box unticked, no autosave) until it is confirmed, then replayed
+// so the profile autosave runs as for any other edit. Turning it off needs no
+// confirm. Named, so addEventListener deduplicates across repeated inits.
+async function confirmLossyDeleteOriginalChange(event) {
+    const box = event && event.target;
+    if (!box || box.id !== 'lossy-copy-delete-original') return;
+    if (box.dataset.ssConfirmed === '1') {   // our own replay below
+        delete box.dataset.ssConfirmed;
+        return;
+    }
+    if (!box.checked) return;
+    event.stopImmediatePropagation();
+    box.checked = false;
+    const options = {
+        codec: document.getElementById('lossy-copy-codec')?.value || 'mp3',
+        bitrate: document.getElementById('lossy-copy-bitrate')?.value || '320',
+    };
+    let ok = false;
+    if (typeof window.confirmLossyDeleteOriginal === 'function') {
+        ok = await window.confirmLossyDeleteOriginal(options);
+    } else if (typeof window.showConfirmDialog === 'function') {
+        ok = await window.showConfirmDialog({
+            title: 'Delete the lossless files after converting?',
+            message: "This can't be undone. SoulSync keeps only the lossy copy and deletes each lossless " +
+                'original once its copy is checked.',
+            confirmText: 'Delete originals after converting',
+            destructive: true,
+        });
+    }
+    if (!ok) return;
+    box.checked = true;
+    box.dataset.ssConfirmed = '1';
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 function handleManualSaveClick() {
     if (settingsAutoSaveTimer) clearTimeout(settingsAutoSaveTimer);
     if (qualityProfileAutoSaveTimer) clearTimeout(qualityProfileAutoSaveTimer);
@@ -420,6 +458,9 @@ function initializeSettings() {
     // Uses named function reference (debouncedAutoSaveSettings) so addEventListener deduplicates
     const settingsPage = document.getElementById('settings-page');
     if (settingsPage) {
+        // Ticking "keep lossy output only" asks first; nothing saves until
+        // it is confirmed (capture, so it runs before the autosave below).
+        settingsPage.addEventListener('change', confirmLossyDeleteOriginalChange, true);
         settingsPage.querySelectorAll('input[type="text"], input[type="url"], input[type="password"], input[type="number"], input[type="range"]').forEach(input => {
             input.addEventListener('input', debouncedAutoSaveSettings);
         });

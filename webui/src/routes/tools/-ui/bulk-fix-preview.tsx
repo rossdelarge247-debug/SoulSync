@@ -18,7 +18,7 @@ import { useCallback, useRef, useState } from 'react';
 
 import type { SafeActionPhase, SafeActionRow } from '@/features/safe-action/safe-action-dialog';
 
-import { countLabel, isPlanRefusalCode, pathTail } from '@/features/safe-action/plan';
+import { countLabel, formatBytes, isPlanRefusalCode, pathTail } from '@/features/safe-action/plan';
 import { SafeActionDialog } from '@/features/safe-action/safe-action-dialog';
 import styles from '@/features/safe-action/safe-action.module.css';
 
@@ -26,6 +26,7 @@ import type { FindingTypeInfo } from '../-tools.groups';
 
 import {
   type BulkFixInlineResult,
+  type BulkFixLossy,
   type BulkFixOptions,
   type BulkFixPreview,
   type BulkFixStartResult,
@@ -57,16 +58,79 @@ export interface BulkFixContext {
 const REMOVE_ACTIONS = new Set(['delete', 'remove']);
 const REMOVING_EFFECTS = ['delete', 'recycle', 'folder'] as const;
 
-/** How many fixes remove something, by kind, from the preview. */
+/** The Lossy Converter's finding type. */
+export const TYPE_LOSSY = 'missing_lossy_copy';
+
+/** How many fixes remove something, by kind, from the preview. The Lossy
+ *  Converter's deleted originals are counted on their own (lossySentences). */
 function removals(preview: BulkFixPreview | undefined) {
   const byEffect = preview?.by_effect ?? {};
+  const lossy = preview?.lossy;
+  const lossyDeletes = lossy?.delete_originals ?? 0;
   return {
-    permanent: byEffect.delete ?? 0,
-    recycled: byEffect.recycle ?? 0,
+    permanent: (byEffect.delete ?? 0) - (lossy && !lossy.recycle ? lossyDeletes : 0),
+    recycled: (byEffect.recycle ?? 0) - (lossy?.recycle ? lossyDeletes : 0),
     moved: byEffect.move ?? 0,
     folders: byEffect.folder ?? 0,
     known: Boolean(preview?.by_effect),
   };
+}
+
+function lossyTarget(lossy: BulkFixLossy): string {
+  return lossy.labels.length ? lossy.labels.join(' or ') : 'a lossy copy';
+}
+
+/** "About 4.1 GB", or "Up to 6.3 GB" when the copies' size can't be estimated. */
+export function lossySpaceFreed(lossy: BulkFixLossy): string {
+  return lossy.estimated_freed_bytes == null
+    ? `Up to ${formatBytes(lossy.originals_bytes)}`
+    : `About ${formatBytes(lossy.estimated_freed_bytes)}`;
+}
+
+/** Whether every finding in the run is the Lossy Converter's: its group's
+ *  Convert, or a selection (an album's Resolve all) of nothing else. */
+export function lossyOnly(
+  ctx: Pick<BulkFixContext, 'findingType' | 'selection'>,
+  preview?: BulkFixPreview,
+): boolean {
+  if (!preview?.lossy) return false;
+  if (!ctx.selection && ctx.findingType === TYPE_LOSSY) return true;
+  const types = Object.keys(preview.per_type ?? {});
+  return types.length === 1 && types[0] === TYPE_LOSSY;
+}
+
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+/** What a run does to lossless files, in plain sentences: converted, then
+ *  the originals kept, recycled or deleted for good. */
+export function lossySentences(lossy: BulkFixLossy | undefined): string[] {
+  if (!lossy || !lossy.convert) return [];
+  const target = lossyTarget(lossy);
+  const gone = lossy.delete_originals;
+  const kept = lossy.convert - gone;
+  const out: string[] = [];
+  if (gone) {
+    const one = gone === 1;
+    const where = lossy.recycle
+      ? `${one ? 'goes' : 'go'} to the recycle bin, where you can restore ${one ? 'it' : 'them'} until it is emptied.`
+      : `${one ? 'is' : 'are'} deleted permanently. Recycling is turned off in Settings, so ${one ? 'it' : 'they'} can't be put back.`;
+    out.push(
+      `${countLabel(gone, 'lossless file')} ${one ? 'is' : 'are'} converted to ${target}, then ${one ? 'its original' : 'their originals'} ${where}`,
+    );
+  }
+  if (kept) {
+    out.push(
+      `${countLabel(kept, 'lossless file')} ${kept === 1 ? 'is' : 'are'} converted to ${target} and kept.`,
+    );
+  }
+  if (gone) {
+    out.push(
+      `That frees ${lowerFirst(lossySpaceFreed(lossy))}. A file whose copy fails or can't be checked keeps its original.`,
+    );
+  }
+  return out;
 }
 
 /** The lead for removed files, from the recycle-bin setting the preview
@@ -80,7 +144,7 @@ export function removalLead(recycle: boolean | undefined): string {
 /** One plain sentence per kind of change, with its count. */
 export function effectSentences(preview: BulkFixPreview | undefined): string[] {
   const { permanent, recycled, moved, folders } = removals(preview);
-  const out: string[] = [];
+  const out: string[] = [...lossySentences(preview?.lossy)];
   if (permanent) {
     out.push(
       `${countLabel(permanent, 'fix', 'fixes')} ${permanent === 1 ? 'deletes' : 'delete'} files permanently. They can't be put back.`,
@@ -101,7 +165,8 @@ export function effectSentences(preview: BulkFixPreview | undefined): string[] {
       `${countLabel(folders, 'fix', 'fixes')} ${folders === 1 ? 'deletes' : 'delete'} empty folders.`,
     );
   }
-  const others = (preview?.total ?? 0) - permanent - recycled - moved - folders;
+  const lossyItems = preview?.lossy?.convert ?? 0;
+  const others = (preview?.total ?? 0) - permanent - recycled - moved - folders - lossyItems;
   if (out.length && others > 0) {
     out.push(
       `The other ${others.toLocaleString()} only ${others === 1 ? 'changes' : 'change'} tags, library entries or the wishlist.`,
@@ -123,6 +188,19 @@ export function bulkFixCopy(ctx: BulkFixContext, n: number, preview?: BulkFixPre
   const { findingType, fixAction, label, info } = ctx;
   const verb = info?.verb || 'Fix';
   const sentences = effectSentences(preview);
+  const lossy = preview?.lossy;
+  if (lossy && lossyOnly(ctx, preview)) {
+    const files = countLabel(lossy.convert || n, 'lossless file');
+    const gone = lossy.delete_originals;
+    const forGood = gone > 0 && !lossy.recycle;
+    return {
+      title: gone
+        ? `Convert ${files} and ${forGood ? 'permanently delete' : 'delete'} the originals?`
+        : `Convert ${files}?`,
+      confirm: `Convert ${countLabel(lossy.convert || n, 'file')}`,
+      lead: `${forGood ? "This can't be undone. " : ''}${sentences.join(' ')}`,
+    };
+  }
   if (ctx.selection) {
     return {
       title: `Fix ${countLabel(n, 'selected finding')}?`,
@@ -322,6 +400,20 @@ export function useBulkFixPreview(
   const permanent = preview?.by_effect?.delete ?? 0;
   const shown = preview?.sample.length ?? 0;
   const danger = current ? bulkFixDeletes(current.ctx, preview) : false;
+  const lossy = preview?.lossy;
+  const lossyStats =
+    lossy && current && lossyOnly(current.ctx, preview)
+      ? [
+          { label: 'Files to convert', value: lossy.convert.toLocaleString() },
+          {
+            label: 'Originals deleted',
+            value: lossy.delete_originals.toLocaleString(),
+          },
+          ...(lossy.delete_originals
+            ? [{ label: 'Space freed', value: lossySpaceFreed(lossy) }]
+            : []),
+        ]
+      : null;
 
   const dialog = (
     <SafeActionDialog
@@ -333,15 +425,19 @@ export function useBulkFixPreview(
       }}
       title={copy?.title ?? 'Bulk fix'}
       stats={
-        preview
+        lossyStats ??
+        (preview
           ? [
               { label: 'Findings', value: n.toLocaleString() },
               { label: 'Move or delete a file', value: touching.toLocaleString() },
               ...(permanent
                 ? [{ label: 'Deleted for good', value: permanent.toLocaleString() }]
                 : []),
+              ...(lossy?.delete_originals
+                ? [{ label: 'Space freed', value: lossySpaceFreed(lossy) }]
+                : []),
             ]
-          : undefined
+          : undefined)
       }
       lead={copy?.lead}
       columns={['Finding', 'What happens']}

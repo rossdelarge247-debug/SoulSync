@@ -74,6 +74,15 @@ declare global {
       },
       onDone?: () => void,
     ) => Promise<void>;
+    /**
+     * Asks before Settings turns on "keep lossy output only" (delete the
+     * lossless original after converting). Resolves true only on the confirm
+     * (features/safe-action/lossy-delete-original).
+     */
+    confirmLossyDeleteOriginal?: (options?: {
+      codec?: string | null;
+      bitrate?: string | number | null;
+    }) => Promise<boolean>;
     /** The candidate inspector for a download task (features/downloads/inspector-modal). */
     openDownloadTaskInspector?: (
       taskId: string,

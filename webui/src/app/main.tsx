@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 
 import { mountCandidateInspectorHost } from '@/features/downloads/inspector-modal';
 import { mountAddToPlaylistHost } from '@/features/playlists/add-to-playlist';
+import { mountLossyDeleteOriginalHost } from '@/features/safe-action/lossy-delete-original';
 import { mountPermanentDeleteHost } from '@/features/safe-action/permanent-delete-flow';
 import { mountVideoRepairFixHost } from '@/features/safe-action/video-repair-fix-flow';
 import { mountLibraryDiscographySourceSelector } from '@/features/settings/library-discography-source';
@@ -68,4 +69,5 @@ mountCandidateInspectorHost();
 mountAddToPlaylistHost();
 mountPermanentDeleteHost();
 mountVideoRepairFixHost();
+mountLossyDeleteOriginalHost();
 void bootstrapApp();

@@ -78,6 +78,14 @@ def _stub_ffmpeg_success(monkeypatch, fake_flac: Path):
         lambda _path: None,
         raising=False,
     )
+    # The fake bytes can't be read as audio, so the check that guards the
+    # delete (lossy_copy_verified, tested below) is taken as passed here, and
+    # the Activity record is caught instead of written.
+    monkeypatch.setattr(file_ops, "lossy_copy_verified", lambda _src, _out: True)
+    recorded = []
+    monkeypatch.setattr(file_ops, "_record_original_deleted",
+                        lambda *args: recorded.append(args))
+    return recorded
 
 
 def _stub_ffmpeg_failure(monkeypatch):
@@ -212,3 +220,74 @@ class TestDeleteOriginalDefensive:
         assert out_path is not None, "Failed delete must not break conversion return value"
         assert Path(out_path).exists()
         assert fake_flac.exists(), "Failed delete leaves the original in place"
+
+
+# ---------------------------------------------------------------------------
+# Unattended runs: the original goes only after its copy is checked, and each
+# one deleted is written down in Activity
+# ---------------------------------------------------------------------------
+
+
+class TestUnattendedDeleteIsCheckedAndRecorded:
+    def test_an_unchecked_copy_keeps_the_original(self, monkeypatch, fake_flac: Path):
+        _stub_config(monkeypatch, **{"lossy_copy.delete_original": True})
+        recorded = _stub_ffmpeg_success(monkeypatch, fake_flac)
+        monkeypatch.setattr(file_ops, "lossy_copy_verified", lambda _src, _out: False)
+
+        out_path = file_ops.create_lossy_copy(str(fake_flac))
+
+        assert out_path is not None and Path(out_path).exists()
+        assert fake_flac.exists(), "an unchecked copy must never replace the original"
+        assert recorded == []
+
+    def test_each_deleted_original_is_recorded_with_its_size(self, monkeypatch, fake_flac: Path):
+        _stub_config(monkeypatch, **{"lossy_copy.delete_original": True})
+        recorded = _stub_ffmpeg_success(monkeypatch, fake_flac)
+        size = fake_flac.stat().st_size
+
+        out_path = file_ops.create_lossy_copy(str(fake_flac))
+
+        assert recorded == [(str(fake_flac), out_path, size, "MP3-320")]
+
+    def test_a_kept_original_is_not_recorded(self, monkeypatch, fake_flac: Path):
+        _stub_config(monkeypatch, **{"lossy_copy.delete_original": False})
+        recorded = _stub_ffmpeg_success(monkeypatch, fake_flac)
+        file_ops.create_lossy_copy(str(fake_flac))
+        assert recorded == []
+
+
+class TestLossyCopyVerified:
+    def _lengths(self, monkeypatch, lengths):
+        monkeypatch.setattr(file_ops, "_audio_seconds", lambda path: lengths.get(Path(path).suffix))
+
+    def test_a_copy_as_long_as_its_source_passes(self, monkeypatch, tmp_path):
+        src, out = tmp_path / "a.flac", tmp_path / "a.mp3"
+        src.write_bytes(b"f")
+        out.write_bytes(b"m")
+        self._lengths(monkeypatch, {".flac": 240.0, ".mp3": 240.3})
+        assert file_ops.lossy_copy_verified(str(src), str(out)) is True
+
+    def test_a_short_copy_fails(self, monkeypatch, tmp_path):
+        src, out = tmp_path / "a.flac", tmp_path / "a.mp3"
+        src.write_bytes(b"f")
+        out.write_bytes(b"m")
+        self._lengths(monkeypatch, {".flac": 240.0, ".mp3": 31.0})
+        assert file_ops.lossy_copy_verified(str(src), str(out)) is False
+
+    def test_an_empty_missing_or_unreadable_copy_fails(self, monkeypatch, tmp_path):
+        src, out = tmp_path / "a.flac", tmp_path / "a.mp3"
+        src.write_bytes(b"f")
+        self._lengths(monkeypatch, {".flac": 240.0, ".mp3": 240.0})
+        assert file_ops.lossy_copy_verified(str(src), str(out)) is False      # missing
+        out.write_bytes(b"")
+        assert file_ops.lossy_copy_verified(str(src), str(out)) is False      # empty
+        out.write_bytes(b"m")
+        self._lengths(monkeypatch, {".flac": 240.0})
+        assert file_ops.lossy_copy_verified(str(src), str(out)) is False      # unreadable
+
+    def test_an_unreadable_source_is_judged_on_the_copy(self, monkeypatch, tmp_path):
+        src, out = tmp_path / "a.flac", tmp_path / "a.mp3"
+        src.write_bytes(b"f")
+        out.write_bytes(b"m")
+        self._lengths(monkeypatch, {".mp3": 200.0})
+        assert file_ops.lossy_copy_verified(str(src), str(out)) is True
