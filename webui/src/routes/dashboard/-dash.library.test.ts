@@ -75,10 +75,42 @@ describe('libraryCardView — the five states', () => {
   it('no server configured', () => {
     const view = libraryCardView(stats, { active_media_server: 'none' }, false, NOW);
     expect(view.cardClass).toBe('library-status-card needs-setup');
-    expect(view.title).toBe('No Media Server');
-    expect(view.subtitle).toBe('Connect a server to get started');
+    expect(view.title).toBe('No library chosen');
+    expect(view.subtitle).toBe('Choose where your library lives');
     expect(view.scanVisible).toBe(false);
     expect(view.message).toEqual({ kind: 'no-server', serverName: '' });
+  });
+
+  it('a chosen server that was never set up is no library chosen, not disconnected', () => {
+    // a fresh install: the default Plex with no address (/status configured: false)
+    const view = libraryCardView(
+      stats,
+      { media_server: { connected: false, configured: false }, active_media_server: 'plex' },
+      false,
+      NOW,
+    );
+    expect(view.title).toBe('No library chosen');
+    expect(view.message).toEqual({ kind: 'no-server', serverName: '' });
+  });
+
+  it('configured: false wins over a stale connected frame', () => {
+    const view = libraryCardView(
+      stats,
+      { media_server: { connected: true, configured: false }, active_media_server: 'jellyfin' },
+      false,
+      NOW,
+    );
+    expect(view.message).toEqual({ kind: 'no-server', serverName: '' });
+  });
+
+  it('a set-up server that is down still reads as disconnected', () => {
+    const view = libraryCardView(
+      stats,
+      { media_server: { connected: false, configured: true }, active_media_server: 'plex' },
+      false,
+      NOW,
+    );
+    expect(view.title).toBe('Plex — Disconnected');
   });
 
   it('server configured but disconnected', () => {

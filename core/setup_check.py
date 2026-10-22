@@ -1250,23 +1250,61 @@ def _contains(parent: str, child: str) -> bool:
     return b == a or b.startswith(a.rstrip("/") + "/")
 
 
-def check_media_server(ctx: SetupCheckContext) -> List[Dict[str, Any]]:
-    cat = "media_server"
-    conn_id, conn_title = "media_server.connection", "Media server connection"
-    lib_id, lib_title = "media_server.library_path", "Media server sees the music library folder"
+_MEDIA_CAT = "media_server"
+_MEDIA_CONN_ID, _MEDIA_CONN_TITLE = "media_server.connection", "Media server connection"
+_MEDIA_LIB_ID, _MEDIA_LIB_TITLE = "media_server.library_path", "Media server sees the music library folder"
+
+
+def _chosen_media_server(ctx: SetupCheckContext) -> Tuple[Any, Dict[str, Any]]:
+    """(descriptor or None, its settings) for Settings' active_media_server.
+    Settings only, no network."""
     from core.media_server import specs as server_specs
 
-    active = ctx.cfg_str("active_media_server", "plex").lower()
-    desc = server_specs.describe(active)
-    if desc is None or not desc.is_external:
+    desc = server_specs.describe(ctx.cfg_str("active_media_server", "plex").lower())
+    if desc is None:
+        return None, {}
+    return desc, {f.key: ctx.cfg(f"{desc.config_section}.{f.key}", f.default) for f in desc.fields}
+
+
+def _no_library_chosen(desc: Any, cfg: Mapping[str, Any]) -> bool:
+    """Neither Standalone nor a set-up Plex, Jellyfin or Navidrome. Downloads
+    then never reach the Library page: imports record them only for a
+    configured server or Standalone (core/imports/side_effects.py)."""
+    if desc is None:
+        return True
+    return desc.is_external and not desc.is_configured(cfg)
+
+
+def _no_library_results() -> List[Dict[str, Any]]:
+    return [
+        make_result(_MEDIA_CONN_ID, "Where your library lives", WARNING,
+                    "No library is chosen, so downloads won't appear on the Library page.",
+                    f"Choose Standalone in {_MEDIA_SERVER_SETTING} to let SoulSync keep the library itself, "
+                    "or connect Plex, Jellyfin or Navidrome.", _MEDIA_CAT),
+        make_result(_MEDIA_LIB_ID, _MEDIA_LIB_TITLE, SKIPPED, "Couldn't check, because no library is chosen.",
+                    category=_MEDIA_CAT),
+    ]
+
+
+def check_library_choice(ctx: SetupCheckContext) -> List[Dict[str, Any]]:
+    """The settings-only part of the media server check, for the local scope
+    (the navigation's Setup check dot, debug info): the no-library warning, or
+    nothing when a library is chosen."""
+    desc, cfg = _chosen_media_server(ctx)
+    return _no_library_results() if _no_library_chosen(desc, cfg) else []
+
+
+def check_media_server(ctx: SetupCheckContext) -> List[Dict[str, Any]]:
+    cat = _MEDIA_CAT
+    conn_id, conn_title = _MEDIA_CONN_ID, _MEDIA_CONN_TITLE
+    lib_id, lib_title = _MEDIA_LIB_ID, _MEDIA_LIB_TITLE
+
+    desc, cfg = _chosen_media_server(ctx)
+    if _no_library_chosen(desc, cfg):
+        return _no_library_results()
+    if not desc.is_external:
         msg = "You use SoulSync's own library (no Plex, Jellyfin or Navidrome), so there's no media server to check."
         return [make_result(conn_id, conn_title, SKIPPED, msg, category=cat),
-                make_result(lib_id, lib_title, SKIPPED, msg, category=cat)]
-    cfg = {f.key: ctx.cfg(f"{desc.config_section}.{f.key}", f.default) for f in desc.fields}
-    if not desc.is_configured(cfg):
-        msg = "No media server is connected."
-        fix = f"If you use Plex, Jellyfin or Navidrome, connect it in {_MEDIA_SERVER_SETTING} so SoulSync can refresh its library after downloads."
-        return [make_result(conn_id, conn_title, SKIPPED, msg, fix, cat),
                 make_result(lib_id, lib_title, SKIPPED, msg, category=cat)]
 
     label = desc.display_name
@@ -1358,8 +1396,12 @@ def _tasks(ctx: SetupCheckContext, include_network: bool) -> Tuple[List[_Task], 
             _Task("slskd.connection", "slskd connection", "downloads", lambda: check_slskd_connection(ctx), True),
             _Task("slskd.download_folder", "slskd and SoulSync share the download folder", "downloads",
                   lambda: check_slskd_download_folder(ctx), True),
-            _Task("media_server.connection", "Media server connection", "media_server", lambda: check_media_server(ctx), True),
+            _Task(_MEDIA_CONN_ID, _MEDIA_CONN_TITLE, _MEDIA_CAT, lambda: check_media_server(ctx), True),
         ]
+    else:
+        # settings only, so it's cheap enough here; the Setup check dot polls
+        # this scope and should show that downloads can't reach the Library
+        tasks.append(_Task(_MEDIA_CONN_ID, _MEDIA_CONN_TITLE, _MEDIA_CAT, lambda: check_library_choice(ctx)))
     return tasks, skipped
 
 
@@ -1427,8 +1469,8 @@ def run_setup_check(ctx: Optional[SetupCheckContext] = None, *, include_network:
 
 
 def debug_summary(ctx: Optional[SetupCheckContext] = None) -> Dict[str, Any]:
-    """Local checks only (folders, layout, user): cheap enough for debug-info,
-    which must not wait on slskd or a media server."""
+    """Local checks only (folders, layout, user, whether a library is chosen):
+    cheap enough for debug-info, which must not wait on slskd or a media server."""
     report = run_setup_check(ctx, include_network=False, deadline_s=LOCAL_DEADLINE_S)
     return {
         "status": report["status"],
@@ -1443,7 +1485,7 @@ __all__ = [
     "OK", "WARNING", "ERROR", "SKIPPED", "STATUSES",
     "SetupCheckContext", "FolderSpec", "build_context", "configure",
     "check_folder", "check_folder_layout", "check_run_user", "check_slskd_connection",
-    "check_slskd_download_folder", "check_media_server", "folder_specs",
+    "check_slskd_download_folder", "check_media_server", "check_library_choice", "folder_specs",
     "run_setup_check", "debug_summary", "summarize", "worst_status", "make_result",
     "parse_mountinfo", "mount_for", "is_anonymous_volume", "soulseek_in_use", "slskd_logged_in",
 ]

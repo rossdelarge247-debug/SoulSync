@@ -552,8 +552,9 @@ export function LibraryCard() {
         >
           {view.message?.kind === 'no-server' ? (
             <>
-              SoulSync needs a media server to manage your library. Go to <SettingsLink /> to
-              connect Plex, Jellyfin, or Navidrome.
+              Downloads won’t show in your library until you choose where it lives. Go to{' '}
+              <SettingsLink /> → Connections → Server Connections and choose Standalone, or connect
+              Plex, Jellyfin or Navidrome.
             </>
           ) : view.message?.kind === 'disconnected' ? (
             <>

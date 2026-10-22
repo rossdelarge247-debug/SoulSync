@@ -690,11 +690,26 @@ def test_download_folder_check_skipped_without_reported_dir(dirs):
 def test_media_server_standalone_skipped():
     out = sc.check_media_server(make_ctx({"active_media_server": "soulsync"}))
     assert [r["status"] for r in out] == [sc.SKIPPED, sc.SKIPPED]
+    assert out[0]["title"] == "Media server connection" and "SoulSync's own library" in out[0]["detail"]
 
 
-def test_media_server_not_configured_skipped():
-    out = sc.check_media_server(make_ctx({"active_media_server": "plex"}))
-    assert out[0]["status"] == sc.SKIPPED and "No media server" in out[0]["detail"]
+@pytest.mark.parametrize("active", ["plex", "jellyfin", "navidrome", "none", ""])
+def test_no_library_chosen_is_a_warning(active):
+    # the shipped default is plex with no address: downloads never reach Library
+    http = FakeHttp()
+    conn, lib = sc.check_media_server(make_ctx({"active_media_server": active}, http=http))
+    assert conn["id"] == "media_server.connection" and conn["status"] == sc.WARNING
+    assert conn["title"] == "Where your library lives"
+    assert conn["detail"] == "No library is chosen, so downloads won't appear on the Library page."
+    assert conn["fix"] == ("Choose Standalone in Settings → Connections → Server Connections to let SoulSync "
+                           "keep the library itself, or connect Plex, Jellyfin or Navidrome.")
+    assert lib["id"] == "media_server.library_path" and lib["status"] == sc.SKIPPED
+    assert http.calls == [], "nothing to contact when no server is set up"
+
+
+def test_half_set_up_server_is_still_no_library():
+    out = sc.check_media_server(make_ctx({"active_media_server": "plex", "plex.base_url": "http://plex:32400"}))
+    assert out[0]["status"] == sc.WARNING and out[0]["title"] == "Where your library lives"
 
 
 PLEX = {"active_media_server": "plex", "plex.base_url": "http://plex:32400", "plex.token": "t"}
@@ -810,7 +825,32 @@ def test_local_scope_skips_network_checks(dirs):
     report = sc.run_setup_check(make_ctx(dict(full_cfg(dirs), **SLSKD), http=http), include_network=False)
     assert report["scope"] == "local"
     assert "slskd.connection" not in by_id(report)
+    assert "media_server.connection" not in by_id(report)
     assert http.calls == []
+
+
+def test_local_scope_warns_when_no_library_is_chosen(dirs):
+    # the navigation's Setup check dot polls the local scope, so it lights up too
+    http = FakeHttp()
+    cfg = dict(full_cfg(dirs), active_media_server="plex")
+    report = sc.run_setup_check(make_ctx(cfg, http=http), include_network=False)
+    conn = by_id(report)["media_server.connection"]
+    assert conn["status"] == sc.WARNING and conn["title"] == "Where your library lives"
+    assert report["status"] == sc.WARNING and report["summary"]["warning"] == 1
+    assert http.calls == []
+
+
+def test_local_scope_leaves_a_set_up_server_to_the_full_run(dirs):
+    http = FakeHttp()
+    report = sc.run_setup_check(make_ctx(dict(full_cfg(dirs), **PLEX), http=http), include_network=False)
+    assert "media_server.connection" not in by_id(report)
+    assert http.calls == []
+
+
+def test_full_run_counts_no_library_as_a_warning(dirs):
+    report = sc.run_setup_check(make_ctx(dict(full_cfg(dirs), active_media_server="plex")))
+    assert by_id(report)["media_server.connection"]["status"] == sc.WARNING
+    assert report["status"] == sc.WARNING and report["summary"]["warning"] == 1
 
 
 def test_a_crashing_check_does_not_sink_the_run(dirs, monkeypatch):
@@ -840,6 +880,11 @@ def test_unreadable_settings_reported(monkeypatch):
     monkeypatch.setattr(sc, "folder_specs", broken)
     report = sc.run_setup_check(make_ctx())
     assert report["status"] == sc.ERROR and report["checks"][0]["id"] == "settings"
+
+
+def test_debug_summary_names_a_missing_library(dirs):
+    out = sc.debug_summary(make_ctx(dict(full_cfg(dirs), active_media_server="jellyfin")))
+    assert {"id": "media_server.connection", "status": sc.WARNING} in out["problems"]
 
 
 def test_debug_summary_lists_only_problems(dirs, tmp_path):

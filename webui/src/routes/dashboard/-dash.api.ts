@@ -142,12 +142,20 @@ export async function fetchDevMode(): Promise<boolean> {
 
 // ── Service status (/status) ─────────────────────────────────────────────────
 
+/** `configured` comes from settings alone: false when no library is chosen
+ *  (the chosen server was never set up); missing on older payloads. */
+export type MediaServerStatus = {
+  connected?: boolean;
+  type?: string;
+  configured?: boolean;
+} & Record<string, unknown>;
+
 /** The subset of the `/status` payload the dashboard reads. Deliberately
  *  loose — `fetchAndUpdateServiceStatus` hands the raw object around and the
  *  service-card presentation (P5) reads deep into it. */
 export interface ServiceStatusPayload {
   metadata_source?: Record<string, unknown>;
-  media_server?: { connected?: boolean; type?: string } & Record<string, unknown>;
+  media_server?: MediaServerStatus;
   soulseek?: Record<string, unknown>;
   spotify?: Record<string, unknown>;
   enrichment?: Record<string, unknown>;

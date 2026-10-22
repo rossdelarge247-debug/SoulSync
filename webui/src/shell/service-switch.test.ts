@@ -110,6 +110,18 @@ describe('server tab', () => {
     expect(panel.querySelector('.ss-hero-pill--bad')!.textContent).toContain('Offline');
   });
 
+  it('says not set up, not offline, when no library is chosen', async () => {
+    setStatus({ connected: false, response_time: 0, type: 'plex', configured: false });
+    mockSources({ mode: 'soulseek', chain: [] });
+    const panel = await openOn('server');
+    expect(panel.querySelector('.ss-hero-pill--bad')).toBeNull();
+    expect(panel.querySelector('.ss-hero-pill--wait')!.textContent).toContain('Not set up');
+    expect(panel.textContent).toContain(
+      'No library chosen. Choose Standalone, or connect Plex, Jellyfin or Navidrome',
+    );
+    expect(panel.querySelector('.ss-cta')!.textContent).toContain('Change in Settings');
+  });
+
   it("doesn't trust a status frame about a different server", async () => {
     setStatus({ connected: true, response_time: 10, type: 'jellyfin' });
     mockSources({ mode: 'soulseek', chain: [] });

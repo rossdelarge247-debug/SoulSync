@@ -102,6 +102,12 @@ No new rows or pages. The video wishlist uses the video sidebar's existing Wishl
 
 Screenshots (1440×900 and 390×844: Home with the checklist, Wanted's nebula with its zones and the artist panel, the rebuilt Downloads page, the video wishlist) are in the session scratchpad. They aren't in the repo.
 
+### 2026-10-22: Dev, no library chosen
+
+On `fix/library-choice`: no library chosen is now a warning (setup check and its dot), and Home's alert names Standalone and Settings → Connections → Server Connections.
+
+`/status` (and its `status:update` frame) now says `media_server.configured`, from settings alone, so a server that was never set up (a fresh install's default Plex) reads as "No library chosen" on Home's library card, in the Alerts band and in Active Sources, instead of "Disconnected" or "Offline".
+
 ### 2026-10-22: Dev, tidy-up after the redesign
 
 On `chore/tidy-after-redesign`: the stylesheet rules the rebuilds left matching nothing, and the guided tour rewritten for today's app.

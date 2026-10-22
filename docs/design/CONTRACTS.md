@@ -6,7 +6,7 @@ What the API gives each screen today, and what would have to be built. Design wi
 
 ### Setup check: `GET /api/setup/check`
 
-Admin only. `?scope=local` runs only the fast local checks (folders, folder layout, running user). The full run can take up to about 25 seconds, because it calls slskd and the media server.
+Admin only. `?scope=local` runs only the fast local checks (folders, folder layout, running user, and from settings alone whether a library is chosen). The full run can take up to about 25 seconds, because it calls slskd and the media server.
 
 ```json
 {
