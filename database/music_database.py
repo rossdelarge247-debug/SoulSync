@@ -27609,7 +27609,9 @@ class MusicDatabase:
     def insert_automation_run_history(self, automation_id, started_at, finished_at,
                                        duration_seconds, status, summary=None,
                                        result_json=None, log_lines=None):
-        """Insert a run history entry and enforce 100-row retention cap per automation."""
+        """Insert a run history entry and enforce 100-row retention cap per automation.
+
+        Returns the new row's id (truthy), or False when it couldn't be written."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -27619,6 +27621,7 @@ class MusicDatabase:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (automation_id, started_at, finished_at, duration_seconds,
                       status, summary, result_json, log_lines))
+                new_id = cursor.lastrowid
                 # Retention: keep only the newest 100 rows per automation
                 cursor.execute("""
                     DELETE FROM automation_run_history
@@ -27629,7 +27632,7 @@ class MusicDatabase:
                     )
                 """, (automation_id, automation_id))
                 conn.commit()
-                return True
+                return new_id or True
         except Exception as e:
             logger.error(f"Error inserting automation run history for {automation_id}: {e}")
             return False
