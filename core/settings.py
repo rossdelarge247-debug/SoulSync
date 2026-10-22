@@ -1204,6 +1204,7 @@ class ConfigManager:
                 "audiobooks": {"enabled": True},
                 "chat": {"enabled": True},
                 "sample_studio": {"enabled": True},
+                "radio": {"enabled": True},
             },
         }
 

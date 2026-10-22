@@ -162,6 +162,7 @@ const STOPS: Record<string, string> = {
   audiobooks: "Audiobooks' pages and downloads",
   chat: 'Chat rooms, private messages and the arcade',
   sample_studio: "Sample Studio's page and track analysis",
+  radio: 'Radio stations, relaying, track identification and auto-add',
 };
 
 export function whatStops(module: Pick<ModuleState, 'name' | 'display_name'>): string {

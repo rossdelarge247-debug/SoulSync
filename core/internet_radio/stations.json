@@ -1,0 +1,293 @@
+{
+  "_about": [
+    "The built-in stations on the Radio page, in the order they show. Free stations only.",
+    "Edit freely: each station needs id (lowercase, hyphens), name, kind (electronic, world, eclectic, jazz_soul_funk), streams (best first) and source.",
+    "streams[].direct: the browser may play this stream itself (https, and the server allows other sites). Everything else is relayed by the server.",
+    "now_playing.type: somafm, radioparadise, kexp, nts or radiofrance (core/internet_radio/feeds.py). tracklists.type: kexp or nts.",
+    "source says where each address came from. None of these could be fetched from the sandbox this list was written in; they are the stations' published addresses as of 2026 and want a check on a real install (Setup check and Settings > Radio > Check do that)."
+  ],
+  "kinds": [
+    {"kind": "electronic", "label": "Electronic", "blurb": "House, techno, ambient, downtempo, leftfield"},
+    {"kind": "world", "label": "World", "blurb": "Africa, Latin America, the Caribbean, Asia"},
+    {"kind": "eclectic", "label": "Eclectic tastemakers", "blurb": "Curated shows across every genre"},
+    {"kind": "jazz_soul_funk", "label": "Jazz, soul and funk", "blurb": "Jazz, soul, funk and New Orleans"}
+  ],
+  "stations": [
+    {
+      "id": "somafm-dronezone", "name": "SomaFM · Drone Zone", "kind": "electronic", "genre": "Ambient",
+      "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/dronezone/",
+      "description": "Served best chilled, safe with most medications. Atmospheric textures with minimal beats. Listener-supported, no ads.",
+      "streams": [
+        {"id": "mp3-256", "url": "https://ice1.somafm.com/dronezone-256-mp3", "codec": "MP3", "bitrate_kbps": 256, "direct": true},
+        {"id": "aac-128", "url": "https://ice1.somafm.com/dronezone-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true}
+      ],
+      "now_playing": {"type": "somafm", "channel": "dronezone"},
+      "source": "SomaFM's channel list (somafm.com/channels.json) and stream naming ice1.somafm.com/<channel>-<kbps>-<codec>; now playing from somafm.com/songs/<channel>.json."
+    },
+    {
+      "id": "somafm-groovesalad", "name": "SomaFM · Groove Salad", "kind": "electronic", "genre": "Downtempo",
+      "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/groovesalad/",
+      "description": "A nicely chilled plate of ambient and downtempo beats and grooves.",
+      "streams": [
+        {"id": "mp3-256", "url": "https://ice1.somafm.com/groovesalad-256-mp3", "codec": "MP3", "bitrate_kbps": 256, "direct": true},
+        {"id": "aac-128", "url": "https://ice1.somafm.com/groovesalad-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true}
+      ],
+      "now_playing": {"type": "somafm", "channel": "groovesalad"},
+      "source": "SomaFM's channel list and stream naming; now playing from somafm.com/songs/groovesalad.json."
+    },
+    {
+      "id": "fip-electro", "name": "FIP Electro", "kind": "electronic", "genre": "Electronic",
+      "city": "Paris", "country": "France", "homepage": "https://www.radiofrance.fr/fip/radio-electro",
+      "description": "FIP's electronic web radio, from ambient to club, chosen by FIP's programmers. Public service, no ads.",
+      "streams": [
+        {"id": "aac-192", "url": "https://icecast.radiofrance.fr/fipelectro-hifi.aac", "codec": "AAC", "bitrate_kbps": 192},
+        {"id": "mp3-128", "url": "https://icecast.radiofrance.fr/fipelectro-midfi.mp3", "codec": "MP3", "bitrate_kbps": 128}
+      ],
+      "now_playing": {"type": "radiofrance", "station": "fip_electro"},
+      "source": "Radio France's Icecast addresses (icecast.radiofrance.fr/<station>-hifi.aac, -midfi.mp3). The now-playing address is radiofrance.fr's live API and isn't documented; when it doesn't answer, stream titles and fingerprints take over."
+    },
+    {
+      "id": "dublab", "name": "dublab", "kind": "electronic", "genre": "Leftfield",
+      "city": "Los Angeles", "country": "United States", "homepage": "https://www.dublab.com/",
+      "description": "Listener-supported radio from Los Angeles since 1999: leftfield, experimental, electronic and beyond, all DJ-presented.",
+      "streams": [
+        {"id": "mp3-128", "url": "https://dublab.out.airtime.pro/dublab_a", "codec": "MP3", "bitrate_kbps": 128}
+      ],
+      "now_playing": null,
+      "source": "dublab's listen page (airtime.pro stream dublab_a). No now-playing feed; titles come from the stream."
+    },
+    {
+      "id": "rp-mellow", "name": "Radio Paradise · Mellow Mix", "kind": "electronic", "genre": "Downtempo",
+      "city": "California", "country": "United States", "homepage": "https://radioparadise.com/",
+      "description": "Radio Paradise's quieter mix: the gentler side of the main mix, with downtempo and ambient. Listener-supported, no ads.",
+      "streams": [
+        {"id": "flac", "url": "https://stream.radioparadise.com/mellow-flac", "codec": "FLAC", "bitrate_kbps": 1000, "lossless": true},
+        {"id": "aac-320", "url": "https://stream.radioparadise.com/mellow-320", "codec": "AAC", "bitrate_kbps": 320},
+        {"id": "aac-128", "url": "https://stream.radioparadise.com/mellow-128", "codec": "AAC", "bitrate_kbps": 128}
+      ],
+      "now_playing": {"type": "radioparadise", "channel": 1},
+      "source": "Radio Paradise's 'listen in other apps' addresses (stream.radioparadise.com/mellow-flac, -320, -128); now playing from api.radioparadise.com/api/now_playing?chan=1."
+    },
+    {
+      "id": "somafm-deepspaceone", "name": "SomaFM · Deep Space One", "kind": "electronic", "genre": "Ambient",
+      "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/deepspaceone/",
+      "description": "Deep ambient electronic, experimental and space music. For inner and outer space exploration.",
+      "streams": [
+        {"id": "aac-128", "url": "https://ice1.somafm.com/deepspaceone-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
+        {"id": "mp3-128", "url": "https://ice1.somafm.com/deepspaceone-128-mp3", "codec": "MP3", "bitrate_kbps": 128, "direct": true}
+      ],
+      "now_playing": {"type": "somafm", "channel": "deepspaceone"},
+      "source": "SomaFM's channel list and stream naming; now playing from somafm.com/songs/deepspaceone.json."
+    },
+    {
+      "id": "somafm-beatblender", "name": "SomaFM · Beat Blender", "kind": "electronic", "genre": "House",
+      "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/beatblender/",
+      "description": "A late-night blend of deep house and downtempo chill.",
+      "streams": [
+        {"id": "aac-128", "url": "https://ice1.somafm.com/beatblender-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
+        {"id": "mp3-128", "url": "https://ice1.somafm.com/beatblender-128-mp3", "codec": "MP3", "bitrate_kbps": 128, "direct": true}
+      ],
+      "now_playing": {"type": "somafm", "channel": "beatblender"},
+      "source": "SomaFM's channel list and stream naming; now playing from somafm.com/songs/beatblender.json."
+    },
+    {
+      "id": "somafm-fluid", "name": "SomaFM · Fluid", "kind": "electronic", "genre": "Leftfield",
+      "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/fluid/",
+      "description": "Drown in the electronic sound of instrumental hip-hop, future soul and liquid trap.",
+      "streams": [
+        {"id": "aac-128", "url": "https://ice1.somafm.com/fluid-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
+        {"id": "mp3-128", "url": "https://ice1.somafm.com/fluid-128-mp3", "codec": "MP3", "bitrate_kbps": 128, "direct": true}
+      ],
+      "now_playing": {"type": "somafm", "channel": "fluid"},
+      "source": "SomaFM's channel list and stream naming; now playing from somafm.com/songs/fluid.json."
+    },
+    {
+      "id": "fip-monde", "name": "FIP Monde", "kind": "world", "genre": "World",
+      "city": "Paris", "country": "France", "homepage": "https://www.radiofrance.fr/fip/radio-monde",
+      "description": "FIP's world music web radio: Africa, Latin America, the Caribbean, Asia and the rest.",
+      "streams": [
+        {"id": "aac-192", "url": "https://icecast.radiofrance.fr/fipworld-hifi.aac", "codec": "AAC", "bitrate_kbps": 192},
+        {"id": "mp3-128", "url": "https://icecast.radiofrance.fr/fipworld-midfi.mp3", "codec": "MP3", "bitrate_kbps": 128}
+      ],
+      "now_playing": {"type": "radiofrance", "station": "fip_world"},
+      "source": "Radio France's Icecast addresses; now playing from radiofrance.fr's undocumented live API (see FIP Electro)."
+    },
+    {
+      "id": "worldwide-fm", "name": "Worldwide FM", "kind": "world", "genre": "Global sounds",
+      "city": "London", "country": "United Kingdom", "homepage": "https://worldwidefm.net/",
+      "description": "Gilles Peterson's station: global sounds, jazz, soul and dance music from London and around the world.",
+      "streams": [
+        {"id": "mp3-128", "url": "https://worldwidefm.out.airtime.pro/worldwidefm_a", "codec": "MP3", "bitrate_kbps": 128}
+      ],
+      "now_playing": null,
+      "source": "Worldwide FM's player (airtime.pro stream worldwidefm_a). No public now-playing feed; titles come from the stream when it sends them."
+    },
+    {
+      "id": "rp-global", "name": "Radio Paradise · Global Mix", "kind": "world", "genre": "World",
+      "city": "California", "country": "United States", "homepage": "https://radioparadise.com/",
+      "description": "Radio Paradise's global mix: music from everywhere, with the same human curation as the main mix.",
+      "streams": [
+        {"id": "flac", "url": "https://stream.radioparadise.com/global-flac", "codec": "FLAC", "bitrate_kbps": 1000, "lossless": true},
+        {"id": "aac-320", "url": "https://stream.radioparadise.com/global-320", "codec": "AAC", "bitrate_kbps": 320},
+        {"id": "aac-128", "url": "https://stream.radioparadise.com/global-128", "codec": "AAC", "bitrate_kbps": 128}
+      ],
+      "now_playing": {"type": "radioparadise", "channel": 3},
+      "source": "Radio Paradise's 'listen in other apps' addresses (global-flac, -320, -128); now playing from api.radioparadise.com/api/now_playing?chan=3."
+    },
+    {
+      "id": "somafm-suburbsofgoa", "name": "SomaFM · Suburbs of Goa", "kind": "world", "genre": "Desi-influenced",
+      "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/suburbsofgoa/",
+      "description": "Desi-influenced Asian world beats and beyond.",
+      "streams": [
+        {"id": "aac-128", "url": "https://ice1.somafm.com/suburbsofgoa-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
+        {"id": "mp3-128", "url": "https://ice1.somafm.com/suburbsofgoa-128-mp3", "codec": "MP3", "bitrate_kbps": 128, "direct": true}
+      ],
+      "now_playing": {"type": "somafm", "channel": "suburbsofgoa"},
+      "source": "SomaFM's channel list and stream naming; now playing from somafm.com/songs/suburbsofgoa.json."
+    },
+    {
+      "id": "somafm-thistle", "name": "SomaFM · ThistleRadio", "kind": "world", "genre": "Celtic",
+      "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/thistle/",
+      "description": "Exploring music from Celtic roots and branches.",
+      "streams": [
+        {"id": "aac-128", "url": "https://ice1.somafm.com/thistle-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
+        {"id": "mp3-128", "url": "https://ice1.somafm.com/thistle-128-mp3", "codec": "MP3", "bitrate_kbps": 128, "direct": true}
+      ],
+      "now_playing": {"type": "somafm", "channel": "thistle"},
+      "source": "SomaFM's channel list and stream naming; now playing from somafm.com/songs/thistle.json."
+    },
+    {
+      "id": "kexp", "name": "KEXP", "kind": "eclectic", "genre": "Eclectic",
+      "city": "Seattle", "country": "United States", "homepage": "https://www.kexp.org/",
+      "description": "Listener-powered radio from Seattle, with DJs who choose every song. Publishes every play, and each show's playlist.",
+      "streams": [
+        {"id": "aac-160", "url": "https://kexp.streamguys1.com/kexp160.aac", "codec": "AAC", "bitrate_kbps": 160},
+        {"id": "mp3-128", "url": "https://kexp-mp3-128.streamguys1.com/kexp128.mp3", "codec": "MP3", "bitrate_kbps": 128}
+      ],
+      "now_playing": {"type": "kexp"},
+      "tracklists": {"type": "kexp"},
+      "source": "KEXP's stream addresses (kexp.streamguys1.com); plays and shows from KEXP's public API (api.kexp.org/v2/plays, /v2/shows)."
+    },
+    {
+      "id": "nts-1", "name": "NTS 1", "kind": "eclectic", "genre": "Eclectic",
+      "city": "London", "country": "United Kingdom", "homepage": "https://www.nts.live/",
+      "description": "Live radio from London, Los Angeles and beyond: hundreds of residents across every genre. Tracklists are published after shows.",
+      "streams": [
+        {"id": "mp3-256", "url": "https://stream-relay-geo.ntslive.net/stream", "codec": "MP3", "bitrate_kbps": 256}
+      ],
+      "now_playing": {"type": "nts", "channel": "1"},
+      "tracklists": {"type": "nts", "channel": "1"},
+      "source": "NTS's stream relay (stream-relay-geo.ntslive.net/stream); what's on and episode tracklists from nts.live/api/v2 (live, and shows/<show>/episodes/<episode>/tracklist)."
+    },
+    {
+      "id": "nts-2", "name": "NTS 2", "kind": "eclectic", "genre": "Eclectic",
+      "city": "London", "country": "United Kingdom", "homepage": "https://www.nts.live/",
+      "description": "NTS's second channel, with its own residents and schedule. Tracklists are published after shows.",
+      "streams": [
+        {"id": "mp3-256", "url": "https://stream-relay-geo.ntslive.net/stream2", "codec": "MP3", "bitrate_kbps": 256}
+      ],
+      "now_playing": {"type": "nts", "channel": "2"},
+      "tracklists": {"type": "nts", "channel": "2"},
+      "source": "NTS's stream relay (stream-relay-geo.ntslive.net/stream2); what's on and tracklists from nts.live/api/v2."
+    },
+    {
+      "id": "fip", "name": "FIP", "kind": "eclectic", "genre": "Eclectic",
+      "city": "Paris", "country": "France", "homepage": "https://www.radiofrance.fr/fip",
+      "description": "France's eclectic public station: jazz next to electronic next to chanson, with almost no talk.",
+      "streams": [
+        {"id": "aac-192", "url": "https://icecast.radiofrance.fr/fip-hifi.aac", "codec": "AAC", "bitrate_kbps": 192},
+        {"id": "mp3-128", "url": "https://icecast.radiofrance.fr/fip-midfi.mp3", "codec": "MP3", "bitrate_kbps": 128}
+      ],
+      "now_playing": {"type": "radiofrance", "station": "fip"},
+      "source": "Radio France's Icecast addresses; now playing from radiofrance.fr's undocumented live API (see FIP Electro)."
+    },
+    {
+      "id": "rp-main", "name": "Radio Paradise · Main Mix", "kind": "eclectic", "genre": "Eclectic",
+      "city": "California", "country": "United States", "homepage": "https://radioparadise.com/",
+      "description": "Eclectic, listener-supported radio since 2000, mixed by hand. Offers a lossless FLAC stream.",
+      "streams": [
+        {"id": "flac", "url": "https://stream.radioparadise.com/flac", "codec": "FLAC", "bitrate_kbps": 1000, "lossless": true},
+        {"id": "aac-320", "url": "https://stream.radioparadise.com/aac-320", "codec": "AAC", "bitrate_kbps": 320},
+        {"id": "mp3-192", "url": "https://stream.radioparadise.com/mp3-192", "codec": "MP3", "bitrate_kbps": 192}
+      ],
+      "now_playing": {"type": "radioparadise", "channel": 0},
+      "source": "Radio Paradise's 'listen in other apps' addresses (flac, aac-320, mp3-192); now playing from api.radioparadise.com/api/now_playing?chan=0."
+    },
+    {
+      "id": "rp-rock", "name": "Radio Paradise · Rock Mix", "kind": "eclectic", "genre": "Rock",
+      "city": "California", "country": "United States", "homepage": "https://radioparadise.com/",
+      "description": "Radio Paradise's rock mix: classic and new, with the main mix's ear for surprises.",
+      "streams": [
+        {"id": "flac", "url": "https://stream.radioparadise.com/rock-flac", "codec": "FLAC", "bitrate_kbps": 1000, "lossless": true},
+        {"id": "aac-320", "url": "https://stream.radioparadise.com/rock-320", "codec": "AAC", "bitrate_kbps": 320},
+        {"id": "aac-128", "url": "https://stream.radioparadise.com/rock-128", "codec": "AAC", "bitrate_kbps": 128}
+      ],
+      "now_playing": {"type": "radioparadise", "channel": 2},
+      "source": "Radio Paradise's 'listen in other apps' addresses (rock-flac, -320, -128); now playing from api.radioparadise.com/api/now_playing?chan=2."
+    },
+    {
+      "id": "fip-groove", "name": "FIP Groove", "kind": "jazz_soul_funk", "genre": "Soul, funk",
+      "city": "Paris", "country": "France", "homepage": "https://www.radiofrance.fr/fip/radio-groove",
+      "description": "FIP's groove web radio: soul, funk, hip-hop and disco.",
+      "streams": [
+        {"id": "aac-192", "url": "https://icecast.radiofrance.fr/fipgroove-hifi.aac", "codec": "AAC", "bitrate_kbps": 192},
+        {"id": "mp3-128", "url": "https://icecast.radiofrance.fr/fipgroove-midfi.mp3", "codec": "MP3", "bitrate_kbps": 128}
+      ],
+      "now_playing": {"type": "radiofrance", "station": "fip_groove"},
+      "source": "Radio France's Icecast addresses; now playing from radiofrance.fr's undocumented live API (see FIP Electro)."
+    },
+    {
+      "id": "fip-jazz", "name": "FIP Jazz", "kind": "jazz_soul_funk", "genre": "Jazz",
+      "city": "Paris", "country": "France", "homepage": "https://www.radiofrance.fr/fip/radio-jazz",
+      "description": "FIP's jazz web radio, from the classics to today's scenes.",
+      "streams": [
+        {"id": "aac-192", "url": "https://icecast.radiofrance.fr/fipjazz-hifi.aac", "codec": "AAC", "bitrate_kbps": 192},
+        {"id": "mp3-128", "url": "https://icecast.radiofrance.fr/fipjazz-midfi.mp3", "codec": "MP3", "bitrate_kbps": 128}
+      ],
+      "now_playing": {"type": "radiofrance", "station": "fip_jazz"},
+      "source": "Radio France's Icecast addresses; now playing from radiofrance.fr's undocumented live API (see FIP Electro)."
+    },
+    {
+      "id": "somafm-sonicuniverse", "name": "SomaFM · Sonic Universe", "kind": "jazz_soul_funk", "genre": "Jazz",
+      "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/sonicuniverse/",
+      "description": "Transcending the world of jazz with eclectic, avant-garde takes on tradition.",
+      "streams": [
+        {"id": "aac-128", "url": "https://ice1.somafm.com/sonicuniverse-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
+        {"id": "mp3-128", "url": "https://ice1.somafm.com/sonicuniverse-128-mp3", "codec": "MP3", "bitrate_kbps": 128, "direct": true}
+      ],
+      "now_playing": {"type": "somafm", "channel": "sonicuniverse"},
+      "source": "SomaFM's channel list and stream naming; now playing from somafm.com/songs/sonicuniverse.json."
+    },
+    {
+      "id": "somafm-7soul", "name": "SomaFM · Seven Inch Soul", "kind": "jazz_soul_funk", "genre": "Soul",
+      "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/7soul/",
+      "description": "Vintage soul tracks from the original 45 RPM vinyl.",
+      "streams": [
+        {"id": "aac-128", "url": "https://ice1.somafm.com/7soul-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
+        {"id": "mp3-128", "url": "https://ice1.somafm.com/7soul-128-mp3", "codec": "MP3", "bitrate_kbps": 128, "direct": true}
+      ],
+      "now_playing": {"type": "somafm", "channel": "7soul"},
+      "source": "SomaFM's channel list and stream naming; now playing from somafm.com/songs/7soul.json."
+    },
+    {
+      "id": "jazz24", "name": "Jazz24", "kind": "jazz_soul_funk", "genre": "Jazz",
+      "city": "Seattle", "country": "United States", "homepage": "https://www.jazz24.org/",
+      "description": "Jazz around the clock from KNKX in Seattle: the great recordings and today's players. Public radio, listener-supported.",
+      "streams": [
+        {"id": "aac-256", "url": "https://live.wostreaming.net/direct/ppm-jazz24aac256-ibc1", "codec": "AAC", "bitrate_kbps": 256}
+      ],
+      "now_playing": null,
+      "source": "Jazz24's listen page (live.wostreaming.net ppm-jazz24aac256-ibc1). Titles come from the stream."
+    },
+    {
+      "id": "wwoz", "name": "WWOZ", "kind": "jazz_soul_funk", "genre": "Jazz, funk",
+      "city": "New Orleans", "country": "United States", "homepage": "https://www.wwoz.org/",
+      "description": "The New Orleans jazz and heritage station: jazz, blues, R&B, funk, gospel, Cajun and zydeco, presented by volunteer DJs.",
+      "streams": [
+        {"id": "mp3-128", "url": "https://wwoz-sc.streamguys1.com/wwoz-hi.mp3", "codec": "MP3", "bitrate_kbps": 128}
+      ],
+      "now_playing": null,
+      "source": "WWOZ's listen page (wwoz-sc.streamguys1.com/wwoz-hi.mp3). Titles come from the stream."
+    }
+  ]
+}

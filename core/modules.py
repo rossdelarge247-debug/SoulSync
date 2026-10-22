@@ -131,6 +131,16 @@ _SPECS = (
         api_paths=("/api/library/tracks", "/api/library/tracks/recent"),
         pages=("sample-studio",),
     ),
+    ModuleSpec(
+        name="radio",
+        display_name="Internet radio",
+        description=("Free internet radio stations with what's playing identified, the Heard on radio "
+                     "list, auto-add to Wanted, tracklists and stream links. While it is off nothing is "
+                     "relayed or watched."),
+        api_prefixes=("/api/radio",),
+        trigger_types=("radio_track_heard",),
+        pages=("radio",),
+    ),
 )
 
 MODULES: Dict[str, ModuleSpec] = {spec.name: spec for spec in _SPECS}
