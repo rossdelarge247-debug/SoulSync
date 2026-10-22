@@ -1,13 +1,14 @@
 /**
- * Preview, then confirm, for emptying the recycle bin and clearing the
- * quarantine: the shared dialog with the count, size and dates, a sample of
- * the files, wording that says this is permanent, and a danger button named
- * for the delete. A refused plan shows the backend's message and Preview
- * again.
+ * Preview, then confirm, for emptying a recycle bin (music, video or
+ * audiobooks) and clearing the quarantine: the shared dialog with the count,
+ * size and dates, a sample of the files, wording that says this is permanent,
+ * and a danger button named for the delete. A refused plan shows the
+ * backend's message and Preview again.
  *
- * The Downloads page uses the hook directly. The classic Settings page gets
- * the same dialog through `window.openPermanentDelete`, which the host below
- * registers once for the whole app.
+ * The Downloads page, the video Review pane and the audiobook bin use the
+ * hook directly. The classic Settings page gets the same dialog through
+ * `window.openPermanentDelete`, which the host below registers once for the
+ * whole app.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -17,6 +18,7 @@ import type { SafeActionPhase, SafeActionRow } from './safe-action-dialog';
 
 import {
   confirmPermanentDelete,
+  deleteNoun,
   formatDay,
   permanentDeleteCopy,
   permanentDeleteOutcome,
@@ -33,22 +35,36 @@ function toast(message: string, type = 'info') {
 }
 
 function emptyMessage(target: PermanentDeleteTarget): string {
-  if (target.kind === 'quarantine') return 'The quarantine is already empty.';
-  if (target.retention) return 'Nothing in the recycle bin is past its keep window.';
-  return target.ids ? 'Those files are no longer in the recycle bin.' : 'The recycle bin is empty.';
+  switch (target.kind) {
+    case 'quarantine':
+      return 'The quarantine is already empty.';
+    case 'video-recycle-bin':
+      return target.entries
+        ? 'That file is no longer in the video recycle bin.'
+        : 'The video recycle bin is empty.';
+    case 'audiobook-recycle-bin':
+      return target.names
+        ? 'That book is no longer in the audiobook recycle bin.'
+        : 'The audiobook recycle bin is empty.';
+    default:
+      if (target.retention) return 'Nothing in the recycle bin is past its keep window.';
+      return target.ids
+        ? 'Those files are no longer in the recycle bin.'
+        : 'The recycle bin is empty.';
+  }
 }
 
 function rows(preview: PermanentDeletePreview, target: PermanentDeleteTarget): SafeActionRow[] {
   return preview.sample.map((item, index) => {
     const when = formatDay(target.kind === 'quarantine' ? item.modified : item.deleted_at);
     return {
-      key: `${item.id ?? item.name ?? item.path}-${index}`,
+      key: `${item.id ?? item.entry ?? item.name ?? item.path}-${index}`,
       cells: [
         <div key="file">
           <div className={`${styles.primaryCell} ${styles.pathCell}`}>
             {item.name || pathTail(item.path, 1)}
           </div>
-          {target.kind === 'recycle-bin' && item.path ? (
+          {target.kind !== 'quarantine' && item.path ? (
             <div className={styles.secondary} title={item.path}>
               from {pathTail(item.path, 3)}
             </div>
@@ -172,6 +188,7 @@ export function usePermanentDelete(): PermanentDeleteFlow {
 
   const preview = current?.preview;
   const copy = current && preview ? permanentDeleteCopy(current.target, preview) : null;
+  const noun = current ? deleteNoun(current.target) : { one: 'file', many: 'files' };
   const shown = preview?.sample.length ?? 0;
   const n = preview?.files ?? 0;
 
@@ -187,7 +204,7 @@ export function usePermanentDelete(): PermanentDeleteFlow {
       stats={
         preview
           ? [
-              { label: 'Files', value: n.toLocaleString() },
+              { label: copy?.countLabel ?? 'Files', value: n.toLocaleString() },
               { label: 'Size', value: copy ? copy.size : '' },
               { label: 'Oldest', value: formatDay(preview.oldest) || 'Unknown' },
               { label: 'Newest', value: formatDay(preview.newest) || 'Unknown' },
@@ -195,13 +212,13 @@ export function usePermanentDelete(): PermanentDeleteFlow {
           : undefined
       }
       lead={copy?.lead}
-      columns={['File', copy?.dateLabel ?? 'Date']}
+      columns={[copy?.itemLabel ?? 'File', copy?.dateLabel ?? 'Date']}
       rows={preview && current ? rows(preview, current.target) : undefined}
       shownLabel={
         preview
           ? shown < n
-            ? `${shown.toLocaleString()} of ${countLabel(n, 'file')} shown`
-            : `All ${countLabel(n, 'file')} shown`
+            ? `${shown.toLocaleString()} of ${countLabel(n, noun.one, noun.many)} shown`
+            : `All ${countLabel(n, noun.one, noun.many)} shown`
           : undefined
       }
       createdAt={preview?.created_at}

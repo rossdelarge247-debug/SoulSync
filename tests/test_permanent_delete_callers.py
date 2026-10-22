@@ -1,11 +1,12 @@
-"""Nothing in the web UI empties the recycle bin or the quarantine on its own.
+"""Nothing in the web UI empties a recycle bin or the quarantine on its own.
 
 The purge / clear routes delete files for good and only act on a preview
 plan's id. The one client allowed to call them is the shared
 preview-then-confirm module (webui/src/features/safe-action/permanent-delete.ts);
-the Downloads page and Settings -> Clear quarantine both go through its
-dialog. A page that posted straight to a route would get a 409 today, and
-this keeps anyone from wiring one back in.
+the Downloads page, the video Review pane, the audiobook bin and Settings ->
+Clear quarantine all go through its dialog. A page that posted straight to a
+route would get a 409 today, and this keeps anyone from wiring one back in.
+The same holds for Video Library Maintenance's bulk fix and its own module.
 """
 
 from __future__ import annotations
@@ -14,8 +15,13 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
 _WEBUI = _ROOT / "webui"
-_ROUTES = ("deleted-files/purge", "quarantine/clear")
+_ROUTES = ("deleted-files/purge", "quarantine/clear", "video/downloads/recycle/purge",
+           "audiobooks/library/recycle/purge")
 _ALLOWED = {_WEBUI / "src" / "features" / "safe-action" / "permanent-delete.ts"}
+_VIDEO_FIX_ROUTE = "repair/findings/bulk-fix"
+_VIDEO_FIX_ALLOWED = {_WEBUI / "src" / "features" / "safe-action" / "video-repair-fix.ts",
+                      # the music Tools page's own bulk-fix client (/api/repair/...)
+                      _WEBUI / "src" / "routes" / "tools" / "-tools.api.ts"}
 
 
 def _client_sources():
@@ -49,3 +55,21 @@ def test_settings_clear_quarantine_opens_the_shared_dialog():
     body = src[start:src.index("\n}\n", start)]
     assert "window.openPermanentDelete" in body
     assert "fetch(" not in body
+
+
+def test_the_audiobook_bin_is_never_emptied_by_a_bare_delete():
+    api = (_WEBUI / "src" / "routes" / "audiobooks" / "-audiobooks.api.ts").read_text(encoding="utf-8")
+    assert "audiobookClient.delete('audiobooks/library/recycle" not in api
+    assert "audiobookClient.delete(`audiobooks/library/recycle" not in api
+
+
+def test_only_the_shared_flows_post_a_bulk_fix():
+    offenders = []
+    for path in _client_sources():
+        if path in _VIDEO_FIX_ALLOWED or not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if _VIDEO_FIX_ROUTE in text:
+            offenders.append(str(path.relative_to(_ROOT)))
+    assert not offenders, "posts a bulk fix outside the plan flows:\n  " + "\n  ".join(offenders)
+

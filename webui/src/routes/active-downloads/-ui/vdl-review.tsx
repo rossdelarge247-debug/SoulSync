@@ -5,18 +5,22 @@
  * A React port of the review half of
  * webui/static/video/video-downloads-tabs.js, reusing the same .adl-* markup
  * vocabulary so the existing CSS applies unchanged.
+ *
+ * Deleting from the bin is permanent, so Delete and Empty bin go through the
+ * shared preview-then-confirm dialog (features/safe-action): the server lists
+ * exactly what would go, and only the dialog's danger button deletes it.
  */
 
 import { useCallback, useState } from 'react';
+
+import { usePermanentDelete } from '@/features/safe-action/permanent-delete-flow';
 
 import type { VdlBlockEntry, VdlRecycleBin, VdlReviewSub } from '../-vdl.types';
 
 import {
   clearVideoBlocklist,
-  emptyVideoRecycle,
   fetchVideoBlocklist,
   fetchVideoRecycle,
-  purgeVideoRecycleEntry,
   restoreAllVideoRecycle,
   restoreVideoRecycleEntry,
   unblockVideoRelease,
@@ -223,6 +227,7 @@ export function VdlReviewPane({
     setSubState(s);
   }, []);
   const binN = review.bin?.items.length ?? 0;
+  const permanentDelete = usePermanentDelete();
 
   const onRestore = async (trashDir: string | null | undefined, name: string) => {
     const r = await restoreVideoRecycleEntry(trashDir, name);
@@ -235,18 +240,14 @@ export function VdlReviewPane({
     onChanged();
   };
 
-  const onPurge = async (trashDir: string | null | undefined, name: string) => {
-    const go = await confirmed({
-      title: 'Delete permanently',
-      message: `Delete "${name}" from the bin for good?`,
-      confirmText: 'Delete',
-    });
-    if (!go) return;
-    const r = await purgeVideoRecycleEntry(trashDir, name);
-    const ok = Boolean(r && (r.success ?? r.ok));
-    toast(ok ? 'Deleted' : String(r?.error || 'Delete failed'), ok ? 'info' : 'error');
-    onChanged();
-  };
+  const onPurge = (trashDir: string | null | undefined, name: string) =>
+    permanentDelete.begin(
+      {
+        kind: 'video-recycle-bin',
+        entries: [{ trash_dir: trashDir ?? null, name }],
+      },
+      onChanged,
+    );
 
   const onRestoreAll = async () => {
     const r = await restoreAllVideoRecycle();
@@ -259,17 +260,7 @@ export function VdlReviewPane({
     onChanged();
   };
 
-  const onEmpty = async () => {
-    const go = await confirmed({
-      title: 'Empty bin',
-      message: 'Permanently delete everything in the recycle bin?',
-      confirmText: 'Empty bin',
-    });
-    if (!go) return;
-    const r = await emptyVideoRecycle();
-    toast(r ? `Deleted ${Number(r.purged ?? 0)} file(s)` : 'Failed', 'info');
-    onChanged();
-  };
+  const onEmpty = () => permanentDelete.begin({ kind: 'video-recycle-bin' }, onChanged);
 
   const onUnblock = async (id: number | string) => {
     await unblockVideoRelease(id);
@@ -353,6 +344,7 @@ export function VdlReviewPane({
       ) : (
         <BlocklistRows blocklist={review.blocklist} onUnblock={(id) => void onUnblock(id)} />
       )}
+      {permanentDelete.dialog}
     </div>
   );
 }

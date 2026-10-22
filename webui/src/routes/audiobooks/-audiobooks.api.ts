@@ -694,30 +694,8 @@ export async function restoreRecycledBook(name: string): Promise<{ ok: boolean; 
   }
 }
 
-/** Erase one now, without waiting for the keep window. */
-export async function purgeRecycledBook(name: string): Promise<boolean> {
-  try {
-    const data = await readJson<{ success?: boolean }>(
-      audiobookClient.delete(`audiobooks/library/recycle/${encodeURIComponent(name)}`),
-    );
-    return Boolean(data?.success);
-  } catch (err) {
-    console.error('Failed to purge the book:', err);
-    return false;
-  }
-}
-
-export async function emptyRecycleBin(): Promise<boolean> {
-  try {
-    const data = await readJson<{ success?: boolean }>(
-      audiobookClient.delete('audiobooks/library/recycle'),
-    );
-    return Boolean(data?.success);
-  } catch (err) {
-    console.error('Failed to empty the recycle bin:', err);
-    return false;
-  }
-}
+// Erasing (one book or the whole bin) is permanent and only runs against a
+// preview plan: it goes through features/safe-action/permanent-delete.ts.
 
 // ---------------------------------------------------------------------------
 // Blocklist — releases never to offer or grab again

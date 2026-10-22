@@ -100,6 +100,10 @@ export function useAccessibleModal<T extends HTMLElement = HTMLDivElement>(
       // dialog under it, and tab moves through the popover.
       const target = e.target as Element | null;
       if (target && !dialog.contains(target) && target.closest?.('[data-popover-layer]')) return;
+      // so does a dialog opened over this one (the preview-then-confirm
+      // dialog from the audiobook bin): escape closes that dialog, not this
+      // one, and tab stays in it.
+      if (target && !dialog.contains(target) && target.closest?.('[role="dialog"]')) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         closeRef.current();

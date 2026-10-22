@@ -11,7 +11,6 @@ import {
   clearVideoDownloads,
   clearVideoHistory,
   deleteVideoHistory,
-  emptyVideoRecycle,
   fetchVideoBlocklist,
   fetchVideoDownloads,
   fetchVideoHistory,
@@ -19,7 +18,6 @@ import {
   fetchVideoMeta,
   fetchVideoRecycle,
   fetchVideoYtMeta,
-  purgeVideoRecycleEntry,
   restoreAllVideoRecycle,
   restoreVideoRecycleEntry,
   retryVideoDownload,
@@ -189,19 +187,14 @@ describe('the mutations hit the right endpoints with the right bodies', () => {
     expect(seen).toHaveLength(1);
   });
 
-  it('recycle restore/purge carry trash_dir + name, or all:true', async () => {
+  it('recycle restore carries trash_dir + name, or all:true', async () => {
     const seen = capture('post', '/api/video/downloads/recycle/restore', { success: true });
     await restoreVideoRecycleEntry('trash/a', 'f.mkv');
     await restoreAllVideoRecycle();
     expect(seen).toHaveLength(2);
     expect(JSON.parse(seen[0].body)).toEqual({ trash_dir: 'trash/a', name: 'f.mkv' });
     expect(JSON.parse(seen[1].body)).toEqual({ all: true });
-
-    const seenPurge = capture('post', '/api/video/downloads/recycle/purge', { success: true });
-    await purgeVideoRecycleEntry('trash/a', 'f.mkv');
-    await emptyVideoRecycle();
-    expect(JSON.parse(seenPurge[0].body)).toEqual({ trash_dir: 'trash/a', name: 'f.mkv' });
-    expect(JSON.parse(seenPurge[1].body)).toEqual({ all: true });
+    // purging is permanent: it previews first, through features/safe-action
   });
 
   it('deleteVideoHistory deletes /history/:id', async () => {

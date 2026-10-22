@@ -221,18 +221,8 @@ export function restoreAllVideoRecycle(): Promise<VdlResult | null> {
   return post('video/downloads/recycle/restore', { all: true });
 }
 
-/** Purge one recycle-bin entry permanently. */
-export function purgeVideoRecycleEntry(
-  trashDir: string | null | undefined,
-  name: string,
-): Promise<VdlResult | null> {
-  return post('video/downloads/recycle/purge', { trash_dir: trashDir ?? null, name });
-}
-
-/** Empty the whole recycle bin permanently. */
-export function emptyVideoRecycle(): Promise<VdlResult | null> {
-  return post('video/downloads/recycle/purge', { all: true });
-}
+// Purging (one entry or the whole bin) is permanent and only runs against a
+// preview plan: it goes through features/safe-action/permanent-delete.ts.
 
 /** Forget one history grab so the scans re-add + re-grab it. */
 export async function deleteVideoHistory(id: number | string): Promise<VdlResult | null> {

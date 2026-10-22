@@ -336,6 +336,70 @@ def purge_entry(trash_dir: str, name: str, settings: Dict[str, Any], db) -> Dict
     return {"success": True}
 
 
+# ── emptying the bin by hand: preview, then confirm ──────────────────────────
+# Purging is permanent, so the http route only does it against a preview plan
+# (core.library.action_plans): preview_purge lists exactly what would go, and
+# purge_planned deletes those entries and nothing that arrived afterwards. The
+# daily age-based purge above is the user's own setting and is left as it is.
+
+VIDEO_RECYCLE_PURGE_TOOL = "video_recycle_purge"
+
+
+def _deleted_at_iso(entry: Dict[str, Any]) -> Optional[str]:
+    """When an entry was recycled: the manifest's record, else its name stamp."""
+    if entry.get("deleted_at"):
+        return str(entry["deleted_at"])
+    stamp = _stamp_epoch(entry.get("name"))
+    if stamp is None:
+        return None
+    return datetime.fromtimestamp(stamp).isoformat(timespec="seconds")
+
+
+def preview_purge(settings: Dict[str, Any], db, wanted=None) -> list:
+    """What purging the bin WOULD delete for good. Reads only.
+
+    ``wanted`` is None for the whole bin, or a list of ``(trash_dir, name)``
+    pairs for chosen entries; anything not in the bin under the live config is
+    simply not listed. Each item: ``trash_dir``, ``entry`` (the name in the
+    bin), ``name`` (without the stamp), ``path`` (where it came from, when
+    recorded), ``size``, ``deleted_at``, ``reason``."""
+    entries = list_entries(settings, db)
+    if wanted is not None:
+        keys = {(os.path.abspath(str(t or "")), str(n or "")) for t, n in wanted}
+        entries = [e for e in entries if (os.path.abspath(e["trash_dir"]), e["name"]) in keys]
+    return [{"trash_dir": e["trash_dir"], "entry": e["name"],
+             "name": _COLLISION_RE.sub("", e["name"]) or e["name"],
+             "path": e.get("original_path") or None, "size": int(e.get("size") or 0),
+             "deleted_at": _deleted_at_iso(e), "kind": "file", "action": "delete_permanently",
+             "reason": e.get("reason") or "in the video recycle bin"}
+            for e in entries]
+
+
+def purge_planned(settings: Dict[str, Any], db, items) -> Dict[str, Any]:
+    """Delete for good exactly the planned bin entries that are still there
+    unchanged (same size). One restored since the preview, or a different file
+    now under the same name, is skipped. Returns ``{'purged': [entries],
+    'skipped': [entries], 'errors': [{'entry', 'error'}], 'freed_bytes'}``."""
+    current = {(os.path.abspath(e["trash_dir"]), e["name"]): e for e in list_entries(settings, db)}
+    out: Dict[str, Any] = {"purged": [], "skipped": [], "errors": [], "freed_bytes": 0}
+    for item in items:
+        name = str(item.get("entry") or "")
+        now = current.get((os.path.abspath(str(item.get("trash_dir") or "")), name))
+        if not now or int(now.get("size") or 0) != int(item.get("size") or 0):
+            out["skipped"].append(name)
+            continue
+        res = purge_entry(now["trash_dir"], now["name"], settings, db)
+        if res.get("success"):
+            out["purged"].append(name)
+            out["freed_bytes"] += int(now.get("size") or 0)
+        else:
+            out["errors"].append({"entry": name, "error": res.get("error") or "could not delete"})
+    if out["purged"]:
+        logger.info("recycle: purged %d file(s) for good from the bin, freed %.1f GB",
+                    len(out["purged"]), out["freed_bytes"] / 1024 ** 3)
+    return out
+
+
 def discarder(db, settings: Dict[str, Any]) -> Callable[[str], Dict[str, Any]]:
     """A bound ``discard(path)`` for injection into pure pipelines (the importer's
     upgrade-replace, retention's delete seam)."""

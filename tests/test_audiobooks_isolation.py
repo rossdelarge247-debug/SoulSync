@@ -228,7 +228,11 @@ def test_only_the_acquisition_routes_write_anything():
                        # music path.
                        "/api/audiobooks/library/<asin>", "/api/audiobooks/library/<asin>/match",
                        "/api/audiobooks/library/recycle/<path:name>",
-                       "/api/audiobooks/library/recycle"}
+                       "/api/audiobooks/library/recycle",
+                       # Erasing from the bin: the preview records a plan in
+                       # memory and erases nothing; purge erases what it listed.
+                       "/api/audiobooks/library/recycle/purge-preview",
+                       "/api/audiobooks/library/recycle/purge"}
     for rule in _blueprint_app().url_map.iter_rules():
         if rule.endpoint == "static":
             continue

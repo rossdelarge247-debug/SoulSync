@@ -372,7 +372,9 @@ def test_bin_api_routes_exist_and_the_page_wires_the_tabs():
     # three views switch on dl.view in video-downloads-view.tsx.
     vdl = _ROOT / "webui" / "src" / "routes" / "active-downloads"
     review = (vdl / "-ui" / "vdl-review.tsx").read_text(encoding="utf-8")
-    assert "restoreVideoRecycleEntry" in review and "purgeVideoRecycleEntry" in review
+    assert "restoreVideoRecycleEntry" in review
+    # purging is permanent: Delete and Empty bin preview first, in the shared dialog
+    assert "usePermanentDelete" in review and "kind: 'video-recycle-bin'" in review
     clients = (vdl / "-ui" / "adl-clients.tsx").read_text(encoding="utf-8")
     assert "fetchTorrentClient" in clients and "fetchUsenetClient" in clients
     assert "fetchSlskdClient" in clients                    # the shared adapters, one pane
