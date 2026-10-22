@@ -480,7 +480,8 @@ html[data-player='tray'] .ss-player-bar { display: none; }
 .ss-player-sheet-head { display: none; }
 
 /* the record */
-.ss-player-record { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+/* gaps of 10 so the record's control row (9d) fits the 360px tray */
+.ss-player-record { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ss-player-record-top { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
 .ss-player-record-art {
     position: relative;
@@ -537,9 +538,9 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .ss-player-readout {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 2px;
     margin: 0;
-    padding: 12px 14px;
+    padding: 8px 12px;
     border-radius: var(--ss-radius-control);
     background: var(--ss-surface-card);
     border: 1px solid var(--ss-surface-card-border);
