@@ -599,6 +599,9 @@ function isPageAllowed(pageId) {
     // Activity shows only what each history route already lets this profile
     // see (GET /api/activity scopes every item), so every profile can open it
     if (normalizedPageId === 'activity') return true;
+    // Internet radio: the module switch decides (a turned-off module's row is
+    // hidden and its API answers 409); members can listen and favourite
+    if (normalizedPageId === 'radio') return true;
     if (normalizedPageId === 'artist-detail') {
         const ap = normalizeProfilePageList(currentProfile.allowed_pages);
         if (!ap) return true;
@@ -4189,7 +4192,7 @@ const _DEEPLINK_VALID_PAGES = new Set([
     'library', 'import', 'settings', 'help', 'issues', 'stats', 'watchlist',
     'wishlist', 'active-downloads', 'artist-detail', 'playlist-explorer',
     'hydrabase', 'tools', 'chat', 'podcasts', 'audiobooks', 'requests',
-    'sample-studio', 'setup-check', 'activity'
+    'sample-studio', 'setup-check', 'activity', 'radio'
 ]);
 
 function _getPageFromPath() {

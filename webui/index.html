@@ -128,6 +128,7 @@
          contrast check and the preview strip (src/shell/appearance.ts). -->
     <link rel="stylesheet" href="{{ url_for('static', filename='appearance.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='ai-settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='radio-settings.css') }}">
     <!-- Sidebar weather: time/temp/condition line, forecast popover, particle
          scene. Additive — only #sidebar-weather-* selectors inside. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='sidebar-weather.css') }}">
@@ -339,6 +340,10 @@
                         <a class="nav-button ss-item" data-nav-row="mirrored" data-page="sync" href="/sync">
                             <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
                             <span class="nav-text ss-label">Mirrored playlists</span>
+                        </a>
+                        <a class="nav-button ss-item" data-nav-row="radio" data-page="radio" href="/radio">
+                            <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2"/></svg>
+                            <span class="nav-text ss-label">Radio</span>
                         </a>
                         <a class="nav-button ss-item" data-nav-row="explorer" data-page="playlist-explorer" href="/playlist-explorer">
                             <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="5" r="3"/><path d="M12 8v4M12 12l-7 6M12 12l7 6M12 12v6"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><circle cx="12" cy="19" r="2"/></svg>
@@ -2818,6 +2823,17 @@
                                         </svg>
                                     </span>
                                     <span class="stg-tab-label">AI</span>
+                                </button>
+                                <button type="button" class="stg-tab" data-tab="radio" id="stg-tab-radio" hidden
+                                    onclick="switchSettingsTab('radio')">
+                                    <span class="stg-tab-badge badge-radio">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <circle cx="12" cy="12" r="2" />
+                                            <path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2" />
+                                        </svg>
+                                    </span>
+                                    <span class="stg-tab-label">Radio</span>
                                 </button>
                                 <button type="button" class="stg-tab" data-tab="library"
                                     onclick="switchSettingsTab('library')">
@@ -10490,6 +10506,120 @@
                                 </section>
                             </div>
 
+                            <!-- ═══ RADIO TAB ═══ Settings → Radio (boards 5b–5d), restyled in place like
+                                 Modules and AI: static/radio-settings.css, behaviour in src/shell/radio-settings.ts
+                                 (GET/PUT /api/radio/settings, the links routes). Shown while the Internet radio
+                                 module is on. Each control applies on its own; Save Settings doesn't touch it. -->
+                            <div class="radio-settings" id="radio-settings">
+                                <section class="settings-group radio-card" data-stg="radio" aria-labelledby="radio-id-title">
+                                    <div class="radio-card-head">
+                                        <div>
+                                            <h3 id="radio-id-title">Track identification</h3>
+                                            <p class="radio-intro">Works out what a station is playing: first from the
+                                                station's own now-playing feed, then from the track names sent with the
+                                                stream, and as a fallback from a fingerprint of a few seconds of audio
+                                                (Chromaprint and AcoustID, the tools SoulSync already uses for downloaded
+                                                files). With it off, stations still play, but nothing can be added to
+                                                Wanted from radio.</p>
+                                        </div>
+                                        <button type="button" class="radio-switch" id="radio-identification" role="switch"
+                                            aria-checked="true" aria-labelledby="radio-id-title">
+                                            <span class="radio-switch-track" aria-hidden="true"></span><span
+                                                class="radio-switch-text">On</span>
+                                        </button>
+                                    </div>
+                                    <p class="radio-load-error" id="radio-settings-error" role="alert" hidden></p>
+                                    <div class="radio-row">
+                                        <div class="radio-field">
+                                            <label class="radio-label" for="radio-acoustid">AcoustID key</label>
+                                            <div class="radio-key-row">
+                                                <input id="radio-acoustid" class="radio-input radio-key-input" type="password"
+                                                    autocomplete="off" spellcheck="false" placeholder="Not set"
+                                                    aria-describedby="radio-acoustid-help">
+                                                <button type="button" class="radio-button" id="radio-acoustid-save">Save
+                                                    key</button>
+                                            </div>
+                                            <p class="radio-help" id="radio-acoustid-help">Free, from acoustid.org. The
+                                                same key the download identifier uses.</p>
+                                        </div>
+                                        <div class="radio-field">
+                                            <p class="radio-label">Status</p>
+                                            <p class="radio-status" id="radio-id-status" aria-live="polite"></p>
+                                            <a class="radio-link" href="/setup-check" id="radio-run-setup">Run Setup check</a>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section class="settings-group radio-card" data-stg="radio" aria-labelledby="radio-auto-title">
+                                    <h3 id="radio-auto-title">Auto-add to Wanted</h3>
+                                    <p class="radio-intro">Each station has its own auto-add switch, off by default.
+                                        These limits apply to every station that has it on. Tracks go to Wanted at your
+                                        quality target; skipped if you have them or they're already there.</p>
+                                    <div class="radio-row">
+                                        <div class="radio-field">
+                                            <label class="radio-label" for="radio-daily-limit">Daily limit per station</label>
+                                            <div class="radio-suffix">
+                                                <input id="radio-daily-limit" class="radio-input" type="number" min="1"
+                                                    max="500" inputmode="numeric" aria-describedby="radio-limit-help">
+                                                <span class="radio-suffix-text" aria-hidden="true">tracks</span>
+                                            </div>
+                                            <p class="radio-help" id="radio-limit-help">A busy station identifies 100 to
+                                                200 tracks a day. When a station reaches the limit, the rest of the day's
+                                                tracks stay in Heard with Add on each.</p>
+                                        </div>
+                                        <div class="radio-field">
+                                            <p class="radio-label">Stations with auto-add on</p>
+                                            <p class="radio-value" id="radio-auto-stations">None</p>
+                                            <a class="radio-link" href="/activity?show=radio" id="radio-auto-activity">See
+                                                what it added in Activity</a>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section class="settings-group radio-card" data-stg="radio" aria-labelledby="radio-streams-title">
+                                    <h3 id="radio-streams-title">Streams</h3>
+                                    <p class="radio-intro">Your server reads each stream's track names and, when a
+                                        browser can't play it directly, relays the audio. It does this only for built-in
+                                        picks, directory stations and the links below, only for audio, and only while
+                                        someone is listening.</p>
+                                    <div class="radio-field">
+                                        <label class="radio-label" for="radio-relay">Relay</label>
+                                        <select id="radio-relay" class="radio-input radio-select">
+                                            <option value="when_needed">Only when a browser can't play the stream itself</option>
+                                            <option value="always">Always, so the server reads every stream's track names</option>
+                                        </select>
+                                    </div>
+                                    <label class="radio-check">
+                                        <input type="checkbox" id="radio-prefer-lossless">
+                                        <span>Prefer lossless or the highest bitrate when a station offers more than one
+                                            stream</span>
+                                    </label>
+                                    <div class="radio-field radio-field--narrow">
+                                        <label class="radio-label" for="radio-keep">Keep Heard on radio for</label>
+                                        <select id="radio-keep" class="radio-input radio-select">
+                                            <option value="7">7 days</option>
+                                            <option value="30">30 days</option>
+                                            <option value="90">90 days</option>
+                                            <option value="365">365 days</option>
+                                        </select>
+                                    </div>
+                                    <p class="radio-save-status" id="radio-save-status" aria-live="polite"></p>
+                                </section>
+
+                                <section class="settings-group radio-card radio-links-card" data-stg="radio"
+                                    aria-labelledby="radio-links-title">
+                                    <div class="radio-card-head">
+                                        <div>
+                                            <h3 id="radio-links-title">Your stream links</h3>
+                                            <p class="radio-intro">Direct stream addresses an admin added. They appear in
+                                                everyone's Favourites as "Your link".</p>
+                                        </div>
+                                        <a class="radio-button" href="/radio?add=link" id="radio-add-link">Add a stream link</a>
+                                    </div>
+                                    <ul class="radio-links" id="radio-links" aria-label="Your stream links"></ul>
+                                </section>
+                            </div>
+
                             <!-- ═══ MODULES TAB ═══ rows rendered by src/shell/modules.ts -->
                             <div class="settings-group modules-settings" data-stg="modules" id="modules-settings">
                                 <h3>Modules</h3>
@@ -12263,6 +12393,11 @@
                 <button type="button" class="ss-player-ghost" data-player-toggle aria-expanded="false" aria-controls="ss-player-tray">Expand
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
                 </button>
+                <!-- radio (build e): the station's page and Stop, in place of Up next and Expand -->
+                <a class="ss-player-text-link ss-player-radio-only" data-player-station href="/radio">Station</a>
+                <button type="button" class="ss-player-btn ss-player-radio-stop ss-player-radio-only" data-player-radio-stop aria-label="Stop the station">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+                </button>
             </div>
         </div>
 
@@ -12282,6 +12417,7 @@
                 <svg data-mini-icon="next" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4l10 8-10 8zM17 5h2v14h-2z"/></svg>
                 <span data-mini-icon="forward" hidden>+30 s</span>
             </button>
+            <div class="ss-player-mini-slot ss-player-radio-only" data-player-mini-slot></div>
             <button type="button" class="ss-player-btn ss-player-mini-play" data-player-action="toggle" aria-label="Play">
                 <svg class="ss-player-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>
                 <svg class="ss-player-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
@@ -12298,6 +12434,10 @@
                     <button type="button" class="ss-player-ghost" data-player-sheet-close>Close</button>
                 </div>
             </div>
+
+            <!-- radio (4j): the station's card, Add, auto-add and Heard, in place of
+                 the record, the deck and the list (src/shell/player-radio.ts) -->
+            <div class="ss-player-radio ss-player-radio-only" data-player-radio-panel></div>
 
             <!-- left: the record -->
             <div class="ss-player-record">

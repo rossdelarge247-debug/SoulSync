@@ -909,6 +909,7 @@ describe('the markup', () => {
       'discover',
       'wanted',
       'mirrored',
+      'radio',
       'explorer',
       'chat',
       'artists',

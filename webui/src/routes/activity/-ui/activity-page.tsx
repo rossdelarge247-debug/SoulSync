@@ -3,8 +3,8 @@ import { getRouteApi } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button, OptionButton } from '@/components/form';
-import { useModuleOff } from '@/features/modules/module-gate';
 import { EmptyState, LoadingState, Notice, Skeleton } from '@/components/primitives';
+import { useModuleOff } from '@/features/modules/module-gate';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
 import type { ActivityRange, ActivityResponse, ActivityShow } from '../-activity.types';

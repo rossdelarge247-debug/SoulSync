@@ -36,6 +36,7 @@ export const NAV_ROWS = [
   'discover',
   'wanted',
   'mirrored',
+  'radio',
   'explorer',
   'chat',
   // Library
@@ -71,6 +72,7 @@ export const ROW_GROUP: Partial<Record<NavRowKey, NavGroupKey>> = {
   discover: 'get-music',
   wanted: 'get-music',
   mirrored: 'get-music',
+  radio: 'get-music',
   explorer: 'get-music',
   chat: 'get-music',
   artists: 'library',
@@ -105,6 +107,7 @@ const LEGACY_PAGE_ROWS: Record<string, NavRowKey> = {
   watchlist: 'wanted',
   'label-detail': 'wanted',
   sync: 'mirrored',
+  radio: 'radio',
   'playlist-explorer': 'explorer',
   chat: 'chat',
   'artist-detail': 'artists',
