@@ -402,6 +402,13 @@ describe('Wanted tab', () => {
     ).toBeInTheDocument();
   });
 
+  it('carries the guided tour’s anchor on its tabs', async () => {
+    mockApi();
+    renderRoute();
+    const tabs = await screen.findByRole('tablist', { name: 'Wanted' });
+    expect(tabs).toHaveAttribute('data-tour', 'wanted-tabs');
+  });
+
   it('keeps the filter and the sort in the URL, and reads them back', async () => {
     mockApi();
     const { router, history } = renderRoute('/wanted?tab=wanted');

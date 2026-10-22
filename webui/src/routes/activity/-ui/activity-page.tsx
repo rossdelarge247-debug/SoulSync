@@ -99,7 +99,7 @@ export function ActivityPage() {
         ) : null}
       </header>
 
-      <div className={styles.controls}>
+      <div className={styles.controls} data-tour="activity-controls">
         <div className={styles.filters} role="group" aria-label="Show">
           {SHOW_OPTIONS.map((option) => (
             <OptionButton

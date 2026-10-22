@@ -137,7 +137,7 @@ export function LatestSection({
   }
 
   return (
-    <section className={styles.section} aria-labelledby={HEADING_ID}>
+    <section className={styles.section} aria-labelledby={HEADING_ID} data-tour="home-latest">
       <div className={styles.sectionHead}>
         <h2 className={styles.sectionTitle} id={HEADING_ID}>
           Latest

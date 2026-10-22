@@ -52,6 +52,60 @@ Everything in the handoff package is built and in `integration`. These are the q
 
 ## Log
 
+### 2026-10-22: Dev, tidy-up after the redesign
+
+On `chore/tidy-after-redesign`: the stylesheet rules the rebuilds left matching nothing, and the guided tour rewritten for today's app.
+
+**Stylesheet rules removed.** Each selector needs a class or id that nothing builds any more: not `index.html`, the static JS, the React source, the templates or the Python. `webui/scripts/css-class-refs.mjs` found most of them; ids, and names it keeps live only through its suffix rules (`.artist-detail-page`, `.filters-container`, `.version-section`), were checked by hand.
+
+| File | Removed | What it styled |
+| --- | --- | --- |
+| `style.css` | 445 rules, 9 keyframes, 3,349 lines | the old artist page (hero, release cards and their play button, the `.artist-detail-page` block and the comment calling it load-bearing, similar-artist bubbles, top tracks); the sidebar header and footer the shell replaced (brand, logo, sweep, support and version rows, nav icons, breadcrumb); the old Search panel (`#enh-source-row`, the filters panel, results area, top result, dropdown); the dashboard greeting and hero numbers; the old Watchlist and Wishlist pages; the watch-add modal |
+| `mobile.css` | 64 rules, 411 lines | the hamburger, overlay and drawer, the drawer header's landscape rules, the old automation tiles, the old Search pieces |
+| `dashboard-premier.css` | 24 rules, 154 lines | the greeting and hero numbers |
+| `watchlist-premier.css` | 142 rules, 3 keyframes, 1,271 lines | the old Watchlist page |
+| `wishlist-premier.css` | 82 rules, 2 keyframes, 303 lines | the old Wishlist page's `.wlp` wrapper (the nebula, the `wlp-` buttons and the audiobook list keep theirs) |
+
+Checked on 26 page and viewport states (Home; the sidebar expanded, as the rail, with Admin and help open, short and in landscape; the phone sheet; Search with results; the Artist page; Automations; Wanted, its nebula and followed labels; Activity; Library; Settings; Maintenance; Discover; Mirrored playlists; the video Home): every element's computed style is the same before and after. The only differences are on the shell's brand row (flex properties on a block, and an `::after` the shell already sets to `content: none`) and the phone sidebar while it's a closed sheet (`display: none`).
+
+Tests that read removed rules lose those checks: `release-card-play-placement.test.ts` is retired; the hamburger-behind-modals checks in `mobile-css-batch2`, `mobile-css-oct13`, `mirrored-modal-mobile` and `mobile-track-modals`, and the hello strip's phone wrap in `dashboard-header.test.tsx`, are gone. The floating-button checks beside them stay.
+
+**Kept on purpose**
+
+- 34 rules that were already dead before the redesign (in `style.css`, `mobile.css`, `dashboard-premier.css`, `chat-overhaul.css` and `sidebar-weather.css`) are upstream's, for its own clean-up series.
+- Rules that still match but only make room for the old hamburger: the padding before Settings sub-page titles, the docs menu button, the video Back pill, Discover's chip bar, the Artist Map toolbar. Removing them changes layout, so they're a separate change with screenshots.
+- The video and audiobook recycle bins, video repair and the Lossy Converter, which `ux/safe-actions-final` is changing.
+- Lookups for elements nothing renders now, so they do nothing: `video-side.js` writing into `.sidebar-header .app-subtitle`, `sidebar-holiday.ts` hanging decorations from `.sidebar-spacer`, and the Element info entry for `.support-button`. For the shell's next change.
+- `tests/visual/routes.visual.spec.ts` still waits for `#enhanced-dropdown` in the Search shot; the Search rebuild removed it.
+
+**The guided tour** (`static/helper.js`)
+
+- **Tour of SoulSync**, the welcome tour Home's ? suggests: 18 steps on a wide screen, 17 on a phone.
+    1. Welcome to SoulSync (Home's header)
+    2. The sidebar's groups (on a phone, the tab bar)
+    3. The compact rail (wide screens only)
+    4. Admin and help (on a phone, the Settings tab)
+    5. Search from any page, ⌘K (on a phone, the top bar's search icon)
+    6. What's running (on a phone, the Activity icon)
+    7. Your targets
+    8. Latest
+    9. Wanted
+    10. Activity
+    11. Search: the library and the metadata service as you type, Soulseek on Enter
+    12. Three sections, and the metadata picker
+    13. One page for every artist (the Artists row; on a phone, the Library tab)
+    14. Automations
+    15. Preview a run
+    16. Runs (on a phone, the runs line)
+    17. Setup check (admins)
+    18. That's the tour (the ? button)
+- **Search** (the field, the types, In your library, Soulseek, the metadata service, recent searches, Browse), **Automations** (filters, the selected card, Preview a run, Runs, New automation) and a new **Artist page** tour (header, Follow and add, tabs, filters, release cards), offered on an artist page.
+- Anchors are shell ids and `data-tour` attributes: Home (`home-header`, `home-targets`, `home-latest`), Wanted (`wanted-tabs`), Activity (`activity-controls`), Automations (`automations-filters`, `automation-card`, `automation-preview`, `automation-runs`, `automation-runs-link`, `automation-new`), Setup check (`setup-check`) and the Artist page (`artist-header`, `artist-actions`, `artist-tabs`, `artist-filters`, `artist-releases`). Keep them when those parts are rebuilt; each page's tests check them.
+- A step whose anchor isn't on the page (a section that only shows with results, a page the profile can't open) is skipped the way the tour was going, in every tour; before, the step centred itself over the page. The box says Back, Skip tour, Next and Done, sits above the floating buttons, and Escape ends the tour.
+- The other page tours (Mirrored playlists, Library, Discover, Stats, Import, Settings, Issues) are unchanged: those pages weren't rebuilt.
+
+Screenshots (1440×900 and 390×844: four welcome-tour steps and an Artist page step; Home, Search, the Artist page, Automations and the sidebar before and after the clean-up) are in the session scratchpad. They aren't in the repo.
+
 ### 2026-10-22: Dev, the last preview gaps closed
 
 Built on `ux/safe-actions-final`. Everything that moves or deletes files now shows exactly what it will do and waits for a confirm. It reuses what was there: the plans in `core/library/action_plans.py` (plan id, 15 minutes, single use, 409 `plan_required` / `plan_unknown` / `plan_expired` / `plan_wrong_tool`), `SafeActionDialog` with the danger tone, and the expired state. The routes are in `CONTRACTS.md`.

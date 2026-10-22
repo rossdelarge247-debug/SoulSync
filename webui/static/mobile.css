@@ -4,52 +4,6 @@
    ============================================ */
 
 /* ======================================
-   HAMBURGER BUTTON (hidden on desktop)
-   ====================================== */
-
-.hamburger-btn {
-    display: none;
-    position: fixed;
-    top: 16px;
-    left: 16px;
-    z-index: 9999;
-    width: 44px;
-    height: 44px;
-    background: rgba(20, 20, 20, 0.9);
-    backdrop-filter: blur(20px);
-    border: 1px solid var(--white-a15);
-    border-radius: var(--radius-lg);
-    cursor: pointer;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    padding: 0;
-}
-
-.hamburger-line {
-    display: block;
-    width: 20px;
-    height: 2px;
-    background: #fff;
-    border-radius: 2px;
-    transition: transform var(--dur-slow) ease, opacity var(--dur-slow) ease;
-}
-
-/* Animated X state */
-.hamburger-btn.active .hamburger-line:nth-child(1) {
-    transform: translateY(7px) rotate(45deg);
-}
-
-.hamburger-btn.active .hamburger-line:nth-child(2) {
-    opacity: 0;
-}
-
-.hamburger-btn.active .hamburger-line:nth-child(3) {
-    transform: translateY(-7px) rotate(-45deg);
-}
-
-/* ======================================
    MOBILE OVERLAY (hidden on desktop)
    ====================================== */
 
@@ -73,6 +27,7 @@
 }
 
 /* ======================================
+=======
    MOBILE BREAKPOINT (≤768px)
    ====================================== */
 
@@ -104,11 +59,6 @@
         border-top-right-radius: 20px;
     }
 
-    #artist-hero-section #artist-detail-image {
-        width: 100% !important;
-        max-width: none !important;
-    }
-
     #media-player {
         min-height: 110px;
         flex-shrink: 0;
@@ -127,24 +77,6 @@
         justify-content: center;
     }
 
-    .sidebar-header {
-        text-align: right;
-        /* The header is already `position: sticky; z-index: 1`, which should put
-           it above the scrolling nav buttons (positioned, z-index auto). It
-           doesn't, and raising the z-index changes nothing — the giveaway that
-           these aren't being arbitrated in the same stacking context.
-           `backdrop-filter` promotes the header to its own compositing layer,
-           where z-index no longer decides the order, so nav items scroll over
-           it and stay clickable. Same root cause as #1040, which the opaque
-           base only half-fixed.
-
-           That opaque base is why dropping the blur here is nearly invisible:
-           the bottom of the gradient is already solid. Handled at the mobile
-           breakpoint only, so the desktop frosted look is untouched. */
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
-    }
-
     .main-content {
         width: 100%;
         flex: 1;
@@ -155,36 +87,6 @@
 
     /* --- Phase 1: Sidebar → Off-canvas --- */
 
-    .hamburger-btn {
-        display: flex;
-    }
-
-    .mobile-overlay {
-        display: block;
-    }
-
-    .sidebar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 280px;
-        height: 100vh;
-        /* dvh tracks the visible viewport when the mobile browser chrome
-           (URL bar) shows/hides — 100vh alone can size the drawer taller
-           than the visible area in landscape, pushing the nav off-screen. */
-        height: 100dvh;
-        z-index: 10001;
-        transform: translateX(-100%);
-        transition: transform var(--dur-slow) var(--ease-standard);
-        border-radius: 0;
-        border-top-right-radius: 24px;
-        border-bottom-right-radius: 24px;
-        /* The drawer itself does not scroll — .sidebar-scroll does (base
-           rule in style.css). Leaving overflow-y:auto here would re-arm the
-           old single-scroll-box behaviour at mobile widths only. */
-        overflow: hidden;
-    }
-
     .sidebar-scroll {
         /* Without this a drag inside the open drawer chains its scroll to the
            page underneath: the list itself does not move, so the browser
@@ -192,17 +94,6 @@
            finger — every scroll attempt navigates. */
         overscroll-behavior: contain;
         -webkit-overflow-scrolling: touch;
-    }
-
-    .sidebar.mobile-open {
-        transform: translateX(0);
-    }
-
-    /* Set for one frame while the viewport crosses the breakpoint. Without it
-       the desktop -> mobile flip animates the drawer across the page, which is
-       what a resized desktop context caught mid-slide sitting on the content. */
-    .sidebar.sidebar-no-transition {
-        transition: none !important;
     }
 
     /* init.js has always put this class on <body> when the drawer opens, but
@@ -234,9 +125,6 @@
     #watchlist-select-all-cb {
         width: 18px;
         height: 18px;
-    }
-    .watchlist-select-all-label {
-        min-height: 32px;
     }
     .td-close {
         width: 36px;
@@ -358,33 +246,6 @@
         min-width: 0;
         max-width: 100%;
         overflow: hidden;
-    }
-
-    .search-bar-container {
-        flex-direction: column;
-        gap: 12px;
-        padding: 12px 16px;
-    }
-
-    .search-bar-container button {
-        width: 100%;
-        min-height: 44px;
-    }
-
-    .sort-order-btn {
-        min-width: 44px;
-        min-height: 44px;
-        width: 44px;
-        height: 44px;
-    }
-
-    .enhanced-dropdown {
-        position: relative;
-        margin-top: 12px;
-        border-radius: 0;
-        z-index: 1;
-        overflow: visible;
-        max-height: none;
     }
 
     /* Album cards — wrap and fill space, 2 per row */
@@ -847,10 +708,6 @@
         font-size: 1.5em;
     }
 
-    .artists-hero-stats {
-        justify-content: center;
-    }
-
     /* --- Phase 5B: Library --- */
 
     .library-container {
@@ -907,15 +764,7 @@
         border-radius: var(--radius-lg);
     }
 
-    .artist-hero-content {
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        gap: 16px;
-    }
-
-    .artist-image,
-    .artist-image-fallback {
+    .artist-image {
         width: 100px;
         height: 100px;
     }
@@ -937,58 +786,14 @@
         height: 22px;
     }
 
-    .artist-genres-container {
-        justify-content: center;
-        flex-wrap: wrap;
-    }
-
     .artist-hero-bio {
         font-size: 12px;
         -webkit-line-clamp: 3;
         max-height: fit-content;
     }
 
-    .artist-hero-numbers {
-        justify-content: center;
-        gap: 20px;
-    }
-
-    .hero-stat-value {
-        font-size: 18px;
-    }
-
-    .hero-stat-label {
-        font-size: 10px;
-    }
-
     .collection-overview {
         gap: 6px;
-    }
-
-    .category-label {
-        font-size: 0.65em;
-        min-width: 42px;
-    }
-
-    .category-stats {
-        font-size: 0.65em;
-    }
-
-    /* Top tracks sidebar — stack below on mobile */
-    .artist-hero-right {
-        width: 100%;
-        border-left: none;
-        border-top: 1px solid var(--white-a06);
-        padding-top: 12px;
-    }
-
-    .hero-top-tracks {
-        max-height: 200px;
-        overflow-y: auto;
-    }
-
-    .releases-grid {
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     }
 
     /* --- Phase 6: Discover --- */
@@ -1497,30 +1302,9 @@
     }
 
     /* Watchlist card grid on mobile */
-    .watchlist-artists-grid {
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        gap: 16px;
-        padding: 16px;
-    }
-
-    .watchlist-card-info {
-        padding: 0 12px 6px;
-        margin-top: -28px;
-    }
-
-    .watchlist-card-name {
-        font-size: 13px;
-    }
 
     .watchlist-card-meta {
         font-size: 10px;
-    }
-
-    /* Show checkbox, remove, and gear always on mobile (no hover) */
-    .watchlist-card-checkbox,
-    .watchlist-artist-card .watchlist-card-remove,
-    .watchlist-artist-card .watchlist-card-gear {
-        opacity: 1;
     }
 
     .watchlist-detail-hero {
@@ -1542,10 +1326,6 @@
 
     .watchlist-detail-actions button {
         width: 100%;
-    }
-
-    .watchlist-search-container {
-        padding: 0 16px;
     }
 
     /* Retag modal on mobile */
@@ -1670,7 +1450,6 @@
     }
 
     /* Font size floors */
-    .app-subtitle,
     .stat-label,
     .stat-value-small {
         font-size: 12px;
@@ -1950,20 +1729,6 @@
     }
 
     /* Watchlist cards — tighter grid on small screens */
-    .watchlist-artists-grid {
-        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-        gap: 12px;
-        padding: 12px;
-    }
-
-    .watchlist-card-name {
-        font-size: 12px;
-    }
-
-    .watchlist-card-info {
-        padding: 0 10px 4px;
-        margin-top: -24px;
-    }
 
     .watchlist-pill {
         font-size: 8px;
@@ -2158,20 +1923,9 @@
         gap: 6px;
         padding: 8px 0 12px;
     }
-    .filter-group {
-        gap: 4px;
-        flex-wrap: wrap;
-    }
-    .filter-label {
-        font-size: 10px;
-        width: 100%;
-    }
     .discography-filter-btn {
         padding: 4px 10px;
         font-size: 11px;
-    }
-    .filter-divider {
-        display: none;
     }
     .enhanced-view-toggle-btn {
         padding: 5px 12px;
@@ -2595,9 +2349,7 @@
         gap: 6px;
     }
 
-    .library-artist-radio-btn .radio-icon,
-    .library-artist-watchlist-btn .watchlist-icon,
-    .library-artist-enhance-btn .enhance-icon {
+    .library-artist-watchlist-btn .watchlist-icon {
         font-size: 12px;
     }
 }
@@ -2823,12 +2575,6 @@
    Chips shrink on tablet, labels drop on phone so the full row
    of 8 sources remains scannable without hijacking the screen. */
 @media (max-width: 768px) {
-    .enh-source-row {
-        padding: 8px 8px;
-        margin: 8px 0 10px;
-        gap: 6px;
-        border-radius: var(--radius-lg);
-    }
     .enh-source-icon {
         min-width: 72px;
         padding: 8px 10px;
@@ -2904,11 +2650,6 @@
 /* Very narrow phones — drop the icon labels entirely and show just the
    glyphs. Tap target stays big enough, row compacts dramatically. */
 @media (max-width: 480px) {
-    .enh-source-row {
-        padding: 6px 6px;
-        gap: 4px;
-        border-radius: var(--radius-control);
-    }
     .enh-source-icon {
         min-width: 44px;
         padding: 6px 8px;
@@ -3363,25 +3104,6 @@ body:has([data-year-story-overlay]) .helper-float-btn {
     .automation-card { padding: 12px 12px 11px 15px; }
     .automation-card .automation-actions { flex-wrap: wrap; }
 
-    /* The tile's foot is a two-up row on desktop. On a phone the meta line
-       alone eats the width, so the controls take their own row underneath
-       rather than being squeezed to one button per line. */
-    .automation-card.automation-tile .auto-tile-foot {
-        flex-direction: column; align-items: stretch; gap: 8px;
-    }
-    .automation-card.automation-tile .automation-actions { justify-content: flex-end; }
-    /* Thumb targets: these were 28px squares built for a mouse. */
-    .automation-card.automation-tile .automation-actions button {
-        width: 38px; height: 38px; font-size: 14px;
-    }
-    /* The cadence editor is three controls in a chip-sized row — let it wrap
-       instead of overflowing the card. */
-    .automation-card.automation-tile .auto-cadence-edit { width: 100%; }
-    .automation-card.automation-tile .auto-cadence-edit input,
-    .automation-card.automation-tile .auto-cadence-edit select { min-height: 34px; }
-    .automation-card.automation-tile .auto-cadence-save,
-    .automation-card.automation-tile .auto-cadence-cancel { min-height: 34px; }
-
     /* The builder is two columns on desktop; stack them, and cap the palette
        so the canvas is reachable without scrolling past 100 blocks. */
     .builder-content { flex-direction: column; }
@@ -3394,13 +3116,6 @@ body:has([data-year-story-overlay]) .helper-float-btn {
 @media (max-width: 480px) {
     .automations-stats .auto-stat strong { font-size: 16px; }
     .automation-card .automation-flow { flex-wrap: wrap; row-gap: 4px; }
-    .automation-card .auto-meta-fail { max-width: 100%; white-space: normal; }
-    /* The name and the runs badge stop competing for one line. */
-    .automation-card.automation-tile .auto-tile-head { flex-wrap: wrap; row-gap: 4px; }
-    .automation-card.automation-tile .automation-name { font-size: 13.5px; }
-    .automation-card.automation-tile .flow-trigger,
-    .automation-card.automation-tile .flow-action,
-    .automation-card.automation-tile .flow-notify { max-width: 100%; }
     .builder-sidebar { max-height: 40vh; }
 }
 
@@ -3410,11 +3125,6 @@ body:has([data-year-story-overlay]) .helper-float-btn {
     .builder-sidebar .block-item { min-height: 46px; }
     .automations-stats .auto-stat-lens:hover { transform: none; }
     .automation-card:hover { transform: none; }
-    /* No hover to reveal the tile's controls with, and the editable trigger
-       chip must be tappable rather than hover-hinted. */
-    .automation-card.automation-tile .automation-actions { opacity: 1; }
-    .automation-card.automation-tile .auto-flow-editable { min-height: 30px; }
-    .automation-card.automation-tile .auto-tile-badge { min-height: 30px; }
 }
 
 /* #1227: shared by playlist, album, artist-album and wishlist download dialogs.
@@ -3727,40 +3437,6 @@ html.download-modal-open body {
     }
 }
 
-/* --- Landscape phones: compact the drawer header so the nav can scroll ---
-   In landscape the viewport is ~360px tall. The sidebar header (brand +
-   Audio/Video toggle + profile) eats ~200px of that, leaving almost no room
-   for .sidebar-scroll — the nav items pile up below the fold with nothing to
-   scroll. This compacts the header at short heights so the scroll area gets
-   real space. */
-@media (max-height: 500px) {
-    .sidebar-header {
-        min-height: 0;
-        padding: 12px 16px;
-        gap: 6px;
-    }
-    .sidebar-header .app-subtitle {
-        display: none;
-    }
-    .sidebar-header .sidebar-logo {
-        width: 28px;
-        height: 28px;
-    }
-    .sidebar-header .app-name {
-        font-size: 18px;
-    }
-    .sidebar-header .side-toggle {
-        margin-top: 2px;
-    }
-    .sidebar-header .side-toggle-btn {
-        padding: 6px 10px;
-        font-size: 12px;
-    }
-    #profile-indicator {
-        margin-top: 2px;
-    }
-}
-
 /* --- Mobile tab/pill bars: never overlap, scroll instead of clipping ---
    Thibs' screenshots show pill tab groups (Audiobooks genres, Watchlist
    tabs, Settings Library tabs) either cut off at the viewport edge or —
@@ -3801,69 +3477,6 @@ html.download-modal-open body {
         flex-shrink: 0;
         white-space: nowrap;
     }
-}
-
-/* --- Hide hamburger behind open modals ---
-   The hamburger is position:fixed with a high z-index so it's always
-   reachable. When a modal opens (e.g. the Deezer service setup), the
-   hamburger paints above the modal's own header and overlaps its title.
-   Modals get their own close control, so the hamburger is redundant while
-   one is open.
-   Batch #2: the original rule waited for modal-open / download-modal-open,
-   which almost nothing sets. What actually signals an open modal, and what
-   this rule keys off:
-   - body classes the app toggles: src-modal-open (settings service/source
-     modals — the Deezer one), pf-modal-open (profile layers), np-modal-open
-     (the player).
-   - overlay roots via :has(), for the React modals that set no body class —
-     the pattern style.css already uses for the vanilla modals. Each family
-     below was checked: its overlay is either mounted only while open, or
-     stays mounted and carries its open class (.visible / .active) only
-     while open, so the hamburger never hides with nothing open.
-   - the audiobook overlays (AudiobookOverlay) portal a backdrop whose
-     class is a hashed CSS module, unnameable here — the component stamps
-     data-audiobook-overlay on it instead, and that attribute is the hook.
-   Modal families NOT listed either stack above the hamburger already
-   (z-index ≥ 10000: download, mirrored, repair-help, server-search) or
-   are covered by the body classes above.
-   Oct 13 batch: the old assumption that the generic .modal-overlay
-   "stacks above the hamburger already" is FALSE for anything mounted
-   inside #webui-react-root (position:relative; z-index:1) — at body level
-   the whole React root stacks at 1, below the hamburger's 9999, whatever
-   the overlay's own z-index says (measured live: elementFromPoint at the
-   hamburger's centre returned the hamburger over a z-10000
-   .modal-overlay). So the generic overlay is listed below, generalised
-   (fold): EVERY .modal-overlay family is trapped the same way (playlist
-   detail, mix, playlist-preview, your-artists, artist-info, blacklist,
-   station, sync discovery, sources, artist-detail modals, watchlist
-   modals, …), not just the playlist one. closed overlays don't all use
-   .hidden: some vanilla ones (automation run history, the spotify and
-   deezer arl playlist details) close with style.display='none' and stay
-   in the dom, which hid the hamburger for good after one open. so an
-   inline display:none counts as closed too. Hiding the hamburger behind
-   the account modal also keeps the nav drawer from being opened over it
-   (the drawer is z-10001, one rung above it). The Artist Map / Artist Web
-   container joins the list for the same reason — it is z-index 100, far
-   BELOW the hamburger, and only exists while a map is open. */
-html.download-modal-open .hamburger-btn,
-html.modal-open .hamburger-btn,
-body.modal-open .hamburger-btn,
-body.src-modal-open .hamburger-btn,
-body.pf-modal-open .hamburger-btn,
-body.np-modal-open .hamburger-btn,
-body:has(.auto-sync-overlay) .hamburger-btn,
-body:has(.confirm-modal-overlay) .hamburger-btn,
-body:has(.discog-modal-overlay.visible) .hamburger-btn,
-body:has(.arec-overlay.visible) .hamburger-btn,
-body:has(.art-picker-overlay.visible) .hamburger-btn,
-body:has(.watchadd-modal-overlay.visible) .hamburger-btn,
-body:has(.server-disambig-overlay.visible) .hamburger-btn,
-body:has(.genre-browser-modal-overlay.active) .hamburger-btn,
-body:has([data-audiobook-overlay]) .hamburger-btn,
-body:has(.modal-overlay:not(.hidden):not([style*="display: none"]):not([style*="display:none"])) .hamburger-btn,
-body:has(.artist-map-container) .hamburger-btn,
-body:has([data-year-story-overlay]) .hamburger-btn {
-    display: none !important;
 }
 
 /* The map/web container is a full-viewport takeover, but the shell's

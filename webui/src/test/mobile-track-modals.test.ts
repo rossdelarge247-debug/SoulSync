@@ -74,11 +74,11 @@ describe('discover mix modal on a phone', () => {
 });
 
 describe('floating chrome over these modals', () => {
-  it('hides the hamburger while either modal is open', () => {
+  it('hides the floating buttons while either modal is open', () => {
     expect(
-      rules(CSS, 'body:has(.download-missing-modal[style*="display: flex"]) .hamburger-btn'),
+      rules(CSS, 'body:has(.download-missing-modal[style*="display: flex"]) #activity-float-btn'),
     ).toMatch(/display:\s*none !important/);
-    expect(rules(CSS, 'body:has(#mix-modal-overlay) .hamburger-btn')).toMatch(
+    expect(rules(CSS, 'body:has(#mix-modal-overlay) #activity-float-btn')).toMatch(
       /display:\s*none !important/,
     );
   });

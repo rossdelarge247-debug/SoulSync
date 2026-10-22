@@ -239,9 +239,9 @@ describe('the modal takes more of the phone', () => {
 });
 
 // #1691: the floating chrome (z-index 999999) sat over the modal (10000): the
-// hamburger on its cover, and the bell, activity and helper buttons on the
-// bottom row of actions, right where Close and Identify land once the bar
-// stacks. measured in chromium against the real modal markup: all three sat
+// bell, activity and helper buttons on the bottom row of actions, right where
+// Close and Identify land once the bar stacks (the old drawer's hamburger sat
+// on its cover too; the navigation shell's tab bar replaced it). measured in chromium against the real modal markup: all three sat
 // on Identify at 390 and 360px. hidden while the modal is open, the same way
 // the mix and download-missing modals do it.
 describe('floating chrome while the mirrored modal is open', () => {
@@ -256,7 +256,6 @@ describe('floating chrome while the mirrored modal is open', () => {
       '#notif-bell-btn',
       '#helper-float-btn',
       '#activity-float-btn',
-      '.hamburger-btn',
     ]) {
       expect(block).toContain(`body:has(#mirrored-track-modal) ${target}`);
     }

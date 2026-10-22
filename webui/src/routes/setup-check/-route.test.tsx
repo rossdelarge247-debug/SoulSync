@@ -151,6 +151,13 @@ describe('setup check route', () => {
     Reflect.deleteProperty(navigator, 'clipboard');
   });
 
+  it('carries the guided tour’s anchor on its header', async () => {
+    mockSetupCheckApi();
+    renderPage();
+    const title = await screen.findByRole('heading', { level: 1, name: 'Setup check' });
+    expect(title.closest('[data-tour="setup-check"]')).not.toBeNull();
+  });
+
   it('renders the results grouped by category, problems first', async () => {
     mockSetupCheckApi();
     renderPage();

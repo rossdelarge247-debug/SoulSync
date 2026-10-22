@@ -246,10 +246,6 @@
   background: var(--text-1); color: #0b0e13; border-color: var(--text-1);
   box-shadow: 0 4px 14px var(--white-a18);
 }
-.wlp-chip--warn.active {
-  background: rgb(var(--wlp-warn)); border-color: rgb(var(--wlp-warn)); color: #1a1206;
-  box-shadow: 0 4px 16px rgba(var(--wlp-warn), 0.35);
-}
 .wlp-chip .wlp-count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 20px; height: 20px; padding: 0 6px;
@@ -954,7 +950,6 @@
 
 /* ── Responsive ─────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
-  .wlp { padding: 4px 14px 110px; }
   .wlp-hero { padding: 24px 20px 20px; border-radius: 20px; }
   .wlp-hero-top { flex-direction: column; }
   .wlp-nextrun { width: 100%; }
