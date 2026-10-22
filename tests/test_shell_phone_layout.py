@@ -1,7 +1,12 @@
-"""On phones the navigation shell's top bar is part of the page's flow
-(webui/static/shell.css), not a floating button over it, so the 70px top
-padding mobile.css gives every .page for that old button would leave a gap
-under the bar. The shell takes it back to the phone gutter."""
+"""Layout the navigation shell (webui/static/shell.css) owns around pages.
+
+On phones the top bar is part of the page's flow, not a floating button over
+it, so the 70px top padding mobile.css gives every .page for that old button
+would leave a gap under the bar; the shell takes it back to the phone gutter.
+
+The floating notification, help and activity buttons sit above everything
+(z-index 999999), dialogs included, so they hide while a dialog is open
+rather than cover its footer."""
 
 import re
 
@@ -51,3 +56,12 @@ def test_phone_pages_start_at_the_gutter_not_under_an_old_button():
     shell = read(SHELL_CSS)
     assert top_padding(media_blocks(shell, 'max-width: 768px')) == 16
     assert top_padding(media_blocks(shell, 'max-width: 480px')) == 12
+
+
+def test_the_floating_buttons_step_aside_for_an_open_dialog():
+    shell = read(SHELL_CSS)
+    rule = re.search(r"body:has\(\[role='dialog'\]\[data-open\]\)\s*:is\(([^)]*)\)\s*\{([^}]*)\}", shell)
+    assert rule, 'no rule hides the floating buttons under an open dialog'
+    names = {name.strip() for name in rule.group(1).split(',')}
+    assert names == {'.notif-bell-btn', '.helper-float-btn', '.activity-float-btn'}
+    assert 'visibility: hidden' in rule.group(2)

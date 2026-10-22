@@ -959,6 +959,14 @@ body[data-side='video'] #app-sidebar [data-video-only] { display: flex; }
     html[data-sidebar='collapsed'] #app-sidebar .ss-profile .ss-icon-btn { display: none; }
 }
 
+/* An open dialog covers the page. The floating notification, help and
+   activity buttons sit at z-index 999999, above the dialogs' 11000, so they
+   would cover a dialog's footer buttons (on phones, a full-screen sheet's).
+   Shared dialogs (components/dialog, Base UI) mark the open popup data-open. */
+body:has([role='dialog'][data-open]) :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn) {
+    visibility: hidden;
+}
+
 /* ── phone ───────────────────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
