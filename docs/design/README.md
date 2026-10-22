@@ -23,6 +23,7 @@ The person who owns the fork (Ross) approves designs and decides when something 
 | `SCREENS.md` | Every screen: its status, its artboard, its code | Dev keeps it current |
 | `CONTRACTS.md` | The data each screen can rely on, from the real API | Dev |
 | `HANDOFF.md` | Decisions and questions passed between Design and Dev, newest first | Both (Design through the canvas) |
+| `BACKLOG.md` | New features Ross wants, shaped with Dev against the real data; Design picks up anything "Ready for Design" | Dev, from Ross |
 
 ## The loop
 
@@ -37,7 +38,7 @@ Design can read this repository but can't commit to it, so the canvas is how Des
 
 Open the canvas in Claude Design and start with something like:
 
-> You own SoulSync's front-end design. Read `docs/design/` in github.com/rossdelarge247-debug/SoulSync (branch `integration`), starting with README.md, then BRIEF.md, DESIGN-SYSTEM.md, SCREENS.md, CONTRACTS.md and HANDOFF.md. Work on this canvas. Record each decision as a canvas note naming the artboard, and answer the open questions in HANDOFF.md the same way. Design within CONTRACTS.md; ask for anything new.
+> You own SoulSync's front-end design. Read `docs/design/` in github.com/rossdelarge247-debug/SoulSync (branch `integration`), starting with README.md, then BRIEF.md, DESIGN-SYSTEM.md, SCREENS.md, CONTRACTS.md, HANDOFF.md and BACKLOG.md. Work on this canvas. Record each decision as a canvas note naming the artboard, and answer the open questions in HANDOFF.md the same way. Design within CONTRACTS.md; ask for anything new.
 
 If that chat can't read GitHub, attach the six files instead.
 
