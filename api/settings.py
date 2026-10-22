@@ -26,6 +26,10 @@ _SENSITIVE_KEYS = {
     "genius.access_token",
     "hydrabase.api_key",
     "ai.anthropic_api_key",
+    "radio.audd_api_token",
+    "radio.acrcloud_host",
+    "radio.acrcloud_access_key",
+    "radio.acrcloud_access_secret",
 }
 
 

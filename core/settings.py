@@ -172,6 +172,11 @@ class ConfigManager:
         'discogs.token',
         # The Automation Assistant's provider key (Settings → AI)
         'ai.anthropic_api_key',
+        # Internet radio's paid Scan now services (Settings → Radio)
+        'radio.audd_api_token',
+        'radio.acrcloud_host',
+        'radio.acrcloud_access_key',
+        'radio.acrcloud_access_secret',
     })
 
     def _get_fernet(self) -> Fernet:
@@ -1505,6 +1510,25 @@ class ConfigManager:
         # Outside the lock: the save copies the config under it, then does
         # the database write (and any retry sleeps) without holding it.
         self._save_config()
+
+    def clear_secret(self, key: str) -> bool:
+        """Remove one stored secret: the explicit "Remove" a settings screen
+        offers, since ``set()`` treats an empty value as "keep the existing
+        one". Only sensitive paths; True when something was removed."""
+        if key not in self._SENSITIVE_PATHS:
+            raise KeyError(key)
+        keys = key.split('.')
+        with self._sync.lock:
+            parent = self.config_data
+            for k in keys[:-1]:
+                parent = parent.get(k) if isinstance(parent, dict) else None
+                if parent is None:
+                    return False
+            if not isinstance(parent, dict) or keys[-1] not in parent:
+                return False
+            parent.pop(keys[-1], None)
+        self._save_config()
+        return True
 
     def resolve_secret(self, key: str, posted: Any) -> str:
         """Resolve a secret value coming back from the settings UI.

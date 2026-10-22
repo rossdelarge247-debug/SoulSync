@@ -3,11 +3,17 @@
 The AcoustID key is the existing ``acoustid.api_key`` (the download
 identifier's), stored encrypted with the app's other secrets; this module only
 ever hands out a masked copy.
+
+Scan now's paid services (AudD, ACRCloud) keep their keys under
+``radio.audd_api_token`` and ``radio.acrcloud_*``, all four in
+``ConfigManager._SENSITIVE_PATHS`` (encrypted at rest, masked in every
+settings read). They're write-only here: a read says only whether each is set.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict
+import re
+from typing import Any, Dict, Optional
 
 DEFAULTS = {
     "identification": True,
@@ -23,6 +29,70 @@ DAILY_LIMIT_MAX = 500
 
 class SettingsError(ValueError):
     """A bad value; ``str()`` is the sentence to show."""
+
+
+# ── Scan now's services ──────────────────────────────────────────────────────
+
+AUDD_TOKEN = "radio.audd_api_token"
+ACR_HOST = "radio.acrcloud_host"
+ACR_KEY = "radio.acrcloud_access_key"
+ACR_SECRET = "radio.acrcloud_access_secret"
+SCAN_SECRET_PATHS = (AUDD_TOKEN, ACR_HOST, ACR_KEY, ACR_SECRET)
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_\-]{8,128}\Z")
+# an ACRCloud project's host: identify-<region>.acrcloud.com, or another name
+# under acrcloud.com; nothing else, so the setting can't point the server at
+# an address of someone's choosing
+_ACR_HOST_RE = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+acrcloud\.com\Z")
+
+
+def acrcloud_host(raw: Any) -> Optional[str]:
+    """The ACRCloud host, normalised, or None when it isn't one.
+
+    A bare name under ``acrcloud.com`` (``identify-eu-west-1.acrcloud.com``);
+    an ``https://`` in front and a trailing ``/`` are forgiven. Ports, paths,
+    queries, user names, IP addresses and every other domain are refused.
+    """
+    if not isinstance(raw, str):
+        return None
+    host = raw.strip().lower()
+    if host.startswith("https://"):
+        host = host[len("https://"):]
+    if host.endswith("/"):
+        host = host[:-1]
+    if not host or len(host) > 253 or not _ACR_HOST_RE.match(host):
+        return None
+    return host
+
+
+def _secret(config, path: str) -> str:
+    try:
+        value = config.get(path, "") or ""
+    except Exception:  # noqa: BLE001
+        return ""
+    return str(value).strip() if isinstance(value, str) else ""
+
+
+def audd_token(config) -> str:
+    return _secret(config, AUDD_TOKEN)
+
+
+def acrcloud_credentials(config) -> Optional[Dict[str, str]]:
+    """``{host, access_key, access_secret}`` when all three are set and the
+    host is an ACRCloud one, else None."""
+    host = acrcloud_host(_secret(config, ACR_HOST))
+    key, secret = _secret(config, ACR_KEY), _secret(config, ACR_SECRET)
+    if not (host and key and secret):
+        return None
+    return {"host": host, "access_key": key, "access_secret": secret}
+
+
+def scan_services_public(config) -> Dict[str, Any]:
+    """Whether each key is set; never the keys."""
+    def state(path: str) -> Dict[str, Any]:
+        return {"set": bool(_secret(config, path))}
+    return {"audd_api_token": state(AUDD_TOKEN), "acrcloud_host": state(ACR_HOST),
+            "acrcloud_access_key": state(ACR_KEY), "acrcloud_access_secret": state(ACR_SECRET),
+            "audd_ready": bool(audd_token(config)), "acrcloud_ready": acrcloud_credentials(config) is not None}
 
 
 def _get(config, key: str) -> Any:
@@ -71,6 +141,7 @@ def public(config) -> Dict[str, Any]:
     out = read(config)
     key = acoustid_key(config)
     out["acoustid_api_key"] = {"set": bool(key), "masked": masked(key)}
+    out["scan_services"] = scan_services_public(config)
     return out
 
 
@@ -116,10 +187,49 @@ def save(config, body: Any) -> Dict[str, Any]:
             if len(key) > 64 or not key.replace("-", "").replace("_", "").isalnum():
                 raise SettingsError("That doesn't look like an AcoustID key.")
             writes["acoustid.api_key"] = key
+    for field, path in (("audd_api_token", AUDD_TOKEN), ("acrcloud_access_key", ACR_KEY),
+                        ("acrcloud_access_secret", ACR_SECRET)):
+        if field in body:
+            value = body[field]
+            if value is not None and not isinstance(value, str):
+                raise SettingsError("Keys are text.")
+            value = (value or "").strip()
+            if value:  # empty leaves the saved one alone; "remove" clears it
+                if not _TOKEN_RE.match(value):
+                    raise SettingsError({"audd_api_token": "That doesn't look like an AudD API token.",
+                                         "acrcloud_access_key": "That doesn't look like an ACRCloud access key.",
+                                         "acrcloud_access_secret": "That doesn't look like an ACRCloud access secret.",
+                                         }[field])
+                writes[path] = value
+    if "acrcloud_host" in body:
+        raw = body["acrcloud_host"]
+        if raw is not None and not isinstance(raw, str):
+            raise SettingsError("The ACRCloud host is text.")
+        if (raw or "").strip():
+            host = acrcloud_host(raw)
+            if host is None:
+                raise SettingsError("The ACRCloud host is the one your project shows, ending in .acrcloud.com "
+                                    "(like identify-eu-west-1.acrcloud.com).")
+            writes[ACR_HOST] = host
+    removes = []
+    if "remove" in body:
+        names = body["remove"]
+        if not isinstance(names, list) or any(n not in ("audd", "acrcloud") for n in names):
+            raise SettingsError("Remove either “audd” or “acrcloud”.")
+        if "audd" in names:
+            removes.append(AUDD_TOKEN)
+        if "acrcloud" in names:
+            removes.extend((ACR_HOST, ACR_KEY, ACR_SECRET))
     for k, v in writes.items():
         config.set(k, v)
+    for path in removes:
+        if path not in writes:
+            clear = getattr(config, "clear_secret", None)
+            if clear is not None:
+                clear(path)
     return public(config)
 
 
 __all__ = ["DEFAULTS", "RELAY_CHOICES", "KEEP_CHOICES", "SettingsError", "read", "public", "save",
-           "acoustid_key", "masked"]
+           "acoustid_key", "masked", "acrcloud_host", "audd_token", "acrcloud_credentials", "scan_services_public",
+           "SCAN_SECRET_PATHS"]
