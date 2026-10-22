@@ -4,7 +4,7 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, and 34–36 with build (b), so they are still open. Answer on the canvas, naming the board, as before.
+Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, 34–36 with build (b) and 37–44 with build (c), so they are still open. Answer on the canvas, naming the board, as before.
 
 **Upstream sync (no boards)**
 29. Home's "Finish setting up" card sits under Latest. Right place, or above Targets while setup is fresh?
@@ -18,7 +18,96 @@ Questions 1–28 were answered in Design's session of 22 October (the log entry 
 35. 5f says "Yours only; each profile picks its own", but the accent is one setting for the whole install, set by an admin. Should each profile pick its own accent (a new per-profile setting, so members could change it too), or keep one accent and the board's line goes?
 36. "Follow…" opens the artist search in place, but takes you to Search, Podcasts or Audiobooks to follow a label, a podcast or an author. Draw an in-place follow for those three?
 
+**The player (build c; boards 6a, 4i, 4j)**
+37. 6a's open frame keeps the sidebar full height beside the tray, but the bar runs under the sidebar too, so the built tray does the same (one component that grows upwards). Should the open tray stop at the sidebar's edge instead?
+38. Recent (the listening history's plays from this player) replaced the old player's local History, which had a Clear. Recent has no Clear: clearing it would delete listening history. Is that right, or should Recent offer "Clear" that only hides what's there?
+39. The old mini player's glow in the cover's colours and its little visualizer bars went with it; the visuals now live only in the Visuals overlay. Bring a quiet visual back into the bar or the tray?
+40. 6a's queue rows show "artist · format". The old queue had no quality judgement and the built rows don't either: should a row below your target say so (it needs the details for every queued track)?
+41. On a phone the mini bar sits flush on the tab bar, as 4i draws it, with the page ending above it. 4j's sheet has Up next or Heard; the built sheet has Up next / Recent like the tray. Right, or should "Heard" wait for radio?
+42. Podcasts and audiobooks now play in the app's player (they keep playing across pages), but a podcast's progress still isn't remembered between visits and their plays don't go into the listening history. Should they?
+43. The "…" menu holds 16 rows. Is there anything you'd rather see in the record itself (Add to playlist, Sleep timer), or anything that can go?
+44. With nothing playing the bar isn't shown at all (the page gets the full height). 6a doesn't draw an empty state: keep it hidden, or show an empty bar ("Nothing playing")?
+
 ## Log
+
+### 2026-10-22: Dev, the player (6a)
+
+Built on `ux/player` from `DESIGN-SYSTEM.md`, "Player bar and tray (6a)", the 6a board in `Player rail (exploration).dc.html` and the phone boards 4i/4j. The floating mini player and the Now Playing modal are gone; one player replaces both.
+
+**What's built**
+- **The bar:** 72px, pinned full width along the bottom of the window under the sidebar and the page, which both end above it. `340px 1fr 400px`, padding 0 24. Art, title and "artist · format" (one button that expands); Previous, the 44px accent-light Pause, Next, the times either side of a 28px waveform; mute, volume, the output button, "Up next · N" and a labelled Expand.
+- **The tray:** 360px, rising from the bar; the page keeps its width and loses height. `280px 1fr 360px`, gap 32, padding 24 24 20. The record (112px art, title, the artist as a link, "Lantern · 2024 · track 3 of 11", the mono readout with Format and Path, the quality tag and Open album, and a "…" menu), the deck (a 72px waveform, elapsed and remaining, Shuffle, Previous, a 48px Pause, Next, Repeat, volume with "−12 dB", output) and the list (Up next / Recent, Clear, Collapse; 56px queue rows, dragged to reorder; "8 up next · from Lantern · then playback stops · Show all").
+- **One component, two states,** remembered per browser like the compact rail (`html[data-player]`); every toggle carries `aria-expanded` pointing at the tray; Escape closes a menu, then the tray.
+- **The waveform** comes from the new peaks route, worked out in the background the first time a track plays, and is a keyboard slider (arrows 5 s, Page Up/Down 30 s, Home/End) whose values change when someone moves it, not as the time runs. The played bars and the Pause use the accent variables, so Lilac and the other accents follow.
+- **The readout** (format, bit depth / sample rate, bitrate, where it plays from) comes from the new details route; bit depth and sample rate are read from the file once and kept on the track. **Recent** comes from the listening history.
+- **Source kinds:** library and stream tracks as above; podcasts and audiobooks get "1.2×", −15 s / +30 s and chapter ticks (from the feed's chapters, when it publishes them); radio is only the seam (a Live tag instead of the times, one action slot, a level meter instead of the waveform), for build (e).
+- **Podcasts and audiobooks play in the app's player** now, instead of a bar of their own on their pages, so an episode keeps playing while you browse.
+- **Output:** browser-side only. Chrome and Edge list the outputs (`setSinkId`); unnamed devices get "Show the outputs' names…", which asks for the microphone permission the browser needs before it names them. Firefox opens its own picker, Safari the AirPlay picker. The button is hidden when there's nowhere else to send the sound.
+- **Phone (≤768px):** a 64px mini bar on the tab bar (art, "title · artist", "source · format", Next or +30 s, Play/Pause) that opens the tray as a `#141416` sheet with Close; Escape closes it and focus goes back.
+- **"Library Radio" is "Shuffle your library"** everywhere a person sees it (Ross's decision): the Library page's button (its title; the button says "Shuffle"), Home's listen band, Discover's stations row, the help pages and the player's messages. Function names and URLs are unchanged.
+- **The routes** are in `CONTRACTS.md`, "The player" (now under Built): `GET /api/library/tracks/<id>/peaks`, `GET /api/library/tracks/<id>/details`, `GET /api/player/recent?limit=20`; new table `track_peaks`, new track columns `bit_depth`, `sample_rate`, `audio_probe_sig`.
+
+Code: `webui/index.html` (`#media-player`, the Visuals overlay), `static/player.css`, `src/shell/player.ts`, `player-state.ts`, `player-output.ts`, `src/features/playback/app-player.ts`; the engines stay in `static/media-player.js` (now with `window.SoulSyncPlayer` and an `ss:player` event) and `static/media-player-v2.js`; `api/player.py`, `core/playback/peaks.py`, `core/playback/audio_details.py`, `core/sample/analyze.py` (`compute_peaks`).
+
+**Where each old feature went**
+
+| Old player | Now |
+|---|---|
+| Mini player: art, title, artist | The bar's left button (and the mini bar on phones) |
+| Mini player: Play/Pause, Previous, Next | The bar's centre; the deck; the mini bar (Play/Pause and Next) |
+| Mini player: Shuffle, Repeat (with the "1" badge) | The deck (Repeat's name says "this track" / "the queue") |
+| Mini player: Stop | "…" → Stop and clear the queue |
+| Mini player: progress bar and seeking | The waveform (bar and deck), a slider |
+| Mini player: volume | The bar and the deck, with mute and a dB readout |
+| Mini player: "30-second preview" badge | The meta line and the quality tag say "30-second preview" |
+| Mini player: loading bar and percentage | The meta line says what's happening (preparing, downloading, buffering), Pause shows a spinner, and the live region announces it |
+| Mini player: cover-colour glow (`mp-viz`) | Dropped (question 39) |
+| Expand button / clicking the mini player | Expand, the bar's left button, Up next · N |
+| Now Playing: big art, title, artist, album | The record |
+| Now Playing: "Go to artist" | The artist link in the record, plus Open album |
+| Now Playing: format badges | The readout (Format and Path) and the quality tag |
+| Now Playing: "Playing from …" | The queue foot ("from Lantern") |
+| Now Playing: Up next card | The Up next list and "Up next · N" in the bar |
+| Now Playing: transport, seek tip, buffering ring | The deck; the time under the pointer on the waveform; a spinner in Pause |
+| Now Playing: mute and volume | The deck |
+| Now Playing: Add to playlist, Report a problem | "…" menu |
+| Now Playing: Crossfade, Sleep timer (with its label) | "…" menu (the menu shows the sleep time left) |
+| Now Playing: Radio mode (auto-add similar tracks) | "…" → Add similar tracks when the queue ends |
+| Now Playing: download missing queue tracks | "…" → Download missing queue tracks |
+| Now Playing: Stop | "…" → Stop and clear the queue |
+| Queue panel: list, reorder, remove, play from here, Clear, Clear played | Up next (drag, or the ↑ / ↓ "Move earlier / later" buttons; remove; play), Clear, "…" → Clear played tracks; Show all brings back what's played |
+| Lyrics toggle and panel (synced lines) | "…" → Lyrics, in the list column |
+| Album-art visualizer (click the art) and the CSS bars | Dropped; the Visuals overlay is the visualizer (question 39) |
+| v2: visuals mode, themes, fullscreen, Shift+click cycle, V / Shift+V, F | "…" → Visuals (the old theater as a full-screen overlay with its own transport and drawer); the keys still work |
+| v2: Equalizer (Shift+click opens settings), A–B loop and its range | "…" menu; the A–B range shows on the deck |
+| v2: speed button and [ / ] | The "1.2×" button for spoken word, "…" → Speed for everything; the keys still work |
+| v2: History panel and its Clear | Recent, from the listening history (Clear dropped: question 38) |
+| v2: Track details, Copy info, Copy path | "…" → Track details, in the list column |
+| v2: Settings (speed, crossfade seconds, wake lock, EQ, normalise, visual, auto-cycle, energy, palette, dim, quality, reduce motion, reset) | "…" → Player settings, in the list column |
+| v2: animated background toggle | Dropped: the only animated background is the Visuals overlay itself |
+| v2: keyboard shortcuts list (?) | "…" → Keyboard shortcuts, and ? |
+| Keyboard: Space, arrows, M, N/P and the rest | Unchanged, except Escape (the chrome's now) and that keys typed in a field or a menu are left alone |
+| Media Session, scrobbling, listening history, queue restore and prefetch | Unchanged (`media-player.js`) |
+| Podcast and audiobook bar: Play/Pause, −15 s / +30 s, seek, speed, volume, close | The app's player; close is Pause (Stop is in "…") |
+| `openNowPlayingModal()`, `closeNowPlayingModal()`, `playMedia`, the queue globals | Still there: they expand and collapse the player, and `window.SoulSyncPlayerChrome` / `window.SoulSyncPlayer` are new |
+
+**Decided by Dev (the boards don't show these; redraw where you'd do it differently)**
+1. **The tray spans the full width,** under the sidebar as the bar does (question 37).
+2. **No bar while nothing plays;** the remembered state comes back with the next track (question 44).
+3. **The phone sheet isn't remembered:** a reload shows the mini bar. A desktop "expanded" doesn't open the sheet on a phone.
+4. **Up next shows what's coming;** "Show all" brings back what's already played, which the old queue always showed.
+5. **The utility row became the record's "…" menu,** with the old tooltips as the rows' words. Menus close on Escape, a click outside or a choice, and focus goes back to the button.
+6. **Lyrics, Track details and Player settings open in the list column** with a back to Up next, rather than as more tabs: two tabs (Up next / Recent) is what 6a draws.
+7. **The quality tag** reads the current quality target the same way as the Artist page; with no target or an unknown type, there's no tag. A preview says "30-second preview" and a track still downloading says "Downloading".
+8. **Path** says "Library", or "Library (streamed from Navidrome)" when the file isn't on this machine, then "→" and the output ("This device" until another is chosen; "AirPlay" when Safari is sending it there).
+9. **A file that can't be drawn** keeps a flat waveform that still seeks; the route says why, and the player stops asking.
+10. **Recent** is this player's own plays in your listening pile, the same rows as Library → Listening history; a played track can be played again from there (it goes after the current one).
+11. **Podcast and audiobook plays** aren't logged to the listening history, which is music only today (question 42). The album line says "Podcast episode" or "Audiobook sample".
+12. **Floating buttons and toasts sit above the player** on desktop, and are hidden over the Visuals overlay.
+
+**Tests:** Python: the new `tests/playback/test_player_peaks.py`, `test_player_audio_details.py` and `test_player_api.py` (39), the related playback, sample, content-guard and migration tests (398), and every test that reads `index.html`, `media-player.js`, `media-player-v2.js`, `style.css`, `mobile.css` or the podcast and audiobook pages (2,497): all pass; `ruff check` is clean on the Python touched. Web: the full vitest run passes (611 files, 11,161 tests), with new tests for the tray state and its persistence, the source kinds, the waveform slider, what the tray fetches, the phone sheet, output availability, the pure helpers, the app player and podcast playback, and one per row of the table above (each old feature still has its control). `npm run check` has no errors (its warnings were there before), and `tsc --noEmit` and `npm run build` are clean.
+
+Screenshots (1440×900 and 390×844, Lilac, in the session scratchpad; not in the repo): the bar and the tray with a library track; the tray's "…" menu, Recent, Lyrics and Player settings; the bar and the tray with a podcast (speed, −15 s / +30 s, chapter ticks); the phone's mini bar and sheet (top and scrolled) for a library track and a podcast; and the Visuals overlay.
 
 ### 2026-10-22: Dev, Design's small changes (answers 2, 11, 13, 18, 22, 23, 25, 26)
 

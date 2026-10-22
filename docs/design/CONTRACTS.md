@@ -351,6 +351,55 @@ What the data can't say: a release's full tracklist without fetching it (so "132
 
 **Also used by the pages, unchanged:** `GET`, `POST` `/api/automations`; `GET`, `PUT`, `DELETE` `/api/automations/<id>`; `POST /api/automations/<id>/run`, `/toggle` and `/duplicate`; `POST /api/automations/bulk-toggle`; `PUT /api/automations/group`; `GET /api/automations/blocks`, `/progress` and `/master` (and `POST /master`, admins); `POST /api/automations/test-notify`; `GET /api/scripts`; `GET /api/mirrored-playlists/list`.
 
+### The player (board 6a)
+
+Three reads for the bar and tray (`api/player.py`). All need a profile (401 `profile_required` without one). A track is read in the caller's library scope, so one in someone else's own library is a 404 `not_found`; an id that isn't a track id is a 400 `bad_track_id`. A profile limited to clean tracks gets 403 for an explicit track, as when playing it. The request names a track id, never a path: the file is found through the playback resolver.
+
+**Waveform peaks: `GET /api/library/tracks/<id>/peaks`.**
+
+```json
+{"success": true, "peaks": [0.12, 0.4, 0.97], "duration_s": 276.4}
+```
+
+- `peaks` is 200 values from 0 to 1, normalised to the loudest. The first request for a file answers `202 {"success": true, "pending": true, "retry_after": 2}` (and a `Retry-After: 2` header) and works them out in the background with Sample Studio's decoder (`core/sample/analyze.compute_peaks`, decoded at a low rate). One file is decoded at a time and at most 8 wait; a busy queue answers 202 again later. The player asks again after 1.5, 3 and 6 seconds, then every 8 seconds, six times in all, then keeps its flat line.
+- They're kept in `track_peaks` (`core/playback/peaks.py`) against the file's size and modification time, so a replaced file is worked out again; imports don't change.
+- A file that can't be drawn answers 200 with `"peaks": null` and a `reason`: `not_on_disk` (not on this machine, such as a track streamed from the media server), `not_audio` or `unreadable`. The player shows its flat line and stops asking.
+
+**Audio details: `GET /api/library/tracks/<id>/details`.**
+
+```json
+{
+  "success": true, "track_id": "981", "format": "FLAC", "format_key": "flac",
+  "bitrate_kbps": 2304, "bit_depth": 24, "sample_rate": 96000, "duration_s": 276.4,
+  "path_label": "Library", "on_disk": true,
+  "title": "Harbour Light", "artist": "Pale Harbour", "artist_id": "42",
+  "album": "Lantern", "album_id": "811", "year": 2024, "track_number": 3, "disc_number": 1,
+  "album_track_count": 11,
+  "quality": {"at_target": true, "target_name": "FLAC or better"},
+  "image_url": "..."
+}
+```
+
+- `format` is the readout's word (FLAC, ALAC, MP3, AAC, OGG, Opus, WAV, AIFF, DSD); `bit_depth` is only given for lossless files. Bit depth and sample rate are read from the file with mutagen the first time and kept on the track (`tracks.bit_depth`, `sample_rate`, with `audio_probe_sig` so a changed file is read again; `core/playback/audio_details.py`). `bitrate_kbps` is the library's own, or the file's when the library has none.
+- `path_label` is where it plays from: "Library", or "Library (streamed from Navidrome)" when the file isn't on this machine. The player adds the output ("Library → This device"), since only the browser knows it.
+- `quality` is the current quality target judged like the Artist page's tag (type and stored bitrate), or `null` when there's no target or the type is unknown. The rest feeds the record: the album line ("Lantern · 2024 · track 3 of 11"), the artist link and Open album.
+
+**Recent: `GET /api/player/recent?limit=20`.**
+
+```json
+{"success": true, "items": [
+  {"track_id": "981", "title": "Harbour Light", "artist": "Pale Harbour", "album": "Lantern",
+   "played_at": "2026-10-22 11:57:00", "file_path": "...", "artist_id": "42", "album_id": "811",
+   "bitrate": 2304, "duration_s": 276.4, "format": "FLAC", "image_url": "..."}
+]}
+```
+
+- The web player's own plays from the listening history (`server_source` `soulsync_web`), newest first, in the caller's listening pile (`core/listening_scope.py`), so it matches Library → Listening history. `played_at` is UTC. `limit` is 1–50 (20 by default). A track played twice in a row shows once; explicit tracks are left out for a profile limited to clean tracks. `track_id` is `null` for a play whose track has left the library; those rows can't be played again.
+
+**Output devices:** nothing on the server. The browser lists what it can switch to (`src/shell/player-output.ts`): `setSinkId` with `enumerateDevices` in Chrome and Edge, the browser's own picker in Firefox (`selectAudioOutput`), the AirPlay picker in Safari. The button hides when the browser offers nothing (fewer than two outputs, or no API). Playing on a Plex, Jellyfin or Navidrome client, or Chromecast, isn't proposed yet.
+
+**Unchanged:** the queue stays in the browser as the player kept it; podcasts and audiobooks keep their own routes (the stream address and the PodcastIndex chapters URL go to the player as they are).
+
 ## Available today, not yet designed for
 
 - **Library history:** `GET /api/library/history?type=download|import|podcast`. Past downloads and imports.
@@ -437,13 +486,5 @@ All behind the "Internet radio" module (`radio` in `GET /api/modules`).
 **The radio trigger:** `radio_track_heard` in `GET /api/automations/blocks`, "A track I don't have played on a favourite station", with `{stations: "favourites" | [station ids]}`.
 
 **Setup check:** new rows `radio.fpcalc` (Chromaprint installed) and `radio.acoustid` (key set and accepted), shown while the module is on.
-
-### The player (build c; board 6a)
-
-- **Waveform peaks:** `GET /api/library/tracks/<id>/peaks` returns `{peaks, duration_s}`. `peaks` is 200 values from 0 to 1. The first request for a track answers `202 {pending: true}` and works them out in the background with Sample Studio's decoder (`core/sample/analyze.compute_peaks`). They're kept per track until the file changes, so imports stay as fast as today.
-- **Audio details for the readout:** `GET /api/library/tracks/<id>/details` returns `{format, bitrate_kbps, bit_depth, sample_rate, path_label}` ("FLAC 24/96 · 2,304 kbps", "Library → Living room"). The library stores bitrate; bit depth and sample rate are read from the file once and kept on the track.
-- **Output devices:** nothing on the server. The browser lists what it can switch to (speakers and headphones in Chrome and Edge; the AirPlay picker in Safari), and the output button hides when the browser offers nothing. Playing on a Plex, Jellyfin or Navidrome client, or Chromecast, isn't proposed yet.
-- **Up next and Recent:** the queue stays in the browser as the player keeps it today. Recent comes from the listening history, through a small `GET /api/player/recent?limit=20` returning `{items: [{track_id, title, artist, played_at}]}`.
-- **Radio and spoken word:** radio mode uses the radio routes above; podcasts and audiobooks keep their own routes and get the speed button, −15 s / +30 s and chapter ticks.
 
 Shapes under "Needs building" are proposals until built. Dev updates this file when they are.
