@@ -273,6 +273,14 @@ export function SearchPage() {
   const filesPrompt =
     shouldSearch(typed) && filesApply(typed) && !(submitted && typed === committed);
   const files = useFileSearch(fileQuery, fileSource);
+  // "Better copies below" (HANDOFF 18): the folders the download source has at
+  // your target, and the one a library album asked to go to
+  const [betterCopies, setBetterCopies] = useState<ReadonlySet<string>>(() => new Set());
+  const [jumpTo, setJumpTo] = useState<{ key: string; n: number } | null>(null);
+  const goToBetterCopies = useCallback(
+    (key: string) => setJumpTo((prev) => ({ key, n: (prev?.n ?? 0) + 1 })),
+    [],
+  );
   const downloadName = single
     ? sourceList[0]
       ? downloadSourceLabel(sourceList[0])
@@ -651,6 +659,8 @@ export function SearchPage() {
                 type={type}
                 bar={bar}
                 isAdmin={isAdmin}
+                betterCopies={filesPrompt || fileQuery == null ? undefined : betterCopies}
+                onBetterCopies={goToBetterCopies}
               />
             ) : null}
             {filesPrompt ? (
@@ -672,6 +682,8 @@ export function SearchPage() {
                   setFileSourcePick(name);
                 }}
                 isAdmin={isAdmin}
+                onBetterCopies={setBetterCopies}
+                jumpTo={jumpTo}
               />
             ) : null}
             <CatalogSection

@@ -10,7 +10,7 @@
  * folder's tracks and a row's other copies open under it.
  */
 
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 
 import type { QualityRule } from '@/features/quality/quality.model';
 
@@ -34,6 +34,7 @@ import { sourceLabel as downloadSourceLabel } from '../-basic.api';
 import { detectDiscBreaks, formatDuration, qualityLabel } from '../-basic.helpers';
 import { FORMAT_FILTERS, SORT_OPTIONS, isAlbum } from '../-basic.types';
 import {
+  betterCopyFolders,
   consequenceFor,
   dropOwned,
   fileSize,
@@ -78,6 +79,31 @@ function fileName(result: BasicResult): string {
   return parts[parts.length - 1] || result.title || 'Unknown file';
 }
 
+/**
+ * Bring a row to the middle of the page's own scroller (.main-content), not
+ * the document: body is overflow: hidden, and scrollIntoView would shift it
+ * anyway if anything ever overflowed it.
+ */
+function centreInScroller(row: HTMLElement): void {
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const behavior: ScrollBehavior = reduced ? 'auto' : 'smooth';
+  let box = row.parentElement;
+  while (box && box !== document.body) {
+    const overflow = window.getComputedStyle(box).overflowY;
+    if ((overflow === 'auto' || overflow === 'scroll') && box.scrollHeight > box.clientHeight)
+      break;
+    box = box.parentElement;
+  }
+  if (!box || box === document.body) {
+    row.scrollIntoView?.({ block: 'center', behavior });
+    return;
+  }
+  const rowBox = row.getBoundingClientRect();
+  const view = box.getBoundingClientRect();
+  const top = box.scrollTop + (rowBox.top - view.top) - (view.height - rowBox.height) / 2;
+  box.scrollTo?.({ top: Math.max(0, top), behavior });
+}
+
 function capitalise(text: string): string {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
@@ -107,6 +133,8 @@ export function SoulseekSection({
   singleSource,
   onSource,
   isAdmin,
+  onBetterCopies,
+  jumpTo,
 }: {
   search: FileSearch;
   query: string;
@@ -121,6 +149,10 @@ export function SoulseekSection({
   singleSource: boolean;
   onSource: (name: string) => void;
   isAdmin: boolean;
+  /** The folder rows a library album below target can jump to (HANDOFF 18). */
+  onBetterCopies?: (keys: ReadonlySet<string>) => void;
+  /** Scroll to this folder's row and focus it; `n` makes a repeat jump count. */
+  jumpTo?: { key: string; n: number } | null;
 }) {
   const { state, stop, retry } = search;
   const [more, setMore] = useState(false);
@@ -172,6 +204,49 @@ export function SoulseekSection({
   const limit = more ? visible.length : baseLimit;
   const shown = visible.slice(0, limit);
   const primary = primaryKey(shown, consequences);
+
+  // "Better copies below": tell the library section which albums have a
+  // folder here at your target, and go to one when it asks
+  const betterKeys = useMemo(() => betterCopyFolders(visible, bar), [visible, bar]);
+  const betterSignature = [...betterKeys].join('\n');
+  useEffect(() => {
+    onBetterCopies?.(betterKeys);
+    // the signature stands for the set
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [betterSignature, onBetterCopies]);
+  useEffect(() => () => onBetterCopies?.(new Set()), [onBetterCopies]);
+  // each jump is handled once (its n), so Show fewer or a filter change later
+  // doesn't jump again
+  const [handledJump, setHandledJump] = useState(0);
+  const pending = jumpTo && jumpTo.n !== handledJump ? jumpTo : null;
+  const jumpIndex = pending ? visible.findIndex((g) => g.key === pending.key) : -1;
+  useEffect(() => {
+    if (jumpIndex >= limit) setMore(true);
+  }, [jumpIndex, limit]);
+  useLayoutEffect(() => {
+    if (!pending || jumpIndex < 0 || jumpIndex >= limit) return;
+    const row = [...document.querySelectorAll<HTMLElement>('[data-soulseek-group]')].find(
+      (el) => el.dataset.soulseekGroup === pending.key,
+    );
+    if (!row) return;
+    setHandledJump(pending.n);
+    centreInScroller(row);
+    // the row lights up until focus leaves it; focus goes to its action, whose
+    // name says the folder ("Upgrade: Pale Harbour - Low Light")
+    row.dataset.jumped = 'true';
+    const leave = (event: FocusEvent) => {
+      if (event.relatedTarget instanceof Node && row.contains(event.relatedTarget)) return;
+      delete row.dataset.jumped;
+      row.removeEventListener('focusout', leave);
+    };
+    row.addEventListener('focusout', leave);
+    const action = row.querySelector<HTMLElement>('[data-row-action]');
+    if (action) action.focus({ preventScroll: true });
+    else {
+      row.tabIndex = -1;
+      row.focus({ preventScroll: true });
+    }
+  }, [pending, jumpIndex, limit]);
 
   const toggle = (setter: typeof setOpenTracks, key: string) =>
     setter((prev) => {
@@ -248,6 +323,7 @@ export function SoulseekSection({
           className={styles.fileRow}
           data-copy={copy ? 'true' : undefined}
           data-testid={copy ? 'soulseek-copy' : 'soulseek-row'}
+          data-soulseek-group={copy ? undefined : group.key}
         >
           <div className={styles.rowText}>
             <span className={styles.rowTitle} title={name}>
@@ -331,6 +407,7 @@ export function SoulseekSection({
               size="lg"
               variant={isPrimary ? 'primary' : 'default'}
               aria-label={`${actions.main}: ${name}`}
+              data-row-action=""
               onClick={() => setTarget(mainTarget)}
             >
               {actions.main}

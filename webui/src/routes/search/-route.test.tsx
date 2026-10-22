@@ -655,6 +655,88 @@ describe('the Soulseek section', () => {
   });
 });
 
+describe('Better copies below', () => {
+  /** A library album below the target: Tidewater in MP3 320, whose FLAC folder Soulseek has. */
+  function belowTarget(title = 'Tidewater') {
+    server.use(
+      http.get('/api/library/albums', () =>
+        HttpResponse.json({
+          success: true,
+          albums: [
+            {
+              id: 12,
+              title,
+              year: 2026,
+              artist_id: 7,
+              artist_name: 'Pale Harbour',
+              track_count: 12,
+            },
+          ],
+          pagination: { total_count: 1 },
+        }),
+      ),
+      http.get('/api/library/albums/:id/tracks', () =>
+        HttpResponse.json({
+          success: true,
+          tracks: [
+            { id: 2, title: 'Harbour Bell', track_number: 1, file_path: '/m/a.mp3', bitrate: 320 },
+          ],
+        }),
+      ),
+    );
+  }
+
+  it('links a library album below your target to its folder at your target, and goes there', async () => {
+    routes();
+    belowTarget();
+    renderRoute('/search?q=pale%20harbour');
+    await settled();
+    const library = section('search-library');
+    await within(library).findByText('Below quality target');
+    await findStatus('7 files from 3 users');
+    // Play and Open stay
+    expect(within(library).getByRole('button', { name: 'Play Tidewater' })).toBeInTheDocument();
+    const links = await within(library).findAllByRole('link', {
+      name: 'Better copies of Tidewater below',
+    });
+    expect(links[0]).toHaveTextContent('Better copies below');
+
+    fireEvent.click(links[0]);
+    const files = section('search-soulseek');
+    const row = within(files)
+      .getAllByTestId('soulseek-row')
+      .find((el) => el.textContent?.includes('Pale Harbour - Tidewater (2026) [FLAC]'))!;
+    // focus lands on the row's own action, which names the folder
+    const action = within(row).getAllByRole('button', { name: /: Pale Harbour - Tidewater/ })[0];
+    await waitFor(() => expect(action).toHaveFocus());
+    expect(row).toHaveAttribute('data-jumped', 'true');
+    fireEvent.blur(action, { relatedTarget: document.body });
+    fireEvent.focusOut(action, { relatedTarget: document.body });
+    expect(row).not.toHaveAttribute('data-jumped');
+  });
+
+  it('says nothing when the search has no folder of that album at your target', async () => {
+    routes();
+    belowTarget('Low Light');
+    renderRoute('/search?q=pale%20harbour');
+    await settled();
+    const library = section('search-library');
+    await within(library).findByText('Below quality target');
+    await findStatus('7 files from 3 users');
+    expect(within(library).queryByRole('link', { name: /Better copies/ })).toBeNull();
+  });
+
+  it('says nothing on an album at your target', async () => {
+    routes();
+    renderRoute('/search?q=pale%20harbour');
+    await settled();
+    await findStatus('7 files from 3 users');
+    const library = section('search-library');
+    await within(library).findByText('Night Ferry');
+    expect(within(library).queryByRole('link', { name: /Better copies/ })).toBeNull();
+  });
+});
+
 describe('the metadata service section', () => {
   it('offers Add to Wanted for releases you don’t have, and mirrors a playlist in the dialog', async () => {
     routes();
