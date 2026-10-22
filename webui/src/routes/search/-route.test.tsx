@@ -292,8 +292,9 @@ describe('the Search page', () => {
     const router = renderRoute('/search');
     await settled();
 
+    // a recent search is a submitted one: Soulseek too
     fireEvent.click(screen.getByRole('button', { name: 'low light' }));
-    await waitFor(() => expect(router.state.location.search).toEqual({ q: 'low light' }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ q: 'low light', files: 1 }));
   });
 });
 
@@ -307,29 +308,113 @@ describe('the query and type live in the URL', () => {
     expect(screen.getByRole('button', { name: 'Albums' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('writes the type, dropping the default', async () => {
-    routes();
+  it('treats arriving with ?q= as a submitted search', async () => {
+    const seen = routes();
     const router = renderRoute('/search?q=pale%20harbour');
+    await settled();
+
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ q: 'pale harbour', files: 1 }),
+    );
+    await waitFor(() => expect(seen.streams).toEqual(['pale harbour']));
+  });
+
+  it('writes the type, dropping the default and keeping the submit', async () => {
+    const seen = routes();
+    const router = renderRoute('/search?q=pale%20harbour&files=1');
     await settled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Tracks' }));
     await waitFor(() =>
-      expect(router.state.location.search).toEqual({ q: 'pale harbour', type: 'tracks' }),
+      expect(router.state.location.search).toEqual({
+        q: 'pale harbour',
+        type: 'tracks',
+        files: 1,
+      }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Everything' }));
-    await waitFor(() => expect(router.state.location.search).toEqual({ q: 'pale harbour' }));
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ q: 'pale harbour', files: 1 }),
+    );
+    // the same submitted query: Soulseek was asked once
+    expect(seen.streams).toEqual(['pale harbour']);
   });
 
-  it('writes a typed query once typing settles, and clears it', async () => {
+  it('searches the library and the service as you type, and Soulseek only on Enter', async () => {
     const seen = routes();
     const router = renderRoute('/search');
     await settled();
 
-    type('low light');
-    await waitFor(() => expect(router.state.location.search).toEqual({ q: 'low light' }), {
+    type('pale har');
+    await waitFor(() => expect(router.state.location.search).toEqual({ q: 'pale har' }), {
       timeout: 3000,
     });
-    await waitFor(() => expect(seen.streams).toEqual(['low light']));
+    await waitFor(() => expect(seen.library).toEqual(['pale har']));
+    await waitFor(() => expect(seen.catalog).toEqual(['pale har']));
+    const prompt = await screen.findByTestId('soulseek-prompt');
+    expect(prompt).toHaveTextContent('Press Enter to search Soulseek for “pale har”');
+    expect(seen.streams).toEqual([]);
+
+    type('pale harbour');
+    fireEvent.submit(input().closest('form')!);
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ q: 'pale harbour', files: 1 }),
+    );
+    await waitFor(() => expect(seen.streams).toEqual(['pale harbour']));
+    expect(screen.queryByTestId('soulseek-prompt')).toBeNull();
+    expect(await findStatus('7 files from 3 users')).toBeInTheDocument();
+  });
+
+  it('offers a secondary "Search Soulseek" while the typed query differs from the submitted one', async () => {
+    const seen = routes();
+    const router = renderRoute('/search?q=pale%20harbour&files=1');
+    await settled();
+    await findStatus('7 files from 3 users');
+
+    type('low light');
+    const prompt = screen.getByTestId('soulseek-prompt');
+    expect(prompt).toHaveTextContent('Press Enter to search Soulseek for “low light”');
+    const button = within(prompt).getByRole('button', { name: 'Search Soulseek' });
+    expect(button).toHaveAttribute('data-variant', 'default');
+    // the one primary belonged to a Soulseek row, which isn't on screen now
+    expect(
+      document.querySelectorAll('[data-testid="search-page"] button[data-variant="primary"]'),
+    ).toHaveLength(0);
+
+    fireEvent.click(button);
+    await waitFor(() => expect(router.state.location.search).toEqual({ q: 'low light', files: 1 }));
+    await waitFor(() => expect(seen.streams).toEqual(['pale harbour', 'low light']));
+  });
+
+  it('goes back to a submitted search with its Soulseek results, without searching again', async () => {
+    const seen = routes();
+    const router = renderRoute('/search?q=pale%20harbour&files=1');
+    await settled();
+    await findStatus('7 files from 3 users');
+
+    type('low light');
+    fireEvent.submit(input().closest('form')!);
+    await waitFor(() => expect(seen.streams).toEqual(['pale harbour', 'low light']));
+
+    act(() => router.history.back());
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ q: 'pale harbour', files: 1 }),
+    );
+    expect(input().value).toBe('pale harbour');
+    expect(await findStatus('7 files from 3 users')).toBeInTheDocument();
+    expect(screen.queryByTestId('soulseek-prompt')).toBeNull();
+    // the finished search is kept for the session
+    expect(seen.streams).toEqual(['pale harbour', 'low light']);
+
+    act(() => router.history.forward());
+    await waitFor(() => expect(router.state.location.search).toEqual({ q: 'low light', files: 1 }));
+    expect(input().value).toBe('low light');
+  });
+
+  it('clears the query back to the idle page', async () => {
+    routes();
+    const router = renderRoute('/search?q=pale%20harbour&files=1');
+    await settled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
     await waitFor(() => expect(router.state.location.search).toEqual({}));
@@ -603,13 +688,13 @@ describe('the hand-offs other pages use', () => {
     await settled();
 
     act(() => window._searchPageSetQuery?.('low light'));
-    await waitFor(() => expect(router.state.location.search).toEqual({ q: 'low light' }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ q: 'low light', files: 1 }));
     expect(input().value).toBe('low light');
     await waitFor(() => expect(seen.streams).toEqual(['low light']));
   });
 
-  it('takes a query written into the field with a native input event', async () => {
-    routes();
+  it('submits a query written into the field with a native input event', async () => {
+    const seen = routes();
     const router = renderRoute('/search');
     await settled();
 
@@ -621,9 +706,11 @@ describe('the hand-offs other pages use', () => {
       setter.call(field, 'from the top bar');
       field.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await waitFor(() => expect(router.state.location.search).toEqual({ q: 'from the top bar' }), {
-      timeout: 3000,
-    });
+    // a hand-off (the top bar, chat, the library) is a search someone asked for
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual({ q: 'from the top bar', files: 1 }),
+    );
+    await waitFor(() => expect(seen.streams).toEqual(['from the top bar']));
   });
 
   it('keeps the download bubbles’ container and asks for a repaint', async () => {

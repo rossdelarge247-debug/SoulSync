@@ -555,6 +555,39 @@ export function SoulseekSection({
   );
 }
 
+/**
+ * The download source before the query is submitted. Typing searches your
+ * library and the metadata service as it settles; Soulseek waits for Enter
+ * (or this button), so partial words never go out to the network.
+ */
+export function SoulseekPrompt({
+  title,
+  query,
+  onSearch,
+}: {
+  title: string;
+  query: string;
+  onSearch: () => void;
+}) {
+  return (
+    <section
+      className={styles.section}
+      aria-labelledby="search-soulseek-title"
+      id="search-soulseek"
+    >
+      <SectionHead id="search-soulseek-title" title={title} />
+      <div className={`${styles.card} ${styles.prompt}`} data-testid="soulseek-prompt">
+        <p className={styles.note}>
+          Press Enter to search {title} for “{query}”
+        </p>
+        <Button size="lg" onClick={onSearch}>
+          Search {title}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 /** A folder's files, each downloadable on its own; the ones you have say so. */
 function FolderTracks({
   album,

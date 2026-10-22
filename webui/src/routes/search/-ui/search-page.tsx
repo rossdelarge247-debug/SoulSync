@@ -7,6 +7,12 @@
  * Only one primary button on the page: the Soulseek row that completes
  * something you already want. Everything else is secondary.
  *
+ * Typing searches the library and the metadata service as it settles. The
+ * download source is searched only for a submitted query (`files=1` in the
+ * URL): Enter, a hand-off from another page, a recent search, or a link that
+ * arrives with `?q=`. Every Soulseek search holds a server thread until slskd
+ * answers, and partial words are bad manners on the network.
+ *
  * Hand-offs kept from today's page:
  *   - `#enhanced-search-input` honours a native `input` event (the top bar's
  *     search field, ⌘K, the library and chat hand a query over that way);
@@ -62,7 +68,13 @@ import {
   visibleSources,
 } from '../-search.helpers';
 import { libraryResultsQueryOptions } from '../-search.library';
-import { parseType, SEARCH_TYPE_LABELS, SEARCH_TYPES, searchUrlFor } from '../-search.url';
+import {
+  parseSubmitted,
+  parseType,
+  SEARCH_TYPE_LABELS,
+  SEARCH_TYPES,
+  searchUrlFor,
+} from '../-search.url';
 import { useArtistImages } from '../-search.use-artist-images';
 import { activeResults, useSearchController } from '../-search.use-controller';
 import { useLibraryCheck } from '../-search.use-library-check';
@@ -73,7 +85,7 @@ import { CatalogSection } from './catalog-section';
 import { libraryRows, LibrarySection } from './library-section';
 import { PlaylistPreviewModal } from './playlist-preview-modal';
 import styles from './search-page.module.css';
-import { SoulseekSection } from './soulseek-section';
+import { SoulseekPrompt, SoulseekSection } from './soulseek-section';
 
 const routeApi = getRouteApi('/search');
 
@@ -131,6 +143,7 @@ export function SearchPage() {
   const navigate = routeApi.useNavigate();
   const committed = search.q ?? '';
   const type: SearchType = parseType(search.type);
+  const submitted = Boolean(committed) && parseSubmitted(search.files);
 
   const [input, setInput] = useState(committed);
   const [recents, setRecents] = useState<string[]>(loadRecentSearches);
@@ -146,6 +159,7 @@ export function SearchPage() {
     setInput((prev) => (prev.trim() === committed ? prev : committed));
   }, [committed]);
 
+  /** Typing settled: the library and the metadata service search; Soulseek waits. */
   const commit = useCallback(
     (raw: string, { push = false }: { push?: boolean } = {}) => {
       const q = raw.trim();
@@ -154,18 +168,53 @@ export function SearchPage() {
     [navigate],
   );
 
+  /**
+   * A submitted query: every section searches, Soulseek included. A new
+   * search is its own history entry; submitting what was typed takes over the
+   * typed entry, so back doesn't land on the same query unsearched.
+   */
+  const urlRef = useRef({ committed, submitted });
+  urlRef.current = { committed, submitted };
+  const submit = useCallback(
+    (raw: string) => {
+      const q = raw.trim();
+      if (!shouldSearch(q)) return;
+      const now = urlRef.current;
+      const push = !now.committed || (now.submitted && now.committed !== q);
+      setInput(q);
+      void navigate({
+        search: (prev) => searchUrlFor(q, parseType(prev.type), true),
+        replace: !push,
+      });
+    },
+    [navigate],
+  );
+
+  // arriving with ?q= (a link, the top bar, a bookmark) is a submitted search
+  const arrivedRef = useRef(committed && !submitted ? committed : '');
+  useEffect(() => {
+    const arrived = arrivedRef.current;
+    arrivedRef.current = '';
+    if (arrived)
+      void navigate({
+        search: (prev) => searchUrlFor(arrived, parseType(prev.type), true),
+        replace: true,
+      });
+  }, [navigate]);
+
   // typing settles into a search; the first search of a visit is its own
-  // history entry, refinements replace it
+  // history entry, refinements replace it. Typing away from a submitted search
+  // starts a new entry, so back still finds that search's results.
   useEffect(() => {
     const q = input.trim();
     if (q === committed) return;
     if (q && !shouldSearch(q)) return;
     const timer = window.setTimeout(
-      () => commit(q, { push: !committed && Boolean(q) }),
+      () => commit(q, { push: (!committed && Boolean(q)) || submitted }),
       SEARCH_DEBOUNCE_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [input, committed, commit]);
+  }, [input, committed, submitted, commit]);
 
   const isLink = isIdLookupQuery(committed);
   const searchable = shouldSearch(committed);
@@ -174,8 +223,11 @@ export function SearchPage() {
     if (searchable && !isLink) setRecents(saveRecentSearch(committed));
   }, [committed, searchable, isLink]);
 
+  // a type change keeps whether the query was submitted
   const setType = (next: SearchType) => {
-    void navigate({ search: (prev) => searchUrlFor(prev.q ?? '', next) });
+    void navigate({
+      search: (prev) => searchUrlFor(prev.q ?? '', next, parseSubmitted(prev.files)),
+    });
   };
 
   const setFilters = useCallback((patch: Partial<SoulseekFilters>) => {
@@ -210,13 +262,16 @@ export function SearchPage() {
       ? fileSourcePick
       : (sourceList[0]?.name ?? null);
   // an Artists search has no files to show, so Soulseek isn't asked
+  // only a submitted query goes to Soulseek
+  const filesApply = (q: string) =>
+    type !== 'artists' && (!isIdLookupQuery(q) || SOUNDCLOUD_RE.test(q));
   const fileQuery =
-    searchable &&
-    type !== 'artists' &&
-    (!isLink || SOUNDCLOUD_RE.test(committed)) &&
-    (single || downloadSources.data)
+    submitted && searchable && filesApply(committed) && (single || downloadSources.data)
       ? committed
       : null;
+  const typed = input.trim();
+  const filesPrompt =
+    shouldSearch(typed) && filesApply(typed) && !(submitted && typed === committed);
   const files = useFileSearch(fileQuery, fileSource);
   const downloadName = single
     ? sourceList[0]
@@ -340,13 +395,10 @@ export function SearchPage() {
   };
 
   // ── the legacy hand-offs ─────────────────────────────────────────────
-  const commitRef = useRef(commit);
-  commitRef.current = commit;
+  const handOffRef = useRef(submit);
+  handOffRef.current = submit;
   useEffect(() => {
-    window._searchPageSetQuery = (next: string) => {
-      setInput(next);
-      commitRef.current(next, { push: true });
-    };
+    window._searchPageSetQuery = (next: string) => handOffRef.current(next);
     return () => {
       delete window._searchPageSetQuery;
     };
@@ -362,10 +414,17 @@ export function SearchPage() {
     const element = inputRef.current;
     if (!element) return;
     // a programmatic write plus a native input event (the top bar, chat,
-    // the library) never reaches React's onChange; this listener does
+    // the library) never reaches React's onChange; this listener does. Those
+    // hand-offs are searches someone asked for, so they're submitted; real
+    // keystrokes (trusted events) are typing.
     const onNativeInput = (event: Event) => {
       (event as ClaimedEvent)._nativeHandled = true;
       const value = (event.target as HTMLInputElement).value;
+      if (!event.isTrusted) {
+        if (shouldSearch(value)) handOffRef.current(value);
+        else setInput(value);
+        return;
+      }
       if (value !== inputValueRef.current) setInput(value);
     };
     element.addEventListener('input', onNativeInput);
@@ -389,8 +448,10 @@ export function SearchPage() {
               labels.length;
   const libraryEmpty =
     !libraryEnabled || (library.isSuccess && libraryRows(library.data, type).length === 0);
+  // nothing found means looked everywhere: an unsubmitted query hasn't asked Soulseek
   const filesEmpty =
-    fileQuery == null || (files.state.status === 'done' && files.state.results.length === 0);
+    !filesApply(committed) ||
+    (fileQuery != null && files.state.status === 'done' && files.state.results.length === 0);
   const catalogEmpty = !catalogLoading && catalogCached && catalogCount === 0;
   const nothingFound = searchable && libraryEmpty && filesEmpty && catalogEmpty;
   const idle = !committed && !input.trim();
@@ -416,8 +477,9 @@ export function SearchPage() {
               onSubmit={(event) => {
                 event.preventDefault();
                 const q = input.trim();
-                if (q === committed || (q && !shouldSearch(q))) return;
-                commit(q, { push: true });
+                if (!q) return;
+                if (q === committed && submitted) return;
+                submit(q);
               }}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.fieldIcon}>
@@ -503,10 +565,7 @@ export function SearchPage() {
                       <button
                         type="button"
                         className={styles.chipLabel}
-                        onClick={() => {
-                          setInput(entry);
-                          commit(entry, { push: true });
-                        }}
+                        onClick={() => submit(entry)}
                       >
                         {entry}
                       </button>
@@ -550,10 +609,7 @@ export function SearchPage() {
                     type="button"
                     className={styles.tile}
                     key={tile.query}
-                    onClick={() => {
-                      setInput(tile.query);
-                      commit(tile.query, { push: true });
-                    }}
+                    onClick={() => submit(tile.query)}
                   >
                     {tile.label}
                   </button>
@@ -597,7 +653,9 @@ export function SearchPage() {
                 isAdmin={isAdmin}
               />
             ) : null}
-            {fileQuery != null ? (
+            {filesPrompt ? (
+              <SoulseekPrompt title={downloadName} query={typed} onSearch={() => submit(typed)} />
+            ) : fileQuery != null ? (
               <SoulseekSection
                 search={files}
                 query={committed}

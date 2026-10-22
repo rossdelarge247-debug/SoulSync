@@ -1,7 +1,13 @@
 /**
- * What the Search page keeps in its URL: the query and what kind of result
- * to show, `/search?q=pale+harbour&type=albums`. Defaults are left out, so a
- * plain `/search` is the empty page and Everything never appears.
+ * What the Search page keeps in its URL: the query, what kind of result to
+ * show, and whether the query was submitted, `/search?q=pale+harbour&type=albums&files=1`.
+ * Defaults are left out, so a plain `/search` is the empty page and
+ * Everything never appears.
+ *
+ * `files=1` marks a submitted query (Enter, a hand-off, a recent search): only
+ * then is the download source searched. Typing searches the library and the
+ * metadata service as it settles, but a Soulseek search per pause would hold
+ * a server thread each and send partial words to the network.
  */
 
 export const SEARCH_TYPES = ['everything', 'artists', 'albums', 'tracks'] as const;
@@ -18,6 +24,8 @@ export const SEARCH_TYPE_LABELS: Readonly<Record<SearchType, string>> = {
 export interface SearchUrl {
   q?: string;
   type?: Exclude<SearchType, 'everything'>;
+  /** The query was submitted, so the download source is searched too. */
+  files?: 1;
 }
 
 /**
@@ -37,20 +45,21 @@ export function parseType(value: unknown): SearchType {
     : 'everything';
 }
 
+/** `files=1` (or `true`): anything else is "not submitted". */
+export function parseSubmitted(value: unknown): boolean {
+  return value === 1 || value === '1' || value === true || value === 'true';
+}
+
 export function validateSearchUrl(search: Record<string, unknown>): SearchUrl {
-  const q = parseQuery(search.q).trim();
-  const type = parseType(search.type);
-  return {
-    ...(q ? { q } : {}),
-    ...(type !== 'everything' ? { type } : {}),
-  };
+  return searchUrlFor(parseQuery(search.q), parseType(search.type), parseSubmitted(search.files));
 }
 
 /** The URL search for a query and type, defaults left out. */
-export function searchUrlFor(query: string, type: SearchType): SearchUrl {
+export function searchUrlFor(query: string, type: SearchType, submitted = false): SearchUrl {
   const q = query.trim();
   return {
     ...(q ? { q } : {}),
     ...(type !== 'everything' ? { type } : {}),
+    ...(q && submitted ? { files: 1 as const } : {}),
   };
 }

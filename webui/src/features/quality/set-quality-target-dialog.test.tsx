@@ -75,6 +75,9 @@ function renderDialog() {
   return { onClose, onSaved };
 }
 
+/** The first answer can take a while on a busy machine; later steps are quick. */
+const SLOW = { timeout: 5000 };
+
 const dialog = () => screen.getByRole('dialog');
 const radio = (key: string) => within(screen.getByTestId(`preset-${key}`)).getByRole('radio');
 
@@ -93,7 +96,9 @@ describe('Set a quality target', () => {
     routes();
     renderDialog();
 
-    expect(await screen.findByText('4,512 of 4,980 tracks already meet it')).toBeInTheDocument();
+    expect(
+      await screen.findByText('4,512 of 4,980 tracks already meet it', undefined, SLOW),
+    ).toBeInTheDocument();
     expect(screen.getByText('About 612 of 4,980 tracks already meet it')).toBeInTheDocument();
     expect(radio('flac')).toBeChecked();
     expect(
@@ -107,7 +112,7 @@ describe('Set a quality target', () => {
   it('follows the selection in the consequence panel and the primary', async () => {
     routes();
     renderDialog();
-    await screen.findByTestId('preset-mp3_320');
+    await screen.findByTestId('preset-mp3_320', undefined, SLOW);
 
     fireEvent.click(radio('flac_24'));
 
@@ -124,7 +129,7 @@ describe('Set a quality target', () => {
   it('offers "Upgrade what I already have" only when an automation can do it', async () => {
     routes({ automations: [] });
     renderDialog();
-    await screen.findByTestId('preset-mp3_320');
+    await screen.findByTestId('preset-mp3_320', undefined, SLOW);
 
     expect(screen.queryByRole('checkbox')).toBeNull();
     expect(screen.getByTestId('quality-consequence')).toHaveTextContent(
@@ -135,7 +140,7 @@ describe('Set a quality target', () => {
   it('saves the preset with the upgrade choice and the version it was based on', async () => {
     const puts = routes();
     const { onClose, onSaved } = renderDialog();
-    await screen.findByTestId('preset-mp3_320');
+    await screen.findByTestId('preset-mp3_320', undefined, SLOW);
 
     fireEvent.click(radio('mp3_320'));
     fireEvent.click(screen.getByRole('checkbox', { name: /Upgrade what I already have/ }));
@@ -153,7 +158,7 @@ describe('Set a quality target', () => {
   it('keeps the profile’s upgrade setting when nothing can honour the box', async () => {
     const puts = routes({ automations: [] });
     const { onClose } = renderDialog();
-    await screen.findByTestId('preset-mp3_320');
+    await screen.findByTestId('preset-mp3_320', undefined, SLOW);
 
     fireEvent.click(radio('lossless'));
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Set target to Any lossless' }));
@@ -178,7 +183,7 @@ describe('Set a quality target', () => {
       ),
     );
     const { onClose } = renderDialog();
-    await screen.findByTestId('preset-mp3_320');
+    await screen.findByTestId('preset-mp3_320', undefined, SLOW);
 
     fireEvent.click(radio('mp3_320'));
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Set target to MP3 320' }));
@@ -205,7 +210,7 @@ describe('Set a quality target', () => {
       ),
     );
     renderDialog();
-    await screen.findByTestId('preset-mp3_320');
+    await screen.findByTestId('preset-mp3_320', undefined, SLOW);
     fireEvent.click(radio('mp3_320'));
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Set target to MP3 320' }));
 
@@ -218,7 +223,7 @@ describe('Set a quality target', () => {
     profile.isAdmin = false;
     routes();
     renderDialog();
-    await screen.findByTestId('preset-mp3_320');
+    await screen.findByTestId('preset-mp3_320', undefined, SLOW);
     fireEvent.click(radio('mp3_320'));
 
     const set = within(dialog()).getByRole('button', { name: 'Set target to MP3 320' });

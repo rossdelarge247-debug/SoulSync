@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseQuery, parseType, searchUrlFor, validateSearchUrl } from './-search.url';
+import {
+  parseQuery,
+  parseSubmitted,
+  parseType,
+  searchUrlFor,
+  validateSearchUrl,
+} from './-search.url';
 
 describe('the Search URL', () => {
   it('keeps the query and type, leaving defaults out', () => {
@@ -31,6 +37,26 @@ describe('the Search URL', () => {
     expect(parseType('playlists')).toBe('everything');
     expect(parseType(undefined)).toBe('everything');
     expect(parseType('tracks')).toBe('tracks');
+  });
+
+  it('marks a submitted query with files=1, and only with a query', () => {
+    expect(validateSearchUrl({ q: 'pale harbour', files: 1 })).toEqual({
+      q: 'pale harbour',
+      files: 1,
+    });
+    expect(validateSearchUrl({ q: 'pale harbour', files: '1' })).toEqual({
+      q: 'pale harbour',
+      files: 1,
+    });
+    expect(validateSearchUrl({ q: 'pale harbour', files: 0 })).toEqual({ q: 'pale harbour' });
+    expect(validateSearchUrl({ files: 1 })).toEqual({});
+    expect(parseSubmitted(true)).toBe(true);
+    expect(parseSubmitted('yes')).toBe(false);
+    expect(searchUrlFor('pale harbour', 'albums', true)).toEqual({
+      q: 'pale harbour',
+      type: 'albums',
+      files: 1,
+    });
   });
 
   it('builds the URL for a query and type', () => {

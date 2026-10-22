@@ -1,8 +1,9 @@
 /**
  * The streamed file search, POST /api/search/stream: newline-delimited JSON
  * with `progress` lines (the results so far, the file count and how many
- * users answered), then one `done` line, or an `error` line with a sentence
- * for the user (docs/design/CONTRACTS.md).
+ * users answered), `waiting` lines while nothing new has come in, then one
+ * `done` line, or an `error` line with a sentence for the user
+ * (docs/design/CONTRACTS.md).
  *
  * `useFileSearch` runs one at a time per page and keeps finished searches for
  * the session, so coming back to a query doesn't search Soulseek again.
@@ -56,6 +57,9 @@ export async function streamFileSearch(
       } catch {
         continue; // one bad line doesn't end the search
       }
+      // `waiting` keeps the connection honest while nobody has answered yet
+      // (the server learns a closed tab on that write); nothing to show
+      if (event.type !== 'progress' && event.type !== 'done' && event.type !== 'error') continue;
       if (event.type === 'progress') last = event;
       if (event.type === 'done' || event.type === 'error') ended = true;
       onEvent(event);

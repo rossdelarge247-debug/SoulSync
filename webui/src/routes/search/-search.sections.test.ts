@@ -214,6 +214,18 @@ describe('the streamed file search', () => {
     expect((await collect()).map((e) => e.type)).toEqual(['progress', 'done']);
   });
 
+  it('ignores the keep-alive lines', async () => {
+    server.use(
+      http.post('/api/search/stream', () =>
+        chunked(
+          '{"type":"waiting"}\n{"type":"progress","files":1,"users":1,"results":[]}\n',
+          '{"type":"waiting"}\n{"type":"done","files":1,"users":1,"results":[]}\n',
+        ),
+      ),
+    );
+    expect((await collect()).map((e) => e.type)).toEqual(['progress', 'done']);
+  });
+
   it('takes what arrived as the answer when the stream ends early', async () => {
     server.use(
       http.post('/api/search/stream', () =>

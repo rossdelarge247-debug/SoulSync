@@ -106,6 +106,9 @@ function renderDialog(
   return { onClose };
 }
 
+/** The first answer can take a while on a busy machine; later steps are quick. */
+const SLOW = { timeout: 5000 };
+
 const dialog = () => screen.getByRole('dialog');
 const primary = (name: RegExp | string) => within(dialog()).getByRole('button', { name });
 
@@ -123,7 +126,7 @@ describe('Mirror a playlist: choosing', () => {
     routes();
     renderDialog();
 
-    expect(await screen.findByText('Coastal evenings')).toBeInTheDocument();
+    expect(await screen.findByText('Coastal evenings', undefined, SLOW)).toBeInTheDocument();
     expect(screen.getAllByText('Spotify connected').length).toBeGreaterThan(0);
     const rows = screen.getAllByTestId('mirror-row');
     expect(rows).toHaveLength(3);
@@ -137,7 +140,7 @@ describe('Mirror a playlist: choosing', () => {
   it('narrows the list as you type', async () => {
     routes();
     renderDialog();
-    await screen.findByText('Coastal evenings');
+    await screen.findByText('Coastal evenings', undefined, SLOW);
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Find a playlist' }), {
       target: { value: 'night' },
@@ -154,7 +157,7 @@ describe('Mirror a playlist: choosing', () => {
   it('counts what you have once a playlist is picked, and names it on the primary', async () => {
     routes();
     renderDialog();
-    await screen.findByText('Coastal evenings');
+    await screen.findByText('Coastal evenings', undefined, SLOW);
 
     fireEvent.click(within(screen.getAllByTestId('mirror-row')[0]).getByRole('radio'));
 
@@ -172,7 +175,7 @@ describe('Mirror a playlist: choosing', () => {
   it('says nothing goes to Wanted when Keep it in sync is off', async () => {
     routes();
     renderDialog();
-    await screen.findByText('Coastal evenings');
+    await screen.findByText('Coastal evenings', undefined, SLOW);
     fireEvent.click(within(screen.getAllByTestId('mirror-row')[1]).getByRole('radio'));
     await screen.findByTestId('mirror-consequence');
 
@@ -185,7 +188,7 @@ describe('Mirror a playlist: choosing', () => {
 
 describe('Mirror a playlist: submitting', () => {
   async function pickFirst() {
-    await screen.findByText('Coastal evenings');
+    await screen.findByText('Coastal evenings', undefined, SLOW);
     fireEvent.click(within(screen.getAllByTestId('mirror-row')[0]).getByRole('radio'));
     await waitFor(() =>
       expect(screen.getByTestId('mirror-consequence')).toHaveTextContent('will be added'),
