@@ -114,4 +114,18 @@ describe('useVanillaBuilder', () => {
     expect(legacy().classList.contains('active')).toBe(false);
     expect(reactRoot().classList.contains('active')).toBe(true);
   });
+
+  it('hands the page over when a recipe opens the builder itself', () => {
+    const original = window.showAutomationBuilder;
+    const onClosed = vi.fn();
+    const { unmount } = renderHook(() => useVanillaBuilder(onClosed, { catchDirectOpens: true }));
+    act(() => window.showAutomationBuilder!());
+    expect(original).toHaveBeenCalled();
+    expect(legacy().classList.contains('active')).toBe(true);
+    act(() => window.hideAutomationBuilder!());
+    expect(reactRoot().classList.contains('active')).toBe(true);
+    expect(onClosed).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(window.showAutomationBuilder).toBe(original);
+  });
 });

@@ -3,10 +3,16 @@ import { queryOptions } from '@tanstack/react-query';
 import { apiClient, readJson } from '@/app/api-client';
 
 import type {
+  Automation,
   AutomationBlocks,
+  AutomationPayload,
   AutomationsListResponse,
   AutomationsMasterState,
   AutomationsProgressResponse,
+  MirroredPlaylistOption,
+  PreviewResult,
+  RunHistoryResponse,
+  ThenAction,
 } from './-automations.types';
 
 export const AUTOMATIONS_QUERY_KEY = ['automations'] as const;
@@ -79,11 +85,15 @@ export async function runAutomation(id: number): Promise<void> {
   );
 }
 
-export async function duplicateAutomation(id: number): Promise<void> {
-  assertOk(
-    await readJson<MutationResponse>(apiClient.post(`automations/${id}/duplicate`)),
+/** Copy an automation. Returns the copy's id. */
+export async function duplicateAutomation(id: number): Promise<number | undefined> {
+  const body = assertOk(
+    await readJson<MutationResponse & { id?: number }>(
+      apiClient.post(`automations/${id}/duplicate`),
+    ),
     'Could not duplicate the automation',
-  );
+  ) as MutationResponse & { id?: number };
+  return body.id;
 }
 
 export async function deleteAutomation(id: number): Promise<void> {
@@ -191,5 +201,130 @@ export function automationBlocksQueryOptions() {
     queryKey: [...AUTOMATIONS_QUERY_KEY, 'blocks'] as const,
     queryFn: () => readJson<AutomationBlocks>(apiClient.get('automations/blocks')),
     staleTime: Infinity,
+  });
+}
+
+// ── runs, previews, the editor ──────────────────────────────────────────────
+
+/** Rows the history keeps per automation (database retention cap). */
+export const HISTORY_KEPT = 100;
+
+/**
+ * Every run the history keeps for one automation (at most 100), newest
+ * first, with log lines and result facts parsed. The Runs panel works its
+ * numbers out from these.
+ */
+export function automationHistoryQueryOptions(id: number) {
+  return queryOptions({
+    queryKey: [...AUTOMATIONS_QUERY_KEY, 'history', id] as const,
+    queryFn: async () => {
+      const body = await readJson<RunHistoryResponse>(
+        apiClient.get(`automations/${id}/history`, {
+          searchParams: { limit: HISTORY_KEPT, offset: 0 },
+        }),
+      );
+      if (body.error) throw new Error(body.error);
+      return body;
+    },
+  });
+}
+
+/** One automation, hydrated (the editor's starting point). */
+export function automationQueryOptions(id: number) {
+  return queryOptions({
+    queryKey: [...AUTOMATIONS_QUERY_KEY, 'one', id] as const,
+    queryFn: async () => {
+      const body = await readJson<Automation & { error?: string }>(
+        apiClient.get(`automations/${id}`),
+      );
+      if (body.error) throw new Error(body.error);
+      return body;
+    },
+    retry: false,
+  });
+}
+
+/** The draft parts a preview of unsaved edits sends. */
+export interface PreviewDraft {
+  action_type: string;
+  action_config: Record<string, unknown>;
+  then_actions: ThenAction[];
+}
+
+/**
+ * Preview a run: what it would do right now, changing nothing. With an id
+ * it previews that automation (and records the preview as a run tagged
+ * Preview); `draft` stands in for its saved steps. Without an id it
+ * previews an unsaved automation.
+ */
+export async function previewAutomation(
+  id: number | null,
+  draft?: PreviewDraft,
+): Promise<PreviewResult> {
+  const path = id == null ? 'automations/preview' : `automations/${id}/preview`;
+  const body = await readJson<PreviewResult>(
+    apiClient.post(path, draft ? { json: draft } : { json: {} }),
+  );
+  if (!body.success) throw new Error(body.error || "The preview didn't work.");
+  return body;
+}
+
+/** Create (no id) or update an automation. Returns its id. */
+export async function saveAutomation(
+  id: number | null,
+  payload: AutomationPayload,
+): Promise<number> {
+  const request =
+    id == null
+      ? apiClient.post('automations', { json: payload })
+      : apiClient.put(`automations/${id}`, { json: payload });
+  const body = assertOk(
+    await readJson<MutationResponse & { id?: number }>(request),
+    'Could not save the automation',
+  ) as MutationResponse & { id?: number };
+  return id ?? Number(body.id);
+}
+
+/** Fire one notification step with sample values (the builder's Test). */
+export async function testNotification(
+  type: string,
+  config: Record<string, unknown>,
+): Promise<{ success: boolean; error?: string }> {
+  return readJson<{ success: boolean; error?: string }>(
+    apiClient.post('automations/test-notify', { json: { type, config } }),
+  );
+}
+
+/** Mirrored playlists for the playlist pickers. */
+export function mirroredPlaylistsQueryOptions() {
+  return queryOptions({
+    queryKey: [...AUTOMATIONS_QUERY_KEY, 'mirrored-playlists'] as const,
+    queryFn: async () => {
+      const body = await readJson<
+        | { playlists?: MirroredPlaylistOption[]; spotify_authenticated?: boolean }
+        | MirroredPlaylistOption[]
+      >(apiClient.get('mirrored-playlists/list'));
+      return Array.isArray(body)
+        ? { playlists: body, spotifyAuthenticated: false }
+        : {
+            playlists: body.playlists ?? [],
+            spotifyAuthenticated: Boolean(body.spotify_authenticated),
+          };
+    },
+    staleTime: 60_000,
+  });
+}
+
+/** Scripts in the scripts folder, for Run a script. */
+export function scriptsQueryOptions() {
+  return queryOptions({
+    queryKey: [...AUTOMATIONS_QUERY_KEY, 'scripts'] as const,
+    queryFn: async () => {
+      const body = await readJson<{ scripts?: { name: string; extension?: string }[] }>(
+        apiClient.get('scripts'),
+      );
+      return body.scripts ?? [];
+    },
+    staleTime: 60_000,
   });
 }

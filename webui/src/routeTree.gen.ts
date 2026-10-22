@@ -34,16 +34,20 @@ import { Route as ActiveDownloadsRouteRouteImport } from './routes/active-downlo
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PodcastsIndexRouteImport } from './routes/podcasts/index'
 import { Route as ImportIndexRouteImport } from './routes/import/index'
+import { Route as AutomationsIndexRouteImport } from './routes/automations/index'
 import { Route as AudiobooksIndexRouteImport } from './routes/audiobooks/index'
 import { Route as PodcastsPodcastIdRouteImport } from './routes/podcasts/$podcastId'
 import { Route as LabelDetailIdRouteImport } from './routes/label-detail/$id'
 import { Route as ImportSinglesRouteImport } from './routes/import/singles'
 import { Route as ImportAutoRouteImport } from './routes/import/auto'
 import { Route as ImportAlbumRouteImport } from './routes/import/album'
+import { Route as AutomationsNewRouteImport } from './routes/automations/new'
 import { Route as AudiobooksWishlistRouteImport } from './routes/audiobooks/wishlist'
 import { Route as AudiobooksLibraryRouteImport } from './routes/audiobooks/library'
 import { Route as AudiobooksAsinRouteImport } from './routes/audiobooks/$asin'
+import { Route as AutomationsAutomationIdIndexRouteImport } from './routes/automations/$automationId/index'
 import { Route as ImportMatchKeyRouteImport } from './routes/import/match.$key'
+import { Route as AutomationsAutomationIdEditRouteImport } from './routes/automations/$automationId/edit'
 import { Route as AudiobooksNarratorNameRouteImport } from './routes/audiobooks/narrator/$name'
 import { Route as AudiobooksAuthorNameRouteImport } from './routes/audiobooks/author/$name'
 import { Route as ArtistDetailSourceIdRouteImport } from './routes/artist-detail/$source/$id'
@@ -173,6 +177,11 @@ const ImportIndexRoute = ImportIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ImportRouteRoute,
 } as any)
+const AutomationsIndexRoute = AutomationsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AutomationsRouteRoute,
+} as any)
 const AudiobooksIndexRoute = AudiobooksIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -203,6 +212,11 @@ const ImportAlbumRoute = ImportAlbumRouteImport.update({
   path: '/album',
   getParentRoute: () => ImportRouteRoute,
 } as any)
+const AutomationsNewRoute = AutomationsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AutomationsRouteRoute,
+} as any)
 const AudiobooksWishlistRoute = AudiobooksWishlistRouteImport.update({
   id: '/wishlist',
   path: '/wishlist',
@@ -218,11 +232,23 @@ const AudiobooksAsinRoute = AudiobooksAsinRouteImport.update({
   path: '/$asin',
   getParentRoute: () => AudiobooksRouteRoute,
 } as any)
+const AutomationsAutomationIdIndexRoute =
+  AutomationsAutomationIdIndexRouteImport.update({
+    id: '/$automationId/',
+    path: '/$automationId/',
+    getParentRoute: () => AutomationsRouteRoute,
+  } as any)
 const ImportMatchKeyRoute = ImportMatchKeyRouteImport.update({
   id: '/match/$key',
   path: '/match/$key',
   getParentRoute: () => ImportRouteRoute,
 } as any)
+const AutomationsAutomationIdEditRoute =
+  AutomationsAutomationIdEditRouteImport.update({
+    id: '/$automationId/edit',
+    path: '/$automationId/edit',
+    getParentRoute: () => AutomationsRouteRoute,
+  } as any)
 const AudiobooksNarratorNameRoute = AudiobooksNarratorNameRouteImport.update({
   id: '/narrator/$name',
   path: '/narrator/$name',
@@ -244,7 +270,7 @@ export interface FileRoutesByFullPath {
   '/active-downloads': typeof ActiveDownloadsRouteRoute
   '/activity': typeof ActivityRouteRoute
   '/audiobooks': typeof AudiobooksRouteRouteWithChildren
-  '/automations': typeof AutomationsRouteRoute
+  '/automations': typeof AutomationsRouteRouteWithChildren
   '/dashboard': typeof DashboardRouteRoute
   '/discover': typeof DiscoverRouteRoute
   '/import': typeof ImportRouteRouteWithChildren
@@ -266,24 +292,27 @@ export interface FileRoutesByFullPath {
   '/audiobooks/$asin': typeof AudiobooksAsinRoute
   '/audiobooks/library': typeof AudiobooksLibraryRoute
   '/audiobooks/wishlist': typeof AudiobooksWishlistRoute
+  '/automations/new': typeof AutomationsNewRoute
   '/import/album': typeof ImportAlbumRoute
   '/import/auto': typeof ImportAutoRoute
   '/import/singles': typeof ImportSinglesRoute
   '/label-detail/$id': typeof LabelDetailIdRoute
   '/podcasts/$podcastId': typeof PodcastsPodcastIdRoute
   '/audiobooks/': typeof AudiobooksIndexRoute
+  '/automations/': typeof AutomationsIndexRoute
   '/import/': typeof ImportIndexRoute
   '/podcasts/': typeof PodcastsIndexRoute
   '/artist-detail/$source/$id': typeof ArtistDetailSourceIdRoute
   '/audiobooks/author/$name': typeof AudiobooksAuthorNameRoute
   '/audiobooks/narrator/$name': typeof AudiobooksNarratorNameRoute
+  '/automations/$automationId/edit': typeof AutomationsAutomationIdEditRoute
   '/import/match/$key': typeof ImportMatchKeyRoute
+  '/automations/$automationId/': typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/active-downloads': typeof ActiveDownloadsRouteRoute
   '/activity': typeof ActivityRouteRoute
-  '/automations': typeof AutomationsRouteRoute
   '/dashboard': typeof DashboardRouteRoute
   '/discover': typeof DiscoverRouteRoute
   '/issues': typeof IssuesRouteRoute
@@ -303,18 +332,22 @@ export interface FileRoutesByTo {
   '/audiobooks/$asin': typeof AudiobooksAsinRoute
   '/audiobooks/library': typeof AudiobooksLibraryRoute
   '/audiobooks/wishlist': typeof AudiobooksWishlistRoute
+  '/automations/new': typeof AutomationsNewRoute
   '/import/album': typeof ImportAlbumRoute
   '/import/auto': typeof ImportAutoRoute
   '/import/singles': typeof ImportSinglesRoute
   '/label-detail/$id': typeof LabelDetailIdRoute
   '/podcasts/$podcastId': typeof PodcastsPodcastIdRoute
   '/audiobooks': typeof AudiobooksIndexRoute
+  '/automations': typeof AutomationsIndexRoute
   '/import': typeof ImportIndexRoute
   '/podcasts': typeof PodcastsIndexRoute
   '/artist-detail/$source/$id': typeof ArtistDetailSourceIdRoute
   '/audiobooks/author/$name': typeof AudiobooksAuthorNameRoute
   '/audiobooks/narrator/$name': typeof AudiobooksNarratorNameRoute
+  '/automations/$automationId/edit': typeof AutomationsAutomationIdEditRoute
   '/import/match/$key': typeof ImportMatchKeyRoute
+  '/automations/$automationId': typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -322,7 +355,7 @@ export interface FileRoutesById {
   '/active-downloads': typeof ActiveDownloadsRouteRoute
   '/activity': typeof ActivityRouteRoute
   '/audiobooks': typeof AudiobooksRouteRouteWithChildren
-  '/automations': typeof AutomationsRouteRoute
+  '/automations': typeof AutomationsRouteRouteWithChildren
   '/dashboard': typeof DashboardRouteRoute
   '/discover': typeof DiscoverRouteRoute
   '/import': typeof ImportRouteRouteWithChildren
@@ -344,18 +377,22 @@ export interface FileRoutesById {
   '/audiobooks/$asin': typeof AudiobooksAsinRoute
   '/audiobooks/library': typeof AudiobooksLibraryRoute
   '/audiobooks/wishlist': typeof AudiobooksWishlistRoute
+  '/automations/new': typeof AutomationsNewRoute
   '/import/album': typeof ImportAlbumRoute
   '/import/auto': typeof ImportAutoRoute
   '/import/singles': typeof ImportSinglesRoute
   '/label-detail/$id': typeof LabelDetailIdRoute
   '/podcasts/$podcastId': typeof PodcastsPodcastIdRoute
   '/audiobooks/': typeof AudiobooksIndexRoute
+  '/automations/': typeof AutomationsIndexRoute
   '/import/': typeof ImportIndexRoute
   '/podcasts/': typeof PodcastsIndexRoute
   '/artist-detail/$source/$id': typeof ArtistDetailSourceIdRoute
   '/audiobooks/author/$name': typeof AudiobooksAuthorNameRoute
   '/audiobooks/narrator/$name': typeof AudiobooksNarratorNameRoute
+  '/automations/$automationId/edit': typeof AutomationsAutomationIdEditRoute
   '/import/match/$key': typeof ImportMatchKeyRoute
+  '/automations/$automationId/': typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -386,24 +423,27 @@ export interface FileRouteTypes {
     | '/audiobooks/$asin'
     | '/audiobooks/library'
     | '/audiobooks/wishlist'
+    | '/automations/new'
     | '/import/album'
     | '/import/auto'
     | '/import/singles'
     | '/label-detail/$id'
     | '/podcasts/$podcastId'
     | '/audiobooks/'
+    | '/automations/'
     | '/import/'
     | '/podcasts/'
     | '/artist-detail/$source/$id'
     | '/audiobooks/author/$name'
     | '/audiobooks/narrator/$name'
+    | '/automations/$automationId/edit'
     | '/import/match/$key'
+    | '/automations/$automationId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/active-downloads'
     | '/activity'
-    | '/automations'
     | '/dashboard'
     | '/discover'
     | '/issues'
@@ -423,18 +463,22 @@ export interface FileRouteTypes {
     | '/audiobooks/$asin'
     | '/audiobooks/library'
     | '/audiobooks/wishlist'
+    | '/automations/new'
     | '/import/album'
     | '/import/auto'
     | '/import/singles'
     | '/label-detail/$id'
     | '/podcasts/$podcastId'
     | '/audiobooks'
+    | '/automations'
     | '/import'
     | '/podcasts'
     | '/artist-detail/$source/$id'
     | '/audiobooks/author/$name'
     | '/audiobooks/narrator/$name'
+    | '/automations/$automationId/edit'
     | '/import/match/$key'
+    | '/automations/$automationId'
   id:
     | '__root__'
     | '/'
@@ -463,18 +507,22 @@ export interface FileRouteTypes {
     | '/audiobooks/$asin'
     | '/audiobooks/library'
     | '/audiobooks/wishlist'
+    | '/automations/new'
     | '/import/album'
     | '/import/auto'
     | '/import/singles'
     | '/label-detail/$id'
     | '/podcasts/$podcastId'
     | '/audiobooks/'
+    | '/automations/'
     | '/import/'
     | '/podcasts/'
     | '/artist-detail/$source/$id'
     | '/audiobooks/author/$name'
     | '/audiobooks/narrator/$name'
+    | '/automations/$automationId/edit'
     | '/import/match/$key'
+    | '/automations/$automationId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -482,7 +530,7 @@ export interface RootRouteChildren {
   ActiveDownloadsRouteRoute: typeof ActiveDownloadsRouteRoute
   ActivityRouteRoute: typeof ActivityRouteRoute
   AudiobooksRouteRoute: typeof AudiobooksRouteRouteWithChildren
-  AutomationsRouteRoute: typeof AutomationsRouteRoute
+  AutomationsRouteRoute: typeof AutomationsRouteRouteWithChildren
   DashboardRouteRoute: typeof DashboardRouteRoute
   DiscoverRouteRoute: typeof DiscoverRouteRoute
   ImportRouteRoute: typeof ImportRouteRouteWithChildren
@@ -682,6 +730,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ImportIndexRouteImport
       parentRoute: typeof ImportRouteRoute
     }
+    '/automations/': {
+      id: '/automations/'
+      path: '/'
+      fullPath: '/automations/'
+      preLoaderRoute: typeof AutomationsIndexRouteImport
+      parentRoute: typeof AutomationsRouteRoute
+    }
     '/audiobooks/': {
       id: '/audiobooks/'
       path: '/'
@@ -724,6 +779,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ImportAlbumRouteImport
       parentRoute: typeof ImportRouteRoute
     }
+    '/automations/new': {
+      id: '/automations/new'
+      path: '/new'
+      fullPath: '/automations/new'
+      preLoaderRoute: typeof AutomationsNewRouteImport
+      parentRoute: typeof AutomationsRouteRoute
+    }
     '/audiobooks/wishlist': {
       id: '/audiobooks/wishlist'
       path: '/wishlist'
@@ -745,12 +807,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AudiobooksAsinRouteImport
       parentRoute: typeof AudiobooksRouteRoute
     }
+    '/automations/$automationId/': {
+      id: '/automations/$automationId/'
+      path: '/$automationId'
+      fullPath: '/automations/$automationId/'
+      preLoaderRoute: typeof AutomationsAutomationIdIndexRouteImport
+      parentRoute: typeof AutomationsRouteRoute
+    }
     '/import/match/$key': {
       id: '/import/match/$key'
       path: '/match/$key'
       fullPath: '/import/match/$key'
       preLoaderRoute: typeof ImportMatchKeyRouteImport
       parentRoute: typeof ImportRouteRoute
+    }
+    '/automations/$automationId/edit': {
+      id: '/automations/$automationId/edit'
+      path: '/$automationId/edit'
+      fullPath: '/automations/$automationId/edit'
+      preLoaderRoute: typeof AutomationsAutomationIdEditRouteImport
+      parentRoute: typeof AutomationsRouteRoute
     }
     '/audiobooks/narrator/$name': {
       id: '/audiobooks/narrator/$name'
@@ -798,6 +874,23 @@ const AudiobooksRouteRouteWithChildren = AudiobooksRouteRoute._addFileChildren(
   AudiobooksRouteRouteChildren,
 )
 
+interface AutomationsRouteRouteChildren {
+  AutomationsNewRoute: typeof AutomationsNewRoute
+  AutomationsIndexRoute: typeof AutomationsIndexRoute
+  AutomationsAutomationIdEditRoute: typeof AutomationsAutomationIdEditRoute
+  AutomationsAutomationIdIndexRoute: typeof AutomationsAutomationIdIndexRoute
+}
+
+const AutomationsRouteRouteChildren: AutomationsRouteRouteChildren = {
+  AutomationsNewRoute: AutomationsNewRoute,
+  AutomationsIndexRoute: AutomationsIndexRoute,
+  AutomationsAutomationIdEditRoute: AutomationsAutomationIdEditRoute,
+  AutomationsAutomationIdIndexRoute: AutomationsAutomationIdIndexRoute,
+}
+
+const AutomationsRouteRouteWithChildren =
+  AutomationsRouteRoute._addFileChildren(AutomationsRouteRouteChildren)
+
 interface ImportRouteRouteChildren {
   ImportAlbumRoute: typeof ImportAlbumRoute
   ImportAutoRoute: typeof ImportAutoRoute
@@ -837,7 +930,7 @@ const rootRouteChildren: RootRouteChildren = {
   ActiveDownloadsRouteRoute: ActiveDownloadsRouteRoute,
   ActivityRouteRoute: ActivityRouteRoute,
   AudiobooksRouteRoute: AudiobooksRouteRouteWithChildren,
-  AutomationsRouteRoute: AutomationsRouteRoute,
+  AutomationsRouteRoute: AutomationsRouteRouteWithChildren,
   DashboardRouteRoute: DashboardRouteRoute,
   DiscoverRouteRoute: DiscoverRouteRoute,
   ImportRouteRoute: ImportRouteRouteWithChildren,
