@@ -274,7 +274,7 @@ describe('automationOutcome — the handler stops speaking its own dialect', () 
         new_tracks_found: 9,
         tracks_added_to_wishlist: 7,
       }),
-    ).toEqual({ text: 'Checked 42 artists, wishlisted 7 tracks', kind: 'ok' });
+    ).toEqual({ text: 'Checked 42 artists, added 7 tracks to Wanted', kind: 'ok' });
   });
 
   it('distinguishes found-but-not-wishlisted from nothing at all', () => {
@@ -298,7 +298,18 @@ describe('automationOutcome — the handler stops speaking its own dialect', () 
         artists_scanned: 1,
         tracks_added_to_wishlist: 1,
       })?.text,
-    ).toBe('Checked 1 artist, wishlisted 1 track');
+    ).toBe('Checked 1 artist, added 1 track to Wanted');
+  });
+
+  it('says how many quality upgrades went to Wanted', () => {
+    expect(
+      automationOutcome('apply_quality_upgrades', { status: 'completed', applied: 8, failed: 0 })
+        ?.text,
+    ).toBe('Queued 8 upgrades on Wanted');
+    expect(
+      automationOutcome('apply_quality_upgrades', { status: 'completed', applied: 0, failed: 2 })
+        ?.text,
+    ).toBe("No upgrades were due, 2 upgrades couldn't be queued");
   });
 
   it('reports the duplicate cleaner in files, not keys', () => {

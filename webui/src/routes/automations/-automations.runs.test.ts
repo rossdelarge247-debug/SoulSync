@@ -57,7 +57,7 @@ describe('the three numbers', () => {
     expect(runNumbers(runs, 'scan_watchlist')).toEqual([
       { label: 'Added to Wanted', value: '5' },
       { label: 'Failed runs', value: '1' },
-      { label: 'Typical', value: '2 min' },
+      { label: 'Typical', value: '2\u00a0min' },
     ]);
   });
 
@@ -70,7 +70,7 @@ describe('the three numbers', () => {
     expect(runNumbers(runs, 'process_wishlist')).toEqual([
       { label: 'Done', value: '2' },
       { label: 'Failed runs', value: '1' },
-      { label: 'Typical', value: '4 min' },
+      { label: 'Typical', value: '4\u00a0min' },
     ]);
     expect(
       runNumbers(
@@ -87,7 +87,7 @@ describe('rows', () => {
     expect(runRow(run(1, 0, { summary: '12 found.' }), NOW)).toMatchObject({
       tag: 'Done',
       tone: 'success',
-      summary: '12 found · 4 min',
+      summary: '12 found · 4\u00a0min',
     });
     expect(
       runRow(run(2, 0, { status: 'error', summary: "Soulseek wasn't reachable" }), NOW),
@@ -112,6 +112,35 @@ describe('rows', () => {
     });
   });
 
+  it('words what a Wanted search records', () => {
+    expect(
+      runRow(
+        run(1, 0, {
+          summary: 'Started: 2 album batch(es), 1 per-track for cycle albums',
+          duration_seconds: 3,
+        }),
+        NOW,
+      ).summary,
+    ).toBe('Started 2 album and 1 track searches · albums turn · 3\u00a0s');
+    expect(
+      runRow(run(2, 0, { summary: 'Started: no batches for cycle singles' }), NOW).summary,
+    ).toBe('Nothing was due · singles turn · 4\u00a0min');
+    expect(
+      runRow(run(6, 0, { summary: 'Started: 7 per-track for cycle singles' }), NOW).summary,
+    ).toBe('Started 7 track searches · singles turn · 4\u00a0min');
+    expect(
+      runRow(run(3, 0, { status: 'error', summary: 'Error: Soulseek is not connected' }), NOW)
+        .summary,
+    ).toBe('Soulseek is not connected');
+    expect(
+      runRow(run(4, 0, { summary: 'Queued 8 quality upgrades on the wishlist' }), NOW).summary,
+    ).toBe('Queued 8 quality upgrades on Wanted · 4\u00a0min');
+    expect(
+      runRow(run(5, 0, { summary: 'Scanned 18 artists — 2 new tracks, 1 added to wishlist' }), NOW)
+        .summary,
+    ).toBe('Scanned 18 artists — 2 new tracks, 1 added to Wanted · 4\u00a0min');
+  });
+
   it('writes the phone line', () => {
     expect(
       runsLine([run(3, 0), run(2, 1, { status: 'error' }), run(1, 2, { status: 'preview' })], NOW),
@@ -121,8 +150,8 @@ describe('rows', () => {
 
   it('words durations', () => {
     expect(durationWords(0.4)).toBe('under a second');
-    expect(durationWords(38)).toBe('38 s');
-    expect(durationWords(3900)).toBe('1 h 5 min');
+    expect(durationWords(38)).toBe('38\u00a0s');
+    expect(durationWords(3900)).toBe('1\u00a0h\u00a05\u00a0min');
     expect(durationWords(null)).toBe('');
   });
 });

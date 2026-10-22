@@ -35,12 +35,13 @@ function plural(n: number, one: string, many = `${one}s`): string {
 export function durationWords(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '';
   if (seconds < 1) return 'under a second';
-  if (seconds < 60) return `${Math.round(seconds)} s`;
+  // non-breaking spaces, so "2 s" never wraps apart at the end of a line
+  if (seconds < 60) return `${Math.round(seconds)}\u00a0s`;
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 60) return `${minutes}\u00a0min`;
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  return m ? `${h} h ${m} min` : `${h} h`;
+  return m ? `${h}\u00a0h\u00a0${m}\u00a0min` : `${h}\u00a0h`;
 }
 
 export interface RunsWindow {
@@ -102,6 +103,7 @@ function num(value: unknown): number {
  * (the downloads land later, through the download batch), so they have none.
  */
 const OUTCOMES: Record<string, { key: string; label: string }> = {
+  apply_quality_upgrades: { key: 'applied', label: 'Upgrades queued' },
   scan_watchlist: { key: 'tracks_added_to_wishlist', label: 'Added to Wanted' },
   scan_watchlist_podcasts: { key: 'episodes_queued', label: 'Episodes queued' },
   run_duplicate_cleaner: { key: 'files_deleted', label: 'Moved to the bin' },
@@ -168,11 +170,37 @@ export interface RunRow {
   log: { type?: string; text?: string }[];
 }
 
+/**
+ * The Wanted search records only that it started its batches ("Started: 2
+ * album batch(es), 4 per-track for cycle albums"); its results arrive later
+ * and aren't kept on the run. Say that in words.
+ */
+function wantedSummary(text: string): string | null {
+  const m = /^Started: (.+) for cycle (\w+)$/.exec(text);
+  if (!m) return null;
+  const albums = /(\d+) album batch/.exec(m[1]);
+  const tracks = /(\d+) per-track/.exec(m[1]);
+  const a = albums ? Number(albums[1]) : 0;
+  const t = tracks ? Number(tracks[1]) : 0;
+  const turn = `${m[2]} turn`;
+  if (!a && !t) return `Nothing was due · ${turn}`;
+  const what =
+    a && t
+      ? `${a} album and ${t} track searches`
+      : a
+        ? plural(a, 'album search', 'album searches')
+        : plural(t, 'track search', 'track searches');
+  return `Started ${what} · ${turn}`;
+}
+
 function clean(text: string | null | undefined): string {
-  return String(text ?? '')
+  const said = String(text ?? '')
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/\.$/, '');
+    .replace(/\.$/, '')
+    .replace(/^Error: /, '')
+    .replace(/\b(on|to) (?:the )?wishlist\b/gi, '$1 Wanted');
+  return wantedSummary(said) ?? said;
 }
 
 /** One row: when, what the run said, and a tag with a word. */

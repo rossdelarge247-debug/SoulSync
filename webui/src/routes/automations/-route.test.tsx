@@ -405,7 +405,7 @@ describe('automations list', () => {
     );
     // a run's log opens under it
     fireEvent.click(
-      within(runs).getByRole('button', { name: /12 found · 4 min, Done\. Show its log/ }),
+      within(runs).getByRole('button', { name: /12 found · 4\smin, Done\. Show its log/ }),
     );
     expect(within(runs).getByText('12 downloads started')).toBeInTheDocument();
   });
