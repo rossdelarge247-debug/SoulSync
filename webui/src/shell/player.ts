@@ -35,6 +35,7 @@ import {
   type OutputDevice,
   type OutputSupport,
 } from './player-output';
+import { bootQueueQuality } from './player-queue-quality';
 import { radioMiniLines } from './player-radio';
 import {
   albumLine,
@@ -1272,6 +1273,22 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
 
   // ── events ───────────────────────────────────────────────────────────────
   on(view, 'ss:player', () => draw());
+  // HANDOFF 44: queued rows below the quality target, judged as they come into view
+  const queueList = root.querySelector<HTMLElement>('#np-queue-list');
+  if (queueList) {
+    const quality = bootQueueQuality({
+      list: queueList,
+      queue: () => snapshot.queue,
+      fetcher,
+      win: view,
+    });
+    on(view, 'ss:player', (e) => {
+      const reason = (e as CustomEvent<{ reason?: string }>).detail?.reason;
+      if (reason === 'queue') quality.refresh();
+    });
+    quality.refresh();
+    cleanups.push(() => quality.dispose());
+  }
   on(view, 'ss:player-view', (e) => {
     const name = (e as CustomEvent<{ view?: string }>).detail?.view ?? 'queue';
     listView = name;

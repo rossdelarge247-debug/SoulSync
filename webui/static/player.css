@@ -742,6 +742,9 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .np-queue-item-artist,
 .ss-player-recent-title,
 .ss-player-recent-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* HANDOFF 44: a queued track below your quality target, its format in the
+   warning colour on the meta line (src/shell/player-queue-quality.ts) */
+.ss-player-queue-below { color: var(--ss-warning); }
 .np-queue-item-title,
 .ss-player-recent-title { font-size: 15px; font-weight: 500; color: var(--ss-text); }
 .np-queue-item-artist,
