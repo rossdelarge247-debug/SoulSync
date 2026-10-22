@@ -1104,6 +1104,8 @@ describe('the Assistant', () => {
     expect(within(card).getByText('Draft ready')).toBeInTheDocument();
     expect(within(card).getByText(OFFER.summary)).toBeInTheDocument();
     expect(within(card).getByText(OFFER.notes[0])).toBeInTheDocument();
+    // a new automation's draft may suggest the name (HANDOFF 38)
+    expect(within(card).getByText('Morning Wanted search (you can change it)')).toBeInTheDocument();
     expect(within(panel).getByText('Here is a draft.')).toBeInTheDocument();
     const sent = calls.find((c) => c.path === '/api/ai/assistant')!.body as Record<string, unknown>;
     expect(sent).toMatchObject({
@@ -1294,6 +1296,9 @@ describe('the Assistant in the editor', () => {
         draft: { name: 'Fill Wanted nightly', action_type: 'process_wishlist' },
       },
     });
+    // an existing automation's name is yours: the card says so (HANDOFF 38)
+    expect(within(card).getByText('Keeps your name')).toBeInTheDocument();
+    expect(within(card).queryByText(/Morning Wanted search/)).toBeNull();
     fireEvent.click(within(card).getByRole('button', { name: 'Put it in the editor' }));
     const dialog = await screen.findByRole('dialog', { name: 'Put the draft in the editor?' });
     expect(dialog).toHaveTextContent('Put the draft in the editor?');
@@ -1312,6 +1317,116 @@ describe('the Assistant in the editor', () => {
       then_actions: [{ type: 'fire_signal' }],
       assistant_draft: true,
     });
+  });
+});
+
+describe('the Assistant and the name (HANDOFF 38)', () => {
+  const ready = () =>
+    mockApi({
+      ai: {
+        status: AI_READY,
+        assistant: () =>
+          sse([
+            ['draft', OFFER],
+            ['done', { conversation_id: 'c1', usage: {} }],
+          ]),
+      },
+    });
+  const askAndUse = async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Assistant' }));
+    const panel = await screen.findByTestId('assistant-panel');
+    fireEvent.change(within(panel).getByLabelText('Message the Assistant'), {
+      target: { value: 'Search Wanted every morning' },
+    });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Send' }));
+    const card = await within(panel).findByTestId('draft-card');
+    fireEvent.click(within(card).getByRole('button', { name: 'Put it in the editor' }));
+    // it asks first only when there are changes to replace
+    const dialog = screen.queryByRole('dialog', { name: 'Put the draft in the editor?' });
+    if (dialog) fireEvent.click(within(dialog).getByRole('button', { name: 'Use the draft' }));
+    await screen.findByText('Draft from the Assistant.');
+  };
+
+  it('fills an empty Name on a new automation, and it stays editable', async () => {
+    ready();
+    window.localStorage.setItem('soulsync.assistant.firstUse.1', '1');
+    await renderPage('/automations/new');
+    const name = await screen.findByLabelText('Name', undefined, { timeout: 5000 });
+    fireEvent.change(screen.getByLabelText('Do: what it does'), {
+      target: { value: 'process_wishlist' },
+    });
+    await askAndUse();
+    expect(name).toHaveValue('Morning Wanted search');
+    fireEvent.change(name, { target: { value: 'Mine' } });
+    expect(name).toHaveValue('Mine');
+  });
+
+  it('never replaces a name you typed on a new automation', async () => {
+    ready();
+    window.localStorage.setItem('soulsync.assistant.firstUse.1', '1');
+    await renderPage('/automations/new');
+    const name = await screen.findByLabelText('Name', undefined, { timeout: 5000 });
+    fireEvent.change(name, { target: { value: 'Early search' } });
+    await askAndUse();
+    expect(name).toHaveValue('Early search');
+  });
+});
+
+describe('the / line asks the Assistant (HANDOFF 40)', () => {
+  it('sends what was typed after "/" straight away', async () => {
+    const calls = mockApi({
+      ai: {
+        status: AI_READY,
+        assistant: () => sse([['done', { conversation_id: 'c1', usage: {} }]]),
+      },
+    });
+    window.localStorage.setItem('soulsync.assistant.firstUse.1', '1');
+    await renderPage('/automations/4/edit');
+    await screen.findByLabelText('Name', undefined, { timeout: 5000 });
+    const line = screen.getByRole('combobox', { name: /Add a follow-up/ });
+    fireEvent.change(line, { target: { value: '/tells me on discord when it finds 5' } });
+    const menu = screen.getByRole('menu', { name: 'Add a follow-up' });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^Ask the Assistant/ }));
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/ai/assistant')).toBe(true));
+    expect(calls.find((c) => c.path === '/api/ai/assistant')!.body).toMatchObject({
+      message: 'Add a follow-up that tells me on discord when it finds 5',
+      context: { page: 'editor', automation_id: 4 },
+    });
+    const panel = await screen.findByTestId('assistant-panel');
+    expect(within(panel).getByLabelText('Message the Assistant')).toHaveValue('');
+  });
+
+  it('opens the panel with the start in the box for a bare "/"', async () => {
+    const calls = mockApi({ ai: { status: AI_READY } });
+    window.localStorage.setItem('soulsync.assistant.firstUse.1', '1');
+    await renderPage('/automations/4/edit');
+    await screen.findByLabelText('Name', undefined, { timeout: 5000 });
+    fireEvent.change(screen.getByRole('combobox', { name: /Add a follow-up/ }), {
+      target: { value: '/' },
+    });
+    const menu = screen.getByRole('menu', { name: 'Add a follow-up' });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^Ask the Assistant/ }));
+    const panel = await screen.findByTestId('assistant-panel');
+    expect(within(panel).getByLabelText('Message the Assistant')).toHaveValue(
+      'Add a follow-up that ',
+    );
+    expect(calls.some((c) => c.path === '/api/ai/assistant')).toBe(false);
+  });
+
+  it('waits for the first-use note before sending anything', async () => {
+    const calls = mockApi({ ai: { status: AI_READY } });
+    await renderPage('/automations/4/edit');
+    await screen.findByLabelText('Name', undefined, { timeout: 5000 });
+    fireEvent.change(screen.getByRole('combobox', { name: /Add a follow-up/ }), {
+      target: { value: '/pings me' },
+    });
+    const menu = screen.getByRole('menu', { name: 'Add a follow-up' });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^Ask the Assistant/ }));
+    const panel = await screen.findByTestId('assistant-panel');
+    expect(within(panel).getByLabelText('Message the Assistant')).toHaveValue(
+      'Add a follow-up that pings me',
+    );
+    expect(calls.some((c) => c.path === '/api/ai/assistant')).toBe(false);
   });
 });
 
@@ -1354,6 +1469,42 @@ describe('automations on a phone', () => {
     const sheet = await screen.findByRole('dialog');
     expect(sheet).toHaveAttribute('data-variant', 'sheet');
     expect(within(sheet).getByText('Drafts only · sent to Anthropic (Settings → AI)')).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('puts New chat in the sheet’s header as a 44px icon button (HANDOFF 37)', async () => {
+    mockApi({
+      ai: {
+        status: AI_READY,
+        assistant: () =>
+          sse([
+            ['text', { delta: 'Hello.' }],
+            ['done', { conversation_id: 'c1', usage: {} }],
+          ]),
+      },
+    });
+    window.localStorage.setItem('soulsync.assistant.firstUse.1', '1');
+    await renderPage();
+    await screen.findByTestId('automation-card-4', undefined, { timeout: 5000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Assistant' }));
+    const sheet = await screen.findByRole('dialog');
+    fireEvent.change(within(sheet).getByLabelText('Message the Assistant'), {
+      target: { value: 'Hi' },
+    });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Send' }));
+    await within(sheet).findByText('Hello.');
+    const newChat = within(sheet).getByRole('button', { name: 'New chat' });
+    // an icon, not the word: between the title and Close
+    expect(newChat.textContent).toBe('');
+    expect(newChat.querySelector('svg')).not.toBeNull();
+    const head = newChat.closest('div')!.parentElement!;
+    const order = [...head.querySelectorAll('h2, button')].map(
+      (el) => el.getAttribute('aria-label') ?? el.textContent,
+    );
+    expect(order).toEqual(['Assistant', 'New chat', 'Close the Assistant']);
+    fireEvent.click(newChat);
+    await waitFor(() => expect(within(sheet).queryByText('Hello.')).toBeNull());
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });

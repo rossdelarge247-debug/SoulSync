@@ -50,6 +50,26 @@ function CloseIcon() {
   );
 }
 
+/** The "new message" glyph (a square with a pen), for New chat on a phone (37). */
+function NewChatIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z" />
+    </svg>
+  );
+}
+
 function SendIcon() {
   return (
     <svg
@@ -84,10 +104,25 @@ function SettingsLink({ children }: { children: ReactNode }) {
 }
 
 /** The When / Do / Then mini list of a draft. */
-function DraftBlocks({ offer, blocks }: { offer: DraftOffer; blocks?: AutomationBlocks }) {
+function DraftBlocks({
+  offer,
+  blocks,
+  keepsName,
+}: {
+  offer: DraftOffer;
+  blocks?: AutomationBlocks;
+  keepsName: boolean;
+}) {
   const d = offer.draft;
+  const suggested = d.name?.trim();
   return (
     <dl className={styles.draftBlocks}>
+      {keepsName || suggested ? (
+        <div className={styles.draftBlockRow}>
+          <dt>Name</dt>
+          <dd>{keepsName ? 'Keeps your name' : `${suggested} (you can change it)`}</dd>
+        </div>
+      ) : null}
       <div className={styles.draftBlockRow}>
         <dt>When</dt>
         <dd>
@@ -120,10 +155,13 @@ function DraftCard({
   onOpen,
   onPreview,
   onRetry,
+  keepsName = false,
 }: {
   offer: DraftOffer;
   variant: PanelVariant;
   blocks?: AutomationBlocks;
+  /** The draft is for an automation that already exists: its name stays (38). */
+  keepsName?: boolean;
   /** "Nearest I can build" for the couldn't-build card. */
   label?: string;
   primaryLabel: string;
@@ -150,7 +188,11 @@ function DraftCard({
           </p>
         ))}
       </div>
-      <DraftBlocks offer={offer} blocks={blocks} />
+      <DraftBlocks
+        offer={offer}
+        blocks={blocks}
+        keepsName={keepsName || Boolean(offer.automation_id)}
+      />
       <div className={styles.draftActions} data-variant={variant}>
         <Button size="lg" variant={variant === 'editor' ? 'default' : 'primary'} onClick={onOpen}>
           {primaryLabel}
@@ -232,11 +274,13 @@ function AssistantMessage({
   onRetry,
   onStop,
   onHide,
+  keepsName,
 }: {
   message: ThreadMessage;
   variant: PanelVariant;
   isAdmin: boolean;
   blocks?: AutomationBlocks;
+  keepsName: boolean;
   onOpenDraft: (offer: DraftOffer) => void;
   onPreviewDraft: (offer: DraftOffer) => void;
   onRetry: () => void;
@@ -292,6 +336,7 @@ function AssistantMessage({
               offer={message.cantBuild.nearest}
               variant={variant}
               blocks={blocks}
+              keepsName={keepsName}
               label="Nearest I can build"
               primaryLabel="Use the nearest"
               onOpen={() => onOpenDraft(message.cantBuild!.nearest!)}
@@ -306,6 +351,7 @@ function AssistantMessage({
           offer={offer}
           variant={variant}
           blocks={blocks}
+          keepsName={keepsName}
           primaryLabel={primary}
           onOpen={() => onOpenDraft(offer)}
           onPreview={() => onPreviewDraft(offer)}
@@ -436,6 +482,7 @@ export function AssistantPanel({
   tabs,
   composerRef,
   placeholder,
+  keepsName = false,
 }: {
   variant: PanelVariant;
   profileId: number;
@@ -452,6 +499,8 @@ export function AssistantPanel({
   tabs?: ReactNode;
   composerRef?: RefObject<HTMLTextAreaElement | null>;
   placeholder?: string;
+  /** In the editor of an automation that exists: a draft never renames it (38). */
+  keepsName?: boolean;
 }) {
   const conversation = useConversation(profileId);
   const { state, asking } = conversation;
@@ -504,9 +553,21 @@ export function AssistantPanel({
       )}
       <div className={styles.assistantHeadActions}>
         {usable && state.messages.length ? (
-          <Button size="lg" variant="ghost" onClick={conversation.newChat}>
-            New chat
-          </Button>
+          variant === 'sheet' ? (
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="New chat"
+              title="New chat"
+              onClick={conversation.newChat}
+            >
+              <NewChatIcon />
+            </button>
+          ) : (
+            <Button size="lg" variant="ghost" onClick={conversation.newChat}>
+              New chat
+            </Button>
+          )
         ) : null}
         <button
           type="button"
@@ -594,6 +655,7 @@ export function AssistantPanel({
               onRetry={() => retry(m)}
               onStop={conversation.stop}
               onHide={(key) => conversation.hideSuggestion(m.id, key)}
+              keepsName={keepsName}
             />
           ),
         )}
