@@ -59,6 +59,14 @@ function settings(over: Partial<AiSettings> = {}): AiSettings {
 }
 
 const USAGE: AiUsage = {
+  profiles: {
+    month: '2026-10',
+    rows: [
+      { profile_id: 1, name: 'ross', requests: 300, estimated_cost_usd: 1.3 },
+      { profile_id: 4, name: 'kim', requests: 100, estimated_cost_usd: 0.004 },
+    ],
+    unattributed: { requests: 12, estimated_cost_usd: 0.5 },
+  },
   month: '2026-10',
   requests: 412,
   input_tokens: 500_000,
@@ -300,6 +308,37 @@ describe('usage', () => {
       expect($('ai-cap-error')).toHaveTextContent('Write the cap as an amount in dollars'),
     );
     expect(cap).toHaveAttribute('aria-invalid', 'true');
+  });
+});
+
+describe('usage by profile (HANDOFF 39)', () => {
+  const rows = () =>
+    [...$('ai-usage-profile-rows').querySelectorAll('tr')].map((tr) =>
+      [...tr.children].map((c) => c.textContent),
+    );
+
+  it('is hidden while only admins may use the Assistant', async () => {
+    await start(settings({ who_can_use: 'admins' }));
+    expect($('ai-usage-profiles').hidden).toBe(true);
+  });
+
+  it('shows profile, requests and cost under the total once everyone may, adding up to it', async () => {
+    await start(settings({ who_can_use: 'everyone' }));
+    expect($('ai-usage-profiles').hidden).toBe(false);
+    expect($('ai-usage-profiles').querySelector('table')).toHaveAccessibleName('By profile');
+    expect(rows()).toEqual([
+      ['ross', '300', 'about $1.30'],
+      ['kim', '100', 'under $0.01'],
+      ['Not counted per profile', '12', 'about $0.50'],
+    ]);
+    // the cap is still the one figure
+    expect(document.querySelectorAll('#ai-cap')).toHaveLength(1);
+  });
+
+  it('appears when the admin switches Who can use it to everyone', async () => {
+    await start(settings({ who_can_use: 'admins' }));
+    radio('ai-who', 'everyone').click();
+    await vi.waitFor(() => expect($('ai-usage-profiles').hidden).toBe(false));
   });
 });
 

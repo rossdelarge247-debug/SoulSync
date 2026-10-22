@@ -10444,6 +10444,23 @@
                                         <p class="ai-help" id="ai-usage-note">Counted here from the tokens each
                                             request used and the provider's list prices, since the 1st. Your
                                             provider's own billing page is the final word.</p>
+                                        <!-- Per profile, once Who can use it is everyone (HANDOFF 39); rows
+                                             drawn by src/shell/ai-settings.ts. The cap stays one figure. -->
+                                        <div class="ai-profiles" id="ai-usage-profiles" hidden>
+                                            <h4 class="ai-section-label" id="ai-usage-profiles-title">By profile</h4>
+                                            <table class="ai-profile-table" aria-labelledby="ai-usage-profiles-title">
+                                                <thead>
+                                                    <tr>
+                                                        <th scope="col">Profile</th>
+                                                        <th scope="col">Requests</th>
+                                                        <th scope="col">Estimated cost</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="ai-usage-profile-rows"></tbody>
+                                            </table>
+                                            <p class="ai-help" id="ai-usage-profiles-empty" hidden>Nobody has asked
+                                                the Assistant anything this month.</p>
+                                        </div>
                                     </div>
                                     <div class="ai-cap">
                                         <label class="ai-label-text" for="ai-cap">Monthly cap (optional)</label>
