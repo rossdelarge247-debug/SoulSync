@@ -115,49 +115,10 @@ describe('M-14 — mini player phone layout', () => {
   });
 });
 
-describe('M-02/M-04 — hamburger hides behind the modals the React-root cap exposes', () => {
-  it('hides behind EVERY open .modal-overlay (the React-root z-1 cap traps them all, not just the playlist modal)', () => {
-    expect(MOBILE).toContain('body:has(.modal-overlay:not(.hidden)');
-    expect(MOBILE).not.toContain('.modal-overlay .playlist-modal');
-  });
-
-  it('comes back once an overlay closes, however it closes', () => {
-    // runs the real selector list, not a string pin. automation run history
-    // and the spotify / deezer arl playlist details close with
-    // style.display = 'none' and stay in the dom; the first version only
-    // let go on .hidden, so one open hid the hamburger until a reload.
-    const start = MOBILE.indexOf('html.download-modal-open .hamburger-btn,');
-    expect(start).toBeGreaterThan(-1);
-    const selector = MOBILE.slice(start, MOBILE.indexOf('{', start)).trim();
-    document.body.innerHTML = '<button class="hamburger-btn"></button>';
-    const burger = document.querySelector('.hamburger-btn') as HTMLElement;
-    expect(burger.matches(selector)).toBe(false);
-
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.style.display = 'flex';
-    document.body.appendChild(overlay);
-    expect(burger.matches(selector)).toBe(true);
-
-    overlay.style.display = 'none';
-    expect(burger.matches(selector)).toBe(false);
-
-    overlay.removeAttribute('style');
-    overlay.classList.add('hidden');
-    expect(burger.matches(selector)).toBe(false);
-
-    // markup written as style="display:none" is not re-serialized
-    overlay.className = 'modal-overlay';
-    overlay.setAttribute('style', 'display:none');
-    expect(burger.matches(selector)).toBe(false);
-    document.body.innerHTML = '';
-  });
-
-  it('hides behind the year story via its data-attribute hook', () => {
-    expect(MOBILE).toContain('body:has([data-year-story-overlay]) .hamburger-btn');
-    expect(YEAR_STORY_TSX).toContain('data-year-story-overlay');
-  });
-
+// M-02/M-04 pinned the rule that hid the old drawer's hamburger behind open
+// modals. The navigation shell replaced the drawer (top bar, tab bar and
+// sheets), so that rule and its checks are gone; the sheet check stays.
+describe('M-02/M-04 — the phone nav sheet and the modals', () => {
   it('opening My Account closes the phone nav sheet first (the button lives inside it)', () => {
     // the drawer became the navigation shell's sheets (src/shell/nav-shell.ts);
     // closing one also drops body.mobile-nav-open (nav-shell.test.ts)
@@ -332,10 +293,6 @@ describe('M-11 — Artist Map stacks on phones, in CSS and in the canvas maths',
     expect(blockAfter(MOBILE, '#artist-web-container .artweb-lens-btn {')).toContain(
       'font-size: 11px',
     );
-  });
-
-  it('the hamburger hides while a map or web is open (container is z-100, below it)', () => {
-    expect(MOBILE).toContain('body:has(.artist-map-container) .hamburger-btn');
   });
 
   it('the shell float stack and mini player defer while a map or web is open', () => {

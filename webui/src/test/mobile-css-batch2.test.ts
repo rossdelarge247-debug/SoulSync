@@ -23,7 +23,6 @@ const VIDEO_SIDE = read('static/video/video-side.css');
 const WANTED_TSX = read('src/routes/wanted/-ui/wanted-page.tsx');
 const INBOX_TSX = read('src/routes/import/-ui/inbox.tsx');
 const AUDIOBOOKS_CSS = read('src/routes/audiobooks/-ui/audiobooks-page.module.css');
-const AUDIOBOOK_OVERLAY_TSX = read('src/routes/audiobooks/-ui/audiobook-overlay.tsx');
 
 /** The block of `css` starting at `marker` up to the next closing brace. */
 function blockAfter(css: string, marker: string): string {
@@ -138,34 +137,10 @@ describe('RC3 — min-width floors collapse at phone widths', () => {
   });
 });
 
-describe('RC4 — hamburger coverage matches the classes the app actually sets', () => {
-  it('hides behind the settings/profile/player modal body classes', () => {
-    for (const cls of ['src-modal-open', 'pf-modal-open', 'np-modal-open']) {
-      expect(MOBILE).toContain(`body.${cls} .hamburger-btn`);
-    }
-  });
-
-  it('hides behind React modals via their overlay roots', () => {
-    expect(MOBILE).toContain('body:has(.auto-sync-overlay) .hamburger-btn');
-    expect(MOBILE).toContain('body:has(.confirm-modal-overlay) .hamburger-btn');
-  });
-
-  it('hides behind the watchlist-add, disambiguation and genre-browser overlays (fold-in)', () => {
-    // All three stack below the hamburger (z 1000 / 9000 / 8888 < 9999), set
-    // no body class, and mount (or carry their open class) only while open.
-    expect(MOBILE).toContain('body:has(.watchadd-modal-overlay.visible) .hamburger-btn');
-    expect(MOBILE).toContain('body:has(.server-disambig-overlay.visible) .hamburger-btn');
-    expect(MOBILE).toContain('body:has(.genre-browser-modal-overlay.active) .hamburger-btn');
-  });
-
-  it('hides behind audiobook overlays via the component’s data-attribute hook (fold-in)', () => {
-    // The backdrop class is a hashed CSS module, unnameable from
-    // mobile.css — the overlay stamps a data attribute on it instead, and
-    // unmount removes it, so no body class can leak.
-    expect(MOBILE).toContain('body:has([data-audiobook-overlay]) .hamburger-btn');
-    expect(AUDIOBOOK_OVERLAY_TSX).toContain('data-audiobook-overlay');
-  });
-
+// RC4's hamburger checks went with the hamburger: the navigation shell's top
+// bar and tab bar replaced the old drawer, so nothing floats over a modal's
+// header any more and the rule that hid the button is gone.
+describe('RC4 — page headers on phones', () => {
   it('settings sub-page titles clear the hamburger', () => {
     expect(blockAfter(MOBILE, '#settings-page .stg-active-section-title {')).toContain(
       'padding-left: 56px',

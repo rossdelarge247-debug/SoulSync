@@ -18,124 +18,7 @@
    stacking context (no transform/filter/opacity) — the orb contract.
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* ── 1. HERO — the command greeting ──────────────────────────────────── */
-/* The greeting becomes a two-line display: the moment small above, the name
-   huge below. The stats become readout modules — label ABOVE the number, on
-   inset tracks. The library bar becomes a console strip with a solid scan
-   button. */
-
-#dashboard-page .dash-hero-main {
-    gap: 18px;
-}
-
-/* Date eyebrow — now a status chip with a live dot. */
-#dashboard-page .dash-hero-eyebrow {
-    margin: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    align-self: flex-start;
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: rgba(244, 245, 247, 0.6);
-    border: 1px solid var(--white-a10);
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: var(--radius-pill);
-    padding: 6px 14px 6px 11px;
-}
-#dashboard-page .dash-hero-eyebrow::before {
-    content: '';
-    width: 7px;
-    height: 7px;
-    border-radius: var(--radius-circle);
-    background: rgb(var(--accent-rgb));
-    flex: none;
-}
-
-/* Two-line display greeting: moment small, name enormous. */
-#dashboard-page .dash-hero .hello-greeting {
-    font-size: clamp(15px, 1.6vw, 17px);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    line-height: 1.2;
-    text-transform: uppercase;
-    color: rgba(244, 245, 247, 0.52);
-}
-#dashboard-page .dash-hero .hello-greeting > span {
-    background: none;
-    -webkit-text-fill-color: currentColor;
-    color: inherit;
-    animation: none;
-    padding-bottom: 0;
-    margin-bottom: 0;
-}
-#dashboard-page .hello-greet-lead {
-    display: block;
-    font-weight: 600;
-    color: rgba(244, 245, 247, 0.52);
-    font-size: clamp(14px, 1.5vw, 16px);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-bottom: 6px;
-}
-#dashboard-page .hello-greet-name {
-    display: block;
-    color: #ffffff;
-    font-size: clamp(38px, 4.6vw, 56px);
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    line-height: 1.02;
-    text-transform: none;
-    text-wrap: balance;
-}
-
-/* Stats as readout modules: micro label above a display numeral, each on
-   an inset track. The divided band is gone. */
-#dashboard-page .dash-hero-numbers {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 6px;
-}
-#dashboard-page .dash-hero-number {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 5px;
-    min-width: 118px;
-    border-radius: 14px;
-}
-#dashboard-page .dash-hero-number + .dash-hero-number::before {
-    content: none;
-}
-#dashboard-page .dash-hero-number:first-child {
-    padding-left: 20px;
-}
-#dashboard-page .dash-hero-number:last-child {
-    padding-right: 20px;
-}
-#dashboard-page .dash-hero-number-label {
-    order: -1;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: rgba(244, 245, 247, 0.42);
-}
-#dashboard-page .dash-hero-number-value {
-    font-size: 27px;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    font-variant-numeric: tabular-nums;
-    color: #fff;
-    line-height: 1;
-}
-#dashboard-page .dash-hero-number:hover .dash-hero-number-value {
-    color: rgb(var(--accent-light-rgb));
-}
+/* ── 1. HERO — the library console strip ────────────────────────────── */
 
 /* The library console strip: inset track, ringed status dot, the scan
    action as a SOLID button — the primary control on the page. */
@@ -1291,16 +1174,6 @@ body.max-performance #dashboard-page .listen-hero-play::after {
 }
 
 @media (max-width: 960px) {
-    #dashboard-page .hello-greet-name {
-        font-size: clamp(32px, 9vw, 42px);
-    }
-    #dashboard-page .dash-hero-number {
-        min-width: 0;
-        padding: 10px 16px 9px;
-    }
-    #dashboard-page .dash-hero-number-value {
-        font-size: 23px;
-    }
     /* The console strip stacks: status above, actions below. */
     #dashboard-page .dash-hero-library .library-status-header {
         align-items: stretch;
@@ -1376,19 +1249,6 @@ body.max-performance #dashboard-page .listen-hero-play::after {
         width: 48px;
         height: 48px;
     }
-    #dashboard-page .dash-hero-eyebrow {
-        font-size: 10px;
-    }
-    #dashboard-page .dash-hero-numbers {
-        gap: 8px;
-    }
-    #dashboard-page .dash-hero-number {
-        flex: 1 1 0;
-        padding: 10px 14px 9px;
-    }
-    #dashboard-page .dash-hero-number-value {
-        font-size: 20px;
-    }
     #dashboard-page .dash-rail .dash-rail-card {
         width: 138px;
     }
@@ -1412,19 +1272,6 @@ body.max-performance #dashboard-page .listen-hero-play::after {
 }
 
 /* ── 8. CHROMELESS — strip container backgrounds ─────────────────────── */
-/* Everything floats on the page background: no hero wash, no stat boxes,
-   no Plex strip fill, no rail panels, no side-card fills. Positions and
-   sizes unchanged — only the containers dissolve. */
-#dashboard-page .dashboard-header.dash-hero {
-    background: none;
-}
-/* Stat modules become bare text groups. */
-#dashboard-page .dash-hero-number {
-    background: none;
-    border: 0;
-    box-shadow: none;
-    padding: 2px 0;
-}
 /* Plex strip becomes a floating toolbar. */
 #dashboard-page .dash-hero-library .library-status-header {
     background: none;
@@ -1711,8 +1558,7 @@ body.max-performance #dashboard-page .listen-hero-play::after {
 #dashboard-page .home-more .dash-hero-library .library-status-btn,
 #dashboard-page .home-more .orb-stage .em-manage-btn,
 #dashboard-page .home-more .autosync-empty-cta,
-#dashboard-page .home-more .dash-side-cta,
-#dashboard-page .home-more .dash-alert-action {
+#dashboard-page .home-more .dash-side-cta {
     display: inline-flex;
     align-items: center;
     justify-content: center;
