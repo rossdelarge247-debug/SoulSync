@@ -266,13 +266,30 @@ _EXPORT_TRACK_COLUMNS = (
 )
 
 
-# Import matching engine for enhanced similarity logic
-try:
-    from core.matching_engine import MusicMatchingEngine
-    _matching_engine = MusicMatchingEngine()
-except ImportError:
-    logger.warning("Could not import MusicMatchingEngine, falling back to basic similarity")
-    _matching_engine = None
+# The matching engine for enhanced similarity. Built on first use, not at
+# import: core.matching_engine imports this module on its way in (through
+# core.spotify_client), so building it at import raised ImportError whenever
+# core.matching_engine was imported first, which web_server does. The
+# database then quietly fell back to the basic similarity, and the discovery
+# pool's playlist filter (which needs the engine) returned nothing.
+_matching_engine = None
+_matching_engine_unavailable = False
+
+
+def _get_matching_engine():
+    """The shared MusicMatchingEngine, or None if it can't be imported."""
+    global _matching_engine, _matching_engine_unavailable
+    if _matching_engine is None and not _matching_engine_unavailable:
+        try:
+            from core.matching_engine import MusicMatchingEngine
+            _matching_engine = MusicMatchingEngine()
+        except ImportError:
+            # mid-import (a call made while core.matching_engine is still
+            # loading) is not "unavailable": try again on the next call
+            if 'core.matching_engine' not in sys.modules:
+                _matching_engine_unavailable = True
+                logger.warning("Could not import MusicMatchingEngine, falling back to basic similarity")
+    return _matching_engine
 
 @dataclass
 class DatabaseArtist:
@@ -471,6 +488,12 @@ def mirrored_cover_from_match(extra_data: dict) -> str:
     return ''
 
 
+
+def _register_py_lower(conn) -> None:
+    """sqlite's LOWER() only folds ascii, so "MARCØS" never equals "marcøs".
+    python's lower() does. register it per connection for the name lookups."""
+    conn.create_function("PY_LOWER", 1, lambda v: v.lower() if isinstance(v, str) else v, deterministic=True)
+
 class MusicDatabase:
     """SQLite database manager for SoulSync music library data"""
     
@@ -601,6 +624,11 @@ class MusicDatabase:
                 # COALESCE a not-yet-backfilled row to the same value
                 from core.text.normalize import normalize_for_comparison as _nfc
                 connection.create_function("norm_text", 1, lambda x: _nfc(x) if x else "", deterministic=True)
+                # python's lower() for the downloads page's name lookups
+                # (sqlite's LOWER() only folds ascii). registered here, on
+                # open, so those lookups don't make the pool drop the
+                # connection the way a per-call create_function would.
+                _register_py_lower(connection)
                 # Enable foreign key constraints and WAL mode for better concurrency.
                 # Docker Desktop bind mounts can briefly fail while SQLite opens the
                 # sidecar WAL/SHM files; retrying avoids surfacing transient 500s.
@@ -13316,8 +13344,9 @@ class MusicDatabase:
                     return 1.0
 
         # Use enhanced similarity from matching engine if available
-        if _matching_engine:
-            return _matching_engine.similarity_score(s1, s2)
+        engine = _get_matching_engine()
+        if engine:
+            return engine.similarity_score(s1, s2)
         
         # Simple Levenshtein distance implementation
         len1, len2 = len(s1), len(s2)
@@ -22995,7 +23024,7 @@ class MusicDatabase:
         """
         keys = set()
         try:
-            engine = _matching_engine
+            engine = _get_matching_engine()
             if engine is None:
                 # #1452: failing closed here would silently empty the Matched
                 # tab whenever a playlist filter is applied, so log loudly —
@@ -24794,6 +24823,61 @@ class MusicDatabase:
         except Exception as e:
             logger.error("Error counting unverified library history: %s", e)
             return 0
+
+    def get_artist_thumbs_by_names(self, lower_names) -> list[tuple]:
+        """(lowercased name, thumb url) for artists the downloads page names.
+
+        library artists first, then watched artists for anyone not in the
+        library yet. lowercased on both sides because a download's artist
+        string and the media server's can differ only in case.
+        """
+        names = [n for n in dict.fromkeys(lower_names or []) if n]
+        if not names:
+            return []
+        out = []
+        try:
+            conn = self._get_connection()  # PY_LOWER is registered on open
+            cursor = conn.cursor()
+            for i in range(0, len(names), 500):
+                chunk = names[i:i + 500]
+                marks = ",".join("?" * len(chunk))
+                cursor.execute(f"""
+                    SELECT PY_LOWER(name), thumb_url FROM artists
+                    WHERE PY_LOWER(name) IN ({marks}) AND thumb_url IS NOT NULL AND thumb_url != ''
+                """, chunk)
+                out.extend((r[0], r[1]) for r in cursor.fetchall())
+                cursor.execute(f"""
+                    SELECT PY_LOWER(artist_name), image_url FROM watchlist_artists
+                    WHERE PY_LOWER(artist_name) IN ({marks}) AND image_url IS NOT NULL AND image_url != ''
+                """, chunk)
+                out.extend((r[0], r[1]) for r in cursor.fetchall())
+        except Exception as e:
+            logger.debug("artist thumb lookup failed: %s", e)
+        return out
+
+    def get_album_thumbs_by_titles(self, lower_titles) -> list[tuple]:
+        """(lowercased artist, lowercased album, thumb url) for album titles the
+        downloads page names. the caller matches the artist, so two albums
+        called "Greatest Hits" don't swap covers."""
+        titles = [t for t in dict.fromkeys(lower_titles or []) if t]
+        if not titles:
+            return []
+        out = []
+        try:
+            conn = self._get_connection()  # PY_LOWER is registered on open
+            cursor = conn.cursor()
+            for i in range(0, len(titles), 500):
+                chunk = titles[i:i + 500]
+                marks = ",".join("?" * len(chunk))
+                cursor.execute(f"""
+                    SELECT PY_LOWER(ar.name), PY_LOWER(al.title), al.thumb_url
+                    FROM albums al JOIN artists ar ON ar.id = al.artist_id
+                    WHERE PY_LOWER(al.title) IN ({marks}) AND al.thumb_url IS NOT NULL AND al.thumb_url != ''
+                """, chunk)
+                out.extend((r[0], r[1], r[2]) for r in cursor.fetchall())
+        except Exception as e:
+            logger.debug("album thumb lookup failed: %s", e)
+        return out
 
     def get_library_history_unverified(self, exclude_download_sources=()) -> list[dict]:
         """Return every library_history row that still needs human confirmation.

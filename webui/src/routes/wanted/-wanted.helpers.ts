@@ -2,8 +2,10 @@ import { parseServerTime } from '@/features/automations/format';
 
 import type { Automation } from '../automations/-automations.types';
 import type { WatchlistArtist } from '../watchlist/-watchlist.types';
+import type { ParsedWishlistTrack } from '../wishlist/-wishlist.types';
 
 import { primaryArtistId, sortArtists } from '../watchlist/-watchlist.helpers';
+import { describeTrouble } from '../wishlist/-wishlist.helpers';
 import { WL_FAILING_ATTEMPTS } from '../wishlist/-wishlist.types';
 import {
   type FollowedArtistSummary,
@@ -338,9 +340,50 @@ export interface MetaPart {
   wide?: boolean;
 }
 
+/**
+ * A failed try in a person's words, when the reason is one SoulSync wrote
+ * after a download came in and was thrown out (the nebula's describeTrouble):
+ * "only ~30s of 3:54 played, so it was thrown out", "the wrong song came back
+ * ("Xtal" by Aphex Twin)". Anything else (a peer going offline, a timeout)
+ * reads as it was written.
+ */
+export function lastTryPhrase(reason: string): string {
+  const trouble = describeTrouble({
+    failing: true,
+    failReason: reason,
+    retry: 0,
+    lastTried: '',
+  } as ParsedWishlistTrack);
+  switch (trouble.headline) {
+    case 'Downloaded, then thrown out': {
+      const partial = /^Only ~(\d+)s of ([\d:]+) actually played/.exec(trouble.detail);
+      return partial
+        ? `only ~${partial[1]}s of ${partial[2]} played, so it was thrown out`
+        : 'the file failed the integrity check';
+    }
+    case 'The wrong song came back': {
+      const heard = /says it was (".+") by (.+), not this track/.exec(trouble.detail);
+      return heard
+        ? `the wrong song came back (${heard[1]} by ${heard[2]})`
+        : 'the wrong song came back';
+    }
+    case 'Downloaded, then failed to save':
+      return /folder could not be created/.test(trouble.detail)
+        ? "downloaded, but its folder couldn't be created"
+        : 'downloaded, but saving it failed';
+    case 'Downloaded, then quarantined':
+      return 'downloaded, then quarantined';
+    case 'No match found':
+      return 'no match found on your sources';
+    default:
+      return reason;
+  }
+}
+
 /** "last try: user went offline" (lower-cases a capitalised first word). */
 function lastTryText(reason: string): string {
-  const text = /^[A-Z][a-z]/.test(reason) ? reason[0].toLowerCase() + reason.slice(1) : reason;
+  const plain = lastTryPhrase(reason);
+  const text = /^[A-Z][a-z]/.test(plain) ? plain[0].toLowerCase() + plain.slice(1) : plain;
   return text.replace(/[.\s]+$/, '');
 }
 

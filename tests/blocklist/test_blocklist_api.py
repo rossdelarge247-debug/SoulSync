@@ -23,7 +23,11 @@ def _skip_download(coro):
 
 
 def test_search_proxies_active_source(client):
-    with patch.object(web_server, "_search_service", return_value=[
+    # the route lives in api/discover_routes.py and calls the _search_service
+    # it imported; patching web_server's copy let a real metadata search run
+    from api import discover_routes
+
+    with patch.object(discover_routes, "_search_service", return_value=[
             {"id": "drake-sp", "name": "Drake", "image": None, "extra": "", "provider": "spotify"}]):
         r = client.get("/api/blocklist/search?type=artist&q=drake")
     assert r.status_code == 200

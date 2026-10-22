@@ -17,6 +17,7 @@ import {
   followedStatusTag,
   foundWhen,
   intervalText,
+  lastTryPhrase,
   monthYear,
   parseWantedTrack,
   qualityNames,
@@ -245,6 +246,32 @@ describe('wishlist tracks into wanted rows', () => {
     expect(wantedStatus(track)).toEqual({ text: 'Not found yet · 6 tries', tone: 'neutral' });
     expect(wantedStatus(single)).toEqual({ text: 'Searching · 1 try', tone: 'info' });
     expect(wantedStatus(album)).toEqual({ text: 'Searching', tone: 'info' });
+  });
+
+  it('says a thrown-out download in plain words, the rest as written', () => {
+    expect(
+      lastTryPhrase(
+        'File integrity check failed: Incomplete audio: only ~30s actually decodes of a 234s file (13%)',
+      ),
+    ).toBe('only ~30s of 3:54 played, so it was thrown out');
+    expect(
+      lastTryPhrase("AcoustID verification failed: mismatch: 'Xtal' by 'Aphex Twin' (score 0.91)"),
+    ).toBe('the wrong song came back ("Xtal" by Aphex Twin)');
+    expect(lastTryPhrase('Post-processing failed: [WinError 3] cannot find the path')).toBe(
+      "downloaded, but its folder couldn't be created",
+    );
+    expect(lastTryPhrase('No matching track found')).toBe('no match found on your sources');
+    expect(lastTryPhrase('User went offline.')).toBe('User went offline.');
+    const [track] = buildWantedItems(
+      tracks(
+        row({
+          retry_count: 4,
+          failure_reason: 'AcoustID verification failed: fingerprint mismatch',
+          last_attempted: sql(NOW),
+        }),
+      ),
+    );
+    expect(wantedMeta(track, '').at(-1)?.text).toBe('last try: the wrong song came back');
   });
 
   it('names a playlist source, not the placeholders', () => {

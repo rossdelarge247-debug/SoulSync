@@ -4,6 +4,30 @@
    ============================================ */
 
 /* ======================================
+   MOBILE OVERLAY (hidden on desktop)
+   ====================================== */
+
+.mobile-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: var(--black-a60);
+    z-index: 10000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-slow) ease;
+}
+
+.mobile-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* ======================================
+=======
    MOBILE BREAKPOINT (≤768px)
    ====================================== */
 
@@ -383,7 +407,7 @@
     .playlist-card {
         padding: 16px;
         margin: 8px 4px;
-        border-radius: 14px;
+        border-radius: var(--radius-card);
     }
 
     .playlist-card-main {
@@ -1967,7 +1991,7 @@
     /* no hover on a phone: the play overlay is always there, quietly */
     .enhanced-album-play-btn {
         opacity: 1;
-        background: rgba(0, 0, 0, 0.35);
+        background: var(--black-a35);
     }
     .enhanced-album-title {
         font-size: 14px;
@@ -2081,11 +2105,11 @@
         padding: 14px 16px;
         background: none;
         border: none;
-        border-radius: 10px;
+        border-radius: var(--radius-control);
         color: var(--white-a85);
         font-size: 14px;
         cursor: pointer;
-        transition: background 0.15s;
+        transition: background var(--dur-fast);
     }
     .enhanced-mobile-actions-popover button:active {
         background: var(--white-a08);
@@ -2106,7 +2130,7 @@
     .mobile-popover-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.5);
+        background: var(--black-a50);
         z-index: 10000;
     }
 
@@ -2348,7 +2372,7 @@
     .rate-modal {
         width: 95vw !important;
         max-height: 90vh;
-        border-radius: 14px;
+        border-radius: var(--radius-card);
     }
 
     .rate-modal-header h3 {
@@ -2422,7 +2446,7 @@
         max-width: none !important;
         bottom: 62px !important;
         max-height: 55vh;
-        border-radius: 14px;
+        border-radius: var(--radius-card);
     }
 
     .notif-panel-header {
@@ -2842,86 +2866,11 @@ body:has([data-year-story-overlay]) .helper-float-btn {
 }
 
 @media (max-width: 768px) {
-    /* ── Downloads page (.adl-*) ──
-       The redesign is single-column already; the phone pass is about row
-       anatomy. Desktop rows are art + text + a right-hand status column,
-       which squeezed titles to ~10 chars (and review rows to NOTHING).
-       On a phone the text owns line one and everything else wraps under it. */
+    /* ── Downloads page (.adl-*): the cards, header, Review and Clients have
+       their own phone rules in downloads-premier.css. these two are the
+       recent-history fold and the batch filter banner ── */
 
-    .adl-hero {
-        gap: 10px 14px;
-    }
-    .adl-hero-stats {
-        gap: 18px;
-        width: 100%;
-        justify-content: space-between;
-    }
-    .adl-stat { min-width: 0; }
-    .adl-stat-num { font-size: 1.4rem; }
-    .adl-hero-actions {
-        width: 100%;
-    }
-    .adl-cancel-all-btn,
-    .adl-clear-btn { flex: 1 1 auto; padding: 8px 13px; }
-
-    /* view tabs spread across the full width; status chips scroll */
-    .adl-view-tabs {
-        width: 100%;
-    }
-    .adl-view-tab {
-        flex: 1 1 auto;
-        padding: 9px 6px 11px;
-        font-size: 0.82rem;
-    }
-    .adl-status-chips {
-        width: 100%;
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        scrollbar-width: none;
-        padding-bottom: 9px;
-    }
-    .adl-status-chips::-webkit-scrollbar { display: none; }
-    .adl-pill { flex-shrink: 0; padding: 5px 12px; }
-
-    /* row: art + info on line one, status chip + chevron wrap to line two,
-       indented under the text instead of amputating the title */
-    .adl-row {
-        flex-wrap: wrap;
-        row-gap: 6px;
-    }
-    .adl-row-info {
-        /* wide enough to stay beside the art (rail included), narrow enough
-           that the status chip can't fit on line one and wraps below */
-        flex: 1 1 180px;
-        min-width: 180px;
-    }
-    .adl-row-status {
-        margin-left: 52px;
-    }
-    .adl-row-chevron { display: none; }
-
-    /* review rows had it worst: badges + five buttons ate the entire width
-       and the title rendered zero chars. Same cure: actions wrap below. */
-    .verif-quar-row .verif-actions {
-        flex-basis: 100%;
-        margin-left: 52px;
-        flex-wrap: wrap;
-        row-gap: 6px;
-    }
-    .adl-deleted-header {
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    /* group headers: drop the stat line (900px already does) and the source
-       tag; keep name, phase, progress and the actions tappable */
-    .adl-group-header {
-        padding: 10px 8px 10px 14px;
-        gap: 10px;
-    }
     .adl-group-source { display: none; }
-    .adl-group-act,
-    .adl-group-chevron { width: 36px; height: 36px; }
 
     /* the banners (batch filter, review sub-views, clients tabs) wrap;
        nothing may clip off the right edge */
@@ -2929,7 +2878,6 @@ body:has([data-year-story-overlay]) .helper-float-btn {
         flex-wrap: wrap;
         row-gap: 6px;
     }
-    .verif-banner-spacer { display: none; }
 }
 
 @media (max-width: 768px) {
@@ -3407,7 +3355,7 @@ html.download-modal-open body {
         align-self: center;
         width: 76px;
         height: 76px;
-        border-radius: 10px;
+        border-radius: var(--radius-control);
     }
     .mix-modal-eyebrow,
     .mix-modal-title,
@@ -3441,7 +3389,7 @@ html.download-modal-open body {
         width: calc(100% - 24px);
         bottom: 12px;
         padding: 10px 12px;
-        border-radius: 18px;
+        border-radius: var(--radius-sheet);
         white-space: normal;
     }
     .mix-sel-count {
@@ -3619,7 +3567,7 @@ body:has(.artist-map-container) #gsearch-bar {
         width: calc(100vw - 12px);
         height: calc(100vh - 12px);
         height: calc(100dvh - 12px);
-        border-radius: 18px;
+        border-radius: var(--radius-sheet);
     }
 
     /* Header: one compact block. Title + actions share the first row, the

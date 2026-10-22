@@ -52,7 +52,7 @@ logger = setup_logging(_log_level, _log_path)
 
 # App version — single source of truth for backup metadata, system-info, update check, etc.
 # Semver: MAJOR.MINOR.PATCH. Bump at each dev→main release.
-_SOULSYNC_BASE_VERSION = "3.5.8"
+_SOULSYNC_BASE_VERSION = "3.5.9"
 
 def _build_version_string():
     """Append short commit hash to version when available (e.g. 2.35+abc1234)."""
@@ -4473,7 +4473,7 @@ def handle_settings():
                     for key, value in _experimental_in.items():
                         config_manager.set(f'experimental.{key}', value)
 
-                for service in ['spotify', 'plex', 'jellyfin', 'navidrome', 'soulseek', 'download_source', 'settings', 'database', 'metadata_enhancement', 'file_organization', 'playlist_sync', 'tidal', 'tidal_download', 'qobuz', 'hifi', 'hifi_download', 'soundcloud_download', 'deezer_download', 'amazon_download', 'lidarr_download', 'prowlarr', 'torrent_client', 'usenet_client', 'listenbrainz', 'acoustid', 'lastfm', 'genius', 'import', 'lossy_copy', 'album_downloads', 'listening_stats', 'ui_appearance', 'youtube', 'content_filter', 'itunes', 'm3u_export', 'musicbrainz', 'deezer', 'audiodb', 'metadata', 'hydrabase', 'security', 'discogs', 'concerts', 'library', 'discover', 'wishlist', 'genre_whitelist', 'post_processing', 'playlists', 'podcasts', 'audiobooks', 'experimental', 'image_cache', 'beatport', 'lidarr_compat']:
+                for service in ['spotify', 'plex', 'jellyfin', 'navidrome', 'soulseek', 'download_source', 'settings', 'database', 'metadata_enhancement', 'file_organization', 'playlist_sync', 'tidal', 'tidal_download', 'qobuz', 'hifi', 'hifi_download', 'soundcloud_download', 'deezer_download', 'amazon_download', 'lidarr_download', 'prowlarr', 'torrent_client', 'usenet_client', 'listenbrainz', 'acoustid', 'lastfm', 'genius', 'import', 'lossy_copy', 'album_downloads', 'listening_stats', 'ui_appearance', 'youtube', 'content_filter', 'itunes', 'm3u_export', 'musicbrainz', 'deezer', 'audiodb', 'metadata', 'hydrabase', 'security', 'discogs', 'concerts', 'library', 'discover', 'wishlist', 'genre_whitelist', 'post_processing', 'playlists', 'podcasts', 'audiobooks', 'experimental', 'image_cache', 'beatport', 'lidarr_compat', 'mcp']:
                     if service in new_settings:
                         if service == 'experimental' and isinstance(_experimental_in, dict):
                             continue
@@ -4859,8 +4859,13 @@ def setup_status_endpoint():
 @app.route('/api/setup/complete', methods=['POST'])
 def setup_complete_endpoint():
     """Mark first-run setup as completed."""
+    data = request.get_json(silent=True) or {}
+    purposes = data.get('purposes')
     config_manager.set('setup.completed', True)
     config_manager.set('setup.in_progress', False)
+    # what setup was told soulsync is for, the dashboard checklist reads it
+    if isinstance(purposes, list):
+        config_manager.set('setup.purposes', [str(p) for p in purposes][:10])
     return jsonify({"success": True})
 
 @app.route('/api/test-connection', methods=['POST'])
@@ -17202,6 +17207,14 @@ def get_active_processes():
 
 # Status payload helpers live in core/downloads/status.py.
 from core.downloads import status as _downloads_status
+from core.downloads import row_art as _row_art
+
+# one per process so its name cache outlives each 2s poll
+_row_art_lookup = _row_art.RowArtLookup(
+    query_artists=lambda names: get_database().get_artist_thumbs_by_names(names),
+    query_albums=lambda titles: get_database().get_album_thumbs_by_titles(titles),
+    normalize=fix_artist_image_url,
+)
 
 
 def _build_status_deps():
@@ -17233,6 +17246,7 @@ def _build_status_deps():
         get_unverified_download_history=lambda: get_database().get_library_history_unverified(
             exclude_download_sources=('acoustid_scan',),
         ),
+        attach_row_art=lambda items: _row_art.attach_row_art(items, _row_art_lookup),
     )
 
 
@@ -23798,6 +23812,12 @@ _cfg_targets(get_database_=get_database,
                                              'checked_at': _status_cache_timestamps.get('soulseek') or None})
 app.register_blueprint(_bp_targets())
 
+# First-run setup flow: discovery, folder checks, save-free connection probes.
+from api.onboarding import configure as _configure_onboarding_api, create_blueprint as _create_onboarding_blueprint
+_configure_onboarding_api(config_manager_=config_manager, get_database_=get_database,
+                          docker_resolve_url=lambda url: docker_resolve_url(url))
+app.register_blueprint(_create_onboarding_blueprint())
+
 # Quality profiles / auto-import watcher / metadata-cache browser - three
 # self-contained clusters lifted to their own api/ modules.
 from api.quality_profiles import configure as _cfg_qp, create_blueprint as _bp_qp
@@ -24114,6 +24134,12 @@ app.register_blueprint(_bp_mr())
 from api.lidarr_compat import configure as _cfg_lc, create_blueprint as _bp_lc
 _cfg_lc(get_database=get_database, config_manager=config_manager)
 app.register_blueprint(_bp_lc())
+
+# mcp: an ai client drives soulsync through /mcp with an api key
+from api.mcp import configure as _cfg_mcp, create_blueprint as _bp_mcp
+_cfg_mcp(get_database=get_database, config_manager=config_manager,
+         version=SOULSYNC_VERSION.split('+')[0])
+app.register_blueprint(_bp_mcp())
 
 # kids profiles: explicit music can't play and drops out of search/tracklists
 from api.content_guard import register as _reg_content_guard

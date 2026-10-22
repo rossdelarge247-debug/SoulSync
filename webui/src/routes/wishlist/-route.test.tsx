@@ -7,10 +7,12 @@ import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
 /*
- * The Wishlist page is the Wanted tab of /wanted now. These pin what moved:
+ * The music Wishlist is the Wanted tab of /wanted now. These pin what moved:
  * old links land on the same thing, and what the Wishlist page could do that
  * the Wanted boards don't draw (the nebula, the audiobook wishlist, the
- * downloads.js dialogs) is still there.
+ * downloads.js dialogs) is still there. The video side's tabs
+ * (?media=movies|tv|youtube) stay on /wishlist; -video.route.test.tsx covers
+ * them.
  */
 
 vi.setConfig({ testTimeout: 40_000 });
@@ -154,6 +156,21 @@ describe('old Wishlist links', () => {
     expect(Object.fromEntries(params)).toEqual({ tab: 'wanted', q: 'canada', filter: 'not-found' });
   });
 
+  it("the video side's tabs stay on /wishlist", async () => {
+    stubFetch({
+      extra: (url) => {
+        if (url.includes('/api/video/wishlist'))
+          return res({ success: true, items: [], total: 0, counts: {}, pages: 1 });
+        if (url.includes('/api/video/')) return res({ success: true });
+        return null;
+      },
+    });
+    const { router } = renderRoute('/wishlist?media=tv');
+    await waitFor(() => expect(document.querySelector('.wlp--video')).toBeTruthy());
+    expect(router.state.location.pathname).toBe('/wishlist');
+    expect(new URLSearchParams(router.state.location.searchStr).get('media')).toBe('tv');
+  });
+
   it('the Audiobooks tab, and the old /audiobooks/wishlist, open Audiobooks on Wanted', async () => {
     stubFetch();
     const { router } = renderRoute('/audiobooks/wishlist');
@@ -165,7 +182,7 @@ describe('old Wishlist links', () => {
 });
 
 describe('the nebula, kept as a view of Wanted', () => {
-  it('draws one orb per artist and opens one at a time', async () => {
+  it('draws one orb per artist and opens one artist panel at a time', async () => {
     stubFetch({
       albums: [
         albumRow('Aphex Twin', 'SAW', 'Xtal'),
@@ -174,11 +191,65 @@ describe('the nebula, kept as a view of Wanted', () => {
     });
     renderRoute('/wanted?view=nebula');
     await waitFor(() => expect(orbs()).toHaveLength(2));
+    // the artist panel only exists once an orb is opened
+    expect(document.querySelector('.wlp-sheet')).toBeNull();
     fireEvent.click(orbs()[0].querySelector('.wl-orb')!);
     expect(orbs()[0].classList.contains('expanded')).toBe(true);
+    expect(screen.getByRole('complementary', { name: 'Aphex Twin on Wanted' })).toBeTruthy();
+
+    // opening the second closes the first
     fireEvent.click(orbs()[1].querySelector('.wl-orb')!);
     expect(orbs()[0].classList.contains('expanded')).toBe(false);
     expect(orbs()[1].classList.contains('expanded')).toBe(true);
+    expect(document.querySelectorAll('.wlp-sheet')).toHaveLength(1);
+    expect(screen.getByRole('complementary', { name: 'Boards of Canada on Wanted' })).toBeTruthy();
+
+    // clicking the open one, the panel's close button and Escape each close it
+    fireEvent.click(orbs()[1].querySelector('.wl-orb')!);
+    expect(document.querySelector('.wlp-sheet')).toBeNull();
+    fireEvent.click(orbs()[0].querySelector('.wl-orb')!);
+    fireEvent.click(screen.getByLabelText('Close artist panel'));
+    expect(document.querySelector('.wlp-sheet')).toBeNull();
+    fireEvent.click(orbs()[0].querySelector('.wl-orb')!);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.querySelector('.wlp-sheet')).toBeNull();
+  });
+
+  it('files artists into zones by what went wrong, worst first, and says why in words', async () => {
+    const stuck = (artist: string, reason: string) => ({
+      ...albumRow(artist, `${artist} LP`, 'Song', 4),
+      failure_reason: reason,
+    });
+    const bulk: { action: string; ids: string[] }[] = [];
+    stubFetch({
+      bulk,
+      albums: [
+        albumRow('Healthy', 'Fine', 'Waiting', 0),
+        stuck('Nomatch', 'No matching track found'),
+        stuck(
+          'Clipped',
+          'File integrity check failed: Incomplete audio: only ~30s actually decodes of a 234s file (13%)',
+        ),
+      ],
+    });
+    renderRoute('/wanted?view=nebula');
+
+    await waitFor(() => expect(document.querySelectorAll('.wlp-zone')).toHaveLength(3));
+    const zones = [...document.querySelectorAll('.wlp-zone')].map((z) =>
+      z.getAttribute('aria-label'),
+    );
+    expect(zones).toEqual(['Downloaded, then rejected', 'No match found', 'Still hunting']);
+
+    // a stuck zone's retry touches only its own tracks
+    fireEvent.click(
+      document.querySelector('.wlp-zone--notfound')!.querySelector('button') as HTMLElement,
+    );
+    await waitFor(() => expect(bulk).toHaveLength(1));
+    expect(bulk[0]).toEqual({ action: 'retry', ids: ['Nomatch-Nomatch LP-Song'] });
+
+    // the panel explains the rejection in words, not the raw log line
+    fireEvent.click(document.querySelector('[data-artist="Clipped"] .wl-orb')!);
+    expect(screen.getByRole('note')).toHaveTextContent('Only ~30s of 3:54 actually played');
   });
 
   it('follows the filter text and Not found yet', async () => {
@@ -207,18 +278,27 @@ describe('the nebula, kept as a view of Wanted', () => {
     );
   });
 
-  it('Sort keeps the old orders: busiest, most tries, A–Z', async () => {
+  it('Sort keeps the old orders inside each zone: busiest, most tries, A–Z', async () => {
     stubFetch({
       albums: [
         albumRow('Aphex Twin', 'SAW', 'Xtal', 5),
+        albumRow('Aphex Twin', 'SAW', 'Ageispolis'),
+        albumRow('Aphex Twin', 'SAW', 'Tha'),
+        albumRow('Autechre', 'Amber', 'Foil', 4),
+        albumRow('Autechre', 'Amber', 'Montreal', 4),
         albumRow('Clark', 'Turning Dragon', 'Ted'),
+        albumRow('Clark', 'Turning Dragon', 'Truncate'),
+        albumRow('Clark', 'Turning Dragon', 'Volcan'),
         albumRow('Boards of Canada', 'MHTRTC', 'Roygbiv'),
         albumRow('Boards of Canada', 'MHTRTC', 'Turquoise Hexagon Sun'),
       ],
     });
     const { router } = renderRoute('/wanted?view=nebula');
     const order = () => orbs().map((o) => o.getAttribute('data-artist'));
-    await waitFor(() => expect(order()[0]).toBe('Boards of Canada'));
+    // stuck artists first (their own zone), then the rest; busiest first in each
+    await waitFor(() =>
+      expect(order()).toEqual(['Aphex Twin', 'Autechre', 'Clark', 'Boards of Canada']),
+    );
     const select = screen.getByRole('combobox', { name: 'Sort' });
     expect([...select.querySelectorAll('option')].map((option) => option.textContent)).toEqual([
       'Busiest first',
@@ -227,9 +307,13 @@ describe('the nebula, kept as a view of Wanted', () => {
     ]);
 
     fireEvent.change(select, { target: { value: 'most-tries' } });
-    await waitFor(() => expect(order()[0]).toBe('Aphex Twin'));
+    await waitFor(() =>
+      expect(order()).toEqual(['Autechre', 'Aphex Twin', 'Clark', 'Boards of Canada']),
+    );
     fireEvent.change(select, { target: { value: 'artist' } });
-    await waitFor(() => expect(order()).toEqual(['Aphex Twin', 'Boards of Canada', 'Clark']));
+    await waitFor(() =>
+      expect(order()).toEqual(['Aphex Twin', 'Autechre', 'Boards of Canada', 'Clark']),
+    );
     expect(new URLSearchParams(router.state.location.searchStr).get('sort')).toBe('artist');
   });
 
@@ -298,7 +382,7 @@ describe('the nebula, kept as a view of Wanted', () => {
     fireEvent.click(screen.getByLabelText('Download album SAW now'));
     await waitFor(() => expect(bulk).toHaveLength(2));
 
-    fireEvent.click(screen.getByLabelText('Remove Aphex Twin from the wishlist'));
+    fireEvent.click(screen.getByLabelText('Remove Aphex Twin from Wanted'));
     await waitFor(() => expect(bulk).toHaveLength(3));
     expect(bulk[2]).toEqual({
       action: 'skip',

@@ -90,8 +90,10 @@ describe('the video Review pane', () => {
       ),
     );
     render(<VdlReviewPane review={review()} onChanged={vi.fn()} />);
+    // Empty bin lives in the pane's "Review actions" menu
+    fireEvent.click(screen.getByRole('button', { name: 'Review actions' }));
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Empty bin/ }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Empty bin' }));
     });
     const dialog = await screen.findByRole('dialog');
     expect(requests).toEqual([{ url: 'preview', body: { all: true } }]);
@@ -108,8 +110,10 @@ describe('the video Review pane', () => {
       ),
     );
     render(<VdlReviewPane review={review()} onChanged={vi.fn()} />);
+    // a row's Delete forever lives in its own menu
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
     await act(async () => {
-      fireEvent.click(screen.getByTitle('Delete permanently'));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete forever' }));
     });
     await screen.findByRole('dialog');
     expect(requests).toEqual([
