@@ -151,7 +151,7 @@ Good radio is one of the best ways to find music, but what you hear is gone the 
 
 - Auto-add is limited to 50 a day per station (Settings → Radio can change it).
 - Radio doesn't count towards Home.
-- "Library Radio" becomes "Shuffle your library" if the names get confused (Ross to say).
+- "Library Radio" is now "Shuffle your library" (Ross, 22 October; built with the player).
 
 ### Design's questions for Dev, answered from the code
 

@@ -3,7 +3,7 @@
  * section. Everything above it is about OWNING music; this row is about
  * playing it.
  *
- * - Library Radio hero: the endless own-collection shuffle that lived buried
+ * - "Shuffle your library" hero (was Library Radio): the endless own-collection shuffle that lived buried
  *   in the media player gets a front door (startLibraryRadio seam,
  *   media-player.js:3129). Designed as a living station deck: spinning
  *   vinyl, dancing EQ, glowing transport button.
@@ -168,7 +168,7 @@ function ListenBandInner() {
                 </span>
                 On air — your collection
               </span>
-              <strong>Library Radio</strong>
+              <strong>Shuffle your library</strong>
               <span>Endless shuffle through your own collection — one click, infinite queue.</span>
             </span>
             <span className="listen-hero-play" aria-hidden="true">

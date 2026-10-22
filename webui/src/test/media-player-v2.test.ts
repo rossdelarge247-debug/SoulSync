@@ -614,7 +614,13 @@ describe('v1 sleep timer', () => {
       '<button id="np-sleep-btn"><span id="np-sleep-label">Sleep</span></button>';
     const audioPlayer = { paused: false, pause: vi.fn() };
     const setPlayingState = vi.fn();
-    const fns = ['npCancelCrossfade', 'npCycleSleepTimer', 'npClearSleepTimer', 'npFireSleepTimer']
+    const fns = [
+      'npCancelCrossfade',
+      'npSetSleepTimer',
+      'npCycleSleepTimer',
+      'npClearSleepTimer',
+      'npFireSleepTimer',
+    ]
       .map((n) => extractFunction(n, v1))
       .join('\n');
     const api = new Function(
@@ -622,7 +628,8 @@ describe('v1 sleep timer', () => {
       'audioPlayer',
       'setPlayingState',
       `
-      let npSleepMinutes = 0, npSleepTimerId = null, npSleepEndOfTrack = false;
+      let npSleepMinutes = 0, npSleepTimerId = null, npSleepEndOfTrack = false, npSleepEndsAt = 0;
+      ${extractConst('NP_SLEEP_STEPS', v1)}
       let npXfadeTimer = null, npXfadeAudio = null, npXfadeHandoff = null;
       let npXfadeActive = false, npXfadeMainVol = null;
       const npStopHandoff = () => {};
@@ -879,7 +886,7 @@ describe('visuals side panel', () => {
     expect(historyPanel.parentNode).toBe(els['np-v2-sidepanel-body']);
     expect(historyPanel.classList.contains('hidden')).toBe(false);
     expect(els['np-v2-visuals-sidepanel'].classList.contains('hidden')).toBe(false);
-    expect(els['np-v2-sidepanel-title'].textContent).toBe('History');
+    expect(els['np-v2-sidepanel-title'].textContent).toBe('Recent');
     expect(api.NPV2.tab).toBe('history');
   });
 
@@ -906,7 +913,7 @@ describe('visuals side panel', () => {
     api.npv2OpenVisualsPanel('queue');
     api.npv2OpenVisualsPanel('history');
     expect(historyPanel.parentNode).toBe(els['np-v2-sidepanel-body']);
-    expect(els['np-v2-sidepanel-title'].textContent).toBe('History');
+    expect(els['np-v2-sidepanel-title'].textContent).toBe('Recent');
   });
 
   it('ignores unknown tabs', () => {
@@ -1111,6 +1118,7 @@ describe('immersive mode toggle', () => {
         'function npv2VisualsWakeUI() {}',
         'function npv2VisualsClearIdle() {}',
         'function npv2CloseVisualsPanel() {}',
+        'let npv2VisualsOpener = null;',
         extractFunction('npv2ModalOpen', v2),
         extractFunction('npv2VisualsModeOn', v2),
         extractFunction('npv2SetVisualsMode', v2),
@@ -1155,13 +1163,15 @@ describe('immersive mode toggle', () => {
     expect(api.npv2VisualsModeOn()).toBe(true);
   });
 
-  it('visuals mode requires the modal to be open', () => {
+  it('the visuals open and close their overlay (it exists for them)', () => {
     const { api, overlay } = build();
-    overlay.classList.add('hidden'); // modal closed
+    overlay.classList.add('hidden'); // closed
     api.npv2SetVisualsMode(true);
-    expect(api.npv2VisualsModeOn()).toBe(false);
-    overlay.classList.remove('hidden');
+    expect(overlay.classList.contains('hidden')).toBe(false);
     expect(api.npv2VisualsModeOn()).toBe(true);
+    api.npv2SetVisualsMode(false);
+    expect(overlay.classList.contains('hidden')).toBe(true);
+    expect(api.npv2VisualsModeOn()).toBe(false);
   });
 
   it('exiting also closes the immersive drawer', () => {
@@ -1938,37 +1948,30 @@ describe('mini player glow', () => {
   });
 });
 
-describe('mini player wiring', () => {
-  const css = readFileSync(resolve(process.cwd(), 'static/style.css'), 'utf8');
+describe('the player chrome (board 6a) over the theater', () => {
+  const css = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
   const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
 
-  it('the glow canvas lives inside the mini player, under its controls', () => {
-    const mp = html.indexOf('id="media-player"');
-    const canvas = html.indexOf('id="mp-viz"');
-    const body = html.indexOf('class="mini-player-body"');
-    expect(canvas).toBeGreaterThan(mp);
-    expect(canvas).toBeLessThan(body);
-    expect(css).toMatch(
-      /#media-player \.mini-player-body,\s*#media-player \.player-top-progress \{\s*position: relative;\s*z-index: 1;/,
-    );
+  it('the old mini glow is gone with the floating mini player: the bar is #101010, no washes', () => {
+    expect(html).not.toContain('id="mp-viz"');
+    expect(css).toMatch(/\.ss-player-bar \{[^}]*background: var\(--ss-ground-sidebar\);/);
   });
 
-  it('the mini player is colored by the cover, with the default accent as fallback', () => {
-    expect(css).toContain(
-      '--mp-a: var(--np-ambient-r, 29), var(--np-ambient-g, 185), var(--np-ambient-b, 84);',
-    );
-    expect(css).toMatch(
-      /#media-player \.play-button:not\(:disabled\) \{\s*background: linear-gradient\(135deg, rgb\(var\(--mp-a\)\), rgb\(var\(--mp-a2\)\)\);/,
-    );
-    // and v1 puts the cover colors on #media-player, not only the theater
+  it('the visuals still read the cover: v1 colours the visuals overlay and the player', () => {
     expect(v1).toMatch(
       /document\.querySelector\('\.np-modal'\), document\.getElementById\('media-player'\)/,
     );
+    // the record's art is the image the palette and the vinyl visual read
+    expect(html).toMatch(/<img class="hidden" id="np-album-art"/);
+    expect(html).toMatch(/class="np-modal npv2-visuals-on"/);
   });
 
-  it('reduce motion at the OS level hides the live layer', () => {
+  it('the play button and the played waveform are accent-light, never a hex', () => {
     expect(css).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{\s*#media-player \.mp-viz \{\s*display: none;/,
+      /\.ss-player-play,\s*\.ss-player-play:hover:not\(:disabled\) \{[^}]*background: rgb\(var\(--ss-accent-light-rgb\)\);/,
+    );
+    expect(css).toMatch(
+      /\.ss-player-wave-layer--played > span \{ background: rgb\(var\(--ss-accent-light-rgb\)\); \}/,
     );
   });
 });

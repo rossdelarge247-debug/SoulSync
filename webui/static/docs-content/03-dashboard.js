@@ -15,7 +15,7 @@ The dashboard is organized into bands that appear when they have something to sh
 - **Header** — library stats (artists, albums, tracks) and **worker orbs** showing enrichment status per service.
 - **Alerts band** — the exception surface. It renders *nothing* while every core connection is healthy, and shouts only when a human is needed (a service disconnected, a scan failed, etc.).
 - **Active downloads** — appears full-width while anything is downloading, with live progress.
-- **Listen band** — **Library Radio** (an endless shuffle of your own collection) and **Your Mixes** (the doorway to Discover's daily mixes).
+- **Listen band** — **Shuffle your library** (an endless shuffle of your own collection) and **Your Mixes** (the doorway to Discover's daily mixes).
 - **Content rails** — what's new in your library: recently added albums, new releases from watched artists.
 - **Listening history** — what you've been playing, once history exists.
 - **Sidebar** — the **Playlist sync** rail (your sync pipelines with live phases), a compact Automations card, and **quick navigation tiles** that jump straight to Watchlist and Wishlist, with live badges and the next watchlist scan countdown.

@@ -23826,6 +23826,31 @@ _cfg_targets(get_database_=get_database,
                                              'checked_at': _status_cache_timestamps.get('soulseek') or None})
 app.register_blueprint(_bp_targets())
 
+# The player's reads (api/player.py): waveform peaks, the readout's audio
+# details and Recent. Files are found through Sample Studio's resolver, which
+# tries the playback resolver first, so a track that plays also draws.
+from api.player import configure as _cfg_player, create_blueprint as _bp_player
+
+
+def _player_streamed_from():
+    names = {'plex': 'Plex', 'jellyfin': 'Jellyfin', 'navidrome': 'Navidrome', 'emby': 'Emby'}
+    try:
+        return names.get(str(config_manager.get_active_media_server() or '').lower())
+    except Exception:  # noqa: BLE001 - the label just says "Library"
+        return None
+
+
+def _player_resolve_track_file(stored_path):
+    from core.sample import worker as _sample_worker
+    return _sample_worker.resolve_track_file(stored_path)
+
+
+_cfg_player(get_database_=get_database,
+            resolve_track_file_=_player_resolve_track_file,
+            streamed_from_=_player_streamed_from,
+            image_url_=fix_artist_image_url)
+app.register_blueprint(_bp_player())
+
 # First-run setup flow: discovery, folder checks, save-free connection probes.
 from api.onboarding import configure as _configure_onboarding_api, create_blueprint as _create_onboarding_blueprint
 _configure_onboarding_api(config_manager_=config_manager, get_database_=get_database,

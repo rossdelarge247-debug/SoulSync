@@ -72,7 +72,7 @@ One shelf per seed artist — "Because You Listen To X" shows tracks related to 
 
 ## Recommended Stations
 
-Stations turn an artist into endless radio. **Library Radio**, the first card, does the same for your whole collection.
+Stations turn an artist into endless radio. **Shuffle your library**, the first card, does the same for your whole collection.
 
 - **The play button on the photo**: starts non-stop playback that keeps refilling itself
 - **The name**: opens a finite snapshot (up to 40 library tracks) that stays fixed, so you can Download or Sync it without the track list shifting under you

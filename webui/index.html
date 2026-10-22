@@ -99,7 +99,6 @@
     <!-- Design tokens: the one global :root. Must stay the first stylesheet. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='tokens.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='media-player-v2.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='mobile.css') }}">
     <!-- Automations visual redesign — a pure reskin loaded after style/mobile so it
          wins by cascade; no JS-referenced selectors change (see file header). -->
@@ -141,6 +140,9 @@
          sheets (docs/design/DESIGN-SYSTEM.md). After the legacy sheets, so its
          #app-sidebar rules win over the old sidebar's. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='shell.css') }}">
+    <!-- The player's bar and tray (board 6a), after the shell: it shortens the
+         shell's .main-container while something plays. -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='player.css') }}">
     <style id="soulsync-initial-appearance">
         :root {
             --accent-rgb: {{ initial_accent_rgb }};
@@ -11728,555 +11730,6 @@
     <!-- Secondary audio element used only for crossfade preloading of the next track -->
     <audio id="audio-player-xfade" style="display: none;"></audio>
 
-    <!-- Expanded Now Playing Modal -->
-    <div class="np-modal-overlay hidden" id="np-modal-overlay">
-        <div class="np-modal">
-            <!-- Player theater backdrop: animated visuals painted by media-player-v2.js -->
-            <canvas id="np-v2-bg" aria-hidden="true"></canvas>
-            <!-- Full-modal visuals mode: exit + track/theme header (shown only in visuals mode) -->
-            <button id="np-v2-visuals-exit" class="hidden" title="Exit visuals mode (Esc)">✕</button>
-            <div id="np-v2-visuals-header" aria-hidden="true">
-                <div>
-                    <h2 id="np-v2-visuals-title">Unknown Track</h2>
-                    <p id="np-v2-visuals-artist">Unknown Artist</p>
-                </div>
-                <div id="np-v2-visuals-theme-switch">
-                    <button class="np-v2-visuals-arrow" id="np-v2-visuals-theme-prev" title="Previous visual (Shift+V)">‹</button>
-                    <span id="np-v2-visuals-theme-name">Aurora</span>
-                    <button class="np-v2-visuals-arrow" id="np-v2-visuals-theme-next" title="Next visual (V)">›</button>
-                    <button class="np-v2-visuals-arrow" id="np-v2-visuals-panels" title="Panels: queue, history, lyrics, details, settings">☰</button>
-                    <button class="np-v2-visuals-arrow" id="np-v2-visuals-fullscreen" title="Fullscreen">⛶</button>
-                </div>
-            </div>
-            <div id="np-v2-visuals-drawer" class="hidden" role="dialog" aria-label="Panels">
-                <button type="button" class="np-v2-drawer-btn" data-tab="queue">Queue</button>
-                <button type="button" class="np-v2-drawer-btn" data-tab="history">History</button>
-                <button type="button" class="np-v2-drawer-btn" data-tab="lyrics">Lyrics</button>
-                <button type="button" class="np-v2-drawer-btn" data-tab="details">Details</button>
-                <button type="button" class="np-v2-drawer-btn" data-tab="settings">Settings</button>
-            </div>
-            <div id="np-v2-visuals-sidepanel" class="hidden" role="dialog" aria-label="Panel">
-                <div class="np-v2-sidepanel-head">
-                    <span id="np-v2-sidepanel-title">Queue</span>
-                    <button type="button" id="np-v2-sidepanel-close" title="Close panel (Esc)">✕</button>
-                </div>
-                <div id="np-v2-sidepanel-body" class="np-v2-sidepanel-body"></div>
-            </div>
-            <button class="np-close-btn" id="np-close-btn" title="Minimize">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="6 9 12 15 18 9" />
-                </svg>
-            </button>
-            <div class="np-body">
-                <!-- Left: album art + track info -->
-                <div class="np-left">
-                    <div class="np-album-art-container" id="np-album-art-container" title="Click for visualizer">
-                        <!-- No src= until the player sets one: an empty src makes the
-                             browser re-request the PAGE itself on every load. -->
-                        <img class="np-album-art hidden" id="np-album-art" alt="Album Art">
-                        <div class="np-album-art-placeholder" id="np-album-art-placeholder">
-                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10" />
-                                <circle cx="12" cy="12" r="3" />
-                                <line x1="12" y1="2" x2="12" y2="5" />
-                                <line x1="12" y1="19" x2="12" y2="22" />
-                            </svg>
-                        </div>
-                        <!-- Big music-synced visualizer takeover (Plexamp-style); click art to toggle -->
-                        <div class="np-art-viz" id="np-art-viz" aria-hidden="true"></div>
-                        <div class="np-art-hint" id="np-art-hint" title="Visualizer">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                <rect x="3" y="10" width="3" height="11" rx="1" />
-                                <rect x="10.5" y="4" width="3" height="17" rx="1" />
-                                <rect x="18" y="13" width="3" height="8" rx="1" />
-                            </svg>
-                        </div>
-                    </div>
-                    <div class="np-track-info">
-                        <div class="np-play-context hidden" id="np-play-context">
-                            <span class="np-play-context-label">Playing from</span>
-                            <span class="np-play-context-name" id="np-play-context-name"></span>
-                        </div>
-                        <div class="np-track-title" id="np-track-title">No track</div>
-                        <div class="np-artist-name" id="np-artist-name">Unknown Artist</div>
-                        <div class="np-album-name" id="np-album-name">Unknown Album</div>
-                        <div class="np-format-badges" id="np-format-badges"></div>
-                    </div>
-                    <div class="np-action-buttons" id="np-action-buttons">
-                        <a class="np-action-btn" id="np-goto-artist" title="Go to Artist" href="#" tabindex="-1"
-                            style="text-decoration:none;color:inherit;pointer-events:none;">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                                <circle cx="12" cy="7" r="4" />
-                            </svg>
-                            <span>View Artist</span>
-                        </a>
-                        <button type="button" class="np-action-btn hidden" id="np-report-issue"
-                            title="Report a problem with this track">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M4 22V4a1 1 0 0 1 1-1h13l-2 5 2 5H5" />
-                            </svg>
-                            <span>Report a problem</span>
-                        </button>
-                        <button type="button" class="np-action-btn hidden" id="np-add-to-playlist"
-                            title="Add this track to one of your playlists">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                                <path d="M14 10H3v2h11v-2zm0-4H3v2h11V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM3 16h7v-2H3v2z" />
-                            </svg>
-                            <span>Add to playlist</span>
-                        </button>
-                    </div>
-                </div>
-                <!-- Right: controls -->
-                <div class="np-right">
-                    <div class="np-util-row">
-                        <button class="np-util-btn" id="np-sleep-btn" title="Sleep timer">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                            </svg>
-                            <span id="np-sleep-label">Sleep</span>
-                        </button>
-                        <button class="np-util-btn" id="np-crossfade-btn" title="Crossfade between tracks">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M7 8l-4 4 4 4" />
-                                <path d="M17 8l4 4-4 4" />
-                                <line x1="3" y1="12" x2="21" y2="12" />
-                            </svg>
-                            <span>Crossfade</span>
-                        </button>
-                        <button class="np-util-btn" id="np-v2-speed-btn" title="Playback speed (click to pick, Shift+click steps down, [ / ] adjust)">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 14l4-4" />
-                                <path d="M3.34 19a10 10 0 1 1 17.32 0" />
-                            </svg>
-                            <span>1×</span>
-                        </button>
-                        <button class="np-util-btn" id="np-v2-eq-btn" title="Equalizer on/off (Shift+click opens Settings)">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <line x1="4" y1="21" x2="4" y2="14" />
-                                <line x1="4" y1="10" x2="4" y2="3" />
-                                <line x1="12" y1="21" x2="12" y2="12" />
-                                <line x1="12" y1="8" x2="12" y2="3" />
-                                <line x1="20" y1="21" x2="20" y2="16" />
-                                <line x1="20" y1="12" x2="20" y2="3" />
-                                <line x1="1" y1="14" x2="7" y2="14" />
-                                <line x1="9" y1="8" x2="15" y2="8" />
-                                <line x1="17" y1="16" x2="23" y2="16" />
-                            </svg>
-                            <span>EQ</span>
-                        </button>
-                        <button class="np-util-btn" id="np-v2-ab-btn" title="A-B loop: press once to set A, again to set B and loop (L)">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M17 2l4 4-4 4" />
-                                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                                <path d="M7 22l-4-4 4-4" />
-                                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-                            </svg>
-                            <span>A-B</span>
-                        </button>
-                        <button class="np-util-btn" id="np-v2-visual-btn" title="Choose a visual (Shift+click quick-cycles, V cycles)">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" />
-                            </svg>
-                            <span>Visuals</span>
-                        </button>
-                        <button class="np-util-btn" id="np-v2-visuals-expand" title="Immersive visuals mode (F)">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-                            </svg>
-                            <span>Immersive</span>
-                        </button>
-                        <button class="np-util-btn" id="np-v2-fullscreen-btn" title="Fullscreen (fills the screen)" aria-pressed="false">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
-                            </svg>
-                            <span>Fullscreen</span>
-                        </button>
-                        <button class="np-util-btn" id="np-v2-shorts-btn" title="Keyboard shortcuts (?)">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="2" y="6" width="20" height="12" rx="2" />
-                                <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
-                            </svg>
-                            <span>Keys</span>
-                        </button>
-                    </div>
-                    <div class="np-progress-section">
-                        <div class="np-progress-bar-container">
-                            <div class="np-progress-track">
-                                <div class="np-progress-fill" id="np-progress-fill"></div>
-                            </div>
-                            <input type="range" class="np-progress-bar" id="np-progress-bar" min="0" max="100" value="0"
-                                step="0.1">
-                            <div class="np-seek-tip" id="np-seek-tip">0:00</div>
-                        </div>
-                        <div class="np-time-display">
-                            <span class="np-current-time" id="np-current-time">0:00</span>
-                            <span class="np-total-time" id="np-total-time">0:00</span>
-                        </div>
-                        <div class="np-v2-ab-row">
-                            <span class="hidden" id="np-v2-ab-indicator" title="A-B loop range"></span>
-                        </div>
-                    </div>
-                    <div class="np-controls-row">
-                        <button class="np-btn np-btn-shuffle" id="np-shuffle-btn" title="Shuffle">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="16 3 21 3 21 8" />
-                                <line x1="4" y1="20" x2="21" y2="3" />
-                                <polyline points="21 16 21 21 16 21" />
-                                <line x1="15" y1="15" x2="21" y2="21" />
-                                <line x1="4" y1="4" x2="9" y2="9" />
-                            </svg>
-                        </button>
-                        <button class="np-btn np-btn-prev" id="np-prev-btn" title="Previous" disabled>
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-                            </svg>
-                        </button>
-                        <button class="np-btn np-btn-play" id="np-play-btn" title="Play">
-                            <svg class="np-icon-play" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M8 5v14l11-7z" />
-                            </svg>
-                            <svg class="np-icon-pause hidden" width="28" height="28" viewBox="0 0 24 24"
-                                fill="currentColor">
-                                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                            </svg>
-                            <div class="np-buffering-ring hidden" id="np-buffering-ring"></div>
-                        </button>
-                        <button class="np-btn np-btn-next" id="np-next-btn" title="Next" disabled>
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-                            </svg>
-                        </button>
-                        <button class="np-btn np-btn-repeat" id="np-repeat-btn" title="Repeat">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="17 1 21 5 17 9" />
-                                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                                <polyline points="7 23 3 19 7 15" />
-                                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-                            </svg>
-                            <span class="np-repeat-one-badge hidden" id="np-repeat-one-badge">1</span>
-                        </button>
-                    </div>
-                    <div class="np-volume-row">
-                        <button class="np-mute-btn" id="np-mute-btn" title="Mute">
-                            <svg class="np-icon-vol" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
-                            </svg>
-                            <svg class="np-icon-muted hidden" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                                <line x1="23" y1="9" x2="17" y2="15" />
-                                <line x1="17" y1="9" x2="23" y2="15" />
-                            </svg>
-                        </button>
-                        <div class="np-volume-slider-container">
-                            <div class="np-volume-track">
-                                <div class="np-volume-fill" id="np-volume-fill"></div>
-                            </div>
-                            <input type="range" class="np-volume-slider" id="np-volume-slider" min="0" max="100"
-                                value="70">
-                        </div>
-                    </div>
-                    <!-- Up-next peek (hidden when queue has no next track) -->
-                    <div class="np-upnext hidden" id="np-upnext">
-                        <span class="np-upnext-label">Next</span>
-                        <img class="np-upnext-art" id="np-upnext-art" alt="">
-                        <div class="np-upnext-info">
-                            <div class="np-upnext-title" id="np-upnext-title"></div>
-                            <div class="np-upnext-artist" id="np-upnext-artist"></div>
-                        </div>
-                    </div>
-                    <div class="np-stop-row">
-                        <button class="np-btn np-btn-stop" id="np-stop-btn" title="Stop playback">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                <rect x="4" y="4" width="16" height="16" rx="2" />
-                            </svg>
-                            <span>Stop</span>
-                        </button>
-                    </div>
-                    <div class="np-visualizer" id="np-visualizer">
-                        <div class="np-viz-bar"></div>
-                        <div class="np-viz-bar"></div>
-                        <div class="np-viz-bar"></div>
-                        <div class="np-viz-bar"></div>
-                        <div class="np-viz-bar"></div>
-                        <div class="np-viz-bar"></div>
-                        <div class="np-viz-bar"></div>
-                    </div>
-                    <!-- Player theater: tabbed panel region (v2) -->
-                    <div class="np-v2-tabs" role="tablist" aria-label="Player panels">
-                        <button type="button" class="np-v2-tab active" data-npv2-tab="queue" role="tab" aria-selected="true">Queue</button>
-                        <button type="button" class="np-v2-tab" data-npv2-tab="history" role="tab" aria-selected="false">History</button>
-                        <button type="button" class="np-v2-tab" data-npv2-tab="lyrics" role="tab" aria-selected="false">Lyrics</button>
-                        <button type="button" class="np-v2-tab" data-npv2-tab="details" role="tab" aria-selected="false">Details</button>
-                        <button type="button" class="np-v2-tab" data-npv2-tab="settings" role="tab" aria-selected="false">Settings</button>
-                    </div>
-                    <div class="np-v2-tabpanels">
-            <!-- Queue Panel -->
-            <div class="np-queue-panel" id="np-queue-panel">
-                <div class="np-queue-header">
-                    <button class="np-queue-toggle" id="np-queue-toggle" title="Toggle queue">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="8" y1="6" x2="21" y2="6" />
-                            <line x1="8" y1="12" x2="21" y2="12" />
-                            <line x1="8" y1="18" x2="21" y2="18" />
-                            <line x1="3" y1="6" x2="3.01" y2="6" />
-                            <line x1="3" y1="12" x2="3.01" y2="12" />
-                            <line x1="3" y1="18" x2="3.01" y2="18" />
-                        </svg>
-                        <span>Queue</span>
-                        <span class="np-queue-count" id="np-queue-count"></span>
-                    </button>
-                    <div class="np-queue-header-actions">
-                        <button class="np-autodownload-btn" id="np-autodownload-btn"
-                            title="Automatically download missing queue tracks" aria-pressed="false">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 3v12" />
-                                <path d="m7 10 5 5 5-5" />
-                                <path d="M5 21h14" />
-                            </svg>
-                            <span>Auto-download</span>
-                        </button>
-                        <button class="np-radio-btn" id="np-radio-btn" title="Radio mode - auto-add similar tracks"
-                            aria-pressed="false">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 20h.01" />
-                                <path d="M8.5 16.429a5 5 0 0 1 7 0" />
-                                <path d="M5 12.859a10 10 0 0 1 14 0" />
-                                <path d="M1.5 9.289a15 15 0 0 1 21 0" />
-                            </svg>
-                            <span class="np-radio-label">Radio</span>
-                            <span class="np-radio-pulse"></span>
-                        </button>
-                        <button class="np-queue-clear-btn" id="np-queue-clear-played" title="Remove tracks already played">Clear played</button>
-                        <button class="np-queue-clear-btn" id="np-queue-clear" title="Clear queue">Clear</button>
-                    </div>
-                </div>
-                <div class="np-queue-body hidden" id="np-queue-body">
-                    <div class="np-queue-empty" id="np-queue-empty">Queue is empty</div>
-                    <div class="np-queue-list" id="np-queue-list"></div>
-                </div>
-            </div>
-                        <!-- Playback history (v2) -->
-                        <div class="np-v2-history-panel hidden" id="np-v2-history-panel" role="tabpanel">
-                            <div class="np-v2-history-head">
-                                <h3>History <span id="np-v2-history-count"></span></h3>
-                                <button type="button" class="np-v2-ghost-btn" id="np-v2-history-clear">Clear</button>
-                            </div>
-                            <div class="np-v2-history-empty" id="np-v2-history-empty">Nothing played yet — your recent tracks will show up here.</div>
-                            <div class="np-v2-history-list" id="np-v2-history-list"></div>
-                        </div>
-            <!-- Lyrics Panel -->
-            <div class="np-lyrics-panel collapsed" id="np-lyrics-panel">
-                <div class="np-lyrics-header">
-                    <button class="np-lyrics-toggle" id="np-lyrics-toggle" title="Toggle lyrics" aria-expanded="false">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M9 18V5l12-2v13" />
-                            <circle cx="6" cy="18" r="3" />
-                            <circle cx="18" cy="16" r="3" />
-                        </svg>
-                        <span>Lyrics</span>
-                        <span class="np-lyrics-status" id="np-lyrics-status"></span>
-                    </button>
-                </div>
-                <div class="np-lyrics-body hidden" id="np-lyrics-body">
-                    <div class="np-lyrics-content" id="np-lyrics-content">
-                        <div class="np-lyrics-empty">No lyrics loaded</div>
-                    </div>
-                </div>
-            </div>
-
-
-                        <!-- Track details (v2) -->
-                        <div class="np-v2-details-panel hidden" id="np-v2-details-panel" role="tabpanel">
-                            <div class="np-v2-details-head">
-                                <h3>Track details</h3>
-                                <div class="np-v2-details-actions">
-                                    <button type="button" class="np-v2-ghost-btn" id="np-v2-copy-info" title="Copy title, artist and album">Copy info</button>
-                                    <button type="button" class="np-v2-ghost-btn" id="np-v2-copy-path" title="Copy the file path">Copy path</button>
-                                </div>
-                            </div>
-                            <div id="np-v2-details-rows"></div>
-                        </div>
-                        <!-- Theater settings (v2) -->
-                        <div class="np-v2-settings-panel np-v2-settings hidden" id="np-v2-settings-panel" role="tabpanel">
-                            <h3>Animated background</h3>
-                            <div class="np-v2-theme-grid" id="np-v2-theme-grid"></div>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Animated background
-                                    <small>Windows Media Player-style visuals behind the player.</small>
-                                </div>
-                                <label class="np-v2-switch"><input type="checkbox" id="np-v2-bg-toggle" checked><span class="np-v2-slider"></span></label>
-                            </div>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Auto-cycle visuals
-                                    <small>Change the visual automatically.</small>
-                                </div>
-                                <select class="np-v2-select" id="np-v2-viz-autocycle" aria-label="Auto-cycle visuals">
-                                    <option value="off">Off</option>
-                                    <option value="track">Every track</option>
-                                    <option value="30">Every 30 seconds</option>
-                                    <option value="60">Every minute</option>
-                                    <option value="300">Every 5 minutes</option>
-                                </select>
-                            </div>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Visual energy
-                                    <small>How strongly the visuals react to the music.</small>
-                                </div>
-                                <div class="np-v2-range-wrap">
-                                    <input type="range" class="np-v2-range" id="np-v2-viz-energy" min="0.5" max="1.5" step="0.1" value="1" aria-label="Visual energy">
-                                    <span class="np-v2-range-val" id="np-v2-viz-energy-val">1.0&times;</span>
-                                </div>
-                            </div>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Color palette
-                                    <small>Album art by default, or a curated palette.</small>
-                                </div>
-                                <select class="np-v2-select" id="np-v2-viz-palette" aria-label="Visual color palette">
-                                    <option value="auto">Album art</option>
-                                    <option value="ultraviolet">Ultraviolet</option>
-                                    <option value="ocean">Ocean</option>
-                                    <option value="ember">Ember</option>
-                                    <option value="forest">Forest</option>
-                                    <option value="rose">Rose</option>
-                                    <option value="mono">Mono</option>
-                                </select>
-                            </div>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Dim background
-                                    <small>Darken the visuals for easier reading.</small>
-                                </div>
-                                <div class="np-v2-range-wrap">
-                                    <input type="range" class="np-v2-range" id="np-v2-viz-dim" min="0" max="0.6" step="0.05" value="0" aria-label="Dim background">
-                                    <span class="np-v2-range-val" id="np-v2-viz-dim-val">0%</span>
-                                </div>
-                            </div>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Visual quality
-                                    <small>Lower it if the animation stutters.</small>
-                                </div>
-                                <select class="np-v2-select" id="np-v2-viz-quality" aria-label="Visual quality">
-                                    <option value="auto">Auto</option>
-                                    <option value="high">High</option>
-                                    <option value="balanced">Balanced</option>
-                                    <option value="lite">Lite</option>
-                                </select>
-                            </div>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Reduce motion
-                                    <small>Slows the visuals down.</small>
-                                </div>
-                                <label class="np-v2-switch"><input type="checkbox" id="np-v2-reduce-motion"><span class="np-v2-slider"></span></label>
-                            </div>
-                            <h3>Equalizer</h3>
-                            <div class="np-v2-eq-head">
-                                <select class="np-v2-select" id="np-v2-eq-preset" aria-label="Equalizer preset"></select>
-                                <label class="np-v2-switch"><input type="checkbox" id="np-v2-eq-toggle"><span class="np-v2-slider"></span></label>
-                            </div>
-                            <div id="np-v2-eq-sliders"></div>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Loudness normalization
-                                    <small>Evens out volume between tracks (gentle compression).</small>
-                                </div>
-                                <label class="np-v2-switch"><input type="checkbox" id="np-v2-normalize-toggle"><span class="np-v2-slider"></span></label>
-                            </div>
-                            <h3>Playback</h3>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Speed
-                                    <small>Saved, and restored next time you open the theater.</small>
-                                </div>
-                                <select class="np-v2-select" id="np-v2-speed-select" aria-label="Playback speed">
-                                    <option value="0.5">0.5×</option>
-                                    <option value="0.75">0.75×</option>
-                                    <option value="1">1×</option>
-                                    <option value="1.25">1.25×</option>
-                                    <option value="1.5">1.5×</option>
-                                    <option value="1.75">1.75×</option>
-                                    <option value="2">2×</option>
-                                </select>
-                            </div>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Crossfade
-                                    <small>Overlap between tracks when crossfade is on.</small>
-                                </div>
-                                <select class="np-v2-select" id="np-v2-xfade-secs" aria-label="Crossfade duration">
-                                    <option value="0">Off</option>
-                                    <option value="2">2 seconds</option>
-                                    <option value="4">4 seconds</option>
-                                    <option value="6">6 seconds</option>
-                                    <option value="10">10 seconds</option>
-                                    <option value="15">15 seconds</option>
-                                </select>
-                            </div>
-                            <div class="np-v2-setting-row">
-                                <div class="np-v2-setting-label">Keep screen awake
-                                    <small>While music is playing in the theater.</small>
-                                </div>
-                                <label class="np-v2-switch"><input type="checkbox" id="np-v2-wake-toggle"><span class="np-v2-slider"></span></label>
-                            </div>
-                            <div class="np-v2-danger-zone">
-                                <div class="np-v2-setting-row">
-                                    <div class="np-v2-setting-label">Reset theater settings
-                                        <small>Clears every theater preference on this device.</small>
-                                    </div>
-                                    <button type="button" class="np-v2-ghost-btn" id="np-v2-reset-settings">Reset</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <!-- Keyboard shortcuts overlay (v2) -->
-            <div class="np-v2-shorts-overlay hidden" id="np-v2-shorts-overlay" role="dialog" aria-label="Keyboard shortcuts">
-                <div class="np-v2-shorts-card">
-                    <button type="button" class="np-v2-shorts-close" id="np-v2-shorts-close" aria-label="Close">&times;</button>
-                    <h3>Keyboard shortcuts</h3>
-                    <p>These work while the player theater is open.</p>
-                    <div class="np-v2-shorts-grid">
-                        <div class="np-v2-short"><span>Play / pause</span><kbd>Space</kbd></div>
-                        <div class="np-v2-short"><span>Seek 10s</span><kbd>&larr; &rarr;</kbd></div>
-                        <div class="np-v2-short"><span>Volume</span><kbd>&uarr; &darr;</kbd></div>
-                        <div class="np-v2-short"><span>Mute</span><kbd>M</kbd></div>
-                        <div class="np-v2-short"><span>Next track</span><kbd>N</kbd></div>
-                        <div class="np-v2-short"><span>Previous track</span><kbd>P</kbd></div>
-                        <div class="np-v2-short"><span>A-B loop</span><kbd>L</kbd></div>
-                        <div class="np-v2-short"><span>Speed down / up</span><kbd>[ ]</kbd></div>
-                        <div class="np-v2-short"><span>Change visuals</span><kbd>V</kbd></div>
-                        <div class="np-v2-short"><span>Previous visual</span><kbd>Shift V</kbd></div>
-                        <div class="np-v2-short"><span>Immersive visuals mode</span><kbd>F</kbd></div>
-                        <div class="np-v2-short"><span>Fullscreen</span><span class="np-v2-short-hint">button or double-click the visuals</span></div>
-                        <div class="np-v2-short"><span>Slower speed</span><span class="np-v2-short-hint">shift+click the speed button</span></div>
-                        <div class="np-v2-short"><span>This panel</span><kbd>?</kbd></div>
-                        <div class="np-v2-short"><span>Back: exit visuals, close panel, minimize</span><kbd>Esc</kbd></div>
-                    </div>
-                </div>
-            </div>
-
-        </div>
-    </div>
-
     <!-- Support Modal -->
     <div class="support-modal-overlay hidden" id="support-modal-overlay" onclick="closeSupportModal()">
         <div class="support-modal" onclick="event.stopPropagation()">
@@ -12743,100 +12196,441 @@
 
     {% include 'track-detail-modal.html' %}
 
-    <!-- Floating Mini Media Player — fixed bottom-right, above bell/help -->
-    <div class="media-player idle" id="media-player">
-        <!-- live cover-colored glow behind the controls (media-player-v2.js npv2Mini*) -->
-        <canvas class="mp-viz" id="mp-viz" aria-hidden="true"></canvas>
-        <!-- Thin interactive progress bar spanning full width at top -->
-        <div class="player-top-progress">
-            <div class="progress-bar-container">
-                <div class="progress-track">
-                    <div class="progress-fill" id="progress-fill"></div>
-                </div>
-                <input type="range" class="progress-bar" id="progress-bar" min="0" max="100" value="0" step="0.1">
-            </div>
-        </div>
-
-        <!-- Loading animation (shown while buffering/downloading) -->
-        <div class="loading-animation hidden" id="loading-animation">
-            <div class="loading-bar">
-                <div class="loading-progress"></div>
-            </div>
+    <!-- The player (board 6a): one component, two states. Collapsed it's the
+         72px bar pinned along the bottom of the window, under the sidebar and
+         the page; expanded it's the 360px tray (record, deck, list). On phones
+         it's the 64px mini bar above the tab bar, and the tray is the sheet.
+         Behaviour: src/shell/player.ts (the chrome) over static/media-player.js
+         (playback, queue, crossfade) and static/media-player-v2.js (visuals,
+         EQ, speed, A-B). Look: static/player.css. docs/design/DESIGN-SYSTEM.md,
+         "Player bar and tray". Hidden (.idle) until something plays. -->
+    <section class="ss-player idle" id="media-player" aria-label="Player" data-source="library">
+        <!-- the loading state media-player.js and library playback write; the
+             chrome shows its words in the meta line and the live region -->
+        <div class="loading-animation hidden" id="loading-animation" aria-hidden="true">
+            <div class="loading-bar"><div class="loading-progress"></div></div>
             <div class="loading-text">0%</div>
         </div>
+        <span class="ss-sr" id="ss-player-live" role="status" aria-live="polite"></span>
 
-        <!-- Main body: album art + track info + controls -->
-        <div class="mini-player-body">
-            <img class="sidebar-album-art" id="sidebar-album-art" src="/static/trans2.png" alt=""
-                onerror="this.src='/static/trans2.png'">
-            <div class="media-info">
-                <div class="track-title" id="track-title"><span class="title-text">No track</span></div>
-                <div class="artist-name" id="artist-name">Unknown Artist</div>
-                <span class="player-preview-badge" id="player-preview-badge" hidden>30s preview</span>
+        <!-- ── the bar (desktop) ── -->
+        <div class="ss-player-bar" id="ss-player-bar">
+            <button type="button" class="ss-player-now" data-player-toggle aria-expanded="false" aria-controls="ss-player-tray">
+                <span class="ss-player-art" aria-hidden="true">
+                    <img alt="" data-player-art hidden>
+                    <svg class="ss-player-art-fallback" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                </span>
+                <span class="ss-player-now-text">
+                    <span class="ss-player-title" data-player-title>No track</span>
+                    <span class="ss-player-meta" data-player-meta></span>
+                </span>
+            </button>
+            <div class="ss-player-centre" role="group" aria-label="Playback">
+                <button type="button" class="ss-player-btn" data-player-action="previous" aria-label="Previous">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 20L9 12l10-8zM5 19V5h2v14z"/></svg>
+                </button>
+                <button type="button" class="ss-player-btn ss-player-skip" data-player-action="back" aria-label="Back 15 seconds" hidden>−15 s</button>
+                <button type="button" class="ss-player-btn ss-player-play" data-player-action="toggle" aria-label="Play">
+                    <svg class="ss-player-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>
+                    <svg class="ss-player-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+                    <span class="ss-player-spinner" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="ss-player-btn" data-player-action="next" aria-label="Next">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4l10 8-10 8zM17 5h2v14h-2z"/></svg>
+                </button>
+                <button type="button" class="ss-player-btn ss-player-skip" data-player-action="forward" aria-label="Forward 30 seconds" hidden>+30 s</button>
+                <span class="ss-player-time" data-player-elapsed>0:00</span>
+                <div class="ss-player-wave" data-player-wave role="slider" tabindex="0" aria-label="Position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></div>
+                <span class="ss-player-live-tag" data-player-live hidden><span class="ss-player-live-dot" aria-hidden="true"></span>Live</span>
+                <div class="ss-player-meter" data-player-meter aria-hidden="true" hidden></div>
+                <span class="ss-player-time ss-player-time--total" data-player-total>0:00</span>
+                <button type="button" class="ss-player-btn ss-player-speed" data-player-action="speed" aria-haspopup="true" aria-expanded="false" hidden>1×</button>
+                <div class="ss-player-action-slot" data-player-action-slot hidden></div>
             </div>
-            <div class="mini-player-controls">
-                <button class="mini-toggle-btn" id="mini-shuffle-btn" title="Shuffle">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round" width="13" height="13">
-                        <polyline points="16 3 21 3 21 8" />
-                        <line x1="4" y1="20" x2="21" y2="3" />
-                        <polyline points="21 16 21 21 16 21" />
-                        <line x1="15" y1="15" x2="21" y2="21" />
-                        <line x1="4" y1="4" x2="9" y2="9" />
-                    </svg>
+            <div class="ss-player-side">
+                <button type="button" class="ss-player-btn ss-player-mute" data-player-action="mute" aria-label="Mute" aria-pressed="false">
+                    <svg class="ss-player-icon-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7"/></svg>
+                    <svg class="ss-player-icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/></svg>
                 </button>
-                <button class="mini-nav-btn" id="mini-prev-btn" title="Previous" disabled>
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                        <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-                    </svg>
+                <input type="range" class="ss-player-volume" data-player-volume min="0" max="100" step="1" value="70" aria-label="Volume">
+                <button type="button" class="ss-player-btn ss-player-output-icon" data-player-output aria-haspopup="true" aria-expanded="false" aria-label="Output" hidden>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M12 2v5M8 7l4-4 4 4"/></svg>
                 </button>
-                <button class="play-button" id="play-button" disabled>
-                    <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M8 5v14l11-7z" />
-                    </svg>
-                    <svg class="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none">
-                        <path d="M6 4h4v16H6zm8 0h4v16h-4z" />
-                    </svg>
+                <button type="button" class="ss-player-btn ss-player-upnext" data-player-upnext aria-expanded="false" aria-controls="ss-player-tray" aria-label="Up next, 0 tracks">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h13M3 12h13M3 18h9M19 14l3 3-3 3"/></svg>
+                    <span data-player-upnext-count>0</span>
                 </button>
-                <button class="mini-nav-btn" id="mini-next-btn" title="Next" disabled>
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-                    </svg>
-                </button>
-                <button class="mini-toggle-btn" id="mini-repeat-btn" title="Repeat">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round" width="13" height="13">
-                        <polyline points="17 1 21 5 17 9" />
-                        <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                        <polyline points="7 23 3 19 7 15" />
-                        <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-                    </svg>
-                    <span class="mini-repeat-one" id="mini-repeat-one-badge" style="display:none">1</span>
-                </button>
-                <button class="stop-button" id="stop-button" disabled>
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10">
-                        <rect x="6" y="6" width="12" height="12" rx="1.5" />
-                    </svg>
-                </button>
-                <button class="expand-hint" aria-label="Expand player" title="Now Playing">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round" width="13" height="13">
-                        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-                    </svg>
+                <button type="button" class="ss-player-ghost" data-player-toggle aria-expanded="false" aria-controls="ss-player-tray">Expand
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
                 </button>
             </div>
         </div>
 
-        <!-- Elements kept in DOM for JS compatibility — not visible in mini player -->
-        <div class="volume-control" style="display:none">
-            <span class="volume-icon"></span>
-            <input type="range" class="volume-slider" id="volume-slider" min="0" max="100" value="70">
+        <!-- ── the mini bar (phones, 4i) ── -->
+        <div class="ss-player-mini" id="ss-player-mini">
+            <button type="button" class="ss-player-mini-open" data-player-sheet-open aria-haspopup="dialog" aria-expanded="false" aria-controls="ss-player-tray">
+                <span class="ss-player-art ss-player-art--mini" aria-hidden="true">
+                    <img alt="" data-player-art hidden>
+                    <svg class="ss-player-art-fallback" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                </span>
+                <span class="ss-player-now-text">
+                    <span class="ss-player-title" data-player-mini-title>No track</span>
+                    <span class="ss-player-meta" data-player-mini-meta></span>
+                </span>
+            </button>
+            <button type="button" class="ss-player-btn" data-player-action="mini" aria-label="Next">
+                <svg data-mini-icon="next" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4l10 8-10 8zM17 5h2v14h-2z"/></svg>
+                <span data-mini-icon="forward" hidden>+30 s</span>
+            </button>
+            <button type="button" class="ss-player-btn ss-player-mini-play" data-player-action="toggle" aria-label="Play">
+                <svg class="ss-player-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>
+                <svg class="ss-player-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+                <span class="ss-player-spinner" aria-hidden="true"></span>
+            </button>
         </div>
-        <span id="current-time" style="display:none">0:00</span>
-        <span id="total-time" style="display:none">0:00</span>
-        <div id="album-name" style="display:none"></div>
-        <div class="media-expanded hidden" id="media-expanded"></div>
-        <div class="no-track-message hidden" id="no-track-message"><span>Play a track to get started</span></div>
+
+        <!-- ── the tray (desktop) / the sheet (phones, 4j) ── -->
+        <div class="ss-player-tray" id="ss-player-tray" role="region" aria-label="Now playing" hidden>
+            <div class="ss-player-sheet-head">
+                <span class="ss-player-sheet-handle" aria-hidden="true"></span>
+                <div class="ss-player-sheet-row">
+                    <span class="ss-player-sheet-title">Now playing</span>
+                    <button type="button" class="ss-player-ghost" data-player-sheet-close>Close</button>
+                </div>
+            </div>
+
+            <!-- left: the record -->
+            <div class="ss-player-record">
+                <div class="ss-player-record-top">
+                    <span class="ss-player-record-art">
+                        <!-- media-player.js sets this one: its colours feed the visuals -->
+                        <img class="hidden" id="np-album-art" alt="">
+                        <span class="ss-player-record-fallback" id="np-album-art-placeholder" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                        </span>
+                    </span>
+                    <div class="ss-player-record-text">
+                        <p class="ss-player-label">Now playing</p>
+                        <p class="ss-player-record-title" data-player-record-title>No track</p>
+                        <a class="ss-player-record-artist" data-player-artist href="#">Unknown artist</a>
+                        <span class="ss-player-record-artist ss-player-record-artist--plain" data-player-artist-plain hidden></span>
+                        <p class="ss-player-record-line" data-player-album-line></p>
+                    </div>
+                </div>
+                <dl class="ss-player-readout">
+                    <div><dt>Format</dt><dd data-player-format>—</dd></div>
+                    <div><dt>Path</dt><dd data-player-path>—</dd></div>
+                </dl>
+                <div class="ss-player-record-tags">
+                    <span class="ss-player-tag" data-player-quality hidden></span>
+                    <a class="ss-player-link" data-player-album href="#" hidden>Open album</a>
+                    <button type="button" class="ss-player-btn ss-player-more" data-player-more aria-haspopup="true" aria-expanded="false" aria-controls="ss-player-menu" aria-label="More">
+                        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- centre: the deck -->
+            <div class="ss-player-deck">
+                <div class="ss-player-wave ss-player-wave--deck" data-player-wave role="slider" tabindex="0" aria-label="Position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></div>
+                <div class="ss-player-meter ss-player-meter--deck" data-player-meter aria-hidden="true" hidden></div>
+                <div class="ss-player-deck-row">
+                    <span class="ss-player-time" data-player-elapsed>0:00</span>
+                    <span class="ss-player-live-tag" data-player-live hidden><span class="ss-player-live-dot" aria-hidden="true"></span>Live</span>
+                    <div class="ss-player-transport" role="group" aria-label="Playback">
+                        <button type="button" class="ss-player-btn" data-player-action="shuffle" aria-label="Shuffle" aria-pressed="false">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+                        </button>
+                        <button type="button" class="ss-player-btn ss-player-speed" data-player-action="speed" aria-haspopup="true" aria-expanded="false" hidden>1×</button>
+                        <button type="button" class="ss-player-btn" data-player-action="previous" aria-label="Previous">
+                            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 20L9 12l10-8zM5 19V5h2v14z"/></svg>
+                        </button>
+                        <button type="button" class="ss-player-btn ss-player-skip" data-player-action="back" aria-label="Back 15 seconds" hidden>−15 s</button>
+                        <button type="button" class="ss-player-btn ss-player-play ss-player-play--big" data-player-action="toggle" aria-label="Play">
+                            <svg class="ss-player-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>
+                            <svg class="ss-player-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+                            <span class="ss-player-spinner" aria-hidden="true"></span>
+                        </button>
+                        <button type="button" class="ss-player-btn" data-player-action="next" aria-label="Next">
+                            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4l10 8-10 8zM17 5h2v14h-2z"/></svg>
+                        </button>
+                        <button type="button" class="ss-player-btn ss-player-skip" data-player-action="forward" aria-label="Forward 30 seconds" hidden>+30 s</button>
+                        <button type="button" class="ss-player-btn ss-player-repeat" data-player-action="repeat" aria-label="Repeat: off" aria-pressed="false">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                            <span class="ss-player-repeat-one" aria-hidden="true">1</span>
+                        </button>
+                    </div>
+                    <span class="ss-player-time ss-player-time--remaining" data-player-remaining>−0:00</span>
+                </div>
+                <p class="ss-player-ab hidden" id="np-v2-ab-indicator"></p>
+                <div class="ss-player-deck-row ss-player-volume-row">
+                    <div class="ss-player-volume-group">
+                        <button type="button" class="ss-player-btn ss-player-mute" data-player-action="mute" aria-label="Mute" aria-pressed="false">
+                            <svg class="ss-player-icon-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7"/></svg>
+                            <svg class="ss-player-icon-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/></svg>
+                        </button>
+                        <input type="range" class="ss-player-volume ss-player-volume--deck" data-player-volume min="0" max="100" step="1" value="70" aria-label="Volume">
+                        <span class="ss-player-db" data-player-db>0 dB</span>
+                    </div>
+                    <button type="button" class="ss-player-outline ss-player-output" data-player-output aria-haspopup="true" aria-expanded="false" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M12 2v5M8 7l4-4 4 4"/></svg>
+                        <span data-player-output-label>This device</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- right: the list. The views are media-player-v2.js's panels
+                 (npv2SelectTab), so the visuals drawer can still borrow them. -->
+            <div class="ss-player-list">
+                <div class="ss-player-list-head">
+                    <div class="ss-player-tabs" role="tablist" aria-label="Lists">
+                        <button type="button" role="tab" class="ss-player-option np-v2-tab" id="ss-player-tab-queue" data-npv2-tab="queue" aria-controls="np-queue-panel" aria-selected="true">Up next <span class="ss-player-count" data-player-upnext-count>0</span></button>
+                        <button type="button" role="tab" class="ss-player-option np-v2-tab" id="ss-player-tab-recent" data-npv2-tab="history" aria-controls="np-v2-history-panel" aria-selected="false">Recent</button>
+                    </div>
+                    <span class="ss-player-spacer"></span>
+                    <button type="button" class="ss-player-text-btn" id="np-queue-clear" data-player-clear>Clear</button>
+                    <button type="button" class="ss-player-ghost ss-player-collapse" data-player-toggle aria-expanded="true" aria-controls="ss-player-tray">Collapse
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                    </button>
+                </div>
+
+                <div class="ss-player-view" id="np-queue-panel" role="tabpanel" aria-labelledby="ss-player-tab-queue">
+                    <div class="ss-player-empty np-queue-empty" id="np-queue-empty">Nothing up next. Play an album or a playlist, or choose Add to queue on any track.</div>
+                    <div class="ss-player-rows np-queue-list" id="np-queue-list"></div>
+                    <p class="ss-player-list-foot" data-player-queue-foot></p>
+                </div>
+
+                <div class="ss-player-view hidden" id="np-v2-history-panel" role="tabpanel" aria-labelledby="ss-player-tab-recent">
+                    <p class="ss-player-empty" data-player-recent-status>Loading what you played…</p>
+                    <div class="ss-player-rows" data-player-recent-list role="list"></div>
+                </div>
+
+                <div class="ss-player-view hidden" id="np-lyrics-panel" role="region" aria-labelledby="ss-player-lyrics-title">
+                    <div class="ss-player-view-head">
+                        <h3 class="ss-player-view-title" id="ss-player-lyrics-title">Lyrics <span class="ss-player-view-note" id="np-lyrics-status"></span></h3>
+                        <button type="button" class="ss-player-text-btn" data-player-view-close>Back to Up next</button>
+                    </div>
+                    <div class="ss-player-view-body" id="np-lyrics-body">
+                        <div class="np-lyrics-content" id="np-lyrics-content">
+                            <div class="np-lyrics-empty">No lyrics loaded</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ss-player-view hidden" id="np-v2-details-panel" role="region" aria-labelledby="ss-player-details-title">
+                    <div class="ss-player-view-head">
+                        <h3 class="ss-player-view-title" id="ss-player-details-title">Track details</h3>
+                        <button type="button" class="ss-player-text-btn" data-player-view-close>Back to Up next</button>
+                    </div>
+                    <div class="ss-player-view-body">
+                        <div class="ss-player-details" id="np-v2-details-rows"></div>
+                        <div class="ss-player-view-actions">
+                            <button type="button" class="ss-player-outline" id="np-v2-copy-info">Copy title, artist and album</button>
+                            <button type="button" class="ss-player-outline" id="np-v2-copy-path">Copy the file path</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ss-player-view np-v2-settings hidden" id="np-v2-settings-panel" role="region" aria-labelledby="ss-player-settings-title">
+                    <div class="ss-player-view-head">
+                        <h3 class="ss-player-view-title" id="ss-player-settings-title">Player settings</h3>
+                        <button type="button" class="ss-player-text-btn" data-player-view-close>Back to Up next</button>
+                    </div>
+                    <div class="ss-player-view-body">
+                        <p class="ss-player-section">Playback</p>
+                        <label class="ss-player-setting"><span>Speed<small>Kept on this device.</small></span>
+                            <select class="ss-player-select" id="np-v2-speed-select">
+                                <option value="0.5">0.5×</option>
+                                <option value="0.75">0.75×</option>
+                                <option value="1">1×</option>
+                                <option value="1.25">1.25×</option>
+                                <option value="1.5">1.5×</option>
+                                <option value="1.75">1.75×</option>
+                                <option value="2">2×</option>
+                            </select>
+                        </label>
+                        <label class="ss-player-setting"><span>Crossfade length<small>How much two library tracks overlap while Crossfade is on.</small></span>
+                            <select class="ss-player-select" id="np-v2-xfade-secs">
+                                <option value="0">Off</option>
+                                <option value="2">2 seconds</option>
+                                <option value="4">4 seconds</option>
+                                <option value="6">6 seconds</option>
+                                <option value="10">10 seconds</option>
+                                <option value="15">15 seconds</option>
+                            </select>
+                        </label>
+                        <label class="ss-player-setting"><span>Keep the screen awake<small>While music plays with the tray or the visuals open.</small></span>
+                            <input type="checkbox" class="ss-player-check" id="np-v2-wake-toggle">
+                        </label>
+
+                        <p class="ss-player-section">Equalizer</p>
+                        <label class="ss-player-setting"><span>Equalizer<small>Ten bands, on this device.</small></span>
+                            <input type="checkbox" class="ss-player-check" id="np-v2-eq-toggle">
+                        </label>
+                        <label class="ss-player-setting"><span>Preset</span>
+                            <select class="ss-player-select" id="np-v2-eq-preset"></select>
+                        </label>
+                        <div class="ss-player-eq" id="np-v2-eq-sliders"></div>
+                        <label class="ss-player-setting"><span>Loudness normalization<small>Evens out the volume between tracks.</small></span>
+                            <input type="checkbox" class="ss-player-check" id="np-v2-normalize-toggle">
+                        </label>
+
+                        <p class="ss-player-section">Visuals</p>
+                        <div class="ss-player-themes" id="np-v2-theme-grid" role="group" aria-label="Visual"></div>
+                        <label class="ss-player-setting"><span>Change the visual<small>On its own, while the visuals are open.</small></span>
+                            <select class="ss-player-select" id="np-v2-viz-autocycle">
+                                <option value="off">Never</option>
+                                <option value="track">Every track</option>
+                                <option value="30">Every 30 seconds</option>
+                                <option value="60">Every minute</option>
+                                <option value="300">Every 5 minutes</option>
+                            </select>
+                        </label>
+                        <label class="ss-player-setting"><span>Energy<small>How strongly the visuals follow the music.</small></span>
+                            <span class="ss-player-range"><input type="range" id="np-v2-viz-energy" min="0.5" max="1.5" step="0.1" value="1"><span class="ss-player-range-val" id="np-v2-viz-energy-val">1.0×</span></span>
+                        </label>
+                        <label class="ss-player-setting"><span>Colours<small>From the album art, or a palette.</small></span>
+                            <select class="ss-player-select" id="np-v2-viz-palette">
+                                <option value="auto">Album art</option>
+                                <option value="ultraviolet">Ultraviolet</option>
+                                <option value="ocean">Ocean</option>
+                                <option value="ember">Ember</option>
+                                <option value="forest">Forest</option>
+                                <option value="rose">Rose</option>
+                                <option value="mono">Mono</option>
+                            </select>
+                        </label>
+                        <label class="ss-player-setting"><span>Dim<small>Darker visuals are easier to read over.</small></span>
+                            <span class="ss-player-range"><input type="range" id="np-v2-viz-dim" min="0" max="0.6" step="0.05" value="0"><span class="ss-player-range-val" id="np-v2-viz-dim-val">0%</span></span>
+                        </label>
+                        <label class="ss-player-setting"><span>Quality<small>Lower it if the animation stutters.</small></span>
+                            <select class="ss-player-select" id="np-v2-viz-quality">
+                                <option value="auto">Auto</option>
+                                <option value="high">High</option>
+                                <option value="balanced">Balanced</option>
+                                <option value="lite">Lite</option>
+                            </select>
+                        </label>
+                        <label class="ss-player-setting"><span>Reduce motion<small>Slows the visuals down.</small></span>
+                            <input type="checkbox" class="ss-player-check" id="np-v2-reduce-motion">
+                        </label>
+
+                        <div class="ss-player-setting ss-player-setting--last"><span>Reset player settings<small>Clears every player preference on this device and reloads.</small></span>
+                            <button type="button" class="ss-player-outline" id="np-v2-reset-settings">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- the record's "…": everything the old Now Playing had beyond the board -->
+        <div class="ss-player-menu" id="ss-player-menu" role="group" aria-label="More for this track" hidden>
+            <p class="ss-player-menu-label">This track</p>
+            <button type="button" class="ss-player-menu-item" data-player-menu="playlist">Add to playlist…</button>
+            <button type="button" class="ss-player-menu-item" data-player-menu="report">Report a problem…</button>
+            <button type="button" class="ss-player-menu-item" data-player-menu="lyrics">Lyrics <span class="ss-player-menu-state" data-player-lyrics-state></span></button>
+            <button type="button" class="ss-player-menu-item" data-player-menu="details">Track details</button>
+            <p class="ss-player-menu-label">Playback</p>
+            <button type="button" class="ss-player-menu-item" data-player-menu="speed" aria-expanded="false" aria-controls="ss-player-speed-list">Speed <span class="ss-player-menu-state" data-player-speed-state>1×</span></button>
+            <div class="ss-player-choices" id="ss-player-speed-list" role="radiogroup" aria-label="Speed" hidden></div>
+            <button type="button" class="ss-player-menu-item" data-player-menu="sleep" aria-expanded="false" aria-controls="ss-player-sleep-list">Sleep timer <span class="ss-player-menu-state" data-player-sleep-state>Off</span></button>
+            <div class="ss-player-choices" id="ss-player-sleep-list" role="radiogroup" aria-label="Sleep timer" hidden></div>
+            <button type="button" class="ss-player-menu-item" data-player-menu="crossfade" aria-pressed="false">Crossfade library tracks</button>
+            <button type="button" class="ss-player-menu-item" id="np-v2-eq-btn" aria-pressed="false">Equalizer</button>
+            <button type="button" class="ss-player-menu-item" id="np-v2-ab-btn" aria-pressed="false">A–B loop <span class="ss-player-menu-state np-v2-ab-state">Off</span></button>
+            <p class="ss-player-menu-label">Queue</p>
+            <button type="button" class="ss-player-menu-item" id="np-radio-btn" aria-pressed="false">Add similar tracks when the queue ends</button>
+            <button type="button" class="ss-player-menu-item" id="np-autodownload-btn" aria-pressed="false">Download missing queue tracks</button>
+            <button type="button" class="ss-player-menu-item" id="np-queue-clear-played">Clear played tracks</button>
+            <p class="ss-player-menu-label">Player</p>
+            <button type="button" class="ss-player-menu-item" data-player-menu="visuals">Visuals</button>
+            <button type="button" class="ss-player-menu-item" data-player-menu="settings">Player settings</button>
+            <button type="button" class="ss-player-menu-item" id="np-v2-shorts-btn">Keyboard shortcuts</button>
+            <button type="button" class="ss-player-menu-item" data-player-menu="stop">Stop and clear the queue</button>
+        </div>
+
+        <!-- small pickers: speed (the spoken-word button) and the output -->
+        <div class="ss-player-menu ss-player-menu--small" id="ss-player-speed-menu" role="radiogroup" aria-label="Speed" hidden></div>
+        <div class="ss-player-menu ss-player-menu--small" id="ss-player-output-menu" role="group" aria-label="Output" hidden></div>
+    </section>
+    <div class="ss-player-scrim" data-player-scrim hidden></div>
+
+    <!-- Visuals (from the record's "…" or F): media-player-v2.js paints the
+         canvas; the drawer borrows the tray's panels while they're open. -->
+    <div class="np-modal-overlay hidden" id="np-modal-overlay" role="dialog" aria-modal="true" aria-label="Visuals">
+        <div class="np-modal npv2-visuals-on">
+            <canvas id="np-v2-bg" aria-hidden="true"></canvas>
+            <button type="button" id="np-v2-visuals-exit" class="ss-player-visuals-exit" aria-label="Close the visuals">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+            <div id="np-v2-visuals-header">
+                <div>
+                    <h2 id="np-v2-visuals-title">Unknown Track</h2>
+                    <p id="np-v2-visuals-artist">Unknown Artist</p>
+                </div>
+                <div id="np-v2-visuals-theme-switch">
+                    <button type="button" class="np-v2-visuals-arrow" id="np-v2-visuals-theme-prev" aria-label="Previous visual (Shift+V)">‹</button>
+                    <span id="np-v2-visuals-theme-name">Aurora</span>
+                    <button type="button" class="np-v2-visuals-arrow" id="np-v2-visuals-theme-next" aria-label="Next visual (V)">›</button>
+                    <button type="button" class="np-v2-visuals-arrow" id="np-v2-visuals-panels" aria-label="Panels: up next, recent, lyrics, details, settings">☰</button>
+                    <button type="button" class="np-v2-visuals-arrow" id="np-v2-visuals-fullscreen" aria-label="Fullscreen">⛶</button>
+                </div>
+            </div>
+            <div id="np-v2-visuals-drawer" class="hidden" role="group" aria-label="Panels">
+                <button type="button" class="np-v2-drawer-btn" data-tab="queue">Up next</button>
+                <button type="button" class="np-v2-drawer-btn" data-tab="history">Recent</button>
+                <button type="button" class="np-v2-drawer-btn" data-tab="lyrics">Lyrics</button>
+                <button type="button" class="np-v2-drawer-btn" data-tab="details">Details</button>
+                <button type="button" class="np-v2-drawer-btn" data-tab="settings">Settings</button>
+            </div>
+            <div id="np-v2-visuals-sidepanel" class="hidden" role="region" aria-label="Panel">
+                <div class="np-v2-sidepanel-head">
+                    <span id="np-v2-sidepanel-title">Up next</span>
+                    <button type="button" id="np-v2-sidepanel-close" aria-label="Close the panel (Esc)">✕</button>
+                </div>
+                <div id="np-v2-sidepanel-body" class="np-v2-sidepanel-body"></div>
+            </div>
+            <!-- the transport stays reachable over the visuals -->
+            <div class="ss-player-visuals-transport" role="group" aria-label="Playback">
+                <button type="button" class="ss-player-btn" data-player-action="previous" aria-label="Previous">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 20L9 12l10-8zM5 19V5h2v14z"/></svg>
+                </button>
+                <button type="button" class="ss-player-btn ss-player-play ss-player-play--big" data-player-action="toggle" aria-label="Play">
+                    <svg class="ss-player-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>
+                    <svg class="ss-player-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+                    <span class="ss-player-spinner" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="ss-player-btn" data-player-action="next" aria-label="Next">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4l10 8-10 8zM17 5h2v14h-2z"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keyboard shortcuts (the record's "…" or ?) -->
+    <div class="ss-player-shortcuts hidden" id="np-v2-shorts-overlay" role="dialog" aria-modal="true" aria-labelledby="ss-player-shortcuts-title">
+        <div class="ss-player-shortcuts-card">
+            <div class="ss-player-shortcuts-head">
+                <h3 id="ss-player-shortcuts-title">Keyboard shortcuts</h3>
+                <button type="button" class="ss-player-btn" id="np-v2-shorts-close" aria-label="Close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <p>The first group works anywhere outside a text field; the rest while the tray or the visuals are open.</p>
+            <dl class="ss-player-shortcuts-grid">
+                <div><dt>Play or pause</dt><dd><kbd>Space</kbd></dd></div>
+                <div><dt>Back or forward 5 seconds</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div>
+                <div><dt>Volume</dt><dd><kbd>↑</kbd> <kbd>↓</kbd></dd></div>
+                <div><dt>Mute</dt><dd><kbd>M</kbd></dd></div>
+                <div><dt>Next or previous track</dt><dd><kbd>N</kbd> <kbd>P</kbd></dd></div>
+                <div class="ss-player-shortcuts-gap"><dt>A–B loop</dt><dd><kbd>L</kbd></dd></div>
+                <div><dt>Slower or faster</dt><dd><kbd>[</kbd> <kbd>]</kbd></dd></div>
+                <div><dt>Next or previous visual</dt><dd><kbd>V</kbd> <kbd>Shift V</kbd></dd></div>
+                <div><dt>Visuals</dt><dd><kbd>F</kbd></dd></div>
+                <div><dt>This list</dt><dd><kbd>?</kbd></dd></div>
+                <div><dt>Close the visuals, then collapse the tray</dt><dd><kbd>Esc</kbd></dd></div>
+            </dl>
+        </div>
     </div>
 
     <button class="activity-float-btn" id="activity-float-btn" onclick="ServerActivity.toggle()"

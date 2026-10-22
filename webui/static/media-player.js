@@ -1,12 +1,16 @@
 // MEDIA PLAYER FUNCTIONALITY
 // ===============================
 
-function initializeMediaPlayer() {
-    const trackTitle = document.getElementById('track-title');
-    const playButton = document.getElementById('play-button');
-    const stopButton = document.getElementById('stop-button');
-    const volumeSlider = document.getElementById('volume-slider');
+// The chrome (the bar, the tray and the phone sheet: src/shell/player.ts)
+// draws from state this file owns. npNotify tells it something changed;
+// window.SoulSyncPlayer (bottom of this file) is how it reads and acts.
+function npNotify(reason) {
+    try {
+        window.dispatchEvent(new CustomEvent('ss:player', { detail: { reason: reason || 'change' } }));
+    } catch (e) { /* no chrome on this page */ }
+}
 
+function initializeMediaPlayer() {
     // Start in idle state (no track playing)
     const player = document.getElementById('media-player');
     if (player && !currentTrack) player.classList.add('idle');
@@ -34,45 +38,8 @@ function initializeMediaPlayer() {
         const _savedVol = npLoadSavedVolume();
         const _initialVol = _savedVol === null ? 70 : _savedVol;
         audioPlayer.volume = _initialVol / 100;
-        if (volumeSlider) volumeSlider.value = _initialVol;
-        // Sync the modal slider/fill too once DOM is ready.
-        syncVolumeUI(_initialVol);
+        npVolumePercent = _initialVol;
     }
-
-    // Track title click handled by initExpandedPlayer's media-player click handler
-
-    // Media controls
-    playButton.addEventListener('click', handlePlayPause);
-    stopButton.addEventListener('click', handleStop);
-    if (volumeSlider) volumeSlider.addEventListener('input', handleVolumeChange);
-
-    // Progress bar controls
-    const progressBar = document.getElementById('progress-bar');
-    if (progressBar) {
-        // Handle seeking
-        progressBar.addEventListener('input', handleProgressBarChange);
-        progressBar.addEventListener('mousedown', () => {
-            progressBar.dataset.seeking = 'true';
-        });
-        progressBar.addEventListener('mouseup', () => {
-            delete progressBar.dataset.seeking;
-        });
-    }
-
-    // Update volume slider styling
-    if (volumeSlider) volumeSlider.addEventListener('input', updateVolumeSliderAppearance);
-
-    // Mini player prev / next buttons
-    const miniPrevBtn = document.getElementById('mini-prev-btn');
-    const miniNextBtn = document.getElementById('mini-next-btn');
-    if (miniPrevBtn) miniPrevBtn.addEventListener('click', (e) => { e.stopPropagation(); playPreviousInQueue(); });
-    if (miniNextBtn) miniNextBtn.addEventListener('click', (e) => { e.stopPropagation(); playNextInQueue(); });
-
-    // Mini shuffle / repeat — share the modal handlers (which now sync both UIs)
-    const miniShuffleBtn = document.getElementById('mini-shuffle-btn');
-    const miniRepeatBtn = document.getElementById('mini-repeat-btn');
-    if (miniShuffleBtn) miniShuffleBtn.addEventListener('click', (e) => { e.stopPropagation(); handleNpShuffle(); });
-    if (miniRepeatBtn) miniRepeatBtn.addEventListener('click', (e) => { e.stopPropagation(); handleNpRepeat(); });
 
     // Auto-download is off by default and profile-scoped. A user must enable it
     // from the queue header before SoulSync starts background acquisitions.
@@ -80,6 +47,7 @@ function initializeMediaPlayer() {
 
     // Restore a previously-saved queue (does not auto-play)
     npRestoreQueue();
+    npNotify('init');
 }
 
 function toggleMediaPlayerExpansion() {
@@ -147,55 +115,9 @@ function setTrackInfo(track) {
         if (typeof window.__ssNowPlaying === 'function') window.__ssNowPlaying(track);
     } catch (e) { /* chat not loaded / not in a room */ }
 
-    const trackTitleElement = document.getElementById('track-title');
-    const trackTitle = _stripSourceIdPrefix(track.title) || 'Unknown Track';
-
-    // Set up the HTML structure for scrolling
-    trackTitleElement.innerHTML = `<span class="title-text">${escapeHtml(trackTitle)}</span>`;
-
-    document.getElementById('artist-name').textContent = _stripSourceIdPrefix(track.artist) || 'Unknown Artist';
-    document.getElementById('album-name').textContent = _stripSourceIdPrefix(track.album) || 'Unknown Album';
-    npSetPreviewBadge(!!track.is_preview);
-
-    // Check if title needs scrolling (similar to GUI app)
-    setTimeout(() => {
-        checkAndEnableScrolling(trackTitleElement, trackTitle);
-    }, 100); // Allow DOM to settle
-
-    // Enable controls
-    document.getElementById('play-button').disabled = false;
-    document.getElementById('stop-button').disabled = false;
-
-    // Hide no track message and expand player
-    document.getElementById('no-track-message').classList.add('hidden');
-    document.getElementById('media-player').classList.remove('idle');
-
-    const gotoArtistBtn = document.getElementById('np-goto-artist');
-    if (gotoArtistBtn) {
-        if (track.artist_id) {
-            gotoArtistBtn.href = buildArtistDetailPath(track.artist_id, track.artist_source || null);
-            gotoArtistBtn.style.pointerEvents = '';
-            gotoArtistBtn.setAttribute('aria-disabled', 'false');
-            gotoArtistBtn.tabIndex = 0;
-        } else {
-            gotoArtistBtn.href = '#';
-            gotoArtistBtn.style.pointerEvents = 'none';
-            gotoArtistBtn.setAttribute('aria-disabled', 'true');
-            gotoArtistBtn.tabIndex = -1;
-        }
-        // Close the expanded now-playing modal when the user navigates
-        // to the artist page — otherwise the modal sits open over the
-        // page they just opened. ``_npGotoArtistHandlerAttached`` flag
-        // keeps us from binding multiple listeners across setTrackInfo
-        // calls (fires on every track change).
-        if (!gotoArtistBtn._npGotoArtistHandlerAttached) {
-            gotoArtistBtn.addEventListener('click', () => {
-                if (gotoArtistBtn.getAttribute('aria-disabled') === 'true') return;
-                try { closeNowPlayingModal(); } catch (e) { console.debug('closeNowPlayingModal failed:', e); }
-            });
-            gotoArtistBtn._npGotoArtistHandlerAttached = true;
-        }
-    }
+    // the chrome draws the title, the art and the links (src/shell/player.ts)
+    const player = document.getElementById('media-player');
+    if (player) player.classList.remove('idle');
 
     // Sync expanded player and media session
     updateNpTrackInfo();
@@ -206,50 +128,44 @@ function setTrackInfo(track) {
 
     // Kick off lyrics fetch for the new track. The panel stays
     // collapsed by default — fetching in the background means the
-    // user gets instant lyrics the first time they expand it.
-    _npLyricsLoadForTrack({
-        title: track.title,
-        artist: track.artist,
-        album: track.album,
-        is_library: track.is_library,
-        filename: track.filename,
-    });
+    // user gets instant lyrics the first time they expand it. An episode
+    // or an audiobook has none to find.
+    if (!npIsSpokenWord(track)) {
+        _npLyricsLoadForTrack({
+            title: track.title,
+            artist: track.artist,
+            album: track.album,
+            is_library: track.is_library,
+            filename: track.filename,
+        });
+    } else {
+        _npLyricsState.trackKey = null;
+        _npLyricsResetUI();
+    }
+    npNotify('track');
+}
+
+// What kind of thing is playing: a library track, a stream (a Soulseek file,
+// a preview), a podcast episode, an audiobook, or (build e) internet radio.
+// The chrome picks its controls from this.
+function npTrackKind(track) {
+    if (!track) return null;
+    if (track.kind) return track.kind;
+    return track.is_library ? 'library' : 'stream';
+}
+
+function npIsSpokenWord(track) {
+    const kind = npTrackKind(track);
+    return kind === 'podcast' || kind === 'audiobook';
 }
 
 // a deezer clip (#1312) is 30 seconds of the song, not the song. the mini
 // player says so here and now playing in its format badges, so a clip
 // ending early never reads as a broken stream.
 function npSetPreviewBadge(on) {
-    const badge = document.getElementById('player-preview-badge');
-    if (badge) badge.hidden = !on;
+    // the chrome says "30-second preview" from currentTrack.is_preview
+    npNotify('track');
 }
-
-function checkAndEnableScrolling(element, text) {
-    // Remove any existing scrolling class and reset styles
-    element.classList.remove('scrolling');
-    element.style.removeProperty('--scroll-distance');
-
-    // Force a layout to get accurate measurements
-    element.offsetWidth;
-
-    // Get the inner text element
-    const titleTextElement = element.querySelector('.title-text');
-    if (!titleTextElement) return;
-
-    // Check if text is wider than container
-    const containerWidth = element.offsetWidth;
-    const textWidth = titleTextElement.scrollWidth;
-
-    // Enable scrolling if text is significantly wider than container
-    if (textWidth > containerWidth + 15) {
-        const scrollDistance = containerWidth - textWidth;
-        element.style.setProperty('--scroll-distance', `${scrollDistance}px`);
-        element.classList.add('scrolling');
-        console.log(`📜 Enabled scrolling for title: "${text}"`);
-        console.log(`📜 Container: ${containerWidth}px, Text: ${textWidth}px, Scroll: ${scrollDistance}px`);
-    }
-}
-
 
 function clearTrack() {
     // Clear track state
@@ -261,53 +177,12 @@ function clearTrack() {
     } catch (e) { /* chat not loaded */ }
     npSetPlayContext('');   // hide "Playing from" when nothing's playing
 
-    const trackTitleElement = document.getElementById('track-title');
-    trackTitleElement.innerHTML = '<span class="title-text">No track</span>';
-    trackTitleElement.classList.remove('scrolling'); // Remove scrolling animation
-    trackTitleElement.style.removeProperty('--scroll-distance'); // Clear CSS variable
-
-    document.getElementById('artist-name').textContent = 'Unknown Artist';
-    document.getElementById('album-name').textContent = 'Unknown Album';
-    npSetPreviewBadge(false);
-    // Reset play button SVGs (don't use textContent — it destroys SVG children)
-    const clearPlayBtn = document.getElementById('play-button');
-    const clearPlayIcon = clearPlayBtn.querySelector('.play-icon');
-    const clearPauseIcon = clearPlayBtn.querySelector('.pause-icon');
-    if (clearPlayIcon) clearPlayIcon.style.display = '';
-    if (clearPauseIcon) clearPauseIcon.style.display = 'none';
-    clearPlayBtn.disabled = true;
-    document.getElementById('stop-button').disabled = true;
-
-    // Reset progress bar and time displays
-    const progressBar = document.getElementById('progress-bar');
-    const progressFill = document.getElementById('progress-fill');
-    if (progressBar) {
-        progressBar.value = 0;
-        delete progressBar.dataset.seeking;
-    }
-    if (progressFill) {
-        progressFill.style.width = '0%';
-    }
-
-    const currentTimeElement = document.getElementById('current-time');
-    const totalTimeElement = document.getElementById('total-time');
-    if (currentTimeElement) currentTimeElement.textContent = '0:00';
-    if (totalTimeElement) totalTimeElement.textContent = '0:00';
-
     // Hide loading animation
     hideLoadingAnimation();
 
-    // Show no track message and collapse player
-    document.getElementById('no-track-message').classList.remove('hidden');
-    document.getElementById('media-player').classList.add('idle');
-
-    const gotoArtistBtn = document.getElementById('np-goto-artist');
-    if (gotoArtistBtn) {
-        gotoArtistBtn.href = '#';
-        gotoArtistBtn.style.pointerEvents = 'none';
-        gotoArtistBtn.setAttribute('aria-disabled', 'true');
-        gotoArtistBtn.tabIndex = -1;
-    }
+    // nothing playing: the player goes away (the chrome hides with .idle)
+    const player = document.getElementById('media-player');
+    if (player) player.classList.add('idle');
 
     // Reset queue state
     npQueue = [];
@@ -321,19 +196,13 @@ function clearTrack() {
     updateNpPrevNextButtons();
     updateMediaSessionPlaybackState();
     stopSidebarVisualizer();
-    if (npModalOpen) closeNowPlayingModal();
+    npNotify('clear');
 
     console.log('🧹 Track cleared and media player reset');
 }
 
 function setPlayingState(playing) {
     isPlaying = playing;
-    const playButton = document.getElementById('play-button');
-    // Toggle SVG icons (don't use textContent — it destroys SVG children)
-    const playIcon = playButton.querySelector('.play-icon');
-    const pauseIcon = playButton.querySelector('.pause-icon');
-    if (playIcon) playIcon.style.display = playing ? 'none' : '';
-    if (pauseIcon) pauseIcon.style.display = playing ? '' : 'none';
     updateNpPlayButton();
     updateMediaSessionPlaybackState();
 
@@ -344,6 +213,7 @@ function setPlayingState(playing) {
     } else {
         stopSidebarVisualizer();
     }
+    npNotify('playing');
 }
 
 async function handlePlayPause() {
@@ -359,91 +229,68 @@ async function handleStop() {
     clearTrack();
 }
 
+// Volume, 0..100, the one place it changes. Unmutes unless told otherwise.
+let npVolumePercent = 70;
+function npSetVolume(percent, options = {}) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+    npVolumePercent = v;
+    if (audioPlayer) audioPlayer.volume = v / 100;
+    npPersistVolume(v);
+    if (!options.keepMute) npMuted = v === 0;
+    npNotify('volume');
+}
+
 function handleVolumeChange(event) {
-    const volume = event.target.value;
-    updateVolumeSliderAppearance();
-    npPersistVolume(volume);
+    npSetVolume(event && event.target ? event.target.value : npVolumePercent);
+}
 
-    // Update HTML5 audio player volume
-    if (audioPlayer) {
-        audioPlayer.volume = volume / 100;
+// Seek to a time in seconds (clamped to the track).
+function npSeek(seconds) {
+    if (!audioPlayer || !audioPlayer.duration || !isFinite(audioPlayer.duration)) return;
+    const t = Math.max(0, Math.min(audioPlayer.duration, Number(seconds) || 0));
+    try {
+        audioPlayer.currentTime = t;
+        updateMediaSessionPositionState();
+    } catch (error) {
+        console.warn('⚠️ Seek failed:', error.message);
     }
-
-    // Sync modal volume and clear mute state
-    npMuted = false;
-    const npVol = document.getElementById('np-volume-slider');
-    const npFill = document.getElementById('np-volume-fill');
-    if (npVol) npVol.value = volume;
-    if (npFill) npFill.style.width = volume + '%';
-    updateNpMuteIcon();
 }
 
 function handleProgressBarChange(event) {
-    // Handle seeking in the audio track
     if (!audioPlayer || !audioPlayer.duration) return;
-
     const progress = parseFloat(event.target.value);
-    const newTime = (progress / 100) * audioPlayer.duration;
-
-    console.log(`🎯 Seeking to ${formatTime(newTime)} (${progress.toFixed(1)}%)`);
-
-    try {
-        audioPlayer.currentTime = newTime;
-
-        // Update visual progress immediately
-        const progressFill = document.getElementById('progress-fill');
-        if (progressFill) {
-            progressFill.style.width = `${progress}%`;
-        }
-
-        // Update time displays immediately
-        const currentTimeElement = document.getElementById('current-time');
-        if (currentTimeElement) {
-            currentTimeElement.textContent = formatTime(newTime);
-        }
-
-        // Sync modal progress
-        const npBar = document.getElementById('np-progress-bar');
-        const npFill = document.getElementById('np-progress-fill');
-        const npTime = document.getElementById('np-current-time');
-        if (npBar) npBar.value = progress;
-        if (npFill) npFill.style.width = progress + '%';
-        if (npTime) npTime.textContent = formatTime(newTime);
-    } catch (error) {
-        console.warn('⚠️ Seek failed:', error.message);
-        // Reset progress bar to current position
-        const actualProgress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
-        event.target.value = actualProgress;
-        const progressFill = document.getElementById('progress-fill');
-        if (progressFill) {
-            progressFill.style.width = `${actualProgress}%`;
-        }
-    }
+    npSeek((progress / 100) * audioPlayer.duration);
 }
 
 function updateVolumeSliderAppearance() {
-    const slider = document.getElementById('volume-slider');
-    if (!slider) return;
-    const value = slider.value;
-    slider.style.setProperty('--volume-percent', `${value}%`);
+    npNotify('volume');
 }
 
+// The loading state lives in #loading-animation (its .hidden class, the
+// .loading-progress width and the .loading-text words): this file and the
+// library player (src/shell/library-globals.ts) write it, the chrome reads it.
 function showLoadingAnimation() {
-    document.getElementById('loading-animation').classList.remove('hidden');
+    const el = document.getElementById('loading-animation');
+    if (el) el.classList.remove('hidden');
+    npNotify('loading');
 }
 
 function hideLoadingAnimation() {
-    document.getElementById('loading-animation').classList.add('hidden');
+    const el = document.getElementById('loading-animation');
+    if (el) el.classList.add('hidden');
+    npNotify('loading');
 }
 
 function setLoadingProgress(percentage) {
     const loadingAnimation = document.getElementById('loading-animation');
+    if (!loadingAnimation) return;
     const progressBar = loadingAnimation.querySelector('.loading-progress');
     const loadingText = loadingAnimation.querySelector('.loading-text');
 
     loadingAnimation.classList.remove('hidden');
-    progressBar.style.width = `${percentage}%`;
-    loadingText.textContent = `${Math.round(percentage)}%`;
+    if (progressBar) progressBar.style.width = `${percentage}%`;
+    if (loadingText) loadingText.textContent = `${Math.round(percentage)}%`;
+    npNotify('loading');
 }
 
 // ===============================
@@ -761,7 +608,7 @@ async function updateStreamStatus() {
 // everyone "stopped" forever. Stream status is driven by the per-session HTTP
 // poller (updateStreamStatus) exclusively.)
 
-async function startAudioPlayback(isCurrent = () => true, signal, handoff = null) {
+async function startAudioPlayback(isCurrent = () => true, signal, handoff = null, sourceUrl = null) {
     // Start HTML5 audio playback of the streamed file with enhanced state management
     // `handoff` is the crossfade's second audio, still playing the track this
     // player is about to load; the player joins it where it is, then it stops.
@@ -776,8 +623,9 @@ async function startAudioPlayback(isCurrent = () => true, signal, handoff = null
             loadingText.textContent = 'Preparing playback...';
         }
 
-        // Set audio source with cache-busting timestamp
-        const audioUrl = `/stream/audio?t=${new Date().getTime()}`;
+        // Set audio source with cache-busting timestamp. A podcast episode or
+        // an audiobook sample plays from its own address (sourceUrl).
+        const audioUrl = sourceUrl || `/stream/audio?t=${new Date().getTime()}`;
         console.log(`🎵 Loading audio from: ${audioUrl}`);
 
         // Clear any existing source first
@@ -856,23 +704,10 @@ async function startAudioPlayback(isCurrent = () => true, signal, handoff = null
                 hideLoadingAnimation();
                 setPlayingState(true);
 
-                // Show media player if hidden
-                const noTrackMessage = document.getElementById('no-track-message');
-                if (noTrackMessage) {
-                    noTrackMessage.classList.add('hidden');
+                // The player's volume (a crossfade may have left the element low)
+                if (typeof npVolumePercent !== 'undefined') {
+                    audioPlayer.volume = (typeof npMuted !== 'undefined' && npMuted) ? 0 : npVolumePercent / 100;
                 }
-
-                // Update volume to current slider value
-                const volumeSlider = document.getElementById('volume-slider');
-                if (volumeSlider) {
-                    audioPlayer.volume = volumeSlider.value / 100;
-                }
-
-                // Enable play/stop buttons
-                const playButton = document.getElementById('play-button');
-                const stopButton = document.getElementById('stop-button');
-                if (playButton) playButton.disabled = false;
-                if (stopButton) stopButton.disabled = false;
 
                 return { status: 'played' }; // HTMLMediaElement.play acknowledged playback.
 
@@ -990,7 +825,7 @@ function togglePlayback() {
 let _npPastRestartThreshold = false;
 
 function updateAudioProgress() {
-    // Update progress bar based on audio playback time
+    // Keep Previous honest and the lyrics highlight moving
     if (!audioPlayer || !audioPlayer.duration) return;
 
     const pastRestart = audioPlayer.currentTime > 3;
@@ -999,32 +834,7 @@ function updateAudioProgress() {
         updateNpPrevNextButtons();
     }
 
-    const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
-
-    // Update progress bar
-    const progressBar = document.getElementById('progress-bar');
-    const progressFill = document.getElementById('progress-fill');
-    if (progressBar && !progressBar.dataset.seeking) {
-        progressBar.value = progress;
-        // Update visual progress fill
-        if (progressFill) {
-            progressFill.style.width = `${progress}%`;
-        }
-    }
-
-    // Update time display
-    const currentTimeElement = document.getElementById('current-time');
-    const totalTimeElement = document.getElementById('total-time');
-
-    if (currentTimeElement) {
-        currentTimeElement.textContent = formatTime(audioPlayer.currentTime);
-    }
-    if (totalTimeElement) {
-        totalTimeElement.textContent = formatTime(audioPlayer.duration);
-    }
-
-    // Sync expanded player modal
-    if (npModalOpen) updateNpProgress();
+    // the chrome follows the time itself (timeupdate on the element)
 
     // Sync lyrics highlight when synced LRC is loaded.
     if (_npLyricsState.synced && _npLyricsState.lines.length) {
@@ -1208,6 +1018,7 @@ async function _npLyricsLoadForTrack(track) {
         if (status) status.textContent = '';
     } finally {
         _npLyricsState.fetchInFlight = false;
+        npNotify('lyrics');
     }
 }
 
@@ -1243,21 +1054,6 @@ function onAudioEnded() {
 
     // Sleep timer "end of track": pause instead of advancing to the next track.
     if (npSleepEndOfTrack) { npFireSleepTimer(); return; }
-
-    // Reset progress to beginning
-    const progressBar = document.getElementById('progress-bar');
-    const progressFill = document.getElementById('progress-fill');
-    if (progressBar) {
-        progressBar.value = 0;
-    }
-    if (progressFill) {
-        progressFill.style.width = '0%';
-    }
-
-    const currentTimeElement = document.getElementById('current-time');
-    if (currentTimeElement) {
-        currentTimeElement.textContent = '0:00';
-    }
 
     // If a crossfade is mid-flight it OWNS the advance to the next track —
     // bail so we don't double-advance (crossfade's npFinishCrossfade →
@@ -1468,7 +1264,6 @@ let npRecentlyPlayedIds = [];
 let npAudioContext = null;
 let npAnalyser = null;
 let npMediaSource = null;
-let npVizAnimFrame = null;
 let npVizInitialized = false;
 let npCrossfadeOn = false;
 let npSleepMinutes = 0;       // 0 = off
@@ -1513,7 +1308,7 @@ function npPrepareQueueTrack(rawTrack) {
     track.file_path = track.file_path || track.filename || '';
     track.filename = track.file_path;
     track.is_library = Boolean(track.file_path);
-    track.playback_status = track.file_path ? 'ready' : (track.playback_status || 'missing');
+    track.playback_status = (track.file_path || track.media_src) ? 'ready' : (track.playback_status || 'missing');
     track._queue_identity = npQueueIdentity(track);
     if (!track._queue_request_id) {
         const existing = npQueue.find(item => item?._queue_identity === track._queue_identity && item?._queue_request_id);
@@ -1538,7 +1333,8 @@ function npPrepareQueueTracks(rawTracks) {
 }
 
 function npQueueTrackNeedsDownload(track) {
-    return Boolean(track && !track.file_path && track.title && track.artist &&
+    // an episode or an audiobook sample plays from its own address
+    return Boolean(track && !track.media_src && !track.file_path && track.title && track.artist &&
         !NP_QUEUE_PREFETCH_TERMINAL.has(track.playback_status));
 }
 
@@ -1775,123 +1571,16 @@ function npSetRadioMode(enabled, options = {}) {
         npEnsureCurrentTrackInQueue();
         npFetchRadioTracks();
     }
+    if (typeof npNotify === 'function') npNotify('settings');
 }
 
+// Wires what the chrome doesn't own: the queue menu's switches (their ids
+// live in the record's "…" menu now), the buffering state, the keyboard and
+// the Media Session. The chrome itself boots from src/shell/player.ts.
 function initExpandedPlayer() {
-    const closeBtn = document.getElementById('np-close-btn');
-    const overlay = document.getElementById('np-modal-overlay');
-    const playBtn = document.getElementById('np-play-btn');
-    const stopBtn = document.getElementById('np-stop-btn');
-    const shuffleBtn = document.getElementById('np-shuffle-btn');
-    const repeatBtn = document.getElementById('np-repeat-btn');
-    const muteBtn = document.getElementById('np-mute-btn');
-    const npProgressBar = document.getElementById('np-progress-bar');
-    const npVolumeSlider = document.getElementById('np-volume-slider');
+    // Crossfade (real dual-audio crossfade for library tracks), kept per browser
+    try { npCrossfadeOn = localStorage.getItem('soulsync-crossfade') === '1'; } catch (e) {}
 
-    if (!overlay) return;
-
-    // Close handlers
-    closeBtn.addEventListener('click', closeNowPlayingModal);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeNowPlayingModal(); });
-
-    // Control handlers
-    playBtn.addEventListener('click', () => { togglePlayback(); });
-    stopBtn.addEventListener('click', async () => { await handleStop(); closeNowPlayingModal(); });
-
-    // Click album art → toggle the music-synced visualizer takeover
-    const artContainer = document.getElementById('np-album-art-container');
-    if (artContainer) {
-        artContainer.addEventListener('click', () => {
-            const on = artContainer.classList.toggle('viz-on');
-            if (on) { npBuildArtViz(); npInitVisualizer(); npStartVisualizerLoop(); }
-        });
-    }
-
-    // Sleep timer — cycles off → 15 → 30 → 60 min → off
-    const sleepBtn = document.getElementById('np-sleep-btn');
-    if (sleepBtn) sleepBtn.addEventListener('click', npCycleSleepTimer);
-
-    // Crossfade toggle (real dual-audio crossfade for library tracks)
-    const xfadeBtn = document.getElementById('np-crossfade-btn');
-    if (xfadeBtn) {
-        try { npCrossfadeOn = localStorage.getItem('soulsync-crossfade') === '1'; } catch (e) {}
-        xfadeBtn.classList.toggle('active', npCrossfadeOn);
-        xfadeBtn.addEventListener('click', () => {
-            npCrossfadeOn = !npCrossfadeOn;
-            xfadeBtn.classList.toggle('active', npCrossfadeOn);
-            try { localStorage.setItem('soulsync-crossfade', npCrossfadeOn ? '1' : '0'); } catch (e) {}
-        });
-    }
-
-    shuffleBtn.addEventListener('click', handleNpShuffle);
-    repeatBtn.addEventListener('click', handleNpRepeat);
-    muteBtn.addEventListener('click', handleNpMuteToggle);
-
-    // Progress bar (mouse)
-    npProgressBar.addEventListener('input', handleNpProgressBarChange);
-    npProgressBar.addEventListener('mousedown', () => { npProgressBar.dataset.seeking = 'true'; });
-    npProgressBar.addEventListener('mouseup', () => { delete npProgressBar.dataset.seeking; });
-
-    // Seek hover tooltip — shows the timestamp the cursor is over.
-    const npSeekTip = document.getElementById('np-seek-tip');
-    if (npSeekTip) {
-        npProgressBar.addEventListener('mousemove', (e) => {
-            if (!audioPlayer || !isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) {
-                npSeekTip.classList.remove('visible');
-                return;
-            }
-            const rect = npProgressBar.getBoundingClientRect();
-            const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-            npSeekTip.textContent = formatTime(frac * audioPlayer.duration);
-            npSeekTip.style.left = (frac * 100) + '%';
-            npSeekTip.classList.add('visible');
-        });
-        npProgressBar.addEventListener('mouseleave', () => npSeekTip.classList.remove('visible'));
-    }
-
-    // Progress bar (touch)
-    npProgressBar.addEventListener('touchstart', () => { npProgressBar.dataset.seeking = 'true'; }, { passive: true });
-    npProgressBar.addEventListener('touchmove', (e) => {
-        const touch = e.touches[0];
-        const rect = npProgressBar.getBoundingClientRect();
-        const pct = Math.max(0, Math.min(100, ((touch.clientX - rect.left) / rect.width) * 100));
-        npProgressBar.value = pct;
-        npProgressBar.dispatchEvent(new Event('input'));
-    }, { passive: true });
-    npProgressBar.addEventListener('touchend', () => { delete npProgressBar.dataset.seeking; }, { passive: true });
-
-    // Volume slider
-    npVolumeSlider.addEventListener('input', handleNpVolumeChange);
-
-    // Keyboard shortcuts (global)
-    document.addEventListener('keydown', handlePlayerKeyboardShortcuts);
-
-    // Make sidebar media player clickable to open modal
-    const mediaPlayer = document.getElementById('media-player');
-    if (mediaPlayer) {
-        mediaPlayer.style.cursor = 'pointer';
-        mediaPlayer.addEventListener('click', (e) => {
-            // Don't open modal when clicking controls (let expand-hint through)
-            if (e.target.closest('.play-button, .stop-button, .volume-slider, .volume-control, .progress-bar, .volume-icon, .mini-nav-btn') && !e.target.closest('.expand-hint')) return;
-            if (currentTrack) openNowPlayingModal();
-        });
-    }
-
-    // Prev / Next buttons
-    const prevBtn = document.getElementById('np-prev-btn');
-    const nextBtn = document.getElementById('np-next-btn');
-    if (prevBtn) prevBtn.addEventListener('click', () => { playPreviousInQueue(); });
-    if (nextBtn) nextBtn.addEventListener('click', () => { playNextInQueue(); });
-
-    // Queue panel toggle + clear
-    const queueToggle = document.getElementById('np-queue-toggle');
-    if (queueToggle) {
-        queueToggle.addEventListener('click', () => {
-            const body = document.getElementById('np-queue-body');
-            if (body) body.classList.toggle('hidden');
-            queueToggle.classList.toggle('active');
-        });
-    }
     const queueClearBtn = document.getElementById('np-queue-clear');
     if (queueClearBtn) queueClearBtn.addEventListener('click', () => { clearQueue(); });
 
@@ -1899,14 +1588,7 @@ function initExpandedPlayer() {
     if (autoDownloadBtn) {
         autoDownloadBtn.classList.toggle('active', npAutoDownloadQueue);
         autoDownloadBtn.setAttribute('aria-pressed', npAutoDownloadQueue ? 'true' : 'false');
-        autoDownloadBtn.addEventListener('click', () => {
-            npAutoDownloadQueue = !npAutoDownloadQueue;
-            autoDownloadBtn.classList.toggle('active', npAutoDownloadQueue);
-            autoDownloadBtn.setAttribute('aria-pressed', npAutoDownloadQueue ? 'true' : 'false');
-            try { localStorage.setItem(npAutoDownloadStorageKey(), npAutoDownloadQueue ? '1' : '0'); } catch (_) {}
-            showToast(npAutoDownloadQueue ? 'Queue auto-download enabled' : 'Queue auto-download disabled', 'info');
-            if (npAutoDownloadQueue) npScheduleQueuePrefetch();
-        });
+        autoDownloadBtn.addEventListener('click', () => npSetAutoDownload(!npAutoDownloadQueue));
     }
 
     // Radio mode button
@@ -1916,92 +1598,60 @@ function initExpandedPlayer() {
             npSetRadioMode(!npRadioMode, { fetchIfNeeded: true });
         });
     }
-    // Action link (Go to Artist)
-    const gotoArtistBtn = document.getElementById('np-goto-artist');
-    if (gotoArtistBtn) {
-        gotoArtistBtn.style.textDecoration = 'none';
-        gotoArtistBtn.style.color = 'inherit';
-    }
-    // Buffering state listeners on audioPlayer
+
+    // Keyboard shortcuts (global)
+    document.addEventListener('keydown', handlePlayerKeyboardShortcuts);
+
+    // Buffering: the chrome rings the play button while the element waits
     if (audioPlayer) {
-        audioPlayer.addEventListener('waiting', () => {
-            const ring = document.getElementById('np-buffering-ring');
-            if (ring) ring.classList.remove('hidden');
-        });
-        audioPlayer.addEventListener('canplay', () => {
-            const ring = document.getElementById('np-buffering-ring');
-            if (ring) ring.classList.add('hidden');
-        });
-        audioPlayer.addEventListener('playing', () => {
-            const ring = document.getElementById('np-buffering-ring');
-            if (ring) ring.classList.add('hidden');
-        });
+        audioPlayer.addEventListener('waiting', () => { npBuffering = true; npNotify('buffering'); });
+        const ready = () => { if (npBuffering) { npBuffering = false; npNotify('buffering'); } };
+        audioPlayer.addEventListener('canplay', ready);
+        audioPlayer.addEventListener('playing', ready);
+        audioPlayer.addEventListener('emptied', ready);
     }
 
     // Init Media Session API
     initMediaSession();
 }
 
+let npBuffering = false;
+
+function npSetAutoDownload(on) {
+    npAutoDownloadQueue = Boolean(on);
+    const btn = document.getElementById('np-autodownload-btn');
+    if (btn) {
+        btn.classList.toggle('active', npAutoDownloadQueue);
+        btn.setAttribute('aria-pressed', npAutoDownloadQueue ? 'true' : 'false');
+    }
+    try { localStorage.setItem(npAutoDownloadStorageKey(), npAutoDownloadQueue ? '1' : '0'); } catch (_) {}
+    showToast(npAutoDownloadQueue ? 'Queue auto-download enabled' : 'Queue auto-download disabled', 'info');
+    if (npAutoDownloadQueue) npScheduleQueuePrefetch();
+    npNotify('settings');
+}
+
+function npSetCrossfade(on) {
+    npCrossfadeOn = Boolean(on);
+    try { localStorage.setItem('soulsync-crossfade', npCrossfadeOn ? '1' : '0'); } catch (e) {}
+    npNotify('settings');
+}
+
+// The tray took the Now Playing modal's place: "open" expands the player,
+// "close" collapses it. npModalOpen mirrors the tray for the old checks.
 function openNowPlayingModal() {
-    const overlay = document.getElementById('np-modal-overlay');
-    if (!overlay) return;
-    npModalOpen = true;
-    overlay.classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-    // Suppress the floating bottom chrome (global search bar, FAB buttons)
-    // so it can't sit over the immersive player's transport controls.
-    document.body.classList.add('np-modal-open');
-    syncExpandedPlayerUI();
-    // Bind lyrics toggle (idempotent — only attaches once). Lyrics
-    // fetch fires from setTrackInfo so by the time the modal opens
-    // the panel is usually already populated.
-    _npLyricsInit();
-    // Start visualizer if already playing
-    if (isPlaying) { npInitVisualizer(); npStartVisualizerLoop(); }
+    if (window.SoulSyncPlayerChrome && typeof window.SoulSyncPlayerChrome.expand === 'function') {
+        window.SoulSyncPlayerChrome.expand();
+    }
 }
 
 function closeNowPlayingModal() {
-    const overlay = document.getElementById('np-modal-overlay');
-    if (!overlay) return;
-    npModalOpen = false;
-    overlay.classList.add('hidden');
-    document.body.style.overflow = '';
-    document.body.classList.remove('np-modal-open');
-    npStopVisualizerLoop();
+    if (window.SoulSyncPlayerChrome && typeof window.SoulSyncPlayerChrome.collapse === 'function') {
+        window.SoulSyncPlayerChrome.collapse();
+    }
 }
 
 function syncExpandedPlayerUI() {
-    if (!npModalOpen) return;
-
-    // Track info
-    updateNpTrackInfo();
-
-    // Play state
-    updateNpPlayButton();
-
-    // Progress
-    updateNpProgress();
-
-    // Volume
-    const sidebarVol = document.getElementById('volume-slider');
-    const npVol = document.getElementById('np-volume-slider');
-    const npVolFill = document.getElementById('np-volume-fill');
-    if (sidebarVol && npVol) {
-        npVol.value = sidebarVol.value;
-        if (npVolFill) npVolFill.style.width = sidebarVol.value + '%';
-    }
-
-    // Visualizer
-    const viz = document.getElementById('np-visualizer');
-    if (viz) viz.classList.toggle('playing', isPlaying);
-
-    // Album-art scale-on-play (Phase A restyle — CSS keys off .np-modal.playing)
-    const npModalEl = document.querySelector('.np-modal');
-    if (npModalEl) npModalEl.classList.toggle('playing', isPlaying);
-
-    // Queue
-    renderNpQueue();
-    updateNpPrevNextButtons();
+    npNotify('sync');
 }
 
 // a library track: played from the library, with its db ids. streams and
@@ -2010,40 +1660,14 @@ function npIsReportableTrack(track) {
     return !!(track && track.is_library && track.id != null && track.id !== '' && track.artist_id != null);
 }
 
+// The record's art (#np-album-art) is set here, not by the chrome: its
+// colours become the visuals' palette (npExtractAmbientColor) and the vinyl
+// visual draws it on the label. Everything else the chrome draws.
 function updateNpTrackInfo() {
-    const titleEl = document.getElementById('np-track-title');
-    const artistEl = document.getElementById('np-artist-name');
-    const albumEl = document.getElementById('np-album-name');
     const artImg = document.getElementById('np-album-art');
     const artPlaceholder = document.getElementById('np-album-art-placeholder');
-    const badgesEl = document.getElementById('np-format-badges');
-    const actionBtns = document.getElementById('np-action-buttons');
-
-    if (!titleEl) return;
-
-    // Sidebar album art
-    const sidebarArt = document.getElementById('sidebar-album-art');
 
     if (currentTrack) {
-        // Track text transition animation
-        const textEls = [titleEl, artistEl, albumEl];
-        const oldTitle = titleEl.textContent;
-        const newTitle = currentTrack.title || 'Unknown Track';
-        const trackChanged = oldTitle !== newTitle && oldTitle !== 'No track';
-
-        titleEl.textContent = newTitle;
-        artistEl.textContent = currentTrack.artist || 'Unknown Artist';
-        albumEl.textContent = currentTrack.album || 'Unknown Album';
-
-        if (trackChanged) {
-            textEls.forEach(el => {
-                el.classList.remove('np-text-transition');
-                void el.offsetWidth; // force reflow
-                el.classList.add('np-text-transition');
-            });
-        }
-
-        // Album art (modal + sidebar) + ambient glow extraction
         const artUrl = getNpAlbumArtUrl();
         if (artUrl && artImg) {
             // Only set crossOrigin for external URLs — local paths break with CORS headers
@@ -2052,89 +1676,19 @@ function updateNpTrackInfo() {
             } else {
                 artImg.removeAttribute('crossOrigin');
             }
-            artImg.src = artUrl;
+            if (artImg.getAttribute('src') !== artUrl) artImg.src = artUrl;
             artImg.classList.remove('hidden');
-            artImg.onerror = () => { artImg.classList.add('hidden'); npResetAmbientGlow(); };
+            if (artPlaceholder) artPlaceholder.classList.add('hidden');
+            artImg.onerror = () => {
+                artImg.classList.add('hidden');
+                if (artPlaceholder) artPlaceholder.classList.remove('hidden');
+                npResetAmbientGlow();
+            };
             artImg.onload = () => { npExtractAmbientColor(artImg); };
         } else if (artImg) {
             artImg.classList.add('hidden');
+            if (artPlaceholder) artPlaceholder.classList.remove('hidden');
             npResetAmbientGlow();
-        }
-        if (sidebarArt) {
-            if (artUrl) {
-                sidebarArt.src = artUrl;
-                sidebarArt.style.display = '';
-                sidebarArt.onerror = () => { sidebarArt.src = '/static/trans2.png'; };
-            } else {
-                sidebarArt.src = '/static/trans2.png';
-            }
-        }
-
-        // Format badges (richer: include bitrate/sample_rate)
-        if (badgesEl) {
-            badgesEl.innerHTML = '';
-            const filename = currentTrack.filename || '';
-            if (currentTrack.is_preview) {
-                const badge = document.createElement('span');
-                badge.className = 'np-format-badge preview';
-                badge.textContent = '30s preview';
-                badgesEl.appendChild(badge);
-            } else if (filename) {
-                const ext = getFileExtension(filename);
-                if (ext) {
-                    let label = ext.toUpperCase();
-                    if (currentTrack.sample_rate) {
-                        const khz = (currentTrack.sample_rate / 1000);
-                        label += ' ' + (khz % 1 === 0 ? khz.toFixed(0) : khz.toFixed(1)) + 'kHz';
-                    }
-                    const badge = document.createElement('span');
-                    badge.className = 'np-format-badge' + (ext === 'flac' ? ' flac' : '');
-                    badge.textContent = label;
-                    badgesEl.appendChild(badge);
-                }
-                if (currentTrack.bitrate) {
-                    const brBadge = document.createElement('span');
-                    brBadge.className = 'np-format-badge';
-                    brBadge.textContent = currentTrack.bitrate + 'k';
-                    badgesEl.appendChild(brBadge);
-                }
-            }
-        }
-
-        // Action buttons visibility. the row shows for a track with a library
-        // artist OR one that can go on a playlist (a stream has no artist_id)
-        const npPlaylistTrack = npAddToPlaylistTrack(currentTrack);
-        if (actionBtns) {
-            const hasArtist = currentTrack.artist_id;
-            actionBtns.classList.toggle('hidden', !hasArtist && !npPlaylistTrack);
-            const gotoArtist = document.getElementById('np-goto-artist');
-            if (gotoArtist) gotoArtist.classList.toggle('hidden', !hasArtist);
-        }
-        const addBtn = document.getElementById('np-add-to-playlist');
-        if (addBtn) {
-            addBtn.classList.toggle('hidden', !npPlaylistTrack);
-            if (!addBtn._npAddAttached) {
-                addBtn.addEventListener('click', () => {
-                    const t = npAddToPlaylistTrack(currentTrack);
-                    if (!t || typeof window.openAddToPlaylist !== 'function') return;
-                    window.openAddToPlaylist(t, addBtn);
-                });
-                addBtn._npAddAttached = true;
-            }
-        }
-        // reporting needs a library row to point at
-        const reportBtn = document.getElementById('np-report-issue');
-        if (reportBtn) {
-            reportBtn.classList.toggle('hidden', !npIsReportableTrack(currentTrack));
-            if (!reportBtn._npReportAttached) {
-                reportBtn.addEventListener('click', () => {
-                    const t = currentTrack;
-                    if (!npIsReportableTrack(t) || typeof window.showReportIssueModal !== 'function') return;
-                    try { closeNowPlayingModal(); } catch (e) { /* the report opens either way */ }
-                    window.showReportIssueModal('track', t.id, t.title || 'Track', t.artist || '', t.album || '');
-                });
-                reportBtn._npReportAttached = true;
-            }
         }
 
         // Track recently played for radio mode
@@ -2143,13 +1697,8 @@ function updateNpTrackInfo() {
             if (npRecentlyPlayedIds.length > 50) npRecentlyPlayedIds.shift();
         }
     } else {
-        titleEl.textContent = 'No track';
-        artistEl.textContent = 'Unknown Artist';
-        albumEl.textContent = 'Unknown Album';
         if (artImg) artImg.classList.add('hidden');
-        if (sidebarArt) sidebarArt.src = '/static/trans2.png';
-        if (badgesEl) badgesEl.innerHTML = '';
-        if (actionBtns) actionBtns.classList.add('hidden');
+        if (artPlaceholder) artPlaceholder.classList.remove('hidden');
         npResetAmbientGlow();
     }
 }
@@ -2421,146 +1970,43 @@ function npResetAmbientGlow() {
 }
 
 function updateNpPlayButton() {
-    const playIcon = document.querySelector('.np-icon-play');
-    const pauseIcon = document.querySelector('.np-icon-pause');
-    if (playIcon && pauseIcon) {
-        playIcon.classList.toggle('hidden', isPlaying);
-        pauseIcon.classList.toggle('hidden', !isPlaying);
-    }
-
-    const viz = document.getElementById('np-visualizer');
-    if (viz) viz.classList.toggle('playing', isPlaying);
-
-    // Drive Web Audio visualizer (only when modal is open to save CPU)
-    if (isPlaying && npModalOpen) {
-        npInitVisualizer();
-        npStartVisualizerLoop();
-    } else {
-        npStopVisualizerLoop();
-    }
+    // the chrome draws the play state; the old modal's visualizer bars are gone
+    npNotify('playing');
 }
 
 function updateNpProgress() {
-    if (!npModalOpen || !audioPlayer) return;
-
-    const npProgressBar = document.getElementById('np-progress-bar');
-    const npProgressFill = document.getElementById('np-progress-fill');
-    const npCurrentTime = document.getElementById('np-current-time');
-    const npTotalTime = document.getElementById('np-total-time');
-
-    if (audioPlayer.duration) {
-        const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
-        if (npProgressBar && !npProgressBar.dataset.seeking) {
-            npProgressBar.value = progress;
-        }
-        if (npProgressFill) npProgressFill.style.width = progress + '%';
-        if (npCurrentTime) npCurrentTime.textContent = formatTime(audioPlayer.currentTime);
-        if (npTotalTime) npTotalTime.textContent = formatTime(audioPlayer.duration);
-    } else {
-        if (npProgressBar) npProgressBar.value = 0;
-        if (npProgressFill) npProgressFill.style.width = '0%';
-        if (npCurrentTime) npCurrentTime.textContent = '0:00';
-        if (npTotalTime) npTotalTime.textContent = '0:00';
-    }
+    // the chrome follows the time from the element itself
 }
 
 function handleNpProgressBarChange(event) {
     if (!audioPlayer || !audioPlayer.duration) return;
-    const progress = parseFloat(event.target.value);
-    const newTime = (progress / 100) * audioPlayer.duration;
-
-    try {
-        audioPlayer.currentTime = newTime;
-        updateMediaSessionPositionState();
-
-        // Sync sidebar progress
-        const sidebarBar = document.getElementById('progress-bar');
-        const sidebarFill = document.getElementById('progress-fill');
-        if (sidebarBar) sidebarBar.value = progress;
-        if (sidebarFill) sidebarFill.style.width = progress + '%';
-
-        // Sync modal progress fill
-        const npFill = document.getElementById('np-progress-fill');
-        if (npFill) npFill.style.width = progress + '%';
-
-        // Update time displays
-        const sidebarTime = document.getElementById('current-time');
-        const npTime = document.getElementById('np-current-time');
-        if (sidebarTime) sidebarTime.textContent = formatTime(newTime);
-        if (npTime) npTime.textContent = formatTime(newTime);
-    } catch (error) {
-        console.warn('Seek failed:', error.message);
-    }
+    npSeek((parseFloat(event.target.value) / 100) * audioPlayer.duration);
 }
 
 function handleNpVolumeChange(event) {
-    const volume = parseInt(event.target.value);
-    if (audioPlayer) audioPlayer.volume = volume / 100;
-    npPersistVolume(volume);
-
-    // Sync sidebar volume slider
-    const sidebarVol = document.getElementById('volume-slider');
-    if (sidebarVol) {
-        sidebarVol.value = volume;
-        sidebarVol.style.setProperty('--volume-percent', volume + '%');
-    }
-
-    // Update modal volume fill
-    const npFill = document.getElementById('np-volume-fill');
-    if (npFill) npFill.style.width = volume + '%';
-
-    // Update mute state
-    npMuted = volume === 0;
-    updateNpMuteIcon();
+    npSetVolume(parseInt(event.target.value, 10));
 }
 
+// Mute keeps the level to come back to.
 function handleNpMuteToggle() {
-    const npVol = document.getElementById('np-volume-slider');
-    if (!npVol) return;
-
     if (npMuted) {
-        // Unmute — restore previous volume
-        npVol.value = npPreMuteVolume;
-        npVol.dispatchEvent(new Event('input'));
         npMuted = false;
+        npSetVolume(npPreMuteVolume > 0 ? npPreMuteVolume : 70);
     } else {
-        // Mute — save current volume, set to 0
-        npPreMuteVolume = parseInt(npVol.value) || 70;
-        npVol.value = 0;
-        npVol.dispatchEvent(new Event('input'));
+        npPreMuteVolume = npVolumePercent > 0 ? npVolumePercent : 70;
         npMuted = true;
+        if (audioPlayer) audioPlayer.volume = 0;
+        npNotify('volume');
     }
-    updateNpMuteIcon();
 }
 
 function updateNpMuteIcon() {
-    const muteBtn = document.getElementById('np-mute-btn');
-    const volIcon = muteBtn ? muteBtn.querySelector('.np-icon-vol') : null;
-    const mutedIcon = muteBtn ? muteBtn.querySelector('.np-icon-muted') : null;
-    if (volIcon && mutedIcon) {
-        volIcon.classList.toggle('hidden', npMuted);
-        mutedIcon.classList.toggle('hidden', !npMuted);
-    }
-    if (muteBtn) muteBtn.classList.toggle('muted', npMuted);
+    npNotify('volume');
 }
 
-// Reflect shuffle/repeat state on BOTH the modal and mini-player buttons.
+// Shuffle and repeat: the chrome reads npShuffleOn / npRepeatMode.
 function syncShuffleRepeatUI() {
-    const npShuffle = document.getElementById('np-shuffle-btn');
-    const miniShuffle = document.getElementById('mini-shuffle-btn');
-    if (npShuffle) npShuffle.classList.toggle('active', npShuffleOn);
-    if (miniShuffle) miniShuffle.classList.toggle('active', npShuffleOn);
-
-    const repeatOn = npRepeatMode !== 'off';
-    const repeatOne = npRepeatMode === 'one';
-    const npRepeat = document.getElementById('np-repeat-btn');
-    const miniRepeat = document.getElementById('mini-repeat-btn');
-    if (npRepeat) npRepeat.classList.toggle('active', repeatOn);
-    if (miniRepeat) miniRepeat.classList.toggle('active', repeatOn);
-    const npBadge = document.getElementById('np-repeat-one-badge');
-    const miniBadge = document.getElementById('mini-repeat-one-badge');
-    if (npBadge) npBadge.classList.toggle('hidden', !repeatOne);
-    if (miniBadge) miniBadge.style.display = repeatOne ? '' : 'none';
+    npNotify('modes');
 }
 
 function handleNpShuffle() {
@@ -2592,15 +2038,7 @@ function handleNpRepeat() {
 let npPlayContext = '';
 function npSetPlayContext(text) {
     npPlayContext = text || '';
-    const box = document.getElementById('np-play-context');
-    const nameEl = document.getElementById('np-play-context-name');
-    if (!box || !nameEl) return;
-    if (npPlayContext) {
-        nameEl.textContent = npPlayContext;
-        box.classList.remove('hidden');
-    } else {
-        box.classList.add('hidden');
-    }
+    npNotify('context');
 }
 
 function addToQueue(track) {
@@ -2783,6 +2221,40 @@ async function playQueueItem(index, options = {}) {
     let preview = null;
 
     try {
+        if (track.media_src) {
+            // A podcast episode or an audiobook sample: no server stream, the
+            // element plays the episode's own address.
+            const previousSetup = npPlaybackSetup;
+            npPlaybackSetup = new Promise(resolve => { releaseSetup = resolve; });
+            await previousSetup;
+            if (!isCurrent()) return { status: 'superseded' };
+            await stopStream();
+            if (!isCurrent()) return { status: 'superseded' };
+            setTrackInfo({
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                filename: '',
+                is_library: false,
+                kind: track.kind,
+                media_id: track.media_id,
+                media_src: track.media_src,
+                image_url: track.image_url,
+                duration: track.duration,
+                chapters: track.chapters,
+                chapters_url: track.chapters_url,
+            });
+            showLoadingAnimation();
+            if (audioPlayer) audioPlayer.loop = (npRepeatMode === 'one');
+            const playback = await startAudioPlayback(isCurrent, signal, null, track.media_src);
+            if (playback?.status !== 'played') {
+                if (playback?.status === 'superseded') return playback;
+                throw new Error(playback?.error || 'Playback did not start');
+            }
+            renderNpQueue();
+            updateNpPrevNextButtons();
+            return { status: 'played' };
+        }
         if (!track.file_path && !npAutoDownloadQueue) {
             preview = await npFindQueuePreview(track, signal);
             if (!isCurrent()) return { status: 'superseded' };
@@ -2951,6 +2423,28 @@ function npAnnounceQueue(message) {
     note.textContent = message;
 }
 
+// "artist · FLAC" / "artist · MP3 320" / "show · podcast · 1.2×" under a
+// queue row's title (board 6a).
+function npQueueRowMeta(track) {
+    const who = track.artist || 'Unknown Artist';
+    if (track.kind === 'podcast' || track.kind === 'audiobook') {
+        const speed = (window.npV2 && typeof window.npV2.getSpeed === 'function') ? window.npV2.getSpeed() : 1;
+        return [who, track.kind, speed !== 1 ? `${speed}×` : ''].filter(Boolean).join(' · ');
+    }
+    const ext = getFileExtension(track.file_path || track.filename || '').toUpperCase();
+    if (!ext) return who;
+    const lossy = ['MP3', 'M4A', 'AAC', 'OGG', 'OPUS', 'WMA'].includes(ext);
+    const fmt = ext === 'M4A' ? 'AAC' : ext;
+    return `${who} · ${lossy && track.bitrate ? `${fmt} ${track.bitrate}` : fmt}`;
+}
+
+const NP_GRIP_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
+
+// The queue rows (the tray's Up next). Every row is in the list; the ones
+// already played and the one playing are classed so the list shows what's
+// up next until "Show all". Each row: a drag grip, the art, a Play button
+// (title + "artist · format"), the duration or download state, and the
+// actions (play next, earlier, later, remove) on hover or focus.
 function renderNpQueue() {
     const listEl = document.getElementById('np-queue-list');
     const emptyEl = document.getElementById('np-queue-empty');
@@ -2966,17 +2460,23 @@ function renderNpQueue() {
     if (npQueue.length === 0) {
         listEl.innerHTML = '';
         if (emptyEl) emptyEl.classList.remove('hidden');
+        if (typeof npPersistQueue === 'function') npPersistQueue();
+        if (typeof npNotify === 'function') npNotify('queue');
         return;
     }
 
     if (emptyEl) emptyEl.classList.add('hidden');
     listEl.innerHTML = '';
 
+    let firstUpNext = true;
     npQueue.forEach((track, i) => {
         const item = document.createElement('div');
-        item.className = 'np-queue-item' + (i === npQueueIndex ? ' active' : '');
+        const place = i < npQueueIndex ? 'played' : (i === npQueueIndex ? 'active' : 'upnext');
+        item.className = 'np-queue-item ' + place;
+        if (place === 'upnext' && firstUpNext) { item.classList.add('upnext-first'); firstUpNext = false; }
         item.setAttribute('role', 'listitem');
         item.setAttribute('aria-label', `${i + 1} of ${npQueue.length}`);
+        if (i === npQueueIndex) item.setAttribute('aria-current', 'true');
 
         // Drag-to-reorder
         item.draggable = true;
@@ -2985,6 +2485,12 @@ function renderNpQueue() {
         item.addEventListener('dragover', npQueueDragOver);
         item.addEventListener('drop', npQueueDrop);
         item.addEventListener('dragend', npQueueDragEnd);
+
+        const grip = document.createElement('span');
+        grip.className = 'np-queue-item-grip';
+        grip.setAttribute('aria-hidden', 'true');
+        grip.innerHTML = typeof NP_GRIP_SVG !== 'undefined' ? NP_GRIP_SVG : '';
+        item.appendChild(grip);
 
         // Album thumbnail
         const art = document.createElement('img');
@@ -3011,7 +2517,7 @@ function renderNpQueue() {
 
         const artist = document.createElement('span');
         artist.className = 'np-queue-item-artist';
-        artist.textContent = track.artist || 'Unknown Artist';
+        artist.textContent = typeof getFileExtension === 'function' ? npQueueRowMeta(track) : (track.artist || 'Unknown Artist');
 
         info.appendChild(title);
         info.appendChild(artist);
@@ -3022,7 +2528,7 @@ function renderNpQueue() {
         const meta = document.createElement('div');
         meta.className = 'np-queue-item-meta';
         const queueStatus = npQueueStatusLabel(track);
-        if (!track.file_path || (track.playback_status && track.playback_status !== 'ready')) {
+        if (!track.media_src && (!track.file_path || (track.playback_status && track.playback_status !== 'ready'))) {
             const status = document.createElement('span');
             status.className = `np-queue-item-status ${track.playback_status || 'missing'}`;
             status.textContent = queueStatus || 'Missing';
@@ -3031,6 +2537,7 @@ function renderNpQueue() {
         } else if (i === npQueueIndex) {
             const eq = document.createElement('div');
             eq.className = 'np-queue-item-eq';
+            eq.setAttribute('aria-hidden', 'true');
             eq.innerHTML = '<i></i><i></i><i></i>';
             meta.appendChild(eq);
         } else if (track.duration) {
@@ -3080,6 +2587,7 @@ function renderNpQueue() {
     npUpdateUpNext();
     npPersistQueue();
     if (focusedAction && focusedIndex !== undefined) npFocusQueueAction(Number(focusedIndex), focusedAction);
+    if (typeof npNotify === 'function') npNotify('queue');
 }
 
 // ── Queue persistence across page reloads (localStorage) ──
@@ -3106,7 +2614,7 @@ function npRestoreQueue() {
         if (data && Array.isArray(data.queue) && data.queue.length) {
             npQueue = npPrepareQueueTracks(data.queue).map(track => {
                 const restored = track;
-                if (!restored.file_path) {
+                if (!restored.file_path && !restored.media_src) {
                     restored.playback_status = 'missing';
                     restored.playback_error = '';
                     restored.download_progress = 0;
@@ -3173,31 +2681,17 @@ function npReorderQueue(from, to) {
     npScheduleQueuePrefetch();
 }
 
-// Up-next peek: show the track that plays after the current one.
-function npUpdateUpNext() {
-    const box = document.getElementById('np-upnext');
-    if (!box) return;
-    const next = npQueue[npQueueIndex + 1];
-    if (!next) { box.classList.add('hidden'); return; }
-    box.classList.remove('hidden');
-    const art = document.getElementById('np-upnext-art');
-    const title = document.getElementById('np-upnext-title');
-    const artist = document.getElementById('np-upnext-artist');
-    if (title) title.textContent = next.title || 'Unknown Track';
-    if (artist) artist.textContent = next.artist || 'Unknown Artist';
-    if (art) {
-        if (next.image_url) { art.src = next.image_url; art.style.visibility = ''; art.onerror = () => { art.style.visibility = 'hidden'; }; }
-        else { art.style.visibility = 'hidden'; }
-    }
-}
+// Up-next peek: the old modal's "Next" line. The tray's list shows what's
+// up next now; kept for callers.
+function npUpdateUpNext() {}
 
-// Sleep timer: cycle off → 15 → 30 → 45 → 60 → 90 → 120 → end-of-track → off.
-// End-of-track pauses when the current track finishes instead of using a
-// minute timer. Firing always pauses (never stops) — see npFireSleepTimer.
-function npCycleSleepTimer() {
-    const steps = [0, 15, 30, 45, 60, 90, 120, 'track'];
-    const cur = npSleepEndOfTrack ? 'track' : npSleepMinutes;
-    const next = steps[(steps.indexOf(cur) + 1) % steps.length];
+// Sleep timer: off, 15 / 30 / 45 / 60 / 90 / 120 minutes, or the end of the
+// track. End-of-track pauses when the current track finishes instead of using
+// a minute timer. Firing always pauses (never stops) — see npFireSleepTimer.
+const NP_SLEEP_STEPS = [0, 15, 30, 45, 60, 90, 120, 'track'];
+let npSleepEndsAt = 0;   // ms timestamp the minute timer fires at, 0 when off
+
+function npSetSleepTimer(next) {
     npClearSleepTimer();
     const btn = document.getElementById('np-sleep-btn');
     const label = document.getElementById('np-sleep-label');
@@ -3210,18 +2704,29 @@ function npCycleSleepTimer() {
         if (label) label.textContent = `Sleep ${npSleepMinutes}m`;
         if (btn) btn.classList.add('active');
         npSleepTimerId = setTimeout(npFireSleepTimer, npSleepMinutes * 60 * 1000);
+        npSleepEndsAt = Date.now() + npSleepMinutes * 60 * 1000;
     }
     // next === 0 means fully off, already handled by npClearSleepTimer().
+    if (typeof npNotify === 'function') npNotify('sleep');
+}
+
+// Cycle off → 15 → 30 → 45 → 60 → 90 → 120 → end-of-track → off.
+function npCycleSleepTimer() {
+    const steps = NP_SLEEP_STEPS;
+    const cur = npSleepEndOfTrack ? 'track' : npSleepMinutes;
+    npSetSleepTimer(steps[(steps.indexOf(cur) + 1) % steps.length]);
 }
 
 function npClearSleepTimer() {
     if (npSleepTimerId) { clearTimeout(npSleepTimerId); npSleepTimerId = null; }
     npSleepMinutes = 0;
     npSleepEndOfTrack = false;
+    npSleepEndsAt = 0;
     const btn = document.getElementById('np-sleep-btn');
     const label = document.getElementById('np-sleep-label');
     if (label) label.textContent = 'Sleep';
     if (btn) btn.classList.remove('active');
+    if (typeof npNotify === 'function') npNotify('sleep');
 }
 
 function npFireSleepTimer() {
@@ -3237,24 +2742,15 @@ function npFireSleepTimer() {
     npClearSleepTimer();
 }
 
+let npCanPrev = false;
+let npCanNext = false;
 function updateNpPrevNextButtons() {
-    const canPrev = npQueueIndex > 0 || (audioPlayer && audioPlayer.currentTime > 3);
+    npCanPrev = npQueueIndex > 0 || Boolean(audioPlayer && audioPlayer.currentTime > 3);
     // Radio keeps next alive at the batch tail — a skip there fetches more.
     const radioCanFetch = npRadioMode && currentTrack && currentTrack.id;
-    const canNext = (npQueue.length > 0 && (npShuffleOn ? npQueue.length > 1 : (npQueueIndex < npQueue.length - 1 || npRepeatMode === 'all')))
+    npCanNext = (npQueue.length > 0 && (npShuffleOn ? npQueue.length > 1 : (npQueueIndex < npQueue.length - 1 || npRepeatMode === 'all')))
         || Boolean(radioCanFetch);
-
-    // Full Now Playing modal buttons
-    const prevBtn = document.getElementById('np-prev-btn');
-    const nextBtn = document.getElementById('np-next-btn');
-    if (prevBtn) prevBtn.disabled = !canPrev;
-    if (nextBtn) nextBtn.disabled = !canNext;
-
-    // Mini player buttons
-    const miniPrevBtn = document.getElementById('mini-prev-btn');
-    const miniNextBtn = document.getElementById('mini-next-btn');
-    if (miniPrevBtn) miniPrevBtn.disabled = !canPrev;
-    if (miniNextBtn) miniNextBtn.disabled = !canNext;
+    npNotify('queue');
 }
 
 // what the now playing "Add to playlist" hands the picker: artist + title,
@@ -3277,13 +2773,17 @@ function handlePlayerKeyboardShortcuts(event) {
     const tag = document.activeElement.tagName.toLowerCase();
     if (tag === 'input' || tag === 'textarea' || tag === 'select' || document.activeElement.isContentEditable) return;
 
-    // Only handle when player modal is open OR when no other modal is visible
+    // Leave the keys to any dialog that's open (the visuals handle their own)
+    if (event.defaultPrevented) return;
     const otherModals = document.querySelectorAll('.modal-overlay:not(.hidden):not(#np-modal-overlay)');
-    if (otherModals.length > 0 && !npModalOpen) return;
+    if (otherModals.length > 0) return;
+    if (document.activeElement?.closest?.('[role="dialog"][data-open], .ss-player-menu')) return;
 
     switch (event.key) {
         case ' ':
             if (!currentTrack) return;
+            // a focused control takes its own Space
+            if (document.activeElement?.closest?.('button, a[href], [role="slider"], [role="tab"], summary')) return;
             event.preventDefault();
             togglePlayback();
             break;
@@ -3298,20 +2798,14 @@ function handlePlayerKeyboardShortcuts(event) {
             audioPlayer.currentTime = Math.min(audioPlayer.duration, audioPlayer.currentTime + 5);
             break;
         case 'ArrowUp':
+            if (!currentTrack) return;
             event.preventDefault();
-            if (audioPlayer) {
-                const newVol = Math.min(1, audioPlayer.volume + 0.05);
-                audioPlayer.volume = newVol;
-                syncVolumeUI(Math.round(newVol * 100));
-            }
+            npSetVolume(npVolumePercent + 5);
             break;
         case 'ArrowDown':
+            if (!currentTrack) return;
             event.preventDefault();
-            if (audioPlayer) {
-                const newVol = Math.max(0, audioPlayer.volume - 0.05);
-                audioPlayer.volume = newVol;
-                syncVolumeUI(Math.round(newVol * 100));
-            }
+            npSetVolume(npVolumePercent - 5);
             break;
         case 'm':
         case 'M':
@@ -3328,27 +2822,13 @@ function handlePlayerKeyboardShortcuts(event) {
             event.preventDefault();
             playPreviousInQueue();
             break;
-        case 'Escape':
-            if (npModalOpen) closeNowPlayingModal();
-            break;
         default:
             return; // Don't prevent default for unhandled keys
     }
 }
 
 function syncVolumeUI(volumePercent) {
-    // Sync both sidebar and modal volume UIs
-    const sidebarVol = document.getElementById('volume-slider');
-    const npVol = document.getElementById('np-volume-slider');
-    const npFill = document.getElementById('np-volume-fill');
-
-    if (sidebarVol) {
-        sidebarVol.value = volumePercent;
-        sidebarVol.style.setProperty('--volume-percent', volumePercent + '%');
-    }
-    if (npVol) npVol.value = volumePercent;
-    if (npFill) npFill.style.width = volumePercent + '%';
-    npPersistVolume(volumePercent);
+    npSetVolume(volumePercent);
 }
 
 // Remember volume across reloads (Spotify-style). Stored 0..100.
@@ -3415,67 +2895,8 @@ function npInitVisualizer() {
     }
 }
 
-// Number of bars in the big album-art visualizer takeover.
-const NP_ART_VIZ_BAR_COUNT = 28;
-
-function npBuildArtViz() {
-    const container = document.getElementById('np-art-viz');
-    if (!container || container.children.length > 0) return;
-    for (let i = 0; i < NP_ART_VIZ_BAR_COUNT; i++) {
-        const bar = document.createElement('div');
-        bar.className = 'np-art-viz-bar';
-        container.appendChild(bar);
-    }
-}
-
-function npStartVisualizerLoop() {
-    if (npVizAnimFrame) return; // Already running
-    if (!npAnalyser) return; // No analyser — CSS fallback handles it
-
-    if (npAudioContext && npAudioContext.state === 'suspended') {
-        npAudioContext.resume();
-    }
-
-    const bars = document.querySelectorAll('.np-viz-bar');
-    const bufferLength = npAnalyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-
-    function draw() {
-        npVizAnimFrame = requestAnimationFrame(draw);
-        npAnalyser.getByteFrequencyData(dataArray);
-
-        // Map 7 transport bars to frequency bins (skip bin 0 = DC offset)
-        for (let i = 0; i < bars.length; i++) {
-            const binIndex = Math.min(i + 1, bufferLength - 1);
-            const value = dataArray[binIndex] / 255; // 0..1
-            const scale = Math.max(0.08, value); // minimum visible height
-            bars[i].style.transform = `scaleY(${scale})`;
-        }
-
-        // Big album-art visualizer (when toggled on) — same real analyser,
-        // spread across more bars for a fuller spectrum.
-        const artBars = document.querySelectorAll('.np-art-viz-bar');
-        if (artBars.length) {
-            const span = bufferLength - 1;
-            for (let i = 0; i < artBars.length; i++) {
-                const binIndex = 1 + Math.floor((i / artBars.length) * span);
-                const value = dataArray[Math.min(binIndex, bufferLength - 1)] / 255;
-                artBars[i].style.height = Math.max(6, value * 100) + '%';
-            }
-        }
-    }
-    draw();
-}
-
-function npStopVisualizerLoop() {
-    if (npVizAnimFrame) {
-        cancelAnimationFrame(npVizAnimFrame);
-        npVizAnimFrame = null;
-    }
-    // Reset bars to min
-    const bars = document.querySelectorAll('.np-viz-bar');
-    bars.forEach(bar => { bar.style.transform = 'scaleY(0.125)'; });
-}
+// The old transport bars and album-art visualizer went with the old player;
+// the visuals overlay (media-player-v2.js) reads npAnalyser itself.
 
 // ===============================
 // SIDEBAR AUDIO VISUALIZER
@@ -3829,13 +3250,13 @@ async function startLibraryRadio() {
         renderNpQueue();
         // Context BEFORE enabling radio — npSetRadioMode keeps a specific
         // "<X> Radio" label when one is already set.
-        npSetPlayContext('Library Radio');
+        npSetPlayContext('Shuffle your library');
         npSetRadioMode(true, { toast: false });
         await playQueueItem(0);
-        showToast('Library Radio on - shuffling your whole library', 'success');
+        showToast('Shuffling your whole library', 'success');
     } catch (e) {
         console.warn('Library radio failed:', e);
-        showToast(`Failed to start Library Radio: ${e.message}`, 'error');
+        showToast(`Couldn't shuffle your library: ${e.message}`, 'error');
     }
 }
 window.startLibraryRadio = startLibraryRadio;
@@ -3968,6 +3389,8 @@ function npMaybeLogPlay() {
     // a 30s clip isn't a listen: it would land in recently played and
     // smart-radio recency for a song nobody heard
     if (currentTrack.is_preview) return;
+    // an episode, a sample or a radio stream isn't a music listen either
+    if (currentTrack.kind && currentTrack.kind !== 'library' && currentTrack.kind !== 'stream') return;
     if (!isFinite(audioPlayer.currentTime) || audioPlayer.currentTime < 10) return;
     npPlayLogged = true;   // set first so a slow request can't double-fire
     const gen = npPlayGeneration;   // a late response for a skipped track must not claim this track's id
@@ -4060,3 +3483,119 @@ function updateMediaSessionPlaybackState() {
 }
 
 // ===============================
+// PODCASTS AND AUDIOBOOKS
+// ===============================
+
+// Play a podcast episode or an audiobook sample in the app's one player.
+// It goes in the queue right after what's playing and starts; the same
+// episode again is play / pause. item: {kind: 'podcast'|'audiobook', id, src,
+// title, subtitle, album, artUrl, durationHint, chapters, chaptersUrl}.
+async function npPlayMedia(item) {
+    if (!item || !item.src) return { status: 'empty' };
+    if (currentTrack && currentTrack.media_id && item.id && currentTrack.media_id === item.id
+            && audioPlayer && audioPlayer.src) {
+        togglePlayback();
+        return { status: 'toggled' };
+    }
+    window.cancelPendingPlayback();
+    npCancelCrossfade();
+    const entry = npPrepareQueueTrack({
+        title: item.title || 'Untitled',
+        artist: item.subtitle || '',
+        album: item.album || item.subtitle || '',
+        kind: item.kind === 'audiobook' ? 'audiobook' : 'podcast',
+        media_id: item.id || item.src,
+        media_src: item.src,
+        image_url: item.artUrl || null,
+        duration: Number(item.durationHint) || null,
+        chapters: Array.isArray(item.chapters) ? item.chapters : null,
+        chapters_url: item.chaptersUrl || null,
+    });
+    const at = npQueueIndex >= 0 ? npQueueIndex + 1 : npQueue.length;
+    npQueue.splice(at, 0, entry);
+    renderNpQueue();
+    return await playQueueItem(at);
+}
+window.playMedia = npPlayMedia;
+
+// Skip back or forward by seconds (the spoken-word −15 s / +30 s).
+function npSkip(seconds) {
+    if (!audioPlayer || !audioPlayer.duration || !isFinite(audioPlayer.duration)) return;
+    npSeek(audioPlayer.currentTime + Number(seconds || 0));
+}
+
+// ===============================
+// THE PLAYER'S API (for src/shell/player.ts and the pages)
+// ===============================
+
+function npLoadingSnapshot() {
+    const el = document.getElementById('loading-animation');
+    if (!el) return { active: false, text: '', progress: 0 };
+    const text = (el.querySelector('.loading-text')?.textContent || '').trim();
+    const width = parseFloat(el.querySelector('.loading-progress')?.style.width || '0') || 0;
+    return { active: !el.classList.contains('hidden'), text, progress: width };
+}
+
+window.SoulSyncPlayer = {
+    /** Everything the chrome draws, read fresh each time. */
+    state() {
+        return {
+            track: currentTrack,
+            kind: npTrackKind(currentTrack),
+            playing: Boolean(isPlaying),
+            buffering: npBuffering,
+            loading: npLoadingSnapshot(),
+            queue: npQueue,
+            index: npQueueIndex,
+            canPrevious: npCanPrev,
+            canNext: npCanNext,
+            shuffle: npShuffleOn,
+            repeat: npRepeatMode,
+            radio: npRadioMode,
+            autoDownload: npAutoDownloadQueue,
+            crossfade: npCrossfadeOn,
+            context: npPlayContext,
+            volume: npVolumePercent,
+            muted: npMuted,
+            sleep: npSleepEndOfTrack ? 'track' : npSleepMinutes,
+            sleepEndsAt: npSleepEndsAt,
+            sleepSteps: NP_SLEEP_STEPS.slice(),
+            lyrics: { synced: _npLyricsState.synced, lines: _npLyricsState.lines.length, loading: _npLyricsState.fetchInFlight,
+                status: (document.getElementById('np-lyrics-status')?.textContent || '').trim() },
+            reportable: npIsReportableTrack(currentTrack),
+            playlistTrack: npAddToPlaylistTrack(currentTrack),
+        };
+    },
+    audio() { return audioPlayer; },
+    /** what an output device has to be set on: both elements and the audio graph */
+    outputTargets() {
+        return {
+            elements: [audioPlayer, document.getElementById('audio-player-xfade')].filter(Boolean),
+            context: npAudioContext,
+        };
+    },
+    analyser() { return npAnalyser; },
+    toggle: () => togglePlayback(),
+    stop: () => handleStop(),
+    next: () => playNextInQueue(),
+    previous: () => playPreviousInQueue(),
+    seek: (seconds) => npSeek(seconds),
+    skip: (seconds) => npSkip(seconds),
+    setVolume: (percent) => npSetVolume(percent),
+    toggleMute: () => handleNpMuteToggle(),
+    toggleShuffle: () => handleNpShuffle(),
+    cycleRepeat: () => handleNpRepeat(),
+    playIndex: (index) => playQueueItem(index),
+    remove: (index) => removeFromQueue(index),
+    move: (from, to) => npReorderQueue(from, to),
+    clearQueue: () => clearQueue(),
+    setRadio: (on) => npSetRadioMode(on, { fetchIfNeeded: true }),
+    setAutoDownload: (on) => npSetAutoDownload(on),
+    setCrossfade: (on) => npSetCrossfade(on),
+    setSleep: (value) => npSetSleepTimer(value),
+    playMedia: (item) => npPlayMedia(item),
+    playNext: (track) => playNext(track),
+    addToQueue: (track) => addToQueue(track),
+    /** the chrome tells the engine when the tray opens or closes */
+    setExpanded(open) { npModalOpen = Boolean(open); },
+};

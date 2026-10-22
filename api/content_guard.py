@@ -6,6 +6,9 @@ through each one this hooks the app once (register(app)):
   hard block (before the route runs, 403 restricted)
     POST /api/library/play        body file_path / track_id
     GET  /stream/library-audio    ?path= / ?track_id=
+    GET  /api/library/tracks/<id>/peaks, /details
+                                  the player's waveform and readout for a
+                                  track it couldn't play either
     POST /api/stream/start        playing a soulseek search result: there's
     POST /api/verification/<id>/play, /api/quarantine/<id>/play
                                   no explicit data on a peer's file or an
@@ -99,6 +102,7 @@ def track_is_explicit(db, file_path=None, track_id=None) -> bool:
 
 
 _UNVOUCHED_STREAMS = {("/api/stream/start", "POST")}
+_PLAYER_TRACK = re.compile(r"^/api/library/tracks/([^/]+)/(peaks|details)$")
 _REVIEW_PLAY = re.compile(r"^/api/(verification|quarantine)/[^/]+/play$")
 # the session key /api/library/play sets to the file (or server stream) it
 # checked. /stream/audio for a kid only serves while the session still
@@ -140,6 +144,8 @@ def _guard_play():
         fp, tid = data.get("file_path"), data.get("track_id")
     elif path == "/stream/library-audio":
         fp, tid = request.args.get("path"), request.args.get("track_id")
+    elif request.method == "GET" and _PLAYER_TRACK.match(path):
+        fp, tid = None, _PLAYER_TRACK.match(path).group(1)
     else:
         return None
     if not _hide_explicit():

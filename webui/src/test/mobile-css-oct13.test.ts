@@ -84,34 +84,32 @@ describe('M-13/M-14 — the 38px touch-target rule must not deform designed-roun
   });
 });
 
-describe('M-14 — mini player phone layout', () => {
-  it('the expand chevron goes (the bar itself opens Now Playing)', () => {
-    expect(blockAfter(MOBILE, '.mini-player-controls .expand-hint {')).toContain('display: none');
-  });
+// M-14 pinned the old floating mini player's phone layout. The player
+// (board 6a, static/player.css) replaced it with a 64px mini bar on the tab bar.
+describe('M-14 — the phone mini bar (board 4i)', () => {
+  const PLAYER = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
 
-  it('the toggles drop only below 340px, so 390px phones keep the full transport', () => {
-    const at = MOBILE.indexOf('@media (max-width: 340px)');
+  it('at ≤768px the bar gives way to a 64px mini bar sitting on the tab bar', () => {
+    const at = PLAYER.indexOf('@media (max-width: 768px)');
     expect(at).toBeGreaterThan(-1);
-    expect(blockAfter(MOBILE.slice(at), '.mini-player-controls .mini-toggle-btn {')).toContain(
-      'display: none',
-    );
-    expect(MOBILE).not.toContain('@media (max-width: 400px) {\n    .mini-player-controls');
+    const phone = PLAYER.slice(at);
+    expect(phone).toContain('html[data-player] { --ss-player-h: 64px; }');
+    expect(blockAfter(phone, '.ss-player {')).toContain('bottom: calc(var(--ss-tabbar-h)');
+    expect(blockAfter(phone, '.ss-player-bar {')).toContain('display: none');
+    const mini = blockAfter(phone, '.ss-player-mini {');
+    expect(mini).toContain('height: 64px');
+    expect(mini).toContain('grid-template-columns: minmax(0, 1fr) auto 44px');
   });
 
-  it('the play button is a 36px circle', () => {
-    const block = blockAfter(MOBILE, '.mini-player-controls .play-button {');
-    expect(block).toContain('width: 36px');
-    expect(block).toContain('height: 36px');
+  it('the title column can shrink so the art, one action and play/stop keep their room', () => {
+    expect(blockAfter(PLAYER, '.ss-player-mini-open {')).toContain('min-width: 0');
   });
 
-  it('the art, body gap and info column are tightened so the title gets the room', () => {
-    const art = blockAfter(MOBILE, '.media-player .sidebar-album-art {');
-    expect(art).toContain('width: 44px');
-    expect(art).toContain('height: 44px');
-    const body = blockAfter(MOBILE, '.mini-player-body {');
-    expect(body).toContain('gap: 8px');
-    const info = blockAfter(MOBILE, '.mini-player-body .media-info {');
-    expect(info).toContain('min-width: 0');
+  it('player buttons are 44px and never flex-shrunk into an oval', () => {
+    const btn = blockAfter(PLAYER, '.ss-player-btn {');
+    expect(btn).toContain('flex: none');
+    expect(btn).toContain('width: 44px');
+    expect(btn).toContain('height: 44px');
   });
 });
 
@@ -342,7 +340,7 @@ describe('M-12 — Help & Docs on phones', () => {
   });
 });
 
-describe('M-15 — Library Radio kicker stays on one line', () => {
+describe('M-15 — Shuffle your library kicker stays on one line', () => {
   it('the kicker does not wrap (batch #2 let it wrap word-per-line)', () => {
     const at = DASH_PREMIER.indexOf('@media (max-width: 640px)');
     expect(at).toBeGreaterThan(-1);
