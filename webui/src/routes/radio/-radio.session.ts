@@ -23,6 +23,9 @@ const IDLE: RadioSessionState = {
   error: null,
   skew: 0,
   adding: false,
+  scan: null,
+  scanError: null,
+  scanStarting: false,
 };
 
 export function useRadioSession(): RadioSessionState {

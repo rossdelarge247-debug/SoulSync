@@ -111,7 +111,8 @@ describe('the player’s radio mode', () => {
     const slot = document.querySelector('[data-player-action-slot]')!;
     expect(slot.textContent).toContain('Night Ferry (Dub)');
     expect(slot.textContent).toMatch(/identified \d+ s ago/);
-    expect(slot.querySelectorAll('button')).toHaveLength(1);
+    // ONE action; Scan now sits beside it
+    expect(slot.querySelectorAll('button:not([data-player-radio-scan])')).toHaveLength(1);
     expect(slot.querySelector('button')!.textContent).toBe('Add to Wanted');
     chrome!.dispose();
   });
@@ -132,7 +133,7 @@ describe('the player’s radio mode', () => {
     st.nowPlaying!.library = { in_library: true, below_target: false, track_id: '1' };
     const { chrome } = mount(st);
     const slot = document.querySelector('[data-player-action-slot]')!;
-    expect(slot.querySelector('button')).toBeNull();
+    expect(slot.querySelector('button:not([data-player-radio-scan])')).toBeNull();
     expect(slot.textContent).toContain('In your library');
     chrome!.dispose();
   });
@@ -163,5 +164,222 @@ describe('the player’s radio mode', () => {
     expect(lines?.title).toBe(`Night Ferry (Dub) · Tidewater ${EVIL}`);
     expect(lines?.meta).toMatch(/· Live · not in your library$/);
     expect(radioMiniLines(state({ nowPlaying: null }))?.meta).toMatch(/listening…$/);
+  });
+});
+
+describe('Scan now in the player', () => {
+  it('the phone’s mini bar says when a scan listens and what it found', () => {
+    const listening = state({ scanStarting: true });
+    expect(radioMiniLines(listening)!.meta).toMatch(/scanning…$/);
+    const found = state({
+      scan: {
+        scan_id: 'sc1',
+        station_id: 'nts-1',
+        state: 'identified',
+        phase: 'identifying',
+        trying: null,
+        trying_label: null,
+        progress: 1,
+        capture_seconds: 10,
+        seconds_left: 0,
+        track: { artist: 'Kelp', title: 'Low Tide', release: null },
+        source: 'scan_acrcloud',
+        source_label: 'ACRCloud',
+        heard_id: 3,
+        library: null,
+        on_wanted: false,
+        reason: null,
+        provider_error: null,
+        asked: [],
+        started_at: 1,
+        finished_at: 2,
+        now: 3,
+      },
+    });
+    expect(radioMiniLines(found)).toEqual({
+      title: 'Low Tide · Kelp',
+      meta: expect.stringMatching(/found by ACRCloud$/),
+    });
+  });
+
+  beforeEach(() => {
+    window.showToast = vi.fn();
+  });
+  afterEach(() => {
+    document.body.innerHTML = '';
+    window.showToast = undefined;
+  });
+
+  it('puts Scan now beside the bar’s action and in the sheet, and calls the session', async () => {
+    const { api, chrome } = mount(state());
+    api.scanNow = vi.fn(async () => undefined);
+    const bar = document.querySelector<HTMLElement>(
+      '[data-player-action-slot] [data-player-radio-scan]',
+    )!;
+    expect(bar.textContent).toBe('Scan now');
+    expect(bar.getAttribute('aria-disabled')).toBeNull();
+    expect(
+      document.querySelector('[data-player-radio-panel] [data-player-radio-scan]'),
+    ).not.toBeNull();
+    bar.click();
+    await Promise.resolve();
+    expect(api.scanNow).toHaveBeenCalledTimes(1);
+    chrome!.dispose();
+  });
+
+  it('is disabled with the reason when no service is set up', async () => {
+    const st = state();
+    st.nowPlaying!.scan = {
+      available: false,
+      reason: 'No identification service is set up.',
+      services: [],
+    };
+    const { api, chrome } = mount(st);
+    api.scanNow = vi.fn(async () => undefined);
+    const bar = document.querySelector<HTMLElement>(
+      '[data-player-action-slot] [data-player-radio-scan]',
+    )!;
+    expect(bar.getAttribute('aria-disabled')).toBe('true');
+    expect(bar.title).toBe('No identification service is set up.');
+    expect(document.querySelector('[data-player-radio-panel]')!.textContent).toContain(
+      'No identification service is set up.',
+    );
+    bar.click();
+    await Promise.resolve();
+    expect(api.scanNow).not.toHaveBeenCalled();
+    chrome!.dispose();
+  });
+
+  it('shows Listening… with the seconds left, announced in the live region', () => {
+    const st = state();
+    const { chrome } = mount(st);
+    const live = document.createElement('span');
+    live.id = 'ss-player-live';
+    document.body.append(live);
+    st.scan = {
+      scan_id: 'sc1',
+      station_id: 'nts-1',
+      state: 'listening',
+      phase: 'capturing',
+      trying: null,
+      trying_label: null,
+      progress: 0.4,
+      capture_seconds: 10,
+      seconds_left: 6,
+      track: null,
+      source: null,
+      source_label: null,
+      heard_id: null,
+      library: null,
+      on_wanted: false,
+      reason: null,
+      provider_error: null,
+      asked: [],
+      started_at: 1,
+      finished_at: null,
+      now: 2,
+    };
+    chrome!.draw();
+    const slot = document.querySelector('[data-player-action-slot]')!;
+    expect(slot.textContent).toContain('Listening…');
+    expect(slot.textContent).toContain('Capturing 10 seconds · 6 s left');
+    expect(slot.querySelector('[data-player-radio-scan]')!.getAttribute('aria-disabled')).toBe(
+      'true',
+    );
+    expect(document.getElementById('ss-player-live')!.textContent).toMatch(
+      /Listening to the station/,
+    );
+    chrome!.dispose();
+  });
+
+  it('shows what the scan found with its own Add, and Done in the sheet', async () => {
+    const st = state({
+      scan: {
+        scan_id: 'sc1',
+        station_id: 'nts-1',
+        state: 'identified',
+        phase: 'identifying',
+        trying: null,
+        trying_label: null,
+        progress: 1,
+        capture_seconds: 10,
+        seconds_left: 0,
+        track: { artist: 'Kelp', title: 'Low Tide', release: 'Shore' },
+        source: 'scan_acrcloud',
+        source_label: 'ACRCloud',
+        heard_id: 31,
+        library: { in_library: false, below_target: null, track_id: null },
+        on_wanted: false,
+        reason: null,
+        provider_error: null,
+        asked: ['acoustid', 'acrcloud'],
+        started_at: 1,
+        finished_at: 3,
+        now: 4,
+      },
+    });
+    const { api, chrome } = mount(st);
+    api.addScanToWanted = vi.fn(async () => true);
+    api.dismissScan = vi.fn();
+    const slot = document.querySelector('[data-player-action-slot]')!;
+    expect(slot.textContent).toContain('Low Tide');
+    expect(slot.textContent).toContain('Kelp · found by ACRCloud');
+    slot.querySelector<HTMLElement>('[data-player-radio-scan-add]')!.click();
+    await Promise.resolve();
+    expect(api.addScanToWanted).toHaveBeenCalled();
+    document.querySelector<HTMLElement>('[data-player-radio-scan-dismiss]')!.click();
+    await Promise.resolve();
+    expect(api.dismissScan).toHaveBeenCalled();
+    chrome!.dispose();
+  });
+
+  it('says Not found calmly and a failure in plain words', () => {
+    const base = {
+      scan_id: 'sc1',
+      station_id: 'nts-1',
+      phase: 'identifying' as const,
+      trying: null,
+      trying_label: null,
+      progress: 1,
+      capture_seconds: 10,
+      seconds_left: 0,
+      track: null,
+      source: null,
+      source_label: null,
+      heard_id: null,
+      library: null,
+      on_wanted: false,
+      provider_error: null,
+      asked: [],
+      started_at: 1,
+      finished_at: 3,
+      now: 4,
+    };
+    let r = mount(
+      state({
+        scan: {
+          ...base,
+          state: 'not_found',
+          reason: 'Couldn’t identify this — DJ mixes and talk often can’t be.',
+        },
+      }),
+    );
+    expect(document.querySelector('[data-player-radio-panel]')!.textContent).toContain(
+      'DJ mixes and talk',
+    );
+    r.chrome!.dispose();
+    r = mount(
+      state({
+        scan: {
+          ...base,
+          state: 'failed',
+          reason: 'AudD says this account has no requests left for now.',
+        },
+      }),
+    );
+    expect(document.querySelector('[data-player-action-slot]')!.textContent).toContain(
+      'no requests left',
+    );
+    r.chrome!.dispose();
   });
 });

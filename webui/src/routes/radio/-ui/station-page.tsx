@@ -7,9 +7,9 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import type { NowPlaying, Station } from '@/features/radio/radio.types';
+import type { NowPlaying, RadioSessionState, Station } from '@/features/radio/radio.types';
 
 import { DialogBody, DialogFooter, DialogFrame, DialogHeader } from '@/components/dialog';
 import { Button, Select } from '@/components/form';
@@ -22,6 +22,7 @@ import {
   shortName,
   sourceWords,
 } from '@/features/radio/radio.format';
+import { scanButton, scanPanel } from '@/features/radio/radio.scan';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
 import {
@@ -89,6 +90,7 @@ export function NowPlayingCard({
   playingHere,
   adding,
   onAdd,
+  scan = null,
 }: {
   station: Station;
   np: NowPlaying | null;
@@ -96,6 +98,8 @@ export function NowPlayingCard({
   playingHere: boolean;
   adding: boolean;
   onAdd: () => void;
+  /** Scan now's strip (`ScanStrip`), at the foot of the card. */
+  scan?: ReactNode;
 }) {
   useTick(5000);
   if (!playingHere && (!np || !np.playing)) {
@@ -122,6 +126,7 @@ export function NowPlayingCard({
             </Button>
           </div>
         </div>
+        {scan}
       </section>
     );
   }
@@ -193,6 +198,7 @@ export function NowPlayingCard({
             )}
           </div>
         </div>
+        {scan}
       </section>
     );
   }
@@ -221,6 +227,7 @@ export function NowPlayingCard({
             </Button>
           </div>
         </div>
+        {scan}
       </section>
     );
   }
@@ -256,7 +263,117 @@ export function NowPlayingCard({
           </div>
         ) : null}
       </div>
+      {scan}
     </section>
+  );
+}
+
+/**
+ * Scan now (HANDOFF "Dev, Scan now for radio"; Design to draw it, question 58):
+ * the foot of the Now playing card. The button, disabled with its reason when
+ * nothing plays here or no identification service is set up; while it
+ * listens, a live region with the seconds left; then the track with which
+ * service found it and Add to Wanted (or the tag), Not found, or why it
+ * failed, with Done.
+ */
+export function ScanStrip({
+  session,
+  playingHere,
+}: {
+  session: RadioSessionState;
+  playingHere: boolean;
+}) {
+  const button = scanButton(playingHere ? session : null);
+  const panel = playingHere
+    ? scanPanel(session.scan, session.scanError, session.scanStarting)
+    : null;
+  const api = radioSession();
+  return (
+    <div className={styles.scan} data-state={panel?.state ?? 'idle'} data-testid="scan-strip">
+      <div className={styles.scanText} role="status" aria-live="polite" aria-atomic="true">
+        {panel ? (
+          <>
+            <p className={styles.scanTitle}>
+              {panel.state === 'identified' ? (
+                <>
+                  <span className={styles.label}>Scan now found</span> {panel.title}
+                </>
+              ) : (
+                panel.title
+              )}
+            </p>
+            <p className={styles.scanLine}>{panel.line}</p>
+            {panel.note ? <p className={styles.scanNote}>{panel.note}</p> : null}
+            {panel.progress != null ? (
+              <span className={styles.scanProgress} aria-hidden="true">
+                <span style={{ width: `${Math.round(panel.progress * 100)}%` }} />
+              </span>
+            ) : null}
+          </>
+        ) : (
+          <p className={styles.scanLine}>
+            {button.disabled && button.reason
+              ? button.reason
+              : 'Not named, or not right? Scan now listens to about 10 seconds and asks the identification services.'}
+          </p>
+        )}
+      </div>
+      <div className={styles.scanActions}>
+        {panel?.state === 'identified' ? (
+          panel.action === 'in_library' ? (
+            <StatusTag tone="success">In your library</StatusTag>
+          ) : panel.action === 'on_wanted' ? (
+            <StatusTag tone="info">On Wanted</StatusTag>
+          ) : (
+            <Button
+              size="lg"
+              variant={panel.action === 'below_target' ? undefined : 'primary'}
+              disabled={session.adding || panel.action === 'adding_disabled'}
+              disabledReason={panel.action === 'adding_disabled' ? 'In a moment' : undefined}
+              onClick={() =>
+                void api
+                  ?.addScanToWanted?.()
+                  .then((ok) => ok && window.showToast?.('Added to Wanted.', 'success'))
+              }
+            >
+              {panel.action === 'below_target' ? 'Upgrade via Wanted' : 'Add to Wanted'}
+            </Button>
+          )
+        ) : null}
+        {panel && panel.state !== 'listening' ? (
+          <Button size="lg" variant="ghost" onClick={() => api?.dismissScan?.()}>
+            Done
+          </Button>
+        ) : null}
+        <Button
+          size="lg"
+          disabled={button.disabled}
+          focusableWhenDisabled
+          aria-label={button.busy ? 'Scan now: listening' : undefined}
+          onClick={() => void api?.scanNow?.()}
+        >
+          {button.busy ? <Spinner size={16} /> : <ScanIcon />}
+          {button.label}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ScanIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden="true"
+      width="18"
+      height="18"
+    >
+      <path d="M4 12h1.5M7.5 8v8M11 5v14M14.5 9v6M18 7v10M21 11v2" />
+    </svg>
   );
 }
 
@@ -688,6 +805,9 @@ export function StationPage({
             skew={session.skew}
             playingHere={playingHere}
             adding={session.adding}
+            scan={
+              identificationOn ? <ScanStrip session={session} playingHere={playingHere} /> : null
+            }
             onAdd={() => {
               if (playingHere)
                 void radioSession()

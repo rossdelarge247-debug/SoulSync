@@ -45,6 +45,12 @@ export function sourceWords(source: IdSource | null, stationName: string): strin
       return 'Identified from the stream’s track names';
     case 'fingerprint':
       return 'Identified by fingerprint';
+    case 'scan_acoustid':
+      return 'Found by AcoustID (Scan now)';
+    case 'scan_audd':
+      return 'Found by AudD (Scan now)';
+    case 'scan_acrcloud':
+      return 'Found by ACRCloud (Scan now)';
     default:
       return '';
   }
