@@ -1831,7 +1831,7 @@
         var id = String(cur.id || '');
         var img = String(cur.image_url || cur.album_cover_url || cur.thumb_url || '');
         if (!img) {
-            var artEl = document.getElementById('sidebar-album-art') || document.getElementById('np-album-art');
+            var artEl = document.getElementById('np-album-art');
             if (artEl && artEl.src && !artEl.src.endsWith('/trans2.png') && !artEl.src.endsWith('/default-artwork.png')) {
                 img = artEl.src;
             }

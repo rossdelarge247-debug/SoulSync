@@ -24,7 +24,7 @@ def test_queue_auto_download_control_is_present_and_disabled_by_default():
     player_source = (ROOT / "webui/static/media-player.js").read_text(encoding="utf-8")
 
     assert 'id="np-autodownload-btn"' in source
-    assert 'class="np-autodownload-btn"' in source
-    assert 'aria-pressed="false"' in source
+    # the player's "…" menu item (board 6a), off until switched on
+    assert 'id="np-autodownload-btn" aria-pressed="false"' in source
     assert "let npAutoDownloadQueue = false;" in player_source
     assert "localStorage.getItem(npAutoDownloadStorageKey()) === '1'" in player_source

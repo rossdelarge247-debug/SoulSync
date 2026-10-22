@@ -4171,17 +4171,6 @@ function initApp() {
     // Load initial data
     loadInitialData();
 
-    // Handle window resize to re-check track title scrolling
-    window.addEventListener('resize', function () {
-        if (currentTrack) {
-            const trackTitleElement = document.getElementById('track-title');
-            const trackTitle = currentTrack.title || 'Unknown Track';
-            setTimeout(() => {
-                checkAndEnableScrolling(trackTitleElement, trackTitle);
-            }, 100); // Small delay to allow layout to settle
-        }
-    });
-
     console.log('SoulSync WebUI initialized successfully!');
 }
 

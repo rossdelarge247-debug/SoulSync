@@ -1,0 +1,471 @@
+/**
+ * The player's chrome (board 6a) against the real markup from index.html,
+ * over a fake engine: collapsed by default and remembered, aria-expanded on
+ * every toggle, Escape, the source kinds, the waveform slider, what it fetches,
+ * the phone sheet, and that every feature of the old player kept a control.
+ */
+
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { bootPlayer, type PlayerChrome, type PlayerEngine, type PlayerSnapshot } from './player';
+import { PLAYER_STATE_KEY } from './player-state';
+
+const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+let parsed: Document | null = null;
+
+function mount() {
+  parsed ??= new DOMParser().parseFromString(html, 'text/html');
+  const take = (sel: string) => document.importNode(parsed!.querySelector(sel)!, true);
+  document.body.replaceChildren(
+    take('#audio-player'),
+    take('#media-player'),
+    take('[data-player-scrim]'),
+    take('#np-modal-overlay'),
+  );
+}
+
+function snapshot(over: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
+  return {
+    track: { id: 42, title: 'Halcyon', artist: 'Orbital', album: 'Brown Album' },
+    kind: 'library',
+    playing: true,
+    buffering: false,
+    loading: { active: false, text: '', progress: 0 },
+    queue: [{ id: 41 }, { id: 42 }, { id: 43 }, { id: 44 }],
+    index: 1,
+    canPrevious: true,
+    canNext: true,
+    shuffle: false,
+    repeat: 'off',
+    radio: false,
+    autoDownload: false,
+    crossfade: false,
+    context: '',
+    volume: 70,
+    muted: false,
+    sleep: 0,
+    sleepEndsAt: 0,
+    sleepSteps: [0, 15, 30, 60, 'track'],
+    lyrics: { synced: false, lines: 0, loading: false, status: '' },
+    reportable: true,
+    playlistTrack: null,
+    ...over,
+  };
+}
+
+function fakeAudio(duration = 200, currentTime = 50) {
+  return Object.assign(new EventTarget(), { duration, currentTime }) as unknown as HTMLAudioElement;
+}
+
+function fakeEngine(state: PlayerSnapshot, audio = fakeAudio()) {
+  const engine = {
+    current: state,
+    state: () => engine.current,
+    audio: () => audio,
+    outputTargets: () => ({ elements: [], context: null }),
+    analyser: () => null,
+    toggle: vi.fn(),
+    stop: vi.fn(),
+    next: vi.fn(),
+    previous: vi.fn(),
+    seek: vi.fn(),
+    skip: vi.fn(),
+    setVolume: vi.fn(),
+    toggleMute: vi.fn(),
+    toggleShuffle: vi.fn(),
+    cycleRepeat: vi.fn(),
+    playIndex: vi.fn(async () => undefined),
+    setCrossfade: vi.fn(),
+    setSleep: vi.fn(),
+    playNext: vi.fn(),
+    setExpanded: vi.fn(),
+  };
+  return engine;
+}
+
+type FakeEngine = ReturnType<typeof fakeEngine>;
+
+function respond(status: number, body: unknown) {
+  return { ok: status >= 200 && status < 300, status, json: async () => body } as Response;
+}
+
+let chrome: PlayerChrome | null = null;
+let fetchImpl: ReturnType<typeof vi.fn>;
+
+function boot(engine: FakeEngine) {
+  chrome = bootPlayer({ engine: engine as unknown as PlayerEngine, fetchImpl: fetchImpl as never });
+  return chrome!;
+}
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
+const press = (key: string, target: EventTarget = document) =>
+  target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+
+beforeEach(() => {
+  mount();
+  localStorage.clear();
+  fetchImpl = vi.fn(async (url: string) => {
+    if (url.endsWith('/details')) {
+      return respond(200, {
+        format: 'FLAC',
+        bitrate_kbps: 2304,
+        bit_depth: 24,
+        sample_rate: 96000,
+        path_label: 'Library',
+        album: 'Brown Album',
+        year: 1993,
+        track_number: 3,
+        album_track_count: 11,
+        quality: { at_target: true, target_name: 'Lossless' },
+      });
+    }
+    if (url.endsWith('/peaks')) return respond(200, { peaks: [0.2, 0.9, 0.4], duration_s: 200 });
+    if (url.startsWith('/api/player/recent')) return respond(200, { items: [] });
+    return respond(404, {});
+  });
+});
+
+afterEach(() => {
+  chrome?.destroy();
+  chrome = null;
+  delete (window as { matchMedia?: unknown }).matchMedia;
+  document.documentElement.removeAttribute('data-player');
+});
+
+describe('collapsed or expanded', () => {
+  it('starts as the bar and every toggle says so', () => {
+    boot(fakeEngine(snapshot()));
+    expect(document.documentElement.dataset.player).toBe('bar');
+    expect($('#ss-player-tray').hidden).toBe(true);
+    const toggles = document.querySelectorAll('[data-player-toggle], [data-player-upnext]');
+    expect(toggles.length).toBeGreaterThanOrEqual(3);
+    for (const t of toggles) {
+      expect(t.getAttribute('aria-expanded')).toBe('false');
+      expect(t.getAttribute('aria-controls')).toBe('ss-player-tray');
+    }
+  });
+
+  it('Expand opens the tray, is remembered per browser, and Collapse goes back', () => {
+    const engine = fakeEngine(snapshot());
+    boot(engine);
+    $('.ss-player-bar [data-player-toggle].ss-player-ghost').click();
+    expect(document.documentElement.dataset.player).toBe('tray');
+    expect($('#ss-player-tray').hidden).toBe(false);
+    expect(localStorage.getItem(PLAYER_STATE_KEY)).toBe('1');
+    expect(engine.setExpanded).toHaveBeenLastCalledWith(true);
+    for (const t of document.querySelectorAll('[data-player-toggle]'))
+      expect(t.getAttribute('aria-expanded')).toBe('true');
+    // focus lands on the tray's labelled Collapse
+    expect(document.activeElement?.classList.contains('ss-player-collapse')).toBe(true);
+    expect(document.activeElement?.textContent).toMatch(/Collapse/);
+
+    $<HTMLButtonElement>('.ss-player-collapse').click();
+    expect(document.documentElement.dataset.player).toBe('bar');
+    expect(localStorage.getItem(PLAYER_STATE_KEY)).toBeNull();
+  });
+
+  it('a remembered tray comes back expanded on the next visit', () => {
+    localStorage.setItem(PLAYER_STATE_KEY, '1');
+    boot(fakeEngine(snapshot()));
+    expect(document.documentElement.dataset.player).toBe('tray');
+    expect($('#ss-player-tray').hidden).toBe(false);
+  });
+
+  it('Escape collapses the tray', () => {
+    localStorage.setItem(PLAYER_STATE_KEY, '1');
+    boot(fakeEngine(snapshot()));
+    press('Escape');
+    expect(document.documentElement.dataset.player).toBe('bar');
+  });
+
+  it('Escape closes an open menu before it touches the tray', () => {
+    localStorage.setItem(PLAYER_STATE_KEY, '1');
+    boot(fakeEngine(snapshot()));
+    $('[data-player-more]').click();
+    expect($('#ss-player-menu').hidden).toBe(false);
+    press('Escape');
+    expect($('#ss-player-menu').hidden).toBe(true);
+    expect(document.documentElement.dataset.player).toBe('tray');
+  });
+
+  it('with nothing playing the player is gone, but the remembered state is kept', () => {
+    localStorage.setItem(PLAYER_STATE_KEY, '1');
+    boot(fakeEngine(snapshot({ track: null, kind: null, queue: [], index: -1 })));
+    expect(document.documentElement.hasAttribute('data-player')).toBe(false);
+    expect($('#ss-player-tray').hidden).toBe(true);
+    expect(localStorage.getItem(PLAYER_STATE_KEY)).toBe('1');
+  });
+
+  it('the old globals open and close it', () => {
+    boot(fakeEngine(snapshot()));
+    expect(window.SoulSyncPlayerChrome).toBe(chrome);
+    window.SoulSyncPlayerChrome!.expand();
+    expect(chrome!.isExpanded()).toBe(true);
+    window.SoulSyncPlayerChrome!.collapse();
+    expect(chrome!.isExpanded()).toBe(false);
+  });
+});
+
+describe('source kinds', () => {
+  const visible = (sel: string) => !$(sel).hidden;
+
+  it('a library track: Previous / Next, times, a waveform, no speed button', async () => {
+    boot(fakeEngine(snapshot()));
+    const bar = '.ss-player-bar ';
+    expect($('#media-player').dataset.source).toBe('library');
+    expect(visible(bar + '[data-player-action="previous"]')).toBe(true);
+    expect(visible(bar + '[data-player-action="next"]')).toBe(true);
+    expect(visible(bar + '[data-player-action="back"]')).toBe(false);
+    expect(visible(bar + '[data-player-action="speed"]')).toBe(false);
+    expect(visible(bar + '[data-player-wave]')).toBe(true);
+    expect(visible(bar + '[data-player-live]')).toBe(false);
+    expect(visible(bar + '[data-player-meter]')).toBe(false);
+    expect($(bar + '[data-player-total]').textContent).toBe('3:20');
+  });
+
+  it('a podcast: −15 s / +30 s, the speed button, chapter ticks, nothing fetched from the library', async () => {
+    const engine = fakeEngine(
+      snapshot({
+        kind: 'podcast',
+        track: {
+          title: 'Episode 12',
+          artist: 'The Show',
+          kind: 'podcast',
+          media_id: 'guid-12',
+          chapters: [
+            { start: 0, title: 'Intro' },
+            { start: 100, title: 'Interview' },
+          ],
+        },
+        queue: [{ title: 'Episode 12' }],
+        index: 0,
+      }),
+    );
+    boot(engine);
+    const bar = '.ss-player-bar ';
+    expect($('#media-player').dataset.source).toBe('podcast');
+    expect(visible(bar + '[data-player-action="previous"]')).toBe(false);
+    expect(visible(bar + '[data-player-action="back"]')).toBe(true);
+    expect(visible(bar + '[data-player-action="forward"]')).toBe(true);
+    expect(visible(bar + '[data-player-action="speed"]')).toBe(true);
+    expect($(bar + '[data-player-action="speed"]').textContent).toBe('1×');
+    const ticks = document.querySelectorAll<HTMLElement>(bar + '.ss-player-wave-tick');
+    expect(ticks).toHaveLength(1);
+    expect(ticks[0]!.style.left).toBe('50%');
+    expect(ticks[0]!.title).toBe('Interview');
+    $(bar + '[data-player-action="back"]').click();
+    $(bar + '[data-player-action="forward"]').click();
+    expect(engine.skip).toHaveBeenNthCalledWith(1, -15);
+    expect(engine.skip).toHaveBeenNthCalledWith(2, 30);
+    // the mini bar's one action is +30 s
+    expect($('[data-player-action="mini"]').getAttribute('aria-label')).toBe('Forward 30 seconds');
+    await flush();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('radio (the seam): a Live tag instead of times, a level meter instead of the waveform', () => {
+    boot(
+      fakeEngine(
+        snapshot({
+          kind: 'radio',
+          track: { title: 'Station', kind: 'radio' },
+          queue: [],
+          index: -1,
+        }),
+      ),
+    );
+    const bar = '.ss-player-bar ';
+    expect(visible(bar + '[data-player-live]')).toBe(true);
+    expect(visible(bar + '[data-player-elapsed]')).toBe(false);
+    expect(visible(bar + '[data-player-total]')).toBe(false);
+    expect(visible(bar + '[data-player-wave]')).toBe(false);
+    expect(visible(bar + '[data-player-meter]')).toBe(true);
+    expect(visible(bar + '[data-player-action="previous"]')).toBe(false);
+    // the action slot only shows once the radio build puts its action in it
+    expect(visible(bar + '[data-player-action-slot]')).toBe(false);
+  });
+});
+
+describe('the waveform slider', () => {
+  it('is a labelled slider with values, moved by the keyboard', () => {
+    const engine = fakeEngine(snapshot());
+    boot(engine);
+    const wave = $('.ss-player-bar [data-player-wave]');
+    expect(wave.getAttribute('role')).toBe('slider');
+    expect(wave.getAttribute('aria-label')).toBe('Position');
+    expect(wave.getAttribute('aria-valuemax')).toBe('200');
+    expect(wave.getAttribute('aria-valuenow')).toBe('50');
+    expect(wave.getAttribute('aria-valuetext')).toBe('50 seconds of 3 minutes 20 seconds');
+    wave.focus();
+    press('ArrowRight', wave);
+    expect(engine.seek).toHaveBeenLastCalledWith(55);
+    expect(wave.getAttribute('aria-valuenow')).toBe('55');
+    press('Home', wave);
+    expect(engine.seek).toHaveBeenLastCalledWith(0);
+    press('PageUp', wave);
+    expect(engine.seek).toHaveBeenLastCalledWith(80);
+  });
+
+  it("the running time doesn't rewrite a focused slider's values", () => {
+    const audio = fakeAudio(200, 50);
+    boot(fakeEngine(snapshot(), audio));
+    const wave = $('.ss-player-bar [data-player-wave]');
+    wave.focus();
+    (audio as unknown as { currentTime: number }).currentTime = 51;
+    audio.dispatchEvent(new Event('timeupdate'));
+    expect(wave.getAttribute('aria-valuenow')).toBe('50');
+    // the visible clock still moves
+    expect($('.ss-player-bar [data-player-elapsed]').textContent).toBe('0:51');
+  });
+
+  it('draws the peaks the server worked out, and asks again while they are pending', async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      fetchImpl.mockImplementation(async (url: string) => {
+        if (url.endsWith('/peaks')) {
+          calls += 1;
+          return calls === 1
+            ? respond(202, { success: true, pending: true })
+            : respond(200, { peaks: [0.5, 1], duration_s: 200 });
+        }
+        return respond(404, {});
+      });
+      boot(fakeEngine(snapshot()));
+      expect(fetchImpl).toHaveBeenCalledWith('/api/library/tracks/42/peaks');
+      await vi.advanceTimersByTimeAsync(0);
+      expect($('.ss-player-bar [data-player-wave]').dataset.empty).toBe('true');
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(calls).toBe(2);
+      expect($('.ss-player-bar [data-player-wave]').dataset.empty).toBe('false');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('what the tray reads from the server', () => {
+  it('the readout: format, bit depth / sample rate, bitrate, where it plays from', async () => {
+    boot(fakeEngine(snapshot()));
+    await flush();
+    await flush();
+    expect(fetchImpl).toHaveBeenCalledWith('/api/library/tracks/42/details');
+    expect($('[data-player-format]').textContent).toBe('FLAC 24/96 · 2,304 kbps');
+    expect($('[data-player-path]').textContent).toBe('Library → This device');
+    expect($('[data-player-album-line]').textContent).toBe('Brown Album · 1993 · track 3 of 11');
+    expect($('[data-player-quality]').textContent).toBe('At your target');
+    expect($('.ss-player-bar [data-player-meta]').textContent).toBe('Orbital · FLAC 24/96');
+  });
+
+  it('Recent reads the listening history when its tab is chosen', async () => {
+    fetchImpl.mockImplementation(async (url: string) =>
+      url.startsWith('/api/player/recent')
+        ? respond(200, {
+            items: [
+              {
+                track_id: '7',
+                title: 'Belfast',
+                artist: 'Orbital',
+                format: 'FLAC',
+                played_at: null,
+              },
+            ],
+          })
+        : respond(404, {}),
+    );
+    boot(fakeEngine(snapshot()));
+    window.dispatchEvent(new CustomEvent('ss:player-view', { detail: { view: 'history' } }));
+    await flush();
+    await flush();
+    expect(fetchImpl).toHaveBeenCalledWith('/api/player/recent?limit=20');
+    expect($('[data-player-recent-list]').textContent).toContain('Belfast');
+  });
+
+  it('the Output button stays hidden when the browser has nowhere else to send the sound', () => {
+    boot(fakeEngine(snapshot()));
+    for (const b of document.querySelectorAll<HTMLElement>('[data-player-output]'))
+      expect(b.hidden).toBe(true);
+  });
+});
+
+describe('the phone (≤768px)', () => {
+  function phone() {
+    const listeners: (() => void)[] = [];
+    (window as { matchMedia?: unknown }).matchMedia = () => ({
+      matches: true,
+      addEventListener: (_: string, fn: () => void) => listeners.push(fn),
+      removeEventListener: () => undefined,
+    });
+  }
+
+  it('the mini bar opens the sheet as a dialog; Escape closes it and focus goes back', () => {
+    phone();
+    boot(fakeEngine(snapshot()));
+    const open = $('[data-player-sheet-open]');
+    open.focus();
+    open.click();
+    expect(document.documentElement.hasAttribute('data-player-sheet')).toBe(true);
+    expect($('#ss-player-tray').hidden).toBe(false);
+    expect($('#ss-player-tray').getAttribute('role')).toBe('dialog');
+    expect(open.getAttribute('aria-expanded')).toBe('true');
+    press('Escape');
+    expect(document.documentElement.hasAttribute('data-player-sheet')).toBe(false);
+    expect($('#ss-player-tray').hidden).toBe(true);
+    expect(document.activeElement).toBe(open);
+  });
+
+  it("the sheet isn't remembered: a desktop tray choice doesn't open it", () => {
+    localStorage.setItem(PLAYER_STATE_KEY, '1');
+    phone();
+    boot(fakeEngine(snapshot()));
+    expect(document.documentElement.hasAttribute('data-player-sheet')).toBe(false);
+    expect($('#ss-player-tray').hidden).toBe(true);
+  });
+});
+
+/**
+ * Where each old feature went (docs/design/HANDOFF.md, "the player (6a)"):
+ * every control of media-player.js and media-player-v2.js has a home in the
+ * new markup, by the id or hook the engines drive.
+ */
+describe('nothing of the old player was dropped', () => {
+  const homes: [string, string][] = [
+    [
+      'play / pause, previous, next',
+      '[data-player-action="toggle"], [data-player-action="previous"], [data-player-action="next"]',
+    ],
+    ['seek', '[data-player-wave][role="slider"]'],
+    ['volume and mute', '[data-player-volume], [data-player-action="mute"]'],
+    ['shuffle and repeat', '[data-player-action="shuffle"], [data-player-action="repeat"]'],
+    ['the queue: reorder, remove, clear', '#np-queue-list, #np-queue-clear'],
+    ['clear played', '#np-queue-clear-played'],
+    ['Shuffle your library (radio mode)', '#np-radio-btn'],
+    ['download missing queue tracks', '#np-autodownload-btn'],
+    ['crossfade', '[data-player-menu="crossfade"]'],
+    ['sleep timer', '[data-player-menu="sleep"]'],
+    ['speed', '[data-player-menu="speed"], #np-v2-speed-select'],
+    ['lyrics', '#np-lyrics-panel'],
+    ['track details and copy', '#np-v2-details-panel'],
+    ['history (now Recent)', '#np-v2-history-panel'],
+    ['EQ', '#np-v2-eq-btn'],
+    ['A-B loop', '#np-v2-ab-btn, #np-v2-ab-indicator'],
+    ['visuals (the old theater)', '#np-modal-overlay #np-v2-bg, [data-player-menu="visuals"]'],
+    ['player settings', '#np-v2-settings-panel'],
+    ['keyboard shortcuts list', '#np-v2-shorts-btn'],
+    ['add to playlist', '[data-player-menu="playlist"]'],
+    ['report a problem', '[data-player-menu="report"]'],
+    ['stop', '[data-player-menu="stop"]'],
+    ['go to artist / album', '[data-player-artist], [data-player-album]'],
+    ['album art (the palette and the vinyl read it)', '#np-album-art'],
+    ['loading progress', '#loading-animation'],
+  ];
+
+  it.each(homes)('%s', (_name, sel) => {
+    parsed ??= new DOMParser().parseFromString(html, 'text/html');
+    for (const one of sel.split(', '))
+      expect(parsed.querySelector(one), `${one} is missing`).not.toBeNull();
+  });
+});

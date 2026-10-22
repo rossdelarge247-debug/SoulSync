@@ -16,7 +16,8 @@ const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8').repl
 
 const MOBILE = read('static/mobile.css');
 const STYLE = read('static/style.css');
-const PLAYER_V2 = read('static/media-player-v2.css');
+// the theater's stylesheet (media-player-v2.css) went with the player (board 6a)
+const PLAYER = read('static/player.css');
 const PREMIER = read('static/dashboard-premier.css');
 const VIDEO_SIDE = read('static/video/video-side.css');
 // the Watchlist is the Followed artists tab of the Wanted page now
@@ -156,42 +157,19 @@ describe('RC4 — page headers on phones', () => {
 });
 
 describe('RC5 — the player transport cannot be flex-shrunk into an oval', () => {
-  it('play and side buttons have flex-shrink: 0', () => {
-    expect(blockAfter(STYLE, '.np-btn-play {\n    flex-shrink: 0;')).toContain('flex-shrink: 0');
-    const btn = blockAfter(STYLE, '.np-btn {\n    width: 46px !important;');
-    expect(btn).toContain('flex-shrink: 0');
+  // The old mini player and Now Playing modal (style.css, media-player-v2.css)
+  // were replaced by the player bar and tray (static/player.css, board 6a).
+  it('player buttons, play included, are fixed 44px squares that never shrink', () => {
+    const btn = blockAfter(PLAYER, '.ss-player-btn {');
+    expect(btn).toContain('flex: none');
+    expect(btn).toContain('width: 44px');
+    expect(btn).toContain('height: 44px');
+    expect(PLAYER).toContain('.ss-player-play--big { width: 48px; height: 48px; }');
   });
 
-  it('the minimize chevron keeps its absolute positioning (measured x=-11 before)', () => {
-    // The v2 stacking rule (.np-modal > *) out-specificities .np-close-btn's
-    // position:absolute; as a relative box its right:20px shifted it -20px
-    // off the modal's top-left corner. It must stay out of that rule.
-    expect(PLAYER_V2).toContain(':not(.np-close-btn)');
-  });
-
-  it('the minimize chevron paints above the body subtree so it stays tappable (fold-in)', () => {
-    // Its own z-index is 2, the same as the stacking rule gives .np-body,
-    // and the body follows it in the DOM — without this it is on screen but
-    // elementFromPoint at its centre returns .np-left and clicks miss it.
-    expect(blockAfter(PLAYER_V2, '#np-modal-overlay .np-close-btn {')).toContain('z-index: 3');
-  });
-
-  it('the phone transport shrink is scoped to the controls row so it cannot crush the Stop pill (fold-in)', () => {
-    // Stop is an .np-btn too, but it lives in .np-stop-row and is a text
-    // pill sized auto on purpose; the unscoped ≤860px rule (specificity
-    // 1,1,0 + !important) beat its exemption and forced it into 42×42.
-    expect(PLAYER_V2).toContain('#np-modal-overlay .np-controls-row .np-btn {');
-    expect(PLAYER_V2).toContain('#np-modal-overlay .np-controls-row .np-btn-play {');
-    expect(PLAYER_V2).not.toContain('#np-modal-overlay .np-btn { width: 42px');
-  });
-
-  it('tab panels flow in the body scroll on mobile (no nested 46vh scroller)', () => {
-    const mediaAt = PLAYER_V2.indexOf('@media (max-width: 860px)');
-    expect(mediaAt).toBeGreaterThan(-1);
-    const at = PLAYER_V2.indexOf('.np-v2-tabpanels {', mediaAt);
-    const block = PLAYER_V2.slice(at, PLAYER_V2.indexOf('}', at) + 1);
-    expect(block).toContain('max-height: none');
-    expect(block).not.toContain('46vh');
+  it('the old modal rules are gone with it', () => {
+    expect(STYLE).not.toContain('.np-btn-play {');
+    expect(STYLE).not.toContain('#np-modal-overlay .np-close-btn');
   });
 });
 

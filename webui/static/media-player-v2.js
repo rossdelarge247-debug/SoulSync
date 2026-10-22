@@ -2089,10 +2089,23 @@ function npv2CurrentTrack() {
     try { return (typeof currentTrack !== 'undefined' && currentTrack) || null; } catch (e) { return null; }
 }
 
+// The visuals overlay (#np-modal-overlay): the old theater, now only the
+// full-window visuals the record's "…" (or F) opens.
 function npv2ModalOpen() {
     try {
         const o = document.getElementById('np-modal-overlay');
         return !!(o && !o.classList.contains('hidden'));
+    } catch (e) { return false; }
+}
+
+// The player has the floor: the tray is expanded (html[data-player="tray"],
+// src/shell/player.ts) or the visuals are open. The theater's own keys
+// (L, ?, [ ], V, F) and the wake lock follow this.
+function npv2PlayerFocused() {
+    try {
+        if (npv2ModalOpen()) return true;
+        const html = document.documentElement;
+        return html.getAttribute('data-player') === 'tray' || html.hasAttribute('data-player-sheet');
     } catch (e) { return false; }
 }
 
@@ -2626,9 +2639,22 @@ function npv2VisualsModeOn() {
 
 function npv2SetVisualsMode(on) {
     const want = !!on;
-    if (want === NPV2.visualsMode) return;
+    if (want === NPV2.visualsMode && want === npv2ModalOpen()) return;
     NPV2.visualsMode = want;
     try {
+        // the overlay exists for the visuals: it opens and closes with them
+        const overlay = document.getElementById('np-modal-overlay');
+        if (overlay) {
+            overlay.classList.toggle('hidden', !want);
+            if (want) {
+                npv2VisualsOpener = document.activeElement;
+                const exitBtn = document.getElementById('np-v2-visuals-exit');
+                if (exitBtn) setTimeout(() => { try { exitBtn.focus(); } catch (e) {} }, 0);
+            } else if (npv2VisualsOpener && document.contains(npv2VisualsOpener)) {
+                try { npv2VisualsOpener.focus(); } catch (e) {}
+                npv2VisualsOpener = null;
+            }
+        }
         const modal = document.querySelector('.np-modal');
         if (modal) modal.classList.toggle('npv2-visuals-on', want);
         const exit = document.getElementById('np-v2-visuals-exit');
@@ -2654,6 +2680,8 @@ function npv2SetVisualsMode(on) {
         }
     } catch (e) {}
 }
+
+let npv2VisualsOpener = null;
 
 function npv2VisualsClearIdle() {
     try {
@@ -2749,7 +2777,7 @@ function npv2OpenVisualsPanel(tab) {
         body.appendChild(node);
         node.classList.remove('hidden');
         npv2SelectTab(tab);
-        const names = { queue: 'Queue', history: 'History', lyrics: 'Lyrics', details: 'Details', settings: 'Settings' };
+        const names = { queue: 'Up next', history: 'Recent', lyrics: 'Lyrics', details: 'Details', settings: 'Settings' };
         const t = document.getElementById('np-v2-sidepanel-title');
         if (t) t.textContent = names[tab] || tab;
         panel.classList.remove('hidden');
@@ -3010,6 +3038,7 @@ function npv2SetSpeed(v, opts) {
         if (sel) sel.value = String(NPV2.speed);
     } catch (e) {}
     if (!opts || !opts.silent) npv2Toast('Speed ' + npv2FormatSpeed(NPV2.speed), 'info');
+    try { if (typeof npNotify === 'function') npNotify('speed'); } catch (e) {}
 }
 
 function npv2CycleSpeed(dir) {
@@ -3113,6 +3142,8 @@ function npv2RenderAbUI() {
             btn.classList.toggle('looping', NPV2.loop.mode === 'b');
             btn.title = npv2AbLabel(NPV2.loop);
             btn.setAttribute('aria-pressed', NPV2.loop.mode !== 'off' ? 'true' : 'false');
+            const state = btn.querySelector('.np-v2-ab-state');
+            if (state) state.textContent = NPV2.loop.mode === 'a' ? 'A set' : (NPV2.loop.mode === 'b' ? 'Looping' : 'Off');
         }
         const ind = document.getElementById('np-v2-ab-indicator');
         if (ind) {
@@ -3381,6 +3412,10 @@ function npv2SelectTab(name) {
         }
         if (name === 'history') npv2RenderHistory();
         if (name === 'details') npv2RenderDetails();
+        // the chrome loads Recent from the server and labels the open view
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+            window.dispatchEvent(new CustomEvent('ss:player-view', { detail: { view: name } }));
+        }
     } catch (e) {}
 }
 
@@ -3495,7 +3530,7 @@ function npv2ToggleShortcuts(show) {
 
 function npv2UpdateWakeLock() {
     try {
-        const want = NPV2.wake && npv2IsPlaying() && npv2ModalOpen();
+        const want = NPV2.wake && npv2IsPlaying() && npv2PlayerFocused();
         if (want && !NPV2.wakeLock && navigator.wakeLock) {
             navigator.wakeLock.request('screen').then((lock) => {
                 NPV2.wakeLock = lock;
@@ -3546,6 +3581,12 @@ function npv2OnTrackChanged(track) {
 
 function npv2WatchTrackTitle() {
     try {
+        // media-player.js announces every change on window ('ss:player')
+        window.addEventListener('ss:player', (ev) => {
+            const reason = ev && ev.detail && ev.detail.reason;
+            if (reason === 'track') setTimeout(() => npv2OnTrackChanged(npv2CurrentTrack()), 120);
+            if (reason === 'playing' || reason === 'track') npv2UpdateWakeLock();
+        });
         const el = document.getElementById('np-track-title');
         if (!el) return;
         let scheduled = false;
@@ -3753,7 +3794,7 @@ function npv2HandleKeys(event) {
             // fullscreen natively and don't swallow the key.
             if (document.fullscreenElement) return;
             const o = document.getElementById('np-v2-shorts-overlay');
-            if (o && !o.classList.contains('hidden') && npv2ModalOpen()) {
+            if (o && !o.classList.contains('hidden')) {
                 event.stopPropagation();
                 event.preventDefault();
                 npv2ToggleShortcuts(false);
@@ -3779,7 +3820,8 @@ function npv2HandleKeys(event) {
         } catch (e) {}
         return;
     }
-    if (!npv2ModalOpen()) return;
+    if (!npv2PlayerFocused()) return;
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
     const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || tag === 'select' || (document.activeElement && document.activeElement.isContentEditable)) return;
     switch (event.key) {
@@ -3808,7 +3850,7 @@ function npv2HandleKeys(event) {
         case 'f':
         case 'F':
             event.preventDefault();
-            npv2SetVisualsMode(!npv2VisualsModeOn());
+            npv2SetVisualsMode(!npv2ModalOpen());
             break;
         default:
             return;
@@ -3924,6 +3966,12 @@ function npv2Init() {
         setVizAutocycle: npv2SetVizAutocycle,
         setReduceMotion: npv2SetReduceMotion,
             visualsModeOn: npv2VisualsModeOn,
+            getSpeed: () => NPV2.speed,
+            speedPresets: () => NPV2_SPEED_PRESETS.slice(),
+            openVisuals: () => npv2SetVisualsMode(true),
+            closeVisuals: () => npv2SetVisualsMode(false),
+            visualsOpen: npv2ModalOpen,
+            updateWakeLock: npv2UpdateWakeLock,
         };
     } catch (e) {
         // The theater must never break the underlying player.
