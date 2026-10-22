@@ -7,13 +7,13 @@ import { server } from '@/test/msw';
 import type { SearchAlbum, SearchTrack } from './-search.types';
 
 import { albumIdentity, trackIdentity } from './-search.helpers';
+import { EMPTY_OWNERSHIP } from './-search.ownership';
 import {
   DOWNLOADS_FINISHED_EVENT,
   ownershipFromResponse,
   RECHECK_AFTER_MS,
   useLibraryCheck,
 } from './-search.use-library-check';
-import { EMPTY_OWNERSHIP } from './-ui/search-results';
 
 const album = (over: Partial<SearchAlbum> = {}): SearchAlbum => ({
   id: 'a1',

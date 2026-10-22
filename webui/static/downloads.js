@@ -6403,26 +6403,16 @@ function _gsNavigateToSearchPage(query, src) {
     _gsDeactivate();
     if (typeof navigateToPage !== 'function') return;
     navigateToPage('search');
-    // After the page mounts, mirror the query into whichever input drives the
-    // requested source. Soulseek goes through the basic-search file flow, not
-    // the enhanced metadata flow — without this branch the Search page would
-    // run /api/enhanced-search instead of /api/search and the user would get
-    // metadata results when they clicked the Soulseek icon.
+    // After the page mounts, hand the query over. The Search page searches
+    // your library, Soulseek and the metadata service together, so a Soulseek
+    // query is the same query; it then scrolls to the Soulseek section.
     setTimeout(() => {
         if (src === 'soulseek') {
-            // Sync the query into the search page BEFORE clicking the Soulseek
-            // icon: the click hands off whatever query that page is holding,
-            // and it keeps its query across navigation, so without this the
-            // widget's term would lose to one from a previous visit.
             if (typeof window._searchPageSetQuery === 'function') {
                 window._searchPageSetQuery(query || '');
             }
-            const soulseekIcon = document.querySelector('#enh-source-row [data-source="soulseek"]');
-            if (soulseekIcon) soulseekIcon.click();
-            // No fallback branch: the icon row is React-rendered with the page,
-            // so it is there whenever the page is. The old one poked at
-            // #basic-search-section and called performDownloadsSearch, neither
-            // of which exists any more.
+            const section = document.getElementById('search-soulseek');
+            if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
             return;
         }
         const input = document.getElementById('enhanced-search-input');

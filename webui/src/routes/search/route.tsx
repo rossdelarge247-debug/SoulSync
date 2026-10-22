@@ -2,17 +2,21 @@ import { createFileRoute } from '@tanstack/react-router';
 
 import { guardPageAccess } from '@/platform/shell/route-guard';
 
+import { validateSearchUrl } from './-search.url';
 import { SearchPage } from './-ui/search-page';
 
 /**
- * The Search page.
+ * Search: one query against your library, the download source (Soulseek,
+ * streamed as it answers) and the connected metadata service, grouped by
+ * source (boards 2m, 2n).
  *
- * No loader: nothing is worth fetching before the user types. The controller
- * runs its own init on mount (/status then config-status) because the source
- * picker's initial state depends on both, and a search only happens once there
- * is a query.
+ * The query and the type (Everything / Artists / Albums / Tracks) live in the
+ * URL, `/search?q=pale+harbour&type=albums`, so back, forward and links work.
+ * No loader: the header and field render at once and each section shows its
+ * own loading state.
  */
 export const Route = createFileRoute('/search')({
+  validateSearch: validateSearchUrl,
   beforeLoad: ({ context }) => {
     guardPageAccess(context.shell.bridge, 'search');
   },

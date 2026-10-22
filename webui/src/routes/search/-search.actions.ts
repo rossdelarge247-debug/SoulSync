@@ -360,3 +360,70 @@ export function playOwnedTrack(row: {
     row.artist_name || '',
   );
 }
+
+/**
+ * Add a release to Wanted: the shared "Add to Wanted" window (wishlist-tools.js
+ * openAddToWishlistModal), with the release's tracks and its quality-profile
+ * picker. The same album detail the download window reads.
+ */
+export async function addSearchAlbumToWanted(
+  album: SearchAlbum,
+  activeSource: string,
+): Promise<void> {
+  if (typeof window.openAddToWishlistModal !== 'function') {
+    window.showToast?.('Adding to Wanted isn’t available on this page', 'error');
+    return;
+  }
+  window.showLoadingOverlay?.('Loading album...');
+  try {
+    const params = albumDetailParams(album, activeSource);
+    const response = await fetch(`/api/spotify/album/${album.id}?${params}`);
+    if (!response.ok) {
+      throw new Error(
+        response.status === 401
+          ? 'Spotify not authenticated. Please check your API settings.'
+          : `Failed to load album: ${response.status}`,
+      );
+    }
+    const detail = (await response.json()) as AlbumDetail;
+    if (!detail?.tracks?.length) {
+      window.showToast?.(
+        `No tracks available for "${album.name}". This release may have been delisted or is not available in your region.`,
+        'warning',
+      );
+      return;
+    }
+    window.hideLoadingOverlay?.();
+    const built = buildAlbumObject(detail, album);
+    await window.openAddToWishlistModal(
+      built,
+      buildArtistObject(detail, album, activeSource),
+      enrichAlbumTracks(detail, album),
+      typeof built.album_type === 'string' ? built.album_type : 'album',
+    );
+  } catch (error) {
+    window.showToast?.(
+      `Couldn’t open ${album.name ?? 'the album'}: ${(error as Error).message}`,
+      'error',
+    );
+  } finally {
+    window.hideLoadingOverlay?.();
+  }
+}
+
+/** Add one track to Wanted, through the same window, as a one-track release. */
+export async function addSearchTrackToWanted(track: SearchTrack): Promise<void> {
+  if (typeof window.openAddToWishlistModal !== 'function') {
+    window.showToast?.('Adding to Wanted isn’t available on this page', 'error');
+    return;
+  }
+  const single = enrichSingleTrack(track);
+  const album = (single.album as Record<string, unknown>) ?? buildSingleTrackAlbum(track);
+  await window.openAddToWishlistModal(
+    { ...buildSingleTrackAlbum(track), ...album },
+    { id: null, name: track.artist },
+    [single],
+    typeof album.album_type === 'string' ? album.album_type : 'single',
+    { [String(track.name ?? '')]: false },
+  );
+}

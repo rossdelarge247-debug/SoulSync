@@ -489,7 +489,7 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
     if (!input) return;
     if (query) {
       // the search page's input is controlled; it honours a native input event
-      // (search-bar.tsx), the same handoff the old global widget used
+      // (search-page.tsx), the same handoff the old global widget used
       input.value = query;
       input.dispatchEvent(new Event('input', { bubbles: true }));
     }
