@@ -199,8 +199,8 @@ describe('LibraryPage rendering', () => {
     expect(document.querySelector('[data-library-downloads-host]')).not.toBeNull();
   });
 
-  it('the header Radio button hands off to the player global', async () => {
-    // Library Radio lives in media-player.js (it owns the queue + radio
+  it('the header Shuffle button hands off to the player global', async () => {
+    // "Shuffle your library" (startLibraryRadio) lives in media-player.js (it owns the queue + radio
     // mode); the page only provides the entry point.
     window.startLibraryRadio = vi.fn();
     renderPage();

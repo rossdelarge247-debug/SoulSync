@@ -342,7 +342,7 @@ describe('M-12 — Help & Docs on phones', () => {
   });
 });
 
-describe('M-15 — Library Radio kicker stays on one line', () => {
+describe('M-15 — Shuffle your library kicker stays on one line', () => {
   it('the kicker does not wrap (batch #2 let it wrap word-per-line)', () => {
     const at = DASH_PREMIER.indexOf('@media (max-width: 640px)');
     expect(at).toBeGreaterThan(-1);

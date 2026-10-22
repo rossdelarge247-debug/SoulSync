@@ -51,16 +51,16 @@ describe('ListenBand', () => {
     delete window.showToast;
   });
 
-  it('renders the Library Radio card and triggers startLibraryRadio on click', () => {
+  it('renders the Shuffle your library card and triggers startLibraryRadio on click', () => {
     const startRadio = vi.fn();
     window.startLibraryRadio = startRadio;
 
     render(<ListenBand />);
 
-    expect(screen.getByText('Library Radio')).toBeInTheDocument();
+    expect(screen.getByText('Shuffle your library')).toBeInTheDocument();
     expect(screen.getByText('On air — your collection')).toBeInTheDocument();
 
-    const hero = screen.getByText('Library Radio').closest('button')!;
+    const hero = screen.getByText('Shuffle your library').closest('button')!;
     fireEvent.click(hero);
 
     expect(startRadio).toHaveBeenCalledTimes(1);

@@ -3829,13 +3829,13 @@ async function startLibraryRadio() {
         renderNpQueue();
         // Context BEFORE enabling radio — npSetRadioMode keeps a specific
         // "<X> Radio" label when one is already set.
-        npSetPlayContext('Library Radio');
+        npSetPlayContext('Shuffle your library');
         npSetRadioMode(true, { toast: false });
         await playQueueItem(0);
-        showToast('Library Radio on - shuffling your whole library', 'success');
+        showToast('Shuffling your whole library', 'success');
     } catch (e) {
         console.warn('Library radio failed:', e);
-        showToast(`Failed to start Library Radio: ${e.message}`, 'error');
+        showToast(`Couldn't shuffle your library: ${e.message}`, 'error');
     }
 }
 window.startLibraryRadio = startLibraryRadio;

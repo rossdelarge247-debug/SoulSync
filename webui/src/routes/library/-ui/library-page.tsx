@@ -415,11 +415,11 @@ export function LibraryPage() {
         <button
           type="button"
           className="library-watchlist-all-btn library-radio-btn"
-          title="Library Radio — shuffle your whole library, similar tracks keep auto-queuing"
+          title="Shuffle your library: plays your whole collection, and similar tracks keep queuing"
           onClick={() => void window.startLibraryRadio?.()}
         >
           <span className="watchlist-all-icon">📻</span>
-          <span className="watchlist-all-text">Radio</span>
+          <span className="watchlist-all-text">Shuffle</span>
         </button>
         {/* The export is artist-scoped (watchlist/library artists as JSON/CSV/
             text); in the album grid it would export something no card shows,

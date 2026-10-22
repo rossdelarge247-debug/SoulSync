@@ -224,15 +224,15 @@ function LibraryRadioCard({ onPlay }: { onPlay: () => void }) {
         <button
           type="button"
           className="discover-station-play"
-          aria-label="Play library radio"
-          title="Play library radio"
+          aria-label="Shuffle your library"
+          title="Shuffle your library"
           onClick={onPlay}
         >
           <PlayGlyph />
         </button>
       </div>
       <button type="button" className="discover-station-open" onClick={onPlay}>
-        <span className="discover-station-name">Library Radio</span>
+        <span className="discover-station-name">Shuffle your library</span>
         <span className="discover-station-with">Your whole collection, weighted by plays</span>
       </button>
     </div>
