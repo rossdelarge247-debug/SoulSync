@@ -9,6 +9,8 @@ const HelperState = {
     menuOpen: false,
     tourStep: 0,
     tourId: null,
+    tourSteps: [],        // the tour's steps that apply on this screen and profile
+    tourDir: 1,           // which way the tour is moving, for skipping a missing anchor
     setupData: null,
 };
 
@@ -2129,12 +2131,13 @@ function toggleHelperMode() {
 
 // Map page IDs → tour IDs (only where they differ)
 const PAGE_TOUR_MAP = {
-    'dashboard':   'dashboard',
+    'dashboard':   'welcome',
     'sync':        'sync-playlist',
-    'search':      'first-download',
-    'downloads':   'first-download',  // legacy id — the Search page used to be called 'downloads'
+    'search':      'search',
+    'downloads':   'search',  // legacy id — the Search page used to be called 'downloads'
     'discover':    'discover',
     'automations': 'automations',
+    'artist-detail': 'artist',
     'library':     'library',
     'stats':       'stats',
     'import':      'import-music',
@@ -2155,9 +2158,9 @@ function openHelperMenu() {
     floatBtn.classList.add('menu-open');
 
     // Detect current page for contextual tour suggestion
-    const currentPage = document.querySelector('.page.active')?.id?.replace('-page', '') || '';
-    const suggestedTourId = PAGE_TOUR_MAP[currentPage];
-    const suggestedTour = suggestedTourId ? HELPER_TOURS[suggestedTourId] : null;
+    const suggestedTourId = PAGE_TOUR_MAP[_helperCurrentPage()];
+    const suggestedTour = suggestedTourId && HELPER_TOURS[suggestedTourId]
+        && _tourAvailableHere(HELPER_TOURS[suggestedTourId]) ? HELPER_TOURS[suggestedTourId] : null;
 
     const menu = document.createElement('div');
     menu.className = 'helper-menu';
@@ -2168,7 +2171,7 @@ function openHelperMenu() {
             <button class="helper-menu-item helper-menu-contextual" onclick="closeHelperMenu();HelperState.mode='tour';document.getElementById('helper-float-btn')?.classList.add('active');startTour('${suggestedTourId}')" style="animation-delay:0s">
                 <span class="helper-menu-icon">${suggestedTour.icon}</span>
                 <span class="helper-menu-label">${suggestedTour.title}</span>
-                <span class="helper-menu-badge">${suggestedTour.steps.length} steps</span>
+                <span class="helper-menu-badge">${_tourStepsFor(suggestedTour).length} steps</span>
             </button>
             <div class="helper-menu-divider"></div>
         `;
@@ -2256,45 +2259,86 @@ function exitHelperMode() {
 // GUIDED TOUR ENGINE
 // ═══════════════════════════════════════════════════════════════════════════
 
+// The tours. A step is { page, selector, title, description } plus, where a
+// phone differs: phoneSelector / phoneTitle / phoneDescription (the tab bar,
+// the top bar's icons), phone: false for a step that only makes sense on a
+// wide screen (the compact rail), and admin: true for one only admins can use.
+// Every selector is a stable id or a data-tour attribute; a step whose anchor
+// isn't on the page (a section that only shows with results, a page this
+// profile can't open) is skipped rather than shown pointing at nothing.
+// tests/test_helper_tours.py and src/test/helper-tours.test.ts keep the
+// anchors honest.
+const TOUR_ICONS = {
+    map: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><path d="M8 2v16M16 6v16"/></svg>',
+    search: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+    zap: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>',
+    mic: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></svg>',
+};
+
 const HELPER_TOURS = {
-    'dashboard': {
-        title: 'Dashboard Tour',
-        description: 'Learn what each section of the dashboard does.',
-        icon: '📊',
+    'welcome': {
+        title: 'Tour of SoulSync',
+        description: 'Where everything is: the sidebar, Home, Wanted, Activity, Search, artists, Automations and the Setup check.',
+        icon: TOUR_ICONS.map,
         steps: [
-            // Header area (top of page)
-            { page: 'dashboard', selector: '.dashboard-header', title: 'Welcome to SoulSync', description: 'This is your Music Dashboard — the central hub for monitoring your music system. Let\'s walk through everything from top to bottom.' },
-            { page: 'dashboard', selector: '.dashboard-header .header-actions', title: 'Enrichment Worker Orbs', description: 'Each orb is a live metadata worker — MusicBrainz, AudioDB, Deezer, Spotify, iTunes, Last.fm, Genius and friends. They pulse while enriching your library; hover one for its current status and progress.' },
-            { page: 'dashboard', selector: '#watchlist-button', title: 'Watchlist', description: 'Artists you follow for new releases. Click to manage watched artists, run scans, and configure per-artist download preferences.' },
-            { page: 'dashboard', selector: '#wishlist-button', title: 'Wishlist', description: 'Tracks queued for download. Failed downloads, watchlist discoveries, and manual additions all land here for retry.' },
-
-            // Main content — top to bottom
-            { page: 'dashboard', selector: '#library-status-card', title: 'Library', description: 'Your library at a glance — artists, albums, tracks, and total size — with a health dot on the title. Quick Scan picks up new content fast (incremental); Deep Scan re-reads everything and clears out stale entries.' },
-            { page: 'dashboard', selector: '.dash-card--rail', title: 'Recently Added & Fresh Releases', description: 'The latest albums to land in your library, and fresh releases from artists you follow — switch between them with the tabs. Click a cover to jump to the album.' },
-            { page: 'dashboard', selector: '.listen-hero', title: 'Library Radio', description: 'One click starts an endless shuffle through your own collection — the player keeps feeding the queue as you listen. The Mixes tile beside it jumps to your daily playlists on Discover.' },
-            { page: 'dashboard', selector: '.dash-autom-rows', title: 'Automations', description: 'Everything else the engine runs — watchlist scans, wishlist processing, backups, notifications — with each automation\'s trigger, last outcome, and next firing. Hover a row to run it now; the quick-settings switches below calm the visual effects on low-power devices.' },
-            { page: 'dashboard', selector: '#sync-history-cards', title: 'Sync', description: 'Every playlist in one band: its schedule and next run, the last run\'s results, and how much of it you own. Hover a row to Run its pipeline now or Listen to it from your library; click a row for the full run detail; Manage opens the Auto-Sync board.' },
-            { page: 'dashboard', selector: '.status-section', title: 'Service Status', description: 'Your three core connections sit under Admin and help at the foot of the sidebar: metadata source, media server, and download source, one dot each. Green is connected, red is not; click the row to switch sources. The Dashboard\'s service cards run a live connection test.' },
-
-            // The shell around every page
-            { page: 'dashboard', selector: '.side-toggle', title: 'Music / Video Toggle', description: 'SoulSync has two whole sides. Switch to Video, at the foot of the sidebar, flips between the MUSIC app and the VIDEO app (movies + TV) — each has its own pages, library, and settings.' },
-            { page: 'dashboard', selector: '#profile-indicator', title: 'Your Profile', description: 'Who\'s signed in. Click to switch profiles; the person icon opens My Account (your media server login and your own music services).' },
-            { page: 'dashboard', selector: '.nav-section-label[data-section="find"]', title: 'Find', description: 'Discovery lives here — Search, Discover, and the Artist Map. Section headers collapse if you like a tidy sidebar.' },
-            { page: 'dashboard', selector: '.nav-section-label[data-section="music"]', title: 'Music', description: 'Your collection: Library, Playlists & Sync, Downloads, and Import for files you already have.' },
-            { page: 'dashboard', selector: '.nav-section-label[data-section="system"]', title: 'System', description: 'The machinery: Automations, Tools, Stats, Issues, and Settings.' },
-            { page: 'dashboard', selector: '.version-button', title: 'Version & Support', description: 'What\'s new, under Admin and help, opens the release notes; it shows an update tag when one is out, and Admin and help gets a dot. Support SoulSync is right below it. That\'s the dashboard! 🎉' },
+            { page: 'dashboard', selector: '[data-tour="home-header"]', title: 'Welcome to SoulSync', description: 'Home shows what you want, what you have, and what SoulSync is doing about the gap. This tour takes about two minutes: Next moves on, Skip tour ends it, and the arrow keys work too.' },
+            { page: 'dashboard', selector: '#app-sidebar .ss-music-nav', phoneSelector: '#ss-tabbar', title: 'The sidebar', description: 'Home, then four groups. Get music has Search, Discover, Wanted and Mirrored playlists. Library has your artists, albums, imports and stats. Automate has Automations and Activity, and Settings comes last.', phoneTitle: 'The tab bar', phoneDescription: 'Home, Get music, Library, Automate and Settings. Tap a group to open its list; tap it again, or anywhere outside, to close it.' },
+            { page: 'dashboard', selector: '#sidebar-collapse-toggle', phone: false, title: 'The compact rail', description: 'Select the SoulSync name to fold the sidebar into a narrow rail of icons, and SS to open it again. SoulSync remembers which you chose.' },
+            { page: 'dashboard', selector: '#ss-admin', phoneSelector: '#ss-tabbar [data-tab="settings"]', title: 'Admin and help', description: 'Help, Requests and issues, Maintenance, your connections and what’s new; admins also find the Setup check here. Select Admin and help to open or fold the list.', phoneDescription: 'Tap Settings: Admin and help is at the end of its list, with Switch to Video and your profile. It has Help, Requests and issues, Maintenance, your connections and what’s new.' },
+            { page: 'dashboard', selector: '#ss-search', phoneSelector: '#ss-phone-search', title: 'Search from any page', description: 'Type here and press Enter to open Search with your words. Press ⌘K (Ctrl K on Windows and Linux) to jump here from anywhere.', phoneDescription: 'Search is in the top bar on every page.' },
+            { page: 'dashboard', selector: '#ss-running', phoneSelector: '#ss-phone-activity', title: 'What’s running', description: 'How many downloads, imports and automation runs are going right now. It opens Activity, and says Nothing running when all is quiet.', phoneTitle: 'Activity', phoneDescription: 'Opens Activity. A dot here means something needs you.' },
+            { page: 'dashboard', selector: '[data-tour="home-targets"]', phoneSelector: '[data-tour="home-targets"] h2', title: 'Your targets', description: 'Wanted, Mirrored playlists, Followed artists and Quality. Each card says how much you have, what’s still missing and when SoulSync searches next. One you haven’t set up yet has a button to start.' },
+            { page: 'dashboard', selector: '[data-tour="home-latest"]', phoneSelector: '[data-tour="home-latest"] h2', title: 'Latest', description: 'The newest things SoulSync did, with See all activity for the rest. Further down, Library and system keeps your library, the enrichment workers and quick settings.' },
+            { page: 'wanted', selector: '[data-tour="wanted-tabs"]', title: 'Wanted', description: 'Everything you want, and every artist you follow, in two tabs. SoulSync searches for what’s wanted on a schedule and checks followed artists for new releases; the line below says when it runs next.' },
+            { page: 'activity', selector: '[data-tour="activity-controls"]', title: 'Activity', description: 'One timeline of downloads, imports, playlist mirrors and automation runs. Needs you lists what’s waiting for a decision and stays at the top until it’s dealt with. Show today, 7 days or 30 days.' },
+            { page: 'search', selector: '#enhanced-search-bar', title: 'Search', description: 'As you type, SoulSync searches your library and your metadata service. Press Enter to search Soulseek too: it waits for Enter so half-typed words don’t go out to other users.' },
+            { page: 'search', selector: '#search-type-row', title: 'Three sections', description: 'Results come back in three sections: In your library, Soulseek (grouped by folder, at your quality target unless you pick Any quality) and your metadata service, which has a picker for the others. These buttons narrow all three.' },
+            { page: 'search', selector: '#app-sidebar [data-nav-row="artists"]', phoneSelector: '#ss-tabbar [data-tab="library"]', title: 'One page for every artist', description: 'Open an artist from Search, Artists, Wanted or Home and you get the same page: their releases with what you have and what’s missing, Follow, Add all missing to Wanted, and Tracks and Similar artists tabs. Its own tour is under the ? button there.' },
+            { page: 'automations', selector: '[data-tour="automation-card"]', title: 'Automations', description: 'Rules that run on a schedule or after something happens. The selected one spells out its steps, with Preview a run, Run now and Edit.' },
+            { page: 'automations', selector: '[data-tour="automation-preview"]', title: 'Preview a run', description: 'Shows what a run would do right now, with counts and a sample, and changes nothing. When you run a step that moves or deletes files yourself, it shows you the list before anything changes.' },
+            { page: 'automations', selector: '[data-tour="automation-runs"]', phoneSelector: '[data-tour="automation-runs-link"]', title: 'Runs', description: 'Every run of the selected automation: how many in the last 30 days, how many failed, the typical time, and a log for each one. All runs in Activity opens them on the timeline.', phoneDescription: 'Tap the runs line to see every run of this automation, how many failed, and a log for each one.' },
+            { page: 'setup-check', selector: '[data-tour="setup-check"]', admin: true, title: 'Setup check', description: 'Checks your folders, slskd and your media server, and says how to fix anything that’s wrong, with lines you can copy. Run it again after you change docker-compose or a setting.' },
+            { selector: '#helper-float-btn', title: 'That’s the tour', description: 'The ? button brings it back, along with tours of single pages, help search, keyboard shortcuts and what’s new.' },
         ]
     },
-    'first-download': {
-        title: 'Your First Download',
-        description: 'Step-by-step guide to downloading your first album.',
-        icon: '⬇️',
+    'search': {
+        title: 'Search',
+        description: 'One search across your library, Soulseek and your metadata service.',
+        icon: TOUR_ICONS.search,
         steps: [
-            { page: 'search', selector: '#enhanced-search-bar', title: 'Search for Music', description: 'Type an artist or album name. One search covers your library, Soulseek and your metadata service. You can also paste a link to a release and it opens that exact one. Try searching for your favorite artist now!' },
-            { page: 'search', selector: '#search-type-row', title: 'Narrow It Down', description: 'Everything, or just artists, albums or tracks, in every section at once.' },
-            { page: 'search', selector: '#search-soulseek', title: 'Files on Soulseek', description: 'Files stream in while the search runs, grouped by folder with the best copy first. The coloured line says what a row means for your library, and the green button completes something you already want.' },
-            { page: 'search', selector: '#search-catalog', title: 'Releases You Don\'t Have', description: 'Your metadata service shows what you don\'t have yet. Add a release to Wanted, or mirror a playlist so SoulSync keeps up with it.' },
-            { page: 'search', selector: '#enhanced-search-bar', title: 'That\'s It!', description: 'Search, click, download. Albums go to your configured download path, get tagged with metadata, and sync to your media server automatically. Active downloads live on the dedicated Downloads page.' },
+            { page: 'search', selector: '#enhanced-search-bar', title: 'Search', description: 'As you type, SoulSync searches your library and your metadata service. Press Enter to search Soulseek too: it waits for Enter so half-typed words don’t go out to other users.' },
+            { page: 'search', selector: '#search-type-row', title: 'Narrow it down', description: 'Everything, or just artists, albums or tracks, in every section at once.' },
+            { page: 'search', selector: '#search-library', title: 'In your library', description: 'Artists, albums and tracks you already have, tagged Following, In your library or Below quality target, with Play and Open. All library results opens the Library on the same search.' },
+            { page: 'search', selector: '#search-soulseek', title: 'Soulseek', description: 'Files from other users, grouped by folder with the best copy first, at your quality target unless you pick Any quality. The coloured line says what a row means for you, and the first row that completes something you want gets Download missing.' },
+            { page: 'search', selector: '#search-catalog', title: 'Your metadata service', description: 'What it lists that you don’t have yet. Add a release to Wanted, mirror a playlist so SoulSync keeps up with it, or use the picker to ask another service.' },
+            { page: 'search', selector: '#enh-recent-searches', title: 'Recent searches', description: 'Run one again, or remove it.' },
+            { page: 'search', selector: '#enh-explore-section', title: 'Browse', description: 'Categories to start from when you don’t know what you’re looking for yet.' },
+        ]
+    },
+    'automations': {
+        title: 'Automations',
+        description: 'Automations, their runs, and Preview a run.',
+        icon: TOUR_ICONS.zap,
+        steps: [
+            { page: 'automations', selector: '[data-tour="automations-filters"]', title: 'Find an automation', description: 'Show all, Needs attention, Yours, Built-in or Paused. When you have groups a picker narrows to one, and the search box matches names, schedules and steps.' },
+            { page: 'automations', selector: '[data-tour="automation-card"]', title: 'Automations', description: 'Rules that run on a schedule or after something happens. The selected one spells out its steps, with Preview a run, Run now and Edit.' },
+            { page: 'automations', selector: '[data-tour="automation-preview"]', title: 'Preview a run', description: 'Shows what a run would do right now, with counts and a sample, and changes nothing. When you run a step that moves or deletes files yourself, it shows you the list before anything changes.' },
+            { page: 'automations', selector: '[data-tour="automation-runs"]', phoneSelector: '[data-tour="automation-runs-link"]', title: 'Runs', description: 'Every run of the selected automation: how many in the last 30 days, how many failed, the typical time, and a log for each one. All runs in Activity opens them on the timeline.', phoneDescription: 'Tap the runs line to see every run of this automation, how many failed, and a log for each one.' },
+            { page: 'automations', selector: '[data-tour="automation-new"]', title: 'New automation', description: 'Opens the editor: when it runs, the main step, then up to three follow-ups such as a notification. You can preview a run there before you save.' },
+        ]
+    },
+    'artist': {
+        title: 'Artist page',
+        description: 'What an artist’s page shows, and what you can do from it.',
+        icon: TOUR_ICONS.mic,
+        // needs an artist: offered on an artist page only
+        onlyOn: 'artist-detail',
+        steps: [
+            { page: 'artist-detail', selector: '[data-tour="artist-header"]', title: 'The artist', description: 'How many releases there are, how many are in your library and on Wanted, and the tracks you have. Below that: since when you’ve followed them, their latest release, and the services SoulSync matched them on.' },
+            { page: 'artist-detail', selector: '[data-tour="artist-actions"]', title: 'Follow and add', description: 'Add all missing to Wanted asks first and says what it would add. Follow adds each new release to Wanted as it comes out. The … menu has the rest: artist radio, a new photo, better copies, matches and more filters.' },
+            { page: 'artist-detail', selector: '[data-tour="artist-tabs"]', title: 'Three views', description: 'Releases, Tracks (the popular ones and the ones you have) and Similar artists.' },
+            { page: 'artist-detail', selector: '[data-tour="artist-filters"]', title: 'Filters', description: 'All releases, albums only, or only what’s missing. The tab and filter are part of the address, so Back steps through them.' },
+            { page: 'artist-detail', selector: '[data-tour="artist-releases"]', title: 'Releases', description: 'Each card says where the release stands: in your library, below your quality target, partly there, on Wanted, or Add to Wanted. Select the title for its tracks; the ⋮ menu has Play and MusicBrainz.' },
         ]
     },
     'sync-playlist': {
@@ -2318,26 +2362,6 @@ const HELPER_TOURS = {
 
             // Sidebar
             { page: 'sync', selector: '.sync-sidebar', title: 'Sync Controls', description: 'The command center. Select playlists with checkboxes on the left, then click "Start Sync" here. Progress bars, match counts, and logs update in real-time. That\'s the sync flow! 🎉' },
-        ]
-    },
-    // 'artists-browse' tour retired — the Artists sidebar entry was replaced by the
-    // unified Search page (see the first-download tour for the new flow).
-    'automations': {
-        title: 'Build an Automation',
-        description: 'Create automated workflows with triggers and actions.',
-        icon: '🤖',
-        steps: [
-            // List view (visible on load)
-            { page: 'automations', selector: '#automations-list-view', title: 'Automations Overview', description: 'All your automations live here, organized into System (built-in), Custom groups, and My Automations. Each card shows its WHEN trigger, DO action, and THEN notifications.' },
-            { page: 'automations', selector: '#automations-stats', title: 'Stats Bar', description: 'Quick counts of total automations, how many are active, paused, and custom. Also shows system automations running background tasks like enrichment and watchlist scanning.' },
-            { page: 'automations', selector: '.auto-new-btn', title: 'Create New Automation', description: 'Opens the visual builder. Choose a trigger (WHEN), an action (DO), and optional notifications (THEN). Triggers include schedules, events (download complete, new release), and signals from other automations.' },
-
-            // Builder (describe since it requires clicking)
-            { page: 'automations', selector: '.auto-new-btn', title: 'The Builder', description: 'The builder has a sidebar with draggable blocks and a canvas. Drag a WHEN block (e.g., "Every 6 hours"), a DO block (e.g., "Run Watchlist Scan"), and optionally a THEN block (e.g., "Send Discord notification").' },
-            { page: 'automations', selector: '.auto-new-btn', title: 'Signals & Chains', description: 'Advanced: automations can fire "signals" that trigger other automations, creating chains. Example: Watchlist scan → fires "new_release" signal → Download automation picks it up. Max chain depth is 5.' },
-
-            // Hub section
-            { page: 'automations', selector: '#auto-section-hub', title: 'Automation Hub', description: 'Pre-built templates, pipeline recipes, quick-start guides, and reference docs. Browse Pipelines for ready-made multi-step workflows, or check Recipes for common automation patterns. Great starting point! 🎉' },
         ]
     },
     'library': {
@@ -2488,14 +2512,14 @@ function openTourSelector() {
             <button class="helper-popover-close" onclick="exitHelperMode()">&times;</button>
         </div>
         <div class="helper-tour-list">
-            ${Object.entries(HELPER_TOURS).map(([id, tour]) => `
+            ${Object.entries(HELPER_TOURS).filter(([, tour]) => _tourAvailableHere(tour)).map(([id, tour]) => `
                 <button class="helper-tour-option" onclick="startTour('${id}')">
                     <span class="helper-tour-option-icon">${tour.icon || '🚶'}</span>
                     <div class="helper-tour-option-body">
                         <div class="helper-tour-option-title">${tour.title}</div>
                         <div class="helper-tour-option-desc">${tour.description}</div>
                     </div>
-                    <div class="helper-tour-option-steps">${tour.steps.length} steps</div>
+                    <div class="helper-tour-option-steps">${_tourStepsFor(tour).length} steps</div>
                 </button>
             `).join('')}
         </div>
@@ -2515,13 +2539,59 @@ function openTourSelector() {
     requestAnimationFrame(() => popover.classList.add('visible'));
 }
 
+// The page the app is on. React pages share one host element, so the
+// `.page.active` id only names legacy pages; the shell's currentPage (core.js,
+// kept by shell-bridge.js) names both.
+function _helperCurrentPage() {
+    if (typeof currentPage === 'string' && currentPage) return currentPage;
+    return document.querySelector('.page.active')?.id?.replace('-page', '') || '';
+}
+
+// The navigation shell switches to the tab bar and sheets at 768px.
+function _tourIsPhone() {
+    return window.matchMedia ? window.matchMedia('(max-width: 768px)').matches : window.innerWidth <= 768;
+}
+
+function _tourIsAdmin() {
+    if (typeof currentProfile === 'undefined' || !currentProfile) return true; // no profiles: one admin
+    return currentProfile.id === 1 || !!currentProfile.is_admin;
+}
+
+// A tour that needs a page (the artist page needs an artist) is offered there only.
+function _tourAvailableHere(tour) {
+    return !tour.onlyOn || _helperCurrentPage() === tour.onlyOn;
+}
+
+// The steps that apply on this screen and for this profile.
+function _tourStepsFor(tour) {
+    const phone = _tourIsPhone();
+    const admin = _tourIsAdmin();
+    return tour.steps.filter((step) => (phone ? step.phone !== false : step.desktop !== false)
+        && (!step.admin || admin));
+}
+
+// The anchor and words a step uses here: phones point at the tab bar and the
+// top bar's icons instead of the sidebar.
+function _tourStepView(step) {
+    const phone = _tourIsPhone();
+    return {
+        selector: (phone && step.phoneSelector) || step.selector,
+        title: (phone && step.phoneTitle) || step.title,
+        description: (phone && step.phoneDescription) || step.description,
+    };
+}
+
 function startTour(tourId) {
     const tour = HELPER_TOURS[tourId];
-    if (!tour) return;
+    if (!tour || !_tourAvailableHere(tour)) return;
+    const steps = _tourStepsFor(tour);
+    if (!steps.length) return;
 
     dismissHelperPopover();
     HelperState.tourId = tourId;
+    HelperState.tourSteps = steps;
     HelperState.tourStep = 0;
+    HelperState.tourDir = 1;
 
     showTourStep();
 }
@@ -2530,43 +2600,88 @@ function showTourStep() {
     const tour = HELPER_TOURS[HelperState.tourId];
     if (!tour) return;
 
-    const step = tour.steps[HelperState.tourStep];
+    const steps = HelperState.tourSteps;
+    const step = steps[HelperState.tourStep];
     if (!step) { dismissTour(); return; }
+    const view = _tourStepView(step);
 
     dismissHelperPopover();
     removeTourOverlay();
 
     // Navigate to the correct page if needed
-    if (step.page) {
-        const currentPage = document.querySelector('.page.active')?.id?.replace('-page', '') || '';
-        if (currentPage !== step.page) {
-            navigateToPage(step.page);
-        }
+    const navigating = !!step.page && _helperCurrentPage() !== step.page;
+    if (navigating && typeof navigateToPage === 'function') {
+        navigateToPage(step.page);
     }
     // Resolve the anchor with RETRIES — pages render async (React mounts,
     // fetch-then-render lists), and the old fixed 350ms wait was the "box
     // jumps to a corner and lives there" bug: the selector missed once and
-    // every later step rendered against nothing.
-    _resolveTourTarget(step.selector, (target) => {
+    // every later step rendered against nothing. A page that is already up
+    // gets a short wait, so a section that isn't there is skipped quickly.
+    _resolveTourTarget(view.selector, (target) => {
         // The user may have advanced/exited while we were resolving.
-        if (HelperState.tourId && tour.steps[HelperState.tourStep] === step) {
-            _renderTourStep(tour, step, target);
+        if (!HelperState.tourId || HelperState.tourSteps[HelperState.tourStep] !== step) return;
+        if (!target && view.selector) {
+            // Not on this page (a section that only shows with results, a page
+            // this profile can't open): skip it, the way the tour was going.
+            _skipTourStep();
+            return;
         }
-    });
+        _renderTourStep(tour, step, target, view);
+    }, 0, navigating ? 12 : 3);
+}
+
+// Move past a step whose anchor isn't there. Going back past the first step
+// turns round; going forward past the last ends the tour.
+function _skipTourStep() {
+    const steps = HelperState.tourSteps;
+    const next = HelperState.tourStep + HelperState.tourDir;
+    if (next >= steps.length) { dismissTour(); return; }
+    if (next < 0) {
+        HelperState.tourDir = 1;
+        HelperState.tourStep = Math.min(HelperState.tourStep + 1, steps.length);
+        if (HelperState.tourStep >= steps.length) { dismissTour(); return; }
+    } else {
+        HelperState.tourStep = next;
+    }
+    showTourStep();
+}
+
+// Whether an anchor is on screen to point at. offsetParent is null for
+// display:none, and also for position:fixed elements (the ? button), which
+// are visible.
+function _tourAnchorVisible(el) {
+    if (!el || el.getClientRects().length === 0) return false;
+    const style = getComputedStyle(el);
+    return (el.offsetParent !== null || style.position === 'fixed') && style.visibility !== 'hidden';
 }
 
 // Poll for a VISIBLE anchor (display:none / unmounted elements don't count),
-// then give up honestly after ~2s so the step centers itself instead of
-// anchoring to a hidden element's garbage rect.
-function _resolveTourTarget(selector, cb, attempt = 0) {
+// then give up honestly (~3s after a page change, under a second otherwise):
+// the caller skips the step instead of anchoring to a hidden element's
+// garbage rect.
+function _resolveTourTarget(selector, cb, attempt = 0, attempts = 12) {
     const el = selector ? document.querySelector(selector) : null;
-    const visible = el && el.offsetParent !== null && el.getClientRects().length > 0;
-    if (visible) { cb(el); return; }
-    if (attempt >= 8) { cb(null); return; }
-    setTimeout(() => _resolveTourTarget(selector, cb, attempt + 1), 250);
+    if (_tourAnchorVisible(el)) { cb(el); return; }
+    if (!selector || attempt >= attempts) { cb(null); return; }
+    setTimeout(() => _resolveTourTarget(selector, cb, attempt + 1, attempts), 250);
 }
 
-function _renderTourStep(tour, step, target) {
+// The steps a reader sees on this run: a step on this page whose anchor
+// isn't there (skipped on the way, or coming up) isn't counted, so the count
+// is honest and the last real step says Done. Steps on other pages can't be
+// checked from here and count.
+function _tourVisibleSteps() {
+    const here = _helperCurrentPage();
+    return HelperState.tourSteps.filter((step, i) => {
+        if (i === HelperState.tourStep) return true;
+        if (step.page && step.page !== here) return true;
+        const selector = _tourStepView(step).selector;
+        return !selector || _tourAnchorVisible(document.querySelector(selector));
+    });
+}
+
+function _renderTourStep(tour, step, target, view = _tourStepView(step)) {
 
     // Spotlight scrim: FOUR panels around a real hole. The old single
     // overlay + z-index-raise-the-target trick failed for any target inside
@@ -2594,8 +2709,9 @@ function _renderTourStep(tour, step, target) {
     _updateTourSpotlight(target);
 
     // Build tour popover
-    const stepNum = HelperState.tourStep + 1;
-    const totalSteps = tour.steps.length;
+    const shown = _tourVisibleSteps();
+    const stepNum = shown.indexOf(step) + 1;
+    const totalSteps = shown.length;
     const isFirst = stepNum === 1;
     const isLast = stepNum === totalSteps;
     const progressPct = (stepNum / totalSteps * 100).toFixed(0);
@@ -2609,14 +2725,14 @@ function _renderTourStep(tour, step, target) {
         </div>
         <div class="helper-tour-step-counter">Step ${stepNum} of ${totalSteps}</div>
         <div class="helper-popover-header">
-            <div class="helper-popover-title">${step.title}</div>
+            <div class="helper-popover-title">${view.title}</div>
         </div>
-        <div class="helper-popover-desc">${step.description}</div>
+        <div class="helper-popover-desc">${view.description}</div>
         <div class="helper-tour-nav">
-            ${!isFirst ? '<button class="helper-tour-btn" onclick="prevTourStep()">← Back</button>' : '<div></div>'}
-            <button class="helper-tour-btn helper-tour-btn-skip" onclick="dismissTour()">Exit Tour</button>
-            ${!isLast ? '<button class="helper-tour-btn helper-tour-btn-next" onclick="nextTourStep()">Next →</button>'
-                       : '<button class="helper-tour-btn helper-tour-btn-next" onclick="dismissTour()">Done ✓</button>'}
+            ${!isFirst ? '<button type="button" class="helper-tour-btn" onclick="prevTourStep()">Back</button>' : '<div></div>'}
+            <button type="button" class="helper-tour-btn helper-tour-btn-skip" onclick="dismissTour()">Skip tour</button>
+            ${!isLast ? '<button type="button" class="helper-tour-btn helper-tour-btn-next" onclick="nextTourStep()">Next</button>'
+                       : '<button type="button" class="helper-tour-btn helper-tour-btn-next" onclick="dismissTour()">Done</button>'}
         </div>
     `;
     document.body.appendChild(popover);
@@ -2695,7 +2811,8 @@ function _updateTourSpotlight(target) {
 function nextTourStep() {
     const tour = HELPER_TOURS[HelperState.tourId];
     if (!tour) return;
-    if (HelperState.tourStep < tour.steps.length - 1) {
+    HelperState.tourDir = 1;
+    if (HelperState.tourStep < HelperState.tourSteps.length - 1) {
         HelperState.tourStep++;
         showTourStep();
     } else {
@@ -2705,6 +2822,7 @@ function nextTourStep() {
 
 function prevTourStep() {
     if (HelperState.tourStep > 0) {
+        HelperState.tourDir = -1;
         HelperState.tourStep--;
         showTourStep();
     }
@@ -2712,6 +2830,8 @@ function prevTourStep() {
 
 function dismissTour() {
     HelperState.tourId = null;
+    HelperState.tourSteps = [];
+    HelperState.tourDir = 1;
     HelperState.tourStep = 0;
     removeTourOverlay();
     dismissHelperPopover();
@@ -2771,8 +2891,9 @@ document.addEventListener('click', function(e) {
 
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
-        if (_helperPopover) { dismissHelperPopover(); return; }
+        // the tour's box is a helper popover too: end the tour, not just the box
         if (HelperState.tourId) { dismissTour(); return; }
+        if (_helperPopover) { dismissHelperPopover(); return; }
         if (HelperState.mode) { exitHelperMode(); return; }
         if (HelperState.menuOpen) { closeHelperMenu(); return; }
     }
@@ -2875,6 +2996,11 @@ function positionPopover(popover, targetEl) {
         left = rect.left + (rect.width / 2) - (popRect.width / 2);
         top = rect.bottom + margin;
         arrowSide = 'top';
+        // no room below (the phone tab bar, the top of a tall card): above it
+        if (top + popRect.height > window.innerHeight - 12 && rect.top - margin - popRect.height >= 12) {
+            top = rect.top - margin - popRect.height;
+            arrowSide = 'bottom';
+        }
     }
 
     left = Math.max(12, Math.min(left, window.innerWidth - popRect.width - 12));
@@ -3251,12 +3377,13 @@ function openHelperSearch() {
             }
         }
 
-        // Search HELPER_TOURS
+        // Search HELPER_TOURS (a tour that needs a page shows up on that page)
         for (const [id, tour] of Object.entries(HELPER_TOURS)) {
+            if (!_tourAvailableHere(tour)) continue;
             const haystack = (tour.title + ' ' + tour.description).toLowerCase();
             const idx = haystack.indexOf(q);
             if (idx !== -1) {
-                matches.push({ type: 'tour', tourId: id, title: tour.icon + ' ' + tour.title, desc: tour.description + ` (${tour.steps.length} steps)`, score: idx });
+                matches.push({ type: 'tour', tourId: id, title: tour.title, desc: tour.description + ` (${_tourStepsFor(tour).length} steps)`, score: idx });
             }
         }
 

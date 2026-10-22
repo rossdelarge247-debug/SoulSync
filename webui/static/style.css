@@ -335,27 +335,6 @@ body.max-performance .sidebar::after {
     background: rgba(var(--accent-rgb), 0.7);
 }
 
-/* Sidebar Header */
-.sidebar-brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.sidebar-logo {
-    width: 38px;
-    height: 38px;
-    object-fit: contain;
-    filter: drop-shadow(0 2px 8px rgba(var(--accent-rgb), 0.3));
-    flex-shrink: 0;
-}
-
-.sidebar-brand-text {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-}
-
 /* Everything below the header, in one scroll box.
 
    The header was previously `position: sticky` INSIDE the scrolling .sidebar.
@@ -377,112 +356,6 @@ body.max-performance .sidebar::after {
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
-}
-
-.sidebar-header {
-    min-height: 115px;
-    /* Accent tint layered over an OPAQUE dark base. The old translucent-only
-       gradient depended on backdrop-filter for legibility — browsers without
-       it (or with it disabled) painted scrolled nav items straight through
-       the header, so the Music/Video toggle and profile chip sat on top of
-       nav text (#1040). The opaque base keeps the exact same tinted look
-       while guaranteeing zero bleed-through everywhere. */
-    background:
-        linear-gradient(180deg,
-            rgba(var(--accent-rgb), 0.16) 0%,
-            rgba(var(--accent-rgb), 0.10) 30%,
-            rgba(24, 24, 24, 0.62) 70%,
-            rgba(18, 18, 18, 0.72) 100%),
-        linear-gradient(180deg, rgb(21, 21, 23) 0%, rgb(14, 14, 16) 100%);
-    border-bottom: 1px solid var(--white-a08);
-    padding: 20px 24px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 8px;
-    /* Was sticky+z-index inside the scrolling sidebar. Now a plain flex
-       sibling of .sidebar-scroll, which is what actually holds it above the
-       content — no stacking-context guesswork. flex-shrink 0 so a long nav
-       list can never squeeze the header. */
-    flex: 0 0 auto;
-    overflow: hidden;
-    flex-shrink: 0;
-
-    /* Intense frosted-glass blur: nav items scrolling up behind the translucent
-       accent-gradient top now read as a soft blur instead of bleeding through
-       sharply. (Only visible where the background is translucent — the opaque
-       base toward the bottom still stops any bleed.) */
-    /* Backdrop blur is re-evaluated whenever content drifts behind it (the
-       ambient orbs do). Cost scales with radius — 28px -> 18px keeps the frosted
-       read while cutting the per-frame blur work by ~a third. */
-    backdrop-filter: blur(18px) saturate(1.3);
-    -webkit-backdrop-filter: blur(18px) saturate(1.3);
-
-    /* Subtle inner glow */
-    box-shadow: inset 0 1px 0 var(--white-a10);
-}
-
-/* Ambient light sweep across header */
-.sidebar-header::after {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -100%;
-    width: 60%;
-    height: 200%;
-    background: linear-gradient(
-        90deg,
-        transparent 0%,
-        rgba(var(--accent-rgb), 0.06) 40%,
-        rgba(var(--accent-rgb), 0.12) 50%,
-        rgba(var(--accent-rgb), 0.06) 60%,
-        transparent 100%
-    );
-    /* Animate transform (compositor-only) instead of `left` (which forced a
-       layout recalc every frame). The element width is 60% of the header, so
-       translateX(400%) = 240% of header width — the same travel `left:-100%`
-       → `left:140%` produced. Pixel-identical path, no per-frame layout. */
-    transform: translateX(0);
-    will-change: transform, opacity;
-    animation: sidebar-header-sweep 8s ease-in-out infinite;
-    pointer-events: none;
-}
-
-@keyframes sidebar-header-sweep {
-    0%, 100% { transform: translateX(0); opacity: 0; }
-    10% { opacity: 1; }
-    50% { transform: translateX(400%); opacity: 1; }
-    60% { opacity: 0; }
-}
-
-.app-name {
-    font-family: 'SF Pro Display', -apple-system, sans-serif;
-    font-size: 20px;
-    font-weight: 700;
-    background: linear-gradient(90deg, #ffffff 0%, rgb(var(--accent-light-rgb)) 60%, rgb(var(--accent-rgb)) 100%);
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    letter-spacing: -0.8px;
-    margin: 0;
-    animation: sidebar-logo-shimmer 6s ease-in-out infinite;
-}
-
-@keyframes sidebar-logo-shimmer {
-    0%, 100% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-}
-
-.app-subtitle {
-    font-family: 'SF Pro Text', -apple-system, sans-serif;
-    font-size: 10px;
-    font-weight: 500;
-    color: var(--white-a50);
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    margin: 0;
-    margin-top: 2px;
 }
 
 /* Navigation Buttons */
@@ -601,100 +474,6 @@ body.max-performance .nav-button.active:hover {
     border-color: rgba(var(--accent-rgb), 0.3);
 }
 
-.nav-icon {
-    width: 40px;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 15px;
-    font-weight: 600;
-    border-radius: var(--radius-md);
-    background: linear-gradient(135deg,
-            var(--white-a07) 0%,
-            var(--white-a03) 100%);
-    border: 1px solid var(--white-a05);
-    color: var(--white-a70);
-    transition: background 0.1s ease, border-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease;
-    box-shadow:
-        0 2px 4px rgba(0, 0, 0, 0.15),
-        inset 0 1px 0 var(--white-a06);
-}
-
-.nav-svg {
-    width: 22px;
-    height: 22px;
-    pointer-events: none;
-    transition: color 0.1s ease, opacity 0.1s ease;
-    color: rgba(var(--accent-rgb), 0.7);
-}
-
-.nav-button.nav-downloads-active .nav-icon {
-    animation: watchlist-scan-glow 1.2s ease-in-out infinite;
-}
-
-.nav-button.nav-downloads-active .nav-svg {
-    animation: nav-downloads-svg 1.2s ease-in-out infinite;
-}
-
-@keyframes nav-downloads-svg {
-    0%, 100% { opacity: 0.7; transform: translateY(0); }
-    50% { opacity: 1; transform: translateY(1px); filter: drop-shadow(0 0 3px rgba(var(--accent-rgb), 0.8)); }
-}
-
-.nav-button.nav-watchlist-scanning .nav-icon {
-    animation: watchlist-scan-glow 1.6s ease-in-out infinite;
-}
-
-.nav-button.nav-watchlist-scanning .nav-svg {
-    animation: watchlist-scan-svg 1.6s ease-in-out infinite;
-}
-
-@keyframes watchlist-scan-glow {
-    0%, 100% {
-        box-shadow:
-            0 2px 4px rgba(0, 0, 0, 0.15),
-            inset 0 1px 0 var(--white-a06),
-            0 0 6px rgba(var(--accent-rgb), 0.25);
-        border-color: rgba(var(--accent-rgb), 0.2);
-    }
-    50% {
-        box-shadow:
-            0 2px 8px rgba(0, 0, 0, 0.2),
-            inset 0 1px 0 var(--white-a08),
-            0 0 14px rgba(var(--accent-rgb), 0.55);
-        border-color: rgba(var(--accent-rgb), 0.5);
-    }
-}
-
-@keyframes watchlist-scan-svg {
-    0%, 100% { opacity: 0.7; }
-    50% { opacity: 1; filter: drop-shadow(0 0 3px rgba(var(--accent-rgb), 0.8)); }
-}
-
-.nav-button:hover .nav-icon {
-    color: rgba(255, 255, 255, 0.95);
-    background: linear-gradient(135deg,
-            var(--white-a12) 0%,
-            var(--white-a06) 100%);
-    border: 1px solid var(--white-a10);
-}
-
-.nav-button:hover .nav-svg {
-    color: rgba(255, 255, 255, 0.95);
-}
-
-.nav-button.active .nav-icon {
-    background: rgba(var(--accent-rgb), 0.12);
-    border: 1px solid rgba(var(--accent-rgb), 0.25);
-    box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.15);
-}
-
-.nav-button.active .nav-svg {
-    color: rgba(var(--accent-light-rgb), 1);
-    filter: drop-shadow(0 0 6px rgba(var(--accent-rgb), 0.5));
-}
-
 .nav-text {
     color: var(--white-a65);
     letter-spacing: 0.2px;
@@ -720,53 +499,6 @@ body.max-performance .nav-button.active:hover {
     align-items: baseline;
     max-width: 100%;
     min-width: 0;
-}
-.nav-text[data-breadcrumb] .nav-text-root {
-    color: inherit;
-    flex-shrink: 0;
-}
-.nav-text[data-breadcrumb] .nav-text-sep {
-    color: var(--white-a40);
-    font-weight: 400;
-    flex-shrink: 0;
-}
-.nav-button.active .nav-text[data-breadcrumb] .nav-text-sep {
-    color: var(--white-a45);
-}
-.nav-text[data-breadcrumb] .nav-text-context {
-    color: var(--white-a75);
-    font-weight: 500;
-    font-style: italic;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-}
-.nav-button.active .nav-text[data-breadcrumb] .nav-text-context {
-    color: var(--white-a85);
-}
-
-/* Sidebar Spacer */
-.sidebar-spacer {
-    flex: 1;
-    min-height: 12px;
-    position: relative;
-}
-
-/* Fade divider between nav and bottom content */
-.sidebar-spacer::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 24px;
-    right: 24px;
-    height: 1px;
-    background: linear-gradient(90deg,
-        transparent 0%,
-        var(--white-a06) 30%,
-        var(--white-a06) 70%,
-        transparent 100%
-    );
 }
 
 /* ── Floating Mini Media Player — sits left of the activity/bell/help buttons ─ */
@@ -1428,35 +1160,6 @@ body.max-performance .nav-button.active:hover {
 }
 
 /* Crypto Donation Section */
-/* Support Button */
-.support-section {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 4px 14px;
-    padding: 8px 0;
-    border-top: 1px solid var(--white-a04);
-}
-
-.support-button {
-    background: transparent;
-    border: 1px solid var(--white-a08);
-    color: var(--white-a30);
-    font-family: 'SF Pro Text', -apple-system, sans-serif;
-    font-size: 9px;
-    font-weight: 500;
-    letter-spacing: 0.5px;
-    padding: 5px 16px;
-    border-radius: 20px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.support-button:hover {
-    color: var(--white-a60);
-    background: var(--white-a04);
-    border-color: var(--white-a15);
-}
 
 /* Support Modal */
 .support-modal-overlay {
@@ -1615,13 +1318,6 @@ body.max-performance .nav-button.active:hover {
 }
 
 /* Version Section */
-.version-section {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px 14px;
-    margin: 0 14px;
-}
 
 .version-button {
     background: transparent;
@@ -1882,7 +1578,10 @@ body.max-performance .nav-button.active:hover {
 
 /* Tour Popover additions */
 .helper-tour-popover {
-    z-index: 100001 !important;
+    /* above the floating bell, activity and help buttons (999999), which
+       would otherwise sit on the box's buttons when it opens above the
+       phone tab bar */
+    z-index: 1000001 !important;
 }
 
 /* Tour progress bar */
@@ -2031,7 +1730,6 @@ body.helper-mode-active .tool-card:hover,
 body.helper-mode-active .service-card:hover,
 body.helper-mode-active .stat-card:hover,
 body.helper-mode-active .version-button:hover,
-body.helper-mode-active .support-button:hover,
 body.helper-mode-active .status-indicator:hover,
 body.helper-mode-active #media-player:hover,
 body.helper-mode-active #dashboard-activity-feed:hover {
@@ -2185,6 +1883,15 @@ body.helper-mode-active #dashboard-activity-feed:hover {
     margin-left: -5px;
     border-bottom: none;
     border-right: none;
+}
+
+/* the tour's box sits above an anchor near the bottom (the phone tab bar) */
+.helper-popover-arrow.arrow-bottom {
+    bottom: -6px;
+    left: 50%;
+    margin-left: -5px;
+    border-top: none;
+    border-left: none;
 }
 
 /* Mobile */
@@ -5508,38 +5215,7 @@ body.helper-mode-active #dashboard-activity-feed:hover {
     }
 }
 
-/* Search Status Bar */
-#search-status-text {
-    color: var(--white-a70);
-    font-size: 11px;
-}
-
 /* Search Results Area */
-.search-results-container {
-    background: transparent;
-    border-radius: 0;
-    border: none;
-    padding: 8px 0 0;
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
-    min-height: 0;
-}
-
-.search-results-header h3 {
-    color: #ffffff;
-    font-size: 21px;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    margin-bottom: 16px;
-}
-
-.search-results-scroll-area {
-    overflow-y: auto;
-    flex-grow: 1;
-    padding-right: 5px;
-    /* Space for scrollbar */
-}
 
 .search-results-placeholder {
     text-align: center;
@@ -6270,31 +5946,28 @@ body:has(.download-missing-modal[style*="display: flex"]) #gsearch-bar,
 body:has(.download-missing-modal[style*="display: flex"]) #gsearch-aura,
 body:has(.download-missing-modal[style*="display: flex"]) #notif-bell-btn,
 body:has(.download-missing-modal[style*="display: flex"]) #helper-float-btn,
-body:has(.download-missing-modal[style*="display: flex"]) #activity-float-btn,
-body:has(.download-missing-modal[style*="display: flex"]) .hamburger-btn {
+body:has(.download-missing-modal[style*="display: flex"]) #activity-float-btn {
     display: none !important;
 }
 
-/* and the discover mix modal: on a phone the hamburger sat on its title and
-   the floating buttons on its track list */
+/* and the discover mix modal: on a phone the floating buttons sat on its
+   track list */
 body:has(#mix-modal-overlay) #gsearch-bar,
 body:has(#mix-modal-overlay) #gsearch-aura,
 body:has(#mix-modal-overlay) #notif-bell-btn,
 body:has(#mix-modal-overlay) #helper-float-btn,
-body:has(#mix-modal-overlay) #activity-float-btn,
-body:has(#mix-modal-overlay) .hamburger-btn {
+body:has(#mix-modal-overlay) #activity-float-btn {
     display: none !important;
 }
 
-/* and the mirrored playlist modal (#1691): on a phone the hamburger sat on
-   its cover and the bell, activity and helper buttons on its bottom row of
-   actions, right where Close and Identify land once the action bar stacks */
+/* and the mirrored playlist modal (#1691): on a phone the bell, activity and
+   helper buttons sat on its bottom row of actions, right where Close and
+   Identify land once the action bar stacks */
 body:has(#mirrored-track-modal) #gsearch-bar,
 body:has(#mirrored-track-modal) #gsearch-aura,
 body:has(#mirrored-track-modal) #notif-bell-btn,
 body:has(#mirrored-track-modal) #helper-float-btn,
-body:has(#mirrored-track-modal) #activity-float-btn,
-body:has(#mirrored-track-modal) .hamburger-btn {
+body:has(#mirrored-track-modal) #activity-float-btn {
     display: none !important;
 }
 
@@ -8059,40 +7732,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     background: rgba(var(--accent-rgb), 0.5);
 }
 
-/* APPEND THIS CSS SNIPPET */
-
-/* ======================================================= */
-/* == STYLES FOR FILTERS PANEL                          == */
-/* ======================================================= */
-
-.filters-container {
-    background: linear-gradient(to bottom, rgba(45, 45, 45, 0.6), rgba(35, 35, 35, 0.8));
-    border-radius: 10px;
-    border: 1px solid rgba(80, 80, 80, 0.25);
-    padding: 8px 16px;
-    transition: max-height 0.4s ease-in-out;
-    max-height: fit-content;
-    /* Collapsed height */
-    margin-top: 16px;
-}
-
-.filters-container.expanded {
-    max-height: fit-content;
-    /* Expanded height */
-
-}
-
-.filter-group {
-    margin-bottom: 8px;
-}
-
-.sort-order-btn {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    font-size: 14px;
-}
-
 /* ===============================
    MODAL-STYLE BUTTON STYLES
    =============================== */
@@ -8756,72 +8395,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     color: var(--white-a50);
     letter-spacing: 0.3px;
     line-height: 1.5;
-}
-
-/* ── The hello strip — the dashboard header says something true instead of
-   its own name: a greeting, then live facts (library size, busy workers,
-   next scan), each a shortcut to where the number lives. The orbs beside
-   it stay the star; this stays quiet. ── */
-.header-hello { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
-.hello-greeting {
-    display: flex; align-items: center; gap: 14px; margin: 0;
-    font-size: 27px; font-weight: 700; line-height: 1.2; letter-spacing: -0.5px;
-    text-transform: lowercase;
-}
-/* Same shimmer treatment the old title had — the type language carries over,
-   only the words changed. */
-.hello-greeting > span {
-    background: linear-gradient(90deg, #ffffff 0%, rgb(var(--accent-light-rgb)) 50%, rgb(var(--accent-rgb)) 100%);
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    animation: page-title-shimmer 6s ease-in-out infinite;
-}
-.hello-greeting .page-header-icon { width: 52px; height: 52px; }
-.hello-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
-.hello-stat {
-    background: none; border: none; padding: 0; margin: 0;
-    font-family: inherit; font-size: 13px; font-weight: 600;
-    color: var(--white-a55); letter-spacing: 0.2px;
-    cursor: pointer; transition: color 0.15s ease;
-}
-.hello-stat:hover { color: #fff; }
-.hello-stat + .hello-stat::before {
-    content: '\00B7'; margin: 0 10px; color: var(--white-a25);
-    /* the dot is chrome — it must not light up with the chip's hover */
-    display: inline-block;
-}
-
-/* The hello strip on a phone.
-
-   `.hello-greeting` is a flex row of [176px hero illustration][greeting text].
-   A flex item holding text keeps min-width:auto, which refuses to shrink below
-   its longest unbreakable WORD — so a profile named "boulderbaddad" set at 27px
-   held the row wider than the viewport, and because nothing clips it the whole
-   PAGE scrolled sideways. Every other page inherited the sideways scroll.
-
-   min-width:0 lets the text wrap instead of pushing; overflow-wrap handles a
-   single long username with no space to break at. */
-@media (max-width: 768px) {
-    #dashboard-page .page-header-icon { width: 96px; height: 96px; }
-
-    .hello-greeting {
-        font-size: 20px;
-        gap: 10px;
-        letter-spacing: -0.2px;
-    }
-    .hello-greeting > span {
-        min-width: 0;
-        overflow-wrap: anywhere;
-    }
-    .header-hello { max-width: 100%; }
-
-    /* The interpunct is a ::before on each chip after the first, so when the
-       row wraps it lands at the START of the new line as a dangling dot. A gap
-       separates them without needing a character. */
-    .hello-stats { gap: 5px 14px; }
-    .hello-stat + .hello-stat::before { display: none; }
 }
 
 /* Artist line on rail cards — its own hit-target straight to the artist
@@ -19467,76 +19040,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
 
 /* Watchlist Modal Styles */
 
-/* ── Processing Button Animation (rotating border gradient) ── */
-
-.btn-processing {
-    position: relative !important;
-    overflow: hidden !important;
-    color: var(--white-a60) !important;
-    pointer-events: none;
-}
-
-.btn-processing::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 2px;
-    background: conic-gradient(
-        from var(--border-angle, 0deg),
-        transparent 0%,
-        rgb(var(--accent-rgb)) 25%,
-        transparent 50%,
-        rgb(var(--accent-rgb)) 75%,
-        transparent 100%
-    );
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    mask-composite: exclude;
-    animation: btn-border-spin 2.5s linear infinite;
-    pointer-events: none;
-}
-
-@keyframes btn-border-spin {
-    0% { --border-angle: 0deg; }
-    100% { --border-angle: 360deg; }
-}
-
-@property --border-angle {
-    syntax: '<angle>';
-    initial-value: 0deg;
-    inherits: false;
-}
-
-/* ── Search bar ────────────────────────────────── */
-.watchlist-search-container {
-    padding: 0 32px;
-    position: relative;
-}
-
-.watchlist-search-icon {
-    position: absolute;
-    left: 48px;
-    top: 50%;
-    transform: translateY(-50%);
-    pointer-events: none;
-    transition: fill 0.2s ease;
-    z-index: 1;
-}
-
-.watchlist-search-container:focus-within .watchlist-search-icon {
-    fill: rgb(var(--accent-rgb));
-}
-
-/* Card grid */
-.watchlist-artists-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 24px;
-    padding: 24px 32px 32px;
-}
-
 /* ── Artist cards ──────────────────────────────── */
 .watchlist-artist-card {
     position: relative;
@@ -19561,80 +19064,7 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     transform: translateY(-2px);
 }
 
-/* Image container with gradient fade */
-.watchlist-card-image {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 1;
-    overflow: hidden;
-    background: linear-gradient(135deg,
-            rgba(30, 30, 30, 1) 0%,
-            rgba(20, 20, 20, 1) 100%);
-}
-
-.watchlist-card-image::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 55%;
-    background: linear-gradient(to top, rgba(18, 18, 18, 1) 0%, rgba(18, 18, 18, 0.5) 45%, transparent 100%);
-    pointer-events: none;
-    z-index: 1;
-}
-
-.watchlist-card-image img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-    transition: transform 0.3s ease;
-}
-
-.watchlist-artist-card:hover .watchlist-card-image img {
-    transform: scale(1.05);
-    filter: brightness(1.1);
-}
-
-/* Image fallback */
-.watchlist-card-image-fallback {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 56px;
-    color: var(--white-a30);
-}
-
 /* Info overlapping the gradient fade */
-.watchlist-card-info {
-    position: relative;
-    z-index: 2;
-    margin-top: -36px;
-    padding: 0 16px 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    background: transparent;
-}
-
-.watchlist-card-name {
-    font-size: 15px;
-    font-weight: 700;
-    color: #ffffff;
-    line-height: 1.25;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    transition: color 0.25s ease;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
-}
-
-.watchlist-artist-card:hover .watchlist-card-name {
-    color: rgb(var(--accent-light-rgb));
-}
 
 .watchlist-card-meta {
     font-size: 11px;
@@ -19644,24 +19074,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
 }
 
 /* Card release-type pills */
-.watchlist-card-sources {
-    position: relative;
-    z-index: 2;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 2px 16px 4px;
-}
-
-.watchlist-source-badge {
-    font-size: 8px;
-    font-weight: 700;
-    text-transform: uppercase;
-    padding: 2px 6px;
-    border-radius: 3px;
-    letter-spacing: 0.4px;
-    line-height: 1.3;
-}
 
 .watchlist-source-spotify {
     background: rgba(30, 215, 96, 0.15);
@@ -19727,45 +19139,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     background: rgba(255, 152, 0, 0.15);
     color: #ffb74d;
     box-shadow: 0 0 8px rgba(255, 152, 0, 0.08);
-}
-
-/* Checkbox — top-left, hidden until hover or checked */
-.watchlist-card-checkbox {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    z-index: 3;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-    cursor: pointer;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.watchlist-card-checkbox input[type="checkbox"] {
-    position: absolute;
-    opacity: 0;
-    width: 0;
-    height: 0;
-}
-
-.watchlist-card-checkbox input:checked+.watchlist-checkbox-custom {
-    background: rgba(var(--accent-rgb), 0.3);
-    border-color: rgb(var(--accent-rgb));
-}
-
-.watchlist-card-checkbox input:checked+.watchlist-checkbox-custom::after {
-    content: '✓';
-    color: rgb(var(--accent-rgb));
-    font-size: 13px;
-    font-weight: 700;
-}
-
-.watchlist-artist-card:hover .watchlist-card-checkbox,
-.watchlist-card-checkbox:has(input:checked) {
-    opacity: 1;
 }
 
 /* Watchlist Artist Detail Overlay */
@@ -20621,58 +19994,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
 .wl-chip--blue   { --chip-rgb: 96, 165, 250; }
 .wl-chip--green  { --chip-rgb: 111, 217, 154; }
 .wl-chip--amber  { --chip-rgb: 251, 191, 36; }
-.wl-chip--red    { --chip-rgb: 248, 113, 113; }
-.wl-chip--slate  { --chip-rgb: 165, 180, 203; }
-
-/* Primary CTA — solid accent gradient + shimmer sweep */
-.wl-chip--cta {
-    color: #fff;
-    background: linear-gradient(135deg, rgb(var(--accent-rgb)), rgb(var(--accent-light-rgb)));
-    border: 1px solid rgba(var(--accent-light-rgb), 0.6);
-    box-shadow: 0 4px 18px rgba(var(--accent-rgb), 0.35);
-}
-
-.wl-chip--cta:hover {
-    background: linear-gradient(135deg, rgb(var(--accent-rgb)), rgb(var(--accent-light-rgb)));
-    border-color: rgba(var(--accent-light-rgb), 0.9);
-    transform: translateY(-1px);
-    box-shadow: 0 6px 24px rgba(var(--accent-rgb), 0.5);
-}
-
-.wl-chip-shimmer {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(105deg, transparent 40%, var(--white-a25) 50%, transparent 60%);
-    transform: translateX(-100%);
-    animation: wl-chip-shimmer 3.2s ease-in-out infinite;
-    pointer-events: none;
-}
-
-@keyframes wl-chip-shimmer {
-    0% { transform: translateX(-100%); }
-    55% { transform: translateX(100%); }
-    100% { transform: translateX(100%); }
-}
-
-/* Header meta chips */
-.wl-meta-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    border-radius: var(--radius-pill);
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--white-a70);
-    background: var(--white-a05);
-    border: 1px solid var(--white-a10);
-}
-
-.wl-meta-chip--accent {
-    color: rgb(var(--accent-light-rgb));
-    background: rgba(var(--accent-rgb), 0.1);
-    border-color: rgba(var(--accent-rgb), 0.3);
-}
 
 /* ── #831 round 3: Global Settings modal reskin ───────────────────────── */
 
@@ -20752,33 +20073,7 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     color: rgb(var(--accent-light-rgb));
 }
 
-/* Watchlist Search */
-
-.watchlist-search-input {
-    width: 100%;
-    padding: 12px 16px 12px 40px;
-    background: var(--white-a05);
-    border: 1px solid var(--white-a10);
-    border-radius: 10px;
-    color: #ffffff;
-    font-size: 14px;
-    font-family: inherit;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.watchlist-search-input:focus {
-    outline: none;
-    background: var(--white-a08);
-    border-color: rgba(var(--accent-rgb), 0.4);
-    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
-}
-
-.watchlist-search-input::placeholder {
-    color: var(--white-a40);
-}
-
 /* Watchlist & Wishlist Batch Action Bar */
-.watchlist-batch-bar,
 .wishlist-batch-bar {
     display: flex;
     align-items: center;
@@ -20788,20 +20083,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     background: var(--white-a03);
     border: 1px solid var(--white-a08);
     border-radius: 10px;
-}
-
-.watchlist-select-all-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--white-a60);
-    cursor: pointer;
-    user-select: none;
-}
-
-.watchlist-select-all-label input[type="checkbox"] {
-    cursor: pointer;
 }
 
 @keyframes batchBarSlideIn {
@@ -20816,37 +20097,14 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     }
 }
 
-.watchlist-batch-count,
-.wishlist-batch-count {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--white-a80);
-}
-
-.watchlist-batch-remove-btn,
 .wishlist-batch-remove-btn {
     border-color: rgba(255, 59, 48, 0.4) !important;
     color: #ff6b6b !important;
 }
 
-.watchlist-batch-remove-btn:hover,
 .wishlist-batch-remove-btn:hover {
     background: rgba(255, 59, 48, 0.2) !important;
     border-color: rgba(255, 59, 48, 0.6) !important;
-}
-
-/* Watchlist & Wishlist Checkbox */
-.watchlist-checkbox-custom,
-.wishlist-checkbox-custom {
-    width: 20px;
-    height: 20px;
-    border: 2px solid var(--white-a20);
-    border-radius: var(--radius-xs);
-    background: var(--white-a03);
-    transition: all 0.15s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
 }
 
 /* ===== WISHLIST OVERVIEW MODAL STYLES ===== */
@@ -21920,12 +21178,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     border: 1px dashed rgba(255, 152, 0, 0.4);
     border-radius: var(--radius-lg);
     padding: 12px;
-}
-
-.watchlist-global-settings-active {
-    background: rgba(255, 152, 0, 0.2) !important;
-    border-color: rgba(255, 152, 0, 0.4) !important;
-    color: #ff9800 !important;
 }
 
 .watchlist-global-override-banner {
@@ -23851,12 +23103,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
 }
 
-.artists-hero-stats {
-    display: flex;
-    gap: 24px;
-    margin-top: 4px;
-}
-
 /* Mobile responsive */
 @media (max-width: 768px) {
     .artists-hero-section {
@@ -23867,10 +23113,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     .artists-hero-name {
         font-size: 1.6em;
     }
-
-    .artists-hero-stats {
-        justify-content: center;
-    }
 }
 
 .artist-detail-header {
@@ -23878,30 +23120,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     margin-bottom: 40px;
     padding-bottom: 30px;
     border-bottom: 1px solid var(--white-a10);
-}
-
-.artist-detail-back-button {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 20px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--white-a80);
-
-    background: var(--white-a08);
-    border: 1px solid var(--white-a12);
-    border-radius: var(--radius-xl);
-    cursor: pointer;
-    transition: all 0.2s ease;
-    outline: none;
-    font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-.artist-detail-back-button:hover {
-    background: var(--white-a12);
-    color: #ffffff;
-    transform: translateY(-1px);
 }
 
 .watchlist-settings-btn {
@@ -24006,53 +23224,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
 
 /* ─── Enhance Quality Button ─── */
 
-/* Delete Artist — the one destructive action in the hero row, so it is the
-   only one that is not competing for attention: quiet until hovered, and red
-   only then. Same geometry as its siblings so the row stays even. */
-.library-artist-delete-btn {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 7px 16px;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--white-a45);
-    background: var(--white-a04);
-    border: 1px solid var(--white-a10);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all 0.25s ease;
-    outline: none;
-    font-family: inherit;
-}
-
-.library-artist-delete-btn:hover:not(:disabled) {
-    color: rgb(255, 138, 128);
-    background: linear-gradient(135deg, rgba(244, 67, 54, 0.18) 0%, rgba(244, 67, 54, 0.06) 100%);
-    border-color: rgba(244, 67, 54, 0.45);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 16px rgba(244, 67, 54, 0.2);
-}
-
-.library-artist-delete-btn:focus-visible {
-    border-color: rgba(244, 67, 54, 0.6);
-    box-shadow: 0 0 0 3px rgba(244, 67, 54, 0.25);
-}
-
-.library-artist-delete-btn:disabled {
-    opacity: 0.55;
-    cursor: wait;
-    transform: none;
-}
-
-.library-artist-delete-btn .delete-icon {
-    font-size: 11px;
-    line-height: 1;
-}
-
 .library-artist-enhance-btn {
     position: relative;
     display: flex;
@@ -24084,17 +23255,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
 .library-artist-enhance-btn:active {
     transform: translateY(0);
     box-shadow: none;
-}
-
-.library-artist-enhance-btn .enhance-icon {
-    font-size: 13px;
-    transition: transform 0.25s ease;
-    position: relative;
-    z-index: 1;
-}
-
-.library-artist-enhance-btn:hover .enhance-icon {
-    transform: scale(1.12);
 }
 
 .library-artist-enhance-btn .enhance-text {
@@ -24172,22 +23332,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
 .library-artist-radio-btn:active {
     transform: translateY(0);
     box-shadow: none;
-}
-
-.library-artist-radio-btn .radio-icon {
-    font-size: 13px;
-    transition: transform 0.25s ease;
-    position: relative;
-    z-index: 1;
-}
-
-.library-artist-radio-btn:hover .radio-icon {
-    transform: scale(1.12);
-}
-
-.library-artist-radio-btn .radio-text {
-    position: relative;
-    z-index: 1;
 }
 
 /* ─── Enhance Quality Modal ─── */
@@ -24538,18 +23682,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     vertical-align: middle;
 }
 
-.artist-detail-image {
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-
-    /* Fallback gradient if no image */
-    background-image: linear-gradient(135deg,
-            rgba(var(--accent-rgb), 0.3) 0%,
-            rgba(24, 156, 71, 0.2) 100%);
-}
-
 .artist-detail-name {
     font-size: 32px;
     font-weight: 700;
@@ -24557,10 +23689,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     margin-bottom: 8px;
     line-height: 1.2;
     font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-.artist-detail-content {
-    margin-bottom: 40px;
 }
 
 .tab-icon {
@@ -26736,76 +25864,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     white-space: nowrap;
 }
 
-.artist-detail-stats {
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
-}
-
-/* Artist Detail Content */
-.artist-detail-content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.artist-detail-loading,
-.artist-detail-error {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    flex: 1;
-    text-align: center;
-    padding: 40px 20px;
-}
-
-.artist-detail-loading .loading-spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid var(--white-a10);
-    border-top: 3px solid rgb(var(--accent-rgb));
-    border-radius: var(--radius-circle);
-    animation: spin 1s linear infinite;
-    margin-bottom: 20px;
-}
-
-.artist-detail-error .error-icon {
-    font-size: 48px;
-    margin-bottom: 16px;
-}
-
-.artist-detail-error h3 {
-    color: #ffffff;
-    font-size: 20px;
-    margin: 0 0 8px 0;
-}
-
-.artist-detail-error p {
-    color: #b3b3b3;
-    margin: 0 0 20px 0;
-}
-
-.retry-btn {
-    background: linear-gradient(135deg, rgb(var(--accent-rgb)) 0%, rgb(var(--accent-light-rgb)) 100%);
-    border: none;
-    border-radius: var(--radius-lg);
-    padding: 12px 24px;
-    color: #ffffff;
-    font-family: 'SF Pro Text', -apple-system, sans-serif;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0.0, 0.2, 1);
-}
-
-.retry-btn:hover {
-    background: linear-gradient(135deg, rgb(var(--accent-light-rgb)) 0%, rgb(var(--accent-rgb)) 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 8px 25px rgba(var(--accent-rgb), 0.3);
-}
-
 /* Artist Info Section */
 .artist-info-section {
     display: flex;
@@ -26818,30 +25876,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     padding: 32px;
     backdrop-filter: blur(8px);
     border: 1px solid var(--white-a05);
-}
-
-.artist-image-container {
-    /* Bound relative to the PARENT, not the viewport: the old 40vw cap let a
-       huge source image (Deezer ships up to 1000px) out-muscle its flex
-       siblings whenever the hero was narrower than the viewport — the info
-       column collapsed ("KISS" clipped to "KIS") and overlapped the fixed
-       280px Top Tracks sidebar (#1036). 38% + sidebar + gaps always leaves
-       the info column real room. */
-    max-width: min(38%, 460px);
-}
-
-#artist-hero-section #artist-detail-image {
-    width: 100%;
-    height: auto;
-    max-width: 100%;
-}
-
-.artist-detail-image {
-    width: 200px;
-    height: 200px;
-    border-radius: var(--radius-xl);
-    object-fit: cover;
-    border: 1px solid var(--white-a10);
 }
 
 .artist-info h1 {
@@ -26895,28 +25929,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     flex-wrap: wrap;
 }
 
-.filter-group {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.filter-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--white-a35);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-right: 4px;
-}
-
-.filter-divider {
-    width: 1px;
-    height: 24px;
-    background: var(--white-a10);
-    margin: 0 4px;
-}
-
 .discography-filter-btn {
     padding: 5px 14px;
     border: 1px solid var(--white-a10);
@@ -26943,47 +25955,10 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
 }
 
 /* Discography Sections */
-.discography-sections {
-    display: flex;
-    flex-direction: column;
-    gap: 40px;
-}
 
 .discography-section {
     opacity: 1;
     /* Show immediately instead of animation for now */
-}
-
-
-.section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--white-a10);
-}
-
-.section-header h3 {
-    font-size: 24px;
-    font-weight: 700;
-    color: #ffffff;
-    margin: 0;
-}
-
-.section-stats {
-    display: flex;
-    gap: 16px;
-    color: #b3b3b3;
-    font-size: 14px;
-    font-weight: 500;
-}
-
-.releases-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(225px, 1fr));
-    gap: 20px;
-    padding: 8px 0;
 }
 
 /* Release Cards */
@@ -27000,10 +25975,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     flex-direction: column;
     height: 300px;
     /* Fixed height for consistent layout */
-}
-
-.discography-sections .release-card {
-    height: fit-content;
 }
 
 .release-card:hover {
@@ -27095,10 +26066,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     font-weight: 600;
 }
 
-.completion-bar {
-    width: 60px;
-}
-
 .completion-fill.complete {
     background: linear-gradient(90deg, rgb(var(--accent-rgb)), rgb(var(--accent-light-rgb)));
 }
@@ -27171,27 +26138,10 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
         gap: 20px;
     }
 
-    .artist-detail-image,
-    .artist-image-fallback {
-        width: 150px;
-        height: 150px;
-    }
-
     .artist-info h1 {
         font-size: 36px;
         white-space: normal;
         text-align: center;
-    }
-
-    .section-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-    }
-
-    .releases-grid {
-        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-        gap: 18px;
     }
 
     .release-card {
@@ -27213,42 +26163,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
-.artist-hero-content {
-    display: flex;
-    align-items: flex-start;
-    gap: 28px;
-}
-
-/* Identity block — name + badges stacked */
-.artist-hero-identity {
-    margin-bottom: 12px;
-}
-
-/* Numbers row — listeners + plays */
-.artist-hero-numbers {
-    display: flex;
-    gap: 10px;
-    margin-top: 14px;
-}
-
-/* Right column — top tracks */
-.artist-hero-right {
-    flex-shrink: 0;
-    width: 280px;
-    background: var(--white-a02);
-    border: 1px solid var(--white-a04);
-    border-radius: var(--radius-lg);
-    padding: 16px 18px;
-    align-self: stretch;
-    display: flex;
-    flex-direction: column;
-}
-
-.artist-image-container {
-    position: relative;
-    flex-shrink: 0;
-}
-
 .artist-image {
     width: 160px;
     height: 160px;
@@ -27257,28 +26171,6 @@ body:has(.chat-web-modal-overlay--open) #activity-float-btn {
     border: 2px solid rgba(var(--accent-rgb), 0.25);
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
     display: block;
-}
-
-.artist-image-fallback {
-    width: 160px;
-    height: 160px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.2) 0%, rgba(var(--accent-light-rgb), 0.1) 100%);
-    border: 2px solid rgba(var(--accent-rgb), 0.3);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 40px;
-    color: var(--white-a60);
-    position: absolute;
-    top: 0;
-    left: 0;
-}
-
-.artist-image:not([src=""]):not([src])+.artist-image-fallback,
-.artist-image[src]:not([src=""])+.artist-image-fallback {
-    display: none;
 }
 
 .artist-info {
@@ -27350,13 +26242,6 @@ a.artist-hero-badge:hover img {
 }
 div.artist-hero-badge {
     cursor: default;
-}
-
-.artist-genres-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 12px;
 }
 
 /* Collection progress bars — below listener/play stats */
@@ -27477,43 +26362,6 @@ div.artist-hero-badge {
     100% { opacity: 1; transform: scale(1); }
 }
 
-.collection-category {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 0;
-    background: none;
-    border: none;
-}
-
-.category-label {
-    color: var(--white-a50);
-    font-weight: 600;
-    font-size: 0.75em;
-    min-width: 52px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.category-stats {
-    color: var(--white-a45);
-    font-size: 0.75em;
-    font-weight: 500;
-    min-width: 32px;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-
-.completion-bar {
-    flex: 1;
-    height: 4px;
-    background: var(--white-a08);
-    border-radius: 2px;
-    overflow: hidden;
-    position: relative;
-}
-
 .completion-fill {
     height: 100%;
     background: linear-gradient(90deg, rgb(var(--accent-rgb)) 0%, rgb(var(--accent-light-rgb)) 100%);
@@ -27553,214 +26401,6 @@ div.artist-hero-badge {
     max-height: none;
 }
 
-/* The collapsed box fades its last line so the clip reads as "there is more"
-   rather than as a sentence that just stops. */
-.artist-hero-bio.has-more:not(.expanded)::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 3.2em;
-    pointer-events: none;
-    background: linear-gradient(to bottom, rgba(18, 20, 26, 0), rgba(18, 20, 26, 0.92));
-    border-radius: 0 0 10px 10px;
-}
-
-/* PINNED, not in flow. The toggle used to be a plain block after the text
-   inside a `max-height: 8em; overflow: hidden` box — so on any bio long
-   enough to need it, the toggle was pushed past the clip and became
-   invisible. That is #1200: no way to read on, no scroll, no pop-out. */
-.artist-hero-bio-toggle {
-    position: absolute;
-    right: 16px;
-    bottom: 8px;
-    z-index: 1;
-    border: none;
-    background: transparent;
-    color: rgb(var(--accent-rgb));
-    cursor: pointer;
-    font-size: 0.82em;
-    font-weight: 600;
-    padding: 4px 0;
-    font-family: inherit;
-}
-.artist-hero-bio.expanded .artist-hero-bio-toggle {
-    /* nothing to fade past once open — sit under the text in flow */
-    position: static;
-    display: block;
-    margin-top: 8px;
-}
-.artist-hero-bio-toggle:hover {
-    text-decoration: underline;
-}
-
-/* Stats — listener/play count boxes */
-.artist-hero-stat {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 10px 18px;
-    background: var(--white-a03);
-    border: 1px solid var(--white-a06);
-    border-radius: 10px;
-    min-width: 80px;
-    transition: border-color 0.2s;
-}
-.artist-hero-stat:hover {
-    border-color: var(--white-a10);
-}
-.hero-stat-value {
-    font-size: 1.25em;
-    font-weight: 700;
-    color: #fff;
-    letter-spacing: -0.02em;
-    line-height: 1.2;
-}
-.hero-stat-label {
-    font-size: 0.65em;
-    color: var(--white-a35);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-top: 3px;
-}
-
-/* Right column is now the sidebar itself — styled by .artist-hero-right */
-.hero-sidebar-title {
-    font-size: 0.75em;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--white-a40);
-    margin-bottom: 10px;
-}
-.hero-top-tracks {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 500px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    scrollbar-width: thin;
-    scrollbar-color: var(--white-a10) transparent;
-}
-@media (max-width: 768px) {
-    .hero-top-tracks {
-        max-height: 300px;
-    }
-}
-.hero-top-track {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 8px;
-    border-radius: var(--radius-sm);
-    transition: background 0.15s;
-}
-.hero-top-track:hover {
-    background: var(--white-a04);
-}
-.hero-top-track-play {
-    width: 20px;
-    height: 20px;
-    border-radius: var(--radius-circle);
-    border: none;
-    background: rgba(var(--accent-rgb), 0.15);
-    color: rgb(var(--accent-rgb));
-    font-size: 8px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    opacity: 0;
-    transition: all 0.2s;
-}
-.hero-top-track:hover .hero-top-track-play {
-    opacity: 1;
-}
-.hero-top-track-play:hover {
-    background: rgb(var(--accent-rgb));
-    color: #fff;
-    transform: scale(1.1);
-}
-.hero-top-track-num {
-    font-size: 0.72em;
-    color: var(--white-a25);
-    font-weight: 600;
-    width: 14px;
-    text-align: right;
-    flex-shrink: 0;
-}
-.hero-top-track-name {
-    font-size: 0.82em;
-    color: var(--white-a80);
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.hero-top-track-plays {
-    font-size: 0.7em;
-    color: var(--white-a30);
-    flex-shrink: 0;
-    font-variant-numeric: tabular-nums;
-}
-
-/* Per-row wishlist button — only shown on metadata-source rows
-   (Spotify / Deezer). Last.fm rows show the playcount instead. */
-.hero-top-track-download,
-.hero-top-track-add {
-    width: 22px;
-    height: 22px;
-    border-radius: var(--radius-circle);
-    border: none;
-    background: var(--white-a06);
-    color: var(--white-a50);
-    font-size: 11px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    opacity: 0;
-    transition: all 0.2s;
-}
-.hero-top-track:hover .hero-top-track-download,
-.hero-top-track:hover .hero-top-track-add,
-.hero-top-track-add:focus-visible {
-    opacity: 1;
-}
-.hero-top-track-download:hover,
-.hero-top-track-add:hover {
-    background: rgba(var(--accent-rgb), 0.25);
-    color: rgb(var(--accent-rgb));
-    transform: scale(1.1);
-}
-
-/* Footer "Download All" button on the top-tracks sidebar — only shown
-   when metadata-source provided downloadable tracks. */
-.hero-top-tracks-download-all {
-    margin-top: 12px;
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid rgba(var(--accent-rgb), 0.3);
-    border-radius: var(--radius-md);
-    background: rgba(var(--accent-rgb), 0.08);
-    color: rgb(var(--accent-rgb));
-    font-size: 0.78em;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.hero-top-tracks-download-all:hover {
-    background: rgba(var(--accent-rgb), 0.18);
-    border-color: rgba(var(--accent-rgb), 0.5);
-}
-
 /* Mobile responsiveness */
 @media (max-width: 768px) {
     .artist-hero-section {
@@ -27768,15 +26408,7 @@ div.artist-hero-badge {
         padding: 20px;
     }
 
-    .artist-hero-content {
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        gap: 20px;
-    }
-
-    .artist-image,
-    .artist-image-fallback {
+    .artist-image {
         width: 120px;
         height: 120px;
     }
@@ -27784,22 +26416,6 @@ div.artist-hero-badge {
     .artist-hero-section .artist-name {
         font-size: 1.6em;
         text-align: center;
-    }
-
-    .artist-hero-right {
-        width: 100%;
-        border-left: none;
-        border-top: 1px solid var(--white-a06);
-        padding-left: 0;
-        padding-top: 16px;
-    }
-
-    .artist-hero-numbers {
-        justify-content: center;
-    }
-
-    .artist-hero-identity {
-        justify-content: center;
     }
 }
 
@@ -28222,24 +26838,6 @@ div.artist-hero-badge {
 
 /* ── Format tag in wishlist modal hero ── */
 .modal-format-tag {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    padding: 2px 8px;
-    border-radius: var(--radius-sm);
-    background: rgba(var(--accent-rgb), 0.15);
-    color: rgba(var(--accent-rgb), 0.9);
-}
-
-/* ── Format tags in artist hero section ── */
-.artist-formats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 6px;
-}
-
-.artist-format-tag {
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.5px;
@@ -31791,105 +30389,6 @@ div.artist-hero-badge {
    Similar Artists Section - Artists Page
    =============================================== */
 
-.similar-artists-section {
-    margin-top: 60px;
-    padding: 40px 0;
-    border-top: 1px solid var(--white-a06);
-}
-
-.similar-artists-header {
-    margin-bottom: 32px;
-}
-
-.similar-artists-title {
-    font-size: 28px;
-    font-weight: 700;
-    color: #ffffff;
-    margin: 0 0 8px 0;
-    font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
-    letter-spacing: -0.5px;
-}
-
-.similar-artists-subtitle {
-    font-size: 15px;
-    color: var(--white-a60);
-    margin: 0;
-    font-weight: 500;
-    font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-/* Loading State */
-.similar-artists-loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding: 60px 20px;
-    color: var(--white-a60);
-    font-size: 15px;
-    font-weight: 500;
-}
-
-.loading-spinner-small {
-    width: 20px;
-    height: 20px;
-    border: 2px solid var(--white-a10);
-    border-top-color: rgb(var(--accent-rgb));
-    border-radius: var(--radius-circle);
-    animation: spin 0.8s linear infinite;
-}
-
-/* Error State */
-.similar-artists-error {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 60px 20px;
-    color: rgba(239, 68, 68, 0.8);
-    font-size: 15px;
-    font-weight: 500;
-}
-
-.similar-artists-error .error-icon {
-    font-size: 20px;
-}
-
-/* Bubbles Container - Horizontal Scroll */
-.similar-artists-bubbles-container {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: calc((100% - (5 * 24px)) / 6);
-    /* Each item is 1/6th of container width */
-    gap: 24px;
-    overflow-x: auto;
-    padding: 20px 0 30px 0;
-    scroll-behavior: smooth;
-
-    /* Custom scrollbar */
-    scrollbar-width: thin;
-    scrollbar-color: var(--white-a20) var(--white-a05);
-}
-
-.similar-artists-bubbles-container::-webkit-scrollbar {
-    height: 8px;
-}
-
-.similar-artists-bubbles-container::-webkit-scrollbar-track {
-    background: var(--white-a05);
-    border-radius: 10px;
-}
-
-.similar-artists-bubbles-container::-webkit-scrollbar-thumb {
-    background: var(--white-a20);
-    border-radius: 10px;
-    transition: background 0.2s ease;
-}
-
-.similar-artists-bubbles-container::-webkit-scrollbar-thumb:hover {
-    background: var(--white-a30);
-}
-
 /* Similar Artist Card — full-bleed image, library-card style */
 .similar-artist-bubble {
     display: block;
@@ -32016,38 +30515,8 @@ div.artist-hero-badge {
 }
 
 /* Responsive adjustments */
-@media (max-width: 1400px) {
-    .similar-artists-bubbles-container {
-        grid-auto-columns: calc((100% - (4 * 24px)) / 5);
-    }
-}
-
-@media (max-width: 1200px) {
-    .similar-artists-bubbles-container {
-        grid-auto-columns: calc((100% - (3 * 24px)) / 4);
-    }
-}
-
-@media (max-width: 900px) {
-    .similar-artists-bubbles-container {
-        grid-auto-columns: calc((100% - (2 * 24px)) / 3);
-    }
-}
 
 @media (max-width: 768px) {
-    .similar-artists-section {
-        margin-top: 40px;
-        padding: 30px 0;
-    }
-
-    .similar-artists-title {
-        font-size: 24px;
-    }
-
-    .similar-artists-bubbles-container {
-        grid-auto-columns: calc((100% - 16px) / 2);
-        gap: 16px;
-    }
 
     .similar-artist-bubble-name {
         font-size: 12px;
@@ -37380,27 +35849,11 @@ div.artist-hero-badge {
     box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.4);
 }
 
-/* Search Section Visibility */
-.search-section {
-    display: none;
-}
-
-.search-section.active {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
-    min-height: 0;
-}
-
 /* ========================================= */
 /* ENHANCED SEARCH STYLING */
 /* ========================================= */
 
 /* Enhanced Search Input Wrapper (relative for dropdown positioning) */
-/* Hide header/toggle when enhanced results are showing */
-.enh-results-active-hide {
-    display: none !important;
-}
 
 /* Enhanced Search Bar — the hero pill. One confident rounded field, the way
    Spotify/Apple lead their search surfaces; the id-lookup row hangs beneath it
@@ -37420,13 +35873,6 @@ div.artist-hero-badge {
     color: #ffffff; padding: 14px 0;
 }
 #enhanced-search-input::placeholder { color: rgba(255, 255, 255, 0.38); font-weight: 400; }
-.enhanced-cancel-btn {
-    background: var(--white-a08); border: none; border-radius: var(--radius-circle);
-    width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
-    color: var(--white-a70); cursor: pointer; font-size: 14px; flex-shrink: 0;
-    transition: all 0.2s ease;
-}
-.enhanced-cancel-btn:hover { background: var(--white-a16); color: #fff; }
 
 /* Enhanced Search Status */
 .enhanced-search-status {
@@ -37469,24 +35915,6 @@ div.artist-hero-badge {
 /* ========================================= */
 /* ENHANCED SEARCH DROPDOWN OVERLAY        */
 /* ========================================= */
-
-.enhanced-dropdown {
-    position: relative;
-    margin-top: 16px;
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-    max-height: none;
-    overflow-y: visible;
-    z-index: 1;
-    animation: enhFadeIn 0.2s ease-out;
-}
-
-@keyframes enhFadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
 
 @keyframes slideDown {
     from { opacity: 0; transform: translateY(-10px); }
@@ -37555,10 +35983,6 @@ div.artist-hero-badge {
         font-size: 8px;
     }
 
-    .search-results-scroll-area {
-        padding-right: 3px;
-    }
-
     .search-result-item {
         padding: 12px;
         border-radius: 14px;
@@ -37566,8 +35990,7 @@ div.artist-hero-badge {
 }
 
 /* Loading and Empty States */
-.enhanced-loading,
-.enhanced-empty {
+.enhanced-loading {
     color: var(--white-a70);
 }
 
@@ -37584,25 +36007,6 @@ div.artist-hero-badge {
     margin-bottom: 12px;
     opacity: 0.5;
 }
-
-/* ── Source picker — a boxless rail of brand pills; the pills carry the
-   color, the way Spotify's filter chips sit bare on the page. ── */
-.enh-source-row {
-    display: flex; flex-wrap: wrap;
-    gap: 8px; padding: 6px 2px 10px; margin: 8px 0 10px;
-    scrollbar-width: thin; scrollbar-color: var(--white-a20) transparent;
-    background: transparent; border: none; border-radius: 0; box-shadow: none;
-    flex-shrink: 0;
-}
-.enh-source-row::-webkit-scrollbar { height: 5px; }
-.enh-source-row::-webkit-scrollbar-track { background: transparent; }
-.enh-source-row::-webkit-scrollbar-thumb { background: var(--white-a12); border-radius: 3px; }
-/* The panel is a grid item (min-width: auto), so any wide child can push it
-   past the viewport and the overflow clips at an ancestor that never
-   scrolls — the chips just vanish off-screen. min-width: 0 keeps the panel
-   inside its column so children wrap or scroll THEMSELVES. Scoped to the
-   search page; the downloads page shares this class. */
-.downloads-main-panel:has(#enh-source-row) { min-width: 0; }
 .enh-source-icon {
     position: relative; display: inline-flex; flex-direction: row;
     align-items: center; justify-content: center; gap: 8px; min-width: 0;
@@ -39022,8 +37426,7 @@ div.artist-hero-badge {
 .enh-item-play-btn:active { transform: translateY(-50%) scale(0.95); }
 
 /* ── Makeover finishing layer ── */
-.enhanced-loading,
-.enhanced-empty {
+.enhanced-loading {
     padding: 56px 20px;
     text-align: center;
 }
@@ -39033,54 +37436,10 @@ div.artist-hero-badge {
     height: 36px;
     border-width: 3px;
 }
-.enhanced-empty p {
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--white-a90);
-    margin: 0;
-    letter-spacing: -0.01em;
-}
-
-/* Page header sized like a destination, scoped to the search page only. */
-.downloads-main-panel:has(#enh-source-row) .downloads-title { font-size: 28px; letter-spacing: -0.03em; }
-.downloads-main-panel:has(#enh-source-row) .downloads-subtitle { color: var(--white-a45); }
 
 /* Explore & Browse Categories Grid */
 .enh-explore-section {
     position: relative;
-}
-
-/* Jump chips — sticky anchor row with active highlighting */
-.enh-jump-chips {
-    display: flex; flex-wrap: wrap; gap: 8px;
-    margin-bottom: 22px; position: sticky; top: 0; z-index: 20;
-    padding: 10px 0; background: linear-gradient(180deg, rgba(10, 10, 12, 0.95) 75%, transparent);
-    backdrop-filter: blur(8px);
-}
-
-/* Top result — the spotlight banner */
-.enh-top-result-card {
-    display: flex; align-items: center; gap: 24px;
-    background: linear-gradient(135deg, var(--white-a05) 0%, rgba(255, 255, 255, 0.015) 100%), #17171b;
-    border: 1px solid var(--white-a07);
-    border-radius: var(--radius-xl); padding: 22px 26px;
-    cursor: pointer; text-decoration: none; color: inherit;
-    transition: background 0.25s ease, transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease, border-color 0.25s ease;
-    max-width: 580px; position: relative; overflow: hidden;
-}
-.enh-top-result-card:hover {
-    background: linear-gradient(135deg, var(--white-a08) 0%, rgba(255, 255, 255, 0.025) 100%), #222228;
-    transform: translateY(-3px);
-    border-color: var(--white-a14);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 24px rgba(var(--accent-rgb), 0.1);
-}
-.enh-top-result-name {
-    font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -0.02em;
-    line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    margin-bottom: 8px;
-}
-@media (max-width: 600px) {
-    .enh-top-result-name { font-size: 19px; }
 }
 
 /* Tile sizes step down on phones. */
@@ -40200,12 +38559,6 @@ div.artist-hero-badge {
 
 .source-card-icon:hover {
     transform: scale(1.1);
-    opacity: 1 !important;
-}
-
-.mb-card-icon:hover {
-    transform: scale(1.1);
-    background: #d466a9;
     opacity: 1 !important;
 }
 
@@ -45512,8 +43865,6 @@ textarea.enhanced-meta-field-input { min-height: 72px; resize: vertical; }
    DOWNLOAD DISCOGRAPHY — Button + Modal
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.discog-download-wrap { margin: 0; display: inline-flex; }
-
 .discog-download-btn {
     position: relative;
     display: flex;
@@ -45843,92 +44194,14 @@ textarea.enhanced-meta-field-input { min-height: 72px; resize: vertical; }
     font-family: inherit;
 }
 .discog-retry-btn:hover { background: var(--white-a14); }
-
-/* Watchlist add modal (artist detail page) */
-.watchadd-modal-overlay {
-    position: fixed; inset: 0; z-index: 1000;
-    background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
-}
-.watchadd-modal-overlay.visible { opacity: 1; pointer-events: auto; }
-.watchadd-modal {
-    width: min(520px, calc(100vw - 40px)); max-height: calc(100vh - 80px);
-    overflow-y: auto; border-radius: 14px;
-    background: linear-gradient(180deg, #1e1e24, #141419);
-    border: 1px solid var(--white-a10);
-    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
-    padding: 20px 22px;
-}
-.watchadd-hero {
-    position: relative; overflow: hidden;
-    margin: -20px -22px 16px; padding: 24px 22px 18px;
-    border-bottom: 1px solid var(--white-a07);
-}
-.watchadd-hero-bg {
-    position: absolute; inset: -14px;
-    background-size: cover; background-position: center 25%;
-    filter: blur(16px) brightness(0.55) saturate(1.3);
-    transform: scale(1.12); pointer-events: none;
-}
-.watchadd-hero-bg::after {
-    content: ''; position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(20,20,26,0.2) 0%, rgba(20,20,26,0.9) 100%);
-}
-.watchadd-hero-content {
-    position: relative; z-index: 1;
-    display: flex; align-items: center; gap: 14px;
-}
-.watchadd-hero-photo {
-    width: 62px; height: 62px; border-radius: 14px; object-fit: cover; flex-shrink: 0;
-    border: 1px solid var(--white-a16);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.55);
-}
-.watchadd-hero-photo-fallback {
-    display: flex; align-items: center; justify-content: center;
-    font-size: 28px; background: var(--white-a07);
-}
-.watchadd-hero-text { min-width: 0; }
-.watchadd-hero-text .watchadd-title { font-size: 18px; }
-.watchadd-hero .watchadd-close {
-    position: absolute; top: 10px; right: 12px; z-index: 2; margin: 0;
-    background: rgba(0,0,0,0.35); border-radius: var(--radius-circle); width: 30px; height: 30px;
-    display: flex; align-items: center; justify-content: center;
-}
-.watchadd-title { font-size: 16px; font-weight: 700; color: #fff; }
-.watchadd-sub { font-size: 12px; color: var(--white-a45); }
-.watchadd-close {
-    margin-left: auto; background: none; border: none; color: var(--white-a50);
-    font-size: 22px; cursor: pointer; line-height: 1; padding: 4px;
-}
-.watchadd-close:hover { color: #fff; }
-.watchadd-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-.watchadd-row { display: flex; align-items: center; gap: 10px; }
-.watchadd-row > .watchadd-label { flex-shrink: 0; width: 108px; margin-bottom: 0; }
-.watchadd-pills { display: flex; flex-wrap: wrap; gap: 4px; }
-/* Off-state pills in these two modals need to read as tappable options,
+/* Off-state pills in this modal need to read as tappable options,
  * not plain text: give them a quiet button frame. Scoped here so the
  * watchlist page's own filter bar keeps its borderless look. */
-.discog-future-pills .watchlist-filter-btn:not(.active),
-.watchadd-pills .watchlist-filter-btn:not(.active) {
+.discog-future-pills .watchlist-filter-btn:not(.active) {
     border: 1px solid var(--white-a14);
     background: var(--white-a04);
     color: var(--white-a60);
 }
-.watchadd-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--white-a40); margin-bottom: 2px; }
-.watchadd-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--white-a80); cursor: pointer; }
-.watchadd-opt input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
-.watchadd-download { margin-top: 10px; }
-.watchadd-select {
-    background: var(--white-a06); color: #fff; border: 1px solid var(--white-a12);
-    border-radius: var(--radius-md); padding: 7px 10px; font-size: 13px; font-family: inherit; cursor: pointer;
-}
-.watchadd-select option { background: #1a1a1a; }
-.watchadd-error {
-    background: rgba(255,80,80,0.1); border: 1px solid rgba(255,80,80,0.3);
-    color: #ff8080; border-radius: var(--radius-md); padding: 8px 12px; font-size: 13px; margin-bottom: 12px;
-}
-.watchadd-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
 
 /* Progress view */
 .discog-progress { padding: 14px 20px; overflow-y: auto; flex: 1; min-height: 0; }
@@ -59855,86 +58128,6 @@ body.max-performance #page-particles-canvas {
    WATCHLIST PAGE
    ═══════════════════════════════════════════════════════════════════ */
 
-.watchlist-page-container {
-    /* card styling from .page-shell; keep page-specific positioning */
-    position: relative;
-}
-
-/* ── Header ── */
-.watchlist-page-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    padding: 20px 24px 18px;
-    margin: -28px -24px 20px -24px;
-    background: linear-gradient(180deg,
-        rgba(255, 193, 7, 0.08) 0%,
-        rgba(255, 193, 7, 0.03) 40%,
-        transparent 100%);
-    border-bottom: 1px solid var(--white-a06);
-    border-top-left-radius: 24px;
-    border-top-right-radius: 24px;
-    position: relative;
-}
-
-.watchlist-page-header::after {
-    content: '';
-    position: absolute;
-    bottom: -1px;
-    left: 10%;
-    right: 10%;
-    height: 1px;
-    background: linear-gradient(90deg,
-        transparent 0%,
-        rgba(255, 193, 7, 0.2) 20%,
-        rgba(255, 193, 7, 0.35) 50%,
-        rgba(255, 193, 7, 0.2) 80%,
-        transparent 100%);
-}
-
-.watchlist-page-header-left {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.watchlist-page-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 26px;
-    font-weight: 700;
-    color: #fff;
-    margin: 0;
-    letter-spacing: -0.5px;
-    font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-.watchlist-page-meta {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    font-size: 13px;
-    color: var(--white-a45);
-    font-weight: 500;
-}
-
-.watchlist-page-meta span {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-/* ── Action buttons ── */
-.watchlist-page-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-    margin-bottom: 12px;
-    padding: 0 4px;
-}
-
 /* .watchlist-action-btn* migrated to the shared .btn / .btn--primary /
    .btn--secondary / .btn--danger primitive (watchlist + wishlist headers).
    The .watchlist-batch-remove-btn / .wishlist-batch-remove-btn hook classes
@@ -59975,182 +58168,6 @@ body.max-performance #page-particles-canvas {
     50% { opacity: 1; }
 }
 
-/* ── Last scan summary strip ── */
-.watchlist-last-scan-strip {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    background: linear-gradient(135deg,
-        rgba(255, 193, 7, 0.06) 0%,
-        rgba(255, 152, 0, 0.03) 100%);
-    border: 1px solid rgba(255, 193, 7, 0.1);
-    border-radius: 10px;
-    margin-bottom: 16px;
-    font-size: 13px;
-    color: var(--white-a55);
-    font-weight: 500;
-}
-
-.watchlist-last-scan-strip svg {
-    color: rgba(255, 193, 7, 0.6);
-    flex-shrink: 0;
-}
-
-/* ── Toolbar (search + sort) ── */
-.watchlist-toolbar {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    margin-bottom: 10px;
-    padding: 0 4px;
-}
-
-.watchlist-toolbar .watchlist-search-container {
-    flex: 1;
-    margin-bottom: 0;
-}
-
-.watchlist-sort-select {
-    padding: 10px 32px 10px 14px;
-    border: 1px solid var(--white-a10);
-    background: var(--white-a04);
-    color: var(--white-a65);
-    font-size: 13px;
-    font-weight: 500;
-    border-radius: 10px;
-    cursor: pointer;
-    transition: all 0.2s;
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    white-space: nowrap;
-}
-
-.watchlist-sort-select:hover {
-    border-color: var(--white-a20);
-    color: var(--white-a85);
-}
-
-.watchlist-sort-select:focus {
-    border-color: rgba(255, 193, 7, 0.4);
-    outline: none;
-    box-shadow: 0 0 12px rgba(255, 193, 7, 0.1);
-}
-
-.watchlist-sort-select option {
-    background: #1a1a1a;
-    color: #fff;
-}
-
-/* ── Search bar (page-level) ── */
-.watchlist-page-container .watchlist-search-container {
-    margin-bottom: 16px;
-    padding: 0;
-    position: relative;
-}
-
-.watchlist-page-container .watchlist-search-input {
-    width: 100%;
-    padding: 12px 20px 12px 44px;
-    border: 1px solid var(--white-a10);
-    border-radius: var(--radius-lg);
-    background: var(--white-a04);
-    color: #ffffff;
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.3s ease;
-    box-sizing: border-box;
-}
-
-.watchlist-page-container .watchlist-search-input:focus {
-    border-color: rgba(255, 193, 7, 0.5);
-    background: var(--white-a06);
-    box-shadow: 0 0 16px rgba(255, 193, 7, 0.12);
-    outline: none;
-}
-
-.watchlist-page-container .watchlist-search-icon {
-    left: 20px;
-}
-
-/* ── Artist grid (page-level) ── */
-.watchlist-page-container .watchlist-artists-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 16px;
-    padding: 4px;
-}
-
-/* ── Artist cards upgrade ── */
-.watchlist-page-container .watchlist-artist-card {
-    background: linear-gradient(135deg,
-        rgba(26, 26, 26, 0.95) 0%,
-        rgba(18, 18, 18, 0.98) 100%);
-    border: 1px solid var(--white-a07);
-    border-top: 1px solid var(--white-a10);
-    border-radius: 14px;
-    box-shadow:
-        0 4px 12px rgba(0, 0, 0, 0.3),
-        inset 0 1px 0 var(--white-a05);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    overflow: hidden;
-    contain: none;
-}
-
-.watchlist-page-container .watchlist-artist-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(255, 193, 7, 0.4), transparent);
-    opacity: 0;
-    transition: opacity 0.3s;
-}
-
-.watchlist-page-container .watchlist-artist-card:hover {
-    transform: translateY(-3px);
-    border-color: rgba(255, 193, 7, 0.15);
-    box-shadow:
-        0 8px 24px rgba(0, 0, 0, 0.4),
-        0 0 20px rgba(255, 193, 7, 0.06),
-        inset 0 1px 0 var(--white-a08);
-}
-
-.watchlist-page-container .watchlist-artist-card:hover::before {
-    opacity: 1;
-}
-
-/* ── Batch bar ── */
-.watchlist-page-container .watchlist-batch-bar {
-    background: var(--white-a03);
-    border: 1px solid var(--white-a06);
-    border-radius: 10px;
-    padding: 8px 16px;
-    margin-bottom: 10px;
-}
-
-/* ── Override banner ── */
-.watchlist-page-container .watchlist-global-override-banner {
-    background: linear-gradient(135deg,
-        rgba(255, 193, 7, 0.08) 0%,
-        rgba(255, 152, 0, 0.05) 100%);
-    border: 1px solid rgba(255, 193, 7, 0.15);
-    border-radius: 10px;
-    padding: 10px 16px;
-    margin-bottom: 16px;
-    font-size: 13px;
-    color: rgba(255, 193, 7, 0.85);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
 /* ── Empty state ── */
 .watchlist-page-empty {
     display: flex;
@@ -60180,885 +58197,6 @@ body.max-performance #page-particles-canvas {
     color: var(--white-a35);
     max-width: 360px;
     line-height: 1.5;
-}
-
-.watchlist-attention-strip {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 8px;
-    margin-bottom: 12px;
-}
-
-.watchlist-attention-card {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-height: 58px;
-    padding: 11px 14px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid var(--white-a07);
-}
-
-.watchlist-attention-card.is-green {
-    border-color: rgba(76, 217, 100, 0.22);
-    background: rgba(76, 217, 100, 0.065);
-}
-
-.watchlist-attention-card.is-amber {
-    border-color: rgba(255, 193, 7, 0.24);
-    background: rgba(255, 193, 7, 0.07);
-}
-
-.watchlist-attention-card.is-blue {
-    border-color: rgba(96, 165, 250, 0.22);
-    background: rgba(96, 165, 250, 0.06);
-}
-
-.watchlist-attention-card--wide {
-    grid-column: span 2;
-}
-
-.watchlist-attention-value {
-    font-size: 22px;
-    line-height: 1;
-    font-weight: 800;
-    color: #fff;
-}
-
-.watchlist-attention-label {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--white-a45);
-    font-weight: 700;
-}
-
-.watchlist-add-panel,
-.watchlist-recent-panel,
-.watchlist-roster-panel,
-.watchlist-inspector {
-    background: linear-gradient(135deg, rgba(24, 24, 24, 0.88), rgba(14, 14, 14, 0.92));
-    border: 1px solid var(--white-a08);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
-}
-
-.watchlist-add-panel {
-    display: grid;
-    grid-template-columns: minmax(160px, 0.6fr) minmax(0, 1.4fr);
-    gap: 12px;
-    padding: 12px 14px;
-    margin-bottom: 12px;
-}
-
-.watchlist-add-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    justify-content: center;
-    color: rgba(255, 255, 255, 0.58);
-    font-size: 13px;
-}
-
-.watchlist-add-kicker,
-.watchlist-panel-kicker {
-    color: rgb(var(--accent-light-rgb));
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 800;
-}
-
-.watchlist-add-form {
-    display: grid;
-    grid-template-columns: 150px minmax(0, 1fr) auto auto;
-    gap: 8px;
-    align-items: center;
-    position: relative;
-}
-
-.watchlist-add-input {
-    width: 100%;
-    min-width: 0;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--white-a10);
-    background: rgba(255, 255, 255, 0.045);
-    color: #fff;
-    font: inherit;
-    box-sizing: border-box;
-}
-
-.watchlist-add-input:focus {
-    outline: none;
-    border-color: rgba(var(--accent-rgb), 0.45);
-    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.08);
-}
-
-.watchlist-add-status {
-    min-width: 92px;
-    padding: 0 4px;
-    color: rgba(255, 255, 255, 0.42);
-    font-size: 12px;
-    font-weight: 750;
-    white-space: nowrap;
-    text-align: right;
-}
-
-.watchlist-add-clear {
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
-    border: 1px solid var(--white-a08);
-    background: rgba(255, 255, 255, 0.045);
-    color: var(--white-a55);
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.watchlist-add-clear:hover {
-    background: var(--white-a08);
-    color: #fff;
-}
-
-.watchlist-add-results {
-    grid-column: 2;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-}
-
-.watchlist-add-result {
-    display: grid;
-    grid-template-columns: 52px minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: center;
-    min-width: 0;
-    padding: 10px;
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--white-a07);
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.025));
-    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-}
-
-.watchlist-add-result:hover {
-    transform: translateY(-1px);
-    border-color: rgba(var(--accent-rgb), 0.26);
-    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.09), rgba(255, 255, 255, 0.035));
-}
-
-.watchlist-add-result img,
-.watchlist-add-avatar {
-    width: 52px;
-    height: 52px;
-    border-radius: 10px;
-    object-fit: cover;
-    background: rgba(var(--accent-rgb), 0.12);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: rgba(255, 255, 255, 0.68);
-    font-weight: 800;
-    font-size: 18px;
-}
-
-.watchlist-add-result-main {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-}
-
-.watchlist-add-result-main span,
-.watchlist-release-card span,
-.watchlist-inspector-releases span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #fff;
-    font-weight: 700;
-}
-
-.watchlist-add-result-main small,
-.watchlist-release-card small,
-.watchlist-inspector-releases small {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--white-a45);
-}
-
-.watchlist-add-result-main small b {
-    color: var(--white-a70);
-    font-weight: 800;
-}
-
-.watchlist-add-result-action {
-    min-width: 58px;
-    height: 34px;
-    padding: 0 12px;
-    border-radius: 9px;
-    border: 1px solid rgba(var(--accent-rgb), 0.22);
-    background: rgba(var(--accent-rgb), 0.14);
-    color: rgb(var(--accent-light-rgb));
-    font: inherit;
-    font-size: 12px;
-    font-weight: 850;
-    cursor: pointer;
-}
-
-.watchlist-add-result-action:hover:not(:disabled) {
-    border-color: rgba(var(--accent-rgb), 0.42);
-    background: rgba(var(--accent-rgb), 0.24);
-    color: #fff;
-}
-
-.watchlist-add-result-action:disabled {
-    opacity: 0.55;
-    cursor: wait;
-}
-
-.watchlist-add-empty,
-.watchlist-recent-empty,
-.watchlist-inspector-empty {
-    padding: 14px;
-    color: rgba(255, 255, 255, 0.42);
-    font-size: 13px;
-}
-
-.watchlist-recent-panel {
-    padding: 14px;
-    margin-bottom: 12px;
-}
-
-.watchlist-panel-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 12px;
-}
-
-.watchlist-panel-head h3,
-.watchlist-panel-head h4 {
-    margin: 2px 0 0;
-    color: #fff;
-    font-size: 17px;
-}
-
-.watchlist-panel-head.compact {
-    align-items: center;
-    margin-bottom: 8px;
-}
-
-.watchlist-panel-head.compact h4 {
-    font-size: 13px;
-}
-
-.watchlist-panel-head > span,
-.watchlist-panel-head.compact span {
-    color: rgba(255, 255, 255, 0.42);
-    font-size: 12px;
-    font-weight: 700;
-}
-
-.watchlist-recent-row {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-}
-
-.watchlist-release-card {
-    position: relative;
-    display: grid;
-    grid-template-columns: 52px minmax(0, 1fr);
-    gap: 10px;
-    align-items: center;
-    padding: 8px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.035);
-    min-width: 0;
-}
-
-.watchlist-release-card img,
-.watchlist-release-fallback {
-    width: 52px;
-    height: 52px;
-    border-radius: var(--radius-md);
-    object-fit: cover;
-    background: var(--white-a06);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--white-a45);
-}
-
-.watchlist-release-card div {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-}
-
-.watchlist-release-card em {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    border-radius: var(--radius-pill);
-    padding: 2px 6px;
-    background: rgba(76, 217, 100, 0.16);
-    color: #72e58d;
-    font-size: 10px;
-    font-style: normal;
-    font-weight: 800;
-}
-
-.watchlist-command-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
-    gap: 14px;
-    align-items: start;
-}
-
-.watchlist-roster-panel {
-    padding: 12px;
-    min-width: 0;
-}
-
-.watchlist-roster-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-    color: rgba(255, 255, 255, 0.48);
-    font-size: 12px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.watchlist-page-container .watchlist-artists-grid--rows {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
-    gap: 10px;
-    padding: 0;
-}
-
-.watchlist-page-container .watchlist-artists-grid--rows .watchlist-artist-card {
-    display: grid;
-    grid-template-columns: 82px minmax(0, 1fr) auto;
-    grid-template-areas:
-        "art info menu"
-        "art stats health"
-        "art tags tags";
-    align-items: start;
-    gap: 8px 14px;
-    min-height: 112px;
-    padding: 12px;
-    border-radius: var(--radius-lg);
-    transform: none;
-    overflow: visible;
-    contain: none;
-}
-
-.watchlist-page-container .watchlist-artists-grid--rows .watchlist-artist-card:hover {
-    transform: none;
-}
-
-.watchlist-artist-card--active {
-    border-color: rgba(var(--accent-rgb), 0.42) !important;
-    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.1), rgba(18, 18, 18, 0.96)) !important;
-}
-
-.watchlist-artists-grid--rows .watchlist-card-image {
-    grid-area: art;
-    width: 82px;
-    height: 82px;
-    aspect-ratio: auto;
-    border-radius: var(--radius-lg);
-}
-
-.watchlist-artists-grid--rows .watchlist-card-image::after {
-    display: none;
-}
-
-.watchlist-artists-grid--rows .watchlist-card-info {
-    grid-area: info;
-    margin: 0;
-    padding: 0;
-    gap: 5px;
-    min-width: 0;
-}
-
-.watchlist-artists-grid--rows .watchlist-card-name {
-    font-size: 16px;
-}
-
-.watchlist-row-stats {
-    grid-area: stats;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-    color: rgba(255, 255, 255, 0.46);
-    font-size: 12px;
-}
-
-.watchlist-row-stats span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.watchlist-row-tags {
-    grid-area: tags;
-    display: flex;
-    flex-direction: column;
-    gap: 7px;
-    min-width: 0;
-}
-
-.watchlist-artists-grid--rows .watchlist-card-sources,
-.watchlist-artists-grid--rows .watchlist-card-pills {
-    padding: 0;
-    min-width: 0;
-}
-
-.watchlist-row-empty-rule {
-    width: fit-content;
-    border-radius: var(--radius-pill);
-    padding: 4px 8px;
-    background: var(--white-a04);
-    color: rgba(255, 255, 255, 0.42);
-    font-size: 10px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.watchlist-row-health {
-    grid-area: health;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 5px;
-}
-
-.watchlist-row-health span {
-    border-radius: var(--radius-pill);
-    padding: 3px 7px;
-    background: rgba(255, 255, 255, 0.045);
-    border: 1px solid rgba(255, 255, 255, 0.065);
-    color: rgba(255, 255, 255, 0.46);
-    font-size: 10px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    white-space: nowrap;
-}
-
-.watchlist-row-menu-trigger {
-    grid-area: menu;
-    position: relative;
-    justify-self: end;
-    z-index: 5;
-    width: 28px;
-    height: 28px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--white-a08);
-    background: rgba(0, 0, 0, 0.35);
-    color: var(--white-a55);
-    font-size: 14px;
-    font-weight: 900;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0.72;
-    transition: all 0.15s ease;
-}
-
-.watchlist-row-menu-trigger:hover,
-.watchlist-row-menu-trigger[aria-expanded="true"] {
-    opacity: 1;
-    color: #fff;
-    background: rgba(var(--accent-rgb), 0.22);
-    border-color: rgba(var(--accent-rgb), 0.35);
-}
-
-.watchlist-row-menu {
-    position: fixed;
-    z-index: 10000;
-    min-width: 210px;
-    padding: 6px;
-    border-radius: 10px;
-    border: 1px solid var(--white-a10);
-    background: rgba(18, 18, 20, 0.98);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-}
-
-.watchlist-row-menu button {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 9px 10px;
-    border: 0;
-    border-radius: 7px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.72);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 750;
-    text-align: left;
-    cursor: pointer;
-}
-
-.watchlist-row-menu button:hover {
-    background: var(--white-a07);
-    color: #fff;
-}
-
-.watchlist-row-menu-sep {
-    height: 1px;
-    margin: 5px 4px;
-    background: var(--white-a08);
-}
-
-.watchlist-row-menu .watchlist-row-menu-danger {
-    color: #ff8e8e;
-}
-
-.watchlist-row-menu .watchlist-row-menu-danger:hover {
-    background: rgba(255, 82, 82, 0.14);
-    color: #ffb0b0;
-}
-
-.watchlist-inspector {
-    position: sticky;
-    top: 16px;
-    padding: 16px;
-    min-width: 0;
-}
-
-.watchlist-inspector-hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
-    margin-bottom: 14px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--white-a07);
-}
-
-.watchlist-inspector-hero .watchlist-card-image-fallback,
-.watchlist-inspector-hero img {
-    width: 100%;
-    height: auto;
-    aspect-ratio: 16 / 10;
-    border-radius: var(--radius-lg);
-    object-fit: cover;
-    font-size: 44px;
-    background: rgba(255, 255, 255, 0.055);
-}
-
-.watchlist-inspector-hero h3 {
-    margin: 2px 0;
-    color: #fff;
-    font-size: 21px;
-    line-height: 1.18;
-    overflow-wrap: anywhere;
-}
-
-.watchlist-inspector-hero h3::after {
-    content: attr(data-artist-name);
-    display: block;
-    margin-top: 2px;
-}
-
-.watchlist-inspector-hero small {
-    color: var(--white-a45);
-}
-
-.watchlist-inspector-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-bottom: 12px;
-}
-
-.watchlist-inspector-actions .wl-chip--red {
-    grid-column: 1 / -1;
-}
-
-.watchlist-inspector-warning {
-    padding: 10px;
-    border-radius: 10px;
-    background: rgba(255, 193, 7, 0.08);
-    border: 1px solid rgba(255, 193, 7, 0.18);
-    color: rgba(255, 213, 79, 0.9);
-    font-size: 12px;
-    margin-bottom: 12px;
-}
-
-.watchlist-inspector-section {
-    padding: 12px 0;
-    border-top: 1px solid var(--white-a07);
-}
-
-.inspector-pills {
-    padding: 0;
-}
-
-.watchlist-inspector-sources {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-
-.watchlist-inspector-releases {
-    display: grid;
-    gap: 8px;
-}
-
-.watchlist-inspector-releases > div {
-    display: grid;
-    grid-template-columns: 40px minmax(0, 1fr);
-    gap: 8px;
-    align-items: center;
-    min-width: 0;
-}
-
-.watchlist-inspector-releases img {
-    width: 40px;
-    height: 40px;
-    border-radius: 7px;
-    object-fit: cover;
-}
-
-@media (max-width: 1180px) {
-    .watchlist-attention-strip {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .watchlist-recent-row {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .watchlist-command-layout {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .watchlist-inspector {
-        position: static;
-    }
-}
-
-@media (max-width: 980px) {
-    .watchlist-page-container .watchlist-artists-grid--rows .watchlist-artist-card {
-        grid-template-columns: 76px minmax(0, 1fr) auto;
-        min-height: 106px;
-    }
-
-    .watchlist-artists-grid--rows .watchlist-card-image {
-        width: 76px;
-        height: 76px;
-    }
-
-    .watchlist-row-health {
-        justify-content: flex-start;
-    }
-}
-
-@media (max-width: 720px) {
-    .watchlist-attention-strip,
-    .watchlist-add-panel,
-    .watchlist-recent-row {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .watchlist-add-results {
-        grid-column: 1;
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .watchlist-add-form {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .watchlist-add-status {
-        text-align: left;
-    }
-
-    .watchlist-add-clear {
-        position: absolute;
-        right: 4px;
-        bottom: 4px;
-    }
-
-    .watchlist-page-container .watchlist-artists-grid--rows .watchlist-artist-card {
-        grid-template-columns: 62px minmax(0, 1fr) auto;
-        grid-template-areas:
-            "art info menu"
-            "stats stats stats"
-            "tags tags tags"
-            "health health health";
-        gap: 10px;
-        min-height: 0;
-    }
-
-    .watchlist-artists-grid--rows .watchlist-card-image {
-        width: 62px;
-        height: 62px;
-    }
-
-    .watchlist-row-stats,
-    .watchlist-row-tags,
-    .watchlist-artists-grid--rows .watchlist-card-sources,
-    .watchlist-row-health {
-        justify-content: flex-start;
-    }
-
-    .watchlist-command-layout {
-        padding-bottom: calc(min(260px, 34vh) + env(safe-area-inset-bottom, 0px) + 24px);
-    }
-
-    .watchlist-inspector {
-        position: fixed;
-        top: auto;
-        left: 10px;
-        right: 10px;
-        bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
-        z-index: 9000;
-        max-height: min(260px, 34vh);
-        overflow-y: auto;
-        padding: 12px;
-        border-radius: 16px 16px 12px 12px;
-        background: rgba(18, 18, 20, 0.96);
-        border-color: var(--white-a14);
-        box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.58);
-        backdrop-filter: blur(18px);
-        -webkit-overflow-scrolling: touch;
-    }
-
-    .watchlist-inspector::before {
-        content: '';
-        display: block;
-        width: 44px;
-        height: 4px;
-        margin: 0 auto 10px;
-        border-radius: var(--radius-pill);
-        background: rgba(255, 255, 255, 0.22);
-    }
-
-    .watchlist-inspector-hero {
-        grid-template-columns: 58px minmax(0, 1fr);
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 10px;
-        padding-bottom: 10px;
-    }
-
-    .watchlist-inspector-hero .watchlist-card-image-fallback,
-    .watchlist-inspector-hero img {
-        width: 58px;
-        height: 58px;
-        aspect-ratio: 1;
-        border-radius: var(--radius-lg);
-        font-size: 24px;
-    }
-
-    .watchlist-inspector-hero h3 {
-        font-size: 17px;
-        line-height: 1.15;
-    }
-
-    .watchlist-inspector-actions {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 7px;
-        margin-bottom: 0;
-    }
-
-    .watchlist-inspector-actions .wl-chip--red {
-        grid-column: auto;
-    }
-
-    .watchlist-inspector-warning {
-        margin: 8px 0 0;
-    }
-
-    .watchlist-inspector-section {
-        padding: 8px 0;
-    }
-
-    .watchlist-inspector-section + .watchlist-inspector-section {
-        display: none;
-    }
-
-    .watchlist-inspector .watchlist-panel-head.compact {
-        margin-bottom: 6px;
-    }
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   WISHLIST PAGE
-   ═══════════════════════════════════════════════════════════════════ */
-
-.wishlist-page-container {
-    /* card styling from .page-shell; keep page-specific positioning */
-    position: relative;
-}
-
-/* ── Header ── */
-.wishlist-page-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    padding: 20px 24px 18px;
-    margin: -28px -24px 24px -24px;
-    background: linear-gradient(180deg,
-        rgba(var(--accent-rgb), 0.08) 0%,
-        rgba(var(--accent-rgb), 0.03) 40%,
-        transparent 100%);
-    border-bottom: 1px solid var(--white-a06);
-    border-top-left-radius: 24px;
-    border-top-right-radius: 24px;
-    position: relative;
-}
-
-.wishlist-page-header::after {
-    content: '';
-    position: absolute;
-    bottom: -1px;
-    left: 10%;
-    right: 10%;
-    height: 1px;
-    background: linear-gradient(90deg,
-        transparent 0%,
-        rgba(var(--accent-rgb), 0.2) 20%,
-        rgba(var(--accent-rgb), 0.35) 50%,
-        rgba(var(--accent-rgb), 0.2) 80%,
-        transparent 100%);
-}
-
-.wishlist-page-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 26px;
-    font-weight: 700;
-    color: #fff;
-    margin: 0;
-    letter-spacing: -0.5px;
-    font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-.wishlist-page-count {
-    color: rgb(var(--accent-light-rgb));
-    font-weight: 600;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -61566,294 +58704,9 @@ body.max-performance #page-particles-canvas {
     margin-bottom: 24px;
 }
 
-.wishlist-page-container .wishlist-category-card {
-    border: 1px solid var(--white-a08);
-    border-top: 1px solid var(--white-a12);
-    box-shadow:
-        0 6px 20px rgba(0, 0, 0, 0.35),
-        inset 0 1px 0 var(--white-a06);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.wishlist-page-container .wishlist-category-card:hover {
-    transform: translateY(-4px) scale(1.01);
-    border-color: rgba(var(--accent-rgb), 0.2);
-    box-shadow:
-        0 12px 30px rgba(0, 0, 0, 0.4),
-        0 0 24px rgba(var(--accent-rgb), 0.08),
-        inset 0 1px 0 var(--white-a10);
-}
-
-.wishlist-page-container .wishlist-category-header {
-    margin-bottom: 12px;
-}
-
-/* ── Batch bar ── */
-.wishlist-page-container .wishlist-batch-bar {
-    background: rgba(var(--accent-rgb), 0.06);
-    border: 1px solid rgba(var(--accent-rgb), 0.12);
-    border-radius: 10px;
-    padding: 8px 16px;
-    margin-bottom: 12px;
-}
-
-/* ── Album cards in track list ── */
-.wishlist-page-container .wishlist-album-card {
-    border: 1px solid var(--white-a06);
-    border-radius: var(--radius-lg);
-    background: var(--white-a02);
-    transition: border-color 0.2s;
-}
-
-.wishlist-page-container .wishlist-album-card:hover {
-    border-color: var(--white-a10);
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   WATCHLIST & WISHLIST RESPONSIVE
-   ═══════════════════════════════════════════════════════════════════ */
-
-@media (max-width: 768px) {
-    .watchlist-page-container,
-    .wishlist-page-container {
-        padding: 16px;
-        margin: 10px;
-        border-radius: var(--radius-xl);
-    }
-
-    .watchlist-page-header,
-    .wishlist-page-header {
-        flex-direction: column;
-        gap: 12px;
-        padding: 16px;
-        margin: -16px -16px 16px -16px;
-        border-top-left-radius: 16px;
-        border-top-right-radius: 16px;
-    }
-
-    .watchlist-page-title,
-    .wishlist-page-title {
-        font-size: 22px;
-    }
-
-    .watchlist-page-actions {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .watchlist-page-container .watchlist-artists-grid {
-        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-        gap: 12px;
-    }
-
-    .watchlist-toolbar {
-        flex-direction: column;
-    }
-
-    .watchlist-sort-select {
-        width: 100%;
-    }
-}
-
-
-/* =========================================================================
-   Source-artist visibility rules
-   =========================================================================
-   When the artist-detail page is rendering a source artist (Spotify / Deezer /
-   iTunes / etc. — not in the local library), hide library-only UI. The body
-   data-artist-source attribute is set by library.js populateArtistDetailPage
-   before rendering.
-*/
-
-/* Library-only: status filter (owned/missing only makes sense when you own things) */
-body[data-artist-source="source"] .artist-detail-page .filter-group:has(.filter-label:only-child),
-body[data-artist-source="source"] .artist-detail-page .discography-filter-btn[data-filter="ownership"] {
-    display: none !important;
-}
-
-/* Library-only: Enhanced view toggle + container (per-track editing requires owned tracks) */
-body[data-artist-source="source"] .artist-detail-page .enhanced-view-toggle-btn,
-body[data-artist-source="source"] .artist-detail-page #enhanced-view-container {
-    display: none !important;
-}
-
-/* Library-only buttons: Radio + Enhance Quality both require owned tracks.
-   Enrichment coverage is a per-track DB enrichment percentage that doesn't
-   apply to artists you don't own.
-   .collection-overview and #artist-hero-sidebar both render usefully for
-   source artists (collection shows 0/N missing, Top Tracks pulls from
-   Last.fm by name) so they stay visible. */
-body[data-artist-source="source"] .artist-detail-page .artist-enrichment-coverage,
-body[data-artist-source="source"] .artist-detail-page #library-artist-radio-btn,
-body[data-artist-source="source"] .artist-detail-page #library-artist-enhance-btn {
-    display: none !important;
-}
-
-
-/* The artist-detail page is React-rendered and lives inside
-   #webui-react-root, under the .artist-detail-page wrapper the page puts
-   around itself. These rules used to name the legacy container as well; that
-   element is gone, so the id half was matching nothing. The class half is
-   load-bearing — dropping it un-styles the whole page: release cards lose
-   their big-photo treatment and the source-artist hides (Artist Radio,
-   Enhance Quality, enrichment coverage) stop applying, which is how a source
-   artist once ended up offering library-only actions.
-   ========================================================================= */
-
-/* =========================================================================
-   Standalone /artist-detail page hero — blurred-background treatment
-   ========================================================================= */
-
-.artist-detail-page .artist-hero-section {
-    position: relative;
-    overflow: hidden;
-}
-
-.artist-detail-page .artist-detail-hero-bg {
-    /* Blurred artist-cover backdrop retired — Boulder didn't want the artist
-       image bleeding behind the header. The element stays in the DOM (JS still
-       sets its background-image) but is hidden; flip display back on to restore. */
-    display: none;
-    position: absolute;
-    inset: -20px;
-    background-size: cover;
-    background-position: center top;
-    background-repeat: no-repeat;
-    filter: blur(50px) brightness(0.35) saturate(1.4);
-    transform: scale(1.3);
-    z-index: 0;
-    pointer-events: none;
-}
-
-.artist-detail-page .artist-detail-hero-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg,
-        rgba(8, 8, 8, 0.5) 0%,
-        rgba(12, 12, 12, 0.7) 60%,
-        rgba(12, 12, 12, 0.9) 100%);
-    z-index: 1;
-    pointer-events: none;
-}
-
-.artist-detail-page .artist-hero-content {
-    position: relative;
-    z-index: 2;
-}
-
-
-/* =========================================================================
-   Album cards on /artist-detail — big-photo treatment
-   =========================================================================
-   .release-card keeps the existing JS filter/state hooks; .album-card
-   layers on the visual treatment from the retired inline Artists page
-   (full-bleed image, gradient overlay, info pinned at bottom).
-
-   The base .release-card rule still applies (background gradient, padding,
-   fixed 300px height, flex column). These overrides switch off the parts
-   that fight with the .album-card layout. */
-
-.artist-detail-page .release-card.album-card {
-    background: rgba(18, 18, 18, 1);
-    backdrop-filter: none;
-    border: 1px solid var(--white-a06);
-    border-radius: 14px;
-    padding: 0;
-    display: block;
-    height: auto;
-    aspect-ratio: 1;
-    overflow: hidden;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.artist-detail-page .release-card.album-card:hover {
-    background: rgba(18, 18, 18, 1);
-    transform: translateY(-5px) scale(1.02);
-    border-color: rgba(var(--accent-rgb), 0.25);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5),
-                0 0 24px rgba(var(--accent-rgb), 0.12);
-}
-
-.artist-detail-page .release-card.album-card.missing {
-    opacity: 1;  /* let the completion-overlay convey state, not the whole card */
-}
-
-/* The fit-content override on the discography page also conflicts with
-   aspect-ratio:1 — clear it for album-card variants. */
-.artist-detail-page .discography-sections .release-card.album-card {
-    height: auto;
-}
-
-/* MusicBrainz icon position (was tied to the old card's padding) */
-.artist-detail-page .release-card.album-card .mb-card-icon {
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    z-index: 3;
-    background: rgba(0, 0, 0, 0.65);
-    border-radius: var(--radius-sm);
-    padding: 4px 6px;
-    cursor: pointer;
-    opacity: 0.85;
-    transition: opacity 0.2s ease;
-}
-
-.artist-detail-page .release-card.album-card .mb-card-icon:hover {
-    opacity: 1;
-}
-
-/* Bottom-left, NOT centred over the artwork. The card itself opens the album
-   detail modal; this button only plays. Centred, it sat exactly where someone
-   aims to click the cover, so "open this album" silently became "play this
-   album". 74px clears the 65px title strip with a gap, and 14px matches the
-   strip's own inset so the button lines up with the album name above it. The
-   library artist card has always done it this way. */
-.artist-detail-page .release-card-play-btn {
-    position: absolute;
-    left: 14px;
-    bottom: 74px;
-    z-index: 4;
-    width: 48px;
-    height: 48px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-circle);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    background: rgb(var(--accent-rgb));
-    color: #fff;
-    font-size: 18px;
-    line-height: 1;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.48);
-    cursor: pointer;
-    opacity: 0;
-    transform: translateY(8px) scale(0.94);
-    transition: opacity 0.2s ease, transform 0.2s ease, filter 0.2s ease;
-}
-
-.artist-detail-page .release-card.album-card:hover .release-card-play-btn,
-.artist-detail-page .release-card-play-btn:focus-visible {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-}
-
-.artist-detail-page .release-card-play-btn:hover {
-    filter: brightness(1.12);
-}
-
-.artist-detail-page .release-card-play-btn:disabled {
-    cursor: wait;
-}
-
+/* the library artist card's play button is always showing on touch screens */
 @media (hover: none) {
     .library-artist-play-btn {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-    }
-    .artist-detail-page .release-card-play-btn {
         opacity: 1;
         transform: translateY(0) scale(1);
     }
@@ -62034,49 +58887,6 @@ body[data-artist-source="source"] .artist-detail-page #library-artist-enhance-bt
     align-items: center;
     gap: 10px;
     font-size: 12px;
-}
-.dash-alert-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: var(--radius-circle);
-    flex-shrink: 0;
-    background: #fbbf24;
-    box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
-    animation: dashAlertPulse 1.8s ease-in-out infinite;
-}
-.dash-alert--error .dash-alert-dot {
-    background: #f87171;
-    box-shadow: 0 0 8px rgba(248, 113, 113, 0.6);
-}
-@keyframes dashAlertPulse {
-    50% { opacity: 0.45; }
-}
-.dash-alert-label {
-    font-weight: 600;
-    color: var(--white-a90);
-}
-.dash-alert-detail {
-    color: var(--white-a60);
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.dash-alert-action {
-    flex-shrink: 0;
-    padding: 4px 11px;
-    font-size: 11px;
-    font-weight: 500;
-    border-radius: var(--radius-sm);
-    background: var(--white-a04);
-    border: 1px solid var(--white-a12);
-    color: var(--white-a75);
-    cursor: pointer;
-}
-.dash-alert-action:hover {
-    background: var(--white-a09);
-    color: #fff;
 }
 
 /* ── The Listen band (data-card="listen") — the payoff row. Boxless like
@@ -66003,7 +62813,6 @@ body.max-performance .dash-card::after {
 .em-btn--ghost:hover:not(:disabled) { background: var(--white-a08); }
 
 /* Stat cards */
-.em-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; flex: 0 0 auto; }
 .em-stat-legend { display: flex; gap: 10px; margin-top: 9px; font-size: 11px; flex-wrap: wrap; }
 .em-leg--matched { color: #4ade80; }
 .em-leg--nf { color: #ff9b9b; }
@@ -68774,15 +65583,6 @@ select.ma-input { appearance: auto; }
 #artist-hero-section { position: relative; }
 
 /* the tool row: "Wrong match?" + "DB Record", pinned to the hero's corner */
-.artist-hero-tools {
-    position: absolute;
-    bottom: 14px;
-    right: 16px;
-    z-index: 6;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
 
 .artist-db-record-btn {
     display: inline-flex;
@@ -69399,7 +66199,6 @@ body.app-locked > *:not(#launch-pin-overlay):not(#login-overlay):not(script):not
 
     /* shell frosted-glass panels — drop the backdrop blur (each element keeps its own tint, so
        it stays a solid/translucent panel, just not frosted). always-visible, so helps every page. */
-    .sidebar-header,
     .header-button,
     .watchlist-button,
     .wishlist-button {
@@ -69862,31 +66661,6 @@ body.app-locked > *:not(#launch-pin-overlay):not(#login-overlay):not(script):not
     vertical-align: 2px; transition: all 0.15s ease; }
 .sact-open::after { content: 'Open ↗'; }
 .sact-card--link:hover .sact-open { background: rgba(var(--vd-accent-rgb, 88, 101, 242), 0.3); }
-
-/* ── Artist photo picker (hover overlay on the artist-detail hero image) ─── */
-/* Mirrors .enhanced-art-edit-overlay: invisible until hover, click opens the
-   per-source photo picker (openArtistArtPicker). Container already clips. */
-.artist-image-container { cursor: pointer; }
-.artist-image-edit-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    color: #fff;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: .02em;
-    background: linear-gradient(to top, rgba(0,0,0,.78), rgba(0,0,0,.28));
-    opacity: 0;
-    transition: opacity .18s ease;
-    border-radius: inherit;
-    z-index: 2;
-}
-.artist-image-container:hover .artist-image-edit-overlay { opacity: 1; }
-.artist-image-edit-overlay svg { opacity: .95; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    CHAT — Soulseek rooms + private messages (one page, both sidebars)
@@ -71397,14 +68171,6 @@ button.chat-hidden-note:hover { color: var(--white-a65); }
 .chat-mention-pop { bottom: 132px; }
 
 /* discography gap-fill (#1067): source badge on cards from other sources */
-.gapfill-source-badge {
-    position: absolute; left: 8px; top: 8px; z-index: 2;
-    padding: 3px 9px; border-radius: var(--radius-pill);
-    font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
-    background: rgba(12, 12, 16, 0.85); color: var(--white-a85);
-    border: 1px solid var(--white-a18);
-    pointer-events: none;
-}
 .discog-gap-src {
     font-weight: 800; text-transform: uppercase; font-size: 0.85em;
     color: var(--white-a55);
@@ -77338,70 +74104,6 @@ body.src-modal-open { overflow: hidden; }
    dashboard, which shares the header classes, is untouched.
    ════════════════════════════════════════════════════════════════════════ */
 
-/* ── the hero ── */
-#dashboard-page .dashboard-header.dash-hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 480px);
-    align-items: stretch;
-    gap: 32px;
-    padding: 34px 40px 30px;
-    /* the page's own gap spaces it from what follows */
-    margin: -28px -24px 0 -24px;
-}
-#dashboard-page .dash-hero-main {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 22px;
-    min-width: 0;
-    position: relative;
-    z-index: 6;
-}
-#dashboard-page .dash-hero .hello-greeting {
-    font-size: clamp(32px, 3.8vw, 44px);
-    letter-spacing: -0.02em;
-    line-height: 1.1;
-    text-transform: none;
-}
-/* the gradient is painted only inside the span's own box, and at 44px a
-   tight line box ends above the descenders, so the p and g got sliced off.
-   the padding gives the paint room, the negative margin keeps the spacing */
-#dashboard-page .dash-hero .hello-greeting > span {
-    min-width: 0;
-    overflow-wrap: anywhere;
-    padding-bottom: 0.18em;
-    margin-bottom: -0.18em;
-}
-#dashboard-page .dash-hero .hello-greeting > span::first-letter { text-transform: uppercase; }
-
-#dashboard-page .dash-hero-numbers {
-    display: flex;
-    flex-wrap: wrap;
-    gap: clamp(18px, 2.5vw, 36px);
-}
-#dashboard-page .dash-hero-number {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 3px;
-}
-#dashboard-page .dash-hero .hello-stat + .hello-stat::before { content: none; }
-#dashboard-page .dash-hero-number-value {
-    font-size: 26px;
-    font-weight: 650;
-    color: #f4f5f7;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
-}
-#dashboard-page .dash-hero-number-label {
-    font-size: 11.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: rgba(244, 245, 247, 0.5);
-}
-#dashboard-page .dash-hero-number:hover .dash-hero-number-label { color: rgba(244, 245, 247, 0.8); }
-
 /* the library, as one status line under the numbers */
 #dashboard-page .dash-hero-library .library-status-card {
     background: none;
@@ -77848,11 +74550,6 @@ body.src-modal-open { overflow: hidden; }
 
 /* 1. Laptops, split screens, and large tablet landscape (<= 1260px) */
 @media (max-width: 1260px) {
-    #dashboard-page .dashboard-header.dash-hero {
-        grid-template-columns: 1fr;
-        gap: 26px;
-        padding: 30px 32px 26px;
-    }
     #dashboard-page .orb-stage {
         min-height: 210px;
         padding: 18px 20px 32px;
@@ -77878,19 +74575,6 @@ body.src-modal-open { overflow: hidden; }
 
 /* 2. Standard tablets (portrait & landscape, <= 960px) */
 @media (max-width: 960px) {
-    #dashboard-page .dashboard-header.dash-hero {
-        padding: 24px 24px 22px;
-        gap: 22px;
-    }
-    #dashboard-page .dash-hero .hello-greeting {
-        font-size: clamp(26px, 4vw, 34px);
-    }
-    #dashboard-page .dash-hero-numbers {
-        gap: 18px 26px;
-    }
-    #dashboard-page .dash-hero-number-value {
-        font-size: 22px;
-    }
     #dashboard-page .orb-stage {
         min-height: 190px;
     }
@@ -77919,24 +74603,6 @@ body.src-modal-open { overflow: hidden; }
 
 /* 3. Mobile phones and small tablet portrait (<= 768px) */
 @media (max-width: 768px) {
-    #dashboard-page .dashboard-header.dash-hero {
-        padding: 20px 16px 18px;
-        margin: -16px -12px 0 -12px;
-        gap: 18px;
-    }
-    #dashboard-page .dash-hero .hello-greeting {
-        font-size: 26px;
-    }
-    #dashboard-page .dash-hero-numbers {
-        gap: 14px 20px;
-    }
-    #dashboard-page .dash-hero-number {
-        flex: 1 1 calc(50% - 20px);
-        min-width: 110px;
-    }
-    #dashboard-page .dash-hero-number-value {
-        font-size: 20px;
-    }
     #dashboard-page .orb-stage {
         min-height: 0;
         padding: 14px 12px 34px;
@@ -77975,9 +74641,6 @@ body.src-modal-open { overflow: hidden; }
 @media (max-width: 460px) {
     #dashboard-page .dash-tiles.header-quick-nav {
         grid-template-columns: 1fr;
-    }
-    #dashboard-page .dash-hero-numbers {
-        gap: 12px 16px;
     }
     #dashboard-page .dash-hero-library .library-status-header {
         gap: 8px;

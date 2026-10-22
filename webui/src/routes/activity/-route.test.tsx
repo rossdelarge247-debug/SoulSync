@@ -153,6 +153,20 @@ describe('activity route', () => {
     expect(pressed('All')).toBe('true');
   });
 
+  it('carries the guided tour’s anchor round its filters and range', async () => {
+    mockFeed();
+    await renderPage();
+    await screen.findByText('Automation "Fill Wanted" ran');
+    const controls = document.querySelector('[data-tour="activity-controls"]');
+    expect(controls).not.toBeNull();
+    expect(
+      within(controls as HTMLElement).getByRole('group', { name: 'Show' }),
+    ).toBeInTheDocument();
+    expect(
+      within(controls as HTMLElement).getByRole('group', { name: 'Range' }),
+    ).toBeInTheDocument();
+  });
+
   it('opens on the range this browser picked last, and sends its own midnight for Today', async () => {
     localStorage.setItem(RANGE_STORAGE_KEY, 'today');
     const calls = mockFeed(() => response({ range: 'today' }));

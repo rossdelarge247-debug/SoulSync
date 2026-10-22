@@ -254,7 +254,13 @@ function TabBar({
     requestAnimationFrame(() => document.getElementById(`${base}-tab-${next}`)?.focus());
   };
   return (
-    <div className={styles.tabs} role="tablist" aria-label="Artist" onKeyDown={onKeyDown}>
+    <div
+      className={styles.tabs}
+      role="tablist"
+      aria-label="Artist"
+      onKeyDown={onKeyDown}
+      data-tour="artist-tabs"
+    >
       {order.map((key) => (
         <button
           key={key}
@@ -669,7 +675,7 @@ export function ArtistPage() {
         : undefined;
 
   const header = (
-    <header className={styles.header}>
+    <header className={styles.header} data-tour="artist-header">
       <HeaderArt artist={artist} image={payload ? image : null} applied={appliedPhoto} />
       <div className={styles.headText}>
         <p className={styles.label}>Artist</p>
@@ -713,7 +719,7 @@ export function ArtistPage() {
               {followingSince}
             </StatusTag>
           ) : null}
-          <div className={styles.actions}>
+          <div className={styles.actions} data-tour="artist-actions">
             <Button
               size="lg"
               variant="primary"
@@ -764,7 +770,7 @@ export function ArtistPage() {
         onSelect={(next) => go({ tab: next, all: undefined, manage: undefined })}
       />
       {tab === 'releases' ? (
-        <div className={styles.filters} role="group" aria-label="Show">
+        <div className={styles.filters} role="group" aria-label="Show" data-tour="artist-filters">
           {FILTERS.map((option) => (
             <OptionButton
               key={option.key}
@@ -872,7 +878,11 @@ export function ArtistPage() {
                 : 'Nothing here with the current filters. Check More filters in the … menu.'}
           </p>
         ) : (
-          <ul className={styles.grid} aria-label={`Releases by ${artistName}`}>
+          <ul
+            className={styles.grid}
+            aria-label={`Releases by ${artistName}`}
+            data-tour="artist-releases"
+          >
             {visible.map((release) => (
               <li key={release.key}>
                 <ArtistReleaseCard

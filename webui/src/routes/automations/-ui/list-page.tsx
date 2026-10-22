@@ -417,6 +417,7 @@ export function AutomationsListPage() {
           size="lg"
           variant="primary"
           className={styles.newButton}
+          data-tour="automation-new"
           onClick={() => void navigate({ to: '/automations/new' })}
         >
           New automation
@@ -453,7 +454,7 @@ export function AutomationsListPage() {
   }
 
   const filters = (
-    <div className={styles.controls}>
+    <div className={styles.controls} data-tour="automations-filters">
       <div className={styles.filters} role="group" aria-label="Show">
         {SHOW_OPTIONS.map((option) => (
           <OptionButton
