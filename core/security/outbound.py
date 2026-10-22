@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 from utils.logging_config import get_logger
@@ -225,13 +225,20 @@ def _unwrap_blocked(exc: BaseException) -> Optional[OutboundBlocked]:
 def guarded_request(method: str, url: str, *, headers: Optional[Dict[str, str]] = None,
                     params: Optional[Dict[str, str]] = None, timeout=(5, 10), stream: bool = False,
                     max_redirects: int = MAX_REDIRECTS, session=None,
-                    resolver: Optional[Callable[[str, int], List[str]]] = None):
+                    resolver: Optional[Callable[[str, int], List[str]]] = None,
+                    data: Optional[Dict[str, str]] = None, files: Optional[Dict[str, Any]] = None):
     """``(response, final_url)`` for a checked address, redirects walked by hand.
 
     Every hop goes through :func:`check_url` and the pinned transport; more
     than ``max_redirects`` hops is refused. Raises :class:`OutboundBlocked`
     for a refused address, ``requests`` exceptions for network failures.
+
+    ``data`` and ``files`` (a form, for a POST) go with the first request
+    only; a request with a body is never re-sent to a redirect's address, so
+    pass ``max_redirects=0`` for those and a redirect is refused.
     """
+    if (data is not None or files is not None) and max_redirects:
+        raise ValueError("A request with a body doesn't follow redirects; pass max_redirects=0.")
     sess = session or guarded_session()
     current = url
     for hop in range(max_redirects + 1):
@@ -240,7 +247,8 @@ def guarded_request(method: str, url: str, *, headers: Optional[Dict[str, str]] 
             raise OutboundBlocked(reason)
         try:
             resp = sess.request(method, current, headers=headers, params=params if hop == 0 else None,
-                                timeout=timeout, stream=stream, allow_redirects=False)
+                                data=data if hop == 0 else None, files=files if hop == 0 else None,
+                                timeout=timeout, stream=stream, allow_redirects=False, verify=True)
         except OutboundBlocked:
             raise
         except Exception as exc:  # noqa: BLE001 - re-raise ours unwrapped, the rest as they are

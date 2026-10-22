@@ -66,7 +66,47 @@ export interface StationsResponse {
 }
 
 export type NowPlayingState = 'identified' | 'listening' | 'not_identified' | 'off' | 'unavailable';
-export type IdSource = 'station_feed' | 'stream_titles' | 'fingerprint';
+export type IdSource =
+  | 'station_feed'
+  | 'stream_titles'
+  | 'fingerprint'
+  | 'scan_acoustid'
+  | 'scan_audd'
+  | 'scan_acrcloud';
+
+/** Can Scan now run (api/radio.py, in now-playing and a station's answer)? */
+export interface ScanAvailability {
+  available: boolean;
+  reason: string | null;
+  services: ScanService[];
+}
+
+export type ScanService = 'acoustid' | 'audd' | 'acrcloud';
+
+/** GET /api/radio/scan/<id> (CONTRACTS.md, "Internet radio" → Scan now). */
+export interface ScanResult {
+  scan_id: string;
+  station_id: string;
+  state: 'listening' | 'identified' | 'not_found' | 'failed';
+  phase: 'capturing' | 'identifying';
+  trying: ScanService | null;
+  trying_label: string | null;
+  progress: number;
+  capture_seconds: number;
+  seconds_left: number;
+  track: { artist: string; title: string; release: string | null } | null;
+  source: 'scan_acoustid' | 'scan_audd' | 'scan_acrcloud' | null;
+  source_label: string | null;
+  heard_id: number | null;
+  library: { in_library: boolean; below_target: boolean | null; track_id: string | null } | null;
+  on_wanted: boolean;
+  reason: string | null;
+  provider_error: { provider: ScanService; label: string; kind: string; message: string } | null;
+  asked: ScanService[];
+  started_at: number;
+  finished_at: number | null;
+  now: number;
+}
 
 export interface NowPlaying {
   station_id: string;
@@ -85,6 +125,7 @@ export interface NowPlaying {
   session_active?: boolean;
   heard_id?: number | null;
   added_at?: number | null;
+  scan?: ScanAvailability;
 }
 
 export interface StationResponse {
@@ -96,6 +137,7 @@ export interface StationResponse {
   identification: boolean;
   is_admin: boolean;
   can_download: boolean;
+  scan?: ScanAvailability;
 }
 
 export type HeardState =
@@ -236,6 +278,11 @@ export interface RadioSessionState {
   /** The browser's clock minus the server's, seconds. */
   skew: number;
   adding: boolean;
+  /** Scan now: the scan in progress or its answer, until dismissed or the station stops. */
+  scan?: ScanResult | null;
+  /** Scan now refused before it started (a limit, no service), in words. */
+  scanError?: string | null;
+  scanStarting?: boolean;
 }
 
 export interface RadioSessionApi {
@@ -245,6 +292,11 @@ export interface RadioSessionApi {
   retry(): Promise<void>;
   addToWanted(): Promise<boolean>;
   refresh(): Promise<void>;
+  /** Scan now: listen to about ten seconds on the server and identify it. */
+  scanNow?(): Promise<void>;
+  /** Add what the scan found to Wanted (its Heard row). */
+  addScanToWanted?(): Promise<boolean>;
+  dismissScan?(): void;
 }
 
 export const RADIO_EVENT = 'ss:radio';

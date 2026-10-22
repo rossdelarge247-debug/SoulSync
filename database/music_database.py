@@ -3512,7 +3512,8 @@ class MusicDatabase:
         """Internet radio's tables (core/internet_radio/store.py): favourites per
         profile, admins' stream links, what was heard (per profile), auto-add
         per station and profile, what auto-add added (so nothing is added
-        twice), its hourly Activity roll-ups, and tracklists already fetched."""
+        twice), its hourly Activity roll-ups, tracklists already fetched, and
+        Scan now's monthly requests per service."""
         with self._migration_step(cursor, 'internet_radio_tables', atomic=False):
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS radio_favourites (
@@ -3610,6 +3611,17 @@ class MusicDatabase:
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_radio_shows_station ON radio_shows (station_id, aired_at)")
+        # Scan now's requests to each identification service, per month (Settings → Radio's usage)
+        with self._migration_step(cursor, 'radio_scan_usage_table', atomic=False):
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS radio_scan_usage (
+                    month TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    requests INTEGER NOT NULL DEFAULT 0,
+                    found INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (month, provider)
+                )
+            """)
 
     def _add_automation_then_actions_column(self, cursor):
         """Add then_actions column to automations table and migrate existing notify data."""

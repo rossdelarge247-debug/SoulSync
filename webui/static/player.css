@@ -1294,6 +1294,7 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     text-align: right;
 }
 .ss-player-radio-now > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-player-bar .ss-player-radio-now { flex: 0 1 auto; max-width: 300px; }
 .ss-player-radio-add {
     display: inline-flex;
     align-items: center;
@@ -1323,6 +1324,73 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
 .ss-player-radio-switch:focus-visible,
 .ss-player-radio-heard:focus-visible { outline: var(--ss-focus-ring); outline-offset: 2px; }
 .ss-player-radio-tag { flex: none; }
+/* Scan now (HANDOFF "Dev, Scan now for radio"): a quiet 44px control beside
+   the bar's action and full width in the phone sheet; the result card in the
+   sheet. Design to draw it properly (question 58). */
+.ss-player-radio-scan {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex: none;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+.ss-player-radio-scan svg { width: 18px; height: 18px; flex: none; }
+.ss-player-radio-scan:hover { background: rgba(255, 255, 255, 0.1); }
+.ss-player-radio-scan:focus-visible { outline: var(--ss-focus-ring); outline-offset: 2px; }
+.ss-player-radio-scan[aria-disabled='true'] { color: var(--ss-disabled-text); cursor: default; background: rgba(255, 255, 255, 0.04); }
+.ss-player-radio-scan[data-busy='true'] { color: rgb(var(--ss-accent-light-rgb)); }
+.ss-player-radio-scan[data-busy='true'] svg { animation: ss-scan-pulse 1.2s ease-in-out infinite; }
+@keyframes ss-scan-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+    .ss-player-radio-scan[data-busy='true'] svg { animation: none; }
+}
+.ss-player-radio-scan--wide { width: 100%; }
+.ss-player-radio-now[data-scan='failed'] .ss-player-meta { color: var(--ss-danger, #f87171); }
+.ss-player-radio-scanbox { display: flex; flex-direction: column; gap: 8px; }
+.ss-player-radio-scanresult {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.04);
+}
+.ss-player-radio-scanresult .ss-player-label { margin: 0; }
+.ss-player-radio-scanresult[data-state='failed'] .ss-player-radio-line { color: var(--ss-danger, #f87171); }
+.ss-player-radio-scan-title { margin: 0; font-size: 17px; font-weight: 600; }
+.ss-player-radio-scan-progress {
+    display: block;
+    height: 4px;
+    margin-top: 8px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+}
+.ss-player-radio-scan-progress > span {
+    display: block;
+    height: 100%;
+    background: rgb(var(--ss-accent-light-rgb));
+    transition: width 0.9s linear;
+}
+.ss-player-radio-scan-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.ss-player-radio-scan-row .ss-player-radio-add { flex: 1; }
+@media (max-width: 1180px) {
+    /* the bar's centre is narrow: the scan control keeps its icon only */
+    .ss-player-bar .ss-player-radio-scan > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .ss-player-bar .ss-player-radio-scan { padding: 0 12px; }
+}
 .ss-player-text-link {
     display: inline-flex;
     align-items: center;

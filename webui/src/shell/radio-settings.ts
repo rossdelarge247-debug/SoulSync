@@ -10,6 +10,10 @@
  * - Streams: the relay rule, prefer lossless, how long Heard is kept.
  * - Your stream links: name and address, quality or a warning, who added it,
  *   Check and Remove.
+ * - Scan now services: AcoustID, AudD and ACRCloud in the order a scan asks
+ *   them, whether each is ready, this month's requests, a Test each, and the
+ *   paid services' keys (write-only: the page is told only whether each is
+ *   set) with Remove.
  *
  * Each control saves as soon as it changes (PUT /api/radio/settings). The tab
  * shows while the Internet radio module is on; the routes are admins only.
@@ -30,6 +34,21 @@ export interface RadioSettingsBody {
     prefer_lossless: boolean;
     keep_heard_days: number;
     acoustid_api_key: { set: boolean; masked: string };
+    scan_services?: {
+      audd_api_token: { set: boolean };
+      acrcloud_host: { set: boolean };
+      acrcloud_access_key: { set: boolean };
+      acrcloud_access_secret: { set: boolean };
+      audd_ready: boolean;
+      acrcloud_ready: boolean;
+    };
+  };
+  scan?: {
+    order: ScanServiceId[];
+    labels: Record<ScanServiceId, string>;
+    ready: Record<ScanServiceId, boolean>;
+    usage: Record<ScanServiceId, { requests: number; found: number }>;
+    month: string;
   };
   status?: {
     fpcalc: { found: boolean; detail: string };
@@ -49,6 +68,8 @@ export interface RadioSettingsBody {
     added_at: number | null;
   }[];
 }
+
+export type ScanServiceId = 'acoustid' | 'audd' | 'acrcloud';
 
 const TAB_ID = 'stg-tab-radio';
 let body: RadioSettingsBody | null = null;
@@ -109,6 +130,166 @@ export function autoStationsLine(auto: RadioSettingsBody['auto_add']): string {
   return `${names.join(', ')} · ${auto.added_this_week} added this week`;
 }
 
+/** "3 requests in October · 1 found", or "None in October". */
+export function usageLine(
+  usage: { requests: number; found: number } | undefined,
+  month: string | undefined,
+): string {
+  const n = usage?.requests ?? 0;
+  const when = month ? ` in ${month}` : ' this month';
+  if (!n) return `No requests${when}`;
+  return `${n} request${n === 1 ? '' : 's'}${when} · ${usage?.found ?? 0} found`;
+}
+
+/** The words under a service's name: what it costs and whether it's ready. */
+export function serviceLine(
+  id: ScanServiceId,
+  data: RadioSettingsBody,
+): { text: string; tone: 'success' | 'warning' | 'neutral' | 'danger' } {
+  const ready = Boolean(data.scan?.ready[id]);
+  if (id === 'acoustid') {
+    if (data.status?.acoustid.state === 'refused')
+      return { text: 'Free · AcoustID refused the key', tone: 'danger' };
+    if (!data.settings?.acoustid_api_key.set)
+      return { text: 'Free · add the AcoustID key above', tone: 'neutral' };
+    if (!data.status?.fpcalc.found)
+      return { text: 'Free · fpcalc isn’t installed', tone: 'warning' };
+    return { text: 'Free · ready', tone: 'success' };
+  }
+  const svc = data.settings?.scan_services;
+  if (id === 'acrcloud' && !ready && svc && (svc.acrcloud_host.set || svc.acrcloud_access_key.set))
+    return { text: 'Paid · needs its host, access key and access secret', tone: 'warning' };
+  return ready
+    ? { text: 'Paid · ready · only when someone presses Scan now', tone: 'success' }
+    : { text: 'Paid · not set up', tone: 'neutral' };
+}
+
+function renderScan(): void {
+  const list = $('radio-scan-services');
+  if (!list || !body) return;
+  list.replaceChildren();
+  const scan = body.scan;
+  const order: ScanServiceId[] = scan?.order ?? ['acoustid', 'audd', 'acrcloud'];
+  const labels: Record<ScanServiceId, string> = scan?.labels ?? {
+    acoustid: 'AcoustID',
+    audd: 'AudD',
+    acrcloud: 'ACRCloud',
+  };
+  order.forEach((id, i) => {
+    const li = document.createElement('li');
+    li.className = 'radio-scan-row';
+    li.dataset.service = id;
+    const step = document.createElement('span');
+    step.className = 'radio-scan-step';
+    step.textContent = String(i + 1);
+    step.setAttribute('aria-hidden', 'true');
+    const text = document.createElement('div');
+    text.className = 'radio-scan-text';
+    const name = document.createElement('span');
+    name.className = 'radio-scan-name';
+    name.textContent = labels[id];
+    const line = serviceLine(id, body!);
+    const meta = document.createElement('span');
+    meta.className = 'radio-status';
+    meta.dataset.tone = line.tone;
+    meta.textContent = line.text;
+    text.append(name, meta);
+    const usage = document.createElement('span');
+    usage.className = 'radio-scan-usage';
+    usage.textContent = usageLine(scan?.usage[id], scan?.month);
+    const test = document.createElement('button');
+    test.type = 'button';
+    test.className = 'radio-button radio-button--ghost';
+    test.textContent = 'Test';
+    test.dataset.radioScanTest = id;
+    const configured =
+      id === 'acoustid'
+        ? Boolean(body!.settings?.acoustid_api_key.set)
+        : id === 'audd'
+          ? Boolean(body!.settings?.scan_services?.audd_api_token.set)
+          : Boolean(scan?.ready.acrcloud);
+    test.hidden = !configured; // nothing to test until its keys are saved
+    test.setAttribute(
+      'aria-label',
+      id === 'acoustid'
+        ? `Test ${labels[id]}: a free check of the key`
+        : `Test ${labels[id]}: uses one request`,
+    );
+    test.title = id === 'acoustid' ? 'A free check of the key' : 'A test uses one request';
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'radio-button radio-button--ghost';
+    remove.textContent = 'Remove';
+    remove.dataset.radioScanRemove = id;
+    remove.setAttribute('aria-label', `Remove ${labels[id]}’s keys`);
+    const svc = body!.settings?.scan_services;
+    remove.hidden =
+      id === 'acoustid' ||
+      !(id === 'audd'
+        ? svc?.audd_api_token.set
+        : svc?.acrcloud_host.set ||
+          svc?.acrcloud_access_key.set ||
+          svc?.acrcloud_access_secret.set);
+    li.append(step, text, usage, test, remove);
+    list.append(li);
+  });
+  const svc = body.settings?.scan_services;
+  const placeholder = (id: string, set: boolean | undefined, empty: string) => {
+    const input = $<HTMLInputElement>(id);
+    if (input && document.activeElement !== input) {
+      input.value = '';
+      input.placeholder = set ? 'Saved (hidden)' : empty;
+    }
+  };
+  placeholder('radio-audd-token', svc?.audd_api_token.set, 'Not set');
+  placeholder('radio-acr-host', svc?.acrcloud_host.set, 'identify-eu-west-1.acrcloud.com');
+  placeholder('radio-acr-key', svc?.acrcloud_access_key.set, 'Not set');
+  placeholder('radio-acr-secret', svc?.acrcloud_access_secret.set, 'Not set');
+}
+
+function setScanStatus(text: string, tone: 'success' | 'danger' | 'neutral' = 'neutral'): void {
+  const el = $('radio-scan-status');
+  if (!el) return;
+  el.textContent = text;
+  el.dataset.tone = tone;
+}
+
+async function testService(id: ScanServiceId): Promise<void> {
+  const label = body?.scan?.labels[id] ?? id;
+  setScanStatus(
+    id === 'acoustid'
+      ? `Testing ${label}…`
+      : `Testing ${label}… A test uses one request of its allowance.`,
+  );
+  try {
+    const res = await fetch(appURL('/api/radio/scan/test'), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service: id }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      message?: string;
+      usage?: Record<ScanServiceId, { requests: number; found: number }>;
+    };
+    if (!res.ok) {
+      setScanStatus(data.message || 'The test couldn’t run.', 'danger');
+      return;
+    }
+    if (data.usage && body?.scan) {
+      body.scan.usage = data.usage;
+      renderScan();
+    }
+    setScanStatus(
+      data.message || (data.ok ? `${label} answered.` : `${label} didn’t accept it.`),
+      data.ok ? 'success' : 'danger',
+    );
+  } catch {
+    setScanStatus('SYNCHRO.S didn’t answer. Try again in a moment.', 'danger');
+  }
+}
+
 // ── reading and writing ─────────────────────────────────────────────────
 
 async function readJson(res: Response): Promise<RadioSettingsBody> {
@@ -157,6 +338,7 @@ function render(): void {
   const keep = $<HTMLSelectElement>('radio-keep');
   if (keep) keep.value = String(s.keep_heard_days);
   renderLinks();
+  renderScan();
 }
 
 function renderLinks(): void {
@@ -248,7 +430,12 @@ export async function loadRadioSettings(): Promise<void> {
   }
 }
 
-async function save(patch: Record<string, unknown>, done: string): Promise<boolean> {
+async function save(
+  patch: Record<string, unknown>,
+  done: string,
+  status: (text: string, tone?: 'success' | 'danger' | 'neutral') => void = setStatus,
+): Promise<boolean> {
+  const setStatus = status;
   setStatus('Saving…');
   try {
     const res = await fetch(appURL('/api/radio/settings'), {
@@ -345,6 +532,62 @@ function bind(): void {
   $('radio-keep')?.addEventListener('change', (event) => {
     const days = Number((event.target as HTMLSelectElement).value);
     void save({ keep_heard_days: days }, `Saved. Heard on radio keeps ${days} days.`);
+  });
+  const audd = $<HTMLInputElement>('radio-audd-token');
+  const saveAudd = () => {
+    const value = audd?.value.trim() ?? '';
+    if (!value) {
+      setScanStatus('Paste the AudD token first.');
+      return;
+    }
+    void save(
+      { audd_api_token: value },
+      'Saved. Test it to check AudD accepts it.',
+      setScanStatus,
+    ).then((ok) => {
+      if (ok && audd) audd.value = '';
+    });
+  };
+  $('radio-audd-save')?.addEventListener('click', saveAudd);
+  audd?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveAudd();
+    }
+  });
+  $('radio-acr-save')?.addEventListener('click', () => {
+    const patch: Record<string, string> = {};
+    const fields: [string, string][] = [
+      ['radio-acr-host', 'acrcloud_host'],
+      ['radio-acr-key', 'acrcloud_access_key'],
+      ['radio-acr-secret', 'acrcloud_access_secret'],
+    ];
+    for (const [id, key] of fields) {
+      const value = $<HTMLInputElement>(id)?.value.trim();
+      if (value) patch[key] = value;
+    }
+    if (!Object.keys(patch).length) {
+      setScanStatus('Fill in the host, access key and access secret first.');
+      return;
+    }
+    void save(patch, 'Saved. Test it to check ACRCloud accepts it.', setScanStatus).then((ok) => {
+      if (ok) for (const [id] of fields) $<HTMLInputElement>(id)!.value = '';
+    });
+  });
+  $('radio-scan-services')?.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement;
+    const test = target.closest<HTMLButtonElement>('[data-radio-scan-test]');
+    if (test && !test.hidden) void testService(test.dataset.radioScanTest as ScanServiceId);
+    const remove = target.closest<HTMLElement>('[data-radio-scan-remove]');
+    if (remove) {
+      const id = remove.dataset.radioScanRemove as ScanServiceId;
+      const label = body?.scan?.labels[id] ?? id;
+      void save(
+        { remove: [id] },
+        `Removed. Scan now won’t ask ${label} until its keys are added again.`,
+        setScanStatus,
+      );
+    }
   });
   $('radio-links')?.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;

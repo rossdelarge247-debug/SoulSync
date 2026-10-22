@@ -4,7 +4,7 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, 34–36 with build (b) 37–40 with build (d), 41–48 with build (c), 49–56 with build (e) and 57 with the rename to SYNCHRO.S, so they are still open. Answer on the canvas, naming the board, as before.
+Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, 34–36 with build (b) 37–40 with build (d), 41–48 with build (c), 49–56 with build (e), 57 with the rename to SYNCHRO.S and 58 with Scan now for radio, so they are still open. Answer on the canvas, naming the board, as before.
 
 **Upstream sync (no boards)**
 29. Home's "Finish setting up" card sits under Latest. Right place, or above Targets while setup is fresh?
@@ -47,7 +47,40 @@ Questions 1–28 were answered in Design's session of 22 October (the log entry 
 **The name (no boards)**
 57. The sidebar's wordmark now shows the plain text "SYNCHRO.S" in the old wordmark style (screen readers get `aria-label="SYNCHRO.S"`). What treatment should it have: which font and weight, is the dot accented (the accent colour, a different glyph, a gap), and what does the compact rail's monogram become (it still says "SS")? Also: Admin and help's "Support SoulSync" row still names upstream, because the support goes to upstream's maintainer; keep it, or word it differently? A board for the wordmark at 256px and on the rail would settle it.
 
+**Scan now for radio (no board yet)**
+58. Scan now was built before it was drawn (log entry "Dev, Scan now for radio"). Please draw the Scan now button and its states properly: where it sits in the bar beside the one action (today a quiet 44px control after Add to Wanted, icon only under 1180px), in the phone sheet (full width under Add, with a result card above it) and as the strip at the foot of the station's Now playing card; Listening… (today "Capturing 10 seconds · 6 s left" with a thin progress bar, then "Identifying… · Asking AudD"); Identified (track, "Found by AudD · Scan now", Add to Wanted or the tag, Done); Not found ("Couldn’t identify this — DJ mixes and talk often can’t be."); Failed (the reason in words: a refused key, no requests left, too many requests, didn't answer); and disabled with its reason (nothing playing; no service set up). Also Settings → Radio's "Scan now services" card (three rows in the order a scan asks them, Test, Remove, this month's requests, the AudD and ACRCloud key fields). Should the result be told apart from what the station itself named, now that both can fill Now playing?
+
 ## Log
+
+### 2026-10-22: Dev, Scan now for radio
+
+Ross approved an on-demand **Scan now** for Internet radio: AcoustID first (free, already set up), then a paid service, AudD and/or ACRCloud, only when an admin has added that service's key in Settings → Radio. Built on `ux/radio-scan` from `integration`, before Design drew it (question 58). The routes are in `CONTRACTS.md`, "Internet radio" → Scan now; the pattern is in `DESIGN-SYSTEM.md`, "Scan now".
+
+**What's built**
+
+- **Scan now** in three places: the bar in radio mode (after the one action), the phone sheet (full width, with a result card) and a strip at the foot of the station page's Now playing card. The phone's mini bar says "scanning…" and then what was found.
+- **States:** Listening… (a live region with the seconds left and a thin progress bar, then "Identifying… · Asking AudD"), Identified (the track, which service found it, Add to Wanted or In your library / On Wanted / Upgrade via Wanted, and Done), Not found ("Couldn’t identify this — DJ mixes and talk often can’t be."), Failed (the service's problem in plain words). Disabled with its reason when nothing plays or no identification service is set up (and while identification is off). Each change is also announced in the player's live region.
+- **Capture on the server, never a microphone.** When the station is already relayed (for anyone), the scan rides on that relay: the relay copies what it passes on into the scan's buffer, so no second listener connection is opened and the relay never waits on the scan. For a direct-mode session (or a relay that ends mid-scan) the server opens one short read of the same stream the session plays: built-in, directory or admin-link stations only, the same audio-only gate and address guard as the relay, capped at 3 MB and 16 seconds. Ogg and FLAC streams carry their headers only at the start, so a tap adds the first audio the relay passed on, and falls back to one direct read if the clip still can't be decoded. ffmpeg makes ten seconds of mono 16 kHz WAV in a temporary folder that's always removed.
+- **The chain:** AcoustID (fpcalc and the AcoustID key; skipped without them), then AudD (`radio.audd_api_token`), then ACRCloud (`radio.acrcloud_host`, `access_key`, `access_secret`). It stops at the first confident match: AcoustID 0.7 or more (the rule the automatic fingerprint uses), ACRCloud a score of 70 out of 100, AudD a named result (its standard answer has no score). A service that errors doesn't stop the next.
+- **What a match does,** as other identifications: a Heard on radio row for the person who pressed, with `source` `scan_acoustid` / `scan_audd` / `scan_acrcloud` (Heard and now playing say "Found by AudD (Scan now)"), the library, Wanted and quality-target check, now playing for everyone on the station, and the `radio_track_heard` trigger.
+- **Settings → Radio** gains a "Scan now services" card: AcoustID, AudD and ACRCloud in the order a scan asks them, whether each is ready, this month's requests and how many found the track, a Test each, Remove for the paid ones, and write-only fields for the AudD token and ACRCloud's host, access key and access secret. It says the paid services are asked only when someone presses Scan now.
+
+**Decided by Dev (redraw where you'd do it differently)**
+
+1. **Paid services run only on a press.** The automatic identification (feed, stream titles, the periodic fingerprint) and auto-add never call them, and a scan never sets off auto-add, even when AcoustID found it: auto-add stays with what the station and the free fingerprint name on their own.
+2. **Limits:** one scan at a time per profile, three a minute per profile, two at once across the server (the server runs one worker with 8 threads; scans have two threads of their own and never use a request's or a relay's). Admins see each service's requests this month in Settings → Radio.
+3. **Keys are write-only:** Settings → Radio is only told whether each key is set (AcoustID keeps its masked hint, as before). The ACRCloud host must be a name under `acrcloud.com`; anything else isn't saved.
+4. **Tests:** AcoustID's is a free key check. AudD's and ACRCloud's send one second of silence, which uses one request of the account's allowance; the Test button says so and the request is counted.
+5. **A scan's answer fills Now playing for everyone on the station,** and a station feed that says "a show" doesn't undo it for four minutes; the next track the station names replaces it as usual.
+6. **The answer stays until Done,** Stop, another station or the next scan; it isn't cleared by a timer.
+7. **Members can scan** (anyone who can listen); only admins see settings and run Tests.
+8. **What the providers say** was mapped from their documented answers as known when this was built: the sandbox couldn't reach AudD's or ACRCloud's documentation or APIs, so error codes (AudD 900 / 901 / 902, ACRCloud 1001 / 2004 / 3001 / 3003 / 3014 / 3015) and the request shapes want a check with real keys.
+
+**Questions for Design** (58 in the list above)
+
+**Tests:** Python: `tests/internet_radio/test_scan.py` (73: the chain's order and stopping at the first match, each service's answers and errors, the ACRCloud host check, keys kept out of every answer, settings read and log, encrypted at rest, the limits, members and admins, the module switch, the capture caps, temporary files, and a scan never running on a relay's thread), the rest of `tests/internet_radio`, the admin gating, settings redaction, config, schema and debug-info tests, and every test that reads the web files changed: all pass; `ruff check` is clean. Web: new tests for the words, the session, the player and sheet, the station strip and Settings → Radio; the full vitest run passes; `npm run check` has no errors, `tsc --noEmit` and `npm run build` are clean.
+
+**Screenshots** (session scratchpad, not in the repo), 1440×900: the station playing with Scan now ready, Listening…, Identifying…, Identified, Not found, Failed, no service set up, not playing, and Settings → Radio's Scan now services; 390×844: the station page listening, the phone sheet listening and identified, and Settings → Radio.
 
 ### 2026-10-22: Dev, the visuals work again
 

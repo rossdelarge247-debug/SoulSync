@@ -972,3 +972,72 @@
   background: var(--ss-selected-fill);
   border-color: var(--ss-selected-border);
 }
+
+/* Scan now: the foot of the Now playing card (Design to draw it, HANDOFF 58) */
+.scan {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.scanText {
+  flex: 1;
+  min-width: 0;
+}
+.scanTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.scanTitle .label {
+  margin-right: 6px;
+}
+.scanLine {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--ss-text-secondary);
+}
+.scan[data-state='failed'] .scanLine {
+  color: var(--ss-danger);
+}
+.scanNote {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--ss-text-meta);
+}
+.scanProgress {
+  display: block;
+  max-width: 320px;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.scanProgress > span {
+  display: block;
+  height: 100%;
+  background: rgb(var(--ss-accent-light-rgb));
+  transition: width 0.9s linear;
+}
+.scanActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+@media (max-width: 768px) {
+  .scan {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px;
+  }
+  .scanActions {
+    justify-content: stretch;
+  }
+  .scanActions > * {
+    flex: 1;
+  }
+}

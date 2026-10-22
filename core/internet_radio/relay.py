@@ -19,7 +19,7 @@ from __future__ import annotations
 import time
 from typing import Dict, Iterator, Optional, Tuple
 
-from core.internet_radio.hub import RadioHub, Session
+from core.internet_radio.hub import STREAM_HEAD_BYTES, RadioHub, Session
 from core.internet_radio.icy import IcyReader
 from core.internet_radio.net import USER_AGENT
 from core.security.outbound import OutboundBlocked, guarded_request
@@ -115,6 +115,8 @@ def relay_chunks(hub: RadioHub, session: Session, resp, kind: str, *, clock=time
     clip: Optional[bytearray] = None
     clip_target = 0
     next_clip_check = started + 5
+    head = bytearray()
+    session.audio_kind = kind
     try:
         for raw in resp.iter_content(chunk_size=CHUNK):
             if session.stop.is_set() or clock() - started > MAX_SECONDS:
@@ -124,6 +126,10 @@ def relay_chunks(hub: RadioHub, session: Session, resp, kind: str, *, clock=time
             audio = reader.feed(raw)
             if not audio:
                 continue
+            if len(head) < STREAM_HEAD_BYTES:
+                head += audio[: STREAM_HEAD_BYTES - len(head)]
+                session.head = bytes(head)
+            hub.feed_taps(station_id, audio)  # Scan now's capture: a copy, nothing more
             if clip is not None:
                 clip += audio
                 if len(clip) >= clip_target:

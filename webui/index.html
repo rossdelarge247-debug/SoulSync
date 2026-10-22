@@ -10550,6 +10550,50 @@
                                     </div>
                                 </section>
 
+                                <!-- Scan now services (HANDOFF "Dev, Scan now for radio"): rows rendered by
+                                     src/shell/radio-settings.ts from GET /api/radio/settings → scan. Keys are
+                                     write-only: the page is only ever told whether each is set. -->
+                                <section class="settings-group radio-card" data-stg="radio" aria-labelledby="radio-scan-title">
+                                    <h3 id="radio-scan-title">Scan now services</h3>
+                                    <p class="radio-intro">Scan now listens to about ten seconds of a station and asks
+                                        these services what it is, in this order, stopping at the first match.
+                                        AcoustID is free and uses the key above. AudD and ACRCloud are paid: they're
+                                        only asked when someone presses Scan now and AcoustID didn't know the track.
+                                        Automatic identification and auto-add never use them.</p>
+                                    <ul class="radio-scan-services" id="radio-scan-services" aria-label="Scan now services"></ul>
+                                    <div class="radio-row">
+                                        <div class="radio-field">
+                                            <label class="radio-label" for="radio-audd-token">AudD API token</label>
+                                            <div class="radio-key-row">
+                                                <input id="radio-audd-token" class="radio-input radio-key-input" type="password"
+                                                    autocomplete="off" spellcheck="false" placeholder="Not set"
+                                                    aria-describedby="radio-audd-help">
+                                                <button type="button" class="radio-button" id="radio-audd-save">Save token</button>
+                                            </div>
+                                            <p class="radio-help" id="radio-audd-help">From your AudD dashboard (audd.io).
+                                                Paid by the request.</p>
+                                        </div>
+                                        <div class="radio-field">
+                                            <label class="radio-label" for="radio-acr-host">ACRCloud host</label>
+                                            <input id="radio-acr-host" class="radio-input" type="text" autocomplete="off"
+                                                spellcheck="false" placeholder="identify-eu-west-1.acrcloud.com"
+                                                aria-describedby="radio-acr-help">
+                                            <label class="radio-label" for="radio-acr-key">ACRCloud access key</label>
+                                            <input id="radio-acr-key" class="radio-input" type="password" autocomplete="off"
+                                                spellcheck="false" placeholder="Not set">
+                                            <label class="radio-label" for="radio-acr-secret">ACRCloud access secret</label>
+                                            <div class="radio-key-row">
+                                                <input id="radio-acr-secret" class="radio-input radio-key-input" type="password"
+                                                    autocomplete="off" spellcheck="false" placeholder="Not set">
+                                                <button type="button" class="radio-button" id="radio-acr-save">Save ACRCloud</button>
+                                            </div>
+                                            <p class="radio-help" id="radio-acr-help">From your ACRCloud audio recognition
+                                                project. The host ends in .acrcloud.com.</p>
+                                        </div>
+                                    </div>
+                                    <p class="radio-save-status" id="radio-scan-status" aria-live="polite"></p>
+                                </section>
+
                                 <section class="settings-group radio-card" data-stg="radio" aria-labelledby="radio-auto-title">
                                     <h3 id="radio-auto-title">Auto-add to Wanted</h3>
                                     <p class="radio-intro">Each station has its own auto-add switch, off by default.

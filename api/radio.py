@@ -19,6 +19,8 @@ GET    /api/radio/stations/<id>/shows             shows with tracklists
 GET    /api/radio/shows/<id>                      one tracklist
 POST   /api/radio/shows/<id>/want                 {position}: one row to Wanted
 POST   /api/radio/shows/<id>/want-missing         add the ones you don't have
+POST   /api/radio/scan                            {session_id}: Scan now -> {scan_id}
+GET    /api/radio/scan/<scan_id>                  the scan: listening | identified | not_found | failed
 
 Admins:
 GET    /api/radio/links                           your stream links
@@ -27,6 +29,7 @@ POST   /api/radio/links                           {url, name, kind}: add (needs 
 POST   /api/radio/links/<id>/check
 DELETE /api/radio/links/<id>
 GET    /api/radio/settings, PUT /api/radio/settings
+POST   /api/radio/scan/test                       {service}: does AcoustID / AudD / ACRCloud accept the key
 
 The whole prefix answers 409 module_disabled while the module is off
 (web_server._enforce_module_switches). The server fetches only stations it
@@ -48,6 +51,8 @@ from core.internet_radio import settings as radio_settings
 from core.internet_radio import stations as st
 from core.internet_radio.hub import Busy, HubDeps, hub, track_key
 from core.internet_radio.relay import RESPONSE_HEADERS, StreamError, check_link, open_stream, relay_chunks
+from core.internet_radio.scan import ScanDeps, ScanManager, ScanRefused, check_service
+from core.internet_radio.scan_providers import LABELS as SCAN_LABELS
 from core.internet_radio.watcher import Watcher
 from core.profile_context import admin_only, get_current_profile_id, is_admin_request
 from core.security.outbound import check_url
@@ -67,6 +72,7 @@ _add_to_wanted: Callable[[int, Dict[str, Any]], Dict[str, Any]] = lambda _p, _h:
 _download_denied: Callable[[Optional[int]], Optional[str]] = lambda _pid: None  # noqa: E731
 _actor_name: Callable[[], str] = lambda: "admin"  # noqa: E731
 watcher = Watcher(hub)
+scanner = ScanManager(hub)
 
 MAX_HEARD = 200
 HEARD_DAYS = (1, 7, 30, 90, 365)
@@ -99,6 +105,15 @@ def configure(*, get_database_, config_manager_, library_presence_=None, add_to_
         fingerprint=fingerprint_, fingerprint_available=fingerprint_available_ or default_fingerprint_available,
         radio_automation_profiles=radio_automation_profiles_ or (lambda: []),
         resolve_station=resolve_station))
+    scanner.configure(ScanDeps(
+        get_database=get_database_, config=config_manager_, find_fpcalc=setup_rows.find_fpcalc,
+        acoustid_refused=_acoustid_refused,
+        open_stream=lambda url: open_stream(url, want_titles=False, read_timeout=8)))
+
+
+def _acoustid_refused() -> bool:
+    last = setup_rows.last("radio.acoustid")
+    return bool(last and last.get("status") == "error")
 
 
 def default_fingerprint_available():
@@ -130,6 +145,7 @@ def stop_watcher() -> None:
     """Module off: stop the watcher and end every listening session."""
     watcher.stop()
     hub.reset()
+    scanner.reset()
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -286,7 +302,7 @@ def get_station(station_id):
                     "session": session if session and session["station_id"] == station.id else None,
                     "heard_today": store.count_heard(db, pid, since=today, station_id=station.id),
                     "identification": _settings()["identification"], "is_admin": bool(is_admin_request()),
-                    "can_download": _download_denied(pid) is None})
+                    "can_download": _download_denied(pid) is None, "scan": scanner.availability()})
 
 
 @bp.route("/api/radio/favourites/<station_id>", methods=["POST", "DELETE"])
@@ -419,7 +435,49 @@ def now_playing():
         if row:
             data["heard_id"] = row["id"]
             data["added_at"] = row.get("added_at")
+    data["scan"] = scanner.availability()
     return jsonify({"success": True, **data})
+
+
+# ── Scan now ─────────────────────────────────────────────────────────────────
+
+@bp.route("/api/radio/scan", methods=["POST"])
+def scan_start():
+    """Listen to about ten seconds of the profile's station and identify it.
+    Anyone who can listen can scan; one at a time and a few a minute each."""
+    pid = _pid()
+    if pid is None:
+        return _need_profile()
+    body = request.get_json(silent=True) or {}
+    sess = hub.get_session(str(body.get("session_id") or ""), pid)
+    if sess is None:
+        return _err(404, "no_session", "Play the station first: Scan now listens to what's playing.")
+    station = resolve_station(sess.station_id)
+    if station is None:
+        return _err(404, "not_found", "That station isn't in the list, the directory or your links.")
+    try:
+        scan = scanner.start(pid, sess, station)
+    except ScanRefused as exc:
+        out = jsonify({"success": False, "error": exc.code, "message": exc.message,
+                       "retry_after": exc.retry_after})
+        out.status_code = exc.status
+        if exc.retry_after:
+            out.headers["Retry-After"] = str(exc.retry_after)
+        return out
+    out = jsonify({"success": True, "scan_id": scan.id, **scan.public(time.time())})
+    out.status_code = 202
+    return out
+
+
+@bp.route("/api/radio/scan/<scan_id>", methods=["GET"])
+def scan_read(scan_id):
+    pid = _pid()
+    if pid is None:
+        return _need_profile()
+    scan = scanner.get(scan_id, pid)
+    if scan is None:
+        return _err(404, "not_found", "That scan has finished and been put away. Press Scan now again.")
+    return jsonify({"success": True, **scan.public(time.time())})
 
 
 # ── heard ────────────────────────────────────────────────────────────────────
@@ -847,7 +905,23 @@ def _settings_payload() -> Dict[str, Any]:
             "auto_add": {"stations": [{"station_id": r["station_id"], "station_name": r["station_name"],
                                        "profile_id": r["profile_id"]} for r in rows],
                          "added_this_week": store.added_this_week(db)},
-            "links": [_public_link(x) for x in store.list_links(db)]}
+            "links": [_public_link(x) for x in store.list_links(db)],
+            "scan": _scan_status(db)}
+
+
+def _scan_status(db) -> Dict[str, Any]:
+    """Scan now's services for Settings → Radio: which are ready, in the order
+    a scan asks them, and this month's requests. Never the keys."""
+    services = radio_settings.scan_services_public(config_manager)
+    try:
+        usage = store.scan_usage(db)
+    except Exception:  # noqa: BLE001 - no counts beats no settings
+        usage = {}
+    ready = {"acoustid": bool(radio_settings.acoustid_key(config_manager)) and bool(setup_rows.find_fpcalc()),
+             "audd": services["audd_ready"], "acrcloud": services["acrcloud_ready"]}
+    return {"order": ["acoustid", "audd", "acrcloud"], "labels": dict(SCAN_LABELS), "ready": ready,
+            "usage": {k: usage.get(k, {"requests": 0, "found": 0}) for k in ("acoustid", "audd", "acrcloud")},
+            "month": time.strftime("%B"), "available": scanner.availability()}
 
 
 @bp.route("/api/radio/settings", methods=["GET"])
@@ -866,8 +940,27 @@ def put_settings():
     return jsonify(_settings_payload())
 
 
+@bp.route("/api/radio/scan/test", methods=["POST"])
+@admin_only
+def scan_test():
+    """Ask one service whether it accepts the saved key. AcoustID's check is
+    free; AudD's and ACRCloud's send one second of silence (one request)."""
+    body = request.get_json(silent=True) or {}
+    service = str(body.get("service") or "")
+    if service not in SCAN_LABELS:
+        return _err(400, "bad_request", "Test AcoustID, AudD or ACRCloud.")
+    result = check_service(config_manager, service, fpcalc=setup_rows.find_fpcalc())
+    if result["spends"] and result["state"] not in ("missing", "offline"):
+        try:
+            store.bump_scan_usage(_db(), service)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("test not counted: %s", exc)
+    return jsonify({"success": True, "service": service, **result, "usage": _scan_status(_db())["usage"]})
+
+
 def create_blueprint() -> Blueprint:
     return bp
 
 
-__all__ = ["bp", "configure", "create_blueprint", "resolve_station", "start_watcher", "stop_watcher", "watcher"]
+__all__ = ["bp", "configure", "create_blueprint", "resolve_station", "start_watcher", "stop_watcher", "watcher",
+           "scanner"]

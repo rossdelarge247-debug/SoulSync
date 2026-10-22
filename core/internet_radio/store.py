@@ -11,6 +11,8 @@
   it never adds the same track twice; also counts the daily limit.
 - ``radio_activity``: auto-add's Activity items, one per station per hour.
 - ``radio_shows``: shows seen on a station's feed, and tracklists fetched.
+- ``radio_scan_usage``: Scan now's requests to each identification service
+  (and how many found the track), per local month.
 
 Times are unix seconds.
 """
@@ -440,3 +442,25 @@ def save_show_tracks(db, show_id: str, tracks: List[Dict[str, Any]]) -> None:
 __all__ = [n for n in dir() if not n.startswith("_") and n not in ("annotations", "json", "time", "datetime",
                                                                      "timedelta", "logger", "get_logger",
                                                                      "threading")]
+
+
+# ── Scan now's usage ─────────────────────────────────────────────────────────
+
+def month_key(now: Optional[float] = None) -> str:
+    return datetime.fromtimestamp(now if now is not None else time.time()).astimezone().strftime("%Y-%m")
+
+
+def bump_scan_usage(db, provider: str, *, found: bool = False, now: Optional[float] = None) -> None:
+    with db._get_connection() as conn:
+        conn.execute("INSERT INTO radio_scan_usage (month, provider, requests, found) VALUES (?, ?, 1, ?) "
+                     "ON CONFLICT(month, provider) DO UPDATE SET requests = requests + 1, found = found + excluded.found",
+                     (month_key(now), provider, 1 if found else 0))
+        conn.commit()
+
+
+def scan_usage(db, now: Optional[float] = None) -> Dict[str, Dict[str, int]]:
+    """This month's ``{provider: {requests, found}}``."""
+    with db._get_connection() as conn:
+        rows = conn.execute("SELECT provider, requests, found FROM radio_scan_usage WHERE month = ?",
+                            (month_key(now),)).fetchall()
+    return {r[0]: {"requests": int(r[1]), "found": int(r[2])} for r in rows}
