@@ -2,20 +2,17 @@ import { Button } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
 import { StatusTag } from '@/components/primitives';
 
+import type { FollowingRow } from '../-wanted.following';
 import type { FoundItem, WantedItem, WantedTrack } from '../-wanted.types';
 
 import {
   addedLabel,
-  followedLatest,
-  followedMeta,
-  followedStatusTag,
   foundMeta,
   foundWhen,
   plural,
   serverTime,
   wantedMeta,
   wantedStatus,
-  type FollowedRow,
   type MetaPart,
 } from '../-wanted.helpers';
 import { ActionMenu, type MenuEntry } from './action-menu';
@@ -305,112 +302,75 @@ export function FoundRowView({
   );
 }
 
-export interface FollowedRowHandlers {
-  onOpenArtist: (row: FollowedRow) => void;
-  onSettings: (row: FollowedRow) => void;
-  onUnfollow: (row: FollowedRow) => void;
-}
-
-/** One followed artist (Wanted v3, 2b; phones 2d). */
-export function FollowedRowView({
+/** One followed artist, label, podcast or audiobook author (board 5e; phones 2d). */
+export function FollowingRowView({
   row,
-  now,
-  audiobook,
   selecting,
   selected,
   onToggleSelect,
-  handlers,
+  onOpen,
+  menu,
 }: {
-  row: FollowedRow;
-  now: number;
-  /** Its downloads are filed in the audiobook library. */
-  audiobook: boolean;
+  row: FollowingRow;
   selecting: boolean;
   selected: boolean;
   onToggleSelect: (range: boolean) => void;
-  handlers: FollowedRowHandlers;
+  onOpen: (row: FollowingRow) => void;
+  /** The row's "…" entries; `withOpen` adds Open <kind> for the phone menu. */
+  menu: (row: FollowingRow, withOpen: boolean) => MenuEntry[];
 }) {
-  const tag = followedStatusTag(row.status);
-  const latest = followedLatest(row, now);
-  const meta = followedMeta(row, audiobook);
-  const latestText = latest
-    ? `${latest.label}: ${latest.album}${latest.when ? ` · ${latest.when}` : ''}`
-    : '';
-  const phoneBits = [
-    row.summary ? `${row.summary.library_releases} in your library` : '',
-    latest ? `${latest.label}: ${latest.album}` : '',
-    audiobook ? 'Filed as audiobooks' : '',
-  ].filter(Boolean);
-
-  const entries = (withOpen: boolean): MenuEntry[] => {
-    const list: MenuEntry[] = [];
-    if (withOpen) {
-      list.push({ key: 'open', label: 'Open artist', onSelect: () => handlers.onOpenArtist(row) });
-    }
-    if (row.id) {
-      list.push({
-        key: 'settings',
-        label: 'Settings for this artist…',
-        onSelect: () => handlers.onSettings(row),
-      });
-    }
-    list.push(
-      { key: 'sep', separator: true },
-      {
-        key: 'unfollow',
-        label: 'Unfollow…',
-        tone: 'danger',
-        onSelect: () => handlers.onUnfollow(row),
-      },
-    );
-    return list;
-  };
-
+  const meta = [row.kindLabel, row.meta].filter(Boolean).join(' · ');
+  const phoneMeta = [row.kindLabel, row.phoneMeta].filter(Boolean).join(' · ');
   return (
     <li className={styles.item}>
       <div
         className={styles.row}
         data-layout="followed"
+        data-kind={row.kind}
         data-selecting={selecting ? 'true' : undefined}
         data-selected={selected ? 'true' : undefined}
       >
         {selecting ? (
           <SelectBox checked={selected} label={`Select ${row.name}`} onToggle={onToggleSelect} />
         ) : null}
-        <RowArt src={row.image} round />
+        <RowArt
+          src={row.image}
+          round={row.round}
+          initials={row.initials}
+          icon={row.kind === 'podcast' ? 'microphone' : undefined}
+        />
         <div className={styles.main}>
           <p className={styles.rowTitle} title={row.name}>
             {row.name}
           </p>
-          {meta || phoneBits.length ? (
-            <p className={styles.meta}>
-              <span className={styles.metaWide}>{meta}</span>
-              <span className={styles.metaPhoneOnly}>{phoneBits.join(' · ')}</span>
-            </p>
-          ) : null}
+          <p className={styles.meta}>
+            <span className={styles.metaWide}>{meta}</span>
+            <span className={styles.metaPhoneOnly}>{phoneMeta}</span>
+          </p>
         </div>
-        <span className={styles.latest} title={latestText || undefined}>
-          {latestText}
+        <span
+          className={row.latestWarning ? `${styles.latest} ${styles.latestWarning}` : styles.latest}
+          title={row.latest || undefined}
+        >
+          {row.latest}
         </span>
         <span className={styles.status}>
-          <StatusTag tone={tag.tone}>{tag.text}</StatusTag>
+          <StatusTag tone={row.tone} live={row.status === 'checking'}>
+            {row.statusText}
+          </StatusTag>
         </span>
         {selecting ? null : (
           <>
             <div className={styles.actions}>
-              <Button
-                size="lg"
-                className={styles.rowAction}
-                onClick={() => handlers.onOpenArtist(row)}
-              >
-                Open artist
+              <Button size="lg" className={styles.rowAction} onClick={() => onOpen(row)}>
+                {row.openLabel}
               </Button>
-              <ActionMenu label={`More actions for ${row.name}`} entries={entries(false)} />
+              <ActionMenu label={`More actions for ${row.name}`} entries={menu(row, false)} />
             </div>
             <div className={styles.phoneMenu}>
               <ActionMenu
                 label={`Actions for ${row.name}`}
-                entries={entries(true)}
+                entries={menu(row, true)}
                 variant="bare"
               />
             </div>

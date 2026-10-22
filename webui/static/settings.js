@@ -3600,28 +3600,26 @@ async function loadSettingsData() {
         const _libM3uPath = document.getElementById('library-m3u-path');
         if (_libM3uPath) _libM3uPath.value = settings.m3u_export?.library_path || '';
 
-        // Populate UI Appearance settings
-        const accentPreset = settings.ui_appearance?.accent_preset || '#1db954';
+        // Populate UI Appearance settings. The preset is stored as its hex
+        // (never its name), so a renamed preset ("Boulder Purple" is "Lilac"
+        // now) still matches its option. A hex that matches no preset is a
+        // custom colour from before "custom" was saved.
+        const accentPreset = String(settings.ui_appearance?.accent_preset || '#1db954').trim().toLowerCase();
         const accentCustom = settings.ui_appearance?.accent_color || '#1db954';
         const presetSelect = document.getElementById('accent-preset');
-        const customPicker = document.getElementById('accent-custom-color');
-        const customGroup = document.getElementById('custom-color-group');
+        const customStore = document.getElementById('accent-custom-color');
         if (presetSelect) {
-            // Check if the saved preset matches a dropdown option
             const presetOptions = Array.from(presetSelect.options).map(o => o.value);
             if (presetOptions.includes(accentPreset)) {
                 presetSelect.value = accentPreset;
+                if (customStore) customStore.value = accentCustom;
             } else {
                 presetSelect.value = 'custom';
+                if (customStore) customStore.value = accentPreset === 'custom' ? accentCustom : accentPreset;
             }
-            if (presetSelect.value === 'custom') {
-                if (customGroup) customGroup.style.display = '';
-                if (customPicker) customPicker.value = accentCustom;
-                applyAccentColor(accentCustom);
-            } else {
-                if (customGroup) customGroup.style.display = 'none';
-                applyAccentColor(accentPreset);
-            }
+            applyAccentColor(presetSelect.value === 'custom' ? (customStore ? customStore.value : accentCustom) : presetSelect.value);
+            // the radio cards and the custom check (src/shell/appearance.ts)
+            if (typeof window.syncAppearanceSettings === 'function') window.syncAppearanceSettings();
         }
 
         // Sidebar visualizer type

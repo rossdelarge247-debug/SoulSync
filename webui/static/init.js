@@ -96,9 +96,8 @@ function applyAccentColor(hex) {
     // Store for instant restore on next page load
     localStorage.setItem('soulsync-accent', hex);
 
-    // Update preview swatch if it exists
-    const swatch = document.getElementById('accent-preview-swatch');
-    if (swatch) swatch.style.background = hex;
+    // Settings → Appearance's preview line follows (src/shell/appearance.ts)
+    window.dispatchEvent(new CustomEvent('ss:accent-applied', { detail: { hex } }));
 }
 
 function applyParticlesSetting(enabled) {
@@ -139,29 +138,9 @@ function applyWorkerOrbsSetting(enabled) {
     }
 }
 
+// The accent itself (the radio cards, the custom colour and its contrast
+// check) is src/shell/appearance.ts; these are the other Appearance switches.
 function initAccentColorListeners() {
-    const presetSelect = document.getElementById('accent-preset');
-    const customGroup = document.getElementById('custom-color-group');
-    const customPicker = document.getElementById('accent-custom-color');
-    if (!presetSelect) return;
-
-    presetSelect.addEventListener('change', () => {
-        const val = presetSelect.value;
-        if (val === 'custom') {
-            if (customGroup) customGroup.style.display = '';
-            if (customPicker) applyAccentColor(customPicker.value);
-        } else {
-            if (customGroup) customGroup.style.display = 'none';
-            applyAccentColor(val);
-        }
-    });
-
-    if (customPicker) {
-        customPicker.addEventListener('input', () => {
-            applyAccentColor(customPicker.value);
-        });
-    }
-
     // Particles toggle — apply immediately on change
     const particlesCheckbox = document.getElementById('particles-enabled');
     if (particlesCheckbox) {
@@ -237,7 +216,7 @@ function _syncMaxPerfDependentToggles(maxPerfOn) {
     ids.forEach(id => {
         const cb = document.getElementById(id);
         if (!cb) return;
-        const group = cb.closest('.form-group');
+        const group = cb.closest('.appearance-row, .form-group');
         if (maxPerfOn) {
             cb.disabled = true;
             cb.checked = false;

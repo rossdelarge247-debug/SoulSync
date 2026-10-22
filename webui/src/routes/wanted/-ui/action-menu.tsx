@@ -103,3 +103,53 @@ export function ActionMenu({
     </Menu.Root>
   );
 }
+
+/**
+ * A primary button that opens a menu: the Following tab's "Follow…", which
+ * asks what to follow.
+ */
+export function MenuButton({
+  label,
+  entries,
+  className,
+}: {
+  label: string;
+  entries: MenuEntry[];
+  className?: string;
+}) {
+  return (
+    <Menu.Root modal={false}>
+      <Menu.Trigger className={[styles.menuButton, className].filter(Boolean).join(' ')}>
+        {label}
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner className={styles.menuPositioner} align="end" sideOffset={6}>
+          <Menu.Popup className={styles.menu}>
+            {entries.map((entry) => {
+              if ('separator' in entry) {
+                return <Menu.Separator key={entry.key} className={styles.menuSeparator} />;
+              }
+              if ('group' in entry) {
+                return (
+                  <div key={entry.key} className={styles.menuGroupLabel} aria-hidden="true">
+                    {entry.group}
+                  </div>
+                );
+              }
+              return (
+                <Menu.Item
+                  key={entry.key}
+                  className={styles.menuItem}
+                  disabled={entry.disabled}
+                  onClick={entry.onSelect}
+                >
+                  {entry.label}
+                </Menu.Item>
+              );
+            })}
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+}

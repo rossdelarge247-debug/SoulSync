@@ -23,6 +23,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { ACCENT_PRESETS, accentReport, formatRatio } from '@/features/settings/accent';
+
 import type {
   AutomationApiRow,
   AutomationCardRow,
@@ -135,17 +137,6 @@ function useAutomationsCard() {
   return { loaded: rows !== null, view, busyId, runNow, toggle };
 }
 
-/** The Settings page's exact preset palette (index.html #accent-preset). */
-const ACCENT_PRESETS: Array<{ hex: string; name: string }> = [
-  { hex: '#1db954', name: 'Spotify Green' },
-  { hex: '#1d8ab9', name: 'Ocean Blue' },
-  { hex: '#a78bfa', name: 'Purple' },
-  { hex: '#8b5cf6', name: 'Boulder Purple' },
-  { hex: '#f59e0b', name: 'Sunset Orange' },
-  { hex: '#f43f5e', name: 'Rose' },
-  { hex: '#14b8a6', name: 'Teal' },
-];
-
 /** Boulder's quick switches (effects, performance, particles, orbs, accent),
  *  their own quiet footer at the bottom of the dashboard now. */
 export function QuickSettings() {
@@ -156,6 +147,8 @@ export function QuickSettings() {
     () => localStorage.getItem('soulsync-max-performance') === '1',
   );
   const [accent, setAccent] = useState(() => localStorage.getItem('soulsync-accent') || '#1db954');
+  // the colour before a drag on the custom swatch started (dragging applies live)
+  const committedAccent = useRef(accent);
 
   /** Apply instantly via init.js's own applier, then persist to the server
    *  config (partial POST — the handler merges key-by-key). Without the
@@ -164,6 +157,20 @@ export function QuickSettings() {
    *  endpoint is admin-only) stay quiet: the color still applies for the
    *  session, which is honest feedback on its own. */
   const pickAccent = (hex: string, isCustom: boolean) => {
+    // a custom colour has to pass the same check Settings → Appearance makes:
+    // dark text on its light shade at 4.5:1, or primary buttons can't be read
+    const report = accentReport(hex);
+    if (isCustom && !report.passes) {
+      const previous = committedAccent.current;
+      window.applyAccentColor?.(previous);
+      setAccent(previous);
+      window.showToast?.(
+        `${report.hex} is too dark for an accent: dark text on its light shade is ${formatRatio(report.contrast)}, and buttons need 4.5:1.`,
+        'warning',
+      );
+      return;
+    }
+    committedAccent.current = hex;
     setAccent(hex);
     window.applyAccentColor?.(hex);
     void fetch('/api/settings', {

@@ -9,16 +9,20 @@ import { useProfile } from '@/platform/shell/route-controllers';
 
 import type { Go } from './wanted-tab';
 
-import { useFollowedScan, useWantedData, useWantedPageShell } from '../-wanted.hooks';
+import {
+  useFollowedScan,
+  useFollowingCount,
+  useWantedData,
+  useWantedPageShell,
+} from '../-wanted.hooks';
 import { resolveTab, type WantedSearch, type WantedTab } from '../-wanted.types';
 import {
   similarArtistsStatusQueryOptions,
   startSimilarArtistsUpdate,
   watchlistArtistsQueryOptions,
-  watchlistCountQueryOptions,
 } from '../../watchlist/-watchlist.api';
 import { Route } from '../route';
-import { ActionMenu, type MenuEntry } from './action-menu';
+import { ActionMenu, MenuButton, type MenuEntry } from './action-menu';
 import { FollowArtistDialog } from './follow-artist-dialog';
 import { FollowedTab } from './followed-tab';
 import { CountBadge } from './parts';
@@ -64,8 +68,8 @@ function TabBar({
     tabs.push({
       key: 'followed',
       id: followedId,
-      long: 'Followed artists',
-      short: 'Followed',
+      long: 'Following',
+      short: 'Following',
       count: followedCount,
     });
 
@@ -126,7 +130,8 @@ export function WantedPage() {
   const podcastsAllowed = podcastsOff === null;
 
   const data = useWantedData(profileId);
-  const followedCountQuery = useQuery(watchlistCountQueryOptions(profileId));
+  const allowed = { podcasts: podcastsAllowed, authors: audiobooksAllowed };
+  const followingCount = useFollowingCount(profileId, allowed);
   const followedArtists = useQuery({
     ...watchlistArtistsQueryOptions(profileId),
     enabled: tab === 'followed',
@@ -180,11 +185,7 @@ export function WantedPage() {
   );
 
   const wantedCount = data.isPending ? 'loading' : data.isError ? undefined : data.items.length;
-  const followedCount = followedCountQuery.isPending
-    ? 'loading'
-    : followedCountQuery.isError
-      ? undefined
-      : followedCountQuery.data?.count;
+  const followedCount = followingCount;
   // the counts aren't shown at all while a list failed to load (board 2s)
   const listFailed = tab === 'wanted' ? data.isError : followedArtists.isError;
 
@@ -198,7 +199,7 @@ export function WantedPage() {
     />
   );
 
-  const mainView = tab === 'wanted' ? !search.media : !search.list;
+  const mainView = tab === 'wanted' ? !search.media : true;
   const canSearch = !profileAsksFirst();
 
   const wantedMenu: MenuEntry[] = [
@@ -261,16 +262,12 @@ export function WantedPage() {
   ];
 
   const followedMenu: MenuEntry[] = [
-    ...(mainView
-      ? ([
-          { key: 'find', label: 'Find in this list', onSelect: () => setFindOpen(true) },
-          {
-            key: 'select',
-            label: selecting ? 'Stop selecting' : 'Select several',
-            onSelect: () => setSelecting((on) => !on),
-          },
-        ] satisfies MenuEntry[])
-      : [{ key: 'artists', label: 'Followed artists', onSelect: () => go({ list: undefined }) }]),
+    { key: 'find', label: 'Find in this list', onSelect: () => setFindOpen(true) },
+    {
+      key: 'select',
+      label: selecting ? 'Stop selecting' : 'Select several',
+      onSelect: () => setSelecting((on) => !on),
+    },
     { key: 'settings', label: 'Followed artist settings…', onSelect: () => go({ settings: true }) },
     {
       key: 'similar',
@@ -294,24 +291,31 @@ export function WantedPage() {
       label: 'Blocklist…',
       onSelect: () => window.openBlocklistModal?.('artist'),
     },
-    { key: 'sep2', separator: true },
-    { key: 'also', group: 'Also followed' },
-    { key: 'labels', label: 'Labels you follow', onSelect: () => go({ list: 'labels' }) },
+  ];
+
+  /** "Follow…" asks what: an artist here, the rest where they're followed. */
+  const followMenu: MenuEntry[] = [
+    { key: 'artist', label: 'An artist…', onSelect: () => setDialog('follow') },
+    {
+      key: 'label',
+      label: 'A label (opens Search)',
+      onSelect: () => void navigate({ to: '/search' }),
+    },
     ...(podcastsAllowed
       ? [
           {
-            key: 'podcasts',
-            label: 'Podcasts you follow',
-            onSelect: () => go({ list: 'podcasts' }),
+            key: 'podcast',
+            label: 'A podcast (opens Podcasts)',
+            onSelect: () => void navigate({ to: '/podcasts' }),
           },
         ]
       : []),
     ...(audiobooksAllowed
       ? [
           {
-            key: 'authors',
-            label: 'Audiobook authors you follow',
-            onSelect: () => go({ list: 'audiobooks' }),
+            key: 'author',
+            label: 'An audiobook author (opens Audiobooks)',
+            onSelect: () => void navigate({ to: '/audiobooks' }),
           },
         ]
       : []),
@@ -338,17 +342,10 @@ export function WantedPage() {
               Add to Wanted
             </Button>
           ) : (
-            <Button
-              size="lg"
-              variant="primary"
-              className={styles.primary}
-              onClick={() => setDialog('follow')}
-            >
-              Follow an artist
-            </Button>
+            <MenuButton label="Follow…" entries={followMenu} className={styles.primary} />
           )}
           <ActionMenu
-            label={tab === 'wanted' ? 'More for Wanted' : 'More for Followed artists'}
+            label={tab === 'wanted' ? 'More for Wanted' : 'More for Following'}
             entries={tab === 'wanted' ? wantedMenu : followedMenu}
           />
         </div>
@@ -381,6 +378,7 @@ export function WantedPage() {
           scanning={scanning}
           similarRunning={similarRunning}
           onFollowArtist={() => setDialog('follow')}
+          allowed={allowed}
         />
       )}
 

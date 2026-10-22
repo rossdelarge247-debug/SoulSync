@@ -8,13 +8,10 @@ import {
   buildFollowedRows,
   buildWantedItems,
   cycleText,
-  filterFollowedRows,
   filterWantedRows,
   findSystemAutomation,
-  followedCounts,
   followedLatest,
   followedMeta,
-  followedStatusTag,
   foundWhen,
   intervalText,
   lastTryPhrase,
@@ -23,7 +20,6 @@ import {
   qualityNames,
   relativeAgo,
   scheduleState,
-  sortFollowedRows,
   sortWantedRows,
   sourceLabel,
   toFoundItems,
@@ -39,6 +35,7 @@ import { wantedSearchFromWatchlist, wantedSearchFromWishlist } from './-wanted.r
 import {
   resolveFollowedFilter,
   resolveFollowedSort,
+  resolveFollowKind,
   resolveTab,
   resolveWantedFilter,
   resolveWantedSort,
@@ -111,6 +108,15 @@ describe('search params', () => {
     expect(resolveWantedSort('artist')).toBe('artist');
     expect(resolveWantedSort('name-asc')).toBe('newest');
     expect(resolveFollowedSort('scan-oldest')).toBe('scan-oldest');
+    // the Following tab: Nothing new, newest activity first, the Kind row
+    expect(resolveFollowedFilter('quiet')).toBe('quiet');
+    expect(resolveFollowedSort(undefined)).toBe('activity');
+    expect(resolveFollowedSort('bogus')).toBe('activity');
+    expect(wantedSearchSchema.parse({ kind: 'podcasts' }).kind).toBe('podcasts');
+    expect(wantedSearchSchema.parse({ kind: 'nonsense' }).kind).toBeUndefined();
+    expect(resolveFollowKind({})).toBe('all');
+    expect(resolveFollowKind({ list: 'audiobooks' })).toBe('authors');
+    expect(resolveFollowKind({ kind: 'labels', list: 'podcasts' })).toBe('labels');
   });
 
   it('old Wishlist and Watchlist links keep what they pointed at', () => {
@@ -134,7 +140,7 @@ describe('search params', () => {
       }),
     ).toEqual({
       tab: 'followed',
-      list: 'labels',
+      kind: 'labels',
       sort: 'scan-newest',
       q: 'x',
       configId: 'sp1',
@@ -491,9 +497,6 @@ describe('followed artists', () => {
 
   it('gives each artist a status, its numbers and its latest release', () => {
     expect(rows.map((r) => r.status)).toEqual(['new', 'quiet', 'unchecked']);
-    expect(followedStatusTag('new')).toEqual({ text: 'New release', tone: 'info' });
-    expect(followedStatusTag('unchecked').text).toBe('Not checked yet');
-    expect(followedStatusTag('quiet').text).toBe('Nothing new');
     expect(followedMeta(rows[0])).toBe('9 releases in your library · 5 on Wanted');
     expect(followedMeta(rows[1])).toBe('Nothing in your library yet');
     expect(followedMeta(rows[2])).toBe('');
@@ -508,26 +511,6 @@ describe('followed artists', () => {
       when: 'Jan 2026',
     });
     expect(followedLatest(rows[2], NOW)).toBeNull();
-  });
-
-  it('counts and filters, keeping the old Watchlist filters', () => {
-    expect(followedCounts(rows)).toEqual({
-      all: 3,
-      new: 1,
-      unchecked: 1,
-      stale: 0,
-      ownSettings: 1,
-    });
-    expect(filterFollowedRows(rows, 'new').map((r) => r.name)).toEqual(['Pale Harbour']);
-    expect(filterFollowedRows(rows, 'own-settings').map((r) => r.name)).toEqual([
-      'Low Tide Collective',
-    ]);
-    expect(filterFollowedRows(rows, 'all', 'marrow').map((r) => r.name)).toEqual(['Marrow & Pine']);
-    expect(sortFollowedRows(rows, 'name-desc').map((r) => r.name)).toEqual([
-      'Pale Harbour',
-      'Marrow & Pine',
-      'Low Tide Collective',
-    ]);
   });
 });
 

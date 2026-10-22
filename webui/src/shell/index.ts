@@ -11,6 +11,7 @@
  * The assignment list IS the compatibility contract - the census test pins it.
  */
 
+import { initAppearanceSettings, syncAppearanceSettings } from './appearance';
 import {
   blockFromSearch,
   closeBlocklistModal,
@@ -160,6 +161,9 @@ export const SHELL_WINDOW_EXPORTS = {
   noteModuleDisabled,
   openModulesSettings,
   loadModulesSettings,
+  // settings > appearance (oct 22): the accent cards; settings.js calls the
+  // sync after it loads the saved accent
+  syncAppearanceSettings,
 } as const;
 
 Object.assign(window, SHELL_WINDOW_EXPORTS);
@@ -173,6 +177,7 @@ startDiscoverInboxBadge();
 initSidebarWeather();
 const onReady = () => {
   initWeatherPreviewSettings();
+  initAppearanceSettings();
   void initPlexSignIn();
 };
 if (document.readyState === 'loading') {

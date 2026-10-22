@@ -208,6 +208,7 @@ describe('the window contract', () => {
       'switchBlocklistTab',
       'switchDownloadOriginTab',
       'switchServiceSwitchTab',
+      'syncAppearanceSettings',
       'toggleAllOriginEntries',
       'toggleOriginEntry',
       'toggleOriginGroup',

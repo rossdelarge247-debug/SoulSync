@@ -5,9 +5,11 @@ import { apiClient, readJson } from '@/app/api-client';
 import type {
   FollowedSummaryResponse,
   FoundResponse,
+  PodcastSummaryResponse,
   QualityProfilesResponse,
 } from './-wanted.types';
 
+import { fetchFollowedAuthors, fetchWishlist } from '../audiobooks/-audiobooks.api';
 import { WATCHLIST_QUERY_KEY } from '../watchlist/-watchlist.api';
 import { WISHLIST_QUERY_KEY } from '../wishlist/-wishlist.api';
 
@@ -43,6 +45,39 @@ export function followedSummaryQueryOptions(profileId: number) {
       if (payload.success === false) throw new Error(payload.error || 'No summary');
       return payload;
     },
+  });
+}
+
+/** What came in for each followed podcast: kept episodes, the latest one. */
+export function podcastSummaryQueryOptions(profileId: number) {
+  return queryOptions({
+    queryKey: [...WATCHLIST_QUERY_KEY, 'podcast-summary', profileId] as const,
+    queryFn: async () => {
+      const payload = await readJson<PodcastSummaryResponse>(
+        apiClient.get('podcasts/watchlist/summary'),
+      );
+      if (payload.success === false) throw new Error(payload.error || 'No podcast summary');
+      return payload.podcasts ?? [];
+    },
+  });
+}
+
+/**
+ * Followed audiobook authors, narrators and series, and the audiobook
+ * wishlist they add to (what's on Wanted from each, and when). Both readers
+ * answer an empty list on a failure, as the audiobook pages expect.
+ */
+export function followedAuthorsQueryOptions(profileId: number) {
+  return queryOptions({
+    queryKey: [...WATCHLIST_QUERY_KEY, 'authors', profileId] as const,
+    queryFn: () => fetchFollowedAuthors(),
+  });
+}
+
+export function audiobookWantedQueryOptions(profileId: number) {
+  return queryOptions({
+    queryKey: [...WISHLIST_QUERY_KEY, 'audiobooks', profileId] as const,
+    queryFn: async () => (await fetchWishlist()).items,
   });
 }
 
@@ -83,4 +118,20 @@ export async function findLibraryArtist(
     (artist) => (artist.name ?? '').trim().toLowerCase() === wanted && artist.id != null,
   );
   return exact ? { id: String(exact.id), name: exact.name ?? name } : null;
+}
+
+export interface PodcastScanResult {
+  success?: boolean;
+  podcasts_checked?: number;
+  episodes_queued?: number;
+  errors?: string[];
+  error?: string;
+}
+
+/** Check every followed podcast's feed now: the scheduled check, by hand. */
+export async function scanPodcastsNow(): Promise<PodcastScanResult> {
+  // a feed per show, one after another: it can take a while
+  return readJson<PodcastScanResult>(
+    apiClient.post('podcasts/watchlist/scan-now', { timeout: 120_000 }),
+  );
 }

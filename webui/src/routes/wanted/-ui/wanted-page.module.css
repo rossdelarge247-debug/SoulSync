@@ -60,6 +60,41 @@
   white-space: nowrap;
 }
 
+/* "Follow…": the shared primary Button (44px, dark text on accent-light)
+   opening a menu of what to follow. */
+.menuButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgba(var(--ss-accent-light-rgb), 0.45);
+  border-radius: var(--ss-radius-control);
+  background: rgb(var(--ss-accent-light-rgb));
+  color: var(--ss-text-on-accent);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.menuButton:hover,
+.menuButton[data-popup-open] {
+  opacity: var(--ss-pressed-opacity);
+}
+
+.menuButton:active {
+  opacity: var(--ss-pressed-opacity-primary);
+}
+
+.menuButton:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
 /* ── Square icon buttons (the "…" menus) ─────────────────────────────── */
 
 .iconButton {
@@ -289,6 +324,30 @@
   font-weight: 500;
 }
 
+/* The Following tab's Kind row (board 5e): its label, the kinds, the sort. */
+.kindRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.kindLabel {
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.kindRow .sort {
+  margin-left: auto;
+}
+
+/* "Checking…" beside the Show filters while a check runs */
+.checkingTag {
+  align-self: center;
+  flex: none;
+}
+
 /* ── The line above the list ─────────────────────────────────────────── */
 
 .line {
@@ -449,6 +508,28 @@
   border-radius: 50%;
 }
 
+/* a label without art: its initials in the square */
+span.art:has(.artInitials),
+span.art:has(.artIcon) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* a podcast without art: a microphone in the square (board 5e) */
+.artIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--ss-text-meta);
+}
+
+.artInitials {
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
 .main {
   grid-area: main;
   display: flex;
@@ -494,11 +575,20 @@
   grid-area: added;
 }
 
+/* up to two lines (board 5e's latest column says where the new thing went),
+   then an ellipsis; the full text is the title */
 .latest {
   grid-area: latest;
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* a check that failed, in words, in the warning colour */
+.latest.latestWarning {
+  color: var(--ss-warning);
 }
 
 .status {
@@ -906,6 +996,27 @@
 
   .sort {
     flex: none;
+  }
+
+  /* the Kind row scrolls sideways under the Show chips, as 2d's filters do */
+  .kindRow {
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .kindRow::-webkit-scrollbar {
+    display: none;
+  }
+
+  .kindLabel {
+    flex: none;
+  }
+
+  .kindRow .sort {
+    margin-left: 0;
   }
 
   .sortLabel {

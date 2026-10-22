@@ -213,7 +213,7 @@ What the shell (`src/shell/nav-shell.ts`) reads, and how:
 
 ### Wanted page
 
-Two read-only routes, scoped to the current profile and open to every profile, like the wishlist and watchlist routes beside them.
+Three read-only routes, scoped to the current profile and open to every profile, like the wishlist and watchlist routes beside them.
 
 **What Wanted found: `GET /api/wishlist/found?days=7`.** `days` is 1 to 30. Tracks Wanted downloaded in that window, newest first, each once:
 
@@ -250,11 +250,33 @@ Two read-only routes, scoped to the current profile and open to every profile, l
 
 There's no total of an artist's releases: SoulSync doesn't store discographies.
 
+**What came in for each followed podcast: `GET /api/podcasts/watchlist/summary`** (the Following tab, 5e). One entry per show the profile follows, matched to `/api/podcasts/watchlist` by `feed_url`:
+
+```json
+{
+  "success": true, "new_episode_days": 7,
+  "podcasts": [
+    {"feed_url": "https://…/exchange.xml", "kept": 40,
+     "latest_episode": {"title": "EX.761", "downloaded_at": "2026-10-22T09:00:00Z"},
+     "new_episode": true}
+  ]
+}
+```
+
+- `kept` counts downloaded episodes whose files are still there (not pruned by the show's keep setting).
+- `latest_episode` (or `null`) is the newest episode downloaded, pruned or not, from the download record.
+- `new_episode` is true when that download was in the last `new_episode_days` days. A show that doesn't download new episodes has no way to say it has one: its check only counts episodes.
+
+Read-only, scoped to the current profile, behind the Podcasts module like the rest of `/api/podcasts`.
+
 **Also read by the page, unchanged:**
 
-- `/api/wishlist/tracks?category=albums|singles`, `/api/wishlist/stats` and `/api/wishlist/cycle`;
+- `/api/wishlist/tracks?category=albums|singles`, `/api/wishlist/stats` and `/api/wishlist/cycle` (a wanted item whose `source_type` is `watchlist_label` carries `source_info.label_mbid`: that's how a label's row counts what's on Wanted from it);
 - `/api/watchlist/artists`, `/api/watchlist/count`, `/api/watchlist/scan/status` and `/api/watchlist/global-config`;
-- `/api/automations` and `/api/automations/master`, for the schedule line's name, interval and paused state;
+- `/api/labels/watchlist` (`{labels}` with no `success` key; install-wide, not per profile), `POST /api/labels/watchlist/backlog` and `/remove`;
+- `/api/podcasts/watchlist`, `POST /api/podcasts/watchlist/settings`, `/remove` and `/scan-now`, while the Podcasts module is on;
+- `/api/audiobooks/watchlist` (authors, narrators and series followed, with `last_scanned_at`, `found_total`, `last_error`), `DELETE /api/audiobooks/watchlist/<name>?role=`, `POST /api/audiobooks/watchlist/scan`, and `/api/audiobooks/wishlist` (what a follow has added, by its authors, narrators or series and `added_at`), while the Audiobooks module is on;
+- `/api/automations` and `/api/automations/master`, for the schedule line's names, intervals, next runs and paused state (`scan_watchlist` covers artists and labels; `scan_watchlist_podcasts`; `audiobook_scan_watchlist`);
 - `/api/quality-profile/custom`, for quality names on rows;
 - `/api/library/artists?search=`, for Open artist.
 

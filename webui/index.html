@@ -125,6 +125,9 @@
     <!-- Module switches: Settings → Modules and the "turned off" notice a
          module's page shows in place of itself (src/shell/modules.ts). -->
     <link rel="stylesheet" href="{{ url_for('static', filename='modules.css') }}">
+    <!-- Settings → Appearance: the accent radio cards, the custom colour's
+         contrast check and the preview strip (src/shell/appearance.ts). -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='appearance.css') }}">
     <!-- Sidebar weather: time/temp/condition line, forecast popover, particle
          scene. Additive — only #sidebar-weather-* selectors inside. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='sidebar-weather.css') }}">
@@ -9532,81 +9535,6 @@
 
                                 <!-- Third Column - Database, Metadata, Playlist Sync, Logging -->
                                 <div class="settings-third-column">
-                                    <!-- UI Appearance -->
-                                    <div class="settings-group" data-stg="appearance">
-                                        <h3>UI Appearance</h3>
-                                        <div class="form-group">
-                                            <label>Accent Color:</label>
-                                            <div class="accent-color-selector">
-                                                <select id="accent-preset" class="form-select">
-                                                    <option value="#1db954">Spotify Green</option>
-                                                    <option value="#1d8ab9">Ocean Blue</option>
-                                                    <option value="#a78bfa">Purple</option>
-                                                    <option value="#8b5cf6">Boulder Purple</option>
-                                                    <option value="#f59e0b">Sunset Orange</option>
-                                                    <option value="#f43f5e">Rose</option>
-                                                    <option value="#14b8a6">Teal</option>
-                                                    <option value="custom">Custom</option>
-                                                </select>
-                                                <div class="accent-preview-swatch" id="accent-preview-swatch"></div>
-                                            </div>
-                                            <small class="settings-hint">Changes the accent color across the entire
-                                                UI</small>
-                                        </div>
-                                        <div class="form-group" id="custom-color-group" style="display:none;">
-                                            <label>Custom Color:</label>
-                                            <input type="color" id="accent-custom-color" value="#1db954">
-                                        </div>
-                                        <div class="form-group">
-                                            <label>Sidebar Visualizer:</label>
-                                            <select id="sidebar-visualizer-type" class="form-select">
-                                                <option value="bars">Bars</option>
-                                                <option value="wave">Wave</option>
-                                                <option value="spectrum">Spectrum</option>
-                                                <option value="mirror">Mirror</option>
-                                                <option value="equalizer">Equalizer</option>
-                                                <option value="none">None</option>
-                                            </select>
-                                            <small class="settings-hint">Audio-reactive visualizer on the sidebar edge
-                                                when music is playing</small>
-                                        </div>
-                                        <div class="form-group">
-                                            <label class="checkbox-label">
-                                                <input type="checkbox" id="particles-enabled">
-                                                Background Particles
-                                            </label>
-                                            <small class="settings-hint">Animated particle effects behind each page. Off
-                                                by default — enable for the eye candy (uses GPU).</small>
-                                        </div>
-                                        <div class="form-group">
-                                            <label class="checkbox-label">
-                                                <input type="checkbox" id="worker-orbs-enabled" checked>
-                                                Worker Orbs
-                                            </label>
-                                            <small class="settings-hint">Dashboard header buttons animate as floating
-                                                orbs. Hover the header to expand. Desktop only.</small>
-                                        </div>
-                                        <div class="form-group">
-                                            <label class="checkbox-label">
-                                                <input type="checkbox" id="reduce-effects-enabled">
-                                                Reduce Visual Effects
-                                            </label>
-                                            <small class="settings-hint">Disables backdrop blur and shadows (the
-                                                GPU-heavy bits). Keeps functional motion like loading spinners. Good for
-                                                low-end devices.</small>
-                                        </div>
-                                        <div class="form-group">
-                                            <label class="checkbox-label">
-                                                <input type="checkbox" id="max-performance-enabled">
-                                                Max Performance
-                                            </label>
-                                            <small class="settings-hint">Nuclear low-power mode for software-rendered /
-                                                no-GPU setups (e.g. Docker, remote desktop). Turns off Worker Orbs,
-                                                Particles, all blur/shadows AND every animation &amp; transition
-                                                (loading spinners go static). Overrides the three options above.</small>
-                                        </div>
-                                    </div>
-
                                     <!-- Database Settings -->
                                     <!-- Database Settings (collapsible tile) -->
                                     <div class="settings-section-header collapsed" data-stg="advanced"
@@ -10276,6 +10204,140 @@
                                         </div>
                                     </div><!-- end Experimental body -->
                                 </div>
+                            </div>
+
+                            <!-- ═══ APPEARANCE TAB ═══ the "Settings Appearance" board (5f), restyled
+                                 in place: static/appearance.css, cards and checks by
+                                 src/shell/appearance.ts. Three groups, each its own
+                                 data-stg card, so the settings search names the right one. -->
+                            <div class="appearance-settings" id="appearance-settings">
+                                <section class="settings-group appearance-card" data-stg="appearance"
+                                    id="appearance-accent" aria-labelledby="appearance-accent-title">
+                                    <h3 id="appearance-accent-title">Accent colour</h3>
+                                    <p class="appearance-intro">One colour for buttons, links, selected rows and
+                                        focus. SoulSync makes a lighter shade of it for text and fills, so every
+                                        preset reads well on the dark ground. It applies to everyone using this
+                                        SoulSync.</p>
+                                    <!-- What's saved: a preset's hex, or "custom" with the hex in
+                                         #accent-custom-color (settings.js reads and writes both). The
+                                         cards below stand in for this list; the options and their order
+                                         match ACCENT_PRESETS in src/features/settings/accent.ts. -->
+                                    <div class="appearance-store" hidden>
+                                        <label for="accent-preset">Accent colour</label>
+                                        <select id="accent-preset" tabindex="-1">
+                                            <option value="#8b5cf6">Lilac</option>
+                                            <option value="#1db954">Spotify Green</option>
+                                            <option value="#1d8ab9">Ocean Blue</option>
+                                            <option value="#a78bfa">Pale Purple</option>
+                                            <option value="#f59e0b">Sunset Orange</option>
+                                            <option value="#f43f5e">Rose</option>
+                                            <option value="#14b8a6">Teal</option>
+                                            <option value="custom">Custom</option>
+                                        </select>
+                                        <input type="hidden" id="accent-custom-color" value="#1db954">
+                                    </div>
+                                    <div class="accent-cards" id="accent-preset-cards" role="radiogroup"
+                                        aria-labelledby="appearance-accent-title"></div>
+                                    <div class="accent-custom" id="custom-color-group" hidden>
+                                        <label class="accent-custom-label" for="accent-custom-hex">Custom colour</label>
+                                        <div class="accent-custom-fields">
+                                            <input type="text" id="accent-custom-hex" class="accent-custom-hex"
+                                                inputmode="text" autocomplete="off" spellcheck="false"
+                                                maxlength="7" placeholder="#8b5cf6"
+                                                aria-describedby="accent-custom-check">
+                                            <input type="color" id="accent-custom-picker" class="accent-custom-picker"
+                                                value="#1db954" aria-label="Pick a colour">
+                                        </div>
+                                        <div class="accent-check" id="accent-custom-check" aria-live="polite"></div>
+                                    </div>
+                                    <div class="accent-preview">
+                                        <p class="accent-preview-label" id="accent-preview-label">With Spotify Green</p>
+                                        <div class="accent-preview-strip">
+                                            <div class="accent-preview-samples" aria-hidden="true">
+                                                <span class="accent-sample-primary">Add to Wanted</span>
+                                                <span class="accent-sample-selected">Selected row</span>
+                                                <span class="accent-sample-link">A link</span>
+                                                <span class="accent-sample-focus">Keyboard focus</span>
+                                                <span class="accent-sample-wave" id="accent-preview-wave"></span>
+                                            </div>
+                                            <p class="accent-preview-line" id="accent-preview-line"></p>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section class="settings-group appearance-card appearance-theme" data-stg="appearance"
+                                    aria-labelledby="appearance-theme-title">
+                                    <div class="appearance-theme-text">
+                                        <h3 id="appearance-theme-title">Theme</h3>
+                                        <p class="appearance-intro">Dark only for now. The near-black ground and
+                                            white-wash surfaces are what the accent is tuned against.</p>
+                                    </div>
+                                    <span class="appearance-tag"><span class="appearance-tag-dot"
+                                            aria-hidden="true"></span>Dark</span>
+                                </section>
+
+                                <section class="settings-group appearance-card" data-stg="appearance"
+                                    aria-labelledby="appearance-effects-title">
+                                    <h3 id="appearance-effects-title">Motion and effects</h3>
+                                    <p class="appearance-intro">Particles and worker orbs are on or off for
+                                        everyone. Reduce visual effects and Max performance are remembered on
+                                        each device.</p>
+                                    <div class="appearance-rows">
+                                        <div class="appearance-row">
+                                            <div class="appearance-row-text">
+                                                <label for="sidebar-visualizer-type">Sidebar visualizer</label>
+                                                <small class="appearance-row-hint">Reacts to the music on the
+                                                    sidebar's edge while something plays.</small>
+                                            </div>
+                                            <select id="sidebar-visualizer-type" class="appearance-select">
+                                                <option value="bars">Bars</option>
+                                                <option value="wave">Wave</option>
+                                                <option value="spectrum">Spectrum</option>
+                                                <option value="mirror">Mirror</option>
+                                                <option value="equalizer">Equalizer</option>
+                                                <option value="none">None</option>
+                                            </select>
+                                        </div>
+                                        <div class="appearance-row">
+                                            <div class="appearance-row-text">
+                                                <label for="particles-enabled">Background particles</label>
+                                                <small class="appearance-row-hint">Animated particles behind each
+                                                    page. Off by default: they use the graphics card.</small>
+                                            </div>
+                                            <input type="checkbox" id="particles-enabled" class="appearance-check">
+                                        </div>
+                                        <div class="appearance-row">
+                                            <div class="appearance-row-text">
+                                                <label for="worker-orbs-enabled">Worker orbs</label>
+                                                <small class="appearance-row-hint">The enrichment workers float as
+                                                    orbs in the dashboard header. Desktop only.</small>
+                                            </div>
+                                            <input type="checkbox" id="worker-orbs-enabled" class="appearance-check"
+                                                checked>
+                                        </div>
+                                        <div class="appearance-row">
+                                            <div class="appearance-row-text">
+                                                <label for="reduce-effects-enabled">Reduce visual effects</label>
+                                                <small class="appearance-row-hint">Turns off blur and shadows, the
+                                                    heavy parts for the graphics card. Loading spinners keep
+                                                    moving. Good for low-end devices.</small>
+                                            </div>
+                                            <input type="checkbox" id="reduce-effects-enabled" class="appearance-check">
+                                        </div>
+                                        <div class="appearance-row">
+                                            <div class="appearance-row-text">
+                                                <label for="max-performance-enabled">Max performance</label>
+                                                <small class="appearance-row-hint">For setups without a graphics
+                                                    card (Docker, remote desktop): turns off worker orbs,
+                                                    particles, blur, shadows and every animation, spinners
+                                                    included. While it's on, the three settings above are
+                                                    off.</small>
+                                            </div>
+                                            <input type="checkbox" id="max-performance-enabled"
+                                                class="appearance-check">
+                                        </div>
+                                    </div>
+                                </section>
                             </div>
 
                             <!-- ═══ MODULES TAB ═══ rows rendered by src/shell/modules.ts -->

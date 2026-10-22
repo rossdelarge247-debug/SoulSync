@@ -165,12 +165,41 @@ export function ListFailure({
   );
 }
 
-/** Album art or an avatar, with the 8% placeholder when there's none (or it fails). */
-export function RowArt({ src, round = false }: { src: string; round?: boolean }) {
+/** Album art or an avatar, with the 8% placeholder when there's none (or it
+ *  fails); a label's placeholder carries its initials. */
+export function RowArt({
+  src,
+  round = false,
+  initials = '',
+  icon,
+}: {
+  src: string;
+  round?: boolean;
+  initials?: string;
+  /** Drawn in the placeholder: a podcast's microphone. */
+  icon?: 'microphone';
+}) {
   const [failed, setFailed] = useState(false);
   if (!src || failed) {
     return (
-      <span className={styles.art} data-round={round ? 'true' : undefined} aria-hidden="true" />
+      <span className={styles.art} data-round={round ? 'true' : undefined} aria-hidden="true">
+        {icon === 'microphone' ? (
+          <svg
+            className={styles.artIcon}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
+          </svg>
+        ) : initials ? (
+          <span className={styles.artInitials}>{initials}</span>
+        ) : null}
+      </span>
     );
   }
   return (

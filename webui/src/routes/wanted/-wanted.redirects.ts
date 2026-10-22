@@ -1,6 +1,7 @@
 import type { WatchlistSearch } from '../watchlist/-watchlist.types';
 import type { WishlistSearch } from '../wishlist/-wishlist.types';
-import type { WantedSearch } from './-wanted.types';
+
+import { LIST_TO_KIND, type WantedSearch } from './-wanted.types';
 
 /**
  * Where an old Wishlist link lands on /wanted: the Wanted tab, keeping the
@@ -16,14 +17,14 @@ export function wantedSearchFromWishlist(search: WishlistSearch): WantedSearch {
 }
 
 /**
- * Where an old Watchlist link lands on /wanted: the Followed artists tab,
- * keeping the Labels, Podcasts and Audiobooks tabs, the sort, the filter text,
- * and an open artist's settings or profile, or the global settings.
+ * Where an old Watchlist link lands on /wanted: the Following tab, its
+ * Labels, Podcasts and Audiobooks tabs as the Kind, the sort, the filter
+ * text, and an open artist's settings or profile, or the global settings.
  */
 export function wantedSearchFromWatchlist(search: WatchlistSearch): WantedSearch {
   return {
     tab: 'followed',
-    ...(search.tab !== 'artists' ? { list: search.tab } : {}),
+    ...(search.tab !== 'artists' ? { kind: LIST_TO_KIND[search.tab] } : {}),
     ...(search.sort !== 'name-asc' ? { sort: search.sort } : {}),
     ...(search.q ? { q: search.q } : {}),
     ...(search.configId ? { configId: search.configId } : {}),

@@ -6,9 +6,16 @@ import { useReactPageShell } from '@/platform/shell/route-controllers';
 
 import type { WantedTab, WantedTrack } from './-wanted.types';
 
-import { WATCHLIST_QUERY_KEY, watchlistScanStatusQueryOptions } from '../watchlist/-watchlist.api';
+import {
+  WATCHLIST_QUERY_KEY,
+  watchlistCountQueryOptions,
+  watchlistLabelsQueryOptions,
+  watchlistPodcastsQueryOptions,
+  watchlistScanStatusQueryOptions,
+} from '../watchlist/-watchlist.api';
 import { useLiveWatchlistScan, type WatchlistScanFrame } from '../watchlist/-watchlist.scan';
 import { WISHLIST_QUERY_KEY, wishlistTracksQueryOptions } from '../wishlist/-wishlist.api';
+import { followedAuthorsQueryOptions } from './-wanted.api';
 import { buildWantedItems, parseWantedTrack, type WishlistApiTrack } from './-wanted.helpers';
 
 /**
@@ -180,4 +187,37 @@ export function useCountdownFrom(seconds: number | undefined): number {
     return () => window.clearInterval(id);
   }, [seconds]);
   return left;
+}
+
+/**
+ * The Following tab's count: artists, labels, and the podcasts and audiobook
+ * follows this profile can see (both are modules). 'loading' until every
+ * list has answered; unknown when the artists can't be counted.
+ */
+export function useFollowingCount(
+  profileId: number,
+  allowed: { podcasts: boolean; authors: boolean },
+): number | undefined | 'loading' {
+  const artists = useQuery(watchlistCountQueryOptions(profileId));
+  const labels = useQuery(watchlistLabelsQueryOptions(profileId));
+  const podcasts = useQuery({
+    ...watchlistPodcastsQueryOptions(profileId),
+    enabled: allowed.podcasts,
+  });
+  const authors = useQuery({ ...followedAuthorsQueryOptions(profileId), enabled: allowed.authors });
+  if (
+    artists.isPending ||
+    labels.isPending ||
+    (allowed.podcasts && podcasts.isPending) ||
+    (allowed.authors && authors.isPending)
+  ) {
+    return 'loading';
+  }
+  if (artists.isError) return undefined;
+  return (
+    (artists.data?.count ?? 0) +
+    (labels.data?.length ?? 0) +
+    (allowed.podcasts ? (podcasts.data?.length ?? 0) : 0) +
+    (allowed.authors ? (authors.data?.length ?? 0) : 0)
+  );
 }

@@ -159,7 +159,126 @@ const SUMMARY = [
   { id: 3, library_releases: 0, latest_release: null, last_found: null, new_release: false },
 ];
 
+const ago = (ms: number) => new Date(Date.now() - ms).toISOString().slice(0, 19) + 'Z';
+const secsAgo = (ms: number) => Math.floor((Date.now() - ms) / 1000);
+const HOUR = 3_600_000;
+
+/** Found by the label check yesterday, still on Wanted: Hessle Audio's new release. */
+const LABEL_TRACK = {
+  ...track({ id: 'hes', name: 'HES053 A1', artist: 'Bruce', album: 'HES053', ago: DAY }),
+  source_type: 'watchlist_label',
+  source_info: { label_mbid: 'mb-hessle', label_name: 'Hessle Audio', album_name: 'HES053' },
+};
+
+const LABELS = [
+  {
+    id: 1,
+    musicbrainz_label_id: 'mb-hessle',
+    discogs_label_id: null,
+    label_name: 'Hessle Audio',
+    source: 'musicbrainz',
+    backlog: false,
+    date_added: sql(40 * DAY),
+    last_scan_timestamp: sql(DAY),
+  },
+  {
+    id: 2,
+    musicbrainz_label_id: 'mb-light',
+    discogs_label_id: null,
+    label_name: 'Lighttown Recordings',
+    source: 'musicbrainz',
+    backlog: false,
+    date_added: sql(10 * 60_000),
+    last_scan_timestamp: null,
+  },
+];
+
+const PODCASTS = [
+  {
+    id: 1,
+    feed_url: 'https://feeds.example.com/exchange',
+    itunes_id: 761,
+    title: 'Resident Advisor Exchange',
+    author: 'Resident Advisor',
+    artwork_url: null,
+    auto_download: true,
+    retention_days: 14,
+    episode_count: 212,
+    date_added: sql(90 * DAY),
+    last_scan_timestamp: sql(HOUR),
+  },
+  {
+    id: 2,
+    feed_url: 'https://feeds.example.com/quiet',
+    itunes_id: null,
+    title: 'Quiet Hours',
+    author: 'Someone',
+    artwork_url: null,
+    auto_download: false,
+    retention_days: 7,
+    episode_count: 40,
+    date_added: sql(90 * DAY),
+    last_scan_timestamp: sql(2 * HOUR),
+  },
+];
+const PODCAST_SUMMARY = [
+  {
+    feed_url: 'https://feeds.example.com/exchange',
+    kept: 40,
+    latest_episode: { title: 'EX.761', downloaded_at: ago(3 * HOUR) },
+    new_episode: true,
+  },
+  {
+    feed_url: 'https://feeds.example.com/quiet',
+    kept: 0,
+    latest_episode: null,
+    new_episode: false,
+  },
+];
+
+const AUTHORS = [
+  {
+    name: 'Ursula K. Le Guin',
+    role: 'author',
+    cover_url: '',
+    since_date: '2026-01-01',
+    last_scanned_at: secsAgo(DAY),
+    found_total: 1,
+    last_error: '',
+    added_at: secsAgo(100 * DAY),
+    auto_wishlist: 1,
+    narrator_mode: 'exact',
+  },
+];
+const BOOKS = [
+  {
+    id: 1,
+    asin: 'B0DISPO',
+    title: 'The Dispossessed',
+    subtitle: '',
+    authors: ['Ursula K. Le Guin'],
+    narrators: ['Someone'],
+    series_title: '',
+    series_sequence: '',
+    cover_url: '',
+    runtime_minutes: 600,
+    release_date: '2026-03-01',
+    language: 'english',
+    status: 'wanted',
+    narrator_mode: 'exact',
+    attempt_count: 0,
+    last_attempt_at: 0,
+    last_error: '',
+    added_at: secsAgo(30 * DAY),
+  },
+];
+
 interface Setup {
+  labels?: unknown[];
+  podcasts?: unknown[];
+  authors?: unknown[];
+  modules?: unknown[];
+  scan?: Record<string, unknown>;
   albums?: unknown[];
   singles?: unknown[];
   found?: unknown[];
@@ -262,7 +381,34 @@ function mockApi(setup: Setup = {}) {
         profiles: [{ id: 1, name: 'FLAC or better', is_default: true }],
       }),
     ),
-    http.get('*/api/modules', () => HttpResponse.json({ success: true, modules: [] })),
+    http.get('*/api/modules', () =>
+      HttpResponse.json({ success: true, modules: setup.modules ?? [] }),
+    ),
+    http.get('*/api/labels/watchlist', () => HttpResponse.json({ labels: setup.labels ?? [] })),
+    http.get('*/api/podcasts/watchlist', () =>
+      HttpResponse.json({ success: true, podcasts: setup.podcasts ?? [] }),
+    ),
+    http.get('*/api/podcasts/watchlist/summary', () =>
+      HttpResponse.json({ success: true, new_episode_days: 7, podcasts: PODCAST_SUMMARY }),
+    ),
+    http.get('*/api/audiobooks/watchlist', () =>
+      HttpResponse.json({ success: true, authors: setup.authors ?? [] }),
+    ),
+    http.get('*/api/audiobooks/wishlist', () =>
+      HttpResponse.json({ success: true, items: BOOKS, counts: {}, worker: null }),
+    ),
+    http.post('*/api/labels/watchlist/remove', async ({ request }) => {
+      await record(request);
+      return HttpResponse.json({ success: true, is_watching: false });
+    }),
+    http.post('*/api/labels/watchlist/backlog', async ({ request }) => {
+      await record(request);
+      return HttpResponse.json({ success: true });
+    }),
+    http.post('*/api/podcasts/watchlist/settings', async ({ request }) => {
+      await record(request);
+      return HttpResponse.json({ success: true });
+    }),
     http.post('*/api/audiobook-routes/check', () =>
       HttpResponse.json({ success: true, routed: [] }),
     ),
@@ -283,7 +429,7 @@ function mockApi(setup: Setup = {}) {
       HttpResponse.json({ success: true, new_release_days: 7, artists: SUMMARY }),
     ),
     http.get('*/api/watchlist/scan/status', () =>
-      HttpResponse.json({ success: true, status: 'idle', summary: {} }),
+      HttpResponse.json({ success: true, status: 'idle', summary: {}, ...setup.scan }),
     ),
     http.get('*/api/watchlist/global-config', () =>
       HttpResponse.json({
@@ -391,7 +537,8 @@ describe('Wanted tab', () => {
 
     expect(tab(/Wanted/)).toHaveAttribute('aria-selected', 'true');
     expect(tab(/Wanted/)).toHaveTextContent('3');
-    expect(tab(/Followed/)).toHaveTextContent('3');
+    // artists, labels, podcasts and audiobook follows: counted once all have answered
+    await waitFor(() => expect(tab(/Following/)).toHaveTextContent('3'));
     expect(screen.getByRole('button', { name: /Searching/ })).toHaveTextContent('1');
     expect(screen.getByRole('button', { name: /Not found yet/ })).toHaveTextContent('2');
     expect(screen.getByRole('button', { name: /Found this week/ })).toHaveTextContent('1');
@@ -738,7 +885,7 @@ describe('loading, empty and failure', () => {
     expect(await screen.findByText('Harbour Light')).toBeInTheDocument();
   });
 
-  it('an empty Followed artists explains itself and opens the follow search', async () => {
+  it('following nothing explains itself and opens the follow search', async () => {
     mockApi({ artists: [] });
     renderRoute('/wanted?tab=followed');
     expect(
@@ -748,11 +895,11 @@ describe('loading, empty and failure', () => {
     expect(await screen.findByRole('dialog', { name: 'Follow an artist' })).toBeInTheDocument();
   });
 
-  it('Followed artists that fail to load say so', async () => {
+  it('a Following list that fails to load says so', async () => {
     mockApi({ artistsStatus: 500 });
     renderRoute('/wanted?tab=followed');
     const alert = await screen.findByRole('alert');
-    expect(within(alert).getByText("Couldn't load the artists you follow")).toBeInTheDocument();
+    expect(within(alert).getByText("Couldn't load who you follow")).toBeInTheDocument();
   });
 });
 
@@ -762,12 +909,12 @@ describe('tabs', () => {
     const { router, history } = renderRoute('/wanted?tab=wanted&filter=found');
     await screen.findByText('Static Bloom');
 
-    fireEvent.click(tab(/Followed/));
+    fireEvent.click(tab(/Following/));
     await waitFor(() => expect(search(router).get('tab')).toBe('followed'));
     // the other tab's filter doesn't come along
     expect(search(router).get('filter')).toBeNull();
     expect(await screen.findByText('Marrow & Pine')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Follow an artist' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow…' })).toBeInTheDocument();
 
     act(() => history.back());
     await waitFor(() => expect(search(router).get('tab')).toBe('wanted'));
@@ -782,7 +929,7 @@ describe('tabs', () => {
     await waitFor(() => expect(search(router).get('tab')).toBe('followed'));
   });
 
-  it('a profile without the Wishlist page lands on Followed artists', async () => {
+  it('a profile without the Wishlist page lands on Following', async () => {
     window.SoulSyncWebShellBridge = createShellBridge({
       isPageAllowed: vi.fn((id) => id !== 'wishlist'),
     });
@@ -803,43 +950,192 @@ describe('tabs', () => {
   });
 });
 
-describe('Followed artists tab', () => {
+describe('Following tab', () => {
+  const everything = (extra: Setup = {}) =>
+    mockApi({
+      labels: LABELS,
+      podcasts: PODCASTS,
+      authors: AUTHORS,
+      albums: [...ALBUMS, LABEL_TRACK],
+      ...extra,
+    });
+  const rowsOf = async () =>
+    within(await screen.findByRole('list', { name: 'Following' })).getAllByRole('listitem');
+  const rowNamed = async (name: string) =>
+    (await rowsOf()).find((r) => r.querySelector('p')?.textContent === name)!;
+
   it('shows each artist with what you have, what is new, and the next check', async () => {
     mockApi();
     renderRoute('/wanted?tab=followed');
-    const rows = within(await screen.findByRole('list', { name: 'Followed artists' })).getAllByRole(
-      'listitem',
-    );
+    const rows = await rowsOf();
+    // newest activity first: Pale Harbour's find, then by name
     expect(rows.map((r) => r.querySelector('p')?.textContent)).toEqual([
-      'Marrow & Pine',
       'Pale Harbour',
+      'Marrow & Pine',
       'Saltmarsh',
     ]);
     expect(
-      within(rows[1]).getByText('9 releases in your library · 2 on Wanted'),
+      within(rows[0]).getByText('Artist · 9 releases in your library · 2 on Wanted'),
     ).toBeInTheDocument();
-    expect(within(rows[1]).getByText('Last found: Tidewater · 2 days ago')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('New release')).toBeInTheDocument();
+    expect(
+      within(rows[0]).getByText('Last found: Tidewater · 2 days ago · on Wanted'),
+    ).toBeInTheDocument();
+    expect(within(rows[0]).getByText('New release')).toBeInTheDocument();
     expect(within(rows[2]).getByText('Latest: Lantern · Oct 2025')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('Not checked yet')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('Not checked yet')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('First check in about 9 hours')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /New release/ })).toHaveTextContent('1');
     expect(
-      screen.getByText(/New releases are checked every 24 hours \(Auto-Scan Watchlist\)/),
+      screen.getByText(
+        /Artists and labels are checked every 24 hours \(Auto-Scan Watchlist\) and new releases go to Wanted/,
+      ),
     ).toBeInTheDocument();
   });
 
-  it('filters to new releases through the URL', async () => {
-    mockApi();
-    const { router } = renderRoute('/wanted?tab=followed');
-    await screen.findByText('Marrow & Pine');
-    fireEvent.click(screen.getByRole('button', { name: /New release/ }));
-    await waitFor(() => expect(search(router).get('filter')).toBe('new'));
+  it('lists every kind, each row starting with its kind, and counts them all', async () => {
+    everything();
+    renderRoute('/wanted?tab=followed');
+    const hessle = await rowNamed('Hessle Audio');
+    expect(within(hessle).getByText('Label · 1 on Wanted · new releases only')).toBeInTheDocument();
+    expect(within(hessle).getByText('Latest: HES053 · yesterday · on Wanted')).toBeInTheDocument();
+    expect(within(hessle).getByText('New release')).toBeInTheDocument();
+    expect(within(hessle).getByText('HA')).toBeInTheDocument(); // square, with its initials
+
+    const lighttown = await rowNamed('Lighttown Recordings');
     expect(
-      within(screen.getByRole('list', { name: 'Followed artists' })).getAllByRole('listitem'),
-    ).toHaveLength(1);
+      within(lighttown).getByText('Label · followed 10 minutes ago · new releases only'),
+    ).toBeInTheDocument();
+    expect(within(lighttown).getByText('Not checked yet')).toBeInTheDocument();
+
+    const exchange = await rowNamed('Resident Advisor Exchange');
+    expect(
+      within(exchange).getByText(
+        'Podcast · 212 episodes · 40 kept for 14 days · new episodes download',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(exchange).getByText('Latest: EX.761 · 3 hours ago · downloaded'),
+    ).toBeInTheDocument();
+    expect(within(exchange).getByText('New episode')).toBeInTheDocument();
+    expect(within(exchange).getByRole('button', { name: 'Open podcast' })).toBeInTheDocument();
+
+    const quiet = await rowNamed('Quiet Hours');
+    expect(within(quiet).getByText('Not downloading')).toBeInTheDocument();
+
+    const leGuin = await rowNamed('Ursula K. Le Guin');
+    expect(
+      within(leGuin).getByText('Author · 1 found since you followed · 1 on Wanted'),
+    ).toBeInTheDocument();
+    expect(
+      within(leGuin).getByText('Latest: The Dispossessed · 4 weeks ago · on Wanted'),
+    ).toBeInTheDocument();
+    expect(within(leGuin).getByRole('button', { name: 'Open author' })).toBeInTheDocument();
+
+    // 3 artists, 2 labels, 2 podcasts and an author
+    await waitFor(() => expect(tab(/Following/)).toHaveTextContent('8'));
+    const kinds = screen.getByRole('group', { name: 'Kind' });
+    expect(
+      within(kinds)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['All8', 'Artists3', 'Labels2', 'Podcasts2', 'Authors1']);
+    expect(
+      within(screen.getByRole('group', { name: 'Show' }))
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['All', 'New release3', 'Not checked yet2', 'Nothing new']);
   });
 
-  it('Unfollow asks first and says what stays on Wanted', async () => {
+  it('filters by kind through the URL, and an old Watchlist tab link lands on its kind', async () => {
+    everything();
+    const { router } = renderRoute('/wanted?tab=followed');
+    await rowNamed('Hessle Audio');
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Kind' })).getByRole('button', { name: /Labels/ }),
+    );
+    await waitFor(() => expect(search(router).get('kind')).toBe('labels'));
+    // newest activity first: Lighttown was followed ten minutes ago
+    expect((await rowsOf()).map((r) => r.querySelector('p')?.textContent)).toEqual([
+      'Lighttown Recordings',
+      'Hessle Audio',
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nothing new' }));
+    await waitFor(() => expect(search(router).get('filter')).toBe('quiet'));
+    expect(
+      screen.getByText('Everything here has something new, or hasn’t been checked yet.'),
+    ).toBeInTheDocument();
+  });
+
+  it('reads ?list= from an old link as the kind', async () => {
+    everything();
+    const { router } = renderRoute('/wanted?tab=followed&list=podcasts');
+    await waitFor(() => expect(search(router).get('kind')).toBe('podcasts'));
+    expect(search(router).get('list')).toBeNull();
+    await waitFor(async () =>
+      expect((await rowsOf()).map((r) => r.querySelector('p')?.textContent)).toEqual([
+        'Resident Advisor Exchange',
+        'Quiet Hours',
+      ]),
+    );
+    expect(screen.getByRole('button', { name: 'Check podcasts now' })).toBeInTheDocument();
+  });
+
+  it('a podcast row opens the show, and its menu turns downloads off', async () => {
+    const posts = everything();
+    const { router } = renderRoute('/wanted?tab=followed&kind=podcasts');
+    const exchange = await rowNamed('Resident Advisor Exchange');
+    const menu = await openMenu('More actions for Resident Advisor Exchange');
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((i) => i.textContent),
+    ).toEqual(['Stop downloading new episodes', 'Keep and download settings…', 'Unfollow…']);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Stop downloading new episodes' }));
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        path: '/api/podcasts/watchlist/settings',
+        body: {
+          feed_url: 'https://feeds.example.com/exchange',
+          itunes_id: 761,
+          auto_download: false,
+          retention_days: 14,
+        },
+      }),
+    );
+    fireEvent.click(within(exchange).getByRole('button', { name: 'Open podcast' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/podcasts/761'));
+  });
+
+  it('a label’s menu gets its whole catalogue, and Unfollow asks first', async () => {
+    const posts = everything();
+    renderRoute('/wanted?tab=followed&kind=labels');
+    await rowNamed('Hessle Audio');
+    let menu = await openMenu('More actions for Hessle Audio');
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Also get the whole catalogue' }));
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        path: '/api/labels/watchlist/backlog',
+        body: { musicbrainz_label_id: 'mb-hessle', backlog: true },
+      }),
+    );
+
+    menu = await openMenu('More actions for Hessle Audio');
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Unfollow…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Unfollow Hessle Audio?' });
+    expect(dialog).toHaveTextContent(
+      'SoulSync stops checking Hessle Audio for new releases. The 1 thing already on Wanted stays there and keeps being searched for.',
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Unfollow' }));
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        path: '/api/labels/watchlist/remove',
+        body: { musicbrainz_label_id: 'mb-hessle' },
+      }),
+    );
+  });
+
+  it('Unfollow on an artist asks first and says what stays on Wanted', async () => {
     const posts = mockApi();
     renderRoute('/wanted?tab=followed');
     await screen.findByText('Pale Harbour');
@@ -869,10 +1165,7 @@ describe('Followed artists tab', () => {
   it('opens an artist from the library when it is there', async () => {
     mockApi();
     const { router } = renderRoute('/wanted?tab=followed');
-    await screen.findByText('Pale Harbour');
-    const row = within(screen.getByRole('list', { name: 'Followed artists' })).getAllByRole(
-      'listitem',
-    )[1];
+    const row = await rowNamed('Pale Harbour');
     fireEvent.click(within(row).getByRole('button', { name: 'Open artist' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/artist-detail/library/77'));
   });
@@ -885,7 +1178,8 @@ describe('Followed artists tab', () => {
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Settings for this artist…' }));
     await waitFor(() => expect(search(router).get('configId')).toBe('sp-1'));
 
-    menu = await openMenu('More for Followed artists');
+    menu = await openMenu('More for Following');
+    // the old Labels / Podcasts / Audiobook authors views are rows of this tab now
     expect(
       within(menu)
         .getAllByRole('menuitem')
@@ -898,23 +1192,86 @@ describe('Followed artists tab', () => {
       'Check history…',
       'Downloads from followed artists…',
       'Blocklist…',
-      'Labels you follow',
-      'Podcasts you follow',
-      'Audiobook authors you follow',
     ]);
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Followed artist settings…' }));
     await waitFor(() => expect(search(router).get('settings')).toBe('true'));
+  });
 
-    menu = await openMenu('More for Followed artists');
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Labels you follow' }));
-    await waitFor(() => expect(search(router).get('list')).toBe('labels'));
+  it('Follow… asks what to follow', async () => {
+    mockApi();
+    const { router } = renderRoute('/wanted?tab=followed');
+    await screen.findByText('Pale Harbour');
+    fireEvent.click(screen.getByRole('button', { name: 'Follow…' }));
+    const menu = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>('[role="menu"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((i) => i.textContent),
+    ).toEqual([
+      'An artist…',
+      'A label (opens Search)',
+      'A podcast (opens Podcasts)',
+      'An audiobook author (opens Audiobooks)',
+    ]);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'An artist…' }));
+    expect(await screen.findByRole('dialog', { name: 'Follow an artist' })).toBeInTheDocument();
+    expect(search(router).get('tab')).toBe('followed');
+  });
+
+  it('says "Checking…" while a check runs, on the row it is checking too', async () => {
+    mockApi({
+      scan: {
+        status: 'scanning',
+        current_artist_name: 'Saltmarsh',
+        artists_scanned: 1,
+        total_artists: 3,
+      },
+    });
+    renderRoute('/wanted?tab=followed');
+    const saltmarsh = await rowNamed('Saltmarsh');
+    expect(within(saltmarsh).getByText('Checking…')).toBeInTheDocument();
+    expect(within(saltmarsh).getByText('Checking')).toBeInTheDocument();
+    const live = screen
+      .getAllByText('Checking…')
+      .find((el) => el.closest('[data-slot="status-tag"]'));
+    expect(live?.closest('[data-slot="status-tag"]')).toHaveAttribute('data-live', 'true');
+  });
+
+  it('with the Podcasts module off, there are no podcasts and no Podcasts kind', async () => {
+    everything({
+      modules: [
+        {
+          name: 'podcasts',
+          display_name: 'Podcasts',
+          description: '',
+          enabled: false,
+          restart_required: false,
+          restart_reason: null,
+          pages: ['podcasts'],
+        },
+      ],
+    });
+    renderRoute('/wanted?tab=followed');
+    await rowNamed('Hessle Audio');
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('group', { name: 'Kind' }))
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual(['All6', 'Artists3', 'Labels2', 'Authors1']),
+    );
+    expect(screen.queryByText('Resident Advisor Exchange')).not.toBeInTheDocument();
   });
 
   it('selects several artists and unfollows them together', async () => {
     const posts = mockApi();
-    renderRoute('/wanted?tab=followed');
+    renderRoute('/wanted?tab=followed&kind=artists');
     await screen.findByText('Pale Harbour');
-    const menu = await openMenu('More for Followed artists');
+    const menu = await openMenu('More for Following');
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Select several' }));
     const bar = await screen.findByRole('region', { name: 'Selected' });
     fireEvent.click(within(bar).getByRole('button', { name: 'Select all 3 shown' }));

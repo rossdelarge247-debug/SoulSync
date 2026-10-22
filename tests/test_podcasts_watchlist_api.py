@@ -215,3 +215,80 @@ class TestPodcastWatchlistAPI:
         assert pod["auto_download"] is True
         assert pod["retention_days"] == 14
 
+
+
+class TestPodcastWatchlistSummary:
+    """GET /api/podcasts/watchlist/summary: what came in for each followed show."""
+
+    FEED = "https://feeds.example.com/exchange"
+    OTHER = "https://feeds.example.com/quiet"
+
+    def _episode(self, db, feed, n, days_ago=0.0, pruned=False):
+        db.record_downloaded_podcast_episode(
+            feed_url=feed,
+            enclosure_url=f"{feed}/ep{n}.mp3",
+            guid=f"{feed}#{n}",
+            title=f"EX.{n}",
+            file_path=f"/podcasts/ep{n}.mp3",
+        )
+        with db._get_connection() as conn:
+            conn.execute(
+                "UPDATE downloaded_podcast_episodes SET downloaded_at = datetime('now', ?), "
+                "pruned_at = ? WHERE enclosure_url = ?",
+                (f"-{days_ago * 24:.0f} hours", "2026-10-01 00:00:00" if pruned else None,
+                 f"{feed}/ep{n}.mp3"),
+            )
+            conn.commit()
+
+    def test_counts_what_is_kept_and_names_the_newest_episode(self, test_client, tmp_db):
+        tmp_db.add_watchlist_podcast(feed_url=self.FEED, title="Exchange")
+        tmp_db.add_watchlist_podcast(feed_url=self.OTHER, title="Quiet Show")
+        self._episode(tmp_db, self.FEED, 759, days_ago=20, pruned=True)
+        self._episode(tmp_db, self.FEED, 760, days_ago=9)
+        self._episode(tmp_db, self.FEED, 761, days_ago=0.25)
+
+        res = test_client.get("/api/podcasts/watchlist/summary")
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["success"] is True
+        assert data["new_episode_days"] == 7
+        by_feed = {p["feed_url"]: p for p in data["podcasts"]}
+        assert set(by_feed) == {self.FEED, self.OTHER}
+
+        exchange = by_feed[self.FEED]
+        assert exchange["kept"] == 2  # the pruned one's file is gone
+        assert exchange["latest_episode"]["title"] == "EX.761"
+        assert exchange["latest_episode"]["downloaded_at"].endswith("Z")
+        assert exchange["new_episode"] is True
+
+        quiet = by_feed[self.OTHER]
+        assert quiet == {"feed_url": self.OTHER, "kept": 0, "latest_episode": None,
+                         "new_episode": False}
+
+    def test_an_episode_older_than_a_week_is_not_new(self, test_client, tmp_db):
+        tmp_db.add_watchlist_podcast(feed_url=self.FEED, title="Exchange")
+        self._episode(tmp_db, self.FEED, 700, days_ago=8)
+        podcast = test_client.get("/api/podcasts/watchlist/summary").get_json()["podcasts"][0]
+        assert podcast["latest_episode"]["title"] == "EX.700"
+        assert podcast["new_episode"] is False
+
+    def test_only_the_shows_this_profile_follows(self, test_client, tmp_db, monkeypatch):
+        import api.helpers as helpers
+
+        tmp_db.add_watchlist_podcast(feed_url=self.FEED, title="Exchange", profile_id=1)
+        tmp_db.add_watchlist_podcast(feed_url=self.OTHER, title="Quiet Show", profile_id=2)
+        self._episode(tmp_db, self.FEED, 761)
+        monkeypatch.setattr(helpers, "acting_profile_id", lambda request, requested=None: 2)
+        data = test_client.get("/api/podcasts/watchlist/summary").get_json()
+        assert [p["feed_url"] for p in data["podcasts"]] == [self.OTHER]
+
+    def test_nothing_followed_is_an_empty_list(self, test_client):
+        data = test_client.get("/api/podcasts/watchlist/summary").get_json()
+        assert data == {"success": True, "new_episode_days": 7, "podcasts": []}
+
+    def test_db_summary_leaves_out_feeds_with_nothing_downloaded(self, tmp_db):
+        self._episode(tmp_db, self.FEED, 1)
+        summary = tmp_db.get_podcast_episode_summary([self.FEED, self.OTHER, "", None])
+        assert list(summary) == [self.FEED]
+        assert summary[self.FEED]["kept"] == 1
+        assert tmp_db.get_podcast_episode_summary([]) == {}
