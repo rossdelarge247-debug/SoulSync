@@ -52,6 +52,10 @@ Everything in the handoff package is built and in `integration`. These are the q
 
 ## Log
 
+### 2026-10-22: Dev, no library chosen
+
+On `fix/library-choice`: no library chosen is now a warning (setup check and its dot), and Home's alert names Standalone and Settings → Connections → Server Connections.
+
 ### 2026-10-22: Dev, tidy-up after the redesign
 
 On `chore/tidy-after-redesign`: the stylesheet rules the rebuilds left matching nothing, and the guided tour rewritten for today's app.
