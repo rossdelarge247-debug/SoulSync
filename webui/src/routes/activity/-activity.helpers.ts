@@ -21,6 +21,8 @@ export const SHOW_OPTIONS: ReadonlyArray<{
   { value: 'imports', label: 'Imports', kind: 'import' },
   { value: 'automations', label: 'Automations', kind: 'automation' },
   { value: 'playlists', label: 'Playlists', kind: 'sync' },
+  // Internet radio's auto-add, one item per station per hour; hidden while the module is off
+  { value: 'radio', label: 'Radio', kind: 'radio' },
   { value: 'needs-you', label: 'Needs you', kind: 'needs_you' },
 ];
 
@@ -454,6 +456,14 @@ export function emptyCopy(show: ActivityShow, range: ActivityRange): EmptyCopy {
           'Each time a mirrored playlist is checked or synced, it shows here with what changed.',
         hint: 'Playlists are mirrored on their schedule, or you can sync one now.',
         link: { label: 'Open playlists', href: '/sync' },
+      };
+    case 'radio':
+      return {
+        title: `Nothing added from radio ${when}`,
+        description:
+          'When auto-add puts tracks a station played on Wanted, they show here, one item per station per hour.',
+        hint: 'Auto-add is off on every station until you turn it on for one.',
+        link: { label: 'Open Radio', href: '/radio' },
       };
     case 'needs-you':
       return {

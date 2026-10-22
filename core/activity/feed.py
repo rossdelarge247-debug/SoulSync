@@ -17,6 +17,8 @@ sync            playlist_pipeline_run_history (mirror runs);    profile
                 playlist sync_history rows
 safety          action_plan_events (preview expired/confirmed)  admin, or
                                                                 who previewed
+radio           radio_activity: what Internet radio's auto-add  profile
+                put on Wanted, one item per station per hour
 ==============  ==============================================  ===========
 
 Library history writes one row per track, so rows of one type that land
@@ -72,7 +74,7 @@ from utils.logging_config import get_logger
 
 logger = get_logger("activity.feed")
 
-KINDS = ("download", "import", "automation", "sync", "safety")
+KINDS = ("download", "import", "automation", "sync", "safety", "radio")
 FILTERS = KINDS + ("needs_you",)
 RANGES = ("today", "7d", "30d")
 DEFAULT_RANGE = "7d"
@@ -85,7 +87,7 @@ STALE_RUNNING_SECONDS = 6 * 3600
 
 # Tie-break order for items with the same timestamp; part of the cursor.
 _RANK = {"lh_download": 1, "lh_import": 2, "auto_import": 3, "sync_history": 4,
-         "mirror": 5, "automation": 6, "automation_live": 7, "safety": 8}
+         "mirror": 5, "automation": 6, "automation_live": 7, "safety": 8, "radio": 9}
 
 _SOURCES = {
     "download": ("lh_download", "sync_history"),
@@ -93,6 +95,7 @@ _SOURCES = {
     "automation": ("automation", "automation_live"),
     "sync": ("sync_history", "mirror"),
     "safety": ("safety",),
+    "radio": ("radio",),
 }
 
 _DOWNLOAD_SYNC_TYPES = ("album", "wishlist", "track")
@@ -897,6 +900,41 @@ def _safety_items(ctx: _Ctx, cursor, limit: int) -> List[Dict[str, Any]]:
     return [_safety_item(ctx, dict(r)) for r in rows]
 
 
+# ── radio auto-add ────────────────────────────────────────────────────────────
+
+def _radio_item(row: Dict[str, Any]) -> Dict[str, Any]:
+    n = int(row.get("added") or 0)
+    station = str(row.get("station_name") or "a station")
+    titles = _json(row.get("titles_json")) or []
+    titles = [str(t) for t in titles if t][-3:] if isinstance(titles, list) else []
+    more = f" and {n - len(titles)} more" if n > len(titles) else ""
+    detail = (f"{'; '.join(titles)}{more}. " if titles else "") + "They're on Wanted at your quality target."
+    return _item("radio", row["id"], id=f"radio:{row['id']}", time=int(row["updated_at"] or 0), kind="radio",
+                 status="ok", title=f"Auto-add added {plural(n, 'track')} from {station}", detail=detail,
+                 link="/wanted", ref={"station_id": row.get("station_id"), "hour_start": row.get("hour_start")})
+
+
+def _radio_items(ctx: _Ctx, cursor, limit: int) -> List[Dict[str, Any]]:
+    cond, cparams = _after_cursor("updated_at", "id", _RANK["radio"], cursor)
+    try:
+        rows = ctx.conn.execute(
+            "SELECT id, station_id, station_name, hour_start, added, titles_json, updated_at FROM radio_activity "
+            f"WHERE profile_id = ? AND updated_at >= ? AND {cond} ORDER BY updated_at DESC, id DESC LIMIT ?",
+            [ctx.viewer.profile_id, ctx.since] + cparams + [limit]).fetchall()
+    except Exception as exc:  # noqa: BLE001 - no table yet reads as nothing
+        logger.debug("radio activity unreadable: %s", exc)
+        return []
+    return [_radio_item(dict(r)) for r in rows]
+
+
+def _radio_count(ctx: _Ctx) -> int:
+    try:
+        return int(ctx.conn.execute("SELECT COUNT(*) FROM radio_activity WHERE profile_id = ? AND updated_at >= ?",
+                                    (ctx.viewer.profile_id, ctx.since)).fetchone()[0] or 0)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 # ── needs you ─────────────────────────────────────────────────────────────────
 
 def _needs_you_automation_ids(ctx: _Ctx) -> List[int]:
@@ -1034,6 +1072,8 @@ def _fetch(ctx: _Ctx, sources: Iterable[str], kinds: Iterable[str], cursor, limi
             out += _live_automation_items(ctx, cursor, limit)
         elif source == "safety":
             out += _safety_items(ctx, cursor, limit)
+        elif source == "radio":
+            out += _radio_items(ctx, cursor, limit)
     out.sort(key=lambda i: i["_key"], reverse=True)
     return out
 
@@ -1061,6 +1101,7 @@ def _counts(ctx: _Ctx, sessions) -> Dict[str, int]:
     where, params = _safety_where(ctx)
     counts["safety"] = conn.execute(f"SELECT COUNT(*) FROM action_plan_events WHERE {where} AND occurred_at >= ?",
                                     params + [ctx.since]).fetchone()[0]
+    counts["radio"] = _radio_count(ctx)
     return counts
 
 

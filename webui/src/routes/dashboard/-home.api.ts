@@ -163,6 +163,8 @@ export function normalizeLatest(payload: unknown): LatestItem[] {
   const items = Array.isArray(body.items) ? (body.items as Raw[]) : [];
   return items
     .filter((raw): raw is Raw => Boolean(raw) && typeof raw === 'object')
+    // radio's auto-add roll-ups don't count towards Home (Ross, 22 October)
+    .filter((raw) => raw.kind !== 'radio')
     .map((raw, index) => ({
       id: text(raw.id) ?? `item-${index}`,
       time: seconds(raw.time) ?? 0,

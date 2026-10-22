@@ -3,7 +3,7 @@
  * The contract is docs/design/CONTRACTS.md, "Activity feed".
  */
 
-export type ActivityKind = 'download' | 'import' | 'automation' | 'sync' | 'safety';
+export type ActivityKind = 'download' | 'import' | 'automation' | 'sync' | 'safety' | 'radio';
 export type ActivityStatus = 'running' | 'ok' | 'warning' | 'error' | 'info';
 
 export interface ActivityRef {
@@ -71,6 +71,7 @@ export type ActivityShow =
   | 'imports'
   | 'automations'
   | 'playlists'
+  | 'radio'
   | 'needs-you';
 
 /** The range buttons, as the URL and the API spell them (`?range=`). */
