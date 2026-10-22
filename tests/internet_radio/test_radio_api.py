@@ -261,8 +261,11 @@ def test_tracklist_and_want_missing(client, db, library):
     assert shows[0]["id"] == "kexp:7" and shows[0]["track_count"] == 3 and shows[0]["missing_count"] == 1
     tl = client.get("/api/radio/shows/kexp:7").get_json()
     assert [t["state"] for t in tl["tracks"]] == ["in_library", "not_added", "cant_match"]
+    assert client.post("/api/radio/shows/kexp:7/want", json={"position": 3}).status_code == 400  # no artist
+    one = client.post("/api/radio/shows/kexp:7/want", json={"position": 2}).get_json()
+    assert one["track"]["state"] == "on_wanted"
     r = client.post("/api/radio/shows/kexp:7/want-missing").get_json()
-    assert (r["added"], r["skipped"]) == (1, 2)
+    assert (r["added"], r["skipped"]) == (0, 3)
     assert [a["title"] for a in library.added] == ["Glasshouse"]
 
 

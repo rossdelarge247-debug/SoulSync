@@ -236,6 +236,15 @@ def get_heard(db, heard_id: int) -> Optional[Dict[str, Any]]:
     return _heard(row) if row else None
 
 
+def find_heard(db, profile_id: int, station_id: str, track_key: str, since: int) -> Optional[Dict[str, Any]]:
+    """This profile's latest Heard row for a track on a station."""
+    with db._get_connection() as conn:
+        row = conn.execute(f"SELECT {_HEARD_COLS} FROM radio_heard WHERE profile_id = ? AND station_id = ? AND "
+                           "track_key = ? AND heard_at >= ? ORDER BY heard_at DESC LIMIT 1",
+                           (int(profile_id), station_id, track_key, int(since))).fetchone()
+    return _heard(row) if row else None
+
+
 def mark_heard_added(db, heard_id: int, *, auto: bool = False) -> None:
     with db._get_connection() as conn:
         conn.execute("UPDATE radio_heard SET added_at = ?, added_by_auto = ? WHERE id = ?",

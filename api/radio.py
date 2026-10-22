@@ -17,6 +17,7 @@ GET    /api/radio/stations/<id>/auto-add          the numbers the confirm shows
 PUT    /api/radio/stations/<id>/auto-add          {enabled}; turning it on needs download rights
 GET    /api/radio/stations/<id>/shows             shows with tracklists
 GET    /api/radio/shows/<id>                      one tracklist
+POST   /api/radio/shows/<id>/want                 {position}: one row to Wanted
 POST   /api/radio/shows/<id>/want-missing         add the ones you don't have
 
 Admins:
@@ -395,6 +396,14 @@ def now_playing():
     active = hub.touch(sid, pid) if sid else False
     data = hub.now_playing(station, pid)
     data["session_active"] = active
+    data["heard_id"] = None
+    data["added_at"] = None
+    if data.get("state") == "identified" and data.get("track"):
+        key = track_key(data["track"]["artist"], data["track"]["title"])
+        row = store.find_heard(_db(), pid, station.id, key, int(time.time()) - 6 * 3600)
+        if row:
+            data["heard_id"] = row["id"]
+            data["added_at"] = row.get("added_at")
     return jsonify({"success": True, **data})
 
 
@@ -649,6 +658,41 @@ def show_tracklist(show_id):
                                               "fetched_at": show.get("fetched_at"),
                                               "homepage": station.homepage if station else None},
                     "tracks": rows})
+
+
+@bp.route("/api/radio/shows/<path:show_id>/want", methods=["POST"])
+def show_want_one(show_id):
+    """One tracklist row to Wanted, by its position in the station's list."""
+    pid = _pid()
+    if pid is None:
+        return _need_profile()
+    show, err = _show_or_404(show_id)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    try:
+        position = int(body.get("position"))
+    except (TypeError, ValueError):
+        return _err(400, "bad_request", "Say which track.")
+    try:
+        rows = _track_rows(pid, _tracks_for(show))
+    except net.FetchError as exc:
+        return _err(502, "feed_unavailable", f"The tracklist couldn't be read: {exc}")
+    row = next((r for r in rows if r["position"] == position), None)
+    if row is None:
+        return _err(404, "not_found", "That track isn't in this tracklist.")
+    if row["state"] == "cant_match":
+        return _err(400, "cant_match", "This one can't be matched: there's no artist to search for.")
+    station = resolve_station(show["station_id"])
+    result = _add_to_wanted(pid, {"artist": row["artist"], "title": row["title"], "release": row.get("release"),
+                                  "station_id": show["station_id"], "station_name": station.name if station else "",
+                                  "auto": False}) or {}
+    if not result.get("ok") and not result.get("skipped"):
+        return _err(502, "add_failed", result.get("message") or "It couldn't be added to Wanted. Try again.")
+    hub.forget_library(pid, row["artist"], row["title"])
+    fresh = _track_rows(pid, _tracks_for(show))
+    return jsonify({"success": True, "track": next((r for r in fresh if r["position"] == position), row),
+                    "skipped": bool(result.get("skipped")), "message": result.get("message") or ""})
 
 
 @bp.route("/api/radio/shows/<path:show_id>/want-missing", methods=["POST"])
