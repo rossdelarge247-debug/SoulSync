@@ -93,7 +93,7 @@ The chain editor lives on the Downloads tab: drag sources from **Available** int
 These live on other tabs, not Downloads:
 
 - **Storefront Country (iTunes)** — on the **Connections** tab, under the iTunes / Apple Music service card: which store region to search, with fallback options if a release isn't available in your region
-- **Lossy copy** — on the **Quality** tab ("Create lossy copy of downloaded FLAC files"): optionally keep a lossy copy of each downloaded FLAC alongside the original
+- **Lossy copy** — on the **Quality** tab ("Create lossy copy of downloaded FLAC files"): optionally keep a lossy copy of each downloaded FLAC alongside the original. "Keep lossy output only" deletes the lossless original instead, so turning it on asks you to confirm first: new downloads lose the original once the copy is checked (each one is listed in Activity), and the Lossy Converter's bulk Convert lists the originals before it deletes them
 - **YouTube cookies** — on the **Sources** tab, in the YouTube source panel ("YouTube Browser Cookies" / "Paste cookies.txt"): authenticate with a browser profile or a \`cookies.txt\` file when YouTube rate-limits anonymous downloads
 
 ![Downloads settings](settings-downloads.jpg)

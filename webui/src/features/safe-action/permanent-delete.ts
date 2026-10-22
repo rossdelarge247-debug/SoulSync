@@ -1,12 +1,13 @@
 /**
- * The two deletes nothing can undo: emptying the music recycle bin (all of
- * it, or chosen files) and clearing the download quarantine.
+ * The deletes nothing can undo: emptying a recycle bin (the music one, the
+ * video one or the audiobook one; all of it, or chosen entries) and clearing
+ * the download quarantine.
  *
- * Both routes only delete against a fresh preview plan
- * (api/deleted_files.py, api/quarantine.py): the preview records exactly
- * which files would go and answers with the count, the total size, the
- * oldest and newest date and a sample; the delete takes that plan id and
- * removes only those files. Without a plan the routes answer 409.
+ * Every route only deletes against a fresh preview plan (api/deleted_files.py,
+ * api/quarantine.py, api/video/downloads.py, api/audiobooks.py): the preview
+ * records exactly which files would go and answers with the count, the total
+ * size, the oldest and newest date and a sample; the delete takes that plan id
+ * and removes only those files. Without a plan the routes answer 409.
  *
  * These are the requests and the pure copy; permanent-delete-flow.tsx is
  * the dialog.
@@ -16,19 +17,30 @@ import type { PlanItem, PlanSummary } from './plan';
 
 import { countLabel, formatBytes, readRefusal, type PlanRefusal } from './plan';
 
+/** One video recycle-bin entry: the bin folder it is in and its name there. */
+export interface VideoBinEntry {
+  trash_dir?: string | null;
+  name: string;
+}
+
 /**
- * What to delete: the whole bin, chosen bin entries, what the bin's keep
- * window lets go now (`retention`, which the Weekly Cleanup automation
- * empties), or the quarantine.
+ * What to delete: the whole music bin, chosen bin entries, what the bin's
+ * keep window lets go now (`retention`, which the Weekly Cleanup automation
+ * empties), or the quarantine; the video bin (all, or chosen entries); the
+ * audiobook bin (all, or chosen books by their name in the bin).
  */
 export type PermanentDeleteTarget =
   | { kind: 'recycle-bin'; ids?: string[]; retention?: boolean }
-  | { kind: 'quarantine' };
+  | { kind: 'quarantine' }
+  | { kind: 'video-recycle-bin'; entries?: VideoBinEntry[] }
+  | { kind: 'audiobook-recycle-bin'; names?: string[] };
 
 /** One file the preview lists. */
 export interface PermanentDeleteItem extends PlanItem {
   /** Recycle-bin entry id. */
   id?: string;
+  /** Video and audiobook bins: the entry's name in the bin (with its stamp). */
+  entry?: string;
   name?: string;
   /** file (a download or a binned file), info (a quarantine sidecar), other. */
   kind?: string;
@@ -49,6 +61,8 @@ export interface PermanentDeletePreview extends PlanSummary<PermanentDeleteItem>
   total_bytes: number;
   oldest?: string | null;
   newest?: string | null;
+  /** Video and audiobook bins: whether deletes go to the bin at all now. */
+  recycle_enabled?: boolean;
 }
 
 /** What the delete answers once it ran. */
@@ -71,23 +85,64 @@ export interface PermanentDeleteResult {
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 function urls(target: PermanentDeleteTarget) {
-  return target.kind === 'quarantine'
-    ? { preview: '/api/quarantine/clear-preview', confirm: '/api/quarantine/clear' }
-    : { preview: '/api/deleted-files/purge-preview', confirm: '/api/deleted-files/purge' };
+  switch (target.kind) {
+    case 'quarantine':
+      return { preview: '/api/quarantine/clear-preview', confirm: '/api/quarantine/clear' };
+    case 'video-recycle-bin':
+      return {
+        preview: '/api/video/downloads/recycle/purge-preview',
+        confirm: '/api/video/downloads/recycle/purge',
+      };
+    case 'audiobook-recycle-bin':
+      return {
+        preview: '/api/audiobooks/library/recycle/purge-preview',
+        confirm: '/api/audiobooks/library/recycle/purge',
+      };
+    default:
+      return { preview: '/api/deleted-files/purge-preview', confirm: '/api/deleted-files/purge' };
+  }
+}
+
+function previewBody(target: PermanentDeleteTarget): Record<string, unknown> {
+  switch (target.kind) {
+    case 'quarantine':
+      return {};
+    case 'video-recycle-bin':
+      return target.entries ? { entries: target.entries } : { all: true };
+    case 'audiobook-recycle-bin':
+      return target.names ? { names: target.names } : { all: true };
+    default:
+      return target.ids
+        ? { ids: target.ids }
+        : target.retention
+          ? { retention: true }
+          : { all: true };
+  }
+}
+
+/** Whether the delete is of chosen entries rather than the whole bin. */
+function chosen(target: PermanentDeleteTarget): number | null {
+  if (target.kind === 'recycle-bin') return target.ids ? target.ids.length : null;
+  if (target.kind === 'video-recycle-bin') return target.entries ? target.entries.length : null;
+  if (target.kind === 'audiobook-recycle-bin') return target.names ? target.names.length : null;
+  return null;
+}
+
+/** What one entry is called: a book in the audiobook bin, a file elsewhere. */
+export function deleteNoun(target: PermanentDeleteTarget): {
+  one: string;
+  many: string;
+} {
+  return target.kind === 'audiobook-recycle-bin'
+    ? { one: 'book', many: 'books' }
+    : { one: 'file', many: 'files' };
 }
 
 /** Records the plan. Deletes nothing. */
 export async function previewPermanentDelete(
   target: PermanentDeleteTarget,
 ): Promise<PermanentDeletePreview> {
-  const body =
-    target.kind === 'quarantine'
-      ? {}
-      : target.ids
-        ? { ids: target.ids }
-        : target.retention
-          ? { retention: true }
-          : { all: true };
+  const body = previewBody(target);
   const response = await fetch(urls(target).preview, {
     method: 'POST',
     headers: JSON_HEADERS,
@@ -135,13 +190,28 @@ export function permanentDeleteCopy(
 ) {
   const n = preview.files;
   const size = formatBytes(preview.total_bytes);
-  const single = target.kind === 'recycle-bin' && target.ids?.length === 1 && n === 1;
+  const noun = deleteNoun(target);
+  const single = chosen(target) === 1 && n === 1;
   const name = single ? preview.sample[0]?.name : undefined;
   const title = name
     ? `Permanently delete "${name}" (${size})?`
-    : `Permanently delete ${countLabel(n, 'file')} (${size})?`;
+    : `Permanently delete ${countLabel(n, noun.one, noun.many)} (${size})?`;
   let lead: string;
-  if (target.kind === 'quarantine') {
+  if (target.kind === 'video-recycle-bin') {
+    lead = target.entries
+      ? n === 1
+        ? 'The file is deleted for good. It leaves the video recycle bin and cannot be restored afterwards.'
+        : 'These files are deleted for good. They leave the video recycle bin and cannot be restored afterwards.'
+      : 'This empties the video recycle bin. Every file in it is deleted for good and cannot be restored ' +
+        'afterwards. Anything deleted after this preview stays in the bin.';
+  } else if (target.kind === 'audiobook-recycle-bin') {
+    lead = target.names
+      ? n === 1
+        ? 'The book is deleted for good, with all its files. It leaves the audiobook recycle bin and cannot be restored afterwards.'
+        : 'These books are deleted for good, with all their files. They leave the audiobook recycle bin and cannot be restored afterwards.'
+      : 'This empties the audiobook recycle bin. Every book in it is deleted for good, with all its files, and ' +
+        'cannot be restored afterwards. Anything deleted after this preview stays in the bin.';
+  } else if (target.kind === 'quarantine') {
     lead =
       'Every file in the download quarantine is deleted for good, with its info file. ' +
       'None of them can be approved or recovered afterwards. Anything quarantined after this preview stays.';
@@ -163,8 +233,12 @@ export function permanentDeleteCopy(
     title,
     size,
     lead: `This can't be undone. ${lead}`,
-    confirm: name ? 'Delete permanently' : `Delete ${countLabel(n, 'file')} permanently`,
+    confirm: name
+      ? 'Delete permanently'
+      : `Delete ${countLabel(n, noun.one, noun.many)} permanently`,
     dateLabel: target.kind === 'quarantine' ? 'Quarantined' : 'Deleted',
+    countLabel: noun.many.charAt(0).toUpperCase() + noun.many.slice(1),
+    itemLabel: noun.one.charAt(0).toUpperCase() + noun.one.slice(1),
   };
 }
 
@@ -174,19 +248,22 @@ export function permanentDeleteOutcome(
   result: PermanentDeleteResult,
 ): { body: string; tone: 'success' | 'warning' } {
   const errors = result.errors ?? [];
+  const noun = deleteNoun(target);
   const deleted =
     target.kind === 'quarantine' ? (result.files_removed ?? 0) : (result.purged ?? []).length;
   const kept = Array.isArray(result.skipped) ? result.skipped.length : 0;
   const parts = [
-    `Deleted ${countLabel(deleted, 'file')} (${formatBytes(result.freed_bytes)}) for good.`,
+    `Deleted ${countLabel(deleted, noun.one, noun.many)} (${formatBytes(result.freed_bytes)}) for good.`,
   ];
   if (kept) {
     parts.push(
-      `${countLabel(kept, 'file')} changed since the preview and ${kept === 1 ? 'was' : 'were'} kept.`,
+      `${countLabel(kept, noun.one, noun.many)} changed since the preview and ${kept === 1 ? 'was' : 'were'} kept.`,
     );
   }
   if (errors.length) {
-    parts.push(`${countLabel(errors.length, 'file')} could not be deleted: ${errors[0].error}`);
+    parts.push(
+      `${countLabel(errors.length, noun.one, noun.many)} could not be deleted: ${errors[0].error}`,
+    );
   }
   return { body: parts.join(' '), tone: errors.length ? 'warning' : 'success' };
 }

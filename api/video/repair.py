@@ -133,12 +133,52 @@ def register_routes(bp):
         ok = _worker().dismiss_finding(fid)
         return jsonify({"success": ok}), (200 if ok else 404)
 
+    @bp.route("/repair/findings/bulk-fix-preview", methods=["POST"])
+    def video_repair_bulk_fix_preview():
+        """Preview a bulk fix: every finding it would fix and what happens to
+        each, recorded as a plan. Changes nothing. Same filters as bulk-fix
+        (``ids``, or ``job_id`` / ``severity``, plus ``fix_action``); POST the
+        returned plan_id to bulk-fix to run exactly this."""
+        body = request.get_json(silent=True) or {}
+        try:
+            preview = _worker().preview_bulk_fix(
+                job_id=body.get("job_id"), severity=body.get("severity"),
+                ids=body.get("ids"), fix_action=body.get("fix_action"))
+            return jsonify({"success": True, **preview})
+        except Exception as e:   # noqa: BLE001
+            logger.error("video bulk-fix preview failed: %s", e)
+            return jsonify({"success": False, "error": str(e)}), 500
+
     @bp.route("/repair/findings/bulk-fix", methods=["POST"])
     def video_repair_bulk_fix():
+        """Fix the matching pending findings. With ``plan_id`` (from
+        bulk-fix-preview) it fixes exactly the previewed findings with the
+        previewed action, and nothing from the body. Without one, a selection
+        that moves or deletes files (Watched Cleanup, Naming) is refused: 409
+        ``plan_required`` with the preview attached. A used, expired, unknown
+        or other tool's plan is 409 with its code."""
+        from core.library.action_plans import PlanError
         body = request.get_json(silent=True) or {}
-        return jsonify(_worker().bulk_fix_findings(
-            job_id=body.get("job_id"), severity=body.get("severity"),
-            ids=body.get("ids"), fix_action=body.get("fix_action")))
+        w = _worker()
+        if body.get("plan_id"):
+            try:
+                plan = w.consume_bulk_fix_plan(body.get("plan_id"))
+            except PlanError as exc:
+                return jsonify({"success": False, "code": exc.code, "error": exc.message}), 409
+            if not plan["ids"]:
+                return jsonify({"success": True, "fixed": 0, "failed": 0, "total": 0, "errors": []})
+            return jsonify(w.bulk_fix_findings(ids=plan["ids"], fix_action=plan["fix_action"]))
+        filters = {"job_id": body.get("job_id"), "severity": body.get("severity"),
+                   "ids": body.get("ids")}
+        if w.bulk_fix_needs_plan(**filters):
+            preview = w.preview_bulk_fix(fix_action=body.get("fix_action"), **filters)
+            return jsonify({
+                "success": False, "plan_required": True, "code": "plan_required",
+                "error": (f"{preview.get('destructive', 0)} of these fixes move or delete files. "
+                          "Review the preview, then confirm it with its plan_id."),
+                "plan": preview,
+            }), 409
+        return jsonify(w.bulk_fix_findings(fix_action=body.get("fix_action"), **filters))
 
     @bp.route("/repair/findings/bulk", methods=["POST"])
     def video_repair_bulk():

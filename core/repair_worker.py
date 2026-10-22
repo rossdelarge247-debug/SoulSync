@@ -57,6 +57,12 @@ _ABSENCE_IS_THE_FINDING = frozenset({'dead_file', 'empty_folder'})
 # Action-plan tool name for a confirmed bulk fix (core.library.action_plans).
 REPAIR_BULK_FIX_TOOL = 'repair_bulk_fix'
 
+# The Lossy Converter's finding. Converting only adds a file, but a quality
+# profile set to "keep lossy output only" deletes the lossless original after
+# the conversion, so a bulk Convert is previewed whenever that applies, judged
+# per finding from its track's profile (RepairWorker._lossy_policy).
+LOSSY_FINDING_TYPE = 'missing_lossy_copy'
+
 DESTRUCTIVE_FINDING_TYPES = frozenset({
     'orphan_file',            # default 'staging' MOVES the file; 'delete' removes it
     'dead_file',              # 'remove' drops the library row + file
@@ -132,6 +138,21 @@ def fix_moves_or_deletes(finding_type: str, fix_action: Optional[str] = None) ->
     deletes a file, so a bulk run of it must come with a confirmed preview."""
     return (finding_type in DESTRUCTIVE_FINDING_TYPES
             or str(fix_action or '') in _FILE_DELETING_ACTIONS)
+
+
+def _lossless_size(details: dict) -> int:
+    """Bytes the Lossy Converter finding's lossless file holds now: the file
+    on disk when it is still where the scan found it, else the scan's size."""
+    path = details.get('resolved_path') if isinstance(details, dict) else None
+    try:
+        if path and os.path.isfile(path):
+            return os.path.getsize(path)
+    except OSError:
+        pass
+    try:
+        return int((details or {}).get('file_size') or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _removal(thing: str, recycle: bool) -> Tuple[str, str]:
@@ -2162,12 +2183,17 @@ class RepairWorker:
             if conn:
                 conn.close()
 
-    def fix_finding(self, finding_id: int, fix_action: str = None) -> dict:
+    def fix_finding(self, finding_id: int, fix_action: str = None,
+                    allow_delete_original: Optional[bool] = None) -> dict:
         """Execute the appropriate fix action for a finding, then mark it resolved.
 
         Args:
             finding_id: ID of the finding to fix
             fix_action: Optional action override (e.g. 'staging' or 'delete' for orphan files)
+            allow_delete_original: the bulk loops say, per finding, whether a
+                Lossy Converter fix may delete the lossless original (only when
+                its confirmed preview said so). None, a single fix, follows the
+                profile's setting.
         """
         # Refresh transfer folder from config before each fix — same logic as _run_next_job
         if self._config_manager:
@@ -2195,6 +2221,8 @@ class RepairWorker:
             # Pass fix_action through to handler via details
             if fix_action:
                 details['_fix_action'] = fix_action
+            if allow_delete_original is not None:
+                details['_allow_delete_original'] = bool(allow_delete_original)
 
             # Dispatch fix by finding type
             result = self._execute_fix(finding_type, entity_type, entity_id, file_path, details)
@@ -2273,6 +2301,9 @@ class RepairWorker:
         # actually on record — a type missing from the meta table must still
         # be listed rather than vanish from the UI.
         slugs = set(FINDING_TYPE_META) | set(handlers) | set(jobs_by_type)
+        # The Lossy Converter's Convert deletes the lossless original when a
+        # profile says to keep the lossy copy only, so it is previewed then.
+        lossy_deletes = self._lossy_may_delete_originals()
         catalog = []
         for slug in sorted(slugs):
             meta = FINDING_TYPE_META.get(slug, {})
@@ -2282,7 +2313,8 @@ class RepairWorker:
                 'label': meta.get('label') or slug.replace('_', ' ').title(),
                 'verb': (meta.get('verb') or 'Fix') if fixable else None,
                 'fixable': fixable,
-                'destructive': slug in DESTRUCTIVE_FINDING_TYPES,
+                'destructive': (slug in DESTRUCTIVE_FINDING_TYPES
+                                or (slug == LOSSY_FINDING_TYPE and lossy_deletes)),
                 'job_ids': sorted(jobs_by_type.get(slug, [])),
                 # What the bulk-fix confirmation says for this type, where the
                 # generic "moves or deletes files ... cannot be undone" is wrong.
@@ -6060,6 +6092,74 @@ class RepairWorker:
             logger.error("Failed to move %s -> %s: %s", src, dst, e)
             return {'success': False, 'error': str(e)}
 
+    def _lossy_policy(self, details, cache: Optional[Dict[Any, dict]] = None) -> dict:
+        """The live Lossy Copy policy for one Lossy Converter finding.
+
+        Reads the track's assigned quality profile LIVE: finding details only
+        carry its id, and codec / bitrate / delete-original may have changed
+        since the scan. A NULL assignment deliberately means "use the current
+        default", which load_profile_by_id(None) resolves. Old findings and
+        installations fall back to the legacy globals. ``cache`` (profile id ->
+        policy) keeps a preview of thousands of findings to one read per
+        profile. Returns ``{'enabled', 'codec', 'bitrate', 'delete_original',
+        'label', 'ext'}``."""
+        profile_id = details.get('quality_profile_id') if isinstance(details, dict) else None
+        if cache is not None and profile_id in cache:
+            return cache[profile_id]
+        codec, bitrate, delete_original, enabled = 'mp3', '320', False, True
+        profile = None
+        try:
+            from core.quality.selection import load_profile_by_id
+            profile = load_profile_by_id(profile_id)
+        except Exception as e:
+            logger.debug("Could not resolve lossy-converter profile %r: %s", profile_id, e)
+        if isinstance(profile, dict) and 'lossy_copy_enabled' in profile:
+            enabled = bool(profile.get('lossy_copy_enabled'))
+            codec = str(profile.get('lossy_copy_codec') or 'mp3').lower()
+            bitrate = str(profile.get('lossy_copy_bitrate') or '320')
+            delete_original = bool(profile.get('lossy_copy_delete_original'))
+        elif getattr(self, '_config_manager', None):
+            cfg = self._config_manager
+            codec = str(cfg.get('lossy_copy.codec', 'mp3') or 'mp3').lower()
+            bitrate = str(cfg.get('lossy_copy.bitrate', '320') or '320')
+            delete_original = bool(cfg.get('lossy_copy.delete_original', False))
+        # Opus max per-channel bitrate is 256kbps — cap to avoid encoding failures
+        try:
+            if codec == 'opus' and int(bitrate) > 256:
+                bitrate = '256'
+        except (TypeError, ValueError):
+            pass
+        policy = {'enabled': enabled, 'codec': codec, 'bitrate': bitrate,
+                  'delete_original': bool(enabled and delete_original),
+                  'label': f'{codec.upper()}-{bitrate}',
+                  'ext': {'mp3': '.mp3', 'opus': '.opus', 'aac': '.m4a'}.get(codec, '.mp3')}
+        if cache is not None:
+            cache[profile_id] = policy
+        return policy
+
+    def _lossy_may_delete_originals(self) -> bool:
+        """Whether any quality profile (or the legacy setting) keeps the lossy
+        copy only, so the Lossy Converter's Convert can delete originals."""
+        conn = None
+        try:
+            conn = self.db._get_connection()
+            row = conn.execute(
+                "SELECT 1 FROM quality_profiles WHERE lossy_copy_enabled = 1 "
+                "AND lossy_copy_delete_original = 1 LIMIT 1").fetchone()
+            if row:
+                return True
+        except Exception as e:  # noqa: BLE001 - an old schema just means "no profile says so"
+            logger.debug("Could not read lossy-copy profiles: %s", e)
+        finally:
+            if conn:
+                conn.close()
+        cfg = getattr(self, '_config_manager', None)
+        try:
+            return bool(cfg and cfg.get('lossy_copy.enabled', False)
+                        and cfg.get('lossy_copy.delete_original', False))
+        except Exception:  # noqa: BLE001
+            return False
+
     def _fix_missing_lossy_copy(self, entity_type, entity_id, file_path, details):
         """Convert a FLAC file to the configured lossy codec using ffmpeg.
 
@@ -6069,37 +6169,19 @@ class RepairWorker:
         if not file_path:
             return {'success': False, 'error': 'No file path associated with this finding'}
 
-        # Read the track's assigned quality profile LIVE. Finding details only
-        # carry its id; codec/bitrate/delete-original may have changed since
-        # the scan. Fall back to legacy globals for old findings/installations.
-        codec = 'mp3'
-        bitrate = '320'
-        delete_original = False
-        profile = None
-        profile_id = details.get('quality_profile_id') if isinstance(details, dict) else None
-        try:
-            from core.quality.selection import load_profile_by_id
-            # A NULL assignment deliberately means "use the current default".
-            # load_profile_by_id(None) performs that live resolution, so a
-            # default-profile change between scan and apply is respected.
-            profile = load_profile_by_id(profile_id)
-        except Exception as e:
-            logger.debug("Could not resolve lossy-converter profile %r: %s", profile_id, e)
-        if isinstance(profile, dict) and 'lossy_copy_enabled' in profile:
-            if not profile.get('lossy_copy_enabled'):
-                return {'success': False, 'error': 'Lossy Copy is disabled for this track profile'}
-            codec = str(profile.get('lossy_copy_codec') or 'mp3').lower()
-            bitrate = str(profile.get('lossy_copy_bitrate') or '320')
-            delete_original = bool(profile.get('lossy_copy_delete_original'))
-        elif self._config_manager:
-            codec = self._config_manager.get('lossy_copy.codec', 'mp3').lower()
-            bitrate = self._config_manager.get('lossy_copy.bitrate', '320')
-            delete_original = bool(
-                self._config_manager.get('lossy_copy.delete_original', False))
-        # Opus max per-channel bitrate is 256kbps — cap to avoid encoding failures
-        if codec == 'opus' and int(bitrate) > 256:
-            bitrate = '256'
-        quality_label = f'{codec.upper()}-{bitrate}'
+        policy = self._lossy_policy(details)
+        if not policy['enabled']:
+            return {'success': False, 'error': 'Lossy Copy is disabled for this track profile'}
+        codec, bitrate = policy['codec'], policy['bitrate']
+        delete_original = policy['delete_original']
+        # A bulk run deletes the lossless original only for findings its
+        # confirmed preview listed: the bulk loops set _allow_delete_original
+        # per finding (False without a plan). A single fix leaves it unset and
+        # follows the profile, as every single-finding fix does.
+        allowed = details.get('_allow_delete_original') if isinstance(details, dict) else None
+        if allowed is not None and not allowed:
+            delete_original = False
+        quality_label = policy['label']
 
         codec_configs = {
             'mp3':  ('libmp3lame', '.mp3',  ['-id3v2_version', '3']),
@@ -6181,56 +6263,60 @@ class RepairWorker:
 
             if delete_original:
                 try:
-                    from mutagen import File as MutagenFile
-                    test = MutagenFile(out_path)
-                    if test is not None:
-                        # Update the DB FIRST: if the DB update fails, the
-                        # source file is untouched and the row still points at
-                        # it. Deleting the file first and swallowing the DB
-                        # error as success left the DB pointing at a gone file.
-                        new_db_path = os.path.splitext(file_path)[0] + out_ext
-                        from core.quality.retention import quality_json, transforms_json
-                        output_quality = probe_audio_quality(out_path)
-                        retention_json = transforms_json([{
-                            'type': 'lossy_copy',
-                            'source_replaced': True,
-                            'codec': codec,
-                            'bitrate': bitrate,
-                            'output_quality': (
-                                output_quality.to_dict() if output_quality else None),
-                        }])
-                        conn = None
-                        try:
-                            conn = self.db._get_connection()
-                            cursor = conn.cursor()
-                            cursor.execute(
-                                """UPDATE tracks
-                                      SET file_path=?, acquired_quality_json=?,
-                                          retention_json=?, updated_at=CURRENT_TIMESTAMP
-                                    WHERE id=?""",
-                                (new_db_path, quality_json(acquired_quality),
-                                 retention_json, entity_id)
-                            )
-                            conn.commit()
-                        except Exception as e:
-                            return {'success': False,
-                                    'error': f'Converted to {quality_label} but the DB path '
-                                             f'update failed — original kept: {e}'}
-                        finally:
-                            if conn:
-                                conn.close()
-                        try:
-                            # the original is lossless audio the conversion can
-                            # never give back: recycle bin, not unlink
-                            _remove_library_file(resolved, self.transfer_folder,
-                                                 'lossy-converter', self._config_manager)
-                        except OSError as e:
-                            return {'success': False,
-                                    'error': f'Converted to {quality_label} (the library now '
-                                             f'points at it) but the original could not be '
-                                             f'deleted: {e}'}
-                        return {'success': True, 'action': 'converted_and_deleted',
-                                'message': f'Converted to {quality_label} and deleted original'}
+                    from core.imports.file_ops import lossy_copy_verified
+                    if not lossy_copy_verified(resolved, out_path):
+                        return {'success': True, 'action': 'converted',
+                                'message': (f'Created {quality_label} copy. The original was kept '
+                                            f'because the copy could not be checked')}
+                    # Update the DB FIRST: if the DB update fails, the
+                    # source file is untouched and the row still points at
+                    # it. Deleting the file first and swallowing the DB
+                    # error as success left the DB pointing at a gone file.
+                    new_db_path = os.path.splitext(file_path)[0] + out_ext
+                    from core.quality.retention import quality_json, transforms_json
+                    output_quality = probe_audio_quality(out_path)
+                    retention_json = transforms_json([{
+                        'type': 'lossy_copy',
+                        'source_replaced': True,
+                        'codec': codec,
+                        'bitrate': bitrate,
+                        'output_quality': (
+                            output_quality.to_dict() if output_quality else None),
+                    }])
+                    conn = None
+                    try:
+                        conn = self.db._get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            """UPDATE tracks
+                                  SET file_path=?, acquired_quality_json=?,
+                                      retention_json=?, updated_at=CURRENT_TIMESTAMP
+                                WHERE id=?""",
+                            (new_db_path, quality_json(acquired_quality),
+                             retention_json, entity_id)
+                        )
+                        conn.commit()
+                    except Exception as e:
+                        return {'success': False,
+                                'error': f'Converted to {quality_label} but the DB path '
+                                         f'update failed — original kept: {e}'}
+                    finally:
+                        if conn:
+                            conn.close()
+                    try:
+                        # the original is lossless audio the conversion can
+                        # never give back: recycle bin, not unlink
+                        removed_to = _remove_library_file(resolved, self.transfer_folder,
+                                                          'lossy-converter', self._config_manager)
+                    except OSError as e:
+                        return {'success': False,
+                                'error': f'Converted to {quality_label} (the library now '
+                                         f'points at it) but the original could not be '
+                                         f'deleted: {e}'}
+                    where = ('moved the original to the recycle bin' if removed_to
+                             else 'deleted the original permanently')
+                    return {'success': True, 'action': 'converted_and_deleted',
+                            'message': f'Converted to {quality_label} and {where}'}
                 except Exception as e:
                     logger.debug("Blasphemy mode error: %s", e)
 
@@ -6310,25 +6396,44 @@ class RepairWorker:
 
             where = f"WHERE {' AND '.join(where_parts)}"
             cursor.execute(f"SELECT id FROM repair_findings {where}", params)
-            return [row[0] for row in cursor.fetchall()]
+            ids = [row[0] for row in cursor.fetchall()]
         finally:
             if conn:
                 conn.close()
+        if safe_only and LOSSY_FINDING_TYPE in fixable and ids:
+            # converting is harmless; deleting the lossless original is not
+            deleting = self._lossy_deleting_ids(ids)
+            ids = [i for i in ids if i not in deleting]
+        return ids
+
+    def _lossy_deleting_ids(self, ids: List[int]) -> set:
+        """The Lossy Converter findings among ``ids`` whose track's profile
+        deletes the lossless original after converting."""
+        rows = self._finding_rows_for_plan(ids)
+        cache: Dict[Any, dict] = {}
+        return {fid for fid, row in rows.items()
+                if row.get('finding_type') == LOSSY_FINDING_TYPE
+                and self._lossy_policy(row.get('details') or {}, cache)['delete_original']}
 
     def bulk_fix_findings(self, job_id: str = None, severity: str = None,
                           finding_ids: List[int] = None, fix_action: str = None,
-                          fix_actions: Optional[Dict[str, str]] = None) -> dict:
+                          fix_actions: Optional[Dict[str, str]] = None,
+                          lossy_delete_ids: Optional[List[int]] = None) -> dict:
         """Fix all pending fixable findings matching filters. Returns {fixed, failed, skipped}.
 
         Args:
             fix_action: Optional action for findings that need user choice (e.g. orphan files)
             fix_actions: Optional per-type actions (finding_type -> action) for a
                 mixed selection; a type missing from it takes its default.
+            lossy_delete_ids: the Lossy Converter findings whose lossless
+                original a confirmed preview said would be deleted. Any other
+                Lossy Converter finding is converted and its original kept.
         """
         try:
             ids_to_fix = self._pending_fixable_ids(
                 job_id=job_id, severity=severity, finding_ids=finding_ids)
-            types = self._types_for_findings(ids_to_fix) if fix_actions is not None else {}
+            types = self._types_for_findings(ids_to_fix)
+            may_delete = {int(i) for i in (lossy_delete_ids or [])}
 
             fixed = 0
             failed = 0
@@ -6337,7 +6442,10 @@ class RepairWorker:
                 action = (fix_actions.get(types.get(fid) or '') if fix_actions is not None
                           else fix_action)
                 try:
-                    result = self.fix_finding(fid, fix_action=action)
+                    result = (self.fix_finding(fid, fix_action=action,
+                                               allow_delete_original=fid in may_delete)
+                              if types.get(fid) == LOSSY_FINDING_TYPE
+                              else self.fix_finding(fid, fix_action=action))
                 except Exception as e:  # noqa: BLE001
                     # One bad finding must not abandon the rest. Without this
                     # the whole loop fell to the outer handler and returned
@@ -6410,6 +6518,8 @@ class RepairWorker:
                 "types. Narrow the run to a single type, or run it without an action.")}
         recycle = _recycle_deletes_enabled(self._config_manager)
         rows = self._finding_rows_for_plan(ids)
+        policies: Dict[Any, dict] = {}
+        lossy = self._lossy_preview_facts(rows, recycle, policies)
         items = []
         for fid in ids:
             row = rows.get(fid) or {}
@@ -6417,7 +6527,7 @@ class RepairWorker:
             meta = FINDING_TYPE_META.get(ftype, {})
             action = (fix_actions or {}).get(ftype) if fix_actions else fix_action
             effect, kind = bulk_fix_effect(ftype, action, recycle)
-            items.append({
+            item = {
                 'finding_id': fid,
                 'finding_type': ftype,
                 'path': row.get('file_path') or '',
@@ -6426,15 +6536,22 @@ class RepairWorker:
                 'effect': effect,
                 'effect_kind': kind,
                 'destructive': fix_moves_or_deletes(ftype, action),
-            })
+            }
+            if fid in lossy['items']:
+                item.update(lossy['items'][fid])
+            items.append(item)
         if not items:
             return {'total': 0, 'plan_id': None, 'destructive': 0, 'per_type': {},
                     'by_effect': {}, 'recycle_deletes': recycle,
                     'counts': {}, 'by_reason': {}, 'sample': [], 'truncated': False}
         plan = plan_store.create(REPAIR_BULK_FIX_TOOL, items, meta={
             'ids': list(ids), 'fix_action': fix_action,
-            'fix_actions': dict(fix_actions) if fix_actions else None})
+            'fix_actions': dict(fix_actions) if fix_actions else None,
+            'lossy_delete_ids': [i['finding_id'] for i in items
+                                 if i['finding_type'] == LOSSY_FINDING_TYPE and i['destructive']]})
         summary = plan.summary()
+        if lossy['summary']:
+            summary['lossy'] = lossy['summary']
         per_type: Dict[str, int] = {}
         by_effect: Dict[str, int] = {}
         for item in items:
@@ -6446,6 +6563,92 @@ class RepairWorker:
         summary['recycle_deletes'] = recycle
         return summary
 
+    def _lossy_preview_facts(self, rows: Dict[int, dict], recycle: bool,
+                             policies: Dict[Any, dict]) -> dict:
+        """What a bulk Convert would do to each Lossy Converter finding in
+        ``rows``: its effect sentence and kind, whether it deletes the lossless
+        original, and that original's size. Plus the totals the confirm shows:
+        files to convert, originals deleted, their size, and about how much
+        space that frees once the lossy copies are written (from the tracks'
+        durations and the target bitrate; None when unknown). Reads only."""
+        lossy_rows = {fid: row for fid, row in rows.items()
+                      if row.get('finding_type') == LOSSY_FINDING_TYPE}
+        out: Dict[str, Any] = {'items': {}, 'summary': None}
+        if not lossy_rows:
+            return out
+        durations = self._track_durations_ms([row.get('entity_id') for row in lossy_rows.values()])
+        convert = deleting = 0
+        originals = 0
+        estimate = 0
+        estimate_known = True
+        labels = set()
+        for fid, row in lossy_rows.items():
+            details = row.get('details') or {}
+            policy = self._lossy_policy(details, policies)
+            label = policy['label']
+            if not policy['enabled']:
+                out['items'][fid] = {
+                    'effect': "Nothing: Lossy Copy is off for this track's profile, so this fix fails",
+                    'effect_kind': 'none', 'destructive': False}
+                continue
+            convert += 1
+            labels.add(label)
+            if not policy['delete_original']:
+                out['items'][fid] = {'effect': f"Converts to {label}. The lossless file stays",
+                                     'effect_kind': 'write', 'destructive': False}
+                continue
+            deleting += 1
+            size = _lossless_size(details)
+            originals += size
+            ms = durations.get(str(row.get('entity_id')))
+            try:
+                kbps = int(policy['bitrate'])
+            except (TypeError, ValueError):
+                kbps = 0
+            if ms and kbps:
+                estimate += int(ms) * kbps // 8
+            else:
+                estimate_known = False
+            if recycle:
+                effect = f"Converts to {label}, then moves the lossless original to the recycle bin"
+            else:
+                effect = f"Converts to {label}, then deletes the lossless original permanently"
+            out['items'][fid] = {'effect': effect, 'effect_kind': 'recycle' if recycle else 'delete',
+                                 'destructive': True, 'size': size}
+        out['summary'] = {
+            'convert': convert,
+            'delete_originals': deleting,
+            'originals_bytes': originals,
+            'estimated_freed_bytes': (max(0, originals - estimate)
+                                      if deleting and estimate_known else None),
+            'labels': sorted(labels),
+            'recycle': recycle,
+        }
+        return out
+
+    def _track_durations_ms(self, track_ids) -> Dict[str, int]:
+        """track id (as text) -> duration in ms, for the ids that have one."""
+        wanted = sorted({str(t) for t in track_ids if t not in (None, '')})
+        if not wanted:
+            return {}
+        conn = None
+        out: Dict[str, int] = {}
+        try:
+            conn = self.db._get_connection()
+            for start in range(0, len(wanted), 500):
+                chunk = wanted[start:start + 500]
+                marks = ','.join(['?'] * len(chunk))
+                for tid, ms in conn.execute(
+                        f"SELECT id, duration FROM tracks WHERE CAST(id AS TEXT) IN ({marks})", chunk):
+                    if ms:
+                        out[str(tid)] = int(ms)
+        except Exception as e:  # noqa: BLE001 - the estimate is a nicety
+            logger.debug("Could not read track durations for a lossy preview: %s", e)
+        finally:
+            if conn:
+                conn.close()
+        return out
+
     def _finding_rows_for_plan(self, ids: List[int]) -> Dict[int, dict]:
         if not ids:
             return {}
@@ -6455,10 +6658,18 @@ class RepairWorker:
             cursor = conn.cursor()
             placeholders = ','.join(['?'] * len(ids))
             cursor.execute(
-                f"SELECT id, finding_type, file_path, title FROM repair_findings WHERE id IN ({placeholders})",
+                f"SELECT id, finding_type, file_path, title, entity_id, details_json "
+                f"FROM repair_findings WHERE id IN ({placeholders})",
                 list(ids))
-            return {row[0]: {'finding_type': row[1], 'file_path': row[2], 'title': row[3]}
-                    for row in cursor.fetchall()}
+            out = {}
+            for row in cursor.fetchall():
+                try:
+                    details = json.loads(row[5]) if row[5] else {}
+                except (TypeError, ValueError):
+                    details = {}
+                out[row[0]] = {'finding_type': row[1], 'file_path': row[2], 'title': row[3],
+                               'entity_id': row[4], 'details': details if isinstance(details, dict) else {}}
+            return out
         except Exception as e:
             logger.debug("Could not read findings for a bulk-fix preview: %s", e)
             return {}
@@ -6481,11 +6692,13 @@ class RepairWorker:
         ids = self._pending_fixable_ids(
             job_id=job_id, severity=severity, finding_ids=finding_ids,
             finding_type=finding_type, safe_only=False)
-        for ftype in set(self._types_for_findings(ids).values()):
+        types = self._types_for_findings(ids)
+        for ftype in set(types.values()):
             action = (fix_actions or {}).get(ftype) if fix_actions else fix_action
             if fix_moves_or_deletes(ftype, action):
                 return True
-        return False
+        lossy = [fid for fid, ftype in types.items() if ftype == LOSSY_FINDING_TYPE]
+        return bool(lossy and self._lossy_deleting_ids(lossy))
 
     @staticmethod
     def consume_bulk_fix_plan(plan_id: str) -> dict:
@@ -6494,12 +6707,14 @@ class RepairWorker:
         from core.library.action_plans import plan_store
         plan = plan_store.consume(plan_id, REPAIR_BULK_FIX_TOOL)
         return {'ids': list(plan.meta.get('ids') or []), 'fix_action': plan.meta.get('fix_action'),
-                'fix_actions': plan.meta.get('fix_actions') or None}
+                'fix_actions': plan.meta.get('fix_actions') or None,
+                'lossy_delete_ids': list(plan.meta.get('lossy_delete_ids') or [])}
 
     def start_bulk_fix(self, job_id: str = None, severity: str = None,
                        finding_ids: List[int] = None, fix_action: str = None,
                        finding_type: str = None, safe_only: bool = False,
-                       fix_actions: Optional[Dict[str, str]] = None) -> dict:
+                       fix_actions: Optional[Dict[str, str]] = None,
+                       lossy_delete_ids: Optional[List[int]] = None) -> dict:
         """Start a background bulk-fix run. Only one runs at a time.
 
         ``fix_action`` may only reach ONE finding type per run. The string is
@@ -6569,7 +6784,8 @@ class RepairWorker:
                 'per_type': {},
             }
             self._bulk_fix_thread = threading.Thread(
-                target=self._run_bulk_fix, args=(list(ids), fix_action, fix_actions),
+                target=self._run_bulk_fix,
+                args=(list(ids), fix_action, fix_actions, list(lossy_delete_ids or [])),
                 daemon=True, name='repair-bulk-fix')
             self._bulk_fix_thread.start()
             logger.info("Background bulk fix started: %d finding(s)%s",
@@ -6598,9 +6814,11 @@ class RepairWorker:
                 conn.close()
 
     def _run_bulk_fix(self, ids: List[int], fix_action: str = None,
-                      fix_actions: Optional[Dict[str, str]] = None):
+                      fix_actions: Optional[Dict[str, str]] = None,
+                      lossy_delete_ids: Optional[List[int]] = None):
         state = self._bulk_fix_state
         types = self._types_for_findings(ids)
+        may_delete = {int(i) for i in (lossy_delete_ids or [])}
         try:
             for fid in ids:
                 if self._bulk_fix_stop_event.is_set() or self.should_stop:
@@ -6611,7 +6829,10 @@ class RepairWorker:
                 action = (fix_actions.get(types.get(fid) or '') if fix_actions is not None
                           else fix_action)
                 try:
-                    result = self.fix_finding(fid, fix_action=action)
+                    result = (self.fix_finding(fid, fix_action=action,
+                                               allow_delete_original=fid in may_delete)
+                              if types.get(fid) == LOSSY_FINDING_TYPE
+                              else self.fix_finding(fid, fix_action=action))
                 except Exception as e:  # fix_finding shouldn't raise, but never kill the run
                     result = {'success': False, 'error': str(e)}
                 state['done'] += 1

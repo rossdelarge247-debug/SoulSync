@@ -525,24 +525,65 @@ def register_routes(bp):
         res = _recycle.restore_entry(body.get("trash_dir"), body.get("name"), settings, db)
         return jsonify(res), (200 if res.get("success") else 400)
 
-    @bp.route("/downloads/recycle/purge", methods=["POST"])
-    def video_downloads_recycle_purge():
-        """Body: {trash_dir, name} for one entry, or {all: true} to empty."""
+    @bp.route("/downloads/recycle/purge-preview", methods=["POST"])
+    def video_downloads_recycle_purge_preview():
+        """What a purge WOULD delete for good: ``{all: true}`` for the whole
+        bin, or ``{entries: [{trash_dir, name}]}`` for chosen ones. Records a
+        plan (count, size, oldest and newest date, a sample) and deletes
+        nothing; POST its plan_id to /downloads/recycle/purge."""
+        from core.library.action_plans import plan_store
+        from core.library.cleanup import removal_stats
         from core.video import recycle as _recycle
         from core.video.organization import load as _org_load
 
         from . import get_video_db
-        db = get_video_db()
-        settings = _org_load(db)
         body = request.get_json(silent=True) or {}
-        if body.get("all"):
-            purged = 0
-            for entry in _recycle.list_entries(settings, db):
-                if _recycle.purge_entry(entry["trash_dir"], entry["name"], settings, db).get("success"):
-                    purged += 1
-            return jsonify({"success": True, "purged": purged})
-        res = _recycle.purge_entry(body.get("trash_dir"), body.get("name"), settings, db)
-        return jsonify(res), (200 if res.get("success") else 400)
+        entries = body.get("entries")
+        purge_all = bool(body.get("all"))
+        if not purge_all and (not isinstance(entries, list) or not entries):
+            return jsonify({"success": False, "error": "entries or all required"}), 400
+        try:
+            db = get_video_db()
+            settings = _org_load(db)
+            wanted = None if purge_all else [
+                ((e or {}).get("trash_dir"), (e or {}).get("name"))
+                for e in entries if isinstance(e, dict)]
+            items = _recycle.preview_purge(settings, db, wanted)
+            stats = removal_stats(items, "deleted_at")
+            recycle_on = bool(settings.get("recycle_deletes", True))
+            if not items:
+                return jsonify({"success": True, "plan_id": None, "total": 0, "sample": [],
+                                "truncated": False, "recycle_enabled": recycle_on, **stats})
+            plan = plan_store.create(_recycle.VIDEO_RECYCLE_PURGE_TOOL, items,
+                                     meta={"scope": "all" if purge_all else "selected"})
+            return jsonify({"success": True, **plan.summary(), "recycle_enabled": recycle_on, **stats})
+        except Exception as e:   # noqa: BLE001
+            logger.error("video recycle purge preview failed: %s", e)
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @bp.route("/downloads/recycle/purge", methods=["POST"])
+    def video_downloads_recycle_purge():
+        """Delete for good exactly the entries a fresh purge-preview plan
+        listed (``{plan_id}``). Without a usable plan nothing is deleted: 409
+        with ``code`` plan_required / plan_unknown / plan_expired /
+        plan_wrong_tool."""
+        from core.library.action_plans import PlanError, plan_store
+        from core.video import recycle as _recycle
+        from core.video.organization import load as _org_load
+
+        from . import get_video_db
+        body = request.get_json(silent=True) or {}
+        try:
+            plan = plan_store.consume(body.get("plan_id"), _recycle.VIDEO_RECYCLE_PURGE_TOOL)
+        except PlanError as exc:
+            return jsonify({"success": False, "code": exc.code, "error": exc.message}), 409
+        try:
+            db = get_video_db()
+            result = _recycle.purge_planned(_org_load(db), db, plan.items)
+            return jsonify({"success": True, **result})
+        except Exception as e:   # noqa: BLE001
+            logger.error("video recycle purge failed: %s", e)
+            return jsonify({"success": False, "error": str(e)}), 500
 
     @bp.route("/downloads/blocklist", methods=["GET"])
     def video_downloads_blocklist():

@@ -430,8 +430,24 @@ export interface BulkFixPreview extends PlanSummary<BulkFixPlanItem> {
   by_effect?: Record<string, number>;
   /** `library.recycle_deletes`: false means removed files are gone for good. */
   recycle_deletes?: boolean;
+  /** Present when the run includes Lossy Converter findings. */
+  lossy?: BulkFixLossy;
   invalid?: boolean;
   error?: string;
+}
+
+/** The Lossy Converter's part of a bulk-fix preview: files it would convert,
+ *  originals the profiles say to delete afterwards, their size, and about how
+ *  much space that frees once the lossy copies exist (null when unknown). */
+export interface BulkFixLossy {
+  convert: number;
+  delete_originals: number;
+  originals_bytes: number;
+  estimated_freed_bytes: number | null;
+  /** "MP3-320", one per target the profiles use. */
+  labels: string[];
+  /** Whether the originals go to the recycle bin (false: deleted for good). */
+  recycle: boolean;
 }
 
 export interface BulkFixStartResult {

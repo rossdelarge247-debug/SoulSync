@@ -284,7 +284,8 @@ function ReviewBody({
   return (
     <>
       {stats?.length ? <StatTiles stats={stats} /> : null}
-      {lead ? <p className={styles.lead}>{lead}</p> : null}
+      {/* a div, so a lead can carry a list (the delete-original confirm) */}
+      {lead ? <div className={styles.lead}>{lead}</div> : null}
       {notice ? (
         <p className={styles.notice} data-tone={notice.tone ?? 'neutral'}>
           {notice.content}

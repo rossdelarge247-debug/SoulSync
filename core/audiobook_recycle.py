@@ -307,6 +307,85 @@ def empty_bin() -> Dict[str, Any]:
     return summary
 
 
+# ---------------------------------------------------------------------------
+# Emptying by hand: preview, then confirm
+# ---------------------------------------------------------------------------
+# Erasing is permanent, so the http routes only do it against a preview plan
+# (the process-wide store in core.library.action_plans): preview_purge lists
+# exactly what would go, and purge_planned erases those entries and nothing
+# recycled afterwards. purge_old, the keep window, is the user's own setting and
+# is left alone.
+
+AUDIOBOOK_RECYCLE_PURGE_TOOL = "audiobook_recycle_purge"
+
+
+def _entry_when(name: str, manifest: Dict[str, Any]) -> Optional[str]:
+    """When an entry was recycled, as local ISO: the manifest, else the stamp."""
+    recorded = (manifest.get(name) or {}).get("at")
+    try:
+        if recorded:
+            return datetime.fromtimestamp(float(recorded)).isoformat(timespec="seconds")
+    except (TypeError, ValueError, OverflowError, OSError):
+        pass
+    match = _STAMP_RE.match(str(name or ""))
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1) + match.group(2), "%Y%m%d%H%M%S").isoformat()
+    except ValueError:
+        return None
+
+
+def preview_purge(names: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """What erasing the bin (``names=None``) or these entries WOULD delete for
+    good. Reads only. Each item: ``entry`` (the name in the bin), ``name``
+    (the book's own name), ``path`` (where it would go back to), ``size``
+    (everything under the folder), ``deleted_at`` and ``reason``."""
+    root = Path(trash_dir())
+    manifest = _manifest_read(root) if root.is_dir() else {}
+    wanted = None if names is None else {str(n) for n in names}
+    items = []
+    for entry in list_bin():
+        if wanted is not None and entry["name"] not in wanted:
+            continue
+        child = Path(entry["path"])
+        items.append({
+            "entry": entry["name"],
+            "name": entry["original"],
+            "path": entry.get("original_path") or None,
+            "size": _folder_size(child),
+            "deleted_at": _entry_when(entry["name"], manifest),
+            "kind": "folder" if child.is_dir() else "file",
+            "action": "delete_permanently",
+            "reason": entry.get("reason") or "in the audiobook recycle bin",
+        })
+    return items
+
+
+def purge_planned(items) -> Dict[str, Any]:
+    """Erase exactly the planned entries still in the bin unchanged (same
+    size). One restored since the preview, or a different book now under the
+    same name, is skipped. ``{purged, skipped, errors, freed_bytes}``."""
+    root = Path(trash_dir())
+    out: Dict[str, Any] = {"purged": [], "skipped": [], "errors": [], "freed_bytes": 0}
+    for item in items:
+        name = str(item.get("entry") or "")
+        entry = root / name
+        if (not name or os.path.basename(name) != name or entry_age_seconds(name) is None
+                or not entry.exists() or _folder_size(entry) != int(item.get("size") or 0)):
+            out["skipped"].append(name)
+            continue
+        outcome = purge_entry(name)
+        if outcome["ok"]:
+            out["purged"].append(name)
+            out["freed_bytes"] += int(outcome.get("freed_bytes") or 0)
+        else:
+            out["errors"].append({"entry": name, "error": outcome.get("error") or "could not erase"})
+    if out["purged"]:
+        logger.info("Erased %d book(s) from the audiobook recycle bin", len(out["purged"]))
+    return out
+
+
 def restore_all() -> Dict[str, Any]:
     """Put everything back. Reports what could not go."""
     summary = {"restored": 0, "failed": 0}

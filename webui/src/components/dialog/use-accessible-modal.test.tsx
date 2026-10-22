@@ -33,4 +33,18 @@ describe('useAccessibleModal and popovers above it', () => {
     fireEvent.keyDown(getByText('in popover'), { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('escape in a dialog opened over it leaves the dialog under it open', () => {
+    const onClose = vi.fn();
+    const { getByText } = render(
+      <>
+        <Dialog onClose={onClose} />
+        <div role="dialog" aria-label="confirm">
+          <button type="button">in the confirm</button>
+        </div>
+      </>,
+    );
+    fireEvent.keyDown(getByText('in the confirm'), { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

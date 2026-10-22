@@ -560,3 +560,36 @@ def test_the_count_is_exact_past_the_pinned_lists_cap(build, db, rows):
     assert len(page["needs_you"]) == feed.NEEDS_YOU_LIMIT
     assert page["counts"]["needs_you"] == feed.NEEDS_YOU_LIMIT + 10
     assert _status(db)["needs_you_count"] == feed.NEEDS_YOU_LIMIT + 10
+
+
+# ── the last preview gaps: new tools, and deletes nobody previewed ────────────
+
+def test_the_new_plan_tools_have_their_own_words_and_pages(build, rows):
+    rows.plan_event(tool="video_recycle_purge", event="confirmed", ago=HOUR, total=3, size=0)
+    rows.plan_event(tool="audiobook_recycle_purge", event="confirmed", ago=2 * HOUR, total=2, size=0)
+    rows.plan_event(tool="video_repair_bulk_fix", event="confirmed", ago=3 * HOUR, total=4, size=0)
+    items = build()["items"]
+    assert [(i["title"], i["detail"], i["link"]) for i in items] == [
+        ("Empty video recycle bin: preview confirmed", "You confirmed the preview to delete 3 files for good.",
+         "/active-downloads?media=video"),
+        ("Empty audiobook recycle bin: preview confirmed", "You confirmed the preview to delete 2 books for good.",
+         "/audiobooks"),
+        ("Video repair fixes: preview confirmed", "You confirmed the preview to apply 4 fixes.", "/video-tools"),
+    ]
+
+
+def test_an_original_the_import_deleted_is_listed_with_what_was_kept(build, db):
+    from core.activity import safety_log
+    safety_log.record_unattended_delete(
+        db, tool="lossy_copy_import", path="/music/Artist/Album/01 Song.flac", size=31_457_280,
+        detail={"kept": "/music/Artist/Album/01 Song.mp3", "label": "MP3-320"}, now=NOW - HOUR)
+    [item] = build()["items"]
+    assert item["kind"] == "safety" and item["status"] == "info"
+    assert item["title"] == "Lossy copy: lossless original deleted"
+    assert item["detail"].startswith("Converted 01 Song.flac to MP3-320, checked the copy, then deleted")
+    assert "for good" in item["detail"]
+    assert item["ref"]["path"] == "/music/Artist/Album/01 Song.flac"
+    assert item["ref"]["kept"] == "/music/Artist/Album/01 Song.mp3"
+    # an unattended run has no profile: admins see it, members don't, and it never "needs you"
+    assert build(Viewer(profile_id=2))["items"] == []
+    assert build()["needs_you"] == []

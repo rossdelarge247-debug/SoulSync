@@ -933,6 +933,53 @@ describe('the finding list', () => {
 // ── Per-finding actions ──────────────────────────────────────────────────────
 
 describe('per-finding actions', () => {
+  it('a lone Convert previews first while a profile deletes the lossless original', async () => {
+    const lossy = finding({
+      id: 7,
+      job_id: 'lossy_converter',
+      finding_type: 'missing_lossy_copy',
+      title: 'No MP3-320 copy: Song',
+    });
+    routes({
+      [FINDINGS]: page([lossy]),
+      [TYPES]: {
+        types: [
+          typeInfo({
+            type: 'missing_lossy_copy',
+            label: 'Missing Lossy Copy',
+            verb: 'Convert',
+            destructive: true,
+            job_ids: ['lossy_converter'],
+          }),
+        ],
+      },
+      '/api/repair/findings/bulk-fix-preview': {
+        ...bulkPlan(1, 'missing_lossy_copy', 'Convert'),
+        by_effect: { recycle: 1 },
+        lossy: {
+          convert: 1,
+          delete_originals: 1,
+          originals_bytes: 31_457_280,
+          estimated_freed_bytes: 23_000_000,
+          labels: ['MP3-320'],
+          recycle: true,
+        },
+      },
+    });
+    await renderList();
+    await flush();
+
+    fireEvent.click(document.querySelector('.repair-finding-btn.fix') as HTMLElement);
+    await flush();
+
+    expect(bodyOf('/bulk-fix-preview')).toEqual({ ids: [7] });
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith('/7/fix'))).toBe(false);
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByText('Convert 1 lossless file and delete the originals?'),
+    ).toBeTruthy();
+  });
+
   it('prompts for the orphan action and sends the chosen one', async () => {
     routes({
       [FINDINGS]: page([finding({ id: 1 })]),

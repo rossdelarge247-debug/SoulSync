@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import threading
 import time
@@ -118,6 +119,16 @@ _TOOLS = {
     "repair_bulk_fix": ("Repair fixes", "apply {n} fixes"),
     "recycle_bin_purge": ("Empty recycle bin", "delete {n} files for good"),
     "quarantine_clear": ("Clear quarantine", "delete {n} quarantined files for good"),
+    "video_recycle_purge": ("Empty video recycle bin", "delete {n} files for good"),
+    "audiobook_recycle_purge": ("Empty audiobook recycle bin", "delete {n} books for good"),
+    "video_repair_bulk_fix": ("Video repair fixes", "apply {n} fixes"),
+}
+
+# Where an Activity safety row opens, when it isn't the music Tools page.
+_TOOL_LINKS = {
+    "video_recycle_purge": "/active-downloads?media=video",
+    "video_repair_bulk_fix": "/video-tools",
+    "audiobook_recycle_purge": "/audiobooks",
 }
 
 _SERVER_NAMES = {"plex": "Plex", "jellyfin": "Jellyfin", "navidrome": "Navidrome", "emby": "Emby",
@@ -823,7 +834,27 @@ def _live_automation_items(ctx: _Ctx, cursor, limit: int) -> List[Dict[str, Any]
 
 # ── preview outcomes ──────────────────────────────────────────────────────────
 
+def _unattended_delete_item(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A file an unattended run deleted under the user's own setting."""
+    try:
+        facts = json.loads(row.get("counts_json") or "{}")
+    except (TypeError, ValueError):
+        facts = {}
+    facts = facts if isinstance(facts, dict) else {}
+    name = os.path.basename(str(facts.get("path") or "")) or "a lossless file"
+    label = str(facts.get("label") or "a lossy copy")
+    size = size_words(row.get("total_bytes"))
+    detail = (f"Converted {name} to {label}, checked the copy, then deleted the lossless original"
+              f"{f' ({size})' if size else ''} for good, as the quality profile says.")
+    return _item("safety", row["id"], id=f"safety:{row['id']}", time=int(row["_t"] or 0), kind="safety",
+                 status="info", title="Lossy copy: lossless original deleted", detail=detail,
+                 link="/settings?tab=quality", ref={"tool": row.get("tool"), "path": facts.get("path"),
+                                        "kept": facts.get("kept")})
+
+
 def _safety_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
+    if row.get("event") == "auto_deleted":
+        return _unattended_delete_item(row)
     label, verb = _TOOLS.get(row.get("tool") or "", (str(row.get("tool") or "Tool").replace("_", " ").capitalize(),
                                                      "act on {n} files"))
     n = int(row.get("total") or 0)
@@ -842,11 +873,13 @@ def _safety_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
         status, title = "info", f"{label}: preview confirmed"
         detail = f"You confirmed the preview to {what}."
     return _item("safety", row["id"], id=f"safety:{row['id']}", time=int(row["_t"] or 0), kind="safety",
-                 status=status, title=title, detail=detail, link="/tools",
+                 status=status, title=title, detail=detail,
+                 link=_TOOL_LINKS.get(row.get("tool") or "", "/tools"),
                  ref={"tool": row.get("tool"), "plan_id": row.get("plan_id")})
 
 
-_SAFETY_COLS = "id, plan_id, tool, event, total, total_bytes, profile_id, occurred_at, resolved_at, resolution"
+_SAFETY_COLS = ("id, plan_id, tool, event, total, total_bytes, counts_json, profile_id, occurred_at, "
+                "resolved_at, resolution")
 
 
 def _safety_where(ctx: _Ctx) -> Tuple[str, list]:

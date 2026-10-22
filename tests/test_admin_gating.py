@@ -148,3 +148,48 @@ def test_artist_quality_is_a_member_read_not_admin_only(client, nonadmin):
     # the artist page itself. an artist the library doesn't hold is a 404 for
     # them, never a 403 or a 401
     assert client.get('/api/quality/artist/no-such-artist').status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# the last preview-then-confirm routes keep the gates their tools already had:
+# video repair is admin-only, the video recycle bin follows the video side
+# switch, the audiobook bin follows the Audiobooks page. Each 403 comes from a
+# gate that answers before the view runs, so nothing is previewed or deleted.
+# ---------------------------------------------------------------------------
+
+def _profile(client, **kw):
+    pid = web_server.get_database().create_profile(name=f'p_{os.urandom(3).hex()}', **kw)
+    with client.session_transaction() as sess:
+        sess['profile_id'] = pid
+    return pid
+
+
+@pytest.mark.parametrize('path', ['/api/video/repair/findings/bulk-fix-preview',
+                                  '/api/video/repair/findings/bulk-fix'])
+def test_video_repair_plan_routes_are_admin_only(client, path):
+    _profile(client, allowed_sides='both')
+    assert client.post(path, json={'plan_id': 'x'}).status_code == 403
+
+
+@pytest.mark.parametrize('path', ['/api/video/downloads/recycle/purge-preview',
+                                  '/api/video/downloads/recycle/purge'])
+def test_video_recycle_plan_routes_follow_the_video_side_switch(client, path):
+    _profile(client)                                   # a member gets the music side only
+    assert client.post(path, json={'all': True}).status_code == 403
+
+
+def test_video_recycle_preview_is_not_overgated_for_a_video_member(client):
+    _profile(client, allowed_sides='video')
+    assert client.post('/api/video/downloads/recycle/purge-preview', json={}).status_code == 400
+
+
+@pytest.mark.parametrize('path', ['/api/audiobooks/library/recycle/purge-preview',
+                                  '/api/audiobooks/library/recycle/purge'])
+def test_audiobook_recycle_plan_routes_follow_the_audiobooks_page(client, path):
+    _profile(client, allowed_pages=['dashboard'])
+    assert client.post(path, json={'all': True}).status_code == 403
+
+
+def test_audiobook_recycle_preview_is_not_overgated_for_its_page(client):
+    _profile(client, allowed_pages=['dashboard', 'audiobooks'])
+    assert client.post('/api/audiobooks/library/recycle/purge-preview', json={}).status_code == 400

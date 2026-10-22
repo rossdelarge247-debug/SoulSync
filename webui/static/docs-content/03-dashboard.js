@@ -224,7 +224,7 @@ The background repair worker runs automated jobs on configurable schedules, incl
 | Genre Enrichment | Adds conservatively translated genres from stored metadata and caches |
 | Library Re-tag | Rewrites tags + cover art from a fresh metadata-source pull, in place (no moves, renames, or re-matching) — dry-run findings show old → new for every track |
 | Live/Commentary Cleaner | Finds live performances, commentary, interviews, and spoken-word content in the library |
-| Lossy Converter | Finds lossless files with no lossy copy alongside and converts them with ffmpeg using your configured codec/bitrate |
+| Lossy Converter | Finds lossless files with no lossy copy alongside and converts them with ffmpeg using your configured codec/bitrate. When a profile keeps the lossy output only, a bulk Convert first lists the originals it would delete and the space that frees, and runs when you confirm |
 | Lyrics Filler | Finds tracks with no \`.lrc\` sidecar, checks LRClib so instrumentals are never flagged, then fetches synced lyrics — writes the \`.lrc\` and embeds them |
 | Quality Upgrade Finder | Finds library tracks below your quality profile and actively searches a better version to add to the wishlist |
 | Quality Check | Flags library tracks below your quality profile — you decide re-download, delete, or ignore per finding |

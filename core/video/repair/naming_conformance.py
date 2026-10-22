@@ -79,7 +79,8 @@ class NamingConformanceJob(VideoRepairJob):
                  "only to new imports. This job checks every owned movie and episode "
                  "file against the CURRENT templates and lists the ones that differ — "
                  "the findings are the rename preview. Approving renames the file and "
-                 "brings its sidecars/subtitles along; bulk select renames en masse. "
+                 "brings its sidecars/subtitles along; approving several at once "
+                 "shows the list of renames first and renames them when you confirm. "
                  "Nothing is ever overwritten, and your media server picks the new "
                  "names up on its next scan.")
     icon = "🏷️"

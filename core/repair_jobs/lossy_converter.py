@@ -91,6 +91,10 @@ class LossyConverterJob(RepairJob):
         'the relevant profile first.\n\n'
         'Each finding can be fixed individually or in bulk — the fix action converts '
         'the lossless file using ffmpeg at your configured bitrate.\n\n'
+        'When a profile keeps the lossy output only, Convert also deletes the lossless '
+        'original (to the recycle bin, or for good when recycling is off) once the copy '
+        'is checked, so a bulk Convert shows the list of originals and the space it frees '
+        'first, and runs only when you confirm it.\n\n'
         'Requires ffmpeg to be installed.'
     )
     icon = 'repair-icon-lossy'

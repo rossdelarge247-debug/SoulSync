@@ -158,6 +158,14 @@
   color: rgba(255, 255, 255, 0.86);
 }
 
+/* the plain points under a lead (what turning an option on does) */
+.points {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+
 .code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 14px;

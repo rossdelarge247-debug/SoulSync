@@ -1107,23 +1107,68 @@ def create_audiobooks_blueprint() -> Blueprint:
                         "restored_to": outcome.get("restored_to", ""),
                         "error": outcome.get("error", "")}), status
 
+    # Erasing from the bin is permanent, so it only happens against a fresh
+    # preview plan: purge-preview lists exactly what would go (count, size,
+    # oldest and newest, a sample) and purge erases those entries, given the
+    # plan's id. The DELETE forms take the same plan id; without one nothing
+    # is erased (409 plan_required / plan_unknown / plan_expired /
+    # plan_wrong_tool).
+
+    @bp.route("/library/recycle/purge-preview", methods=["POST"])
+    def library_recycle_purge_preview():
+        """What erasing would delete for good: ``{all: true}`` or ``{names: [...]}``."""
+        from core.audiobook_recycle import AUDIOBOOK_RECYCLE_PURGE_TOOL, preview_purge, recycling_enabled
+        from core.library.action_plans import plan_store
+        from core.library.cleanup import removal_stats
+
+        body = request.get_json(silent=True) or {}
+        names = body.get("names")
+        purge_all = bool(body.get("all"))
+        if not purge_all and (not isinstance(names, list) or not names):
+            return jsonify({"success": False, "error": "names or all required"}), 400
+        try:
+            items = preview_purge(None if purge_all else [str(n) for n in names])
+            stats = removal_stats(items, "deleted_at")
+            if not items:
+                return jsonify({"success": True, "plan_id": None, "total": 0, "sample": [],
+                                "truncated": False, "recycle_enabled": recycling_enabled(), **stats})
+            plan = plan_store.create(AUDIOBOOK_RECYCLE_PURGE_TOOL, items,
+                                     meta={"scope": "all" if purge_all else "selected"})
+            return jsonify({"success": True, **plan.summary(),
+                            "recycle_enabled": recycling_enabled(), **stats})
+        except Exception as exc:                            # noqa: BLE001
+            logger.error("Audiobook recycle purge preview failed: %s", exc)
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    def _purge_with_plan():
+        from core.audiobook_recycle import AUDIOBOOK_RECYCLE_PURGE_TOOL, purge_planned
+        from core.library.action_plans import PlanError, plan_store
+
+        body = request.get_json(silent=True) or {}
+        try:
+            plan = plan_store.consume(body.get("plan_id"), AUDIOBOOK_RECYCLE_PURGE_TOOL)
+        except PlanError as exc:
+            return jsonify({"success": False, "code": exc.code, "error": exc.message}), 409
+        try:
+            return jsonify({"success": True, **purge_planned(plan.items)})
+        except Exception as exc:                            # noqa: BLE001
+            logger.error("Audiobook recycle purge failed: %s", exc)
+            return jsonify({"success": False, "error": str(exc)}), 500
+
+    @bp.route("/library/recycle/purge", methods=["POST"])
+    def library_recycle_purge():
+        """Erase exactly what a fresh purge-preview plan listed (``{plan_id}``)."""
+        return _purge_with_plan()
+
     @bp.route("/library/recycle/<path:name>", methods=["DELETE"])
     def library_purge_one(name: str):
-        """Erase one recycled book now, without waiting for the keep window."""
-        from core.audiobook_recycle import purge_entry
-
-        outcome = purge_entry(name)
-        status = 200 if outcome.get("ok") else 400
-        return jsonify({"success": bool(outcome.get("ok")),
-                        "error": outcome.get("error", "")}), status
+        """Erase one recycled book now: only with the plan id of its preview."""
+        return _purge_with_plan()
 
     @bp.route("/library/recycle", methods=["DELETE"])
     def library_empty_bin():
-        """Erase everything in the bin now."""
-        from core.audiobook_recycle import empty_bin
-
-        summary = empty_bin()
-        return jsonify({"success": True, **summary})
+        """Erase everything in the bin now: only with the plan id of its preview."""
+        return _purge_with_plan()
 
     # ------------------------------------------------------------------
     # Blocklist

@@ -294,6 +294,8 @@ def test_s1_lossy_converter_db_failure_keeps_source_and_reports_failure(
         lambda *a, **k: SimpleNamespace(
             tags=SimpleNamespace(add=lambda *a, **k: None), save=lambda: None),
     )
+    # the copy passes its check, so the delete would go ahead but for the DB
+    monkeypatch.setattr("core.imports.file_ops.lossy_copy_verified", lambda _s, _o: True)
     real_get = _raising_on_update_db(db)
 
     res = _worker(db, tmp_path)._fix_missing_lossy_copy("track", 1, str(src), {})

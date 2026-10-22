@@ -460,9 +460,12 @@ def test_the_bin_says_the_space_is_not_freed_yet():
 
 
 def test_erasing_for_good_asks_first():
+    """Erasing is permanent, so it previews first in the shared dialog, whose
+    copy says it can't be undone (features/safe-action/permanent-delete.ts)."""
     modal = _read("webui/src/routes/audiobooks/-ui/audiobook-review-modal.tsx")
-    assert "cannot be undone" in modal
-    assert "window.showConfirmDialog" in modal
+    assert "usePermanentDelete" in modal and "kind: 'audiobook-recycle-bin'" in modal
+    copy = _read("webui/src/features/safe-action/permanent-delete.ts")
+    assert "This can't be undone." in copy and "audiobook recycle bin" in copy
 
 
 def test_a_loose_book_file_can_be_recycled_and_restored(library):
