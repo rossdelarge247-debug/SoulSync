@@ -119,6 +119,7 @@ The "Act without a preview" option (`confirm`) is a checkbox in the editor with 
 - Activity links each automation item to `/automations?automation=<id>`, so "Open this automation" opens that automation (the Activity entry's open point). Preview runs show there as "Automation "X": preview".
 - The recycle-bin purge preview takes `{retention: true}` for Library clean-up's second half (`CONTRACTS.md`). The permanent-delete flow can offer a next step when it finishes.
 - The scan-watchlist card sentence says "added 1 track to Wanted", not "wishlisted".
+- The new pages style themselves (a CSS module), so the old page's stylesheet, `webui/static/automations-overhaul.css`, is gone, with its link and its test, and so are the old React card's rules in `automations-redesign.css`. The full builder and the video automations page keep the rest of that file. `mobile.css` still has a few rules for the old cards; they match nothing now.
 
 **Questions for Design**
 
