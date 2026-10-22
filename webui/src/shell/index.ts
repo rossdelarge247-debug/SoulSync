@@ -56,7 +56,6 @@ import {
   saveMyAccountToken,
 } from './my-accounts';
 import { bootNavShell } from './nav-shell';
-import './server-activity';
 import {
   closeDownloadOriginsModal,
   deleteSelectedOriginEntries,
@@ -67,8 +66,12 @@ import {
   toggleOriginEntry,
   toggleOriginGroup,
 } from './origin-history';
+import './server-activity';
 import { bootPlayer } from './player';
+import { bootRadioChrome } from './player-radio';
 import { initPlexSignIn } from './plex-signin';
+import { bootRadioSession } from './radio-session';
+import { initRadioSettings, loadRadioSettings, openRadioSettings } from './radio-settings';
 import {
   closeServiceSwitchModal,
   openServiceSwitchModal,
@@ -170,6 +173,8 @@ export const SHELL_WINDOW_EXPORTS = {
   // tab opens; the assistant panel's "Open Settings → AI" uses the other
   loadAiSettings,
   openAiSettings,
+  loadRadioSettings,
+  openRadioSettings,
 } as const;
 
 Object.assign(window, SHELL_WINDOW_EXPORTS);
@@ -182,11 +187,16 @@ bootNavShell();
 startDiscoverInboxBadge();
 initSidebarWeather();
 const onReady = () => {
-  // the player's bar and tray (board 6a) over media-player.js, which loaded first
+  // the player's bar and tray (board 6a) over media-player.js, which loaded
+  // first; the radio session (window.SoulSyncRadio) and the player's radio
+  // mode ride on it (build e)
+  bootRadioSession();
   bootPlayer();
+  bootRadioChrome();
   initWeatherPreviewSettings();
   initAppearanceSettings();
   initAiSettings();
+  initRadioSettings();
   void initPlexSignIn();
 };
 if (document.readyState === 'loading') {

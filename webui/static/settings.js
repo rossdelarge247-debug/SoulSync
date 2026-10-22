@@ -1260,6 +1260,9 @@ function switchSettingsTab(tab) {
     }
     // AI (admins): its own routes, read fresh each time the tab opens
     // (src/shell/ai-settings.ts)
+    if (tab === 'radio' && typeof window.loadRadioSettings === 'function') {
+        try { window.loadRadioSettings(); } catch (e) { }
+    }
     if (tab === 'ai' && typeof window.loadAiSettings === 'function') {
         try { window.loadAiSettings(); } catch (e) { }
     }
