@@ -24,8 +24,10 @@ beforeEach(() => {
 });
 it('uses one category bar instead of a second sidebar', () => {
   expect(document.querySelectorAll('.stg-category-nav .stg-tabbar')).toHaveLength(1);
-  // ten: Settings → AI (admins only) sits after Quality
-  expect(document.querySelectorAll('.stg-category-nav .stg-tab')).toHaveLength(10);
+  // eleven: Settings → AI (admins only) sits after Quality; Settings → Radio
+  // is in the bar but stays hidden until the radio module is on
+  expect(document.querySelectorAll('.stg-category-nav .stg-tab')).toHaveLength(11);
+  expect((document.getElementById('stg-tab-radio') as HTMLElement).hidden).toBe(true);
   const tabs = [...document.querySelectorAll<HTMLElement>('.stg-category-nav .stg-tab')];
   expect(tabs.map((t) => t.dataset.tab).indexOf('ai')).toBe(
     tabs.map((t) => t.dataset.tab).indexOf('quality') + 1,

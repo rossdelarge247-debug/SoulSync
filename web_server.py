@@ -23975,6 +23975,9 @@ _radio_api.configure(
 app.register_blueprint(_radio_api.create_blueprint())
 
 
+# Only starts a thread when a station is already watched without anyone
+# listening (auto-add on, or a radio automation's favourites); otherwise the
+# watcher waits until a station is played, favourited or set to auto-add.
 @_deferred_start("Internet radio watcher", module="radio")
 def _start_radio_watcher():
     _radio_api.start_watcher()

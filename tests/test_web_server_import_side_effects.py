@@ -50,6 +50,9 @@ EXPECTED_DEFERRED_STARTS = [
     "SoulID worker",
     "Listening stats worker",
     "Repair worker",
+    # registered with module="radio"; starts a thread only when a station is
+    # already watched (auto-add on, or a radio automation's favourites)
+    "Internet radio watcher",
     "auto-import worker",
     "audiobook download monitor",
     "video download monitor",

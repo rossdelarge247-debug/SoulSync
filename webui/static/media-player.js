@@ -634,8 +634,8 @@ async function startAudioPlayback(isCurrent = () => true, signal, handoff = null
         audioPlayer.src = '';
 
         // Only a direct radio stream asks for CORS (npPlayRadio); everything
-        // else loads as it always has
-        if (!opts.cors) audioPlayer.removeAttribute('crossorigin');
+        // else loads as it always has, so undo it only if radio left it set
+        if (!opts.cors && audioPlayer.crossOrigin) audioPlayer.crossOrigin = null;
         // Set new source
         audioPlayer.src = audioUrl;
         audioPlayer.load(); // Force reload
@@ -3566,7 +3566,7 @@ async function npPlayRadio(item) {
     showLoadingAnimation();
     audioPlayer.loop = false;
     if (item.crossOrigin) audioPlayer.crossOrigin = 'anonymous';
-    else audioPlayer.removeAttribute('crossorigin');
+    else if (audioPlayer.crossOrigin) audioPlayer.crossOrigin = null;
     const playback = await startAudioPlayback(isCurrent, signal, null, item.src,
         { quiet: !!item.quiet, cors: !!item.crossOrigin });
     if (playback?.status !== 'played') {

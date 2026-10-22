@@ -372,3 +372,15 @@ def test_turning_the_module_off_ends_every_session(app):
     sess = hub.start_session(1, st, st.streams[0], "relay")
     radio_api.stop_watcher()
     assert sess.stop.is_set() and hub.relay_count() == 0
+
+
+def test_playing_favouriting_and_auto_add_wake_the_watcher(client, fake_watcher):
+    before = fake_watcher.ensured
+    client.post("/api/radio/play", json={"station_id": "somafm-dronezone"})
+    assert fake_watcher.ensured == before + 1
+    client.post("/api/radio/favourites/kexp")
+    assert fake_watcher.ensured == before + 2
+    client.put("/api/radio/stations/kexp/auto-add", json={"enabled": True})
+    assert fake_watcher.ensured == before + 3
+    client.put("/api/radio/stations/kexp/auto-add", json={"enabled": False})
+    assert fake_watcher.ensured == before + 3

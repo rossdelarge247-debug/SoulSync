@@ -88,8 +88,36 @@ def events():
     return []
 
 
+class FakeWatcher:
+    """Stands in for the watcher thread in route tests; counts the wake-ups."""
+
+    def __init__(self):
+        self.ensured = 0
+        self.enabled = True
+
+    def ensure(self):
+        self.ensured += 1
+        return False
+
+    def enable(self):
+        self.enabled = True
+
+    def start(self):
+        self.enabled = True
+
+    def stop(self):
+        self.enabled = False
+
+
 @pytest.fixture
-def app(db, config, library, who, events, monkeypatch):
+def fake_watcher(monkeypatch):
+    w = FakeWatcher()
+    monkeypatch.setattr(radio_api, "watcher", w)
+    return w
+
+
+@pytest.fixture
+def app(db, config, library, who, events, monkeypatch, fake_watcher):
     monkeypatch.setattr(radio_api, "get_current_profile_id", lambda: who["pid"])
     monkeypatch.setattr(radio_api, "is_admin_request", lambda: who["admin"])
     monkeypatch.setattr("core.profile_context.is_admin_request", lambda: who["admin"])
