@@ -14,7 +14,8 @@ Built on `ux/search-flows` from "Search results" (2m, 2n), "Flows (mirror, quali
 
 **What's built**
 
-- **Search** at `/search?q=pale+harbour&type=albums`. The query and the type (Everything, Artists, Albums, Tracks) are in the URL, so back, forward and links work. Typing searches once it settles (0.6 s, two characters or more); the first search of a visit is its own history entry and refinements replace it. The field is 48px with a clear button; the types are OptionButtons beside it, under it on a phone.
+- **Search** at `/search?q=pale+harbour&type=albums&files=1`. The query, the type (Everything, Artists, Albums, Tracks) and whether the query was submitted (`files=1`) are in the URL, so back, forward, reload and links work. Typing searches your library and the metadata service once it settles (0.6 s, two characters or more); the first search of a visit is its own history entry and refinements replace it. The field is 48px with a clear button; the types are OptionButtons beside it, under it on a phone.
+- **Soulseek is searched only for a submitted query:** Enter, the "Search Soulseek" button, a hand-off (the top bar, chat, the library, the global widget), a recent search or Browse tile, arriving with `?q=` from a link, or back/forward to a submitted search; a type change keeps it. Each Soulseek search holds one of the server's 8 request threads until slskd finishes, and partial words ("pale", "pale har") are bad manners on the network and can get you rate-limited, so searching per pause in typing isn't safe. Until then the section says "Press Enter to search Soulseek for “pale har”" with a secondary "Search Soulseek" button. The stream also sends a keep-alive line every 2 seconds, so a search whose tab has gone frees its thread straight away.
 - **Three sections, in this order:**
     - **In your library:** artists, albums and tracks from the library's own searches, each with a status tag (Following, In your library, Below quality target), Play and Open. An album's quality comes from its files against your target. The header counts what was found; "All library results" opens the Library on the same search.
     - **Soulseek** (or whichever download source is set up): streamed over the new `POST /api/search/stream`, with "Still searching · 48 files from 12 users so far", Stop, and "Search again" after a stop. Filters: At your target (the default, from the target's own rules), Any quality, Whole albums, Not in my library, plus Format, Sort and reverse order. Rows are grouped by folder with the best copy first; other copies open under the row. Each row's consequence is in colour: "has the 1 track you're missing", "upgrades your MP3 320 copy", "on your Wanted list", "you have all 12 tracks", "not in your library". Only the first row that completes something you already want gets the primary button ("Download missing" beside "Download all"); everything else is secondary. Every download opens today's chooser (as shared, enriched or tagged by hand), so the download modes are unchanged.
@@ -49,7 +50,8 @@ Built on `ux/search-flows` from "Search results" (2m, 2n), "Flows (mirror, quali
     - The panel says the automation "adds better copies to Wanted", which is what it does, rather than "replaces the file, keeping tags and play counts".
     - The footer says "saved 14 March 2026": that's when the profile was last saved; SoulSync doesn't record when the target alone changed.
 - **The Sync page's own add-playlist sheet is unchanged.** It routes to 12 sources (files, links, services), so swapping in this dialog wouldn't be clean.
-- **Searches no longer toast "Search Complete".** The page searches as you type and shows its own status; the activity record stays, without a toast or a "Search Started" line.
+- **Searches no longer toast "Search Complete".** The page shows its own status; the activity record stays, without a toast or a "Search Started" line.
+- **The old page also searched files only on submit,** and that's kept: the library and the metadata service follow your typing, Soulseek waits for Enter (above).
 
 **Data left out** (nothing in SoulSync to read it from)
 
@@ -104,7 +106,7 @@ Built on `ux/search-flows` from "Search results" (2m, 2n), "Flows (mirror, quali
 3. **Top result:** today's page had one; is the library's artist row enough?
 4. **Below-target library albums:** what should their action be, if not Open?
 
-Screenshots (1440×900 and 390×844: Search populated, streaming, empty, failure and idle; each dialog's default, selected and failure), with the board renders beside them, are in the session scratchpad. They aren't in the repo.
+Screenshots (1440×900 and 390×844: Search populated, streaming, typed but not submitted, empty, failure and idle; each dialog's default, selected and failure), with the board renders beside them, are in the session scratchpad. They aren't in the repo.
 
 ### 2026-10-21: Dev, Wanted page
 

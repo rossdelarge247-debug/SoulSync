@@ -180,14 +180,18 @@ The Search page's file search. The same search as `POST /api/search` (same `{"qu
 
 ```
 {"type": "progress", "files": 48, "users": 12, "results": [ … ]}
+{"type": "waiting"}
 {"type": "progress", "files": 55, "users": 12, "results": [ … ]}
 {"type": "done", "files": 55, "users": 12, "results": [ … ]}
 ```
 
+- `waiting` comes every 2 seconds while nothing new has arrived. It carries nothing to show; it's there so a closed tab is noticed on the next write and the search's request thread is freed instead of waiting out slskd. Clients skip any line type they don't know.
+
 - `results` is the whole list so far each time (the same album and track shapes as `/api/search`), not just what's new. Progress lines come at most once a second, as Soulseek reports; other sources answer once, with `done`.
 - `files` counts every file, tracks inside folders included. `users` is how many Soulseek users answered, or `null` when the source doesn't say.
 - A failed search ends with `{"type": "error", "error": "<a sentence>"}`. An empty query is `400 {"error": "No search query provided."}`.
-- Closing the connection doesn't cancel the search on slskd; it finishes on its own timeout, as `/api/search` does.
+- Closing the connection ends the stream within about 2 seconds, but doesn't cancel the search on slskd; that finishes on its own timeout, as `/api/search` does.
+- The Search page calls it only for a submitted query (`files=1` in its URL), never while you type.
 
 ### Library check: `POST /api/enhanced-search/library-check`
 
