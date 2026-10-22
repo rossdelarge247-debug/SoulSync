@@ -1562,6 +1562,8 @@ class MusicDatabase:
             self._add_automation_then_actions_column(cursor)
             self._add_automation_group_name_column(cursor)
             self._add_automation_owned_by_column(cursor)
+            self._add_automation_paused_at_column(cursor)
+            self._add_ai_assistant_tables(cursor)
 
             # Library issues — user-reported problems with tracks/albums/artists
             cursor.execute("""
@@ -3451,6 +3453,51 @@ class MusicDatabase:
                       AND owned_by IS NULL
                 """)
                 logger.info(f"Backfilled {cursor.rowcount} existing Auto-Sync automations with owned_by='auto_sync'")
+
+    def _add_automation_paused_at_column(self, cursor):
+        """Add paused_at: when an automation was turned off, NULL while it's on.
+
+        ``updated_at`` moves on every edit, so it can't say how long something
+        has been paused (the Assistant's suggestions and the list want "paused
+        for 3 weeks"). Rows already off when this lands get their
+        ``updated_at``: the toggle stamps it, and a later edit only moves it
+        forward, so the backfill never claims a longer pause than happened."""
+        with self._migration_step(cursor, 'add_automation_paused_at_column'):
+            cursor.execute("PRAGMA table_info(automations)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'paused_at' not in cols:
+                cursor.execute("ALTER TABLE automations ADD COLUMN paused_at TIMESTAMP DEFAULT NULL")
+                cursor.execute(
+                    "UPDATE automations SET paused_at = COALESCE(updated_at, CURRENT_TIMESTAMP) "
+                    "WHERE enabled = 0 OR enabled IS NULL")
+                logger.info("Added paused_at column to automations table")
+
+    def _add_ai_assistant_tables(self, cursor):
+        """The Automation Assistant's two tables (core/ai/store.py): usage per
+        month for Settings → AI and its monthly cap, and each profile's "Not
+        now" on the Automations list's suggestion card."""
+        with self._migration_step(cursor, 'ai_assistant_tables', atomic=False):
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ai_usage (
+                    month TEXT PRIMARY KEY,
+                    requests INTEGER NOT NULL DEFAULT 0,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_usd REAL NOT NULL DEFAULT 0,
+                    drafts_saved INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ai_suggestion_dismissals (
+                    profile_id INTEGER NOT NULL,
+                    suggestion_key TEXT NOT NULL,
+                    dismissed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (profile_id, suggestion_key)
+                )
+            """)
 
     def _add_automation_then_actions_column(self, cursor):
         """Add then_actions column to automations table and migrate existing notify data."""
@@ -27393,9 +27440,9 @@ class MusicDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT INTO automations (name, trigger_type, trigger_config, action_type, action_config, profile_id, notify_type, notify_config, then_actions, group_name, owned_by, is_system, enabled)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (name, trigger_type, trigger_config, action_type, action_config, profile_id, notify_type, notify_config, then_actions, group_name, owned_by, 1 if is_system else 0, 1 if enabled else 0))
+                    INSERT INTO automations (name, trigger_type, trigger_config, action_type, action_config, profile_id, notify_type, notify_config, then_actions, group_name, owned_by, is_system, enabled, paused_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN NULL ELSE CURRENT_TIMESTAMP END)
+                """, (name, trigger_type, trigger_config, action_type, action_config, profile_id, notify_type, notify_config, then_actions, group_name, owned_by, 1 if is_system else 0, 1 if enabled else 0, 1 if enabled else 0))
                 conn.commit()
                 return cursor.lastrowid
         except Exception as e:
@@ -27471,7 +27518,15 @@ class MusicDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 set_clause = ', '.join(f"{k} = ?" for k in updates)
-                values = list(updates.values()) + [automation_id]
+                values = list(updates.values())
+                if 'enabled' in updates:
+                    # paused_at: stamped when it goes off, kept while it stays
+                    # off, cleared when it comes back on
+                    set_clause += (", paused_at = CASE WHEN ? THEN NULL "
+                                   "WHEN enabled = 1 OR paused_at IS NULL THEN CURRENT_TIMESTAMP "
+                                   "ELSE paused_at END")
+                    values.append(1 if updates['enabled'] else 0)
+                values.append(automation_id)
                 cursor.execute(
                     f"UPDATE automations SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     values
@@ -27527,9 +27582,12 @@ class MusicDatabase:
                 cursor = conn.cursor()
                 placeholders = ','.join('?' for _ in automation_ids)
                 cursor.execute(
-                    f"UPDATE automations SET enabled = ?, updated_at = CURRENT_TIMESTAMP "
+                    f"UPDATE automations SET "
+                    f"paused_at = CASE WHEN ? THEN NULL "
+                    f"WHEN enabled = 1 OR paused_at IS NULL THEN CURRENT_TIMESTAMP ELSE paused_at END, "
+                    f"enabled = ?, updated_at = CURRENT_TIMESTAMP "
                     f"WHERE id IN ({placeholders}) AND (is_system IS NULL OR is_system = 0)",
-                    [1 if enabled else 0] + list(automation_ids)
+                    [1 if enabled else 0, 1 if enabled else 0] + list(automation_ids)
                 )
                 conn.commit()
                 return cursor.rowcount
@@ -27543,7 +27601,10 @@ class MusicDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "UPDATE automations SET enabled = CASE WHEN enabled = 1 THEN 0 ELSE 1 END, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    "UPDATE automations SET "
+                    "paused_at = CASE WHEN enabled = 1 THEN CURRENT_TIMESTAMP ELSE NULL END, "
+                    "enabled = CASE WHEN enabled = 1 THEN 0 ELSE 1 END, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (automation_id,)
                 )
                 conn.commit()
@@ -27576,7 +27637,9 @@ class MusicDatabase:
     def insert_automation_run_history(self, automation_id, started_at, finished_at,
                                        duration_seconds, status, summary=None,
                                        result_json=None, log_lines=None):
-        """Insert a run history entry and enforce 100-row retention cap per automation."""
+        """Insert a run history entry and enforce 100-row retention cap per automation.
+
+        Returns the new row's id (truthy), or False when it couldn't be written."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -27586,6 +27649,7 @@ class MusicDatabase:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (automation_id, started_at, finished_at, duration_seconds,
                       status, summary, result_json, log_lines))
+                new_id = cursor.lastrowid
                 # Retention: keep only the newest 100 rows per automation
                 cursor.execute("""
                     DELETE FROM automation_run_history
@@ -27596,7 +27660,7 @@ class MusicDatabase:
                     )
                 """, (automation_id, automation_id))
                 conn.commit()
-                return True
+                return new_id or True
         except Exception as e:
             logger.error(f"Error inserting automation run history for {automation_id}: {e}")
             return False

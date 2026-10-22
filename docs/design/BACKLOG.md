@@ -6,7 +6,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 
 | Feature | Status | Entry |
 | --- | --- | --- |
-| Automation assistant (AI) and a block editor | Approved | [below](#automation-assistant-ai-and-a-block-editor) |
+| Automation assistant (AI) and a block editor | Built | [below](#automation-assistant-ai-and-a-block-editor) |
 | Internet radio with track identification | Approved | [below](#internet-radio-with-track-identification) |
 | Merge duplicate artist | Exploring | [below](#merge-duplicate-artist) |
 
@@ -14,7 +14,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 
 ## Automation assistant (AI) and a block editor
 
-**Status:** Approved · raised by Ross, 2026-10-22 · drawn by Design and approved by Ross the same day: `Automation assistant (block editor).dc.html` (3a–3l) and Settings → AI in `Settings AI and Radio.dc.html` (5a). Design's answers are in `HANDOFF.md` (2026-10-22); the build is (d) there.
+**Status:** Built · raised by Ross, 2026-10-22 · drawn by Design and approved by Ross the same day: `Automation assistant (block editor).dc.html` (3a–3l) and Settings → AI in `Settings AI and Radio.dc.html` (5a). Design's answers are in `HANDOFF.md` (2026-10-22); the build is (d) there. Built on `ux/assistant`: `HANDOFF.md`, "Dev, the Assistant, the block editor and Settings → AI"; the routes are in `CONTRACTS.md`, "The Assistant".
 
 ### The problem
 

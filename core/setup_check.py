@@ -1488,4 +1488,36 @@ __all__ = [
     "check_slskd_download_folder", "check_media_server", "check_library_choice", "folder_specs",
     "run_setup_check", "debug_summary", "summarize", "worst_status", "make_result",
     "parse_mountinfo", "mount_for", "is_anonymous_volume", "soulseek_in_use", "slskd_logged_in",
+    "remember_report", "last_report",
 ]
+
+
+# ── the last full run, for the Automation Assistant ─────────────────────────
+# The Assistant tells an admin what Setup check last said without running it
+# again (a full run probes slskd and the media server). Only what's needed is
+# kept: the summary and the checks that weren't OK.
+_last_report: Optional[Dict[str, Any]] = None
+
+
+def remember_report(report: Mapping[str, Any]) -> None:
+    global _last_report
+    try:
+        _last_report = {
+            "ran_at": float(report.get("ran_at") or time.time()),
+            "scope": report.get("scope"),
+            "summary": dict(report.get("summary") or {}),
+            "problems": [
+                {"title": c.get("title"), "status": c.get("status"), "detail": c.get("detail")}
+                for c in report.get("checks") or [] if c.get("status") in ("warning", "error")
+            ][:12],
+        }
+    except Exception as exc:  # noqa: BLE001 - a cache that can't be kept is just empty
+        logger.debug("setup check report not kept: %s", exc)
+
+
+def last_report(max_age_seconds: float = 24 * 3600) -> Optional[Dict[str, Any]]:
+    """The last full run's summary and problems, when it's recent enough."""
+    report = _last_report
+    if not report or time.time() - report["ran_at"] > max_age_seconds:
+        return None
+    return dict(report)

@@ -945,6 +945,8 @@ declare global {
     openModulesSettings?: () => void;
     /** settings.js: the tab Settings opens on next (once). */
     requestSettingsTab?: (tab: string) => void;
+    /** Settings -> AI, from anywhere (src/shell/ai-settings.ts). */
+    openAiSettings?: () => void;
     /** init.js: a legacy page's loader (what navigation runs on arrival). */
     loadPageData?: (pageId: string) => void | Promise<void>;
   }

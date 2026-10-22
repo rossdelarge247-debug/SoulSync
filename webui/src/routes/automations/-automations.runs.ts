@@ -98,9 +98,20 @@ function num(value: unknown): number {
 }
 
 /**
+ * What a Wanted search found: the tracks its batches turned up, which the
+ * server writes onto the run once the batches finish (result.found). Null
+ * for runs from before that, or whose batches haven't finished.
+ */
+export function foundOf(run: RunEntry): number | null {
+  const found = resultOf(run).found;
+  if (!found || typeof found !== 'object') return null;
+  return num((found as Record<string, unknown>).tracks);
+}
+
+/**
  * The one outcome a run's own record counts, per action, from keys the
- * handlers really return. Wanted searches report only that they started
- * (the downloads land later, through the download batch), so they have none.
+ * handlers really return. A Wanted search counts what it found, once its
+ * runs carry that (runs from before it don't).
  */
 const OUTCOMES: Record<string, { key: string; label: string }> = {
   apply_quality_upgrades: { key: 'applied', label: 'Upgrades queued' },
@@ -131,15 +142,18 @@ export function runNumbers(runs: RunEntry[], actionType: string | null | undefin
   const done = real.filter((r) => r.status === 'completed');
   const failed = real.filter((r) => r.status === 'error' || r.status === 'timeout').length;
   const outcome = OUTCOMES[actionType ?? ''];
-  const first: RunNumber = outcome
-    ? {
-        label: outcome.label,
-        value: done
-          .filter((r) => resultOf(r).mode !== 'plan')
-          .reduce((sum, r) => sum + num(resultOf(r)[outcome.key]), 0)
-          .toLocaleString(),
-      }
-    : { label: 'Done', value: done.length.toLocaleString() };
+  const founds = done.map(foundOf).filter((n): n is number => n != null);
+  const first: RunNumber = founds.length
+    ? { label: 'Found', value: founds.reduce((a, b) => a + b, 0).toLocaleString() }
+    : outcome
+      ? {
+          label: outcome.label,
+          value: done
+            .filter((r) => resultOf(r).mode !== 'plan')
+            .reduce((sum, r) => sum + num(resultOf(r)[outcome.key]), 0)
+            .toLocaleString(),
+        }
+      : { label: 'Done', value: done.length.toLocaleString() };
   const durations = done
     .map((r) => r.duration_seconds)
     .filter((d): d is number => typeof d === 'number' && Number.isFinite(d))
@@ -171,9 +185,9 @@ export interface RunRow {
 }
 
 /**
- * The Wanted search records only that it started its batches ("Started: 2
- * album batch(es), 4 per-track for cycle albums"); its results arrive later
- * and aren't kept on the run. Say that in words.
+ * The Wanted search records that it started its batches ("Started: 2 album
+ * batch(es), 4 per-track for cycle albums"); what they found is added to the
+ * run when they finish (see foundOf). Say that in words.
  */
 function wantedSummary(text: string): string | null {
   const m = /^Started: (.+) for cycle (\w+)$/.exec(text);
@@ -207,7 +221,10 @@ function clean(text: string | null | undefined): string {
 export function runRow(run: RunEntry, now: number = Date.now()): RunRow {
   const status = run.status ?? 'completed';
   const took = durationWords(run.duration_seconds);
-  const said = clean(run.summary);
+  const found = foundOf(run);
+  const said = [clean(run.summary), found != null ? `${found.toLocaleString()} found` : '']
+    .filter(Boolean)
+    .join(' · ');
   let tag = 'Done';
   let tone: RunTone = 'success';
   let summary: string;

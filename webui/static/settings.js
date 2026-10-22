@@ -1258,6 +1258,11 @@ function switchSettingsTab(tab) {
     if (tab === 'modules' && typeof window.loadModulesSettings === 'function') {
         try { window.loadModulesSettings(); } catch (e) { }
     }
+    // AI (admins): its own routes, read fresh each time the tab opens
+    // (src/shell/ai-settings.ts)
+    if (tab === 'ai' && typeof window.loadAiSettings === 'function') {
+        try { window.loadAiSettings(); } catch (e) { }
+    }
     // First time the Downloads tab is shown, auto-probe source status so the
     // dots reflect real connection state without a manual "Test all sources".
     if (tab === 'downloads' && typeof autoTestSourcesOnce === 'function') {
@@ -1293,6 +1298,7 @@ function switchSettingsTab(tab) {
         quality: { title: 'Quality', sub: 'Audio and video formats, release profiles, and ladders' },
         library: { title: 'Library', sub: 'Folders, file organization, tagging, and collection preferences' },
         appearance: { title: 'Appearance', sub: 'Visual themes, accents, GPU animations, and interface controls' },
+        ai: { title: 'AI', sub: 'The Automation Assistant: provider, key, model, who can use it and usage' },
         modules: { title: 'Modules', sub: 'Turn the optional parts of SoulSync on or off' },
         advanced: { title: 'Advanced', sub: 'Database tools, cache management, networking, and system diagnostics' },
         logs: { title: 'Logs', sub: 'Live streaming logs and real-time operational diagnostics' }

@@ -170,6 +170,8 @@ class ConfigManager:
         # Other
         'hydrabase.api_key',
         'discogs.token',
+        # The Automation Assistant's provider key (Settings → AI)
+        'ai.anthropic_api_key',
     })
 
     def _get_fernet(self) -> Fernet:

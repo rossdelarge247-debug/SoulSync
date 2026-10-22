@@ -164,7 +164,7 @@ def record_history(
         result_json = json.dumps({k: v for k, v in result.items() if not k.startswith('_')}) if result else None
         log_json = json.dumps(log_entries) if log_entries else None
 
-        database.insert_automation_run_history(
+        history_id = database.insert_automation_run_history(
             automation_id=automation_id,
             started_at=started_at,
             finished_at=finished_at,
@@ -174,6 +174,11 @@ def record_history(
             result_json=result_json,
             log_lines=log_json,
         )
+        # a Wanted search's batches finish after this row is written: hand
+        # the row's id over so what they find lands on it (run_results)
+        if isinstance(history_id, int) and not isinstance(history_id, bool):
+            from core.automation import run_results
+            run_results.attach(automation_id, history_id, database)
     except Exception as e:
         logger.error(f"Error recording automation history for {automation_id}: {e}")
 

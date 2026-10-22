@@ -8,7 +8,10 @@ import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
+import type { AiStatus, ListSuggestion } from './-automations.assistant';
 import type { Automation, AutomationBlocks, PreviewResult, RunEntry } from './-automations.types';
+
+import { _resetConversationsForTests } from './-automations.conversation';
 
 const NOW = Date.now();
 const HOUR = 3_600_000;
@@ -222,9 +225,37 @@ interface MockOptions {
   list?: Automation[] | (() => Response | Promise<Response>);
   previewResult?: (id: string) => PreviewResult | Response;
   saveResponse?: () => Response;
+  ai?: {
+    status?: Partial<AiStatus>;
+    suggestion?: ListSuggestion | null;
+    assistant?: (body: unknown) => Response;
+  };
 }
 
-function mockApi({ list = LIST, previewResult, saveResponse }: MockOptions = {}) {
+const AI_READY: AiStatus = {
+  configured: true,
+  can_use: true,
+  reason: null,
+  model: 'fast',
+  provider: 'anthropic',
+  provider_name: 'Anthropic',
+};
+const AI_NOT_SET_UP: AiStatus = {
+  ...AI_READY,
+  configured: false,
+  can_use: false,
+  reason: 'not_configured',
+};
+
+/** A server-sent event stream, as POST /api/ai/assistant sends it. */
+function sse(frames: [string, unknown][]): Response {
+  const text = frames.map(([name, data]) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+  return new HttpResponse(`: open\n\n${text.join('')}`, {
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
+
+function mockApi({ list = LIST, previewResult, saveResponse, ai = {} }: MockOptions = {}) {
   const calls: Call[] = [];
   const record = async (request: Request) => {
     const url = new URL(request.url);
@@ -235,6 +266,18 @@ function mockApi({ list = LIST, previewResult, saveResponse }: MockOptions = {})
   };
   const byId = (id: string) => LIST.find((a) => String(a.id) === id);
   server.use(
+    http.get('/api/ai/status', () => HttpResponse.json({ ...AI_NOT_SET_UP, ...ai.status })),
+    http.get('/api/ai/suggestion', () => HttpResponse.json({ suggestion: ai.suggestion ?? null })),
+    http.post('/api/ai/suggestion/:key/dismiss', async ({ request }) => {
+      await record(request);
+      return HttpResponse.json({ success: true });
+    }),
+    http.post('/api/ai/assistant', async ({ request }) => {
+      const body = await record(request);
+      return ai.assistant
+        ? ai.assistant(body)
+        : sse([['done', { conversation_id: 'c1', usage: {} }]]);
+    }),
     http.get('/api/automations/master', () => HttpResponse.json({ music: true, video: true })),
     http.get('/api/automations/progress', () => HttpResponse.json({})),
     http.get('/api/automations/blocks', () => HttpResponse.json(BLOCKS)),
@@ -341,6 +384,15 @@ async function openMenu(label: string): Promise<HTMLElement> {
   });
 }
 
+/** Open the "/" menu on the empty follow-up line and pick one. */
+function addFollowUp(label: string) {
+  fireEvent.change(screen.getByRole('combobox', { name: /Add a follow-up/ }), {
+    target: { value: '/' },
+  });
+  const menu = screen.getByRole('menu', { name: 'Add a follow-up' });
+  fireEvent.click(within(menu).getByRole('menuitem', { name: new RegExp(`^${label}`) }));
+}
+
 const card = (id: number) => screen.getByTestId(`automation-card-${id}`);
 const search = (router: Awaited<ReturnType<typeof renderPage>>['router']) =>
   router.state.location.search as Record<string, unknown>;
@@ -350,6 +402,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _resetConversationsForTests();
+  window.localStorage.clear();
   window.SoulSyncWebShellBridge = undefined;
   window.showToast = undefined;
 });
@@ -714,7 +768,9 @@ describe('automation editor', () => {
     expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent(
       'Automations›Edit',
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Daily at…' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'When' }), {
+      target: { value: 'daily' },
+    });
     fireEvent.change(screen.getByLabelText('At'), { target: { value: '06:15' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
@@ -731,26 +787,39 @@ describe('automation editor', () => {
     expect(search(router).automation).toBe(4);
   });
 
-  it('edits the steps: add, move, duplicate and remove, saved in order', async () => {
+  it('edits the follow-ups: add from the / menu, move, duplicate and remove, saved in order', async () => {
     const calls = mockApi();
     await renderPage('/automations/4/edit');
     await screen.findByLabelText('Name', undefined, { timeout: 5000 });
-    fireEvent.click(screen.getByRole('button', { name: 'Fire a signal' }));
+    // one When, one Do, then the Then blocks
+    expect(screen.getAllByRole('combobox', { name: 'When' })).toHaveLength(1);
+    expect(screen.getAllByLabelText('Do: what it does')).toHaveLength(1);
+    expect(screen.getByTestId('block-then-1')).toBeInTheDocument();
+    addFollowUp('Fire a signal');
     const signal = await screen.findByLabelText('Signal name');
     fireEvent.change(signal, { target: { value: 'Library Ready' } });
     fireEvent.blur(signal);
     expect(signal).toHaveValue('library_ready');
-    let menu = await openMenu('More for step 3');
+    let menu = await openMenu('More for Then 2');
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Move up' }));
     await waitFor(() =>
-      expect(screen.getByTestId('step-2')).toContainElement(screen.getByLabelText('Signal name')),
+      expect(screen.getByTestId('block-then-1')).toContainElement(
+        screen.getByLabelText('Signal name'),
+      ),
     );
-    menu = await openMenu('More for step 3');
+    menu = await openMenu('More for Then 2');
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Duplicate' }));
-    await screen.findByTestId('step-4');
-    menu = await openMenu('More for step 4');
+    await screen.findByTestId('block-then-3');
+    // three is the most: the / line says so and offers nothing
+    expect(
+      screen.getByText(
+        'Three follow-ups is the most an automation can have. Remove one to add another.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /Add a follow-up/ })).toBeNull();
+    menu = await openMenu('More for Then 3');
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Remove' }));
-    await waitFor(() => expect(screen.queryByTestId('step-4')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('block-then-3')).toBeNull());
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
     const body = calls.find((c) => c.method === 'PUT')!.body as {
@@ -758,6 +827,99 @@ describe('automation editor', () => {
     };
     expect(body.then_actions.map((t) => t.type)).toEqual(['fire_signal', 'discord_webhook']);
     expect(body.then_actions[0].config).toEqual({ signal_name: 'library_ready' });
+    expect(body).not.toHaveProperty('assistant_draft');
+  });
+
+  it('reorders the Then blocks by dragging, and from the handle with the keyboard', async () => {
+    const calls = mockApi();
+    await renderPage('/automations/4/edit');
+    await screen.findByLabelText('Name', undefined, { timeout: 5000 });
+    addFollowUp('Fire a signal');
+    fireEvent.change(await screen.findByLabelText('Signal name'), {
+      target: { value: 'ready' },
+    });
+    // drag Then 2 onto Then 1
+    const handle = screen.getByRole('button', { name: 'Move Then 2 (2 of 2)' });
+    const dataTransfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(handle, { dataTransfer });
+    fireEvent.dragOver(screen.getByTestId('block-then-1'), { dataTransfer });
+    expect(screen.getByTestId('block-then-1')).toHaveAttribute('data-drop', 'true');
+    fireEvent.drop(screen.getByTestId('block-then-1'), { dataTransfer });
+    await waitFor(() =>
+      expect(screen.getByTestId('block-then-1')).toContainElement(
+        screen.getByLabelText('Signal name'),
+      ),
+    );
+    // and back down from the handle's own menu
+    const menu = await openMenu('Move Then 1 (1 of 2)');
+    expect(within(menu).getByRole('menuitem', { name: 'Move up' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Move down' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('block-then-2')).toContainElement(
+        screen.getByLabelText('Signal name'),
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    const body = calls.find((c) => c.method === 'PUT')!.body as {
+      then_actions: { type: string }[];
+    };
+    expect(body.then_actions.map((t) => t.type)).toEqual(['discord_webhook', 'fire_signal']);
+  });
+
+  it('the / menu narrows as you type, works from the keyboard, and closes on Escape', async () => {
+    mockApi();
+    await renderPage('/automations/4/edit');
+    await screen.findByLabelText('Name', undefined, { timeout: 5000 });
+    const line = screen.getByRole('combobox', { name: /Add a follow-up/ });
+    expect(line).toHaveAttribute('placeholder', 'Type / to add a follow-up · 2 of 3 left');
+    fireEvent.change(line, { target: { value: '/' } });
+    let menu = screen.getByRole('menu', { name: 'Add a follow-up' });
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((el) => el.firstChild?.textContent),
+    ).toEqual(['Notify', 'Fire a signal', 'Run a script']);
+    fireEvent.keyDown(line, { key: 'Escape' });
+    expect(screen.queryByRole('menu', { name: 'Add a follow-up' })).toBeNull();
+    fireEvent.change(line, { target: { value: '/scr' } });
+    menu = screen.getByRole('menu', { name: 'Add a follow-up' });
+    expect(within(menu).getAllByRole('menuitem')).toHaveLength(1);
+    fireEvent.keyDown(line, { key: 'Enter' });
+    expect(await screen.findByLabelText('Then 2: what it does')).toHaveValue('run_script');
+  });
+
+  it('keeps admin-only steps away from members', async () => {
+    mockApi();
+    await renderPage('/automations/new', false);
+    await screen.findByLabelText('Name', undefined, { timeout: 5000 });
+    const doSelect = screen.getByLabelText('Do: what it does');
+    await waitFor(() => expect(within(doSelect).getAllByRole('option').length).toBeGreaterThan(1));
+    const actions = within(doSelect)
+      .getAllByRole('option')
+      .map((o) => o.getAttribute('value'));
+    expect(actions).toContain('process_wishlist');
+    expect(actions).not.toContain('clear_quarantine');
+    expect(actions).not.toContain('apply_quality_upgrades');
+    fireEvent.change(screen.getByRole('combobox', { name: /Add a follow-up/ }), {
+      target: { value: '/' },
+    });
+    const menu = screen.getByRole('menu', { name: 'Add a follow-up' });
+    expect(within(menu).queryByText('Run a script')).toBeNull();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^Notify/ }));
+    const then = await screen.findByLabelText('Then 1: what it does');
+    expect(within(then).queryByRole('option', { name: /script/i })).toBeNull();
+  });
+
+  it('keeps the full builder in the header’s … menu only', async () => {
+    mockApi();
+    await renderPage('/automations/4/edit');
+    await screen.findByLabelText('Name', undefined, { timeout: 5000 });
+    const menu = await openMenu('More for this automation');
+    expect(within(menu).getByRole('menuitem', { name: 'Open in the full builder' })).toBeTruthy();
   });
 
   it('stops a save that misses something, and says what', async () => {
@@ -765,7 +927,7 @@ describe('automation editor', () => {
     await renderPage('/automations/4/edit');
     const name = await screen.findByLabelText('Name', undefined, { timeout: 5000 });
     fireEvent.change(name, { target: { value: '   ' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Notify' }));
+    addFollowUp('Notify');
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Give the automation a name.')).toBeInTheDocument();
     expect(screen.getByText('Add the webhook URL.')).toBeInTheDocument();
@@ -810,7 +972,7 @@ describe('automation editor', () => {
       then_actions: [{ type: 'discord_webhook' }],
     });
 
-    fireEvent.change(screen.getByLabelText('Step 1: what it does'), {
+    fireEvent.change(screen.getByLabelText('Do: what it does'), {
       target: { value: 'scan_library' },
     });
     fireEvent.click(screen.getAllByRole('button', { name: 'Preview a run' })[0]);
@@ -844,7 +1006,7 @@ describe('automation editor', () => {
     const name = await screen.findByLabelText('Name', undefined, { timeout: 5000 });
     expect(screen.getByRole('heading', { level: 1, name: 'New automation' })).toBeInTheDocument();
     fireEvent.change(name, { target: { value: 'Night search' } });
-    fireEvent.change(screen.getByLabelText('Step 1: what it does'), {
+    fireEvent.change(screen.getByLabelText('Do: what it does'), {
       target: { value: 'process_wishlist' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -860,5 +1022,339 @@ describe('automation editor', () => {
       group_name: null,
     });
     await waitFor(() => expect(search(router).automation).toBe(42));
+  });
+});
+
+const OFFER = {
+  draft: {
+    name: 'Morning Wanted search',
+    trigger_type: 'daily_time',
+    trigger_config: { time: '07:00' },
+    action_type: 'process_wishlist',
+    action_config: {},
+    then_actions: [{ type: 'fire_signal', config: { signal_name: 'wanted_done' } }],
+  },
+  summary: 'Search Wanted every morning at 07:00, then fire wanted_done.',
+  why: 'Your downloads are quiet in the morning.',
+  facts: [],
+  notes: ['I left out “Run a script”: only admins can add it.'],
+  automation_id: null,
+};
+
+async function openAssistant() {
+  await screen.findByTestId('automation-card-4', undefined, { timeout: 5000 });
+  fireEvent.click(screen.getByRole('button', { name: 'Assistant' }));
+  return screen.findByTestId('assistant-panel');
+}
+
+describe('the Assistant', () => {
+  it('says what to do when it isn’t set up, to admins and to members', async () => {
+    mockApi();
+    const { unmount } = await renderPage();
+    let panel = await openAssistant();
+    // the panel takes the Runs column's place
+    expect(screen.queryByTestId('runs-panel')).toBeNull();
+    expect(await within(panel).findByText('Set up the Assistant')).toBeInTheDocument();
+    expect(within(panel).getByText('Open Settings → AI')).toBeInTheDocument();
+    expect(within(panel).queryByLabelText('Message the Assistant')).toBeNull();
+    // no suggestion card, and no Explain, while it can't be used
+    expect(screen.queryByTestId('suggestion-card')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Explain Fill Wanted' })).toBeNull();
+    unmount();
+    _resetConversationsForTests();
+
+    mockApi();
+    await renderPage('/automations', false);
+    panel = await openAssistant();
+    expect(await within(panel).findByText('Ask an admin to set this up')).toBeInTheDocument();
+    expect(within(panel).queryByText('Open Settings → AI')).toBeNull();
+  });
+
+  it('drafts from a sentence, and the draft opens in the editor unsaved', async () => {
+    const calls = mockApi({
+      ai: {
+        status: AI_READY,
+        assistant: () =>
+          sse([
+            ['status', { reading: 'your automations' }],
+            ['text', { delta: 'Here is a draft.' }],
+            ['draft', OFFER],
+            ['done', { conversation_id: 'c1', usage: { input_tokens: 1, output_tokens: 1 } }],
+          ]),
+      },
+    });
+    const { router } = await renderPage();
+    const panel = await openAssistant();
+    // the first-use notice says what is sent where, until Got it
+    const notice = await within(panel).findByTestId('assistant-first-use');
+    expect(notice).toHaveTextContent('Anthropic');
+    fireEvent.click(within(notice).getByRole('button', { name: 'Got it' }));
+    expect(within(panel).queryByTestId('assistant-first-use')).toBeNull();
+    expect(
+      within(panel).getByText(
+        'Writes drafts only. Sends your message, your automations and the library facts it uses to Anthropic (Settings → AI).',
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.change(within(panel).getByLabelText('Message the Assistant'), {
+      target: { value: 'Search Wanted every morning' },
+    });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Send' }));
+    const card = await within(panel).findByTestId('draft-card');
+    expect(within(card).getByText('Draft ready')).toBeInTheDocument();
+    expect(within(card).getByText(OFFER.summary)).toBeInTheDocument();
+    expect(within(card).getByText(OFFER.notes[0])).toBeInTheDocument();
+    expect(within(panel).getByText('Here is a draft.')).toBeInTheDocument();
+    const sent = calls.find((c) => c.path === '/api/ai/assistant')!.body as Record<string, unknown>;
+    expect(sent).toMatchObject({
+      message: 'Search Wanted every morning',
+      context: { page: 'list' },
+    });
+    // nothing was saved by asking
+    expect(calls.some((c) => c.path === '/api/automations' && c.method === 'POST')).toBe(false);
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Open in the editor' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/automations/new'));
+    expect(await screen.findByLabelText('Name', undefined, { timeout: 5000 })).toHaveValue(
+      'Morning Wanted search',
+    );
+    expect(screen.getByText('Draft from the Assistant.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Signal name')).toHaveValue('wanted_done');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === 'POST' && c.path === '/api/automations')).toBe(true),
+    );
+    expect(calls.find((c) => c.path === '/api/automations')!.body).toMatchObject({
+      name: 'Morning Wanted search',
+      trigger_type: 'daily_time',
+      trigger_config: { time: '07:00' },
+      action_type: 'process_wishlist',
+      then_actions: [{ type: 'fire_signal', config: { signal_name: 'wanted_done' } }],
+      assistant_draft: true,
+    });
+  });
+
+  it('keeps the message in the box when the provider refuses, and says why', async () => {
+    mockApi({
+      ai: {
+        status: AI_READY,
+        assistant: () =>
+          sse([['error', { code: 'bad_key', message: 'Anthropic refused the key.' }]]),
+      },
+    });
+    window.localStorage.setItem('soulsync.assistant.firstUse.1', '1');
+    await renderPage();
+    const panel = await openAssistant();
+    const box = await within(panel).findByLabelText('Message the Assistant');
+    fireEvent.change(box, { target: { value: 'Explain my automations' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(await within(panel).findByText('The AI key didn’t work')).toBeInTheDocument();
+    expect(within(panel).getByRole('alert')).toHaveTextContent('Open Settings → AI');
+    await waitFor(() => expect(box).toHaveValue('Explain my automations'));
+  });
+
+  it('Stop ends the answer and says nothing changed', async () => {
+    mockApi({
+      ai: {
+        status: AI_READY,
+        assistant: () =>
+          new HttpResponse(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(
+                  new TextEncoder().encode('event: status\ndata: {"reading":"your runs"}\n\n'),
+                );
+              },
+            }),
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          ),
+      },
+    });
+    window.localStorage.setItem('soulsync.assistant.firstUse.1', '1');
+    await renderPage();
+    const panel = await openAssistant();
+    fireEvent.click(await within(panel).findByRole('button', { name: 'What’s worth automating?' }));
+    expect(await within(panel).findByText('Thinking… reading your runs.')).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Send' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    fireEvent.click(within(panel).getByRole('button', { name: 'Stop' }));
+    expect(await within(panel).findByText('Stopped. Nothing was changed.')).toBeInTheDocument();
+  });
+
+  it('shows one suggestion first in the list, and Not now puts it away', async () => {
+    const calls = mockApi({
+      ai: {
+        status: AI_READY,
+        suggestion: {
+          key: 'paused:6',
+          title: 'Upgrade to FLAC has been paused for 21 days',
+          reason: 'Paused since 1 Oct; 21 days without a run.',
+          draft_prompt: 'Should Upgrade to FLAC run again?',
+          automation_id: 6,
+        },
+      },
+    });
+    await renderPage();
+    const suggestion = await screen.findByTestId('suggestion-card', undefined, { timeout: 5000 });
+    const cards = screen.getByTestId('automation-card-4').parentElement!;
+    expect(cards.firstElementChild).toBe(suggestion);
+    expect(
+      within(suggestion).getByText('Upgrade to FLAC has been paused for 21 days'),
+    ).toBeInTheDocument();
+    fireEvent.click(within(suggestion).getByRole('button', { name: 'Not now' }));
+    await waitFor(() => expect(screen.queryByTestId('suggestion-card')).toBeNull());
+    expect(calls.some((c) => c.path === '/api/ai/suggestion/paused%3A6/dismiss')).toBe(true);
+  });
+
+  it('explains an automation and a failed run, sending what is on screen', async () => {
+    const calls = mockApi({
+      ai: {
+        status: AI_READY,
+        assistant: (body) =>
+          (body as { context: { run_id?: number } }).context.run_id
+            ? sse([
+                ['quote', { run_id: 103, started_at: null, lines: ["Soulseek wasn't reachable"] }],
+                ['text', { delta: 'Soulseek was down.' }],
+                ['done', { conversation_id: 'c1', usage: {} }],
+              ])
+            : sse([
+                ['text', { delta: 'It searches Wanted every 6 hours.' }],
+                ['done', { conversation_id: 'c1', usage: {} }],
+              ]),
+      },
+    });
+    window.localStorage.setItem('soulsync.assistant.firstUse.1', '1');
+    await renderPage();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Explain Fill Wanted' }, { timeout: 5000 }),
+    );
+    const panel = await screen.findByTestId('assistant-panel');
+    expect(await within(panel).findByText('It searches Wanted every 6 hours.')).toBeInTheDocument();
+    expect(calls.find((c) => c.path === '/api/ai/assistant')!.body).toMatchObject({
+      context: { page: 'list', automation_id: 4 },
+    });
+
+    // close the panel: the Runs come back, and a failed run offers the question
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close the Assistant' }));
+    const runs = await screen.findByTestId('runs-panel');
+    fireEvent.click(
+      await within(runs).findByRole('button', { name: 'Ask the Assistant why it failed' }),
+    );
+    const again = await screen.findByTestId('assistant-panel');
+    expect(await within(again).findByText('Soulseek was down.')).toBeInTheDocument();
+    expect(within(again).getByLabelText('The run’s log')).toHaveTextContent(
+      "Soulseek wasn't reachable",
+    );
+    const asked = calls.filter((c) => c.path === '/api/ai/assistant');
+    expect(asked[1].body).toMatchObject({ context: { automation_id: 4, run_id: 103 } });
+  });
+});
+
+describe('the Assistant in the editor', () => {
+  it('sits beside Preview, sends the draft on screen, and asks before replacing changes', async () => {
+    const calls = mockApi({
+      ai: {
+        status: AI_READY,
+        assistant: () =>
+          sse([
+            ['draft', { ...OFFER, automation_id: 4 }],
+            ['done', { conversation_id: 'c1', usage: {} }],
+          ]),
+      },
+    });
+    window.localStorage.setItem('soulsync.assistant.firstUse.1', '1');
+    await renderPage('/automations/4/edit');
+    const name = await screen.findByLabelText('Name', undefined, { timeout: 5000 });
+    // closed, the column is Preview; the header's Assistant opens the tabs
+    expect(screen.queryByRole('tablist', { name: 'Assistant and Preview' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Assistant' }));
+    const panel = await screen.findByTestId('assistant-panel');
+    const tabs = screen.getByRole('tablist', { name: 'Assistant and Preview' });
+    expect(within(tabs).getByRole('tab', { name: 'Assistant' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(
+      within(panel).getByText(
+        'Writes drafts only. Sends your message, this draft and the library facts it uses to Anthropic (Settings → AI).',
+      ),
+    ).toBeInTheDocument();
+    fireEvent.change(name, { target: { value: 'Fill Wanted nightly' } });
+    fireEvent.change(within(panel).getByLabelText('Message the Assistant'), {
+      target: { value: 'Run it every morning instead' },
+    });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Send' }));
+    const card = await within(panel).findByTestId('draft-card');
+    expect(calls.find((c) => c.path === '/api/ai/assistant')!.body).toMatchObject({
+      context: {
+        page: 'editor',
+        automation_id: 4,
+        draft: { name: 'Fill Wanted nightly', action_type: 'process_wishlist' },
+      },
+    });
+    fireEvent.click(within(card).getByRole('button', { name: 'Put it in the editor' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Put the draft in the editor?' });
+    expect(dialog).toHaveTextContent('Put the draft in the editor?');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Use the draft' }));
+    expect(await screen.findByText('Draft from the Assistant.')).toBeInTheDocument();
+    // the blocks are the draft's; the name on screen stays
+    expect(screen.getByLabelText('Name')).toHaveValue('Fill Wanted nightly');
+    expect(screen.getByLabelText('Signal name')).toHaveValue('wanted_done');
+    // nothing saved until Save
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({
+      name: 'Fill Wanted nightly',
+      trigger_type: 'daily_time',
+      then_actions: [{ type: 'fire_signal' }],
+      assistant_draft: true,
+    });
+  });
+});
+
+describe('automations on a phone', () => {
+  beforeEach(() => {
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+  });
+  afterEach(() => {
+    // @ts-expect-error jsdom has none; the tests above run without it
+    delete window.matchMedia;
+  });
+
+  it('folds the search into a button at the end of the filter row', async () => {
+    mockApi();
+    await renderPage();
+    await screen.findByTestId('automation-card-4', undefined, { timeout: 5000 });
+    expect(screen.queryByRole('searchbox', { name: 'Find an automation' })).toBeNull();
+    const toggle = screen.getByRole('button', { name: 'Find an automation' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('searchbox', { name: 'Find an automation' })).toBeInTheDocument();
+  });
+
+  it('opens the Assistant as a full-screen sheet', async () => {
+    mockApi({ ai: { status: AI_READY } });
+    window.localStorage.setItem('soulsync.assistant.firstUse.1', '1');
+    await renderPage();
+    await screen.findByTestId('automation-card-4', undefined, { timeout: 5000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Assistant' }));
+    const sheet = await screen.findByRole('dialog');
+    expect(sheet).toHaveAttribute('data-variant', 'sheet');
+    expect(within(sheet).getByText('Drafts only · sent to Anthropic (Settings → AI)')).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });

@@ -6,7 +6,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { Button, OptionButton, Select, TextInput } from '@/components/form';
 import { TitleWithHelp } from '@/components/page-header';
@@ -33,7 +33,15 @@ import {
   setAutomationsMaster,
   toggleAutomation,
 } from '../-automations.api';
+import {
+  AI_QUERY_KEY,
+  aiStatusQueryOptions,
+  aiSuggestionQueryOptions,
+  dismissSuggestion,
+  type DraftOffer,
+} from '../-automations.assistant';
 import { useVanillaBuilder } from '../-automations.builder';
+import { useConversation } from '../-automations.conversation';
 import { forMusicSide, readAutomationsList } from '../-automations.helpers';
 import {
   SHOW_OPTIONS,
@@ -54,6 +62,7 @@ import {
   NO_GROUP,
 } from '../-automations.types';
 import { ActionMenu, type MenuEntry } from './action-menu';
+import { AssistantPanel } from './assistant-panel';
 import { AutomationCard, type CardHandlers } from './automation-card';
 import { AutomationHub } from './automation-hub';
 import styles from './automations.module.css';
@@ -62,6 +71,7 @@ import { useFileStepRun } from './file-run';
 import { GroupDialog } from './group-dialog';
 import { PreviewDialog, type PreviewState } from './preview-panel';
 import { RunsPanel, RunsSkeleton } from './runs-panel';
+import { SuggestionCard } from './suggestion-card';
 import { useMediaQuery } from './use-narrow';
 
 const routeApi = getRouteApi('/automations/');
@@ -155,6 +165,15 @@ export function AutomationsListPage() {
   const [preview, setPreview] = useState<{ automation: Automation; state: PreviewState } | null>(
     null,
   );
+  const [searchOpen, setSearchOpen] = useState(Boolean(search.q));
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // the Assistant: its status, the one suggestion, and the conversation
+  const statusQuery = useQuery(aiStatusQueryOptions(profileId));
+  const usable = Boolean(statusQuery.data?.can_use);
+  const suggestionQuery = useQuery(aiSuggestionQueryOptions(profileId, usable));
+  const conversation = useConversation(profileId);
+  const panelOpen = conversation.state.open;
 
   const setSearch = useCallback(
     (patch: Partial<AutomationsListSearch>, replace = false) =>
@@ -315,6 +334,58 @@ export function AutomationsListPage() {
     [queryClient],
   );
 
+  const askAssistant = (
+    message: string,
+    context: { automation_id?: number | null; run_id?: number | null },
+    from?: string,
+  ) => conversation.ask(message, { page: 'list', ...context }, from);
+
+  const openDraft = (offer: DraftOffer) => {
+    conversation.set({ pendingDraft: offer, open: phone ? false : conversation.state.open });
+    if (offer.automation_id) {
+      void navigate({
+        to: '/automations/$automationId/edit',
+        params: { automationId: String(offer.automation_id) },
+        search: { from: 'assistant' },
+      });
+    } else {
+      void navigate({ to: '/automations/new', search: { from: 'assistant' } });
+    }
+  };
+
+  const previewDraft = (offer: DraftOffer) => {
+    const stand: Automation = {
+      id: offer.automation_id ?? 0,
+      name: offer.draft.name || 'Draft',
+      action_type: offer.draft.action_type,
+    };
+    setPreview({ automation: stand, state: { kind: 'loading' } });
+    previewAutomation(offer.automation_id ?? null, {
+      action_type: offer.draft.action_type,
+      action_config: offer.draft.action_config,
+      then_actions: offer.draft.then_actions,
+    })
+      .then((result) =>
+        setPreview((cur) =>
+          cur?.automation === stand ? { automation: stand, state: { kind: 'done', result } } : cur,
+        ),
+      )
+      .catch((error: Error) =>
+        setPreview((cur) =>
+          cur?.automation === stand
+            ? { automation: stand, state: { kind: 'error', message: error.message } }
+            : cur,
+        ),
+      );
+  };
+
+  const dismiss = useMutation({
+    mutationFn: (key: string) => dismissSuggestion(key),
+    // "Not now" holds for this profile; the next one comes with the next load
+    onSuccess: () => queryClient.setQueryData([...AI_QUERY_KEY, 'suggestion', profileId], null),
+    onError: fail,
+  });
+
   const handlers: CardHandlers = {
     onSelect: (a) => {
       setRunsOpen(false);
@@ -331,7 +402,9 @@ export function AutomationsListPage() {
     onDuplicate: (a) => duplicate.mutate(a),
     onGroup: (a) => setDialog({ kind: 'group', automation: a }),
     onDelete: (a) => setDialog({ kind: 'delete', automation: a }),
-    onFullBuilder: (a) => openBuilder(a.id),
+    onExplain: usable
+      ? (a) => askAssistant(`Explain ${a.name}`, { automation_id: a.id }, `from the ${a.name} card`)
+      : undefined,
   };
 
   const headerMenu: MenuEntry[] = [
@@ -418,6 +491,28 @@ export function AutomationsListPage() {
       <div className={styles.headActions}>
         <Button
           size="lg"
+          aria-pressed={panelOpen}
+          className={styles.assistantButton}
+          data-selected={panelOpen ? 'true' : undefined}
+          onClick={() => conversation.set({ open: !panelOpen })}
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          Assistant
+        </Button>
+        <Button
+          size="lg"
           variant="primary"
           className={styles.newButton}
           data-tour="automation-new"
@@ -456,8 +551,34 @@ export function AutomationsListPage() {
     );
   }
 
+  const searchField = (
+    <TextInput
+      ref={searchRef}
+      id="automations-search"
+      className={styles.search}
+      type="search"
+      aria-label="Find an automation"
+      placeholder="Find an automation"
+      defaultValue={search.q ?? ''}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter')
+          setSearch({ q: (event.target as HTMLInputElement).value || undefined }, true);
+      }}
+      onBlur={(event) => {
+        if ((event.target.value || undefined) !== search.q)
+          setSearch({ q: event.target.value || undefined }, true);
+      }}
+    />
+  );
+
+  // On a phone the row scrolls sideways and the search folds into an icon
+  // button at its end, which opens the field under the row (HANDOFF 21).
   const filters = (
-    <div className={styles.controls} data-tour="automations-filters">
+    <div
+      className={styles.controls}
+      data-tour="automations-filters"
+      data-phone={phone ? 'true' : undefined}
+    >
       <div className={styles.filters} role="group" aria-label="Show">
         {SHOW_OPTIONS.map((option) => (
           <OptionButton
@@ -505,21 +626,37 @@ export function AutomationsListPage() {
             ) : null}
           </>
         ) : null}
-        <TextInput
-          className={styles.search}
-          type="search"
-          aria-label="Find an automation"
-          placeholder="Find an automation"
-          defaultValue={search.q ?? ''}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter')
-              setSearch({ q: (event.target as HTMLInputElement).value || undefined }, true);
-          }}
-          onBlur={(event) => {
-            if ((event.target.value || undefined) !== search.q)
-              setSearch({ q: event.target.value || undefined }, true);
-          }}
-        />
+        {phone ? (
+          <button
+            type="button"
+            className={styles.searchToggle}
+            aria-label="Find an automation"
+            aria-expanded={searchOpen}
+            aria-controls="automations-search"
+            data-active={search.q ? 'true' : undefined}
+            onClick={() => {
+              setSearchOpen((o) => !o);
+              window.setTimeout(() => searchRef.current?.focus(), 0);
+            }}
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+          </button>
+        ) : (
+          searchField
+        )}
       </div>
     </div>
   );
@@ -556,6 +693,31 @@ export function AutomationsListPage() {
       own On or Paused setting{isAdmin ? '.' : '; an admin can resume them.'}
     </Notice>
   ) : null;
+
+  function askAboutRun(a: Automation, run: { id: number; when: string }) {
+    askAssistant(
+      'Why did this run fail?',
+      { automation_id: a.id, run_id: run.id },
+      `from the run ${run.when}`,
+    );
+  }
+
+  function assistantPanel(variant: 'list' | 'sheet') {
+    return (
+      <AssistantPanel
+        variant={variant}
+        profileId={profileId}
+        isAdmin={isAdmin}
+        status={statusQuery.data}
+        statusLoading={statusQuery.isPending}
+        blocks={blocksQuery.data}
+        context={() => ({ page: 'list', automation_id: selected?.id ?? null })}
+        onOpenDraft={openDraft}
+        onPreviewDraft={previewDraft}
+        onClose={() => conversation.set({ open: false })}
+      />
+    );
+  }
 
   let body;
   if (listQuery.isPending) {
@@ -652,9 +814,24 @@ export function AutomationsListPage() {
     );
   } else {
     const history = sortRuns(selectedHistory.data?.history ?? []);
+    const suggestion = usable ? suggestionQuery.data : null;
     body = (
-      <div className={styles.listGrid}>
+      <div className={styles.listGrid} data-panel={!phone && panelOpen ? 'assistant' : undefined}>
         <div className={styles.cards}>
+          {suggestion ? (
+            <SuggestionCard
+              suggestion={suggestion}
+              busy={dismiss.isPending}
+              onUse={() =>
+                askAssistant(
+                  suggestion.draft_prompt,
+                  { automation_id: suggestion.automation_id },
+                  'from a suggestion',
+                )
+              }
+              onDismiss={() => dismiss.mutate(suggestion.key)}
+            />
+          ) : null}
           {visible.map((a) => {
             const isSelected = selected?.id === a.id;
             return (
@@ -680,17 +857,43 @@ export function AutomationsListPage() {
                 handlers={handlers}
               >
                 {isSelected && phone && runsOpen ? (
-                  <RunsPanel automation={a} progress={progress[a.id]} embedded />
+                  <RunsPanel
+                    automation={a}
+                    progress={progress[a.id]}
+                    embedded
+                    onAskAboutRun={usable ? (run) => askAboutRun(a, run) : undefined}
+                  />
                 ) : null}
               </AutomationCard>
             );
           })}
         </div>
-        {!phone && selected ? (
+        {!phone && panelOpen ? (
+          <div className={styles.side} data-panel="assistant">
+            {assistantPanel('list')}
+          </div>
+        ) : !phone && selected ? (
           <div className={styles.side}>
-            <RunsPanel key={selected.id} automation={selected} progress={progress[selected.id]} />
+            <RunsPanel
+              key={selected.id}
+              automation={selected}
+              progress={progress[selected.id]}
+              onAskAboutRun={usable ? (run) => askAboutRun(selected, run) : undefined}
+            />
           </div>
         ) : null}
+      </div>
+    );
+  }
+
+  // the empty, no-match and failure states keep the Assistant beside them too
+  if (!phone && panelOpen && !(listQuery.isSuccess && automations.length && visible.length)) {
+    body = (
+      <div className={styles.listGrid} data-panel="assistant">
+        <div className={styles.cards}>{body}</div>
+        <div className={styles.side} data-panel="assistant">
+          {assistantPanel('list')}
+        </div>
       </div>
     );
   }
@@ -706,8 +909,10 @@ export function AutomationsListPage() {
         <Notice tone="neutral">The automation that link pointed to isn’t here any more.</Notice>
       ) : null}
       {filters}
+      {phone && searchOpen ? <div className={styles.phoneSearch}>{searchField}</div> : null}
       {typeNote}
       {body}
+      {phone && panelOpen ? <div className={styles.sheet}>{assistantPanel('sheet')}</div> : null}
 
       <PreviewDialog
         open={preview != null}
@@ -716,7 +921,10 @@ export function AutomationsListPage() {
         onPreview={() => preview && startPreview(preview.automation)}
         onClose={() => setPreview(null)}
         onRun={
-          preview && isEnabled(preview.automation)
+          preview &&
+          preview.automation.id > 0 &&
+          isEnabled(preview.automation) &&
+          automations.some((a) => a.id === preview.automation.id)
             ? () => {
                 const a = preview.automation;
                 setPreview(null);

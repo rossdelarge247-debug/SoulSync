@@ -23874,6 +23874,11 @@ _cfg_autom(get_database_=get_database, config_manager_=config_manager,
            automation_engine_=automation_engine,
            spotify_ready_=lambda: bool(spotify_client and spotify_client.is_authenticated()))
 app.register_blueprint(_bp_autom())
+# The Automation Assistant and Settings → AI (api/ai.py): drafts only.
+from api.ai import configure as _cfg_ai_assistant, create_blueprint as _bp_ai_assistant
+_cfg_ai_assistant(get_database_=get_database, config_manager_=config_manager,
+                  docker_resolve_path_=docker_resolve_path)
+app.register_blueprint(_bp_ai_assistant())
 # Login/session endpoints (api/login.py).
 from api.login import configure as _cfg_login, create_blueprint as _bp_login
 _cfg_login(get_database_=get_database, config_manager_=config_manager,

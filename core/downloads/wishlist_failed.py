@@ -9,6 +9,7 @@ in web_server.py.
 from utils.logging_config import get_logger
 import time
 
+from core.automation.run_results import batch_found_tracks as _batch_found_tracks
 from core.discovery.wing_it import is_stub_id, should_wishlist_stub
 from core.runtime_state import (
     download_batches,
@@ -252,7 +253,9 @@ def _process_failed_tracks_to_wishlist_exact(batch_id):
         completion_summary = {
             'tracks_added': wishlist_added_count,
             'errors': error_count,
-            'total_failed': failed_count
+            'total_failed': failed_count,
+            # what the batch downloaded: a Wanted search run keeps it (run_results)
+            'tracks_found': _batch_found_tracks(batch, download_tasks),
         }
         
         with tasks_lock:

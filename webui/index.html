@@ -128,6 +128,7 @@
     <!-- Settings → Appearance: the accent radio cards, the custom colour's
          contrast check and the preview strip (src/shell/appearance.ts). -->
     <link rel="stylesheet" href="{{ url_for('static', filename='appearance.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='ai-settings.css') }}">
     <!-- Sidebar weather: time/temp/condition line, forecast popover, particle
          scene. Additive — only #sidebar-weather-* selectors inside. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='sidebar-weather.css') }}">
@@ -2805,6 +2806,16 @@
                                         </svg>
                                     </span>
                                     <span class="stg-tab-label">Quality</span>
+                                </button>
+                                <button type="button" class="stg-tab" data-tab="ai" id="stg-tab-ai" hidden
+                                    onclick="switchSettingsTab('ai')">
+                                    <span class="stg-tab-badge badge-ai">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                                        </svg>
+                                    </span>
+                                    <span class="stg-tab-label">AI</span>
                                 </button>
                                 <button type="button" class="stg-tab" data-tab="library"
                                     onclick="switchSettingsTab('library')">
@@ -10337,6 +10348,141 @@
                                             </div>
                                             <input type="checkbox" id="max-performance-enabled"
                                                 class="appearance-check">
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+
+                            <!-- ═══ AI TAB ═══ Settings → AI (board 5a), restyled in place like Modules:
+                                 static/ai-settings.css, behaviour in src/shell/ai-settings.ts (GET/PUT
+                                 /api/ai/settings, POST /api/ai/test). Admins only: the tab stays hidden
+                                 for everyone else and the routes refuse them. Each card applies on its
+                                 own; Save Settings doesn't touch it. -->
+                            <div class="ai-settings" id="ai-settings">
+                                <section class="settings-group ai-card" data-stg="ai" id="ai-assistant-card"
+                                    aria-labelledby="ai-assistant-title">
+                                    <h3 id="ai-assistant-title">Assistant</h3>
+                                    <p class="ai-intro">An assistant in Automations that turns a sentence into a
+                                        draft automation, suggests what's worth automating and explains runs. It
+                                        writes drafts only: nothing is saved, run or sent without you. It uses a
+                                        cloud model with your own API key, which stays on this server, encrypted
+                                        like the other secrets.</p>
+                                    <p class="ai-load-error" id="ai-settings-error" role="alert" hidden></p>
+                                    <div class="ai-row">
+                                        <div class="ai-field">
+                                            <label class="ai-label-text" for="ai-provider">Provider</label>
+                                            <select id="ai-provider" class="ai-select">
+                                                <option value="anthropic">Anthropic (Claude)</option>
+                                            </select>
+                                            <p class="ai-help">Other providers can be added later.</p>
+                                        </div>
+                                        <div class="ai-field">
+                                            <label class="ai-label-text" for="ai-key">API key</label>
+                                            <div class="ai-key-row">
+                                                <input id="ai-key" type="password" class="ai-input ai-key-input"
+                                                    autocomplete="off" spellcheck="false"
+                                                    placeholder="sk-ant-…" aria-describedby="ai-key-status">
+                                                <button type="button" class="ai-button" id="ai-key-replace"
+                                                    hidden>Replace</button>
+                                                <button type="button" class="ai-button" id="ai-key-test"
+                                                    hidden>Test</button>
+                                                <button type="button" class="ai-button ai-button--primary"
+                                                    id="ai-key-save">Save and test</button>
+                                                <button type="button" class="ai-button ai-button--ghost"
+                                                    id="ai-key-cancel" hidden>Cancel</button>
+                                            </div>
+                                            <p class="ai-key-status" id="ai-key-status" aria-live="polite"></p>
+                                        </div>
+                                    </div>
+                                    <div class="ai-field">
+                                        <p class="ai-label-text" id="ai-model-label">Model</p>
+                                        <div class="ai-model-cards" id="ai-model-cards" role="radiogroup"
+                                            aria-labelledby="ai-model-label">
+                                            <button type="button" role="radio" class="ai-model-card" data-value="fast"
+                                                aria-checked="true">
+                                                <span class="ai-model-name">Faster and cheaper</span>
+                                                <span class="ai-model-desc">Claude Sonnet. Enough for drafts,
+                                                    suggestions and explanations; answers in a few seconds. The
+                                                    default.</span>
+                                            </button>
+                                            <button type="button" role="radio" class="ai-model-card" data-value="best"
+                                                aria-checked="false" tabindex="-1">
+                                                <span class="ai-model-name">Best answers</span>
+                                                <span class="ai-model-desc">Claude Opus. Better at long run logs and
+                                                    vague requests; slower and several times the cost.</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="ai-field">
+                                        <p class="ai-label-text" id="ai-who-label">Who can use it</p>
+                                        <div class="ai-who" id="ai-who" role="radiogroup" aria-labelledby="ai-who-label">
+                                            <button type="button" role="radio" class="ai-option" data-value="everyone"
+                                                aria-checked="false" tabindex="-1">Everyone with a profile</button>
+                                            <button type="button" role="radio" class="ai-option" data-value="admins"
+                                                aria-checked="true">Admins only</button>
+                                        </div>
+                                        <p class="ai-help">Members never see admin-only steps (scripts, clean-ups,
+                                            backups) in drafts or suggestions, whoever can use it.</p>
+                                    </div>
+                                    <p class="ai-save-status" id="ai-save-status" aria-live="polite"></p>
+                                </section>
+
+                                <section class="settings-group ai-card ai-usage" data-stg="ai" id="ai-usage-card"
+                                    aria-labelledby="ai-usage-title" hidden>
+                                    <div class="ai-usage-main">
+                                        <h3 id="ai-usage-title">Usage this month</h3>
+                                        <dl class="ai-stats">
+                                            <div class="ai-stat">
+                                                <dt>Requests</dt>
+                                                <dd id="ai-usage-requests">0</dd>
+                                            </div>
+                                            <div class="ai-stat">
+                                                <dt>Estimated cost</dt>
+                                                <dd id="ai-usage-cost">about $0.00</dd>
+                                            </div>
+                                            <div class="ai-stat">
+                                                <dt>Drafts saved</dt>
+                                                <dd id="ai-usage-drafts">0</dd>
+                                            </div>
+                                        </dl>
+                                        <p class="ai-help" id="ai-usage-note">Counted here from the tokens each
+                                            request used and the provider's list prices, since the 1st. Your
+                                            provider's own billing page is the final word.</p>
+                                    </div>
+                                    <div class="ai-cap">
+                                        <label class="ai-label-text" for="ai-cap">Monthly cap (optional)</label>
+                                        <input id="ai-cap" class="ai-input" inputmode="decimal" autocomplete="off"
+                                            placeholder="No cap" aria-describedby="ai-cap-help ai-cap-error">
+                                        <p class="ai-help" id="ai-cap-help">When the estimate reaches it, the
+                                            Assistant says so and waits for the 1st. Automations aren't
+                                            affected.</p>
+                                        <p class="ai-field-error" id="ai-cap-error" role="alert" hidden></p>
+                                    </div>
+                                </section>
+
+                                <section class="settings-group ai-card" data-stg="ai" aria-labelledby="ai-sent-title">
+                                    <h3 id="ai-sent-title">What's sent to the provider</h3>
+                                    <div class="ai-sent">
+                                        <div>
+                                            <h4 class="ai-section-label">Sent, when you ask</h4>
+                                            <ul class="ai-list">
+                                                <li>What you type</li>
+                                                <li>Your automations, their runs and logs</li>
+                                                <li>Library facts: counts on Wanted, followed artists, your quality
+                                                    target, which modules are on, and for admins the last Setup
+                                                    check results</li>
+                                                <li>Track, album and playlist names, as information only</li>
+                                            </ul>
+                                        </div>
+                                        <div>
+                                            <h4 class="ai-section-label">Never sent</h4>
+                                            <ul class="ai-list">
+                                                <li>Your music files or any audio</li>
+                                                <li>Other secrets: service passwords, Soulseek and media-server
+                                                    credentials, notification tokens and links</li>
+                                                <li>Anything while you're not using the Assistant; it never runs on
+                                                    a schedule</li>
+                                            </ul>
                                         </div>
                                     </div>
                                 </section>

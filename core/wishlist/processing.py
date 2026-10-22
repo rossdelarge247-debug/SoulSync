@@ -657,11 +657,22 @@ def finalize_auto_wishlist_completion(
     # active, defer cycle toggle + state reset until they finish.
     with tasks_lock:
         run_id = ''
+        is_album = False
         if batch_id in download_batches:
             run_id = download_batches[batch_id].get('wishlist_run_id') or ''
+            is_album = bool(download_batches[batch_id].get('is_album_download'))
         siblings_active = bool(run_id) and _wishlist_run_has_siblings_still_active(
             download_batches, run_id, batch_id,
         )
+    # what this batch found counts towards its run's row (HANDOFF 19)
+    from core.automation import run_results as _run_results
+    _run_results.add_batch(run_id, found_tracks=completion_summary.get('tracks_found', 0),
+                           is_album=is_album)
+    if run_id and not siblings_active:
+        try:
+            _run_results.finish(run_id, db_factory())
+        except Exception as exc:  # noqa: BLE001 - bookkeeping never stops the cycle toggle
+            logger.debug("could not record what wishlist run %s found: %s", run_id[:8], exc)
     if siblings_active:
         logger.info(
             f"[Auto-Wishlist] Sub-batch {batch_id[:8]} done; waiting on sibling sub-batches "
@@ -1310,6 +1321,12 @@ def process_wishlist_automatically(runtime: WishlistAutoProcessingRuntime, autom
                 # once-per-run cycle toggle on it) and hand off to the SHARED
                 # wishlist engine — the same code path the manual trigger uses.
                 wishlist_run_id = str(uuid.uuid4())
+                # what this run finds is written back onto the automation's run
+                # row when its batches finish (HANDOFF 19); registered before
+                # the batches go out so a quick one can't finish first
+                from core.automation import run_results as _run_results
+                _run_results.begin(wishlist_run_id, automation_id,
+                                   tracks=len(wishlist_tracks), albums=0)
                 _cycle_result = _run_wishlist_cycle(
                     runtime,
                     playlist_id=playlist_id,
@@ -1319,6 +1336,8 @@ def process_wishlist_automatically(runtime: WishlistAutoProcessingRuntime, autom
                     auto_initiated=True,
                 )
 
+                _run_results.set_searched(wishlist_run_id, tracks=len(wishlist_tracks),
+                                          albums=int(_cycle_result.get('album_batches') or 0))
                 _summary_parts: list[str] = []
                 if _cycle_result['album_batches']:
                     _summary_parts.append(f"{_cycle_result['album_batches']} album batch(es)")

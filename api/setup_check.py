@@ -85,6 +85,9 @@ def run_setup_check():
     except Exception as exc:  # noqa: BLE001 - the runner already contains per-check failures
         logger.error("setup check failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": str(exc)}), 500
+    if scope != "local":
+        # the Assistant quotes the last full run rather than probing again
+        setup_check.remember_report(report)
     response = jsonify({"success": True, **report})
     response.headers["Cache-Control"] = "no-store"
     return response

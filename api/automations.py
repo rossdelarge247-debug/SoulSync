@@ -48,6 +48,18 @@ def configure(*, get_database_, config_manager_, docker_resolve_path_,
 bp = Blueprint('automations', __name__)
 
 
+def _count_assistant_draft(data, status):
+    """A save that came from an Assistant draft counts on Settings → AI's
+    "Drafts saved". The editor marks it with ``assistant_draft: true``."""
+    if status != 200 or not isinstance(data, dict) or data.get('assistant_draft') is not True:
+        return
+    try:
+        from core.ai.store import record_draft_saved
+        record_draft_saved(get_database())
+    except Exception as e:  # noqa: BLE001 - a count never fails the save
+        logger.debug("assistant draft count failed: %s", e)
+
+
 @bp.route('/api/automations', methods=['GET'])
 def list_automations():
     """List all automations for the current profile."""
@@ -99,7 +111,9 @@ def create_automation():
     """Create a new automation."""
     try:
         profile_id = session.get('profile_id', 1)
-        body, status = _auto_api.create_automation(get_database(), automation_engine, profile_id, request.get_json())
+        data = request.get_json()
+        body, status = _auto_api.create_automation(get_database(), automation_engine, profile_id, data)
+        _count_assistant_draft(data, status)
         return jsonify(body), status
     except Exception as e:
         logger.error(f"Error creating automation: {e}")
@@ -122,7 +136,9 @@ def get_automation(automation_id):
 def update_automation_endpoint(automation_id):
     """Update an automation."""
     try:
-        body, status = _auto_api.update_automation(get_database(), automation_engine, automation_id, request.get_json())
+        data = request.get_json()
+        body, status = _auto_api.update_automation(get_database(), automation_engine, automation_id, data)
+        _count_assistant_draft(data, status)
         return jsonify(body), status
     except Exception as e:
         logger.error(f"Error updating automation: {e}")
