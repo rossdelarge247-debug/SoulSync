@@ -2,18 +2,19 @@
 
 New features Ross wants explored, written up so Design can pick them up. Each entry says what the problem is, what the app can and can't give today, and what Design needs to decide.
 
-**Status:** **Exploring** = still being shaped with Ross · **Ready for Design** = Design can draw it · **Designed** = boards on the canvas, waiting for Ross · **Building** = on a branch · **Built** = in `integration` (then it moves to `SCREENS.md`).
+**Status:** **Exploring** = still being shaped with Ross · **Ready for Design** = Design can draw it · **Designed** = boards on the canvas, waiting for Ross · **Approved** = Ross approved the boards; Dev builds from them · **Building** = on a branch · **Built** = in `integration` (then it moves to `SCREENS.md`).
 
 | Feature | Status | Entry |
 | --- | --- | --- |
-| Automation assistant (AI) and a block editor | Ready for Design | [below](#automation-assistant-ai-and-a-block-editor) |
-| Internet radio with track identification | Ready for Design | [below](#internet-radio-with-track-identification) |
+| Automation assistant (AI) and a block editor | Approved | [below](#automation-assistant-ai-and-a-block-editor) |
+| Internet radio with track identification | Approved | [below](#internet-radio-with-track-identification) |
+| Merge duplicate artist | Exploring | [below](#merge-duplicate-artist) |
 
 ---
 
 ## Automation assistant (AI) and a block editor
 
-**Status:** Ready for Design · raised by Ross, 2026-10-22
+**Status:** Approved · raised by Ross, 2026-10-22 · drawn by Design and approved by Ross the same day: `Automation assistant (block editor).dc.html` (3a–3l) and Settings → AI in `Settings AI and Radio.dc.html` (5a). Design's answers are in `HANDOFF.md` (2026-10-22); the build is (d) there.
 
 ### The problem
 
@@ -70,16 +71,27 @@ An automation is one trigger, one action (with an optional wait before it), then
 3. How do suggestions appear: in the assistant only, or also as a card on the Automations list or on Home?
 4. Should the assistant be able to look across the whole app ("why is Wanted so full?") or stay within Automations for the first version?
 
-### Questions for Ross (later)
+### Settled with Ross
 
-- A monthly spending cap or usage display in Settings → AI?
-- Which model by default: the best answers, or the cheaper, faster one?
+- Settings → AI shows usage (requests, an estimated cost from token counts, drafts saved) and an optional monthly cap that stops the Assistant only.
+- The default model is the faster, cheaper one; the best one is a click away.
+
+### Design's questions for Dev, answered from the code
+
+- **A streamed chat route that returns drafts in the body `POST /api/automations/preview` takes:** doesn't exist yet; proposed in `CONTRACTS.md`, "Needs building". It streams over a plain HTTP response (server-sent events). The app runs one gunicorn worker with 8 threads and an open stream holds one, so at most two Assistant streams run at once and a third is told to wait. Every draft is checked against `blocks_for_scope('music')` and `needs_admin()` (`core/automation/blocks.py`, `core/automation/api.py`) before it's sent, so a draft can always be previewed and members never get admin-only steps.
+- **A set-up status route for "Not set up" and the error states:** doesn't exist yet; `GET /api/ai/status` is proposed in `CONTRACTS.md`. The key is stored with the app's other encrypted secrets (`core/settings.py` encrypts them at rest and `redacted_config()` masks them on read).
+- **Plain-language labels on `GET /api/automations/blocks`:** yes. Every trigger, action and notification has a `label` and a `description` (for example "Schedule" / "Run on a timer interval"), and every setting has its own `label`. The Assistant can use them as they are.
+- **Wanted items' added date:** yes, `wishlist_tracks.date_added` (and `last_attempted`), already in the Wanted payload (`core/wishlist/service.py`).
+- **An automation's paused-since:** no. `automations` has `enabled` and `updated_at`, and `updated_at` changes on every edit. It needs a `paused_at` column, set when an automation is turned off and cleared when it's turned on.
+- **"Not now" stored per profile:** nothing general exists (Activity's dismiss is only for expired previews). It needs a small table: profile, the suggestion's key, and when it was dismissed.
+- **What each Wanted search found (HANDOFF 19):** the run's `result_json` exists, but the run ends before its batches finish (they run in the background), so the found count has to be written back to the run row when the batches complete. Built with (d).
+- **Settings → AI:** drawn since (5a).
 
 ---
 
 ## Internet radio with track identification
 
-**Status:** Ready for Design · raised by Ross, 2026-10-22
+**Status:** Approved · raised by Ross, 2026-10-22 · drawn by Design and approved by Ross the same day: `Internet radio.dc.html` (4a–4k) and Settings → Radio in `Settings AI and Radio.dc.html` (5b–5d). Design's answers are in `HANDOFF.md` (2026-10-22); the build is (e) there, after the player (c).
 
 ### The problem
 
@@ -135,8 +147,41 @@ Good radio is one of the best ways to find music, but what you hear is gone the 
 3. How does the auto-add switch read, so people understand it can fill Wanted?
 4. Does "Heard on radio" belong on the radio page, in Activity, or both?
 
-### Questions for Ross (later)
+### Settled with Ross
 
-- A daily auto-add limit per station?
-- Should radio count towards Home (for example, a "Heard this week" number)?
+- Auto-add is limited to 50 a day per station (Settings → Radio can change it).
+- Radio doesn't count towards Home.
+- "Library Radio" becomes "Shuffle your library" if the names get confused (Ross to say).
+
+### Design's questions for Dev, answered from the code
+
+- **Stations, directory search, now playing, Heard, auto-add, tracklists, admin-added links:** none of it exists; all proposed in `CONTRACTS.md`, "Needs building". What's there to build on: Chromaprint (`fpcalc`) and AcoustID (`acoustid.api_key` in settings, used by `core/metadata/manual.py`); the "already in your library?" check (`POST /api/enhanced-search/library-check`); adding to Wanted from an artist and title, as Search does; module switches (`core/modules.py`).
+- **A radio mode for the player:** the player (`static/media-player.js`) plays a URL through one `<audio>` element, so a station can play there. Most streams need the server in between: browsers can't read the titles a stream sends, and many streams are plain `http` or don't allow other sites. The server relays a station only while someone is listening. Each relay holds one of the server's 8 threads, so relays are capped (two at once to start) and an `https` stream that allows it plays directly, with titles taken from the station's own now-playing feed.
+- **Fetching links safely:** the server fetches only stations from the built-in list, the directory, or an admin's link; it refuses private and link-local addresses (the guard chat's link previews use, `api/chat.py`), passes on only audio, and never follows a redirect to a private address.
+- **An Activity kind for auto-add roll-ups:** the feed's kinds are `download`, `import`, `automation`, `sync`, `safety` (`core/activity/feed.py`); this adds `radio`, one item per station per hour.
+- **The radio trigger for the When block:** a new trigger in `core/automation/blocks.py`, "A track I don't have played on a favourite station", fired by the now-playing watcher. It shows in the block editor through `GET /api/automations/blocks` like any other.
+- **Settings → Radio:** drawn since (5b–5d). Setup check gains rows for `fpcalc` and the AcoustID key.
+
+---
+
+## Merge duplicate artist
+
+**Status:** Exploring · from Design's answer to HANDOFF question 14, 2026-10-22, agreed by Ross
+
+### The problem
+
+The same artist can end up as two library artists (different spellings, a "The", a featuring credit). The artist page's "…" menu had "Merge duplicate artist" on the board, but SoulSync has no artist merge.
+
+### What it would be
+
+A Maintenance tool, not an artist-page action, because it rewrites files' metadata: pick the artist to keep and the one to fold in, preview what changes (tracks retagged, albums moved, followed and Wanted entries repointed), then confirm, like the other preview-then-confirm tools (`features/safe-action`).
+
+### What the app gives today
+
+- Moving one album to another artist in the tag tools.
+- Preview-then-confirm plans (`core/library/action_plans.py`) for anything that moves or rewrites files.
+
+### Next
+
+Dev to check how artists are keyed across the library, Wanted and Following before Design draws it.
 

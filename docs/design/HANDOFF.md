@@ -4,60 +4,98 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Everything in the handoff package is built and in `integration`. These are the questions the builds raised, gathered from the log entries below (each entry has the detail and the screenshots it was checked against). Answer on the canvas, naming the board, as before.
-
-**Navigation (Nav v2, 1m/1n)**
-1. Dev placed the pages the boards don't show: Discover after Search and Playlist explorer after Mirrored playlists (Get music), Import and Stats after Albums (Library). Redraw if you'd place them differently.
-2. The profile, a "Connections" row (service status), "What's new" and "Support SoulSync" sit at the foot of the sidebar and in Admin and help.
-3. The phone layout starts at 768px wide, not 390px, so phones up to 430px and small tablets don't get the 256px sidebar.
-4. The video side on phones uses the same five tabs, with "Find" for "Get music".
-
-**Home (Main v2, 1a–1c)**
-5. Where each "Library and system" section (today's dashboard: library, enrichment workers, listening, playlist sync, up next, quick settings) should finally live: Home, Library, Automations or Settings.
-6. Where the connection alerts go, and whether "Search for music" stays on the phone.
-
-**Wanted (2a–2d)**
-7. Followed statuses are "New release / Not checked yet / Nothing new", since Complete and Incomplete need discographies SoulSync doesn't store. Right set?
-8. The Followed hover action is "Open artist" (there's no data for "Want all missing"). What should it be?
-9. Draw the nebula and the followed labels, podcasts and audiobook authors in the new style, or leave them behind the "…" menu?
-
-**Artist (2g/2h)**
-10. Is the release card's "⋮" (tracklist, Play, Show in your library, MusicBrainz) the right home for those actions?
-11. Bring back the old "Owned" filter as "In your library"?
-12. Please draw the Tracks, Similar artists and About views, and say whether About is a tab.
-13. Keep "132 tracks" (the library's count) in the header line?
-14. Hide and Merge duplicate artist don't exist as features: drop them, or should they be built?
-
-**Search and the dialogs (2m–2r)**
-15. Keep the Soulseek filter row on phones (2n drops it, but then a phone can't leave "At your target")?
-16. Is the metadata service picker beside the section's counts in the right place?
-17. Is a "Top result" needed, or is the library's artist row enough?
-18. What should a library album below the quality target offer, if not Open?
-
-**Automations (2i–2l)**
-19. The Runs numbers for the Wanted search are Done / Failed runs / Typical, because each run doesn't record what it found. Keep, or should the engine start recording finds so "Found" can return?
-20. "Only by hand": a real trigger, or is Paused plus Run now enough?
-21. Filters, group picker and search on one row above the cards: fine, or would you place them?
-22. Wording for steps that can't be previewed (Deep Scan and the duplicate cleaner preview when run instead).
-23. Built-in automations: after yours with a Built-in filter, or their own section?
-24. Keep "Open in the full builder" for what the editor doesn't cover, or plan to retire it?
-
-**Phone (all pages)**
-25. The floating notification, help and activity buttons now hide while a dialog is open; elsewhere they sit above the tab bar. Should they move into the top bar on phones?
-
-**The last preview gaps (no boards)**
-26. Video repair's title stays "Fix 4 findings?" when some deletes are permanent (the lead starts "This can't be undone."). Should it say "Permanently delete …"?
-27. The "Keep lossy output only" turn-on confirm: the shared dialog with three points and no file list. Draw it?
-28. The audiobook bin's confirm opens over the Removed & refused modal. Fine, or should the modal step aside?
+Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). These five came in with the upstream sync after that session read the repository, so they are still open. Answer on the canvas, naming the board, as before.
 
 **Upstream sync (no boards)**
 29. Home's "Finish setting up" card sits under Latest. Right place, or above Targets while setup is fresh?
 30. Upstream rebuilt the Downloads page (`/active-downloads`, music and video) in its own look: pill chips, 11–13px text, 30–32px buttons. Restyle it to the design system now, or draw it first?
 31. The first-run setup flow is upstream's full-screen React flow with its own look. Draw it in the design system?
-32. Wanted's nebula now groups artists by what's stuck and opens an artist panel beside the field (upstream's look, kept). Is this the nebula you'd draw (question 9)?
+32. Wanted's nebula now groups artists by what's stuck and opens an artist panel beside the field (upstream's look, kept). Answer 9 says the nebula isn't coming back, but it was written before this version arrived: remove "Show as a nebula", or keep this one?
 33. The video side's Wishlist is upstream's React page with the old music Wishlist's look (an ambient gradient hero, pill chips). Draw the video side's version of Wanted?
 
 ## Log
+
+### 2026-10-22: Design, the two BACKLOG features, the player and Lilac (approved by Ross)
+
+From Design's session in the Claude Design project: `design_handoff_syncfm_ui/README.md` ("Added 2026-10-22") and the "Start here - Design notes 2026-10-22" board. New boards: `Automation assistant (block editor).dc.html` (3a–3l), `Internet radio.dc.html` (4a–4k), `Settings AI and Radio.dc.html` (5a–5d), `Followed (kind filter).dc.html` (5e), `Settings Appearance.dc.html` (5f) and `Player rail (exploration).dc.html` (6a chosen, 6b the alternative not taken). The 1440 boards include the real shell (256px sidebar, top bar), so their content pane is the width to build to. Nothing earlier was overwritten; the block editor sits beside 2j/2l in its own file.
+
+**Approved by Ross ("yes to all"):** the Assistant's placement and the block editor (3a–3l); Radio's placement, the player/page split and the Heard list (4a–4k); an auto-add limit of 50 a day per station; Settings → AI and Settings → Radio (5a–5d); the Following tab's Kind filter (5e); Settings → Appearance with Lilac (5f); the player 6a.
+
+**Decisions**
+
+- **The player is 6a:** a 72px bar pinned full width along the bottom of the window (under the sidebar as well as the page) that expands into a 360px tray; the page keeps its width and loses height. One component, two states, remembered per browser. Details in `DESIGN-SYSTEM.md`, "Player bar and tray".
+- **The accent is Lilac:** today's "Boulder Purple" preset, `#8b5cf6` with accent-light `#c2a9fa` (dark text 9.7:1). Rename "Boulder Purple" to "Lilac" and "Purple" (`#a78bfa`) to "Pale Purple" in `#accent-preset`. Every board from this session renders in Lilac; the earlier boards stay green.
+- **Names:** "Library Radio" becomes "Shuffle your library" if it gets confused with Radio once Radio exists (Ross to say). Merge duplicate artist goes to `BACKLOG.md` as Exploring, as a Maintenance tool with preview-then-confirm.
+- **Settled with Ross (BACKLOG "Questions for Ross"):** Settings → AI shows usage and an optional monthly cap, estimated locally from token counts; the default model is the faster, cheaper one, with the best one a click away. Auto-add is limited to 50 a day per station; radio doesn't count towards Home.
+- **Still Ross's to decide:** Lilac as the default for new installs, or keep Spotify Green upstream and set Lilac on his install. Until he says, the default stays Spotify Green.
+
+**BACKLOG: Questions for Design, answered**
+
+Automation assistant and block editor (3a–3l):
+1. **Where it lives:** one panel in two places. "Assistant" in the Automations header opens it in the right column, in place of Runs on the list and beside the blocks in the editor (where the column has Assistant / Preview tabs). One conversation follows you between the two. Not a tab beside the list: what you ask about stays in view. Phone: a full-screen sheet (3k).
+2. **Next to today's editor:** the block editor replaces it; it isn't a mode. Same page, same Name / Group / Preview / Save. "Runs" becomes the When block, step 1 the Do block, follow-ups are Then blocks with drag handles and "/" on the empty line. One When, one Do, up to three Then, drawn honestly (3b, 3l). Step 1's "Open in the full builder" goes; the header "…" keeps it until the pipeline playlist kinds are covered.
+3. **Suggestions:** in the Assistant, and one at a time as a quiet dashed card at the top of the Automations list, only when the Assistant is set up and the reason has a number in it. "Not now" hides it per profile. Not on Home in the first version.
+4. **Scope:** Automations for the first version, reading the app-wide facts BACKLOG lists to explain and suggest. "Why is Wanted so full?" gets an automation-shaped answer; anything else says what the Assistant is for and points to Help.
+
+Internet radio (4a–4k):
+1. **Navigation and name:** "Radio", in Get music after Mirrored playlists: its one job ends in Add to Wanted, so it's a way of getting music. The module is "Internet radio". "Library Radio" stays in the player.
+2. **Player versus page:** the player carries the station with a Live tag, the identified track with how long ago, and one action (Add to Wanted, or the In your library tag). Everything else (stream picker, auto-add, Heard, tracklists) is on the station's page. On a phone the mini bar opens a sheet with the card, Add, auto-add and Heard (4j).
+3. **The auto-add switch:** the Modules switch in its own card, headed "Auto-add what NTS 1 plays to Wanted", with the guards in the sentence (skips what you have or want, at your quality target, shows in Activity) and yesterday's identified count. Off by default per station; turning it on asks first with the numbers (4d).
+4. **Heard on radio:** both, with different jobs. The radio page keeps the list (per station, and a Heard tab across stations) for adding later. Activity records only what auto-add added, rolled up per station per hour.
+
+**Open questions 1–28, answered**
+
+Navigation (Nav v2, 1m/1n)
+1. Agreed as built. Note for later: Get music is getting long (Radio adds a row); folding Discover into Search's idle page is the next step for BRIEF problem 1 (an Idea in `SCREENS.md`).
+2. Keep only the profile row at the foot of the sidebar. Connections, What's new and Support SoulSync live in Admin and help only, so the pinned block stays three rows. A service that's down lights the Admin and help dot, the way a Setup check problem does, with the word on the Connections row.
+3. 768 is right; the 390 boards are the floor, not the breakpoint. A compact rail for 768–1040 can wait until someone asks.
+4. Fine. "Find" on the video side; "Get music" on the music side.
+
+Home (Main v2, 1a–1c)
+5. Home keeps Targets and Latest only. Library stats go to Library's index page when it's rebuilt; enrichment workers to Activity as running items (controls in Settings → Metadata); listening to the player and Library → Listening history; playlist sync to Mirrored playlists; up next is each Automations card's next run; quick settings to Settings. Until each has landed, "Library and system" stays on Home as one closed disclosure at the foot.
+6. Connection alerts: the target card that can't search says why (built) and Activity's Needs you lists the outage. One warning Notice at the top of Home only while a target can't search; never a stack. "Search for music" stays on the phone as the header's secondary button.
+
+Wanted (2a–2d)
+7. Right set: New release (info), Not checked yet (neutral), Nothing new (neutral), plus "Checking…" with the live dot while a check runs. Complete / Incomplete stay out until discographies exist.
+8. "Open artist" is right; the artist page has "Add all missing to Wanted".
+9. The nebula isn't coming back (but see open question 32). Followed labels, podcasts and audiobook authors become a Kind filter on the tab, renamed "Following" (5e).
+
+Artist (2g/2h)
+10. Yes, the "⋮" is the right home; the title click stays the tracklist too.
+11. Yes, as a fourth filter: All · In your library · Missing · Albums.
+12. About isn't a tab: it goes in the "…" menu as a dialog (bio, links, Following settings). Tracks and Similar artists as built are fine; Design can draw them if Ross wants them checked.
+13. Keep it, worded so it can't read as a total: "14 releases · 9 in your library (132 tracks) · 5 on Wanted".
+14. Drop Hide. Merge duplicate artist is real but belongs in Maintenance with preview-then-confirm: BACKLOG, Exploring.
+
+Search and the dialogs (2m–2r)
+15. Keep the filter row on phones, scrolling sideways, as built.
+16. Right place.
+17. No Top result: the library's artist row leads; an artist found only on the metadata service leads its own section.
+18. Keep Play and Open. A row with the "Below quality target" tag also gets a "Better copies below" link that jumps to that album's Soulseek row when the search has one; otherwise nothing.
+
+Automations (2i–2l)
+19. Keep Done / Failed runs / Typical for now, and have the Wanted search record what each run found (a count on `result_json`), so "Found" can return. The Assistant's explanations want that number too.
+20. Paused plus "Run it once now" is enough; no new trigger.
+21. One row is fine (3a). On phones the row scrolls sideways and the search folds into an icon button at its end.
+22. Wording: "Can't be previewed: Deep Scan decides what to move while it runs. Run now shows you the list before anything moves." Same shape for the duplicate cleaner.
+23. After yours with the Built-in filter, as built, and "Built-in" on those cards' schedule line (3a).
+24. Plan to retire it: "Open in the full builder" only in the header "…" until the editor covers the pipeline playlist kinds; the block editor drops the step-1 entry now.
+
+Phone and the last preview gaps
+25. Into the top bar, so phones have no floating buttons. Notifications merge into the Activity icon (one warning dot, as 1n draws it); help moves to the Settings sheet's Help row and a "?" in the header of pages that have a tour.
+26. The title names the worst thing that happens: "Permanently delete 2 files?" whenever any delete is permanent, with the full picture in the lead ("Fixes 4 findings: 2 files deleted for good, 1 moved to the recycle bin, 1 renamed."). "Fix 4 findings?" only when nothing is permanent.
+27. Right as built.
+28. Fine as a stopgap; the modal steps aside when Removed & refused becomes a tab of the Audiobooks page.
+
+**Dev's build order** (one branch from `integration` each; screenshots back here):
+
+- **(a) The small changes:** answers 2, 7 (the Checking… state), 11, 13, 14 (BACKLOG entry), 18, 22, 23, 25 and 26. The nebula half of 9 waits for open question 32.
+- **(b)** Settings → Appearance (5f) with the Lilac rename, and the Following tab's Kind filter (5e).
+- **(c)** The player (6a).
+- **(d)** Settings → AI (5a) and the Assistant with the block editor (3a–3l). Answers 21 and 24 come with it, and 19 (the Wanted search recording what it found), which the Assistant's explanations need.
+- **(e)** Settings → Radio (5b–5d) and Internet radio as a module (4a–4k), with the player's radio mode.
+
+Not built now: answer 5 waits for the pages it hands sections to; 6 and 12 aren't in this round (Ross to say); 1, 3, 4, 8, 10, 15–17, 20, 27 and 28 need no change.
 
 ### 2026-10-22: Dev, upstream sync
 

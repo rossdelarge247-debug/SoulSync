@@ -37,13 +37,15 @@ Weights: 400 body, 500 controls, 600 headings, 700 page titles and big numbers. 
   | --- | --- | --- | --- |
   | Spotify Green (default) | `#1db954` | `#46e27d` | 11.6:1 |
   | Ocean Blue | `#1d8ab9` | `#46b3e2` | 8.2:1 |
-  | Purple | `#a78bfa` | `#e2d9fd` | 14.6:1 |
-  | Boulder Purple | `#8b5cf6` | `#c2a9fa` | 9.7:1 |
+  | Pale Purple (was "Purple") | `#a78bfa` | `#e2d9fd` | 14.6:1 |
+  | **Lilac** (was "Boulder Purple") | `#8b5cf6` | `#c2a9fa` | 9.7:1 |
   | Sunset Orange | `#f59e0b` | `#f8bd59` | 11.6:1 |
   | Rose | `#f43f5e` | `#f88c9f` | 8.6:1 |
   | Teal | `#14b8a6` | `#35e9d5` | 12.9:1 |
 
-  There is also "Custom" (any hex). The server (`web_server.py`) and `init.js` (`applyAccentColor`) compute the pair; CSS reads them as `--ss-accent-rgb` and `--ss-accent-light-rgb`.
+  **Lilac is the fork's accent** (Ross, 2026-10-22): every board from Design's 22 October session renders in it (`--ss-accent-rgb: 139,92,246; --ss-accent-light-rgb: 194,169,250`), while the earlier boards still show green. Whether it becomes the default for new installs is Ross's to say; until then the default stays Spotify Green. Settings → Appearance (5f) shows each preset as a radio card with a 60×40 two-tone swatch (accent | accent-light) and a preview strip of the five things the accent touches: the primary button, a selected row, a link, the focus ring and the played waveform.
+
+  There is also "Custom" (any hex). On Settings → Appearance it's checked for 4.5:1 dark text on its accent-light; a hex that fails says so and offers the nearest preset. The server (`web_server.py`) and `init.js` (`applyAccentColor`) compute the pair; CSS reads them as `--ss-accent-rgb` and `--ss-accent-light-rgb`.
 - **Status:** success `#4ade80`, warning `#fbbf24`, danger `#f87171`, info `#38bdf8`, neutral 86% white on a 6% wash. Tags use the colour at 12% as the background and the colour as the text, with an 8px dot. Status always comes with a word, and an icon where there's room.
 - **Grounds:** dialogs `#17171c`, note cards and popovers `#141416`, the scrim behind a dialog `#0a0c11`, sample-table headers in a dialog `#1d1d23`.
 - No gradient washes, no left-border accent cards, no emoji.
@@ -154,6 +156,46 @@ A page builder's loading and empty states, for example:
   <List rows={rows} />
 )}
 ```
+
+## Approved patterns, not built yet (Design, 2026-10-22)
+
+Drawn by Design and approved by Ross on 22 October (`HANDOFF.md`). They move to "Components" or "Patterns already built" when they land.
+
+### Block card (the automation editor, 3b)
+
+- An automation is a stack of block cards: one **When**, one **Do** (with "after waiting N minutes"), and up to three **Then**. Each card is a 14px card in a `72px 1fr 44px` grid: a 12px uppercase label column ("WHEN", "DO", "THEN"), the block's settings inline (the selects and fields as before), and a 44px "…" or drag handle.
+- Then cards have a drag handle and reorder by dragging (and with the keyboard, through the handle's menu).
+- The line under the last Then card reads "Type / to add a follow-up · N of 3 left". Typing "/" there opens a `#141416` menu with Notify, Fire a signal, Run a script (admins only) and Ask the Assistant.
+- A draft from the Assistant opens with an info `Notice` at the top saying where it came from; every block it added can be changed or removed like any other.
+- The editor shows the engine's shape honestly: no second Do, and a fourth Then isn't offered.
+
+### Assistant panel (3a–3l)
+
+- Opened by "Assistant" in the Automations header. On the list it takes the right column (440px) in place of Runs; in the editor it shares the right column with Preview as two tabs. One conversation follows you between the two. On a phone it's a full-screen sheet.
+- Header: the title at 18px, "New chat" and a 44px close. Then the thread: paragraphs labelled "You" and "Assistant". Library text the Assistant quotes (names, run logs) is shown as data, logs in Activity's `<pre>` style.
+- **Draft card:** a "Draft ready" info tag, a one-line summary, a "Why this shape" line naming the facts used, a When / Do / Then mini list, then "Open in the editor" (primary on the list), "Preview a run" and "Try again".
+- **Composer:** a textarea with a 44px send button; under it the data line "Writes drafts only. Sends … to Anthropic (Settings → AI)." The first time someone uses it, the same sentence shows as a Notice above the thread.
+- **States:** Not set up (admins get "Open Settings → AI"; members get a sentence and no composer); Thinking (spinner, what it's reading, Stop); Couldn't build (a warning Notice naming the engine's limit, then a "Nearest I can build" card); provider errors as Notices: a wrong key or offline is danger, out of credit or rate-limited is warning, and the message stays in the composer.
+- **Suggestion card on the list:** one at a time at the top of the list, a quiet card with a dashed 16% border, labelled "Suggested by the Assistant", with its reason (always with a number), "Use this" and "Not now".
+
+### Player bar and tray (6a)
+
+One component with two states, remembered per browser like the compact rail; both toggles carry `aria-expanded` pointing at the tray. It replaces the media player's chrome.
+
+- **Bar (default):** 72px, pinned full width along the bottom of the window, under the sidebar as well as the page, on `#101010` with a top hairline. Grid `340px 1fr 400px`, padding 0 24px.
+    - Left: a button holding 48px art, the title at 15/500 and "artist · format" as meta; clicking it expands the tray.
+    - Centre: Previous, a 44px Pause in accent-light (10px radius, dark glyph), Next; the elapsed time (mono 14, tabular figures), a 28px waveform filling the remaining width, the total time.
+    - Right: a volume icon and a 96px slider, a 44px output button, "Up next · N", and a labelled **Expand** button (chevron up, a 44px ghost with a 16% border).
+- **Tray:** 360px tall, rising from the bar; the page keeps its width and loses height. Grid `280px 1fr 360px`, gap 32, padding 24 24 20.
+    - Left, the record: 112px art, a "Now playing" label, the title at 18/600, the artist as a link, "album · year · track n of m"; a mono readout box (4% fill, 9% border, 10px radius) with Format ("FLAC 24/96 · 2,304 kbps") and Path ("Library → Living room"); the quality tag ("At your target") and "Open album".
+    - Centre, the deck: a 72px scrubbable waveform (played bars accent-light, the rest 24% white, 2px gaps, 1px radius); elapsed on the left and remaining on the right (mono, tabular); Shuffle, Previous, a 48px Pause, Next and Repeat (44px square ghosts); then volume (140px) with a "−12 dB" mono readout and the output button ("Living room · AirPlay", 16% border).
+    - Right, the list: Up next (count) / Recent as OptionButtons, Clear, and a labelled **Collapse** (chevron down) in the corner; queue rows at 56px in a `20px 40px 1fr auto` grid (grip, 40px art, title with "artist · format" or "podcast · 1.2×", duration in mono) on hairlines, reordered by dragging; a footer "4 of 8 · then the rest of Lantern · Show all". Escape also collapses.
+- **Other sources:** radio shows a Live tag instead of the times, the identified track with Add to Wanted (or the In your library tag), and a level meter in place of the waveform (4a, 4b). Podcasts and audiobooks get a speed button ("1.2×"), −15 s / +30 s instead of Previous / Next, and chapter ticks on the waveform.
+- **Phone:** a 64px mini bar above the tab bar (art, track · source, the one action, Stop) that opens a `#141416` sheet with the big card, transport, volume, output and Up next or Heard (4i, 4j).
+
+### Station card (radio, 4a)
+
+A 14px card: a 56px logo (6px radius), the name at 16/600, "kind · city", the declared quality as meta (FLAC as a success tag) and a 44px Play. The playing station uses the selected style with a "Playing" tag. Rows of four on the radio home.
 
 ## Patterns already built
 

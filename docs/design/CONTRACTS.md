@@ -337,6 +337,89 @@ The Activity feed above already merges these (and the mirror runs behind `GET /a
 
 ## Needs building
 
-Nothing at the moment. Ask in `HANDOFF.md`.
+For the boards Ross approved on 22 October (`HANDOFF.md`). Field names may change while they're built; Dev moves each section to "Built" when it lands.
+
+### The Assistant (build d; boards 3a–3l, Settings → AI 5a)
+
+**Status: `GET /api/ai/status`** returns `{success, configured, can_use, reason, model}` for everyone, plus `usage` for admins.
+- `reason` is `null` when the Assistant can be used, else `not_configured` (no key), `members_not_allowed` (Settings → AI says admins only), `cap_reached` (this month's cap is spent) or `key_refused` (the last test or call was refused).
+- `model` is `fast` (the default, "Faster and cheaper") or `best`.
+- `usage` is `{month, requests, input_tokens, output_tokens, estimated_cost_usd, drafts_saved, cap_usd}`. The cost is estimated locally from token counts; `cap_usd` is `null` without a cap.
+
+**Settings (admins): `GET`, `PUT /api/ai/settings`; `POST /api/ai/test`.** Settings are `{provider: "anthropic", api_key, model, who_can_use: "admins"|"everyone", monthly_cap_usd}`. `api_key` is write-only: `GET` returns it masked, and it's stored encrypted with the app's other secrets. `POST /api/ai/test` returns `{ok, message}` ("Key accepted", or the provider's reason in plain words).
+
+**The conversation: `POST /api/ai/assistant`**, streamed as server-sent events.
+- Body: `{conversation_id?, message, context}`. `context` is `{page: "list"|"editor", automation_id?, draft?, run_id?}`: what's on screen, so "explain this" and "fix this run" need no ids typed.
+- Events:
+    - `status` `{reading}`: what it's looking at ("your automations and their last 10 runs"), for the Thinking state.
+    - `text` `{delta}`: the reply, a piece at a time.
+    - `draft` `{draft, summary, why, facts}`: `draft` is exactly the body `POST /api/automations/preview` takes, already checked against `GET /api/automations/blocks` and the viewer's role; `why` is the "Why this shape" line and `facts` the numbers it used.
+    - `cant_build` `{missing, nearest}`: what the engine can't do (for example "several actions in a row") and the nearest draft it can build.
+    - `suggestions` `{items: [{key, title, reason, draft}]}`.
+    - `error` `{code, message}`: `code` is `bad_key`, `no_credit`, `rate_limited`, `offline`, `cap_reached` or `busy` (two streams are already running). Nothing typed is lost.
+    - `done` `{conversation_id, usage}`.
+- Stop: the browser closes the stream and the server stops calling the provider.
+- Library text (track, playlist and automation names, run logs) goes to the model only as quoted data, and every draft is re-checked before it's sent.
+- The conversation is kept per profile in the browser session; `conversation_id` lets the server keep the last few turns for context.
+
+**The suggestion card: `GET /api/ai/suggestion`** returns `{suggestion: {key, title, reason, draft_prompt} | null}`: one at a time, only when the Assistant can be used and the reason has a number in it. It's worked out locally from the library's facts (no model call); "Use this" sends `draft_prompt` to the conversation. **`POST /api/ai/suggestion/<key>/dismiss`** is "Not now", kept per profile.
+
+**Additions to existing routes:**
+- Automations (`GET /api/automations`, `GET /api/automations/<id>`) gain `paused_at`: when it was turned off, or `null`.
+- The Wanted search's runs record what they found on `result_json`: `{found: {tracks, albums}, searched: {tracks, albums}}`, written back when the run's batches finish (HANDOFF 19).
+
+### Internet radio (build e; boards 4a–4k, Settings → Radio 5b–5d)
+
+All behind the "Internet radio" module (`radio` in `GET /api/modules`).
+
+**Stations**
+- `GET /api/radio/stations` returns `{favourites: [station], kinds: [{kind, label, stations: [station]}]}` for the built-in picks, in the order electronic, world, eclectic, jazz_soul_funk.
+- A station is `{id, name, kind, city, country, logo_url, homepage, description, source, favourite, auto_add, has_now_playing, has_tracklists, streams}`. `source` is `built_in`, `directory` or `your_link`. `streams` is `[{id, codec, bitrate_kbps, lossless, label}]`, best first ("AAC 256 kbps (best offered)").
+- `GET /api/radio/stations/<id>` returns one station, with `now_playing` (below) when it's playing.
+- `POST`, `DELETE /api/radio/favourites/<station_id>`: favourites are per profile.
+- `GET /api/radio/directory?q=&codec=&min_bitrate=&country=&page=` searches the Radio Browser directory: `{results: [station], total}`.
+
+**Playing**
+- `POST /api/radio/play` `{station_id, stream_id?}` returns `{play_url, mode, session_id}`. `mode` is `direct` (an `https` stream that allows it) or `relay`, where `play_url` is `/api/radio/relay/<session_id>`. A relay passes on audio only and ends when the listener stops. Relays are capped (two at once to start; a third gets `{error: "busy"}`), because each holds one of the server's threads.
+- `POST /api/radio/stop` `{session_id}`.
+
+**Now playing:** `GET /api/radio/now-playing?station_id=`, also pushed over Socket.IO as `radio:now_playing` while a station plays. It returns `{state, track, source, identified_at, library, on_wanted, reason}`.
+- `state`: `identified`, `listening`, `not_identified`, `off` (identification turned off) or `unavailable`.
+- `track`: `{artist, title, release, art_url}` or `null`.
+- `source`: `station_feed`, `stream_titles` or `fingerprint`.
+- `library`: `{in_library, below_target, track_id}`.
+- `reason`: why when not identified, for example "This is a live DJ mix", or "The station doesn't publish what's playing and the fingerprint service didn't recognise it".
+
+**Heard on radio**
+- `GET /api/radio/heard?station_id=&days=` returns `{items: [{id, heard_at, station_id, station_name, artist, title, state, source}]}`, newest first, kept for Settings → Radio's days. `state` is `in_library`, `on_wanted`, `added_by_auto_add`, `not_added` or `cant_match`.
+- `POST /api/radio/heard/<id>/want` adds one to Wanted at the quality target; the reply is the item with its new state.
+
+**Auto-add**
+- `GET /api/radio/stations/<id>/auto-add` returns `{enabled, identified_yesterday, already_have, would_add, daily_limit}`: the numbers the confirm (4d) shows.
+- `PUT` the same route with `{enabled}`; turning it on needs download rights.
+- Auto-add skips what's in the library or on Wanted, never adds a track twice, stops at the daily limit, and records an Activity item of a new kind, `radio`, one per station per hour ("Auto-add added 3 tracks from NTS 1").
+
+**Tracklists**
+- `GET /api/radio/stations/<id>/shows` returns `{shows: [{id, title, aired_at, track_count}]}` for stations that publish them.
+- `GET /api/radio/shows/<id>` returns `{show, tracks: [{position, time, artist, title, state}]}`; a track without an artist has `state: "cant_match"`.
+- `POST /api/radio/shows/<id>/want-missing` adds the ones you don't have and returns `{added, skipped}`.
+
+**Your stream links (admins)**
+- `POST /api/radio/links/check` `{url}` returns `{ok, codec, bitrate_kbps, sends_titles, error}`. It refuses private and link-local addresses and anything that isn't audio ("This link isn't an audio stream").
+- `POST /api/radio/links` `{url, name, kind}` adds a link and needs a passing check; `DELETE /api/radio/links/<id>` removes one.
+
+**Settings (admins):** `GET`, `PUT /api/radio/settings` with `{identification, acoustid_api_key, daily_limit, relay: "when_needed"|"always", prefer_lossless, keep_heard_days}`. `daily_limit` defaults to 50. The AcoustID key is the existing `acoustid.api_key`.
+
+**The radio trigger:** `radio_track_heard` in `GET /api/automations/blocks`, "A track I don't have played on a favourite station", with `{stations: "favourites" | [station ids]}`.
+
+**Setup check:** new rows `radio.fpcalc` (Chromaprint installed) and `radio.acoustid` (key set and accepted), shown while the module is on.
+
+### The player (build c; board 6a)
+
+- **Waveform peaks:** `GET /api/library/tracks/<id>/peaks` returns `{peaks, duration_s}`. `peaks` is 200 values from 0 to 1. The first request for a track answers `202 {pending: true}` and works them out in the background with Sample Studio's decoder (`core/sample/analyze.compute_peaks`). They're kept per track until the file changes, so imports stay as fast as today.
+- **Audio details for the readout:** `GET /api/library/tracks/<id>/details` returns `{format, bitrate_kbps, bit_depth, sample_rate, path_label}` ("FLAC 24/96 · 2,304 kbps", "Library → Living room"). The library stores bitrate; bit depth and sample rate are read from the file once and kept on the track.
+- **Output devices:** nothing on the server. The browser lists what it can switch to (speakers and headphones in Chrome and Edge; the AirPlay picker in Safari), and the output button hides when the browser offers nothing. Playing on a Plex, Jellyfin or Navidrome client, or Chromecast, isn't proposed yet.
+- **Up next and Recent:** the queue stays in the browser as the player keeps it today. Recent comes from the listening history, through a small `GET /api/player/recent?limit=20` returning `{items: [{track_id, title, artist, played_at}]}`.
+- **Radio and spoken word:** radio mode uses the radio routes above; podcasts and audiobooks keep their own routes and get the speed button, −15 s / +30 s and chapter ticks.
 
 Shapes under "Needs building" are proposals until built. Dev updates this file when they are.
