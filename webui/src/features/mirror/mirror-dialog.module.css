@@ -1,0 +1,398 @@
+/* "Mirror a playlist", to boards 2o (680px dialog) and 2p (390, full-screen
+   sheet). Radii 6 / 10 / 14 / 16; reading text 14px or larger. */
+
+.popup.popup {
+  width: min(680px, 100%);
+  border-radius: var(--ss-radius-dialog);
+  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--ss-ground-dialog);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
+}
+
+.popup.popup h2 {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.popup.popup [data-slot='disabled-reason'] {
+  order: -1;
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  text-align: right;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.phoneOnly {
+  display: none;
+}
+
+.faders {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  transition: opacity var(--ss-motion, 120ms) var(--ss-ease, ease);
+}
+
+.faders[data-faded='true'] {
+  opacity: 0.5;
+}
+
+/* ── From ──────────────────────────────────────────────────────────── */
+
+.from {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fromHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fromLabel {
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.dot[data-tone='success'] {
+  background: var(--ss-success);
+}
+
+.sources {
+  display: flex;
+  gap: 8px;
+}
+
+.note {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── The search / link field ───────────────────────────────────────── */
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid var(--ss-input-border, rgba(255, 255, 255, 0.24));
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-input-fill, rgba(255, 255, 255, 0.04));
+  cursor: text;
+  transition: var(--ss-transition);
+}
+
+form.field {
+  padding-right: 0;
+  overflow: hidden;
+}
+
+form.field > button {
+  border-width: 0 0 0 1px;
+  border-radius: 0;
+}
+
+.field:hover {
+  border-color: var(--ss-input-border-hover, rgba(255, 255, 255, 0.32));
+}
+
+.field:focus-within {
+  border-color: rgba(var(--ss-accent-light-rgb), 0.6);
+}
+
+.field[data-invalid='true'] {
+  border-color: rgba(var(--ss-danger-rgb), 0.6);
+}
+
+.fieldIcon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.62);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.fieldInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+}
+
+.fieldInput::placeholder {
+  color: var(--ss-text-meta);
+}
+
+.linkBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldError {
+  margin: 0;
+  color: var(--ss-danger);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── The playlist list ─────────────────────────────────────────────── */
+
+.list {
+  max-height: 264px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--ss-radius-card);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 20px 44px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 64px;
+  box-sizing: border-box;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.row + .row {
+  border-top: 1px solid var(--ss-hairline, rgba(255, 255, 255, 0.08));
+}
+
+.row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.row[data-selected='true'] {
+  background: rgba(var(--ss-accent-rgb), 0.1);
+}
+
+.row[data-disabled='true'] {
+  color: var(--ss-text-meta);
+  cursor: default;
+}
+
+.row[data-disabled='true']:hover {
+  background: none;
+}
+
+.row:has(.radio:focus-visible) {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset-inset, -2px);
+}
+
+.radio {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: rgb(var(--ss-accent-light-rgb));
+  cursor: inherit;
+}
+
+.radio:focus-visible {
+  outline: none;
+}
+
+.art {
+  display: block;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--ss-radius-tag);
+  background: rgba(255, 255, 255, 0.08);
+  object-fit: cover;
+}
+
+.row[data-disabled='true'] .art {
+  opacity: 0.6;
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowTitle {
+  overflow: hidden;
+  color: var(--ss-text);
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row[data-disabled='true'] .rowTitle {
+  color: var(--ss-text-secondary);
+}
+
+.rowMeta {
+  overflow: hidden;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowAside {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.rowProblem {
+  color: var(--ss-danger);
+}
+
+.mirroredWord {
+  color: var(--ss-success);
+}
+
+/* ── Options and consequence ───────────────────────────────────────── */
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--ss-surface-card-border, rgba(255, 255, 255, 0.09));
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-card, rgba(255, 255, 255, 0.04));
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  color: var(--ss-text);
+  font-size: 15px;
+}
+
+.optionText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.optionHelp {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.consequence {
+  margin: 0;
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── Phone (board 2p): a full-screen sheet ─────────────────────────── */
+
+@media (max-width: 600px) {
+  div:has(> .popup.popup) {
+    padding: 0;
+  }
+
+  .popup.popup {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+  }
+
+  .popup.popup h2 {
+    font-size: 20px;
+  }
+
+  .wideOnly {
+    display: none;
+  }
+
+  .phoneOnly {
+    display: inline;
+  }
+
+  .sources > * {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
+  .row {
+    grid-template-columns: 20px 44px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .rowAside:empty,
+  .rowAside {
+    display: none;
+  }
+
+  /* the 2p options are one switch row, no card */
+  .options {
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .popup.popup > :last-child {
+    flex-direction: column-reverse;
+    /* the sheet's body scrolls; the footer never shrinks into a second column */
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+  }
+}
