@@ -183,77 +183,76 @@ export function NebulaView({
     bulk.mutate({ action: 'skip', ids: groupIds(group) });
   };
 
+  // NebulaStage draws the .wl-nebula wrapper itself
   return (
-    <div className="wl-nebula">
-      <NebulaStage
-        sheetOpen={sheetGroup !== null}
-        field={
-          <div className={`wl-nebula-field wlp-field${processing ? ' nebula-processing' : ''}`}>
-            {visible.length === 0 ? (
-              <div className="wl-nebula-empty">
-                Nothing matches. Clear the filter to see everyone.
-              </div>
-            ) : (
-              zones.map((zone) => (
-                <NebulaZone
-                  key={zone.kind}
-                  kind={zone.kind}
-                  title={zone.title}
-                  sub={zone.sub}
-                  action={
-                    zone.stuckIds.length > 0
-                      ? {
-                          label:
-                            zone.stuckIds.length === 1
-                              ? 'Retry now'
-                              : `Retry all ${zone.stuckIds.length}`,
-                          title: 'Clear the retry wait so the next search tries these again',
-                          disabled: bulk.isPending,
-                          onClick: () => retry(zone.stuckIds),
-                        }
-                      : null
-                  }
-                >
-                  {zone.groups.map((group) => (
-                    <WishlistOrb
-                      key={group.name}
-                      group={group}
-                      index={visible.indexOf(group)}
-                      artistImages={artistImages}
-                      currentCycle={cycle}
-                      processing={processing}
-                      expanded={openArtist === group.name}
-                      onToggleExpand={() =>
-                        setOpenArtist((current) => (current === group.name ? null : group.name))
+    <NebulaStage
+      sheetOpen={sheetGroup !== null}
+      field={
+        <div className={`wl-nebula-field wlp-field${processing ? ' nebula-processing' : ''}`}>
+          {visible.length === 0 ? (
+            <div className="wl-nebula-empty">
+              Nothing matches. Clear the filter to see everyone.
+            </div>
+          ) : (
+            zones.map((zone) => (
+              <NebulaZone
+                key={zone.kind}
+                kind={zone.kind}
+                title={zone.title}
+                sub={zone.sub}
+                action={
+                  zone.stuckIds.length > 0
+                    ? {
+                        label:
+                          zone.stuckIds.length === 1
+                            ? 'Retry now'
+                            : `Retry all ${zone.stuckIds.length}`,
+                        title: 'Clear the retry wait so the next search tries these again',
+                        disabled: bulk.isPending,
+                        onClick: () => retry(zone.stuckIds),
                       }
-                    />
-                  ))}
-                </NebulaZone>
-              ))
-            )}
-          </div>
-        }
-        sheet={
-          sheetGroup ? (
-            <WishlistArtistSheet
-              key={sheetGroup.name}
-              group={sheetGroup}
-              artistImages={artistImages}
-              onClose={() => setOpenArtist(null)}
-              onGrabArtist={() => bulk.mutate({ action: 'grab', ids: groupIds(sheetGroup) })}
-              onGrabAlbum={(album: WishlistAlbumGroup) =>
-                bulk.mutate({ action: 'grab', ids: album.tracks.map((t) => t.id) })
-              }
-              onRetry={retry}
-              onRemoveAlbum={(albumName) => void removeAlbum(albumName)}
-              onRemoveTrack={(trackId) => void removeTrack(trackId)}
-              onRemoveArtist={() => void removeArtist(sheetGroup)}
-              actionBusy={bulk.isPending}
-            />
-          ) : null
-        }
-      />
-    </div>
+                    : null
+                }
+              >
+                {zone.groups.map((group) => (
+                  <WishlistOrb
+                    key={group.name}
+                    group={group}
+                    index={visible.indexOf(group)}
+                    artistImages={artistImages}
+                    currentCycle={cycle}
+                    processing={processing}
+                    expanded={openArtist === group.name}
+                    onToggleExpand={() =>
+                      setOpenArtist((current) => (current === group.name ? null : group.name))
+                    }
+                  />
+                ))}
+              </NebulaZone>
+            ))
+          )}
+        </div>
+      }
+      sheet={
+        sheetGroup ? (
+          <WishlistArtistSheet
+            key={sheetGroup.name}
+            group={sheetGroup}
+            artistImages={artistImages}
+            onClose={() => setOpenArtist(null)}
+            onGrabArtist={() => bulk.mutate({ action: 'grab', ids: groupIds(sheetGroup) })}
+            onGrabAlbum={(album: WishlistAlbumGroup) =>
+              bulk.mutate({ action: 'grab', ids: album.tracks.map((t) => t.id) })
+            }
+            onRetry={retry}
+            onRemoveAlbum={(albumName) => void removeAlbum(albumName)}
+            onRemoveTrack={(trackId) => void removeTrack(trackId)}
+            onRemoveArtist={() => void removeArtist(sheetGroup)}
+            actionBusy={bulk.isPending}
+          />
+        ) : null
+      }
+    />
   );
 }
 
