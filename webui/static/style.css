@@ -3784,48 +3784,6 @@ body.helper-mode-active #dashboard-activity-feed:hover {
     background: rgb(var(--accent-light-rgb));
 }
 
-/* Accent Color Selector */
-.accent-color-selector {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.accent-color-selector select {
-    flex: 1;
-}
-
-.accent-preview-swatch {
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-control);
-    border: 2px solid var(--white-a15);
-    background: rgb(var(--accent-rgb));
-    flex-shrink: 0;
-    box-shadow: 0 2px 8px var(--black-a30),
-        0 0 12px rgba(var(--accent-rgb), 0.3);
-    transition: all var(--dur-slow) ease;
-}
-
-#custom-color-group input[type="color"] {
-    width: 100%;
-    height: 40px;
-    border: 1px solid var(--white-a10);
-    border-radius: var(--radius-md);
-    background: var(--white-a05);
-    cursor: pointer;
-    padding: 2px;
-}
-
-#custom-color-group input[type="color"]::-webkit-color-swatch-wrapper {
-    padding: 2px;
-}
-
-#custom-color-group input[type="color"]::-webkit-color-swatch {
-    border: none;
-    border-radius: var(--radius-sm);
-}
-
 /* Help Text */
 .help-text {
     color: var(--white-a50);
@@ -52503,13 +52461,6 @@ tr.tag-diff-same {
     border-color: var(--white-a10);
 }
 
-/* ── Accent color picker ── */
-#settings-page .accent-color-selector {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
 /* ── Responsive ── */
 @media (max-width: 768px) {
     #settings-page .settings-nav-row {
@@ -55042,14 +54993,6 @@ body.max-performance *::after {
 /* Drop the always-on page-particles canvas from the compositor entirely. */
 body.max-performance #page-particles-canvas {
     display: none !important;
-}
-
-/* Appearance toggles that Max Performance overrides: greyed + locked while it's on. */
-.form-group.setting-overridden {
-    opacity: 0.45;
-}
-.form-group.setting-overridden .checkbox-label {
-    cursor: not-allowed;
 }
 
 /* ============================================

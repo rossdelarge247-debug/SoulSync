@@ -1868,9 +1868,9 @@ const HELPER_CONTENT = {
     },
 
     // Appearance
-    '#accent-preset': {
-        title: 'Accent Color',
-        description: 'Choose a color theme for the entire app. Affects buttons, badges, highlights, and interactive elements throughout SoulSync.',
+    '#accent-preset-cards': {
+        title: 'Accent colour',
+        description: 'One colour for buttons, links, selected rows and focus, for everyone using this SoulSync. Pick a preset, or Custom for any hex: it is used only when dark text on its lighter shade passes 4.5:1.',
     },
     '#sidebar-visualizer-type': {
         title: 'Sidebar Visualizer',

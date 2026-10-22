@@ -1,0 +1,674 @@
+/* Settings → Appearance, restyled in place to the "Settings Appearance"
+   board (5f; docs/design/DESIGN-SYSTEM.md). Markup in index.html
+   (#appearance-settings), behaviour in src/shell/appearance.ts.
+
+   1. The cards: 14px, 24px padding, an 18/600 sentence-case title.
+   2. Accent colour: a 4-up grid of radio cards, each a 60x40 two-tone swatch
+      (accent | accent-light) and the name; selected = 14% accent wash + 45%
+      accent border. Custom takes a hex and says whether dark text passes.
+   3. The preview strip on the page ground: the five things the accent
+      touches, and the mono "hex → light hex · contrast" line.
+   4. Theme: one line and a neutral tag.
+   5. Motion and effects: the settings that were already on this tab, as
+      rows on hairlines with a 44px select or a 20px checkbox.
+
+   Dark only. Reading text is 14px or more (the uppercase label is 12px);
+   colours and radii are the --ss-* tokens; ids in the selectors so the
+   legacy settings rules (style.css, settings-premier.css) don't win. */
+
+/* ── 1. The cards ──────────────────────────────────────────────────────── */
+
+#settings-page #appearance-settings {
+    display: grid;
+    gap: 24px;
+}
+
+#settings-page #appearance-settings > .appearance-card {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+    background: var(--ss-surface-card) !important;
+    border: 1px solid var(--ss-surface-card-border) !important;
+    border-radius: var(--ss-radius-card) !important;
+    padding: 24px !important;
+    container-type: inline-size;
+}
+
+#settings-page #appearance-settings .appearance-card > h3,
+#settings-page #appearance-settings .appearance-card:hover > h3,
+#settings-page #appearance-settings .appearance-card:focus-within > h3,
+#settings-page #appearance-settings .appearance-theme-text > h3 {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    font-family: inherit;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--ss-text);
+}
+
+/* no accent underline under a card title (style.css draws one on every
+   .settings-group h3) */
+#settings-page #appearance-settings h3::after {
+    content: none !important;
+    display: none !important;
+}
+
+/* the title and its sentence read as one block */
+#settings-page #appearance-settings .appearance-card > h3 + .appearance-intro {
+    margin-top: -12px;
+}
+
+#settings-page #appearance-settings .appearance-intro {
+    max-width: 72ch;
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ss-text-secondary);
+}
+
+#settings-page #appearance-settings :focus-visible {
+    outline: var(--ss-focus-ring) !important;
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* ── 2. Accent colour ──────────────────────────────────────────────────── */
+
+#settings-page #appearance-settings .appearance-store[hidden] {
+    display: none;
+}
+
+#settings-page #appearance-settings .accent-cards {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+#settings-page #appearance-settings .accent-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 70px;
+    margin: 0;
+    padding: 14px 16px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-card);
+    background: transparent;
+    color: var(--ss-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+
+#settings-page #appearance-settings .accent-card:hover {
+    background: var(--ss-hover-wash);
+}
+
+#settings-page #appearance-settings .accent-card:active {
+    opacity: var(--ss-pressed-opacity);
+}
+
+#settings-page #appearance-settings .accent-card[aria-checked="true"],
+#settings-page #appearance-settings .accent-card[aria-checked="true"]:hover {
+    border-color: var(--ss-selected-border);
+    background: var(--ss-selected-fill);
+}
+
+#settings-page #appearance-settings .accent-card--custom {
+    border-style: dashed;
+    border-color: var(--ss-input-border);
+}
+
+/* The pair the app will use: the accent (40px) and its light shade (20px). */
+#settings-page #appearance-settings .accent-swatch {
+    display: flex;
+    flex: none;
+    width: 60px;
+    height: 40px;
+}
+
+#settings-page #appearance-settings .accent-swatch-base {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px 0 0 10px;
+}
+
+#settings-page #appearance-settings .accent-swatch-light {
+    width: 20px;
+    height: 40px;
+    border-radius: 0 10px 10px 0;
+}
+
+/* Custom before a colour is chosen: a dashed box with a "#". */
+#settings-page #appearance-settings .accent-swatch--empty {
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--ss-input-border);
+    border-radius: 10px;
+    color: var(--ss-text-meta);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 14px;
+}
+
+#settings-page #appearance-settings .accent-card-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+#settings-page #appearance-settings .accent-card-name {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+#settings-page #appearance-settings .accent-card-note {
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--ss-text-meta);
+}
+
+#settings-page #appearance-settings .accent-card-note:empty {
+    display: none;
+}
+
+/* Custom: a hex field, the native picker beside it, and the check. */
+#settings-page #appearance-settings .accent-custom {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 640px;
+}
+
+#settings-page #appearance-settings .accent-custom[hidden] {
+    display: none;
+}
+
+#settings-page #appearance-settings .accent-custom-label {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--ss-text-secondary);
+}
+
+#settings-page #appearance-settings .accent-custom-fields {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#settings-page #appearance-settings .accent-custom-hex {
+    box-sizing: border-box;
+    width: 160px;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 14px;
+    border: 1px solid var(--ss-input-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-input-fill);
+    box-shadow: none;
+    color: var(--ss-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 15px;
+    transition: var(--ss-transition);
+}
+
+#settings-page #appearance-settings .accent-custom-hex:hover {
+    border-color: var(--ss-input-border-hover);
+}
+
+/* inputs show focus whatever the pointer: the border, no ring */
+#settings-page #appearance-settings .accent-custom-hex:focus,
+#settings-page #appearance-settings .accent-custom-hex:focus-visible {
+    outline: none !important;
+    border-color: var(--ss-input-focus-border);
+    box-shadow: none;
+}
+
+#settings-page #appearance-settings .accent-custom-hex[aria-invalid="true"] {
+    border-color: var(--ss-input-error-border);
+}
+
+#settings-page #appearance-settings .accent-custom-picker {
+    box-sizing: border-box;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    padding: 4px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    cursor: pointer;
+}
+
+#settings-page #appearance-settings .accent-custom-picker::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+#settings-page #appearance-settings .accent-custom-picker::-webkit-color-swatch {
+    border: 0;
+    border-radius: 6px;
+}
+
+#settings-page #appearance-settings .accent-custom-picker::-moz-color-swatch {
+    border: 0;
+    border-radius: 6px;
+}
+
+#settings-page #appearance-settings .accent-check {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-text-tertiary);
+}
+
+#settings-page #appearance-settings .accent-check:empty {
+    display: none;
+}
+
+#settings-page #appearance-settings .accent-check-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0;
+}
+
+/* a status dot beside the words, never the colour alone */
+#settings-page #appearance-settings .accent-check-line::before {
+    content: '';
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 6.5px;
+    border-radius: var(--radius-circle);
+    background: currentColor;
+}
+
+#settings-page #appearance-settings .accent-check[data-state="pass"] .accent-check-line {
+    color: var(--ss-text-secondary);
+}
+
+#settings-page #appearance-settings .accent-check[data-state="pass"] .accent-check-line::before {
+    background: var(--ss-success);
+}
+
+#settings-page #appearance-settings .accent-check[data-state="fail"] .accent-check-line,
+#settings-page #appearance-settings .accent-check[data-state="invalid"] .accent-check-line {
+    color: var(--ss-danger);
+}
+
+#settings-page #appearance-settings .accent-check[data-state="typing"] .accent-check-line::before {
+    display: none;
+}
+
+/* "Use Ocean Blue instead": the shared secondary Button. */
+#settings-page #appearance-settings .appearance-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 18px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+
+#settings-page #appearance-settings .appearance-btn:hover {
+    background: var(--ss-control-fill-hover);
+}
+
+#settings-page #appearance-settings .appearance-btn:active {
+    opacity: var(--ss-pressed-opacity);
+}
+
+/* ── 3. The preview strip ──────────────────────────────────────────────── */
+
+#settings-page #appearance-settings .accent-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#settings-page #appearance-settings .accent-preview-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ss-text-meta);
+}
+
+#settings-page #appearance-settings .accent-preview-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    border: 1px solid var(--ss-surface-card-border);
+    border-radius: var(--ss-radius-card);
+    background: var(--ss-ground-page);
+}
+
+#settings-page #appearance-settings .accent-preview-samples {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+}
+
+#settings-page #appearance-settings .accent-sample-primary,
+#settings-page #appearance-settings .accent-sample-selected,
+#settings-page #appearance-settings .accent-sample-focus {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-height: 44px;
+    border-radius: var(--ss-radius-control);
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+#settings-page #appearance-settings .accent-sample-primary {
+    padding: 0 18px;
+    border: 1px solid rgba(var(--ss-accent-light-rgb), 0.45);
+    background: rgb(var(--ss-accent-light-rgb));
+    color: var(--ss-text-on-accent);
+}
+
+#settings-page #appearance-settings .accent-sample-selected {
+    padding: 0 12px;
+    border: 1px solid var(--ss-selected-border);
+    background: var(--ss-selected-fill);
+    color: var(--ss-text);
+}
+
+#settings-page #appearance-settings .accent-sample-link {
+    font-size: 15px;
+    font-weight: 500;
+    color: rgb(var(--ss-accent-light-rgb));
+}
+
+#settings-page #appearance-settings .accent-sample-focus {
+    padding: 0 16px;
+    border: 1px solid var(--ss-control-border);
+    color: var(--ss-text);
+    outline: var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+
+/* The played part of a waveform in accent-light, the rest at 24% white. */
+#settings-page #appearance-settings .accent-sample-wave {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    width: 120px;
+    height: 24px;
+}
+
+#settings-page #appearance-settings .accent-sample-wave > span {
+    flex: 1;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.24);
+}
+
+#settings-page #appearance-settings .accent-sample-wave > span[data-played] {
+    background: rgb(var(--ss-accent-light-rgb));
+}
+
+#settings-page #appearance-settings .accent-preview-line {
+    margin: 0 0 0 auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-text-meta);
+}
+
+/* ── 4. Theme ──────────────────────────────────────────────────────────── */
+
+#settings-page #appearance-settings > .appearance-theme {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 24px;
+}
+
+#settings-page #appearance-settings .appearance-theme-text {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+/* a neutral status tag: 6% wash, 86% text, 8px dot, 6px radius */
+#settings-page #appearance-settings .appearance-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: var(--ss-radius-tag);
+    background: var(--ss-neutral-fill);
+    color: var(--ss-neutral);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+#settings-page #appearance-settings .appearance-tag-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-circle);
+    background: currentColor;
+}
+
+/* ── 5. Motion and effects ─────────────────────────────────────────────── */
+
+#settings-page #appearance-settings .appearance-rows {
+    border-top: 1px solid var(--ss-hairline);
+}
+
+#settings-page #appearance-settings .appearance-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    min-height: 44px;
+    margin: 0;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--ss-hairline);
+}
+
+#settings-page #appearance-settings .appearance-row:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+#settings-page #appearance-settings .appearance-row-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+#settings-page #appearance-settings .appearance-row-text > label {
+    margin: 0;
+    padding: 0;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--ss-text);
+    cursor: pointer;
+}
+
+#settings-page #appearance-settings .appearance-row-hint {
+    max-width: 72ch;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-text-tertiary);
+}
+
+/* Max performance on: the three it overrides say so and can't be changed. */
+#settings-page #appearance-settings .appearance-row.setting-overridden .appearance-row-text > label {
+    color: var(--ss-disabled-text);
+    cursor: not-allowed;
+}
+
+#settings-page #appearance-settings .appearance-row.setting-overridden .appearance-row-hint::after {
+    content: ' Off while Max performance is on.';
+    color: var(--ss-text-secondary);
+}
+
+#settings-page #appearance-settings .appearance-select {
+    box-sizing: border-box;
+    flex: none;
+    width: 200px;
+    max-width: 100%;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 38px 0 14px;
+    border: 1px solid var(--ss-input-border);
+    border-radius: var(--ss-radius-control);
+    background-color: var(--ss-input-fill);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.72)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-position: right 12px center;
+    background-repeat: no-repeat;
+    background-size: 16px 16px;
+    box-shadow: none;
+    color: var(--ss-text);
+    font: inherit;
+    font-size: 15px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    color-scheme: dark;
+}
+
+#settings-page #appearance-settings .appearance-select:hover {
+    border-color: var(--ss-input-border-hover);
+    background-color: var(--ss-hover-wash);
+}
+
+#settings-page #appearance-settings .appearance-select:focus,
+#settings-page #appearance-settings .appearance-select:focus-visible {
+    outline: none !important;
+    border-color: var(--ss-input-focus-border);
+    box-shadow: none;
+}
+
+/* The design system's checkbox: 20px, 24% border, accent-light with a dark
+   tick when on; the 44px row label is the target. */
+#settings-page #appearance-settings .appearance-check {
+    flex: none;
+    box-sizing: border-box;
+    width: 20px;
+    height: 20px;
+    margin: 12px;
+    padding: 0;
+    border: 2px solid var(--ss-input-border);
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: var(--ss-transition);
+}
+
+#settings-page #appearance-settings .appearance-check::before {
+    display: none;
+}
+
+#settings-page #appearance-settings .appearance-check:hover {
+    border-color: var(--ss-input-border-hover);
+}
+
+#settings-page #appearance-settings .appearance-check:checked {
+    border-color: rgb(var(--ss-accent-light-rgb));
+    background: rgb(var(--ss-accent-light-rgb)) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%230b0b0f' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E") center / 14px 14px no-repeat;
+}
+
+#settings-page #appearance-settings .appearance-check:disabled {
+    border-color: var(--ss-disabled-border);
+    background: var(--ss-disabled-fill);
+    cursor: not-allowed;
+}
+
+/* ── Narrow panes and phones ───────────────────────────────────────────── */
+
+@container (max-width: 760px) {
+    #settings-page #appearance-settings .accent-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #settings-page #appearance-settings .accent-preview-line {
+        flex-basis: 100%;
+        margin-left: 0;
+    }
+}
+
+@container (max-width: 420px) {
+    #settings-page #appearance-settings .accent-card {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 14px;
+    }
+
+    #settings-page #appearance-settings .accent-custom-fields {
+        flex-wrap: wrap;
+    }
+
+    #settings-page #appearance-settings .appearance-row {
+        flex-wrap: wrap;
+    }
+
+    #settings-page #appearance-settings .appearance-select {
+        width: 100%;
+    }
+}
+
+@media (max-width: 560px) {
+    #settings-page #appearance-settings {
+        gap: 16px;
+    }
+
+    #settings-page #appearance-settings > .appearance-card {
+        padding: 20px 16px !important;
+    }
+
+    #settings-page #appearance-settings > .appearance-theme {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    #settings-page #appearance-settings > .appearance-theme .appearance-tag {
+        justify-self: start;
+    }
+}
