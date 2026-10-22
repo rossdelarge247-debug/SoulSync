@@ -77,7 +77,7 @@ def check_path(path: str, *, docker: bool,
     if isdir(resolved):
         out["free_bytes"] = free(resolved)
         if not writable(resolved):
-            out["message"] = ("SoulSync can't write here. Check the folder's owner, "
+            out["message"] = ("SYNCHRO.S can't write here. Check the folder's owner, "
                               "or PUID and PGID in Docker")
             return out
         out["state"] = "ok"
@@ -85,13 +85,13 @@ def check_path(path: str, *, docker: bool,
 
     parent = _nearest_existing_parent(resolved, isdir)
     if parent is None or not writable(parent):
-        out["message"] = ("This folder doesn't exist and SoulSync can't create it. "
+        out["message"] = ("This folder doesn't exist and SYNCHRO.S can't create it. "
                           + ("Is the volume mapped in your compose file?" if docker
                              else "Create it first, or pick another"))
         return out
     out["free_bytes"] = free(parent)
     out["state"] = "create"
-    out["message"] = "Doesn't exist yet. SoulSync creates it on first use"
+    out["message"] = "Doesn't exist yet. SYNCHRO.S creates it on first use"
     return out
 
 

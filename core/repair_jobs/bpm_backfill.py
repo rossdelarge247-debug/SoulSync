@@ -33,7 +33,7 @@ class BpmBackfillJob(RepairJob):
         '1. Deezer API (via the track\'s Deezer ID) — fast, accurate\n'
         '2. Local audio analysis (librosa) — no API calls, works on any file\n\n'
         'Results are reported as findings for your review. Nothing changes until you '
-        'apply a finding: then the BPM is saved in SoulSync and written into the file\'s '
+        'apply a finding: then the BPM is saved in SYNCHRO.S and written into the file\'s '
         'tags (unless BPM tags are turned off under the Deezer tag settings).\n\n'
         'Settings:\n'
         '- Use Deezer: Look up BPM via the Deezer API first\n'
@@ -285,7 +285,7 @@ class BpmBackfillJob(RepairJob):
             if context.report_progress:
                 context.report_progress(
                     log_line=f"{unreachable} track files couldn't be found from here, so they weren't analyzed. "
-                             "Check that SoulSync can see your music folder.",
+                             "Check that SYNCHRO.S can see your music folder.",
                     log_type='error'
                 )
 

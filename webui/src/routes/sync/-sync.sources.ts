@@ -491,7 +491,7 @@ export const SYNC_SOURCES: Record<SyncSourceId, SourceVerticalConfig> = {
 
   mirrored: {
     id: 'mirrored',
-    heroLabel: 'SoulSync',
+    heroLabel: 'SYNCHRO.S',
     // Mirrored rows ride the YOUTUBE vertical end to end with a
     // `mirrored_<id>` hash (renderMirroredCard, stats-automations.js 500-656;
     // the explorer port confirmed the discovery frames arrive as

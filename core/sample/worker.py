@@ -137,10 +137,10 @@ def unreachable_message(stored_path: str) -> str:
     this machine. sample studio can't, it needs the actual file.
     """
     return (
-        f"SoulSync can't open this file on disk ({stored_path}). Playback can "
+        f"SYNCHRO.S can't open this file on disk ({stored_path}). Playback can "
         "stream it from your media server, but Sample Studio needs the file "
         "itself. Add the folder that holds your music under Settings > Library "
-        "so SoulSync can reach it."
+        "so SYNCHRO.S can reach it."
     )
 
 

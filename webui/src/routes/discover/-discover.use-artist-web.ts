@@ -169,7 +169,7 @@ export function useArtistWeb(ui?: Partial<WebSigmaHandlers>): ArtistWebControlle
       if (next === 'discovery' && built.graph.order === 0) {
         setLegend([]);
         stateCard(
-          'No discovery candidates yet — add artists to your Watchlist so SoulSync can fetch similar artists to explore.',
+          'No discovery candidates yet — add artists to your Watchlist so SYNCHRO.S can fetch similar artists to explore.',
         );
         return;
       }

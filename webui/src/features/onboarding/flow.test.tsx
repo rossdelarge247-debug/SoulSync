@@ -165,7 +165,7 @@ describe('the ready screen', () => {
     );
   }
 
-  it('a failed save offers a retry, never Open SoulSync', async () => {
+  it('a failed save offers a retry, never Open SYNCHRO.S', async () => {
     stubChecks();
     const complete = vi.fn();
     server.use(
@@ -181,7 +181,7 @@ describe('the ready screen', () => {
     const screen = within(render(<ReadyStep onFinished={() => undefined} />).container);
     expect(await screen.findByText('Not saved yet')).toBeInTheDocument();
     expect(screen.getByText('Disk full')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Open SoulSync/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Open SYNCHRO\.S/ })).toBeNull();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(complete).not.toHaveBeenCalled();
   });
@@ -197,7 +197,7 @@ describe('the ready screen', () => {
     openAtReady(false);
     const finished = vi.fn();
     const screen = within(render(<ReadyStep onFinished={finished} />).container);
-    const open = await screen.findByRole('button', { name: /Open SoulSync/ });
+    const open = await screen.findByRole('button', { name: /Open SYNCHRO\.S/ });
     await waitFor(() => expect(open).toBeEnabled());
     fireEvent.click(open);
     expect(await screen.findByRole('alert')).toHaveTextContent('Try again');

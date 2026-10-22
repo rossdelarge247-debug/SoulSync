@@ -76,7 +76,7 @@ export function useFollow(
 
   const follow = useMutation({
     mutationFn: () => {
-      if (!identity) throw new Error('This artist has no id SoulSync can follow.');
+      if (!identity) throw new Error('This artist has no id SYNCHRO.S can follow.');
       return addWatchlistArtist({
         artistId: identity.id,
         artistName: identity.name,
@@ -96,7 +96,7 @@ export function useFollow(
   const unfollow = useMutation({
     mutationFn: () => {
       const id = followedId || identity?.id;
-      if (!id) throw new Error('This artist has no id SoulSync can unfollow.');
+      if (!id) throw new Error('This artist has no id SYNCHRO.S can unfollow.');
       return removeWatchlistArtist(id);
     },
     onMutate: () => setOptimistic(false),
@@ -136,7 +136,7 @@ async function streamAdd(
   });
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: unknown };
-    throw new Error(text(data.error) || `SoulSync answered ${response.status}`);
+    throw new Error(text(data.error) || `SYNCHRO.S answered ${response.status}`);
   }
   if (!response.body) return;
   const reader = response.body.getReader();
@@ -239,7 +239,7 @@ export function useAddToWanted(artist: { id: string | null; name: string; source
           },
         );
       } catch (error) {
-        serverError = (error as Error).message || 'SoulSync didn’t answer';
+        serverError = (error as Error).message || 'SYNCHRO.S didn’t answer';
       }
 
       if (!completed) {
@@ -270,7 +270,7 @@ export function useAddToWanted(artist: { id: string | null; name: string; source
       if (worked.length > 0 && !(asksFirst && window.announceWishlistRequest?.())) {
         toast(
           worked.length === 1
-            ? `Added ${worked[0].title} to Wanted. SoulSync searches for it on the next scheduled search.`
+            ? `Added ${worked[0].title} to Wanted. SYNCHRO.S searches for it on the next scheduled search.`
             : `Added ${plural(worked.length, 'release')} to Wanted (${plural(added, 'track')}).`,
         );
       }

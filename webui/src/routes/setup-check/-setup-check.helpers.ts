@@ -241,7 +241,7 @@ export function summaryLine(summary: SetupCheckSummary): string {
 /** Plain text for a bug report or a support thread. */
 export function formatReportText(report: SetupCheckReport): string {
   const lines = [
-    'SoulSync setup check',
+    'SYNCHRO.S setup check',
     `Checked: ${formatTimestamp(report.ranAt)} (took ${formatDuration(report.durationMs)})`,
   ];
   if (report.scope === 'local') {

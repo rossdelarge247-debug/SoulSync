@@ -34,7 +34,7 @@ export async function streamFileSearch(
   });
   if (!response.ok || !response.body) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };
-    onEvent({ type: 'error', error: data.error || 'SoulSync didn’t answer the search.' });
+    onEvent({ type: 'error', error: data.error || 'SYNCHRO.S didn’t answer the search.' });
     return;
   }
   const reader = response.body.getReader();
@@ -161,7 +161,7 @@ export function useFileSearch(query: string | null, source: string | null): File
       setState((prev) => ({
         ...prev,
         status: 'error',
-        error: 'SoulSync didn’t answer the search. Nothing was downloaded.',
+        error: 'SYNCHRO.S didn’t answer the search. Nothing was downloaded.',
       }));
     });
     return () => controller.abort();

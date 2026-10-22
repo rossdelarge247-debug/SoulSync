@@ -54,7 +54,7 @@ describe('analysisLoadError', () => {
   });
 
   it('blames the connection only when nothing came back', () => {
-    const offline = /Could not reach SoulSync/;
+    const offline = /Could not reach SYNCHRO\.S/;
     expect(analysisLoadError(new TypeError('Failed to fetch'))).toMatch(offline);
     const timeout = new Error('Request timed out');
     timeout.name = 'TimeoutError';

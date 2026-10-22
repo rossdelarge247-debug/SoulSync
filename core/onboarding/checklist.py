@@ -16,7 +16,7 @@ _ITEMS = (
      "Soulseek bans people who only download. Ticks itself once slskd shares some files.",
      "Open slskd"),
     ("video", "Finish movies and TV",
-     "Add a TMDB key so SoulSync can follow shows and films.", "Set up"),
+     "Add a TMDB key so SYNCHRO.S can follow shows and films.", "Set up"),
     ("torrent", "Add torrent and usenet",
      "Rare releases through Prowlarr, for music and video.", "Set up"),
     ("spotify", "Connect Spotify",

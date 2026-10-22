@@ -90,7 +90,7 @@ export function DefaultErrorComponent({ error }: { error?: unknown }) {
   return (
     <div role="alert" className="app-error-boundary">
       <h2>Something went wrong</h2>
-      <p>This page failed to render. The rest of SoulSync still works.</p>
+      <p>This page failed to render. The rest of SYNCHRO.S still works.</p>
       {detail ? (
         <>
           <pre className="app-error-boundary__detail">{detail}</pre>

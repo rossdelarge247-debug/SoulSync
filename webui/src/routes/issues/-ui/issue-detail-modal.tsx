@@ -747,7 +747,7 @@ function artTarget(
   if (issue.entity_type === 'artist') {
     return {
       target: { kind: 'artist', id: issue.entity_id },
-      subtitle: `${String(snapshot.name || '')} · applies to SoulSync, your server, and artist.jpg on disk`,
+      subtitle: `${String(snapshot.name || '')} · applies to SYNCHRO.S, your server, and artist.jpg on disk`,
     };
   }
   const albumId = issue.entity_type === 'album' ? issue.entity_id : snapshot.album_id;

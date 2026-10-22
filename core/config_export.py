@@ -64,10 +64,10 @@ def validate_bundle(data: Any) -> Tuple[bool, str]:
     if not isinstance(data, dict):
         return False, "Not a JSON object."
     if not data.get(BUNDLE_MARKER):
-        return False, "This file isn't a SoulSync config export."
+        return False, "This file isn't a SYNCHRO.S config export."
     ver = data.get("bundle_version")
     if not isinstance(ver, int) or ver > BUNDLE_VERSION:
-        return False, "This export was made by a newer SoulSync; update first."
+        return False, "This export was made by a newer SYNCHRO.S; update first."
     if not isinstance(data.get("music"), dict) or not isinstance(data.get("video"), dict):
         return False, "The export is missing its music/video sections."
     return True, ""

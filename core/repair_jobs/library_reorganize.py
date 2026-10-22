@@ -70,7 +70,7 @@ class LibraryReorganizeJob(RepairJob):
         'pipeline downloads use.\n\n'
         'Once an album sits where the plan says, it is remembered as placed: later scans '
         'keep the release it was placed with and skip it until you change your naming '
-        'settings or pin a different version, so new SoulSync naming rules or a source '
+        'settings or pin a different version, so new SYNCHRO.S naming rules or a source '
         'hiccup don\'t move it again.\n\n'
         'A scan that gets stopped (or a restart) picks up at the album it stopped on '
         'next time, then goes back to the top once it reaches the end. Changing dry run, '
@@ -78,7 +78,7 @@ class LibraryReorganizeJob(RepairJob):
         'Settings:\n'
         '- Dry Run: When enabled, only reports what would change without moving files\n'
         '- Recheck Placed Albums: Re-plan albums already placed, e.g. to pick up '
-        'naming changes from a SoulSync update'
+        'naming changes from a SYNCHRO.S update'
     )
     icon = 'repair-icon-reorganize'
     default_enabled = False

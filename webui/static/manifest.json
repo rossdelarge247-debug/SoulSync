@@ -1,6 +1,6 @@
 {
-    "name": "SoulSync",
-    "short_name": "SoulSync",
+    "name": "SYNCHRO.S",
+    "short_name": "SYNCHRO.S",
     "description": "Music download & sync app — playlists, watchlist, library management.",
     "start_url": "../",
     "scope": "../",

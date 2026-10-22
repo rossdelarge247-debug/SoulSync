@@ -61,22 +61,22 @@ describe('the consequence line', () => {
     expect(
       consequenceText({ ...base, counts: { total: 48, have: 31, wanted: 0, toAdd: 17 } }),
     ).toBe(
-      '17 tracks will be added to Wanted at FLAC or better, your quality target, and SoulSync starts looking for them now.',
+      '17 tracks will be added to Wanted at FLAC or better, your quality target, and SYNCHRO.S starts looking for them now.',
     );
     expect(consequenceText({ ...base, counts: { total: 3, have: 1, wanted: 1, toAdd: 1 } })).toBe(
-      '1 track will be added to Wanted at FLAC or better, your quality target, and SoulSync starts looking for it now. 1 more track is on Wanted already.',
+      '1 track will be added to Wanted at FLAC or better, your quality target, and SYNCHRO.S starts looking for it now. 1 more track is on Wanted already.',
     );
   });
 
   it('says when there is nothing to add', () => {
     expect(consequenceText({ ...base, counts: { total: 3, have: 3, wanted: 0, toAdd: 0 } })).toBe(
-      'You already have every track. SoulSync keeps checking for new ones every 24 hours.',
+      'You already have every track. SYNCHRO.S keeps checking for new ones every 24 hours.',
     );
     expect(consequenceText({ ...base, counts: { total: 3, have: 1, wanted: 2, toAdd: 0 } })).toBe(
       'Nothing new goes to Wanted. 2 more tracks are on Wanted already.',
     );
     expect(consequenceText({ ...base, counts: { total: 0, have: 0, wanted: 0, toAdd: 0 } })).toBe(
-      'This playlist has no tracks yet. SoulSync checks it again every 24 hours.',
+      'This playlist has no tracks yet. SYNCHRO.S checks it again every 24 hours.',
     );
   });
 

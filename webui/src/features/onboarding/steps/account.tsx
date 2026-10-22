@@ -67,8 +67,8 @@ export function AccountStep() {
       </section>
 
       <section className={s.section}>
-        <h2 className={s.h2}>How should SoulSync be unlocked?</h2>
-        <div className={s.grid3} role="radiogroup" aria-label="How SoulSync is unlocked">
+        <h2 className={s.h2}>How should SYNCHRO.S be unlocked?</h2>
+        <div className={s.grid3} role="radiogroup" aria-label="How SYNCHRO.S is unlocked">
           {LOCKS.map((l) => (
             <Option
               key={l.id}

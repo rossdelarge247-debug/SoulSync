@@ -516,8 +516,8 @@ describe('followed artists', () => {
 
 describe('failure copy', () => {
   it('never shows a code alone', () => {
-    expect(whyItFailed({ name: 'TimeoutError' })).toBe("SoulSync didn't answer in 10 seconds.");
-    expect(whyItFailed({ name: 'HTTPError' })).toBe('SoulSync ran into a problem reading it.');
-    expect(whyItFailed(new TypeError('Failed to fetch'))).toBe("SoulSync didn't answer.");
+    expect(whyItFailed({ name: 'TimeoutError' })).toBe("SYNCHRO.S didn't answer in 10 seconds.");
+    expect(whyItFailed({ name: 'HTTPError' })).toBe('SYNCHRO.S ran into a problem reading it.');
+    expect(whyItFailed(new TypeError('Failed to fetch'))).toBe("SYNCHRO.S didn't answer.");
   });
 });

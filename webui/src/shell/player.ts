@@ -573,7 +573,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       b.className = 'ss-player-menu-item';
       b.textContent = 'Show the outputs’ names…';
       b.title =
-        'Your browser only names outputs once it has been allowed the microphone. SoulSync records nothing.';
+        'Your browser only names outputs once it has been allowed the microphone. SYNCHRO.S records nothing.';
       b.addEventListener('click', () => void nameOutputs());
       outputMenu.appendChild(b);
     }
@@ -849,7 +849,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     const items = recent ?? [];
     if (!items.length) {
       status.textContent =
-        'Nothing played here yet. What you play in SoulSync shows here, newest first.';
+        'Nothing played here yet. What you play in SYNCHRO.S shows here, newest first.';
       status.hidden = false;
       list.textContent = '';
       return;

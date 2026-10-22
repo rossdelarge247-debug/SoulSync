@@ -224,7 +224,7 @@ export async function applyDraft(d: Draft, fx: Effects, emit: Emit): Promise<Rea
       id: 'server',
       name: 'Media server',
       state: 'ok',
-      detail: 'No server, SoulSync keeps the library',
+      detail: 'No server, SYNCHRO.S keeps the library',
     });
   } else {
     const probe = await probeService(s.kind, serverConfig(s));

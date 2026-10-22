@@ -451,7 +451,7 @@ export function WishlistAudiobooks({
           </h3>
           <p>
             {items.length === 0
-              ? 'Add an audiobook from the catalogue and SoulSync will continually look across your indexers.'
+              ? 'Add an audiobook from the catalogue and SYNCHRO.S will continually look across your indexers.'
               : query
                 ? 'Try adjusting your search query or clear the filter.'
                 : 'Try selecting a different status filter above.'}

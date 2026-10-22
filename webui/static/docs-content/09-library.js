@@ -104,7 +104,7 @@ From any album card showing missing tracks, click **Download Missing** to open a
             body: `
 Right-click or use the delete action on any track to open the Smart Delete dialog — it offers exactly two options:
 
-- **Remove from Library** — removes the track from SoulSync's database only. The audio file on disk is untouched. Use this to clean up the database without losing files.
+- **Remove from Library** — removes the track from SYNCHRO.S's database only. The audio file on disk is untouched. Use this to clean up the database without losing files.
 - **Delete File Too** — removes the database entry AND deletes the audio file from disk. Irreversible.
 
 There is no blacklist option here — blacklisting lives in **Source Info**, where the real download-source data is.

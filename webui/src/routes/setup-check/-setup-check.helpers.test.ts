@@ -166,7 +166,7 @@ describe('formatting', () => {
         duration_ms: 4200,
       }),
     );
-    expect(text).toContain('SoulSync setup check');
+    expect(text).toContain('SYNCHRO.S setup check');
     expect(text).toContain('took 4.2 s');
     expect(text).toContain('Result: 1 problem, 0 warnings, 1 OK, 0 skipped');
     expect(text.indexOf('[Problem] Music library folder')).toBeLessThan(

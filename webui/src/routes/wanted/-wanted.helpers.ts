@@ -697,7 +697,7 @@ export function followedLatest(
 /** Why a list didn't load, in a sentence: never a code alone. */
 export function whyItFailed(error: unknown): string {
   const name = (error as { name?: string } | null)?.name;
-  if (name === 'TimeoutError') return "SoulSync didn't answer in 10 seconds.";
-  if (name === 'HTTPError') return 'SoulSync ran into a problem reading it.';
-  return "SoulSync didn't answer.";
+  if (name === 'TimeoutError') return "SYNCHRO.S didn't answer in 10 seconds.";
+  if (name === 'HTTPError') return 'SYNCHRO.S ran into a problem reading it.';
+  return "SYNCHRO.S didn't answer.";
 }

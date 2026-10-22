@@ -6878,7 +6878,7 @@ function _artWebRenderLens() {
     if (_artistWeb.lens === 'discovery' && built.graph.order === 0) {
         const lg = document.getElementById('artist-web-legend');
         if (lg) lg.style.display = 'none';   // don't leave the prior lens's legend over the card
-        _artWebStateCard(host, 'No discovery candidates yet — add artists to your Watchlist so SoulSync can fetch similar artists to explore.', null);
+        _artWebStateCard(host, 'No discovery candidates yet — add artists to your Watchlist so SYNCHRO.S can fetch similar artists to explore.', null);
         return;
     }
 

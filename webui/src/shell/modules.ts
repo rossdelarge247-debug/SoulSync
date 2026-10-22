@@ -482,7 +482,7 @@ async function changeModule(name: string, enabled: boolean): Promise<void> {
       const reason =
         (typeof body.message === 'string' && body.message) ||
         (typeof body.error === 'string' && body.error) ||
-        `SoulSync answered ${res.status}.`;
+        `SYNCHRO.S answered ${res.status}.`;
       throw new Error(reason);
     }
     busy.delete(name);

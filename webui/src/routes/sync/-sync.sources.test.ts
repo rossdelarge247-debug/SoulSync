@@ -164,7 +164,7 @@ describe('ux drift', () => {
   it('hero labels agree with the heroSourceLabel ladder in -sync.core', () => {
     expect(SYNC_SOURCES.spotify_public.heroLabel).toBe('Spotify');
     expect(SYNC_SOURCES.itunes_link.heroLabel).toBe('iTunes');
-    expect(SYNC_SOURCES.mirrored.heroLabel).toBe('SoulSync');
+    expect(SYNC_SOURCES.mirrored.heroLabel).toBe('SYNCHRO.S');
     expect(SYNC_SOURCES.youtube.heroLabel).toBe('YouTube');
   });
 });

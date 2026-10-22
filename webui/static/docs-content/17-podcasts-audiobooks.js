@@ -11,9 +11,9 @@ registerDocsSection({
         {
             id: 'pod-overview',
             title: 'Podcasts: Overview',
-            lede: 'RSS-powered podcasts inside SoulSync — browse a directory, follow shows, auto-download new episodes.',
+            lede: 'RSS-powered podcasts inside SYNCHRO.S — browse a directory, follow shows, auto-download new episodes.',
             body: `
-SoulSync's **Podcasts** side is an RSS-powered podcast manager. Browse a global podcast directory, open any show, and **follow** it by adding it to your podcast **Watchlist** — SoulSync then checks the show's RSS feed on a schedule, auto-downloads new episodes, and prunes old ones per your retention settings.
+SYNCHRO.S's **Podcasts** side is an RSS-powered podcast manager. Browse a global podcast directory, open any show, and **follow** it by adding it to your podcast **Watchlist** — SYNCHRO.S then checks the show's RSS feed on a schedule, auto-downloads new episodes, and prunes old ones per your retention settings.
 
 There is no separate "subscribe" concept: **following = watchlisting**. Everything downstream — new-episode checks, auto-download, retention cleanup — keys off the Watchlist.
 
@@ -125,11 +125,11 @@ The modal accepts standard RSS 2.0 and iTunes-compliant podcast feeds, which is 
 
 ## OPML import & export
 
-The **OPML** button opens the **Podcast Subscriptions (OPML)** modal ("Migrate subscriptions between SoulSync, Apple Podcasts, Pocket Casts, and Overcast."), with two tabs:
+The **OPML** button opens the **Podcast Subscriptions (OPML)** modal ("Migrate subscriptions between SYNCHRO.S, Apple Podcasts, Pocket Casts, and Overcast."), with two tabs:
 
 **Import OPML** — a drag-and-drop zone (**"Drop an .opml or .xml file here"**, accepts \`.opml\`/\`.xml\`, 5 MB max). Dropping a file previews it: **Found {n} podcasts in file ({m} selected)** with **Select All** / **Deselect All** / **Choose Another File**, then **Import {m} to Watchlist**. Imported shows land on the Watchlist with auto-download on and 14-day retention.
 
-**Export OPML** — **Export Subscribed Podcasts** ("Download a standard OPML 2.0 XML file containing all your SoulSync podcast subscriptions…") downloads \`soulsync-podcasts.opml\`.
+**Export OPML** — **Export Subscribed Podcasts** ("Download a standard OPML 2.0 XML file containing all your SYNCHRO.S podcast subscriptions…") downloads \`soulsync-podcasts.opml\`.
 
 ## Ingest security
 
@@ -304,7 +304,7 @@ registerDocsSection({
             title: 'Audiobooks: Overview',
             lede: 'An Audible-class audiobook manager: browse, wishlist, grab releases, and keep a real library.',
             body: `
-SoulSync's **Audiobooks** side is a full audiobook manager built around the Audible catalogue (with Apple as a fallback source). Browse bestsellers and genres, wishlist titles, and let the pipeline search your indexers — torrents and Usenet via Prowlarr plus Soulseek — rank every release, download the best one, and file it into your library.
+SYNCHRO.S's **Audiobooks** side is a full audiobook manager built around the Audible catalogue (with Apple as a fallback source). Browse bestsellers and genres, wishlist titles, and let the pipeline search your indexers — torrents and Usenet via Prowlarr plus Soulseek — rank every release, download the best one, and file it into your library.
 
 The model mirrors the music side but adapted to books:
 

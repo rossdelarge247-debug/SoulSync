@@ -875,7 +875,7 @@ describe('loading, empty and failure', () => {
     renderRoute('/wanted');
     const alert = await screen.findByRole('alert');
     expect(within(alert).getByText("Couldn't load your list")).toBeInTheDocument();
-    expect(alert).toHaveTextContent('SoulSync ran into a problem reading it. Your list is safe.');
+    expect(alert).toHaveTextContent('SYNCHRO.S ran into a problem reading it. Your list is safe.');
     expect(within(alert).getByRole('button', { name: 'Run Setup check' })).toBeInTheDocument();
     // no counts while the list is unknown
     expect(tab(/Wanted/)).toHaveTextContent(/^Wanted\s*Wanted$/);
@@ -1124,7 +1124,7 @@ describe('Following tab', () => {
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Unfollow…' }));
     const dialog = await screen.findByRole('dialog', { name: 'Unfollow Hessle Audio?' });
     expect(dialog).toHaveTextContent(
-      'SoulSync stops checking Hessle Audio for new releases. The 1 thing already on Wanted stays there and keeps being searched for.',
+      'SYNCHRO.S stops checking Hessle Audio for new releases. The 1 thing already on Wanted stays there and keeps being searched for.',
     );
     fireEvent.click(within(dialog).getByRole('button', { name: 'Unfollow' }));
     await waitFor(() =>
@@ -1142,7 +1142,7 @@ describe('Following tab', () => {
     let menu = await openMenu('More actions for Pale Harbour');
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Unfollow…' }));
     let dialog = await screen.findByRole('dialog', { name: 'Unfollow Pale Harbour?' });
-    expect(dialog).toHaveTextContent('SoulSync stops checking Pale Harbour for new releases.');
+    expect(dialog).toHaveTextContent('SYNCHRO.S stops checking Pale Harbour for new releases.');
     expect(dialog).toHaveTextContent(
       'The 2 things already on Wanted stay there and keep being searched for.',
     );

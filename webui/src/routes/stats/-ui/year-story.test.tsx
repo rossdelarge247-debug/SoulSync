@@ -176,7 +176,7 @@ describe('YearStory', () => {
     await screen.findByText('Your Year in Listening');
 
     expect(screen.getByText('1 / 1')).toBeInTheDocument();
-    expect(screen.getByText(/once SoulSync has some listening history/i)).toBeInTheDocument();
+    expect(screen.getByText(/once SYNCHRO.S has some listening history/i)).toBeInTheDocument();
     // Never a dead "Next" that goes nowhere — the only forward action closes.
     expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();

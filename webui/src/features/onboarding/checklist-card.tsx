@@ -114,7 +114,7 @@ export function FinishSetupCard() {
         <div className={c.titles}>
           <h2 id="finish-setup-title">Finish setting up</h2>
           <p>
-            {done} of {items.length} done. A few things that make SoulSync better; none of them are
+            {done} of {items.length} done. A few things that make SYNCHRO.S better; none of them are
             urgent.
           </p>
         </div>

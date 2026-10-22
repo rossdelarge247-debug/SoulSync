@@ -1127,10 +1127,10 @@ def _no_audio_diagnosis(reported_path: str, walk_root) -> str:
     where = f'{reported_path}' + (f' (resolved: {root})' if str(root) != reported_path else '')
     if not reachable:
         return (
-            f'Torrent finished but SoulSync cannot read {where} — that path exists on the '
+            f'Torrent finished but SYNCHRO.S cannot read {where} — that path exists on the '
             f'torrent client, not here. Add a mapping under Settings → Downloads '
             f'(download_source.path_mappings) pointing the client\'s completed-download '
-            f'directory at the one SoulSync sees.'
+            f'directory at the one SYNCHRO.S sees.'
         )
     if is_file:
         return f'No audio files found in {where} (the file is readable but holds no audio)'

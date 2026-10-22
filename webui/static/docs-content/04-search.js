@@ -56,9 +56,9 @@ Narrow results by:
         {
             id: 'search-sources',
             title: 'Download Sources',
-            lede: 'Ten download sources plus Hybrid mode — configure them in Settings and let SoulSync pick the best one.',
+            lede: 'Ten download sources plus Hybrid mode — configure them in Settings and let SYNCHRO.S pick the best one.',
             body: `
-SoulSync downloads from multiple sources. Connect each source in **Settings → Sources**, and set their try-order (the hybrid chain) in **Settings → Downloads**. Each has different strengths:
+SYNCHRO.S downloads from multiple sources. Connect each source in **Settings → Sources**, and set their try-order (the hybrid chain) in **Settings → Downloads**. Each has different strengths:
 
 | Source | Description | Best for |
 |--------|-------------|----------|
@@ -89,7 +89,7 @@ On Docker, use **Paste cookies.txt**: Netscape/Mozilla format only (tab-separate
 
 ## Streaming source quality
 
-Tidal, Qobuz, HiFi, and Deezer have no per-source quality setting in SoulSync — they all follow your global **Quality Profile** (Settings → Quality). The profile's ranked targets decide which tier each source requests for a track.
+Tidal, Qobuz, HiFi, and Deezer have no per-source quality setting in SYNCHRO.S — they all follow your global **Quality Profile** (Settings → Quality). The profile's ranked targets decide which tier each source requests for a track.
 `
         },
         {
@@ -141,7 +141,7 @@ After a file finishes downloading, it moves through an automatic pipeline before
         {
             id: 'search-quality',
             title: 'Quality Profiles',
-            lede: 'Tell SoulSync what "good enough" means — from strict audiophile to space-saving.',
+            lede: 'Tell SYNCHRO.S what "good enough" means — from strict audiophile to space-saving.',
             body: `
 Configure your quality preferences in **Settings → Quality → Music Quality**. Quick presets:
 
@@ -260,7 +260,7 @@ Worker controls (\`GET /api/hydrabase-worker/status\`, \`POST /api/hydrabase-wor
 ## Settings → Connections → Hydrabase
 
 - **WebSocket URL** and **API Key** inputs (saved with the rest of Settings)
-- **Auto-connect on startup** checkbox — on server start, SoulSync opens the WebSocket (with reconnect backoff 30s → 60s → 120s → max 300s). Explicitly does **not** auto-enable dev mode — that stays a manual choice; the connection alone still serves fallback and search-tab use.
+- **Auto-connect on startup** checkbox — on server start, SYNCHRO.S opens the WebSocket (with reconnect backoff 30s → 60s → 120s → max 300s). Explicitly does **not** auto-enable dev mode — that stays a manual choice; the connection alone still serves fallback and search-tab use.
 - **Connect** button — saves settings first, then toggles the connection. Connecting adds a **"Hydrabase (P2P)"** option to the **Primary metadata source** dropdown; disconnecting removes it (resetting the dropdown to iTunes if it was selected).
 - Status line: **"URL and API Key required"**, **Disconnected**, **Connected** (green), or the error text.
 

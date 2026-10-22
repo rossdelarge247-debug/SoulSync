@@ -257,7 +257,7 @@ describe('the LB wire calls', () => {
   });
 });
 
-describe('SoulSync Discovery (sync-soulsync-discovery.js)', () => {
+describe('SYNCHRO.S Discovery (sync-soulsync-discovery.js)', () => {
   it('soulsyncSyntheticId collapses the empty variant (124-129)', () => {
     expect(soulsyncSyntheticId('hidden_gems')).toBe('ssd_hidden_gems');
     expect(soulsyncSyntheticId('time_machine', '1990s')).toBe('ssd_time_machine_1990s');
@@ -342,14 +342,14 @@ describe('SoulSync Discovery (sync-soulsync-discovery.js)', () => {
     expect(mirrored[1].source_track_id).toBe('');
   });
 
-  it('buildSsdMirrorPayload carries the auto-sync description + SoulSync owner (217-228)', () => {
+  it('buildSsdMirrorPayload carries the auto-sync description + SYNCHRO.S owner (217-228)', () => {
     const payload = buildSsdMirrorPayload('time_machine', '1990s', 'Time Machine — 1990s', []);
     expect(payload.source).toBe('soulsync_discovery');
     expect(payload.source_playlist_id).toBe('ssd_time_machine_1990s');
     expect(payload.description).toBe(
       'Personalized time_machine · 1990s — regenerates on Auto-Sync refresh.',
     );
-    expect(payload.owner).toBe('SoulSync');
+    expect(payload.owner).toBe('SYNCHRO.S');
     expect(buildSsdMirrorPayload('hidden_gems', '', 'HG', []).description).toBe(
       'Personalized hidden_gems — regenerates on Auto-Sync refresh.',
     );

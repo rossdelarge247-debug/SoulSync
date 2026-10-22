@@ -531,7 +531,7 @@ function drawFooter(
   ctx.fillStyle = palette.accent;
   ctx.font = font(800, 26, s);
   ctx.textAlign = 'left';
-  ctx.fillText('SoulSync', M, y);
+  ctx.fillText('SYNCHRO.S', M, y);
 
   // Period on right
   if (model.period) {

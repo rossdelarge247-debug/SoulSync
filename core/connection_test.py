@@ -195,7 +195,7 @@ def run_service_test(service, test_config):
                                 break
                     if found_enough:
                         break
-                return True, f"SoulSync standalone ready! Output folder: {transfer_path}" + (f" ({count}+ audio files)" if count > 0 else " (empty)")
+                return True, f"SYNCHRO.S standalone ready! Output folder: {transfer_path}" + (f" ({count}+ audio files)" if count > 0 else " (empty)")
             else:
                 return False, f"Output folder not found: {transfer_path}"
         elif service == "soulseek":

@@ -151,17 +151,17 @@ function unfollowText(rows: FollowingRow[]): string {
   if (rows.length === 1) {
     const row = rows[0];
     if (row.kind === 'podcast') {
-      return `SoulSync stops checking ${row.name} for new episodes. Episodes you’ve downloaded stay.`;
+      return `SYNCHRO.S stops checking ${row.name} for new episodes. Episodes you’ve downloaded stay.`;
     }
     const what = row.kind === 'author' ? 'new books' : 'new releases';
     const stays =
       row.onWanted > 0
         ? `The ${plural(row.onWanted, 'thing')} already on Wanted stay${row.onWanted === 1 ? 's' : ''} there and keep${row.onWanted === 1 ? 's' : ''} being searched for.`
         : 'Anything of theirs already on Wanted stays there.';
-    return `SoulSync stops checking ${row.name} for ${what}. ${stays}`;
+    return `SYNCHRO.S stops checking ${row.name} for ${what}. ${stays}`;
   }
   const onWanted = rows.reduce((n, row) => n + row.onWanted, 0);
-  return `SoulSync stops checking them for anything new. ${
+  return `SYNCHRO.S stops checking them for anything new. ${
     onWanted > 0
       ? `The ${plural(onWanted, 'thing')} already on Wanted stay${onWanted === 1 ? 's' : ''} there and keep${onWanted === 1 ? 's' : ''} being searched for.`
       : 'Anything of theirs already on Wanted stays there.'

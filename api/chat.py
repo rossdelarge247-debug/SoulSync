@@ -1333,7 +1333,7 @@ def create_blueprint() -> Blueprint:
             if not path:
                 return jsonify({"error": "Can't reach that track's file — it's "
                                          "stored at your media server's path. Add "
-                                         "where SoulSync sees your music under "
+                                         "where SYNCHRO.S sees your music under "
                                          "Settings → Library → Music Paths."}), 404
             import os as _os
             size = _os.path.getsize(path)

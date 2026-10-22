@@ -429,12 +429,14 @@ export function AdlMatchModal({
           {files ? (
             <div className={styles.files} data-ok={files.visible || undefined}>
               <span className={styles.filesTitle}>
-                {files.visible ? 'SoulSync can see the files' : "SoulSync can't see the files yet"}
+                {files.visible
+                  ? 'SYNCHRO.S can see the files'
+                  : "SYNCHRO.S can't see the files yet"}
               </span>
               <span className={styles.filesPath}>
                 {files.visible
                   ? 'They are copied for the import, so the download keeps seeding.'
-                  : `The client reports ${files.reportedPath || 'no folder yet'}. The import waits until that folder is visible to SoulSync.`}
+                  : `The client reports ${files.reportedPath || 'no folder yet'}. The import waits until that folder is visible to SYNCHRO.S.`}
               </span>
             </div>
           ) : null}

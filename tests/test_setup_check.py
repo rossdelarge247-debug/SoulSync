@@ -165,7 +165,7 @@ def test_unreadable_folder(dirs, monkeypatch):
     r = sc.check_folder(make_ctx(), spec(dirs["library"]))
     assert r["status"] == sc.ERROR
     assert "isn't allowed to open" in r["detail"]
-    assert "SoulSync runs as user 1000" in r["detail"]
+    assert "SYNCHRO.S runs as user 1000" in r["detail"]
 
 
 def test_read_only_folder(dirs, monkeypatch):
@@ -690,7 +690,7 @@ def test_download_folder_check_skipped_without_reported_dir(dirs):
 def test_media_server_standalone_skipped():
     out = sc.check_media_server(make_ctx({"active_media_server": "soulsync"}))
     assert [r["status"] for r in out] == [sc.SKIPPED, sc.SKIPPED]
-    assert out[0]["title"] == "Media server connection" and "SoulSync's own library" in out[0]["detail"]
+    assert out[0]["title"] == "Media server connection" and "SYNCHRO.S's own library" in out[0]["detail"]
 
 
 @pytest.mark.parametrize("active", ["plex", "jellyfin", "navidrome", "none", ""])
@@ -701,7 +701,7 @@ def test_no_library_chosen_is_a_warning(active):
     assert conn["id"] == "media_server.connection" and conn["status"] == sc.WARNING
     assert conn["title"] == "Where your library lives"
     assert conn["detail"] == "No library is chosen, so downloads won't appear on the Library page."
-    assert conn["fix"] == ("Choose Standalone in Settings → Connections → Server Connections to let SoulSync "
+    assert conn["fix"] == ("Choose Standalone in Settings → Connections → Server Connections to let SYNCHRO.S "
                            "keep the library itself, or connect Plex, Jellyfin or Navidrome.")
     assert lib["id"] == "media_server.library_path" and lib["status"] == sc.SKIPPED
     assert http.calls == [], "nothing to contact when no server is set up"

@@ -542,7 +542,7 @@ describe('labels and podcasts you follow, as rows', () => {
     await menuItem('More actions for Syntax Podcast', 'Unfollow…');
     const dialog = await screen.findByRole('dialog', { name: 'Unfollow Syntax Podcast?' });
     expect(dialog).toHaveTextContent(
-      'SoulSync stops checking Syntax Podcast for new episodes. Episodes you’ve downloaded stay.',
+      'SYNCHRO.S stops checking Syntax Podcast for new episodes. Episodes you’ve downloaded stay.',
     );
     fireEvent.click(within(dialog).getByRole('button', { name: 'Unfollow' }));
     await waitFor(() => {

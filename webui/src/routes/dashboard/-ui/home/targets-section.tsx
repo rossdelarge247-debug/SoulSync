@@ -66,10 +66,10 @@ function SetupPanel() {
       <div className={styles.setupPanelText}>
         <p className={styles.cardLabel}>Targets</p>
         <h2 className={styles.sectionTitle} id="home-setup-title">
-          Tell SoulSync what you want
+          Tell SYNCHRO.S what you want
         </h2>
         <p className={styles.cardText}>
-          Home fills in once you set a target. SoulSync then searches for what’s missing on a
+          Home fills in once you set a target. SYNCHRO.S then searches for what’s missing on a
           schedule and shows you how far along it is.
         </p>
       </div>
@@ -138,7 +138,7 @@ export function TargetsSection({
             </>
           }
         >
-          SoulSync didn’t answer, so Home can’t show how your targets are doing. Nothing is lost;
+          SYNCHRO.S didn’t answer, so Home can’t show how your targets are doing. Nothing is lost;
           this is a display problem.
           {isAdmin ? ' If it keeps happening, the Setup check can tell you why.' : null}
         </Notice>

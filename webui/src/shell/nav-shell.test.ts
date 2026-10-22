@@ -948,8 +948,9 @@ describe('the markup', () => {
     );
   });
 
-  it('names the app SoulSync, with SS on the rail', () => {
-    expect($('.ss-wordmark-name').textContent).toBe('SoulSync');
+  it('names the app SYNCHRO.S, with SS on the rail', () => {
+    expect($('.ss-wordmark-name').textContent).toBe('SYNCHRO.S');
+    expect($('.ss-wordmark-name').getAttribute('aria-label')).toBe('SYNCHRO.S');
     expect($('.ss-monogram').textContent).toBe('SS');
     expect(html).not.toContain('Sync.FM');
   });

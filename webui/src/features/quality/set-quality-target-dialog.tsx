@@ -125,7 +125,7 @@ export function SetQualityTargetDialog({
       setFailure(
         error instanceof SetTargetError
           ? error.failure
-          : { kind: 'failed', message: "SoulSync couldn't save the target. Nothing changed." },
+          : { kind: 'failed', message: "SYNCHRO.S couldn't save the target. Nothing changed." },
       );
     },
   });
@@ -199,7 +199,7 @@ export function SetQualityTargetDialog({
                 </Button>
               }
             >
-              SoulSync didn’t answer, so the dialog can’t say how much of your library meets each
+              SYNCHRO.S didn’t answer, so the dialog can’t say how much of your library meets each
               target. Your target hasn’t changed.
             </Notice>
             <CardSkeletons />

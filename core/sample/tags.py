@@ -51,7 +51,7 @@ def build_comment(
         fx.append(f"{stem} stem")
     if fx:
         bits.append(" · ".join(fx))
-    bits.append("Made with SoulSync Sample Studio")
+    bits.append("Made with SYNCHRO.S Sample Studio")
     return " — ".join(bits)
 
 

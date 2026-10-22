@@ -409,7 +409,7 @@ export function ManualModal({
               />
             </svg>
             <div>
-              SoulSync keeps these details as you entered them.
+              SYNCHRO.S keeps these details as you entered them.
               <span> It won’t rematch, retag or replace this album.</span>
             </div>
           </div>

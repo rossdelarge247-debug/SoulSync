@@ -530,7 +530,7 @@ describe('Follow / Following', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Unfollow Pale Harbour?' });
     expect(
       within(dialog).getByText(
-        /SoulSync stops checking Pale Harbour for new releases. The 5 things already on Wanted stay there and keep being searched for./,
+        /SYNCHRO\.S stops checking Pale Harbour for new releases. The 5 things already on Wanted stay there and keep being searched for./,
       ),
     ).toBeInTheDocument();
     expect(within(dialog).getByText('Nothing in your library changes.')).toBeInTheDocument();

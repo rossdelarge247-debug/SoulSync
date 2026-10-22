@@ -115,7 +115,7 @@ export function CandidateInspectorModal({
           <div>
             <h3 id="rdl-inspector-title">Interactive Search</h3>
             <p className="redownload-header-sub">
-              What each download source has for this track, and why SoulSync would or wouldn't take
+              What each download source has for this track, and why SYNCHRO.S would or wouldn't take
               it
             </p>
             {searchMeta?.provenance ? (

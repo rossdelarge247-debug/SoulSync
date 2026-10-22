@@ -99,7 +99,7 @@ describe('server tab', () => {
     expect(panel.querySelector('.ss-hero-pill--ok')!.textContent).toContain('Online');
     expect(panel.textContent).toContain('answered in 42 ms');
     // other servers that are set up; navidrome isn't
-    expect(panel.textContent).toContain('Jellyfin, SoulSync');
+    expect(panel.textContent).toContain('Jellyfin, SYNCHRO.S');
     expect(panel.textContent).not.toContain('Navidrome');
   });
 

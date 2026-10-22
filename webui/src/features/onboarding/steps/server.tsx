@@ -264,7 +264,7 @@ export function ServerStep() {
     <StepFrame
       step="server"
       title="Where do you watch and listen?"
-      lead="SoulSync tells your server when new things land, and checks what you already own before it downloads anything."
+      lead="SYNCHRO.S tells your server when new things land, and checks what you already own before it downloads anything."
     >
       {featured ? (
         <section className={s.card}>
@@ -423,7 +423,7 @@ export function ServerStep() {
               <span className={s.radio} aria-hidden="true" />
             </span>
             <span className={s.optionDesc}>
-              SoulSync keeps the library and plays it in the browser
+              SYNCHRO.S keeps the library and plays it in the browser
             </span>
           </button>
         </div>

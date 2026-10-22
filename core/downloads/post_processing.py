@@ -470,7 +470,7 @@ def run_post_processing_worker(task_id: str, batch_id: str, deps: PostProcessDep
                     download_tasks[task_id]['error_message'] = (
                         f"slskd reported '{_searched_name}' downloaded, but it never appeared "
                         f"under the download folder ({download_dir}) after {_file_search_max_retries} "
-                        f"checks. Either it's still being written, or SoulSync's download path "
+                        f"checks. Either it's still being written, or SYNCHRO.S's download path "
                         f"doesn't match slskd's download directory — they must point at the same folder."
                     )
             deps.on_download_completed(batch_id, task_id, False)

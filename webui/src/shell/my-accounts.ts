@@ -78,7 +78,7 @@ const _MA_SERVICES: MaService[] = [
     saveUrl: '/api/profiles/me/lastfm',
     label: 'Last.fm username',
     placeholder: 'Your Last.fm username',
-    help: 'Scrobbles are public, so your username is all SoulSync needs.',
+    help: 'Scrobbles are public, so your username is all SYNCHRO.S needs.',
     history: 'lastfm',
   },
 ];

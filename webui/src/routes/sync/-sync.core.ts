@@ -114,17 +114,17 @@ export function heroSourceLabel(virtualPlaylistId: string): string {
               : virtualPlaylistId.startsWith('spotify:')
                 ? 'Spotify'
                 : virtualPlaylistId.startsWith('discover_')
-                  ? 'SoulSync'
+                  ? 'SYNCHRO.S'
                   : virtualPlaylistId.startsWith('seasonal_')
-                    ? 'SoulSync'
+                    ? 'SYNCHRO.S'
                     : virtualPlaylistId.startsWith('spotify_library_')
-                      ? 'SoulSync'
+                      ? 'SYNCHRO.S'
                       : virtualPlaylistId.startsWith('build_playlist_')
-                        ? 'SoulSync'
+                        ? 'SYNCHRO.S'
                         : virtualPlaylistId.startsWith('decade_')
-                          ? 'SoulSync'
+                          ? 'SYNCHRO.S'
                           : virtualPlaylistId === 'build_playlist_custom'
-                            ? 'SoulSync'
+                            ? 'SYNCHRO.S'
                             : 'YouTube';
 }
 

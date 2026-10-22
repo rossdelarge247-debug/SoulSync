@@ -767,7 +767,12 @@ export function MirroredDetailModal({
               <div className="mm-meta">
                 {data.owner ? (
                   <>
-                    <span className="mm-meta-item">{data.owner}</span>
+                    <span className="mm-meta-item">
+                      {/* Discovery mirrors saved before the rename store "SoulSync" as owner. */}
+                      {source === 'soulsync_discovery' && data.owner === 'SoulSync'
+                        ? 'SYNCHRO.S'
+                        : data.owner}
+                    </span>
                     <span className="mm-dot">&middot;</span>
                   </>
                 ) : null}

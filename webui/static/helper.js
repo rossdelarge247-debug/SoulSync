@@ -44,7 +44,7 @@ const HELPER_CONTENT = {
     },
     '.nav-button[data-page="sync"]': {
         title: 'Playlists',
-        description: 'Mirror playlists from Spotify, YouTube, Tidal, Deezer, ListenBrainz, and Beatport. SoulSync matches each track to your download sources and downloads what\'s missing from your library.',
+        description: 'Mirror playlists from Spotify, YouTube, Tidal, Deezer, ListenBrainz, and Beatport. SYNCHRO.S matches each track to your download sources and downloads what\'s missing from your library.',
         tips: [
             'Select playlists from the left panel to begin syncing',
             'Real-time progress shows matched, pending, and failed tracks',
@@ -127,7 +127,7 @@ const HELPER_CONTENT = {
     },
     '.nav-button[data-page="import"]': {
         title: 'Music Import',
-        description: 'Import music files from your import folder. SoulSync identifies tracks using AcoustID fingerprinting, matches them to metadata, and organizes them into your library with proper tagging.',
+        description: 'Import music files from your import folder. SYNCHRO.S identifies tracks using AcoustID fingerprinting, matches them to metadata, and organizes them into your library with proper tagging.',
         docsId: 'import'
     },
     '.nav-button[data-page="settings"]': {
@@ -169,7 +169,7 @@ const HELPER_CONTENT = {
     },
     '.version-button': {
         title: 'Version & Changelog',
-        description: 'Shows the current SoulSync version. Click to see the full release notes, changelog, and what\'s new.',
+        description: 'Shows the current SYNCHRO.S version. Click to see the full release notes, changelog, and what\'s new.',
     },
     '.support-button': {
         title: 'Support & Community',
@@ -188,7 +188,7 @@ const HELPER_CONTENT = {
     },
     '#media-server-indicator': {
         title: 'Media Server',
-        description: 'Connection to your music server where your library lives. SoulSync reads your collection from here and triggers scans after new downloads.',
+        description: 'Connection to your music server where your library lives. SYNCHRO.S reads your collection from here and triggers scans after new downloads.',
         tips: [
             'Supports Plex, Jellyfin, and Navidrome',
             'Configure in Settings → Media Server Setup',
@@ -213,7 +213,7 @@ const HELPER_CONTENT = {
 
     '#watchlist-button': {
         title: 'Watchlist',
-        description: 'Artists you\'re following for new releases. SoulSync periodically scans for new albums and singles from these artists and adds them to your Wishlist for download.',
+        description: 'Artists you\'re following for new releases. SYNCHRO.S periodically scans for new albums and singles from these artists and adds them to your Wishlist for download.',
         tips: [
             'Add artists from the Artists page or Library page',
             'Badge shows total watched artist count',
@@ -260,11 +260,11 @@ const HELPER_CONTENT = {
     },
     '#uptime-card': {
         title: 'System Uptime',
-        description: 'Time since last SoulSync restart. Background workers (metadata enrichment, watchlist scanner, repair jobs) run continuously during uptime.',
+        description: 'Time since last SYNCHRO.S restart. Background workers (metadata enrichment, watchlist scanner, repair jobs) run continuously during uptime.',
     },
     '#memory-card': {
         title: 'Memory Usage',
-        description: 'RAM consumed by the SoulSync process. Includes web server, all background workers, metadata caches, and WebSocket connections.',
+        description: 'RAM consumed by the SYNCHRO.S process. Includes web server, all background workers, metadata caches, and WebSocket connections.',
     },
 
     // ─── TOOLS PAGE: TOOL CARDS ─────────────────────────────────────
@@ -273,9 +273,9 @@ const HELPER_CONTENT = {
 
     '#db-updater-card': {
         title: 'Database Updater',
-        description: 'Syncs your media server\'s library into SoulSync\'s database. Three modes: Incremental (fast, new content only), Full Refresh (rebuilds everything), and Deep Scan (finds stale entries).',
+        description: 'Syncs your media server\'s library into SYNCHRO.S\'s database. Three modes: Incremental (fast, new content only), Full Refresh (rebuilds everything), and Deep Scan (finds stale entries).',
         tips: [
-            'Run after adding music outside of SoulSync',
+            'Run after adding music outside of SYNCHRO.S',
             'Incremental runs in seconds; Full Refresh takes longer',
             'Deep Scan removes tracks deleted from your media server'
         ],
@@ -316,7 +316,7 @@ const HELPER_CONTENT = {
     // nowhere. Library re-tagging is the `library_retag` maintenance job now.)
     '#media-scan-card': {
         title: 'Media Server Scan',
-        description: 'Manually trigger a library scan on your media server. SoulSync auto-scans after downloads, but this is useful after bulk imports or external changes.',
+        description: 'Manually trigger a library scan on your media server. SYNCHRO.S auto-scans after downloads, but this is useful after bulk imports or external changes.',
         tips: [
             'Plex: triggers partial scan of music library section',
             'Jellyfin: triggers full library refresh task',
@@ -388,7 +388,7 @@ const HELPER_CONTENT = {
     },
     '.watchlist-artist-card': {
         title: 'Watched Artist',
-        description: 'An artist on your watchlist. SoulSync monitors this artist for new releases and adds them to your Wishlist. Click the gear icon to configure which release types to monitor.',
+        description: 'An artist on your watchlist. SYNCHRO.S monitors this artist for new releases and adds them to your Wishlist. Click the gear icon to configure which release types to monitor.',
         tips: [
             'Gear icon opens per-artist download preferences',
             'Configure which release types (Albums, EPs, Singles) to monitor',
@@ -438,7 +438,7 @@ const HELPER_CONTENT = {
     },
     '#watchlist-linked-provider-section': {
         title: 'Linked Artist',
-        description: 'Shows which metadata provider artist is linked to this watchlist entry. SoulSync uses this link to look up releases. If the wrong artist is linked, the scan will find incorrect releases.',
+        description: 'Shows which metadata provider artist is linked to this watchlist entry. SYNCHRO.S uses this link to look up releases. If the wrong artist is linked, the scan will find incorrect releases.',
         tips: [
             'The linked artist is matched automatically when you add to watchlist',
             'If releases look wrong, the link may point to the wrong artist',
@@ -525,7 +525,7 @@ const HELPER_CONTENT = {
     },
     '.playlist-modal-btn-warning': {
         title: 'Cleanup Wishlist',
-        description: 'Removes tracks that already exist in your library. Useful after manual imports or when tracks were downloaded outside of SoulSync.',
+        description: 'Removes tracks that already exist in your library. Useful after manual imports or when tracks were downloaded outside of SYNCHRO.S.',
     },
 
     // ─── WISHLIST: TRACK LIST VIEW ─────────────────────────────────
@@ -935,7 +935,7 @@ const HELPER_CONTENT = {
     },
     '#discover-hero-add': {
         title: 'Add to Watchlist',
-        description: 'Add this artist to your Watchlist. SoulSync will scan for their new releases and add them to your Wishlist for download.',
+        description: 'Add this artist to your Watchlist. SYNCHRO.S will scan for their new releases and add them to your Wishlist for download.',
     },
     '#discover-hero-watch-all': {
         title: 'Watch All',
@@ -998,7 +998,7 @@ const HELPER_CONTENT = {
     // Build a Playlist — section container and all inner elements
     '.build-playlist-container': {
         title: 'Build a Playlist',
-        description: 'Create a custom playlist by selecting seed artists. SoulSync finds similar artists, pulls their albums, and assembles a 50-track playlist mixing your picks with new discoveries.',
+        description: 'Create a custom playlist by selecting seed artists. SYNCHRO.S finds similar artists, pulls their albums, and assembles a 50-track playlist mixing your picks with new discoveries.',
         tips: [
             'Search and select 1-5 seed artists',
             'Hit Generate for a fresh playlist every time',
@@ -1008,7 +1008,7 @@ const HELPER_CONTENT = {
     },
     '#bp-info-panel': {
         title: 'How Build a Playlist Works',
-        description: 'Search for seed artists → SoulSync finds similar artists → pulls their albums → picks random tracks → creates a 50-track playlist. More seed artists = more variety.',
+        description: 'Search for seed artists → SYNCHRO.S finds similar artists → pulls their albums → picks random tracks → creates a 50-track playlist. More seed artists = more variety.',
         docsId: 'disc-build'
     },
     '#build-playlist-search': {
@@ -1592,7 +1592,7 @@ const HELPER_CONTENT = {
     },
     '#stats-db-storage-chart': {
         title: 'Database Storage',
-        description: 'Breakdown of your SoulSync database size by category: library data, metadata cache, discovery pool, settings, and more.',
+        description: 'Breakdown of your SYNCHRO.S database size by category: library data, metadata cache, discovery pool, settings, and more.',
     },
 
     // ─── IMPORT PAGE ────────────────────────────────────────────────
@@ -1714,7 +1714,7 @@ const HELPER_CONTENT = {
     // Connections — Media Server
     '#plex-container': {
         title: 'Plex Configuration',
-        description: 'Connect your Plex server. Enter the URL and token, then select your Music Library. SoulSync reads your library from Plex and triggers scans after downloads.',
+        description: 'Connect your Plex server. Enter the URL and token, then select your Music Library. SYNCHRO.S reads your library from Plex and triggers scans after downloads.',
         tips: [
             'URL format: http://IP:32400 (or your custom port)',
             'Token: find in Plex settings or browser URL bar while logged in',
@@ -1841,20 +1841,20 @@ const HELPER_CONTENT = {
     // Library — Lossy Copy
     '#lossy-copy-enabled': {
         title: 'Lossy Copy',
-        description: 'Create a lower-bitrate derivative of downloaded lossless audio. If the source is kept, SoulSync treats both files as versions of one track; if it is deleted, the acquired quality is still remembered for upgrade decisions.',
+        description: 'Create a lower-bitrate derivative of downloaded lossless audio. If the source is kept, SYNCHRO.S treats both files as versions of one track; if it is deleted, the acquired quality is still remembered for upgrade decisions.',
         docsId: 'set-processing'
     },
 
     // Library — Listening Stats
     '#listening-stats-enabled': {
         title: 'Listening Stats',
-        description: 'Track your listening activity from your media server. When enabled, SoulSync periodically syncs play history for the Stats page.',
+        description: 'Track your listening activity from your media server. When enabled, SYNCHRO.S periodically syncs play history for the Stats page.',
     },
 
     // Advanced — API Keys
     '#api-keys-list': {
         title: 'API Keys',
-        description: 'Manage API keys for external access to SoulSync\'s REST API. Generate keys with labels for different integrations.',
+        description: 'Manage API keys for external access to SYNCHRO.S\'s REST API. Generate keys with labels for different integrations.',
     },
 
     // Advanced — Discovery Pool
@@ -1870,7 +1870,7 @@ const HELPER_CONTENT = {
     // Appearance
     '#accent-preset-cards': {
         title: 'Accent colour',
-        description: 'One colour for buttons, links, selected rows and focus, for everyone using this SoulSync. Pick a preset, or Custom for any hex: it is used only when dark text on its lighter shade passes 4.5:1.',
+        description: 'One colour for buttons, links, selected rows and focus, for everyone using this SYNCHRO.S. Pick a preset, or Custom for any hex: it is used only when dark text on its lighter shade passes 4.5:1.',
     },
     '#sidebar-visualizer-type': {
         title: 'Sidebar Visualizer',
@@ -1992,7 +1992,7 @@ const HELPER_CONTENT = {
     },
     '#adl-actions': {
         title: 'History and Actions',
-        description: 'History opens every download SoulSync has done. The ⋯ menu holds Clear finished (tidies the list, never deletes files), Retry failed on the video side, and Cancel all.',
+        description: 'History opens every download SYNCHRO.S has done. The ⋯ menu holds Clear finished (tidies the list, never deletes files), Retry failed on the video side, and Cancel all.',
     },
 
     // ─── PLAYLIST EXPLORER PAGE ──────────────────────────────────────
@@ -2059,7 +2059,7 @@ const HELPER_CONTENT = {
 
     '#profile-indicator-button': {
         title: 'Your profile',
-        description: 'Switch profile, edit yours, and open Profile & account: who you are on the media server, plus your own Spotify, Tidal, ListenBrainz and Last.fm. Connect ListenBrainz or Last.fm and your stats and recommendations use your own listening. Sign out is here too when SoulSync asks for a password.',
+        description: 'Switch profile, edit yours, and open Profile & account: who you are on the media server, plus your own Spotify, Tidal, ListenBrainz and Last.fm. Connect ListenBrainz or Last.fm and your stats and recommendations use your own listening. Sign out is here too when SYNCHRO.S asks for a password.',
     },
 };
 
@@ -2346,21 +2346,21 @@ const TOUR_ICONS = {
 
 const HELPER_TOURS = {
     'welcome': {
-        title: 'Tour of SoulSync',
+        title: 'Tour of SYNCHRO.S',
         description: 'Where everything is: the sidebar, Home, Wanted, Activity, Search, artists, Automations and the Setup check.',
         icon: TOUR_ICONS.map,
         steps: [
-            { page: 'dashboard', selector: '[data-tour="home-header"]', title: 'Welcome to SoulSync', description: 'Home shows what you want, what you have, and what SoulSync is doing about the gap. This tour takes about two minutes: Next moves on, Skip tour ends it, and the arrow keys work too.' },
+            { page: 'dashboard', selector: '[data-tour="home-header"]', title: 'Welcome to SYNCHRO.S', description: 'Home shows what you want, what you have, and what SYNCHRO.S is doing about the gap. This tour takes about two minutes: Next moves on, Skip tour ends it, and the arrow keys work too.' },
             { page: 'dashboard', selector: '#app-sidebar .ss-music-nav', phoneSelector: '#ss-tabbar', title: 'The sidebar', description: 'Home, then four groups. Get music has Search, Discover, Wanted and Mirrored playlists. Library has your artists, albums, imports and stats. Automate has Automations and Activity, and Settings comes last.', phoneTitle: 'The tab bar', phoneDescription: 'Home, Get music, Library, Automate and Settings. Tap a group to open its list; tap it again, or anywhere outside, to close it.' },
-            { page: 'dashboard', selector: '#sidebar-collapse-toggle', phone: false, title: 'The compact rail', description: 'Select the SoulSync name to fold the sidebar into a narrow rail of icons, and SS to open it again. SoulSync remembers which you chose.' },
+            { page: 'dashboard', selector: '#sidebar-collapse-toggle', phone: false, title: 'The compact rail', description: 'Select the SYNCHRO.S name to fold the sidebar into a narrow rail of icons, and SS to open it again. SYNCHRO.S remembers which you chose.' },
             { page: 'dashboard', selector: '#ss-admin', phoneSelector: '#ss-tabbar [data-tab="settings"]', title: 'Admin and help', description: 'Help, Requests and issues, Maintenance, your connections and what’s new; admins also find the Setup check here. Select Admin and help to open or fold the list.', phoneDescription: 'Tap Settings: Admin and help is at the end of its list, with Switch to Video and your profile. It has Help, Requests and issues, Maintenance, your connections and what’s new.' },
             { page: 'dashboard', selector: '#ss-search', phoneSelector: '#ss-phone-search', title: 'Search from any page', description: 'Type here and press Enter to open Search with your words. Press ⌘K (Ctrl K on Windows and Linux) to jump here from anywhere.', phoneDescription: 'Search is in the top bar on every page.' },
             { page: 'dashboard', selector: '#ss-running', phoneSelector: '#ss-phone-activity', title: 'What’s running', description: 'How many downloads, imports and automation runs are going right now. It opens Activity, and says Nothing running when all is quiet.', phoneTitle: 'Activity and notifications', phoneDescription: 'Your notifications, with Activity at the top of them. A dot here means something needs you or a notification is new.' },
-            { page: 'dashboard', selector: '[data-tour="home-targets"]', phoneSelector: '[data-tour="home-targets"] h2', title: 'Your targets', description: 'Wanted, Mirrored playlists, Followed artists and Quality. Each card says how much you have, what’s still missing and when SoulSync searches next. One you haven’t set up yet has a button to start.' },
-            { page: 'dashboard', selector: '[data-tour="home-latest"]', phoneSelector: '[data-tour="home-latest"] h2', title: 'Latest', description: 'The newest things SoulSync did, with See all activity for the rest. Further down, Library and system keeps your library, the enrichment workers and quick settings.' },
-            { page: 'wanted', selector: '[data-tour="wanted-tabs"]', title: 'Wanted', description: 'Everything you want, and every artist you follow, in two tabs. SoulSync searches for what’s wanted on a schedule and checks followed artists for new releases; the line below says when it runs next.' },
+            { page: 'dashboard', selector: '[data-tour="home-targets"]', phoneSelector: '[data-tour="home-targets"] h2', title: 'Your targets', description: 'Wanted, Mirrored playlists, Followed artists and Quality. Each card says how much you have, what’s still missing and when SYNCHRO.S searches next. One you haven’t set up yet has a button to start.' },
+            { page: 'dashboard', selector: '[data-tour="home-latest"]', phoneSelector: '[data-tour="home-latest"] h2', title: 'Latest', description: 'The newest things SYNCHRO.S did, with See all activity for the rest. Further down, Library and system keeps your library, the enrichment workers and quick settings.' },
+            { page: 'wanted', selector: '[data-tour="wanted-tabs"]', title: 'Wanted', description: 'Everything you want, and every artist you follow, in two tabs. SYNCHRO.S searches for what’s wanted on a schedule and checks followed artists for new releases; the line below says when it runs next.' },
             { page: 'activity', selector: '[data-tour="activity-controls"]', title: 'Activity', description: 'One timeline of downloads, imports, playlist mirrors and automation runs. Needs you lists what’s waiting for a decision and stays at the top until it’s dealt with. Show today, 7 days or 30 days.' },
-            { page: 'search', selector: '#enhanced-search-bar', title: 'Search', description: 'As you type, SoulSync searches your library and your metadata service. Press Enter to search Soulseek too: it waits for Enter so half-typed words don’t go out to other users.' },
+            { page: 'search', selector: '#enhanced-search-bar', title: 'Search', description: 'As you type, SYNCHRO.S searches your library and your metadata service. Press Enter to search Soulseek too: it waits for Enter so half-typed words don’t go out to other users.' },
             { page: 'search', selector: '#search-type-row', title: 'Three sections', description: 'Results come back in three sections: In your library, Soulseek (grouped by folder, at your quality target unless you pick Any quality) and your metadata service, which has a picker for the others. These buttons narrow all three.' },
             { page: 'search', selector: '#app-sidebar [data-nav-row="artists"]', phoneSelector: '#ss-tabbar [data-tab="library"]', title: 'One page for every artist', description: 'Open an artist from Search, Artists, Wanted or Home and you get the same page: their releases with what you have and what’s missing, Follow, Add all missing to Wanted, and Tracks and Similar artists tabs. Its own tour is under the ? button there.' },
             { page: 'automations', selector: '[data-tour="automation-card"]', title: 'Automations', description: 'Rules that run on a schedule or after something happens. The selected one spells out its steps, with Preview a run, Run now and Edit.' },
@@ -2375,11 +2375,11 @@ const HELPER_TOURS = {
         description: 'One search across your library, Soulseek and your metadata service.',
         icon: TOUR_ICONS.search,
         steps: [
-            { page: 'search', selector: '#enhanced-search-bar', title: 'Search', description: 'As you type, SoulSync searches your library and your metadata service. Press Enter to search Soulseek too: it waits for Enter so half-typed words don’t go out to other users.' },
+            { page: 'search', selector: '#enhanced-search-bar', title: 'Search', description: 'As you type, SYNCHRO.S searches your library and your metadata service. Press Enter to search Soulseek too: it waits for Enter so half-typed words don’t go out to other users.' },
             { page: 'search', selector: '#search-type-row', title: 'Narrow it down', description: 'Everything, or just artists, albums or tracks, in every section at once.' },
             { page: 'search', selector: '#search-library', title: 'In your library', description: 'Artists, albums and tracks you already have, tagged Following, In your library or Below quality target, with Play and Open. An album below your target says Better copies below when Soulseek has one at your target, and takes you to it. All library results opens the Library on the same search.' },
             { page: 'search', selector: '#search-soulseek', title: 'Soulseek', description: 'Files from other users, grouped by folder with the best copy first, at your quality target unless you pick Any quality. The coloured line says what a row means for you, and the first row that completes something you want gets Download missing.' },
-            { page: 'search', selector: '#search-catalog', title: 'Your metadata service', description: 'What it lists that you don’t have yet. Add a release to Wanted, mirror a playlist so SoulSync keeps up with it, or use the picker to ask another service.' },
+            { page: 'search', selector: '#search-catalog', title: 'Your metadata service', description: 'What it lists that you don’t have yet. Add a release to Wanted, mirror a playlist so SYNCHRO.S keeps up with it, or use the picker to ask another service.' },
             { page: 'search', selector: '#enh-recent-searches', title: 'Recent searches', description: 'Run one again, or remove it.' },
             { page: 'search', selector: '#enh-explore-section', title: 'Browse', description: 'Categories to start from when you don’t know what you’re looking for yet.' },
         ]
@@ -2403,7 +2403,7 @@ const HELPER_TOURS = {
         // needs an artist: offered on an artist page only
         onlyOn: 'artist-detail',
         steps: [
-            { page: 'artist-detail', selector: '[data-tour="artist-header"]', title: 'The artist', description: 'How many releases there are, how many are in your library and on Wanted, and the tracks you have. Below that: since when you’ve followed them, their latest release, and the services SoulSync matched them on.' },
+            { page: 'artist-detail', selector: '[data-tour="artist-header"]', title: 'The artist', description: 'How many releases there are, how many are in your library and on Wanted, and the tracks you have. Below that: since when you’ve followed them, their latest release, and the services SYNCHRO.S matched them on.' },
             { page: 'artist-detail', selector: '[data-tour="artist-actions"]', title: 'Follow and add', description: 'Add all missing to Wanted asks first and says what it would add. Follow adds each new release to Wanted as it comes out. The … menu has the rest: artist radio, a new photo, better copies, matches and more filters.' },
             { page: 'artist-detail', selector: '[data-tour="artist-tabs"]', title: 'Three views', description: 'Releases, Tracks (the popular ones and the ones you have) and Similar artists.' },
             { page: 'artist-detail', selector: '[data-tour="artist-filters"]', title: 'Filters', description: 'All releases, what’s in your library (whole or in part), what’s missing, or albums only. The tab and filter are part of the address, so Back steps through them.' },
@@ -3280,7 +3280,7 @@ async function openSetupPanel() {
                     </div>`;
             }).join('')}
         </div>
-        ${pct === 100 ? '<div class="helper-setup-done">All set! SoulSync is fully configured. 🎉</div>' : ''}
+        ${pct === 100 ? '<div class="helper-setup-done">All set! SYNCHRO.S is fully configured. 🎉</div>' : ''}
     `;
 
     document.body.appendChild(panel);
@@ -3605,8 +3605,8 @@ const WHATS_NEW = {
     // Keep the current release and one brief Earlier versions summary.
     '3.5.9': [
         { date: 'October 2026 · 3.5.9' },
-        { title: 'Lidarr compatible API', desc: 'Singarr and MusicSeerr 1.x can request albums from SoulSync by pointing their Lidarr URL at /lidarr with an admin API key. Requests land on the wishlist of the profile you pick. Off until turned on in Settings > Advanced (thanks @Topaze77 for the request) (#1799).', page: 'settings' },
-        { title: 'MCP endpoint', desc: 'An AI client can drive SoulSync through /mcp, with the same scopes and limits as your API key. Off until turned on in Settings > Advanced.', page: 'settings' },
+        { title: 'Lidarr compatible API', desc: 'Singarr and MusicSeerr 1.x can request albums from SYNCHRO.S by pointing their Lidarr URL at /lidarr with an admin API key. Requests land on the wishlist of the profile you pick. Off until turned on in Settings > Advanced (thanks @Topaze77 for the request) (#1799).', page: 'settings' },
+        { title: 'MCP endpoint', desc: 'An AI client can drive SYNCHRO.S through /mcp, with the same scopes and limits as your API key. Off until turned on in Settings > Advanced.', page: 'settings' },
         { title: 'Choose what new sign-ups start with', desc: 'Settings > Security picks the side a profile made by Plex sign-in starts on (music, movies and TV, or both) and an optional request limit. Members can also open the video Requests page now (thanks @PapaBearDoes) (#1818, #1819).', page: 'settings' },
         { title: 'Anime library folder', desc: 'An optional folder for anime. Episodes of anime-type shows import there instead of the TV folder, and scans, renames and subtitles cover it. Set it in video Settings > Downloads (thanks @PapaBearDoes) (#1820).' },
         { title: 'Guided first-run setup', desc: 'Setup is rebuilt as a guided flow that finds your servers on the network, checks every part before it finishes, and can pick up where you left off. The dashboard shows a finish setting up checklist.', page: 'dashboard' },
@@ -3661,7 +3661,7 @@ const WHATS_NEW = {
 const VERSION_MODAL_SECTIONS = [
     {
         title: '3.5.9: lidarr and mcp apis, guided setup, and rebuilt downloads and wishlist',
-        description: 'SoulSync can answer as Lidarr for request apps and as an MCP server for AI clients, first-run setup is a guided flow, the Downloads page and Wishlist are rebuilt on both the music and video side, new sign-ups and anime get their own settings, and a round of matching, library and video fixes.',
+        description: 'SYNCHRO.S can answer as Lidarr for request apps and as an MCP server for AI clients, first-run setup is a guided flow, the Downloads page and Wishlist are rebuilt on both the music and video side, new sign-ups and anime get their own settings, and a round of matching, library and video fixes.',
         features: [
             'Lidarr compatible API for Singarr and MusicSeerr 1.x, and an MCP endpoint for AI clients. Both off until turned on in Settings > Advanced (thanks @Topaze77 for the request) (#1799).',
             'Choose what new Plex sign-ups start with, members can open video Requests, and anime can have its own library folder (thanks @PapaBearDoes) (#1818, #1819, #1820).',
@@ -3896,7 +3896,7 @@ const TROUBLESHOOT_RULES = [
         steps: [
             'Check that your media server (Plex/Jellyfin/Navidrome) is running',
             'Verify the server URL and API token in Settings → Connections',
-            'Ensure the server is accessible from the SoulSync host machine',
+            'Ensure the server is accessible from the SYNCHRO.S host machine',
             'Try clicking "Test Connection" on the service card'
         ],
         action: { label: 'Open Settings', fn: () => navigateToPage('settings') }

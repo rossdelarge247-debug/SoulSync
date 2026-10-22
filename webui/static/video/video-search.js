@@ -143,13 +143,13 @@
             return '<div class="vsr-basic-empty">' +
                 '<div class="vsr-basic-empty-mark">⌕</div>' +
                 '<div><strong>Loading configured sources</strong>' +
-                '<p>SoulSync is checking your Video Downloads configuration.</p></div>' +
+                '<p>SYNCHRO.S is checking your Video Downloads configuration.</p></div>' +
             '</div>';
         }
         if (!q) {
             return '<div class="vsr-basic-empty">' +
                 '<div class="vsr-basic-empty-mark">⌕</div>' +
-                '<div><strong>Enter a query to search inside SoulSync</strong>' +
+                '<div><strong>Enter a query to search inside SYNCHRO.S</strong>' +
                 '<p>The available sources follow your Video Downloads configuration.</p></div>' +
             '</div>';
         }
@@ -157,7 +157,7 @@
             return '<div class="vsr-basic-empty">' +
                 '<div class="vsr-basic-empty-mark">!</div>' +
                 '<div><strong>No sources selected</strong>' +
-                '<p>Choose at least one source so SoulSync can search it.</p></div>' +
+                '<p>Choose at least one source so SYNCHRO.S can search it.</p></div>' +
             '</div>';
         }
         if (!basicActiveSource || sources.indexOf(basicActiveSource) === -1) basicActiveSource = sources[0];
@@ -1066,7 +1066,7 @@
     function freshStampHTML() {
         var at = freshCache && freshCache.fetched_at;
         if (freshRefreshing) return 'Pulling the board and matching each release against EXT.to\u2026';
-        if (!at) return 'Movies and TV releases from the EXT.to homepage, presented in SoulSync.';
+        if (!at) return 'Movies and TV releases from the EXT.to homepage, presented in SYNCHRO.S.';
         return 'Updated ' + esc(at) + ' \u00b7 refreshed hourly by the \u2018Refresh Fresh Releases\u2019 automation, or on demand.';
     }
 

@@ -328,7 +328,7 @@ export function WantedPage() {
           <h1 className={styles.title}>Wanted</h1>
           <p className={styles.subtitle}>
             What you want, and who you follow.
-            <span className={styles.subtitleMore}> SoulSync searches for both on a schedule.</span>
+            <span className={styles.subtitleMore}> SYNCHRO.S searches for both on a schedule.</span>
           </p>
         </div>
         <div className={styles.headActions}>

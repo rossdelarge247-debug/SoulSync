@@ -367,7 +367,7 @@ def _run_playlist_export(job_id, playlist_id, title, mode):
             job['stats'] = dict(stats)
 
         out = resolve_playlist_tracks(tracks, resolve_fn, on_progress=on_progress)
-        jspf, summary = build_jspf(title, out['resolved'], creator='SoulSync')
+        jspf, summary = build_jspf(title, out['resolved'], creator='SYNCHRO.S')
         job['summary'] = summary
         job['jspf'] = jspf
         job['stats'] = out['stats']
@@ -407,7 +407,7 @@ def start_playlist_export_listenbrainz(playlist_id):
         meta = _owned_mirrored_playlist(db, int(playlist_id))
         if not meta:
             return jsonify({"success": False, "error": "Playlist not found"}), 404
-        title = (meta.get('name') or meta.get('title') or 'SoulSync Export').strip() or 'SoulSync Export'
+        title = (meta.get('name') or meta.get('title') or 'SYNCHRO.S Export').strip() or 'SYNCHRO.S Export'
 
         import uuid
         job_id = uuid.uuid4().hex
@@ -451,7 +451,7 @@ def start_playlist_export_service(playlist_id, service):
         meta = _owned_mirrored_playlist(db, int(playlist_id))
         if not meta:
             return jsonify({"success": False, "error": "Playlist not found"}), 404
-        title = (meta.get('name') or meta.get('title') or 'SoulSync Export').strip() or 'SoulSync Export'
+        title = (meta.get('name') or meta.get('title') or 'SYNCHRO.S Export').strip() or 'SYNCHRO.S Export'
 
         import uuid
         job_id = uuid.uuid4().hex

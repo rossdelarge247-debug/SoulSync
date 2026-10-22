@@ -54,7 +54,7 @@ const _SS_SERVER_INFO: Record<string, { name: string; logo?: string; dark?: bool
   plex: { name: 'Plex', logo: '/static/img/brands/plex.png', dark: true },
   jellyfin: { name: 'Jellyfin', logo: '/static/img/brands/jellyfin.png' },
   navidrome: { name: 'Navidrome', logo: '/static/img/brands/navidrome.png' },
-  soulsync: { name: 'SoulSync', logo: '/static/trans2.png', dark: true },
+  soulsync: { name: 'SYNCHRO.S', logo: '/static/trans2.png', dark: true },
 };
 const _SS_META_FALLBACK: Record<string, { text: string; icon: string; logo?: string }> = {
   spotify_free: { text: 'Spotify (no auth)', icon: '🆓', logo: '/static/img/brands/spotify.png' },
@@ -166,7 +166,7 @@ export function openServiceSwitchModal(tab?: string): void {
     overlay.innerHTML = `
             <div class="ss-modal" role="dialog" aria-modal="true" aria-label="Active Sources" tabindex="-1">
                 <div class="ss-topbar">
-                    <div class="ss-topbar-icon"><img src="/static/trans2.png" alt="SoulSync" class="ss-topbar-logo"></div>
+                    <div class="ss-topbar-icon"><img src="/static/trans2.png" alt="SYNCHRO.S" class="ss-topbar-logo"></div>
                     <div class="ss-topbar-titles">
                         <h3 class="ss-topbar-title">Active Sources</h3>
                         <div class="ss-topbar-sub" id="ss-topbar-sub">What this profile uses for metadata, library, and downloads</div>
@@ -320,8 +320,8 @@ function _ssCard({
 
 const _SS_TAB_BLURB: Record<string, string> = {
   metadata: 'Where artist, album & track details come from.',
-  server: 'The library backend SoulSync reads and writes.',
-  download: "Where SoulSync grabs tracks you don't have yet.",
+  server: 'The library backend SYNCHRO.S reads and writes.',
+  download: "Where SYNCHRO.S grabs tracks you don't have yet.",
 };
 
 interface SsPill {

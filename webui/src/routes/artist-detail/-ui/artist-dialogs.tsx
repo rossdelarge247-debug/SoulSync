@@ -321,7 +321,7 @@ export function AboutDialog({
           </dl>
           {!bio && chips.length === 0 && !artist.lastfm_listeners ? (
             <p className={styles.dialogNote}>
-              Last.fm has no biography or tags for {name} yet, or SoulSync hasn&apos;t matched them
+              Last.fm has no biography or tags for {name} yet, or SYNCHRO.S hasn&apos;t matched them
               there.
             </p>
           ) : null}

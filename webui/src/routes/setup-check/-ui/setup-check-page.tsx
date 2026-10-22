@@ -67,8 +67,8 @@ function AdminOnly() {
         Only an admin can run the setup check
       </h2>
       <p className={styles.panelText}>
-        The setup check shows folder paths, server addresses and the user SoulSync runs as, so it’s
-        kept to admin profiles. Ask whoever set up SoulSync to run it from an admin profile.
+        The setup check shows folder paths, server addresses and the user SYNCHRO.S runs as, so it’s
+        kept to admin profiles. Ask whoever set up SYNCHRO.S to run it from an admin profile.
       </p>
     </section>
   );

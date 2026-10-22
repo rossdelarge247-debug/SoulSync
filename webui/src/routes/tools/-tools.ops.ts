@@ -56,7 +56,7 @@ export const CATEGORY_BLURBS: Record<string, string> = {
   'Tags & metadata': 'What is written on and about your tracks.',
   'Artwork & lyrics': 'The extras that make a library feel finished.',
   'Collection gaps': 'Releases you are missing rather than problems you have.',
-  System: 'Housekeeping SoulSync does for itself.',
+  System: 'Housekeeping SYNCHRO.S does for itself.',
   Other: 'Jobs that have not been filed under a family yet.',
 };
 

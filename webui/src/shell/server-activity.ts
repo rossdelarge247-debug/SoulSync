@@ -163,7 +163,7 @@ function card(s: SactSession): string {
       esc(s.link.source) +
       '"'
     : '';
-  const openIc = s.link ? '<span class="sact-open" title="Open in SoulSync"></span>' : '';
+  const openIc = s.link ? '<span class="sact-open" title="Open in SYNCHRO.S"></span>' : '';
   return (
     '<div class="sact-card sact-st-' +
     esc(s.state) +

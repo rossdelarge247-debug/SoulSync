@@ -563,25 +563,25 @@ def _ownership_sentence(path: str, uid: Optional[int], gid: Optional[int]) -> st
     if uid is None:
         return ""
     return (f" The folder belongs to user {st.st_uid} (group {st.st_gid}); "
-            f"SoulSync runs as user {uid} (group {gid}).")
+            f"SYNCHRO.S runs as user {uid} (group {gid}).")
 
 
 def _permission_fix(ctx: SetupCheckContext, path: str, fstype: str) -> str:
     uid, gid = _user_ids(ctx)
-    who = f"{uid}:{gid}" if uid is not None else "the SoulSync user"
+    who = f"{uid}:{gid}" if uid is not None else "the SYNCHRO.S user"
     if fstype in _CIFS_TYPES:
         return ("This folder is on a network share (SMB/CIFS). On a share, who may write is decided by how the share is "
-                "mounted on the server, not by chown. Remount it for SoulSync's user, e.g. add "
+                "mounted on the server, not by chown. Remount it for SYNCHRO.S's user, e.g. add "
                 f"uid={uid},gid={gid},file_mode=0664,dir_mode=0775 to the mount options (in /etc/fstab or your "
-                "NAS/Unraid share settings), then restart SoulSync.")
+                "NAS/Unraid share settings), then restart SYNCHRO.S.")
     if fstype in _NFS_TYPES:
         return (f"This folder is on an NFS share. On the NAS, let user {uid} write to the export (check the folder's "
-                "owner and the root_squash/all_squash options), then remount it and restart SoulSync.")
+                "owner and the root_squash/all_squash options), then remount it and restart SYNCHRO.S.")
     if ctx.in_container:
-        return (f"On your server, give SoulSync's user access to the folder you mapped to {path}, e.g. "
+        return (f"On your server, give SYNCHRO.S's user access to the folder you mapped to {path}, e.g. "
                 f"`sudo chown -R {who} /path/on/your/server`. Or set PUID and PGID in docker-compose to the folder's "
                 "owner and recreate the container.")
-    return f"Give the user SoulSync runs as write access, e.g. `sudo chown -R {who} {path}`."
+    return f"Give the user SYNCHRO.S runs as write access, e.g. `sudo chown -R {who} {path}`."
 
 
 def _probe_write(path: str) -> Tuple[bool, bool, Optional[OSError]]:
@@ -634,7 +634,7 @@ def check_folder(ctx: SetupCheckContext, spec: FolderSpec) -> Dict[str, Any]:
                    f"Or change it in {spec.setting} to a folder that's already mapped.")
             if path.startswith("/host/mnt/") and spec.raw[1:2] == ":":
                 letter = spec.raw[0].lower()
-                fix = (f"SoulSync turned the Windows path '{spec.raw}' into {path}. Mount that drive into the container "
+                fix = (f"SYNCHRO.S turned the Windows path '{spec.raw}' into {path}. Mount that drive into the container "
                        f"at /host/mnt/{letter} (e.g. `- /mnt/{letter}:/host/mnt/{letter}:rw` in docker-compose, see "
                        f"Support/DOCKER.md) and recreate the container, or use a container path in {spec.setting}.")
         else:
@@ -652,11 +652,11 @@ def check_folder(ctx: SetupCheckContext, spec: FolderSpec) -> Dict[str, Any]:
             next(it, None)
     except PermissionError:
         return make_result(spec.id, spec.title, ERROR,
-                           f"SoulSync isn't allowed to open {shown} to see what's in it.{_ownership_sentence(path, uid, gid)}",
+                           f"SYNCHRO.S isn't allowed to open {shown} to see what's in it.{_ownership_sentence(path, uid, gid)}",
                            _permission_fix(ctx, path, fstype), cat, **data)
     except OSError as exc:
         return make_result(spec.id, spec.title, ERROR,
-                           f"SoulSync couldn't read {shown}: {exc.strerror or exc}. A drive or network share may have dropped.",
+                           f"SYNCHRO.S couldn't read {shown}: {exc.strerror or exc}. A drive or network share may have dropped.",
                            "Check that the drive or share is connected and mounted, then run the check again.", cat, **data)
 
     f = _Findings()
@@ -665,20 +665,20 @@ def check_folder(ctx: SetupCheckContext, spec: FolderSpec) -> Dict[str, Any]:
     if not created:
         code = getattr(err, "errno", None)
         if code == errno.EROFS:
-            f.add(write_status, f"{shown} is read-only, so SoulSync can't save anything there.",
+            f.add(write_status, f"{shown} is read-only, so SYNCHRO.S can't save anything there.",
                   ("Remove ':ro' from the end of its line in docker-compose and recreate the container. "
                    if ctx.in_container else "") + "If it's a network share or disk, remount it read-write.")
         elif code == errno.ENOSPC:
             f.add(ERROR, f"The drive holding {shown} is full.", "Free up space or move the folder to a bigger drive.")
         elif code in (errno.EACCES, errno.EPERM):
-            extra = "" if spec.must_write else " That's fine for a library you only want SoulSync to read, but tag fixes and re-organizing won't work there."
-            f.add(write_status, f"SoulSync can't create files in {shown} (permission denied).{_ownership_sentence(path, uid, gid)}{extra}",
+            extra = "" if spec.must_write else " That's fine for a library you only want SYNCHRO.S to read, but tag fixes and re-organizing won't work there."
+            f.add(write_status, f"SYNCHRO.S can't create files in {shown} (permission denied).{_ownership_sentence(path, uid, gid)}{extra}",
                   _permission_fix(ctx, path, fstype))
         else:
-            f.add(write_status, f"SoulSync couldn't create a test file in {shown}: {getattr(err, 'strerror', None) or err}.",
+            f.add(write_status, f"SYNCHRO.S couldn't create a test file in {shown}: {getattr(err, 'strerror', None) or err}.",
                   _permission_fix(ctx, path, fstype))
     elif not deleted:
-        f.add(WARNING, f"SoulSync can create files in {shown} but can't delete them, so files moved out of it would leave copies behind.",
+        f.add(WARNING, f"SYNCHRO.S can create files in {shown} but can't delete them, so files moved out of it would leave copies behind.",
               _permission_fix(ctx, path, fstype))
 
     free_gb = None
@@ -690,7 +690,7 @@ def check_folder(ctx: SetupCheckContext, spec: FolderSpec) -> Dict[str, Any]:
     if free_gb is not None:
         if spec.space_floor_gb and free_gb < spec.space_floor_gb:
             f.add(ERROR, f"Only {_fmt_gb(free_gb)} is free on the drive holding {shown}, below your "
-                         f"{spec.space_floor_gb:g} GB minimum, so SoulSync is refusing new downloads.",
+                         f"{spec.space_floor_gb:g} GB minimum, so SYNCHRO.S is refusing new downloads.",
                   "Free up space on that drive, move the download folder to a bigger drive, or lower "
                   f"'Minimum free disk space' in {_MUSIC_FOLDERS_SETTING}.")
         elif free_gb < LOW_SPACE_GB:
@@ -713,15 +713,15 @@ def check_folder(ctx: SetupCheckContext, spec: FolderSpec) -> Dict[str, Any]:
     if spec.role == "transfer" and not ctx.in_container:
         raw = spec.raw.strip()
         if raw in ("", ".") or raw.startswith("./") or raw.startswith(".\\"):
-            f.add(WARNING, f"The music library folder is still the default ('{raw}'), inside SoulSync's install folder "
-                           f"({path}), so every finished download lands on the disk SoulSync is installed on.",
+            f.add(WARNING, f"The music library folder is still the default ('{raw}'), inside SYNCHRO.S's install folder "
+                           f"({path}), so every finished download lands on the disk SYNCHRO.S is installed on.",
                   f"Point it at your real music folder in {spec.setting}.")
 
     if f.problems():
         detail, fix = f.joined()
         return make_result(spec.id, spec.title, f.status, detail, fix, cat, **data)
 
-    bits = [f"{shown} exists and SoulSync can read and write it"]
+    bits = [f"{shown} exists and SYNCHRO.S can read and write it"]
     if free_gb is not None:
         bits.append(f"{_fmt_gb(free_gb)} free")
     detail = "; ".join(bits) + "."
@@ -771,7 +771,7 @@ def check_folder_layout(ctx: SetupCheckContext, specs: Sequence[FolderSpec]) -> 
                      "straight in your library, and the clean-up that removes leftover files and empty folders from the "
                      "download folder would run on your library.", separate)
     elif _is_inside(_canonical(t), _canonical(d)):
-        f.add(ERROR, f"The music library folder ({t}) is inside the download folder ({d}). SoulSync clears empty folders "
+        f.add(ERROR, f"The music library folder ({t}) is inside the download folder ({d}). SYNCHRO.S clears empty folders "
                      "and leftover files out of the download folder and searches it for finished downloads, so it would "
                      "reach into your library.", separate)
     elif _is_inside(_canonical(d), _canonical(t)):
@@ -818,7 +818,7 @@ def check_folder_layout(ctx: SetupCheckContext, specs: Sequence[FolderSpec]) -> 
 # ---------------------------------------------------------------------------
 
 def check_run_user(ctx: SetupCheckContext) -> Dict[str, Any]:
-    cid, title, cat = "system.user", "User SoulSync runs as", "system"
+    cid, title, cat = "system.user", "User SYNCHRO.S runs as", "system"
     uid, gid = _user_ids(ctx)
     if uid is None:
         return make_result(cid, title, SKIPPED, "User IDs don't apply on this operating system.", category=cat)
@@ -826,25 +826,25 @@ def check_run_user(ctx: SetupCheckContext) -> Dict[str, Any]:
     if uid == 0:
         why = " (PUID is set to 0)" if puid == "0" else ""
         fix = ("Set PUID and PGID in docker-compose to your own user's IDs (run `id` on the server to see them, often "
-               "1000), then recreate the container." if ctx.in_container else "Run SoulSync as a normal user, not root.")
+               "1000), then recreate the container." if ctx.in_container else "Run SYNCHRO.S as a normal user, not root.")
         return make_result(cid, title, WARNING,
-                           f"SoulSync is running as root{why}. Files it creates belong to root, so Plex, slskd or your own "
+                           f"SYNCHRO.S is running as root{why}. Files it creates belong to root, so Plex, slskd or your own "
                            "account may not be able to change or delete them.", fix, cat, uid=uid, gid=gid)
     if ctx.in_container and (puid or pgid):
         mismatches = []
         if puid.isdigit() and int(puid) != uid:
-            mismatches.append(f"PUID is {puid} but SoulSync runs as user {uid}")
+            mismatches.append(f"PUID is {puid} but SYNCHRO.S runs as user {uid}")
         if pgid.isdigit() and gid is not None and int(pgid) != gid:
-            mismatches.append(f"PGID is {pgid} but SoulSync runs as group {gid}")
+            mismatches.append(f"PGID is {pgid} but SYNCHRO.S runs as group {gid}")
         if mismatches:
             return make_result(cid, title, WARNING,
                                "; ".join(mismatches) + ". Files will be owned by a different user than you asked for. "
                                "A `user:` line in docker-compose or a rootless setup usually causes this.",
                                f"Remove the `user:` line so PUID/PGID decide the user, or set PUID/PGID to {uid}/{gid}.",
                                cat, uid=uid, gid=gid, puid=puid or None, pgid=pgid or None)
-        return make_result(cid, title, OK, f"SoulSync runs as user {uid}, group {gid}, matching PUID/PGID.", "", cat,
+        return make_result(cid, title, OK, f"SYNCHRO.S runs as user {uid}, group {gid}, matching PUID/PGID.", "", cat,
                            uid=uid, gid=gid)
-    return make_result(cid, title, OK, f"SoulSync runs as user {uid}, group {gid}.", "", cat, uid=uid, gid=gid)
+    return make_result(cid, title, OK, f"SYNCHRO.S runs as user {uid}, group {gid}.", "", cat, uid=uid, gid=gid)
 
 
 # ---------------------------------------------------------------------------
@@ -877,12 +877,12 @@ def _slskd_unreachable(ctx: SetupCheckContext, url: str, res: HttpResult) -> Tup
         return (f"slskd at {url} didn't answer within {HTTP_TIMEOUT[1]:g} seconds.",
                 "Check that slskd is running and not overloaded, and that the address and port are right.")
     if ctx.in_container:
-        fix = ("Check that slskd is running. Inside a container 'localhost' means the SoulSync container itself (SoulSync "
+        fix = ("Check that slskd is running. Inside a container 'localhost' means the SoulSync container itself (SYNCHRO.S "
                "tries host.docker.internal instead); if slskd is in the same docker-compose file, use its service name, "
                "e.g. http://slskd:5030. The port must be slskd's web port (5030 unless you changed it).")
     else:
         fix = "Check that slskd is running and that the address and port (5030 unless you changed it) are right."
-    return f"SoulSync can't reach slskd at {url}.", fix
+    return f"SYNCHRO.S can't reach slskd at {url}.", fix
 
 
 def _parse_server_state(state: Any) -> Optional[bool]:
@@ -944,9 +944,9 @@ def check_slskd_connection(ctx: SetupCheckContext) -> Dict[str, Any]:
         return make_result(cid, title, bad, detail + note, fix, cat, **data)
     if res.status in (401, 403):
         if not ctx.cfg_str("soulseek.api_key", ""):
-            detail = f"slskd is running at {url} but SoulSync has no API key for it."
+            detail = f"slskd is running at {url} but SYNCHRO.S has no API key for it."
         else:
-            detail = f"slskd is running at {url} but rejected SoulSync's API key."
+            detail = f"slskd is running at {url} but rejected SYNCHRO.S's API key."
         return make_result(cid, title, bad, detail + note,
                            f"Make sure the API key in {_SLSKD_SETTING} matches one configured in slskd (the "
                            "SLSKD_API_KEY setting or the api_keys section of slskd.yml), then save.", cat, **data)
@@ -1061,7 +1061,7 @@ def check_slskd_download_folder(ctx: SetupCheckContext) -> Dict[str, Any]:
     (older slskd) the paths are compared, which is only conclusive when both
     run on the same machine outside containers.
     """
-    cid, title, cat = "slskd.download_folder", "slskd and SoulSync share the download folder", "downloads"
+    cid, title, cat = "slskd.download_folder", "slskd and SYNCHRO.S share the download folder", "downloads"
     if not soulseek_in_use(ctx):
         return make_result(cid, title, SKIPPED, "Soulseek isn't one of your download sources.", category=cat)
     raw_url = ctx.cfg_str("soulseek.slskd_url", "")
@@ -1070,14 +1070,14 @@ def check_slskd_download_folder(ctx: SetupCheckContext) -> Dict[str, Any]:
     raw_local = ctx.cfg_str("soulseek.download_path", "./downloads")
     local = ctx.resolve_path(raw_local) if raw_local else ""
     if not local:
-        return make_result(cid, title, SKIPPED, "SoulSync has no download folder set (see the download folder check).",
+        return make_result(cid, title, SKIPPED, "SYNCHRO.S has no download folder set (see the download folder check).",
                            category=cat)
     url = _resolve_url(ctx, raw_url)
     headers = _slskd_headers(ctx)
 
     opts = http_get(ctx, f"{url}/api/v0/options", headers=headers)
     if opts.kind or opts.status in (401, 403):
-        return make_result(cid, title, SKIPPED, "SoulSync couldn't talk to slskd, so this couldn't be checked; fix the slskd "
+        return make_result(cid, title, SKIPPED, "SYNCHRO.S couldn't talk to slskd, so this couldn't be checked; fix the slskd "
                                                 "connection first.", category=cat)
     dirs = _pick(opts.data, "directories") if opts.status == 200 else None
     slskd_dl = str(_pick(dirs, "downloads") or "").strip()
@@ -1087,10 +1087,10 @@ def check_slskd_download_folder(ctx: SetupCheckContext) -> Dict[str, Any]:
 
     if ctx.in_container:
         mismatch_fix = (f"Map the same folder on your server into both containers. In docker-compose, give slskd "
-                        f"`- /path/on/your/server:{slskd_dl or '/app/downloads'}` and SoulSync "
+                        f"`- /path/on/your/server:{slskd_dl or '/app/downloads'}` and SYNCHRO.S "
                         f"`- /path/on/your/server:{local}` (the same left-hand side), then recreate both containers.")
     else:
-        mismatch_fix = (f"Set SoulSync's Download Folder ({_MUSIC_FOLDERS_SETTING}) to slskd's downloads folder"
+        mismatch_fix = (f"Set SYNCHRO.S's Download Folder ({_MUSIC_FOLDERS_SETTING}) to slskd's downloads folder"
                         + (f" ({slskd_dl})" if slskd_dl else "") + f", or change slskd's downloads directory to {local}.")
 
     # 1. Marker file: decisive when slskd can list its downloads folder.
@@ -1102,18 +1102,18 @@ def check_slskd_download_folder(ctx: SetupCheckContext) -> Dict[str, Any]:
                 if listing.status == 200:
                     if _json_mentions(listing.data, marker):
                         return make_result(cid, title, OK,
-                                           f"slskd and SoulSync use the same download folder (slskd calls it "
-                                           f"{slskd_dl or 'its downloads folder'}, SoulSync calls it {local}).", "", cat, **data)
+                                           f"slskd and SYNCHRO.S use the same download folder (slskd calls it "
+                                           f"{slskd_dl or 'its downloads folder'}, SYNCHRO.S calls it {local}).", "", cat, **data)
                     def sub_ok(folder: str) -> Dict[str, Any]:
-                        return make_result(cid, title, OK, f"slskd downloads into {folder}, a sub-folder of SoulSync's "
-                                           "download folder. That works, because SoulSync also looks in sub-folders.",
+                        return make_result(cid, title, OK, f"slskd downloads into {folder}, a sub-folder of SYNCHRO.S's "
+                                           "download folder. That works, because SYNCHRO.S also looks in sub-folders.",
                                            "", cat, **data)
 
                     where = _locate_slskd_root(local, _top_level_names(listing.data))
                     if where:
                         return sub_ok(os.path.join(local, where))
                     if where == "":
-                        return make_result(cid, title, OK, f"slskd and SoulSync use the same download folder ({local}).",
+                        return make_result(cid, title, OK, f"slskd and SYNCHRO.S use the same download folder ({local}).",
                                            "", cat, **data)
                     # slskd's folder may be a still-empty sub-folder (e.g. slskd writes to
                     # /data/downloads/soulseek while SoulSync reads /data/downloads).
@@ -1126,16 +1126,16 @@ def check_slskd_download_folder(ctx: SetupCheckContext) -> Dict[str, Any]:
                     inc = http_get(ctx, f"{url}/api/v0/files/incomplete/directories", headers=headers)
                     if inc.status == 200 and _json_mentions(inc.data, marker):
                         return make_result(cid, title, ERROR,
-                                           f"SoulSync's download folder ({local}) is slskd's incomplete folder, where unfinished "
-                                           f"downloads wait. Finished downloads are moved out of it to {slskd_says}, so SoulSync "
+                                           f"SYNCHRO.S's download folder ({local}) is slskd's incomplete folder, where unfinished "
+                                           f"downloads wait. Finished downloads are moved out of it to {slskd_says}, so SYNCHRO.S "
                                            "would never see them.",
-                                           f"Point SoulSync's Download Folder at slskd's downloads folder instead ({_MUSIC_FOLDERS_SETTING})"
+                                           f"Point SYNCHRO.S's Download Folder at slskd's downloads folder instead ({_MUSIC_FOLDERS_SETTING})"
                                            + (" and map that folder into the SoulSync container." if ctx.in_container else "."),
                                            cat, **data)
                     return make_result(cid, title, ERROR,
-                                       f"slskd saves downloads to {slskd_says}, which is not the folder SoulSync reads ({local}): "
-                                       "a test file SoulSync put in its download folder didn't show up in slskd's. Downloads would "
-                                       "finish in slskd and SoulSync would never find them.", mismatch_fix, cat, **data)
+                                       f"slskd saves downloads to {slskd_says}, which is not the folder SYNCHRO.S reads ({local}): "
+                                       "a test file SYNCHRO.S put in its download folder didn't show up in slskd's. Downloads would "
+                                       "finish in slskd and SYNCHRO.S would never find them.", mismatch_fix, cat, **data)
         except OSError:
             # can't write there: the download folder check says why; fall back to comparing paths
             logger.debug("marker write failed in %s", local, exc_info=True)
@@ -1145,31 +1145,31 @@ def check_slskd_download_folder(ctx: SetupCheckContext) -> Dict[str, Any]:
         return make_result(cid, title, SKIPPED,
                            "slskd didn't report its download folder (it may be an older version, or the API key may not be "
                            "allowed to read slskd's settings), so this couldn't be checked.",
-                           f"Check by hand that the folder slskd downloads into is the same folder as SoulSync's download "
+                           f"Check by hand that the folder slskd downloads into is the same folder as SYNCHRO.S's download "
                            f"folder ({local}).", cat, **data)
     same_machine = not ctx.in_container and _is_local_host(url)
     if same_machine:
         if _same_dir(slskd_dl, local):
-            return make_result(cid, title, OK, f"slskd saves downloads to {slskd_dl}, which is SoulSync's download folder.",
+            return make_result(cid, title, OK, f"slskd saves downloads to {slskd_dl}, which is SYNCHRO.S's download folder.",
                                "", cat, **data)
         if slskd_inc and _same_dir(slskd_inc, local):
             return make_result(cid, title, ERROR,
-                               f"SoulSync's download folder ({local}) is slskd's incomplete folder; finished downloads are "
-                               f"moved to {slskd_dl}, so SoulSync would never see them.", mismatch_fix, cat, **data)
+                               f"SYNCHRO.S's download folder ({local}) is slskd's incomplete folder; finished downloads are "
+                               f"moved to {slskd_dl}, so SYNCHRO.S would never see them.", mismatch_fix, cat, **data)
         if _is_inside(_canonical(slskd_dl), _canonical(local)):
-            return make_result(cid, title, OK, f"slskd downloads into {slskd_dl}, a sub-folder of SoulSync's download folder. "
-                                               "That works, because SoulSync also looks in sub-folders.", "", cat, **data)
+            return make_result(cid, title, OK, f"slskd downloads into {slskd_dl}, a sub-folder of SYNCHRO.S's download folder. "
+                                               "That works, because SYNCHRO.S also looks in sub-folders.", "", cat, **data)
         return make_result(cid, title, ERROR,
-                           f"slskd saves downloads to {slskd_dl}, but SoulSync reads {local}. Downloads would finish in slskd "
-                           "and SoulSync would never find them.", mismatch_fix, cat, **data)
+                           f"slskd saves downloads to {slskd_dl}, but SYNCHRO.S reads {local}. Downloads would finish in slskd "
+                           "and SYNCHRO.S would never find them.", mismatch_fix, cat, **data)
     if _norm(slskd_dl) == _norm(local):
         return make_result(cid, title, SKIPPED,
-                           f"slskd and SoulSync both call the download folder {local}, which usually means they share it, "
-                           "but this slskd version can't list its files, so SoulSync couldn't confirm it.",
+                           f"slskd and SYNCHRO.S both call the download folder {local}, which usually means they share it, "
+                           "but this slskd version can't list its files, so SYNCHRO.S couldn't confirm it.",
                            "Make sure both containers map the same folder on your server to this path.", cat, **data)
     return make_result(cid, title, WARNING,
-                       f"slskd saves downloads to {slskd_dl} (as slskd sees it) and SoulSync reads {local} (as SoulSync sees "
-                       "it). That's fine only if both are the same folder on your server, and SoulSync couldn't confirm it "
+                       f"slskd saves downloads to {slskd_dl} (as slskd sees it) and SYNCHRO.S reads {local} (as SYNCHRO.S sees "
+                       "it). That's fine only if both are the same folder on your server, and SYNCHRO.S couldn't confirm it "
                        "because this slskd version can't list its files.", mismatch_fix, cat, **data)
 
 
@@ -1279,7 +1279,7 @@ def _no_library_results() -> List[Dict[str, Any]]:
     return [
         make_result(_MEDIA_CONN_ID, "Where your library lives", WARNING,
                     "No library is chosen, so downloads won't appear on the Library page.",
-                    f"Choose Standalone in {_MEDIA_SERVER_SETTING} to let SoulSync keep the library itself, "
+                    f"Choose Standalone in {_MEDIA_SERVER_SETTING} to let SYNCHRO.S keep the library itself, "
                     "or connect Plex, Jellyfin or Navidrome.", _MEDIA_CAT),
         make_result(_MEDIA_LIB_ID, _MEDIA_LIB_TITLE, SKIPPED, "Couldn't check, because no library is chosen.",
                     category=_MEDIA_CAT),
@@ -1303,7 +1303,7 @@ def check_media_server(ctx: SetupCheckContext) -> List[Dict[str, Any]]:
     if _no_library_chosen(desc, cfg):
         return _no_library_results()
     if not desc.is_external:
-        msg = "You use SoulSync's own library (no Plex, Jellyfin or Navidrome), so there's no media server to check."
+        msg = "You use SYNCHRO.S's own library (no Plex, Jellyfin or Navidrome), so there's no media server to check."
         return [make_result(conn_id, conn_title, SKIPPED, msg, category=cat),
                 make_result(lib_id, lib_title, SKIPPED, msg, category=cat)]
 
@@ -1329,7 +1329,7 @@ def check_media_server(ctx: SetupCheckContext) -> List[Dict[str, Any]]:
         else:
             conn = make_result(conn_id, conn_title, ERROR, f"Something answered at {url}, but not like {label} does ({why}).",
                                f"Check the {label} address in {_MEDIA_SERVER_SETTING}.", cat, **data)
-        return [conn, make_result(lib_id, lib_title, SKIPPED, f"Couldn't check, because SoulSync can't talk to {label}.",
+        return [conn, make_result(lib_id, lib_title, SKIPPED, f"Couldn't check, because SYNCHRO.S can't talk to {label}.",
                                   category=cat)]
 
     extra = f" (version {version})" if version else ""
@@ -1339,37 +1339,37 @@ def check_media_server(ctx: SetupCheckContext) -> List[Dict[str, Any]]:
     transfer = ctx.resolve_path(raw_t) if raw_t else ""
     if paths is None:
         return [conn, make_result(lib_id, lib_title, SKIPPED,
-                                  f"{label} doesn't report where its music folder is, so SoulSync can't compare it with its "
+                                  f"{label} doesn't report where its music folder is, so SYNCHRO.S can't compare it with its "
                                   f"music library folder ({transfer}).",
-                                  f"Make sure {label}'s music folder is the folder SoulSync saves finished music to.", cat)]
+                                  f"Make sure {label}'s music folder is the folder SYNCHRO.S saves finished music to.", cat)]
     if not paths:
         return [conn, make_result(lib_id, lib_title, WARNING,
-                                  f"{label} has no music library, so nothing SoulSync downloads will show up there.",
-                                  f"Add a music library in {label} that points at the folder SoulSync saves finished music to "
+                                  f"{label} has no music library, so nothing SYNCHRO.S downloads will show up there.",
+                                  f"Add a music library in {label} that points at the folder SYNCHRO.S saves finished music to "
                                   f"({transfer}, or wherever that folder is mapped on your server).", cat,
                                   transfer=transfer)]
     lib_data = {"transfer": transfer, "library_paths": paths}
     candidates = [c for c in (transfer, raw_t) if c]
     if any(_contains(p, c) for p in paths for c in candidates):
         return [conn, make_result(lib_id, lib_title, OK,
-                                  f"{label}'s music library ({', '.join(paths)}) includes SoulSync's music library folder.",
+                                  f"{label}'s music library ({', '.join(paths)}) includes SYNCHRO.S's music library folder.",
                                   "", cat, **lib_data)]
     if any(_contains(c, p) for p in paths for c in candidates):
         return [conn, make_result(lib_id, lib_title, WARNING,
-                                  f"{label}'s music library ({', '.join(paths)}) only covers part of SoulSync's music library "
+                                  f"{label}'s music library ({', '.join(paths)}) only covers part of SYNCHRO.S's music library "
                                   f"folder ({transfer}), so some downloads won't show up.",
                                   f"Point {label}'s music library at {transfer} itself.", cat, **lib_data)]
     if ctx.in_container or not _is_local_host(url):
         return [conn, make_result(lib_id, lib_title, SKIPPED,
-                                  f"{label} sees its music library at {', '.join(paths)}; SoulSync saves finished music to "
+                                  f"{label} sees its music library at {', '.join(paths)}; SYNCHRO.S saves finished music to "
                                   f"{transfer}. They run separately, so one folder can have a different name in each, and "
-                                  "SoulSync can't tell whether these are the same.",
-                                  f"Make sure the folder mapped to {transfer} in SoulSync is the same folder on your server "
+                                  "SYNCHRO.S can't tell whether these are the same.",
+                                  f"Make sure the folder mapped to {transfer} in SYNCHRO.S is the same folder on your server "
                                   f"that {label}'s music library uses.", cat, **lib_data)]
     return [conn, make_result(lib_id, lib_title, WARNING,
-                              f"{label}'s music library is {', '.join(paths)}, but SoulSync saves finished music to {transfer}, "
+                              f"{label}'s music library is {', '.join(paths)}, but SYNCHRO.S saves finished music to {transfer}, "
                               f"so {label} won't pick up new downloads.",
-                              f"Add {transfer} to {label}'s music library, or set SoulSync's Music Library Folder "
+                              f"Add {transfer} to {label}'s music library, or set SYNCHRO.S's Music Library Folder "
                               f"({_MUSIC_FOLDERS_SETTING}) to one of {label}'s library folders.", cat, **lib_data)]
 
 
@@ -1390,11 +1390,11 @@ def _tasks(ctx: SetupCheckContext, include_network: bool) -> Tuple[List[_Task], 
     specs, skipped = folder_specs(ctx)
     tasks = [_Task(s.id, s.title, "folders", (lambda s=s: check_folder(ctx, s))) for s in specs]
     tasks.append(_Task("folders.layout", "Folder layout", "folders", lambda: check_folder_layout(ctx, specs)))
-    tasks.append(_Task("system.user", "User SoulSync runs as", "system", lambda: check_run_user(ctx)))
+    tasks.append(_Task("system.user", "User SYNCHRO.S runs as", "system", lambda: check_run_user(ctx)))
     if include_network:
         tasks += [
             _Task("slskd.connection", "slskd connection", "downloads", lambda: check_slskd_connection(ctx), True),
-            _Task("slskd.download_folder", "slskd and SoulSync share the download folder", "downloads",
+            _Task("slskd.download_folder", "slskd and SYNCHRO.S share the download folder", "downloads",
                   lambda: check_slskd_download_folder(ctx), True),
             _Task(_MEDIA_CONN_ID, _MEDIA_CONN_TITLE, _MEDIA_CAT, lambda: check_media_server(ctx), True),
         ]
@@ -1445,7 +1445,7 @@ def _run_tasks(tasks: Sequence[_Task], deadline_s: float) -> List[Dict[str, Any]
             logger.warning("setup check %s failed: %s", task.id, exc, exc_info=True)
             slots[i] = [make_result(task.id, task.title, SKIPPED,
                                     f"This check couldn't run because of an internal error ({type(exc).__name__}: {exc}).",
-                                    "This is probably a SoulSync bug; please report it with your debug info.", task.category)]
+                                    "This is probably a SYNCHRO.S bug; please report it with your debug info.", task.category)]
 
     threads = []
     for i, task in enumerate(tasks):
@@ -1480,8 +1480,8 @@ def run_setup_check(ctx: Optional[SetupCheckContext] = None, *, include_network:
         tasks, skipped = _tasks(ctx, include_network)
     except Exception as exc:  # noqa: BLE001 - config unreadable: report rather than raise
         logger.warning("setup check could not read settings: %s", exc, exc_info=True)
-        tasks, skipped = [], [make_result("settings", "Settings", ERROR, f"SoulSync couldn't read its settings ({exc}).",
-                                          "Restart SoulSync; if this keeps happening, report it with your debug info.",
+        tasks, skipped = [], [make_result("settings", "Settings", ERROR, f"SYNCHRO.S couldn't read its settings ({exc}).",
+                                          "Restart SYNCHRO.S; if this keeps happening, report it with your debug info.",
                                           "system")]
     deadline = deadline_s if deadline_s is not None else (DEFAULT_DEADLINE_S if include_network else LOCAL_DEADLINE_S)
     checks = _run_tasks(tasks, deadline) + skipped

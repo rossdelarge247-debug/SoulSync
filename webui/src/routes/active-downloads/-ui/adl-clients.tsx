@@ -241,8 +241,8 @@ function SoulsyncChip({ item }: { item: { soulsync?: { kind?: string; title?: st
   if (!item.soulsync) return null;
   const kind = item.soulsync.kind ? KIND_LABELS[item.soulsync.kind] : '';
   return (
-    <span className="dlc-tag dlc-tag-hq dlc-owner" title="SoulSync is following this download">
-      {kind ? `SoulSync · ${kind}` : 'SoulSync'}
+    <span className="dlc-tag dlc-tag-hq dlc-owner" title="SYNCHRO.S is following this download">
+      {kind ? `SYNCHRO.S · ${kind}` : 'SYNCHRO.S'}
     </span>
   );
 }
@@ -284,8 +284,8 @@ export function categoryCounts<T extends { category?: string | null }>(
 
 const OWNER_CHOICES: { key: OwnerFilter; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'soulsync', label: "SoulSync's" },
-  { key: 'external', label: 'Not in SoulSync' },
+  { key: 'soulsync', label: "SYNCHRO.S's" },
+  { key: 'external', label: 'Not in SYNCHRO.S' },
 ];
 
 interface ViewAccessors<T> {
@@ -577,7 +577,7 @@ const WHERE_KEYS = new Set([
   'Hash',
   'Job id',
   'Transfer id',
-  'SoulSync',
+  'SYNCHRO.S',
 ]);
 const MONO_KEYS = new Set([
   'Remote path',
@@ -785,11 +785,11 @@ const CLIENT_NAMES: Record<ClientSubTab, string> = {
 };
 const CLIENT_PITCH: Record<ClientSubTab, string> = {
   soulseek:
-    'Connect slskd and its transfers show up here: what SoulSync is pulling, what other people are pulling from you.',
+    'Connect slskd and its transfers show up here: what SYNCHRO.S is pulling, what other people are pulling from you.',
   torrent:
-    'Connect qBittorrent, Transmission, Deluge or aria2 and its torrents show up here, next to Soulseek. SoulSync can then grab releases from your indexers too.',
+    'Connect qBittorrent, Transmission, Deluge or aria2 and its torrents show up here, next to Soulseek. SYNCHRO.S can then grab releases from your indexers too.',
   usenet:
-    'Connect SABnzbd or NZBGet and its queue shows up here, next to Soulseek and your torrent client. SoulSync can then grab from your indexers too.',
+    'Connect SABnzbd or NZBGet and its queue shows up here, next to Soulseek and your torrent client. SYNCHRO.S can then grab from your indexers too.',
 };
 
 const PlugIcon = (
@@ -829,7 +829,7 @@ function EmptyState({
       <div className="dlc-emptycard">
         <DlGlyph tone="bad">{WarnIcon}</DlGlyph>
         <div>
-          <h3>Couldn&apos;t ask the SoulSync server</h3>
+          <h3>Couldn&apos;t ask the SYNCHRO.S server</h3>
           <p>{fetchError || 'The request failed.'} It tries again every 10 seconds.</p>
         </div>
       </div>
@@ -856,7 +856,7 @@ function EmptyState({
         <div>
           <h3>Can&apos;t reach the {CLIENT_NAMES[tab]}</h3>
           <p>
-            {overview.error || 'It is set up, but it is not answering.'} SoulSync tries again every
+            {overview.error || 'It is set up, but it is not answering.'} SYNCHRO.S tries again every
             10 seconds.
           </p>
           <DlButton onClick={onSettings}>Check the connection</DlButton>
@@ -1134,7 +1134,7 @@ export function AdlClientsTab() {
           ['Time left', durationText(item.time_remaining)],
           ['Local file', item.file_path],
           ['Transfer id', item.id],
-          ['SoulSync', item.soulsync?.title],
+          ['SYNCHRO.S', item.soulsync?.title],
         ]}
         expanded={expanded}
         onToggle={toggle}
@@ -1224,7 +1224,7 @@ export function AdlClientsTab() {
         ['Save path', item.save_path],
         ['Content path', item.content_path],
         ['Hash', item.id],
-        ['SoulSync', item.soulsync?.title],
+        ['SYNCHRO.S', item.soulsync?.title],
       ],
       (id, action, deleteFiles) =>
         void runAction(
@@ -1252,7 +1252,7 @@ export function AdlClientsTab() {
         ['Save path', item.save_path],
         ['Staging path', item.incomplete_path],
         ['Job id', item.id],
-        ['SoulSync', item.soulsync?.title],
+        ['SYNCHRO.S', item.soulsync?.title],
       ],
       (id, action, deleteFiles) =>
         void runAction(

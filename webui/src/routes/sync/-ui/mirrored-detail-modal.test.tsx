@@ -191,7 +191,7 @@ describe('MirroredDetailModal — a user playlist', () => {
       onReorder: vi.fn(),
     });
     expect(screen.getByText('Your Playlist')).toBeInTheDocument();
-    expect(screen.queryByText('SoulSync')).toBeNull();
+    expect(screen.queryByText('SYNCHRO.S')).toBeNull();
     expect(screen.getByText('Sync & download')).toBeInTheDocument();
     openMore();
     expect(screen.queryByText('Edit source link')).toBeNull();

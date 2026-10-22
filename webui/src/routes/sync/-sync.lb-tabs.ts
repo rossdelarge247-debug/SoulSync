@@ -349,7 +349,7 @@ export function buildSsdMirrorPayload(
     name,
     tracks: buildSsdMirrorTracks(tracks),
     description: `Personalized ${kind}${variant ? ' · ' + variant : ''} — regenerates on Auto-Sync refresh.`,
-    owner: 'SoulSync',
+    owner: 'SYNCHRO.S',
     image_url: '',
   };
 }

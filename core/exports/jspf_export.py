@@ -71,7 +71,7 @@ def build_jspf(
             jspf_tracks.append(entry)
 
     playlist: Dict[str, Any] = {
-        "title": (title or "SoulSync Export").strip() or "SoulSync Export",
+        "title": (title or "SYNCHRO.S Export").strip() or "SYNCHRO.S Export",
         "track": jspf_tracks,
     }
     if creator:

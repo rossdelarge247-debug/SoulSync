@@ -67,7 +67,7 @@ class UntaggedDownloadsJob(RepairJob):
         'or album tags. A file like that is usually in the right folder but '
         'shows up as Unknown Album on your media server, because tagging failed '
         'partway through.\n\n'
-        'Applying a finding writes the missing tags back from what SoulSync '
+        'Applying a finding writes the missing tags back from what SYNCHRO.S '
         'recorded when it downloaded the file. Tags the file already has are '
         'left alone, and nothing is moved or renamed. Rescan your media server '
         'afterwards to pick up the change.\n\n'

@@ -79,7 +79,7 @@ class YoutubeGhostsJob(VideoRepairJob):
     job_id = "youtube_ghosts"
     display_name = "YouTube Ghost Files"
     description = "Finds downloaded YouTube episodes whose file is gone from disk."
-    help_text = ("SoulSync remembers every YouTube episode it downloaded. If you "
+    help_text = ("SYNCHRO.S remembers every YouTube episode it downloaded. If you "
                  "delete files on the server side, that memory goes stale: episodes "
                  "still show as Downloaded and channel counts overcount. This job "
                  "verifies every remembered file still exists. Approving marks the "

@@ -550,7 +550,7 @@ function OrbStage({ header }: { header: DashboardHeaderState }) {
           onClick={() => window.openEnrichmentManager?.()}
         >
           <span className="em-manage-btn-icon">
-            <img src="/static/trans2.png" alt="SoulSync" className="em-manage-btn-logo" />
+            <img src="/static/trans2.png" alt="SYNCHRO.S" className="em-manage-btn-logo" />
           </span>
           <span className="em-manage-btn-label">Manage Workers</span>
         </button>

@@ -484,7 +484,7 @@ describe('Auto-Sync pipeline endpoints (auto-sync.js 2467-2497)', () => {
       vi.fn(async () => new Response('<!doctype html>', { status: 404 })),
     );
     await expect(runMirroredPipeline(7)).rejects.toThrow(
-      'Auto-Sync endpoint not found. Restart the SoulSync server so the new backend routes load.',
+      'Auto-Sync endpoint not found. Restart the SYNCHRO.S server so the new backend routes load.',
     );
   });
 

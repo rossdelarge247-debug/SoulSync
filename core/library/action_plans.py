@@ -47,7 +47,7 @@ PLAN_WRONG_TOOL = "plan_wrong_tool"
 
 _REFUSAL_MESSAGES = {
     PLAN_MISSING: "Preview this action first, then confirm it.",
-    PLAN_UNKNOWN: "That preview is no longer available (it was used already, or SoulSync restarted). Preview again.",
+    PLAN_UNKNOWN: "That preview is no longer available (it was used already, or SYNCHRO.S restarted). Preview again.",
     PLAN_EXPIRED: "That preview is out of date. Preview again so you confirm what is on disk now.",
     PLAN_WRONG_TOOL: "That preview belongs to a different tool.",
 }

@@ -69,7 +69,7 @@ describe('the Home page shell', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'Home' })).toBeInTheDocument();
     expect(
-      screen.getByText('What you want, what you have, and what SoulSync is doing about the gap.'),
+      screen.getByText('What you want, what you have, and what SYNCHRO.S is doing about the gap.'),
     ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Search for music' })).toHaveAttribute(
       'href',

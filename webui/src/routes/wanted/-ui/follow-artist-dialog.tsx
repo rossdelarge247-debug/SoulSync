@@ -112,7 +112,7 @@ export function FollowArtistDialog({
       <DialogHeader title="Follow an artist" />
       <DialogBody>
         <p className={styles.dialogText}>
-          SoulSync checks the artists you follow for new releases and adds them to Wanted.
+          SYNCHRO.S checks the artists you follow for new releases and adds them to Wanted.
         </p>
         <div className={styles.searchRow} role="search">
           <label className={styles.visuallyHidden} htmlFor={providerId}>

@@ -1363,7 +1363,7 @@ def create_audiobooks_blueprint() -> Blueprint:
         if any(str(row.get("client_id") or "").lower() == stored.lower()
                for row in db.get_downloads(active_only=True)):
             return jsonify({"success": False,
-                            "error": "SoulSync is already following this download."}), 409
+                            "error": "SYNCHRO.S is already following this download."}), 409
 
         book_payload = book.to_dict()
         record_grab(

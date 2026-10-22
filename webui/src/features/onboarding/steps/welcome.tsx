@@ -66,9 +66,9 @@ export function WelcomeStep({ onFinished }: { onFinished: () => void }) {
     <div className={s.center}>
       <div className={s.glow} aria-hidden="true" />
       <div className={s.hero}>
-        <img className={s.heroLogo} src={LOGO_SRC} alt="SoulSync" />
+        <img className={s.heroLogo} src={LOGO_SRC} alt="SYNCHRO.S" />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <h1 className={s.heroTitle}>Welcome to SoulSync</h1>
+          <h1 className={s.heroTitle}>Welcome to SYNCHRO.S</h1>
           <p className={s.heroLead}>
             One home for your music, movies, TV and YouTube. Setup takes about five minutes, and you
             can change anything later.
@@ -81,7 +81,7 @@ export function WelcomeStep({ onFinished }: { onFinished: () => void }) {
             onClick={() => go('account')}
             autoFocus
           >
-            Set up SoulSync
+            Set up SYNCHRO.S
             <ArrowIcon />
           </button>
           <button
@@ -91,7 +91,7 @@ export function WelcomeStep({ onFinished }: { onFinished: () => void }) {
             disabled={restoring === 'busy'}
           >
             {restoring === 'busy' ? <Spinner label="Restoring" /> : null}
-            Restore from a SoulSync backup
+            Restore from a SYNCHRO.S backup
           </button>
           <input
             ref={file}
@@ -120,7 +120,7 @@ export function WelcomeStep({ onFinished }: { onFinished: () => void }) {
               Looking around your network
             </>
           ) : (
-            <Chip tone="ok">While you read this, SoulSync looked around</Chip>
+            <Chip tone="ok">While you read this, SYNCHRO.S looked around</Chip>
           )}
         </div>
         <div className={s.lookedGrid}>

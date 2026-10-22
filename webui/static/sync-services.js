@@ -1109,12 +1109,12 @@ async function openDownloadMissingModalForTidal(virtualPlaylistId, playlistName,
                     virtualPlaylistId.startsWith('spotify_public_') ? 'Spotify' :
                         virtualPlaylistId.startsWith('itunes_link_') ? 'iTunes' :
                             virtualPlaylistId.startsWith('spotify:') ? 'Spotify' :
-                                virtualPlaylistId.startsWith('discover_') ? 'SoulSync' :
-                                    virtualPlaylistId.startsWith('seasonal_') ? 'SoulSync' :
-                                        virtualPlaylistId.startsWith('spotify_library_') ? 'SoulSync' :
-                                            virtualPlaylistId.startsWith('build_playlist_') ? 'SoulSync' :
-                                                virtualPlaylistId.startsWith('decade_') ? 'SoulSync' :
-                                                    virtualPlaylistId === 'build_playlist_custom' ? 'SoulSync' :
+                                virtualPlaylistId.startsWith('discover_') ? 'SYNCHRO.S' :
+                                    virtualPlaylistId.startsWith('seasonal_') ? 'SYNCHRO.S' :
+                                        virtualPlaylistId.startsWith('spotify_library_') ? 'SYNCHRO.S' :
+                                            virtualPlaylistId.startsWith('build_playlist_') ? 'SYNCHRO.S' :
+                                                virtualPlaylistId.startsWith('decade_') ? 'SYNCHRO.S' :
+                                                    virtualPlaylistId === 'build_playlist_custom' ? 'SYNCHRO.S' :
                                                         'YouTube';
 
     const heroContext = {

@@ -114,7 +114,7 @@ export function LatestSection({
           </Button>
         }
       >
-        SoulSync didn’t answer. Nothing is lost; this is a display problem.
+        SYNCHRO.S didn’t answer. Nothing is lost; this is a display problem.
       </Notice>
     );
   } else if (query.data.length === 0) {

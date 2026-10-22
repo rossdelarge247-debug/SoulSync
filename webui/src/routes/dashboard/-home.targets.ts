@@ -90,13 +90,13 @@ const NOT_SET_UP: Record<TargetKey, Omit<NotSetUpCardView, 'kind' | 'key' | 'lab
   wanted: {
     title: 'Get the music you want',
     sentence:
-      'Add tracks and albums you want. SoulSync searches for them on a schedule, at the quality you set.',
+      'Add tracks and albums you want. SYNCHRO.S searches for them on a schedule, at the quality you set.',
     action: { route: 'search', label: 'Add to Wanted' },
   },
   mirrored: {
     title: 'Keep a playlist complete in your library',
     sentence:
-      "Pick a playlist from a connected service. SoulSync finds the tracks you don't have and keeps up as the list changes.",
+      "Pick a playlist from a connected service. SYNCHRO.S finds the tracks you don't have and keeps up as the list changes.",
     action: { dialog: 'mirror', label: 'Mirror a playlist' },
   },
   followed: {
@@ -108,7 +108,7 @@ const NOT_SET_UP: Record<TargetKey, Omit<NotSetUpCardView, 'kind' | 'key' | 'lab
   quality: {
     title: 'Choose the quality you want',
     sentence:
-      'Pick a format or bitrate. SoulSync looks for that quality when it downloads, and can upgrade what you already have.',
+      'Pick a format or bitrate. SYNCHRO.S looks for that quality when it downloads, and can upgrade what you already have.',
     action: { dialog: 'quality', label: 'Set a quality target' },
   },
 };
@@ -230,7 +230,7 @@ export function targetCardView(target: HomeTarget, nowMs: number): TargetCardVie
     meta,
     link: LINKS[target.key],
     problem: cantSearch
-      ? (target.reason ?? "SoulSync can't reach your download source, so searches can't run.")
+      ? (target.reason ?? "SYNCHRO.S can't reach your download source, so searches can't run.")
       : null,
   };
 }

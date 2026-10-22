@@ -67,7 +67,7 @@ export const SYNC_TABS: readonly SyncTab[] = [
   // anyone reading both codebases, so it stays.
   { id: 'listenbrainz-sync', label: 'ListenBrainz', icon: 'listenbrainz-icon' },
   { id: 'lastfm-sync', label: 'Last.fm', icon: 'lastfm-icon' },
-  { id: 'soulsync-discovery-sync', label: 'SoulSync Discovery', icon: 'soulsync-discovery-icon' },
+  { id: 'soulsync-discovery-sync', label: 'SYNCHRO.S Discovery', icon: 'soulsync-discovery-icon' },
   { id: 'import-file', label: 'Import', icon: 'import-file-icon' },
   { id: 'mirrored', label: 'Mirrored', icon: 'mirrored-icon' },
   // the playlists people make here. last in this table so the fifteen

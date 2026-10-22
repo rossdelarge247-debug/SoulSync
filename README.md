@@ -5,6 +5,10 @@
 <h3 align="center">The self-hosted home for your music, movies, TV and YouTube.</h3>
 
 <p align="center">
+  <em>This fork's interface is named SYNCHRO.S. It is built on upstream SoulSync; the Docker images, paths, settings and APIs keep the SoulSync names.</em>
+</p>
+
+<p align="center">
   Find it, fetch it, verify it, tag it, file it, play it. SoulSync replaces a stack of *arr apps, taggers and scripts with one app that actually knows your library.
 </p>
 

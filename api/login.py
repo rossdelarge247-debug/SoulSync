@@ -173,7 +173,7 @@ def plex_signin_check():
         plex = get_plex_client() if get_plex_client else None
         machine = plex_signin.server_machine_id(plex)
         if not machine:
-            return jsonify({'success': False, 'error': "SoulSync isn't connected to a Plex server"}), 503
+            return jsonify({'success': False, 'error': "SYNCHRO.S isn't connected to a Plex server"}), 503
         account = plex_signin.resolve_account(account_token, machine)
         database = get_database()
         result = plex_signin.sign_in(

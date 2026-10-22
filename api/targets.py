@@ -117,11 +117,11 @@ def put_quality_target():
     except LookupError as exc:
         logger.error("quality target write failed: %s", exc)
         return jsonify({"success": False, "error": "no_profile",
-                        "message": "SoulSync couldn't find its default quality profile, so nothing changed."}), 500
+                        "message": "SYNCHRO.S couldn't find its default quality profile, so nothing changed."}), 500
     except Exception as exc:  # noqa: BLE001
         logger.error("quality target write failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "write_failed",
-                        "message": "SoulSync couldn't save the target. Nothing changed."}), 500
+                        "message": "SYNCHRO.S couldn't save the target. Nothing changed."}), 500
     # Home's Quality card reads the new bar now, not in 30 seconds
     _summary.clear_cache()
     return jsonify({"success": True, **body})

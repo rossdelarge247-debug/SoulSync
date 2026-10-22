@@ -48,7 +48,7 @@ export function analysisErrorMessage(status: AnalysisStatus): string {
  */
 export function analysisLoadError(error: unknown): string {
   const offline =
-    'Could not reach SoulSync to load the analysis. Check your connection and try again.';
+    'Could not reach SYNCHRO.S to load the analysis. Check your connection and try again.';
   if (!(error instanceof Error)) return offline;
   if (error instanceof TypeError || error.name === 'TimeoutError') return offline;
   return error.message.trim() || offline;

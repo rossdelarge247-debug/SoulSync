@@ -197,7 +197,7 @@ def test_cant_search_comes_from_a_recent_cached_check(db, rows):
     by_key, body = _targets(db, source={"connected": False, "checked_at": NOW - 120, "source": "soulseek"})
     w = by_key["wanted"]
     assert w["status"] == "cant_search" and w["reason_code"] == "download_source_unreachable"
-    assert w["reason"] == ("Soulseek (slskd) didn't answer when SoulSync last checked, 2 minutes ago, "
+    assert w["reason"] == ("Soulseek (slskd) didn't answer when SYNCHRO.S last checked, 2 minutes ago, "
                            "so searches can't run.")
     assert by_key["mirrored"]["status"] == "not_set_up"
     assert body["download_source"] == {"reachable": False, "checked_at": NOW - 120}

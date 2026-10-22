@@ -351,7 +351,7 @@ describe('source labels + scheduling eligibility', () => {
       'iTunes Link',
       'ListenBrainz',
       'Last.fm Radio',
-      'SoulSync Discovery',
+      'SYNCHRO.S Discovery',
       'something_new',
       'Other',
       'Other',

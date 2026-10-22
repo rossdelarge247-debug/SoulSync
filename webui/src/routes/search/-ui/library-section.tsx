@@ -191,7 +191,7 @@ export function LibrarySection({
               </>
             }
           >
-            SoulSync didn’t answer, so this part of the page is empty. Your library is safe; the
+            SYNCHRO.S didn’t answer, so this part of the page is empty. Your library is safe; the
             other sections still searched.
           </Notice>
           <SkeletonList rows={2} faded />

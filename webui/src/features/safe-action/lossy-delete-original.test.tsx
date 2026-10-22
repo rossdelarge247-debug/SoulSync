@@ -33,7 +33,7 @@ describe('the delete-original confirm', () => {
     expect(within(dialog).getByText(LOSSY_DELETE_TITLE)).toBeTruthy();
     expect(
       within(dialog).getByText(
-        /^This can't be undone\. With this on, SoulSync keeps only the MP3 320 kbps copy/,
+        /^This can't be undone\. With this on, SYNCHRO.S keeps only the MP3 320 kbps copy/,
       ),
     ).toBeTruthy();
     expect(

@@ -25,11 +25,11 @@ Link Plex, Jellyfin, or Navidrome so downloads appear in your library automatica
 
 ## First things after setup
 
-Once your services are connected, do these five things to get the most out of SoulSync right away:
+Once your services are connected, do these five things to get the most out of SYNCHRO.S right away:
 
 ::: steps
 1. **Download one album** — verifies your folder paths and post-processing work end to end ([guide](#wf-download)).
-2. **Scan your existing library** — open **Tools** and run a media server scan so SoulSync imports your current collection.
+2. **Scan your existing library** — open **Tools** and run a media server scan so SYNCHRO.S imports your current collection.
 3. **Add 5–10 artists to your Watchlist** — this seeds the discovery pool for recommendations.
 4. **Check the Automations page** — enable the system automations you want (auto-process wishlist, auto-scan watchlist, auto-backup).
 5. **Explore the Discover page** — once your watchlist has artists, recommendations and playlists appear here.
@@ -48,7 +48,7 @@ Once your services are connected, do these five things to get the most out of So
 2. **Type the album name** — results appear in a categorized dropdown: Artists, Albums, Singles & EPs, Tracks.
 3. **Click the album result** — a download modal opens showing cover art, tracklist, and album details.
 4. **Select tracks** — all tracks are selected by default; uncheck any you don't want.
-5. **Click Download** — SoulSync finds each track, downloads, tags, and organizes the files automatically.
+5. **Click Download** — SYNCHRO.S finds each track, downloads, tags, and organizes the files automatically.
 :::
 
 **Result:** tracks appear in your output folder as \`Artist/Album/01 - Title.flac\`, and your media server is notified to scan.
@@ -65,7 +65,7 @@ Once your services are connected, do these five things to get the most out of So
 ::: steps
 1. **Go to the Sync page** — click Sync in the sidebar.
 2. **Load your playlists** — click Refresh to pull your Spotify playlists (or paste a playlist URL directly).
-3. **Click Sync on a playlist** — SoulSync matches every track against your library and adds the missing ones to your wishlist.
+3. **Click Sync on a playlist** — SYNCHRO.S matches every track against your library and adds the missing ones to your wishlist.
 4. **Wait for auto-processing** — the wishlist processor runs on a schedule and downloads queued tracks. To start immediately, run **Process Wishlist** from Automations.
 :::
 
@@ -92,11 +92,11 @@ Once your services are connected, do these five things to get the most out of So
         {
             id: 'wf-import',
             title: 'How to: Import Existing Music',
-            lede: 'Bring music files you already own into SoulSync with proper metadata and organization.',
+            lede: 'Bring music files you already own into SYNCHRO.S with proper metadata and organization.',
             body: `
 ::: steps
 1. **Place files in your import folder** — put album folders (e.g. \`Artist - Album/\`) in the Import Folder configured in Settings.
-2. **Go to the Import page** — SoulSync detects the files and suggests album matches (the Inbox).
+2. **Go to the Import page** — SYNCHRO.S detects the files and suggests album matches (the Inbox).
 3. **Confirm or correct the match** — if the suggestion is wrong, search for the right album by artist and album (or identify files by AcoustID fingerprint).
 4. **Match tracks** — drag each file onto the correct track slot, or tap a file then tap a track.
 5. **Click "Import N tracks"** — files are tagged with official metadata, organized, and moved to your library.

@@ -117,12 +117,12 @@ export async function putQualityTarget(input: {
       }
       throw new SetTargetError({
         kind: 'failed',
-        message: data.message || "SoulSync couldn't save the target. Nothing changed.",
+        message: data.message || "SYNCHRO.S couldn't save the target. Nothing changed.",
       });
     }
     throw new SetTargetError({
       kind: 'failed',
-      message: "SoulSync didn't answer, so the target wasn't saved. Nothing changed.",
+      message: "SYNCHRO.S didn't answer, so the target wasn't saved. Nothing changed.",
     });
   }
 }

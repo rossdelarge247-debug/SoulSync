@@ -55,8 +55,8 @@ const SOURCE_LABELS: Record<string, string> = {
   plex: 'Plex',
   jellyfin: 'Jellyfin',
   navidrome: 'Navidrome',
-  soulsync: 'SoulSync',
-  web_player: 'SoulSync',
+  soulsync: 'SYNCHRO.S',
+  web_player: 'SYNCHRO.S',
 };
 
 export function sourceLabel(source: string | null | undefined): string {

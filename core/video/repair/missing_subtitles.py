@@ -183,7 +183,7 @@ class MissingSubtitlesJob(VideoRepairJob):
         title = d.get("title") or "this title"
         if not reachable:
             return {"success": False,
-                    "error": "the video files can't be reached from SoulSync right now"}
+                    "error": "the video files can't be reached from SYNCHRO.S right now"}
         if queued:
             return {"success": True, "action": "queued",
                     "message": f"Queued {queued} subtitle{'s' if queued != 1 else ''} "

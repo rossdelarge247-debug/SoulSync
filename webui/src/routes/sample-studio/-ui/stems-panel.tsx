@@ -39,7 +39,7 @@ function StemsSetupNote() {
     <div className={styles.setupBox}>
       <p className={styles.setupTitle}>Stem separation needs one small install</p>
       <p className={styles.hint}>
-        Run this where you start SoulSync, then restart it. The Docker image already has it.
+        Run this where you start SYNCHRO.S, then restart it. The Docker image already has it.
       </p>
       <pre className={styles.setupCode}>pip install onnxruntime</pre>
     </div>

@@ -796,7 +796,7 @@ export function ArtistPage() {
   if (failed) {
     const message =
       query.data?.success === false
-        ? `${query.data.error || 'SoulSync couldn’t find this artist'}.`
+        ? `${query.data.error || 'SYNCHRO.S couldn’t find this artist'}.`
         : whyItFailed(query.error);
     body = (
       <>
@@ -856,7 +856,7 @@ export function ArtistPage() {
               </Button>
             }
           >
-            SoulSync couldn&apos;t get the full discography from{' '}
+            SYNCHRO.S couldn&apos;t get the full discography from{' '}
             {payload.provider_error?.source || 'your metadata source'}: {providerError}. Releases
             you don&apos;t have yet are missing from this list until it answers.
           </Notice>
@@ -970,7 +970,7 @@ export function ArtistPage() {
         }}
       >
         <p className={styles.dialogText}>
-          SoulSync stops checking {artistName} for new releases.{' '}
+          SYNCHRO.S stops checking {artistName} for new releases.{' '}
           {wantedCount > 0
             ? `The ${plural(wantedCount, 'thing')} already on Wanted stay${wantedCount === 1 ? 's' : ''} there and keep${wantedCount === 1 ? 's' : ''} being searched for.`
             : 'Anything of theirs already on Wanted stays there.'}
@@ -1009,7 +1009,7 @@ export function ArtistPage() {
         }}
       >
         <p className={styles.dialogText}>
-          SoulSync adds the tracks you don&apos;t have from{' '}
+          SYNCHRO.S adds the tracks you don&apos;t have from{' '}
           {[
             albumsMissing ? plural(albumsMissing, 'album') : '',
             othersMissing ? plural(othersMissing, 'EP or single', 'EPs and singles') : '',
@@ -1034,7 +1034,7 @@ export function ArtistPage() {
         onConfirm={() => void removeArtist()}
       >
         <p className={styles.dialogText}>
-          SoulSync forgets {artistName} and all of their albums and tracks.
+          SYNCHRO.S forgets {artistName} and all of their albums and tracks.
         </p>
         <p className={styles.dialogText}>
           Only the database entries go: not one file on disk is deleted, and a rescan finds them
@@ -1097,7 +1097,7 @@ export function ArtistPage() {
           <ArtPicker
             target={{ kind: 'artist', id: payload.artist?.id }}
             currentUrl={photo || null}
-            subtitle={`${artistName} · applies to SoulSync, your server, and artist.jpg on disk`}
+            subtitle={`${artistName} · applies to SYNCHRO.S, your server, and artist.jpg on disk`}
             onApplied={(url) => setAppliedPhoto(url)}
             onClose={() => setDialog(null)}
           />

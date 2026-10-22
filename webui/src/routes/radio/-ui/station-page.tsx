@@ -365,7 +365,7 @@ function AutoAddCard({
           </div>
           <p className={styles.dialogText}>
             While this is on, each track identified on {station.name} goes to Wanted at your quality
-            target, unless you have it or it’s already there. SoulSync looks for them on the next
+            target, unless you have it or it’s already there. SYNCHRO.S looks for them on the next
             scheduled search and lists each addition in Activity. At most {n?.daily_limit ?? 50} a
             day from this station, so one busy day can’t fill Wanted.
           </p>
@@ -435,7 +435,7 @@ function ShowsCard({ station }: { station: Station }) {
           <p className={styles.howNote}>
             No tracklists yet. Shows appear here once {shortName(station.name)} publishes them
             {station.id.startsWith('nts')
-              ? ' (shows aired while SoulSync was watching or listening)'
+              ? ' (shows aired while SYNCHRO.S was watching or listening)'
               : ''}
             .
           </p>

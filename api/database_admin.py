@@ -693,7 +693,7 @@ def _run_soulsync_full_refresh():
         if failed > 0:
             summary += f" ({failed} failed)"
         logger.info(f"[SoulSync Full Refresh] {summary}")
-        add_activity_item("", "SoulSync Full Refresh", summary, "Now")
+        add_activity_item("", "SYNCHRO.S Full Refresh", summary, "Now")
         _db_update_finished_callback(artist_count, album_count, total, successful, failed)
 
     except Exception as e:
@@ -841,7 +841,7 @@ def _run_soulsync_deep_scan(plan_id=None, *, confirm_moves=False, allow_large_mo
             except PlanError as exc:
                 warn = f"Deep scan: {exc.message} Nothing was moved."
                 logger.warning(f"[SoulSync Deep Scan] {warn}")
-                add_activity_item("", "SoulSync Deep Scan — move not confirmed", warn, "Now")
+                add_activity_item("", "SYNCHRO.S Deep Scan — move not confirmed", warn, "Now")
 
         # Phase 3: plan the untracked → Staging move with the data-loss guards (#904).
         never_move, max_move_fraction = _deep_scan_guard_settings()
@@ -871,7 +871,7 @@ def _run_soulsync_deep_scan(plan_id=None, *, confirm_moves=False, allow_large_mo
                     'needs_confirmation': True, 'block_reason': block_reason}).plan_id
             report = _deep_scan_move_summary(plan, items, mode="blocked", plan_id=new_plan_id)
             logger.warning(f"[SoulSync Deep Scan] {report['message']}")
-            add_activity_item("", "SoulSync Deep Scan — move blocked", report['message'], "Now")
+            add_activity_item("", "SYNCHRO.S Deep Scan — move blocked", report['message'], "Now")
         elif untracked and (confirmed is not None or confirm_moves):
             if confirmed is not None:
                 # exactly the previewed files that are still there + untracked
@@ -902,7 +902,7 @@ def _run_soulsync_deep_scan(plan_id=None, *, confirm_moves=False, allow_large_mo
             warn = (f"Deep scan: {would_move} file(s) in your Music Library aren't in the database and "
                     f"would move to Staging. Nothing was moved — review the preview and confirm it.")
             logger.warning(f"[SoulSync Deep Scan] {warn}")
-            add_activity_item("", "SoulSync Deep Scan — preview", warn, "Now")
+            add_activity_item("", "SYNCHRO.S Deep Scan — preview", warn, "Now")
         with db_update_lock:
             db_update_state["deep_scan_moves"] = report
 
@@ -974,7 +974,7 @@ def _run_soulsync_deep_scan(plan_id=None, *, confirm_moves=False, allow_large_mo
             summary += " — library is clean"
 
         logger.info(f"[SoulSync Deep Scan] {summary}")
-        add_activity_item("", "SoulSync Deep Scan", summary, "Now")
+        add_activity_item("", "SYNCHRO.S Deep Scan", summary, "Now")
         _db_update_finished_callback(0, 0, len(transfer_files), moved_count + stale_count, 0)
 
     except Exception as e:
@@ -1527,7 +1527,7 @@ def restore_backup_endpoint(filename):
                     "version_mismatch": True,
                     "backup_version": backup_version,
                     "current_version": SOULSYNC_VERSION,
-                    "error": f"This backup was created on SoulSync v{backup_version}, but you're running v{SOULSYNC_VERSION}. Restoring may cause issues. Send force=true to proceed."
+                    "error": f"This backup was created on SYNCHRO.S v{backup_version}, but you're running v{SOULSYNC_VERSION}. Restoring may cause issues. Send force=true to proceed."
                 }), 409
             version_warning = f"Restored from v{backup_version} backup (current: v{SOULSYNC_VERSION})"
 

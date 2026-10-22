@@ -165,7 +165,7 @@ export function createRadioSession(deps: RadioSessionDeps): RadioSessionApi & { 
       if (gen === generation) {
         set({
           status: 'error',
-          error: { code: 'offline', message: 'SoulSync didn’t answer. Try again.' },
+          error: { code: 'offline', message: 'SYNCHRO.S didn’t answer. Try again.' },
         });
       }
       return;

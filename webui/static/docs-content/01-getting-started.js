@@ -6,13 +6,13 @@ registerDocsSection({
         {
             id: 'gs-overview',
             title: 'Overview',
-            lede: 'SoulSync is a self-hosted platform that downloads, syncs, and manages your music and video libraries — all from one app.',
+            lede: 'SYNCHRO.S is a self-hosted platform that downloads, syncs, and manages your music and video libraries — all from one app.',
             body: `
-## What SoulSync does
+## What SYNCHRO.S does
 
-SoulSync connects to **Spotify**, **Apple Music/iTunes**, **Deezer**, **Discogs**, **Tidal**, **Qobuz**, **YouTube**, and **Beatport** for metadata, and downloads from **Soulseek**, **YouTube**, **Tidal**, **Qobuz**, **HiFi**, and **Deezer**. Your library is served through **Plex**, **Jellyfin/Emby**, or **Navidrome**. It also manages **movies, TV shows, and YouTube channels** on its dedicated video side.
+SYNCHRO.S connects to **Spotify**, **Apple Music/iTunes**, **Deezer**, **Discogs**, **Tidal**, **Qobuz**, **YouTube**, and **Beatport** for metadata, and downloads from **Soulseek**, **YouTube**, **Tidal**, **Qobuz**, **HiFi**, and **Deezer**. Your library is served through **Plex**, **Jellyfin/Emby**, or **Navidrome**. It also manages **movies, TV shows, and YouTube channels** on its dedicated video side.
 
-![SoulSync dashboard overview](gs-overview.jpg)
+![SYNCHRO.S dashboard overview](gs-overview.jpg)
 
 ::: cards
 ### 🎵 Download Music
@@ -33,7 +33,7 @@ A full video side: search, discover, track, and download movies, shows, and YouT
 
 ## Music and video, side by side
 
-SoulSync has two sides that share one login:
+SYNCHRO.S has two sides that share one login:
 
 - **Music side** — downloads, playlist sync, library, discover, automations, and everything in these docs under the music sections.
 - **Video side** — movies, TV shows, and YouTube channels, with its own dashboard, search, discover, library, calendar, and tools.
@@ -51,13 +51,13 @@ Switch sides with the toggle in the sidebar. Profiles can be limited to one side
             body: `
 ## The setup wizard
 
-The first time you open SoulSync, setup takes over the screen. While the welcome page is up it looks around on its own: whether it's running in Docker, and which of Plex, Jellyfin, Navidrome, slskd, Prowlarr, qBittorrent and SABnzbd it can reach (including compose service names like \`slskd\` or \`prowlarr\`). Most steps then start with the answer filled in.
+The first time you open SYNCHRO.S, setup takes over the screen. While the welcome page is up it looks around on its own: whether it's running in Docker, and which of Plex, Jellyfin, Navidrome, slskd, Prowlarr, qBittorrent and SABnzbd it can reach (including compose service names like \`slskd\` or \`prowlarr\`). Most steps then start with the answer filled in.
 
 ::: steps
-1. **Your account**: name the admin profile and choose how SoulSync is unlocked. Leave it open on a private network, lock it with a PIN, or turn on usernames and passwords if it faces the internet.
+1. **Your account**: name the admin profile and choose how SYNCHRO.S is unlocked. Leave it open on a private network, lock it with a PIN, or turn on usernames and passwords if it faces the internet.
 2. **What it's for**: music, movies and TV, YouTube channels, podcasts, audiobooks. Later steps only ask about what you pick.
-3. **Media server**: Plex signs in with a code at plex.tv/link (no token hunting); Jellyfin and Navidrome take their address and key. Once connected you pick the music, movies and TV libraries by name, with their sizes. Or choose **No server** and SoulSync keeps the library itself.
-4. **Folders**: every folder is checked as you type: does it exist, can SoulSync write there, how much space is free, and where your media server reads the same library from. Docker installs start on the container paths, other installs on folders next to the app.
+3. **Media server**: Plex signs in with a code at plex.tv/link (no token hunting); Jellyfin and Navidrome take their address and key. Once connected you pick the music, movies and TV libraries by name, with their sizes. Or choose **No server** and SYNCHRO.S keeps the library itself.
+4. **Folders**: every folder is checked as you type: does it exist, can SYNCHRO.S write there, how much space is free, and where your media server reads the same library from. Docker installs start on the container paths, other installs on folders next to the app.
 5. **Download sources**: an ordered list, tried top to bottom. HiFi and YouTube are already in because they need no account; Soulseek goes first when slskd was found. Tidal and Qobuz sign in right here. Pick a quality preset (Audiophile, Balanced or Space saver) on the same page.
 6. **Metadata and accounts**: the main catalogue (Deezer, Apple Music or Spotify) and optional Spotify, ListenBrainz and Last.fm accounts.
 7. **Movies and TV** (if picked): a TMDB key, Prowlarr and a download client, each with its own check.
@@ -68,25 +68,25 @@ The first time you open SoulSync, setup takes over the screen. While the welcome
 **Finish later** closes setup without saving; it comes back next time, where you left off (passwords and keys are never kept in the browser). Whatever you skip shows up as a **Finish setting up** checklist on the dashboard, and ticks itself off when you do it anywhere in the app.
 
 > [!TIP]
-> Moving to a new machine? **Restore from a SoulSync backup** on the welcome page loads a config export and skips setup.
+> Moving to a new machine? **Restore from a SYNCHRO.S backup** on the welcome page loads a config export and skips setup.
 
 To see setup again without touching your install, open **Settings → Advanced → Developer → Setup preview**. It runs the real flow, saves nothing, and keeps a Preview tag in the corner.
 
 ![Settings page first-time setup](gs-first-setup.jpg)
 
-## The four things SoulSync needs
+## The four things SYNCHRO.S needs
 
 If you skipped the wizard (or want to double-check), open **Settings** and confirm these:
 
 ::: steps
 1. **Download source** — connect at least one: Soulseek (slskd), YouTube, Tidal, Qobuz, HiFi, or Deezer. Soulseek offers the best quality selection; the others work as alternatives or fallbacks in Hybrid mode.
-2. **Media server** — connect Plex, Jellyfin, or Navidrome so SoulSync knows where your library lives and can trigger scans.
+2. **Media server** — connect Plex, Jellyfin, or Navidrome so SYNCHRO.S knows where your library lives and can trigger scans.
 3. **Spotify (recommended)** — connect Spotify for the richest metadata. Create an app at [developer.spotify.com](https://developer.spotify.com), enter your Client ID and Secret, then click Authenticate.
 4. **Folders** — set your input and output paths under **Settings → Library → Folders**. The output path must be a folder your media server monitors. See [Folder Setup](#gs-folders) — this is where most setup problems come from.
 :::
 
 > [!TIP]
-> You can start using SoulSync with just one download source. Spotify and other services add metadata enrichment but aren't strictly required — iTunes/Apple Music and Deezer are always available as free fallbacks.
+> You can start using SYNCHRO.S with just one download source. Spotify and other services add metadata enrichment but aren't strictly required — iTunes/Apple Music and Deezer are always available as free fallbacks.
 
 ## What to do next
 
@@ -99,7 +99,7 @@ If you skipped the wizard (or want to double-check), open **Settings** and confi
         {
             id: 'gs-connecting',
             title: 'Connecting Services',
-            lede: 'Every service SoulSync integrates with, what it is for, and what credentials it needs.',
+            lede: 'Every service SYNCHRO.S integrates with, what it is for, and what credentials it needs.',
             body: `
 ## Service reference
 
@@ -129,8 +129,8 @@ If you skipped the wizard (or want to double-check), open **Settings** and confi
 
 ## Tips per service
 
-- **Spotify** — create the app at [developer.spotify.com](https://developer.spotify.com/dashboard), then paste the Client ID and Secret into SoulSync and click Authenticate. The **Redirect URI** in SoulSync must also be registered in the Spotify dashboard and match **exactly** (scheme, host, port, path). Spotify only allows plain \`http://\` for loopback addresses — use \`http://127.0.0.1:8888/callback\` when SoulSync runs on the same machine as your browser (note: \`localhost\` is rejected, use the literal IP). **NAS / Docker / remote server:** Spotify requires **HTTPS** for anything that isn't loopback. Put an HTTPS proxy in front of SoulSync, paste the proxy's URL (e.g. \`https://<your-host>/callback\`) into the **Redirect URI** field under Settings → Connections → Spotify, and register that exact same URI in the Spotify dashboard. With Tailscale: \`sudo docker exec tailscale tailscale serve --bg --https=443 http://127.0.0.1:8008/\` — this assumes the tailscale container can reach SoulSync at 127.0.0.1:8008 (host networking, or SoulSync running on the host); otherwise substitute SoulSync's container address — then register \`https://<nas-name>.<tailnet>.ts.net/callback\`. The dashboard edit can be done from any browser, but click Authenticate from one that can reach the URL.
-- **slskd** — SoulSync talks to slskd over HTTP. In Docker, use the container name (e.g. \`http://slskd:5030\`); outside Docker, \`http://localhost:5030\`. Paste the API key from slskd's own config.
+- **Spotify** — create the app at [developer.spotify.com](https://developer.spotify.com/dashboard), then paste the Client ID and Secret into SYNCHRO.S and click Authenticate. The **Redirect URI** in SYNCHRO.S must also be registered in the Spotify dashboard and match **exactly** (scheme, host, port, path). Spotify only allows plain \`http://\` for loopback addresses — use \`http://127.0.0.1:8888/callback\` when SYNCHRO.S runs on the same machine as your browser (note: \`localhost\` is rejected, use the literal IP). **NAS / Docker / remote server:** Spotify requires **HTTPS** for anything that isn't loopback. Put an HTTPS proxy in front of SYNCHRO.S, paste the proxy's URL (e.g. \`https://<your-host>/callback\`) into the **Redirect URI** field under Settings → Connections → Spotify, and register that exact same URI in the Spotify dashboard. With Tailscale: \`sudo docker exec tailscale tailscale serve --bg --https=443 http://127.0.0.1:8008/\` — this assumes the tailscale container can reach SYNCHRO.S at 127.0.0.1:8008 (host networking, or SYNCHRO.S running on the host); otherwise substitute SYNCHRO.S's container address — then register \`https://<nas-name>.<tailnet>.ts.net/callback\`. The dashboard edit can be done from any browser, but click Authenticate from one that can reach the URL.
+- **slskd** — SYNCHRO.S talks to slskd over HTTP. In Docker, use the container name (e.g. \`http://slskd:5030\`); outside Docker, \`http://localhost:5030\`. Paste the API key from slskd's own config.
 - **Deezer ARL** — copy the \`arl\` cookie value while logged into deezer.com in your browser's dev tools.
 - **Qobuz** — username + password works for most accounts; if login fails, a user auth token captured from the Qobuz web player's dev tools also works.
 - **Discogs / Last.fm / Genius / AcoustID** — all offer free API keys/tokens from their developer pages; they only power enrichment, so connect them whenever convenient.
@@ -139,13 +139,13 @@ If you skipped the wizard (or want to double-check), open **Settings** and confi
         {
             id: 'gs-interface',
             title: 'Understanding the Interface',
-            lede: 'How SoulSync is laid out and where everything lives.',
+            lede: 'How SYNCHRO.S is laid out and where everything lives.',
             body: `
 ## Layout
 
-SoulSync uses a **sidebar navigation** layout. The left sidebar holds links to every page, a media player at the bottom, and service status indicators. The main content area changes with the selected page. A **music/video toggle** in the sidebar switches between the two sides of the app.
+SYNCHRO.S uses a **sidebar navigation** layout. The left sidebar holds links to every page, a media player at the bottom, and service status indicators. The main content area changes with the selected page. A **music/video toggle** in the sidebar switches between the two sides of the app.
 
-![SoulSync interface layout](gs-interface.jpg)
+![SYNCHRO.S interface layout](gs-interface.jpg)
 
 ## Music side pages
 
@@ -175,7 +175,7 @@ SoulSync uses a **sidebar navigation** layout. The left sidebar holds links to e
 
 ## Version and updates
 
-Click the **version number** in the sidebar footer to open the **What's New** modal with release notes for every feature and fix. SoulSync automatically checks for updates by comparing your running version against the latest GitHub commit — the version button glows when an update is available (green for routine, yellow for major, red for critical). Docker users are notified when a new image is available.
+Click the **version number** in the sidebar footer to open the **What's New** modal with release notes for every feature and fix. SYNCHRO.S automatically checks for updates by comparing your running version against the latest GitHub commit — the version button glows when an update is available (green for routine, yellow for major, red for critical). Docker users are notified when a new image is available.
 
 > [!TIP]
 > Press \`?\` anywhere to open the interactive helper menu, and \`Ctrl+K\` for helper search. The floating **?** button toggles click-anything help overlays.
@@ -184,17 +184,17 @@ Click the **version number** in the sidebar footer to open the **What's New** mo
         {
             id: 'gs-folders',
             title: 'Folder Setup (Downloads & Transfer)',
-            lede: 'The three folders SoulSync uses — and the Docker pitfalls that cause most setup issues.',
+            lede: 'The three folders SYNCHRO.S uses — and the Docker pitfalls that cause most setup issues.',
             body: `
 ## The three folders
 
-SoulSync uses **three folders** to manage your music files. **Most setup issues come from incorrect folder configuration** — especially in Docker. Read this section carefully.
+SYNCHRO.S uses **three folders** to manage your music files. **Most setup issues come from incorrect folder configuration** — especially in Docker. Read this section carefully.
 
 > [!WARNING]
 > **Docker users — there are TWO steps, not one!**
 >
 > **Step 1:** Map your volumes in \`docker-compose.yml\` — this makes folders *accessible* to the container.
-> **Step 2:** Configure the paths in **SoulSync Settings → Library → Folders** — this tells the app *where to look*.
+> **Step 2:** Configure the paths in **SYNCHRO.S Settings → Library → Folders** — this tells the app *where to look*.
 >
 > Setting up docker-compose volumes alone is **not enough**. If you skip Step 2, downloads will complete but nothing will transfer, post-processing will fail silently, and tracks will re-download repeatedly.
 
@@ -211,21 +211,21 @@ SoulSync uses **three folders** to manage your music files. **Most setup issues 
 > [!NOTE]
 > **The complete download-to-library pipeline:**
 >
-> **1.** You search for music in SoulSync and click download
-> **2.** SoulSync tells slskd to download the file → slskd saves it to its download folder
-> **3.** SoulSync detects the completed download in the **Download Folder (input)**
+> **1.** You search for music in SYNCHRO.S and click download
+> **2.** SYNCHRO.S tells slskd to download the file → slskd saves it to its download folder
+> **3.** SYNCHRO.S detects the completed download in the **Download Folder (input)**
 > **4.** Post-processing runs: AcoustID verification → metadata tagging → cover art embedding → lyrics fetch
 > **5.** File is renamed and organized (e.g. \`Artist/Album/01 - Title.flac\`)
 > **6.** File is moved from **Download Folder (input)** → **Music Library Folder (output)**
 > **7.** Media server scan is triggered → file appears in your library
 >
-> **If any step fails, the pipeline stops.** The most common failure point is Step 3 — SoulSync can't find the file because the Download Folder (input) doesn't match where slskd actually saved it.
+> **If any step fails, the pipeline stops.** The most common failure point is Step 3 — SYNCHRO.S can't find the file because the Download Folder (input) doesn't match where slskd actually saved it.
 
 ## Docker: the full picture
 
 ![Docker folder mapping](gs-folder-docker.jpg)
 
-In Docker, every app runs in its own isolated container with its own filesystem. **Volume mounts** in docker-compose create "bridges" between your host folders and the container — but SoulSync doesn't automatically know where those bridges go. You tell it via the Settings page.
+In Docker, every app runs in its own isolated container with its own filesystem. **Volume mounts** in docker-compose create "bridges" between your host folders and the container — but SYNCHRO.S doesn't automatically know where those bridges go. You tell it via the Settings page.
 
 > [!NOTE]
 > **HOST (your server)**
@@ -236,29 +236,29 @@ In Docker, every app runs in its own isolated container with its own filesystem.
 > \`/mnt/data/slskd-downloads:/app/downloads\`
 > \`/mnt/media/music:/app/Transfer\`
 >
-> **CONTAINER (what SoulSync sees)**
+> **CONTAINER (what SYNCHRO.S sees)**
 > \`/app/downloads/\` ← same files as \`/mnt/data/slskd-downloads/\`
 > \`/app/Transfer/\` ← same files as \`/mnt/media/music/\`
 >
-> **SoulSync Settings (what you enter in the app)**
+> **SYNCHRO.S Settings (what you enter in the app)**
 > Download Folder (input): \`/app/downloads\` · Music Library Folder (output): \`/app/Transfer\`
 
 ## The #1 mistake: not configuring app settings
 
-Many users set up docker-compose volumes correctly but **never open SoulSync Settings to configure the paths**. The app defaults may not match your volume mounts. Go to **Settings → Library → Folders** and verify:
+Many users set up docker-compose volumes correctly but **never open SYNCHRO.S Settings to configure the paths**. The app defaults may not match your volume mounts. Go to **Settings → Library → Folders** and verify:
 
 - **Download Folder (input)** matches where slskd puts completed files *inside the container* (usually \`/app/downloads\`)
 - **Music Library Folder (output)** matches where you mounted your media library *inside the container* (usually \`/app/Transfer\`)
 
 > [!WARNING]
-> "I set up my docker-compose but nothing transfers" almost always means the app settings weren't configured. Docker-compose makes the folders accessible. The app settings tell SoulSync where to look. **Both are required.**
+> "I set up my docker-compose but nothing transfers" almost always means the app settings weren't configured. Docker-compose makes the folders accessible. The app settings tell SYNCHRO.S where to look. **Both are required.**
 
 ## The #2 mistake: Download Folder (input) doesn't match slskd
 
-The **Download Folder (input)** in SoulSync must point to the **exact same physical folder** where slskd saves its completed downloads.
+The **Download Folder (input)** in SYNCHRO.S must point to the **exact same physical folder** where slskd saves its completed downloads.
 
 > [!NOTE]
-> **Both SoulSync and slskd must see the same input folder.**
+> **Both SYNCHRO.S and slskd must see the same input folder.**
 >
 > **slskd container:**
 > - slskd downloads to \`/downloads/complete\` inside its own container
@@ -266,13 +266,13 @@ The **Download Folder (input)** in SoulSync must point to the **exact same physi
 >
 > **SoulSync container:**
 > - SoulSync docker-compose: \`- /mnt/data/slskd-downloads:/app/downloads\` (same host folder!)
-> - SoulSync Setting: Download Folder (input) = \`/app/downloads\`
+> - SYNCHRO.S Setting: Download Folder (input) = \`/app/downloads\`
 >
 > **The key:** both containers mount the **same host folder** (\`/mnt/data/slskd-downloads\`). The container-internal paths can differ — what matters is they point to the same physical directory on your server.
 
 ## The #3 mistake: using host paths in Settings
 
-In Docker, paths entered in SoulSync's Settings must be **container-side paths** (the right side of the \`:\` in your volume mount), **not** host paths (the left side). SoulSync runs inside the container and can only see its own filesystem.
+In Docker, paths entered in SYNCHRO.S's Settings must be **container-side paths** (the right side of the \`:\` in your volume mount), **not** host paths (the left side). SYNCHRO.S runs inside the container and can only see its own filesystem.
 
 |  | Setting value | Result |
 |--|---------------|--------|
@@ -289,9 +289,9 @@ Your Music Library Folder (output) must ultimately point to the same physical di
 > **Example with Plex:**
 > - Plex monitors \`/mnt/media/music\` on the host
 > - SoulSync docker-compose: \`- /mnt/media/music:/app/Transfer:rw\`
-> - SoulSync Settings: Music Library Folder (output) = \`/app/Transfer\`
+> - SYNCHRO.S Settings: Music Library Folder (output) = \`/app/Transfer\`
 >
-> **Result:** SoulSync writes to \`/app/Transfer\` in the container → appears at \`/mnt/media/music\` on the host → Plex sees it and adds it to your library.
+> **Result:** SYNCHRO.S writes to \`/app/Transfer\` in the container → appears at \`/mnt/media/music\` on the host → Plex sees it and adds it to your library.
 
 ## Complete docker-compose example (slskd + SoulSync)
 
@@ -317,7 +317,7 @@ services:
       - /docker/soulsync/staging:/app/Staging
       - soulsync_database:/app/data
 
-# Then in SoulSync Settings:
+# Then in SYNCHRO.S Settings:
 # Download Folder (input): /app/downloads
 # Music Library Folder (output): /app/Transfer
 \`\`\`
@@ -331,15 +331,15 @@ Go through every item — if you miss any single one, the pipeline breaks:
 ::: steps
 1. **slskd's folder is mounted in SoulSync's container** — both containers must mount the **same host directory**. The host paths (left side of \`:\`) must be identical.
 2. **Media server's music folder is mounted as Output** — mount the folder your Plex/Jellyfin/Navidrome monitors as \`/app/Transfer\` with \`:rw\` permissions.
-3. **SoulSync Settings are configured** — open **Settings → Library → Folders**. Set Download Folder (input) to \`/app/downloads\` and Music Library Folder (output) to \`/app/Transfer\` (or whatever container paths you used on the right side of \`:\`).
+3. **SYNCHRO.S Settings are configured** — open **Settings → Library → Folders**. Set Download Folder (input) to \`/app/downloads\` and Music Library Folder (output) to \`/app/Transfer\` (or whatever container paths you used on the right side of \`:\`).
 4. **slskd URL and API key are set** — in **Settings → Sources**, open the **Soulseek** source panel and enter your slskd URL (e.g. \`http://slskd:5030\`) and API key.
-5. **PUID/PGID match your host user** — run \`id\` on your host and set those values in docker-compose. Both slskd and SoulSync should use the same PUID/PGID.
+5. **PUID/PGID match your host user** — run \`id\` on your host and set those values in docker-compose. Both slskd and SYNCHRO.S should use the same PUID/PGID.
 6. **Test with one track** — download a single track and watch the logs. If it downloads but doesn't transfer, the paths are wrong.
 :::
 
 ## Permissions
 
-If paths are correct but files still won't transfer, it's usually permissions. SoulSync needs **read + write** access to all three folders.
+If paths are correct but files still won't transfer, it's usually permissions. SYNCHRO.S needs **read + write** access to all three folders.
 
 - Set \`PUID\` and \`PGID\` in docker-compose to match the user owning your music folders (run \`id\` on your host — usually 1000/1000)
 - Ensure the output folder is writable: \`chmod -R 755 /mnt/media/music\` (your actual host path)
@@ -362,14 +362,14 @@ If paths are correct but files still won't transfer, it's usually permissions. S
 |---------|--------------|-----|
 | Files download but never transfer | App settings not configured — volumes are set but Settings still have defaults | Open **Settings → Library → Folders** and set Input + Output paths to your **container-side** mount paths |
 | Post-processing log is empty | Download Folder (input) doesn't match where slskd saves files in the container | Run \`docker exec soulsync ls /app/downloads\` — the Download Folder (input) in Settings must match exactly |
-| Same tracks downloading repeatedly | Post-processing fails so SoulSync thinks the track never completed | Fix folder paths first; once post-processing works, files move to output and are recognized |
+| Same tracks downloading repeatedly | Post-processing fails so SYNCHRO.S thinks the track never completed | Fix folder paths first; once post-processing works, files move to output and are recognized |
 | Files not renamed properly | Post-processing isn't running (path mismatch) or organization disabled | Verify File Organization is enabled in **Settings → Library → Organization**; fix the Download Folder (input) first |
 | Permission denied in logs | Container user can't write to the output folder | Set PUID/PGID to match the host owner; \`chmod -R 755\` the output host folder |
-| Media server doesn't see new files | Music Library Folder (output) doesn't map to the monitored folder | Ensure the **host path** in your SoulSync volume mount is the folder Plex/Jellyfin/Navidrome watches |
-| slskd works alone but not via SoulSync | slskd's folder and SoulSync's Download Folder (input) are different physical locations | Both containers must mount the **same host directory** — check the left side of \`:\` in both |
+| Media server doesn't see new files | Music Library Folder (output) doesn't map to the monitored folder | Ensure the **host path** in your SYNCHRO.S volume mount is the folder Plex/Jellyfin/Navidrome watches |
+| slskd works alone but not via SYNCHRO.S | slskd's folder and SYNCHRO.S's Download Folder (input) are different physical locations | Both containers must mount the **same host directory** — check the left side of \`:\` in both |
 
 > [!TIP]
-> **Still stuck?** Enable DEBUG logging in Settings, download a single track, and check \`logs/app.log\`. If the post-processing log is empty, the issue is almost certainly a path mismatch — SoulSync never found the file to process.
+> **Still stuck?** Enable DEBUG logging in Settings, download a single track, and check \`logs/app.log\`. If the post-processing log is empty, the issue is almost certainly a path mismatch — SYNCHRO.S never found the file to process.
 `
         },
         {
@@ -456,7 +456,7 @@ Requires Python 3.11.
 > [!NOTE]
 > **Podman / rootless Docker:** supported — the entrypoint handles permission alignment automatically.
 >
-> **Config migration:** when upgrading from older versions, SoulSync automatically migrates \`config.json\` settings into the database on first startup. No manual migration needed.
+> **Config migration:** when upgrading from older versions, SYNCHRO.S automatically migrates \`config.json\` settings into the database on first startup. No manual migration needed.
 `
         },
     ]

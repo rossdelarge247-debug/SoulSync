@@ -203,7 +203,7 @@ NAVIDROME = ServerDescriptor(
 
 SOULSYNC = ServerDescriptor(
     name='soulsync',
-    display_name='SoulSync Library',
+    display_name='SYNCHRO.S Library',
     # No section of its own: the standalone library reads the transfer
     # folder from the soulseek section.
     config_section='soulseek',

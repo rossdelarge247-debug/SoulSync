@@ -35,9 +35,9 @@ At the top, **View on** buttons link to the artist on each matched external serv
         {
             id: 'art-watchlist',
             title: 'Watchlist',
-            lede: 'Follow artists and let SoulSync catch every new release for you.',
+            lede: 'Follow artists and let SYNCHRO.S catch every new release for you.',
             body: `
-The watchlist tracks artists you want to follow for new releases. When SoulSync scans your watchlist, it checks each artist's discography and adds any new tracks to your **wishlist** for downloading.
+The watchlist tracks artists you want to follow for new releases. When SYNCHRO.S scans your watchlist, it checks each artist's discography and adds any new tracks to your **wishlist** for downloading.
 
 - Add artists from search results, the Discover page hero, or library artist cards
 - Remove artists individually or in bulk
@@ -109,7 +109,7 @@ The **Cleanup Wishlist** action removes duplicates (the same track added multipl
         {
             id: 'art-settings',
             title: 'Watchlist Settings',
-            lede: 'Control exactly which release types SoulSync grabs for each artist — or set one global rule.',
+            lede: 'Control exactly which release types SYNCHRO.S grabs for each artist — or set one global rule.',
             body: `
 ## Per-artist settings
 

@@ -264,7 +264,7 @@ export function autoSyncSourceLabel(source: string | null | undefined): string {
     itunes_link: 'iTunes Link',
     listenbrainz: 'ListenBrainz',
     lastfm: 'Last.fm Radio',
-    soulsync_discovery: 'SoulSync Discovery',
+    soulsync_discovery: 'SYNCHRO.S Discovery',
   };
   return labels[source as string] || source || 'Other';
 }

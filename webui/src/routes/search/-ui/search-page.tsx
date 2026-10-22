@@ -633,7 +633,7 @@ export function SearchPage() {
           <EmptyState
             variant="panel"
             title={`Nothing found for “${committed}”`}
-            description={`SoulSync looked in your library, on ${downloadName} and on ${catalogName}${type === 'everything' ? '' : `, for ${type}`}.`}
+            description={`SYNCHRO.S looked in your library, on ${downloadName} and on ${catalogName}${type === 'everything' ? '' : `, for ${type}`}.`}
             hint="Check the spelling or try fewer words; an artist’s name on its own often finds the most."
             actions={
               type === 'everything' ? (

@@ -6,7 +6,7 @@ registerDocsSection({
         {
             id: 'imp-setup',
             title: 'Import Folder',
-            lede: 'Drop audio files in a folder — or upload from your browser — and SoulSync identifies and files them.',
+            lede: 'Drop audio files in a folder — or upload from your browser — and SYNCHRO.S identifies and files them.',
             body: `
 Set your **import folder path** in Settings → Library → Folders. Drop audio files you want to import into it. Album folders (e.g. \`Artist - Album/\`), loose files that share an album tag, and single files each become one item in the inbox.
 
@@ -121,11 +121,11 @@ Click the sidebar player to open the **Now Playing modal** — a full-screen exp
         {
             id: 'player-streaming',
             title: 'Streaming & Sources',
-            lede: 'Audio streams the file on SoulSync disk — with a Navidrome fallback when it is not there.',
+            lede: 'Audio streams the file on SYNCHRO.S disk — with a Navidrome fallback when it is not there.',
             body: `
-Playback serves the **local file on SoulSync's disk**: the browser asks \`/api/library/play\` for a track and the audio streams from \`/stream/audio\`.
+Playback serves the **local file on SYNCHRO.S's disk**: the browser asks \`/api/library/play\` for a track and the audio streams from \`/stream/audio\`.
 
-- **Navidrome fallback** — when the file isn't on SoulSync's disk (e.g. the library isn't mounted into the container) and Navidrome is the active media server, playback falls back to streaming via Navidrome's own Subsonic-compatible stream API — no disk mount needed. Plex and Jellyfin have no such fallback, so their files must be reachable on SoulSync's disk.
+- **Navidrome fallback** — when the file isn't on SYNCHRO.S's disk (e.g. the library isn't mounted into the container) and Navidrome is the active media server, playback falls back to streaming via Navidrome's own Subsonic-compatible stream API — no disk mount needed. Plex and Jellyfin have no such fallback, so their files must be reachable on SYNCHRO.S's disk.
 
 The browser auto-detects which audio formats it can play. Album art, track metadata, and ambient colors are all pulled from your server in real time.
 `
@@ -161,7 +161,7 @@ Add tracks to the queue from the Enhanced Library Manager or download results. M
 | \`M\` | Mute / Unmute |
 | \`Escape\` | Close Now Playing modal |
 
-**Media Session API** — SoulSync integrates with your OS media controls (lock screen, system tray) for play/pause, next/previous, and seek.
+**Media Session API** — SYNCHRO.S integrates with your OS media controls (lock screen, system tray) for play/pause, next/previous, and seek.
 `
         },
     ]

@@ -320,7 +320,7 @@ describe('the detail modal tables are NOT the card tables', () => {
       beatport: 'Beatport',
       deezer: 'Deezer',
       qobuz: 'Qobuz',
-      soulsync: 'SoulSync',
+      soulsync: 'SYNCHRO.S',
     });
     expect(Object.keys(MIRRORED_DETAIL_SOURCE_LABELS)).toEqual(
       Object.keys(MIRRORED_DETAIL_SOURCE_ICONS),

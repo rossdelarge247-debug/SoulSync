@@ -262,7 +262,7 @@ describe('Settings -> Modules', () => {
 
   it('shows which parts need a restart when the server says so', async () => {
     const reason =
-      'The video download monitor and subtitle worker have no stop switch; they keep running until SoulSync restarts.';
+      'The video download monitor and subtitle worker have no stop switch; they keep running until SYNCHRO.S restarts.';
     acceptPuts((name, enabled) =>
       HttpResponse.json({
         success: true,
@@ -283,10 +283,10 @@ describe('Settings -> Modules', () => {
     const notice = row('video').querySelector<HTMLElement>('.module-restart')!;
     expect(notice.hidden).toBe(false);
     expect(notice.textContent).toContain('Restart needed');
-    expect(notice.textContent).toContain('Restart SoulSync to finish turning Video off.');
+    expect(notice.textContent).toContain('Restart SYNCHRO.S to finish turning Video off.');
     expect(notice.textContent).toContain(reason);
     expect(row('video').querySelector('[role="status"]')?.textContent).toContain(
-      'Restart SoulSync to finish.',
+      'Restart SYNCHRO.S to finish.',
     );
   });
 

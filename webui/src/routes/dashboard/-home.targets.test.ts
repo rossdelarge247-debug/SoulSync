@@ -124,7 +124,7 @@ describe("the can't search card", () => {
         in_progress: 41,
         not_found_yet: 23,
         reason:
-          "Soulseek (slskd) didn't answer when SoulSync last checked, 4 minutes ago, so searches can't run.",
+          "Soulseek (slskd) didn't answer when SYNCHRO.S last checked, 4 minutes ago, so searches can't run.",
       }),
     );
     expect(view.tag).toEqual({ word: "Can't search", tone: 'danger' });

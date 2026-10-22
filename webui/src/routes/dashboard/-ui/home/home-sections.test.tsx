@@ -75,7 +75,7 @@ const T = {
 };
 
 const REASON =
-  "Soulseek (slskd) didn't answer when SoulSync last checked, 4 minutes ago, so searches can't run.";
+  "Soulseek (slskd) didn't answer when SYNCHRO.S last checked, 4 minutes ago, so searches can't run.";
 const cant = (t: Record<string, unknown>) => ({ ...t, status: 'cant_search', reason: REASON });
 
 function summary(targets: Record<string, unknown>[]) {
@@ -297,13 +297,13 @@ describe('Targets', () => {
     expect(within(card('wanted')).getByRole('button', { name: 'Try now' })).toBeInTheDocument();
   });
 
-  it('folds into one "Tell SoulSync what you want" panel with nothing set up', async () => {
+  it('folds into one "Tell SYNCHRO.S what you want" panel with nothing set up', async () => {
     mockSummary([T.wantedOff, T.mirroredOff, T.followedOff, T.quality]);
     renderWith(<Targets />);
     const panel = await screen.findByTestId('home-setup-panel');
     expect(screen.queryAllByTestId('home-target')).toHaveLength(0);
     expect(
-      within(panel).getByRole('heading', { name: 'Tell SoulSync what you want' }),
+      within(panel).getByRole('heading', { name: 'Tell SYNCHRO.S what you want' }),
     ).toBeInTheDocument();
     // pages are links; the two jobs done in a dialog on Home are buttons
     expect(
@@ -491,9 +491,9 @@ describe('the guided tour’s anchors', () => {
 
     mockSummary([T.wantedOff, T.mirroredOff, T.followedOff, T.quality]);
     renderWith(<Targets />);
-    await screen.findByText('Tell SoulSync what you want');
+    await screen.findByText('Tell SYNCHRO.S what you want');
     expect(document.querySelector('[data-tour="home-targets"] h2')).toHaveTextContent(
-      'Tell SoulSync what you want',
+      'Tell SYNCHRO.S what you want',
     );
   });
 

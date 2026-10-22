@@ -133,7 +133,7 @@ export function VideoStep() {
       step="video"
       skip
       title="Movies and TV"
-      lead="Three things and SoulSync can find, fetch and file new films and episodes. Skip any of them and it waits on your checklist."
+      lead="Three things and SYNCHRO.S can find, fetch and file new films and episodes. Skip any of them and it waits on your checklist."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Card

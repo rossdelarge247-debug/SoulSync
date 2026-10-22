@@ -172,10 +172,13 @@ export async function saveMirror(
   try {
     result = await postMirrorPlaylist(payload);
   } catch {
-    throw new MirrorStepError('failed', "SoulSync didn't answer, so the playlist wasn't mirrored.");
+    throw new MirrorStepError(
+      'failed',
+      "SYNCHRO.S didn't answer, so the playlist wasn't mirrored.",
+    );
   }
   if (result.success === false || result.playlist_id == null) {
-    throw new MirrorStepError('failed', result.error || "SoulSync couldn't mirror the playlist.");
+    throw new MirrorStepError('failed', result.error || "SYNCHRO.S couldn't mirror the playlist.");
   }
   return result.playlist_id;
 }
@@ -194,10 +197,10 @@ export async function scheduleMirror(name: string, playlistId: number): Promise<
     body: JSON.stringify(body),
   }).catch(() => null);
   if (!response)
-    throw new MirrorStepError('failed', "SoulSync didn't answer, so the schedule wasn't saved.");
+    throw new MirrorStepError('failed', "SYNCHRO.S didn't answer, so the schedule wasn't saved.");
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new MirrorStepError('failed', data.error || "SoulSync couldn't save the schedule.");
+    throw new MirrorStepError('failed', data.error || "SYNCHRO.S couldn't save the schedule.");
   }
 }
 
@@ -208,7 +211,10 @@ export async function runFirstCheck(playlistId: number): Promise<void> {
     body: '{}',
   }).catch(() => null);
   if (!response)
-    throw new MirrorStepError('failed', "SoulSync didn't answer, so the first check didn't start.");
+    throw new MirrorStepError(
+      'failed',
+      "SYNCHRO.S didn't answer, so the first check didn't start.",
+    );
   if (response.status === 409) {
     throw new MirrorStepError(
       'busy',

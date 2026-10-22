@@ -152,7 +152,7 @@ def register_routes(bp):
             eps = filter_library_items(get_video_db(), eps, video_cap(), "show", id_key="show_id")
             lines = ["BEGIN:VCALENDAR", "VERSION:2.0",
                      "PRODID:-//SoulSync//Video Calendar//EN",
-                     "X-WR-CALNAME:SoulSync Airings", "CALSCALE:GREGORIAN"]
+                     "X-WR-CALNAME:SYNCHRO.S Airings", "CALSCALE:GREGORIAN"]
             for e in eps:
                 day = str(e.get("air_date") or "")[:10].replace("-", "")
                 if len(day) != 8:

@@ -1879,7 +1879,7 @@ function showProfileForgotPin(profile) {
     card.append(pfEl('h2', { class: 'pf-pin-title', id: 'profile-pin-title', text: `Reset ${target.name}'s PIN` }));
     card.append(pfEl('p', {
         class: 'pf-modal-sub',
-        text: 'Paste any API key or token SoulSync already has (Plex token, Spotify secret, and so on). The PIN is cleared and the lock screen turns off.',
+        text: 'Paste any API key or token SYNCHRO.S already has (Plex token, Spotify secret, and so on). The PIN is cleared and the lock screen turns off.',
     }));
     const input = pfEl('input', {
         type: 'password', id: 'profile-recovery-input', class: 'pf-input', maxlength: '200',
@@ -1915,7 +1915,7 @@ function showProfileForgotPin(profile) {
                 const wait = parseInt(res.headers.get('Retry-After') || '60', 10) || 60;
                 error.textContent = `Too many tries, wait ${wait}s`;
             } else {
-                error.textContent = data.error || "That doesn't match anything SoulSync has";
+                error.textContent = data.error || "That doesn't match anything SYNCHRO.S has";
             }
             input.value = '';
             input.focus();
@@ -2286,7 +2286,7 @@ async function openProfileManager() {
     ]));
 
     const tabDefs = [
-        ['people', 'People', 'Who uses SoulSync here, and what each of them can do.'],
+        ['people', 'People', 'Who uses SYNCHRO.S here, and what each of them can do.'],
         ['invites', 'Invites', 'Send someone a link and they make their own profile.'],
         ['activity', 'Activity', 'Who changed what, newest first.'],
     ];
@@ -3920,7 +3920,7 @@ async function showInviteLanding(token) {
     };
     const titleId = 'pf-invite-title';
     inner.setAttribute('aria-labelledby', titleId);
-    inner.append(preview, pfEl('h1', { class: 'pf-invite-title', id: titleId, text: "You're invited to SoulSync" }));
+    inner.append(preview, pfEl('h1', { class: 'pf-invite-title', id: titleId, text: "You're invited to SYNCHRO.S" }));
     if (invite.note) inner.append(pfEl('p', { class: 'pf-invite-note', text: invite.note }));
     const what = invite.sides === 'both' ? 'music, movies and TV' : invite.sides === 'video' ? 'movies and TV' : 'music';
     inner.append(pfEl('p', { class: 'pf-modal-sub pf-invite-sub', text: `Make your profile for ${what}. It only takes a moment.` }));
@@ -4031,7 +4031,7 @@ function renderInviteProblem(inner, status) {
     const offline = status === -1;
     inner.setAttribute('aria-labelledby', 'pf-invite-title');
     inner.append(
-        pfEl('h1', { class: 'pf-invite-title', id: 'pf-invite-title', text: tooMany ? 'Too many tries' : offline ? "Couldn't reach SoulSync" : "This invite link doesn't work any more" }),
+        pfEl('h1', { class: 'pf-invite-title', id: 'pf-invite-title', text: tooMany ? 'Too many tries' : offline ? "Couldn't reach SYNCHRO.S" : "This invite link doesn't work any more" }),
         pfEl('p', {
             class: 'pf-modal-sub pf-invite-sub',
             text: tooMany ? 'Wait a few minutes, then open the link again.'
@@ -4039,7 +4039,7 @@ function renderInviteProblem(inner, status) {
                     : 'It may have been used already, or run out. Ask whoever sent it for a new one.',
         }),
     );
-    const go = pfEl('button', { type: 'button', class: 'pf-btn pf-btn--primary pf-btn--block', text: 'Go to SoulSync', onclick: () => pfGoHome() });
+    const go = pfEl('button', { type: 'button', class: 'pf-btn pf-btn--primary pf-btn--block', text: 'Go to SYNCHRO.S', onclick: () => pfGoHome() });
     inner.append(go);
     setTimeout(() => go.focus(), 40);
 }

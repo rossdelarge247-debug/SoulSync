@@ -532,7 +532,7 @@ class AcoustIDScannerJob(RepairJob):
                     (
                         f'Expected "{expected["title"]}" by {expected_artist}, but the audio '
                         f'fingerprint matches none of them. It maps equally well to '
-                        f'{len(_cand_labels)} different recordings, so SoulSync cannot say '
+                        f'{len(_cand_labels)} different recordings, so SYNCHRO.S cannot say '
                         f'which one this is: {"; ".join(_cand_labels[:5])}'
                         f' (fingerprint: {best_score:.0%})'
                     ) if _ambiguous else

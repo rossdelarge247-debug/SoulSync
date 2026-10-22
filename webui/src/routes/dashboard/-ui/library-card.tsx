@@ -345,7 +345,7 @@ async function backupNow(): Promise<void> {
   const confirmed = await window.showConfirmDialog?.({
     title: 'Back Up Database',
     message:
-      'Creates a snapshot of the SoulSync database (library, wishlist, history, enrichment).\n\n' +
+      'Creates a snapshot of the SYNCHRO.S database (library, wishlist, history, enrichment).\n\n' +
       'Backups are managed on the Tools page. Continue?',
   });
   if (!confirmed) return;
@@ -498,7 +498,7 @@ export function LibraryCard() {
                 role="menuitem"
                 className="library-status-menu-item"
                 id="library-status-backup-btn"
-                title="Back up the SoulSync database now"
+                title="Back up the SYNCHRO.S database now"
                 onClick={pick(() => void backupNow())}
               >
                 Back up now
@@ -563,8 +563,8 @@ export function LibraryCard() {
             </>
           ) : view.message?.kind === 'empty' ? (
             <>
-              Your server is connected but SoulSync hasn&apos;t imported your library yet. Click{' '}
-              <strong>Scan Now</strong> to pull your artists, albums, and tracks into SoulSync.
+              Your server is connected but SYNCHRO.S hasn&apos;t imported your library yet. Click{' '}
+              <strong>Scan Now</strong> to pull your artists, albums, and tracks into SYNCHRO.S.
             </>
           ) : null}
         </div>

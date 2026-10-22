@@ -21,7 +21,7 @@ function duration(minutes: number): string {
 }
 
 const ORIGINS: Record<string, string> = {
-  soulsync: 'SoulSync download',
+  soulsync: 'SYNCHRO.S download',
   disk: 'Found on disk',
   unknown: 'Origin unknown',
 };
@@ -332,7 +332,7 @@ export function AudiobookLibraryPanel({
               onChange={(e) => setOriginFilter(e.target.value)}
             >
               <option value="all">All origins</option>
-              <option value="soulsync">SoulSync downloads</option>
+              <option value="soulsync">SYNCHRO.S downloads</option>
               <option value="disk">Found on disk</option>
               <option value="unknown">Origin unknown</option>
             </select>
@@ -371,7 +371,7 @@ export function AudiobookLibraryPanel({
             description={
               <>
                 Scan your audiobook folder to find the books you already own, including those added
-                outside SoulSync. Your files stay where they are.
+                outside SYNCHRO.S. Your files stay where they are.
               </>
             }
           >
@@ -444,7 +444,7 @@ export function AudiobookLibraryPanel({
                   )}
                   {book.download && (
                     <div className={styles.downloadInfo}>
-                      <strong>Downloaded by SoulSync</strong>
+                      <strong>Downloaded by SYNCHRO.S</strong>
                       <p>{book.download.release_title}</p>
                       <p>
                         {book.download.indexer || book.download.source}

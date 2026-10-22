@@ -5015,7 +5015,7 @@ def import_config_bundle():
         logger.exception("config import failed")
         return jsonify({"success": False, "error": str(e)}), 500
     return jsonify({"success": True, **summary,
-                    "note": "Config imported. Restart SoulSync so every service picks it up."})
+                    "note": "Config imported. Restart SYNCHRO.S so every service picks it up."})
 
 
 # ── Per-service verify cache ──
@@ -5719,7 +5719,7 @@ def auth_spotify():
                 <div class="warning">
                     <strong>Using a reverse proxy?</strong> Your redirect URI is set to <code style="display:inline; padding: 2px 6px;">{configured_uri}</code>
                     which uses port {callback_server_port}. If you're behind a reverse proxy (Caddy, Nginx, Traefik), change the
-                    redirect URI in SoulSync settings to use your proxy URL on the main port instead, e.g.:<br>
+                    redirect URI in SYNCHRO.S settings to use your proxy URL on the main port instead, e.g.:<br>
                     <code style="display:inline; padding: 2px 6px; background: #e8f5e9;">https://{host}/callback</code><br>
                     Then update the same URI in your <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify Dashboard</a>.
                     This avoids the need for manual URL editing below.
@@ -6073,7 +6073,7 @@ def spotify_callback():
                     invalidate_metadata_status_caches()
                     add_activity_item("", "Spotify Auth Warning", f"Profile {profile_id_from_state} completed OAuth but Spotify did not confirm an authenticated session", "Now")
                     return _spotify_auth_result_page(
-                        "Spotify authorization completed, but SoulSync could not confirm an authenticated Spotify session for this profile. You can close this window and try Authenticate again.",
+                        "Spotify authorization completed, but SYNCHRO.S could not confirm an authenticated Spotify session for this profile. You can close this window and try Authenticate again.",
                         authenticated=False,
                     )
                 else:
@@ -6121,7 +6121,7 @@ def spotify_callback():
                 invalidate_metadata_status_caches()
                 add_activity_item("", "Spotify Auth Warning", "OAuth completed, but Spotify did not confirm an authenticated session", "Now")
                 return _spotify_auth_result_page(
-                    "Spotify authorization completed, but SoulSync could not confirm an authenticated Spotify session. You can close this window and try Authenticate again.",
+                    "Spotify authorization completed, but SYNCHRO.S could not confirm an authenticated Spotify session. You can close this window and try Authenticate again.",
                     authenticated=False,
                 )
         else:
@@ -6232,7 +6232,7 @@ def tidal_callback():
             tidal_client = TidalClient()
             if tidal_enrichment_worker:
                 tidal_enrichment_worker.client = tidal_client
-            return "<h1>Tidal Authentication Successful!</h1><p>You can now close this window and return to the SoulSync application.</p>"
+            return "<h1>Tidal Authentication Successful!</h1><p>You can now close this window and return to the SYNCHRO.S application.</p>"
         else:
             return "<h1>Tidal Authentication Failed</h1><p>Could not exchange authorization code for a token. Please try again.</p>", 400
     except Exception as e:
@@ -6260,7 +6260,7 @@ def auth_deezer():
         return f"""
         <html><body style="font-family:system-ui;max-width:600px;margin:40px auto;padding:20px;background:#111;color:#eee">
             <h1>Deezer Authorization</h1>
-            <p>Click the link below to authorize SoulSync with your Deezer account:</p>
+            <p>Click the link below to authorize SYNCHRO.S with your Deezer account:</p>
             <p><a href="{auth_url}" style="color:#A238FF;font-size:18px">Authorize on Deezer →</a></p>
             <hr style="border-color:#333">
             <p style="color:#888;font-size:13px">If running remotely, replace <code>127.0.0.1</code> in the redirect URI with <code>{host}</code></p>
@@ -9505,8 +9505,8 @@ def reidentify_apply():
             logger.warning("[Re-identify] could not locate track %s file — stored=%s raw_exists=%s searched=[%s]",
                            library_track_id, stored_path, attempt.raw_path_existed, searched)
             return jsonify({"success": False, "error": (
-                f"SoulSync couldn't find this track's file on disk.\nStored path: {stored_path}\n"
-                f"Searched: {searched}.\nIf the file lives on a media server SoulSync can't read directly "
+                f"SYNCHRO.S couldn't find this track's file on disk.\nStored path: {stored_path}\n"
+                f"Searched: {searched}.\nIf the file lives on a media server SYNCHRO.S can't read directly "
                 f"(or the stored path is stale), re-identify isn't available for it.")}), 404
 
         # 3) Copy into staging + fingerprint the copy.
@@ -11190,7 +11190,7 @@ def _get_file_not_found_error(file_path):
         if file_path and ('/' not in file_path or not file_path.startswith('/')):
             return ('File not found — Navidrome may be sending virtual paths. '
                     'Go to Navidrome → Profile → Players → select SoulSync → enable "Report Real Path", '
-                    'then run a full database refresh in SoulSync.')
+                    'then run a full database refresh in SYNCHRO.S.')
         return ('File not found on disk — check that your Navidrome music folder '
                 'is mounted in the SoulSync container and that "Report Real Path" is enabled '
                 'in Navidrome\'s player settings.')
@@ -21597,7 +21597,7 @@ def start_oauth_callback_servers():
                     self.send_response(200)
                     self.send_header('Content-type', 'text/plain')
                     self.end_headers()
-                    self.wfile.write(b'SoulSync Spotify OAuth callback server is running. Callback URL: /callback')
+                    self.wfile.write(b'SYNCHRO.S Spotify OAuth callback server is running. Callback URL: /callback')
                     return
 
                 # Only process requests to /callback — ignore everything else
@@ -21673,7 +21673,7 @@ def start_oauth_callback_servers():
                                 self.send_header('Content-type', 'text/html')
                                 self.end_headers()
                                 self.wfile.write(_spotify_auth_result_page(
-                                    "Spotify authorization completed, but SoulSync could not confirm an authenticated Spotify session. You can close this window and try Authenticate again.",
+                                    "Spotify authorization completed, but SYNCHRO.S could not confirm an authenticated Spotify session. You can close this window and try Authenticate again.",
                                     authenticated=False,
                                 ).encode("utf-8"))
                         else:
@@ -22245,7 +22245,7 @@ def lastfm_callback():
             return """
             <html><body style="background:#121212;color:#fff;font-family:sans-serif;text-align:center;padding-top:100px;">
                 <h2>Last.fm Scrobbling Authorized!</h2>
-                <p>You can close this window and return to SoulSync.</p>
+                <p>You can close this window and return to SYNCHRO.S.</p>
                 <script>setTimeout(()=>window.close(),3000);</script>
             </body></html>
             """
@@ -24454,7 +24454,7 @@ def _start_module_workers(module):
         return None   # start_runtime_services() reads the switch itself
     failed = _run_deferred_starts(module)
     if failed:
-        return "%s failed to start; restart SoulSync to retry." % ", ".join(failed)
+        return "%s failed to start; restart SYNCHRO.S to retry." % ", ".join(failed)
     return None
 
 
@@ -24482,7 +24482,7 @@ def _stop_video_module():
     monitor = sys.modules.get('core.video.download_monitor')
     if monitor is not None and getattr(monitor, '_started', False):
         return ("The video download monitor and subtitle worker have no stop switch; "
-                "they keep running until SoulSync restarts.")
+                "they keep running until SYNCHRO.S restarts.")
     return None
 
 
@@ -24506,7 +24506,7 @@ def _stop_sample_studio_module():
         running.append('stem separation')
     if running:
         return ("The Sample Studio %s worker has no stop switch, and the audio libraries "
-                "it loaded stay in memory until SoulSync restarts." % " and ".join(running))
+                "it loaded stay in memory until SYNCHRO.S restarts." % " and ".join(running))
     return None
 
 
@@ -25435,7 +25435,7 @@ def start_runtime_services():
                 logger.error(f"Automation engine start error: {e}")
 
         # Add startup activity
-        add_activity_item("", "System Started", "SoulSync Web UI Server initialized", "Now")
+        add_activity_item("", "System Started", "SYNCHRO.S Web UI Server initialized", "Now")
 
         # Start WebSocket background emitters
         logger.info("Starting WebSocket background emitters...")

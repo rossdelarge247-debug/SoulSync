@@ -2131,7 +2131,7 @@ class YouTubeClient(DownloadSourcePlugin):
                     logger.debug(f"   Genre: {genre}")
 
                 audio.tags.setall('COMM', [COMM(encoding=3, lang='eng', desc='',
-                               text=f'Downloaded via SoulSync (YouTube)\nSource: {yt_result.url}\nConfidence: {yt_result.confidence:.2f}')])
+                               text=f'Downloaded via SYNCHRO.S (YouTube)\nSource: {yt_result.url}\nConfidence: {yt_result.confidence:.2f}')])
 
                 logger.debug(f"   Artist: {artist}")
                 logger.debug(f"   Album Artist: {album_artist}")

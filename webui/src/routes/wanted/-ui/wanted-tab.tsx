@@ -119,7 +119,7 @@ function ScheduleLine({
           Searching now
         </StatusTag>
         <span>
-          SoulSync is looking for what you want.{' '}
+          SYNCHRO.S is looking for what you want.{' '}
           <Link to="/active-downloads" search={{ media: 'music' }} className={styles.link}>
             See downloads
           </Link>
@@ -417,7 +417,7 @@ export function WantedTab({
         <EmptyState
           variant="panel"
           title="Nothing wanted yet"
-          description="Add tracks or albums you want and SoulSync looks for them on every scheduled search, at the quality you set. When one turns up it is downloaded, tagged and filed, and leaves this list."
+          description="Add tracks or albums you want and SYNCHRO.S looks for them on every scheduled search, at the quality you set. When one turns up it is downloaded, tagged and filed, and leaves this list."
           hint="You can add from Search, from a playlist, or from an artist page."
           actions={
             <>
@@ -485,8 +485,8 @@ export function WantedTab({
       {filter === 'not-found' && counts.notFound > 0 ? (
         <p className={styles.line}>
           <span>
-            These have been searched for three times or more without a result. SoulSync waits longer
-            between tries as they fail.
+            These have been searched for three times or more without a result. SYNCHRO.S waits
+            longer between tries as they fail.
           </span>
           <button
             type="button"
@@ -668,7 +668,7 @@ export function WantedTab({
         <p className={styles.dialogText}>
           {(() => {
             const tracks = (confirm ?? []).reduce((n, item) => n + item.trackIds.length, 0);
-            return `SoulSync stops searching for ${plural(tracks, 'track')}. Nothing in your library changes.`;
+            return `SYNCHRO.S stops searching for ${plural(tracks, 'track')}. Nothing in your library changes.`;
           })()}
         </p>
         <p className={styles.dialogNote}>

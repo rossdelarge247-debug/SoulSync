@@ -33,7 +33,7 @@ The \`Authorization: Bearer <key>\` header is preferred — a key in the query s
 
 **Key anatomy.** A raw key is \`sk_\` followed by 43 URL-safe random characters (generated with \`secrets.token_urlsafe(32)\`). The raw key is shown **exactly once**, in the response that creates it. Only the SHA-256 hash of the key is stored — a leaked database cannot be turned back into working keys.
 
-**What a key can do.** A key has a \`scope\`. An **admin** key (the default) acts with **admin rights** on every key-authenticated request. A **read** key can only \`GET\` (and \`HEAD\`/\`OPTIONS\`) under \`/api/v1\`, and not the sensitive routes: \`/api/v1/settings\`, \`/api/v1/api-keys\`, \`/api/v1/api-keys-internal\`, \`/api/v1/profiles\` and \`/api/v1/video/calendar\`. Every other request with a read key, on any path, gets \`403 INSUFFICIENT_SCOPE\`. Use a read key for dashboards and widgets, for example a Homepage stats widget on \`/api/v1/library/stats\`. Keys created before scopes existed have no \`scope\` and stay admin; a scope the server does not recognise is treated as read. A read key acts as the first profile, so it sees that profile's wishlist and watchlist. Treat keys like passwords: store them in a secrets manager, never commit them to git, and rotate immediately if one leaks. An older SoulSync build run against the same config ignores \`scope\` and treats every key as admin, so revoke read keys before going back.
+**What a key can do.** A key has a \`scope\`. An **admin** key (the default) acts with **admin rights** on every key-authenticated request. A **read** key can only \`GET\` (and \`HEAD\`/\`OPTIONS\`) under \`/api/v1\`, and not the sensitive routes: \`/api/v1/settings\`, \`/api/v1/api-keys\`, \`/api/v1/api-keys-internal\`, \`/api/v1/profiles\` and \`/api/v1/video/calendar\`. Every other request with a read key, on any path, gets \`403 INSUFFICIENT_SCOPE\`. Use a read key for dashboards and widgets, for example a Homepage stats widget on \`/api/v1/library/stats\`. Keys created before scopes existed have no \`scope\` and stay admin; a scope the server does not recognise is treated as read. A read key acts as the first profile, so it sees that profile's wishlist and watchlist. Treat keys like passwords: store them in a secrets manager, never commit them to git, and rotate immediately if one leaks. An older SYNCHRO.S build run against the same config ignores \`scope\` and treats every key as admin, so revoke read keys before going back.
 
 **Key metadata.** Each stored key records a \`label\`, a \`scope\`, a visible \`key_prefix\` (\`sk_\` plus the first 8 characters of the raw key), \`created_at\`, and \`last_used_at\`. \`last_used_at\` is refreshed on every authenticated request (persisted to disk at most once every 15 minutes per key, so heavy polling does not rewrite the config file constantly).
 
@@ -362,7 +362,7 @@ curl -H "Authorization: Bearer sk_..." http://localhost:8008/api/v1/system/stats
         {
             id: 'api-library',
             title: 'Library',
-            lede: 'Read-only access to everything SoulSync knows about your music: artists, albums, tracks, and genres.',
+            lede: 'Read-only access to everything SYNCHRO.S knows about your music: artists, albums, tracks, and genres.',
             body: `
 # Library API — draft documentation
 
@@ -466,14 +466,14 @@ curl -H "Authorization: Bearer $API_KEY" \\
 
 ### \`GET /api/v1/library/artists/{artist_id}\`
 
-Get a single artist by its SoulSync ID, with full metadata and the artist's
+Get a single artist by its SYNCHRO.S ID, with full metadata and the artist's
 album list embedded.
 
 **Path parameters**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| \`artist_id\` | string | Yes | SoulSync artist ID. IDs are text: usually numeric, but standalone libraries may use opaque IDs containing \`::soulsync\`. Pass the \`id\` value verbatim from a list or lookup response |
+| \`artist_id\` | string | Yes | SYNCHRO.S artist ID. IDs are text: usually numeric, but standalone libraries may use opaque IDs containing \`::soulsync\`. Pass the \`id\` value verbatim from a list or lookup response |
 
 **Query parameters**
 
@@ -524,7 +524,7 @@ every album is returned in one response.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| \`artist_id\` | string | Yes | SoulSync artist ID (text; may be opaque, see the artist detail endpoint) |
+| \`artist_id\` | string | Yes | SYNCHRO.S artist ID (text; may be opaque, see the artist detail endpoint) |
 
 **Query parameters**
 
@@ -643,14 +643,14 @@ curl -H "Authorization: Bearer $API_KEY" \\
 
 ### \`GET /api/v1/library/albums/{album_id}\`
 
-Get a single album by its SoulSync ID, with full metadata and its track
+Get a single album by its SYNCHRO.S ID, with full metadata and its track
 list embedded.
 
 **Path parameters**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| \`album_id\` | string | Yes | SoulSync album ID (text; may be opaque, see the artist detail endpoint) |
+| \`album_id\` | string | Yes | SYNCHRO.S album ID (text; may be opaque, see the artist detail endpoint) |
 
 **Query parameters**
 
@@ -690,7 +690,7 @@ every track is returned in one response.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| \`album_id\` | string | Yes | SoulSync album ID (text; may be opaque, see the artist detail endpoint) |
+| \`album_id\` | string | Yes | SYNCHRO.S album ID (text; may be opaque, see the artist detail endpoint) |
 
 **Query parameters**
 
@@ -714,7 +714,7 @@ and Genius metadata. Tracks also carry \`disc_number\`, a per-track \`year\`,
 \`track_artist\` (the performer credit, e.g. on compilations),
 \`recording_disambiguation\` (the MusicBrainz recording comment that
 distinguishes versions, such as live or acoustic), \`server_path\` (the path
-the media server reported) alongside \`file_path\` (SoulSync's local path),
+the media server reported) alongside \`file_path\` (SYNCHRO.S's local path),
 \`file_size\` in bytes, Bandcamp data (\`bandcamp_url\`, \`bandcamp_tags\`,
 \`bandcamp_label\`), and the \`metadata_locked\` flag (boolean or null).
 Joined queries may also add \`artist_name\` and
@@ -741,13 +741,13 @@ curl -H "Authorization: Bearer $API_KEY" \\
 
 ### \`GET /api/v1/library/tracks/{track_id}\`
 
-Get a single track by its SoulSync ID, with full metadata.
+Get a single track by its SYNCHRO.S ID, with full metadata.
 
 **Path parameters**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| \`track_id\` | string | Yes | SoulSync track ID (text; may be opaque, see the artist detail endpoint) |
+| \`track_id\` | string | Yes | SYNCHRO.S track ID (text; may be opaque, see the artist detail endpoint) |
 
 **Query parameters**
 
@@ -917,7 +917,7 @@ curl -H "Authorization: Bearer $API_KEY" \\
 
 Resolve a library entity from an external provider ID — e.g. you have a
 Spotify or MusicBrainz ID from somewhere else and need the matching
-SoulSync record. All three parameters are required.
+SYNCHRO.S record. All three parameters are required.
 
 **Query parameters**
 
@@ -1023,7 +1023,7 @@ parameters in the JSON body as documented below.
 ### \`POST /api/v1/search/tracks\`
 
 Search external metadata providers for tracks. This is the same provider
-search the Add pages use. On \`source=auto\` (the default) SoulSync tries
+search the Add pages use. On \`source=auto\` (the default) SYNCHRO.S tries
 Hydrabase first when it is active, then Spotify (only when Spotify is the
 configured primary source **and** the client is authenticated), then falls
 back to the configured primary metadata client. Passing an explicit \`source\`
@@ -1091,7 +1091,7 @@ curl -X POST http://localhost:8008/api/v1/search/tracks \\
 ### \`POST /api/v1/search/albums\`
 
 Search external metadata providers for albums. Unlike track search there is
-no \`source\` parameter and no Hydrabase branch: SoulSync queries Spotify first
+no \`source\` parameter and no Hydrabase branch: SYNCHRO.S queries Spotify first
 (only when Spotify is the configured primary source **and** authenticated;
 an empty Spotify result falls through) and then the configured primary
 metadata client.
@@ -1450,7 +1450,7 @@ On errors: \`{"success": false, "data": null, "error": {"code": "PLAYLIST_ERROR"
 None of the playlist endpoints are paginated; \`pagination\` is always \`null\`.
 
 These endpoints proxy the connected music providers (Spotify / Tidal) — they
-read the provider's data live, not the SoulSync library. Profile scoping does
+read the provider's data live, not the SYNCHRO.S library. Profile scoping does
 not apply.
 
 Cross-cutting facts:
@@ -1461,7 +1461,7 @@ Cross-cutting facts:
 ### \`GET /api/v1/playlists\`
 
 List the authenticated user's playlists from the connected provider, read live
-(not from the SoulSync library). Not paginated.
+(not from the SYNCHRO.S library). Not paginated.
 
 **Query parameters**
 
@@ -1636,7 +1636,7 @@ curl -X POST -H "Authorization: Bearer sk_..." \\
         {
             id: 'api-watchlist',
             title: 'Watchlist',
-            lede: 'Manage the artists SoulSync is watching, and kick off a scan whenever you like.',
+            lede: 'Manage the artists SYNCHRO.S is watching, and kick off a scan whenever you like.',
             body: `
 # Watchlist API — draft
 
@@ -2146,7 +2146,7 @@ Rate limit: 60 requests/minute per IP (\`429\` / \`RATE_LIMITED\`).
 These endpoints do not support \`?fields=\`.
 
 This is the inbound music-request flow used by external sources (Discord
-bots, curl, automation): submit a free-text query, SoulSync searches,
+bots, curl, automation): submit a free-text query, SYNCHRO.S searches,
 matches, and downloads in the background, and you poll for the outcome —
 or give it a \`notify_url\` and it will POST you when the request settles.
 
@@ -3349,13 +3349,13 @@ curl -H "Authorization: Bearer $API_KEY" \\
         {
             id: 'api-cache',
             title: 'Cache',
-            lede: 'Peek at the metadata caches SoulSync keeps warm.',
+            lede: 'Peek at the metadata caches SYNCHRO.S keeps warm.',
             body: `
 # Cache API — draft documentation
 
 Base: \`/api/v1\`. All endpoints require an API key (\`Authorization: Bearer sk_...\` header or \`?api_key=\` query parameter). All responses use the standard envelope \`{"success", "data", "error", "pagination"}\`. Rate limit: 60 requests/minute per IP (\`429\` / \`RATE_LIMITED\`).
 
-These endpoints are diagnostic: inspect what SoulSync has cached from MusicBrainz lookups and discovery-provider matching. They are **read-only** — all four are \`GET\` and none of them clear, purge, or otherwise modify the caches. They are not profile-scoped.
+These endpoints are diagnostic: inspect what SYNCHRO.S has cached from MusicBrainz lookups and discovery-provider matching. They are **read-only** — all four are \`GET\` and none of them clear, purge, or otherwise modify the caches. They are not profile-scoped.
 
 ### \`GET /api/v1/cache/musicbrainz\`
 
@@ -3452,7 +3452,7 @@ curl -H "Authorization: Bearer sk_..." \\
 
 ### \`GET /api/v1/cache/discovery-matches\`
 
-Lists cached discovery-provider matches (how SoulSync resolved a discovered title/artist against a metadata provider), most recently used first.
+Lists cached discovery-provider matches (how SYNCHRO.S resolved a discovered title/artist against a metadata provider), most recently used first.
 
 **Query parameters**
 
@@ -3550,13 +3550,13 @@ curl -H "Authorization: Bearer sk_..." \\
         {
             id: 'api-listenbrainz',
             title: 'ListenBrainz',
-            lede: 'Read the ListenBrainz playlists SoulSync has imported or generated.',
+            lede: 'Read the ListenBrainz playlists SYNCHRO.S has imported or generated.',
             body: `
 # ListenBrainz API — draft documentation
 
 Base: \`/api/v1\`. All endpoints require an API key (\`Authorization: Bearer sk_...\` header or \`?api_key=\` query parameter). All responses use the standard envelope \`{"success", "data", "error", "pagination"}\`. Rate limit: 60 requests/minute per IP (\`429\` / \`RATE_LIMITED\`).
 
-These endpoints read the ListenBrainz playlists SoulSync has imported or generated. They are not profile-scoped. \`playlist_id\` on the detail endpoint accepts either the internal integer ID or the MusicBrainz playlist MBID.
+These endpoints read the ListenBrainz playlists SYNCHRO.S has imported or generated. They are not profile-scoped. \`playlist_id\` on the detail endpoint accepts either the internal integer ID or the MusicBrainz playlist MBID.
 
 ### \`GET /api/v1/listenbrainz/playlists\`
 
@@ -3695,7 +3695,7 @@ curl -H "Authorization: Bearer sk_..." \\
 
 Base: \`/api/v1\`. Requires an API key (\`Authorization: Bearer sk_...\` header or \`?api_key=\` query parameter). Responses use the standard envelope \`{"success", "data", "error", "pagination"}\`. Rate limit: 60 requests/minute per IP (\`429\` / \`RATE_LIMITED\`).
 
-MetaSync is a peer-to-peer metadata network that runs as a SoulSync sidecar. This endpoint is how it reads SoulSync's library: a **read-only**, cursor-paged walk of resolved metadata (artists, albums, tracks). It is not profile-scoped.
+MetaSync is a peer-to-peer metadata network that runs as a SYNCHRO.S sidecar. This endpoint is how it reads SYNCHRO.S's library: a **read-only**, cursor-paged walk of resolved metadata (artists, albums, tracks). It is not profile-scoped.
 
 Two things distinguish it from the \`/library\` endpoints:
 
@@ -3812,7 +3812,7 @@ curl -H "Authorization: Bearer sk_..." \\
             title: 'Video',
             lede: 'The full video v1 surface: library, search, wishlist, watchlist, scans, downloads, calendar, and requests.',
             body: `
-# SoulSync Video API (v1) — documentation draft
+# SYNCHRO.S Video API (v1) — documentation draft
 
 All endpoints live under \`/api/v1\` and require an API key, sent as an
 \`Authorization: Bearer sk_...\` header or as the \`?api_key=\` query parameter.
@@ -4292,7 +4292,7 @@ curl -X DELETE -H "Authorization: Bearer $API_KEY" \\
 ### \`POST /api/v1/video/scan\`
 
 Ask for a background scan of the video library. The scan *reads* the media
-server (the source of truth) into SoulSync's video database; it is not the
+server (the source of truth) into SYNCHRO.S's video database; it is not the
 same as telling Plex/Jellyfin to rescan its own folders (that is a separate
 internal action, not on this v1 surface).
 
@@ -4454,7 +4454,7 @@ curl -H "Authorization: Bearer $API_KEY" \\
 ### \`GET /api/v1/video/downloads/status\`
 
 Lightweight live-tracking lookup for a single download. Look it up by its
-SoulSync download row id, or find the most relevant download for a title by
+SYNCHRO.S download row id, or find the most relevant download for a title by
 its media id.
 
 **Query parameters**
@@ -4791,19 +4791,19 @@ Both answer \`{"success": true, "updated": <n>}\`.
         {
             id: 'api-mcp',
             title: 'MCP for AI Clients',
-            lede: 'Let Claude and other AI apps search, check your library and download through SoulSync.',
+            lede: 'Let Claude and other AI apps search, check your library and download through SYNCHRO.S.',
             body: `
 # MCP for AI clients
 
-SoulSync can act as an MCP server, so an AI app like Claude can search for music, check what you already own, and download things for you.
+SYNCHRO.S can act as an MCP server, so an AI app like Claude can search for music, check what you already own, and download things for you.
 
 ## Turn it on
 
-Go to **Settings > Advanced > SoulSync API > MCP for AI Clients** and tick **Answer MCP requests at /mcp**. While it's off, \`/mcp\` answers \`404\`.
+Go to **Settings > Advanced > SYNCHRO.S API > MCP for AI Clients** and tick **Answer MCP requests at /mcp**. While it's off, \`/mcp\` answers \`404\`.
 
 ## Connect a client
 
-Add \`http://<host>:8008/mcp\` as a remote (streamable HTTP) MCP server and send a SoulSync API key as a Bearer token. For Claude Code:
+Add \`http://<host>:8008/mcp\` as a remote (streamable HTTP) MCP server and send a SYNCHRO.S API key as a Bearer token. For Claude Code:
 
 \`\`\`bash
 claude mcp add --transport http soulsync http://localhost:8008/mcp --header "Authorization: Bearer sk_..."
@@ -4837,30 +4837,30 @@ To get a whole album, the client calls \`find_album\` with "Artist - Album" and 
         {
             id: 'api-lidarr',
             title: 'Lidarr Compatible API',
-            lede: 'Let request apps that only speak Lidarr send their album requests to SoulSync.',
+            lede: 'Let request apps that only speak Lidarr send their album requests to SYNCHRO.S.',
             body: `
 # Lidarr compatible API
 
-Some request apps only know how to talk to Lidarr. SoulSync can answer as Lidarr, so those apps send their album requests to SoulSync instead. Built for **Singarr** and **MusicSeerr 1.x**. MusicSeerr 2.0 and newer dropped Lidarr support, so it can't connect.
+Some request apps only know how to talk to Lidarr. SYNCHRO.S can answer as Lidarr, so those apps send their album requests to SYNCHRO.S instead. Built for **Singarr** and **MusicSeerr 1.x**. MusicSeerr 2.0 and newer dropped Lidarr support, so it can't connect.
 
 ## Turn it on
 
-Go to **Settings > Advanced > SoulSync API > Lidarr Compatible API**:
+Go to **Settings > Advanced > SYNCHRO.S API > Lidarr Compatible API**:
 
 1. Tick **Answer as Lidarr at /lidarr**. While it's off, every \`/lidarr\` route answers \`404\`.
 2. Pick **Requests go to profile**. Requested albums land on that profile's wishlist.
 
 ## Connect the app
 
-In the request app, set the Lidarr URL to \`http://<host>:8008/lidarr\` and paste a SoulSync **admin** API key as the Lidarr API key. A read key gets \`401\`. The app talks to \`/lidarr/api/v1\` like it would to a real Lidarr.
+In the request app, set the Lidarr URL to \`http://<host>:8008/lidarr\` and paste a SYNCHRO.S **admin** API key as the Lidarr API key. A read key gets \`401\`. The app talks to \`/lidarr/api/v1\` like it would to a real Lidarr.
 
 ## What happens
 
 - Artist and album lookups come from MusicBrainz.
 - When the app asks for an album to be searched (on add, or with an album or artist search), every track of that album goes on the profile's wishlist and downloads like any other wishlist item. Tracks you already own are skipped.
 - If the profile can't download on its own, every request waits for approval on the **Requests** page first.
-- The app's "do we have it" view checks your SoulSync library.
-- Deleting an artist or album in the app only removes it from SoulSync's Lidarr list. Files on disk are never touched.
+- The app's "do we have it" view checks your SYNCHRO.S library.
+- Deleting an artist or album in the app only removes it from SYNCHRO.S's Lidarr list. Files on disk are never touched.
 
 ## Supported routes
 
@@ -4921,9 +4921,9 @@ Accepting an invite takes \`{"name": "..."}\` (required, ≤40 chars) with optio
         {
             id: 'api-websocket',
             title: 'Real-time Events',
-            lede: 'Skip polling: open a Socket.IO connection and let SoulSync push updates to you.',
+            lede: 'Skip polling: open a Socket.IO connection and let SYNCHRO.S push updates to you.',
             body: `
-SoulSync runs **Socket.IO** on the same host and port as the web UI. Connect with any Socket.IO client — the connection uses your logged-in session, not an API key, so connect from a context where you are authenticated.
+SYNCHRO.S runs **Socket.IO** on the same host and port as the web UI. Connect with any Socket.IO client — the connection uses your logged-in session, not an API key, so connect from a context where you are authenticated.
 
 \`\`\`javascript
 import { io } from "socket.io-client";
