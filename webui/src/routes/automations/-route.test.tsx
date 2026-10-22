@@ -628,9 +628,7 @@ describe('automations list', () => {
     await waitFor(() => expect(card(5)).toHaveAttribute('aria-current', 'true'), { timeout: 5000 });
     fireEvent.click(within(card(5)).getByRole('button', { name: 'Preview a run' }));
     let dialog = await screen.findByRole('dialog');
-    expect(
-      await within(dialog).findByText("A preview isn't available for this step"),
-    ).toBeInTheDocument();
+    expect(await within(dialog).findByText("Can't be previewed")).toBeInTheDocument();
     expect(within(dialog).getByText('The metadata source isn’t ready.')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -812,9 +810,7 @@ describe('automation editor', () => {
       target: { value: 'scan_library' },
     });
     fireEvent.click(screen.getAllByRole('button', { name: 'Preview a run' })[0]);
-    expect(
-      await within(panel).findByText("A preview isn't available for this step"),
-    ).toBeInTheDocument();
+    expect(await within(panel).findByText("Can't be previewed")).toBeInTheDocument();
     expect(within(panel).getByText('It asks your media server to rescan.')).toBeInTheDocument();
     // unsaved changes: Run this now runs the saved steps, so it waits for a save
     expect(within(panel).getByRole('button', { name: 'Run this now' })).toHaveAttribute(

@@ -371,16 +371,18 @@ SIMULATORS: Dict[str, Simulator] = {
         ctx, cfg, quarantine=_flag(cfg, "quarantine"), recycle_bin=_flag(cfg, "recycle_bin")),
 }
 
-#: Why a step can't be previewed, where there's something specific to say.
+#: Why a step can't be previewed, where there's something specific to say. The
+#: editor shows it after "Can't be previewed:" (Design, HANDOFF 22), so each one
+#: is the reason, then what Run now does instead where that helps.
 UNAVAILABLE_REASONS: Dict[str, str] = {
     "notify_only": "This automation only runs its follow-up steps, and a preview never sends anything.",
     "scan_library": "It asks your media server to rescan, which can't be tried without doing it.",
     "start_database_update": "It reads your media server's library, which can't be tried without doing it.",
     "start_database_update_hourly": "It reads your media server's library, which can't be tried without doing it.",
-    "deep_scan_library": ("Deep Scan reads your whole library to find what it would move. Run now shows that "
-                          "list before anything moves."),
-    "run_duplicate_cleaner": ("The duplicate cleaner's preview is a full scan of your files. Run now starts it "
-                              "on Maintenance, where you confirm before anything moves."),
+    "deep_scan_library": ("Deep Scan decides what to move while it runs. Run now shows you the list before "
+                          "anything moves."),
+    "run_duplicate_cleaner": ("The duplicate cleaner decides what to move while it runs. Run now opens it on "
+                              "Maintenance, which shows you the list before anything moves."),
     "full_cleanup": ("Most of Full Cleanup works on the live download queue and folders, which can't be tried "
                      "without doing it. Its quarantine step is previewed when you run it."),
     "run_script": "A script can do anything, so SoulSync can't tell what it would do without running it.",
@@ -390,8 +392,7 @@ UNAVAILABLE_REASONS: Dict[str, str] = {
     "personalized_pipeline": "It regenerates and syncs playlists, which can't be tried without doing it.",
 }
 
-_GENERIC_UNAVAILABLE = ("SoulSync can't work out what this step would do without doing it, so it can't be "
-                        "previewed.")
+_GENERIC_UNAVAILABLE = "SoulSync can't work out what this step would do without doing it."
 
 _THEN_NOTES = {
     "fire_signal": "A preview doesn't fire signals, so automations listening for it don't wake.",
