@@ -152,6 +152,7 @@ Good radio is one of the best ways to find music, but what you hear is gone the 
 - Auto-add is limited to 50 a day per station (Settings → Radio can change it).
 - Radio doesn't count towards Home.
 - "Library Radio" is now "Shuffle your library" (Ross, 22 October; built with the player).
+- **Scan now** (Ross, 22 October): an on-demand "Scan now" that listens to about ten seconds on the server and identifies it: AcoustID first (free), then AudD and/or ACRCloud only when an admin has added that service's key in Settings → Radio. This relaxes "free only" for this one button: paid services are never used by the automatic identification or auto-add. Built on `ux/radio-scan` before Design drew it (`HANDOFF.md`, "Dev, Scan now for radio"; question 58); routes in `CONTRACTS.md`, "Internet radio" → Scan now.
 
 ### Design's questions for Dev, answered from the code
 
