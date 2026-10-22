@@ -172,7 +172,11 @@ describe('the state machine in the DOM', () => {
     window.navigateToPage = navigateToPage;
     try {
       const view = await mountCard();
-      fireStatus({ active_media_server: 'none' });
+      // a fresh install: the default Plex, never set up
+      fireStatus({
+        active_media_server: 'plex',
+        media_server: { connected: false, type: 'plex', configured: false },
+      });
       fireDbStats({ tracks: 0 });
       const card = view.container;
       expect(card.querySelector('#library-status-title')!.textContent).toBe('No library chosen');

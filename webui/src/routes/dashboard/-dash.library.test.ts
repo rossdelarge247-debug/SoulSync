@@ -81,6 +81,38 @@ describe('libraryCardView — the five states', () => {
     expect(view.message).toEqual({ kind: 'no-server', serverName: '' });
   });
 
+  it('a chosen server that was never set up is no library chosen, not disconnected', () => {
+    // a fresh install: the default Plex with no address (/status configured: false)
+    const view = libraryCardView(
+      stats,
+      { media_server: { connected: false, configured: false }, active_media_server: 'plex' },
+      false,
+      NOW,
+    );
+    expect(view.title).toBe('No library chosen');
+    expect(view.message).toEqual({ kind: 'no-server', serverName: '' });
+  });
+
+  it('configured: false wins over a stale connected frame', () => {
+    const view = libraryCardView(
+      stats,
+      { media_server: { connected: true, configured: false }, active_media_server: 'jellyfin' },
+      false,
+      NOW,
+    );
+    expect(view.message).toEqual({ kind: 'no-server', serverName: '' });
+  });
+
+  it('a set-up server that is down still reads as disconnected', () => {
+    const view = libraryCardView(
+      stats,
+      { media_server: { connected: false, configured: true }, active_media_server: 'plex' },
+      false,
+      NOW,
+    );
+    expect(view.title).toBe('Plex — Disconnected');
+  });
+
   it('server configured but disconnected', () => {
     const view = libraryCardView(
       stats,

@@ -31,6 +31,32 @@ describe('serviceAlerts', () => {
     expect(alerts.every((a) => a.severity === 'warn')).toBe(true);
   });
 
+  it('a chosen server that was never set up is no library chosen, not disconnected', () => {
+    const alerts = serviceAlerts({
+      ...HEALTHY,
+      media_server: { connected: false, type: 'plex', configured: false },
+    } as unknown as ServiceStatusPayload);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      key: 'server',
+      severity: 'warn',
+      line: 'No library chosen',
+      advice:
+        'Downloads won’t show in your library until you choose where it lives. Go to Settings → ' +
+        'Connections → Server Connections and choose Standalone, or connect Plex, Jellyfin or Navidrome.',
+    });
+    expect(alerts[0].detail).not.toBe('Disconnected');
+  });
+
+  it('a set-up server that is down, or an older payload, still says disconnected', () => {
+    for (const media_server of [{ connected: false, configured: true }, { connected: false }]) {
+      const alerts = serviceAlerts({ ...HEALTHY, media_server } as unknown as ServiceStatusPayload);
+      expect(alerts.map((a) => [a.label, a.detail, a.line])).toEqual([
+        ['Media Server', 'Disconnected', undefined],
+      ]);
+    }
+  });
+
   it('a rate-limited Spotify is attention-worthy too, with the countdown', () => {
     const alerts = serviceAlerts({
       ...HEALTHY,

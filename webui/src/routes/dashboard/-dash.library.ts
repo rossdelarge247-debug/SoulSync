@@ -133,7 +133,10 @@ export function libraryCardView(
   );
   const serverType = (statusPayload && statusPayload.active_media_server) || null;
   const hasData = tracks > 0;
-  const hasServer = !!serverType && serverType !== 'none';
+  // configured: false means the chosen server was never set up (a fresh
+  // install's default Plex), so no library is chosen; missing keeps the old rule
+  const serverSetUp = statusPayload?.media_server?.configured !== false;
+  const hasServer = !!serverType && serverType !== 'none' && serverSetUp;
 
   if (isScanning) {
     return {

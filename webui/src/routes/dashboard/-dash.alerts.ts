@@ -21,7 +21,16 @@ export interface DashAlert {
   detail: string;
   /** 'error' renders red, everything else amber. */
   severity: 'warn' | 'error';
+  /** The whole line, for an alert that "label: detail" doesn't fit. */
+  line?: string;
+  /** What to do, under a lone alert, in place of the connection advice. */
+  advice?: string;
 }
+
+/** The library card's no-library copy (-ui/library-card.tsx), as one line. */
+export const NO_LIBRARY_ADVICE =
+  'Downloads won’t show in your library until you choose where it lives. Go to Settings → ' +
+  'Connections → Server Connections and choose Standalone, or connect Plex, Jellyfin or Navidrome.';
 
 function severityOf(indicatorClass: string): 'warn' | 'error' {
   return indicatorClass.includes('error') ? 'error' : 'warn';
@@ -44,7 +53,18 @@ export function serviceAlerts(payload: ServiceStatusPayload | null): DashAlert[]
   }
 
   const server = genericServiceCard(payload.media_server || {});
-  if (!server.indicatorClass.includes(' connected')) {
+  // configured: false is settings saying the chosen server was never set up,
+  // so it isn't down: no library is chosen (missing on older payloads)
+  if (payload.media_server?.configured === false) {
+    alerts.push({
+      key: 'server',
+      label: 'Library',
+      detail: 'No library chosen',
+      severity: 'warn',
+      line: 'No library chosen',
+      advice: NO_LIBRARY_ADVICE,
+    });
+  } else if (!server.indicatorClass.includes(' connected')) {
     alerts.push({
       key: 'server',
       label: 'Media Server',

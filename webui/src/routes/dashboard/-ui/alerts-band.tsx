@@ -35,11 +35,12 @@ function sentenceCase(label: string): string {
   ].join(' ');
 }
 
+function line(alert: DashAlert): string {
+  return alert.line ?? `${sentenceCase(alert.label)}: ${alert.detail}`;
+}
+
 function title(alerts: DashAlert[]): string {
-  if (alerts.length === 1) {
-    const [only] = alerts;
-    return `${sentenceCase(only.label)}: ${only.detail}`;
-  }
+  if (alerts.length === 1) return line(alerts[0]);
   return 'Some of SoulSync’s connections need a look';
 }
 
@@ -75,13 +76,14 @@ export function AlertsBand() {
     >
       {alerts.length === 1 ? (
         <p className="dash-alert-text">
-          Anything that needs it waits until it’s back. Check the connection in Settings.
+          {alerts[0].advice ??
+            'Anything that needs it waits until it’s back. Check the connection in Settings.'}
         </p>
       ) : (
         <ul className="dash-alert-list">
           {alerts.map((a) => (
             <li key={a.key} className={`dash-alert dash-alert--${a.severity}`}>
-              {sentenceCase(a.label)}: {a.detail}
+              {line(a)}
             </li>
           ))}
         </ul>

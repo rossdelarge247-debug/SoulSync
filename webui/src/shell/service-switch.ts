@@ -31,7 +31,13 @@ declare global {
 }
 
 interface SsStatusPayload {
-  media_server?: { connected?: boolean; response_time?: number; type?: string | null };
+  media_server?: {
+    connected?: boolean;
+    response_time?: number;
+    type?: string | null;
+    /** from settings: false when the chosen server was never set up */
+    configured?: boolean;
+  };
 }
 
 const _SS_TABS = [
@@ -412,7 +418,12 @@ function _ssServerPanel(d: SsActiveSources, editable: boolean): string {
   const known = !!status && (!status.type || status.type === d.server.active);
   let pill: SsPill = { label: 'Checking', tone: 'wait' };
   let health = 'Waiting for the next status check';
-  if (known && status!.connected) {
+  if (status?.configured === false) {
+    // settings, not a probe, and about the active server whatever `type` says:
+    // nothing is down, there's just no library chosen
+    pill = { label: 'Not set up', tone: 'wait' };
+    health = 'No library chosen. Choose Standalone, or connect Plex, Jellyfin or Navidrome';
+  } else if (known && status!.connected) {
     const ms = Math.round(status!.response_time || 0);
     pill = { label: 'Online', tone: 'ok' };
     health = ms > 0 ? `Connected, answered in ${ms} ms` : 'Connected';
