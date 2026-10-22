@@ -45,6 +45,9 @@ GATED = [
     ('GET', '/api/setup/check'),
     # the quality target is the app-wide default quality profile
     ('PUT', '/api/quality/target'),
+    # Settings → Radio and its Scan now service tests (a Test can spend a paid request)
+    ('PUT', '/api/radio/settings'),
+    ('POST', '/api/radio/scan/test'),
 ]
 
 
@@ -77,6 +80,11 @@ def test_admin_not_blocked_by_the_gate(client):
     # SAFE, read-only gated endpoint (listing API keys) — confirming the no-change
     # guarantee for single-profile installs without triggering a destructive op.
     assert client.get('/api/v1/api-keys-internal').status_code != 403
+
+
+def test_radio_scan_is_not_admin_only(client, nonadmin):
+    # members who can listen can press Scan now; with no session it's a 404, never a 403
+    assert _call(client, 'POST', '/api/radio/scan').status_code != 403
 
 
 def test_profile_scoped_wishlist_clear_not_overgated(client, nonadmin):

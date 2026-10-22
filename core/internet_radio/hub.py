@@ -51,6 +51,8 @@ FINGERPRINT_STATION_GAP = 150   # one fingerprint per station this often at most
 FINGERPRINT_GLOBAL_GAP = 20     # and one across all stations this often at most
 NOT_IDENTIFIED_ROW_SECONDS = 90  # an unnamed stretch this long goes into Heard
 LIBRARY_CACHE_SECONDS = 120
+SCAN_HOLD_SECONDS = 240         # a Scan now result isn't wiped by "not a track" for this long
+STREAM_HEAD_BYTES = 32 * 1024   # the first audio a relay passed on (Ogg and FLAC headers live there)
 
 
 def track_key(artist: str, title: str) -> str:
@@ -109,6 +111,22 @@ class Session:
     connected: bool = False
     ended: bool = False
     stop: threading.Event = field(default_factory=threading.Event)
+    audio_kind: str = ""            # the media type the relay passes on, once connected
+    head: bytes = b""               # the first audio it passed on (see STREAM_HEAD_BYTES)
+
+
+@dataclass
+class Tap:
+    """A Scan now capture riding on a live relay: the relay appends what it
+    passes on until ``target`` bytes are in, then sets ``done``. Never more
+    than a memory copy on the relay's thread."""
+    station_id: str
+    target: int
+    kind: str = ""
+    head: bytes = b""
+    buf: bytearray = field(default_factory=bytearray)
+    done: threading.Event = field(default_factory=threading.Event)
+    failed: bool = False
 
 
 @dataclass
@@ -141,6 +159,7 @@ class Monitor:
     fp_pending: bool = False
     fp_error: Optional[str] = None
     unnamed_since: Optional[float] = None
+    scan_hold_until: float = 0.0
 
 
 class Busy(Exception):
@@ -155,6 +174,7 @@ class RadioHub:
         self._monitors: Dict[str, Monitor] = {}
         self._lib_cache: Dict[Tuple[int, str], Tuple[float, Dict[str, Any]]] = {}
         self._fp_global_at = 0.0
+        self._taps: List[Tap] = []
         self._work = ThreadPoolExecutor(max_workers=1, thread_name_prefix="radio-work")
         self._fp_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="radio-fingerprint")
         self._sync = False  # tests run the background work inline
@@ -199,6 +219,10 @@ class RadioHub:
             self._monitors.clear()
             self._lib_cache.clear()
             self._fp_global_at = 0.0
+            for tap in self._taps:
+                tap.failed = True
+                tap.done.set()
+            self._taps.clear()
 
     # ── sessions ─────────────────────────────────────────────────────────────
 
@@ -274,6 +298,52 @@ class RadioHub:
             sess = self._sessions.get(session_id)
             if sess is not None:
                 self._end(sess)
+                if self._live_relay_for(sess.station_id) is None:
+                    for tap in [t for t in self._taps if t.station_id == sess.station_id]:
+                        tap.failed = True
+                        tap.done.set()
+                        self._taps.remove(tap)
+
+    # ── Scan now's taps on a live relay ──────────────────────────────────────
+
+    def _live_relay_for(self, station_id: str) -> Optional[Session]:
+        for s in self._sessions.values():
+            if s.station_id == station_id and s.mode == "relay" and s.connected and not s.ended and s.audio_kind:
+                return s
+        return None
+
+    def add_tap(self, station_id: str, target: int) -> Optional[Tap]:
+        """A capture on the station's live relay, or None when nothing relays
+        it (the scan then opens its own short, capped read)."""
+        with self._lock:
+            sess = self._live_relay_for(station_id)
+            if sess is None:
+                return None
+            tap = Tap(station_id=station_id, target=max(1, int(target)), kind=sess.audio_kind, head=sess.head)
+            self._taps.append(tap)
+            return tap
+
+    def remove_tap(self, tap: Tap) -> None:
+        with self._lock:
+            if tap in self._taps:
+                self._taps.remove(tap)
+
+    def feed_taps(self, station_id: str, audio: bytes) -> None:
+        """Called by the relay with each piece of audio it passes on."""
+        if not self._taps:  # the usual case: nobody is scanning
+            return
+        with self._lock:
+            for tap in list(self._taps):
+                if tap.station_id != station_id or tap.done.is_set():
+                    continue
+                tap.buf += audio[: max(0, tap.target - len(tap.buf))]
+                if len(tap.buf) >= tap.target:
+                    tap.done.set()
+                    self._taps.remove(tap)
+
+    def tap_count(self) -> int:
+        with self._lock:
+            return len(self._taps)
 
     def expire(self) -> None:
         now = self._now()
@@ -505,6 +575,8 @@ class RadioHub:
         now = self._now()
         with self._lock:
             cur = mon.now
+            if cur.state == "identified" and (cur.source or "").startswith("scan_") and now < mon.scan_hold_until:
+                return  # someone just scanned it; a feed saying "a show" doesn't undo that
             if cur.state == "identified":
                 mon.now = NowPlaying(state="not_identified", started_at=now, reason=reason,
                                      previous_title=cur.title)
@@ -621,6 +693,28 @@ class RadioHub:
         self.forget_library(profile_id, np.artist, np.title)
         return "added"
 
+    def on_scan(self, station: Station, artist: str, title: str, *, release: str, source: str) -> NowPlaying:
+        """What a Scan now found, shown as what's on now for everyone on the
+        station. Unlike the automatic sources this sets off nothing (no Heard
+        rows for other listeners, no auto-add): the scan route records Heard
+        for the person who pressed and fires the trigger itself."""
+        key = track_key(artist, title)
+        now = self._now()
+        np = NowPlaying(state="identified", artist=artist, title=title, release=release, source=source,
+                        identified_at=now, started_at=now, key=key)
+        mon = self._monitor(station)
+        with self._lock:
+            cur = mon.now
+            if key and not (cur.state == "identified" and cur.key == key):
+                np.previous_title = cur.title if cur.state == "identified" else cur.previous_title
+                mon.now = np
+                mon.unnamed_since = None
+                mon.scan_hold_until = now + SCAN_HOLD_SECONDS
+        return np
+
+    def fire_trigger(self, db, station: Station, np: NowPlaying) -> None:
+        self._fire_trigger(db, station, np)
+
     def _fire_trigger(self, db, station: Station, np: NowPlaying) -> None:
         owners = [int(p) for p in (self.deps.radio_automation_profiles() or [])]
         if not owners:
@@ -706,4 +800,4 @@ class RadioHub:
 hub = RadioHub()
 
 __all__ = ["RadioHub", "HubDeps", "Session", "NowPlaying", "Busy", "hub", "track_key", "judge_quality",
-           "MAX_RELAYS"]
+           "MAX_RELAYS", "Tap", "STREAM_HEAD_BYTES"]
