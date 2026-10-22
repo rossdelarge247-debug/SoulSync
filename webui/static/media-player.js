@@ -130,7 +130,7 @@ function setTrackInfo(track) {
     // collapsed by default — fetching in the background means the
     // user gets instant lyrics the first time they expand it. An episode
     // or an audiobook has none to find.
-    if (!npIsSpokenWord(track)) {
+    if (!npIsSpokenWord(track) && npTrackKind(track) !== 'radio') {
         _npLyricsLoadForTrack({
             title: track.title,
             artist: track.artist,
@@ -608,7 +608,7 @@ async function updateStreamStatus() {
 // everyone "stopped" forever. Stream status is driven by the per-session HTTP
 // poller (updateStreamStatus) exclusively.)
 
-async function startAudioPlayback(isCurrent = () => true, signal, handoff = null, sourceUrl = null) {
+async function startAudioPlayback(isCurrent = () => true, signal, handoff = null, sourceUrl = null, opts = {}) {
     // Start HTML5 audio playback of the streamed file with enhanced state management
     // `handoff` is the crossfade's second audio, still playing the track this
     // player is about to load; the player joins it where it is, then it stops.
@@ -633,6 +633,9 @@ async function startAudioPlayback(isCurrent = () => true, signal, handoff = null
         audioPlayer.currentTime = 0;
         audioPlayer.src = '';
 
+        // Only a direct radio stream asks for CORS (npPlayRadio); everything
+        // else loads as it always has
+        if (!opts.cors) audioPlayer.removeAttribute('crossorigin');
         // Set new source
         audioPlayer.src = audioUrl;
         audioPlayer.load(); // Force reload
@@ -746,6 +749,9 @@ async function startAudioPlayback(isCurrent = () => true, signal, handoff = null
             userMessage = 'Playback was interrupted';
         }
 
+        // a radio station tried directly first falls back to the server's
+        // relay (src/shell/radio-session.ts), so that first failure is quiet
+        if (opts.quiet) return { status: 'failed', error: userMessage };
         showToast(userMessage, 'error');
         // Only clear track if not in queue playback mode — queue handles its own error recovery
         if (npQueue.length === 0) {
@@ -1054,6 +1060,13 @@ function onAudioEnded() {
 
     // Sleep timer "end of track": pause instead of advancing to the next track.
     if (npSleepEndOfTrack) { npFireSleepTimer(); return; }
+
+    // A radio station has no end: when its stream does, say so (the radio
+    // session decides what to do) and leave the queue alone.
+    if (currentTrack && currentTrack.kind === 'radio') {
+        window.dispatchEvent(new CustomEvent('ss:radio-stream-ended', { detail: { radio: currentTrack.radio || null } }));
+        return;
+    }
 
     // If a crossfade is mid-flight it OWNS the advance to the next track —
     // bail so we don't double-advance (crossfade's npFinishCrossfade →
@@ -3518,6 +3531,62 @@ async function npPlayMedia(item) {
 }
 window.playMedia = npPlayMedia;
 
+// ===============================
+// INTERNET RADIO (build e)
+// ===============================
+
+// Play a station in the app's player without touching the queue: radio
+// replaces what's playing, and stopping it leaves the queue as it was.
+// item: {id, src, title, subtitle, artUrl, radio: {station_id, session_id,
+// mode, ...}, crossOrigin, quiet}. A direct stream needs crossOrigin, since
+// the player's audio runs through the Web Audio graph (EQ, visuals), which
+// stays silent for another site's audio without it.
+async function npPlayRadio(item) {
+    if (!item || !item.src || !audioPlayer) return { status: 'empty' };
+    window.cancelPendingPlayback();
+    npCancelCrossfade();
+    const generation = npPlaybackGeneration;
+    const signal = npPlaybackAbort.signal;
+    const isCurrent = () => generation === npPlaybackGeneration && !signal.aborted;
+    await stopStream();
+    if (!isCurrent()) return { status: 'superseded' };
+    setTrackInfo({
+        title: item.title || 'Radio',
+        artist: item.subtitle || '',
+        album: '',
+        filename: '',
+        is_library: false,
+        kind: 'radio',
+        media_id: item.id || item.src,
+        media_src: item.src,
+        image_url: item.artUrl || null,
+        duration: null,
+        radio: item.radio || null,
+    });
+    showLoadingAnimation();
+    audioPlayer.loop = false;
+    if (item.crossOrigin) audioPlayer.crossOrigin = 'anonymous';
+    else audioPlayer.removeAttribute('crossorigin');
+    const playback = await startAudioPlayback(isCurrent, signal, null, item.src,
+        { quiet: !!item.quiet, cors: !!item.crossOrigin });
+    if (playback?.status !== 'played') {
+        if (playback?.status !== 'superseded' && item.quiet) hideLoadingAnimation();
+        return playback || { status: 'failed' };
+    }
+    return { status: 'played' };
+}
+
+// Update what the player shows for the station (the radio session calls this
+// when what's playing changes): the title and the line under it.
+function npUpdateRadioInfo(info) {
+    if (!currentTrack || currentTrack.kind !== 'radio' || !info) return;
+    if (info.title !== undefined) currentTrack.title = info.title;
+    if (info.subtitle !== undefined) currentTrack.artist = info.subtitle;
+    if (info.radio) currentTrack.radio = { ...(currentTrack.radio || {}), ...info.radio };
+    updateMediaSessionMetadata();
+    npNotify('track');
+}
+
 // Skip back or forward by seconds (the spoken-word −15 s / +30 s).
 function npSkip(seconds) {
     if (!audioPlayer || !audioPlayer.duration || !isFinite(audioPlayer.duration)) return;
@@ -3594,6 +3663,8 @@ window.SoulSyncPlayer = {
     setCrossfade: (on) => npSetCrossfade(on),
     setSleep: (value) => npSetSleepTimer(value),
     playMedia: (item) => npPlayMedia(item),
+    playRadio: (item) => npPlayRadio(item),
+    updateRadio: (info) => npUpdateRadioInfo(info),
     playNext: (track) => playNext(track),
     addToQueue: (track) => addToQueue(track),
     /** the chrome tells the engine when the tray opens or closes */

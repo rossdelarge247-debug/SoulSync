@@ -754,6 +754,8 @@ declare global {
     SoulSyncURL?: { strip: (pathname: string) => string; resolve?: (path: string) => string };
     /** src/shell/nav-shell.ts: the navigation shell (sidebar, top bar, tab bar). */
     SoulSyncShellNav?: NavShell;
+    /** src/shell/radio-session.ts: the player's radio session (build e). */
+    SoulSyncRadio?: import('@/features/radio/radio.types').RadioSessionApi;
     SoulSyncWebRouter?: {
       routeManifest: ShellRouteDefinition[];
       getCurrentPath: () => string;
@@ -772,6 +774,8 @@ declare global {
           labelName?: string;
         },
       ) => Promise<boolean>;
+      /** An app path (e.g. "/radio/station/kexp"), in the app, without a reload. */
+      navigateHref?: (href: `/${string}`, options?: { replace?: boolean }) => Promise<boolean>;
     };
     SoulSyncWebShellBridge?: {
       getCurrentProfileContext: () => ShellProfileContext | null;
@@ -947,6 +951,8 @@ declare global {
     requestSettingsTab?: (tab: string) => void;
     /** Settings -> AI, from anywhere (src/shell/ai-settings.ts). */
     openAiSettings?: () => void;
+    /** src/shell/radio-settings.ts: Settings → Radio (build e). */
+    openRadioSettings?: () => void;
     /** init.js: a legacy page's loader (what navigation runs on arrival). */
     loadPageData?: (pageId: string) => void | Promise<void>;
   }

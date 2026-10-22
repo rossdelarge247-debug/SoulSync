@@ -35,6 +35,7 @@ import {
   type OutputDevice,
   type OutputSupport,
 } from './player-output';
+import { radioMiniLines } from './player-radio';
 import {
   albumLine,
   barCount,
@@ -310,9 +311,11 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
   const hasTrack = () => Boolean(snapshot.track);
 
   function applyLayout(): void {
-    if (hasTrack()) setAttr(html, 'data-player', trayState);
+    // radio has no tray on a desktop: its page is the station's (player-radio.ts)
+    const radioNow = snapshot.kind === 'radio';
+    if (hasTrack()) setAttr(html, 'data-player', radioNow ? 'bar' : trayState);
     else html.removeAttribute('data-player');
-    const expanded = trayState === 'tray' && hasTrack();
+    const expanded = trayState === 'tray' && hasTrack() && !radioNow;
     if (tray) {
       // the phone shows the tray only as its sheet
       setHidden(tray, !(sheetOpen || (expanded && !isPhone())));
@@ -1024,17 +1027,21 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
 
     for (const el of root!.querySelectorAll('[data-player-title]')) setText(el, title);
     for (const el of root!.querySelectorAll('[data-player-meta]')) setText(el, meta);
+    const radioLines =
+      kind === 'radio' ? radioMiniLines(view.SoulSyncRadio?.state() ?? null) : null;
     setText(
       root!.querySelector('[data-player-mini-title]'),
-      artist ? `${title} · ${artist}` : title,
+      radioLines ? radioLines.title : artist ? `${title} · ${artist}` : title,
     );
     setText(
       root!.querySelector('[data-player-mini-meta]'),
       loadingWords && !/^\d+%$/.test(loadingWords)
         ? loadingWords
-        : [ro.source, kind === 'library' || kind === 'stream' ? ro.short : '', preview]
-            .filter(Boolean)
-            .join(' · '),
+        : radioLines
+          ? radioLines.meta
+          : [ro.source, kind === 'library' || kind === 'stream' ? ro.short : '', preview]
+              .filter(Boolean)
+              .join(' · '),
     );
     for (const img of root!.querySelectorAll<HTMLImageElement>('[data-player-art]')) {
       const src = t.image_url || details?.image_url || '';
