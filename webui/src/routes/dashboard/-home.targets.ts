@@ -36,9 +36,16 @@ export interface StatView {
   value: number | null;
 }
 
-export interface LinkView {
-  route: HomeRouteKey;
-  label: string;
+/** The dialogs Home opens in place ("Mirror a playlist", "Set a quality target"). */
+export type HomeDialog = 'mirror' | 'quality';
+
+/** A link to another page, or a button that opens a dialog on Home. */
+export type LinkView =
+  | { route: HomeRouteKey; label: string }
+  | { dialog: HomeDialog; label: string };
+
+export function isDialogAction(view: LinkView): view is { dialog: HomeDialog; label: string } {
+  return 'dialog' in view;
 }
 
 export interface LiveCardView {
@@ -75,7 +82,7 @@ const LINKS: Record<TargetKey, LinkView> = {
   wanted: { route: 'wanted', label: 'Open Wanted' },
   mirrored: { route: 'mirrored', label: 'Open Mirrored playlists' },
   followed: { route: 'followed', label: 'Open Followed artists' },
-  quality: { route: 'quality', label: 'Change target' },
+  quality: { dialog: 'quality', label: 'Change target' },
 };
 
 /** A card whose target isn't set up: one sentence, one button. */
@@ -90,7 +97,7 @@ const NOT_SET_UP: Record<TargetKey, Omit<NotSetUpCardView, 'kind' | 'key' | 'lab
     title: 'Keep a playlist complete in your library',
     sentence:
       "Pick a playlist from a connected service. SoulSync finds the tracks you don't have and keeps up as the list changes.",
-    action: { route: 'mirrored', label: 'Mirror a playlist' },
+    action: { dialog: 'mirror', label: 'Mirror a playlist' },
   },
   followed: {
     title: 'Get new releases as they come out',
@@ -102,7 +109,7 @@ const NOT_SET_UP: Record<TargetKey, Omit<NotSetUpCardView, 'kind' | 'key' | 'lab
     title: 'Choose the quality you want',
     sentence:
       'Pick a format or bitrate. SoulSync looks for that quality when it downloads, and can upgrade what you already have.',
-    action: { route: 'quality', label: 'Set a quality target' },
+    action: { dialog: 'quality', label: 'Set a quality target' },
   },
 };
 
@@ -123,7 +130,7 @@ export const SETUP_PANEL_ITEMS: ReadonlyArray<{
     key: 'mirrored',
     title: 'Mirrored playlists',
     sentence: 'A playlist kept complete in your library as it changes.',
-    action: { route: 'mirrored', label: 'Mirror a playlist' },
+    action: { dialog: 'mirror', label: 'Mirror a playlist' },
   },
   {
     key: 'followed',
@@ -135,7 +142,7 @@ export const SETUP_PANEL_ITEMS: ReadonlyArray<{
     key: 'quality',
     title: 'Quality',
     sentence: 'A format or bitrate to upgrade your library towards.',
-    action: { route: 'quality', label: 'Set a quality target' },
+    action: { dialog: 'quality', label: 'Set a quality target' },
   },
 ];
 

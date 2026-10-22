@@ -18,6 +18,7 @@ import type { LiveCardView, NotSetUpCardView, StatView, TargetCardView } from '.
 
 import { checkDownloadSource, HOME_QUERY_KEY } from '../../-home.api';
 import { formatCount } from '../../-home.time';
+import { HomeAction } from './home-dialogs';
 import { HomeLink, useHomeNav } from './home-nav';
 import styles from './home.module.css';
 
@@ -135,9 +136,11 @@ function LiveCard({ view }: { view: LiveCardView }) {
       ) : (
         <p className={styles.cardFooter}>
           <span className={styles.wideOnly}>{view.meta.join(' · ')} · </span>
-          <HomeLink route={view.link.route} className={styles.footerLink}>
-            {view.link.label}
-          </HomeLink>
+          <HomeAction
+            action={view.link}
+            className={styles.footerLink}
+            buttonClassName={`${styles.footerLink} ${styles.linkButton}`}
+          />
         </p>
       )}
     </article>
@@ -166,9 +169,11 @@ function NotSetUpCard({ view }: { view: NotSetUpCardView }) {
       </h3>
       <p className={styles.cardText}>{view.sentence}</p>
       <div className={styles.cardAction}>
-        <HomeLink route={view.action.route} className={styles.buttonLink}>
-          {view.action.label}
-        </HomeLink>
+        <HomeAction
+          action={view.action}
+          className={styles.buttonLink}
+          buttonClassName={`${styles.buttonLink} ${styles.asButton}`}
+        />
       </div>
     </article>
   );
