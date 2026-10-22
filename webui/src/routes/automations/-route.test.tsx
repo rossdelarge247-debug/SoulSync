@@ -383,6 +383,10 @@ describe('automations list', () => {
     ).toBeInTheDocument();
     expect(within(card(4)).getByText('On')).toBeInTheDocument();
     expect(within(card(6)).getByText('Paused')).toBeInTheDocument();
+    // the built-in ones say so on their schedule line, so they stand out under All
+    expect(within(card(9)).getByText('Built-in · Every 3 days · 1 step')).toBeInTheDocument();
+    expect(within(card(10)).getByText(/^Built-in · Every 7 days/)).toBeInTheDocument();
+    expect(within(card(4)).queryByText(/Built-in/)).toBeNull();
 
     const runs = await screen.findByTestId('runs-panel');
     expect(within(runs).getByRole('heading', { name: 'Runs: Fill Wanted' })).toBeInTheDocument();
