@@ -4,7 +4,46 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-None open. Questions raised while building go in the log entry that raised them.
+Everything in the handoff package is built and in `integration`. These are the questions the builds raised, gathered from the log entries below (each entry has the detail and the screenshots it was checked against). Answer on the canvas, naming the board, as before.
+
+**Navigation (Nav v2, 1m/1n)**
+1. Dev placed the pages the boards don't show: Discover after Search and Playlist explorer after Mirrored playlists (Get music), Import and Stats after Albums (Library). Redraw if you'd place them differently.
+2. The profile, a "Connections" row (service status), "What's new" and "Support SoulSync" sit at the foot of the sidebar and in Admin and help.
+3. The phone layout starts at 768px wide, not 390px, so phones up to 430px and small tablets don't get the 256px sidebar.
+4. The video side on phones uses the same five tabs, with "Find" for "Get music".
+
+**Home (Main v2, 1a–1c)**
+5. Where each "Library and system" section (today's dashboard: library, enrichment workers, listening, playlist sync, up next, quick settings) should finally live: Home, Library, Automations or Settings.
+6. Where the connection alerts go, and whether "Search for music" stays on the phone.
+
+**Wanted (2a–2d)**
+7. Followed statuses are "New release / Not checked yet / Nothing new", since Complete and Incomplete need discographies SoulSync doesn't store. Right set?
+8. The Followed hover action is "Open artist" (there's no data for "Want all missing"). What should it be?
+9. Draw the nebula and the followed labels, podcasts and audiobook authors in the new style, or leave them behind the "…" menu?
+
+**Artist (2g/2h)**
+10. Is the release card's "⋮" (tracklist, Play, Show in your library, MusicBrainz) the right home for those actions?
+11. Bring back the old "Owned" filter as "In your library"?
+12. Please draw the Tracks, Similar artists and About views, and say whether About is a tab.
+13. Keep "132 tracks" (the library's count) in the header line?
+14. Hide and Merge duplicate artist don't exist as features: drop them, or should they be built?
+
+**Search and the dialogs (2m–2r)**
+15. Keep the Soulseek filter row on phones (2n drops it, but then a phone can't leave "At your target")?
+16. Is the metadata service picker beside the section's counts in the right place?
+17. Is a "Top result" needed, or is the library's artist row enough?
+18. What should a library album below the quality target offer, if not Open?
+
+**Automations (2i–2l)**
+19. The Runs numbers for the Wanted search are Done / Failed runs / Typical, because each run doesn't record what it found. Keep, or should the engine start recording finds so "Found" can return?
+20. "Only by hand": a real trigger, or is Paused plus Run now enough?
+21. Filters, group picker and search on one row above the cards: fine, or would you place them?
+22. Wording for steps that can't be previewed (Deep Scan and the duplicate cleaner preview when run instead).
+23. Built-in automations: after yours with a Built-in filter, or their own section?
+24. Keep "Open in the full builder" for what the editor doesn't cover, or plan to retire it?
+
+**Phone (all pages)**
+25. The floating notification, help and activity buttons now hide while a dialog is open; elsewhere they sit above the tab bar. Should they move into the top bar on phones?
 
 ## Log
 
