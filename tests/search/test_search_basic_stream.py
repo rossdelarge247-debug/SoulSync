@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import tempfile
 import time
 
 import pytest
@@ -153,8 +152,8 @@ def test_a_named_source_is_searched_directly():
 # ── the endpoint ─────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope='module')
-def web_server():
-    tmp = tempfile.mkdtemp(prefix='soulsync-testdb-stream-')
+def web_server(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp('stream-db')
     os.environ.setdefault('DATABASE_PATH', os.path.join(tmp, 'stream.db'))
     os.environ['SOULSYNC_TEST_DB_READY'] = '1'
     return pytest.importorskip('web_server')
