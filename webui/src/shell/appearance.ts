@@ -19,6 +19,7 @@ import {
   ACCENT_PRESETS,
   CUSTOM_ACCENT,
   DEFAULT_ACCENT,
+  DEFAULT_ACCENT_NAME,
   MIN_CONTRAST,
   accentLight,
   accentLine,
@@ -94,7 +95,7 @@ function appliedHex(e: Els): string {
 /** "Lilac", or the custom hex. */
 function appliedName(e: Els): string {
   if (e.select.value === CUSTOM_ACCENT) return normaliseHex(e.store.value) ?? DEFAULT_ACCENT;
-  return findPreset(e.select.value)?.name ?? 'Spotify Green';
+  return findPreset(e.select.value)?.name ?? DEFAULT_ACCENT_NAME;
 }
 
 /** Put an accent on the page: init.js's applier when it's there. */
@@ -393,7 +394,7 @@ function syncPreview(e: Els): void {
     e.label.textContent =
       e.select.value === CUSTOM_ACCENT
         ? 'With your custom colour'
-        : `With ${findPreset(hex)?.name ?? 'Spotify Green'}`;
+        : `With ${findPreset(hex)?.name ?? DEFAULT_ACCENT_NAME}`;
   }
   if (e.line) e.line.textContent = accentLine(accentReport(hex));
 }

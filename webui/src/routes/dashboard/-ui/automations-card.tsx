@@ -23,7 +23,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { ACCENT_PRESETS, accentReport, formatRatio } from '@/features/settings/accent';
+import {
+  ACCENT_PRESETS,
+  DEFAULT_ACCENT,
+  accentReport,
+  formatRatio,
+} from '@/features/settings/accent';
 
 import type {
   AutomationApiRow,
@@ -146,7 +151,9 @@ export function QuickSettings() {
   const [maxPerf, setMaxPerf] = useState(
     () => localStorage.getItem('soulsync-max-performance') === '1',
   );
-  const [accent, setAccent] = useState(() => localStorage.getItem('soulsync-accent') || '#1db954');
+  const [accent, setAccent] = useState(
+    () => localStorage.getItem('soulsync-accent') || DEFAULT_ACCENT,
+  );
   // the colour before a drag on the custom swatch started (dragging applies live)
   const committedAccent = useRef(accent);
 

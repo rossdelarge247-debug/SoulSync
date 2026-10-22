@@ -14,6 +14,11 @@ from __future__ import annotations
 
 from typing import Optional
 
+# The accent an install gets when it has never saved one: Lilac (Ross, 2026-10-22).
+# Its accent-light is #c2a9fa. webui/src/features/settings/accent.ts (DEFAULT_ACCENT),
+# static/init.js and static/tokens.css carry the same value.
+DEFAULT_ACCENT = '#8b5cf6'
+
 
 def is_firefox_user_agent(user_agent: Optional[str]) -> bool:
     """True when a User-Agent string is Firefox.

@@ -31,8 +31,8 @@ function notifyPageWillChange(nextPageId) {
 // ---- Accent Color System ----
 
 function getAccentFallbackColors() {
-    let accent = localStorage.getItem('soulsync-accent') || '#1db954';
-    if (!/^#[0-9a-fA-F]{6}$/.test(accent)) accent = '#1db954';
+    let accent = localStorage.getItem('soulsync-accent') || '#8b5cf6';
+    if (!/^#[0-9a-fA-F]{6}$/.test(accent)) accent = '#8b5cf6';
     // Compute a lighter variant for the second color
     const r = parseInt(accent.slice(1, 3), 16), g = parseInt(accent.slice(3, 5), 16), b = parseInt(accent.slice(5, 7), 16);
     const lighter = '#' + [Math.min(r + 20, 255), Math.min(g + 30, 255), Math.min(b + 12, 255)]
@@ -43,7 +43,7 @@ function getAccentFallbackColors() {
 function applyAccentColor(hex) {
     // Validate hex format — reject corrupt values
     if (typeof hex !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(hex)) {
-        hex = '#1db954'; // fallback to default
+        hex = '#8b5cf6'; // fallback to the default, Lilac
     }
     // Convert hex to RGB
     const r = parseInt(hex.slice(1, 3), 16);
@@ -369,8 +369,8 @@ async function bootstrapServerAppearanceSettings() {
         if (!response.ok || !settings || typeof settings !== 'object' || settings.error) return;
 
         const appearance = settings.ui_appearance || {};
-        const preset = appearance.accent_preset || '#1db954';
-        const custom = appearance.accent_color || '#1db954';
+        const preset = appearance.accent_preset || '#8b5cf6';
+        const custom = appearance.accent_color || '#8b5cf6';
         const accent = preset === 'custom' ? custom : preset;
         applyAccentColor(accent);
 

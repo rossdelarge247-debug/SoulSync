@@ -3604,8 +3604,8 @@ async function loadSettingsData() {
         // (never its name), so a renamed preset ("Boulder Purple" is "Lilac"
         // now) still matches its option. A hex that matches no preset is a
         // custom colour from before "custom" was saved.
-        const accentPreset = String(settings.ui_appearance?.accent_preset || '#1db954').trim().toLowerCase();
-        const accentCustom = settings.ui_appearance?.accent_color || '#1db954';
+        const accentPreset = String(settings.ui_appearance?.accent_preset || '#8b5cf6').trim().toLowerCase();
+        const accentCustom = settings.ui_appearance?.accent_color || '#8b5cf6';
         const presetSelect = document.getElementById('accent-preset');
         const customStore = document.getElementById('accent-custom-color');
         if (presetSelect) {
@@ -6861,8 +6861,8 @@ async function saveSettings(quiet = false) {
             library_path: _cfgStr('library-m3u-path')
         },
         ui_appearance: {
-            accent_preset: _cfgStr('accent-preset', { fallback: '#1db954' }),
-            accent_color: _cfgStr('accent-custom-color', { fallback: '#1db954' }),
+            accent_preset: _cfgStr('accent-preset', { fallback: '#8b5cf6' }),
+            accent_color: _cfgStr('accent-custom-color', { fallback: '#8b5cf6' }),
             sidebar_visualizer: _cfgStr('sidebar-visualizer-type', { fallback: 'bars' }),
             // Read the runtime flags / localStorage, not the checkboxes: while Max
             // Performance is on it locks those boxes visually-off, but the user's real

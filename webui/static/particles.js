@@ -21,7 +21,7 @@
 
     // ── Helpers ──
 
-    let _cachedAccent = '29, 185, 84';
+    let _cachedAccent = '139, 92, 246';
     let _accentCheckFrame = 0;
     function getAccentRGB() {
         // Only re-read CSS variable every 60 frames (~1s) to avoid getComputedStyle overhead

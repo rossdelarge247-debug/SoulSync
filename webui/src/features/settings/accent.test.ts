@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ACCENT_PRESETS,
   DEFAULT_ACCENT,
+  DEFAULT_ACCENT_NAME,
   accentLight,
   accentLine,
   accentReport,
@@ -27,7 +28,26 @@ describe('the presets', () => {
       ['Rose', '#f43f5e'],
       ['Teal', '#14b8a6'],
     ]);
-    expect(DEFAULT_ACCENT).toBe('#1db954');
+  });
+
+  it('Lilac is the default, and the first card', () => {
+    expect(DEFAULT_ACCENT).toBe('#8b5cf6');
+    expect(DEFAULT_ACCENT_NAME).toBe('Lilac');
+    expect(findPreset(DEFAULT_ACCENT)?.name).toBe(DEFAULT_ACCENT_NAME);
+    expect(ACCENT_PRESETS[0].hex).toBe(DEFAULT_ACCENT);
+    expect(accentReport(DEFAULT_ACCENT).light).toBe('#c2a9fa');
+  });
+
+  it('is the same default everywhere an install with nothing saved reads one', () => {
+    const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
+    const init = read('static/init.js');
+    expect(init).toContain("localStorage.getItem('soulsync-accent') || '#8b5cf6'");
+    expect(init).toContain("appearance.accent_preset || '#8b5cf6'");
+    expect(init).toContain("hex = '#8b5cf6'");
+    expect(init).not.toContain('#1db954');
+    expect(read('static/tokens.css')).toContain('--accent-rgb: 139, 92, 246;');
+    expect(read('static/tokens.css')).toContain('--accent-light-rgb: 194, 169, 250;');
+    expect(read('../core/ui_appearance.py')).toContain(`DEFAULT_ACCENT = '${DEFAULT_ACCENT}'`);
   });
 
   it('match the options of #accent-preset in index.html, value for value', () => {
@@ -110,6 +130,8 @@ describe('the light shade and the check', () => {
 describe('what’s stored', () => {
   it('is a preset’s hex or "custom", whatever the preset is called now', () => {
     expect(storedAccent('#8b5cf6', '#1db954')).toBe('#8b5cf6');
+    expect(storedAccent('#1db954', '#8b5cf6')).toBe('#1db954');
+    expect(storedAccent(undefined, undefined)).toBe('#8b5cf6');
     expect(findPreset('#8b5cf6')?.name).toBe('Lilac');
     expect(findPreset('#A78BFA')?.name).toBe('Pale Purple');
     expect(storedAccent('custom', '#123abc')).toBe('#123abc');

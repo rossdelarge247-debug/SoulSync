@@ -62,10 +62,10 @@ function viteAssets(placement: 'head' | 'body') {
 export function renderIndex() {
   const ctx: Record<string, string> = {
     'request.script_root': '',
-    initial_accent_color: '#1db954',
-    initial_accent_rgb: '29, 185, 84',
-    initial_accent_light_rgb: '42, 255, 116',
-    initial_accent_neon_rgb: '133, 255, 178',
+    initial_accent_color: '#8b5cf6',
+    initial_accent_rgb: '139, 92, 246',
+    initial_accent_light_rgb: '194, 169, 250',
+    initial_accent_neon_rgb: '237, 230, 255',
     'initial_particles_enabled | tojson': 'false',
     'initial_worker_orbs_enabled | tojson': 'false',
     'initial_reduce_effects | tojson': 'false',

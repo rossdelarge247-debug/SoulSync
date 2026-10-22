@@ -30,8 +30,11 @@ export const ACCENT_PRESETS: readonly AccentPreset[] = [
   { hex: '#14b8a6', name: 'Teal' },
 ];
 
-/** New installs start here (Ross hasn't moved the default to Lilac). */
-export const DEFAULT_ACCENT = '#1db954';
+/** New installs, and any install that never saved an accent, start here (Ross, 2026-10-22). */
+export const DEFAULT_ACCENT = '#8b5cf6';
+
+/** The default preset's name, for labels when nothing else matches. */
+export const DEFAULT_ACCENT_NAME = 'Lilac';
 
 /** The preset value that means "the hex in accent_color". */
 export const CUSTOM_ACCENT = 'custom';

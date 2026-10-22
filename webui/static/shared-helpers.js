@@ -3731,7 +3731,7 @@ function refreshAllArtistDownloadStatuses() {
  */
 async function extractImageColors(imageUrl, callback) {
     if (!imageUrl) {
-        callback(getAccentFallbackColors()); // Fallback to Spotify green
+        callback(getAccentFallbackColors()); // Fallback to the accent
         return;
     }
 

@@ -7,6 +7,7 @@ import time
 from typing import Dict, Any, Optional
 from cryptography.fernet import Fernet, InvalidToken
 from pathlib import Path
+from core.ui_appearance import DEFAULT_ACCENT as _DEFAULT_ACCENT
 from core.imports.album_types import (
     DEFAULT_BRACKET as _ATYPE_DEFAULT_BRACKET,
     DEFAULT_IGNORE_VA as _ATYPE_DEFAULT_IGNORE_VA,
@@ -1052,6 +1053,13 @@ class ConfigManager:
                 "relative_paths": False,
                 "library_enabled": False,
                 "library_path": ""
+            },
+            "ui_appearance": {
+                # Lilac (Ross, 2026-10-22). A preset's hex, or "custom" with the
+                # hex in accent_color. Only a fresh install gets this block; an
+                # older config without it falls back to the same default.
+                "accent_preset": _DEFAULT_ACCENT,
+                "accent_color": _DEFAULT_ACCENT
             },
             "playlists": {
                 # Where "Organize by playlist" materializes playlist folders.

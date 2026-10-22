@@ -19,7 +19,7 @@ const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
 let parsed: Document | null = null;
 
 /** The Appearance groups as the page renders them, the way settings.js fills them. */
-function mount(preset = '#1db954', custom = '#1db954') {
+function mount(preset = '#8b5cf6', custom = '#8b5cf6') {
   parsed ??= new DOMParser().parseFromString(html, 'text/html');
   const settings = document.createElement('div');
   settings.id = 'settings-page';
@@ -86,14 +86,36 @@ describe('the radio cards', () => {
   it('an install that chose "Boulder Purple" sees Lilac selected, with its colour unchanged', () => {
     start('#8b5cf6');
     expect(checked()).toEqual([radio('Lilac')]);
-    expect(radio('Lilac')).toHaveTextContent('Selected');
-    expect(radio('Spotify Green')).toHaveTextContent('The default');
+    expect(radio('Lilac').querySelector('.accent-card-note')).toHaveTextContent(
+      'Selected · the default',
+    );
+    expect(radio('Spotify Green').querySelector('.accent-card-note')).toHaveTextContent(/^$/);
     expect(applied).toEqual([]);
     expect(changes).toBe(0);
     expect(document.getElementById('accent-preview-label')).toHaveTextContent('With Lilac');
     expect(document.getElementById('accent-preview-line')).toHaveTextContent(
       '#8b5cf6 → light #c2a9fa · dark text on it 9.7:1',
     );
+  });
+
+  it('Lilac is the default; an install that saved Spotify Green keeps it as a normal preset', () => {
+    start('#1db954');
+    expect(radios()[0]).toBe(radio('Lilac'));
+    expect(checked()).toEqual([radio('Spotify Green')]);
+    expect(radio('Spotify Green').querySelector('.accent-card-note')).toHaveTextContent(
+      /^Selected$/,
+    );
+    expect(radio('Lilac').querySelector('.accent-card-note')).toHaveTextContent(/^The default$/);
+    expect(applied).toEqual([]);
+    expect(changes).toBe(0);
+    expect(document.getElementById('accent-preview-label')).toHaveTextContent('With Spotify Green');
+  });
+
+  it('the page’s own markup starts on Lilac, before settings.js fills it', () => {
+    parsed ??= new DOMParser().parseFromString(html, 'text/html');
+    expect(parsed.getElementById('accent-custom-color')?.getAttribute('value')).toBe('#8b5cf6');
+    expect(parsed.getElementById('accent-custom-picker')?.getAttribute('value')).toBe('#8b5cf6');
+    expect(parsed.getElementById('accent-preview-label')?.textContent).toBe('With Lilac');
   });
 
   it('"Purple" is Pale Purple now, by the same hex', () => {
@@ -177,7 +199,7 @@ describe('Custom…', () => {
     expect(applied.length).toBe(before);
     expect(changes).toBe(savesBefore);
     expect(select().value).toBe('#8b5cf6');
-    expect(store().value).toBe('#1db954');
+    expect(store().value).toBe('#8b5cf6');
 
     const offer = check().querySelector('button')!;
     expect(offer).toHaveTextContent('Use Ocean Blue instead');
@@ -225,7 +247,7 @@ describe('settings.js loading the saved values', () => {
 
   it('an unknown preset value falls back to the default card', () => {
     start('purple');
-    expect(checked()).toEqual([radio('Spotify Green')]);
+    expect(checked()).toEqual([radio('Lilac')]);
   });
 });
 

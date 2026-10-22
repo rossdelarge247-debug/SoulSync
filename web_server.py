@@ -97,7 +97,7 @@ if not pp_logger.handlers:
 from core.api_validation import parse_strict_bool, parse_strict_id, parse_strict_int
 from core.spotify_client import SpotifyClient, Playlist as SpotifyPlaylist, Track as SpotifyTrack, _is_globally_rate_limited as _spotify_rate_limited, SPOTIFY_OAUTH_SCOPE
 from core.plex_client import PlexClient
-from core.ui_appearance import is_firefox_user_agent, resolve_worker_orbs_default
+from core.ui_appearance import DEFAULT_ACCENT, is_firefox_user_agent, resolve_worker_orbs_default
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 from core.jellyfin_client import JellyfinClient
 from core.navidrome_client import NavidromeClient
@@ -342,7 +342,7 @@ _static_versioner = StaticVersioner(app.static_folder, fallback=_STATIC_CACHE_BU
                                     watch=DEV_STATIC_NO_CACHE)
 app.url_defaults(_static_versioner.url_defaults)
 
-def _valid_hex_color(value, fallback='#1db954'):
+def _valid_hex_color(value, fallback=DEFAULT_ACCENT):
     value = str(value or '').strip()
     return value if re.fullmatch(r'#[0-9a-fA-F]{6}', value) else fallback
 
@@ -412,8 +412,8 @@ def _request_is_firefox() -> bool:
 
 
 def _initial_appearance_context():
-    preset = config_manager.get('ui_appearance.accent_preset', '#1db954')
-    custom = config_manager.get('ui_appearance.accent_color', '#1db954')
+    preset = config_manager.get('ui_appearance.accent_preset', DEFAULT_ACCENT)
+    custom = config_manager.get('ui_appearance.accent_color', DEFAULT_ACCENT)
     accent = _valid_hex_color(custom if preset == 'custom' else preset)
     particles_enabled = config_manager.get('ui_appearance.particles_enabled', False) is True
     # Worker orbs: explicit choice wins; unset → OFF on Firefox (the blurred orb canvas
