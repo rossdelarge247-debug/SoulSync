@@ -101,14 +101,18 @@ def test_the_known_collisions_are_still_real():
 def test_the_guard_can_see_the_ids_it_is_guarding():
     """A regex that matched nothing would make the test above pass vacuously."""
     react_ids = {i for ids in _react_page_ids().values() for i in ids}
-    # The enhanced half...
+    # The ids the rest of the app looks up on the Search page: the field the
+    # hand-offs write into and the bubbles' container...
     assert "enhanced-search-input" in react_ids
     assert "enhanced-main-results-area" in react_ids
-    assert "enh-source-row" in react_ids
-    # ...and the basic half, whose markup this guard is what allowed deleting.
-    assert "downloads-search-input" in react_ids
-    assert "search-results-area" in react_ids
-    assert "filters-container" in react_ids
+    # ...and the sections that replaced the source row and the basic-search
+    # panel (#enh-source-row, #downloads-search-input, #search-results-area,
+    # #filters-container are retired: one field searches every source at once).
+    # The global widget scrolls to #search-soulseek; the tour points at the rest.
+    assert "search-soulseek" in react_ids
+    assert "search-soulseek-filters" in react_ids
+    assert "search-library" in react_ids
+    assert "search-catalog" in react_ids
     # And the vanilla side is being read at all. #webui-react-root is the mount
     # point itself, so it is in index.html for as long as any React page exists.
     assert "webui-react-root" in _index_ids()
