@@ -91,7 +91,11 @@ def test_the_db_queries_match_library_and_watchlist_by_lowercased_name(tmp_path)
     assert db.get_artist_thumbs_by_names([]) == []
 
 
-def test_the_unified_response_runs_the_art_hook_over_every_row():
+def test_the_unified_response_runs_the_art_hook_over_every_row(monkeypatch):
+    # the live task table is process-wide; another test in the same worker
+    # can leave a task in it, so this one reads an empty table of its own
+    monkeypatch.setattr(st, 'download_tasks', {})
+    monkeypatch.setattr(st, 'download_batches', {})
     seen = []
 
     def hook(items):
