@@ -136,14 +136,16 @@ describe('the radio cards', () => {
 });
 
 describe('Custom…', () => {
-  it('starts from the accent in use, so choosing it changes nothing you can see', () => {
+  it('starts from the accent in use, and changes nothing until another hex passes', () => {
     start('#8b5cf6');
     radio('Custom').click();
     expect(customGroup().hidden).toBe(false);
+    expect(checked()).toEqual([radio('Custom')]);
     expect(hexField().value).toBe('#8b5cf6');
-    expect(select().value).toBe('custom');
-    expect(store().value).toBe('#8b5cf6');
     expect(check()).toHaveTextContent('Dark text on its light shade, #c2a9fa, is 9.7:1');
+    expect(select().value).toBe('#8b5cf6');
+    expect(applied).toEqual([]);
+    expect(changes).toBe(0);
   });
 
   it('uses and saves a hex that passes as it’s typed', () => {
@@ -174,11 +176,12 @@ describe('Custom…', () => {
     );
     expect(applied.length).toBe(before);
     expect(changes).toBe(savesBefore);
-    expect(store().value).toBe('#8b5cf6');
+    expect(select().value).toBe('#8b5cf6');
+    expect(store().value).toBe('#1db954');
 
     const offer = check().querySelector('button')!;
     expect(offer).toHaveTextContent('Use Ocean Blue instead');
-    expect(check()).toHaveTextContent('Your accent stays #8b5cf6.');
+    expect(check()).toHaveTextContent('Your accent stays Lilac.');
     // leaving the field to click the offer must not redraw it away
     hexField().dispatchEvent(new Event('blur'));
     expect(check().querySelector('button')).toBe(offer);

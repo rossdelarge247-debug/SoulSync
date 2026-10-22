@@ -338,11 +338,12 @@ function choose(e: Els, value: string): void {
   if (value === CUSTOM_ACCENT) {
     customChosen = true;
     e.custom.hidden = false;
-    // start from the accent in use, so picking Custom never changes the
-    // colour by itself
+    // start from the accent in use: picking Custom changes nothing by
+    // itself; the first different hex that passes does
     const start = appliedHex(e);
     e.hex.value = start;
-    evaluate(e, start, { commit: true, final: true });
+    if (e.picker) e.picker.value = start;
+    evaluate(e, start, { commit: false, final: true });
     syncCards(e);
     return;
   }
