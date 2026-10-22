@@ -2504,6 +2504,9 @@ function npv2SetTheme(id, opts) {
     NPV2.theme = next;
     NPV2.vizLastCycle = NPV2.vizT; // autocycle restarts from a manual change
     npv2SetG('theme', next);
+    // Off hides the canvas, so every other visual has to show it again: a
+    // saved Off left it display:none and every visual picked after it was black
+    npv2SyncBgCanvas();
     try {
         document.querySelectorAll('#np-v2-theme-grid [data-theme]').forEach((b) => {
             b.classList.toggle('selected', b.getAttribute('data-theme') === next);
@@ -2527,12 +2530,20 @@ function npv2CycleTheme(skipOff) {
     npv2SetTheme(ids[idx]);
 }
 
-function npv2SetBgOn(on) {
-    NPV2.bgOn = !!on;
-    npv2SetG('bg', NPV2.bgOn ? '1' : '0');
+// The visuals canvas shows only while it has something to paint: the
+// background is on and the visual isn't Off. Called whenever either changes.
+function npv2SyncBgCanvas() {
     try {
         const c = document.getElementById('np-v2-bg');
         if (c) c.style.display = NPV2.bgOn && NPV2.theme !== 'none' ? '' : 'none';
+    } catch (e) {}
+}
+
+function npv2SetBgOn(on) {
+    NPV2.bgOn = !!on;
+    npv2SetG('bg', NPV2.bgOn ? '1' : '0');
+    npv2SyncBgCanvas();
+    try {
         const t = document.getElementById('np-v2-bg-toggle');
         if (t) { t.checked = NPV2.bgOn; }
     } catch (e) {}

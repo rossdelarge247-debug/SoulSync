@@ -1975,3 +1975,97 @@ describe('the player chrome (board 6a) over the theater', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// A saved "Off" must not leave the visuals black. Off hides #np-v2-bg; with
+// the theater's "Animated background" switch gone (build c) nothing showed it
+// again, so opening the visuals (which moves Off to Aurora) and picking any
+// visual from the panel drew onto a hidden canvas: a black screen.
+// ---------------------------------------------------------------------------
+
+describe('the visuals canvas follows the picked visual', () => {
+  const build = (saved: { theme: string; bg: string }) => {
+    document.body.innerHTML = `
+      <div class="np-modal-overlay hidden" id="np-modal-overlay">
+        <div class="np-modal npv2-visuals-on">
+          <canvas id="np-v2-bg"></canvas>
+          <button id="np-v2-visuals-exit"></button>
+          <div id="np-v2-theme-grid">
+            <button data-theme="aurora"></button><button data-theme="barscope"></button><button data-theme="none"></button>
+          </div>
+        </div>
+      </div>`;
+    const store: Record<string, string> = { theme: saved.theme, bg: saved.bg };
+    const run = new Function(
+      'STORE',
+      [
+        extractConst('NPV2', v2),
+        'const npv2GetG = (n, f) => (n in STORE ? STORE[n] : f);',
+        'const npv2SetG = (n, v) => { STORE[n] = String(v); };',
+        'function npv2Buffer() { return null; }',
+        'function npv2Toast() {}',
+        'function npv2SyncVisualBtn() {}',
+        'function npv2SyncVisualsHeader() {}',
+        'function npv2MiniKick() {}',
+        'function npv2VizStart() {}',
+        'function npv2VisualsWakeUI() {}',
+        'function npv2VisualsClearIdle() {}',
+        'function npv2CloseVisualsPanel() {}',
+        'function npv2ToggleVisualsDrawer() {}',
+        'let npv2VisualsOpener = null;',
+        extractFunction('npv2ThemeList', v2),
+        extractFunction('npv2ThemeIds', v2),
+        extractFunction('npv2ModalOpen', v2),
+        extractFunction('npv2SyncBgCanvas', v2),
+        extractFunction('npv2SetBgOn', v2),
+        extractFunction('npv2SetTheme', v2),
+        extractFunction('npv2SetVisualsMode', v2),
+        "NPV2.theme = npv2ThemeIds().indexOf(npv2GetG('theme', 'aurora')) >= 0 ? npv2GetG('theme', 'aurora') : 'aurora';",
+        "NPV2.bgOn = npv2GetG('bg', '1') !== '0';",
+        'npv2SetBgOn(NPV2.bgOn);',
+        'return { NPV2, npv2SetTheme, npv2SetVisualsMode };',
+      ].join('\n'),
+    );
+    const canvas = document.getElementById('np-v2-bg') as HTMLCanvasElement;
+    return { api: run(store) as any, canvas, store };
+  };
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('a saved Off: opening the visuals shows the canvas again', () => {
+    const { api, canvas } = build({ theme: 'none', bg: '1' });
+    expect(canvas.style.display).toBe('none'); // Off, before the visuals open
+    api.npv2SetVisualsMode(true);
+    expect(api.NPV2.theme).toBe('aurora');
+    expect(canvas.style.display).not.toBe('none');
+  });
+
+  it('a saved Off: every visual picked from the panel is shown', () => {
+    const { api, canvas } = build({ theme: 'none', bg: '1' });
+    api.npv2SetVisualsMode(true);
+    for (const id of ['barscope', 'scope', 'plasma']) {
+      api.npv2SetTheme(id);
+      expect(api.NPV2.theme).toBe(id);
+      expect(canvas.style.display).not.toBe('none');
+    }
+  });
+
+  it('the old background switch saved off, with Off: still shown once open', () => {
+    const { api, canvas, store } = build({ theme: 'none', bg: '0' });
+    api.npv2SetVisualsMode(true);
+    api.npv2SetTheme('barscope');
+    expect(canvas.style.display).not.toBe('none');
+    expect(store.bg).toBe('1');
+  });
+
+  it('picking Off hides the canvas, and the next visual shows it', () => {
+    const { api, canvas } = build({ theme: 'aurora', bg: '1' });
+    api.npv2SetVisualsMode(true);
+    api.npv2SetTheme('none');
+    expect(canvas.style.display).toBe('none');
+    api.npv2SetTheme('barscope');
+    expect(canvas.style.display).not.toBe('none');
+  });
+});
