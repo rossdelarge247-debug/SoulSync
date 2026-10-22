@@ -50,8 +50,10 @@ class WatchedCleanupJob(VideoRepairJob):
     description = "Flags watched (and optionally long-unwatched) movies to reclaim disk."
     help_text = ("The Maintainerr rule, SoulSync-style: movies you've watched and left "
                  "sitting are flagged once the last watch is old enough; approving moves "
-                 "the file into the recycle bin (Settings → Library Organization) — never "
-                 "a hard delete — and the weekly deep scan tidies the server view. "
+                 "the file into the recycle bin (Settings → Library Organization), or "
+                 "deletes it for good if you turned recycling off, and the weekly deep "
+                 "scan tidies the server view. Approving several at once shows the list "
+                 "of files and what happens to each first, and acts when you confirm. "
                  "Optionally flag never-watched movies that have gathered dust. Dismissed "
                  "movies are never re-flagged. Note: if a list collection wishlists its "
                  "missing members, a cleaned movie can be re-acquired by it.")

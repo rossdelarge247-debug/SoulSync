@@ -15,6 +15,7 @@ Per-job config lives in the video settings table (not the JSON config file):
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from typing import Callable, Optional
@@ -24,6 +25,29 @@ from core.video.repair.base import JobCancelled, JobContext, JobResult
 from utils.logging_config import get_logger
 
 logger = get_logger("video.repair")
+
+# Fixing these moves or deletes the user's files: Watched Cleanup recycles (or,
+# with recycling off, deletes) the movie's files and Naming Conformance renames
+# them. A bulk run that includes either must come with a confirmed preview
+# (core.library.action_plans), like the music side's DESTRUCTIVE_FINDING_TYPES.
+# Every other fix only changes the wishlist, the library record or the download
+# queue, and still runs straight away.
+FILE_TOUCHING_FINDING_TYPES = frozenset({"watched_cleanup", "naming_mismatch"})
+
+# Action-plan tool name for a confirmed video bulk fix.
+VIDEO_REPAIR_BULK_FIX_TOOL = "video_repair_bulk_fix"
+
+# What each other fix does, in plain words, for the preview's "What happens".
+_PLAIN_EFFECTS = {
+    "missing_episodes": "Adds the missing episodes to the wishlist",
+    "incomplete_collection": "Adds the missing films to the wishlist",
+    "quality_upgrade": "Searches for a better copy and queues it. The current file stays until the better one is imported",
+    "broken_file": "Searches for a new copy and queues it",
+    "metadata_gap": "Re-queues the details and artwork",
+    "stale_wishlist": "Removes the entry from the wishlist",
+    "youtube_mass_missing": "Raises a finding for each missing video",
+    "missing_subtitles": "Queues the missing subtitles",
+}
 
 _MASTER_KEY = "video_repair.master_enabled"
 _JOB_KEY = "video_repair.jobs.%s"
@@ -299,13 +323,134 @@ class VideoRepairWorker:
         status = "dismissed" if action == "dismiss" else "resolved"
         return self.db.repair_bulk_update_findings(ids, status)
 
-    def bulk_fix_findings(self, job_id=None, severity=None, ids=None, fix_action=None) -> dict:
+    def _bulk_targets(self, job_id=None, severity=None, ids=None) -> list:
+        """The pending findings a bulk fix with these filters acts on: the
+        chosen ids, or the first 200 pending of a job / severity."""
         if ids:
             targets = [self.db.repair_get_finding(i) for i in ids]
-            targets = [t for t in targets if t and t["status"] == "pending"]
-        else:
-            targets = self.db.repair_get_findings(job_id=job_id, status="pending",
-                                                  severity=severity, limit=200)["items"]
+            return [t for t in targets if t and t["status"] == "pending"]
+        return self.db.repair_get_findings(job_id=job_id, status="pending",
+                                           severity=severity, limit=200)["items"]
+
+    # ── preview, then confirm, for bulk fixes that move or delete files ──────
+    def _fix_effect(self, finding: dict, fix_action, settings: dict, base_dirs) -> dict:
+        """What fixing one finding would do: ``effect`` (a sentence),
+        ``effect_kind`` (move / recycle / delete / library / write / none),
+        the file it touches and its size. Reads only; mirrors the fixers."""
+        ftype = finding.get("finding_type") or ""
+        d = finding.get("details") or {}
+        if ftype == "watched_cleanup":
+            return self._watched_cleanup_effect(d, settings, base_dirs)
+        if ftype == "naming_mismatch":
+            want = os.path.basename(str(d.get("expected_path") or "")) or "the template's name"
+            return {"effect": f"Renames the file to {want}, with its sidecars. Nothing is deleted",
+                    "effect_kind": "move", "path": d.get("current_path") or "",
+                    "size": int(d.get("size_bytes") or 0)}
+        if ftype == "youtube_ghost":
+            text = ("Forgets the download record, so the video can be fetched again"
+                    if fix_action == "forget" else "Marks the download as deleted in your history")
+            return {"effect": text, "effect_kind": "library", "path": "", "size": 0}
+        if ftype in ("duplicate_movie", "duplicate_episode"):
+            return {"effect": "Nothing: choose the copy to keep by hand", "effect_kind": "none",
+                    "path": "", "size": 0}
+        return {"effect": _PLAIN_EFFECTS.get(ftype, "Applies the fix"), "effect_kind": "write",
+                "path": "", "size": 0}
+
+    def _watched_cleanup_effect(self, d: dict, settings: dict, base_dirs) -> dict:
+        from core.video import recycle
+        from core.video.path_resolver import resolve_video_file_path
+        files = []
+        if d.get("movie_id") is not None:
+            try:
+                files = self.db.movie_file_paths(d["movie_id"]) or []
+            except Exception:   # noqa: BLE001 - the finding's own path still says enough
+                files = []
+        if not files and d.get("relative_path"):
+            files = [{"relative_path": d["relative_path"], "size_bytes": d.get("size_bytes")}]
+        located = []
+        for f in files:
+            real = resolve_video_file_path(f.get("relative_path"), base_dirs,
+                                           size_bytes=f.get("size_bytes"))
+            if real:
+                located.append((real, int(f.get("size_bytes") or 0)))
+        what = "file" if len(located) <= 1 else f"{len(located)} files"
+        if not located:
+            return {"effect": "Can't find the file on disk, so nothing is deleted and this fix fails",
+                    "effect_kind": "none", "path": d.get("relative_path") or "",
+                    "size": int(d.get("size_bytes") or 0)}
+        size = sum(s for _p, s in located)
+        if not settings.get("recycle_deletes", True):
+            return {"effect": (f"Deletes the movie's {what} permanently (recycling is off) and "
+                               "marks the movie as not in your library"),
+                    "effect_kind": "delete", "path": located[0][0], "size": size}
+        if any(recycle.trash_dir_for(p, settings, self.db) is None for p, _s in located):
+            return {"effect": (f"Deletes the movie's {what} permanently: it is outside every "
+                               "library folder, so it can't go to the recycle bin"),
+                    "effect_kind": "delete", "path": located[0][0], "size": size}
+        return {"effect": (f"Moves the movie's {what} to the recycle bin and marks the movie "
+                           "as not in your library"),
+                "effect_kind": "recycle", "path": located[0][0], "size": size}
+
+    def preview_bulk_fix(self, job_id=None, severity=None, ids=None, fix_action=None) -> dict:
+        """What a bulk fix with these filters WOULD do, finding by finding,
+        recorded as a plan. Changes nothing.
+
+        Returns the plan summary (``plan_id``, ``total``, ``sample`` items with
+        ``path`` / ``reason`` / ``effect`` / ``effect_kind``) plus
+        ``destructive`` (how many move or delete a file), ``by_effect``,
+        ``per_type`` and ``recycle_deletes``. ``total == 0`` and no plan id
+        when nothing matches."""
+        from core.library.action_plans import plan_store
+        from core.video import organization
+        from core.video.path_resolver import video_base_dirs
+        targets = self._bulk_targets(job_id=job_id, severity=severity, ids=ids)
+        settings = organization.load(self.db)
+        recycle_on = bool(settings.get("recycle_deletes", True))
+        base_dirs = video_base_dirs(self.db) if any(
+            t.get("finding_type") == "watched_cleanup" for t in targets) else []
+        items = []
+        for f in targets:
+            ftype = f.get("finding_type") or ""
+            effect = self._fix_effect(f, fix_action, settings, base_dirs)
+            items.append({
+                "finding_id": f["id"], "finding_type": ftype,
+                "path": effect["path"], "size": effect["size"],
+                "action": fix_action or "fix", "reason": f.get("title") or ftype,
+                "effect": effect["effect"], "effect_kind": effect["effect_kind"],
+                "destructive": effect["effect_kind"] in ("move", "recycle", "delete"),
+            })
+        if not items:
+            return {"total": 0, "plan_id": None, "destructive": 0, "per_type": {}, "by_effect": {},
+                    "recycle_deletes": recycle_on, "counts": {}, "by_reason": {}, "sample": [],
+                    "truncated": False}
+        plan = plan_store.create(VIDEO_REPAIR_BULK_FIX_TOOL, items, meta={
+            "ids": [i["finding_id"] for i in items], "fix_action": fix_action})
+        summary = plan.summary()
+        per_type: dict = {}
+        by_effect: dict = {}
+        for item in items:
+            per_type[item["finding_type"]] = per_type.get(item["finding_type"], 0) + 1
+            by_effect[item["effect_kind"]] = by_effect.get(item["effect_kind"], 0) + 1
+        summary.update(per_type=per_type, by_effect=by_effect, recycle_deletes=recycle_on,
+                       destructive=sum(1 for i in items if i["destructive"]))
+        return summary
+
+    def bulk_fix_needs_plan(self, job_id=None, severity=None, ids=None) -> bool:
+        """True when this selection includes a fix that moves or deletes
+        files, so a bulk run of it must come with a confirmed preview."""
+        return any(t.get("finding_type") in FILE_TOUCHING_FINDING_TYPES
+                   for t in self._bulk_targets(job_id=job_id, severity=severity, ids=ids))
+
+    @staticmethod
+    def consume_bulk_fix_plan(plan_id) -> dict:
+        """The finding ids and action a confirmed preview authorised. Raises
+        ``PlanError`` for a missing / used / expired / other tool's plan."""
+        from core.library.action_plans import plan_store
+        plan = plan_store.consume(plan_id, VIDEO_REPAIR_BULK_FIX_TOOL)
+        return {"ids": list(plan.meta.get("ids") or []), "fix_action": plan.meta.get("fix_action")}
+
+    def bulk_fix_findings(self, job_id=None, severity=None, ids=None, fix_action=None) -> dict:
+        targets = self._bulk_targets(job_id=job_id, severity=severity, ids=ids)
         fixed, failed, errors = 0, 0, []
         for f in targets:
             res = self.fix_finding(f["id"], fix_action)

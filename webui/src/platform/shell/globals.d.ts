@@ -60,6 +60,20 @@ declare global {
       target: { kind: 'quarantine' } | { kind: 'recycle-bin'; ids?: string[] },
       onDone?: () => void,
     ) => Promise<void>;
+    /**
+     * The preview-then-confirm dialog for Video Library Maintenance's bulk fix
+     * (features/safe-action/video-repair-fix-flow). The legacy video Tools page
+     * opens it for "Approve" over the ticked findings.
+     */
+    openVideoRepairBulkFix?: (
+      options: {
+        ids?: number[];
+        jobId?: string;
+        severity?: string;
+        fixAction?: string;
+      },
+      onDone?: () => void,
+    ) => Promise<void>;
     /** The candidate inspector for a download task (features/downloads/inspector-modal). */
     openDownloadTaskInspector?: (
       taskId: string,

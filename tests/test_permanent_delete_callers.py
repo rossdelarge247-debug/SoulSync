@@ -73,3 +73,11 @@ def test_only_the_shared_flows_post_a_bulk_fix():
             offenders.append(str(path.relative_to(_ROOT)))
     assert not offenders, "posts a bulk fix outside the plan flows:\n  " + "\n  ".join(offenders)
 
+
+def test_the_video_tools_page_opens_the_shared_dialog_for_approve_selected():
+    src = (_WEBUI / "static" / "video" / "video-repair.js").read_text(encoding="utf-8")
+    start = src.index("data-video-repair-bulk') === 'fix'")
+    body = src[start:src.index("} else {", start)]
+    assert "window.openVideoRepairBulkFix" in body
+    assert "jsend(" not in body
+

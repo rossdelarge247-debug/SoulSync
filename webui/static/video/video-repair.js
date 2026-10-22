@@ -1110,12 +1110,18 @@
                 var ids = Object.keys(state.selected).map(Number);
                 if (!ids.length) return;
                 if (bulk.getAttribute('data-video-repair-bulk') === 'fix') {
-                    jsend(API + '/findings/bulk-fix', { ids: ids }).then(function (res) {
-                        var b = res.body || {};
-                        toast('Approved ' + (b.fixed || 0) + (b.failed ? ', ' + b.failed + ' failed' : ''),
-                            b.failed ? 'warning' : 'success');
-                        loadFindings(); loadStatus();
-                    });
+                    // Preview, then confirm: Watched Cleanup and Naming move or
+                    // delete files, so the shared dialog (features/safe-action/
+                    // video-repair-fix-flow) lists what happens to each finding
+                    // and fixes only that plan. A selection that just touches
+                    // the wishlist or the library runs straight away there.
+                    if (typeof window.openVideoRepairBulkFix === 'function') {
+                        window.openVideoRepairBulkFix({ ids: ids }, function () {
+                            loadFindings(); loadStatus();
+                        });
+                    } else {
+                        toast('Could not open the preview. Reload the page and try again.', 'error');
+                    }
                 } else {
                     jsend(API + '/findings/bulk', { ids: ids, action: 'dismiss' }).then(function () {
                         loadFindings(); loadStatus();
