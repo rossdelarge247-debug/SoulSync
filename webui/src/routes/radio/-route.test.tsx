@@ -434,4 +434,73 @@ describe('the Radio pages', () => {
     await screen.findByRole('heading', { level: 1, name: 'Radio' });
     expect(screen.queryByRole('button', { name: 'Add a stream link' })).toBeNull();
   });
+  it('tags a station without a now-playing feed "Identified while you listen" (HANDOFF 53)', async () => {
+    mockApi();
+    const quiet = station('link-2', 'Cashmere Radio', { has_now_playing: false });
+    server.use(
+      http.get('/api/radio/stations', () =>
+        HttpResponse.json({
+          success: true,
+          favourites: [NTS, quiet],
+          kinds: [],
+          heard_count: 0,
+          session: null,
+          identification: true,
+          is_admin: true,
+        }),
+      ),
+    );
+    renderAt('/radio');
+    const favourites = await screen.findByRole('region', { name: 'Favourites' });
+    const cards = within(favourites).getAllByTestId('station-card');
+    expect(within(cards[1]!).getByText('Identified while you listen')).toBeInTheDocument();
+    // a station with a feed doesn't carry it
+    expect(within(cards[0]!).queryByText('Identified while you listen')).toBeNull();
+  });
+
+  it('the auto-add card’s heading carries the same tag, and the sentence stays', async () => {
+    mockApi();
+    server.use(
+      http.get('/api/radio/stations/nts-1', () =>
+        HttpResponse.json({
+          success: true,
+          station: { ...NTS, has_now_playing: false },
+          now_playing: null,
+          session: null,
+          heard_today: { identified: 0, not_identified: 0 },
+          identification: true,
+          is_admin: true,
+          can_download: true,
+        }),
+      ),
+    );
+    renderAt('/radio/station/nts-1');
+    const title = await screen.findByRole('heading', {
+      level: 2,
+      name: 'Auto-add what NTS 1 plays to Wanted',
+    });
+    expect(
+      within(title.parentElement!).getByText('Identified while you listen'),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /This station has no now-playing feed, so it adds only while someone listens\./,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('points to nts.live while there are no tracklists yet (HANDOFF 56)', async () => {
+    mockApi();
+    server.use(
+      http.get('/api/radio/stations/nts-1/shows', () =>
+        HttpResponse.json({ success: true, publishes: true, shows: [] }),
+      ),
+    );
+    renderAt('/radio/station/nts-1');
+    const link = await screen.findByRole('link', { name: 'nts.live' });
+    expect(link).toHaveAttribute('href', 'https://www.nts.live');
+    expect(link.parentElement).toHaveTextContent(
+      'No tracklists yet. They appear after SYNCHRO.S sees a show on NTS live. Until then, nts.live has them.',
+    );
+  });
 });

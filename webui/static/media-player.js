@@ -3623,6 +3623,7 @@ window.SoulSyncPlayer = {
             radio: npRadioMode,
             autoDownload: npAutoDownloadQueue,
             crossfade: npCrossfadeOn,
+            crossfadeSeconds: npCrossfadeSeconds(),
             context: npPlayContext,
             volume: npVolumePercent,
             muted: npMuted,

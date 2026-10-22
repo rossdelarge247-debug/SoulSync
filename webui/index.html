@@ -313,7 +313,7 @@
                     aria-label="Collapse navigation" title="Collapse navigation" aria-expanded="true">
                     <span class="ss-wordmark-name" role="img" aria-label="SYNCHRO.S">SYNCHRO.S</span>
                     <span class="ss-wordmark-version">v{{ soulsync_base_version }}</span>
-                    <span class="ss-monogram" aria-hidden="true">SS</span>
+                    <span class="ss-monogram" aria-hidden="true">S</span>
                     <svg class="ss-wordmark-chevrons" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg>
                 </button>
             </div>
@@ -566,10 +566,6 @@
                             <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
                             <span class="ss-label">What&rsquo;s new</span>
                             <span class="version-button">v{{ soulsync_base_version }}</span>
-                        </button>
-                        <button type="button" class="ss-item" onclick="showSupportModal()">
-                            <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><path d="M6 1v3M10 1v3M14 1v3"/></svg>
-                            <span class="ss-label">Support SoulSync</span>
                         </button>
                     </div>
                 </div>
@@ -10628,10 +10624,12 @@
                                         someone is listening.</p>
                                     <div class="radio-field">
                                         <label class="radio-label" for="radio-relay">Relay</label>
-                                        <select id="radio-relay" class="radio-input radio-select">
+                                        <select id="radio-relay" class="radio-input radio-select" aria-describedby="radio-relay-help">
                                             <option value="when_needed">Only when a browser can't play the stream itself</option>
                                             <option value="always">Always, so the server reads every stream's track names</option>
                                         </select>
+                                        <!-- HANDOFF 54: what a relay costs -->
+                                        <p class="radio-help" id="radio-relay-help">Each relayed station holds one of the server's 8 threads; two at a time.</p>
                                     </div>
                                     <label class="radio-check">
                                         <input type="checkbox" id="radio-prefer-lossless">
@@ -10862,6 +10860,14 @@
                         </div>
                         <div class="docs-nav" id="docs-nav">
                             <!-- Populated by JS -->
+                        </div>
+                        <!-- HANDOFF 57: the support goes to upstream's maintainer, so it lives
+                             here rather than in the sidebar; same modal (settings.js). -->
+                        <div class="docs-sidebar-foot">
+                            <button type="button" class="docs-support-row" id="docs-support-row" onclick="showSupportModal()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><path d="M6 1v3M10 1v3M14 1v3"/></svg>
+                                <span>Support upstream SoulSync</span>
+                            </button>
                         </div>
                     </nav>
                     <main class="docs-content" id="docs-content">
@@ -12395,7 +12401,12 @@
                     <svg class="ss-player-art-fallback" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                 </span>
                 <span class="ss-player-now-text">
-                    <span class="ss-player-title" data-player-title>No track</span>
+                    <!-- radio: Live sits beside the station's name; it describes the
+                         station, not the track (HANDOFF 49) -->
+                    <span class="ss-player-title-row">
+                        <span class="ss-player-title" data-player-title>No track</span>
+                        <span class="ss-player-live-tag" data-player-live hidden><span class="ss-player-live-dot" aria-hidden="true"></span>Live</span>
+                    </span>
                     <span class="ss-player-meta" data-player-meta></span>
                 </span>
             </button>
@@ -12415,7 +12426,6 @@
                 <button type="button" class="ss-player-btn ss-player-skip" data-player-action="forward" aria-label="Forward 30 seconds" hidden>+30 s</button>
                 <span class="ss-player-time" data-player-elapsed>0:00</span>
                 <div class="ss-player-wave" data-player-wave role="slider" tabindex="0" aria-label="Position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></div>
-                <span class="ss-player-live-tag" data-player-live hidden><span class="ss-player-live-dot" aria-hidden="true"></span>Live</span>
                 <div class="ss-player-meter" data-player-meter aria-hidden="true" hidden></div>
                 <span class="ss-player-time ss-player-time--total" data-player-total>0:00</span>
                 <button type="button" class="ss-player-btn ss-player-speed" data-player-action="speed" aria-haspopup="true" aria-expanded="false" hidden>1×</button>
@@ -12505,10 +12515,21 @@
                     <div><dt>Format</dt><dd data-player-format>—</dd></div>
                     <div><dt>Path</dt><dd data-player-path>—</dd></div>
                 </dl>
+                <!-- the quality line, then the record's control row (HANDOFF 47, board 9d) -->
                 <div class="ss-player-record-tags">
                     <span class="ss-player-tag" data-player-quality hidden></span>
                     <a class="ss-player-link" data-player-album href="#" hidden>Open album</a>
-                    <button type="button" class="ss-player-btn ss-player-more" data-player-more aria-haspopup="true" aria-expanded="false" aria-controls="ss-player-menu" aria-label="More">
+                </div>
+                <div class="ss-player-record-controls">
+                    <button type="button" class="ss-player-btn ss-player-btn--outline" data-player-record="playlist" aria-label="Add to playlist" title="Add to playlist" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h12M3 12h12M3 18h7M18 14v6M15 17h6"/></svg>
+                    </button>
+                    <button type="button" class="ss-player-btn ss-player-btn--outline ss-player-sleep" data-player-sleep aria-haspopup="true" aria-expanded="false" aria-controls="ss-player-sleep-menu" aria-pressed="false" aria-label="Sleep timer" title="Sleep timer">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+                        <span class="ss-player-sleep-left" data-player-sleep-left hidden></span>
+                    </button>
+                    <span class="ss-player-spacer"></span>
+                    <button type="button" class="ss-player-btn ss-player-btn--outline ss-player-more" data-player-more aria-haspopup="true" aria-expanded="false" aria-controls="ss-player-menu" aria-label="More">
                         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
                     </button>
                 </div>
@@ -12708,30 +12729,33 @@
         </div>
 
         <!-- the record's "…": everything the old Now Playing had beyond the board -->
+        <!-- the record's "…" (HANDOFF 47, board 9d): grouped Playback / Show / Queue,
+             then Player settings and Report a problem under a hairline. Values sit in
+             meta on the right; keys as kbd. Add to playlist and Sleep timer are the
+             record's own buttons now. -->
         <div class="ss-player-menu" id="ss-player-menu" role="group" aria-label="More for this track" hidden>
-            <p class="ss-player-menu-label">This track</p>
-            <button type="button" class="ss-player-menu-item" data-player-menu="playlist">Add to playlist…</button>
-            <button type="button" class="ss-player-menu-item" data-player-menu="report">Report a problem…</button>
+            <p class="ss-player-menu-label">Playback</p>
+            <button type="button" class="ss-player-menu-item" data-player-menu="crossfade" aria-pressed="false">Crossfade <span class="ss-player-menu-state" data-player-crossfade-state>Off</span></button>
+            <button type="button" class="ss-player-menu-item" data-player-menu="speed" aria-expanded="false" aria-controls="ss-player-speed-list">Speed <span class="ss-player-menu-state" data-player-speed-state>1.0×</span></button>
+            <div class="ss-player-choices" id="ss-player-speed-list" role="radiogroup" aria-label="Speed" hidden></div>
+            <button type="button" class="ss-player-menu-item" id="np-v2-eq-btn" aria-pressed="false">Equalizer <span class="ss-player-menu-state" data-player-eq-state>Off</span></button>
+            <button type="button" class="ss-player-menu-item" id="np-v2-ab-btn" aria-pressed="false">A–B loop <span class="ss-player-menu-state np-v2-ab-state">Off</span></button>
+            <button type="button" class="ss-player-menu-item" id="np-radio-btn" aria-pressed="false">Add similar tracks when the queue ends <span class="ss-player-menu-state" data-player-radio-state>Off</span></button>
+            <p class="ss-player-menu-label ss-player-menu-label--rule">Show</p>
             <button type="button" class="ss-player-menu-item" data-player-menu="lyrics">Lyrics <span class="ss-player-menu-state" data-player-lyrics-state></span></button>
             <button type="button" class="ss-player-menu-item" data-player-menu="details">Track details</button>
-            <p class="ss-player-menu-label">Playback</p>
-            <button type="button" class="ss-player-menu-item" data-player-menu="speed" aria-expanded="false" aria-controls="ss-player-speed-list">Speed <span class="ss-player-menu-state" data-player-speed-state>1×</span></button>
-            <div class="ss-player-choices" id="ss-player-speed-list" role="radiogroup" aria-label="Speed" hidden></div>
-            <button type="button" class="ss-player-menu-item" data-player-menu="sleep" aria-expanded="false" aria-controls="ss-player-sleep-list">Sleep timer <span class="ss-player-menu-state" data-player-sleep-state>Off</span></button>
-            <div class="ss-player-choices" id="ss-player-sleep-list" role="radiogroup" aria-label="Sleep timer" hidden></div>
-            <button type="button" class="ss-player-menu-item" data-player-menu="crossfade" aria-pressed="false">Crossfade library tracks</button>
-            <button type="button" class="ss-player-menu-item" id="np-v2-eq-btn" aria-pressed="false">Equalizer</button>
-            <button type="button" class="ss-player-menu-item" id="np-v2-ab-btn" aria-pressed="false">A–B loop <span class="ss-player-menu-state np-v2-ab-state">Off</span></button>
-            <p class="ss-player-menu-label">Queue</p>
-            <button type="button" class="ss-player-menu-item" id="np-radio-btn" aria-pressed="false">Add similar tracks when the queue ends</button>
-            <button type="button" class="ss-player-menu-item" id="np-autodownload-btn" aria-pressed="false">Download missing queue tracks</button>
+            <button type="button" class="ss-player-menu-item" data-player-menu="visuals" aria-keyshortcuts="F">Visuals <kbd class="ss-player-menu-kbd">F</kbd></button>
+            <button type="button" class="ss-player-menu-item" id="np-v2-shorts-btn" aria-keyshortcuts="?">Keyboard shortcuts <kbd class="ss-player-menu-kbd">?</kbd></button>
+            <p class="ss-player-menu-label ss-player-menu-label--rule">Queue</p>
             <button type="button" class="ss-player-menu-item" id="np-queue-clear-played">Clear played tracks</button>
-            <p class="ss-player-menu-label">Player</p>
-            <button type="button" class="ss-player-menu-item" data-player-menu="visuals">Visuals</button>
-            <button type="button" class="ss-player-menu-item" data-player-menu="settings">Player settings</button>
-            <button type="button" class="ss-player-menu-item" id="np-v2-shorts-btn">Keyboard shortcuts</button>
+            <button type="button" class="ss-player-menu-item" id="np-autodownload-btn" aria-pressed="false">Download missing queue tracks</button>
             <button type="button" class="ss-player-menu-item" data-player-menu="stop">Stop and clear the queue</button>
+            <div class="ss-player-menu-rule" role="separator"></div>
+            <button type="button" class="ss-player-menu-item" data-player-menu="settings">Player settings</button>
+            <button type="button" class="ss-player-menu-item" data-player-menu="report">Report a problem</button>
         </div>
+        <!-- the record's Sleep timer button opens this -->
+        <div class="ss-player-menu ss-player-menu--small" id="ss-player-sleep-menu" role="radiogroup" aria-label="Sleep timer" hidden></div>
 
         <!-- small pickers: speed (the spoken-word button) and the output -->
         <div class="ss-player-menu ss-player-menu--small" id="ss-player-speed-menu" role="radiogroup" aria-label="Speed" hidden></div>

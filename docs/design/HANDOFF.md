@@ -4,53 +4,69 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Questions 1–28 were answered in Design's session of 22 October (the log entry below has every answer). 29–33 came in with the upstream sync after that session read the repository, 34–36 with build (b) 37–40 with build (d), 41–48 with build (c), 49–56 with build (e), 57 with the rename to SYNCHRO.S and 58 with Scan now for radio, so they are still open. Answer on the canvas, naming the board, as before.
+Questions 1–28 were answered in Design's session of 22 October, and 29–57 in its evening pass (the README of the hand-off, "Build order for Dev, 22 October evening"). Phase 1 of that order is built (the log entry "Dev, evening phase 1" below says what changed for each). The ones still open are later phases or "later"; 58 is taken by the Scan now build; new questions start at 59. Answer on the canvas, naming the board, as before.
 
-**Upstream sync (no boards)**
-29. Home's "Finish setting up" card sits under Latest. Right place, or above Targets while setup is fresh?
-30. Upstream rebuilt the Downloads page (`/active-downloads`, music and video) in its own look: pill chips, 11–13px text, 30–32px buttons. Restyle it to the design system now, or draw it first?
-31. The first-run setup flow is upstream's full-screen React flow with its own look. Draw it in the design system?
-32. Wanted's nebula now groups artists by what's stuck and opens an artist panel beside the field (upstream's look, kept). Answer 9 says the nebula isn't coming back, but it was written before this version arrived: remove "Show as a nebula", or keep this one?
-33. The video side's Wishlist is upstream's React page with the old music Wishlist's look (an ambient gradient hero, pill chips). Draw the video side's version of Wanted?
+**Later phases of the evening build order (answered; not built yet)**
+32. Wanted's nebula: keep it, redrawn in the design system (board 9a). Phase 4.
+35. Accent per profile: a new per-profile setting, the admin's pick as the install default. Phase 2.
+36. An in-place "Follow…" dialog for all four kinds (board 9b). Phase 4.
+39. Per-profile usage in Settings → AI once everyone can use the Assistant. Phase 2.
+46. Remember podcast and audiobook progress, log their plays, a Kind filter on Listening history. Phase 2.
+51. The phone radio sheet's in-place auto-add confirm (board 9c). Phase 4.
+55. Real station logos (`logo_url`, fetched and cached by the server; letters as the fallback). Phase 2.
 
-**The Assistant and the block editor (build d; boards 3a–3l, 5a)**
-37. The panel's "New chat" sits in its header even on a phone, where the board shows only the title and close. Keep it there, or move it into the thread?
-38. A draft for an existing automation keeps the name on screen. Should the Assistant be able to rename it (the draft has a name), or is the name always yours?
-39. Usage is one figure for the whole install. Should Settings → AI break it down by profile once everyone can use the Assistant?
-40. The "/" menu's "Ask the Assistant" opens the panel with "Add a follow-up that …" in the box. Is that the right start, or should it send straight away with what was typed after "/"?
+**Later (Ross: not yet)**
+31. The first-run setup flow in the design system.
+33. The video side's Wanted.
 
-**Settings → Appearance and Following (build b; boards 5e, 5f)**
-34. Following: a podcast that doesn't download new episodes says "Not downloading", and an audiobook follow whose last check failed says "Check failed" (warning), because "Nothing new" would be untrue for both. Right words, or should they live in the latest column with one of answer 7's tags?
-35. 5f says "Yours only; each profile picks its own", but the accent is one setting for the whole install, set by an admin. Should each profile pick its own accent (a new per-profile setting, so members could change it too), or keep one accent and the board's line goes?
-36. "Follow…" opens the artist search in place, but takes you to Search, Podcasts or Audiobooks to follow a label, a podcast or an author. Draw an in-place follow for those three?
-
-**The player (build c; boards 6a, 4i, 4j)**
-41. 6a's open frame keeps the sidebar full height beside the tray, but the bar runs under the sidebar too, so the built tray does the same (one component that grows upwards). Should the open tray stop at the sidebar's edge instead?
-42. Recent (the listening history's plays from this player) replaced the old player's local History, which had a Clear. Recent has no Clear: clearing it would delete listening history. Is that right, or should Recent offer "Clear" that only hides what's there?
-43. The old mini player's glow in the cover's colours and its little visualizer bars went with it; the visuals now live only in the Visuals overlay. Bring a quiet visual back into the bar or the tray?
-44. 6a's queue rows show "artist · format". The old queue had no quality judgement and the built rows don't either: should a row below your target say so (it needs the details for every queued track)?
-45. On a phone the mini bar sits flush on the tab bar, as 4i draws it, with the page ending above it. 4j's sheet has Up next or Heard; the built sheet has Up next / Recent like the tray. Right, or should "Heard" wait for radio?
-46. Podcasts and audiobooks now play in the app's player (they keep playing across pages), but a podcast's progress still isn't remembered between visits and their plays don't go into the listening history. Should they?
-47. The "…" menu holds 16 rows. Is there anything you'd rather see in the record itself (Add to playlist, Sleep timer), or anything that can go?
-48. With nothing playing the bar isn't shown at all (the page gets the full height). 6a doesn't draw an empty state: keep it hidden, or show an empty bar ("Nothing playing")?
-
-**Internet radio (build e; boards 4a–4k, 5b–5d)**
-49. The radio bar keeps Live and the level meter in the centre, where the player's seam put them, beside the track and its one action; 4a puts Live beside the station's name and draws no meter. Keep, or move Live to the left and drop the meter from the bar?
-50. Radio has Stop and no Pause (4a draws only Stop). A paused relay keeps a server thread busy, so Stop is honest; is that right, or should Pause exist for direct streams?
-51. The phone sheet's auto-add switch turns it off at once, but turning it on takes you to the station's page for the confirm (4d asks first). Draw an in-sheet confirm instead?
-52. Heard on radio is per profile. Two profiles listening to the same station each get the rows; "Identified yesterday" on the confirm counts anyone's. Is per profile right for the list?
-53. A station without a now-playing feed can only be identified while someone listens (the server never opens the audio by itself), so its auto-add works only while you listen. The card says so in a sentence; draw something clearer?
-54. Settings → Radio's relay rule is a select under Streams ("Only when a browser can't play the stream itself" / "Always…"); 5b has no relay control. Right words and place?
-55. No station logos are fetched; tiles show letters. Would you like real logos (an https logo per station in the list), or keep the letters?
-56. NTS's tracklists list only shows SoulSync saw on NTS's live feed (while watching or listening), so a fresh install shows "No tracklists yet". Is that empty state enough, or should the card point to NTS's own site?
-
-**The name (no boards)**
-57. The sidebar's wordmark now shows the plain text "SYNCHRO.S" in the old wordmark style (screen readers get `aria-label="SYNCHRO.S"`). What treatment should it have: which font and weight, is the dot accented (the accent colour, a different glyph, a gap), and what does the compact rail's monogram become (it still says "SS")? Also: Admin and help's "Support SoulSync" row still names upstream, because the support goes to upstream's maintainer; keep it, or word it differently? A board for the wordmark at 256px and on the rail would settle it.
+**From evening phase 1 (no boards)**
+59. The web app manifest's `theme_color` is still `#1db954` (the old default accent), which colours an installed app's title bar on some systems. Should it become `#101010`, the tab icon's ground?
+60. 9d draws "Visuals V", but in the app V moves to the next visual and F opens the Visuals (the shortcuts list says so). The menu shows F. Right, or should both show?
+61. 8a draws Home's phone top bar with the name centred and Search and Activity on the right. The built bar keeps the shell's layout: the name sits where every page's name goes, after the back button, at 17/600 with the wordmark's 0.02em tracking. Centre it on Home only?
+62. 8a's note says the tab title is "SYNCHRO.S" on Home and "Wanted · SYNCHRO.S" on inner pages. The tab still reads "SYNCHRO.S - Music Sync & Manager" everywhere (nothing in Phase 1 asked for it, and the video side writes its own subtitle). Build it with the next shell change?
 
 **Scan now for radio (no board yet)**
 58. Scan now was built before it was drawn (log entry "Dev, Scan now for radio"). Please draw the Scan now button and its states properly: where it sits in the bar beside the one action (today a quiet 44px control after Add to Wanted, icon only under 1180px), in the phone sheet (full width under Add, with a result card above it) and as the strip at the foot of the station's Now playing card; Listening… (today "Capturing 10 seconds · 6 s left" with a thin progress bar, then "Identifying… · Asking AudD"); Identified (track, "Found by AudD · Scan now", Add to Wanted or the tag, Done); Not found ("Couldn’t identify this — DJ mixes and talk often can’t be."); Failed (the reason in words: a refused key, no requests left, too many requests, didn't answer); and disabled with its reason (nothing playing; no service set up). Also Settings → Radio's "Scan now services" card (three rows in the order a scan asks them, Test, Remove, this month's requests, the AudD and ACRCloud key fields). Should the result be told apart from what the station itself named, now that both can fill Now playing?
 
 ## Log
+
+### 2026-10-22: Dev, evening phase 1 (the name and the small answers)
+
+Built on `ux/evening-1` from `integration`, from Phase 1 of Design's "Build order for Dev, 22 October evening" (approved by Ross): the boards `Wordmark (SYNCHRO.S)` (8a) and `Follow-ups (nebula, follow, confirm, record)` (9d), and Design's answers to 29–57 where there's no board. No routes changed.
+
+**Per answer**
+
+- **57, the name (8a).** The sidebar's wordmark is plain text "SYNCHRO.S" in the system stack at 18/700 with 0.02em tracking, white, the dot a full stop (still `aria-label="SYNCHRO.S"`), the version in meta beside it; the row is still the compact-mode toggle with the chevrons at its right edge. The rail's monogram is a single "S" at 18/700 in the 48×44 button (no box around it any more). On a phone, Home's top bar shows "SYNCHRO.S" at 17/600 with the same tracking where the page name goes; every other page keeps its name, and wide screens keep "Home". `favicon.png`, `pwa-icon-192.png` and `pwa-icon-512.png` are redrawn as the white "S" on `#101010`, its glyph 18% of the tile's height in from top and bottom, at the same filenames and sizes. "Support SoulSync" left Admin and help; the Help page has "Support upstream SoulSync" pinned to the foot of its docs sidebar, opening the same modal (`showSupportModal()`). Code: `index.html`, `static/shell.css`, `static/docs.css`, `src/shell/nav-shell.ts` (`APP_NAME` in `nav-routes.ts`).
+- **30, Downloads.** `/active-downloads` (music and video) restyled through CSS only, as the last section of `static/downloads-premier.css`: the Music / Video switch and the count chips as OptionButtons (44px, 10px radius, 16% border, the selected wash), Button-sized controls (44px; the primary in accent-light with dark text; disabled neutral, never faded), tabs at 44px and 15/600 with an accent-light underline, 15/14 type, Wanted's row grid (72px rows, 12px 24px padding, 48px art at 6px), tags and states as StatusTags (colour at 12%, 8px dot, 6px radius, 14/600), the card wash on lists and the live strip, no gradient strip and no blurred art behind group heads. Nothing moved.
+- **37.** On a phone the Assistant sheet's header has New chat as a 44px icon button (the new-message glyph, `aria-label="New chat"`) between the title and close. The list's and the editor's panels keep the labelled button.
+- **38.** A draft card has a Name row: "Morning Wanted search (you can change it)" for a new automation, "Keeps your name" for one that exists (the editor of a saved automation, or a draft with an `automation_id`). Putting a draft in a new automation's editor fills the Name only when it's empty; a name you typed stays. An existing automation's name and group never change.
+- **40.** In the block editor, choosing Ask the Assistant from the "/" menu with words after "/" sends "Add a follow-up that …" at once (the panel opens on the answer, "from the / line"); a bare "/" opens the panel with "Add a follow-up that " in the box.
+- **44.** A queued library track whose details say it's below your target shows its format in `#fbbf24` on the row's meta line ("Saltmarsh · MP3 320"). The details come from the player's `GET /api/library/tracks/<id>/details`, asked only for rows that come into view (an IntersectionObserver), once per track per session; a redrawn queue is marked again from what's known. Code: `src/shell/player-queue-quality.ts`.
+- **47, the record (9d).** The quality line is the tag with Open album beside it; under it a control row: Add to playlist (44px outlined icon, hidden when the track can't go on a playlist), Sleep timer (icon only while off; the icon and the time left in tabular figures, "23 min" or "End of track", in the selected style while it runs; it opens its choices in a small menu) and "…" at the right end. The "…" menu is 280px on `#141416` with a 14px radius and the popover shadow, grouped under 12px headings: Playback (Crossfade · 4 s, Speed · 1.0×, Equalizer · Flat, A–B loop, Add similar tracks when the queue ends · Off), Show (Lyrics, Track details, Visuals `F`, Keyboard shortcuts `?`), Queue (Clear played tracks, Download missing queue tracks, Stop and clear the queue), a hairline, Player settings and Report a problem. Every action of the old menu is still reachable (the player's test lists them).
+- **49.** The radio bar's Live tag moved into the left button, beside the station's name; the level meter stays in the centre.
+- **53.** A station without a now-playing feed carries the neutral tag "Identified while you listen" on its station card (its own row under the name) and on the auto-add card's heading row; the card's sentence stays.
+- **54.** Settings → Radio has one meta line under the relay select: "Each relayed station holds one of the server's 8 threads; two at a time."
+- **56.** An NTS station with no tracklists yet says "No tracklists yet. They appear after SYNCHRO.S sees a show on NTS live. Until then, nts.live has them." with the link to https://www.nts.live. Other stations keep their sentence.
+- **No change, as answered:** 29 (the "Finish setting up" card stays under Latest), 34 (the two Following tags), 41 (the full-width tray), 42 (no Clear on Recent), 43 (no visual in the bar or tray), 45 (the phone sheet's Up next / Recent), 48 (no bar while nothing plays), 50 (Stop, no Pause, on radio), 52 (Heard per profile; "Identified yesterday" counts anyone's).
+
+**Decided by Dev (the boards don't show these; redraw where you'd do it differently)**
+
+1. **Visuals shows `F`, not `V`:** F opens the Visuals; V moves to the next visual (question 60).
+2. **Menu values:** Crossfade shows its length while on and "Off" while off; Equalizer the preset's name while on, "Off" while off; Add similar tracks "On" / "Off"; A–B loop keeps the state it showed before. Rows with a value no longer show the "On" badge. Download missing queue tracks has no value on the board, so it keeps the badge while on.
+3. **Speed** stays an expanding list inside the menu; the spoken-word "1.2×" button keeps its own picker.
+4. **Menu rows** follow 9d: primary white at 15/400 with 12px padding (they were 86% white at 15/500). Report a problem lost its "…", as on the board.
+5. **The record's gaps** are 10px (14 before) and the readout's padding 8/12, so the control row fits the 360px tray at 1440 and 1180.
+6. **"/" with words, before the first-use note:** the panel opens with the words in the box instead of sending, so nothing reaches the provider before the person has read what goes there.
+7. **The Help row** is pinned to the foot of the docs sidebar (it sat after the whole index, out of sight).
+8. **The below-target colour** comes with words for a screen reader (" · below your quality target") and a title, since colour alone isn't a status.
+9. **The tab and app icons** keep their sizes, the favicon's odd 314×341 included; the manifest's `theme_color` is unchanged (question 59).
+10. **Downloads:** the review and client sub-pages' own pieces that the answer didn't name (detail sheet, compare panel, selection bar) keep upstream's look beyond what the shared classes changed.
+
+**Questions for Design:** 59–62 in the list above.
+
+**Tests:** vitest: the full suite, 620 files and 11,285 tests, all pass; new tests for the wordmark and monogram, the Help row, the phone Home name (`nav-shell.test.ts`), the Downloads restyle (`src/test/downloads-restyle.test.ts`), the Assistant's phone New chat, the draft's name and the "/" line (`routes/automations/-route.test.tsx`), the record's control row, Sleep timer, the grouped menu and its values, Live beside the station (`player.test.ts`, `player-state.test.ts`), the queue's below-target marking (`player-queue-quality.test.ts`), the radio tag and NTS's empty state (`routes/radio/-route.test.tsx`) and the relay line (`radio-settings.test.ts`). `npm run check` has no errors, `tsc --noEmit` and `npm run build` are clean. Python: `tests/test_sidebar_collapse.py` (the monogram) and the 95 test files that read the web files changed: 2,337 pass; `ruff check` is clean.
+
+**Screenshots** (in the session scratchpad; not in the repo; the boards' renders beside them in `boards/`), 1440×900 unless noted: the sidebar head (cropped), the rail (cropped), the phone top bar on Home (390, cropped), Help with the support row (and 390 with the docs drawer open), the support modal from Help, Downloads (and 390), the record, the record's menu, the Sleep timer running with its choices, the phone sheet and its menu (390), the radio bar with Live beside the station and the station cards, a station without a feed (the auto-add tag), NTS's empty tracklists, Settings → Radio's relay line, the radio home (390), the Assistant sheet with the New chat icon (390), the list panel with a draft for a new automation, the editor with "Keeps your name", and the "/" line with words typed.
 
 ### 2026-10-22: Dev, Scan now for radio
 

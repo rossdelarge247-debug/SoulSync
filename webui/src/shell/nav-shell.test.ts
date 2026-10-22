@@ -938,20 +938,46 @@ describe('the markup', () => {
     expect(profile.querySelectorAll('button')).toHaveLength(1);
     expect(profile.querySelector('#profile-indicator-avatar')).not.toBeNull();
     expect(profile.querySelector('#profile-indicator-name')).not.toBeNull();
-    // Connections, What's new and Support live in Admin and help only
+    // Connections and What's new live in Admin and help only; Support moved to Help (57)
     const panel = $('#ss-admin-panel');
     expect(panel.querySelector('.ss-connections')).not.toBeNull();
     expect(panel.querySelector('.ss-version-row')).not.toBeNull();
-    expect(panel.textContent).toContain('Support SoulSync');
+    expect(document.getElementById('app-sidebar')!.textContent).not.toContain('Support');
+    expect(document.getElementById('app-sidebar')!.innerHTML).not.toContain('showSupportModal');
     expect(bottom.querySelectorAll('.ss-connections')).toHaveLength(
       panel.querySelectorAll('.ss-connections').length,
     );
   });
 
-  it('names the app SYNCHRO.S, with SS on the rail', () => {
+  it('names the app SYNCHRO.S, with a single S on the rail (8a)', () => {
     expect($('.ss-wordmark-name').textContent).toBe('SYNCHRO.S');
     expect($('.ss-wordmark-name').getAttribute('aria-label')).toBe('SYNCHRO.S');
-    expect($('.ss-monogram').textContent).toBe('SS');
+    expect($('.ss-monogram').textContent).toBe('S');
     expect(html).not.toContain('Sync.FM');
+  });
+
+  it('puts "Support upstream SoulSync" on the Help page, opening the same modal', () => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const row = doc.querySelector('#help-page #docs-support-row');
+    expect(row?.textContent?.trim()).toBe('Support upstream SoulSync');
+    expect(row?.getAttribute('onclick')).toBe('showSupportModal()');
+    expect(row?.tagName).toBe('BUTTON');
+  });
+
+  it('shows the name in the top bar on Home on a phone, and the page name elsewhere', () => {
+    phone(true);
+    start();
+    const name = $('#ss-page-name');
+    expect(name.textContent).toBe('SYNCHRO.S');
+    expect(name.classList.contains('ss-page-name--wordmark')).toBe(true);
+    shell!.markActive('search');
+    expect(name.textContent).toBe('Search');
+    expect(name.classList.contains('ss-page-name--wordmark')).toBe(false);
+  });
+
+  it('keeps "Home" in the top bar on Home on a wide screen', () => {
+    start();
+    expect($('#ss-page-name').textContent).toBe('Home');
+    expect($('#ss-page-name').classList.contains('ss-page-name--wordmark')).toBe(false);
   });
 });

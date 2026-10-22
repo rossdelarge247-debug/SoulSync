@@ -9,6 +9,7 @@ import {
   formatReadout,
   formatRemaining,
   formatSpeed,
+  formatSpeedValue,
   fractionAt,
   parseChapters,
   pathLabel,
@@ -19,6 +20,8 @@ import {
   readTrayState,
   seekStep,
   shortFormat,
+  sleepButtonLabel,
+  sleepButtonText,
   sleepChoiceLabel,
   sleepLabel,
   sourceLabel,
@@ -236,5 +239,24 @@ describe('the list and menus', () => {
     expect(timeAgo('2026-10-21 10:00:00', now)).toBe('yesterday');
     expect(timeAgo('2026-10-01 10:00:00', now)).toBe('1 Oct');
     expect(timeAgo(null, now)).toBe('');
+  });
+});
+
+describe('the record’s Sleep timer and the menu’s Speed (HANDOFF 47)', () => {
+  it('shows the time left only while it runs', () => {
+    const now = 1_000_000;
+    expect(sleepButtonText(0, 0, now)).toBe('');
+    expect(sleepButtonText('track', 0, now)).toBe('End of track');
+    expect(sleepButtonText(30, now + 23 * 60000 - 500, now)).toBe('23 min');
+    expect(sleepButtonLabel(0, 0, now)).toBe('Sleep timer, off');
+    expect(sleepButtonLabel(15, now + 60000, now)).toBe('Sleep timer, 1 minute left');
+    expect(sleepButtonLabel('track', 0, now)).toBe('Sleep timer, at the end of this track');
+  });
+
+  it('writes Speed with a decimal', () => {
+    expect(formatSpeedValue(1)).toBe('1.0×');
+    expect(formatSpeedValue(1.5)).toBe('1.5×');
+    expect(formatSpeedValue(1.25)).toBe('1.25×');
+    expect(formatSpeedValue(Number.NaN)).toBe('1.0×');
   });
 });

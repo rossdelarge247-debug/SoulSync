@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -146,5 +148,20 @@ describe('Settings → Radio', () => {
     limit.value = '20';
     limit.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(puts).toContainEqual({ daily_limit: 20 }));
+  });
+});
+
+describe('what a relay costs (HANDOFF 54)', () => {
+  it('says it in one meta line under the relay select, tied to it', () => {
+    const markup = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    const doc = new DOMParser().parseFromString(markup, 'text/html');
+    const select = doc.getElementById('radio-relay')!;
+    const help = doc.getElementById('radio-relay-help')!;
+    expect(select.getAttribute('aria-describedby')).toBe('radio-relay-help');
+    expect(help.classList.contains('radio-help')).toBe(true);
+    expect(help.textContent).toBe(
+      "Each relayed station holds one of the server's 8 threads; two at a time.",
+    );
+    expect(select.parentElement!.contains(help)).toBe(true);
   });
 });

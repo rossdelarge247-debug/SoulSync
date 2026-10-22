@@ -2411,3 +2411,276 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
+
+/* ══ Design system restyle (HANDOFF 30, Ross 2026-10-22) ═══════════════════
+   Upstream's Downloads page (music and video) restyled to DESIGN-SYSTEM.md
+   through CSS only, like Settings → Modules: 44px controls, OptionButton-style
+   chips and switches, 15/14 type, Wanted's row grid (48px art, 72px rows,
+   12px 24px padding) and status tags (colour at 12%, 8px dot, 6px radius).
+   No layout change beyond that. Everything above stays upstream's, so a sync
+   only has to keep these overrides last. */
+
+.adl-container {
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+/* surfaces: the card wash, no blurred art behind group heads */
+.dlc-list {
+    background: var(--ss-surface-card);
+    border: 1px solid var(--ss-surface-card-border);
+    border-radius: var(--ss-radius-card);
+}
+.dlc-wash { display: none; }
+
+/* the side switch (Music / Video): OptionButtons */
+.dlh-switch {
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+}
+.dlh-side {
+    min-height: 44px;
+    padding: 0 16px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text-secondary);
+    font-size: 15px;
+    font-weight: 500;
+    box-shadow: none;
+    transition: var(--ss-transition);
+}
+.dlh-side:hover { background: var(--ss-control-fill-hover); color: var(--ss-text); }
+.dlh-side-on,
+.dlh-side-on:hover {
+    background: var(--ss-selected-fill);
+    border-color: var(--ss-selected-border);
+    color: var(--ss-text);
+    box-shadow: none;
+}
+.dlh-side-live,
+.dlh-side-idle {
+    font-size: 13px;
+    font-weight: 600;
+}
+.dlh-side-live { color: rgb(var(--ss-accent-light-rgb)); }
+.dlh-side-idle { color: var(--ss-text-meta); }
+.dlh-side-live::before { width: 8px; height: 8px; box-shadow: none; }
+
+/* buttons: Button size lg */
+.dlc-btn {
+    height: 44px;
+    padding: 0 16px;
+    gap: 8px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
+    font-size: 15px;
+    font-weight: 500;
+    transition: var(--ss-transition);
+}
+.dlc-btn:hover { background: var(--ss-control-fill-hover); }
+.dlc-btn:active { opacity: var(--ss-pressed-opacity); }
+.dlc-btn:focus-visible,
+.dlc-icon-btn:focus-visible,
+.dlh-side:focus-visible,
+.dlh-chip:focus-visible,
+.dlh-tab:focus-visible {
+    outline: var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+}
+.dlc-btn:disabled,
+.dlc-btn[aria-disabled='true'] {
+    opacity: 1;
+    background: var(--ss-disabled-fill);
+    border-color: var(--ss-disabled-border);
+    color: var(--ss-disabled-text);
+}
+.dlc-btn-primary {
+    background: rgb(var(--ss-accent-light-rgb));
+    border-color: transparent;
+    color: var(--ss-text-on-accent);
+}
+.dlc-btn-primary:hover {
+    background: rgb(var(--ss-accent-light-rgb));
+    filter: none;
+    opacity: 0.92;
+}
+.dlc-btn-primary:active { opacity: var(--ss-pressed-opacity-primary); }
+.dlh-history { height: 44px; }
+.dlh-history-n { font-size: 13px; font-weight: 600; color: var(--ss-text-meta); }
+
+.dlc-icon-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--ss-radius-control);
+    color: var(--ss-text-secondary);
+    transition: var(--ss-transition);
+}
+.dlc-icon-btn:hover { background: var(--ss-hover-wash); color: var(--ss-text); }
+.dlh-more .dlc-more {
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--ss-control-border);
+    background: var(--ss-control-fill);
+}
+
+/* tabs and the count chips */
+.dlh-nav { border-bottom-color: var(--ss-hairline); }
+.dlh-tab {
+    min-height: 44px;
+    padding: 0 0 2px;
+    color: var(--ss-text-tertiary);
+    font-size: 15px;
+    font-weight: 600;
+}
+.dlh-tab:hover { color: var(--ss-text); }
+.dlh-tab-on { color: var(--ss-text); box-shadow: inset 0 -2px 0 rgb(var(--ss-accent-light-rgb)); }
+.dlh-badge {
+    padding: 1px 7px;
+    border-radius: var(--ss-radius-tag);
+    background: rgba(var(--ss-warning-rgb), 0.12);
+    color: var(--ss-warning);
+    font-size: 13px;
+    font-weight: 600;
+}
+.dlh-chips { gap: 8px; padding-bottom: 12px; }
+.dlh-chip {
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text-secondary);
+    font-size: 15px;
+    font-weight: 500;
+    transition: var(--ss-transition);
+}
+.dlh-chip:hover { background: var(--ss-control-fill-hover); color: var(--ss-text); }
+.dlh-chip b { font-size: 13px; font-weight: 600; color: var(--ss-text-meta); }
+.dlh-chip-on,
+.dlh-chip-on:hover {
+    background: var(--ss-selected-fill);
+    border-color: var(--ss-selected-border);
+    color: var(--ss-text);
+}
+.dlh-chip-on b { color: var(--ss-text-secondary); }
+.dlh-chip-zero { color: var(--ss-text-meta); }
+.dlh-chip-bad b { color: var(--ss-danger); }
+
+/* the live strip: a card, no gradient */
+.dlh-strip {
+    padding: 16px 24px;
+    border: 1px solid var(--ss-surface-card-border);
+    border-radius: var(--ss-radius-card);
+    background: var(--ss-surface-card);
+}
+.dlh-speed strong { font-size: 24px; font-weight: 700; }
+.dlh-speed span { font-size: 12px; color: var(--ss-text-meta); }
+.dlh-now-line,
+.dlh-legend { font-size: 14px; color: var(--ss-text-meta); }
+.dlh-now-line b { color: var(--ss-text); }
+
+/* group heads */
+.dlc-eyebrow { font-size: 12px; font-weight: 600; color: var(--ss-text-meta); }
+.dlc-gtitle { font-size: 16px; font-weight: 600; }
+.dlc-gyear { color: var(--ss-text-meta); }
+.dlc-gsub { font-size: 14px; color: var(--ss-text-meta); }
+.dlc-gart { width: 48px; height: 48px; border-radius: var(--ss-radius-tag); box-shadow: none; }
+.dlc-ghead { padding: 12px 24px; min-height: 72px; box-sizing: border-box; }
+.dlc-ghead:focus-visible,
+.dlc-row:focus-visible { box-shadow: none; outline: var(--ss-focus-ring); outline-offset: var(--ss-focus-offset-inset); }
+
+/* rows: Wanted's grid */
+.dlc-row {
+    min-height: 72px;
+    box-sizing: border-box;
+    gap: 16px;
+    padding: 12px 24px;
+    border-top-color: var(--ss-hairline);
+    transition: var(--ss-transition);
+}
+@media (min-width: 761px) {
+    .dlc-row { grid-template-columns: 48px minmax(0, 1fr) auto minmax(64px, auto); }
+}
+.dlc-row:hover,
+.dlc-row-open { background: var(--ss-surface-card); }
+.dlc-lead { width: 48px; height: 48px; }
+.dlc-art { width: 48px; height: 48px; border-radius: var(--ss-radius-tag); box-shadow: none; }
+.dlc-title { font-size: 15px; font-weight: 500; line-height: 1.5; }
+.dlc-row-queued .dlc-title,
+.dlc-row-cancelled .dlc-title { color: var(--ss-text-tertiary); }
+.dlc-sub { font-size: 14px; line-height: 1.5; color: var(--ss-text-meta); }
+.dlc-sub-live { color: var(--ss-text-tertiary); }
+.dlc-sub-bad { color: var(--ss-danger); }
+.dlc-meta { font-size: 14px; color: var(--ss-text-meta); }
+
+/* tags and states: StatusTag */
+.dlc-tag {
+    padding: 3px 8px;
+    border-radius: var(--ss-radius-tag);
+    background: var(--ss-neutral-fill);
+    color: var(--ss-neutral);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0;
+}
+.dlc-tag-hq { background: rgba(var(--ss-success-rgb), 0.12); color: var(--ss-success); }
+.dlc-tag-retry { background: rgba(var(--ss-warning-rgb), 0.12); color: var(--ss-warning); }
+.dlc-tag-watch { background: rgba(var(--ss-info-rgb), 0.12); color: var(--ss-info); }
+.dlc-state {
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: var(--ss-radius-tag);
+    background: color-mix(in srgb, currentColor 12%, transparent);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+.dlc-state::before { width: 8px; height: 8px; }
+.dlc-state-active { color: rgb(var(--ss-accent-light-rgb)); }
+.dlc-state-search { color: var(--ss-info); }
+.dlc-state-queued,
+.dlc-state-cancelled { color: var(--ss-neutral); }
+.dlc-state-failed { color: var(--ss-danger); }
+.dlc-state-completed { color: var(--ss-success); }
+.dlc-shield-ok { color: var(--ss-success); }
+.dlc-shield-human { color: var(--ss-info); }
+.dlc-shield-warn { color: var(--ss-warning); }
+
+/* section labels, folds and sub-groups */
+.dlc-section-label { font-size: 12px; color: var(--ss-text-meta); }
+.dlc-fold {
+    min-height: 44px;
+    padding: 0 24px 0 88px;
+    border-top-color: var(--ss-hairline);
+    color: var(--ss-text-meta);
+    font-size: 14px;
+}
+.dlc-fold:hover { color: var(--ss-text); background: var(--ss-hover-wash); }
+.dlc-sub-head {
+    min-height: 44px;
+    padding: 0 24px;
+    border-top-color: var(--ss-hairline);
+    background: none;
+}
+.dlc-sub-head:hover { background: var(--ss-hover-wash); }
+.dlc-sub-name { font-size: 15px; font-weight: 600; }
+.dlc-sub-artist,
+.dlc-sub-summary { font-size: 14px; color: var(--ss-text-meta); }
+.dlc-more-link { min-height: 44px; border-radius: var(--ss-radius-control); font-size: 15px; }
+
+@media (max-width: 760px) {
+    .dlc-row,
+    .dlc-ghead { padding: 12px; }
+    .dlc-fold { padding-left: 72px; }
+    .dlh-chip,
+    .dlh-side { padding: 0 12px; }
+}

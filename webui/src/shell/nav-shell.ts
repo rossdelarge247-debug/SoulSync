@@ -30,6 +30,7 @@ import { MODULES_CHANGED_EVENT } from '@/features/modules/modules.helpers';
 
 import {
   activityLabel,
+  APP_NAME,
   activityRowMeta,
   COUNT_NOUNS,
   countedLabel,
@@ -318,6 +319,11 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
       );
       text = pageNameOverride || pageTitle(activePage, label?.textContent?.trim() ?? null);
     }
+    // Home on a phone shows the app's name where the page name goes (8a)
+    const wordmark =
+      side() !== 'video' && !pageNameOverride && activePage === 'dashboard' && isPhone();
+    if (wordmark) text = APP_NAME;
+    pageName.classList.toggle('ss-page-name--wordmark', wordmark);
     if (pageName.textContent !== text) pageName.textContent = text;
   }
 
@@ -1095,6 +1101,7 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
     closePopover(false);
     syncAdmin();
     syncRailLabels();
+    updatePageName();
   };
   if (phoneQuery) {
     phoneQuery.addEventListener?.('change', onBreakpoint);

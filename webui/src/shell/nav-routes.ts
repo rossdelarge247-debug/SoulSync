@@ -172,10 +172,13 @@ const VIDEO_DETAIL_TITLES: Record<string, string> = {
   'video-studio-detail': 'Studio',
 };
 
+/** The app's name as people see it (HANDOFF 57). Code, routes and storage keep SoulSync. */
+export const APP_NAME = 'SYNCHRO.S';
+
 export function pageTitle(pageId: string | null | undefined, rowLabel: string | null): string {
   if (pageId && PAGE_TITLES[pageId]) return PAGE_TITLES[pageId];
   if (rowLabel) return rowLabel;
-  return 'SYNCHRO.S';
+  return APP_NAME;
 }
 
 export function videoPageTitle(videoPageId: string | null, rowLabel: string | null): string {

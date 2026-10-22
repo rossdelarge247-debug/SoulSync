@@ -3978,6 +3978,8 @@ function npv2Init() {
         setReduceMotion: npv2SetReduceMotion,
             visualsModeOn: npv2VisualsModeOn,
             getSpeed: () => NPV2.speed,
+            // the record's "…" shows the equalizer's state as its value
+            getEq: () => ({ on: Boolean(NPV2.eq.on), preset: NPV2.eq.preset || 'Flat' }),
             speedPresets: () => NPV2_SPEED_PRESETS.slice(),
             openVisuals: () => npv2SetVisualsMode(true),
             closeVisuals: () => npv2SetVisualsMode(false),

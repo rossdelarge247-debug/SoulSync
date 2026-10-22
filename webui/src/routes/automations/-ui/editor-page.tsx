@@ -30,7 +30,12 @@ import {
 } from '../-automations.api';
 import { aiStatusQueryOptions, type DraftOffer } from '../-automations.assistant';
 import { useVanillaBuilder } from '../-automations.builder';
-import { getConversation, updateConversation, useConversation } from '../-automations.conversation';
+import {
+  firstUseAcknowledged,
+  getConversation,
+  updateConversation,
+  useConversation,
+} from '../-automations.conversation';
 import {
   actionConfig,
   draftChanged,
@@ -398,10 +403,13 @@ export function AutomationEditorPage({
     setDraft((d) => {
       const base = d && !isNew ? (baseline ?? d) : null;
       const next = draftFromAssistant(offer.draft, base);
-      // the draft replaces the blocks; an existing automation keeps the name
-      // and group on screen
+      // the draft replaces the blocks. The name is always yours (HANDOFF 38):
+      // a new automation's draft may fill an empty Name (editable), never
+      // replace one you typed; an existing automation keeps its name and group
       if (!d) return next;
-      return isNew ? { ...next, group: d.group } : { ...next, name: d.name, group: d.group };
+      return isNew
+        ? { ...next, name: d.name.trim() ? d.name : next.name, group: d.group }
+        : { ...next, name: d.name, group: d.group };
     });
     setFromDraft(true);
     setTried(false);
@@ -546,7 +554,17 @@ export function AutomationEditorPage({
 
   const onSlash = (choice: SlashChoice) => {
     if (choice.kind === 'assistant') {
-      openAssistant(`Add a follow-up that ${choice.text}`.trimEnd() + (choice.text ? '' : ' '));
+      const typed = choice.text.trim();
+      // HANDOFF 40: words typed after "/" go straight away; a bare "/" opens
+      // the panel with the start in the box. Before the first-use note has
+      // been seen, it opens with the words in the box instead, so nothing is
+      // sent before the person has read what goes to the provider.
+      if (typed && firstUseAcknowledged(profileId) && !conversation.asking) {
+        openAssistant();
+        conversation.ask(`Add a follow-up that ${typed}`, assistantContext(), 'from the / line');
+        return;
+      }
+      openAssistant(typed ? `Add a follow-up that ${typed}` : 'Add a follow-up that ');
       return;
     }
     setDraft((d) =>
@@ -583,6 +601,7 @@ export function AutomationEditorPage({
       blocks={blocks}
       context={assistantContext}
       composerRef={composerRef}
+      keepsName={!isNew}
       onOpenDraft={(offer) => {
         if (dirty || fromDraft) setReplaceWith(offer);
         else applyOffer(offer);

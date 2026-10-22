@@ -445,7 +445,7 @@ describe('nothing of the old player was dropped', () => {
     ['Shuffle your library (radio mode)', '#np-radio-btn'],
     ['download missing queue tracks', '#np-autodownload-btn'],
     ['crossfade', '[data-player-menu="crossfade"]'],
-    ['sleep timer', '[data-player-menu="sleep"]'],
+    ['sleep timer (on the record, 9d)', '[data-player-sleep], #ss-player-sleep-menu'],
     ['speed', '[data-player-menu="speed"], #np-v2-speed-select'],
     ['lyrics', '#np-lyrics-panel'],
     ['track details and copy', '#np-v2-details-panel'],
@@ -455,7 +455,7 @@ describe('nothing of the old player was dropped', () => {
     ['visuals (the old theater)', '#np-modal-overlay #np-v2-bg, [data-player-menu="visuals"]'],
     ['player settings', '#np-v2-settings-panel'],
     ['keyboard shortcuts list', '#np-v2-shorts-btn'],
-    ['add to playlist', '[data-player-menu="playlist"]'],
+    ['add to playlist (on the record, 9d)', '[data-player-record="playlist"]'],
     ['report a problem', '[data-player-menu="report"]'],
     ['stop', '[data-player-menu="stop"]'],
     ['go to artist / album', '[data-player-artist], [data-player-album]'],
@@ -467,5 +467,159 @@ describe('nothing of the old player was dropped', () => {
     parsed ??= new DOMParser().parseFromString(html, 'text/html');
     for (const one of sel.split(', '))
       expect(parsed.querySelector(one), `${one} is missing`).not.toBeNull();
+  });
+});
+
+describe('the record (HANDOFF 47, board 9d)', () => {
+  it('has the quality line, then Add to playlist, Sleep timer and "…" at the right end', () => {
+    window.openAddToPlaylist = vi.fn() as never;
+    boot(fakeEngine(snapshot({ playlistTrack: { id: '42', title: 'Halcyon' } })));
+    const row = $('.ss-player-record-controls');
+    const order = [...row.children].map((el) => el.getAttribute('aria-label') ?? el.className);
+    expect(order).toEqual([
+      'Add to playlist',
+      'Sleep timer, off',
+      'ss-player-spacer',
+      'More for Halcyon',
+    ]);
+    expect($('[data-player-record="playlist"]').hidden).toBe(false);
+    // the tag and Open album share the line above, without the "…"
+    expect($('.ss-player-record-tags [data-player-more]')).toBeNull();
+    expect($('.ss-player-record-tags [data-player-album]')).not.toBeNull();
+    delete (window as { openAddToPlaylist?: unknown }).openAddToPlaylist;
+  });
+
+  it('hides Add to playlist when the track can’t go on one', () => {
+    boot(fakeEngine(snapshot({ playlistTrack: null })));
+    expect($('[data-player-record="playlist"]').hidden).toBe(true);
+  });
+
+  it('Add to playlist opens the playlist picker at the button', () => {
+    const open = vi.fn();
+    window.openAddToPlaylist = open as never;
+    boot(fakeEngine(snapshot({ playlistTrack: { id: '42', title: 'Halcyon' } })));
+    $('[data-player-record="playlist"]').click();
+    expect(open).toHaveBeenCalledWith(
+      { id: '42', title: 'Halcyon' },
+      $('[data-player-record="playlist"]'),
+    );
+    delete (window as { openAddToPlaylist?: unknown }).openAddToPlaylist;
+  });
+
+  it('Sleep timer is an icon while off, and shows the time left, selected, while it runs', () => {
+    const engine = fakeEngine(snapshot());
+    boot(engine);
+    const sleep = $('[data-player-sleep]');
+    const left = $('[data-player-sleep-left]');
+    expect(sleep.getAttribute('aria-pressed')).toBe('false');
+    expect(left.hidden).toBe(true);
+    engine.current = snapshot({ sleep: 30, sleepEndsAt: Date.now() + 23 * 60000 - 1000 });
+    window.dispatchEvent(new CustomEvent('ss:player', { detail: { reason: 'sleep' } }));
+    expect(sleep.getAttribute('aria-pressed')).toBe('true');
+    expect(left.hidden).toBe(false);
+    expect(left.textContent).toBe('23 min');
+    expect(sleep.getAttribute('aria-label')).toBe('Sleep timer, 23 minutes left');
+    engine.current = snapshot({ sleep: 'track' });
+    window.dispatchEvent(new CustomEvent('ss:player', { detail: { reason: 'sleep' } }));
+    expect(left.textContent).toBe('End of track');
+  });
+
+  it('Sleep timer opens its choices and sets one', () => {
+    const engine = fakeEngine(snapshot());
+    boot(engine);
+    const sleep = $('[data-player-sleep]');
+    sleep.click();
+    const menu = $('#ss-player-sleep-menu');
+    expect(menu.hidden).toBe(false);
+    expect(sleep.getAttribute('aria-expanded')).toBe('true');
+    const choices = [...menu.querySelectorAll('[role="radio"]')].map((b) => b.textContent);
+    expect(choices).toEqual([
+      'Off',
+      '15 minutes',
+      '30 minutes',
+      '1 hour',
+      'At the end of this track',
+    ]);
+    (menu.querySelector('[data-value="30"]') as HTMLElement).click();
+    expect(engine.setSleep).toHaveBeenCalledWith(30);
+    expect(menu.hidden).toBe(true);
+    expect(sleep.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('groups the "…" under Playback, Show and Queue, then Player settings and Report a problem', () => {
+    boot(fakeEngine(snapshot()));
+    $('[data-player-more]').click();
+    const menu = $('#ss-player-menu');
+    const lines = [...menu.children]
+      .filter((el) => !(el as HTMLElement).hidden && !el.classList.contains('ss-player-choices'))
+      .map((el) =>
+        el.classList.contains('ss-player-menu-rule')
+          ? '—'
+          : el.tagName === 'P'
+            ? `# ${el.textContent}`
+            : (el.firstChild?.textContent ?? '').trim(),
+      );
+    expect(lines).toEqual([
+      '# Playback',
+      'Crossfade',
+      'Speed',
+      'Equalizer',
+      'A–B loop',
+      'Add similar tracks when the queue ends',
+      '# Show',
+      'Lyrics',
+      'Track details',
+      'Visuals',
+      'Keyboard shortcuts',
+      '# Queue',
+      'Clear played tracks',
+      'Download missing queue tracks',
+      'Stop and clear the queue',
+      '—',
+      'Player settings',
+      'Report a problem',
+    ]);
+    // nothing promoted to the record is left in the menu
+    expect(menu.textContent).not.toContain('Sleep timer');
+    expect(menu.textContent).not.toContain('Add to playlist');
+  });
+
+  it('shows values in meta on the right and keys as kbd', () => {
+    const engine = fakeEngine(snapshot({ crossfade: true, crossfadeSeconds: 4, radio: false }));
+    window.npV2 = { getSpeed: () => 1, getEq: () => ({ on: true, preset: 'Flat' }) };
+    boot(engine);
+    $('[data-player-more]').click();
+    const state = (sel: string) => $(sel).textContent;
+    expect(state('[data-player-crossfade-state]')).toBe('4 s');
+    expect(state('[data-player-speed-state]')).toBe('1.0×');
+    expect(state('[data-player-eq-state]')).toBe('Flat');
+    expect(state('[data-player-radio-state]')).toBe('Off');
+    expect($('[data-player-menu="visuals"] kbd').textContent).toBe('F');
+    expect($('#np-v2-shorts-btn kbd').textContent).toBe('?');
+    engine.current = snapshot({ crossfade: false, radio: true });
+    window.npV2 = { getSpeed: () => 1.25, getEq: () => ({ on: false, preset: 'Bass' }) };
+    window.dispatchEvent(new CustomEvent('ss:player', { detail: { reason: 'state' } }));
+    expect(state('[data-player-crossfade-state]')).toBe('Off');
+    expect(state('[data-player-speed-state]')).toBe('1.25×');
+    expect(state('[data-player-eq-state]')).toBe('Off');
+    expect(state('[data-player-radio-state]')).toBe('On');
+    delete window.npV2;
+  });
+});
+
+describe('radio in the bar (HANDOFF 49)', () => {
+  it('puts Live beside the station’s name and keeps the meter in the centre', () => {
+    boot(
+      fakeEngine(
+        snapshot({ kind: 'radio', track: { title: 'NTS 1', kind: 'radio' }, queue: [], index: -1 }),
+      ),
+    );
+    const live = $('.ss-player-bar [data-player-live]');
+    expect(live.hidden).toBe(false);
+    expect(
+      live.closest('.ss-player-title-row')?.querySelector('[data-player-title]')?.textContent,
+    ).toBe('NTS 1');
+    expect($('.ss-player-centre [data-player-live]')).toBeNull();
+    expect($('.ss-player-centre [data-player-meter]').hidden).toBe(false);
   });
 });

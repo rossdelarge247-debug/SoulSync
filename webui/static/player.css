@@ -404,6 +404,9 @@ html[data-player='tray'] { --ss-player-h: 360px; }
     white-space: nowrap;
 }
 .ss-player-title { font-size: 15px; font-weight: 500; color: var(--ss-text); }
+/* the bar's title row: radio's Live tag beside the station (HANDOFF 49) */
+.ss-player-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ss-player-title-row .ss-player-title { flex: 0 1 auto; }
 .ss-player-meta { font-size: 14px; color: var(--ss-text-meta); }
 
 /* ── the bar ─────────────────────────────────────────────────────────── */
@@ -477,7 +480,8 @@ html[data-player='tray'] .ss-player-bar { display: none; }
 .ss-player-sheet-head { display: none; }
 
 /* the record */
-.ss-player-record { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+/* gaps of 10 so the record's control row (9d) fits the 360px tray */
+.ss-player-record { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ss-player-record-top { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
 .ss-player-record-art {
     position: relative;
@@ -534,9 +538,9 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .ss-player-readout {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 2px;
     margin: 0;
-    padding: 12px 14px;
+    padding: 8px 12px;
     border-radius: var(--ss-radius-control);
     background: var(--ss-surface-card);
     border: 1px solid var(--ss-surface-card-border);
@@ -547,8 +551,32 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .ss-player-readout > div { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
 .ss-player-readout dt { color: var(--ss-text-meta); flex: none; }
 .ss-player-readout dd { margin: 0; min-width: 0; text-align: right; overflow-wrap: anywhere; }
-.ss-player-record-tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ss-player-more { margin-left: auto; color: var(--ss-text-secondary); }
+.ss-player-record-tags { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ss-player-record-tags:not(:has(:not([hidden]))) { display: none; }
+
+/* the record's control row (HANDOFF 47, 9d): Add to playlist, Sleep timer,
+   then "…" at the right end; 44px outlined icon buttons */
+.ss-player-record-controls { display: flex; align-items: center; gap: 8px; }
+.ss-player-btn--outline {
+    border: 1px solid var(--ss-control-border);
+    color: var(--ss-text-secondary);
+}
+.ss-player-btn--outline:hover:not(:disabled) { color: var(--ss-text); }
+.ss-player-btn--outline[aria-expanded='true'] { background: var(--ss-hover-wash); color: var(--ss-text); }
+.ss-player-sleep { width: auto; min-width: 44px; gap: 6px; padding: 0 12px; }
+.ss-player-sleep svg { width: 18px; height: 18px; }
+.ss-player-sleep[aria-pressed='true'],
+.ss-player-sleep[aria-pressed='true']:hover:not(:disabled) {
+    background: var(--ss-selected-fill);
+    border-color: var(--ss-selected-border);
+    color: var(--ss-text);
+}
+.ss-player-sleep-left {
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
 
 /* the deck */
 .ss-player-deck {
@@ -715,6 +743,9 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .np-queue-item-artist,
 .ss-player-recent-title,
 .ss-player-recent-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* HANDOFF 44: a queued track below your quality target, its format in the
+   warning colour on the meta line (src/shell/player-queue-quality.ts) */
+.ss-player-queue-below { color: var(--ss-warning); }
 .np-queue-item-title,
 .ss-player-recent-title { font-size: 15px; font-weight: 500; color: var(--ss-text); }
 .np-queue-item-artist,
@@ -912,11 +943,12 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
     z-index: 950;
     display: flex;
     flex-direction: column;
-    width: 300px;
+    gap: 2px;
+    width: 280px;
     max-height: calc(100vh - 24px);
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: 6px;
+    padding: 8px;
     background: var(--ss-ground-note);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: var(--ss-radius-card);
@@ -924,14 +956,32 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 }
 .ss-player-menu--small { width: auto; min-width: 200px; max-width: 320px; }
 .ss-player-menu-label {
-    margin: 8px 10px 4px;
+    margin: 8px 12px 4px;
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--ss-text-meta);
 }
-.ss-player-menu-label:first-child { margin-top: 4px; }
+.ss-player-menu-label:first-child { margin-top: 8px; }
+/* the grouped "…" (9d): each heading after the first sits under a hairline */
+.ss-player-menu-label--rule {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--ss-hairline);
+}
+.ss-player-menu-rule { margin: 8px 4px 2px; border-top: 1px solid var(--ss-hairline); }
+.ss-player-menu-kbd {
+    flex: none;
+    padding: 2px 6px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-tag);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--ss-text-meta);
+}
 .ss-player-menu-item {
     display: flex;
     align-items: center;
@@ -940,13 +990,14 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
     width: 100%;
     min-height: 44px;
     margin: 0;
-    padding: 0 10px;
+    padding: 0 12px;
     border: 1px solid transparent;
     border-radius: var(--ss-radius-control);
     background: transparent;
-    color: var(--ss-text-secondary);
+    color: var(--ss-text);
     font-size: 15px;
-    font-weight: 500;
+    font-weight: 400;
+    line-height: 1.35;
     text-align: left;
 }
 .ss-player-menu-item:hover { background: var(--ss-hover-wash); color: var(--ss-text); }
@@ -965,7 +1016,8 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .ss-player-menu-item[role='radio'][aria-checked='true']::after { content: 'Selected'; }
 .ss-player-menu-item[role='radio'][aria-checked='true'] { color: var(--ss-text); }
 .ss-player-menu-state { margin-left: auto; font-size: 14px; font-weight: 400; color: var(--ss-text-meta); }
-#np-v2-ab-btn[aria-pressed='true']::after { content: none; }
+/* a row with its value on the right says it there, not with the On badge */
+.ss-player-menu-item:has(.ss-player-menu-state)::after { content: none !important; }
 .ss-player-choices { display: flex; flex-direction: column; padding: 0 0 4px 12px; }
 .ss-player-choices[hidden] { display: none; }
 
