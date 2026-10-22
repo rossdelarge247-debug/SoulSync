@@ -8,6 +8,129 @@ None open. Questions raised while building go in the log entry that raised them.
 
 ## Log
 
+### 2026-10-22: Dev, Automations
+
+Built on `ux/automations` from "Automations v2" (2i–2l), the SafeAction v2 dialog and the 2s/2t failure pattern. The pages are in `webui/src/routes/automations`; Preview a run is `core/automation/dry_run.py`, behind the routes in `CONTRACTS.md`.
+
+**What's built**
+
+- **`/automations`, the list** (2i, 2j):
+    - **Header:** "New automation", and a "…" button with Recipes and guides, Build one in the full builder, and (admins) Pause all automations or Resume all automations.
+    - **Filters:** All, Needs attention, Yours, Built-in and Paused; a group picker when you have groups; a search box that matches names, schedules and step sentences. The selection, filter, group and search are in the URL (`/automations?automation=12&show=paused`), so back, forward and links work. Old links keep their meaning (`nav=attention|off|system|maintenance|operations|ungrouped|group:X|guides`, `health=failing`, `trigger=`, `action=`).
+    - **Cards:** name; schedule line ("Every 6 hours · next at 16:00 · 2 steps"); an On, Paused or Running tag, always with its word; and a last-run line. The selected card adds its steps as numbered sentences and Preview a run, Run now (Resume when paused) and Edit. Its "…" menu has Pause, Run it once now (when paused), Duplicate, Put in a group…, Open in the full builder and Delete…. Built-in automations can't be duplicated, regrouped or deleted. Paused cards show Resume.
+    - **Runs panel** (sticky): "31 in 30 days", three numbers (see Differs), the five newest runs tagged Done, Failed, Preview or Skipped, each row opening its log, "Show more", and "All runs in Activity" (`/activity?show=automations`). While the automation runs, a live row at the top streams its log.
+    - **States:** loading (skeleton cards and runs), empty ("No automations yet", with New automation and Recipes), no match ("Nothing matches", Show all), failure ("Couldn't load your automations", Try again, Run Setup check) and the paused-automations Notice.
+    - **Phone** (2k): cards stack; the selected card's runs collapse to "31 runs in 30 days · last failed yesterday 11:20", which opens them inside the card; "Preview a run" reads "Preview".
+- **`/automations/new` and `/automations/<id>/edit`, the editor** (2k, 2l), a full page:
+    - Breadcrumb, Name, Group (optional) and Runs: Every…, Daily at…, Weekly…, Monthly… or After something happens (a select on a phone, as 2l). Event triggers keep their conditions (all or any) and signal name. The line under Runs says when the next run is.
+    - **Steps as sentences,** with inline selects for the step's real options. Each step's "⋮" has Move up, Move down, Duplicate and Remove; step 1's has Open in the full builder.
+    - **Add a step:** Notify, Fire a signal or Run a script, up to three.
+    - **Footer:** Cancel, Preview a run and Save. Leaving with unsaved changes asks first. A failed check says "Fix the 2 things marked below, then save." and marks them; a failed save keeps the edits and shows why.
+    - **Preview panel** (right, or under the steps on a phone): what a run would do, three numbers, five sample rows ("5 of 35 tracks shown"), a line for each step that wasn't previewed, and "Run this now". Run this now is off while there are unsaved edits, with the reason beside it.
+    - Built-in automations: the name, how it starts (on a timer or after an event) and what step 1 does stay as SoulSync set them; the timing, step 1's options and the follow-ups can change.
+- **Preview a run** is on the selected card (a dialog) and in the editor (the panel, previewing unsaved edits). It changes nothing and never runs a follow-up step.
+
+**How the boards' steps map onto the engine**
+
+The engine runs one trigger, one action, then up to three follow-ups in order. So:
+
+| Board | Engine |
+| --- | --- |
+| Runs | The trigger: `schedule`, `daily_time`, `weekly_time`, `monthly_time`, or an event (with conditions, or `signal_received`) |
+| Step 1 | The action, with its optional wait (`action_config.delay`, in minutes; Run now skips it). Chosen from every action the engine offers, grouped as on the old builder. |
+| Steps 2–4 | `then_actions`, in order: a notification (Discord, Telegram, Pushbullet, ntfy, Gotify or a webhook), fire a signal, or run a script. Each can run every time or "only when…" a condition holds. |
+
+Step 1 can't move: the follow-ups run after the action finishes. Follow-ups reorder with Move up and Move down.
+
+**What a preview can show, per step**
+
+| Step | Preview |
+| --- | --- |
+| Search for what's due on Wanted | Would search, Waiting to retry, Not out yet, picked by the search's own rules (this turn's albums or singles, retry waits, release dates); the first five tracks |
+| Check followed artists | Artists it would check, and how many were never checked. Not available while SoulSync's metadata source isn't ready. |
+| Refresh, sync or discover mirrored playlists; the playlist pipeline | The playlists and tracks it would work on |
+| Clear the quarantine; Library clean-up | The files and size it would delete for good (the quarantine, and the recycle bin past its keep window) |
+| Anything else | "Can't be previewed", with the reason (for Deep Scan and the duplicate cleaner: Run now shows its own list before anything moves) |
+| Follow-ups | Never run in a preview; each says so ("A preview doesn't send notifications.") |
+
+A preview of your own automation, or of any as an admin, is kept as a run tagged Preview: at most 20, so they never push real runs out of the 100 kept. Previews are listed and counted with the runs, but left out of the three numbers; on Activity they never hide a failure.
+
+**Run now on steps that move or delete files**
+
+| Step | Run now |
+| --- | --- |
+| Clear the quarantine | Quarantine preview, then the permanent-delete confirm, then it runs with that plan |
+| Library clean-up | The quarantine preview and confirm, then "Next: empty the recycle bin": the preview of what's past the keep window, and its confirm |
+| Full Cleanup (music or video) | The quarantine preview and confirm, then "Run the rest of the clean-up". The rest works on the live download queue and runs as before, without a preview. |
+| Deep Scan | The Deep Scan preview (with the 25% guard); when it would move nothing, it runs |
+| Duplicate cleaner | Opens Maintenance at the duplicate cleaner, where its preview and confirm are |
+
+The "Act without a preview" option (`confirm`) is a checkbox in the editor with that wording, and the card says when it's on. It applies to scheduled runs; Run now always previews.
+
+**Differs from the boards, and why**
+
+- **The selected card stacks its last-run line above the buttons, and the subtitle wraps.** The sidebar leaves a narrower content pane than the boards' 1280.
+- **Filters, group picker, search and the "…" menus** aren't on the boards. They hold what the old page could do (table below).
+- **The Runs numbers aren't "Found 184".** The Wanted search records only that it started its batches; what they find arrives later and isn't kept on the run. The first number is what the run produced where the action records it (Added to Wanted, Upgrades queued, Moved to the bin, Deleted, Playlists refreshed), else Done; then Failed runs, and Typical (the median time). Wanted run rows say "Started 3 album and 4 track searches · albums turn".
+- **"Last 100, since 19 Oct"** replaces "N in 30 days" when the history's 100-run cap cuts the 30 days short.
+- **One step does the Wanted search.** The board's "Search Soulseek…", "Download what's found…" and "Tag and file…" are one engine action, which reads "Search for what's due on Wanted, albums and singles in turn". Sources, "prefer users online", the path template and "remove from Wanted once filed" are app-wide settings, not per automation, so the editor doesn't show them.
+- **No "Only by hand".** Every automation has a trigger. A paused automation can still be run by hand ("Run it once now").
+- **No drag to reorder.** Move up and Move down in each step's menu do it.
+- **Add a step offers Notify, Fire a signal and Run a script,** what the engine can run after the action. The board's Search for, Download, Tag and file, Upgrade quality and Tidy up are actions, chosen in step 1.
+- **The preview has no "Found now", "Would download 1.1 GB", "32 had no result" or "Full list".** A preview doesn't search, so it can't know those. It shows the counts SoulSync's stored data supports, and the first five items.
+- **Runs offers Monthly and After something happens,** engine triggers the boards don't draw. The subtitle says "Rules that run on a schedule or after something happens."
+- **"Search for what's due on Wanted" has no category option.** The engine ignores it: the search alternates albums and singles.
+- **Notification steps** show their main fields; the rest are under "More settings". "Add to the message" buttons insert the variables, and "Send a test" sends one with sample values.
+- **Built-in automations are listed after yours,** with a Built-in filter, rather than in a section of their own.
+
+**Data left out** (nothing in SoulSync to read it from)
+
+- What each Wanted search found, per run.
+- A preview's "found now", download size and "had no result": they need a real search.
+- Runs older than the 100 kept per automation.
+
+**Kept from the old page, and where it is now**
+
+| Old page | Feature | Where it is now |
+| --- | --- | --- |
+| Overview | Hero with status and counts | The paused Notice, and the Needs attention filter |
+| Overview | Up next | Each card's schedule line ("next at 16:00"); Home's Up next card is unchanged |
+| Overview | Attention queue | Needs attention filter |
+| Overview | Recently ran | Each card's last-run line, the Runs panel, and Activity |
+| Sidebar | All, Needs attention, Switched off, System / Operations / Maintenance, My Automations | Filters: All, Needs attention, Paused, Built-in, Yours. Old `nav=` links map onto them. |
+| Sidebar | Scheduled, Event-driven | Dropped as lenses; the search matches schedule words ("daily", "after") |
+| Sidebar | Groups, with counts | Group picker; the group's "…" menu has Pause everything in this group (or Turn everything on), Rename this group…, Ungroup (keep the automations) and Delete the group and its automations… |
+| Sidebar | Guides & reference (recipes) | "…" → Recipes and guides (`view=guides`); a recipe opens the full builder |
+| Sidebar | Master switch | "…" → Pause all automations or Resume all automations (admins), and the paused Notice |
+| Filter bar | Text, trigger and action filters | Search box; `trigger=` and `action=` links still filter, with a "Show all" note |
+| Card | Runs badge and history dialog | Runs panel, with logs and Show more |
+| Card | Editable cadence | Editor → Runs |
+| Card | On/off switch | Pause / Resume |
+| Card | Duplicate, Move to group, Delete | Card "…" menu (not for built-in automations) |
+| Card | Drag onto a group | Card "…" → Put in a group… |
+| Card | Live progress and log | Running tag, a "Running now · phase · %" line, and the live row in Runs |
+| Card | "Acts without a preview" tag | A note on the card |
+| Builder | The vanilla builder | The new editor; "Open in the full builder" stays on the card menu, step 1's menu and the header "…" |
+| Builder | Test notification, message variables, per-step conditions, delay, signals, scripts | In the editor (Send a test, Add to the message, "only when…", Wait N minutes, signal fields, script picker) |
+| Builder | Personalized pipeline's playlist kinds | Full builder only; step 1 says so |
+
+**Also changed**
+
+- Activity links each automation item to `/automations?automation=<id>`, so "Open this automation" opens that automation (the Activity entry's open point). Preview runs show there as "Automation "X": preview".
+- The recycle-bin purge preview takes `{retention: true}` for Library clean-up's second half (`CONTRACTS.md`). The permanent-delete flow can offer a next step when it finishes.
+- The scan-watchlist card sentence says "added 1 track to Wanted", not "wishlisted".
+
+**Questions for Design**
+
+1. **Runs numbers for the Wanted search:** Done, Failed runs and Typical, or should the Wanted search start keeping what it found on each run so "Found" can return? That's an engine change.
+2. **"Only by hand":** worth a real trigger, or is Paused plus "Run it once now" enough?
+3. **Filters, group picker and search:** fine on one row above the cards, or would you place them?
+4. **Steps that can't be previewed:** is "can't be previewed, because…" plus Run now's own preview the right answer for Deep Scan and the duplicate cleaner?
+5. **Built-in automations:** after yours with a Built-in filter, or a section of their own?
+6. **The full builder:** keep "Open in the full builder" for what the editor doesn't cover (pipeline playlist kinds), or plan to retire it?
+
+Screenshots (1440×900 and 390×844: list with a selected automation, a paused card, a run's log, the preview dialog, the file-step confirm, the editor, the editor with a preview, loading and failure), with the board renders beside them, are in the session scratchpad. They aren't in the repo.
+
 ### 2026-10-21: Dev, Wanted page
 
 Built on `ux/wanted-page` from the "Wanted v3 (populated)" boards (2a–2d), "Wanted v2 (empty and loading)" (1d–1f), "Wanted (390)" (1g) and the 2s failure pattern (2t for timing). The code is in `webui/src/routes/wanted`.
