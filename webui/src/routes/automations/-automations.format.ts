@@ -97,6 +97,15 @@ const ACTION_SENTENCES: Record<string, Sentence> = {
     if (typeof r.skipped === 'string') return r.skipped;
     return `Scanned ${plural(num(r.checked), 'book')}, added ${num(r.adopted)}, refreshed ${num(r.updated)}, removed ${num(r.removed)} missing`;
   },
+  // applied / failed
+  apply_quality_upgrades: (r) => {
+    const applied = num(r.applied);
+    const failed = num(r.failed);
+    const head = applied
+      ? `Queued ${plural(applied, 'upgrade')} on Wanted`
+      : 'No upgrades were due';
+    return failed ? `${head}, ${plural(failed, 'upgrade')} couldn't be queued` : head;
+  },
   // artists_scanned / new_tracks_found / tracks_added_to_wishlist
   scan_watchlist: (r) => {
     const artists = num(r.artists_scanned);
@@ -104,7 +113,7 @@ const ACTION_SENTENCES: Record<string, Sentence> = {
     const found = num(r.new_tracks_found);
     if (!artists && !wishlisted && !found) return null;
     const parts = [`Checked ${plural(artists, 'artist')}`];
-    if (wishlisted) parts.push(`wishlisted ${plural(wishlisted, 'track')}`);
+    if (wishlisted) parts.push(`added ${plural(wishlisted, 'track')} to Wanted`);
     else if (found) parts.push(`found ${plural(found, 'new track')}`);
     else parts.push('nothing new');
     return parts.join(', ');

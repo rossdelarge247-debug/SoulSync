@@ -47,7 +47,7 @@ Plan routes that exist today:
 - **Duplicate cleaner:** `POST /api/duplicate-cleaner/preview`, then `/api/duplicate-cleaner/start` with `{plan_id}`; `GET /api/duplicate-cleaner/plan` pages the full list.
 - **Deep Scan:** `POST /api/database/deep-scan/preview`, which also returns `staging_path` and `max_move_percent` (25). `GET /api/database/deep-scan/plan` pages the full list without using the plan up.
 - **Repair fixes:** `POST /api/repair/findings/bulk-fix-preview`, then `/api/repair/findings/bulk-fix-start` with `{plan_id}`. Both take a whole type, or a selection as `ids` plus `fix_actions` (finding type → action). Each preview item has a plain sentence ("Moves the file to the recycle bin") and an `effect_kind`. The preview also returns `recycle_deletes`, so copy can say "recycle bin" or "deleted permanently" correctly.
-- **Recycle bin and quarantine (permanent):** `POST /api/deleted-files/purge-preview` (`{all}` or `{ids}`) and `POST /api/quarantine/clear-preview` return the count, total size, oldest and newest dates and a sample. `/api/deleted-files/purge` and `/api/quarantine/clear` only accept `{plan_id}`.
+- **Recycle bin and quarantine (permanent):** `POST /api/deleted-files/purge-preview` (`{all}`, `{ids}`, or `{retention: true}` for what the recycle bin's keep window lets go now, which is what Library clean-up empties; its `meta.scope` is `retention`) and `POST /api/quarantine/clear-preview` return the count, total size, oldest and newest dates and a sample. `/api/deleted-files/purge` and `/api/quarantine/clear` only accept `{plan_id}`.
 
 ### Activity feed: `GET /api/activity`
 
@@ -59,7 +59,7 @@ One newest-first list of what SoulSync did, plus what needs you. Query: `range` 
     {"id": "automation:812", "time": 1792569302, "kind": "automation", "status": "error",
      "title": "Automation \"Fill Wanted\" failed",
      "detail": "Soulseek wasn't reachable. Next run in about 2 hours.",
-     "link": "/automations", "needs_you": true, "has_log": true, "retry_at": 1792576500,
+     "link": "/automations?automation=4", "needs_you": true, "has_log": true, "retry_at": 1792576500,
      "ref": {"automation_id": 4, "run_id": 812}},
     {"id": "lh:5120", "time": 1792561320, "kind": "download", "status": "ok",
      "title": "Downloaded 12 tracks", "detail": "Lantern by Saltmarsh and 1 more · Soulseek · FLAC",
@@ -82,6 +82,7 @@ One newest-first list of what SoulSync did, plus what needs you. Query: `range` 
 - `running_count`: download batches in progress, automations running, auto-imports processing.
 - **Badges:** `GET /api/activity/status` returns just `{"running_count": 1, "needs_you_count": 2, "generated_at": 1792570000}`, with the same visibility and no list or per-kind counts, so the shell can poll it from every page (about 30 ms on a very large install, a few ms on a typical one).
 - Logs aren't in the list: `has_log` says one exists, `GET /api/activity/log/<id>` returns `{"log_lines": [{"type", "text"}]}` for `automation:` and `mirror:` items.
+- Automation items (runs and running ones) link to `/automations?automation=<id>`. A preview run (below) is `status: info`, titled `Automation "Fill Wanted": preview`, with `ref.preview: true`; it never hides a failure from Needs you.
 - `ref` carries the ids an action needs (automation id, auto-import id, tool and plan id, batch id). Import items from the import folder also carry `import_status` (`pending_review`, `needs_identification`, `partial`, `failed`, `completed`, …), so a page can offer "Choose" only for a folder waiting on a choice and "Retry now" only for one that failed.
 - Library history is one row per track, so tracks landing within 15 minutes of each other are one item. A download batch shows on its own only while it runs, if it stopped part way, or if tracks failed; otherwise the tracks it landed are the item. Seeded system automations show only when a run fails (Auto-Scan Watchlist always shows).
 - Who sees what follows the history routes: downloads and imports are the shared library's; auto-imports need the Import page; automation runs are your automations plus the system ones; mirror runs and playlist syncs are yours; preview outcomes are admins' or the previewer's.
@@ -248,9 +249,40 @@ There's no total of an artist's releases: SoulSync doesn't store discographies.
 
 What the data can't say: a release's full tracklist without fetching it (so "132 tracks" is the tracks you have); whether a whole discography is complete beyond what the provider lists; "Hide" or "Merge" for an artist (neither exists).
 
+### Automations: Preview a run
+
+**`POST /api/automations/<id>/preview`** works out what a run of this automation would do right now, from what SoulSync already stores, and changes nothing. An optional body `{action_type, action_config, then_actions}` previews those (unsaved edits) in place of the saved ones. **`POST /api/automations/preview`** takes the same body for an automation that isn't saved yet.
+
+```json
+{
+  "success": true, "automation_id": 53, "previewed_at": 1792628814, "duration_ms": 2,
+  "available": true, "action_type": "process_wishlist", "files": false,
+  "summary": "A run now would search for 35 tracks on Wanted (this turn is albums). 4 tracks wait for their next try. Nothing was searched, downloaded, moved or changed.",
+  "counts": [{"key": "would_search", "label": "Would search", "value": 35},
+             {"key": "waiting", "label": "Waiting to retry", "value": 4},
+             {"key": "unreleased", "label": "Not out yet", "value": 0}],
+  "sample": [{"title": "Ferry Songs", "detail": "Saltmarsh · Ferry Songs · 2 tries"}],
+  "sample_total": 35, "sample_noun": "track", "reason": null,
+  "steps": [{"position": 1, "kind": "action", "type": "process_wishlist", "previewed": true, "note": null},
+            {"position": 2, "kind": "then", "type": "telegram", "previewed": false,
+             "note": "A preview doesn't send notifications."}],
+  "recorded": true, "run_id": 65
+}
+```
+
+- `available: false` means step 1 can't be tried without doing it; `reason` says why in a sentence to show, `counts` and `sample` are empty. Today these actions can be previewed: `process_wishlist`, `scan_watchlist` (not while the metadata source isn't ready), `refresh_mirrored`, `sync_playlist`, `discover_playlist`, `playlist_pipeline`, `clear_quarantine` and `library_cleanup`.
+- At most three `counts`. A count with `"unit": "bytes"` is a size. `sample` is the first five items of `sample_total`, each a title and a detail line.
+- `files: true` when the step deletes or moves files. Running it still goes through Preview, then confirm (above); a preview never makes a plan.
+- `steps` lists every step in the order the engine runs them. Follow-up steps (`kind: then`) are never run in a preview; `note` says so.
+- **Who:** the automation must be your own or a built-in one, else `404`; no profile is `401`. A body without `action_type` (and none saved) is `400`. A failure is `500` with "The preview didn't work. Nothing was changed."
+- **Recorded:** when `available`, a preview of your own automation, or of any as an admin, is kept in the run history as `status: preview` (`recorded`, `run_id`). At most 20 previews are kept per automation, so they never push real runs out of the 100 kept. A draft preview is never recorded.
+
+**Run history: `GET /api/automations/<id>/history?limit=&offset=`** returns `{history, total, automation_id}`, newest first. Each run has `id`, `started_at`, `finished_at`, `duration_seconds`, `status` (`completed`, `error`, `timeout`, `skipped`, or `preview`), `summary`, `result_json` (the facts the run produced, when the action records any) and `log_lines` (`[{"type", "text"}]`). `total` counts the runs kept, at most 100 per automation. The Wanted search's runs record only that it started its batches ("Started: 3 album batch(es), 4 per-track for cycle albums"); what they find isn't kept on the run.
+
+**Also used by the pages, unchanged:** `GET`, `POST` `/api/automations`; `GET`, `PUT`, `DELETE` `/api/automations/<id>`; `POST /api/automations/<id>/run`, `/toggle` and `/duplicate`; `POST /api/automations/bulk-toggle`; `PUT /api/automations/group`; `GET /api/automations/blocks`, `/progress` and `/master` (and `POST /master`, admins); `POST /api/automations/test-notify`; `GET /api/scripts`; `GET /api/mirrored-playlists/list`.
+
 ## Available today, not yet designed for
 
-- **Automation run history:** `GET /api/automations/<id>/history?limit=&offset=`. Each run has `started_at`, `finished_at`, `duration_seconds`, `status`, `summary`, `result` (counts the run produced) and `log_lines`. The Automations prototype can use this as it is.
 - **Library history:** `GET /api/library/history?type=download|import|podcast`. Past downloads and imports.
 - **Sync history:** `GET /api/sync/history`. Playlist mirror runs.
 - **Download batches:** `GET /api/downloads/batch-history`.

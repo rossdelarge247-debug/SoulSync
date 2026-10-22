@@ -1,56 +1,45 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { Outlet, createFileRoute } from '@tanstack/react-router';
 
 import { LegacyRouteController } from '@/platform/shell/route-controllers';
 import { guardPageAccess } from '@/platform/shell/route-guard';
 import { getShellRouteByPageId } from '@/platform/shell/route-manifest';
 
 import { automationsListQueryOptions, automationsMasterQueryOptions } from './-automations.api';
-import { automationsSearchSchema } from './-automations.types';
-import { AutomationsPage } from './-ui/automations-page';
 
 /**
- * Whether the shell has handed /automations over to React yet.
- *
- * The route file exists (and is tested) before the React page reaches parity.
- * Without this check TanStack would match /automations regardless of the
- * manifest and the vanilla page and the React host would both activate.
- * Delete this indirection once the vanilla automations page is gone.
+ * Whether the shell has handed /automations over to React. Without this
+ * check TanStack would match /automations regardless of the manifest and the
+ * vanilla page and the React host would both activate.
  */
 function isReactOwned(): boolean {
   return getShellRouteByPageId('automations')?.kind === 'react';
 }
 
+/**
+ * Automations: the list (`/automations`), a new automation
+ * (`/automations/new`) and the editor (`/automations/<id>/edit`). This layout
+ * holds the page gate for all three.
+ */
 export const Route = createFileRoute('/automations')({
-  validateSearch: automationsSearchSchema,
   beforeLoad: ({ context }) => {
     guardPageAccess(context.shell.bridge, 'automations');
   },
-  loader: async ({ context }) => {
+  loader: ({ context }) => {
     if (!isReactOwned()) return;
-
     const { profile } = context.shell;
     const { queryClient } = context;
-
-    // Both feed the first paint: the sections need the list, and the stats bar
-    // renders the master toggle beside the counts. Progress is deliberately
-    // NOT prefetched — it is a catch-up read for runs already in flight, and
-    // blocking paint on it would delay the page for the common idle case.
-    // allSettled, not all: this loader WARMS the cache for the first paint, it
-    // does not gate the route. A rejection here would hand the page to
-    // defaultErrorComponent ("Something went wrong") on any backend hiccup,
-    // where the vanilla page stayed usable. The components read the same
-    // failures through useQuery and render their own error states.
-    await Promise.allSettled([
-      queryClient.ensureQueryData(automationsListQueryOptions(profile.profileId)),
-      queryClient.ensureQueryData(automationsMasterQueryOptions()),
-    ]);
+    // Starts the two reads the first paint needs, without waiting for them:
+    // the page draws its header and filters at once and says it's loading
+    // (or that it couldn't load) in place of the cards.
+    void queryClient.prefetchQuery(automationsListQueryOptions(profile.profileId));
+    void queryClient.prefetchQuery(automationsMasterQueryOptions());
   },
-  component: AutomationsRouteComponent,
+  component: AutomationsLayout,
 });
 
-function AutomationsRouteComponent() {
+function AutomationsLayout() {
   if (!isReactOwned()) {
     return <LegacyRouteController pathname="/automations" />;
   }
-  return <AutomationsPage />;
+  return <Outlet />;
 }

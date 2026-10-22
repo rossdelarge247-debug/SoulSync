@@ -1,7 +1,7 @@
 """Automation endpoints - lifted from web_server.py.
 
 the /api/automations family (list/create/update/group/bulk/delete/
-duplicate/toggle/run/progress/history/blocks/test-notify), the master
+duplicate/toggle/run/preview/progress/history/blocks/test-notify), the master
 pause switch, and /api/scripts for the run-script block's dropdown.
 route bodies were already thin handlers over core/automation/api.py -
 now the thin handlers live out here too.
@@ -20,7 +20,7 @@ from core.automation import api as _auto_api
 from core.automation import blocks as _auto_blocks
 from core.automation import signals as _auto_signals
 from core.automation import progress as _auto_progress
-from core.profile_context import admin_only, get_current_profile_id
+from core.profile_context import admin_only, get_current_profile_id, is_admin_request
 from utils.logging_config import get_logger
 
 logger = get_logger("api.automations")
@@ -30,15 +30,19 @@ get_database = None
 config_manager = None
 docker_resolve_path = None
 automation_engine = None
+spotify_ready = None
 
 
 def configure(*, get_database_, config_manager_, docker_resolve_path_,
-              automation_engine_):
-    global get_database, config_manager, docker_resolve_path, automation_engine
+              automation_engine_, spotify_ready_=None):
+    global get_database, config_manager, docker_resolve_path, automation_engine, spotify_ready
     get_database = get_database_
     config_manager = config_manager_
     docker_resolve_path = docker_resolve_path_
     automation_engine = automation_engine_
+    # whether the followed-artist check's metadata source is ready (the
+    # preview of scan_watchlist says so when it isn't)
+    spotify_ready = spotify_ready_
 
 
 bp = Blueprint('automations', __name__)
@@ -193,6 +197,44 @@ def run_automation_endpoint(automation_id):
     except Exception as e:
         logger.error(f"Error running automation: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+def _preview(automation_id):
+    from core.automation.dry_run import DryRunContext
+    profile_id = get_current_profile_id()
+    if profile_id is None:
+        return jsonify({"success": False, "error": "profile_required"}), 401
+    ctx = DryRunContext(
+        database=get_database(), config_manager=config_manager,
+        docker_resolve_path=docker_resolve_path or (lambda p: p),
+        profile_id=int(profile_id), spotify_ready=spotify_ready)
+    body, status = _auto_api.preview_automation(
+        get_database(), ctx, automation_id=automation_id, data=request.get_json(silent=True),
+        profile_id=profile_id, is_admin=bool(is_admin_request()))
+    return jsonify(body), status
+
+
+@bp.route('/api/automations/<int:automation_id>/preview', methods=['POST'])
+def preview_automation_endpoint(automation_id):
+    """Preview a run: what this automation would do right now, changing
+    nothing. An optional body ({action_type, action_config, then_actions})
+    previews unsaved edits instead of the saved steps."""
+    try:
+        return _preview(automation_id)
+    except Exception as e:
+        logger.error(f"Error previewing automation {automation_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": "The preview didn't work. Nothing was changed."}), 500
+
+
+@bp.route('/api/automations/preview', methods=['POST'])
+def preview_draft_automation():
+    """Preview a run of an automation that isn't saved yet (body:
+    {action_type, action_config, then_actions}). Never recorded."""
+    try:
+        return _preview(None)
+    except Exception as e:
+        logger.error(f"Error previewing a draft automation: {e}", exc_info=True)
+        return jsonify({"success": False, "error": "The preview didn't work. Nothing was changed."}), 500
 
 
 @bp.route('/api/automations/progress', methods=['GET'])

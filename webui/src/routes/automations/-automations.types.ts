@@ -1,12 +1,9 @@
-import { z } from 'zod';
-
 /**
  * Coerce a raw search value to a string.
  *
- * TanStack JSON-parses search values, so an all-digits filter arrives as a
- * NUMBER and a bare `z.string()` would throw SearchParamError and take the
- * route down. Only primitives are stringified — a hand-edited `?q[]=x` parses
- * to an object, which must read as absent rather than "[object Object]".
+ * TanStack JSON-parses search values, so an all-digits value arrives as a
+ * NUMBER and a bare `z.string()` would throw and take the route down. Only
+ * primitives are stringified: a hand-edited `?q[]=x` reads as absent.
  */
 function searchString(value: unknown): string | undefined {
   if (typeof value === 'string') return value;
@@ -14,119 +11,86 @@ function searchString(value: unknown): string | undefined {
   return undefined;
 }
 
-// Which top-level view the page shows. The library is the browsable
-// collection grid; the overview is the glanceable status dashboard.
-export const automationsViews = ['overview', 'library'] as const;
-export type AutomationsViewName = (typeof automationsViews)[number];
+/** The list's filter buttons, as the URL spells them (`?show=`). */
+export const LIST_SHOWS = ['all', 'attention', 'mine', 'builtin', 'paused'] as const;
+export type ListShow = (typeof LIST_SHOWS)[number];
 
 /**
- * Navigation collections for the library sidebar.
- *
- * Smart collections are fixed keys; user groups ride as `group:<name>`.
- * `guides` is the reference hub, not a set of automations.
+ * Old `?nav=` collections (and the older `?health=` lenses) and the filter
+ * that took their place, so bookmarks keep their meaning.
  */
-export const AUTOMATION_NAV_KEYS = [
-  'all',
-  'attention',
-  'scheduled',
-  'events',
-  'off',
-  'system',
-  'ungrouped',
-  'guides',
-] as const;
-
-/**
- * A legacy pre-overhaul `?health=` value and the smart collection that
- * replaced it. 'failing' and 'never' both lived under the old verdict strip's
- * "needs attention" idea; 'off' is the Switched off collection.
- */
-const legacyHealthToNav: Record<string, string> = {
+const LEGACY_NAV_TO_SHOW: Record<string, ListShow> = {
+  attention: 'attention',
+  off: 'paused',
+  system: 'builtin',
+  operations: 'builtin',
+  maintenance: 'builtin',
+  ungrouped: 'mine',
+};
+const LEGACY_HEALTH_TO_SHOW: Record<string, ListShow> = {
   failing: 'attention',
   never: 'attention',
-  off: 'off',
+  off: 'paused',
 };
 
-function searchView(value: unknown): AutomationsViewName {
-  const s = searchString(value);
-  return (automationsViews as readonly string[]).includes(s ?? '')
-    ? (s as AutomationsViewName)
-    : 'overview';
+/** `group=` value for "automations in no group". */
+export const NO_GROUP = '__none__';
+
+export interface AutomationsListSearch {
+  /** The selected automation's id. */
+  automation?: number;
+  show?: ListShow;
+  /** A group name, or NO_GROUP. */
+  group?: string;
+  q?: string;
+  /** Exact trigger / action type (links from the old filter dropdowns). */
+  trigger?: string;
+  action?: string;
+  /** `guides`: the recipes and guides instead of the list. */
+  view?: 'guides';
 }
 
-// All three filter-bar controls, not just the text box. They were transient DOM
-// state in the vanilla page — a reload dropped them — so putting them in the URL
-// only adds state that used to be thrown away.
-export const automationsSearchSchema = z
-  .object({
-    /** 'overview' = status dashboard, 'library' = the browsable collection grid. */
-    view: z
-      .preprocess((v) => searchView(v), z.enum(automationsViews))
-      .default('overview')
-      .catch('overview'),
-    /**
-     * The sidebar collection being browsed: a smart key ('all', 'attention',
-     * 'scheduled', 'events', 'off', 'system', 'ungrouped', 'guides') or
-     * `group:<name>` for a user group. Only meaningful when view=library.
-     */
-    nav: z
-      .preprocess((v) => searchString(v) ?? 'all', z.string())
-      .default('all')
-      .catch('all'),
-    q: z
-      .preprocess((v) => searchString(v) ?? '', z.string())
-      .default('')
-      .catch(''),
-    /** Raw trigger_type from the dropdown; '' means All Triggers. */
-    trigger: z
-      .preprocess((v) => searchString(v) ?? '', z.string())
-      .default('')
-      .catch(''),
-    /** Raw action_type from the dropdown; '' means All Actions. */
-    action: z
-      .preprocess((v) => searchString(v) ?? '', z.string())
-      .default('')
-      .catch(''),
-    /**
-     * Legacy param from the pre-overhaul page, where the verdict strip linked
-     * `?health=failing|never|off`. The overhaul replaced that strip with the
-     * Needs attention / Switched off smart collections, so a bookmarked
-     * health link rewrites to the equivalent collection below instead of
-     * being silently dropped. Never read back out or written to the URL.
-     */
-    health: z
-      .preprocess((v) => searchString(v) ?? '', z.string())
-      .default('')
-      .catch(''),
-  })
-  .transform(({ health, ...rest }) => {
-    const legacy = health ? legacyHealthToNav[health] : undefined;
-    // Only the untouched defaults rewrite: an explicit new-style view/nav
-    // always wins over a stale health param sharing the URL.
-    if (legacy && rest.view === 'overview' && rest.nav === 'all') {
-      return { ...rest, view: 'library' as const, nav: legacy };
-    }
-    return rest;
-  });
-
-export type AutomationsSearch = z.infer<typeof automationsSearchSchema>;
-
 /**
- * The vanilla filter bar hides itself below this many automations — the exact
- * test was `automations.length < 7` in the vanilla _initAutoFilterBar (since
- * deleted with the rest of the legacy list). Named so this cannot quietly
- * drift to "6+", which is what that code's own comment claimed it did.
+ * Search for /automations. Old links keep working: `?view=library&nav=…`,
+ * `?nav=group:Name`, `?health=failing`, and the trigger/action filters.
  */
-export const AUTO_FILTER_BAR_MIN = 7;
+export function parseListSearch(raw: Record<string, unknown>): AutomationsListSearch {
+  const out: AutomationsListSearch = {};
+  const id = Number.parseInt(searchString(raw.automation) ?? '', 10);
+  if (Number.isFinite(id) && id > 0) out.automation = id;
+
+  const show = searchString(raw.show);
+  if (show && (LIST_SHOWS as readonly string[]).includes(show) && show !== 'all') {
+    out.show = show as ListShow;
+  }
+  const nav = searchString(raw.nav) ?? '';
+  const health = searchString(raw.health) ?? '';
+  if (!out.show) {
+    const legacy =
+      LEGACY_NAV_TO_SHOW[nav] ??
+      (nav.startsWith('group:') ? undefined : LEGACY_HEALTH_TO_SHOW[health]);
+    if (legacy) out.show = legacy;
+  }
+
+  const group = searchString(raw.group);
+  if (group) out.group = group;
+  else if (nav.startsWith('group:') && nav.length > 'group:'.length) out.group = nav.slice(6);
+  else if (nav === 'ungrouped') out.group = NO_GROUP;
+
+  for (const key of ['q', 'trigger', 'action'] as const) {
+    const value = (searchString(raw[key]) ?? '').trim();
+    if (value) out[key] = value;
+  }
+  if (searchString(raw.view) === 'guides' || nav === 'guides') out.view = 'guides';
+  return out;
+}
 
 /**
  * One row from GET /api/automations.
  *
- * These are `automations` table rows passed through _hydrate_automation, which
+ * `automations` table rows passed through _hydrate_automation, which
  * JSON-parses the config columns and backfills `then_actions` from the legacy
- * notify_* pair. Fields are optional because the table grew by migration —
- * is_system, group_name, owned_by and then_actions were all added later, so an
- * older row can genuinely lack them.
+ * notify_* pair. Fields are optional because the table grew by migration.
  */
 export interface Automation {
   id: number;
@@ -136,30 +100,35 @@ export interface Automation {
   trigger_config?: Record<string, unknown> | null;
   action_type?: string;
   action_config?: Record<string, unknown> | null;
-  then_actions?: { type?: string; config?: Record<string, unknown> }[];
+  then_actions?: ThenAction[];
   last_run?: string | null;
   next_run?: string | null;
   run_count?: number;
   last_error?: string | null;
-  /**
-   * JSON-parsed by _hydrate_automation, so normally a dict of run facts. It is
-   * NOT in _JSON_DEFAULT_DICT, so a malformed value hydrates to null rather
-   * than {} — hence unknown rather than a record type.
-   */
+  /** JSON-parsed run facts; null when malformed. */
   last_result?: unknown;
-  /** Seeded, undeletable automations. Rendered in the protected System section. */
+  /** Seeded, undeletable automations. */
   is_system?: boolean | number;
-  /** User-defined grouping; drives the 📁 sections. */
   group_name?: string | null;
-  /**
-   * Which side owns the row. The engine is app-wide and both sides read the
-   * SAME endpoint, so 'video' rows must be filtered out of the music page —
-   * and vice versa on the video page.
-   */
+  /** 'video' rows belong to the video page. */
   owned_by?: string | null;
   profile_id?: number;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+/** One follow-up step (a THEN block). */
+export interface ThenAction {
+  type?: string;
+  config?: Record<string, unknown>;
+  conditions?: StepCondition[] | null;
+  match?: string;
+}
+
+export interface StepCondition {
+  field?: string;
+  operator?: string;
+  value?: string;
 }
 
 /** GET /api/automations returns the bare array, or {error} on failure. */
@@ -178,20 +147,117 @@ export interface AutomationsProgressResponse {
   error?: string;
 }
 
-/** One entry in the builder palette. */
+export interface BlockConfigField {
+  key: string;
+  type: string;
+  label?: string;
+  default?: unknown;
+  min?: number;
+  max?: number;
+  placeholder?: string;
+  description?: string;
+  options?: { value: string; label: string }[];
+}
+
+/** One entry in the block catalogue (core/automation/blocks.py). */
 export interface AutomationBlockDef {
   type: string;
   label?: string;
+  description?: string;
+  category?: string;
+  module?: string | null;
+  available?: boolean;
+  has_conditions?: boolean;
+  condition_fields?: string[];
+  variables?: string[];
+  config_fields?: BlockConfigField[];
 }
 
-/**
- * GET /api/automations/blocks. `_findBlockDef` searches these three categories
- * in order, so the label lookup below must too.
- */
+/** GET /api/automations/blocks (music scope). */
 export interface AutomationBlocks {
   triggers?: AutomationBlockDef[];
   actions?: AutomationBlockDef[];
   notifications?: AutomationBlockDef[];
+  category_order?: string[];
+  known_signals?: string[];
 }
 
 export const BLOCK_CATEGORIES = ['triggers', 'actions', 'notifications'] as const;
+
+/** One recorded run, from GET /api/automations/<id>/history. */
+export interface RunEntry {
+  id: number;
+  automation_id?: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_seconds?: number | null;
+  /** completed | error | timeout | skipped | preview */
+  status?: string;
+  summary?: string | null;
+  result_json?: Record<string, unknown> | string | null;
+  log_lines?: { type?: string; text?: string }[];
+}
+
+export interface RunHistoryResponse {
+  history?: RunEntry[];
+  total?: number;
+  automation_id?: number;
+  error?: string;
+}
+
+export interface PreviewCount {
+  key: string;
+  label: string;
+  value: number;
+  /** `bytes` for a size. */
+  unit?: string;
+}
+
+export interface PreviewStep {
+  position: number;
+  kind: 'action' | 'then';
+  type: string;
+  previewed: boolean;
+  note: string | null;
+}
+
+/** POST /api/automations/<id>/preview (CONTRACTS.md, "Preview a run"). */
+export interface PreviewResult {
+  success: boolean;
+  error?: string;
+  automation_id: number | null;
+  action_type: string;
+  available: boolean;
+  /** Why there's no preview, when `available` is false. */
+  reason?: string;
+  /** The step moves or deletes files (it runs through preview-then-confirm). */
+  files: boolean;
+  summary?: string;
+  counts?: PreviewCount[];
+  sample?: { title: string; detail: string }[];
+  sample_total?: number;
+  sample_noun?: string;
+  steps: PreviewStep[];
+  previewed_at: number;
+  duration_ms: number;
+  recorded: boolean;
+  run_id: number | null;
+}
+
+/** What POST/PUT /api/automations take. */
+export interface AutomationPayload {
+  name: string;
+  trigger_type: string;
+  trigger_config: Record<string, unknown>;
+  action_type: string;
+  action_config: Record<string, unknown>;
+  then_actions: ThenAction[];
+  group_name?: string | null;
+}
+
+/** GET /api/mirrored-playlists/list. */
+export interface MirroredPlaylistOption {
+  id: number;
+  name: string;
+  source?: string;
+}

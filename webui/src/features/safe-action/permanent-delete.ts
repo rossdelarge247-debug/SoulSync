@@ -16,9 +16,13 @@ import type { PlanItem, PlanSummary } from './plan';
 
 import { countLabel, formatBytes, readRefusal, type PlanRefusal } from './plan';
 
-/** What to delete: the whole bin, chosen bin entries, or the quarantine. */
+/**
+ * What to delete: the whole bin, chosen bin entries, what the bin's keep
+ * window lets go now (`retention`, which the Weekly Cleanup automation
+ * empties), or the quarantine.
+ */
 export type PermanentDeleteTarget =
-  | { kind: 'recycle-bin'; ids?: string[] }
+  | { kind: 'recycle-bin'; ids?: string[]; retention?: boolean }
   | { kind: 'quarantine' };
 
 /** One file the preview lists. */
@@ -76,7 +80,14 @@ function urls(target: PermanentDeleteTarget) {
 export async function previewPermanentDelete(
   target: PermanentDeleteTarget,
 ): Promise<PermanentDeletePreview> {
-  const body = target.kind === 'quarantine' ? {} : target.ids ? { ids: target.ids } : { all: true };
+  const body =
+    target.kind === 'quarantine'
+      ? {}
+      : target.ids
+        ? { ids: target.ids }
+        : target.retention
+          ? { retention: true }
+          : { all: true };
   const response = await fetch(urls(target).preview, {
     method: 'POST',
     headers: JSON_HEADERS,
@@ -134,6 +145,10 @@ export function permanentDeleteCopy(
     lead =
       'Every file in the download quarantine is deleted for good, with its info file. ' +
       'None of them can be approved or recovered afterwards. Anything quarantined after this preview stays.';
+  } else if (target.retention) {
+    lead =
+      'These are the files the recycle bin lets go now: everything past its keep window, or all of ' +
+      'it when the bin keeps files forever. They are deleted for good and cannot be restored afterwards.';
   } else if (target.ids) {
     lead =
       n === 1

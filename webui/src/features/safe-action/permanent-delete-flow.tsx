@@ -34,6 +34,7 @@ function toast(message: string, type = 'info') {
 
 function emptyMessage(target: PermanentDeleteTarget): string {
   if (target.kind === 'quarantine') return 'The quarantine is already empty.';
+  if (target.retention) return 'Nothing in the recycle bin is past its keep window.';
   return target.ids ? 'Those files are no longer in the recycle bin.' : 'The recycle bin is empty.';
 }
 
@@ -61,10 +62,22 @@ function rows(preview: PermanentDeletePreview, target: PermanentDeleteTarget): S
   });
 }
 
+/** What comes after this delete (an automation's next half): offered as a
+ *  button on the done screen, and started at once when there was nothing to
+ *  delete. */
+export interface PermanentDeleteNext {
+  label: string;
+  run: () => void;
+}
+
 export interface PermanentDeleteFlow {
   /** Preview, then open the confirm. `onDone` runs once something was
    *  deleted, or when there was nothing to delete (so the list refreshes). */
-  begin: (target: PermanentDeleteTarget, onDone?: () => void) => Promise<void>;
+  begin: (
+    target: PermanentDeleteTarget,
+    onDone?: () => void,
+    next?: PermanentDeleteNext,
+  ) => Promise<void>;
   dialog: React.ReactNode;
 }
 
@@ -73,39 +86,47 @@ export function usePermanentDelete(): PermanentDeleteFlow {
     target: PermanentDeleteTarget;
     preview: PermanentDeletePreview;
     onDone?: () => void;
+    next?: PermanentDeleteNext;
   } | null>(null);
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<SafeActionPhase>({ kind: 'review' });
   const [busy, setBusy] = useState(false);
   const previewing = useRef(false);
 
-  const begin = useCallback(async (target: PermanentDeleteTarget, onDone?: () => void) => {
-    if (previewing.current) return;
-    previewing.current = true;
-    try {
-      let preview: PermanentDeletePreview;
+  const begin = useCallback(
+    async (target: PermanentDeleteTarget, onDone?: () => void, next?: PermanentDeleteNext) => {
+      if (previewing.current) return;
+      previewing.current = true;
       try {
-        preview = await previewPermanentDelete(target);
-      } catch {
-        toast('Could not preview the delete.', 'error');
-        return;
+        let preview: PermanentDeletePreview;
+        try {
+          preview = await previewPermanentDelete(target);
+        } catch {
+          toast('Could not preview the delete.', 'error');
+          return;
+        }
+        if (preview.success === false) {
+          toast(preview.error || 'Could not preview the delete.', 'error');
+          return;
+        }
+        if (!preview.plan_id || !preview.files) {
+          toast(emptyMessage(target), 'info');
+          onDone?.();
+          if (next) {
+            previewing.current = false;
+            next.run();
+          }
+          return;
+        }
+        setCurrent({ target, preview, onDone, next });
+        setPhase({ kind: 'review' });
+        setOpen(true);
+      } finally {
+        previewing.current = false;
       }
-      if (preview.success === false) {
-        toast(preview.error || 'Could not preview the delete.', 'error');
-        return;
-      }
-      if (!preview.plan_id || !preview.files) {
-        toast(emptyMessage(target), 'info');
-        onDone?.();
-        return;
-      }
-      setCurrent({ target, preview, onDone });
-      setPhase({ kind: 'review' });
-      setOpen(true);
-    } finally {
-      previewing.current = false;
-    }
-  }, []);
+    },
+    [],
+  );
 
   const confirm = useCallback(async () => {
     const planId = current?.preview.plan_id;
@@ -123,11 +144,23 @@ export function usePermanentDelete(): PermanentDeleteFlow {
         return;
       }
       const outcome = permanentDeleteOutcome(current.target, result);
+      const next = current.next;
       setPhase({
         kind: 'done',
         title: outcome.tone === 'success' ? 'Deleted for good' : 'Some files were not deleted',
         body: outcome.body,
         tone: outcome.tone,
+        ...(next
+          ? {
+              extra: {
+                label: next.label,
+                onClick: () => {
+                  setOpen(false);
+                  next.run();
+                },
+              },
+            }
+          : {}),
       });
       current.onDone?.();
     } catch {
@@ -148,7 +181,7 @@ export function usePermanentDelete(): PermanentDeleteFlow {
       onClose={() => setOpen(false)}
       phase={phase}
       onPreviewAgain={() => {
-        if (current) void begin(current.target, current.onDone);
+        if (current) void begin(current.target, current.onDone, current.next);
       }}
       title={copy?.title ?? 'Permanently delete'}
       stats={

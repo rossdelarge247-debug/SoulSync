@@ -24,7 +24,18 @@ const LEGACY_PAGE_ID = 'automations-page';
  * routes through hideAutomationBuilder, so wrapping that one function is a
  * complete interception; saveAutomation calls it before its onSaved hook.
  */
-export function useVanillaBuilder(onClosed: () => void): (automationId?: number) => void {
+export function useVanillaBuilder(
+  onClosed: () => void,
+  options: {
+    /**
+     * Also hand the page over when something else opens the builder while
+     * this is mounted: the recipes in "Recipes and guides" call
+     * showAutomationBuilder themselves, and would otherwise open it inside the
+     * hidden legacy page.
+     */
+    catchDirectOpens?: boolean;
+  } = {},
+): (automationId?: number) => void {
   // Only reclaim the page if WE handed it over. The video page shares this
   // function, so an unrelated close must not yank the shell around.
   const openedByUs = useRef(false);
@@ -63,6 +74,23 @@ export function useVanillaBuilder(onClosed: () => void): (automationId?: number)
       }
     };
   }, [showReact]);
+
+  const catchDirectOpens = Boolean(options.catchDirectOpens);
+  useEffect(() => {
+    if (!catchDirectOpens) return;
+    const original = window.showAutomationBuilder;
+    if (!original) return;
+    const wrapped = function patchedShowAutomationBuilder(this: unknown, ...args: unknown[]) {
+      openedByUs.current = true;
+      document.getElementById(ROUTER_ROOT_ID)?.classList.remove('active');
+      document.getElementById(LEGACY_PAGE_ID)?.classList.add('active');
+      return (original as (...a: unknown[]) => unknown).apply(this, args);
+    } as typeof window.showAutomationBuilder;
+    window.showAutomationBuilder = wrapped;
+    return () => {
+      window.showAutomationBuilder = original;
+    };
+  }, [catchDirectOpens]);
 
   return useCallback((automationId?: number) => {
     if (typeof window.showAutomationBuilder !== 'function') return;
