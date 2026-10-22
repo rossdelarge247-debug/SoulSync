@@ -1,0 +1,479 @@
+/* Settings → AI, restyled in place to the "Settings AI and Radio" board (5a;
+   docs/design/DESIGN-SYSTEM.md). Markup in index.html (#ai-settings),
+   behaviour in src/shell/ai-settings.ts.
+
+   1. The cards: 14px, 24px padding, an 18/600 sentence-case title.
+   2. The Assistant card: provider and key side by side, the key's status
+      line with a dot and a word, the model as two radio cards, who can use
+      it as two option buttons.
+   3. Usage this month: three numbers, the note, the monthly cap.
+   4. What's sent: two columns under 12px uppercase labels.
+
+   Dark only. Reading text is 14px or more (the uppercase labels are 12px);
+   colours and radii are the --ss-* tokens; ids in the selectors so the
+   legacy settings rules (style.css, settings-premier.css) don't win. */
+
+/* ── 1. The cards ──────────────────────────────────────────────────────── */
+
+#settings-page #ai-settings {
+    display: grid;
+    gap: 24px;
+}
+
+#settings-page #ai-settings > .ai-card {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+    margin: 0;
+    background: var(--ss-surface-card) !important;
+    border: 1px solid var(--ss-surface-card-border) !important;
+    border-radius: var(--ss-radius-card) !important;
+    padding: 24px !important;
+}
+
+#settings-page #ai-settings > .ai-card[hidden] {
+    display: none;
+}
+
+#settings-page #ai-settings h3,
+#settings-page #ai-settings .ai-card:hover h3,
+#settings-page #ai-settings .ai-card:focus-within h3 {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.3;
+    font-family: inherit;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--ss-text);
+}
+
+#settings-page #ai-settings h3::after {
+    content: none !important;
+    display: none !important;
+}
+
+#settings-page #ai-settings .ai-card > h3 + .ai-intro {
+    margin-top: -12px;
+}
+
+#settings-page #ai-settings .ai-intro {
+    max-width: 78ch;
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ss-text-secondary);
+}
+
+#settings-page #ai-settings .ai-help {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-text-meta);
+}
+
+#settings-page #ai-settings .ai-label-text {
+    display: block;
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--ss-text);
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+#settings-page #ai-settings .ai-section-label {
+    margin: 0 0 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ss-text-meta);
+}
+
+#settings-page #ai-settings :focus-visible {
+    outline: var(--ss-focus-ring) !important;
+    outline-offset: var(--ss-focus-offset);
+}
+
+#settings-page #ai-settings .ai-load-error {
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid rgba(var(--ss-danger-rgb), 0.35);
+    border-radius: var(--ss-radius-card);
+    background: rgba(var(--ss-danger-rgb), 0.07);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-text-secondary);
+}
+
+#settings-page #ai-settings .ai-load-error[hidden] {
+    display: none;
+}
+
+/* ── 2. The Assistant card ─────────────────────────────────────────────── */
+
+#settings-page #ai-settings .ai-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 24px;
+}
+
+#settings-page #ai-settings .ai-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+#settings-page #ai-settings .ai-select,
+#settings-page #ai-settings .ai-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 14px;
+    border: 1px solid var(--ss-input-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-input-fill, rgba(255, 255, 255, 0.04));
+    color: var(--ss-text);
+    font: inherit;
+    font-size: 15px;
+    transition: var(--ss-transition);
+}
+
+#settings-page #ai-settings .ai-select:hover,
+#settings-page #ai-settings .ai-input:hover {
+    border-color: var(--ss-input-border-hover);
+}
+
+#settings-page #ai-settings .ai-select:focus,
+#settings-page #ai-settings .ai-input:focus {
+    outline: none !important;
+    border-color: var(--ss-input-focus-border);
+}
+
+#settings-page #ai-settings .ai-input[aria-invalid="true"] {
+    border-color: var(--ss-input-error-border);
+}
+
+#settings-page #ai-settings .ai-key-row {
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+}
+
+#settings-page #ai-settings .ai-key-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    letter-spacing: 0.02em;
+}
+
+#settings-page #ai-settings .ai-key-input[readonly] {
+    color: var(--ss-text-secondary);
+    cursor: default;
+}
+
+#settings-page #ai-settings .ai-button {
+    flex: none;
+    min-height: 44px;
+    margin: 0;
+    padding: 0 16px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+
+#settings-page #ai-settings .ai-button[hidden] {
+    display: none;
+}
+
+#settings-page #ai-settings .ai-button:hover {
+    background: var(--ss-control-fill-hover);
+}
+
+#settings-page #ai-settings .ai-button:active {
+    opacity: var(--ss-pressed-opacity);
+}
+
+#settings-page #ai-settings .ai-button--primary {
+    border-color: transparent;
+    background: rgb(var(--ss-accent-light-rgb));
+    color: var(--ss-text-on-accent);
+}
+
+#settings-page #ai-settings .ai-button--primary:hover {
+    background: rgb(var(--ss-accent-light-rgb));
+    opacity: 0.92;
+}
+
+#settings-page #ai-settings .ai-button--ghost {
+    border-color: transparent;
+    background: transparent;
+}
+
+#settings-page #ai-settings .ai-button[aria-disabled="true"] {
+    border-color: var(--ss-disabled-border);
+    background: var(--ss-disabled-fill);
+    color: var(--ss-disabled-text);
+    opacity: 1;
+    cursor: default;
+}
+
+/* the status line: a dot and words; danger words for a refused key */
+#settings-page #ai-settings .ai-key-status,
+#settings-page #ai-settings .ai-save-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 21px;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-text-tertiary);
+}
+
+#settings-page #ai-settings .ai-key-status::before {
+    content: '';
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ss-neutral);
+}
+
+#settings-page #ai-settings .ai-key-status:empty::before,
+#settings-page #ai-settings .ai-key-status[data-busy="true"]::before {
+    display: none;
+}
+
+#settings-page #ai-settings .ai-key-status[data-tone="success"]::before {
+    background: var(--ss-success);
+}
+
+#settings-page #ai-settings .ai-key-status[data-tone="danger"] {
+    color: var(--ss-danger);
+}
+
+#settings-page #ai-settings .ai-key-status[data-tone="danger"]::before {
+    background: var(--ss-danger);
+}
+
+#settings-page #ai-settings .ai-save-status:empty {
+    display: none;
+}
+
+#settings-page #ai-settings .ai-save-status[data-tone="danger"] {
+    color: var(--ss-danger);
+}
+
+/* the model: two radio cards; selected = 14% accent wash + 45% border */
+#settings-page #ai-settings .ai-model-cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+#settings-page #ai-settings .ai-model-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 44px;
+    margin: 0;
+    padding: 14px 16px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-card);
+    background: transparent;
+    color: var(--ss-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+
+#settings-page #ai-settings .ai-model-card:hover {
+    background: var(--ss-hover-wash);
+}
+
+#settings-page #ai-settings .ai-model-card[aria-checked="true"],
+#settings-page #ai-settings .ai-model-card[aria-checked="true"]:hover {
+    border-color: var(--ss-selected-border);
+    background: var(--ss-selected-fill);
+}
+
+#settings-page #ai-settings .ai-model-name {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+#settings-page #ai-settings .ai-model-desc {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-text-tertiary);
+}
+
+/* who can use it: two 44px option buttons */
+#settings-page #ai-settings .ai-who {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+#settings-page #ai-settings .ai-option {
+    min-height: 44px;
+    margin: 0;
+    padding: 0 16px;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: transparent;
+    color: var(--ss-text);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+
+#settings-page #ai-settings .ai-option:hover {
+    background: var(--ss-hover-wash);
+}
+
+#settings-page #ai-settings .ai-option[aria-checked="true"],
+#settings-page #ai-settings .ai-option[aria-checked="true"]:hover {
+    border-color: var(--ss-selected-border);
+    background: var(--ss-selected-fill);
+}
+
+/* ── 3. Usage this month ───────────────────────────────────────────────── */
+
+#settings-page #ai-settings > .ai-usage {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 32px;
+}
+
+#settings-page #ai-settings .ai-usage-main {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+#settings-page #ai-settings .ai-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 40px;
+    margin: 0;
+}
+
+#settings-page #ai-settings .ai-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+#settings-page #ai-settings .ai-stat dt {
+    font-size: 14px;
+    color: var(--ss-text-tertiary);
+}
+
+#settings-page #ai-settings .ai-stat dd {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--ss-text);
+    font-variant-numeric: tabular-nums;
+}
+
+#settings-page #ai-settings .ai-cap {
+    display: flex;
+    flex: 0 0 280px;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#settings-page #ai-settings .ai-field-error {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-danger);
+}
+
+#settings-page #ai-settings .ai-field-error[hidden] {
+    display: none;
+}
+
+/* ── 4. What's sent ────────────────────────────────────────────────────── */
+
+#settings-page #ai-settings .ai-sent {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 24px;
+}
+
+#settings-page #ai-settings .ai-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding-left: 20px;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ss-text-secondary);
+}
+
+/* ── Phones and narrow panes ───────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    #settings-page #ai-settings .ai-row,
+    #settings-page #ai-settings .ai-sent,
+    #settings-page #ai-settings .ai-model-cards {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    #settings-page #ai-settings > .ai-usage {
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    #settings-page #ai-settings .ai-cap {
+        flex-basis: auto;
+        width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    #settings-page #ai-settings > .ai-card {
+        padding: 20px !important;
+    }
+
+    #settings-page #ai-settings .ai-key-row {
+        flex-wrap: wrap;
+    }
+
+    #settings-page #ai-settings .ai-key-input {
+        flex-basis: 100%;
+    }
+
+    #settings-page #ai-settings .ai-key-row .ai-button {
+        flex: 1 1 0;
+    }
+}

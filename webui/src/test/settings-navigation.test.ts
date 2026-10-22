@@ -24,7 +24,12 @@ beforeEach(() => {
 });
 it('uses one category bar instead of a second sidebar', () => {
   expect(document.querySelectorAll('.stg-category-nav .stg-tabbar')).toHaveLength(1);
-  expect(document.querySelectorAll('.stg-category-nav .stg-tab')).toHaveLength(9);
+  // ten: Settings → AI (admins only) sits after Quality
+  expect(document.querySelectorAll('.stg-category-nav .stg-tab')).toHaveLength(10);
+  const tabs = [...document.querySelectorAll<HTMLElement>('.stg-category-nav .stg-tab')];
+  expect(tabs.map((t) => t.dataset.tab).indexOf('ai')).toBe(
+    tabs.map((t) => t.dataset.tab).indexOf('quality') + 1,
+  );
   expect(document.querySelector('.stg-nav-rail')).toBeNull();
 });
 it('search leaves mounted forms and their visibility unchanged until selecting a result', () => {
@@ -64,6 +69,19 @@ it('the Modules tab shows its section and loads fresh module states', () => {
   expect((document.getElementById('modules-settings') as HTMLElement).style.display).toBe('');
   expect(document.getElementById('modules-settings-list')).not.toBeNull();
   delete (window as Window & { loadModulesSettings?: () => void }).loadModulesSettings;
+});
+it('the AI tab shows its three cards and loads fresh settings', () => {
+  const load = vi.fn();
+  (window as Window & { loadAiSettings?: () => void }).loadAiSettings = load;
+  nav.switchSettingsTab('ai');
+  expect(load).toHaveBeenCalledOnce();
+  expect(document.getElementById('stg-active-title')?.textContent).toBe('AI');
+  const cards = [...document.querySelectorAll<HTMLElement>('#ai-settings [data-stg="ai"]')];
+  expect(cards).toHaveLength(3);
+  expect(cards.every((c) => c.style.display === '')).toBe(true);
+  nav.switchSettingsTab('modules');
+  expect(cards.every((c) => c.style.display === 'none')).toBe(true);
+  delete (window as Window & { loadAiSettings?: () => void }).loadAiSettings;
 });
 it('Settings opens on a requested tab for one visit, then on Connections again', async () => {
   const helpers = source.slice(

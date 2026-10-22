@@ -11,6 +11,7 @@
  * The assignment list IS the compatibility contract - the census test pins it.
  */
 
+import { initAiSettings, loadAiSettings, openAiSettings } from './ai-settings';
 import { initAppearanceSettings, syncAppearanceSettings } from './appearance';
 import {
   blockFromSearch,
@@ -164,6 +165,10 @@ export const SHELL_WINDOW_EXPORTS = {
   // settings > appearance (oct 22): the accent cards; settings.js calls the
   // sync after it loads the saved accent
   syncAppearanceSettings,
+  // settings > ai (the automation assistant): settings.js loads it when the
+  // tab opens; the assistant panel's "Open Settings → AI" uses the other
+  loadAiSettings,
+  openAiSettings,
 } as const;
 
 Object.assign(window, SHELL_WINDOW_EXPORTS);
@@ -178,6 +183,7 @@ initSidebarWeather();
 const onReady = () => {
   initWeatherPreviewSettings();
   initAppearanceSettings();
+  initAiSettings();
   void initPlexSignIn();
 };
 if (document.readyState === 'loading') {
