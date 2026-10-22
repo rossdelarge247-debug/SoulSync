@@ -845,8 +845,10 @@ describe('tabs, filters and paging live in the URL', () => {
     expect(
       within(screen.getByRole('tab', { name: /Tracks/ })).getByText('132'),
     ).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName(/Releases/);
     fireEvent.click(screen.getByRole('tab', { name: /Similar artists/ }));
     await waitFor(() => expect(search(router).tab).toBe('similar'));
+    expect(screen.getByRole('tabpanel')).toHaveAccessibleName(/Similar artists/);
     expect(await screen.findByRole('link', { name: /Saltmarsh/ })).toHaveAttribute(
       'href',
       '/artist-detail/spotify/sp-sim-0?name=Saltmarsh',

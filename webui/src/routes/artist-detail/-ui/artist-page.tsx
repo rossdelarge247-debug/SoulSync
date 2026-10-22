@@ -232,15 +232,17 @@ const TAB_LABELS: Record<ArtistTab, { long: string; short: string }> = {
 };
 
 function TabBar({
+  base,
   tab,
   counts,
   onSelect,
 }: {
+  /** Ids are `${base}-tab-<tab>`; the panel is `${base}-panel`. */
+  base: string;
   tab: ArtistTab;
   counts: Record<ArtistTab, number | 'loading' | undefined>;
   onSelect: (next: ArtistTab) => void;
 }) {
-  const base = useId();
   const order: ArtistTab[] = ['releases', 'tracks', 'similar'];
   // arrow keys move between the tabs, as a tablist does
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -249,17 +251,18 @@ function TabBar({
     const next = order[(at + (event.key === 'ArrowRight' ? 1 : order.length - 1)) % order.length];
     event.preventDefault();
     onSelect(next);
-    requestAnimationFrame(() => document.getElementById(`${base}-${next}`)?.focus());
+    requestAnimationFrame(() => document.getElementById(`${base}-tab-${next}`)?.focus());
   };
   return (
     <div className={styles.tabs} role="tablist" aria-label="Artist" onKeyDown={onKeyDown}>
       {order.map((key) => (
         <button
           key={key}
-          id={`${base}-${key}`}
+          id={`${base}-tab-${key}`}
           type="button"
           role="tab"
           aria-selected={tab === key}
+          aria-controls={`${base}-panel`}
           tabIndex={tab === key ? 0 : -1}
           className={styles.tab}
           onClick={() => onSelect(key)}
@@ -291,6 +294,7 @@ export function ArtistPage() {
   const tab: ArtistTab = search.tab ?? 'releases';
   const filter: ReleaseFilter = search.show ?? 'all';
   const asksFirst = profileAsksFirst();
+  const tabBase = useId();
   const [dialog, setDialog] = useState<Dialog>(null);
   const [appliedPhoto, setAppliedPhoto] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -754,6 +758,7 @@ export function ArtistPage() {
   const toolbar = (
     <div className={styles.toolbar}>
       <TabBar
+        base={tabBase}
         tab={tab}
         counts={tabCounts}
         onSelect={(next) => go({ tab: next, all: undefined, manage: undefined })}
@@ -1113,7 +1118,14 @@ export function ArtistPage() {
       {header}
       {notice}
       {toolbar}
-      {body}
+      <div
+        role="tabpanel"
+        id={`${tabBase}-panel`}
+        aria-labelledby={`${tabBase}-tab-${tab}`}
+        className={styles.panel}
+      >
+        {body}
+      </div>
       {dialogs}
       {/* The classic Enhance Quality script looks this button up by id before
           it will load its data; it is never shown. */}

@@ -438,6 +438,14 @@
   border-radius: var(--ss-radius-tag);
 }
 
+/* the open tab's content: the page's 24px rhythm (16 on phones) inside it too */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
 /* ── Release cards ──────────────────────────────────────────────────── */
 
 .grid {
@@ -1027,7 +1035,8 @@ a.similarCard:focus-visible {
 /* ── Phone (board 2h) ───────────────────────────────────────────────── */
 
 @container artist (max-width: 599px) {
-  .page {
+  .page,
+  .panel {
     gap: 16px;
   }
 
