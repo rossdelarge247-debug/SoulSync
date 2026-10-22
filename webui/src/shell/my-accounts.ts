@@ -11,12 +11,15 @@
  * history your stats read (#1293).
  *
  * the admin never gets this, it uses Settings (the sidebar hides the button).
+ * the accent colour sits here too, members' only way to pick their own
+ * (Settings → Appearance is admins only).
  *
  * Backend: GET /api/profiles/me/connections, the per-service save/OAuth
  * routes, POST /api/profiles/me/connections/<service>/disconnect, and the
  * media-server routes the old My Settings used.
  */
 
+import { mountAccentPicker } from './appearance';
 import { escapeHtml, toast } from './html';
 import { closeShellSheet } from './nav-shell';
 
@@ -373,8 +376,16 @@ function _maRender(): void {
       <h4 class="ma-section-title" id="ma-services-h">Music services</h4>
       <div class="ma-group">${_MA_SERVICES.map(_maServiceRow).join('')}</div>
     </section>
+    <section class="ma-section ma-accent" aria-labelledby="ma-accent-h">
+      <h4 class="ma-section-title" id="ma-accent-h">Accent colour</h4>
+      <p class="ma-accent-intro">Buttons, links, selected rows and focus. Yours only; each profile picks its own.</p>
+      <div id="ma-accent-picker"></div>
+    </section>
     <p class="ma-foot">The app's own accounts are set up by the admin in Settings. Anything you change here only affects you.</p>`;
   for (const s of ['listenbrainz', 'lastfm'] as const) _maPaintImport(s);
+  // members have no Settings, so their accent is picked here (HANDOFF 35)
+  const accent = document.getElementById('ma-accent-picker');
+  if (accent) mountAccentPicker(accent, { prefix: 'ma-accent' });
   const focus = body.querySelector<HTMLElement>('.ma-row.is-open input, .ma-row.is-open select');
   focus?.focus();
 }

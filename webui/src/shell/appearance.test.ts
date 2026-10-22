@@ -1,16 +1,21 @@
 /**
- * Settings → Appearance: the accent radio cards over the page's real markup
- * (index.html), the custom colour's contrast check and the preview line.
+ * The accent picker: Settings → Appearance over the page's real markup
+ * (index.html) and a member's My Account. Each profile picks its own accent
+ * (HANDOFF 35, PUT /api/profiles/me/appearance); the install's accent in
+ * Settings' form is the default for profiles that haven't picked.
  */
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { _resetProfileAccentForTests, accentStore } from '@/features/settings/profile-accent';
+
 import {
   _resetAppearanceForTests,
   ACCENT_APPLIED_EVENT,
   initAppearanceSettings,
+  mountAccentPicker,
   syncAppearanceSettings,
   waveHeights,
 } from './appearance';
@@ -18,56 +23,134 @@ import {
 const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
 let parsed: Document | null = null;
 
-/** The Appearance groups as the page renders them, the way settings.js fills them. */
-function mount(preset = '#8b5cf6', custom = '#8b5cf6') {
+interface Server {
+  accent: string | null;
+  install: string;
+  isAdmin: boolean;
+  refuse?: string;
+}
+
+let server: Server;
+let puts: Array<{ accent: string | null }>;
+let applied: string[];
+let changes: number;
+let toasts: Array<[string, string | undefined]>;
+
+function payload() {
+  return {
+    success: true,
+    accent: server.accent,
+    install_accent: server.install,
+    effective_accent: server.accent ?? server.install,
+    is_admin: server.isAdmin,
+  };
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+beforeEach(() => {
+  server = { accent: null, install: '#8b5cf6', isAdmin: true };
+  puts = [];
+  applied = [];
+  changes = 0;
+  toasts = [];
+  _resetProfileAccentForTests();
+  _resetAppearanceForTests();
+  window.applyAccentColor = vi.fn((hex: string) => {
+    applied.push(hex);
+    window.dispatchEvent(new CustomEvent(ACCENT_APPLIED_EVENT, { detail: { hex } }));
+  });
+  window.showToast = vi.fn((message: string, tone?: string) => {
+    toasts.push([message, tone]);
+  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe('/api/profiles/me/appearance');
+      if (init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body)) as { accent: string | null };
+        puts.push(body);
+        if (server.refuse) return json({ success: false, error: server.refuse }, 400);
+        server.accent = body.accent;
+      }
+      return json(payload());
+    }),
+  );
+});
+
+afterEach(() => {
+  delete window.applyAccentColor;
+  delete window.showToast;
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+  document.body.replaceChildren();
+});
+
+/** Settings → Appearance as the page renders it, filled the way settings.js fills it. */
+async function openSettings(install = server.install, custom = '#8b5cf6') {
   parsed ??= new DOMParser().parseFromString(html, 'text/html');
   const settings = document.createElement('div');
   settings.id = 'settings-page';
   settings.append(document.importNode(parsed.getElementById('appearance-settings')!, true));
   document.body.replaceChildren(settings);
-  select().value = preset;
+  initAppearanceSettings();
+  select().value = install;
   store().value = custom;
+  select().addEventListener('change', () => (changes += 1));
+  syncAppearanceSettings();
+  await settle();
 }
 
+const settle = async () => {
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+};
 const select = () => document.getElementById('accent-preset') as HTMLSelectElement;
 const store = () => document.getElementById('accent-custom-color') as HTMLInputElement;
-const hexField = () => document.getElementById('accent-custom-hex') as HTMLInputElement;
-const customGroup = () => document.getElementById('custom-color-group')!;
-const check = () => document.getElementById('accent-custom-check')!;
-const group = () => document.querySelector<HTMLElement>('[role="radiogroup"]')!;
-const radios = () => Array.from(group().querySelectorAll<HTMLButtonElement>('[role="radio"]'));
-const radio = (name: string) => radios().find((r) => r.textContent?.includes(name))!;
-const checked = () => radios().filter((r) => r.getAttribute('aria-checked') === 'true');
+const root = () => document.getElementById('accent-picker')!;
+const within = (el: HTMLElement = root()) => ({
+  group: () => el.querySelector<HTMLElement>('[role="radiogroup"]')!,
+  radios: () => Array.from(el.querySelectorAll<HTMLButtonElement>('[role="radio"]')),
+  radio: (name: string) =>
+    Array.from(el.querySelectorAll<HTMLButtonElement>('[role="radio"]')).find((r) =>
+      r.textContent?.includes(name),
+    )!,
+  checked: () =>
+    Array.from(el.querySelectorAll<HTMLButtonElement>('[role="radio"]')).filter(
+      (r) => r.getAttribute('aria-checked') === 'true',
+    ),
+  source: () => el.querySelector<HTMLElement>('.accent-source')!,
+  reset: () => el.querySelector<HTMLButtonElement>('.accent-source .appearance-btn')!,
+  defaults: () => el.querySelector<HTMLElement>('.accent-default'),
+  hex: () => el.querySelector<HTMLInputElement>('.accent-custom-hex')!,
+  custom: () => el.querySelector<HTMLElement>('.accent-custom')!,
+  check: () => el.querySelector<HTMLElement>('.accent-check')!,
+  label: () => el.querySelector<HTMLElement>('.accent-preview-label')!,
+  line: () => el.querySelector<HTMLElement>('.accent-preview-line')!,
+});
 
-let applied: string[] = [];
-let changes = 0;
-
-beforeEach(() => {
-  applied = [];
-  changes = 0;
-  window.applyAccentColor = vi.fn((hex: string) => {
-    applied.push(hex);
-    window.dispatchEvent(new CustomEvent(ACCENT_APPLIED_EVENT, { detail: { hex } }));
+describe('the markup', () => {
+  it('says the accent is yours, not everyone’s', () => {
+    parsed ??= new DOMParser().parseFromString(html, 'text/html');
+    const intro = parsed.querySelector('#appearance-accent .appearance-intro')!.textContent!;
+    expect(intro.replace(/\s+/g, ' ')).toContain('Yours only; each profile picks its own.');
+    expect(intro).not.toContain('applies to everyone');
+    // the install's default still lives in the form settings.js saves
+    expect(parsed.getElementById('accent-custom-color')?.getAttribute('value')).toBe('#8b5cf6');
+    expect(parsed.getElementById('accent-picker')).not.toBeNull();
   });
-  _resetAppearanceForTests();
 });
-
-afterEach(() => {
-  delete window.applyAccentColor;
-  document.body.replaceChildren();
-});
-
-function start(preset?: string, custom?: string) {
-  mount(preset, custom);
-  select().addEventListener('change', () => (changes += 1));
-  initAppearanceSettings();
-}
 
 describe('the radio cards', () => {
-  it('draws a card per preset and Custom, as a labelled radio group', () => {
-    start();
-    expect(group()).toHaveAccessibleName('Accent colour');
-    expect(radios().map((r) => r.querySelector('.accent-card-name')?.textContent)).toEqual([
+  it('draws a card per preset and Custom, as a labelled radio group', async () => {
+    await openSettings();
+    const w = within();
+    expect(w.group()).toHaveAccessibleName('Accent colour');
+    expect(w.radios().map((r) => r.querySelector('.accent-card-name')?.textContent)).toEqual([
       'Lilac',
       'Spotify Green',
       'Ocean Blue',
@@ -77,195 +160,227 @@ describe('the radio cards', () => {
       'Teal',
       'Custom…',
     ]);
-    // each preset shows the pair the app will use: the accent and its light shade
-    const lilac = radio('Lilac').querySelectorAll<HTMLElement>('.accent-swatch > span');
+    const lilac = w.radio('Lilac').querySelectorAll<HTMLElement>('.accent-swatch > span');
     expect(lilac[0].style.background).toBe('rgb(139, 92, 246)');
     expect(lilac[1].style.background).toBe('rgb(194, 169, 250)');
+    expect(w.radios().filter((r) => r.tabIndex === 0)).toEqual([w.radio('Lilac')]);
   });
 
-  it('an install that chose "Boulder Purple" sees Lilac selected, with its colour unchanged', () => {
-    start('#8b5cf6');
-    expect(checked()).toEqual([radio('Lilac')]);
-    expect(radio('Lilac').querySelector('.accent-card-note')).toHaveTextContent(
+  it('on upgrade a profile without a pick sees the install’s accent, unchanged', async () => {
+    server.install = '#1d8ab9';
+    await openSettings('#1d8ab9');
+    const w = within();
+    expect(w.checked()).toEqual([w.radio('Ocean Blue')]);
+    expect(w.radio('Ocean Blue').querySelector('.accent-card-note')).toHaveTextContent(
       'Selected · the default',
     );
-    expect(radio('Spotify Green').querySelector('.accent-card-note')).toHaveTextContent(/^$/);
+    expect(w.radio('Lilac').querySelector('.accent-card-note')).toHaveTextContent(/^$/);
+    expect(w.source()).toHaveTextContent('You’re using this SYNCHRO.S’s default, Ocean Blue.');
+    expect(w.reset().hidden).toBe(true);
+    expect(w.label()).toHaveTextContent('With Ocean Blue, the default');
+    expect(w.line()).toHaveTextContent('#1d8ab9 → light');
     expect(applied).toEqual([]);
+    expect(puts).toEqual([]);
     expect(changes).toBe(0);
-    expect(document.getElementById('accent-preview-label')).toHaveTextContent('With Lilac');
-    expect(document.getElementById('accent-preview-line')).toHaveTextContent(
-      '#8b5cf6 → light #c2a9fa · dark text on it 9.7:1',
-    );
   });
 
-  it('Lilac is the default; an install that saved Spotify Green keeps it as a normal preset', () => {
-    start('#1db954');
-    expect(radios()[0]).toBe(radio('Lilac'));
-    expect(checked()).toEqual([radio('Spotify Green')]);
-    expect(radio('Spotify Green').querySelector('.accent-card-note')).toHaveTextContent(
-      /^Selected$/,
-    );
-    expect(radio('Lilac').querySelector('.accent-card-note')).toHaveTextContent(/^The default$/);
-    expect(applied).toEqual([]);
+  it('a click saves the pick as this profile’s and leaves the install’s default alone', async () => {
+    await openSettings();
+    const w = within();
+    w.radio('Rose').click();
+    await settle();
+    expect(puts).toEqual([{ accent: '#f43f5e' }]);
+    expect(applied.at(-1)).toBe('#f43f5e');
+    expect(select().value).toBe('#8b5cf6');
     expect(changes).toBe(0);
-    expect(document.getElementById('accent-preview-label')).toHaveTextContent('With Spotify Green');
+    expect(w.checked()).toEqual([w.radio('Rose')]);
+    expect(w.radio('Lilac').querySelector('.accent-card-note')).toHaveTextContent('The default');
+    expect(w.source()).toHaveTextContent(
+      'Yours: Rose. Profiles that haven’t picked their own use Lilac.',
+    );
+    expect(w.label()).toHaveTextContent('With Rose, yours');
   });
 
-  it('the page’s own markup starts on Lilac, before settings.js fills it', () => {
-    parsed ??= new DOMParser().parseFromString(html, 'text/html');
-    expect(parsed.getElementById('accent-custom-color')?.getAttribute('value')).toBe('#8b5cf6');
-    expect(parsed.getElementById('accent-custom-picker')?.getAttribute('value')).toBe('#8b5cf6');
-    expect(parsed.getElementById('accent-preview-label')?.textContent).toBe('With Lilac');
+  it('“Use the default” goes back to following the install’s accent', async () => {
+    server.accent = '#14b8a6';
+    await openSettings();
+    const w = within();
+    expect(w.checked()).toEqual([w.radio('Teal')]);
+    expect(w.reset()).toHaveTextContent('Use the default, Lilac');
+    w.reset().click();
+    await settle();
+    expect(puts).toEqual([{ accent: null }]);
+    expect(applied.at(-1)).toBe('#8b5cf6');
+    expect(w.checked()).toEqual([w.radio('Lilac')]);
+    expect(accentStore().mine).toBeNull();
   });
 
-  it('"Purple" is Pale Purple now, by the same hex', () => {
-    start('#a78bfa');
-    expect(checked()).toEqual([radio('Pale Purple')]);
+  it('a refused save puts the colour back and says why', async () => {
+    server.refuse = 'Couldn’t save your accent.';
+    await openSettings();
+    const w = within();
+    w.radio('Teal').click();
+    await settle();
+    await settle();
+    expect(w.checked()).toEqual([w.radio('Lilac')]);
+    expect(applied.at(-1)).toBe('#8b5cf6');
+    expect(toasts).toEqual([['Couldn’t save your accent.', 'error']]);
   });
 
-  it('only the checked card is in the tab order', () => {
-    start('#1d8ab9');
-    expect(radios().filter((r) => r.tabIndex === 0)).toEqual([radio('Ocean Blue')]);
-  });
-
-  it('a click picks a preset, applies it and lets the page save it', () => {
-    start();
-    radio('Rose').click();
-    expect(select().value).toBe('#f43f5e');
-    expect(applied).toEqual(['#f43f5e']);
-    expect(changes).toBe(1);
-    expect(checked()).toEqual([radio('Rose')]);
-    expect(document.getElementById('accent-preview-label')).toHaveTextContent('With Rose');
-  });
-
-  it('the arrow keys move the choice and the focus, and wrap', () => {
-    start('#8b5cf6');
-    radio('Lilac').focus();
-    radio('Lilac').dispatchEvent(
+  it('the arrow keys move the choice and the focus, and wrap', async () => {
+    await openSettings();
+    const w = within();
+    w.radio('Lilac').focus();
+    w.radio('Lilac').dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
     );
-    expect(select().value).toBe('#1db954');
-    expect(document.activeElement).toBe(radio('Spotify Green'));
-    radio('Spotify Green').dispatchEvent(
+    expect(document.activeElement).toBe(w.radio('Spotify Green'));
+    expect(w.checked()).toEqual([w.radio('Spotify Green')]);
+    w.radio('Spotify Green').dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }),
     );
-    radio('Lilac').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
-    expect(document.activeElement).toBe(radio('Custom'));
-    expect(checked()).toEqual([radio('Custom')]);
-    radio('Custom').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-    expect(select().value).toBe('#8b5cf6');
+    w.radio('Lilac').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(document.activeElement).toBe(w.radio('Custom'));
+    expect(w.checked()).toEqual([w.radio('Custom')]);
+  });
+});
+
+describe('the install’s default (admins)', () => {
+  it('admins see the default and can make their accent it; the form autosaves', async () => {
+    server.accent = '#f59e0b';
+    await openSettings();
+    const w = within();
+    const defaults = w.defaults()!;
+    expect(defaults.hidden).toBe(false);
+    expect(defaults).toHaveTextContent('Default for profiles that haven’t picked: Lilac.');
+    const make = defaults.querySelector<HTMLButtonElement>('.appearance-btn')!;
+    expect(make).toHaveTextContent('Make Sunset Orange the default');
+    make.click();
+    expect(select().value).toBe('#f59e0b');
+    expect(changes).toBe(1);
+    expect(defaults).toHaveTextContent('Default for profiles that haven’t picked: Sunset Orange.');
+    expect(make.hidden).toBe(true);
+    expect(puts).toEqual([]);
+  });
+
+  it('a custom accent becomes the default as "custom" and its hex', async () => {
+    server.accent = '#3b82f6';
+    await openSettings();
+    within().defaults()!.querySelector<HTMLButtonElement>('.appearance-btn')!.click();
+    expect(select().value).toBe('custom');
+    expect(store().value).toBe('#3b82f6');
+  });
+
+  it('members don’t get the default line', async () => {
+    server.isAdmin = false;
+    await openSettings();
+    expect(within().defaults()!.hidden).toBe(true);
   });
 });
 
 describe('Custom…', () => {
-  it('starts from the accent in use, and changes nothing until another hex passes', () => {
-    start('#8b5cf6');
-    radio('Custom').click();
-    expect(customGroup().hidden).toBe(false);
-    expect(checked()).toEqual([radio('Custom')]);
-    expect(hexField().value).toBe('#8b5cf6');
-    expect(check()).toHaveTextContent('Dark text on its light shade, #c2a9fa, is 9.7:1');
-    expect(select().value).toBe('#8b5cf6');
+  it('starts from the accent in use, and saves nothing until another hex passes', async () => {
+    await openSettings();
+    const w = within();
+    w.radio('Custom').click();
+    expect(w.custom().hidden).toBe(false);
+    expect(w.checked()).toEqual([w.radio('Custom')]);
+    expect(w.hex().value).toBe('#8b5cf6');
+    expect(w.check()).toHaveTextContent('Dark text on its light shade, #c2a9fa, is 9.7:1');
+    expect(puts).toEqual([]);
     expect(applied).toEqual([]);
-    expect(changes).toBe(0);
   });
 
-  it('uses and saves a hex that passes as it’s typed', () => {
-    start();
-    radio('Custom').click();
-    hexField().value = '#3B82F6';
-    hexField().dispatchEvent(new Event('input'));
-    expect(store().value).toBe('#3b82f6');
-    expect(select().value).toBe('custom');
+  it('shows a passing hex as it’s typed and saves it when typing pauses', async () => {
+    await openSettings();
+    const w = within();
+    w.radio('Custom').click();
+    vi.useFakeTimers();
+    w.hex().value = '#3B82F6';
+    w.hex().dispatchEvent(new Event('input'));
     expect(applied.at(-1)).toBe('#3b82f6');
-    expect(hexField()).toHaveAttribute('aria-invalid', 'false');
-    expect(radio('Custom')).toHaveTextContent('#3b82f6');
-    expect(document.getElementById('accent-preview-label')).toHaveTextContent(
-      'With your custom colour',
-    );
+    expect(puts).toEqual([]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(puts).toEqual([{ accent: '#3b82f6' }]);
+    vi.useRealTimers();
+    await settle();
+    expect(w.radio('Custom')).toHaveTextContent('#3b82f6');
+    expect(w.label()).toHaveTextContent('With your custom colour');
   });
 
-  it('a hex that fails says so in words, keeps the accent, and offers the nearest preset', () => {
-    start('#8b5cf6');
-    radio('Custom').click();
-    const before = applied.length;
-    const savesBefore = changes;
-    hexField().value = '#1e3a8a';
-    hexField().dispatchEvent(new Event('input'));
-    expect(hexField()).toHaveAttribute('aria-invalid', 'true');
-    expect(check()).toHaveTextContent(
+  it('a hex that fails says so in words, keeps the accent, and offers the nearest preset', async () => {
+    await openSettings();
+    const w = within();
+    w.radio('Custom').click();
+    w.hex().value = '#1e3a8a';
+    w.hex().dispatchEvent(new Event('input'));
+    expect(w.hex()).toHaveAttribute('aria-invalid', 'true');
+    expect(w.check()).toHaveTextContent(
       '#1e3a8a is too dark for an accent. Dark text on its light shade, #2d56cd, is 3.1:1, and buttons need 4.5:1.',
     );
-    expect(applied.length).toBe(before);
-    expect(changes).toBe(savesBefore);
-    expect(select().value).toBe('#8b5cf6');
-    expect(store().value).toBe('#8b5cf6');
-
-    const offer = check().querySelector('button')!;
-    expect(offer).toHaveTextContent('Use Ocean Blue instead');
-    expect(check()).toHaveTextContent('Your accent stays Lilac.');
-    // leaving the field to click the offer must not redraw it away
-    hexField().dispatchEvent(new Event('blur'));
-    expect(check().querySelector('button')).toBe(offer);
-    offer.click();
-    expect(select().value).toBe('#1d8ab9');
-    expect(customGroup().hidden).toBe(true);
-    expect(document.activeElement).toBe(radio('Ocean Blue'));
-  });
-
-  it('a half-typed hex is a hint until you leave the field', () => {
-    start();
-    radio('Custom').click();
-    hexField().value = '#8b';
-    hexField().dispatchEvent(new Event('input'));
-    expect(check()).toHaveTextContent('Type # and six digits or letters a–f, like #8b5cf6.');
-    expect(hexField()).toHaveAttribute('aria-invalid', 'false');
-    hexField().value = '#8b5c';
-    hexField().dispatchEvent(new Event('blur'));
-    expect(check()).toHaveTextContent("“#8b5c” isn't a hex colour.");
-    expect(hexField()).toHaveAttribute('aria-invalid', 'true');
-  });
-
-  it('a saved custom colour that fails today’s check is shown as it is, not changed', () => {
-    start('custom', '#1e3a8a');
-    expect(checked()).toEqual([radio('Custom')]);
-    expect(hexField().value).toBe('#1e3a8a');
-    expect(check()).toHaveTextContent('#1e3a8a is too dark for an accent.');
-    expect(check()).toHaveTextContent('It’s in use now');
+    expect(w.check()).toHaveTextContent('Your accent stays Lilac.');
     expect(applied).toEqual([]);
+    const offer = w.check().querySelector('button')!;
+    expect(offer).toHaveTextContent('Use Ocean Blue instead');
+    // leaving the field to click the offer must not redraw it away
+    w.hex().dispatchEvent(new Event('blur'));
+    expect(w.check().querySelector('button')).toBe(offer);
+    offer.click();
+    await settle();
+    expect(puts).toEqual([{ accent: '#1d8ab9' }]);
+    expect(w.custom().hidden).toBe(true);
+    expect(document.activeElement).toBe(w.radio('Ocean Blue'));
+  });
+
+  it('a half-typed hex is a hint until you leave the field', async () => {
+    await openSettings();
+    const w = within();
+    w.radio('Custom').click();
+    w.hex().value = '#8b';
+    w.hex().dispatchEvent(new Event('input'));
+    expect(w.check()).toHaveTextContent('Type # and six digits or letters a–f, like #8b5cf6.');
+    w.hex().value = '#8b5c';
+    w.hex().dispatchEvent(new Event('blur'));
+    expect(w.check()).toHaveTextContent("“#8b5c” isn't a hex colour.");
+    expect(w.hex()).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('a custom install default that fails today’s check is shown as it is, not changed', async () => {
+    server.install = '#1e3a8a';
+    await openSettings('custom', '#1e3a8a');
+    const w = within();
+    expect(w.checked()).toEqual([w.radio('Custom')]);
+    expect(w.hex().value).toBe('#1e3a8a');
+    expect(w.check()).toHaveTextContent('It’s in use now');
+    expect(applied).toEqual([]);
+    expect(puts).toEqual([]);
   });
 });
 
-describe('settings.js loading the saved values', () => {
-  it('re-syncs the cards after the form is filled', () => {
-    start();
-    select().value = '#14b8a6';
-    syncAppearanceSettings();
-    expect(checked()).toEqual([radio('Teal')]);
-    expect(customGroup().hidden).toBe(true);
-  });
-
-  it('an unknown preset value falls back to the default card', () => {
-    start('purple');
-    expect(checked()).toEqual([radio('Lilac')]);
+describe('My Account (members)', () => {
+  it('draws the same picker, and agrees with Settings after a pick', async () => {
+    server.isAdmin = false;
+    const box = document.createElement('div');
+    document.body.append(box);
+    mountAccentPicker(box, { prefix: 'ma-accent' });
+    await settle();
+    const w = within(box);
+    expect(w.radios()).toHaveLength(8);
+    expect(w.defaults()).toBeNull();
+    expect(box.querySelector('#ma-accent-custom-hex')).not.toBeNull();
+    w.radio('Teal').click();
+    await settle();
+    expect(puts).toEqual([{ accent: '#14b8a6' }]);
+    expect(w.source()).toHaveTextContent('Yours: Teal.');
   });
 });
 
 describe('the preview strip', () => {
-  it('draws a played waveform: the first ten bars in accent-light', () => {
-    start();
+  it('draws a played waveform: the first ten bars in accent-light', async () => {
+    await openSettings();
     const bars = document.querySelectorAll<HTMLElement>('#accent-preview-wave > span');
     expect(bars).toHaveLength(24);
     expect([...bars].filter((b) => b.dataset.played)).toHaveLength(10);
     expect(waveHeights().every((b) => b.height >= 4 && b.height <= 24)).toBe(true);
-  });
-
-  it('follows an accent applied elsewhere (Home’s quick swatches)', () => {
-    start('#1db954');
-    select().value = '#f59e0b';
-    window.dispatchEvent(new CustomEvent(ACCENT_APPLIED_EVENT, { detail: { hex: '#f59e0b' } }));
-    expect(document.getElementById('accent-preview-line')).toHaveTextContent(
-      '#f59e0b → light #f8bd59',
-    );
   });
 });

@@ -152,6 +152,10 @@
         }
     </style>
     <script>
+        // the viewing profile's accent, else the install's (HANDOFF 35): init.js
+        // applies it at boot instead of whatever this browser kept last, which
+        // may be another profile's
+        window._initialAccent = {{ initial_accent_color | tojson }};
         window._particlesEnabled = {{ initial_particles_enabled | tojson }};
         window._workerOrbsEnabled = {{ initial_worker_orbs_enabled | tojson }};
         window._reduceEffectsActive = {{ initial_reduce_effects | tojson }};
@@ -10243,14 +10247,15 @@
                                     <h3 id="appearance-accent-title">Accent colour</h3>
                                     <p class="appearance-intro">One colour for buttons, links, selected rows and
                                         focus. SYNCHRO.S makes a lighter shade of it for text and fills, so every
-                                        preset reads well on the dark ground. It applies to everyone using this
-                                        SYNCHRO.S.</p>
-                                    <!-- What's saved: a preset's hex, or "custom" with the hex in
-                                         #accent-custom-color (settings.js reads and writes both). The
-                                         cards below stand in for this list; the options and their order
-                                         match ACCENT_PRESETS in src/features/settings/accent.ts. -->
+                                        preset reads well on the dark ground. Yours only; each profile picks its
+                                        own.</p>
+                                    <!-- The install's default, for profiles that haven't picked: a preset's
+                                         hex, or "custom" with the hex in #accent-custom-color (settings.js
+                                         reads and autosaves both; the picker's "Make … the default" writes
+                                         them). The options and their order match ACCENT_PRESETS in
+                                         src/features/settings/accent.ts. -->
                                     <div class="appearance-store" hidden>
-                                        <label for="accent-preset">Accent colour</label>
+                                        <label for="accent-preset">Default accent colour</label>
                                         <select id="accent-preset" tabindex="-1">
                                             <option value="#8b5cf6">Lilac</option>
                                             <option value="#1db954">Spotify Green</option>
@@ -10263,33 +10268,10 @@
                                         </select>
                                         <input type="hidden" id="accent-custom-color" value="#8b5cf6">
                                     </div>
-                                    <div class="accent-cards" id="accent-preset-cards" role="radiogroup"
-                                        aria-labelledby="appearance-accent-title"></div>
-                                    <div class="accent-custom" id="custom-color-group" hidden>
-                                        <label class="accent-custom-label" for="accent-custom-hex">Custom colour</label>
-                                        <div class="accent-custom-fields">
-                                            <input type="text" id="accent-custom-hex" class="accent-custom-hex"
-                                                inputmode="text" autocomplete="off" spellcheck="false"
-                                                maxlength="7" placeholder="#8b5cf6"
-                                                aria-describedby="accent-custom-check">
-                                            <input type="color" id="accent-custom-picker" class="accent-custom-picker"
-                                                value="#8b5cf6" aria-label="Pick a colour">
-                                        </div>
-                                        <div class="accent-check" id="accent-custom-check" aria-live="polite"></div>
-                                    </div>
-                                    <div class="accent-preview">
-                                        <p class="accent-preview-label" id="accent-preview-label">With Lilac</p>
-                                        <div class="accent-preview-strip">
-                                            <div class="accent-preview-samples" aria-hidden="true">
-                                                <span class="accent-sample-primary">Add to Wanted</span>
-                                                <span class="accent-sample-selected">Selected row</span>
-                                                <span class="accent-sample-link">A link</span>
-                                                <span class="accent-sample-focus">Keyboard focus</span>
-                                                <span class="accent-sample-wave" id="accent-preview-wave"></span>
-                                            </div>
-                                            <p class="accent-preview-line" id="accent-preview-line"></p>
-                                        </div>
-                                    </div>
+                                    <!-- This profile's own accent (PUT /api/profiles/me/appearance): the
+                                         cards, Custom…, whose colour it is, the admin's default line and the
+                                         preview strip, drawn by src/shell/appearance.ts. -->
+                                    <div class="accent-picker" id="accent-picker"></div>
                                 </section>
 
                                 <section class="settings-group appearance-card appearance-theme" data-stg="appearance"

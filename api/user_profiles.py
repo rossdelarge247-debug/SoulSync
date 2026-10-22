@@ -1106,6 +1106,65 @@ def delete_profile_listenbrainz():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# --- Per-profile accent (HANDOFF 35) ---
+# each profile picks its own accent; the install's (Settings → Appearance,
+# admins) is the default for profiles that haven't. "me" only: the session's
+# profile reads and writes its own pick, never another's, admins included.
+
+def _appearance_payload(profile_id):
+    from core.ui_appearance import effective_accent, install_accent
+    db = get_database()
+    mine = db.get_profile_accent(profile_id)
+    install = install_accent(config_manager.get)
+    return {
+        'success': True,
+        'accent': mine,
+        'install_accent': install,
+        'effective_accent': effective_accent(mine, install),
+        'is_admin': bool(is_admin_request()),
+    }
+
+
+@bp.route('/api/profiles/me/appearance', methods=['GET'])
+def get_profile_appearance():
+    profile_id = get_current_profile_id()
+    if not profile_id:
+        return jsonify({'success': False, 'error': 'profile_required'}), 401
+    try:
+        response = jsonify(_appearance_payload(int(profile_id)))
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except Exception as e:
+        logger.error(f"profile appearance read failed: {e}")
+        return jsonify({'success': False, 'error': "Couldn't read your accent."}), 500
+
+
+@bp.route('/api/profiles/me/appearance', methods=['PUT'])
+def put_profile_appearance():
+    from core.ui_appearance import accent_passes, normalise_hex
+    profile_id = get_current_profile_id()
+    if not profile_id:
+        return jsonify({'success': False, 'error': 'profile_required'}), 401
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or 'accent' not in body:
+        return jsonify({'success': False, 'error': 'Send {"accent": "#rrggbb"} or {"accent": null}.'}), 400
+    raw = body.get('accent')
+    accent = None
+    if raw not in (None, ''):
+        accent = normalise_hex(raw)
+        if not accent:
+            return jsonify({'success': False, 'error': 'That isn\'t a hex colour. Use # and six digits or letters a–f.'}), 400
+        if not accent_passes(accent):
+            return jsonify({'success': False, 'error': (
+                f"{accent} is too dark for an accent: dark text on its light shade doesn't reach 4.5:1.")}), 400
+    try:
+        if not get_database().set_profile_accent(int(profile_id), accent):
+            return jsonify({'success': False, 'error': "Couldn't save your accent."}), 500
+        return jsonify(_appearance_payload(int(profile_id)))
+    except Exception as e:
+        logger.error(f"profile appearance save failed: {e}")
+        return jsonify({'success': False, 'error': "Couldn't save your accent."}), 500
+
 # --- Per-Profile Last.fm (#1293) ---
 # just a username. scrobbles are public, the app's api key reads them, so
 # there's no login and nothing secret to store.

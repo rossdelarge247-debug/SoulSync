@@ -42,7 +42,10 @@ describe('the presets', () => {
     const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
     const init = read('static/init.js');
     expect(init).toContain("localStorage.getItem('soulsync-accent') || '#8b5cf6'");
-    expect(init).toContain("appearance.accent_preset || '#8b5cf6'");
+    // init.js no longer reads the install's accent at boot: the page shell
+    // hands it the viewing profile's (HANDOFF 35)
+    expect(init).toContain('window._initialAccent');
+    expect(init).not.toContain('appearance.accent_preset');
     expect(init).toContain("hex = '#8b5cf6'");
     expect(init).not.toContain('#1db954');
     expect(read('static/tokens.css')).toContain('--accent-rgb: 139, 92, 246;');

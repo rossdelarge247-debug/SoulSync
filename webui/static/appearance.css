@@ -83,13 +83,13 @@
     display: none;
 }
 
-#settings-page #appearance-settings .accent-cards {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-cards {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
 }
 
-#settings-page #appearance-settings .accent-card {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card {
     display: flex;
     align-items: center;
     gap: 14px;
@@ -108,47 +108,47 @@
     transition: var(--ss-transition);
 }
 
-#settings-page #appearance-settings .accent-card:hover {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card:hover {
     background: var(--ss-hover-wash);
 }
 
-#settings-page #appearance-settings .accent-card:active {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card:active {
     opacity: var(--ss-pressed-opacity);
 }
 
-#settings-page #appearance-settings .accent-card[aria-checked="true"],
-#settings-page #appearance-settings .accent-card[aria-checked="true"]:hover {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card[aria-checked="true"],
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card[aria-checked="true"]:hover {
     border-color: var(--ss-selected-border);
     background: var(--ss-selected-fill);
 }
 
-#settings-page #appearance-settings .accent-card--custom {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card--custom {
     border-style: dashed;
     border-color: var(--ss-input-border);
 }
 
 /* The pair the app will use: the accent (40px) and its light shade (20px). */
-#settings-page #appearance-settings .accent-swatch {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-swatch {
     display: flex;
     flex: none;
     width: 60px;
     height: 40px;
 }
 
-#settings-page #appearance-settings .accent-swatch-base {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-swatch-base {
     width: 40px;
     height: 40px;
     border-radius: 10px 0 0 10px;
 }
 
-#settings-page #appearance-settings .accent-swatch-light {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-swatch-light {
     width: 20px;
     height: 40px;
     border-radius: 0 10px 10px 0;
 }
 
 /* Custom before a colour is chosen: a dashed box with a "#". */
-#settings-page #appearance-settings .accent-swatch--empty {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-swatch--empty {
     box-sizing: border-box;
     align-items: center;
     justify-content: center;
@@ -159,42 +159,42 @@
     font-size: 14px;
 }
 
-#settings-page #appearance-settings .accent-card-text {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card-text {
     display: flex;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
 }
 
-#settings-page #appearance-settings .accent-card-name {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card-name {
     font-size: 15px;
     font-weight: 600;
     line-height: 1.35;
 }
 
-#settings-page #appearance-settings .accent-card-note {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card-note {
     font-size: 14px;
     line-height: 1.4;
     color: var(--ss-text-meta);
 }
 
-#settings-page #appearance-settings .accent-card-note:empty {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card-note:empty {
     display: none;
 }
 
 /* Custom: a hex field, the native picker beside it, and the check. */
-#settings-page #appearance-settings .accent-custom {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom {
     display: flex;
     flex-direction: column;
     gap: 8px;
     max-width: 640px;
 }
 
-#settings-page #appearance-settings .accent-custom[hidden] {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom[hidden] {
     display: none;
 }
 
-#settings-page #appearance-settings .accent-custom-label {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-label {
     margin: 0;
     font-size: 14px;
     font-weight: 500;
@@ -202,13 +202,13 @@
     color: var(--ss-text-secondary);
 }
 
-#settings-page #appearance-settings .accent-custom-fields {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-fields {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-#settings-page #appearance-settings .accent-custom-hex {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-hex {
     box-sizing: border-box;
     width: 160px;
     min-height: 44px;
@@ -224,23 +224,23 @@
     transition: var(--ss-transition);
 }
 
-#settings-page #appearance-settings .accent-custom-hex:hover {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-hex:hover {
     border-color: var(--ss-input-border-hover);
 }
 
 /* inputs show focus whatever the pointer: the border, no ring */
-#settings-page #appearance-settings .accent-custom-hex:focus,
-#settings-page #appearance-settings .accent-custom-hex:focus-visible {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-hex:focus,
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-hex:focus-visible {
     outline: none !important;
     border-color: var(--ss-input-focus-border);
     box-shadow: none;
 }
 
-#settings-page #appearance-settings .accent-custom-hex[aria-invalid="true"] {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-hex[aria-invalid="true"] {
     border-color: var(--ss-input-error-border);
 }
 
-#settings-page #appearance-settings .accent-custom-picker {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-picker {
     box-sizing: border-box;
     width: 44px;
     height: 44px;
@@ -252,21 +252,21 @@
     cursor: pointer;
 }
 
-#settings-page #appearance-settings .accent-custom-picker::-webkit-color-swatch-wrapper {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-picker::-webkit-color-swatch-wrapper {
     padding: 0;
 }
 
-#settings-page #appearance-settings .accent-custom-picker::-webkit-color-swatch {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-picker::-webkit-color-swatch {
     border: 0;
     border-radius: 6px;
 }
 
-#settings-page #appearance-settings .accent-custom-picker::-moz-color-swatch {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-picker::-moz-color-swatch {
     border: 0;
     border-radius: 6px;
 }
 
-#settings-page #appearance-settings .accent-check {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-check {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -276,11 +276,11 @@
     color: var(--ss-text-tertiary);
 }
 
-#settings-page #appearance-settings .accent-check:empty {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-check:empty {
     display: none;
 }
 
-#settings-page #appearance-settings .accent-check-line {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-check-line {
     display: flex;
     align-items: flex-start;
     gap: 8px;
@@ -288,7 +288,7 @@
 }
 
 /* a status dot beside the words, never the colour alone */
-#settings-page #appearance-settings .accent-check-line::before {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-check-line::before {
     content: '';
     flex: none;
     width: 8px;
@@ -298,25 +298,25 @@
     background: currentColor;
 }
 
-#settings-page #appearance-settings .accent-check[data-state="pass"] .accent-check-line {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-check[data-state="pass"] .accent-check-line {
     color: var(--ss-text-secondary);
 }
 
-#settings-page #appearance-settings .accent-check[data-state="pass"] .accent-check-line::before {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-check[data-state="pass"] .accent-check-line::before {
     background: var(--ss-success);
 }
 
-#settings-page #appearance-settings .accent-check[data-state="fail"] .accent-check-line,
-#settings-page #appearance-settings .accent-check[data-state="invalid"] .accent-check-line {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-check[data-state="fail"] .accent-check-line,
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-check[data-state="invalid"] .accent-check-line {
     color: var(--ss-danger);
 }
 
-#settings-page #appearance-settings .accent-check[data-state="typing"] .accent-check-line::before {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-check[data-state="typing"] .accent-check-line::before {
     display: none;
 }
 
 /* "Use Ocean Blue instead": the shared secondary Button. */
-#settings-page #appearance-settings .appearance-btn {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .appearance-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -335,23 +335,63 @@
     transition: var(--ss-transition);
 }
 
-#settings-page #appearance-settings .appearance-btn:hover {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .appearance-btn:hover {
     background: var(--ss-control-fill-hover);
 }
 
-#settings-page #appearance-settings .appearance-btn:active {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .appearance-btn:active {
     opacity: var(--ss-pressed-opacity);
+}
+
+/* The picker (src/shell/appearance.ts) is the same in Settings → Appearance
+   and in a member's My Account (HANDOFF 35): its own container, so the
+   narrow-pane rules below follow its width in either place. */
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+    container-type: inline-size;
+}
+
+/* Whose accent this is: one line of meta, with the way back to the default.
+   Admins get one more line: the default itself, and making theirs it. */
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-source,
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-default {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    margin: 0;
+}
+
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-source-text,
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-default-text {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-text-secondary);
+}
+
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-default {
+    padding-top: 16px;
+    border-top: 1px solid var(--ss-hairline);
+}
+
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-default[hidden],
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .appearance-btn[hidden] {
+    display: none;
 }
 
 /* ── 3. The preview strip ──────────────────────────────────────────────── */
 
-#settings-page #appearance-settings .accent-preview {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-preview {
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
 
-#settings-page #appearance-settings .accent-preview-label {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-preview-label {
     margin: 0;
     font-size: 12px;
     font-weight: 600;
@@ -361,7 +401,7 @@
     color: var(--ss-text-meta);
 }
 
-#settings-page #appearance-settings .accent-preview-strip {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-preview-strip {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -372,16 +412,16 @@
     background: var(--ss-ground-page);
 }
 
-#settings-page #appearance-settings .accent-preview-samples {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-preview-samples {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 16px;
 }
 
-#settings-page #appearance-settings .accent-sample-primary,
-#settings-page #appearance-settings .accent-sample-selected,
-#settings-page #appearance-settings .accent-sample-focus {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-sample-primary,
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-sample-selected,
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-sample-focus {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -393,27 +433,27 @@
     white-space: nowrap;
 }
 
-#settings-page #appearance-settings .accent-sample-primary {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-sample-primary {
     padding: 0 18px;
     border: 1px solid rgba(var(--ss-accent-light-rgb), 0.45);
     background: rgb(var(--ss-accent-light-rgb));
     color: var(--ss-text-on-accent);
 }
 
-#settings-page #appearance-settings .accent-sample-selected {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-sample-selected {
     padding: 0 12px;
     border: 1px solid var(--ss-selected-border);
     background: var(--ss-selected-fill);
     color: var(--ss-text);
 }
 
-#settings-page #appearance-settings .accent-sample-link {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-sample-link {
     font-size: 15px;
     font-weight: 500;
     color: rgb(var(--ss-accent-light-rgb));
 }
 
-#settings-page #appearance-settings .accent-sample-focus {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-sample-focus {
     padding: 0 16px;
     border: 1px solid var(--ss-control-border);
     color: var(--ss-text);
@@ -422,7 +462,7 @@
 }
 
 /* The played part of a waveform in accent-light, the rest at 24% white. */
-#settings-page #appearance-settings .accent-sample-wave {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-sample-wave {
     display: flex;
     align-items: flex-end;
     gap: 2px;
@@ -430,17 +470,17 @@
     height: 24px;
 }
 
-#settings-page #appearance-settings .accent-sample-wave > span {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-sample-wave > span {
     flex: 1;
     border-radius: 1px;
     background: rgba(255, 255, 255, 0.24);
 }
 
-#settings-page #appearance-settings .accent-sample-wave > span[data-played] {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-sample-wave > span[data-played] {
     background: rgb(var(--ss-accent-light-rgb));
 }
 
-#settings-page #appearance-settings .accent-preview-line {
+:is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-preview-line {
     margin: 0 0 0 auto;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 14px;
@@ -623,25 +663,25 @@
 /* ── Narrow panes and phones ───────────────────────────────────────────── */
 
 @container (max-width: 760px) {
-    #settings-page #appearance-settings .accent-cards {
+    :is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-cards {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    #settings-page #appearance-settings .accent-preview-line {
+    :is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-preview-line {
         flex-basis: 100%;
         margin-left: 0;
     }
 }
 
 @container (max-width: 420px) {
-    #settings-page #appearance-settings .accent-card {
+    :is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-card {
         flex-direction: column;
         align-items: flex-start;
         gap: 10px;
         padding: 14px;
     }
 
-    #settings-page #appearance-settings .accent-custom-fields {
+    :is(#settings-page #appearance-settings, #my-accounts-overlay) .accent-custom-fields {
         flex-wrap: wrap;
     }
 
@@ -671,4 +711,27 @@
     #settings-page #appearance-settings > .appearance-theme .appearance-tag {
         justify-self: start;
     }
+}
+
+/* ── My Account: a member's accent (HANDOFF 35) ────────────────────────── */
+
+#my-accounts-overlay .ma-accent-intro {
+    margin: 0 4px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ss-text-secondary);
+}
+
+#my-accounts-overlay #ma-accent-picker {
+    margin: 0 4px;
+}
+
+/* the modal is narrow: two cards a row, the line under the samples */
+#my-accounts-overlay .accent-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#my-accounts-overlay .accent-preview-line {
+    flex-basis: 100%;
+    margin-left: 0;
 }

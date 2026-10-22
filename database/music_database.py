@@ -1394,6 +1394,7 @@ class MusicDatabase:
             self._add_profile_lastfm_username(cursor)
             self._add_profile_plex_home_user(cursor)
             self._add_profile_controls(cursor)
+            self._add_profile_accent_column(cursor)
             self._add_own_library_columns(cursor)
             # after the column it repairs exists: it used to run before
             # _add_own_library_columns and fail on every fresh install
@@ -6710,6 +6711,43 @@ class MusicDatabase:
         ("session_epoch", "INTEGER DEFAULT 0"),        # bump = every signed-in browser signs out
         ("disabled", "INTEGER DEFAULT 0"),             # turned off: kept, but nobody can open it
     )
+
+    def _add_profile_accent_column(self, cursor):
+        """profiles.accent_color: the accent a profile picked for itself
+        (HANDOFF 35). NULL, which every existing profile gets, means "the
+        install's accent", so nobody's colour changes on upgrade."""
+        with self._migration_step(cursor, 'add_profile_accent_column', atomic=False):
+            cursor.execute("PRAGMA table_info(profiles)")
+            cols = {c[1] for c in cursor.fetchall()}
+            if cols and 'accent_color' not in cols:
+                cursor.execute("ALTER TABLE profiles ADD COLUMN accent_color TEXT DEFAULT NULL")
+
+    def get_profile_accent(self, profile_id: int) -> Optional[str]:
+        """The accent a profile picked ('#rrggbb'), or None for the install's."""
+        try:
+            with self._get_connection() as conn:
+                row = conn.execute("SELECT accent_color FROM profiles WHERE id = ?", (int(profile_id),)).fetchone()
+        except Exception as e:  # noqa: BLE001 - no column yet reads as "no pick"
+            logger.debug(f"profile accent read failed for {profile_id}: {e}")
+            return None
+        value = (row[0] if row else None) or None
+        return value if isinstance(value, str) and re.fullmatch(r'#[0-9a-f]{6}', value) else None
+
+    def set_profile_accent(self, profile_id: int, accent: Optional[str]) -> bool:
+        """Save a profile's own accent (a checked '#rrggbb'), or None to follow
+        the install's. True when the profile exists."""
+        if accent is not None and not re.fullmatch(r'#[0-9a-f]{6}', str(accent)):
+            raise ValueError("accent must be #rrggbb")
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    "UPDATE profiles SET accent_color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (accent, int(profile_id)))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Error saving the accent for profile {profile_id}: {e}")
+            return False
 
     def _add_profile_controls(self, cursor):
         """request quotas, kids content limits and the session epoch

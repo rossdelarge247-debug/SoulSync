@@ -137,7 +137,7 @@ describe('My Account', () => {
     expect(modal().getAttribute('role')).toBe('dialog');
     expect(modal().textContent).toContain('Kim');
     const titles = [...body().querySelectorAll('.ma-section-title')].map((h) => h.textContent);
-    expect(titles).toEqual(['Media server', 'Music services']);
+    expect(titles).toEqual(['Media server', 'Music services', 'Accent colour']);
     expect(body().textContent).toContain(
       'Signed in as kim. Your playlists sync to your own account.',
     );
