@@ -530,3 +530,25 @@ export function peaksRetryDelay(attempt: number): number | null {
   if (attempt >= 6) return null;
   return Math.min(8000, 1500 * 2 ** attempt);
 }
+
+/**
+ * The radio level meter's bars for its width (Ross, 2026-10-23: the meter
+ * fills the room it has): one bar every `pitch` px (the bar and a 2px gap),
+ * never fewer than 12 or more than 160. No width yet (not laid out): 24.
+ */
+export function meterBarCount(width: number, pitch = 6): number {
+  if (!Number.isFinite(width) || width <= 0) return 24;
+  return Math.max(12, Math.min(160, Math.floor((width + 2) / pitch)));
+}
+
+/** Each bar's whole-pixel width for `count` bars with 2px gaps, so they draw crisply. */
+export function meterBarWidth(width: number, count: number): number {
+  if (!Number.isFinite(width) || width <= 0 || count <= 0) return 0;
+  return Math.max(1, Math.floor((width - (count - 1) * 2) / count));
+}
+
+/** Which frequency bin bar `i` of `n` reads: spread logarithmically from bin 1 to `top`. */
+export function meterBin(i: number, n: number, top: number): number {
+  if (n <= 1 || top <= 1) return Math.max(0, Math.min(top, 1));
+  return Math.min(top, Math.max(1, Math.round(Math.pow(top, i / (n - 1)))));
+}

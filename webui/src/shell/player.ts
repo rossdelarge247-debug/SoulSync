@@ -19,10 +19,13 @@
  *   (GET /api/player/recent);
  * - the source kind seam: library, stream, podcast / audiobook (−15 s / +30 s,
  *   the speed button, chapter ticks) and radio (a Live tag, a level meter,
- *   one action slot; build e fills it);
+ *   one action slot; build e fills it). Radio expands like music: the tray's
+ *   radio columns are player-radio.ts's (Ross, 2026-10-23);
  * - the record's "…" menu, the speed and output pickers;
  * - the phone sheet (html[data-player-sheet]).
  */
+
+import { logoText } from '@/features/radio/radio.format';
 
 import {
   applyOutput,
@@ -325,16 +328,17 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
   const support: OutputSupport = outputSupport(browserEnv(view));
   let lastAriaUpdate = 0;
   let snapshot: PlayerSnapshot = engine.state();
+  // art that failed to load stays hidden (the fallback shows), however often we redraw
+  const brokenArt = new Set<string>();
 
   // ── expanded or collapsed ────────────────────────────────────────────────
   const hasTrack = () => Boolean(snapshot.track);
 
   function applyLayout(): void {
-    // radio has no tray on a desktop: its page is the station's (player-radio.ts)
-    const radioNow = snapshot.kind === 'radio';
-    if (hasTrack()) setAttr(html, 'data-player', radioNow ? 'bar' : trayState);
+    // every kind expands the same way, radio included (its columns are player-radio.ts's)
+    if (hasTrack()) setAttr(html, 'data-player', trayState);
     else html.removeAttribute('data-player');
-    const expanded = trayState === 'tray' && hasTrack() && !radioNow;
+    const expanded = trayState === 'tray' && hasTrack();
     if (tray) {
       // the phone shows the tray only as its sheet
       setHidden(tray, !(sheetOpen || (expanded && !isPhone())));
@@ -351,9 +355,11 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       setAttr(
         now,
         'aria-label',
-        t
-          ? `${stripId(t.title) || 'Unknown track'} by ${stripId(t.artist) || 'Unknown artist'}. Expand the player`
-          : 'Expand the player',
+        t && snapshot.kind === 'radio'
+          ? `${stripId(t.title) || 'The station'}, live. Expand the player`
+          : t
+            ? `${stripId(t.title) || 'Unknown track'} by ${stripId(t.artist) || 'Unknown artist'}. Expand the player`
+            : 'Expand the player',
       );
     }
     engine!.setExpanded(expanded);
@@ -367,9 +373,10 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     closeMenus(false);
     applyLayout();
     if (focus) {
+      // the Collapse that shows: the list's, or radio's list's
       const target =
         state === 'tray'
-          ? root!.querySelector<HTMLElement>('.ss-player-collapse')
+          ? visible(root!.querySelectorAll<HTMLElement>('.ss-player-collapse'))
           : root!.querySelector<HTMLElement>('.ss-player-bar [data-player-toggle].ss-player-ghost');
       target?.focus();
     }
@@ -377,6 +384,25 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       drawWaves();
       drawTime(true);
     }
+  }
+
+  function visible(list: Iterable<HTMLElement>): HTMLElement | null {
+    let first: HTMLElement | null = null;
+    for (const el of list) {
+      first ??= el;
+      // jsdom lays nothing out: fall back to the one not inside a hidden column
+      if (el.offsetParent !== null || el.getClientRects().length) return el;
+      if (!el.closest('[hidden]') && !hiddenColumn(el)) return el;
+    }
+    return first;
+  }
+
+  /** In radio mode the music columns step aside, and the other way round. */
+  function hiddenColumn(el: HTMLElement): boolean {
+    const radio = snapshot.kind === 'radio';
+    const inRadio = Boolean(el.closest('[data-player-radio-tray]'));
+    if (radio !== inRadio) return true;
+    return false;
   }
 
   // ── the phone sheet ──────────────────────────────────────────────────────
@@ -972,7 +998,12 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     const item = (name: string) => menu.querySelector<HTMLElement>(`[data-player-menu="${name}"]`);
     setHidden(item('report'), !st.reportable);
     const spoken = st.kind === 'podcast' || st.kind === 'audiobook';
-    setHidden(item('lyrics'), spoken || st.kind === 'radio');
+    const radio = st.kind === 'radio';
+    setHidden(item('lyrics'), spoken || radio);
+    // a live stream has no speed, loop, crossfade, details or queue: those rows step aside
+    setHidden(item('details'), radio);
+    for (const row of menu.querySelectorAll('[data-player-menu-music]')) setHidden(row, radio);
+    setAttr(menu, 'aria-label', radio ? 'More for this station' : 'More for this track');
     // Visuals with nothing playing: disabled-neutral with its reason (10d)
     const visualsRow = item('visuals');
     if (st.track) visualsRow?.removeAttribute('aria-disabled');
@@ -1133,16 +1164,24 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     );
     for (const img of root!.querySelectorAll<HTMLImageElement>('[data-player-art]')) {
       const src = t.image_url || details?.image_url || '';
-      if (src) {
+      img.onerror = () => {
+        if (src) brokenArt.add(src);
+        img.hidden = true;
+      };
+      if (src && !brokenArt.has(src)) {
         if (img.getAttribute('src') !== src) img.src = src;
         img.hidden = false;
-        img.onerror = () => {
-          img.hidden = true;
-        };
       } else {
+        // no art, or art that didn't load: the fallback, never the broken-image glyph
         img.hidden = true;
         img.removeAttribute('src');
       }
+    }
+    // radio: the station's letters under (or instead of) its logo, as on its card
+    const radioStation = kind === 'radio' ? (view.SoulSyncRadio?.state().station ?? null) : null;
+    for (const letters of root!.querySelectorAll<HTMLElement>('[data-player-art-letters]')) {
+      setText(letters, radioStation ? logoText(radioStation.name, radioStation.logo_text) : '');
+      setHidden(letters, !radioStation);
     }
 
     // the record
@@ -1205,7 +1244,11 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       if (albumOk)
         setAttr(albumLink, 'href', view.buildArtistDetailPath!(artistId, 'library', null, albumId));
     }
-    setAttr(root!.querySelector('[data-player-more]'), 'aria-label', `More for ${title}`);
+    for (const more of root!.querySelectorAll('[data-player-more]'))
+      setAttr(more, 'aria-label', `More for ${title}`);
+    root!.dataset.listView = listView;
+    for (const b of root!.querySelectorAll('[data-player-view-close]'))
+      setText(b, kind === 'radio' ? 'Back to the station' : 'Back to Up next');
 
     // the transport, by source kind
     const spoken = Boolean(sv.skip);
@@ -1477,9 +1520,8 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
   });
   const sleepTick = view.setInterval(() => drawRecordControls(), 15000);
   cleanups.push(() => view.clearInterval(sleepTick));
-  on(root.querySelector('[data-player-more]'), 'click', (e) =>
-    openMenu(menu, e.currentTarget as HTMLElement),
-  );
+  for (const more of root.querySelectorAll<HTMLElement>('[data-player-more]'))
+    on(more, 'click', (e) => openMenu(menu, e.currentTarget as HTMLElement));
   if (menu) {
     on(menu, 'click', (e) => {
       const target = (e.target as HTMLElement).closest<HTMLElement>('[data-player-menu]');
@@ -1491,7 +1533,8 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
         view.setTimeout(drawMenu, 0);
         return;
       }
-      const anchor = menuOpener ?? root!.querySelector<HTMLElement>('[data-player-more]');
+      const anchor =
+        menuOpener ?? visible(root!.querySelectorAll<HTMLElement>('[data-player-more]'));
       switch (target.dataset.playerMenu) {
         case 'report': {
           closeMenus(true);
@@ -1557,7 +1600,13 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
   for (const b of root.querySelectorAll('[data-player-view-close]')) {
     on(b, 'click', () => {
       view.npV2?.selectTab?.('queue');
-      root!.querySelector<HTMLElement>('#ss-player-tab-queue')?.focus();
+      root!
+        .querySelector<HTMLElement>(
+          snapshot.kind === 'radio'
+            ? '[data-player-rtray-tab][aria-selected="true"]'
+            : '#ss-player-tab-queue',
+        )
+        ?.focus();
     });
   }
   // tabs: the arrow keys move between Up next and Recent
