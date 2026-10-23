@@ -141,6 +141,20 @@ export function MoveFlow() {
 
   useEffect(() => rememberView(view), [view]);
 
+  // the checks and the folder sizes run on the server: read the draft again until they're done
+  const checking = payload?.move?.status === 'draft' && Boolean(payload.move.checks?.running);
+  const measuring = payload?.move?.status === 'draft' && Boolean(payload.overview?.measuring);
+  useEffect(() => {
+    if (!open || (!checking && !measuring)) return;
+    const t = setInterval(
+      () => {
+        void drivesApi.move().then(accept, () => undefined);
+      },
+      checking ? 1000 : 2000,
+    );
+    return () => clearInterval(t);
+  }, [open, checking, measuring, accept]);
+
   // while it runs on the server, read it every 1.5 s
   const status = payload?.move?.status;
   useEffect(() => {

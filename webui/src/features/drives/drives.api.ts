@@ -162,6 +162,8 @@ export interface Checks {
   ok: boolean;
   summary: string;
   dests: Partial<Record<Role, string>>;
+  /** the checks run on the server; the page reads the move again until done */
+  running?: boolean;
 }
 
 export interface Plan {
@@ -208,6 +210,7 @@ export interface Failure {
     | 'mismatch'
     | 'unreadable'
     | 'refused'
+    | 'stuck'
     | 'restart'
     | 'error';
   words: string;
@@ -272,6 +275,8 @@ export interface Overview {
   platform: Platform;
   visible: boolean;
   roots: string[];
+  /** folder sizes are still being measured; read the move again */
+  measuring?: boolean;
 }
 
 export interface MovePayload {
@@ -310,11 +315,13 @@ export class DrivesError extends Error {
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   let response: Response;
+  // every change is sent as JSON: the server refuses anything else
+  const payload = body === undefined && method !== 'GET' ? {} : body;
   try {
     response = await fetch(appURL(path), {
       method,
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: payload === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
       credentials: 'same-origin',
     });
   } catch {
@@ -328,12 +335,12 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     data = null;
   }
   if (!response.ok) {
-    const payload = (data ?? {}) as { error?: string; field?: string; code?: string };
+    const failed = (data ?? {}) as { error?: string; field?: string; code?: string };
     throw new DrivesError(
-      payload.error || 'That didn’t go through.',
+      failed.error || 'That didn’t go through.',
       response.status,
-      payload.field,
-      payload.code,
+      failed.field,
+      failed.code,
     );
   }
   return data as T;
@@ -375,7 +382,8 @@ export const drivesApi = {
       `/api/drives/move/${id}/remove`,
       { plan_id: planId },
     ),
-  switchBack: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/switch-back`),
+  switchBack: (id: number, slskd?: { username: string; password: string }) =>
+    call<MovePayload>('POST', `/api/drives/move/${id}/switch-back`, slskd ?? {}),
   leave: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/leave`),
 };
 

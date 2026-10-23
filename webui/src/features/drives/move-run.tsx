@@ -331,6 +331,15 @@ export function DoneStep({ move, act, done, busy, error }: RunProps) {
   const source = plan?.source_label ?? 'the old drive';
   const [removing, setRemoving] = useState(false);
   const [askBack, setAskBack] = useState(false);
+  const [user, setUser] = useState('');
+  const [password, setPassword] = useState('');
+  // Downloads moved: slskd restarts again to download into the old folder, which takes its sign-in
+  const slskd = move.result.slskd;
+  const needsSignIn = Boolean(plan?.dests.downloads && slskd && !slskd.manual);
+  const switchBack = () =>
+    act(() =>
+      drivesApi.switchBack(move.id, needsSignIn ? { username: user, password } : undefined),
+    );
   const checks = move.result.checks ?? [];
   const removed = move.status === 'removed' ? move.result.removed : null;
   return (
@@ -410,19 +419,41 @@ export function DoneStep({ move, act, done, busy, error }: RunProps) {
               }}
             >
               <p>
-                Switch back to {source}? Anything added on {target} since is copied back first. The
-                copy on {target} stays.
+                Switch back to {source}? Anything added or changed on {target} since is copied back
+                first. The copy on {target} stays.
               </p>
+              {needsSignIn ? (
+                <div className={styles.signIn}>
+                  <p className={styles.rowDetail}>
+                    slskd restarts to download into the old folder again; sign in to slskd once.
+                  </p>
+                  <input
+                    className={styles.input}
+                    aria-label="slskd user name"
+                    placeholder="slskd user name"
+                    autoComplete="username"
+                    value={user}
+                    onChange={(e) => setUser(e.target.value)}
+                  />
+                  <input
+                    className={styles.input}
+                    aria-label="slskd password"
+                    placeholder="Password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+              ) : null}
               <Button size="lg" variant="secondary" onClick={() => setAskBack(false)}>
                 Keep {target}
               </Button>
               <Button
                 size="lg"
                 variant="primary"
-                disabled={busy}
-                onClick={() =>
-                  void act(() => drivesApi.switchBack(move.id)).then(() => setAskBack(false))
-                }
+                disabled={busy || (needsSignIn && !user)}
+                onClick={() => void switchBack().then((ok) => ok && setAskBack(false))}
               >
                 {busy ? 'Switching back…' : 'Switch back'}
               </Button>
@@ -468,6 +499,8 @@ export function failureTitle(f: Failure, target: string): string {
       return 'Couldn’t read some old files';
     case 'refused':
       return 'The switch was refused';
+    case 'stuck':
+      return 'The switch didn’t finish';
     case 'restart':
       return 'The copy stopped when SYNCHRO.S restarted';
     default:
@@ -511,6 +544,11 @@ export function FailureView({ move, act, close, busy, error }: RunProps) {
     note = 'They stay where they are, and Library flags them.';
   } else if (f.kind === 'refused') {
     primary = { label: 'Try the switch again', run: carryOn };
+    note = null;
+  } else if (f.kind === 'stuck') {
+    // the folder settings may point at the new place: its copy is never offered for deletion
+    primary = { label: 'Try the switch again', run: carryOn };
+    secondary = null;
     note = null;
   }
   return (
@@ -575,15 +613,22 @@ export function FailureView({ move, act, close, busy, error }: RunProps) {
           </>
         }
       >
-        <p>
-          {f.kind === 'refused'
-            ? f.words.replace(/ So SYNCHRO\.S switched back\..*$/, '')
-            : f.words}{' '}
-          <strong>Your music is untouched on {source}</strong> and SYNCHRO.S is still using it
-          {f.kind === 'refused'
-            ? `; SYNCHRO.S switched back and the copy on ${target} is kept.`
-            : `; ${restarted}`}
-        </p>
+        {f.kind === 'stuck' ? (
+          <p>
+            {f.words} <strong>Your music is still on {source}</strong>, and the copy on {target} is
+            kept.
+          </p>
+        ) : f.kind === 'refused' ? (
+          <p>
+            {f.words} <strong>Your music is untouched on {source}</strong> and SYNCHRO.S is still
+            using it.
+          </p>
+        ) : (
+          <p>
+            {f.words} <strong>Your music is untouched on {source}</strong> and SYNCHRO.S is still
+            using it; {restarted}
+          </p>
+        )}
         {f.files?.length ? (
           <ul className={styles.failureList}>
             {f.files.slice(0, 12).map((x) => (

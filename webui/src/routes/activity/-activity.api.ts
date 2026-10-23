@@ -116,7 +116,8 @@ export async function dismissActivityItem(id: string): Promise<void> {
 /** The retry routes answer `{success: false, error}` with a 200 sometimes. */
 export async function postRetry(path: string): Promise<void> {
   const payload = await readJson<{ success?: boolean; error?: string; message?: string }>(
-    apiClient.post(path),
+    // as JSON: some stop routes (a drive move's) take changes only as JSON
+    apiClient.post(path, { json: {} }),
   );
   if (payload && payload.success === false) {
     throw new Error(payload.error || payload.message || 'That didn’t go through');

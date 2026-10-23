@@ -371,7 +371,7 @@ describe('the running flow', () => {
       screen.getAllByRole('button', { name: 'Plug it in and carry on' }).length,
     ).toBeGreaterThan(0);
     expect(screen.getByText(/keeps the 1,646 files that match/)).toBeInTheDocument();
-    for (const kind of ['full', 'mismatch', 'unreadable', 'refused', 'restart'] as const) {
+    for (const kind of ['full', 'mismatch', 'unreadable', 'refused', 'stuck', 'restart'] as const) {
       expect(failureTitle({ kind, words: '', at: 0, count: 12 }, 'Music HD')).toBeTruthy();
     }
     expect(failureTitle({ kind: 'mismatch', words: '', at: 0, count: 12 }, 'X')).toBe(
@@ -422,7 +422,7 @@ describe('the running flow', () => {
     expect(screen.getByText('The old copies are still on Macintosh HD')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Switch back/ }));
     expect(
-      screen.getByText(/Anything added on Music HD since is copied back first/),
+      screen.getByText(/Anything added or changed on Music HD since is copied back first/),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Keep Music HD' }));
     fireEvent.click(screen.getByRole('button', { name: 'Remove the old copies…' }));
@@ -437,6 +437,101 @@ describe('the running flow', () => {
         'true',
       ),
     );
+  });
+});
+
+describe('when the switch goes wrong, or goes back', () => {
+  it('a switch that didn’t finish never offers to delete the copy', () => {
+    const m = move({
+      status: 'failed',
+      plan: PLAN,
+      promise: { tone: 'danger', words: 'The switch didn’t finish · nothing was deleted' },
+      failure: {
+        kind: 'stuck',
+        words:
+          'Plex didn’t answer. SYNCHRO.S couldn’t switch its folder settings back, so they may point at Music HD. Nothing has been deleted. Try the switch again.',
+        at: 0,
+      },
+    });
+    render(<FailureView {...runProps(m)} />);
+    expect(screen.getByText('The switch didn’t finish')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete the half-made copy' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Try the switch again' }).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.queryByText(/is untouched on/)).toBeNull();
+  });
+
+  it('a refused switch says what happened in its own words', () => {
+    const m = move({
+      status: 'failed',
+      plan: PLAN,
+      failure: {
+        kind: 'refused',
+        words:
+          'Plex didn’t add the folder. So SYNCHRO.S switched back; the copy on Music HD is kept. Check slskd.yml by hand: SYNCHRO.S couldn’t put it back.',
+        at: 0,
+      },
+    });
+    render(<FailureView {...runProps(m)} />);
+    expect(screen.getByText(/Check slskd\.yml by hand/)).toBeInTheDocument();
+  });
+
+  it('switching back asks for slskd’s sign-in when Downloads moved', async () => {
+    const m = move({
+      status: 'switched',
+      plan: {
+        ...PLAN,
+        dests: { ...PLAN.dests, downloads: '/Volumes/Music HD/SYNCHRO.S/Downloads' },
+        sources: { ...PLAN.sources, downloads: '/app/downloads' },
+      },
+      result: { checks: [], slskd: { changed: ['shares', 'downloads'] } },
+    });
+    const sent: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        sent.push({ url, init });
+        return new Response(
+          JSON.stringify({ success: true, move: m, boot_id: 'b', running: false }),
+        );
+      }),
+    );
+    const props = {
+      ...runProps(m),
+      act: async (fn: () => Promise<MovePayload>) => {
+        await fn();
+        return true;
+      },
+    };
+    render(<DoneStep {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: /Switch back/ }));
+    const go = screen.getByRole('button', { name: 'Switch back' });
+    expect(go).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('slskd user name'), { target: { value: 'ross' } });
+    fireEvent.change(screen.getByLabelText('slskd password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Switch back' }));
+    await waitFor(() => expect(sent.length).toBe(1));
+    expect(sent[0].url).toMatch(/\/api\/drives\/move\/1\/switch-back$/);
+    expect(JSON.parse(sent[0].init?.body as string)).toEqual({ username: 'ross', password: 'pw' });
+  });
+
+  it('every change goes to the server as JSON', async () => {
+    const sent: RequestInit[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        sent.push(init ?? {});
+        return new Response(JSON.stringify({ success: true }));
+      }),
+    );
+    const { drivesApi } = await import('./drives.api');
+    await drivesApi.stop(1);
+    await drivesApi.move();
+    expect(sent[0].method).toBe('POST');
+    expect((sent[0].headers as Record<string, string>)['Content-Type']).toBe('application/json');
+    expect(sent[0].body).toBe('{}');
+    expect(sent[1].body).toBeUndefined();
   });
 });
 
@@ -529,6 +624,57 @@ describe('the flow host', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
     await waitFor(() => expect(calls).toContain('POST /api/drives/move/1/leave'));
     expect(useMoveFlow.getState().open).toBe(false);
+  });
+
+  it('reads the move again while the checks run on the server', async () => {
+    let reads = 0;
+    const running = move({
+      checks: {
+        rows: [],
+        at: 0,
+        speed: null,
+        format: null,
+        need: 0,
+        ok: false,
+        summary: 'Looking at the drive…',
+        dests: {},
+        running: true,
+      },
+    });
+    const done = move({
+      checks: {
+        rows: [{ key: 'space', title: 'Enough space', tone: 'success', tag: 'Fine', detail: 'ok' }],
+        at: 0,
+        speed: null,
+        format: null,
+        need: 0,
+        ok: true,
+        summary: 'Every check passed.',
+        dests: {},
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET';
+        if (url.endsWith('/api/drives/move') && method === 'GET') {
+          reads += 1;
+          const m = reads === 1 ? running : done;
+          return new Response(
+            JSON.stringify({ success: true, move: m, boot_id: 'b', running: false }),
+          );
+        }
+        return new Response(
+          JSON.stringify({ success: true, move: running, boot_id: 'b', running: false }),
+        );
+      }),
+    );
+    render(<MoveFlow />);
+    act(() => useMoveFlow.getState().begin('check'));
+    await screen.findByText('Looking at the drive…');
+    expect(screen.getByRole('button', { name: 'Checking…' })).toBeDisabled();
+    await screen.findByText('Every check passed.', undefined, { timeout: 4000 });
+    expect(reads).toBeGreaterThan(1);
   });
 });
 

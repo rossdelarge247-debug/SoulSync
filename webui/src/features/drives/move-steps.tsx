@@ -445,8 +445,9 @@ export function CheckStep(props: StepProps) {
     if (ok) go('plan');
   };
 
-  const ok = Boolean(checks?.ok);
-  const stop = checks?.rows.some((r) => r.stop);
+  const running = Boolean(checks?.running);
+  const ok = Boolean(checks?.ok) && !running;
+  const stop = !running && checks?.rows.some((r) => r.stop);
   return (
     <FlowShell
       step={1}
@@ -464,8 +465,13 @@ export function CheckStep(props: StepProps) {
           >
             Back
           </Button>
-          <Button size="lg" variant="secondary" disabled={busy} onClick={() => void recheck()}>
-            {busy ? 'Checking…' : 'Check again'}
+          <Button
+            size="lg"
+            variant="secondary"
+            disabled={busy || running}
+            onClick={() => void recheck()}
+          >
+            {busy || running ? 'Checking…' : 'Check again'}
           </Button>
           <div className={styles.footEnd}>
             <Button
@@ -473,7 +479,7 @@ export function CheckStep(props: StepProps) {
               variant="primary"
               disabled={!ok || busy}
               disabledReason={
-                !checks
+                !checks || running
                   ? undefined
                   : stop
                     ? 'Fix what’s marked first.'
@@ -490,13 +496,15 @@ export function CheckStep(props: StepProps) {
       }
     >
       <h2 className={styles.title}>Checking {label}</h2>
-      <p className={styles.lead}>{checks ? checks.summary : 'Looking at the drive…'}</p>
+      <p className={styles.lead} role={running ? 'status' : undefined}>
+        {checks && !running ? checks.summary : 'Looking at the drive…'}
+      </p>
       {error ? (
         <Notice tone="danger" title="That didn’t go through" role="alert">
           <p>{error}</p>
         </Notice>
       ) : null}
-      {checks ? (
+      {checks && !running ? (
         <div className={styles.card}>
           {checks.rows.map((row) => (
             <div key={row.key} className={styles.row}>
