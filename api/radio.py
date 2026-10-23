@@ -966,7 +966,7 @@ def _settings_payload() -> Dict[str, Any]:
                                        "profile_id": r["profile_id"]} for r in rows],
                          "added_this_week": store.added_this_week(db)},
             "links": [_public_link(x) for x in store.list_links(db)],
-            "scan": _scan_status(db)}
+            "scan": _scan_status(db), "is_admin": True}
 
 
 def _scan_status(db) -> Dict[str, Any]:
@@ -981,12 +981,59 @@ def _scan_status(db) -> Dict[str, Any]:
              "audd": services["audd_ready"], "acrcloud": services["acrcloud_ready"]}
     return {"order": ["acoustid", "audd", "acrcloud"], "labels": dict(SCAN_LABELS), "ready": ready,
             "usage": {k: usage.get(k, {"requests": 0, "found": 0}) for k in ("acoustid", "audd", "acrcloud")},
+            "services": _scan_service_states(db, ready),
             "month": time.strftime("%B"), "available": scanner.availability()}
 
 
+def _scan_service_states(db, ready: Dict[str, bool]) -> Dict[str, Dict[str, Any]]:
+    """Each service's tag and the date its key was saved (11c): ``ready``,
+    ``not_set_up``, ``refused`` (the service refused the key at its last answer)
+    or ``no_requests_left`` (said so this month). ``set_at`` is when the key was
+    saved through Settings → Radio, or null when that isn't known (a key saved
+    before this was recorded, or AcoustID's saved elsewhere). Never a key."""
+    try:
+        known = store.scan_key_states(db)
+    except Exception:  # noqa: BLE001 - no dates beats no settings
+        known = {}
+    month = store.month_key()
+    out: Dict[str, Dict[str, Any]] = {}
+    for name in ("acoustid", "audd", "acrcloud"):
+        row = known.get(name) or {}
+        last = row.get("state")
+        if name == "acoustid" and radio_settings.acoustid_key(config_manager):
+            # Setup check also asks AcoustID; the newer answer counts
+            check = setup_rows.last("radio.acoustid")
+            if check and (check.get("checked_at") or 0) >= (row.get("state_at") or 0) and (
+                    row.get("set_at") is None or (check.get("checked_at") or 0) >= row["set_at"]):
+                last = "bad_key" if check.get("status") == "error" else "ok"
+        if not ready.get(name):
+            state = "not_set_up"
+        elif last == "bad_key":
+            state = "refused"
+        elif last == "out_of_credit" and row.get("state_at") and store.month_key(row["state_at"]) == month:
+            state = "no_requests_left"
+        else:
+            state = "ready"
+        out[name] = {"state": state, "set_at": row.get("set_at")}
+    return out
+
+
+def _member_settings_payload() -> Dict[str, Any]:
+    """Settings → Radio for a member (11c): Scan now's rows and their tags only.
+    No settings, keys, dates or counts."""
+    status = _scan_status(_db())
+    return {"success": True, "is_admin": False,
+            "scan": {"order": status["order"], "labels": status["labels"],
+                     "services": {k: {"state": v["state"]} for k, v in status["services"].items()}}}
+
+
 @bp.route("/api/radio/settings", methods=["GET"])
-@admin_only
 def get_settings():
+    if not is_admin_request():
+        if _pid() is None:
+            return _need_profile()
+        # members see Scan now's rows and tags (11c), nothing else
+        return jsonify(_member_settings_payload())
     return jsonify(_settings_payload())
 
 
@@ -994,9 +1041,16 @@ def get_settings():
 @admin_only
 def put_settings():
     try:
-        radio_settings.save(config_manager, request.get_json(silent=True))
+        _, saved, removed = radio_settings.save_with_changes(config_manager, request.get_json(silent=True))
     except radio_settings.SettingsError as exc:
         return _err(400, "bad_request", str(exc))
+    try:
+        for name in saved:
+            store.record_scan_key_saved(_db(), name)
+        for name in removed:
+            store.forget_scan_key(_db(), name)
+    except Exception as exc:  # noqa: BLE001 - the keys are saved; a missing date isn't worth failing for
+        logger.debug("scan key date not recorded: %s", exc)
     return jsonify(_settings_payload())
 
 
@@ -1015,7 +1069,13 @@ def scan_test():
             store.bump_scan_usage(_db(), service)
         except Exception as exc:  # noqa: BLE001
             logger.debug("test not counted: %s", exc)
-    return jsonify({"success": True, "service": service, **result, "usage": _scan_status(_db())["usage"]})
+    try:
+        store.record_scan_key_answer(_db(), service, result["state"])
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("test answer not recorded: %s", exc)
+    status = _scan_status(_db())
+    return jsonify({"success": True, "service": service, **result, "usage": status["usage"],
+                    "services": status["services"]})
 
 
 def create_blueprint() -> Blueprint:

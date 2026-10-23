@@ -147,6 +147,12 @@ def public(config) -> Dict[str, Any]:
 
 def save(config, body: Any) -> Dict[str, Any]:
     """Validate everything first, then write; a bad value changes nothing."""
+    return save_with_changes(config, body)[0]
+
+
+def save_with_changes(config, body: Any):
+    """``save``, also saying which services' keys were saved and which removed
+    (``acoustid``, ``audd``, ``acrcloud``), for the dates Settings → Radio shows."""
     if not isinstance(body, dict):
         raise SettingsError("Send the settings as an object.")
     writes: Dict[str, Any] = {}
@@ -227,9 +233,17 @@ def save(config, body: Any) -> Dict[str, Any]:
             clear = getattr(config, "clear_secret", None)
             if clear is not None:
                 clear(path)
-    return public(config)
+    saved = set()
+    if "acoustid.api_key" in writes:
+        saved.add("acoustid")
+    if AUDD_TOKEN in writes:
+        saved.add("audd")
+    if any(p in writes for p in (ACR_HOST, ACR_KEY, ACR_SECRET)):
+        saved.add("acrcloud")
+    removed = {name for name in (body.get("remove") or []) if name not in saved}
+    return public(config), saved, removed
 
 
 __all__ = ["DEFAULTS", "RELAY_CHOICES", "KEEP_CHOICES", "SettingsError", "read", "public", "save",
-           "acoustid_key", "masked", "acrcloud_host", "audd_token", "acrcloud_credentials", "scan_services_public",
+           "acoustid_key", "masked", "acrcloud_host", "save_with_changes", "audd_token", "acrcloud_credentials", "scan_services_public",
            "SCAN_SECRET_PATHS"]

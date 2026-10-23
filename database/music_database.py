@@ -3686,6 +3686,17 @@ class MusicDatabase:
                     PRIMARY KEY (month, provider)
                 )
             """)
+        # Scan now's keys: when each was saved and what its service last said of it
+        # (Settings → Radio's "Token set, 14 March 2026" and the Refused / No requests left tags)
+        with self._migration_step(cursor, 'radio_scan_keys_table', atomic=False):
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS radio_scan_keys (
+                    provider TEXT PRIMARY KEY,
+                    set_at INTEGER,
+                    state TEXT,
+                    state_at INTEGER
+                )
+            """)
 
     def _add_automation_then_actions_column(self, cursor):
         """Add then_actions column to automations table and migrate existing notify data."""
