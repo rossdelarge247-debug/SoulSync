@@ -50901,6 +50901,8 @@ tr.tag-diff-same {
     border-radius: 50%;
     background: currentColor;
 }
+#settings-page .src-modal-header .stg-spotify-pause-tag { display: none; }
+#settings-page #service-config-modal:has(.stg-service[data-service="spotify"]) .src-modal-header .stg-spotify-pause-tag { display: inline-flex; }
 #settings-page .stg-spotify-pause-tag[data-tone="info"] { background: rgba(56, 189, 248, 0.12); color: #38bdf8; }
 #settings-page .stg-spotify-pause-tag[data-tone="success"] { background: rgba(74, 222, 128, 0.12); color: #4ade80; }
 #settings-page .stg-spotify-pause {

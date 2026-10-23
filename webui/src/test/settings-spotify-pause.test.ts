@@ -52,7 +52,8 @@ function as(admin: boolean) {
 beforeEach(() => {
   document.body.innerHTML = `<div id="settings-page"><div class="stg-service" data-service="spotify">
     <div class="stg-service-header"><span class="stg-service-dot"></span><h4>Spotify</h4><span class="stg-service-chevron">›</span></div>
-    <div class="stg-service-body"><div class="form-group"></div></div></div></div>`;
+    <div class="stg-service-body"><div class="form-group"></div></div></div>
+    <div id="service-config-modal"><div class="src-modal-header"><h3 id="svc-modal-title">Spotify</h3><button class="src-modal-close"></button></div></div></div>`;
   Object.assign(window, {
     ssSpotifyPauseView: spotifyPauseView,
     ssCanClearSpotifyPause: canClearSpotifyPause,
@@ -76,6 +77,10 @@ describe('the Connections Spotify card (12c)', () => {
     expect(tag()!.textContent).toBe('Paused by Spotify · 11 min');
     expect(tag()!.dataset.tone).toBe('warning');
     expect(tag()!.nextElementSibling!.className).toBe('stg-service-chevron');
+    // the service modal's head carries it too, before its close button
+    const modalTag = document.querySelector('.src-modal-header .stg-spotify-pause-tag')!;
+    expect(modalTag.textContent).toBe('Paused by Spotify · 11 min');
+    expect(modalTag.nextElementSibling!.className).toBe('src-modal-close');
     expect(box()!.dataset.tone).toBe('warning');
     expect(box()!.querySelector('.stg-spotify-pause-sentence')!.textContent).toBe(
       "Spotify asked us to wait 11 min, after checking an artist's albums for the watchlist scan. " +

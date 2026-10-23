@@ -1456,34 +1456,37 @@ function renderStgSpotifyPause() {
         ? window.ssSpotifyPauseView(_stgSpotifyPauseStatus, elapsed) : null;
     const header = card ? card.querySelector('.stg-service-header') : null;
     const body = card ? card.querySelector('.stg-service-body') : null;
-    let tag = header ? header.querySelector('.stg-spotify-pause-tag') : null;
+    // the card opens in the service modal, whose own head is the card's
+    // header there: the tag goes in both (CSS shows the modal's only while
+    // Spotify is the one open)
+    const modalHead = document.querySelector('#service-config-modal .src-modal-header');
     let box = body ? body.querySelector('.stg-spotify-pause') : null;
-    const ensureTag = () => {
-        if (header && !tag) {
-            tag = document.createElement('span');
-            tag.className = 'stg-spotify-pause-tag';
-            const chevron = header.querySelector('.stg-service-chevron');
-            if (chevron) header.insertBefore(tag, chevron); else header.appendChild(tag);
+    const tagIn = (host, before) => {
+        if (!host) return null;
+        let t = host.querySelector('.stg-spotify-pause-tag');
+        if (!t) {
+            t = document.createElement('span');
+            t.className = 'stg-spotify-pause-tag';
+            const ref = host.querySelector(before);
+            if (ref) host.insertBefore(t, ref); else host.appendChild(t);
         }
-        return tag;
+        return t;
     };
+    const tags = () => [tagIn(header, '.stg-service-chevron'), tagIn(modalHead, '.src-modal-close')].filter(Boolean);
+    const dropTags = () => [header, modalHead].forEach((h) => h?.querySelector('.stg-spotify-pause-tag')?.remove());
 
     if (!view) {
         if (box) box.remove();
         if (_stgSpotifyPauseTimer) { clearInterval(_stgSpotifyPauseTimer); _stgSpotifyPauseTimer = null; }
         // the easing has ended: the tag goes back to Connected (12c)
-        if (_stgSpotifyPauseStatus && _stgSpotifyPauseStatus.authenticated === true && ensureTag()) {
-            tag.dataset.tone = 'success';
-            tag.textContent = 'Connected';
-        } else if (tag) {
-            tag.remove();
+        if (card && _stgSpotifyPauseStatus && _stgSpotifyPauseStatus.authenticated === true) {
+            tags().forEach((t) => { t.dataset.tone = 'success'; t.textContent = 'Connected'; });
+        } else {
+            dropTags();
         }
         return;
     }
-    if (ensureTag()) {
-        tag.dataset.tone = view.tone;
-        tag.textContent = view.tag;
-    }
+    tags().forEach((t) => { t.dataset.tone = view.tone; t.textContent = view.tag; });
     if (body && !box) {
         box = document.createElement('div');
         box.className = 'stg-spotify-pause';
