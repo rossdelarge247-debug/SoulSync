@@ -10,6 +10,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Internet radio with track identification | Built | [below](#internet-radio-with-track-identification) |
 | Merge duplicate artist | Exploring | [below](#merge-duplicate-artist) |
 | Classic Winamp visualisers (MilkDrop, AVS, bars and scope) | Ready for Design | [below](#classic-winamp-visualisers-milkdrop-avs-bars-and-scope) |
+| Move your music folders to another drive | Exploring | [below](#move-your-music-folders-to-another-drive) |
 
 ---
 
@@ -241,4 +242,55 @@ Ross wants the visualisers Winamp was loved for inside SYNCHRO.S's Visuals overl
 
 - Default for auto-cycle: on track change, or every 30 seconds?
 - Offer MilkDrop on phones, or keep phones to the light visuals?
+
+---
+
+## Move your music folders to another drive
+
+**Status:** Exploring · raised by Ross, 2026-10-23
+
+### The problem
+
+The library, downloads and staging folders start on the computer's own disk. When it fills up, or the music should live on an external drive, moving them today means stopping the app, copying by hand, editing the Docker set-up and hoping nothing points at the old place. One slip and Library shows everything missing, downloads land nowhere, or slskd shares an empty folder.
+
+### What Ross wants
+
+A wizard in the app that safely moves the library, downloads and staging to a new folder on a different drive, "magically": pick where, see what will happen, press go, and everything carries on from the new place.
+
+### What the app gives today (Dev checked)
+
+- **Three folder settings:** the download folder (`soulseek.download_path`), the library (`soulseek.transfer_path`) and staging (the auto-import worker's `staging_path`), in Settings → Library → Folders. The database stores library files by path, so a move must rewrite those paths, or keep the paths the app sees unchanged.
+- **Docker is the catch.** In the usual set-up the app sees fixed folder names inside its container (`/app/Transfer`, `/app/downloads`, `/app/Staging`); which real folder each one is lives in `docker-compose.yml`, outside the app. A container can't see a new drive or change its own mounts. So either the drive is made visible once (for example the Mac's `/Volumes` mounted into the container) and the wizard moves within it and switches the settings, or the wizard does everything it can, then hands over a short, generated set of steps (or a helper script) for the part outside the container.
+- **slskd** shares the library from its own container, so a move must repoint slskd too, then rescan its shares (the rescan after imports, `feat/slskd-rescan`, does the second half).
+- **Safe-action pattern:** preview, then confirm, with the recycle bin, already exists (`features/safe-action`); a move fits it.
+
+### Rules for every design
+
+- **Copy, check, then switch; never move first.** Copy everything, verify every file arrived (count and size, optionally a checksum), switch the app over, and keep the old copy until the person says they're happy. Deleting the old copy is a separate, later step.
+- **Check before starting:** enough free space on the new drive, the drive's format (warn on exFAT: macOS litters it with hidden `._` files that slskd would share), and that the app can write there.
+- **Pause what writes to these folders** while copying (downloads, imports, automations that move files), and say so; resume afterwards.
+- **Admin-only.**
+- **A drive that's unplugged later** should be noticed and said plainly ("Your library's drive isn't connected"), never shown as an empty library or acted on (no "missing files" clean-up).
+
+### States Design needs to draw
+
+- Choose: the three folders, what each holds and its size, where each goes (one new parent folder, or each separately).
+- Checks: space, format, write access; what's wrong and how to fix it.
+- The plan: what will be copied, how long it might take, what pauses meanwhile.
+- Copying: progress per folder, stoppable (stopping leaves everything as it was).
+- Verifying, then switching over.
+- The Docker step, when needed: the exact lines to change or a command to run, with a "Check again" button that confirms the app now sees the new place.
+- Done: everything working from the new place; "Remove the old copies…" offered, not done.
+- Failure at any step: what happened, and that the old folders are untouched.
+- Drive not connected (later, on any page).
+
+### Questions for Design
+
+1. Where does it live: Settings → Library → Folders ("Move to another drive…"), Maintenance, or both?
+2. One parent folder for all three by default, or each folder chosen separately?
+3. How much of the Docker step can be made un-scary for someone who's never edited a file in Terminal?
+
+### Questions for Ross (later)
+
+- Should it also offer moving the app's settings and database (for a move to a new machine), or only the music folders?
 
