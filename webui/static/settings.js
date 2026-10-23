@@ -3783,6 +3783,14 @@ async function loadSettingsData() {
         const _nfoEl = document.getElementById('write-artist-nfo');
         if (_nfoEl) _nfoEl.checked = settings.library?.write_artist_nfo === true;
 
+        // DJ data (core/dj/worker.py): analysis on by default, tag writes off
+        const _djEl = document.getElementById('dj-analysis');
+        if (_djEl) _djEl.checked = settings.library?.dj_analysis !== false;
+        const _djTagsEl = document.getElementById('dj-write-tags');
+        if (_djTagsEl) _djTagsEl.checked = settings.library?.dj_write_tags === true;
+        const _djOverEl = document.getElementById('dj-overwrite-tags');
+        if (_djOverEl) _djOverEl.checked = settings.library?.dj_overwrite_tags === true;
+
         // Populate Content Filter settings
         document.getElementById('allow-explicit').checked = settings.content_filter?.allow_explicit !== false;
         document.getElementById('prefer-explicit').checked = settings.content_filter?.prefer_explicit === true;
@@ -6968,7 +6976,10 @@ async function saveSettings(quiet = false) {
             podcasts_path: _cfgStr('podcasts-path', { fallback: './podcasts' }),
             audiobooks_path: _cfgStr('audiobooks-path', { fallback: './audiobooks' }),
             reorganize_preserve_casing: _cfgBool('reorganize-preserve-casing'),
-            write_artist_nfo: _cfgBool('write-artist-nfo')
+            write_artist_nfo: _cfgBool('write-artist-nfo'),
+            dj_analysis: _cfgBool('dj-analysis'),
+            dj_write_tags: _cfgBool('dj-write-tags'),
+            dj_overwrite_tags: _cfgBool('dj-overwrite-tags')
         },
         podcasts: {
             download_path: _cfgStr('podcasts-path', { fallback: './podcasts' }),
