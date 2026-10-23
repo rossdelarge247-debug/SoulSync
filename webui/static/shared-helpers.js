@@ -4084,24 +4084,20 @@ function getMetadataSourcePresentation(metadataStatus, spotifyStatus) {
     const rateLimited = !!(spotifyFamily && spotifyStatus?.rate_limited && spotifyStatus?.rate_limit);
     const cooldown = !!(spotifyFamily && spotifyStatus?.post_ban_cooldown > 0);
 
-    if (rateLimited) {
-        const remaining = spotifyStatus.rate_limit?.remaining_seconds || 0;
+    if (rateLimited || cooldown) {
+        // Same words as the React views: the shell bundle's spotifyPauseView
+        // (src/features/spotify-pause/spotify-pause.ts).
+        const pause = typeof window.ssSpotifyPauseView === 'function'
+            ? window.ssSpotifyPauseView(spotifyStatus) : null;
+        const remaining = rateLimited
+            ? (spotifyStatus.rate_limit?.remaining_seconds || 0)
+            : spotifyStatus.post_ban_cooldown;
+        const fallback = `${rateLimited ? 'Spotify paused' : 'Spotify easing back in'} \u00b7 ${formatRateLimitDuration(remaining)}`;
         return {
             statusClass: 'rate-limited',
-            statusText: `Spotify paused \u2014 ${formatRateLimitDuration(remaining)}`,
+            statusText: pause ? pause.short : fallback,
             dotClass: 'rate-limited',
-            dotTitle: `Spotify paused \u2014 ${formatRateLimitDuration(remaining)} remaining`,
-            sessionActive
-        };
-    }
-
-    if (cooldown) {
-        const remaining = spotifyStatus.post_ban_cooldown;
-        return {
-            statusClass: 'rate-limited',
-            statusText: `Spotify recovering \u2014 ${formatRateLimitDuration(remaining)}`,
-            dotClass: 'rate-limited',
-            dotTitle: `Spotify recovering \u2014 ${formatRateLimitDuration(remaining)} cooldown`,
+            dotTitle: pause ? pause.sentence : fallback,
             sessionActive
         };
     }

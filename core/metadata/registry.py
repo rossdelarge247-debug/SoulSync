@@ -362,9 +362,13 @@ def get_spotify_client_for_profile(profile_id: Optional[int] = None):
             return client
 
     try:
-        from core.spotify_client import SpotifyClient, normalize_spotify_oauth_config, SPOTIFY_OAUTH_SCOPE
+        from core.spotify_client import (
+            SPOTIFY_OAUTH_SCOPE,
+            SpotifyClient,
+            make_spotipy_client,
+            normalize_spotify_oauth_config,
+        )
         from spotipy.oauth2 import SpotifyOAuth
-        import spotipy
 
         normalized_creds = normalize_spotify_oauth_config({
             "client_id": client_id,
@@ -381,7 +385,7 @@ def get_spotify_client_for_profile(profile_id: Optional[int] = None):
         )
 
         profile_client = SpotifyClient()
-        profile_client.sp = spotipy.Spotify(auth_manager=auth_manager, retries=0, requests_timeout=15)
+        profile_client.sp = make_spotipy_client(auth_manager)
         profile_client.user_id = None
 
         with _client_cache_lock:

@@ -64,6 +64,6 @@ class TestTheBanIsUnchanged:
 
     def test_the_cooldown_and_recovery_paths_survive(self):
         for branch in ("data.spotify?.post_ban_cooldown > 0",
-                       "Spotify ban expired",
+                       "pause is over. Background jobs ease back in",
                        "Spotify access restored"):
             assert branch in _CORE_JS, branch

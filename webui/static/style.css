@@ -50873,6 +50873,57 @@ tr.tag-diff-same {
     letter-spacing: 0.02em;
 }
 
+/* ── Spotify pause (rate limit): header tag + a warning box in the body ──
+   Filled by renderStgSpotifyPause() in settings.js; counts down live. */
+#settings-page .stg-spotify-pause-tag {
+    margin-left: auto;
+    margin-right: 8px;
+    font-size: 14px;
+    color: #fbbf24;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+#settings-page .stg-spotify-pause {
+    margin: 10px 18px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    background: rgba(251, 191, 36, 0.07);
+    font-size: 15px;
+    line-height: 1.45;
+}
+#settings-page .stg-spotify-pause p { margin: 0 0 6px; }
+#settings-page .stg-spotify-pause-sentence {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+#settings-page .stg-spotify-pause-detail,
+#settings-page .stg-spotify-pause-note {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.62);
+}
+#settings-page .stg-spotify-pause-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+}
+#settings-page .stg-spotify-pause-actions[hidden] { display: none; }
+#settings-page .stg-spotify-pause-retry {
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+#settings-page .stg-spotify-pause-retry:hover { background: rgba(255, 255, 255, 0.10); }
+#settings-page .stg-spotify-pause-retry[aria-disabled="true"] { opacity: 0.62; cursor: default; }
+
 /* ── Verify failure warning bar at top of expanded panel ──
    Shown when the verify call failed. Removed on next successful verify. */
 #settings-page .stg-service-warning {
@@ -55969,6 +56020,15 @@ body.max-performance #page-particles-canvas {
     align-items: center;
     gap: 10px;
     font-size: 12px;
+}
+/* "Try again now"'s note under a Spotify pause: what it does and doesn't do. */
+.dash-alert-note {
+    margin: 6px 0 0;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.62);
+}
+.dash-alerts [data-slot="notice-title"] {
+    font-variant-numeric: tabular-nums;
 }
 
 /* ── The Listen band (data-card="listen") — the payoff row. Boxless like

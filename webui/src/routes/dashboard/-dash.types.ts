@@ -47,7 +47,9 @@ export interface ProviderStatusPayload {
   rate_limited?: boolean;
   using_free?: boolean;
   daily_budget?: { exhausted?: boolean; resets_in_seconds?: number } | null;
-  rate_limit?: { remaining_seconds?: number } | null;
+  rate_limit?: { remaining_seconds?: number; source?: string | null } | null;
+  /** Spotify only: seconds the worker still waits after a rate-limit pause. */
+  post_ban_cooldown?: number | null;
   current_item?: CurrentItem | null;
   progress?: EnrichProgress | null;
   stats?: Record<string, number | undefined> | null;

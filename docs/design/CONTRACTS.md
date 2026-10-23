@@ -572,6 +572,34 @@ Everything is behind the "Internet radio" module (`radio` in `GET /api/modules`,
 
 **Setup check:** `radio.fpcalc` and `radio.acoustid` (category `radio`, "Internet radio"), while the module is on. Not configured is `skipped`; fpcalc missing with a key set is a warning; a refused key is a problem.
 
+### Spotify pause (rate limits): the `spotify` slice of `/status`, `POST /api/spotify/rate-limit/clear`
+
+When Spotify answers "too many requests", SYNCHRO.S stops calling it for a while. The `spotify` slice of every `/status` frame (the `ss:service-status` event) says so:
+
+```json
+{
+  "rate_limited": true,
+  "rate_limit": {
+    "active": true, "remaining_seconds": 712, "retry_after": 720,
+    "endpoint": "get_artist_albums", "set_at": 1792792556.1, "expires_at": 1792793276.1,
+    "source": "spotify",
+    "trigger": "checking an artist's albums for the watchlist scan",
+    "feature": "the watchlist scan",
+    "estimate_step": null
+  },
+  "post_ban_cooldown": null
+}
+```
+
+- `source` (new): `"spotify"` when the time is Spotify's own Retry-After, which is obeyed exactly however long it is; `"estimate"` when Spotify sent none and SYNCHRO.S guessed: 10 minutes first, doubling for each repeat within an hour of the last pause ending (10, 20, 40, 80, 160 min, then 4 h at most). `estimate_step` (new) is that step, `null` for Spotify's own time.
+- `trigger` (new): what was happening, in words that follow "after" ("checking an artist's albums", "searching for tracks", "checking the Spotify connection"; "a Spotify request" when unknown), with the background job when one named itself ("… for the watchlist scan", "… for background enrichment"). `feature` (new) is that job alone, or `null`.
+- `remaining_seconds` is right when the frame is built; count down from when it arrived rather than trusting the clock against `expires_at`.
+- `post_ban_cooldown`: after the pause ends, seconds that background jobs (enrichment, watchlist and following scans, auto-sync, discography lookups) still wait: as long as the pause was, at least a minute, at most 30 minutes. Things a person does use Spotify again straight away. Everything then eases back in with slower, jittered calls for 15 minutes.
+- The Spotify enrichment worker's status (`/api/enrichment/spotify/status` and the enrichment frames) carries the same `rate_limit` and a new `post_ban_cooldown`.
+- **`POST /api/spotify/rate-limit/clear`** (admins; 403 otherwise) is "Try again now": it clears SYNCHRO.S's pause and cooldown and answers `{"success": true, "spotify": {…the slice…}}`. If Spotify is still limiting, the next call brings the pause back, and an estimate comes back longer (the ladder remembers). Pages say so beside the button.
+- `GET /api/spotify/rate-limit-status` also returns `source`, `trigger` and `post_ban_cooldown`.
+- The words: `src/features/spotify-pause/spotify-pause.ts` (`spotifyPauseView`, `formatWait`, `TRY_AGAIN_NOTE`), also on `window` for the classic scripts as `ssSpotifyPauseView`, `ssClearSpotifyPause`, `ssCanClearSpotifyPause` and `ssSpotifyTryAgainNote`.
+
 ## Available today, not yet designed for
 
 - **Library history:** `GET /api/library/history?type=download|import|podcast`. Past downloads and imports.

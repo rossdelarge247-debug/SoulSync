@@ -18,6 +18,11 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { Notice } from '@/components/primitives';
+import {
+  canClearSpotifyPause,
+  clearSpotifyPause,
+  TRY_AGAIN_NOTE,
+} from '@/features/spotify-pause/spotify-pause';
 
 import type { ServiceStatusPayload } from '../-dash.api';
 
@@ -46,32 +51,75 @@ function title(alerts: DashAlert[]): string {
 
 export function AlertsBand() {
   const [payload, setPayload] = useState<ServiceStatusPayload | null>(null);
+  // when the payload arrived, and the clock, so a Spotify pause counts down
+  const [receivedAt, setReceivedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  const [retryState, setRetryState] = useState<'idle' | 'busy' | 'done'>('idle');
+  const [retryError, setRetryError] = useState<string | null>(null);
 
-  useServiceStatusEvent(useCallback((p) => setPayload(p), []));
+  const accept = useCallback((p: ServiceStatusPayload) => {
+    const t = Date.now();
+    setPayload(p);
+    setReceivedAt(t);
+    setNow(t);
+  }, []);
+
+  useServiceStatusEvent(accept);
   useEffect(() => {
     let cancelled = false;
     void fetchServiceStatus().then((p) => {
-      if (!cancelled && p) setPayload(p);
+      if (!cancelled && p) accept(p);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [accept]);
 
-  const alerts = serviceAlerts(payload);
+  const alerts = serviceAlerts(payload, Math.max(0, now - receivedAt) / 1000);
+  const pause = alerts.find((a) => a.spotifyPause)?.spotifyPause ?? null;
+  const ticking = pause !== null;
+  useEffect(() => {
+    if (!ticking) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [ticking]);
+
   if (alerts.length === 0) return null;
+
+  const tryAgain = async () => {
+    setRetryState('busy');
+    setRetryError(null);
+    const error = await clearSpotifyPause();
+    if (error) {
+      setRetryError(error);
+      setRetryState('idle');
+      return;
+    }
+    setRetryState('done');
+    const fresh = await fetchServiceStatus();
+    if (fresh) accept(fresh);
+  };
+  const showTryAgain = pause !== null && canClearSpotifyPause();
 
   return (
     <Notice
       className="dash-alerts"
       data-card="alerts"
-      role="alert"
+      // a live countdown in an alert region would be read out every second
+      role={pause ? 'note' : 'alert'}
       tone={alerts.some((a) => a.severity === 'error') ? 'danger' : 'warning'}
       title={title(alerts)}
       actions={
-        <Button size="lg" onClick={() => void window.navigateToPage?.('settings')}>
-          Open Settings
-        </Button>
+        <>
+          {showTryAgain && (
+            <Button size="lg" disabled={retryState === 'busy'} onClick={() => void tryAgain()}>
+              Try again now
+            </Button>
+          )}
+          <Button size="lg" onClick={() => void window.navigateToPage?.('settings')}>
+            Open Settings
+          </Button>
+        </>
       }
     >
       {alerts.length === 1 ? (
@@ -87,6 +135,12 @@ export function AlertsBand() {
             </li>
           ))}
         </ul>
+      )}
+      {showTryAgain && (
+        <p className="dash-alert-note" aria-live="polite">
+          {retryError ??
+            (retryState === 'done' ? 'Pause cleared. Trying Spotify again.' : TRY_AGAIN_NOTE)}
+        </p>
       )}
     </Notice>
   );

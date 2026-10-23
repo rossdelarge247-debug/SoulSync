@@ -15,7 +15,7 @@ import requests
 from bs4 import BeautifulSoup
 from database.music_database import get_database, WatchlistArtist
 from core.library_scope import library_scope_for_profile, reset_library_scope, set_library_scope
-from core.spotify_client import SpotifyClient
+from core.spotify_client import SpotifyClient, spotify_feature
 from core.metadata_service import (
     get_album_tracks_for_source,
     get_client_for_source,
@@ -1560,6 +1560,7 @@ class WatchlistScanner:
             apply_global_overrides=apply_global_overrides,
         )
 
+    @spotify_feature('the watchlist scan')
     def scan_watchlist_artists(
         self,
         watchlist_artists: List[WatchlistArtist],
