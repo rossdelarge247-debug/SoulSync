@@ -43,7 +43,7 @@ describe('the Spotify is paused dialog', () => {
     const dialog = screen.getByRole('dialog');
     expect(screen.getByRole('heading', { name: 'Spotify is paused' })).toBeTruthy();
     expect(dialog.textContent).toContain(
-      'Mirroring “Sunday Mornings” needs Spotify’s playlist, so it waits. Nothing is lost: it starts by itself when the pause ends.',
+      'Mirroring “Sunday Mornings” needs Spotify’s playlist, so it waits. It starts by itself when the pause ends, if this page stays open.',
     );
     expect(screen.getByTestId('spotify-paused-time').textContent).toBe('11 min 42 s');
     expect(dialog.textContent).toContain('Whose number');

@@ -23,12 +23,14 @@ import {
   sourceWords,
 } from '@/features/radio/radio.format';
 import {
+  askWords,
+  autoAuddNote,
   scanAnswer,
   scanButton,
   scanPanel,
+  scanTrouble,
   scanWaitSeconds,
   scanWaitWords,
-  SERVICE_LABELS,
 } from '@/features/radio/radio.scan';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
@@ -361,14 +363,26 @@ export function ScanStrip({
       </p>
     );
   } else {
+    // ready (15b): the sentence names what a press asks, in order; a service
+    // that's refused or out of requests is said for everyone instead, with
+    // the warning dot and who can fix it; automatic AudD's used-up day under it
+    const avail = session.nowPlaying?.scan;
+    const trouble = scanTrouble(avail);
+    const auto = autoAuddNote(avail);
     words = (
-      <p className={styles.scanLine}>
-        Not sure what this is? Scan now listens to ten seconds of the stream on the server and asks{' '}
-        {services.length
-          ? services.map((sv) => SERVICE_LABELS[sv]).join(', then ')
-          : 'the identification services'}
-        .
-      </p>
+      <>
+        {trouble ? (
+          <p className={styles.scanLine} data-tone="warning">
+            <span className={styles.scanDot} aria-hidden="true" />
+            <span>{isAdmin ? <SettingsLinked text={trouble.strip} /> : trouble.strip}</span>
+          </p>
+        ) : (
+          <p className={styles.scanLine}>
+            Not the track you hear? Scan now listens for 10 seconds and asks {askWords(services)}.
+          </p>
+        )}
+        {auto ? <p className={styles.scanNote}>{auto}</p> : null}
+      </>
     );
   }
   return (

@@ -776,6 +776,31 @@ describe('the phone radio sheet (11d, 11e; HANDOFF 82)', () => {
     chrome!.dispose();
   });
 
+  it('adds one line under Scan now only when a service is refused or out of requests (15b)', () => {
+    const st = state();
+    st.nowPlaying!.scan = {
+      available: true,
+      reason: null,
+      services: ['acoustid', 'audd'],
+      states: { acoustid: 'ready', audd: 'ready', acrcloud: 'not_set_up' },
+    };
+    const first = mount(st);
+    expect(panel().querySelector('.ss-player-radio-scantrouble')).toBeNull();
+    first.chrome!.dispose();
+    document.body.innerHTML = '';
+    const bad = state();
+    bad.nowPlaying!.scan = {
+      available: true,
+      reason: null,
+      services: ['acoustid', 'audd'],
+      states: { acoustid: 'ready', audd: 'no_requests_left', acrcloud: 'not_set_up' },
+    };
+    const { chrome } = mount(bad);
+    const line = panel().querySelector('.ss-player-radio-scanbox .ss-player-radio-scantrouble')!;
+    expect(line.textContent).toBe('AudD has no requests left this month; AcoustID only.');
+    chrome!.dispose();
+  });
+
   it('says a failure under Scan again in the danger colour', () => {
     const st = state({
       scan: {

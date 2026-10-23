@@ -81,7 +81,13 @@ export interface ScanAvailability {
   available: boolean;
   reason: string | null;
   services: ScanService[];
+  /** Each service's state, for everyone (HANDOFF 87); no keys or counts. */
+  states?: Partial<Record<ScanService, ScanServiceState>>;
+  /** Automatic AudD: on, and why it stopped for today. */
+  audd_auto?: { on: boolean; stopped: 'bad_key' | 'out_of_credit' | 'cap_reached' | null };
 }
+
+export type ScanServiceState = 'ready' | 'not_set_up' | 'refused' | 'no_requests_left';
 
 export type ScanService = 'acoustid' | 'audd' | 'acrcloud';
 

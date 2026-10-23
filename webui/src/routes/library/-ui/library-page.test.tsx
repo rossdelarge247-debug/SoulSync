@@ -697,9 +697,27 @@ describe("Look for releases you don't have (68)", () => {
     ]);
     fireEvent.click(screen.getByRole('menuitem', { name: "Look for releases you don't have…" }));
     const dialog = await screen.findByRole('dialog');
+    // 15e: the title asks; tiles are the facts; the rate is in the sentence with why
     expect(within(dialog).getByText("Look for releases you don't have?")).toBeTruthy();
-    expect(within(dialog).getByText(/releases of the 212 artists in your library/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Look up 212 artists' }));
+    expect(
+      within(dialog).getByText('For the library artists SYNCHRO.S knows no releases for yet.'),
+    ).toBeTruthy();
+    const tiles = [...dialog.querySelectorAll('[class*="stat"]')].map((t) => t.textContent);
+    expect(tiles).toEqual([
+      'Artists to look up212',
+      'About how long4 min',
+      'Adds to WantedNothing',
+    ]);
+    expect(
+      within(dialog).getByText(
+        /asks the metadata services about one artist a second, so it stays well inside their limits for everyone on this server/,
+      ),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText('It runs in the background; Activity shows it, with Stop.'),
+    ).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start looking' }));
     await waitFor(() =>
       expect(posted.some((p) => p.url.endsWith('/api/library/missing-releases/start'))).toBe(true),
     );
@@ -712,11 +730,41 @@ describe("Look for releases you don't have (68)", () => {
       candidates: 212,
       can_start: true,
     };
+    const subtitle = () => document.querySelector('p[class*="subtitle"]')!;
     const { unmount } = renderPage('/library');
-    await screen.findByText(
-      "186 artists · 18 you follow · 41 with releases you don't have · Looking for releases you don't have: 40 of 212 artists done",
+    await waitFor(() =>
+      expect(subtitle().textContent).toBe(
+        "186 artists · 18 you follow · 41 with releases you don't have · Looking for releases you don't have: 40 of 212 · Stop",
+      ),
+    );
+    // Stop, from the header (admins)
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    await waitFor(() =>
+      expect(posted.some((p) => p.url.endsWith('/api/library/missing-releases/stop'))).toBe(true),
     );
     unmount();
+    // waiting for Spotify's pause, with the time left (computed in the test, not at load)
+    missingState = {
+      success: true,
+      job: {
+        id: 1,
+        status: 'running',
+        total: 212,
+        done: 40,
+        started_at: 1,
+        recent: true,
+        waiting_until: Date.now() / 1000 + 9 * 60 - 5,
+      },
+      candidates: 212,
+      can_start: true,
+    };
+    const waiting = renderPage('/library');
+    await waitFor(() =>
+      expect(subtitle().textContent).toContain(
+        "Looking for releases you don't have: 40 of 212, waiting for Spotify's pause, 9 min left · Stop",
+      ),
+    );
+    waiting.unmount();
     missingState = {
       success: true,
       job: {
@@ -732,9 +780,39 @@ describe("Look for releases you don't have (68)", () => {
       candidates: 3,
       can_start: true,
     };
+    const found = renderPage('/library');
+    await waitFor(() =>
+      expect(subtitle().textContent).toBe(
+        "186 artists · 18 you follow · 41 with releases you don't have · The last look found 61 releases you don't have, by 18 artists · Show them",
+      ),
+    );
+    // Show them opens Show → Incomplete
+    fireEvent.click(screen.getByRole('button', { name: 'Show them' }));
+    await waitFor(() =>
+      expect(found.router.state.location.search).toMatchObject({ show: 'incomplete' }),
+    );
+    found.unmount();
+    // found nothing, for the same day
+    missingState = {
+      success: true,
+      job: {
+        id: 1,
+        status: 'done',
+        total: 212,
+        done: 212,
+        found_releases: 0,
+        found_artists: 0,
+        started_at: 1,
+        recent: true,
+      },
+      candidates: 212,
+      can_start: true,
+    };
     renderPage('/library');
-    await screen.findByText(
-      "186 artists · 18 you follow · 41 with releases you don't have · The last look found 61 releases you don't have, by 18 artists",
+    await waitFor(() =>
+      expect(subtitle().textContent).toBe(
+        "186 artists · 18 you follow · 41 with releases you don't have · The last look found nothing new for 212 artists",
+      ),
     );
   });
 

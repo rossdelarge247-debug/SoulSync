@@ -384,8 +384,9 @@ def test_settings_save_and_read(app, client, config, clock, who):
 def test_members_see_the_line_only_and_cant_change_it(app, client, config, who):
     config.set("radio.audd_api_token", AUDD)
     who["pid"], who["admin"] = 2, False
-    body = client.get("/api/radio/settings").get_json()
-    assert body["scan"]["audd_auto"] == {"on": True, "daily_cap": 100}
+    # Settings → Radio is admins' only (HANDOFF 87); now playing's scan says
+    # whether it's on and whether it stopped, with no count
+    assert client.get("/api/radio/settings").status_code == 403
     assert client.put("/api/radio/settings", json={"audd_auto": False}).status_code == 403
     assert config.get("radio.audd_auto", True) is True
 

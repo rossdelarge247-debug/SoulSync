@@ -45,7 +45,9 @@ GATED = [
     ('GET', '/api/setup/check'),
     # the quality target is the app-wide default quality profile
     ('PUT', '/api/quality/target'),
-    # Settings → Radio and its Scan now service tests (a Test can spend a paid request)
+    # Settings → Radio and its Scan now service tests (a Test can spend a paid request);
+    # members read Scan now's state on now playing instead (HANDOFF 87)
+    ('GET', '/api/radio/settings'),
     ('PUT', '/api/radio/settings'),
     ('POST', '/api/radio/scan/test'),
     # Library → Albums' Remove from library (files to the recycle bin)

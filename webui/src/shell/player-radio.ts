@@ -46,6 +46,7 @@ import {
   scanAnswer,
   scanButton,
   scanPanel,
+  scanTrouble,
   sheetNowPlaying,
   sheetScanWords,
   type ScanPanel,
@@ -688,6 +689,11 @@ export function bootRadioChrome(
       const view = scanButton(st);
       if (view.disabled && view.reason)
         box.append(el(doc, 'p', 'ss-player-radio-reason', view.reason));
+      else {
+        // one line under Scan now, only when a service is refused or out of requests (15b)
+        const trouble = scanTrouble(st.nowPlaying?.scan);
+        if (trouble) box.append(el(doc, 'p', 'ss-player-radio-scantrouble', trouble.sheet));
+      }
     }
     return box;
   }

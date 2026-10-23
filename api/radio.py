@@ -327,7 +327,7 @@ def get_station(station_id):
                     "session": session if session and session["station_id"] == station.id else None,
                     "heard_today": store.count_heard(db, pid, since=today, station_id=station.id),
                     "identification": _settings()["identification"], "is_admin": bool(is_admin_request()),
-                    "can_download": _download_denied(pid) is None, "scan": scanner.availability()})
+                    "can_download": _download_denied(pid) is None, "scan": _scan_availability()})
 
 
 @bp.route("/api/radio/stations/<station_id>/logo", methods=["GET"])
@@ -484,7 +484,7 @@ def now_playing():
         if row:
             data["heard_id"] = row["id"]
             data["added_at"] = row.get("added_at")
-    data["scan"] = scanner.availability()
+    data["scan"] = _scan_availability()
     return jsonify({"success": True, **data})
 
 
@@ -1059,25 +1059,33 @@ def _scan_service_states(db, ready: Dict[str, bool]) -> Dict[str, Dict[str, Any]
     return out
 
 
-def _member_settings_payload() -> Dict[str, Any]:
-    """Settings → Radio for a member (11c): Scan now's rows and their tags only.
-    No settings, keys, dates or counts."""
-    status = _scan_status(_db())
-    auto = status["audd_auto"]
-    return {"success": True, "is_admin": False,
-            "scan": {"order": status["order"], "labels": status["labels"],
-                     "services": {k: {"state": v["state"]} for k, v in status["services"].items()},
-                     # the line only: whether it's on and its cap, no count
-                     "audd_auto": {"on": auto["on"] and auto["ready"], "daily_cap": auto["daily_cap"]}}}
+def _scan_availability() -> Dict[str, Any]:
+    """Scan now's button for everyone (now playing's and the station's
+    ``scan``; HANDOFF 87, board 15b): ``{available, reason, services}`` plus
+    each service's state (``ready``, ``not_set_up``, ``refused``,
+    ``no_requests_left``) and automatic AudD's (``on``, and ``stopped``:
+    ``bad_key``, ``out_of_credit``, ``cap_reached`` or null), so the station
+    strip and the phone sheet can say a service is refused or out of requests,
+    and who can fix it. No keys, dates or counts: members read it too."""
+    out = dict(scanner.availability())
+    try:
+        db = _db()
+        services = radio_settings.scan_services_public(config_manager)
+        ready = {"acoustid": bool(radio_settings.acoustid_key(config_manager)) and bool(setup_rows.find_fpcalc()),
+                 "audd": services["audd_ready"], "acrcloud": services["acrcloud_ready"]}
+        out["states"] = {k: v["state"] for k, v in _scan_service_states(db, ready).items()}
+        auto = audd_auto.status(db)
+        out["audd_auto"] = {"on": bool(auto["on"] and auto["ready"]), "stopped": auto["stopped"]}
+    except Exception as exc:  # noqa: BLE001 - the button works without the states
+        logger.debug("scan states unreadable: %s", exc)
+    return out
 
 
 @bp.route("/api/radio/settings", methods=["GET"])
+@admin_only
 def get_settings():
-    if not is_admin_request():
-        if _pid() is None:
-            return _need_profile()
-        # members see Scan now's rows and tags (11c), nothing else
-        return jsonify(_member_settings_payload())
+    # members read Scan now's state where they press it: now playing's
+    # ``scan`` (HANDOFF 87); Settings → Radio is admins' only
     return jsonify(_settings_payload())
 
 

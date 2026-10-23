@@ -844,6 +844,10 @@ def describe_spotify_unavailable(*, configured: bool, rate_limited: bool,
 
 
 class SpotifyClient:
+    # the global client tells /status who is connected (Settings → Connections);
+    # a profile's own client (registry.get_spotify_client_for_profile) doesn't
+    _publishes_account = True
+
     def __init__(self):
         self.sp: Optional[spotipy.Spotify] = None
         self.user_id: Optional[str] = None
@@ -855,6 +859,18 @@ class SpotifyClient:
         self._auth_cache_time: float = 0
         self._AUTH_CACHE_TTL = 900  # 15 minutes — auth status doesn't change mid-session
         self._setup_client()
+
+    def _remember_account(self, **seen: Any) -> None:
+        """What a request already made saw of the account, for /status's
+        ``account`` (the global client only)."""
+        if not self._publishes_account:
+            return
+        try:
+            from core.metadata.status import publish_spotify_account
+
+            publish_spotify_account(**seen)
+        except Exception as e:
+            logger.debug("publish_spotify_account: %s", e)
 
     def _is_spotify_id(self, id_str: str) -> bool:
         """Check if an ID is a Spotify ID (alphanumeric) vs a fallback source ID (numeric only)"""
@@ -1213,8 +1229,9 @@ class SpotifyClient:
         # immediately, with Spotify's Retry-After.
         try:
             probe = make_spotipy_client(self.sp.auth_manager)
-            probe.current_user()
+            me = probe.current_user()
             result = True
+            self._remember_account(name=(me or {}).get("display_name") or (me or {}).get("id"))
         except Exception as e:
             error_str = str(e)
             # Rate limit means we ARE authenticated — just throttled.
@@ -1364,7 +1381,9 @@ class SpotifyClient:
         
         try:
             results = self.sp.current_user_playlists(limit=50)
-            
+            if results:
+                self._remember_account(playlists=results.get('total'))
+
             while results:
                 for playlist_data in results['items']:
                     # Spotify API already returns all playlists the user has access to
@@ -1425,6 +1444,7 @@ class SpotifyClient:
                 if offset == 0:
                     expected_total = results.get('total', 'Unknown')
                     logger.info(f"Spotify reports {expected_total} total playlists to fetch.")
+                    self._remember_account(playlists=results.get('total'))
                 
                 batch_count = 0
                 for playlist_data in results['items']:

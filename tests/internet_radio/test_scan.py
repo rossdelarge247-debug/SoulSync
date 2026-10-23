@@ -445,10 +445,9 @@ def test_members_can_scan_but_not_test_or_see_settings(client, scanner, net, con
     assert r.status_code == 202
     assert client.post("/api/radio/scan/test", json={"service": "audd"}).status_code == 403
     assert client.put("/api/radio/settings", json={"daily_limit": 9}).status_code == 403
-    # members read Scan now's rows and tags (11c), and nothing else
-    body = client.get("/api/radio/settings").get_json()
-    assert body["is_admin"] is False and set(body) == {"success", "is_admin", "scan"}
-    assert body["scan"]["services"]["audd"] == {"state": "ready"}
+    # Settings → Radio is admins' only now (HANDOFF 87): members read Scan
+    # now's state on now playing, where they press it
+    assert client.get("/api/radio/settings").status_code == 403
     scan_id = r.get_json()["scan_id"]
     who["pid"] = 3
     assert client.get(f"/api/radio/scan/{scan_id}").status_code == 404  # someone else's
@@ -749,3 +748,49 @@ def test_the_card_never_carries_a_key(client, config, db, net, caplog):
     for text in texts:
         for secret in (AUDD, ACR_KEY, ACR_SECRET, ACOUSTID):
             assert secret not in text
+
+
+# ── Scan now's state for everyone (HANDOFF 87, board 15b) ────────────────────
+
+def test_now_playing_tells_everyone_each_services_state_without_keys(client, scanner, net, config, db, who):
+    keys(config, acoustid=False)
+    sid = play(client)
+    np = client.get(f"/api/radio/now-playing?station_id=somafm-dronezone&session_id={sid}").get_json()
+    assert np["scan"]["services"] == ["audd", "acrcloud"]
+    assert np["scan"]["states"] == {"acoustid": "not_set_up", "audd": "ready", "acrcloud": "ready"}
+    assert np["scan"]["audd_auto"] == {"on": True, "stopped": None}
+    # AudD says there are no requests left; ACRCloud refuses its keys
+    store.record_scan_key_answer(db, "audd", "out_of_credit")
+    store.record_scan_key_answer(db, "acrcloud", "bad_key")
+    who["pid"], who["admin"] = 2, False
+    msid = play(client)
+    for path in (f"/api/radio/now-playing?station_id=somafm-dronezone&session_id={msid}",
+                 "/api/radio/stations/somafm-dronezone"):
+        body = client.get(path).get_json()
+        scan = body["scan"]
+        assert scan["states"] == {"acoustid": "not_set_up", "audd": "no_requests_left", "acrcloud": "refused"}
+        # automatic AudD stopped for the day, said for everyone, with no count
+        assert scan["audd_auto"] == {"on": True, "stopped": "out_of_credit"}
+        assert set(scan) == {"available", "reason", "services", "states", "audd_auto"}
+        text = json.dumps(body)
+        for secret in SECRETS:
+            assert secret not in text
+
+
+def test_now_playing_says_when_automatic_auddds_cap_is_used(client, scanner, config, db, monkeypatch):
+    keys(config, acoustid=False, acr=False)
+    config.set("radio.audd_auto_daily_cap", 1)
+    store.claim_audd_auto(db, 1)
+    sid = play(client)
+    np = client.get(f"/api/radio/now-playing?station_id=somafm-dronezone&session_id={sid}").get_json()
+    assert np["scan"]["audd_auto"] == {"on": True, "stopped": "cap_reached"}
+    assert np["scan"]["states"]["audd"] == "ready"
+
+
+def test_scan_states_missing_never_breaks_the_button(client, scanner, config, monkeypatch):
+    keys(config, acoustid=False, acr=False)
+    monkeypatch.setattr(radio_api, "_scan_service_states", lambda *_a: 1 / 0)
+    sid = play(client)
+    np = client.get(f"/api/radio/now-playing?station_id=somafm-dronezone&session_id={sid}").get_json()
+    assert np["scan"]["available"] is True and np["scan"]["services"] == ["audd"]
+    assert "states" not in np["scan"]

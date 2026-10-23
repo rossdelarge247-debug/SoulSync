@@ -29,6 +29,9 @@ _spotify_status_cache: Dict[str, Any] = {
     "rate_limited": False,
     "rate_limit": None,
     "post_ban_cooldown": None,
+    # the connected account as the server last saw it (Settings → Connections'
+    # "Connected as ross · 14 playlists"): {"name", "playlists"}, never a token
+    "account": None,
 }
 _spotify_status_timestamp = 0.0
 _spotify_status_initialized = False
@@ -60,6 +63,8 @@ def publish_spotify_status(
             _spotify_status_cache["connected"] = connected
         if authenticated is not _UNSET:
             _spotify_status_cache["authenticated"] = authenticated
+            if authenticated is False:
+                _spotify_status_cache["account"] = None
         if rate_limited is not _UNSET:
             _spotify_status_cache["rate_limited"] = rate_limited
         if rate_limit is not _UNSET:
@@ -78,6 +83,23 @@ def publish_spotify_status(
         _spotify_status_initialized = True
         _normalize_spotify_status_locked(_spotify_status_timestamp)
         return dict(_spotify_status_cache)
+
+
+def publish_spotify_account(*, name: Any = _UNSET, playlists: Any = _UNSET) -> None:
+    """Remember the connected account's name and playlist count when a request
+    the server makes anyway sees them (the auth probe's ``current_user``, the
+    first page of the playlists). Nothing here asks Spotify, so a pause never
+    costs a request for it."""
+    with _status_lock:
+        account = dict(_spotify_status_cache.get("account") or {"name": None, "playlists": None})
+        if name is not _UNSET:
+            account["name"] = str(name) if name else None
+        if playlists is not _UNSET:
+            try:
+                account["playlists"] = max(0, int(playlists)) if playlists is not None else None
+            except (TypeError, ValueError):
+                account["playlists"] = None
+        _spotify_status_cache["account"] = account
 
 
 def refresh_spotify_status_from_client(spotify_client: Optional[Any]) -> Dict[str, Any]:

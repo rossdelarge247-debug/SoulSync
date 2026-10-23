@@ -18,11 +18,13 @@
  *   month's requests and finds, Test and (paid) Remove. An unset service
  *   opens its fields under its row with "Save and test", the card's one
  *   primary. Keys are write-only: the page is told only whether each is set
- *   and when it was saved. Members see the rows and tags, nothing else.
+ *   and when it was saved. Admins only, like the rest of Settings: members
+ *   read Scan now's state where they press it (the station strip and the
+ *   phone sheet, from now playing's `scan`; HANDOFF 87).
  * - Under the rows, "Listen automatically when the station doesn't say":
  *   automatic AudD's switch and daily cap (0 turns it off), with today's
  *   count on AudD's row ("12 of 100 automatic today") and why it stopped for
- *   the day. Members read its line only.
+ *   the day.
  *
  * Each control saves as soon as it changes (PUT /api/radio/settings). The tab
  * shows while the Internet radio module is on; the routes are admins only.
@@ -55,7 +57,6 @@ export interface RadioSettingsBody {
       acrcloud_ready: boolean;
     };
   };
-  /** false for a member: the answer is Scan now's rows and tags only (11c) */
   is_admin?: boolean;
   scan?: {
     order: ScanServiceId[];
@@ -64,7 +65,7 @@ export interface RadioSettingsBody {
     usage?: Record<ScanServiceId, { requests: number; found: number }>;
     services?: Partial<Record<ScanServiceId, { state: ScanServiceState; set_at?: number | null }>>;
     month?: string;
-    /** automatic AudD; a member's answer carries `on` and `daily_cap` only */
+    /** automatic AudD */
     audd_auto?: AuddAuto;
   };
   status?: {
@@ -177,10 +178,8 @@ const PAID: readonly ScanServiceId[] = ['audd', 'acrcloud'];
 let openFields: ScanServiceId | null = null;
 /** An admin opened them (Replace…, Set up…); else they follow the first unset service. */
 let fieldsChosen = false;
-
-function admin(): boolean {
-  return body?.is_admin !== false;
-}
+/** The paid service whose Remove is asking first, in its row (15c, HANDOFF 88). */
+let confirmRemove: ScanServiceId | null = null;
 
 /** The StatusTag's word and tone for a service's state. */
 export function serviceTag(state: ScanServiceState): {
@@ -228,16 +227,13 @@ export function setOnWords(unix: number | null | undefined): string {
 /**
  * The one line of what a service needs, under its name: "Token set, 14 March
  * 2026" with "Replace the token…" once a key is saved; what to get otherwise.
- * Members get what kind of service it is, nothing about keys.
  */
 export function serviceNeeds(
   id: ScanServiceId,
   data: RadioSettingsBody,
-  isAdmin = true,
 ): { text: string; replace: string | null } {
   if (id === 'acoustid') {
     const head = 'Free · a fingerprint';
-    if (!isAdmin) return { text: head, replace: null };
     if (!data.settings?.acoustid_api_key.set)
       return {
         text: `${head} · add the AcoustID key in Track identification above`,
@@ -255,7 +251,6 @@ export function serviceNeeds(
       replace: null,
     };
   }
-  if (!isAdmin) return { text: 'Paid · an account with a monthly allowance', replace: null };
   const when = setOnWords(data.scan?.services?.[id]?.set_at);
   if (id === 'audd') {
     return serviceSaved(id, data)
@@ -280,6 +275,65 @@ export function usageLine(
   const when = month ? ` in ${month}` : ' this month';
   if (!n) return setUp ? `Not asked${when}` : 'Not asked';
   return `${n} request${n === 1 ? '' : 's'}${when} · ${usage?.found ?? 0} found the track`;
+}
+
+/**
+ * Remove asks first, in the row (15c, HANDOFF 88): the question, what it
+ * stops and where the key can be found again, and the danger button's words.
+ */
+export function removeWords(
+  id: ScanServiceId,
+  label = SCAN_LABELS[id],
+): { title: string; text: string; confirm: string } {
+  if (id === 'acrcloud')
+    return {
+      title: `Remove ${label}’s keys?`,
+      text: `Scan now stops asking ${label} until its keys are added again. The ${label} console has the keys if you want them back.`,
+      confirm: 'Remove the keys',
+    };
+  return {
+    title: `Remove ${label}’s token?`,
+    text: `Scan now stops asking ${label} until a token is added again. ${label}’s own dashboard has the token if you want it back.`,
+    confirm: 'Remove token',
+  };
+}
+
+/** The row swapped for the confirm in place: 7% danger wash, 35% border. */
+function removeConfirm(id: ScanServiceId, step: number, label: string): HTMLElement {
+  const words = removeWords(id, label);
+  const box = document.createElement('div');
+  box.className = 'radio-scan-confirm';
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', words.title);
+  box.dataset.radioScanConfirm = id;
+  const chip = document.createElement('span');
+  chip.className = 'radio-scan-step';
+  chip.textContent = String(step);
+  chip.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('span');
+  text.className = 'radio-scan-confirm-text';
+  const title = document.createElement('span');
+  title.className = 'radio-scan-confirm-title';
+  title.textContent = words.title;
+  const line = document.createElement('span');
+  line.className = 'radio-scan-confirm-line';
+  line.textContent = words.text;
+  text.append(title, line);
+  const actions = document.createElement('span');
+  actions.className = 'radio-scan-confirm-actions';
+  actions.append(
+    button('Keep it', 'radio-button radio-button--outline', { radioScanKeep: id }),
+    button(words.confirm, 'radio-button radio-button--danger', { radioScanRemoveYes: id }),
+  );
+  box.append(chip, text, actions);
+  return box;
+}
+
+/** Keep it or Escape: the row comes back with the focus on Remove. */
+function keepKey(id: ScanServiceId): void {
+  confirmRemove = null;
+  renderScan();
+  document.querySelector<HTMLElement>(`[data-service="${id}"] [data-radio-scan-remove]`)?.focus();
 }
 
 // ── automatic AudD ──────────────────────────────────────────────────────
@@ -317,24 +371,21 @@ export function autoStateWords(auto: AuddAuto | undefined): string {
 
 function renderAuto(): void {
   if (!body) return;
-  const isAdmin = admin();
   const scanAuto = body.scan?.audd_auto;
   const s = body.settings;
-  // the admin's saved settings lead (the switch may be on with a cap of 0)
-  const switchOn = isAdmin && s ? s.audd_auto !== false : Boolean(scanAuto?.on);
-  const cap = isAdmin && s ? (s.audd_auto_daily_cap ?? 100) : (scanAuto?.daily_cap ?? 100);
+  // the saved settings lead (the switch may be on with a cap of 0)
+  const switchOn = s ? s.audd_auto !== false : Boolean(scanAuto?.on);
+  const cap = s ? (s.audd_auto_daily_cap ?? 100) : (scanAuto?.daily_cap ?? 100);
   const line = $('radio-audd-auto-line');
   if (line) line.textContent = autoLine(scanAuto ?? { on: switchOn && cap > 0, daily_cap: cap });
   const state = $('radio-audd-auto-state');
   if (state) {
-    const words = isAdmin ? autoStateWords(scanAuto) : '';
+    const words = autoStateWords(scanAuto);
     state.textContent = words;
     state.hidden = !words;
     state.dataset.tone =
       scanAuto?.stopped && scanAuto.stopped !== 'cap_reached' ? 'danger' : 'neutral';
   }
-  const controls = $('radio-audd-auto-controls');
-  if (controls) controls.hidden = !isAdmin;
   const sw = $('radio-audd-auto');
   if (sw) {
     sw.setAttribute('aria-checked', switchOn ? 'true' : 'false');
@@ -350,7 +401,6 @@ export function fieldsFor(
   data: RadioSettingsBody,
   chosen: ScanServiceId | null,
 ): ScanServiceId | null {
-  if (data.is_admin === false) return null;
   if (chosen) return chosen;
   return PAID.find((id) => !serviceSaved(id, data)) ?? null;
 }
@@ -470,7 +520,6 @@ function button(text: string, cls: string, data: Record<string, string>): HTMLBu
 function renderScan(): void {
   const list = $('radio-scan-services');
   if (!list || !body) return;
-  const isAdmin = admin();
   list.replaceChildren();
   const scan = body.scan;
   const order: ScanServiceId[] = scan?.order ?? SCAN_ORDER;
@@ -490,7 +539,7 @@ function renderScan(): void {
     const name = document.createElement('span');
     name.className = 'radio-scan-name';
     name.textContent = labels[id];
-    const needs = serviceNeeds(id, body!, isAdmin);
+    const needs = serviceNeeds(id, body!);
     const line = document.createElement('span');
     line.className = 'radio-scan-needs';
     line.textContent = needs.text;
@@ -508,64 +557,63 @@ function renderScan(): void {
     tag.dataset.tone = tagView.tone;
     tag.textContent = tagView.label;
     row.append(step, name, line, tag);
-    if (isAdmin) {
-      const usage = document.createElement('span');
-      usage.className = 'radio-scan-usage';
-      const setUp = id === 'acoustid' ? state !== 'not_set_up' : serviceSaved(id, body!);
-      usage.textContent = usageLine(scan?.usage?.[id], scan?.month, setUp);
-      if (!scan?.usage?.[id]?.requests) usage.dataset.quiet = 'true';
-      const today = id === 'audd' && setUp ? autoUsageLine(scan?.audd_auto) : '';
-      if (today) {
-        const auto = document.createElement('span');
-        auto.className = 'radio-scan-usage-auto';
-        auto.textContent = today;
-        usage.append(auto);
-      }
-      const actions = document.createElement('div');
-      actions.className = 'radio-scan-actions';
-      // nothing to test until its keys are saved
-      if (serviceSaved(id, body!)) {
-        const test = button('Test', 'radio-button', { radioScanTest: id });
-        test.setAttribute(
-          'aria-label',
-          id === 'acoustid'
-            ? `Test ${labels[id]}: a free check of the key`
-            : `Test ${labels[id]}: uses one request`,
-        );
-        actions.append(test);
-        if (PAID.includes(id)) {
-          const remove = button('Remove', 'radio-button radio-button--outline', {
-            radioScanRemove: id,
-          });
-          remove.setAttribute('aria-label', `Remove ${labels[id]}’s keys`);
-          actions.append(remove);
-        } else {
-          const gap = document.createElement('span');
-          gap.className = 'radio-scan-gap';
-          gap.setAttribute('aria-hidden', 'true');
-          actions.append(gap);
-        }
-      } else if (PAID.includes(id) && open !== id) {
-        // another unset service: its fields open on a press (one primary at a time)
-        const setup = button('Set up…', 'radio-button radio-button--outline', {
-          radioScanSetup: id,
-        });
-        setup.setAttribute('aria-label', `Set up ${labels[id]}`);
-        setup.setAttribute('aria-expanded', 'false');
-        setup.setAttribute('aria-controls', `radio-scan-fields-${id}`);
-        actions.append(setup);
-      }
-      row.append(usage, actions);
+    const usage = document.createElement('span');
+    usage.className = 'radio-scan-usage';
+    const setUp = id === 'acoustid' ? state !== 'not_set_up' : serviceSaved(id, body!);
+    usage.textContent = usageLine(scan?.usage?.[id], scan?.month, setUp);
+    if (!scan?.usage?.[id]?.requests) usage.dataset.quiet = 'true';
+    const today = id === 'audd' && setUp ? autoUsageLine(scan?.audd_auto) : '';
+    if (today) {
+      const auto = document.createElement('span');
+      auto.className = 'radio-scan-usage-auto';
+      auto.textContent = today;
+      usage.append(auto);
     }
-    li.append(row);
+    const actions = document.createElement('div');
+    actions.className = 'radio-scan-actions';
+    // nothing to test until its keys are saved
+    if (serviceSaved(id, body!)) {
+      const test = button('Test', 'radio-button', { radioScanTest: id });
+      test.setAttribute(
+        'aria-label',
+        id === 'acoustid'
+          ? `Test ${labels[id]}: a free check of the key`
+          : `Test ${labels[id]}: uses one request`,
+      );
+      actions.append(test);
+      if (PAID.includes(id)) {
+        const remove = button('Remove', 'radio-button radio-button--outline', {
+          radioScanRemove: id,
+        });
+        remove.setAttribute('aria-label', `Remove ${labels[id]}’s keys`);
+        actions.append(remove);
+      } else {
+        const gap = document.createElement('span');
+        gap.className = 'radio-scan-gap';
+        gap.setAttribute('aria-hidden', 'true');
+        actions.append(gap);
+      }
+    } else if (PAID.includes(id) && open !== id) {
+      // another unset service: its fields open on a press (one primary at a time)
+      const setup = button('Set up…', 'radio-button radio-button--outline', {
+        radioScanSetup: id,
+      });
+      setup.setAttribute('aria-label', `Set up ${labels[id]}`);
+      setup.setAttribute('aria-expanded', 'false');
+      setup.setAttribute('aria-controls', `radio-scan-fields-${id}`);
+      actions.append(setup);
+    }
+    row.append(usage, actions);
+    if (confirmRemove === id && serviceSaved(id, body!)) {
+      li.dataset.confirm = 'true';
+      li.append(removeConfirm(id, i + 1, labels[id]));
+    } else li.append(row);
     if (open === id) {
       li.dataset.open = 'true';
       li.append(fieldsPanel(id, body!));
     }
     list.append(li);
   });
-  const foot = $('radio-scan-foot');
-  if (foot) foot.hidden = !isAdmin;
   renderAuto();
 }
 
@@ -666,12 +714,6 @@ function setStatus(text: string, tone: 'success' | 'danger' | 'neutral' = 'neutr
 }
 
 function render(): void {
-  // members read Scan now's rows and tags; the other cards are admins' settings
-  const isAdmin = admin();
-  for (const card of document.querySelectorAll<HTMLElement>(
-    '#radio-settings > .radio-card:not(.radio-scan-card)',
-  ))
-    card.hidden = !isAdmin;
   renderScan();
   const s = body?.settings;
   if (!s) return;
@@ -1144,16 +1186,33 @@ function bind(): void {
     }
     const remove = pick('data-radio-scan-remove');
     if (remove) {
-      const label = body?.scan?.labels?.[remove] ?? SCAN_LABELS[remove];
-      void save(
-        { remove: [remove] },
-        `Removed. Scan now won’t ask ${label} until its keys are added again.`,
-        setScanStatus,
-      );
+      // asks first, in the row (15c); the focus goes to Keep it
+      confirmRemove = remove;
+      renderScan();
+      document.querySelector<HTMLElement>(`[data-radio-scan-keep="${remove}"]`)?.focus();
+      return;
+    }
+    const keep = pick('data-radio-scan-keep');
+    if (keep) {
+      keepKey(keep);
+      return;
+    }
+    const yes = pick('data-radio-scan-remove-yes');
+    if (yes) {
+      confirmRemove = null;
+      void save({ remove: [yes] }, 'Removed.', setScanStatus).then((ok) => {
+        if (ok) document.querySelector<HTMLInputElement>(`[data-fields="${yes}"] input`)?.focus();
+      });
     }
   });
   $('radio-scan-services')?.addEventListener('keydown', (event) => {
     const target = event.target as HTMLElement;
+    const asking = target.closest<HTMLElement>('[data-radio-scan-confirm]');
+    if (event.key === 'Escape' && asking) {
+      event.preventDefault();
+      keepKey(asking.dataset.radioScanConfirm as ScanServiceId);
+      return;
+    }
     const field = target.closest<HTMLElement>('[data-fields]');
     if (event.key === 'Enter' && field && target.tagName === 'INPUT') {
       event.preventDefault();
@@ -1267,6 +1326,7 @@ export function _resetRadioSettingsForTests(): void {
   bound = false;
   openFields = null;
   fieldsChosen = false;
+  confirmRemove = null;
   logoOpen = null;
   logoError = null;
   logoBusy = false;

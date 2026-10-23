@@ -2048,16 +2048,27 @@ describe('the Visuals keys (HANDOFF 60)', () => {
     expect(html).toMatch(
       /data-player-menu="visuals" aria-keyshortcuts="F">Visuals <kbd[^>]*>F<\/kbd>/,
     );
-    expect(html).toContain('In the visuals, V, Shift V, R and L work on the visuals.');
+    expect(html).toContain(
+      'In the visuals, V, Shift V, R and S work on the visuals; L is the A–B loop there too.',
+    );
+    // 83: L is the A–B loop everywhere; the favourite is S
+    expect(html).toContain('<dt>A–B loop</dt><dd><kbd>L</kbd></dd>');
+    expect(html).toContain('<dt>Favourite this MilkDrop preset</dt><dd><kbd>S</kbd></dd>');
   });
 
-  it('inside the overlay V, Shift+V, R and L go to the visuals (10a; question 83)', () => {
+  it('inside the overlay V, Shift+V, R and S go to the visuals (10a; HANDOFF 83)', () => {
     const { calls, press } = keys(true, false, { bridge: true });
     press('v');
     press('V', true);
     press('r');
-    press('l');
+    press('s');
     expect(calls).toEqual(['bridge next', 'bridge previous', 'bridge random', 'bridge favourite']);
+  });
+
+  it('inside the overlay L is still the A–B loop (HANDOFF 83)', () => {
+    const { calls, press } = keys(true, false, { bridge: true });
+    press('l');
+    expect(calls).toEqual(['a-b loop']);
   });
 
   it('outside the overlay L stays the A–B loop and R does nothing', () => {

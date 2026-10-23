@@ -68,20 +68,6 @@ function body(
   };
 }
 
-const MEMBER: RadioSettingsBody = {
-  success: true,
-  is_admin: false,
-  scan: {
-    order: ['acoustid', 'audd', 'acrcloud'],
-    labels: { acoustid: 'AcoustID', audd: 'AudD', acrcloud: 'ACRCloud' },
-    services: {
-      acoustid: { state: 'ready' },
-      audd: { state: 'refused' },
-      acrcloud: { state: 'not_set_up' },
-    },
-  },
-};
-
 function markup() {
   document.body.innerHTML = `
     <div id="settings-page"><button id="stg-tab-radio" hidden></button>
@@ -101,13 +87,15 @@ const row = (id: string) => document.querySelector<HTMLElement>(`[data-service="
 
 describe('Settings → Radio: Scan now services (11c)', () => {
   const sent: { url: string; method: string; body: unknown }[] = [];
-  let current = body();
+  let current: RadioSettingsBody = body();
+  let status = 200;
   let testAnswer: Record<string, unknown> = {};
   beforeEach(() => {
     markup();
     _resetRadioSettingsForTests();
     sent.length = 0;
     current = body();
+    status = 200;
     testAnswer = {
       success: true,
       ok: false,
@@ -129,7 +117,7 @@ describe('Settings → Radio: Scan now services (11c)', () => {
           if (payload?.audd_api_token) current = body();
           return new Response(JSON.stringify(current), { status: 200 });
         }
-        return new Response(JSON.stringify(current), { status: 200 });
+        return new Response(JSON.stringify(current), { status });
       }),
     );
   });
@@ -165,17 +153,11 @@ describe('Settings → Radio: Scan now services (11c)', () => {
       text: 'Keys set',
       replace: 'Replace the keys…',
     });
-    // members: what kind of service it is, nothing about keys
-    expect(serviceNeeds('audd', body(), false)).toEqual({
-      text: 'Paid · an account with a monthly allowance',
-      replace: null,
-    });
-    // the first unset paid service opens; a chosen one wins; members never get fields
+    // the first unset paid service opens; a chosen one wins
     expect(fieldsFor(body(), null)).toBe('acrcloud');
     expect(fieldsFor(body({ audd: false }), null)).toBe('audd');
     expect(fieldsFor(body({ acr: true }), null)).toBeNull();
     expect(fieldsFor(body(), 'audd')).toBe('audd');
-    expect(fieldsFor(MEMBER, 'audd')).toBeNull();
   });
 
   it('draws the three numbered rows with their tag, counts, Test and (paid) Remove', async () => {
@@ -307,6 +289,9 @@ describe('Settings → Radio: Scan now services (11c)', () => {
       '13 requests in October · 10 found the track',
     );
     row('audd').querySelector<HTMLElement>('[data-radio-scan-remove]')!.click();
+    // asks first, in the row (15c)
+    expect(sent.some((s) => s.method === 'PUT')).toBe(false);
+    row('audd').querySelector<HTMLElement>('[data-radio-scan-remove-yes]')!.click();
     await vi.waitFor(() => expect(sent.some((s) => s.method === 'PUT')).toBe(true));
     expect(sent.find((s) => s.method === 'PUT')!.body).toEqual({ remove: ['audd'] });
     await vi.waitFor(() =>
@@ -314,22 +299,56 @@ describe('Settings → Radio: Scan now services (11c)', () => {
     );
   });
 
-  it('members see the rows and tags, with no fields, buttons or counts', async () => {
-    current = MEMBER;
+  it('Remove asks first in the row: Keep it and Escape put it back, Remove token clears it (15c)', async () => {
+    current = body({ acr: true });
     await loadRadioSettings();
-    expect(
-      [...document.querySelectorAll('#radio-scan-services .radio-tag')].map((t) => t.textContent),
-    ).toEqual(['Ready', 'Refused', 'Not set up']);
-    expect(document.querySelectorAll('#radio-scan-services button')).toHaveLength(0);
-    expect(document.querySelectorAll('#radio-scan-services input')).toHaveLength(0);
-    expect(document.querySelector('.radio-scan-usage')).toBeNull();
-    expect(row('audd').querySelector('.radio-scan-needs')!.textContent).toBe(
-      'Paid · an account with a monthly allowance',
+    const removeBtn = () => row('audd').querySelector<HTMLElement>('[data-radio-scan-remove]')!;
+    removeBtn().click();
+    const ask = row('audd').querySelector<HTMLElement>('[data-radio-scan-confirm]')!;
+    expect(ask.getAttribute('role')).toBe('group');
+    expect(ask.getAttribute('aria-label')).toBe('Remove AudD’s token?');
+    expect(ask.textContent).toContain(
+      'Scan now stops asking AudD until a token is added again. AudD’s own dashboard has the token if you want it back.',
     );
-    expect(document.getElementById('radio-scan-foot')!.hidden).toBe(true);
-    // the other cards are admins' settings
-    expect(document.getElementById('card-streams')!.hidden).toBe(true);
-    expect(document.getElementById('card-links')!.hidden).toBe(true);
-    expect(document.querySelector<HTMLElement>('.radio-scan-card')!.hidden).toBe(false);
+    expect([...ask.querySelectorAll('button')].map((b) => b.textContent)).toEqual([
+      'Keep it',
+      'Remove token',
+    ]);
+    expect(ask.querySelector('.radio-button--danger')!.textContent).toBe('Remove token');
+    expect(row('audd').querySelector('.radio-scan-row')).toBeNull();
+    expect(document.activeElement?.textContent).toBe('Keep it');
+    // Keep it: the row is back, the focus on Remove
+    row('audd').querySelector<HTMLElement>('[data-radio-scan-keep]')!.click();
+    expect(row('audd').querySelector('[data-radio-scan-confirm]')).toBeNull();
+    expect(document.activeElement).toBe(removeBtn());
+    // Escape does the same
+    removeBtn().click();
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    expect(row('audd').querySelector('[data-radio-scan-confirm]')).toBeNull();
+    expect(document.activeElement).toBe(removeBtn());
+    expect(sent.some((s) => s.method === 'PUT')).toBe(false);
+    // ACRCloud's words
+    row('acrcloud').querySelector<HTMLElement>('[data-radio-scan-remove]')!.click();
+    const acr = row('acrcloud').querySelector<HTMLElement>('[data-radio-scan-confirm]')!;
+    expect(acr.getAttribute('aria-label')).toBe('Remove ACRCloud’s keys?');
+    expect(acr.textContent).toContain('The ACRCloud console has the keys if you want them back.');
+    acr.querySelector<HTMLElement>('[data-radio-scan-remove-yes]')!.click();
+    await vi.waitFor(() => expect(sent.some((s) => s.method === 'PUT')).toBe(true));
+    expect(sent.find((s) => s.method === 'PUT')!.body).toEqual({ remove: ['acrcloud'] });
+    await vi.waitFor(() =>
+      expect(document.getElementById('radio-scan-status')!.textContent).toBe('Removed.'),
+    );
+  });
+
+  it('has no members’ card: Settings → Radio is admins’ only (HANDOFF 87)', async () => {
+    // members read Scan now's state on the station strip and the phone sheet;
+    // the settings route refuses them, and the page says so instead of a card
+    current = { success: false, error: 'admin_only', message: 'Only an admin can do that.' };
+    status = 403;
+    await loadRadioSettings();
+    expect(document.getElementById('radio-settings-error')!.hidden).toBe(false);
+    expect(document.querySelectorAll('#radio-scan-services > li')).toHaveLength(0);
   });
 });

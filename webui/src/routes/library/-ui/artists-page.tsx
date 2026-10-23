@@ -10,9 +10,10 @@ import type { IndexArtist, LibrarySearch } from '../-library.types';
 import { addToWanted, artistIndexInfiniteQueryOptions, followArtists } from '../-library.api';
 import { addedSentence } from '../-library.grid';
 import {
-  missingHeaderPhrase,
+  missingHeader,
   missingReleasesQueryOptions,
   startMissingReleases,
+  stopMissingReleases,
 } from '../-library.missing';
 import { ARTIST_SHOWS, ARTIST_SORTS, pick } from '../-library.types';
 import { loadTopTracks, trackArtistLabel } from '../../artist-detail/-artist-detail.top-tracks';
@@ -96,6 +97,17 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
         queryKey: missingReleasesQueryOptions(profileId).queryKey,
       });
     },
+    onError: (error: Error) => window.showToast?.(error.message, 'error'),
+  });
+
+  // the header's line (15e): Stop while it runs, Show them (Show → Incomplete) once it found some
+  const header = missingHeader(job);
+  const stopLooking = useMutation({
+    mutationFn: stopMissingReleases,
+    onSuccess: () =>
+      void queryClient.invalidateQueries({
+        queryKey: missingReleasesQueryOptions(profileId).queryKey,
+      }),
     onError: (error: Error) => window.showToast?.(error.message, 'error'),
   });
 
@@ -186,11 +198,36 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
                   plural(totals.artists, 'artist'),
                   `${totals.following.toLocaleString()} you follow`,
                   `${totals.incomplete.toLocaleString()} with releases you don't have`,
-                  missingHeaderPhrase(job),
+                  header?.text ?? '',
                 ]
                   .filter(Boolean)
                   .join(' · ')
               : ' '}
+            {totals && header?.action === 'stop' && canLook ? (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  className={styles.inlineLink}
+                  disabled={stopLooking.isPending}
+                  onClick={() => stopLooking.mutate()}
+                >
+                  {stopLooking.isPending ? 'Stopping…' : 'Stop'}
+                </button>
+              </>
+            ) : null}
+            {totals && header?.action === 'show' ? (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  className={styles.inlineLink}
+                  onClick={() => go({ show: 'incomplete', q: '', genre: '' })}
+                >
+                  Show them
+                </button>
+              </>
+            ) : null}
           </p>
         </div>
         <div className={styles.headActions}>

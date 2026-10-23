@@ -193,10 +193,13 @@ describe('Listening history (13a)', () => {
     const kind = screen.getByRole('group', { name: 'Kind' });
     expect(
       within(kind)
-        .getByRole('button', { name: /Music\s*1,204/ })
+        .getByRole('button', { name: /Music\s*412/ })
         .getAttribute('aria-pressed'),
     ).toBe('true');
-    expect(within(kind).getByRole('button', { name: /Podcasts\s*38/ })).toBeTruthy();
+    // 93: the counts follow the range (7 days here); a kind with 0 stays pressable
+    expect(within(kind).getByRole('button', { name: /Podcasts\s*6/ })).toBeTruthy();
+    const books = within(kind).getByRole('button', { name: /Audiobooks\s*0/ });
+    expect(books.hasAttribute('disabled')).toBe(false);
     const range = screen.getByRole('group', { name: 'Range' });
     expect(within(range).getByRole('button', { name: '7 days' }).getAttribute('aria-pressed')).toBe(
       'true',
@@ -209,6 +212,12 @@ describe('Listening history (13a)', () => {
     const params = lastParams('/api/library/listening-history');
     expect(params.get('range')).toBe('7d');
     expect(params.get('tz')).toBe(String(new Date().getTimezoneOffset()));
+    fireEvent.click(within(range).getByRole('button', { name: 'All time' }));
+    await waitFor(() =>
+      expect(within(kind).getByRole('button', { name: /Music\s*1,204/ })).toBeTruthy(),
+    );
+    expect(within(kind).getByRole('button', { name: /Audiobooks\s*4/ })).toBeTruthy();
+    fireEvent.click(within(range).getByRole('button', { name: '7 days' }));
   });
 
   it('groups by day with the whole day count and draws each row as the board does', async () => {
@@ -309,5 +318,70 @@ describe('Podcasts and Audiobooks', () => {
     const again = screen.getByRole('button', { name: 'Play Episode 47: The long hallway again' });
     expect(again.className).toMatch(/ghostPlay/);
     expect(screen.getByText('Finished')).toBeTruthy();
+  });
+});
+
+describe('Listening history on a phone (15d, HANDOFF 94)', () => {
+  let original: typeof window.matchMedia;
+  beforeEach(() => {
+    original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes('max-width: 640px'),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+  });
+  afterEach(() => {
+    window.matchMedia = original;
+  });
+
+  it('music rows carry Play (the first filled, the rest ghosts) and "…", and drop the album', async () => {
+    renderPage();
+    await screen.findByText('Static Bloom');
+    const row = (title: string) => screen.getByText(title).closest('li')!;
+    const bloom = row('Static Bloom');
+    expect(bloom.getAttribute('data-actions')).toBe('2');
+    // the meta line drops the album on a phone; the time ends it
+    expect(within(bloom).queryByRole('link', { name: 'Lantern' })).toBeNull();
+    expect(bloom.textContent).toContain('Saltmarsh · FLAC 24/96 · 4:36 · 14:02');
+    const firstPlay = within(bloom).getByRole('button', { name: 'Play Static Bloom next' });
+    const otherPlay = within(row('Night Ferry (Dub)')).getByRole('button', {
+      name: 'Play Night Ferry (Dub) next',
+    });
+    expect(firstPlay.className).toMatch(/play/);
+    expect(firstPlay.className).not.toMatch(/ghostPlay/);
+    expect(otherPlay.className).toMatch(/ghostPlay/);
+    // a gone track has neither
+    expect(row('Orchard Sodium').getAttribute('data-actions')).toBeNull();
+  });
+
+  it('"…" opens the action sheet: Play next, Add to playlist…, Open artist, Open album', async () => {
+    renderPage();
+    await screen.findByText('Static Bloom');
+    const more = screen.getByRole('button', { name: 'More for Static Bloom' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(more);
+    const sheet = await screen.findByRole('dialog', { name: 'More for Static Bloom' });
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    expect(within(sheet).getByText('Static Bloom · Saltmarsh')).toBeTruthy();
+    expect(
+      within(sheet)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Play next', 'Add to playlist…', 'Open artist', 'Open album']);
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Play next' }));
+    expect(window.playNext).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // a track with no album link leaves Open album out
+    fireEvent.click(screen.getByRole('button', { name: 'More for Night Ferry (Dub)' }));
+    const ferry = await screen.findByRole('dialog', { name: 'More for Night Ferry (Dub)' });
+    expect(within(ferry).queryByRole('button', { name: 'Open album' })).toBeNull();
+    fireEvent.keyDown(ferry, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });
