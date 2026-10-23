@@ -206,3 +206,75 @@ def test_downloads_are_refused_while_held():
             asyncio.run(orch.download("peer", "file.flac", 1))
     finally:
         holds.release(4)
+
+
+# ── a move's copy holds Maintenance, fixes, tag writes and reorganizes ───────
+
+def test_maintenance_jobs_skip_while_a_move_copies(install):
+    from core import repair_worker as rw
+
+    class Job:
+        writes_library_files = False
+
+    _watch(install).check_now()
+    assert rw._skips_while_drive_away(Job(), "library_retag") is False
+    holds.hold(9)
+    try:
+        assert rw._skips_while_drive_away(Job(), "library_retag") is True
+        assert rw._skips_while_drive_away(Job(), "library_reorganize") is True
+        assert "copied to another drive" in rw._drive_skip_words(Job(), "dead_file_cleaner")
+        assert rw._skips_while_drive_away(Job(), "genre_enrichment") is False
+    finally:
+        holds.release(9)
+
+
+def test_fixes_wait_while_a_move_copies(install):
+    from core.repair_worker import RepairWorker
+    _watch(install).check_now()
+    worker = RepairWorker.__new__(RepairWorker)
+    ran = []
+    worker._fix_handlers = lambda: {"retag": lambda *a: ran.append(a) or {"success": True}}
+    holds.hold(5)
+    try:
+        out = worker._execute_fix("retag", "track", "1", "/x.flac", {})
+        assert out["success"] is False and "copied to another drive" in out["error"] and not ran
+    finally:
+        holds.release(5)
+    assert worker._execute_fix("retag", "track", "1", "/x.flac", {}) == {"success": True}
+
+
+def test_the_reorganize_queue_waits_while_a_move_copies():
+    import threading
+
+    from core.reorganize_queue import ReorganizeQueue
+    q = ReorganizeQueue(runner=lambda item: {"status": "done"})
+    q._ensure_worker = lambda: None  # claimed by hand below
+    q.enqueue(album_id="1", album_title="A", artist_id="1", artist_name="X")
+    got = []
+    holds.hold(6)
+    t = threading.Thread(target=lambda: got.append(q._claim_next_or_wait()), daemon=True)
+    try:
+        t.start()
+        t.join(0.5)
+        assert not got and q._items[0].status == "queued"
+    finally:
+        holds.release(6)
+        with q._cond:
+            q._cond.notify_all()
+    t.join(10)
+    assert got and got[0].album_id == "1"
+    q.stop()
+
+
+@pytest.mark.parametrize("view,args", [("write_track_tags", ("1",)), ("write_tracks_tags_batch", ()),
+                                       ("reorganize_album_files", ("1",)),
+                                       ("reorganize_all_artist_albums", ("1",))])
+def test_tag_writes_and_reorganizes_answer_that_a_move_is_copying(view, args):
+    import web_server
+    holds.hold(8)
+    try:
+        with web_server.app.test_request_context(method="POST", json={"track_ids": ["1"]}):
+            body, status = getattr(web_server, view)(*args)
+        assert status == 409 and body.get_json()["code"] == "drive_move"
+    finally:
+        holds.release(8)

@@ -562,14 +562,29 @@ DRIVE_AWAY_SKIPS = frozenset({
 })
 
 
-def _skips_while_drive_away(job, job_id) -> bool:
+def _drive_skip_words(job, job_id):
+    """Why a job that finds missing files, cleans up, moves or rewrites
+    files skips this run: the library's drive isn't connected, or the music
+    is being copied to another drive (a retag or reorganize mid-copy would
+    be lost at the switch). None when it runs."""
     if job_id not in DRIVE_AWAY_SKIPS and not getattr(job, 'writes_library_files', False):
-        return False
+        return None
     try:
-        from core.drives.markers import library_away
-        return library_away()
+        from core.drives.holds import held_by
+        if held_by() is not None:
+            from core.drives.holds import MOVE_REFUSAL
+            return "Skipped: " + MOVE_REFUSAL[0].lower() + MOVE_REFUSAL[1:]
+    except Exception:  # noqa: BLE001,S110 - the drive state below still applies
+        pass
+    try:
+        from core.drives.markers import AWAY_SKIP_WORDS, library_away
+        return AWAY_SKIP_WORDS if library_away() else None
     except Exception:  # noqa: BLE001 - the job's own visibility checks still run
-        return False
+        return None
+
+
+def _skips_while_drive_away(job, job_id) -> bool:
+    return _drive_skip_words(job, job_id) is not None
 
 
 class RepairWorker:
@@ -1251,13 +1266,17 @@ class RepairWorker:
         # A library whose drive isn't connected looks empty: every file would
         # read as missing. The jobs that find missing files, clean up or move
         # files skip the run and say why (core/drives/markers.py).
-        if run_status != 'failed' and _skips_while_drive_away(job, job_id):
+        skip_words = _drive_skip_words(job, job_id) if run_status != 'failed' else None
+        if skip_words:
             from core.drives.markers import AWAY_SKIP_WORDS
-            logger.warning("%s skipped: the library's drive isn't connected", job.display_name)
-            _report_progress(phase='Skipped — drive not connected', log_line=AWAY_SKIP_WORDS, log_type='warning')
+            away = skip_words == AWAY_SKIP_WORDS
+            logger.warning("%s skipped: %s", job.display_name,
+                           "the library's drive isn't connected" if away else "a drive move is copying")
+            _report_progress(phase='Skipped — drive not connected' if away else 'Skipped — moving to another drive',
+                             log_line=skip_words, log_type='warning')
             run_status = 'stopped'
-            run_error = AWAY_SKIP_WORDS
-            result.stopped_early = AWAY_SKIP_WORDS
+            run_error = skip_words
+            result.stopped_early = skip_words
 
         try:
             if run_status not in ('failed', 'stopped'):
@@ -2464,6 +2483,13 @@ class RepairWorker:
         handler = self._fix_handlers().get(finding_type)
         if not handler:
             return {'success': False, 'error': f'No fix available for finding type: {finding_type}'}
+        try:
+            from core.drives.holds import move_in_progress
+            moving = move_in_progress()
+            if moving:
+                return {'success': False, 'error': moving}
+        except Exception as e:  # noqa: BLE001 - the drive state below still applies
+            logger.debug("drive move state for a fix: %s", e)
         try:
             from core.drives.markers import library_away
             if library_away():

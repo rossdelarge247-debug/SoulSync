@@ -10026,7 +10026,14 @@ def get_batch_tag_preview():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+# Tag writes and reorganizes change the library's files: while a drive move
+# copies them (core/drives/holds.py) they answer 409, or the edits would be
+# left behind at the switch.
+from core.drives.holds import refuse_during_move as _refuse_during_move
+
+
 @app.route('/api/library/track/<track_id>/write-tags', methods=['POST'])
+@_refuse_during_move
 def write_track_tags(track_id):
     """Write DB metadata into the audio file tags for a single track."""
     try:
@@ -10114,6 +10121,7 @@ _write_tags_batch_lock = threading.Lock()
 
 
 @app.route('/api/library/tracks/write-tags-batch', methods=['POST'])
+@_refuse_during_move
 def write_tracks_tags_batch():
     """Write DB metadata into audio file tags for multiple tracks (runs in background)."""
     try:
@@ -10835,6 +10843,7 @@ def reorganize_album_preview(album_id):
 
 
 @app.route('/api/library/album/<album_id>/reorganize', methods=['POST'])
+@_refuse_during_move
 def reorganize_album_files(album_id):
     """Enqueue an album for reorganize. Returns immediately — the
     queue worker processes items FIFO. Repeat clicks for an album
@@ -10894,6 +10903,7 @@ def reorganize_album_files(album_id):
 
 
 @app.route('/api/library/artist/<artist_id>/reorganize-all', methods=['POST'])
+@_refuse_during_move
 def reorganize_all_artist_albums(artist_id):
     """Enqueue every album for an artist. Replaces the old frontend
     bulk-loop. Each album becomes its own queue item, processed FIFO.
@@ -23943,6 +23953,18 @@ def _drives_busy():
             out.append('an import')
     except Exception as _busy_err:  # noqa: BLE001 - unknown is "not busy"
         logger.debug("auto-import status for the drive move: %s", _busy_err)
+    try:
+        with _write_tags_batch_lock:
+            if _write_tags_batch_state.get('status') == 'running':
+                out.append('a tag write')
+    except Exception as _busy_err:  # noqa: BLE001
+        logger.debug("tag write status for the drive move: %s", _busy_err)
+    try:
+        from core.reorganize_queue import get_queue as _reorg_queue
+        if (_reorg_queue().snapshot() or {}).get('active'):
+            out.append('a reorganize')
+    except Exception as _busy_err:  # noqa: BLE001
+        logger.debug("reorganize status for the drive move: %s", _busy_err)
     return out
 
 

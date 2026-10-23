@@ -135,6 +135,15 @@ class QueueItem:
         }
 
 
+def _drive_move_holds() -> bool:
+    """Whether a drive move is copying the music (core/drives/holds.py)."""
+    try:
+        from core.drives.holds import held_by
+        return held_by() is not None
+    except Exception:  # noqa: BLE001 - unknown: carry on
+        return False
+
+
 class ReorganizeQueue:
     """Module-level singleton that owns the queue + worker thread.
 
@@ -465,6 +474,11 @@ class ReorganizeQueue:
                 # can grab a restored album in that gap, find no runner, and mark
                 # it FAILED. That would destroy the very backlog restore just
                 # rescued. Wait instead; set_runner notifies.
+                if self._runner is not None and _drive_move_holds():
+                    # a drive move is copying the library: a reorganize now
+                    # would be left behind at its switch. Wait, and look again.
+                    self._cond.wait(timeout=5)
+                    continue
                 if self._runner is not None:
                     self._warned_no_runner = False
                     for item in self._items:
