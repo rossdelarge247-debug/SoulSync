@@ -156,7 +156,7 @@ export function stuckSentence(artist: NebulaArtist, now: number): string | null 
   return `${tries}${which}: ${why}.${when ? ` Last try ${relativeAgo(when, now)}.` : ''}`;
 }
 
-/** The thing the "Accept any quality" action is for: the most-tried stuck one. */
+/** What "Search by hand for …" (HANDOFF 76) opens on: the most-tried stuck one. */
 export function stuckItem(artist: NebulaArtist): WantedItem | null {
   return (
     [...artist.items]

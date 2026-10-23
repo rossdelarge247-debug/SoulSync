@@ -995,9 +995,13 @@ describe('Wanted as a nebula (9a)', () => {
       }),
     );
 
-    fireEvent.click(
-      within(panel).getByRole('button', { name: 'Accept any quality for Night Ferry (Live)' }),
-    );
+    // HANDOFF 76: named for what it does, with its meta
+    const byHand = within(panel).getByRole('button', {
+      name: /^Search by hand for Night Ferry \(Live\)…/,
+    });
+    expect(byHand.textContent).toContain('pick a file below your target');
+    expect(within(panel).queryByText(/Accept any quality/)).toBeNull();
+    fireEvent.click(byHand);
     expect(openWishlistInspector).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'nf', name: 'Night Ferry (Live)' }),
     );
