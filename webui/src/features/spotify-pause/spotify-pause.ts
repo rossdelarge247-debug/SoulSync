@@ -40,34 +40,113 @@ export interface SpotifyPauseView {
   /** The time came from Spotify (its Retry-After) rather than our estimate. */
   fromSpotify: boolean;
   remainingSeconds: number;
-  /** The time left alone: "12 min". */
+  /** The time left alone, in whole minutes past a minute: "12 min". */
   timeLeft: string;
+  /** The time left to the second, for the dialog's tile: "11 min 42 s". */
+  timeLeftExact: string;
   /** For a status pill or dot title: "Spotify paused · 12 min". */
   short: string;
   /** The headline: "Spotify asked us to wait 12 min (after checking an artist's albums)". */
   sentence: string;
   /** What it means for the person. */
   detail: string;
+
+  // ── the boards (Spotify pause 12a–12d) ──────────────────────────────────
+  /** The Notice's title, the one fact: "Spotify asked us to wait 11 min". */
+  title: string;
+  /** Warning while paused, info while easing back in; never danger. */
+  tone: 'warning' | 'info';
+  /** The Connections card's header tag: "Paused by Spotify · 11 min". */
+  tag: string;
+  /** Home's sentence for an admin at full width (names the trigger, whose number, what works). */
+  body: string;
+  /** The same on a phone (12d), shorter. */
+  bodyNarrow: string;
+  /** A member's sentence: no button, "An admin can try again sooner." at the end. */
+  bodyMember: string;
+  /** Beside Try again now on Home and in the dialog; null while easing (no button). */
+  tryAgainNote: string | null;
+  /** The Connections card's warning box. */
+  cardSentence: string;
+  /** Under the card's Try again now; null while easing. */
+  cardNote: string | null;
+  /** The dialog's "Whose number" tile: "Spotify’s" or "SYNCHRO.S’s guess". */
+  whose: string;
+  /** The dialog's "Set off by" tile: "Checking an artist's albums, for the watchlist scan". */
+  setOffBy: string;
+  /** The dialog's sentence under the tiles. */
+  dialogSentence: string;
 }
 
 /** Shown beside "Try again now". */
 export const TRY_AGAIN_NOTE =
   'Clears SYNCHRO.S’s pause. If Spotify is still limiting, the pause comes back.';
 
-/** "45 s", "3 min 20 s", "12 min", "2 h 5 min". Rounds up: never says 0 while waiting. */
+/** On an estimate a repeat doubles the pause, so the note says so. */
+export const TRY_AGAIN_NOTE_ESTIMATE =
+  'Clears SYNCHRO.S’s pause. If Spotify is still limiting, the pause comes back, longer.';
+
+/** A member's line in place of the button (12a). */
+export const MEMBER_TRY_AGAIN = 'An admin can try again sooner.';
+
+/** The estimate's longest step (core/spotify_client.py): it doesn't double past this. */
+const LONGEST_ESTIMATE_SECONDS = 4 * 3600;
+
+const STILL_WORKS = 'Searches and downloads carry on; only what asks Spotify waits.';
+const STILL_WORKS_LONG =
+  'Searches and downloads carry on; only what asks Spotify (playlists, new releases, the watchlist scan) waits.';
+
+/**
+ * "45 s", "12 min", "1 h 20 min" (the boards' times). Past a minute it
+ * counts whole minutes, rounding up, so a running pause never says 0.
+ */
 export function formatWait(seconds: number | null | undefined): string {
   const s = Math.max(0, Math.ceil(seconds ?? 0));
   if (s < 60) return `${s} s`;
-  if (s < 600) {
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    return r ? `${m} min ${r} s` : `${m} min`;
-  }
   const totalMinutes = Math.ceil(s / 60);
   if (totalMinutes < 60) return `${totalMinutes} min`;
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   return m ? `${h} h ${m} min` : `${h} h`;
+}
+
+/** To the second under an hour, for the dialog's Time left: "11 min 42 s". */
+export function formatWaitExact(seconds: number | null | undefined): string {
+  const s = Math.max(0, Math.ceil(seconds ?? 0));
+  if (s < 60) return `${s} s`;
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return r ? `${m} min ${r} s` : `${m} min`;
+  }
+  return formatWait(s);
+}
+
+/** A length in words, for a sentence: "10 minutes", "1 hour 20 minutes". */
+export function lengthWords(seconds: number | null | undefined): string {
+  const totalMinutes = Math.max(1, Math.round((seconds ?? 0) / 60));
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  const mins = `${m} minute${m === 1 ? '' : 's'}`;
+  if (!h) return mins;
+  const hours = `${h} hour${h === 1 ? '' : 's'}`;
+  return m ? `${hours} ${mins}` : hours;
+}
+
+function capitalise(text: string): string {
+  return text ? text[0].toUpperCase() + text.slice(1) : text;
+}
+
+/** "checking an artist's albums for the watchlist scan" + its feature →
+ *  "Checking an artist's albums, for the watchlist scan". */
+function setOffBy(rl: SpotifyRateLimit): string {
+  const trigger = rl.trigger?.trim();
+  if (!trigger) return 'A Spotify request';
+  const feature = rl.feature?.trim();
+  if (feature && trigger.endsWith(` for ${feature}`)) {
+    return `${capitalise(trigger.slice(0, -` for ${feature}`.length))}, for ${feature}`;
+  }
+  return capitalise(trigger);
 }
 
 /**
@@ -83,13 +162,22 @@ export function spotifyPauseView(
     const remaining = Math.max(0, (rl.remaining_seconds ?? 0) - elapsedSeconds);
     if (remaining > 0) {
       const t = formatWait(remaining);
+      const trigger = rl.trigger?.trim() || 'a Spotify request';
       const after = rl.trigger ? ` (after ${rl.trigger})` : '';
       const fromSpotify = rl.source === 'spotify';
+      const total = rl.retry_after || rl.remaining_seconds || remaining;
+      const lead = `After ${trigger}.`;
+      const doubles =
+        total < LONGEST_ESTIMATE_SECONDS
+          ? ', and twice as long if it happens again within the hour'
+          : ', the longest it waits';
+      const guess = `Spotify said “too many requests” after ${trigger}, but not how long to wait, so this is SYNCHRO.S’s guess: ${lengthWords(total)}${doubles}.`;
       return {
         kind: 'paused',
         fromSpotify,
         remainingSeconds: remaining,
         timeLeft: t,
+        timeLeftExact: formatWaitExact(remaining),
         short: `Spotify paused · ${t}`,
         sentence: fromSpotify
           ? `Spotify asked us to wait ${t}${after}`
@@ -97,21 +185,57 @@ export function spotifyPauseView(
         detail: fromSpotify
           ? 'That time came from Spotify. Until then, Spotify features use your other sources.'
           : 'Spotify didn’t say how long to wait, so this is SYNCHRO.S’s estimate. It gets longer if Spotify keeps saying no. Until then, Spotify features use your other sources.',
+        title: fromSpotify ? `Spotify asked us to wait ${t}` : `Paused Spotify for ${t} to be safe`,
+        tone: 'warning',
+        tag: fromSpotify ? `Paused by Spotify · ${t}` : `Paused to be safe · ${t}`,
+        body: fromSpotify
+          ? `${lead} That time came from Spotify, so SYNCHRO.S waits exactly that long. ${STILL_WORKS_LONG}`
+          : `${guess} ${STILL_WORKS}`,
+        bodyNarrow: fromSpotify ? `${lead} ${STILL_WORKS}` : `${guess} ${STILL_WORKS}`,
+        bodyMember: fromSpotify
+          ? `${lead} ${STILL_WORKS} ${MEMBER_TRY_AGAIN}`
+          : `${guess} ${STILL_WORKS} ${MEMBER_TRY_AGAIN}`,
+        tryAgainNote: fromSpotify ? TRY_AGAIN_NOTE : TRY_AGAIN_NOTE_ESTIMATE,
+        cardSentence: fromSpotify
+          ? `Spotify asked us to wait ${t}, after ${trigger}. Background jobs wait it out; your own lookups go first when it ends.`
+          : `Paused Spotify for ${t} to be safe, after ${trigger}: Spotify didn’t say how long, so this is SYNCHRO.S’s guess. Background jobs wait it out; your own lookups go first when it ends.`,
+        cardNote: fromSpotify
+          ? 'If Spotify is still limiting, the pause comes back.'
+          : 'If Spotify is still limiting, the pause comes back, longer.',
+        whose: fromSpotify ? 'Spotify’s' : 'SYNCHRO.S’s guess',
+        setOffBy: setOffBy(rl),
+        dialogSentence: fromSpotify
+          ? `Spotify said how long to wait (${lengthWords(total)}), and SYNCHRO.S obeys that exactly: waiting is how the limit lifts. Searches and downloads carry on meanwhile.`
+          : `Spotify didn’t say how long to wait, so SYNCHRO.S guessed ${lengthWords(total)}${doubles}. Searches and downloads carry on meanwhile.`,
       };
     }
   }
   const cooldown = Math.max(0, (status?.post_ban_cooldown ?? 0) - elapsedSeconds);
   if (cooldown > 0) {
     const t = formatWait(cooldown);
+    const body = `Anything you do yourself uses it now. Background jobs wait ${t} more, then SYNCHRO.S spaces its calls out for a quarter of an hour so the backlog trickles in instead of setting off another pause.`;
     return {
       kind: 'easing',
       fromSpotify: false,
       remainingSeconds: cooldown,
       timeLeft: t,
+      timeLeftExact: formatWaitExact(cooldown),
       short: `Spotify easing back in · ${t}`,
       sentence: `Spotify is back. Background jobs wait ${t} more`,
       detail:
         'What you do uses Spotify again now. Enrichment, scans and auto-sync wait, then start slowly so the pause doesn’t come back.',
+      title: 'Spotify is back',
+      tone: 'info',
+      tag: `Easing back in · ${t}`,
+      body,
+      bodyNarrow: body,
+      bodyMember: body,
+      tryAgainNote: null,
+      cardSentence: `Spotify is back. Background jobs wait ${t} more, then ease back in slowly; your own lookups use it now.`,
+      cardNote: null,
+      whose: '',
+      setOffBy: '',
+      dialogSentence: '',
     };
   }
   return null;

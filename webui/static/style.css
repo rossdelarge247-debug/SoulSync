@@ -56030,6 +56030,34 @@ body.max-performance #page-particles-canvas {
 .dash-alerts [data-slot="notice-title"] {
     font-variant-numeric: tabular-nums;
 }
+/* The Spotify pause (board 12a, 12d): its own stacked Notice in the alerts
+   band, the title counting down in tabular figures. The Notice brings the
+   look; this places it and swaps the phone's shorter sentence in. */
+.dash-spotify-pause {
+    grid-column: 1 / -1;
+}
+.dash-spotify-pause [data-slot="notice-title"],
+.dash-spotify-pause [data-slot="notice-body"] {
+    font-variant-numeric: tabular-nums;
+}
+.dash-spotify-pause .dash-alert-note {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+}
+.dash-spotify-pause-narrow { display: none; }
+@media (max-width: 640px) {
+    .dash-spotify-pause-wide { display: none; }
+    .dash-spotify-pause-narrow { display: block; }
+}
+.dash-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
 
 /* ── The Listen band (data-card="listen") — the payoff row. Boxless like
    the rails; the hero carries the accent. ── */

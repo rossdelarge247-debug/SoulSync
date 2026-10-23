@@ -286,7 +286,7 @@ describe('spotifyPill', () => {
     });
     expect(view.stateClass).toBe('paused');
     expect(view.status).toBe('Paused to be safe');
-    expect(view.current).toBe('Starts again in 2 min 30 s');
+    expect(view.current).toBe('Starts again in 3 min');
     expect(
       spotifyPill({
         authenticated: true,

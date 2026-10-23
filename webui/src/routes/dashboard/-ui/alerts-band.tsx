@@ -9,6 +9,13 @@
  * The look is the design system's failure pattern (a Notice in the colour of
  * the problem: danger when a connection is in error, warning otherwise).
  *
+ * A Spotify pause is its own Notice (board 12a, "Spotify pause"): the title
+ * is the one fact and counts down, the sentence names the trigger, whose
+ * number the time is and what still works; admins get Try again now with its
+ * note, members "An admin can try again sooner." Warning while paused, info
+ * while easing back in. It isn't a live region (it ticks); a change of state
+ * is announced once.
+ *
  * Data: the same /status payload + ss:service-status push the sidebar dots
  * use; health semantics come from -dash.services' differentially-tested card
  * views via -dash.alerts.
@@ -21,7 +28,8 @@ import { Notice } from '@/components/primitives';
 import {
   canClearSpotifyPause,
   clearSpotifyPause,
-  TRY_AGAIN_NOTE,
+  MEMBER_TRY_AGAIN,
+  type SpotifyPauseView,
 } from '@/features/spotify-pause/spotify-pause';
 
 import type { ServiceStatusPayload } from '../-dash.api';
@@ -54,8 +62,6 @@ export function AlertsBand() {
   // when the payload arrived, and the clock, so a Spotify pause counts down
   const [receivedAt, setReceivedAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
-  const [retryState, setRetryState] = useState<'idle' | 'busy' | 'done'>('idle');
-  const [retryError, setRetryError] = useState<string | null>(null);
 
   const accept = useCallback((p: ServiceStatusPayload) => {
     const t = Date.now();
@@ -75,8 +81,9 @@ export function AlertsBand() {
     };
   }, [accept]);
 
-  const alerts = serviceAlerts(payload, Math.max(0, now - receivedAt) / 1000);
-  const pause = alerts.find((a) => a.spotifyPause)?.spotifyPause ?? null;
+  const all = serviceAlerts(payload, Math.max(0, now - receivedAt) / 1000);
+  const pause = all.find((a) => a.spotifyPause)?.spotifyPause ?? null;
+  const alerts = all.filter((a) => !a.spotifyPause);
   const ticking = pause !== null;
   useEffect(() => {
     if (!ticking) return;
@@ -84,7 +91,77 @@ export function AlertsBand() {
     return () => window.clearInterval(id);
   }, [ticking]);
 
-  if (alerts.length === 0) return null;
+  if (all.length === 0) return null;
+
+  return (
+    <>
+      {pause ? (
+        <SpotifyPauseNotice
+          pause={pause}
+          onCleared={async () => {
+            const fresh = await fetchServiceStatus();
+            if (fresh) accept(fresh);
+          }}
+        />
+      ) : null}
+      {alerts.length > 0 ? (
+        <Notice
+          className="dash-alerts"
+          data-card="alerts"
+          role="alert"
+          tone={alerts.some((a) => a.severity === 'error') ? 'danger' : 'warning'}
+          title={title(alerts)}
+          actions={
+            <Button size="lg" onClick={() => void window.navigateToPage?.('settings')}>
+              Open Settings
+            </Button>
+          }
+        >
+          {alerts.length === 1 ? (
+            <p className="dash-alert-text">
+              {alerts[0].advice ??
+                'Anything that needs it waits until it’s back. Check the connection in Settings.'}
+            </p>
+          ) : (
+            <ul className="dash-alert-list">
+              {alerts.map((a) => (
+                <li key={a.key} className={`dash-alert dash-alert--${a.severity}`}>
+                  {line(a)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Notice>
+      ) : null}
+    </>
+  );
+}
+
+/** The Spotify pause on Home (12a, and 12d on a phone). */
+export function SpotifyPauseNotice({
+  pause,
+  onCleared,
+}: {
+  pause: SpotifyPauseView;
+  onCleared?: () => void | Promise<void>;
+}) {
+  const [retryState, setRetryState] = useState<'idle' | 'busy' | 'done'>('idle');
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const admin = canClearSpotifyPause();
+  const showTryAgain = pause.kind === 'paused' && admin;
+
+  // the state, not the ticking time, is what a screen reader hears, once
+  const stateWords =
+    pause.kind === 'easing'
+      ? 'Spotify is back. Background jobs ease back in.'
+      : pause.fromSpotify
+        ? 'Spotify asked SYNCHRO.S to wait.'
+        : 'SYNCHRO.S paused Spotify to be safe.';
+  const [announced, setAnnounced] = useState('');
+  useEffect(() => {
+    const id = window.setTimeout(() => setAnnounced(stateWords), 100);
+    return () => window.clearTimeout(id);
+  }, [stateWords]);
 
   const tryAgain = async () => {
     setRetryState('busy');
@@ -96,52 +173,57 @@ export function AlertsBand() {
       return;
     }
     setRetryState('done');
-    const fresh = await fetchServiceStatus();
-    if (fresh) accept(fresh);
+    await onCleared?.();
   };
-  const showTryAgain = pause !== null && canClearSpotifyPause();
 
   return (
     <Notice
-      className="dash-alerts"
+      className="dash-spotify-pause"
       data-card="alerts"
+      data-pause={pause.kind === 'easing' ? 'easing' : pause.fromSpotify ? 'spotify' : 'estimate'}
+      layout="stacked"
       // a live countdown in an alert region would be read out every second
-      role={pause ? 'note' : 'alert'}
-      tone={alerts.some((a) => a.severity === 'error') ? 'danger' : 'warning'}
-      title={title(alerts)}
+      role="note"
+      tone={pause.tone}
+      title={<span className="dash-spotify-pause-title">{pause.title}</span>}
       actions={
-        <>
-          {showTryAgain && (
-            <Button size="lg" disabled={retryState === 'busy'} onClick={() => void tryAgain()}>
+        showTryAgain ? (
+          <>
+            <Button
+              size="lg"
+              disabled={retryState === 'busy'}
+              focusableWhenDisabled
+              onClick={() => void tryAgain()}
+            >
               Try again now
             </Button>
-          )}
-          <Button size="lg" onClick={() => void window.navigateToPage?.('settings')}>
-            Open Settings
-          </Button>
-        </>
+            <span className="dash-alert-note" aria-live="polite">
+              {retryError ??
+                (retryState === 'done'
+                  ? 'Pause cleared. Trying Spotify again.'
+                  : pause.tryAgainNote)}
+            </span>
+          </>
+        ) : undefined
       }
     >
-      {alerts.length === 1 ? (
-        <p className="dash-alert-text">
-          {alerts[0].advice ??
-            'Anything that needs it waits until it’s back. Check the connection in Settings.'}
-        </p>
+      {admin && pause.kind === 'paused' ? (
+        pause.body === pause.bodyNarrow ? (
+          <p>{pause.body}</p>
+        ) : (
+          <>
+            <p className="dash-spotify-pause-wide">{pause.body}</p>
+            <p className="dash-spotify-pause-narrow">{pause.bodyNarrow}</p>
+          </>
+        )
       ) : (
-        <ul className="dash-alert-list">
-          {alerts.map((a) => (
-            <li key={a.key} className={`dash-alert dash-alert--${a.severity}`}>
-              {line(a)}
-            </li>
-          ))}
-        </ul>
-      )}
-      {showTryAgain && (
-        <p className="dash-alert-note" aria-live="polite">
-          {retryError ??
-            (retryState === 'done' ? 'Pause cleared. Trying Spotify again.' : TRY_AGAIN_NOTE)}
+        <p data-member={pause.kind === 'paused' ? MEMBER_TRY_AGAIN : undefined}>
+          {pause.bodyMember}
         </p>
       )}
+      <span className="dash-sr" aria-live="polite">
+        {announced}
+      </span>
     </Notice>
   );
 }
