@@ -2069,3 +2069,68 @@ describe('the visuals canvas follows the picked visual', () => {
     expect(canvas.style.display).not.toBe('none');
   });
 });
+
+describe('the Visuals keys (HANDOFF 60)', () => {
+  function keys(overlayOpen: boolean, trayOpen: boolean) {
+    const calls: string[] = [];
+    const factory = new Function(
+      'stubs',
+      `const { npv2ModalOpen, npv2PlayerFocused, npv2CycleTheme, npv2PrevTheme, npv2SetVisualsMode,
+        npv2AbToggle, npv2ToggleShortcuts, npv2CycleSpeed, npv2SidePanelOpen, npv2CloseVisualsPanel,
+        npv2ToggleVisualsDrawer, npv2VisualsModeOn } = stubs;
+      ${extractFunction('npv2HandleKeys', v2)}
+      return { npv2HandleKeys };`,
+    );
+    const stub = (name: string) => () => {
+      calls.push(name);
+    };
+    const api = factory({
+      npv2ModalOpen: () => overlayOpen,
+      npv2PlayerFocused: () => overlayOpen || trayOpen,
+      npv2CycleTheme: stub('next visual'),
+      npv2PrevTheme: stub('previous visual'),
+      npv2SetVisualsMode: (on: boolean) => calls.push(on ? 'open visuals' : 'close visuals'),
+      npv2AbToggle: stub('a-b loop'),
+      npv2ToggleShortcuts: stub('shortcuts'),
+      npv2CycleSpeed: stub('speed'),
+      npv2SidePanelOpen: () => false,
+      npv2CloseVisualsPanel: stub('close panel'),
+      npv2ToggleVisualsDrawer: stub('drawer'),
+      npv2VisualsModeOn: () => overlayOpen,
+    }) as { npv2HandleKeys: (e: KeyboardEvent) => void };
+    const press = (key: string, shiftKey = false) => {
+      const e = new KeyboardEvent('keydown', { key, shiftKey, cancelable: true });
+      api.npv2HandleKeys(e);
+      return e.defaultPrevented;
+    };
+    return { calls, press };
+  }
+
+  it('F opens the Visuals from the tray', () => {
+    const { calls, press } = keys(false, true);
+    expect(press('f')).toBe(true);
+    expect(calls).toEqual(['open visuals']);
+  });
+
+  it('V and Shift+V do nothing outside the overlay', () => {
+    const { calls, press } = keys(false, true);
+    expect(press('v')).toBe(false);
+    expect(press('V', true)).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it('V and Shift+V move between visuals inside the overlay', () => {
+    const { calls, press } = keys(true, false);
+    press('v');
+    press('V', true);
+    expect(calls).toEqual(['next visual', 'previous visual']);
+  });
+
+  it('the menu row and the shortcuts list both show F', () => {
+    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(html).toMatch(
+      /data-player-menu="visuals" aria-keyshortcuts="F">Visuals <kbd[^>]*>F<\/kbd>/,
+    );
+    expect(html).toContain('V and Shift V only in the visuals');
+  });
+});
