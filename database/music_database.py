@@ -3794,7 +3794,8 @@ class MusicDatabase:
                     analyzer_version INTEGER DEFAULT 1,
                     key_name TEXT,
                     key_confidence REAL,
-                    source_sig TEXT
+                    source_sig TEXT,
+                    energy REAL
                 )
             """)
             self._copy_rows_for_rebuild(cursor, "sample_analysis", "sample_analysis_text",
