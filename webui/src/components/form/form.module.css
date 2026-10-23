@@ -563,9 +563,10 @@
     font-size: 13px;
   }
 
+  /* 44px, padded 0 18px as every board since 21 October draws it */
   &[data-size='lg'] {
     min-height: 44px;
-    padding: 0 20px;
+    padding: 0 18px;
     font-size: 15px;
     font-weight: 500;
   }
