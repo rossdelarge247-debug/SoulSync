@@ -4464,6 +4464,16 @@ def handle_settings():
                 if write_pasted_cookiefile(_yt_paste, _cookie_path):
                     config_manager.set('youtube.cookies_file', _cookie_path)
 
+            # a page loaded before a drive move's switch must not point the
+            # folders back at the old copies (core/drives/settings_guard.py)
+            try:
+                import api.drives as _drives_api
+                from core.drives.settings_guard import filter_folder_settings
+                if _drives_api.JOB is not None:
+                    filter_folder_settings(new_settings, config_manager, _drives_api.JOB.store.current())
+            except Exception as _dg_err:  # noqa: BLE001 - the save carries on
+                logger.debug("drive move settings guard: %s", _dg_err)
+
             _experimental_in = new_settings.get('experimental')
             _metadata_in = new_settings.get('metadata')
 
@@ -10016,7 +10026,14 @@ def get_batch_tag_preview():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+# Tag writes and reorganizes change the library's files: while a drive move
+# copies them (core/drives/holds.py) they answer 409, or the edits would be
+# left behind at the switch.
+from core.drives.holds import refuse_during_move as _refuse_during_move
+
+
 @app.route('/api/library/track/<track_id>/write-tags', methods=['POST'])
+@_refuse_during_move
 def write_track_tags(track_id):
     """Write DB metadata into the audio file tags for a single track."""
     try:
@@ -10104,6 +10121,7 @@ _write_tags_batch_lock = threading.Lock()
 
 
 @app.route('/api/library/tracks/write-tags-batch', methods=['POST'])
+@_refuse_during_move
 def write_tracks_tags_batch():
     """Write DB metadata into audio file tags for multiple tracks (runs in background)."""
     try:
@@ -10825,6 +10843,7 @@ def reorganize_album_preview(album_id):
 
 
 @app.route('/api/library/album/<album_id>/reorganize', methods=['POST'])
+@_refuse_during_move
 def reorganize_album_files(album_id):
     """Enqueue an album for reorganize. Returns immediately — the
     queue worker processes items FIFO. Repeat clicks for an album
@@ -10884,6 +10903,7 @@ def reorganize_album_files(album_id):
 
 
 @app.route('/api/library/artist/<artist_id>/reorganize-all', methods=['POST'])
+@_refuse_during_move
 def reorganize_all_artist_albums(artist_id):
     """Enqueue every album for an artist. Replaces the old frontend
     bulk-loop. Each album becomes its own queue item, processed FIFO.
@@ -23897,6 +23917,99 @@ _cfg_library_index(
 )
 app.register_blueprint(_bp_library_index())
 
+# Your music's drives (api/drives.py, core/drives/): the marker files and the
+# "isn't connected" state, the Folders card, the Docker step's helper and the
+# move to another drive (copy, check, then switch).
+from api.drives import configure as _cfg_drives, create_blueprint as _bp_drives
+
+
+def _drives_media():
+    from core.drives.services import media_server as _drives_media_server
+    active = config_manager.get_active_media_server()
+    clients = {name: (media_server_engine.client(name) if media_server_engine else None)
+               for name in ('plex', 'jellyfin')}
+    return _drives_media_server(active, clients)
+
+
+def _drives_media_label():
+    active = config_manager.get_active_media_server()
+    return {'plex': 'Plex', 'jellyfin': 'Jellyfin', 'navidrome': 'Navidrome'}.get(active or '', '')
+
+
+def _drives_slskd():
+    from core.drives.services import Slskd as _DrivesSlskd
+    return _DrivesSlskd()
+
+
+def _drives_busy():
+    """What's writing to the music folders right now, in words."""
+    from core.runtime_state import download_tasks as _dt
+    downloading = sum(1 for t in list(_dt.values())
+                      if isinstance(t, dict) and t.get('status') in ('downloading', 'post_processing'))
+    out = [f"{downloading} download{'s' if downloading != 1 else ''}"] if downloading else []
+    worker = _get_auto_import_worker()
+    try:
+        if worker is not None and (worker.get_status() or {}).get('status') == 'processing':
+            out.append('an import')
+    except Exception as _busy_err:  # noqa: BLE001 - unknown is "not busy"
+        logger.debug("auto-import status for the drive move: %s", _busy_err)
+    try:
+        with _write_tags_batch_lock:
+            if _write_tags_batch_state.get('status') == 'running':
+                out.append('a tag write')
+    except Exception as _busy_err:  # noqa: BLE001
+        logger.debug("tag write status for the drive move: %s", _busy_err)
+    try:
+        from core.reorganize_queue import get_queue as _reorg_queue
+        if (_reorg_queue().snapshot() or {}).get('active'):
+            out.append('a reorganize')
+    except Exception as _busy_err:  # noqa: BLE001
+        logger.debug("reorganize status for the drive move: %s", _busy_err)
+    return out
+
+
+def _drives_pause_workers():
+    worker = _get_auto_import_worker()
+    if worker is not None:
+        worker.pause()
+
+
+def _drives_resume_workers():
+    worker = _get_auto_import_worker()
+    if worker is not None and getattr(worker, 'paused', False):
+        worker.resume()
+
+
+def _drives_after_switch():
+    """Forget what was read from the old folders."""
+    try:
+        from core.library import release_index as _ri
+        _ri.clear_cache()
+    except Exception as _as_err:  # noqa: BLE001
+        logger.debug("release index reset after the drive switch: %s", _as_err)
+    try:
+        from core.library_scope import invalidate_library_scope_cache
+        invalidate_library_scope_cache()
+    except Exception as _as_err:  # noqa: BLE001
+        logger.debug("library scope reset after the drive switch: %s", _as_err)
+    try:
+        from api.drives import SIZES as _drive_sizes
+        from core.drives.markers import get_watch as _drive_watch
+        _drive_sizes.forget()
+        _drive_watch().forget_expectations()
+        _drive_watch().check_now()
+    except Exception as _as_err:  # noqa: BLE001
+        logger.debug("drive watch after the switch: %s", _as_err)
+
+
+_cfg_drives(
+    get_database_=get_database, config_manager_=config_manager, slskd_=_drives_slskd, media_=_drives_media,
+    busy_=_drives_busy, pause_workers_=_drives_pause_workers, resume_workers_=_drives_resume_workers,
+    after_switch_=_drives_after_switch, media_label_=_drives_media_label,
+    slskd_configured_=lambda: bool(config_manager.get('soulseek.slskd_url', '')),
+)
+app.register_blueprint(_bp_drives())
+
 # The player's reads (api/player.py): waveform peaks, the readout's audio
 # details and Recent. Files are found through Sample Studio's resolver, which
 # tries the playback resolver first, so a track that plays also draws.
@@ -25589,6 +25702,22 @@ def _start_slskd_share_check():
                               name='SlskdShareCheck').start()
     except Exception as _ssc_err:
         logger.debug(f"could not start slskd share check: {_ssc_err}")
+
+
+# The drive watch: looks at the library, downloads and staging folders every
+# 30 seconds and keeps their marker files (core/drives/markers.py), so a drive
+# that's away reads as "isn't connected", never as an empty library. A drive
+# move that was running when SYNCHRO.S stopped is marked as stopped.
+@_deferred_start("drive watch")
+def _start_drive_watch():
+    try:
+        from core.drives.markers import get_watch as _get_drive_watch
+        _get_drive_watch().start()
+        import api.drives as _drives_api
+        if _drives_api.JOB is not None:
+            _drives_api.JOB.recover_after_restart()
+    except Exception as _dw_err:
+        logger.warning(f"could not start the drive watch: {_dw_err}")
 
 
 # Direct execution: python web_server.py (dev/Windows fallback)

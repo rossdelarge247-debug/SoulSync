@@ -322,7 +322,7 @@ describe('ToolsPage shell', () => {
       cards: [...section.querySelectorAll('.tool-card')].map((card) => card.id),
     }));
     // Section order and per-section card order both come from index.html.
-    // All ELEVEN cards are present (not twelve — the region has 11 .tool-card
+    // All TWELVE cards are present (the region has 12 .tool-card
     // divs; the maintenance hero is a separate block, not a card).
     expect(sections).toEqual([
       {
@@ -341,6 +341,8 @@ describe('ToolsPage shell', () => {
       {
         title: 'Management',
         cards: [
+          // Move your music to another drive (14a), the twelfth card
+          'move-music-card',
           'backup-manager-card',
           'config-migration-card',
           'metadata-cache-card',

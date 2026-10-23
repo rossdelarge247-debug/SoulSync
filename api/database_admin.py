@@ -45,6 +45,16 @@ _workers_paused_by_scan = {}
 _active_task_epoch = 0
 
 
+def _library_drive_away() -> bool:
+    """Whether the library's drive isn't connected (core/drives/markers.py):
+    then nothing is "stale", it's away."""
+    try:
+        from core.drives.markers import library_away
+        return library_away()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def set_db_update_automation_id(value):
     """setter exposed to the automation handlers - keeps the module global
     in sync so the live progress callbacks emit against the right card."""
@@ -924,6 +934,12 @@ def _run_soulsync_deep_scan(plan_id=None, *, confirm_moves=False, allow_large_mo
             if stale_track_ids:
                 logger.warning(f"[SoulSync Deep Scan] Skipping removal of {stale_count} 'stale' "
                                f"records — move was blocked for desync, mapping is unreliable.")
+            stale_track_ids = []
+            stale_count = 0
+        elif _library_drive_away():
+            if stale_track_ids:
+                logger.warning(f"[SoulSync Deep Scan] Skipping removal of {stale_count} 'stale' records: "
+                               f"the library's drive isn't connected.")
             stale_track_ids = []
             stale_count = 0
         elif is_implausible_stale_removal(stale_count, len(db_paths)):

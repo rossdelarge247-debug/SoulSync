@@ -56,7 +56,7 @@ Plan routes that exist today:
 
 ### Activity feed: `GET /api/activity`
 
-One newest-first list of what SoulSync did, plus what needs you. Query: `range` (`today`, `7d` default, `30d`), `kind` (`all`, `download`, `import`, `automation`, `sync`, `safety`, `needs_you`), `limit` (1–200, default 50), `before` (the previous page's `next_before`, or unix seconds) and `since` (unix seconds; use it to send the browser's own midnight for "Today", since `today` alone means the server's midnight).
+One newest-first list of what SoulSync did, plus what needs you. Query: `range` (`today`, `7d` default, `30d`), `kind` (`all`, `download`, `import`, `automation`, `library`, `sync`, `safety`, `radio`, `needs_you`), `limit` (1–200, default 50), `before` (the previous page's `next_before`, or unix seconds) and `since` (unix seconds; use it to send the browser's own midnight for "Today", since `today` alone means the server's midnight).
 
 ```json
 {
@@ -771,6 +771,23 @@ MilkDrop's preset list, one preset by key, favourites per profile, and where an 
 - `own_presets_dir` is only in an admin's answer. PUT `{"own_presets_dir": "/music/milkdrop"}` (or `""` for none) checks the folder first: a full path (400 `bad_path`), that exists (400 `missing`) and can be read (400 `unreadable`); members get 403 `admin_only`. Docker paths go through the same resolver as the other folders. Shown in Player settings → MilkDrop.
 
 **The radio card's restart** uses the existing `POST /api/radio/play` with `force_relay: true` (`SoulSyncRadio.play(id, {forceRelay: true})`); nothing new on the server.
+
+### Your music's drives (boards 14a–14t)
+
+`api/drives.py`, `core/drives/`. Every route is admins only except `GET /api/drives/status` (any signed-in profile) and `GET /api/drives/helper.sh` (no session; its one-use token is the credential). Paths are the container's; with the drives folder mounted at the same path (`/Volumes:/Volumes`) they read the same inside and out.
+
+- **`GET /api/drives/status`** → `{library_away, away: ["library"|"downloads"|"staging"], interval: 30, checked_at, boot_id, can_check, folders: {library: {role, label, connected, last_seen, drive, path?, reason?}, …}}`. Members get no `path` / `reason` and `can_check: false`. Admins also get `move: {id, status, promise}` while a move is open and `reminder: {move_id, source_label, target_label, bytes, files, switched_at}` a week after a switch whose old copies are kept. `reason` is `marker`, `content`, `fresh`, `missing`, `unreadable` or `empty`. **`POST /api/drives/status/check`** looks again now.
+- **`GET /api/drives/folders`** (14a) → `{folders: [{role, label, path, drive, holds, files, bytes}], drive: {label, free, total, percent, tone: null|"warning"|"danger"}, move, platform}`. Sizes are measured in the background: `null` until the first measure.
+- **`GET /api/drives/docker`** (14c) → `{platform, guessed, compose_folder, roots, visible_roots, drives, boot_id, lines: {mounts, slskd_config}, token: {state}, undo}`. **`POST /api/drives/docker/command`** `{folder, platform}` saves both (`drives.compose_folder`, `drives.platform`) and mints the one-use command → `{command, undo, expires_at, lines}`; a folder with anything but plain path characters is `400` with `field: "folder"`. **`GET /api/drives/docker/check`** (14d) → `{boot_id, drives, visible, token: {state: none|live|used|expired}}`: a new `boot_id` means SYNCHRO.S restarted. **`GET /api/drives/helper.sh?t=<token>`** answers the script once within ten minutes, else `403` with a line to echo.
+- **`GET /api/drives/browse?path=`** → the folders one level under a path on a drive (no links, no dot-folders); without `path`, the drives offered.
+- **The move.** `drive_move` is `{id, status, promise: {tone, words}, choice: {roles, target, separate, per_role, exfat, checksum}, checks: {rows: [{key, title, tone, tag, detail, stop?, needs_choice?, sign_in?}], ok, summary, dests, speed, format, need}, plan: {order, dests, sources, total_bytes, total_files, estimate_seconds, checksum_seconds, target_label, source_label, automations, library_paths, media_label}, folders: [{role, label, source, dest, files, bytes, copied_files, copied_bytes, verified}], progress: {phase, role, current, copied_bytes, total_bytes, speed, eta_seconds, checked, total, different, step, waiting_for}, failure: {kind: drive_away|full|write|mismatch|unreadable|refused|restart|error, words, files?, count?, matching_files?}, result: {checks: [{key, ok, title, detail}], media, slskd, removed}}`. `status`: `draft`, `copying`, `verifying`, `switching`, `switched`, `failed`, `stopped`, `removed`, `switched_back`.
+  - `GET /api/drives/move` → `{move, overview?, running, boot_id}` (the open move, else one finished in the last hour; `overview` with the folders, drives and the home disk while it's a draft). `POST /api/drives/move` → the open move or a new draft.
+  - `PUT /api/drives/move/<id>/choice` (any of the choice's keys), `POST …/check`, `POST …/slskd-session` `{username, password}` (only the session token slskd gives back is kept, encrypted), `POST …/plan`, `POST …/start` `{checksum}`.
+  - `POST /api/drives/move/stop` (Activity's Stop) or `…/<id>/stop`: Stop and undo. `POST …/resume` (carry on, or try the switch again), `…/recopy` (copy the files that didn't match again), `…/skip-unreadable`, `…/switch-back`, `…/leave` (a draft).
+  - `POST /api/drives/move/<id>/remove-preview` → a plan (tool `drive_move_remove_old`; the "Preview, then confirm" shape, items `action: "delete"`), `GET /api/drives/plan-list/<plan_id>` the full list as text, `POST …/remove` `{plan_id}` → `{deleted, freed_bytes, skipped, move}`; refusals are `409` with the plan codes.
+  - Refusals are `409` (or `400`, `404`) with a sentence in `error`.
+- **Activity:** `kind=library` ("Library jobs") holds Look for releases you don't have and the move; the move's running row has `ref.stop_path: "drives/move/stop"` and `link: "/move"`. `counts.library`.
+- **Settings:** a settings POST from a page loaded before a switch drops the folder paths the move switched away from; while a move copies, the three folder paths don't change.
 
 ## Available today, not yet designed for
 

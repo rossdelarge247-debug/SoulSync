@@ -60,6 +60,8 @@ EXPECTED_DEFERRED_STARTS = [
     "popularity backfill autostart",
     # one-shot: once slskd answers, rescan if it shares 0 files (core/slskd_share_rescan.py)
     "slskd share check",
+    # the drive watch: marker files and "isn't connected" (core/drives/markers.py)
+    "drive watch",
 ]
 
 # Start name -> the web_server global holding the worker it starts.

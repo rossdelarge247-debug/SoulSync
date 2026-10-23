@@ -14,6 +14,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { openDriveMove } from '@/features/drives/move-flow';
+
 import { fetchBlacklist, fetchDiscoveryPoolStats, fetchMetadataCacheStats } from '../-tools.api';
 import { metadataCacheCardCount } from '../-tools.core';
 import { ToolCard } from './tool-card';
@@ -89,6 +91,26 @@ export function ManualLibraryMatchCard() {
       controls={
         <button type="button" onClick={() => window.openManualLibraryMatchTool?.()}>
           Open Library Match
+        </button>
+      }
+    />
+  );
+}
+
+/**
+ * Move your music to another drive (14a): Maintenance's tool row opens the
+ * same full-screen flow as Settings → Library → Folders.
+ */
+export function MoveMusicCard() {
+  return (
+    <ToolCard
+      variant="launcher"
+      id="move-music-card"
+      title="Move your music to another drive"
+      info="Copy the library, downloads and staging to a new drive, check them, then switch."
+      controls={
+        <button type="button" id="move-music-button" onClick={() => openDriveMove()}>
+          Move to another drive…
         </button>
       }
     />

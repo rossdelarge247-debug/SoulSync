@@ -10,7 +10,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Internet radio with track identification | Built | [below](#internet-radio-with-track-identification) |
 | Merge duplicate artist | Exploring | [below](#merge-duplicate-artist) |
 | Classic Winamp visualisers (MilkDrop, AVS, bars and scope) | Built (AVS: later spike) | [below](#classic-winamp-visualisers-milkdrop-avs-bars-and-scope) |
-| Move your music folders to another drive | Exploring | [below](#move-your-music-folders-to-another-drive) |
+| Move your music folders to another drive | Built | [below](#move-your-music-folders-to-another-drive) |
 | AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
 
 ---
@@ -261,7 +261,7 @@ Ross wants the visualisers Winamp was loved for inside SYNCHRO.S's Visuals overl
 
 ## Move your music folders to another drive
 
-**Status:** Exploring · raised by Ross, 2026-10-23
+**Status:** Built · raised by Ross, 2026-10-23 · drawn by Design the same afternoon (`Move to another drive.dc.html`, 14a–14t) and approved by Ross: music folders only (settings and the database stay; moving to a new computer would be its own flow), the Docker step once and up front as one pasted helper command. Built on `feat/drive-move`: `HANDOFF.md`, "Dev, Move your music to another drive"; the routes are in `CONTRACTS.md`, "Your music's drives".
 
 ### The problem
 

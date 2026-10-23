@@ -7,3 +7,6 @@ ruff==0.15.12
 # Test runner
 pytest==9.0.3
 pytest-xdist==3.8.0
+
+# Reads compose files back in the drives helper's tests (tests/drives)
+PyYAML==6.0.2

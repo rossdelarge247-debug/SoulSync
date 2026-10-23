@@ -25,6 +25,9 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { Notice } from '@/components/primitives';
+import { DriveAwayNotice, awayRole } from '@/features/drives/drive-away-notice';
+import { useDriveStatus } from '@/features/drives/drive-status';
+import { MoveReminder } from '@/features/drives/move-reminder';
 import {
   canClearSpotifyPause,
   clearSpotifyPause,
@@ -91,10 +94,24 @@ export function AlertsBand() {
     return () => window.clearInterval(id);
   }, [ticking]);
 
-  if (all.length === 0) return null;
+  // "Your library's drive isn't connected" (14t) and the move's 7-day reminder (14i)
+  const drive = useDriveStatus();
+  const driveAway = awayRole(drive.status, 'home') !== null;
+  const reminder = drive.status?.reminder ?? null;
+
+  if (all.length === 0 && !driveAway && !reminder) return null;
 
   return (
     <>
+      {driveAway && drive.status ? (
+        <DriveAwayNotice
+          status={drive.status}
+          where="home"
+          checking={drive.checking}
+          onCheckAgain={() => void drive.checkNow()}
+        />
+      ) : null}
+      {reminder && !driveAway ? <MoveReminder reminder={reminder} /> : null}
       {pause ? (
         <SpotifyPauseNotice
           pause={pause}
