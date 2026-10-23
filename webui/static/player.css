@@ -1337,6 +1337,9 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
 .ss-player[data-source='radio'] .ss-player-centre { justify-content: flex-end; }
 .ss-player[data-source='radio'] .ss-player-meter:not(.ss-player-meter--deck) { flex: 0 1 160px; }
 .ss-player-action-slot { align-items: center; gap: 16px; min-width: 0; }
+/* the slot may shrink in radio mode: the track block gives way (with an
+   ellipsis) before the bar's centre spills into the station's name */
+.ss-player[data-source='radio'] .ss-player-bar .ss-player-action-slot { flex: 0 1 auto; }
 .ss-player-radio-now {
     display: flex;
     flex-direction: column;
@@ -1346,7 +1349,9 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     text-align: right;
 }
 .ss-player-radio-now > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ss-player-bar .ss-player-radio-now { flex: 0 1 auto; max-width: 300px; }
+/* the track block may take the meter's room so the source phrase shows (11a) */
+.ss-player-bar .ss-player-radio-now { flex: 0 1 auto; max-width: 440px; }
+.ss-player[data-source='radio'] .ss-player-bar .ss-player-meter:not(.ss-player-meter--deck) { min-width: 48px; flex-shrink: 4; }
 .ss-player-radio-add {
     display: inline-flex;
     align-items: center;

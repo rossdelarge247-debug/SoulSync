@@ -612,7 +612,11 @@ export function bootRadioChrome(
         el(doc, 'p', 'ss-player-radio-scan-title', panelView.title),
       );
       if (panelView.line) result.append(el(doc, 'p', 'ss-player-radio-line', panelView.line));
-      if (panelView.note) result.append(el(doc, 'p', 'ss-player-radio-source', panelView.note));
+      // the source phrase starts this line, so it takes a capital
+      if (panelView.note) {
+        const note = panelView.note[0].toUpperCase() + panelView.note.slice(1);
+        result.append(el(doc, 'p', 'ss-player-radio-source', note));
+      }
       if (panelView.progress != null) {
         const bar = el(doc, 'span', 'ss-player-radio-scan-progress');
         const fill = el(doc, 'span');

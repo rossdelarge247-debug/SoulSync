@@ -350,6 +350,10 @@ describe('Scan now in the player', () => {
       /Kelp · Shore · found by ACRCloud · Scan now · \d+ (s|min|h) ago/,
     );
     expect(slot.querySelector('[data-player-radio-scan]')!.textContent).toBe('Scan again');
+    // the sheet's card says who found it at the start of its line
+    expect(document.querySelector('[data-player-radio-panel]')!.textContent).toContain(
+      'Found by ACRCloud · Scan now',
+    );
     slot.querySelector<HTMLElement>('[data-player-radio-scan-add]')!.click();
     await Promise.resolve();
     expect(api.addScanToWanted).toHaveBeenCalled();
