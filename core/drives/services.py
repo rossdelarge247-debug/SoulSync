@@ -28,6 +28,7 @@ Every call that can refuse raises :class:`ServiceRefused` with a sentence.
 from __future__ import annotations
 
 import os
+import tempfile
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -44,6 +45,10 @@ TIMEOUT = 15
 
 class ServiceRefused(RuntimeError):
     """A service didn't take the change; ``str(exc)`` says which and why."""
+
+
+class RestartRefused(ServiceRefused):
+    """slskd didn't take the restart request, so it didn't restart."""
 
 
 # ── slskd ─────────────────────────────────────────────────────────────────────
@@ -193,9 +198,9 @@ class Slskd:
         try:
             r = self.http.put(self._url("application"), headers=self._headers(token), timeout=TIMEOUT)
         except Exception as exc:  # noqa: BLE001
-            raise ServiceRefused(f"slskd didn't answer when asked to restart ({type(exc).__name__}).") from None
+            raise RestartRefused(f"slskd didn't answer when asked to restart ({type(exc).__name__}).") from None
         if r.status_code not in (200, 201, 204):
-            raise ServiceRefused(f"slskd refused to restart (HTTP {r.status_code}); its sign-in may have expired.")
+            raise RestartRefused(f"slskd refused to restart (HTTP {r.status_code}); its sign-in may have expired.")
         deadline = time.time() + wait
         self._sleep(3)
         while time.time() < deadline:
@@ -222,9 +227,11 @@ class Slskd:
         path = self.config_path()
         if not path:
             raise ServiceRefused("SYNCHRO.S can't reach slskd's settings file (slskd.yml).")
-        tmp = path + ".synchros-tmp"
+        tmp = None
         try:
-            with open(tmp, "wb") as f:
+            # a new, uniquely named file (never through a link), then renamed over
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".slskd.yml.", suffix=".synchros-tmp")
+            with os.fdopen(fd, "wb") as f:
                 f.write(text.encode("utf-8"))
                 f.flush()
                 os.fsync(f.fileno())
@@ -234,10 +241,11 @@ class Slskd:
                 pass
             os.replace(tmp, path)
         except OSError as exc:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
             raise ServiceRefused(f"SYNCHRO.S couldn't write slskd.yml ({exc.strerror or exc}).") from None
 
 
@@ -266,6 +274,37 @@ def plan_slskd_config(text: str, *, share_old: Optional[str], share_new: Optiona
         out = yaml_blocks.set_scalar(out, ["directories", "downloads"], downloads_new)
         changed.append("downloads")
     return {"text": out, "changed": changed}
+
+
+def reverse_slskd_config(text: str, *, share_now: Optional[str], share_before: Optional[str],
+                         current_shares: List[str], downloads_before: Optional[str], restore_downloads: bool,
+                         drop_filter: bool) -> str:
+    """The switch in reverse, applied to slskd.yml as it is now (so edits
+    made since stay): the library share at the new place goes back to what
+    it was, the download folder goes back (or its line goes, when the switch
+    added it), and the "._" filter the switch added goes."""
+    out = text
+    if share_now:
+        # what the file lists (the switch wrote the whole list there), else what slskd says
+        dirs = yaml_blocks.get_seq(out, ["shares", "directories"]) or list(current_shares)
+        if share_now in dirs:
+            if share_before and share_before not in dirs:
+                dirs = [share_before if d == share_now else d for d in dirs]
+            else:
+                dirs = [d for d in dirs if d != share_now]
+            out = yaml_blocks.set_seq(out, ["shares", "directories"], dirs)
+        elif share_before and share_before not in dirs and yaml_blocks.get_seq(out, ["shares", "directories"]):
+            out = yaml_blocks.set_seq(out, ["shares", "directories"], [share_before] + dirs)
+    if drop_filter:
+        filters = yaml_blocks.get_seq(out, ["shares", "filters"])
+        if APPLEDOUBLE_FILTER in filters:
+            out = yaml_blocks.set_seq(out, ["shares", "filters"], [f for f in filters if f != APPLEDOUBLE_FILTER])
+    if restore_downloads:
+        if downloads_before:
+            out = yaml_blocks.set_scalar(out, ["directories", "downloads"], downloads_before)
+        else:
+            out = yaml_blocks.delete_scalar(out, ["directories", "downloads"])
+    return out
 
 
 def library_share_in(slskd_dirs: List[str], hint: Optional[str] = None) -> Optional[str]:
@@ -396,12 +435,27 @@ class JellyfinServer(MediaServer):
         from core.jellyfin_client import jellyfin_auth_headers
         return c.base_url.rstrip("/"), {**jellyfin_auth_headers(c.api_key), "Content-Type": "application/json"}
 
+    def _call(self, what: str, fn: Callable[[], Any]) -> Any:
+        """``fn()``, with anything but a refusal (no answer, a reset, a body
+        that isn't JSON) turned into one."""
+        try:
+            return fn()
+        except ServiceRefused:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ServiceRefused(f"Jellyfin didn't answer when asked to {what} ({type(exc).__name__}).") from None
+
     def _library(self) -> Dict[str, Any]:
+        return self._call("list its libraries", self._library_now)
+
+    def _library_now(self) -> Dict[str, Any]:
         base, headers = self._base()
         r = self.http.get(f"{base}/Library/VirtualFolders", headers=headers, timeout=TIMEOUT)
         if r.status_code != 200:
             raise ServiceRefused(f"Jellyfin didn't list its libraries (HTTP {r.status_code}).")
         folders = r.json() or []
+        if not isinstance(folders, list):
+            raise ServiceRefused("Jellyfin answered its library list with something else.")
         wanted = str(getattr(self._client, "music_library_id", "") or "")
         music = [f for f in folders if str(f.get("CollectionType") or "").lower() == "music"]
         for f in music:
@@ -429,6 +483,9 @@ class JellyfinServer(MediaServer):
             return []
 
     def add_location(self, path: str) -> None:
+        self._call("add the folder to its Music library", lambda: self._add_location(path))
+
+    def _add_location(self, path: str) -> None:
         base, headers = self._base()
         lib = self._library()
         r = self.http.post(f"{base}/Library/VirtualFolders/Paths", headers=headers, params={"refreshLibrary": "true"},
@@ -437,6 +494,9 @@ class JellyfinServer(MediaServer):
             raise ServiceRefused(f"Jellyfin didn't add the folder to its Music library (HTTP {r.status_code}).")
 
     def remove_location(self, path: str) -> None:
+        self._call("remove the old folder", lambda: self._remove_location(path))
+
+    def _remove_location(self, path: str) -> None:
         base, headers = self._base()
         lib = self._library()
         r = self.http.delete(f"{base}/Library/VirtualFolders/Paths", headers=headers,
@@ -477,5 +537,7 @@ def old_location(locations: List[str], sample_paths: List[str]) -> Optional[str]
     return best if hits else None
 
 
-__all__ = ["APPLEDOUBLE_FILTER", "JellyfinServer", "MediaServer", "NavidromeServer", "PlexServer", "ServiceRefused",
-           "Slskd", "library_share_in", "media_server", "old_location", "plan_slskd_config"]
+__all__ = ["APPLEDOUBLE_FILTER", "JellyfinServer", "MediaServer", "NavidromeServer", "PlexServer", "RestartRefused",
+           "ServiceRefused",
+           "Slskd", "library_share_in", "media_server", "old_location", "plan_slskd_config",
+           "reverse_slskd_config"]

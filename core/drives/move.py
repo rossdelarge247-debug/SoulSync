@@ -58,6 +58,8 @@ CHUNK = 1024 * 1024
 SAVE_SECONDS = 2.0
 #: how long the copy waits for running downloads and imports to finish
 BUSY_WAIT_SECONDS = 30 * 60
+#: Check stops counting other files in a destination after this many
+FOREIGN_CAP = 1000
 
 ACTIVE = ("copying", "verifying", "switching")
 OPEN = ("draft",) + ACTIVE + ("failed", "switched")
@@ -97,6 +99,7 @@ _TABLES = (
         rel TEXT NOT NULL,
         size INTEGER NOT NULL,
         mtime REAL,
+        mtime_ns INTEGER,
         copied INTEGER NOT NULL DEFAULT 0,
         verified INTEGER NOT NULL DEFAULT 0,
         problem TEXT,
@@ -111,9 +114,10 @@ _TABLES = (
 class MoveError(Exception):
     """A request the move can't do now; ``str(exc)`` is the sentence."""
 
-    def __init__(self, message: str, status: int = 409) -> None:
+    def __init__(self, message: str, status: int = 409, code: Optional[str] = None) -> None:
         super().__init__(message)
         self.status = status
+        self.code = code
 
 
 class Stopped(Exception):
@@ -131,6 +135,9 @@ class Failure(Exception):
 def ensure_tables(conn) -> None:
     for sql in _TABLES:
         conn.execute(sql)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(drive_move_files)").fetchall()}
+    if "mtime_ns" not in cols:
+        conn.execute("ALTER TABLE drive_move_files ADD COLUMN mtime_ns INTEGER")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_drive_move_files_state ON drive_move_files (move_id, copied, verified)")
     from core.library.missing_releases import ensure_table
     ensure_table(conn)
@@ -138,6 +145,18 @@ def ensure_tables(conn) -> None:
 
 def _now() -> int:
     return int(time.time())
+
+
+def _json_file(path: str) -> Dict[str, Any]:
+    """A small JSON file SYNCHRO.S wrote (never through a link), or {}."""
+    try:
+        if os.path.islink(path) or not os.path.isfile(path) or os.path.getsize(path) > 65536:
+            return {}
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) and data.get("app") == "SYNCHRO.S" else {}
+    except (OSError, ValueError):
+        return {}
 
 
 def size_words(n: Optional[float]) -> str:
@@ -162,6 +181,107 @@ def duration_words(seconds: Optional[float]) -> str:
 
 def _plural(n: int, word: str) -> str:
     return f"{n:,} {word}" + ("" if n == 1 else "s")
+
+
+# ── one folder, however it's reached ──────────────────────────────────────────
+
+def _stats_up(path: str) -> List[os.stat_result]:
+    """The stat of ``path`` (when it exists) and of every existing folder above it."""
+    out = []
+    p = os.path.abspath(path)
+    while True:
+        try:
+            out.append(os.stat(p))
+        except OSError:
+            pass
+        parent = os.path.dirname(p)
+        if parent == p:
+            return out
+        p = parent
+
+
+def _stat_of(path: str) -> Optional[os.stat_result]:
+    try:
+        return os.stat(path)
+    except OSError:
+        return None
+
+
+def same_folder(a: str, b: str) -> bool:
+    """Whether ``a`` and ``b`` are one folder on disk, even when reached
+    through two different mounts (realpath can't see through those)."""
+    if os.path.realpath(a) == os.path.realpath(b):
+        return True
+    sa, sb = _stat_of(a), _stat_of(b)
+    return sa is not None and sb is not None and os.path.samestat(sa, sb)
+
+
+def overlaps(a: str, b: str) -> bool:
+    """Whether ``a`` is ``b``, inside it or around it: by path, and by what's
+    on disk (a bind mount shows one folder at two paths)."""
+    if not a or not b:
+        return False
+    if within(a, b) or within(b, a):
+        return True
+    sa, sb = _stat_of(a), _stat_of(b)
+    if sb is not None and any(os.path.samestat(s, sb) for s in _stats_up(a)):
+        return True
+    if sa is not None and any(os.path.samestat(s, sa) for s in _stats_up(b)):
+        return True
+    return False
+
+
+PROBE_PREFIX = ".synchros-probe-"
+
+
+def _seen_through(sources: Iterable[str], dests: Iterable[str]) -> bool:
+    """A random file written in each source folder: when it shows up above a
+    destination, that destination is inside a source however it's mounted."""
+    made: List[str] = []
+    names = []
+    try:
+        for src in sources:
+            if not src or not os.path.isdir(src):
+                continue
+            name = PROBE_PREFIX + os.urandom(12).hex()
+            path = os.path.join(src, name)
+            try:
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+                os.close(fd)
+            except OSError:
+                continue
+            made.append(path)
+            names.append(name)
+        if not names:
+            return False
+        for dest in dests:
+            p = os.path.abspath(dest)
+            while True:
+                if any(os.path.lexists(os.path.join(p, n)) for n in names):
+                    return True
+                parent = os.path.dirname(p)
+                if parent == p:
+                    break
+                p = parent
+        return False
+    finally:
+        for path in made:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
+#: what never leaves the server in a move's payload
+SECRET_KEYS = frozenset({"config_before", "secret"})
+
+
+def _scrub(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _scrub(v) for k, v in value.items() if k not in SECRET_KEYS}
+    if isinstance(value, list):
+        return [_scrub(v) for v in value]
+    return value
 
 
 # ── what the job needs from the app ───────────────────────────────────────────
@@ -284,20 +404,23 @@ class Store:
 
     # -- files --
 
-    def add_files(self, move_id: int, role: str, rows: Iterable[Tuple[str, int, float]], *, added_after: bool = False) -> int:
+    def add_files(self, move_id: int, role: str, rows: Iterable[Tuple[Any, ...]], *, added_after: bool = False) -> int:
+        """``rows`` are (rel, size, mtime[, mtime_ns])."""
         n = 0
+        sql = ("INSERT OR IGNORE INTO drive_move_files (move_id, role, rel, size, mtime, mtime_ns, added_after) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?)")
         with closing(self.conn()) as conn:
             batch = []
-            for rel, size, mtime in rows:
-                batch.append((int(move_id), role, rel, int(size), float(mtime), 1 if added_after else 0))
+            for row in rows:
+                rel, size, mtime = row[0], row[1], row[2]
+                mtime_ns = int(row[3]) if len(row) > 3 and row[3] is not None else int(float(mtime) * 1e9)
+                batch.append((int(move_id), role, rel, int(size), float(mtime), mtime_ns, 1 if added_after else 0))
                 if len(batch) >= 500:
-                    conn.executemany("INSERT OR IGNORE INTO drive_move_files (move_id, role, rel, size, mtime, added_after) "
-                                     "VALUES (?, ?, ?, ?, ?, ?)", batch)
+                    conn.executemany(sql, batch)
                     n += len(batch)
                     batch = []
             if batch:
-                conn.executemany("INSERT OR IGNORE INTO drive_move_files (move_id, role, rel, size, mtime, added_after) "
-                                 "VALUES (?, ?, ?, ?, ?, ?)", batch)
+                conn.executemany(sql, batch)
                 n += len(batch)
             conn.commit()
         return n
@@ -421,27 +544,86 @@ class MoveJob:
         return self.store.row(move_id)  # type: ignore[return-value]
 
     def validated_destinations(self, choice: Dict[str, Any]) -> Dict[str, str]:
+        """Where each ticked folder goes, resolved, or :class:`MoveError`. A
+        destination may not be, sit inside or hold any of the three music
+        folders (moving or not), however the folders are mounted, and two
+        destinations may not overlap."""
         dests = self.destinations(choice)
         if not dests:
             raise MoveError("Choose where your music goes.", 400)
         sources = self.current_paths()
         moving = [sources[r] for r in dests]
         protected = protected_folders(self.deps.extra_protected)
-        out = {}
+        out: Dict[str, str] = {}
         for role, dest in dests.items():
             try:
                 out[role] = validate_target(dest, roots=self.roots(), protected=protected, moving=moving)
             except PathRefused as exc:
                 raise MoveError(f"{LABELS[role]}: {exc}", 400) from None
-            if within(out[role], sources[role]) or within(sources[role], out[role]):
+            if overlaps(out[role], sources[role]):
                 raise MoveError(f"{LABELS[role]} is already there.", 400)
-        if len(set(out.values())) != len(out):
-            raise MoveError("Two folders would go to the same place.", 400)
+            for other in ROLES:
+                if other != role and overlaps(out[role], sources.get(other) or ""):
+                    raise MoveError(f"{LABELS[role]}: that folder is, holds or sits inside the {LABELS[other]} "
+                                    "folder. Choose a folder of its own.", 400)
+        placed = list(out.items())
+        for i, (_r, a) in enumerate(placed):
+            for _r2, b in placed[i + 1:]:
+                if overlaps(a, b):
+                    raise MoveError("Two folders would go to the same place.", 400)
+        if _seen_through([p for p in sources.values() if p], out.values()):
+            raise MoveError("That folder is one of your music folders, seen through another mount. "
+                            "Choose a folder of its own.", 400)
         return out
 
     # ── Check ────────────────────────────────────────────────────────────────
 
-    def check(self, move_id: int) -> Dict[str, Any]:
+    def check(self, move_id: int, *, background: bool = False) -> Dict[str, Any]:
+        """The checks. The places are validated at once (a refusal is the
+        answer); the slow part (the folder sizes, the write test, the look
+        for other files) runs on a thread when ``background``, and the page
+        reads ``checks.running`` until it's done."""
+        move = self._require(move_id, ("draft",))
+        self.validated_destinations(move["choice"])
+        if not background:
+            self._run_checks(move_id, None)
+            return self.store.row(move_id)  # type: ignore[return-value]
+        run = os.urandom(8).hex()
+        self.store.update(move_id, checks={"running": True, "run": run, "rows": [], "ok": False, "at": _now(),
+                                           "summary": "Looking at the drive…"})
+        t = threading.Thread(target=self._run_checks, args=(move_id, run), name="drive-move-check", daemon=True)
+        self._check_thread = t
+        t.start()
+        return self.store.row(move_id)  # type: ignore[return-value]
+
+    def join_check(self, timeout: Optional[float] = None) -> None:
+        t = getattr(self, "_check_thread", None)
+        if t is not None:
+            t.join(timeout)
+
+    def _run_checks(self, move_id: int, run: Optional[str]) -> None:
+        try:
+            checks = self._checks(move_id)
+        except MoveError as exc:
+            checks = self._check_error(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            logger.error("drive move check failed: %s", exc, exc_info=True)
+            checks = self._check_error("SYNCHRO.S couldn't finish the checks; the log has the details.")
+        with self._lock:
+            move = self.store.row(move_id)
+            if move is None or move["status"] != "draft":
+                return
+            if run is not None and (move.get("checks") or {}).get("run") != run:
+                return  # the choice changed or Check ran again: this answer is stale
+            self.store.update(move_id, checks=checks)
+
+    @staticmethod
+    def _check_error(words: str) -> Dict[str, Any]:
+        return {"rows": [{"key": "error", "title": "The checks didn't finish", "tone": "danger",
+                          "tag": "Couldn't check", "stop": True, "detail": words}],
+                "at": _now(), "ok": False, "summary": "Something needs fixing before anything is copied."}
+
+    def _checks(self, move_id: int) -> Dict[str, Any]:
         move = self._require(move_id, ("draft",))
         choice = move["choice"]
         dests = self.validated_destinations(choice)
@@ -493,11 +675,12 @@ class MoveJob:
                              "stop": True, "detail": f"{label} is NTFS, which a Mac can only read. Erase it as APFS or "
                                                      "exFAT in Disk Utility, or choose another drive."})
             for role in roles:
-                crowd = self._foreign_files(dests[role])
+                crowd = self._foreign_files(dests[role], role)
                 if crowd:
+                    many = f"more than {FOREIGN_CAP:,} files" if crowd > FOREIGN_CAP else _plural(crowd, "file")
                     rows.append({"key": f"empty-{role}", "title": "The folder isn't empty", "tone": "danger",
                                  "tag": "The folder isn't empty", "stop": True,
-                                 "detail": f"{dests[role]} has {_plural(crowd, 'file')} SYNCHRO.S didn't put there. "
+                                 "detail": f"{dests[role]} has {many} SYNCHRO.S didn't put there. "
                                            "Choose an empty folder; nothing in it will be touched."})
         if speed is not None and speed < SLOW_BPS:
             rows.append({"key": "speed", "title": "Slow drive", "tone": "warning", "tag": "Slow drive",
@@ -508,11 +691,9 @@ class MoveJob:
         needs_choice = any(r.get("needs_choice") for r in rows)
         passed = sum(1 for r in rows if r["tone"] == "success")
         say = sum(1 for r in rows if r["tone"] != "success")
-        checks = {"rows": rows, "at": _now(), "speed": speed, "format": fmt_name, "need": need,
-                  "sizes": sizes, "dests": dests, "ok": not stop and not needs_choice,
-                  "summary": self._check_summary(passed, say, stop)}
-        self.store.update(move_id, checks=checks)
-        return self.store.row(move_id)  # type: ignore[return-value]
+        return {"rows": rows, "at": _now(), "speed": speed, "format": fmt_name, "need": need,
+                "sizes": sizes, "dests": dests, "ok": not stop and not needs_choice,
+                "summary": self._check_summary(passed, say, stop)}
 
     @staticmethod
     def _check_summary(passed: int, say: int, stop: bool) -> str:
@@ -542,11 +723,12 @@ class MoveJob:
                 made.append(d)
             if not os.path.isdir(parent) or os.path.islink(parent):
                 raise OSError(errno.ENOTDIR, "not a folder")
-            test = os.path.join(probe_dir, f".synchros-write-test-{os.getpid()}")
+            test = os.path.join(probe_dir, f".synchros-write-test-{os.getpid()}-{os.urandom(4).hex()}")
             data = os.urandom(min(TEST_WRITE_BYTES, 1024 * 1024))
             started = time.monotonic()
             written = 0
-            with open(test, "wb") as f:
+            fd = os.open(test, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            with os.fdopen(fd, "wb") as f:
                 while written < TEST_WRITE_BYTES:
                     f.write(data)
                     written += len(data)
@@ -583,19 +765,25 @@ class MoveJob:
                 except OSError:
                     pass
 
-    @staticmethod
-    def _foreign_files(dest: str) -> int:
+    def _foreign_files(self, dest: str, role: str) -> int:
         """Files in ``dest`` that SYNCHRO.S didn't put there (0 when it's
-        missing, empty, or one an earlier move made)."""
+        missing, empty, or a ``role`` folder an earlier move made). A marker
+        counts only when it's for ``role`` and ``dest`` isn't one of the
+        folders SYNCHRO.S uses now; anything already there is copied over."""
         if not os.path.isdir(dest):
             return 0
+        configured = any(p and same_folder(dest, p) for p in self.current_paths().values())
+        marker_role = _json_file(os.path.join(dest, MARKER_NAME)).get("role")
         parent = os.path.dirname(dest.rstrip("/"))
-        if os.path.isfile(os.path.join(dest, MARKER_NAME)) or os.path.isfile(os.path.join(parent, MOVE_MARK)):
+        mark = _json_file(os.path.join(parent, MOVE_MARK))
+        ours = not configured and (marker_role == role or (
+            marker_role is None and mark.get("app") == "SYNCHRO.S"))
+        if ours:
             return 0
         n = 0
         for _rel, _st in disks.walk_files(dest, skip=SKIP_NAMES + (".DS_Store",)):
             n += 1
-            if n > 99999:
+            if n > FOREIGN_CAP:
                 break
         return n
 
@@ -618,7 +806,18 @@ class MoveJob:
                                        "After the switch, set it to the new Library folder; SYNCHRO.S says how."})
         slskd = self._slskd()
         if slskd is not None and slskd.configured():
-            if ("library" in dests or "downloads" in dests) and not slskd.can_edit():
+            unsupported = self._slskd_unsupported(slskd, dests, choice) \
+                if ("library" in dests or "downloads" in dests) and slskd.can_edit() else None
+            if unsupported:
+                stop = "downloads" in dests
+                rows.append({"key": "slskd", "title": "slskd's settings", "tone": "danger" if stop else "warning",
+                             "tag": "Can't edit slskd.yml", "stop": stop,
+                             "detail": (f"SYNCHRO.S can't change slskd.yml safely ({unsupported}), and slskd "
+                                        "downloads into the Downloads folder. Change it by hand, or leave "
+                                        "Downloads out.") if stop else
+                                       (f"SYNCHRO.S can't change slskd.yml safely ({unsupported}), so slskd keeps "
+                                        "sharing the old copies until you point it at the new Library folder.")})
+            elif ("library" in dests or "downloads" in dests) and not slskd.can_edit():
                 stop = "downloads" in dests
                 rows.append({"key": "slskd", "title": "slskd's settings", "tone": "danger" if stop else "warning",
                              "tag": "Can't reach slskd.yml", "stop": stop,
@@ -637,7 +836,25 @@ class MoveJob:
                              "tag": "Fine", "detail": "SYNCHRO.S will restart slskd once at the switch."})
         return rows
 
-    def slskd_sign_in(self, move_id: int, username: str, password: str) -> Dict[str, Any]:
+    def _slskd_unsupported(self, slskd: Any, dests: Dict[str, str], choice: Dict[str, Any]) -> Optional[str]:
+        """Why the switch couldn't edit slskd.yml, from a dry run of the same
+        edit, or None when it can."""
+        from core.drives.services import ServiceRefused, library_share_in, plan_slskd_config
+        try:
+            text = slskd.read_config()
+            current = slskd.shared_directories()
+            hint = self.config().get("drives.slskd_library_share", "") or None
+            plan_slskd_config(text, share_old=library_share_in(current, hint) if "library" in dests else None,
+                              share_new=dests.get("library"), current_shares=current,
+                              downloads_new=dests.get("downloads"),
+                              skip_appledouble=choice.get("exfat") == "carry_on")
+        except ServiceRefused as exc:
+            return str(exc).rstrip(".")
+        except (ValueError, OSError) as exc:  # compose_tool.Unsupported and UnicodeDecodeError are ValueErrors
+            return str(exc).rstrip(".") or type(exc).__name__
+        return None
+
+    def slskd_sign_in(self, move_id: int, username: str, password: str, *, background: bool = False) -> Dict[str, Any]:
         move = self._require(move_id, ("draft",))
         slskd = self._slskd()
         if slskd is None or not slskd.configured():
@@ -648,7 +865,7 @@ class MoveJob:
         except ServiceRefused as exc:
             raise MoveError(str(exc), 400) from None
         self.store.update(move["id"], secret=self.deps.encrypt(token))
-        return self.check(move_id)
+        return self.check(move_id, background=background)
 
     # ── Plan ─────────────────────────────────────────────────────────────────
 
@@ -672,6 +889,8 @@ class MoveJob:
         checks = move.get("checks")
         if not checks:
             raise MoveError("Check the drive first.")
+        if checks.get("running"):
+            raise MoveError("The checks are still running.")
         if not checks.get("ok"):
             raise MoveError("Something in the checks needs fixing first.")
         dests = checks["dests"]
@@ -738,7 +957,8 @@ class MoveJob:
                 conn.commit()
             for role in plan["order"]:
                 skip = SKIP_NAMES
-                rows = ((rel, st.st_size, st.st_mtime) for rel, st in disks.walk_files(plan["sources"][role], skip=skip)
+                rows = ((rel, st.st_size, st.st_mtime, st.st_mtime_ns)
+                        for rel, st in disks.walk_files(plan["sources"][role], skip=skip)
                         if not (exfat and os.path.basename(rel).startswith(APPLEDOUBLE_PREFIX)))
                 self.store.add_files(move_id, role, rows)
             counts = self.store.counts(move_id)
@@ -784,7 +1004,10 @@ class MoveJob:
                 self._verify(move_id)
                 self._switch(move_id)
         except Stopped:
-            self._undo_copy(move_id, status="stopped")
+            try:
+                self._undo_copy(move_id, status="stopped")
+            except MoveError as exc:
+                self._fail(move_id, Failure("stuck", str(exc)))
         except Failure as f:
             self._fail(move_id, f)
         except Exception as exc:  # noqa: BLE001
@@ -869,13 +1092,17 @@ class MoveJob:
                     self._progress(move_id, {"copied_bytes": done_bytes, "speed": speed})
 
                 try:
-                    existing = os.lstat(dst) if os.path.lexists(dst) else None
-                    if existing is not None and os.path.isfile(dst) and not os.path.islink(dst) \
-                            and existing.st_size == row["size"]:
-                        on_bytes(row["size"])  # copied before a pause or restart
-                    else:
-                        copy_file(src, dst, dst_root, on_bytes=on_bytes, stop=self._stop)
-                    pending.append((role, row["rel"], {"copied": 1, "problem": None}))
+                    # never trust what's already there: a row that isn't marked
+                    # copied is copied now, over whatever an earlier try or an
+                    # earlier move left (the part file and rename make that safe)
+                    st = copy_file(src, dst, dst_root, on_bytes=on_bytes, stop=self._stop)
+                    if not isinstance(st, os.stat_result):
+                        st = os.lstat(src)
+                    # what was copied, so the check and the removal can tell
+                    # an old file edited since
+                    pending.append((role, row["rel"], {"copied": 1, "problem": None, "size": int(st.st_size),
+                                                       "mtime": float(st.st_mtime),
+                                                       "mtime_ns": int(st.st_mtime_ns)}))
                 except Stopped:
                     self.store.mark(move_id, pending)
                     raise
@@ -919,12 +1146,16 @@ class MoveJob:
         """A note in the target's parent folder so a later Check knows this
         move made it."""
         parents = {os.path.dirname(d.rstrip("/")) for d in move["plan"]["dests"].values()}
+        body = json.dumps({"app": "SYNCHRO.S", "move": move["id"], "made": _now()}).encode("utf-8")
         for parent in parents:
             try:
                 path = os.path.join(parent, MOVE_MARK)
-                if not os.path.lexists(path):
-                    with open(path, "w", encoding="utf-8") as f:
-                        json.dump({"app": "SYNCHRO.S", "move": move["id"], "made": _now()}, f)
+                # never through a link, and never over a file already there
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+                try:
+                    os.write(fd, body)
+                finally:
+                    os.close(fd)
             except OSError:
                 pass
 
@@ -946,7 +1177,7 @@ class MoveJob:
                 raise Stopped()
             src = safe_join(plan["sources"][row["role"]], row["rel"])
             dst = safe_join(plan["dests"][row["role"]], row["rel"])
-            why = compare(src, dst, row["size"], checksum=checksum, stop=self._stop)
+            why = compare(src, dst, row["size"], checksum=checksum, stop=self._stop, mtime_ns=row.get("mtime_ns"))
             if why:
                 mismatched.append({"role": row["role"], "rel": row["rel"], "why": why, "size": row["size"]})
                 pending.append((row["role"], row["rel"], {"verified": 0, "problem": why}))
@@ -975,18 +1206,25 @@ class MoveJob:
         self._progress(move_id, {"phase": "switched", "step": "done"}, force=True)
         counts = self.store.counts(move_id)
         t = _now()
-        self.store.update(move_id, status="switched", switched_at=t, result=result, failure=None)
+        # the slskd session was only for the switch's restart
+        self.store.update(move_id, status="switched", switched_at=t, result=result, failure=None, secret=None)
         self.store.job_row(self.store.row(move_id), "done",  # type: ignore[arg-type]
                            total=sum(c["files"] for c in counts.values()),
                            done=sum(c["verified"] for c in counts.values()), note="switched")
         logger.info("[Drives] Switched to %s; the old copies are kept", plan["target_label"])
 
-    def _do_switch(self, move: Dict[str, Any], old: Dict[str, str], new: Dict[str, str], *, forward: bool) -> Dict[str, Any]:
+    def _do_switch(self, move: Dict[str, Any], old: Dict[str, str], new: Dict[str, str], *, forward: bool,
+                   token: Optional[str] = None) -> Dict[str, Any]:
         """Settings and stored paths in one transaction, then slskd and the
-        media server; anything refusing undoes the lot. Returns what was done."""
-        from core.drives.services import ServiceRefused
+        media server; anything going wrong after the transaction undoes the
+        lot (the settings, slskd.yml and slskd's restart, the media server's
+        new folder). Returns what was done; raises :class:`Failure`."""
+        from core.drives.services import RestartRefused, ServiceRefused
         plan = move["plan"]
-        result = dict(move.get("result") or {}) if not forward else {}
+        target, source = plan.get("target_label") or "the new drive", plan.get("source_label") or "the old drive"
+        here = target if forward else source
+        before = (move.get("result") or {}) if not forward else {}
+        result: Dict[str, Any] = {}
         # 1. markers at the new folders, so the watch reads them as connected at once
         for role, path in new.items():
             write_marker(path, role)
@@ -997,43 +1235,44 @@ class MoveJob:
                 except Exception:  # noqa: BLE001,S110 - the watch's row is a nicety
                     pass
         # 2. one transaction for the folder settings and every stored path
+        #    (it rolls itself back when it fails: then nothing switched)
         updates = {SETTING_KEYS[r]: new[r] for r in new}
         self._transaction(old, new, updates)
         undo_db = lambda: self._transaction(new, old, {SETTING_KEYS[r]: old[r] for r in old})  # noqa: E731
         slskd_before: Optional[str] = None
+        restarted = False
         slskd = self._slskd()
         media = self._media()
         added_location: Optional[str] = None
+        if token is None and move.get("secret"):
+            token = self.deps.decrypt(move["secret"])
         try:
             # 3. slskd: what it shares and where it downloads
             self._progress(move["id"], {"step": "services"}, force=True)
             if slskd is not None and slskd.configured() and ("library" in new or "downloads" in new) \
                     and slskd.can_edit():
-                slskd_before = slskd.read_config()
-                if forward:
-                    current = slskd.shared_directories()
-                    hint = self.config().get("drives.slskd_library_share", "") or None
-                    from core.drives.services import library_share_in, plan_slskd_config
-                    old_share = library_share_in(current, hint) if "library" in new else None
-                    change = plan_slskd_config(
-                        slskd_before, share_old=old_share, share_new=new.get("library"), current_shares=current,
-                        downloads_new=new.get("downloads"), skip_appledouble=move["choice"].get("exfat") == "carry_on")
-                    result["slskd"] = {"before_share": old_share, "changed": change["changed"],
-                                       "config_before": slskd_before}
-                    text = change["text"]
-                else:
-                    text = (move.get("result") or {}).get("slskd", {}).get("config_before") or slskd_before
-                slskd.write_config(text)
-                if "downloads" in new:
-                    token = self.deps.decrypt(move.get("secret") or "") if move.get("secret") else ""
+                text_before = slskd.read_config()
+                text, info = self._slskd_text(slskd, move, text_before, old, new, forward=forward,
+                                              before=before.get("slskd") or {})
+                result["slskd"] = info
+                if text is not None and text != text_before:
+                    slskd.write_config(text)
+                    slskd_before = text_before
+                if "downloads" in new and text is not None:
                     if not token:
                         raise ServiceRefused("slskd needs its sign-in to restart and use the new download folder.")
-                    slskd.restart(token)
-                try:
-                    slskd.rescan()
-                    result.setdefault("slskd", {})["rescan_at"] = _now()
-                except ServiceRefused as exc:
-                    result.setdefault("slskd", {})["rescan_error"] = str(exc)
+                    restarted = True  # from here a rollback restarts it again
+                    try:
+                        slskd.restart(token)
+                    except RestartRefused:
+                        restarted = False  # it never took the request, so it didn't restart
+                        raise
+                if text is not None:
+                    try:
+                        slskd.rescan()
+                        result["slskd"]["rescan_at"] = _now()
+                    except ServiceRefused as exc:
+                        result["slskd"]["rescan_error"] = str(exc)
             elif slskd is not None and slskd.configured() and "library" in new:
                 result["slskd"] = {"manual": True}
             # 4. the media server's Music library
@@ -1042,45 +1281,101 @@ class MoveJob:
                     result["media"] = {"name": media.name, "label": media.label, "state": "manual",
                                        "folder": new["library"]}
                 elif forward:
-                    before = media.locations()
+                    locations = media.locations()
                     seen = media.can_see(new["library"])
                     if seen is False:
                         result["media"] = {"name": media.name, "label": media.label, "state": "cant_see",
                                            "folder": new["library"]}
                     else:
-                        if new["library"] not in before:
+                        if new["library"] not in locations:
                             media.add_location(new["library"])
                             added_location = new["library"]
-                        old_loc = self._old_media_location(before, old.get("library"))
+                        old_loc = self._old_media_location(locations, old.get("library"))
                         result["media"] = {"name": media.name, "label": media.label, "state": "added",
                                            "folder": new["library"], "old_location": old_loc,
                                            "added": added_location}
                         media.rescan()
                 else:
-                    info = (move.get("result") or {}).get("media") or {}
+                    info = before.get("media") or {}
                     if info.get("added"):
                         media.remove_location(info["added"])
                     result["media"] = {**info, "state": "switched_back"}
-        except ServiceRefused as exc:
-            logger.warning("[Drives] Switch refused, switching back: %s", exc)
+        except Exception as exc:  # noqa: BLE001 - whatever it was, everything goes back
+            why = str(exc).strip() if isinstance(exc, ServiceRefused) else (
+                f"Pointing slskd and the media server at {here} went wrong ({type(exc).__name__}).")
+            logger.warning("[Drives] Switch failed, switching back: %s", exc, exc_info=not isinstance(exc, ServiceRefused))
+            left: List[str] = []
             if slskd_before is not None:
                 try:
                     slskd.write_config(slskd_before)
                 except Exception as e:  # noqa: BLE001
                     logger.error("couldn't put slskd.yml back: %s", e)
+                    left.append("slskd.yml")
+            if restarted:
+                try:
+                    slskd.restart(token)
+                except Exception as e:  # noqa: BLE001
+                    logger.error("couldn't restart slskd after putting slskd.yml back: %s", e)
+                    left.append("slskd's restart")
             if added_location and media is not None:
                 try:
                     media.remove_location(added_location)
                 except Exception as e:  # noqa: BLE001
                     logger.error("couldn't take the new folder out of the media server: %s", e)
-            undo_db()
+                    left.append(f"{getattr(media, 'label', 'the media server')}'s Music library")
+            try:
+                undo_db()
+            except Exception as e:  # noqa: BLE001
+                logger.error("couldn't switch the folder settings back: %s", e, exc_info=True)
+                self._safe(self.deps.after_switch)
+                raise Failure("stuck", f"{why} SYNCHRO.S couldn't switch its folder settings back, so they may "
+                                       f"point at {here}. Nothing has been deleted. Try the switch again.",
+                              forward=forward) from None
             self._safe(self.deps.after_switch)
-            raise Failure("refused", f"{exc} So SYNCHRO.S switched back. Everything is as it was; the copy on "
-                                     f"{plan['target_label']} is kept.") from None
+            if forward:
+                back = f"So SYNCHRO.S switched back; the copy on {target} is kept."
+            else:
+                back = f"So SYNCHRO.S stayed on {target}; the old copies on {source} are kept."
+            if left:
+                back += f" Check {' and '.join(left)} by hand: SYNCHRO.S couldn't put {'it' if len(left) == 1 else 'them'} back."
+            if why and why[-1] not in ".!?":
+                why += "."
+            raise Failure("refused", f"{why} {back}", left=left) from None
         self._safe(self.deps.after_switch)
         result["switched_paths"] = {"old": old, "new": new}
         result["checks"] = self._after_checks(move, new, result)
         return result
+
+    def _slskd_text(self, slskd: Any, move: Dict[str, Any], text_before: str, old: Dict[str, str],
+                    new: Dict[str, str], *, forward: bool, before: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+        """The slskd.yml to write (None: leave it, slskd is changed by hand)
+        and what to remember. Switching back applies the reverse edit to the
+        file as it is now, so edits made since are kept."""
+        from core.drives import compose_tool as yaml_blocks
+        from core.drives.services import ServiceRefused, library_share_in, plan_slskd_config, reverse_slskd_config
+        try:
+            if forward:
+                current = slskd.shared_directories()
+                hint = self.config().get("drives.slskd_library_share", "") or None
+                old_share = library_share_in(current, hint) if "library" in new else None
+                change = plan_slskd_config(
+                    text_before, share_old=old_share, share_new=new.get("library"), current_shares=current,
+                    downloads_new=new.get("downloads"), skip_appledouble=move["choice"].get("exfat") == "carry_on")
+                return change["text"], {
+                    "before_share": old_share, "changed": change["changed"],
+                    "downloads_before": yaml_blocks.get_scalar(text_before, ["directories", "downloads"]),
+                    "filter_added": "filters" in change["changed"],
+                    # kept only for a person to recover by hand, encrypted, never sent out
+                    "config_before": self.deps.encrypt(text_before)}
+            text = reverse_slskd_config(
+                text_before, share_now=old.get("library"), share_before=before.get("before_share"),
+                current_shares=slskd.shared_directories(), downloads_before=before.get("downloads_before"),
+                restore_downloads="downloads" in new, drop_filter=bool(before.get("filter_added")))
+            return text, {"reverted": True}
+        except yaml_blocks.Unsupported as exc:
+            if "downloads" in new:
+                raise ServiceRefused(f"SYNCHRO.S can't change slskd.yml safely ({str(exc).rstrip('.')}).") from None
+            return None, {"manual": True, "why": str(exc)}
 
     @staticmethod
     def _safe_get(fn):
@@ -1202,7 +1497,7 @@ class MoveJob:
             self._undo_copy(move["id"], status="stopped")
             return self.store.row(move["id"])  # type: ignore[return-value]
         if move["status"] == "draft":
-            self.store.update(move["id"], status="stopped", finished_at=_now())
+            self.store.update(move["id"], status="stopped", finished_at=_now(), secret=None)
             return self.store.row(move["id"])  # type: ignore[return-value]
         raise MoveError("There's nothing to stop.")
 
@@ -1212,6 +1507,11 @@ class MoveJob:
         move = self.store.row(move_id)
         plan = (move or {}).get("plan") or {}
         dests = plan.get("dests") or {}
+        in_use = self._in_use(dests)
+        if in_use:
+            raise MoveError(f"SYNCHRO.S's {LABELS[in_use[0]]} setting points at the copy on "
+                            f"{plan.get('target_label') or 'the new drive'}, so it isn't deleted. Try the switch "
+                            "again, or set the folders back in Settings first.")
         removed = 0
         for row in self.store.files(move_id):
             dst_root = dests.get(row["role"])
@@ -1236,13 +1536,26 @@ class MoveJob:
                 os.rmdir(parent)
             except OSError:
                 pass
-        self.store.update(move_id, status=status, finished_at=_now())
+        self.store.update(move_id, status=status, finished_at=_now(), secret=None)
         self.store.job_row(move, "stopped", total=0, done=0, note=status)  # type: ignore[arg-type]
         logger.info("[Drives] Stopped and undone: %s half-made files removed", removed)
+
+    def _in_use(self, dests: Dict[str, str]) -> List[str]:
+        """The roles whose folder setting points at one of ``dests`` now."""
+        try:
+            now = self.current_paths()
+        except Exception:  # noqa: BLE001 - unknown: say in use, so nothing is deleted
+            return list(dests)
+        return [r for r, d in dests.items() if d and now.get(r) and (now[r] == d or same_folder(now[r], d))]
 
     def _fail(self, move_id: int, f: Failure) -> None:
         move = self.store.row(move_id) or {}
         plan = move.get("plan") or {}
+        in_use = self._in_use(plan.get("dests") or {}) if plan.get("dests") and f.kind != "stuck" else []
+        if in_use:
+            # the settings point at the new place: never say "nothing switched"
+            f = Failure("stuck", f"{f.words} SYNCHRO.S's folder settings point at {plan.get('target_label')} "
+                                 "now. Nothing has been deleted. Try the switch again.", **f.extra)
         failure = {"kind": f.kind, "words": f.words, "at": _now(), "source_label": plan.get("source_label"),
                    "target_label": plan.get("target_label"), **f.extra}
         self.store.update(move_id, status="failed", failure=failure)
@@ -1262,7 +1575,7 @@ class MoveJob:
                 drive = disks.drive_root_of(dest, self.platform())
                 if drive and not os.path.isdir(drive):
                     raise MoveError(f"SYNCHRO.S still can't see {plan['target_label']}. Plug it in, then carry on.")
-            if failure.get("kind") == "refused":
+            if failure.get("kind") in ("refused", "stuck"):
                 self.store.update(move_id, status="verifying", failure=None)
                 self.store.job_row(move, "running", note="switching")
                 self._begin(move_id, "verify", background=background)
@@ -1348,8 +1661,9 @@ class MoveJob:
         for row in self.store.files(move_id, where="verified = 1 AND removed = 0 AND excluded = 0 AND added_after = 0"):
             src = safe_join(plan["sources"][row["role"]], row["rel"])
             if src:
-                items.append({"path": src, "size": row["size"], "action": "delete", "role": row["role"],
-                              "rel": row["rel"], "reason": f"Checked against the copy on {plan['target_label']}"})
+                items.append({"path": src, "size": row["size"], "mtime_ns": row.get("mtime_ns"), "action": "delete",
+                              "role": row["role"], "rel": row["rel"],
+                              "reason": f"Checked against the copy on {plan['target_label']}"})
         if not items:
             raise MoveError("There are no old copies left to remove.")
         stored = plans.create(REMOVE_TOOL, items, meta={"move_id": move_id, "source_label": plan["source_label"],
@@ -1379,9 +1693,14 @@ class MoveJob:
             except OSError:
                 skipped += 1
                 continue
-            # only the exact file that was checked, and only while its copy is still there
+            # only the exact file that was checked (same size, not edited since
+            # it was copied), only while its copy is still there, and never
+            # when the "copy" is the very same file seen through another mount
+            mtime_ns = item.get("mtime_ns")
             if not _stat.S_ISREG(st.st_mode) or st.st_size != int(item["size"]) or not within(src, src_root) \
-                    or not _stat.S_ISREG(dst_st.st_mode) or dst_st.st_size != int(item["size"]):
+                    or (mtime_ns is not None and st.st_mtime_ns != int(mtime_ns)) \
+                    or not _stat.S_ISREG(dst_st.st_mode) or dst_st.st_size != int(item["size"]) \
+                    or os.path.samestat(st, dst_st):
                 skipped += 1
                 continue
             try:
@@ -1409,13 +1728,17 @@ class MoveJob:
                 info["old_remove_error"] = str(exc)
             result["media"] = info
         result["removed"] = {"files": deleted, "bytes": freed, "skipped": skipped, "at": _now()}
-        self.store.update(move_id, status="removed", result=result, finished_at=_now())
+        self.store.update(move_id, status="removed", result=result, finished_at=_now(), secret=None)
         logger.info("[Drives] Removed %s old copies (%s skipped)", deleted, skipped)
         return {"deleted": deleted, "freed_bytes": freed, "skipped": skipped}
 
-    def switch_back(self, move_id: int) -> Dict[str, Any]:
-        """The switch in reverse: files added at the new place since are
-        copied back first, then settings, paths, slskd and the media server."""
+    def switch_back(self, move_id: int, *, username: Optional[str] = None,
+                    password: Optional[str] = None) -> Dict[str, Any]:
+        """The switch in reverse: files added at the new place since, and
+        files changed there since, are copied back first, then settings,
+        paths, slskd and the media server. When Downloads moved, slskd has to
+        restart again, which takes its sign-in (asked for now, kept only in
+        memory)."""
         with self._lock:
             if self.running():
                 raise MoveError("A move is already running.")
@@ -1425,28 +1748,53 @@ class MoveJob:
             for role, src in old.items():
                 if not os.path.isdir(src):
                     raise MoveError(f"SYNCHRO.S can't see {LABELS[role]}'s old folder ({src}).")
+            token = self._switch_back_token(move, username, password)
             holds.hold(move_id, plan["source_label"])
             self._safe(self.deps.pause_workers)
             try:
-                known = {(r["role"], r["rel"]) for r in self.store.files(move_id)}
+                rows = {(r["role"], r["rel"]): r for r in self.store.files(move_id)}
                 for role, root in new.items():
-                    extra = [(rel, st.st_size, st.st_mtime) for rel, st in disks.walk_files(root, skip=SKIP_NAMES)
-                             if (role, rel) not in known]
-                    for rel, _size, _mtime in extra:
+                    extra = []
+                    for rel, st in disks.walk_files(root, skip=SKIP_NAMES):
+                        row = rows.get((role, rel))
                         src, dst = safe_join(root, rel), safe_join(old[role], rel)
-                        if src and dst and not os.path.lexists(dst):
+                        if not src or not dst:
+                            continue
+                        if row is None:
+                            extra.append((rel, st.st_size, st.st_mtime, st.st_mtime_ns))
+                            if not os.path.lexists(dst):
+                                copy_file(src, dst, old[role], on_bytes=lambda n: None, stop=threading.Event())
+                        elif not row["excluded"] and _changed_since(st, row):
+                            # edited at the new place since the switch (a retag): that's the newer file
                             copy_file(src, dst, old[role], on_bytes=lambda n: None, stop=threading.Event())
                     self.store.add_files(move_id, role, extra, added_after=True)
                 try:
-                    result = self._do_switch(move, new, old, forward=False)
+                    result = self._do_switch(move, new, old, forward=False, token=token)
                 except Failure as f:
                     raise MoveError(f.words) from None
                 self.store.update(move_id, status="switched_back", result={**(move.get("result") or {}),
-                                                                           "back": result}, finished_at=_now())
+                                                                           "back": result},
+                                  finished_at=_now(), secret=None)
             finally:
                 holds.release(move_id)
                 self._safe(self.deps.resume_workers)
             return self.store.row(move_id)  # type: ignore[return-value]
+
+    def _switch_back_token(self, move: Dict[str, Any], username: Optional[str], password: Optional[str]) -> str:
+        """slskd's session for switching back, when Downloads moved (its
+        download folder changes, which needs a restart); else ""."""
+        slskd = self._slskd()
+        if "downloads" not in move["plan"]["dests"] or slskd is None or not slskd.configured() \
+                or not slskd.can_edit():
+            return ""
+        if not username:
+            raise MoveError("slskd has to restart to download into the old folder again, and only its own sign-in "
+                            "can ask for that. Sign in to slskd to switch back.", 409, code="slskd_sign_in")
+        from core.drives.services import ServiceRefused
+        try:
+            return slskd.sign_in(str(username), str(password or ""))
+        except ServiceRefused as exc:
+            raise MoveError(str(exc), 400, code="slskd_sign_in") from None
 
     def leave(self, move_id: int) -> Dict[str, Any]:
         """Leave a draft (nothing changed) or close a finished move's Done."""
@@ -1454,7 +1802,9 @@ class MoveJob:
         if move is None:
             raise MoveError("That move isn't there.", 404)
         if move["status"] == "draft":
-            self.store.update(move_id, status="stopped", finished_at=_now())
+            self.store.update(move_id, status="stopped", finished_at=_now(), secret=None)
+        elif move.get("secret") and move["status"] not in ACTIVE + ("failed",):
+            self.store.update(move_id, secret=None)
         return self.store.row(move_id)  # type: ignore[return-value]
 
     # ── helpers ──────────────────────────────────────────────────────────────
@@ -1506,10 +1856,12 @@ class SourceUnreadable(Exception):
     pass
 
 
-def copy_file(src: str, dst: str, dst_root: str, *, on_bytes: Callable[[int], None], stop: threading.Event) -> None:
+def copy_file(src: str, dst: str, dst_root: str, *, on_bytes: Callable[[int], None],
+              stop: threading.Event) -> os.stat_result:
     """Copy one regular file without following a link at either end; write to
-    a part file, sync it, then rename. Raises :class:`SourceUnreadable` for a
-    source that can't be read, OSError for the destination."""
+    a part file, sync it, then rename. Returns the source's stat as it was
+    copied. Raises :class:`SourceUnreadable` for a source that can't be read,
+    OSError for the destination."""
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         fd = os.open(src, flags)
@@ -1549,6 +1901,7 @@ def copy_file(src: str, dst: str, dst_root: str, *, on_bytes: Callable[[int], No
         except OSError:
             pass
         os.replace(part, dst)
+        return st
     except (Stopped, SourceUnreadable):
         try:
             os.unlink(dst + PART_SUFFIX)
@@ -1572,8 +1925,21 @@ def _sha256(path: str, stop: threading.Event) -> str:
     return h.hexdigest()
 
 
-def compare(src: Optional[str], dst: Optional[str], size: int, *, checksum: bool, stop: threading.Event) -> Optional[str]:
-    """None when the copy matches, else why not."""
+def _changed_since(st: os.stat_result, row: Dict[str, Any]) -> bool:
+    """Whether a file at the new place differs from what was copied there
+    (its size, or its time by more than a FAT drive's rounding)."""
+    if int(st.st_size) != int(row["size"]):
+        return True
+    if row.get("mtime_ns") is None:
+        return False
+    return abs(int(st.st_mtime_ns) - int(row["mtime_ns"])) > 2_000_000_000
+
+
+def compare(src: Optional[str], dst: Optional[str], size: int, *, checksum: bool, stop: threading.Event,
+            mtime_ns: Optional[int] = None) -> Optional[str]:
+    """None when the copy matches, else why not. ``size`` and ``mtime_ns``
+    are the old file's as it was copied: an old file changed since (even at
+    the same size) doesn't match."""
     if not src or not dst:
         return "bad path"
     try:
@@ -1586,7 +1952,7 @@ def compare(src: Optional[str], dst: Optional[str], size: int, *, checksum: bool
         return "missing"
     if not _stat.S_ISREG(d.st_mode):
         return "missing"
-    if s.st_size != size:
+    if s.st_size != size or (mtime_ns is not None and s.st_mtime_ns != int(mtime_ns)):
         return "changed since it was copied"
     if d.st_size != size:
         return "different size"
@@ -1673,6 +2039,8 @@ def promise(move: Optional[Dict[str, Any]], home: str) -> Dict[str, str]:
         return {"tone": "success", "words": f"Your music lives on {dst}"}
     if status == "switched_back":
         return {"tone": "success", "words": f"Switched back · your music is on {src}"}
+    if status == "failed" and (move.get("failure") or {}).get("kind") == "stuck":
+        return {"tone": "danger", "words": "The switch didn't finish · nothing was deleted"}
     if status in ("failed", "stopped"):
         return {"tone": "success", "words": f"Nothing switched · your music is on {src}"}
     return {"tone": "success", "words": "Nothing has changed yet"}
@@ -1689,10 +2057,7 @@ def public(job: MoveJob, move: Optional[Dict[str, Any]], *, admin: bool) -> Opti
     out["checks"] = move.get("checks")
     out["plan"] = move.get("plan")
     out["failure"] = move.get("failure")
-    result = dict(move.get("result") or {})
-    if "slskd" in result:
-        result["slskd"] = {k: v for k, v in result["slskd"].items() if k != "config_before"}
-    out["result"] = result
+    out["result"] = dict(move.get("result") or {})
     out["has_slskd_session"] = bool(move.get("secret"))
     progress = dict(move.get("progress") or {})
     if move["status"] in ACTIVE and job.running():
@@ -1722,7 +2087,7 @@ def public(job: MoveJob, move: Optional[Dict[str, Any]], *, admin: bool) -> Opti
         for f in out["folders"]:
             f.pop("source", None)
             f.pop("dest", None)
-    return out
+    return _scrub(out)
 
 
 __all__ = ["Deps", "KIND", "MoveError", "MoveJob", "REMOVE_TOOL", "compare", "copy_file", "promise", "public",

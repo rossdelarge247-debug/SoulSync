@@ -13,7 +13,7 @@ import pytest
 
 from core.drives import holds, markers
 from core.drives import move as M
-from core.drives.services import ServiceRefused
+from core.drives.services import RestartRefused, ServiceRefused
 from core.library.action_plans import PlanStore, PlanError
 
 
@@ -60,7 +60,7 @@ class FakeSlskd:
 
     def restart(self, token, wait=0):
         if self.refuse_restart:
-            raise ServiceRefused("slskd refused to restart (HTTP 401).")
+            raise RestartRefused("slskd refused to restart (HTTP 401).")
         self.restarts.append(token)
 
     def rescan(self):
@@ -488,6 +488,8 @@ def test_slskd_refusing_to_restart_switches_back(job):
     move = j.store.row(move_id)
     assert move["failure"]["kind"] == "refused" and "slskd refused to restart" in move["failure"]["words"]
     assert job["config"].get("soulseek.download_path") == job["roots"]["downloads"]
+    # it never restarted, so the switch back doesn't ask it to, and nothing is left to check by hand
+    assert job["slskd"].restarts == [] and move["failure"]["left"] == []
 
 
 def test_a_restart_mid_copy_reads_as_stopped_and_can_carry_on(job):
@@ -552,7 +554,7 @@ def test_switch_back_brings_new_files_home_and_reverts_everything(job):
     j.start(move_id, background=False)
     lib_new = os.path.join(_target(job), "Library")
     write(os.path.join(lib_new, "New Artist", "new.flac"), b"new")
-    j.switch_back(move_id)
+    j.switch_back(move_id, username="slskd", password="pw")  # Downloads moved: slskd restarts again
     move = j.store.row(move_id)
     assert move["status"] == "switched_back"
     assert os.path.isfile(os.path.join(job["roots"]["library"], "New Artist", "new.flac"))
@@ -620,3 +622,362 @@ def test_copy_file_refuses_links_at_either_end(tmp_path):
     with pytest.raises(OSError):
         M.copy_file(src, str(out_root / "z.flac"), str(out_root), on_bytes=lambda n: None, stop=threading.Event())
     assert not os.path.exists(tmp_path / "elsewhere")
+
+
+# ── the same folder through two mounts, and the other music folders ──────────
+
+def _fake_mount(monkeypatch, link):
+    """``link`` (a symlink) behaves like a second mount of its target: realpath
+    can't see through it, but it is the same folder on disk."""
+    real = os.path.realpath
+    link = os.path.normpath(str(link))
+
+    def realpath(p, *a, **k):
+        s = os.path.normpath(os.path.abspath(str(p)))
+        if s == link or s.startswith(link + os.sep):
+            return s
+        return real(p, *a, **k)
+
+    monkeypatch.setattr(os.path, "realpath", realpath)
+
+
+@pytest.mark.parametrize("sub", ["", "inside"])
+def test_a_destination_that_is_the_source_through_another_mount_is_refused(job, monkeypatch, sub):
+    j = job["job"]
+    markers.write_marker(job["roots"]["library"], "library")
+    mount = job["drive"] / "music"
+    os.symlink(job["roots"]["library"], str(mount))
+    _fake_mount(monkeypatch, mount)
+    move = j.draft(1)
+    dest = str(mount / sub) if sub else str(mount)
+    j.set_choice(move["id"], {"separate": True, "per_role": {"library": dest},
+                              "roles": {"library": True, "downloads": False, "staging": False}})
+    with pytest.raises(M.MoveError):
+        j.check(move["id"])
+    # nothing was left behind by the look
+    assert not [n for n in os.listdir(job["roots"]["library"]) if n.startswith(".synchros-probe")]
+
+
+def test_remove_skips_an_old_file_that_is_its_own_copy(job, monkeypatch):
+    j = job["job"]
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    move = j.store.row(move_id)
+    plan = move["plan"]
+    # the plan's new Library turns out to be the old one seen through another mount
+    mount = job["drive"] / "music"
+    os.symlink(job["roots"]["library"], str(mount))
+    _fake_mount(monkeypatch, mount)
+    plan["dests"]["library"] = str(mount)
+    j.store.update(move_id, plan=plan)
+    plans = PlanStore()
+    preview = j.remove_preview(move_id, plans)
+    out = j.remove_confirm(move_id, preview["plan_id"], plans)
+    for rel in job["files"]["library"]:
+        assert os.path.isfile(os.path.join(job["roots"]["library"], rel))
+    assert out["skipped"] == len(job["files"]["library"])
+
+
+def test_a_marker_only_counts_for_its_own_role_outside_the_configured_folders(job):
+    j = job["job"]
+    markers.write_marker(job["roots"]["library"], "library")
+    # the configured Library holds a marker: it still isn't an empty destination
+    assert j._foreign_files(job["roots"]["library"], "library") == len(job["files"]["library"])
+    # a Downloads folder an earlier move made isn't an empty Library
+    other = job["drive"] / "Old" / "Downloads"
+    write(str(other / "a.flac"))
+    markers.write_marker(str(other), "downloads")
+    assert j._foreign_files(str(other), "library") == 1
+    assert j._foreign_files(str(other), "downloads") == 0
+
+
+def _library_on_the_drive(job):
+    lib = job["drive"] / "Lib"
+    write(str(lib / "Artist" / "a.flac"))
+    markers.write_marker(str(lib), "library")
+    job["config"].set("soulseek.transfer_path", str(lib))
+    return lib
+
+
+@pytest.mark.parametrize("where", ["same", "inside", "around"])
+def test_downloads_cant_go_to_the_librarys_folder(job, where):
+    j = job["job"]
+    lib = _library_on_the_drive(job)
+    dest = {"same": str(lib), "inside": str(lib / "dl"), "around": str(job["drive"] / "Parent")}[where]
+    if where == "around":
+        os.makedirs(dest)
+        os.rename(str(lib), os.path.join(dest, "Lib"))
+        job["config"].set("soulseek.transfer_path", os.path.join(dest, "Lib"))
+    move = j.draft(1)
+    j.set_choice(move["id"], {"separate": True, "per_role": {"downloads": dest},
+                              "roles": {"library": False, "downloads": True, "staging": False}})
+    with pytest.raises(M.MoveError):
+        j.check(move["id"])
+
+
+def test_two_destinations_cant_nest(job):
+    j = job["job"]
+    move = j.draft(1)
+    a = str(job["drive"] / "A")
+    j.set_choice(move["id"], {"separate": True, "per_role": {"library": a, "staging": a + "/st"},
+                              "roles": {"library": True, "downloads": False, "staging": True}})
+    with pytest.raises(M.MoveError, match="same place"):
+        j.check(move["id"])
+
+
+# ── what's already at the new place is never trusted ─────────────────────────
+
+def test_a_stale_file_at_the_new_place_is_copied_again(job):
+    j = job["job"]
+    lib_new = os.path.join(_target(job), "Library")
+    src = os.path.join(job["roots"]["library"], "cover.jpg")
+    size = os.path.getsize(src)
+    write(os.path.join(lib_new, "cover.jpg"), b"\0" * size)  # an earlier move's copy, edited since at home
+    markers.write_marker(lib_new, "library")
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    assert j.store.row(move_id)["status"] == "switched"
+    with open(src, "rb") as a, open(os.path.join(lib_new, "cover.jpg"), "rb") as b:
+        assert a.read() == b.read()
+
+
+def test_remove_skips_an_old_file_edited_since_the_copy_at_the_same_size(job):
+    j = job["job"]
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    plans = PlanStore()
+    preview = j.remove_preview(move_id, plans)
+    src = os.path.join(job["roots"]["library"], "cover.jpg")
+    size = os.path.getsize(src)
+    with open(src, "r+b") as f:
+        f.write(b"\1" * size)  # retagged in place: same size, new contents
+    st = os.stat(src)
+    os.utime(src, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
+    out = j.remove_confirm(move_id, preview["plan_id"], plans)
+    assert os.path.isfile(src) and out["skipped"] == 1
+
+
+def test_verify_finds_an_old_file_edited_after_its_copy(job, monkeypatch):
+    j = job["job"]
+    move_id = _ready(job)
+    real_copy = M.copy_file
+
+    def edit_after(src, dst, root, **k):
+        out = real_copy(src, dst, root, **k)
+        if src.endswith("cover.jpg"):
+            st = os.stat(src)
+            with open(src, "r+b") as f:
+                f.write(b"\2\2")
+            os.utime(src, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
+        return out
+
+    monkeypatch.setattr(M, "copy_file", edit_after)
+    j.start(move_id, background=False)
+    move = j.store.row(move_id)
+    assert move["status"] == "failed" and move["failure"]["kind"] == "mismatch"
+    assert move["failure"]["files"][0]["why"] == "changed since it was copied"
+
+
+# ── a failure after the settings switched always switches back ───────────────
+
+class Boom(RuntimeError):
+    pass
+
+
+def test_any_error_after_the_settings_switched_switches_everything_back(job):
+    j = job["job"]
+    before_yaml = job["slskd"].read_config()
+
+    def add_location(path):
+        raise Boom("connection reset")
+
+    job["media"].add_location = add_location
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    move = j.store.row(move_id)
+    assert move["status"] == "failed" and move["failure"]["kind"] == "refused", move["failure"]
+    assert "switched back" in move["failure"]["words"]
+    assert job["config"].get("soulseek.transfer_path") == job["roots"]["library"]
+    assert _stored_config(job)["soulseek"]["download_path"] == job["roots"]["downloads"]
+    paths = [p for (p,) in _stored(job, "SELECT file_path FROM tracks WHERE id < 99")]
+    assert all(p.startswith(job["roots"]["library"]) for p in paths)
+    assert job["slskd"].read_config() == before_yaml
+    # slskd restarted for the new download folder, so it restarts again for the old one
+    assert job["slskd"].restarts == ["jwt-token", "jwt-token"]
+
+
+def test_an_unreadable_slskd_yml_at_the_switch_switches_back(job):
+    j = job["job"]
+    move_id = _ready(job)
+
+    def bad():
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    job["slskd"].read_config = bad
+    j.start(move_id, background=False)
+    move = j.store.row(move_id)
+    assert move["status"] == "failed" and move["failure"]["kind"] == "refused"
+    assert job["config"].get("soulseek.transfer_path") == job["roots"]["library"]
+
+
+def test_check_catches_an_slskd_yml_it_cant_edit(job):
+    with open(os.path.join(job["slskd"].folder, "slskd.yml"), "w") as f:
+        f.write("shares:\n  directories: [/music]\n")
+    j = job["job"]
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job)})
+    j.slskd_sign_in(move["id"], "slskd", "pw")
+    checks = j.store.row(move["id"])["checks"]
+    row = next(r for r in checks["rows"] if r["key"] == "slskd")
+    assert row["tone"] == "danger" and row.get("stop")
+    assert checks["ok"] is False
+
+
+def test_the_copy_isnt_deleted_while_the_settings_point_at_it(job):
+    j = job["job"]
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    j.store.update(move_id, status="failed", failure={"kind": "error", "words": "x"})
+    with pytest.raises(M.MoveError):
+        j.stop(move_id)
+    for rel in job["files"]["library"]:
+        assert os.path.isfile(os.path.join(_target(job), "Library", rel))
+
+
+def test_a_failure_while_the_settings_point_at_the_new_place_isnt_nothing_switched(job, monkeypatch):
+    j = job["job"]
+    move_id = _ready(job)
+    real = j.store.update
+
+    def update(mid, **fields):
+        if fields.get("status") == "switched":
+            raise sqlite3.OperationalError("database is locked")
+        return real(mid, **fields)
+
+    monkeypatch.setattr(j.store, "update", update)
+    j.start(move_id, background=False)
+    monkeypatch.setattr(j.store, "update", real)
+    move = j.store.row(move_id)
+    assert move["status"] == "failed" and move["failure"]["kind"] == "stuck"
+    assert "Nothing switched" not in M.promise(move, "Macintosh HD")["words"]
+    with pytest.raises(M.MoveError):
+        j.stop(move_id)
+
+
+def test_jellyfin_errors_are_refusals():
+    from core.drives.services import JellyfinServer
+
+    class Client:
+        base_url = "http://jf"
+        api_key = "k"
+
+    class Http:
+        def get(self, *a, **k):
+            raise ConnectionError("reset")
+
+        post = delete = get
+
+    jf = JellyfinServer(Client(), http=Http())
+    with pytest.raises(ServiceRefused):
+        jf.add_location("/x")
+    with pytest.raises(ServiceRefused):
+        jf.remove_location("/x")
+
+
+# ── switch back: slskd.yml and secrets ───────────────────────────────────────
+
+def test_switch_back_keeps_later_slskd_edits_and_never_shows_the_old_file(job):
+    import api.drives  # noqa: F401 - public() reads like the routes
+    j = job["job"]
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    with open(os.path.join(job["slskd"].folder, "slskd.yml"), "a") as f:
+        f.write("web:\n  port: 5031\n")
+    with pytest.raises(M.MoveError) as refused:
+        j.switch_back(move_id)
+    assert refused.value.code == "slskd_sign_in"
+    j.switch_back(move_id, username="slskd", password="pw")
+    move = j.store.row(move_id)
+    assert move["status"] == "switched_back"
+    text = job["slskd"].read_config()
+    assert "port: 5031" in text and "username: ross  # mine" in text
+    assert os.path.join(_target(job), "Library") not in text
+    assert os.path.join(_target(job), "Downloads") not in text
+    assert "directories:\n  downloads" not in text  # the line the switch added is gone again
+    assert job["slskd"].restarts == ["jwt-token", "jwt-token"]
+    payload = json.dumps(M.public(j, move, admin=True))
+    assert "config_before" not in payload and "username: ross" not in payload
+    [(raw,)] = _stored(job, "SELECT result_json FROM drive_moves WHERE id = ?", move_id)
+    stored = json.loads(raw)
+    assert stored["slskd"]["config_before"].startswith("enc:")  # through deps.encrypt
+    assert "config_before" not in json.dumps(stored["back"])
+    assert j.store.row(move_id)["secret"] is None
+
+
+def test_switch_back_brings_home_files_changed_at_the_new_place(job):
+    j = job["job"]
+    move_id = _ready(job, roles=["library"])
+    j.start(move_id, background=False)
+    new = os.path.join(_target(job), "Library", "cover.jpg")
+    with open(new, "r+b") as f:
+        f.write(b"\3" * os.path.getsize(new))
+    st = os.stat(new)
+    os.utime(new, ns=(st.st_atime_ns, st.st_mtime_ns + 10_000_000_000))
+    j.switch_back(move_id)
+    with open(new, "rb") as a, open(os.path.join(job["roots"]["library"], "cover.jpg"), "rb") as b:
+        assert a.read() == b.read()
+
+
+def test_the_slskd_session_is_forgotten_after_the_switch(job):
+    j = job["job"]
+    move_id = _ready(job)
+    assert j.store.row(move_id)["secret"]
+    j.start(move_id, background=False)
+    assert j.store.row(move_id)["status"] == "switched"
+    assert j.store.row(move_id)["secret"] is None
+
+
+def test_leaving_a_draft_forgets_the_slskd_session(job):
+    j = job["job"]
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job)})
+    j.slskd_sign_in(move["id"], "slskd", "pw")
+    j.leave(move["id"])
+    assert j.store.row(move["id"])["secret"] is None
+
+
+# ── small files are never written through a planted link ─────────────────────
+
+def test_slskd_yml_is_written_without_following_a_planted_link(tmp_path):
+    from core.drives.services import Slskd
+    folder = tmp_path / "slskd"
+    folder.mkdir()
+    (folder / "slskd.yml").write_text("a: 1\n")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep")
+    os.symlink(str(outside), str(folder / "slskd.yml.synchros-tmp"))
+    Slskd(object(), config_dir=str(folder)).write_config("a: 2\n")
+    assert outside.read_text() == "keep"
+    assert (folder / "slskd.yml").read_text() == "a: 2\n" and not os.path.islink(folder / "slskd.yml")
+
+
+def test_the_marker_is_written_without_following_a_planted_link(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep")
+    folder = tmp_path / "Library"
+    folder.mkdir()
+    os.symlink(str(outside), str(folder / (markers.MARKER_NAME + ".tmp")))
+    assert markers.write_marker(str(folder), "library") is True
+    assert outside.read_text() == "keep"
+    assert markers.has_marker(str(folder))
+
+
+def test_the_move_mark_is_never_written_through_a_link(job, monkeypatch, tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep")
+    os.makedirs(_target(job))
+    os.symlink(str(outside), os.path.join(_target(job), M.MOVE_MARK))
+    real = os.path.lexists
+    monkeypatch.setattr(os.path, "lexists", lambda p: False if str(p).endswith(M.MOVE_MARK) else real(p))
+    job["job"]._mark_target({"id": 1, "plan": {"dests": {"library": os.path.join(_target(job), "Library")}}})
+    assert outside.read_text() == "keep"

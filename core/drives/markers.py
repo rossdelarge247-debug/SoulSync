@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 import time
 from contextlib import closing
@@ -96,20 +97,24 @@ def marker_body(role: str) -> Dict[str, Any]:
 def write_marker(path: str, role: str) -> bool:
     """Write the marker at ``path`` (atomically). False when it can't."""
     target = os.path.join(path, MARKER_NAME)
-    tmp = target + ".tmp"
+    tmp = None
     try:
         if os.path.islink(target):
             return False
-        with open(tmp, "w", encoding="utf-8") as f:
+        # a new, uniquely named file (never through a link), then renamed over
+        fd, tmp = tempfile.mkstemp(dir=path, prefix=MARKER_NAME + ".", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(marker_body(role), f)
+        os.chmod(tmp, 0o644)
         os.replace(tmp, target)
         return True
     except OSError as exc:
         logger.debug("couldn't write the marker in %s: %s", path, exc)
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
         return False
 
 
