@@ -11,6 +11,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Merge duplicate artist | Exploring | [below](#merge-duplicate-artist) |
 | Classic Winamp visualisers (MilkDrop, AVS, bars and scope) | Ready for Design | [below](#classic-winamp-visualisers-milkdrop-avs-bars-and-scope) |
 | Move your music folders to another drive | Exploring | [below](#move-your-music-folders-to-another-drive) |
+| AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
 
 ---
 
@@ -293,4 +294,28 @@ A wizard in the app that safely moves the library, downloads and staging to a ne
 ### Questions for Ross (later)
 
 - Should it also offer moving the app's settings and database (for a move to a new machine), or only the music folders?
+
+---
+
+## AudD on every track change
+
+**Status:** Exploring · raised by Ross, 2026-10-23, alongside automatic AudD (`HANDOFF.md`, "Dev, AudD listens automatically when the station doesn't say")
+
+### The problem
+
+Automatic AudD (built on `feat/audd-auto`) asks AudD only when a watched station doesn't name the track and the free AcoustID fingerprint didn't know it, up to a daily cap (100 by default). Stations that name their tracks are never checked, and a station that names them wrongly, late or loosely (a show's title, a DJ's own spelling) stays as it says.
+
+### What the app gives today (Dev checked)
+
+- **The step is there:** the hub already captures a clip from the relay for the automatic fingerprint and can ask AudD with it (`core/internet_radio/audd_auto.py`), with pacing per station and a daily cap counted before each request.
+- **Only while the relay plays it:** clips come from the relay, so a station is checked only while someone plays it through SYNCHRO.S. Auto-add stations nobody is playing would need their own listener.
+
+### The cost
+
+**One AudD request per track, per station watched.** A music station plays roughly 12 to 20 tracks an hour, so one station played for a working day is 100 to 160 requests, and a station on auto-add around the clock could be 300 to 480 a day. That spends a paid plan's monthly allowance in days, and passes today's cap of 100 within hours.
+
+### Questions for Ross
+
+1. A higher cap: what daily cap (or monthly budget) would you be comfortable with? The field allows up to 1,000 today.
+2. Per-station opt-in: should "AudD on every track change" be a switch on each station (its page or Settings → Radio's auto-add list) rather than for every station, so only the stations you care most about spend requests?
 
