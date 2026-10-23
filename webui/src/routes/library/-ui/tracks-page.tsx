@@ -82,7 +82,6 @@ function TrackRow({
   const djPhone = [
     dj?.bpm ? `${bpmNumber(dj.bpm)} BPM` : '',
     dj?.key ? `${dj.key}${dj.key_uncertain ? '?' : ''}` : '',
-    dj?.energy ? `Energy ${dj.energy}` : '',
   ].filter(Boolean);
   return (
     <li ref={rowRef} className={styles.row} data-track-row={track.id}>
@@ -378,16 +377,16 @@ export function TracksPage({ search, go }: { search: LibrarySearch; go: Go }) {
               </option>
             ))}
           </Select>
-          <button
-            type="button"
-            className={hs.chip}
-            aria-pressed={withMix}
-            disabled={!key}
-            title={key ? undefined : 'Pick a key first'}
-            onClick={() => go({ key: `${key}${withMix ? '' : ':mix'}` })}
-          >
-            And keys that mix
-          </button>
+          {key ? (
+            <button
+              type="button"
+              className={hs.chip}
+              aria-pressed={withMix}
+              onClick={() => go({ key: `${key}${withMix ? '' : ':mix'}` })}
+            >
+              And keys that mix
+            </button>
+          ) : null}
         </div>
         <SortSelect
           className={styles.sort}

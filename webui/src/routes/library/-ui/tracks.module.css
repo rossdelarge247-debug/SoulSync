@@ -135,27 +135,44 @@
     margin-top: 0;
   }
 
+  /* nowrap: a wrapping column would stretch each row to the widest one */
   .toolbar {
     flex-direction: column;
+    flex-wrap: nowrap;
     align-items: stretch;
     gap: 12px;
   }
 
+  .bpmRange,
+  .keyGroup {
+    min-width: 0;
+  }
+
   .keyGroup {
     flex-wrap: wrap;
+    gap: 8px;
   }
 
   .keyGroup select {
-    flex: 1;
+    flex: 1 1 140px;
+    width: auto;
+    min-width: 0;
   }
 
   .bpmInput.bpmInput {
-    flex: 1;
+    flex: 1 1 0;
     width: auto;
+    min-width: 0;
   }
 
-  .sort {
+  /* the Albums grid hides its Sort on a phone; Tracks keeps it */
+  .sort.sort {
+    display: flex;
     margin-left: 0;
+  }
+
+  .sort select {
+    flex: 1;
   }
 
   .row {
