@@ -55,9 +55,7 @@ export interface RadioSettingsBody {
     labels: Record<ScanServiceId, string>;
     ready?: Record<ScanServiceId, boolean>;
     usage?: Record<ScanServiceId, { requests: number; found: number }>;
-    services?: Partial<
-      Record<ScanServiceId, { state: ScanServiceState; set_at?: number | null }>
-    >;
+    services?: Partial<Record<ScanServiceId, { state: ScanServiceState; set_at?: number | null }>>;
     month?: string;
   };
   status?: {
@@ -224,12 +222,21 @@ export function serviceNeeds(
     const head = 'Free · a fingerprint';
     if (!isAdmin) return { text: head, replace: null };
     if (!data.settings?.acoustid_api_key.set)
-      return { text: `${head} · add the AcoustID key in Track identification above`, replace: null };
+      return {
+        text: `${head} · add the AcoustID key in Track identification above`,
+        replace: null,
+      };
     if (data.status && !data.status.fpcalc.found)
       return { text: `${head} · needs fpcalc on the server (Setup check says how)`, replace: null };
     if (serviceState(id, data) === 'refused')
-      return { text: `${head} · AcoustID refused the key in Track identification above`, replace: null };
-    return { text: `${head} · uses the AcoustID key from Track identification above`, replace: null };
+      return {
+        text: `${head} · AcoustID refused the key in Track identification above`,
+        replace: null,
+      };
+    return {
+      text: `${head} · uses the AcoustID key from Track identification above`,
+      replace: null,
+    };
   }
   if (!isAdmin) return { text: 'Paid · an account with a monthly allowance', replace: null };
   const when = setOnWords(data.scan?.services?.[id]?.set_at);
@@ -259,7 +266,10 @@ export function usageLine(
 }
 
 /** Which paid service's fields are open: the one an admin chose, else the first unset one. */
-export function fieldsFor(data: RadioSettingsBody, chosen: ScanServiceId | null): ScanServiceId | null {
+export function fieldsFor(
+  data: RadioSettingsBody,
+  chosen: ScanServiceId | null,
+): ScanServiceId | null {
   if (data.is_admin === false) return null;
   if (chosen) return chosen;
   return PAID.find((id) => !serviceSaved(id, data)) ?? null;

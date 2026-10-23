@@ -171,10 +171,9 @@ describe('Change logo… in the links table (HANDOFF 66)', () => {
   let refuse = false;
   beforeEach(() => {
     markup();
-    document.getElementById('radio-links')!.insertAdjacentHTML(
-      'afterend',
-      '<p id="radio-links-status"></p>',
-    );
+    document
+      .getElementById('radio-links')!
+      .insertAdjacentHTML('afterend', '<p id="radio-links-status"></p>');
     _resetRadioSettingsForTests();
     calls.length = 0;
     refuse = false;
@@ -285,8 +284,6 @@ describe('Change logo… in the links table (HANDOFF 66)', () => {
     // Cancel closes it and gives the focus back to the "…"
     document.querySelector<HTMLElement>('[data-radio-logo-cancel="1"]')!.click();
     expect(document.querySelector('[data-radio-logo-panel]')).toBeNull();
-    expect(document.activeElement).toBe(
-      document.querySelector('[data-radio-link-more="1"]'),
-    );
+    expect(document.activeElement).toBe(document.querySelector('[data-radio-link-more="1"]'));
   });
 });
