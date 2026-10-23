@@ -22,7 +22,8 @@ logger = get_logger("sample.analyze")
 # Bump when the analysis algorithm changes; the worker skips tracks already
 # analyzed at the current version.
 # v3: adds the musical key.
-ANALYZER_VERSION = 3
+# v4: adds energy (core/sample/energy.py), for the library's DJ data.
+ANALYZER_VERSION = 4
 
 # Analysis runs at 22050 Hz (librosa's canonical rate): ~4x fewer samples
 # through the STFT than 44.1k source audio, with no measurable BPM loss
@@ -123,10 +124,11 @@ def decode_mono(file_path: str) -> Tuple[Any, int]:
 
 
 def analyze_track(file_path: str) -> Dict[str, Any]:
-    """Full analysis for one track: BPM, onset times, duration.
+    """Full analysis for one track: BPM, onset times, duration, key, energy.
 
     Returns {"bpm": float, "onsets": [seconds...], "duration_s": float,
-             "key": {"name", "confidence"} | None, "analyzer_version": int}.
+             "key": {"name", "confidence"} | None, "energy": 1-10 | None,
+             "analyzer_version": int}.
 
     Performance: the audio is downsampled to 22050 Hz once, and the onset
     envelope is computed ONCE and shared with beat tracking (beat_track's
@@ -156,6 +158,7 @@ def analyze_track(file_path: str) -> Dict[str, Any]:
     )
     bpm = round(float(np.atleast_1d(tempo_raw)[0]), 1)
 
+    from .energy import detect_energy
     from .key import detect_key
 
     return {
@@ -163,6 +166,7 @@ def analyze_track(file_path: str) -> Dict[str, Any]:
         "onsets": onsets,
         "duration_s": round(duration_s, 3),
         "key": detect_key(y, _ANALYSIS_SR),
+        "energy": detect_energy(y, _ANALYSIS_SR, len(onsets)),
         "analyzer_version": ANALYZER_VERSION,
     }
 
