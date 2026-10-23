@@ -2098,6 +2098,27 @@ function npv2ModalOpen() {
     } catch (e) { return false; }
 }
 
+// Who paints the overlay's stage (src/features/visuals sets
+// data-visuals-engine on #np-modal-overlay): this file's canvas only for the
+// SYNCHRO.S family; MilkDrop and Classic have their own canvases, and Reduce
+// motion opens the overlay still.
+function npv2VisualsEngine() {
+    try {
+        const o = document.getElementById('np-modal-overlay');
+        return (o && o.getAttribute('data-visuals-engine')) || 'synchros';
+    } catch (e) { return 'synchros'; }
+}
+
+function npv2PaintsStage() {
+    return npv2VisualsEngine() === 'synchros';
+}
+
+// The overlay's panel and keys live in src/features/visuals
+// (window.SoulSyncVisuals); without it the old keys still work.
+function npv2Bridge() {
+    try { return (typeof window !== 'undefined' && window.SoulSyncVisuals) || null; } catch (e) { return null; }
+}
+
 // The player has the floor: the tray is expanded (html[data-player="tray"],
 // src/shell/player.ts) or the visuals are open. The theater's own keys
 // (L, ?, [ ], V, F) and the wake lock follow this.
@@ -2213,6 +2234,7 @@ function npv2SizeCanvas() {
 function npv2VizFrame(now) {
     NPV2.vizRaf = requestAnimationFrame(npv2VizFrame);
     if (!NPV2.bgOn || NPV2.theme === 'none' || !npv2ModalOpen()) return;
+    if (!npv2PaintsStage()) return;
     if (typeof document !== 'undefined' && document.hidden) return;
     const ctx = NPV2.ctx;
     if (!ctx) return;
@@ -2514,7 +2536,9 @@ function npv2SetTheme(id, opts) {
         });
     } catch (e) {}
     const meta = npv2ThemeList().find((t) => t.id === next);
-    if (!opts || !opts.silent) npv2Toast('Visuals: ' + (meta ? meta.name : next), 'info');
+    // inside the overlay the credit says what changed (10c)
+    if ((!opts || !opts.silent) && !npv2ModalOpen()) npv2Toast('Visuals: ' + (meta ? meta.name : next), 'info');
+    try { const b = npv2Bridge(); if (b && b.themeChanged) b.themeChanged(next); } catch (e) {}
     npv2SyncVisualBtn();
     npv2SyncVisualsHeader();
 }
@@ -2535,7 +2559,7 @@ function npv2CycleTheme(skipOff) {
 function npv2SyncBgCanvas() {
     try {
         const c = document.getElementById('np-v2-bg');
-        if (c) c.style.display = NPV2.bgOn && NPV2.theme !== 'none' ? '' : 'none';
+        if (c) c.style.display = NPV2.bgOn && NPV2.theme !== 'none' && npv2PaintsStage() ? '' : 'none';
     } catch (e) {}
 }
 
@@ -2590,7 +2614,7 @@ function npv2SetVizDim(v) {
 }
 
 function npv2SetVizAutocycle(v) {
-    const ok = ['off', 'track', '30', '60', '300'].indexOf(v) >= 0 ? v : 'off';
+    const ok = ['off', 'track', '30', '60', '120', '300'].indexOf(v) >= 0 ? v : 'off';
     NPV2.vizAutocycle = ok;
     NPV2.vizLastCycle = NPV2.vizT;
     npv2SetG('viz-autocycle', ok);
@@ -2686,8 +2710,8 @@ function npv2SetVisualsMode(on) {
         } else {
             npv2VisualsClearIdle();
             if (modal) modal.classList.remove('npv2-ui-hidden');
-            npv2CloseVisualsPanel();
-            npv2ToggleVisualsDrawer(false);
+            const bridge = npv2Bridge();
+            if (bridge && bridge.panelOpen && bridge.panelOpen()) bridge.closePanel();
         }
     } catch (e) {}
 }
@@ -2709,6 +2733,9 @@ function npv2VisualsWakeUI() {
         npv2VisualsClearIdle();
         NPV2.uiHideTimer = setTimeout(() => {
             try {
+                // the panel keeps the header and the transport up (10a)
+                const bridge = npv2Bridge();
+                if (bridge && bridge.panelOpen && bridge.panelOpen()) { npv2VisualsWakeUI(); return; }
                 if (npv2VisualsModeOn()) modal.classList.add('npv2-ui-hidden');
             } catch (e) {}
         }, 3000);
@@ -2724,10 +2751,19 @@ function npv2SyncVisualsHeader() {
         if (title) title.textContent = t.title || NPV2_VIZ.title || 'Unknown Track';
         if (sub) {
             const bits = [t.artist, t.album].filter(Boolean);
-            sub.textContent = bits.join(' — ') || 'Unknown Artist';
+            sub.textContent = bits.join(' · ') || 'Unknown Artist';
         }
-        const meta = npv2ThemeList().find((x) => x.id === NPV2.theme);
-        if (theme) theme.textContent = meta ? meta.name : NPV2.theme;
+        const art = document.getElementById('np-v2-visuals-art');
+        if (art) {
+            const src = t.image_url || '';
+            if (src && art.getAttribute('src') !== src) art.setAttribute('src', src);
+            art.hidden = !src;
+        }
+        // with src/features/visuals loaded, it names the visual (family, author)
+        if (!npv2Bridge()) {
+            const meta = npv2ThemeList().find((x) => x.id === NPV2.theme);
+            if (theme) theme.textContent = meta ? meta.name : NPV2.theme;
+        }
     } catch (e) {}
 }
 
@@ -2750,109 +2786,23 @@ function npv2SetFullscreen(on) {
 
 function npv2SyncFullscreenBtn() {
     try {
-        const b = document.getElementById('np-v2-fullscreen-btn');
-        if (!b) return;
         const on = !!document.fullscreenElement;
-        b.classList.toggle('active', on);
-        b.title = on ? 'Exit fullscreen (Esc)' : 'Fullscreen (fills the screen)';
-        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        ['np-v2-fullscreen-btn', 'np-v2-visuals-fullscreen'].forEach((id) => {
+            const b = document.getElementById(id);
+            if (!b) return;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+            b.setAttribute('aria-label', on ? 'Leave full screen (Esc)' : 'Fill the screen');
+        });
     } catch (e) {}
 }
 
-// Panels drawer for visuals mode: queue / history / lyrics / details /
-// settings stay reachable while the visuals keep playing behind a side
-// panel. The panel node is temporarily re-homed into the overlay and put
-// back where it came from when the panel closes.
-const NPV2_SIDE_PANELS = {
-    queue: 'np-queue-panel',
-    history: 'np-v2-history-panel',
-    lyrics: 'np-lyrics-panel',
-    details: 'np-v2-details-panel',
-    settings: 'np-v2-settings-panel',
-};
-let npv2SidePanelHome = null;   // { tab, parent, next }
-let npv2SidePanelTab = null;
-
-function npv2OpenVisualsPanel(tab) {
-    try {
-        if (!NPV2_SIDE_PANELS[tab]) return;
-        // toggling the same tab closes it
-        if (npv2SidePanelTab === tab) { npv2CloseVisualsPanel(); return; }
-        npv2CloseVisualsPanel();
-        const node = document.getElementById(NPV2_SIDE_PANELS[tab]);
-        const body = document.getElementById('np-v2-sidepanel-body');
-        const panel = document.getElementById('np-v2-visuals-sidepanel');
-        if (!node || !body || !panel) return;
-        npv2SidePanelHome = { tab, parent: node.parentNode, next: node.nextSibling };
-        npv2SidePanelTab = tab;
-        body.appendChild(node);
-        node.classList.remove('hidden');
-        npv2SelectTab(tab);
-        const names = { queue: 'Up next', history: 'Recent', lyrics: 'Lyrics', details: 'Details', settings: 'Settings' };
-        const t = document.getElementById('np-v2-sidepanel-title');
-        if (t) t.textContent = names[tab] || tab;
-        panel.classList.remove('hidden');
-        npv2PlaceVisualsPanel();
-        npv2ToggleVisualsDrawer(false);
-        npv2VisualsWakeUI();
-    } catch (e) {}
-}
-
-// The panel opens under the header, so the header's ‹ › arrows (and the
-// close button) stay reachable while it's open. The header wraps on a phone,
-// so its real height is measured; the CSS keeps a fallback for when it can't be.
-function npv2PlaceVisualsPanel() {
-    try {
-        const panel = document.getElementById('np-v2-visuals-sidepanel');
-        const header = document.getElementById('np-v2-visuals-header');
-        if (!panel || !header || panel.classList.contains('hidden')) return;
-        const modal = panel.offsetParent || panel.parentNode;
-        const top = modal && modal.getBoundingClientRect ? modal.getBoundingClientRect().top : 0;
-        const bottom = header.getBoundingClientRect().bottom - top;
-        if (bottom > 0) panel.style.setProperty('--npv2-panel-top', Math.round(bottom + 16) + 'px');
-    } catch (e) {}
-}
-
-function npv2CloseVisualsPanel() {
-    try {
-        if (!npv2SidePanelHome) return;
-        const node = document.getElementById(NPV2_SIDE_PANELS[npv2SidePanelHome.tab]);
-        const home = npv2SidePanelHome;
-        npv2SidePanelHome = null;
-        npv2SidePanelTab = null;
-        if (node && home.parent) {
-            if (home.next && home.next.parentNode === home.parent) home.parent.insertBefore(node, home.next);
-            else home.parent.appendChild(node);
-        }
-        const panel = document.getElementById('np-v2-visuals-sidepanel');
-        if (panel) panel.classList.add('hidden');
-    } catch (e) {}
-}
-
-function npv2SidePanelOpen() { return !!npv2SidePanelHome; }
-
-function npv2ToggleVisualsDrawer(open) {
-    try {
-        const d = document.getElementById('np-v2-visuals-drawer');
-        if (!d) return;
-        const want = typeof open === 'boolean' ? open : d.classList.contains('hidden');
-        d.classList.toggle('hidden', !want);
-        const b = document.getElementById('np-v2-visuals-panels');
-        if (b) b.classList.toggle('active', want);
-    } catch (e) {}
-}
-
-// Closes the immersive drawer when a click lands outside both the drawer
-// itself and the hamburger button that toggles it.
-function npv2DrawerOutsideClick(e) {
-    try {
-        const d = document.getElementById('np-v2-visuals-drawer');
-        if (!d || d.classList.contains('hidden')) return;
-        if (d.contains(e.target)) return;
-        const pb = document.getElementById('np-v2-visuals-panels');
-        if (pb && pb.contains(e.target)) return;
-        npv2ToggleVisualsDrawer(false);
-    } catch (err) {}
+// The visuals step through the family that's on the stage: MilkDrop's
+// presets, Classic's two, or this file's own visuals.
+function npv2VisualsStep(dir) {
+    const bridge = npv2Bridge();
+    if (bridge && bridge.step) { bridge.step(dir); return; }
+    if (dir < 0) npv2PrevTheme(); else npv2CycleTheme();
 }
 
 // Clicking the album art enters visuals mode (instead of v1's small bars
@@ -3597,7 +3547,7 @@ function npv2OnTrackChanged(track) {
         npv2AbReset();
         npv2SetSpeed(NPV2.speed, { silent: true }); // re-stamp playbackRate (covers the xfade element too)
         // Per-track visual rotation: a fresh visual for a fresh song.
-        if (NPV2.vizAutocycle === 'track' && npv2ModalOpen() && NPV2.bgOn) npv2CycleTheme(true);
+        if (NPV2.vizAutocycle === 'track' && npv2ModalOpen() && NPV2.bgOn && npv2PaintsStage()) npv2CycleTheme(true);
         // The Web Audio context is created lazily on first play; if EQ was
         // switched on before that, this is where the graph finally exists.
         if (NPV2.eq.on || NPV2.eq.normalize) npv2AttachAudioGraph();
@@ -3649,6 +3599,8 @@ function npv2WatchModal() {
                 if (NPV2.visualsMode) npv2SetVisualsMode(false);
             }
         }).observe(overlay, { attributes: true, attributeFilter: ['class'] });
+        // MilkDrop / Classic / still take the stage: hide this canvas
+        new MutationObserver(npv2SyncBgCanvas).observe(overlay, { attributes: true, attributeFilter: ['data-visuals-engine'] });
     } catch (e) {}
 }
 
@@ -3743,29 +3695,17 @@ function npv2WireTransport() {
         const exit = document.getElementById('np-v2-visuals-exit');
         if (exit) exit.addEventListener('click', () => npv2SetVisualsMode(false));
         const tp = document.getElementById('np-v2-visuals-theme-prev');
-        if (tp) tp.addEventListener('click', () => npv2PrevTheme());
+        if (tp) tp.addEventListener('click', () => npv2VisualsStep(-1));
         const tn = document.getElementById('np-v2-visuals-theme-next');
-        if (tn) tn.addEventListener('click', () => npv2CycleTheme());
+        if (tn) tn.addEventListener('click', () => npv2VisualsStep(1));
         const expand = document.getElementById('np-v2-visuals-expand');
         if (expand) expand.addEventListener('click', () => npv2SetVisualsMode(!npv2VisualsModeOn()));
         const fsb = document.getElementById('np-v2-fullscreen-btn');
         if (fsb) fsb.addEventListener('click', () => npv2SetFullscreen());
-        // Immersive-mode drawer: panels without leaving the visuals
-        const pv = document.getElementById('np-v2-visuals-panels');
-        if (pv) pv.addEventListener('click', () => npv2ToggleVisualsDrawer());
-        // Clicking anywhere outside the open drawer closes it (the hamburger
-        // is a toggle, not a dead-end).
-        document.addEventListener('click', npv2DrawerOutsideClick);
         const vf = document.getElementById('np-v2-visuals-fullscreen');
         if (vf) vf.addEventListener('click', () => npv2SetFullscreen());
-        document.querySelectorAll('#np-v2-visuals-drawer [data-tab]').forEach((b) => {
-            b.addEventListener('click', () => {
-                npv2OpenVisualsPanel(b.getAttribute('data-tab'));
-            });
-        });
-        const spc = document.getElementById('np-v2-sidepanel-close');
-        if (spc) spc.addEventListener('click', () => npv2CloseVisualsPanel());
-        window.addEventListener('resize', () => npv2PlaceVisualsPanel());
+        const vs = document.getElementById('np-v2-visuals-shortcuts');
+        if (vs) vs.addEventListener('click', () => npv2ToggleShortcuts(true));
     } catch (e) {}
 
     try {
@@ -3828,18 +3768,14 @@ function npv2HandleKeys(event) {
                 npv2ToggleShortcuts(false);
                 return;
             }
-            // Esc backs out of full visuals mode before anything else.
+            // Esc closes the visuals' panel, then the visuals (10a).
             if (npv2VisualsModeOn()) {
                 event.stopPropagation();
                 event.preventDefault();
-                // Close the side panel first, then the drawer, then the mode.
-                if (npv2SidePanelOpen()) {
-                    npv2CloseVisualsPanel();
-                    return;
-                }
-                const d = document.getElementById('np-v2-visuals-drawer');
-                if (d && !d.classList.contains('hidden')) {
-                    npv2ToggleVisualsDrawer(false);
+                const bridge = npv2Bridge();
+                if (bridge && bridge.panelOpen && bridge.panelOpen()) {
+                    bridge.closePanel();
+                    npv2VisualsWakeUI();
                     return;
                 }
                 npv2SetVisualsMode(false);
@@ -3849,9 +3785,26 @@ function npv2HandleKeys(event) {
         return;
     }
     if (!npv2PlayerFocused()) return;
+    // any key brings the visuals' chrome back (10a)
+    if (npv2VisualsModeOn()) npv2VisualsWakeUI();
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
     const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || tag === 'select' || (document.activeElement && document.activeElement.isContentEditable)) return;
+    // the overlay's own keys (10a): V next, Shift+V previous, R random, L
+    // favourite. Outside it L stays the A-B loop (question 83).
+    const bridge = npv2ModalOpen() ? npv2Bridge() : null;
+    if (bridge && bridge.key) {
+        const k = event.key;
+        const action = (k === 'v' || k === 'V') ? (event.shiftKey ? 'previous' : 'next')
+            : ((k === 'r' || k === 'R') && !event.shiftKey) ? 'random'
+            : ((k === 'l' || k === 'L') && !event.shiftKey) ? 'favourite' : null;
+        if (action) {
+            event.preventDefault();
+            event.stopPropagation();
+            bridge.key(action);
+            return;
+        }
+    }
     switch (event.key) {
         case 'l':
         case 'L':
@@ -3881,6 +3834,8 @@ function npv2HandleKeys(event) {
         case 'f':
         case 'F':
             event.preventDefault();
+            // nothing playing: the menu row says "Play something first"
+            if (!npv2ModalOpen() && !npv2CurrentTrack()) return;
             npv2SetVisualsMode(!npv2ModalOpen());
             break;
         default:
@@ -4005,6 +3960,13 @@ function npv2Init() {
             closeVisuals: () => npv2SetVisualsMode(false),
             visualsOpen: npv2ModalOpen,
             updateWakeLock: npv2UpdateWakeLock,
+            // src/features/visuals reads these (the SYNCHRO.S family's tiles,
+            // the shared Auto-cycle, Reduce visual effects, the chrome)
+            themeList: npv2ThemeList,
+            getTheme: () => NPV2.theme,
+            getVizAutocycle: () => NPV2.vizAutocycle,
+            getReduceMotion: () => !!NPV2.reduceMotion,
+            wakeVisuals: npv2VisualsWakeUI,
         };
     } catch (e) {
         // The theater must never break the underlying player.
