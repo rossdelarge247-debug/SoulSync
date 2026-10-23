@@ -179,13 +179,16 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
             className={styles.pageMenu}
             label="More for your library"
             entries={[
+              // HANDOFF 73's order; "Look for releases you don't have…" (68)
+              // joins after the hairline in a later phase
               ...pageMenuEntries(),
-              { key: 'export', label: 'Export artists…', onSelect: () => setExporting(true) },
+              { key: 'tools', separator: true },
               {
                 key: 'watch-all',
                 label: "Follow every artist you don't follow…",
                 onSelect: () => setWatchingAll(true),
               },
+              { key: 'export', label: 'Export artists…', onSelect: () => setExporting(true) },
             ]}
           />
         </div>
