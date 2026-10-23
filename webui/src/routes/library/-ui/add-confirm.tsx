@@ -144,7 +144,9 @@ export function AddConfirm({
     request.what,
     asks
       ? 'They go to an admin as requests; once approved, the scheduled search looks for them and what it finds shows up in Activity.'
-      : `${schedule?.name || 'The scheduled search'} searches for them ${every || 'on its schedule'}; what it finds shows up in Activity.`,
+      : schedule?.name
+        ? `${schedule.name} searches for them ${every || 'on its schedule'}; what it finds shows up in Activity.`
+        : "Wanted's scheduled search looks for them; what it finds shows up in Activity.",
     'You can take any of them off Wanted later.',
   ].join(' ');
   const skipped = data ? data.already_have + data.already_wanted : 0;
