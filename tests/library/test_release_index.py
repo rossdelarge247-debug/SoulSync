@@ -390,3 +390,26 @@ def test_norm_title():
     assert ri.norm_title("Low Light - EP") == "low light"
     assert ri.norm_title("(Untitled)") == "untitled"
     assert ri.norm_title("Ágætis byrjun") == "ágætis byrjun"
+
+
+def test_concurrent_requests_share_one_build(db, monkeypatch):
+    import threading
+    import time as _time
+
+    _album(db, 10, 1, "Night Ferry", files=_flac(2))
+    builds = []
+    real = ri.build_index
+
+    def slow_build(*args, **kwargs):
+        builds.append(1)
+        _time.sleep(0.2)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(ri, "build_index", slow_build)
+    got = []
+    threads = [threading.Thread(target=lambda: got.append(ri.get_index(db, 1, server=None))) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(builds) == 1 and len({id(i) for i in got}) == 1
