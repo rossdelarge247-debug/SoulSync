@@ -99,14 +99,17 @@ export function ShowButtons<T extends string>({
   value,
   onChange,
   label = 'Show',
+  id,
 }: {
   options: ShowOption<T>[];
   value: T;
   onChange: (next: T) => void;
   label?: string;
+  /** An anchor for the guided tour (helper.js), when the page has one. */
+  id?: string;
 }) {
   return (
-    <div className={styles.group} role="group" aria-label={label}>
+    <div className={styles.group} id={id} role="group" aria-label={label}>
       {options.map((option) => (
         <button
           key={option.key}

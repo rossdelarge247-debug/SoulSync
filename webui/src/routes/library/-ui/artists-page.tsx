@@ -192,6 +192,7 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
       </header>
       <div className={styles.toolbar}>
         <ShowButtons
+          id="library-show-filter"
           value={show}
           onChange={(next) => go({ show: next === 'all' ? '' : next })}
           options={[
@@ -335,7 +336,8 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
         </div>
       )}
       {artists.length ? (
-        <div className={styles.footer}>
+        // #library-pagination is the guided tour's anchor (helper.js)
+        <div className={styles.footer} id="library-pagination">
           <span>
             {artists.length.toLocaleString()} of {total.toLocaleString()}
           </span>

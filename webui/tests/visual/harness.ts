@@ -66,6 +66,8 @@ export function renderIndex() {
     initial_accent_rgb: '139, 92, 246',
     initial_accent_light_rgb: '194, 169, 250',
     initial_accent_neon_rgb: '237, 230, 255',
+    // the viewing profile's accent for init.js (HANDOFF 35): the default too
+    'initial_accent_color | tojson': '"#8b5cf6"',
     'initial_particles_enabled | tojson': 'false',
     'initial_worker_orbs_enabled | tojson': 'false',
     'initial_reduce_effects | tojson': 'false',

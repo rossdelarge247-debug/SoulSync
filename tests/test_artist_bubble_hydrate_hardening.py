@@ -143,15 +143,19 @@ def test_library_downloads_section_anchors_on_the_grid_not_a_class_query():
     fn = _HELPERS_JS.split("function showLibraryDownloadsSection")[1].split("function createArtistBubbleCard")[0]
     assert "getElementById('library-artists-grid')" in fn
     assert "artistGrid.parentElement" in fn
-    # The ambiguity is still real, it just spans two renderers now: index.html
-    # carries the VIDEO library's .library-content, and the React music library
-    # renders its own. A class query would still be able to hit the wrong one.
+    # The ambiguity is still real: index.html carries the VIDEO library's
+    # .library-content, so a class query can still hit the video side. The
+    # React music library (Albums / Artists, boards 7a-7g) no longer renders a
+    # .library-content of its own; what it does render is the two anchors this
+    # function relies on: the dedicated host on the page, and the artists grid
+    # as the backstop.
     index = (_ROOT / "webui" / "index.html").read_text(encoding="utf-8")
-    react_page = (
-        _ROOT / "webui" / "src" / "routes" / "library" / "-ui" / "library-page.tsx"
-    ).read_text(encoding="utf-8")
+    library_ui = _ROOT / "webui" / "src" / "routes" / "library" / "-ui"
+    react_page = (library_ui / "library-page.tsx").read_text(encoding="utf-8")
+    artists_page = (library_ui / "artists-page.tsx").read_text(encoding="utf-8")
     assert index.count('class="library-content"') >= 1, "video library lost its .library-content"
-    assert 'className="library-content"' in react_page, "music library lost its .library-content"
+    assert 'data-library-downloads-host=""' in react_page, "music library lost its downloads host"
+    assert 'id="library-artists-grid"' in artists_page, "music library lost #library-artists-grid"
 
     # The React library page renders a dedicated host and is preferred when
     # present, so a querySelector is no longer disqualifying on its own — but it

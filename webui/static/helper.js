@@ -1354,9 +1354,9 @@ const HELPER_CONTENT = {
         title: 'Search Library',
         description: 'Search your library by artist name. Results filter in real-time as you type.',
     },
-    '#watchlist-filter': {
-        title: 'Watchlist Filter',
-        description: 'Filter artists by watchlist status: All shows everyone, Watched shows only artists you follow, Unwatched shows artists not on your watchlist.',
+    '#library-show-filter': {
+        title: 'Show',
+        description: 'Narrow the artists: All shows everyone, Following shows the artists you follow for new releases, Incomplete shows artists with releases you don\'t have. Each button carries its count.',
     },
     '#alphabet-selector': {
         title: 'Alphabet Jump',
@@ -1377,8 +1377,8 @@ const HELPER_CONTENT = {
         ]
     },
     '#library-pagination': {
-        title: 'Pagination',
-        description: 'Navigate through pages of artists. Your library shows 75 artists per page.',
+        title: 'Show More',
+        description: 'How many artists are showing out of how many match. "Show 50 more" loads the next 50 into the same grid.',
     },
 
     // Artist Detail — Hero Section
@@ -2443,14 +2443,14 @@ const HELPER_TOURS = {
 
             // Controls
             { page: 'library', selector: '#library-search-input', title: 'Search Artists', description: 'Type to filter your library by artist name. Results update instantly as you type.' },
-            { page: 'library', selector: '#watchlist-filter', title: 'Watchlist Filter', description: 'Filter by watchlist status: All, Watched (artists you follow for new releases), or Unwatched. The "Watch All Unwatched" button adds every remaining artist to your watchlist in one click.' },
+            { page: 'library', selector: '#library-show-filter', title: 'Show', description: 'Narrow the grid: All, Following (artists you follow for new releases), or Incomplete (artists with releases you don\'t have). "Follow every artist you don\'t follow…" in the page\'s "…" menu follows the rest in one go.' },
             { page: 'library', selector: '#alphabet-selector', title: 'Alphabet Jump', description: 'Click any letter to jump directly to artists starting with that letter. Great for navigating large libraries.' },
 
             // Grid
             { page: 'library', selector: '#library-artists-grid', title: 'Artist Grid', description: 'Your artists as cards with photos, track counts, and service badges (Spotify, MusicBrainz, etc.). Click any card to open their artist detail page with full discography.' },
 
             // Pagination
-            { page: 'library', selector: '#library-pagination', title: 'Pagination', description: 'Shows 75 artists per page. Use Previous/Next to browse, or combine with the alphabet selector and search to find artists faster.' },
+            { page: 'library', selector: '#library-pagination', title: 'Show More', description: 'Shows how many artists are on screen out of how many match. "Show 50 more" loads the next 50; combine it with the filter and Show to find artists faster.' },
 
             // Artist detail (describe what they'll see)
             { page: 'library', selector: '#library-artists-grid', title: 'Artist Detail View', description: 'Clicking an artist opens their detail page. From there you can view/download their discography, toggle "Enhanced Management" mode for inline tag editing, bulk operations, and writing tags to files. 🎉' },

@@ -28,12 +28,14 @@ const ROUTES: Shot[] = [
   {
     name: 'search',
     path: '/search',
-    // The query only comes from the input; Enter skips the debounce.
+    // The query only comes from the input; Enter skips the debounce. The
+    // grouped results page (boards 2m, 2n) replaced the old dropdown: wait for
+    // the metadata service's rows, which come from the enhanced-search fixture.
     act: async (page) => {
       const input = page.locator('#enhanced-search-input');
       await input.fill('aphex');
       await input.press('Enter');
-      await expect(page.locator('#enhanced-dropdown')).not.toHaveClass(/\bhidden\b/);
+      await expect(page.locator('#search-catalog [data-kind="catalog"]').first()).toBeVisible();
       await page.waitForLoadState('networkidle');
     },
   },
