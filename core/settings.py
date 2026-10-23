@@ -609,6 +609,10 @@ class ConfigManager:
                 # plugin or another SoulSync). 'all' clears every client's
                 # state, the pre-#1499 behavior for single-client installs.
                 "cleanup_scope": "own",
+                # slskd scans its shares only when it starts; ask it to rescan
+                # after imports so new library files are shared on Soulseek
+                # (core/slskd_share_rescan.py).
+                "rescan_shares_after_import": True,
             },
             "download_source": {
                 "max_mb_per_minute": 0,  # Optional advertised music size limit; 0 = off

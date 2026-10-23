@@ -47,6 +47,24 @@ Questions 1–28 were answered in Design's session of 22 October, and 29–57 in
 
 ## Log
 
+### 2026-10-23: Dev, slskd rescans its shares after imports
+
+Built on `feat/slskd-rescan` from `integration`. Ross's slskd had shared 0 files for days while SYNCHRO.S downloaded 88 GB into the library. slskd scans its shared folders once, when it starts; it had started with an empty `/music`, never rescanned, and kept sharing nothing as the library grew to 3,627 files. The Soulseek network blocks people who share nothing.
+
+**What changed**
+
+- **After imports, slskd is asked to rescan.** `core/slskd_share_rescan.py`. The import pipeline calls `notify_library_import()` where a file has landed in the library (both successful ends of `core/imports/pipeline.py`'s post-processing, next to `emit_track_downloaded`), and `core/downloads/lifecycle.py` calls it again when an atomic album batch is published out of staging. The note only records the time, so it never slows or fails an import.
+- **Debounced on one background thread.** A rescan goes out 2 minutes after the last import in a burst, and never more than 10 minutes after the first, so an album is one rescan and a long Wanted run rescans every 10 minutes. Before asking, SYNCHRO.S reads slskd's state (`GET /api/v0/application`, `shares.scanning`); if a scan is running it doesn't queue another and looks again 30 seconds later. Then `PUT /api/v0/shares`. slskd starts the scan in the background and answers 200 even when one is running, which is why the state is read first.
+- **Through the existing slskd client.** `SoulseekClient._make_request` (`get_shared_soulseek_client()`), so the configured URL, API key and timeout apply and no new HTTP path exists. Nothing happens when slskd isn't configured or the setting is off. A failure (slskd down, a refused key) is one WARNING per outage, without the key; the burst is kept and retried 10 minutes later.
+- **Startup check, for installs like Ross's.** Once slskd answers (it's asked every 30 seconds for up to 10 minutes), if it shares 0 files (`shares.files`, or the per-share `files` from `GET /api/v0/shares` on older slskd) while the library folder holds an audio file, one rescan is requested. One-shot, in its own thread (`@_deferred_start("slskd share check")`).
+- **Setting.** "Rescan slskd's shares after imports", on by default, in Settings → Sources → Soulseek, under the API key: "Keeps what you share on Soulseek up to date with your library. The network blocks people who share nothing." Stored as `soulseek.rescan_shares_after_import`.
+- **Activity.** Each rescan adds "Soulseek shares updating" to the activity feed, without a toast.
+- **README.** The "share files in slskd" notes now say SYNCHRO.S rescans automatically. slskd still has to share the library folder itself; SYNCHRO.S can only ask it to rescan what it's set to share.
+
+**Not drawn:** the checkbox follows the other Soulseek settings; no board.
+
+**Tests:** `tests/test_slskd_share_rescan.py` (30: bursts coalesce, the ceiling, a scan in progress, the single worker thread on a real clock in under a second, disabled and unconfigured make no calls, the startup check's cases including waiting for slskd and the older share listing, failures swallowed and logged once without the key, the real client's helper used with its key, the wiring and the setting's markup); `tests/test_web_server_import_side_effects.py` lists the new deferred start.
+
 ### 2026-10-23: Dev, four leftovers
 
 Built on `fix/small-leftovers` from `integration`. No boards; one change Design should know about is the Home card's name (3).

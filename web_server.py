@@ -2900,6 +2900,11 @@ def _shutdown_runtime_components():
     cleanup_monitor()
 
     _stop_component(web_scan_manager, "web scan manager")
+    try:
+        from core.slskd_share_rescan import stop_share_rescanner
+        stop_share_rescanner()
+    except Exception as e:
+        logger.debug(f"slskd share rescanner stop failed: {e}")
     _stop_component(automation_engine, "automation engine")
 
     # Persist API call history before shutting down worker pools.
@@ -25557,6 +25562,25 @@ def _start_popularity_backfill():
                              name='PopularityBackfillAutostart').start()
     except Exception as _pb_autostart_err:
         logger.debug(f"could not start popularity backfill autostart: {_pb_autostart_err}")
+
+
+# slskd scans its shares only at its own start. An install whose library was
+# empty then shares 0 files forever; once slskd answers, ask it to rescan if it
+# shares nothing while the library has music. One-shot, in the background.
+@_deferred_start("slskd share check")
+def _start_slskd_share_check():
+    try:
+        import threading as _ssc_threading
+        from core.slskd_share_rescan import get_share_rescanner as _ssc_get
+
+        def _run_slskd_share_check():
+            result = _ssc_get().run_startup_check(should_stop=lambda: IS_SHUTTING_DOWN)
+            logger.debug("slskd startup share check: %s", result)
+
+        _ssc_threading.Thread(target=_run_slskd_share_check, daemon=True,
+                              name='SlskdShareCheck').start()
+    except Exception as _ssc_err:
+        logger.debug(f"could not start slskd share check: {_ssc_err}")
 
 
 # Direct execution: python web_server.py (dev/Windows fallback)

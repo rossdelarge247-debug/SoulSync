@@ -34,6 +34,7 @@
 
 > [!IMPORTANT]
 > If you use Soulseek, **share files in slskd** (`http://localhost:5030/shares`). Leechers get banned by the network.
+> SYNCHRO.S asks slskd to rescan its shares after each batch of imports, so new music in your library is shared automatically.
 
 ---
 
@@ -441,7 +442,7 @@ cd webui && npm ci && npm run dev
 
 1. Add an API key in slskd's `settings.yml` under `web > authentication > api_keys`, then restart slskd.
 2. In SoulSync: **Settings → Connections → Soulseek**, paste the URL and key (or use **Auto-detect**).
-3. **Share some files in slskd.**
+3. **Share some files in slskd.** Share your music library folder; SYNCHRO.S then asks slskd to rescan it after imports (Settings → Sources → Soulseek, "Rescan slskd's shares after imports").
 
 ### 2. Connect Spotify (optional)
 

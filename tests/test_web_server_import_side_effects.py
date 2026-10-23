@@ -58,6 +58,8 @@ EXPECTED_DEFERRED_STARTS = [
     "video download monitor",
     "clients-tab match watcher",
     "popularity backfill autostart",
+    # one-shot: once slskd answers, rescan if it shares 0 files (core/slskd_share_rescan.py)
+    "slskd share check",
 ]
 
 # Start name -> the web_server global holding the worker it starts.

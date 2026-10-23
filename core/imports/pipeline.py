@@ -60,6 +60,7 @@ from core.imports.side_effects import (
     record_soulsync_library_entry,
 )
 from core.downloads.atomic_album_publish import split_staged_path
+from core.slskd_share_rescan import notify_library_import
 from core.wishlist.library_match import artist_names
 from core.wishlist.removal_guard import STAGED as GUARD_STAGED, classify_publication
 from core.wishlist.resolution import check_and_remove_from_wishlist
@@ -1229,6 +1230,8 @@ def post_process_matched_download(context_key, context, file_path, runtime, meta
             context['_pipeline_import_succeeded'] = True
             _persist_verification_status(context, destination)
             emit_track_downloaded(context, automation_engine)
+            # new file in the library: slskd shares it after a debounced rescan
+            notify_library_import()
             record_library_history_download(context)
             record_download_provenance(context)
             try:
@@ -1760,6 +1763,9 @@ def post_process_matched_download(context_key, context, file_path, runtime, meta
         logger.info(f"Post-processing complete for: {context.get('_final_processed_path', final_path)}")
 
         emit_track_downloaded(context, automation_engine)
+        # new file in the library: slskd shares it after a debounced rescan
+        # (a staged atomic album is announced again when its batch publishes)
+        notify_library_import()
         record_library_history_download(context)
         record_download_provenance(context)
         record_soulsync_library_entry(context, artist_context, album_info)
