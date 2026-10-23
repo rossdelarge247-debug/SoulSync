@@ -329,15 +329,17 @@
 #settings-page #radio-settings .radio-scan-gap { width: 92px; flex: none; }
 /* "Replace the token…": a link in the line, a 44px target */
 #settings-page #radio-settings .radio-scan-replace {
+    position: relative;
     display: inline;
     margin: 0;
-    padding: 12px 0;
+    padding: 0;
     border: 0;
     background: none;
     color: rgb(var(--ss-accent-light-rgb));
     font: inherit;
     cursor: pointer;
 }
+#settings-page #radio-settings .radio-scan-replace::after { content: ''; position: absolute; inset: -13px -4px; }
 #settings-page #radio-settings .radio-scan-replace:hover { text-decoration: underline; }
 #settings-page #radio-settings .radio-scan-fields {
     display: grid;
