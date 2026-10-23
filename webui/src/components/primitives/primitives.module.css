@@ -142,11 +142,8 @@
   padding: 16px 20px;
 }
 
+/* the dot beside the title's first line (6px down at a 16/1.3 title) */
 .noticeStacked .noticeMain {
-  gap: 10px;
-}
-
-.noticeStacked .noticeText {
   gap: 10px;
 }
 

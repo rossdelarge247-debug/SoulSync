@@ -43,6 +43,27 @@ describe('Show', () => {
 });
 
 describe('Notice', () => {
+  it('stacked (12a): the title row, then the sentence and the actions from the padding edge', () => {
+    const { container } = render(
+      <Notice
+        layout="stacked"
+        tone="warning"
+        title="Spotify asked us to wait 11 min"
+        actions={<button type="button">Try again now</button>}
+      >
+        <p>After checking an artist's albums.</p>
+      </Notice>,
+    );
+    const notice = container.firstElementChild as HTMLElement;
+    expect(notice.dataset.layout).toBe('stacked');
+    const parts = [...notice.children].map((el) => el.getAttribute('data-slot') ?? 'main');
+    // the body and the actions are the Notice's own children, not inside the title's column
+    expect(parts).toEqual(['main', 'notice-body', 'notice-actions']);
+    expect(notice.querySelector('[data-slot="notice-title"]')!.textContent).toBe(
+      'Spotify asked us to wait 11 min',
+    );
+  });
+
   it('renders as a note by default', () => {
     render(<Notice>Fallback message</Notice>);
 
