@@ -144,9 +144,11 @@ function SpokenRow({ play, when }: { play: SpokenPlay; when: string }) {
       >
         ▶
       </button>
-      <span className={styles.statsRecentTitle}>{play.title}</span>
-      <span className={styles.statsRecentArtist}>
-        {[play.subtitle, progress].filter(Boolean).join(' · ')}
+      <span className={styles.historySpokenText}>
+        <span className={styles.statsRecentTitle}>{play.title}</span>
+        <span className={styles.historySpokenMeta}>
+          {[play.subtitle, progress].filter(Boolean).join(' · ')}
+        </span>
       </span>
       <span className={styles.statsRecentTime}>{when}</span>
     </div>

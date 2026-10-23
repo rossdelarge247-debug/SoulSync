@@ -1946,3 +1946,21 @@
   font: inherit;
   cursor: pointer;
 }
+
+/* an episode or a book: its title over "show · where you got to", both
+   cut with an ellipsis rather than pushing the time out of the row */
+.historySpokenText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.historySpokenMeta {
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--ss-text-meta);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
