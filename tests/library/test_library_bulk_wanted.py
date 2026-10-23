@@ -317,3 +317,31 @@ def test_summary_sample_size(client):
     assert len(body["sample"]) == 2
     body = client.post("/api/library/releases/summary", json={"filter": {"show": "missing"}, "sample": 1}).get_json()
     assert len(body["sample"]) == 1
+
+
+def test_album_counts_for_the_follow_dialog(client, db):
+    """HANDOFF 80: one query for "You have N albums" on a page of artist results."""
+    _sql(db, "INSERT INTO albums (id, artist_id, title) VALUES (13, 1, 'No Files Yet')")
+    body = client.post("/api/library/artists/album-counts",
+                       json={"source": "spotify", "ids": ["sp-ph", "sp-unknown"]}).get_json()
+    assert body == {"success": True, "counts": {"sp-ph": 2}}
+    assert client.post("/api/library/artists/album-counts", json={"source": "deezer", "ids": []}).get_json() == {
+        "success": True, "counts": {}}
+    assert client.post("/api/library/artists/album-counts", json={"source": "lastfm", "ids": ["x"]}).status_code == 400
+    assert client.post("/api/library/artists/album-counts",
+                       json={"source": "spotify", "ids": [str(i) for i in range(51)]}).status_code == 400
+    client.who["pid"] = None
+    assert client.post("/api/library/artists/album-counts", json={"source": "spotify", "ids": ["a"]}).status_code == 401
+
+
+def test_album_counts_use_the_id_index(db):
+    conn = db._get_connection()
+    try:
+        plan = " ".join(str(tuple(r)) for r in conn.execute(
+            "EXPLAIN QUERY PLAN SELECT ar.spotify_artist_id, COUNT(DISTINCT al.id) FROM artists ar "
+            "JOIN albums al ON al.artist_id = ar.id WHERE ar.spotify_artist_id IN ('a', 'b') AND EXISTS ("
+            "SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.file_path IS NOT NULL) "
+            "GROUP BY ar.spotify_artist_id").fetchall())
+    finally:
+        conn.close()
+    assert "idx_artists_spotify_id" in plan and "SCAN ar" not in plan

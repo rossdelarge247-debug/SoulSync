@@ -27,6 +27,10 @@ POST /api/library/albums/upgrade  (admins)
     The genre line's "Upgrade the N below target": applies the pending
     quality-upgrade findings for those albums' tracks (each better copy goes
     on Wanted), as the Apply Quality Upgrades automation does.
+POST /api/library/artists/album-counts
+    ``{source, ids}`` -> how many albums you have by each of one service's
+    artist ids, for the Follow… dialog's artist rows (one query).
+
 GET  /api/library/missing-releases
 POST /api/library/missing-releases/start  (admins)
 POST /api/library/missing-releases/stop   (admins)
@@ -507,6 +511,50 @@ def _forget_empty_artist(artist_id: Any) -> bool:
         return bool(gone)
     finally:
         conn.close()
+
+
+# ── "You have N albums" on Follow…'s artist rows (HANDOFF 80) ──────────────
+
+_ARTIST_ID_COLUMN = {"spotify": "spotify_artist_id", "deezer": "deezer_id", "itunes": "itunes_artist_id",
+                     "discogs": "discogs_id", "musicbrainz": "musicbrainz_id"}
+MAX_COUNT_IDS = 50
+
+
+@bp.route("/api/library/artists/album-counts", methods=["POST"])
+def artist_album_counts():
+    """``{source, ids}`` -> ``{counts: {id: albums you have}}``: for a page of
+    one service's artist search results, how many albums (with a file) the
+    library has by each, in the caller's library scope. One query on the
+    service's indexed id column; ids the library doesn't know are left out."""
+    pid = _profile()
+    if pid is None:
+        return _no_profile()
+    body = request.get_json(silent=True) or {}
+    column = _ARTIST_ID_COLUMN.get(str(body.get("source") or "").lower())
+    ids = [str(i) for i in (body.get("ids") or []) if i not in (None, "")] if isinstance(body.get("ids"), list) else []
+    if not column:
+        return jsonify({"success": False, "error": "Name one of: " + ", ".join(sorted(_ARTIST_ID_COLUMN))}), 400
+    if not ids:
+        return jsonify({"success": True, "counts": {}})
+    if len(ids) > MAX_COUNT_IDS:
+        return jsonify({"success": False, "error": f"Ask for {MAX_COUNT_IDS} artists or fewer."}), 400
+    database = get_database()
+    scope_sql, scope_params = database._current_scope_sql("al.owner_profile_id")
+    marks = ",".join("?" * len(ids))
+    conn = database._get_connection()
+    try:
+        rows = conn.execute(
+            f"SELECT ar.{column} AS pid, COUNT(DISTINCT al.id) AS n FROM artists ar "
+            f"JOIN albums al ON al.artist_id = ar.id "
+            f"WHERE ar.{column} IN ({marks}) AND {scope_sql} AND EXISTS ("
+            f"SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.file_path IS NOT NULL AND t.file_path != '') "
+            f"GROUP BY ar.{column}", [*ids, *scope_params]).fetchall()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("artist album counts failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    finally:
+        conn.close()
+    return jsonify({"success": True, "counts": {str(r["pid"]): int(r["n"]) for r in rows if r["n"]}})
 
 
 # ── Look for releases you don't have (HANDOFF 68) ───────────────────────────

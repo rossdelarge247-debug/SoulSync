@@ -1064,6 +1064,10 @@ describe('Follow… (9b)', () => {
           ],
         });
       }),
+      http.post('*/api/library/artists/album-counts', async ({ request }) => {
+        await record(request);
+        return HttpResponse.json({ success: true, counts: { 'dz-1': 6 } });
+      }),
       http.post('*/api/watchlist/add', async ({ request }) => {
         await record(request);
         return HttpResponse.json({ success: true });
@@ -1198,6 +1202,12 @@ describe('Follow… (9b)', () => {
     expect(posts).toContainEqual({
       path: '/api/library/search-service',
       body: { service: 'deezer', entity_type: 'artist', query: 'tide' },
+    });
+    // HANDOFF 80: one ask for the page's ids, "You have 6 albums" on the row
+    expect(await within(results).findByText('You have 6 albums')).toBeInTheDocument();
+    expect(posts).toContainEqual({
+      path: '/api/library/artists/album-counts',
+      body: { source: 'deezer', ids: ['dz-1', 'dz-2'] },
     });
     // Pale Harbour is followed already: no radio, the Following tag
     expect(within(results).getAllByRole('radio')).toHaveLength(1);

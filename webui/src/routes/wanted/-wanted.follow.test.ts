@@ -57,6 +57,19 @@ describe('results', () => {
     ]);
   });
 
+  it('artists say how many albums you have by them (HANDOFF 80)', () => {
+    const rows = artistResults(
+      [
+        { id: '1', name: 'Pale Harbour' },
+        { id: '2', name: 'Halide' },
+        { id: '3', name: 'Vera Lund' },
+      ],
+      new Set(),
+      { '1': 6, '3': 1 },
+    );
+    expect(rows.map((r) => r.have)).toEqual(['You have 6 albums', '', 'You have 1 album']);
+  });
+
   it('labels are square with their type and area, followed by id or by the search', () => {
     const rows = labelResults(
       [
