@@ -7891,6 +7891,13 @@ class MusicDatabase:
         if 'server_account_id' not in [c[1] for c in cursor.fetchall()]:
             cursor.execute("ALTER TABLE listening_history ADD COLUMN server_account_id TEXT DEFAULT NULL")
             logger.info("Added server_account_id column to listening_history")
+        # which of the media server's players it was played on ("Living
+        # room"), where the server says (plex's history names the device);
+        # Library → Listening history's "on Plex, Living room"
+        cursor.execute("PRAGMA table_info(listening_history)")
+        if 'player_name' not in [c[1] for c in cursor.fetchall()]:
+            cursor.execute("ALTER TABLE listening_history ADD COLUMN player_name TEXT DEFAULT NULL")
+            logger.info("Added player_name column to listening_history")
         from core.listening_import.dedup import ensure_import_events_table
         ensure_import_events_table(cursor.connection)
 

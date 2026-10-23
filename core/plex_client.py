@@ -1296,6 +1296,7 @@ class PlexClient(MediaServerBase):
         try:
             history = self.server.history(librarySectionID=self.music_library.key if self.music_library else None,
                                           maxresults=limit)
+            players = self._player_names()
             results = []
             for item in history:
                 if item.type != 'track':
@@ -1316,6 +1317,9 @@ class PlexClient(MediaServerBase):
                         # their plex.tv user id. files the play in their pile
                         'account_id': (str(item.accountID) if getattr(item, 'accountID', None) is not None
                                        else None),
+                        # which player ("Living room"), for Listening history's
+                        # "on Plex, Living room"
+                        'player_name': players.get(getattr(item, 'deviceID', None)),
                     })
                 except Exception:
                     continue
@@ -1324,6 +1328,17 @@ class PlexClient(MediaServerBase):
         except Exception as e:
             logger.error(f"Error getting Plex play history: {e}")
             return []
+
+    def _player_names(self):
+        """{device id: name} for the server's players, read once per history
+        poll (one request). Empty when the server won't say: a play without a
+        player name still says "on Plex"."""
+        try:
+            return {d.id: (d.name or '').strip() for d in self.server.systemDevices()
+                    if getattr(d, 'id', None) is not None and (d.name or '').strip()}
+        except Exception as e:  # noqa: BLE001 - the names are a nicety
+            logger.debug(f"Plex player names unavailable: {e}")
+            return {}
 
     def get_track_play_counts(self):
         """Get viewCount for all tracks in the music library.

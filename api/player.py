@@ -23,6 +23,11 @@ GET/PUT /api/player/progress, POST /api/player/progress/lookup, GET/POST /api/pl
     Podcasts and audiobooks: where the profile got to, and its plays of them
     (core/playback/spoken.py). Always the session's own profile.
 
+GET /api/library/listening-history, GET /api/library/listening-history/counts
+    Library → Listening history: the Music kind (every source in the caller's
+    listening pile, with the format and length read from the library track)
+    and the plays per kind and range (core/playback/history.py).
+
 All three need a profile. Tracks are read in the caller's library scope (a
 track in someone else's own library is a 404), files are found through the
 playback resolver (core.sample.worker.resolve_track_file, the same choke point
@@ -378,21 +383,89 @@ def log_spoken_play():
 
 @bp.route("/api/player/plays", methods=["GET"])
 def list_spoken_plays():
-    """Library → Listening history's Podcasts and Audiobooks."""
-    from core.playback import spoken
+    """Library → Listening history's Podcasts and Audiobooks. With ``range``
+    (today, 7d, 30d, all), a page of that range: ``tz``, ``q`` and ``offset``
+    apply, and the answer adds ``total`` and ``days``."""
+    from core.playback import history, spoken
+
+    pid = get_current_profile_id()
+    if pid is None:
+        return _profile_required()
+    a = request.args
+    try:
+        limit = int(a.get("limit", 50))
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        if "range" not in a:
+            items = spoken.recent_plays(get_database(), int(pid), [a.get("kind")], limit)
+            body = {"items": items}
+        else:
+            range_key = history.clean_range(a.get("range"))
+            tz = history.clean_tz(a.get("tz"))
+            try:
+                offset = max(0, int(a.get("offset", 0)))
+            except (TypeError, ValueError):
+                offset = 0
+            body = spoken.plays_page(get_database(), int(pid), [a.get("kind")], limit=limit, offset=offset,
+                                     since=history.since_stamp(range_key, tz), q=a.get("q") or "", tz=tz,
+                                     with_total=True)
+            body.update({"range": range_key, "offset": offset})
+    except spoken.SpokenError as exc:
+        return _spoken_error(exc)
+    response = jsonify({"success": True, **body})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+# ── Library → Listening history (board 13a, HANDOFF 64) ────────────────────
+
+def _hide_explicit() -> bool:
+    from core.content_filter import current_restrictions
+
+    try:
+        return bool(current_restrictions().get("hide_explicit"))
+    except Exception:  # noqa: BLE001 - unreadable restrictions: the guard decides elsewhere
+        return False
+
+
+@bp.route("/api/library/listening-history", methods=["GET"])
+def get_listening_history():
+    """The Music kind: every play in the caller's listening pile, newest
+    first (``range``, ``tz``, ``q``, ``offset``, ``limit``)."""
+    from core.playback import history
+
+    pid = get_current_profile_id()
+    if pid is None:
+        return _profile_required()
+    a = request.args
+    try:
+        body = history.music_page(get_database(), int(pid), range_key=a.get("range"), tz=a.get("tz"),
+                                  q=a.get("q"), offset=a.get("offset"), limit=a.get("limit"),
+                                  hide_explicit=_hide_explicit(), image_url=_image_url)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("listening history failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't load what you played"}), 500
+    response = jsonify({"success": True, **body})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.route("/api/library/listening-history/counts", methods=["GET"])
+def get_listening_history_counts():
+    """Plays per kind (music, podcast, audiobook) and per range, in one ask."""
+    from core.playback import history
 
     pid = get_current_profile_id()
     if pid is None:
         return _profile_required()
     try:
-        limit = int(request.args.get("limit", 50))
-    except (TypeError, ValueError):
-        limit = 50
-    try:
-        items = spoken.recent_plays(get_database(), int(pid), [request.args.get("kind")], limit)
-    except spoken.SpokenError as exc:
-        return _spoken_error(exc)
-    response = jsonify({"success": True, "items": items})
+        counts = history.counts(get_database(), int(pid), tz=request.args.get("tz"),
+                                hide_explicit=_hide_explicit())
+    except Exception as exc:  # noqa: BLE001
+        logger.error("listening history counts failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't count what you played"}), 500
+    response = jsonify({"success": True, "counts": counts})
     response.headers["Cache-Control"] = "no-store"
     return response
 

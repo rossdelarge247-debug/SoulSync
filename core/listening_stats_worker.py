@@ -274,6 +274,7 @@ class ListeningStatsWorker:
                     # only) is the shared pile, as before (#1293)
                     'profile_id': media_account_owner(account_owners, account_id),
                     'server_account_id': account_id,
+                    'player_name': entry.get('player_name'),
                     # db_track_id filled in below by a single batched lookup
                     'db_track_id': None,
                     # the server attests its own plays: scrobble-eligible
