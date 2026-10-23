@@ -49,6 +49,7 @@ from flask import Blueprint, Response, jsonify, request, send_file
 
 from core.internet_radio import directory, feeds, logos, net, setup_rows, store
 from core.internet_radio import settings as radio_settings
+from core.internet_radio.audd_auto import AutoAudd
 from core.internet_radio import stations as st
 from core.internet_radio.hub import Busy, HubDeps, hub, track_key
 from core.internet_radio.relay import RESPONSE_HEADERS, StreamError, check_link, open_stream, relay_chunks
@@ -74,6 +75,7 @@ _download_denied: Callable[[Optional[int]], Optional[str]] = lambda _pid: None  
 _actor_name: Callable[[], str] = lambda: "admin"  # noqa: E731
 watcher = Watcher(hub)
 scanner = ScanManager(hub)
+audd_auto = AutoAudd(get_database=lambda: get_database(), config=None)
 
 MAX_HEARD = 200
 HEARD_DAYS = (1, 7, 30, 90, 365)
@@ -98,6 +100,9 @@ def configure(*, get_database_, config_manager_, library_presence_=None, add_to_
         rows = _library_presence(pid, [{"name": title, "artist": artist}]) or [{}]
         return rows[0] if rows else {}
 
+    audd_auto.get_database = get_database_
+    audd_auto.config = config_manager_
+
     # a radio automation saved or turned on starts the watcher straight away
     from core.automation import api as automation_api
     automation_api.set_radio_watcher_wake(_wake_watcher)
@@ -108,12 +113,23 @@ def configure(*, get_database_, config_manager_, library_presence_=None, add_to_
         emit_event=emit_event_ or (lambda _t, _d: None),
         can_download=lambda pid: _download_denied(pid) is None,
         fingerprint=fingerprint_, fingerprint_available=fingerprint_available_ or default_fingerprint_available,
+        audd_auto=_audd_auto_step,
         radio_automation_profiles=radio_automation_profiles_ or (lambda: []),
         resolve_station=resolve_station))
     scanner.configure(ScanDeps(
         get_database=get_database_, config=config_manager_, find_fpcalc=setup_rows.find_fpcalc,
         acoustid_refused=_acoustid_refused,
         open_stream=lambda url: open_stream(url, want_titles=False, read_timeout=8)))
+
+
+def _audd_auto_step(station_id: str, path: str, window: int) -> Optional[Dict[str, Any]]:
+    """The hub's automatic AudD step: AudD's answer as the hub reads a fingerprint's."""
+    result = audd_auto.identify(station_id, path, window)
+    if result is None:
+        return None
+    if result.matched:
+        return {"status": "ok", "artist": result.artist, "title": result.title, "release": result.release}
+    return {"status": "no_match" if result.status == "no_match" else "error", "error": result.error}
 
 
 def _acoustid_refused() -> bool:
@@ -151,6 +167,7 @@ def stop_watcher() -> None:
     watcher.stop()
     hub.reset()
     scanner.reset()
+    audd_auto.reset()
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -1005,7 +1022,7 @@ def _scan_status(db) -> Dict[str, Any]:
              "audd": services["audd_ready"], "acrcloud": services["acrcloud_ready"]}
     return {"order": ["acoustid", "audd", "acrcloud"], "labels": dict(SCAN_LABELS), "ready": ready,
             "usage": {k: usage.get(k, {"requests": 0, "found": 0}) for k in ("acoustid", "audd", "acrcloud")},
-            "services": _scan_service_states(db, ready),
+            "services": _scan_service_states(db, ready), "audd_auto": audd_auto.status(db),
             "month": time.strftime("%B"), "available": scanner.availability()}
 
 
@@ -1046,9 +1063,12 @@ def _member_settings_payload() -> Dict[str, Any]:
     """Settings → Radio for a member (11c): Scan now's rows and their tags only.
     No settings, keys, dates or counts."""
     status = _scan_status(_db())
+    auto = status["audd_auto"]
     return {"success": True, "is_admin": False,
             "scan": {"order": status["order"], "labels": status["labels"],
-                     "services": {k: {"state": v["state"]} for k, v in status["services"].items()}}}
+                     "services": {k: {"state": v["state"]} for k, v in status["services"].items()},
+                     # the line only: whether it's on and its cap, no count
+                     "audd_auto": {"on": auto["on"] and auto["ready"], "daily_cap": auto["daily_cap"]}}}
 
 
 @bp.route("/api/radio/settings", methods=["GET"])

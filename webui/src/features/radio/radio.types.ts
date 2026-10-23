@@ -71,6 +71,7 @@ export type IdSource =
   | 'station_feed'
   | 'stream_titles'
   | 'fingerprint'
+  | 'audd'
   | 'scan_acoustid'
   | 'scan_audd'
   | 'scan_acrcloud';

@@ -71,6 +71,10 @@ describe('radio words', () => {
     expect(sourceWords('stream_titles')).toBe('From the stream’s names');
     expect(sourceWords('scan_audd')).toBe('Found by AudD · Scan now');
     expect(sourcePhrase('fingerprint')).toBe('fingerprint');
+    // AudD listening on its own: no "Scan now"; a press keeps it
+    expect(sourcePhrase('audd')).toBe('found by AudD');
+    expect(sourceWords('audd')).toBe('Found by AudD');
+    expect(sourcePhrase('scan_audd')).toBe('found by AudD · Scan now');
     expect(sourcePhrase('scan_acrcloud')).toBe('found by ACRCloud · Scan now');
     expect(possessive('Radio Paradise · Main Mix')).toBe('Radio Paradise’s');
   });

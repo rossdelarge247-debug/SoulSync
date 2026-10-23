@@ -39,9 +39,9 @@ export function shortName(name: string): string {
 
 /**
  * Where a name came from, as the meta line says it (HANDOFF 58): "from the
- * station", "from the stream’s names", "fingerprint", "found by AudD · Scan
- * now". This phrase is how a scan's answer is told from the station's; there
- * is never a second tag.
+ * station", "from the stream’s names", "fingerprint", "found by AudD" (AudD
+ * listening on its own), "found by AudD · Scan now". This phrase is how a
+ * scan's answer is told from the station's; there is never a second tag.
  */
 export function sourcePhrase(source: IdSource | null | undefined): string {
   switch (source) {
@@ -51,6 +51,9 @@ export function sourcePhrase(source: IdSource | null | undefined): string {
       return 'from the stream’s names';
     case 'fingerprint':
       return 'fingerprint';
+    case 'audd':
+      // automatic AudD: the station didn't say and AcoustID didn't know it
+      return 'found by AudD';
     case 'scan_acoustid':
       return 'found by AcoustID · Scan now';
     case 'scan_audd':

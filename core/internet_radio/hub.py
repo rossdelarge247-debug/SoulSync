@@ -92,6 +92,10 @@ class HubDeps:
     fingerprint: Optional[Callable[[str], Dict[str, Any]]] = None
     # () -> (available, reason)
     fingerprint_available: Callable[[], Tuple[bool, str]] = lambda: (False, "Fingerprints aren't set up.")
+    # automatic AudD, the step after a fingerprint that found nothing (core/internet_radio/audd_auto.py):
+    # (station_id, path, title_window) -> {"status": "ok"|"no_match"|"error", "artist", "title", "release"},
+    # or None when no request went (off, stopped for today, paced, capped)
+    audd_auto: Optional[Callable[[str, str, int], Optional[Dict[str, Any]]]] = None
     # profiles that own an enabled radio_track_heard automation
     radio_automation_profiles: Callable[[], List[int]] = lambda: []
     resolve_station: Callable[[str], Optional[Station]] = lambda _sid: None
@@ -136,7 +140,7 @@ class NowPlaying:
     title: str = ""
     release: str = ""
     art_url: str = ""
-    source: Optional[str] = None  # station_feed | stream_titles | fingerprint
+    source: Optional[str] = None  # station_feed | stream_titles | fingerprint | audd (automatic) | scan_*
     identified_at: Optional[float] = None
     started_at: float = 0.0
     reason: Optional[str] = None
@@ -160,6 +164,7 @@ class Monitor:
     fp_error: Optional[str] = None
     unnamed_since: Optional[float] = None
     scan_hold_until: float = 0.0
+    title_window: int = 0  # goes up each time the stream's title changes (automatic AudD's track window)
 
 
 class Busy(Exception):
@@ -482,6 +487,7 @@ class RadioHub:
             if raw == mon.last_title_raw:
                 return
             mon.last_title_raw = raw
+            mon.title_window += 1
             feed_track = self._feed_healthy(mon) and mon.feed_says_track
         if not self.identification_on() or feed_track:
             return  # the station's own feed is the better source while it names tracks
@@ -533,6 +539,51 @@ class RadioHub:
             if mon is not None:
                 mon.fp_pending = False
 
+    def station_names_track(self, mon: Monitor) -> bool:
+        """Is the station naming the track itself, by its feed (while healthy)
+        or its stream title? Empty, missing and generic ones (a show, the
+        station's own name, an advert) don't count."""
+        with self._lock:
+            feed_track = self._feed_healthy(mon) and bool(mon.feed_says_track)
+            raw = mon.last_title_raw
+        if feed_track:
+            return True
+        return bool(raw) and parse_stream_title(raw, station_name=mon.station.name).is_track
+
+    def audd_needed(self, station_id: str) -> Optional[str]:
+        """Why automatic AudD isn't needed for this station now, or None when
+        it is: the station is watched (played, or auto-add on) and isn't
+        naming the track. The caller asks only after AcoustID found nothing."""
+        if not self.deps or self.deps.audd_auto is None:
+            return "not_set_up"
+        if not self.identification_on():
+            return "identification_off"
+        with self._lock:
+            mon = self._monitors.get(station_id)
+        if mon is None:
+            return "not_watched"
+        if not self.listener_profiles(station_id):
+            try:
+                watched = bool(store.auto_add_profiles(self.deps.get_database(), station_id))
+            except Exception as exc:  # noqa: BLE001 - unknown reads as not watched
+                logger.debug("auto-add unreadable: %s", exc)
+                watched = False
+            if not watched:
+                return "not_watched"
+        if self.station_names_track(mon):
+            return "station_names_track"
+        return None
+
+    def _audd_after_fingerprint(self, station_id: str, path: str) -> Optional[Dict[str, Any]]:
+        """Automatic AudD on the clip the fingerprint just used, when needed."""
+        reason = self.audd_needed(station_id)
+        if reason is not None:
+            return None
+        with self._lock:
+            mon = self._monitors.get(station_id)
+            window = mon.title_window if mon else 0
+        return self.deps.audd_auto(station_id, path, window)
+
     def _run_fingerprint(self, station_id: str, data: bytes, content_type: str) -> None:
         ext = {"audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/aac": ".aac", "audio/aacp": ".aac",
                "audio/x-aac": ".aac", "audio/ogg": ".ogg", "application/ogg": ".ogg", "audio/opus": ".opus",
@@ -544,6 +595,17 @@ class RadioHub:
             with os.fdopen(fd, "wb") as fh:
                 fh.write(data)
             result = self.deps.fingerprint(path) if self.deps and self.deps.fingerprint else {"status": "unavailable"}
+            if (result or {}).get("status") == "no_match":
+                # AcoustID found nothing: AudD is the next step, when needed (audd_auto.py)
+                audd = self._audd_after_fingerprint(station_id, path)
+                if audd is not None:
+                    if audd.get("status") == "ok" and audd.get("artist") and audd.get("title"):
+                        result = {"status": "ok", "artist": audd["artist"], "title": audd["title"],
+                                  "release": audd.get("release") or "", "source": "audd"}
+                    elif audd.get("status") == "no_match":
+                        result = dict(result, audd_asked=True)
+                    # an AudD error leaves AcoustID's miss as it was: the
+                    # station's reason shouldn't claim AudD didn't know it
         except Exception as exc:  # noqa: BLE001 - a failed fingerprint is a reason, not a crash
             result = {"status": "error", "error": str(exc)}
         finally:
@@ -563,11 +625,14 @@ class RadioHub:
             status = result.get("status")
             mon.fp_error = None if status in ("ok", "no_match") else (result.get("error") or "The fingerprint service didn't answer.")
         if status == "ok" and result.get("artist") and result.get("title"):
+            source = "audd" if result.get("source") == "audd" else "fingerprint"
             self._identified(mon, str(result["artist"]), str(result["title"]), release=str(result.get("release") or ""),
-                             source="fingerprint")
+                             source=source)
         elif status == "no_match":
-            self._unnamed(mon, "The station doesn't publish what's playing and the fingerprint service didn't "
-                               "recognise it. Mixes, talk and live sessions often can't be identified.")
+            services = "neither AcoustID nor AudD recognised it" if result.get("audd_asked") else \
+                "the fingerprint service didn't recognise it"
+            self._unnamed(mon, f"The station doesn't publish what's playing and {services}. Mixes, talk and live "
+                               "sessions often can't be identified.")
 
     # ── state changes ────────────────────────────────────────────────────────
 

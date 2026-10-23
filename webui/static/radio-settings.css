@@ -352,6 +352,25 @@
 #settings-page #radio-settings .radio-scan-field-label { font-size: 14px; font-weight: 500; color: var(--ss-text-secondary); }
 #settings-page #radio-settings .radio-scan-field-actions { display: flex; gap: 8px; }
 #settings-page #radio-settings .radio-scan-fields-help { grid-column: 1 / -1; }
+/* automatic AudD: the line on the left, the daily cap and the switch on the right */
+#settings-page #radio-settings .radio-scan-usage-auto { display: block; color: var(--ss-text-tertiary); }
+#settings-page #radio-settings .radio-scan-auto {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px 24px;
+    align-items: center;
+    padding: 16px 24px 20px 72px;
+    border-top: 1px solid var(--ss-hairline);
+}
+#settings-page #radio-settings .radio-scan-auto-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 72ch; }
+#settings-page #radio-settings .radio-scan-auto-title { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.4; color: var(--ss-text); }
+#settings-page #radio-settings .radio-scan-auto-state { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ss-text-secondary); }
+#settings-page #radio-settings .radio-scan-auto-state[data-tone='danger'] { color: var(--ss-danger); }
+#settings-page #radio-settings .radio-scan-auto-state[hidden] { display: none; }
+#settings-page #radio-settings .radio-scan-auto-controls { display: flex; align-items: flex-end; gap: 16px; }
+#settings-page #radio-settings .radio-scan-auto-controls[hidden] { display: none; }
+#settings-page #radio-settings .radio-scan-auto-cap { display: flex; flex-direction: column; gap: 6px; width: 160px; }
+#settings-page #radio-settings .radio-scan-auto-cap .radio-suffix { display: block; }
 #settings-page #radio-settings .radio-scan-status { padding: 0 24px; }
 #settings-page #radio-settings .radio-scan-status:empty { display: none; }
 #settings-page #radio-settings .radio-scan-status:not(:empty) { padding: 12px 24px 16px; border-top: 1px solid var(--ss-hairline); }
@@ -377,6 +396,9 @@
     #settings-page #radio-settings .radio-scan-fields { grid-template-columns: 1fr; padding: 12px 16px 16px; }
     #settings-page #radio-settings .radio-scan-field-actions > .radio-button { flex: 1 1 0; }
     #settings-page #radio-settings .radio-scan-status:not(:empty) { padding: 12px 16px; }
+    #settings-page #radio-settings .radio-scan-auto { grid-template-columns: 1fr; padding: 16px; }
+    #settings-page #radio-settings .radio-scan-auto-controls { justify-content: space-between; }
+    #settings-page #radio-settings .radio-scan-auto-cap { flex: 1 1 auto; width: auto; max-width: 200px; }
     #settings-page #radio-settings .radio-scan-foot { padding: 16px; }
 }
 
