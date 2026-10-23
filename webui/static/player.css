@@ -1359,23 +1359,41 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
 
 /* ── radio (build e; boards 4a, 4i, 4j) ─────────────────────────────────
    src/shell/player-radio.ts fills the seam: the identified track and ONE
-   action in the bar's slot, Station and Stop on the right, Add and Stop on
-   the phone's mini bar, and the station's card in the sheet. While a station
-   plays (data-source="radio") the queue, Expand, Pause, the record, the deck
-   and the list step aside. */
+   action in the bar's slot, Station, Stop and Expand on the right, Add and
+   Stop on the phone's mini bar, and the station's card in the sheet. While a
+   station plays (data-source="radio") the queue, Pause and the music
+   columns step aside; the tray shows radio's own three columns
+   (.ss-player-radio-tray; Ross, 2026-10-23, reversing 4a's "no tray"). */
 .ss-player-radio-only { display: none !important; }
 .ss-player[data-source='radio'] .ss-player-radio-only { display: inline-flex !important; }
 .ss-player[data-source='radio'] [data-player-upnext],
-.ss-player[data-source='radio'] .ss-player-bar .ss-player-ghost[data-player-toggle],
 .ss-player[data-source='radio'] .ss-player-bar .ss-player-output-icon,
 .ss-player[data-source='radio'] .ss-player-centre [data-player-action='toggle'],
 .ss-player[data-source='radio'] .ss-player-mini-play,
-.ss-player[data-source='radio'] .ss-player-record,
-.ss-player[data-source='radio'] .ss-player-deck,
-.ss-player[data-source='radio'] .ss-player-list,
+.ss-player[data-source='radio'] .ss-player-tray > .ss-player-record,
+.ss-player[data-source='radio'] .ss-player-tray > .ss-player-deck,
+.ss-player[data-source='radio'] .ss-player-tray > .ss-player-list,
 .ss-player[data-source='radio'] .ss-player-sheet-head .ss-player-sheet-title { display: none !important; }
+/* the radio columns: only while a station plays, and only in the tray (the
+   phone keeps its sheet, 11d) */
+.ss-player-radio-tray { display: none; }
+.ss-player[data-source='radio'] .ss-player-radio-tray { display: contents; }
+/* Player settings from the "…" opens in the music list's place, as for music;
+   "Back to the station" brings radio's list back */
+.ss-player[data-source='radio'][data-list-view='settings'] .ss-player-tray > .ss-player-list { display: flex !important; }
+.ss-player[data-source='radio'][data-list-view='settings'] .ss-player-rtray-list { display: none; }
+
+/* the bar's centre is fluid (Ross, 2026-10-23): the meter and the track block
+   share the room between the station and the controls, the meter at least
+   120px and its bars counted from its width (player-radio.ts); under 1180px
+   the meter gives way first, then the track block's ellipsis (phase 1) */
 .ss-player[data-source='radio'] .ss-player-centre { justify-content: flex-end; }
-.ss-player[data-source='radio'] .ss-player-meter:not(.ss-player-meter--deck) { flex: 0 1 160px; }
+.ss-player[data-source='radio'] .ss-player-bar .ss-player-meter:not(.ss-player-meter--deck) {
+    flex: 1 1 0;
+    min-width: 120px;
+    max-width: 960px;
+    height: 32px;
+}
 .ss-player-action-slot { align-items: center; gap: 16px; min-width: 0; }
 /* the slot may shrink in radio mode: the track block gives way (with an
    ellipsis) before the bar's centre spills into the station's name */
@@ -1389,9 +1407,12 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     text-align: right;
 }
 .ss-player-radio-now > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* the track block may take the meter's room so the source phrase shows (11a) */
-.ss-player-bar .ss-player-radio-now { flex: 0 1 auto; max-width: 440px; }
-.ss-player[data-source='radio'] .ss-player-bar .ss-player-meter:not(.ss-player-meter--deck) { min-width: 48px; flex-shrink: 4; }
+/* the track block may take the meter's room so the source phrase shows (11a);
+   on a wide window it has real width (up to 560px) before it ellipsises */
+.ss-player-bar .ss-player-radio-now { flex: 0 1 auto; max-width: clamp(240px, 30vw, 560px); }
+@media (max-width: 1180px) {
+    .ss-player[data-source='radio'] .ss-player-bar .ss-player-meter:not(.ss-player-meter--deck) { min-width: 48px; flex-shrink: 4; }
+}
 .ss-player-radio-add {
     display: inline-flex;
     align-items: center;
@@ -1540,6 +1561,8 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
    the head's 44px Close; the deck stays hidden (the sheet draws its volume). */
 .ss-player[data-source='radio'] .ss-player-sheet-row { display: none !important; }
 .ss-player[data-source='radio'] .ss-player-radio { display: flex !important; }
+/* the sheet's card is the phone's only: the desktop tray has its columns */
+html:not([data-player-sheet]) .ss-player[data-source='radio'] .ss-player-radio { display: none !important; }
 .ss-player-radio { flex-direction: column; gap: 16px; }
 .ss-player-radio-body { display: flex; flex-direction: column; gap: 16px; }
 .ss-player-radio-head { display: flex; align-items: center; gap: 12px; }
@@ -1736,3 +1759,168 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
 }
 
 .ss-player-radio-auto-text .ss-player-meta { white-space: normal; overflow: visible; text-overflow: clip; }
+
+/* ── radio in the tray (Ross, 2026-10-23; no board: 6a's tray with radio's
+   content, HANDOFF "Dev, radio in the expanded player") ───────────────────
+   The record: the station's 112px logo (its letters under it, our logo route
+   fading in over them), "Now playing · found by AudD", the title at 18/600,
+   the artist as a link to Search, the release; the readout (Stream, Path);
+   Add to Wanted or the tag, and "…". The deck: the 72px meter, Live and the
+   time listened, Stop and the stream, Scan now (132px), the scan's words,
+   volume and output. The list: Heard today (N) / Recent stations, the
+   auto-add row, "All of it on NTS 1's page". */
+.ss-player-rtray-logo { position: relative; }
+.ss-player-rtray-letters {
+    color: var(--ss-text);
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+.ss-player-rtray-logo img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+.ss-player-rtray-logo img.is-loaded { opacity: 1; }
+.ss-player-rtray-action { display: inline-flex; align-items: center; min-width: 0; }
+.ss-player-rtray-deck .ss-player-meter--deck { height: 72px; }
+.ss-player-rtray-row { flex-wrap: wrap; row-gap: 8px; }
+.ss-player-rtray-live { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.ss-player-rtray-listened { font-size: 14px; color: var(--ss-text-meta); white-space: nowrap; }
+.ss-player-rtray-listened .ss-player-time { color: var(--ss-text); }
+.ss-player-rtray-deck .ss-player-transport { gap: 12px; }
+.ss-player-rtray-stream { max-width: 240px; }
+.ss-player-rtray-stream[hidden] { display: none; }
+.ss-player-rtray-scan { display: inline-flex; }
+/* the scan while it runs, and its not-found or failed line: the sheet's card (11d) */
+.ss-player-rtray-scanwords {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: -4px;
+    padding: 10px 14px;
+    border: 1px solid var(--ss-surface-card-border);
+    border-radius: var(--ss-radius-card);
+    background: var(--ss-surface-card);
+}
+.ss-player-rtray-scanwords[hidden] { display: none; }
+.ss-player-rtray-scanwords p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ss-text-tertiary); }
+.ss-player-rtray-scanwords p[data-tone='danger'] { color: var(--ss-danger); }
+.ss-player-rtray-volume { width: 140px; }
+/* the list: Heard rows `48px 1fr auto` (time, title over the line, Add or
+   the state in words), station rows `40px 1fr auto` (logo, name over its
+   line, Play or the Playing tag) */
+.ss-player-rtray-row-heard,
+.ss-player-rtray-row-station {
+    position: relative;
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    min-height: 56px;
+    padding: 6px 12px;
+}
+.ss-player-rtray-row-station { grid-template-columns: 40px minmax(0, 1fr) auto; }
+.ss-player-rtray-row-heard + .ss-player-rtray-row-heard,
+.ss-player-rtray-row-station + .ss-player-rtray-row-station { border-top: 1px solid var(--ss-hairline); }
+.ss-player-rtray-row-heard:hover,
+.ss-player-rtray-row-station:hover { background: var(--ss-row-hover); }
+.ss-player-rtray-row-station[aria-current='true'] { background: var(--ss-selected-fill); box-shadow: inset 0 0 0 1px var(--ss-selected-border); }
+.ss-player-rtray-time { font-family: var(--ss-player-mono); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ss-text-meta); }
+.ss-player-rtray-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ss-player-rtray-text > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-player-rtray-title { font-size: 15px; font-weight: 500; color: var(--ss-text); }
+.ss-player-rtray-meta { font-size: 14px; color: var(--ss-text-meta); }
+.ss-player-rtray-status { font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--ss-text-meta); }
+.ss-player-rtray-status[data-tone='success'] { color: var(--ss-success); }
+.ss-player-rtray-status[data-tone='info'] { color: var(--ss-info); }
+.ss-player-rtray-status[data-tone='warning'] { color: var(--ss-warning); }
+.ss-player-rtray-row-heard .ss-player-radio-add { min-height: 44px; padding: 0 14px; }
+.ss-player-rtray-play {
+    border: 1px solid var(--ss-control-border);
+    background: var(--ss-control-fill);
+}
+.ss-player-rtray-play:hover:not(:disabled) { background: var(--ss-control-fill-hover); }
+.ss-player-rtray-stationlogo {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    overflow: hidden;
+    border-radius: var(--ss-radius-tag);
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--ss-text);
+    font-size: 13px;
+    font-weight: 700;
+}
+.ss-player-rtray-stationlogo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 120ms ease; }
+.ss-player-rtray-stationlogo img.is-loaded { opacity: 1; }
+.ss-player-rtray-auto { flex: none; }
+.ss-player-rtray-auto:empty { display: none; }
+.ss-player-rtray-auto .ss-player-radio-auto { padding-top: 8px; border-top: 1px solid var(--ss-hairline); }
+.ss-player-rtray-auto .ss-player-radio-auto-title,
+.ss-player-rtray-auto .ss-player-radio-auto-text .ss-player-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the confirm (9c) takes the list's room while it's up, and scrolls there */
+.ss-player-rtray-list:has(.ss-player-radio-confirm) .ss-player-view { display: none; }
+.ss-player-rtray-list:has(.ss-player-radio-confirm) .ss-player-rtray-auto { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.ss-player-rtray-auto .ss-player-radio-confirm { gap: 10px; padding: 12px 14px; }
+.ss-player-rtray-auto .ss-player-radio-confirm-actions { flex-direction: row; }
+.ss-player-rtray-auto .ss-player-radio-confirm-actions > * { flex: 1 1 auto; width: auto; }
+.ss-player-rtray-list [data-player-rtray-foot] a { color: rgb(var(--ss-accent-light-rgb)); text-decoration: none; font-weight: 500; display: inline-flex; align-items: center; min-height: 32px; }
+.ss-player-rtray-list [data-player-rtray-foot] a:hover { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) {
+    .ss-player-rtray-logo img,
+    .ss-player-rtray-stationlogo img { transition: none; }
+}
+@media (max-width: 768px) {
+    .ss-player-radio-tray { display: none !important; }
+}
+
+/* the bar's and the mini bar's art in radio mode: the station's letters,
+   with its logo over them once loaded; a logo that fails leaves the letters,
+   never the broken-image glyph (Ross, 2026-10-23) */
+.ss-player-art-letters { font-size: 13px; font-weight: 700; color: var(--ss-text); letter-spacing: 0.02em; }
+.ss-player-art img:not([hidden]) ~ .ss-player-art-letters { display: none; }
+.ss-player-art:has(.ss-player-art-letters:not([hidden])) .ss-player-art-fallback { display: none; }
+/* the meter's bars at a whole-pixel width from its width (player-radio.ts), centred */
+.ss-player-meter[style*='--meter-bar'] { justify-content: center; }
+.ss-player-meter[style*='--meter-bar'] > span { flex: 0 0 var(--meter-bar); }
+/* a logo tile's letters stay under its image (radio cards' rule, HANDOFF 55) */
+.ss-player-logo-letters { position: relative; }
+/* the sheet's Visuals row is a button drawn as the link rows */
+button.ss-player-radio-heard {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-top: 1px solid var(--ss-hairline);
+    background: transparent;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+}
+/* a loaded logo covers its letters (the radio cards' rule) */
+.ss-player-rtray-logo:has(img.is-loaded) .ss-player-rtray-letters,
+:is(.ss-player-radio-logo, .ss-player-rtray-stationlogo):has(img.is-loaded) .ss-player-logo-letters { visibility: hidden; }
+/* the radio list's head carries two tabs, so its Collapse is the 44px icon
+   (named "Collapse"; HANDOFF question 141) */
+.ss-player-rtray-list .ss-player-collapse { width: 44px; padding: 0; justify-content: center; }
+.ss-player-rtray-list .ss-player-collapse-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* the overlay's transport follows the player's kinds: a hidden control is
+   gone (radio has no Previous or Next there either) */
+#np-modal-overlay [hidden] { display: none !important; }
+/* the confirm in the tray's list: tighter, so its question shows at 360px */
+.ss-player-rtray-list:has(.ss-player-radio-confirm) [data-player-rtray-foot] { display: none; }
+.ss-player-rtray-auto .ss-player-radio-confirm-title { font-size: 15px; }
+.ss-player-rtray-auto .ss-player-radio-confirm-guard { font-size: 13px; line-height: 1.4; }
+.ss-player-rtray-auto .ss-player-radio-tile { padding: 6px 10px; }
+.ss-player-rtray-auto .ss-player-radio-tile-label { font-size: 13px; }
+.ss-player-rtray-auto .ss-player-radio-tile-value { font-size: 18px; }

@@ -312,3 +312,23 @@ describe('podcast and audiobook progress words (HANDOFF 46)', () => {
     ).toBe('Quiet Rooms · 23 min left');
   });
 });
+
+describe('the radio meter fills its width (Ross, 2026-10-23)', () => {
+  it('counts a bar every 6px (8 in the deck), 12 to 160, 24 before layout', async () => {
+    const { meterBarCount, meterBarWidth, meterBin } = await import('./player-state');
+    expect(meterBarCount(0)).toBe(24);
+    expect(meterBarCount(Number.NaN)).toBe(24);
+    expect(meterBarCount(120)).toBe(20);
+    expect(meterBarCount(598)).toBe(100);
+    expect(meterBarCount(688, 8)).toBe(86);
+    expect(meterBarCount(40)).toBe(12);
+    expect(meterBarCount(4000)).toBe(160);
+    // whole-pixel bars so they draw crisply
+    expect(meterBarWidth(598, 100)).toBe(4);
+    expect(meterBarWidth(0, 10)).toBe(0);
+    // the bins spread logarithmically, from 1 to the top
+    expect(meterBin(0, 20, 57)).toBe(1);
+    expect(meterBin(19, 20, 57)).toBe(57);
+    expect(meterBin(10, 20, 57)).toBeLessThan(57 / 2);
+  });
+});

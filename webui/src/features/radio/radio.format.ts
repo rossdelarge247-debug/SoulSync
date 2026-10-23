@@ -225,3 +225,62 @@ export function playerAction(
   if (np.on_wanted) return 'on_wanted';
   return np.heard_id ? 'add' : 'adding_disabled';
 }
+
+/** The whole name's possessive, for a link to the station's page: "NTS 1’s", "KEXP’s". */
+export function stationPossessive(name: string): string {
+  const n = name.trim();
+  return /s$/i.test(n) ? `${n}’` : `${n}’s`;
+}
+
+/**
+ * The expanded player's mono readout (the tray's radio mode): the stream the
+ * player has and the path, "AAC 256 kbps · relayed" or "FLAC · direct".
+ */
+export function streamReadout(
+  stream: { label?: string; codec?: string; bitrate_kbps?: number; lossless?: boolean } | null,
+  station: Pick<Station, 'quality'> | null,
+  mode: 'direct' | 'relay' | null,
+): string {
+  let quality = '';
+  if (stream?.lossless) quality = stream.codec || 'FLAC';
+  else if (stream?.codec && stream.bitrate_kbps)
+    quality = `${stream.codec} ${stream.bitrate_kbps} kbps`;
+  else if (stream?.label) quality = stream.label.replace(' (best offered)', '');
+  else if (station) quality = qualityText(station);
+  const path = mode === 'relay' ? 'relayed' : mode === 'direct' ? 'direct' : '';
+  return [quality, path].filter(Boolean).join(' · ') || '—';
+}
+
+/** Heard rows from today in the browser's day, newest first. */
+export function heardToday<T extends Pick<HeardItem, 'heard_at'>>(
+  items: T[],
+  now = Date.now(),
+): T[] {
+  const today = new Date(now).toDateString();
+  return items
+    .filter((i) => new Date(i.heard_at * 1000).toDateString() === today)
+    .sort((a, b) => b.heard_at - a.heard_at);
+}
+
+/**
+ * One Heard row in the expanded player's list: the title and the line (the
+ * same source phrase as the bar, HANDOFF 58), and either the one thing to do
+ * (Add, or Upgrade for a copy below your target) or the state in words.
+ */
+export function heardRowView(item: HeardItem): {
+  title: string;
+  line: string;
+  action: 'add' | 'upgrade' | null;
+  status: HeardTag | null;
+} {
+  const named = item.state !== 'not_identified' && Boolean(item.title);
+  const title = named ? (item.title as string) : 'Not identified';
+  const dur = durationWords(item.duration_s);
+  const line = named
+    ? [item.artist, item.release, sourcePhrase(item.source)].filter(Boolean).join(' · ')
+    : `${dur[0]!.toUpperCase()}${dur.slice(1)} · probably a mix or talk`;
+  if (item.state === 'not_added') return { title, line, action: 'add', status: null };
+  if (item.state === 'in_library' && item.below_target)
+    return { title, line, action: 'upgrade', status: null };
+  return { title, line, action: null, status: heardTag(item) };
+}
