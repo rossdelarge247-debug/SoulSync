@@ -1281,10 +1281,10 @@
 }
 
 /* while the selection bar is up, the floating help, bell and activity
-   buttons ride above it instead of covering Done */
+   buttons ride above it instead of covering Done (phones have none) */
 :global(body:has([data-selection-bar]))
   :global(:is(.notif-bell-btn, .helper-float-btn, .activity-float-btn)) {
-  bottom: calc(104px + var(--ss-player-h, 0px)) !important;
+  translate: 0 -80px;
 }
 
 .primaryShort {
@@ -1292,11 +1292,6 @@
 }
 
 @media (max-width: 640px) {
-  :global(body:has([data-selection-bar]))
-    :global(:is(.notif-bell-btn, .helper-float-btn, .activity-float-btn)) {
-    bottom: calc(88px + var(--ss-tabbar-h, 64px)) !important;
-  }
-
   .primaryLong {
     display: none;
   }
