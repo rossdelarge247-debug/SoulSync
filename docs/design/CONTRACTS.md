@@ -355,6 +355,14 @@ What the data can't say: a release's full tracklist without fetching it (so "132
 
 **Also used by the pages, unchanged:** `GET`, `POST` `/api/automations`; `GET`, `PUT`, `DELETE` `/api/automations/<id>`; `POST /api/automations/<id>/run`, `/toggle` and `/duplicate`; `POST /api/automations/bulk-toggle`; `PUT /api/automations/group`; `GET /api/automations/blocks`, `/progress` and `/master` (and `POST /master`, admins); `POST /api/automations/test-notify`; `GET /api/scripts`; `GET /api/mirrored-playlists/list`.
 
+### Accent per profile (Settings → Appearance 5f; HANDOFF 35)
+
+Built on `ux/evening-2`. Each profile picks its own accent; the install's accent (`ui_appearance.accent_preset` / `accent_color` in `GET`/`POST /api/settings`, admins) is the default for profiles that haven't picked.
+
+**`GET /api/profiles/me/appearance`** → `{success, accent, install_accent, effective_accent, is_admin}`. `accent` is the signed-in profile's own pick (`"#rrggbb"`) or `null` (follows the install's); `effective_accent` is what that profile sees. **`PUT /api/profiles/me/appearance`** `{accent: "#rrggbb" | null}` → the same. Three-digit and upper-case hex are accepted and stored as `#rrggbb`; a value that isn't a hex colour, or one whose light shade doesn't give dark text 4.5:1, is 400 `{error}` and nothing changes. Always the session's own profile (a header, query or body profile id is ignored, admins included); 401 without one. Stored in the new column `profiles.accent_color` (NULL for every profile on upgrade, so nobody's colour changes); it isn't in `GET /api/profiles` or `/api/profiles/current`.
+
+**The page shell** paints the viewing profile's accent (its pick, else the install's) in its inline `:root` style and hands it to `init.js` as `window._initialAccent`, which applies it at boot instead of the colour this browser kept last. The profile picker and the sign-in screen get the install's accent.
+
 ### The Assistant (boards 3a–3l, Settings → AI 5a)
 
 Code: `api/ai.py` (routes), `core/ai/` (settings, context, prompt, provider, drafts, suggestions, usage), `webui/src/routes/automations/-automations.assistant.ts` (client) and `-automations.conversation.ts` (the conversation in the browser).
@@ -388,6 +396,7 @@ Code: `api/ai.py` (routes), `core/ai/` (settings, context, prompt, provider, dra
             {"value": "best", "label": "Best answers", "name": "Claude Opus", "description": "…"}]}
 ```
 
+- `usage.profiles` (built on `ux/evening-2`, HANDOFF 39; here only, never in `/api/ai/status`): `{month, rows: [{profile_id, name, requests, estimated_cost_usd}], unattributed: {requests, estimated_cost_usd} | null}`, this month per profile, most expensive first. `unattributed` is what the install's total holds beyond the rows (requests from before per-profile counting began on this release, or from a profile since deleted), so rows plus it add up to the total. Settings → AI shows the table while `who_can_use` is `everyone`. The cap stays one figure for the install. Kept in the new table `ai_usage_profiles` (month, profile).
 - `PUT` takes any of `{provider, api_key, model, who_can_use: "admins"|"everyone", monthly_cap_usd}` (`null` or `""` clears the cap). A bad value is `400` with the sentence to show; nothing is saved.
 - `api_key` is write-only: it's stored encrypted with the app's other secrets and never returned, here or by `GET /api/settings`, `/api/v1/settings` or the debug info (which says only whether one is set). An empty `api_key` leaves the saved one alone. A new key resets `key_status.state` to `untested`.
 - `key_status.state` is `missing`, `untested`, `ok` or `refused`.
@@ -457,11 +466,20 @@ Three reads for the bar and tray (`api/player.py`). All need a profile (401 `pro
 ]}
 ```
 
+- Every item has a `kind`: `music`, `podcast` or `audiobook` (HANDOFF 46: Recent shows every kind). Podcast and audiobook items are this profile's plays of them, shaped as in `GET /api/player/plays` below (`media_id`, `subtitle`, `src`, `image_url`, `duration_s`, `position_s`, `finished`, `played_at`); the player plays one again with its `src`, from where you left it.
 - The web player's own plays from the listening history (`server_source` `soulsync_web`), newest first, in the caller's listening pile (`core/listening_scope.py`), so it matches Library → Listening history. `played_at` is UTC. `limit` is 1–50 (20 by default). A track played twice in a row shows once; explicit tracks are left out for a profile limited to clean tracks. `track_id` is `null` for a play whose track has left the library; those rows can't be played again.
+
+**Podcast and audiobook progress and plays** (built on `ux/evening-2`, HANDOFF 46; `core/playback/spoken.py`). Always the session's own profile: a header, query or body profile id is never read, admins included. All need a profile (401). `kind` is `podcast` or `audiobook`; `media_id` is what the page calls the item (an episode's guid, else its address; an audiobook's ASIN), up to 512 characters. A bad body is 400 `{error}`.
+
+- `PUT /api/player/progress` `{kind, media_id, position_s, duration_s?, ended?}` → `{progress: {position_s, duration_s, finished, resume_at, updated_at}}`. The player sends it every 15 s while an item plays, on pause, at the end (`ended: true`), when another item takes over, and (as a `POST`, by `sendBeacon`) when the page closes. Finished means `ended`, or within the last 5% of the length (at least 10 s, at most a minute); a finished item's `resume_at` is 0, and so is one under 5 s in. Saving a position far from the end makes it unfinished again.
+- `GET /api/player/progress?kind=&id=` → `{items: {<media_id>: progress}}` for one item; `POST /api/player/progress/lookup` `{kind, ids: [...]}` (up to 100; a POST because episode ids are often whole addresses) → the same for a page of items. Items never started aren't in `items`.
+- `POST /api/player/plays` `{kind, media_id, title, subtitle?, art_url?, src?, duration_s?}` → `{play_id}`: the player sends it once an item has played 10 s. The same item again within half an hour is the same play (its time moves up). `src` is kept only when it's an http(s) address or the server's own `/api/audiobooks/sample-proxy` / `/api/podcasts/audio-proxy`; `art_url` only when it's http(s) or our own `/api/…`.
+- `GET /api/player/plays?kind=podcast|audiobook&limit=50` (1–100) → `{items: [{play_id, kind, media_id, title, subtitle, image_url, src, duration_s, played_at, position_s, finished}]}`, newest first: Library → Listening history's Podcasts and Audiobooks.
+- New tables `media_progress` (profile, kind, item) and `media_plays`. They're apart from `listening_history` on purpose: Stats, smart radio, the history importers and Last.fm / ListenBrainz scrobbling stay music only. Deleting a profile removes its rows.
 
 **Output devices:** nothing on the server. The browser lists what it can switch to (`src/shell/player-output.ts`): `setSinkId` with `enumerateDevices` in Chrome and Edge, the browser's own picker in Firefox (`selectAudioOutput`), the AirPlay picker in Safari. The button hides when the browser offers nothing (fewer than two outputs, or no API). Playing on a Plex, Jellyfin or Navidrome client, or Chromecast, isn't proposed yet.
 
-**Unchanged:** the queue stays in the browser as the player kept it; podcasts and audiobooks keep their own routes (the stream address and the PodcastIndex chapters URL go to the player as they are).
+**Unchanged:** the queue stays in the browser as the player kept it; podcasts and audiobooks keep their own routes for finding and fetching (the stream address and the PodcastIndex chapters URL go to the player as they are).
 
 ### Internet radio (boards 4a–4k, Settings → Radio 5b–5d)
 
@@ -473,7 +491,7 @@ Everything is behind the "Internet radio" module (`radio` in `GET /api/modules`,
 
 ```json
 {"id": "nts-1", "name": "NTS 1", "kind": "eclectic", "kind_label": "Eclectic tastemakers", "genre": "Eclectic",
- "city": "London", "country": "United Kingdom", "logo_url": "", "logo_text": "", "homepage": "https://www.nts.live/",
+ "city": "London", "country": "United Kingdom", "logo_url": "/api/radio/stations/nts-1/logo?v=3f9a0c21de", "logo_text": "", "homepage": "https://www.nts.live/",
  "description": "…plain text…", "source": "built_in", "favourite": true, "auto_add": false,
  "has_now_playing": true, "has_tracklists": true,
  "quality": {"codec": "MP3", "bitrate_kbps": 256, "lossless": false, "label": "MP3 256 kbps"},
@@ -481,6 +499,8 @@ Everything is behind the "Internet radio" module (`radio` in `GET /api/modules`,
  "streams": [{"id": "mp3-256", "codec": "MP3", "bitrate_kbps": 256, "lossless": false, "label": "MP3 256 kbps (best offered)"}]}
 ```
 
+- `logo_url` is always our own address, `/api/radio/stations/<id>/logo?v=<tag>` (the tag changes when the station's logo address does), or `""` when the station has none. The browser never loads a logo from the station's host. Show the station's letters (`logo_text`, else from the name) while it loads and when it answers 404.
+- **`GET /api/radio/stations/<id>/logo`** (built on `ux/evening-2`, HANDOFF 55): the logo, fetched and cached by the server. Only a station the server resolved itself (a built-in pick's https `logo_url` from `stations.json`, a directory station's Radio Browser `favicon` looked up again by uuid, or the logo address an admin gave a link), and only that station's own logo: no address is ever taken from the request. Fetched through the outbound guard; raster images only, told by their first bytes (PNG, JPEG, GIF, WebP, ICO; never SVG); 512 KB and 4096 px a side at most. Answers carry the image's real type, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox` and `Cache-Control: private, max-age=86400`. Cached on disk under `storage/radio_logos` (16 MB in all, oldest out first, a week); a logo that couldn't be fetched isn't asked for again for six hours. 404 `no_logo` for no logo or one that couldn't be used; 401 without a profile.
 - `GET /api/radio/stations` → `{favourites, kinds: [{kind, label, blurb, stations}], heard_count, session, identification, is_admin}`. Kinds in the order electronic, world, eclectic, jazz_soul_funk. Favourites are the profile's, then every admin's link (`source: "your_link"`, with `link_ok`). `session` is this profile's listening session (`{session_id, station_id, mode, stream_id}`) or null. Stream addresses are never in these answers.
 - `GET /api/radio/stations/<id>` → `{station, now_playing, session, heard_today: {identified, not_identified}, identification, is_admin, can_download}`.
 - `POST` / `DELETE /api/radio/favourites/<id>`, per profile. A directory favourite keeps a snapshot of what the directory said, so Favourites draws it and it still plays when the directory is down.
@@ -542,9 +562,9 @@ Everything is behind the "Internet radio" module (`radio` in `GET /api/modules`,
 - `POST /api/radio/shows/<id>/want` `{position}` adds one row; `POST /api/radio/shows/<id>/want-missing` → `{added, skipped}`.
 
 **Your stream links (admins)**
-- `GET /api/radio/links` → `{links: [{id, station_id, name, url, kind, codec, bitrate_kbps, sends_titles, check_ok, checked_at, check_error, added_by, added_at}]}`.
+- `GET /api/radio/links` → `{links: [{id, station_id, name, url, kind, codec, bitrate_kbps, sends_titles, check_ok, checked_at, check_error, added_by, added_at, logo_url}]}`. `logo_url` is the logo address the admin gave, or `null` (new column `radio_links.logo_url`).
 - `POST /api/radio/links/check` `{url}` → `{ok, codec, bitrate_kbps, sends_titles, allows_direct, answered_in_s, error}`: the server listens for a few seconds. The only routes that take an address from a request; private, loopback, link-local and multicast addresses are refused before and after DNS and on every redirect.
-- `POST /api/radio/links` `{url, name, kind}` runs the check again and adds only when it passes; `POST /api/radio/links/<id>/check`; `DELETE /api/radio/links/<id>` (also drops it from favourites and auto-add).
+- `POST /api/radio/links` `{url, name, kind, logo_url?}` runs the check again and adds only when it passes; an optional `logo_url` is checked the same way (an http(s) address on the internet) and fetched once, and has to be a raster image under the limits above, else 400 `logo_failed` with the sentence to show and nothing is added; `POST /api/radio/links/<id>/check`; `DELETE /api/radio/links/<id>` (also drops it from favourites and auto-add).
 
 **Settings (admins): `GET`, `PUT /api/radio/settings`** → `{settings: {identification, daily_limit, relay: "when_needed"|"always", prefer_lossless, keep_heard_days: 7|30|90|365, acoustid_api_key: {set, masked}, scan_services: {audd_api_token: {set}, acrcloud_host: {set}, acrcloud_access_key: {set}, acrcloud_access_secret: {set}, audd_ready, acrcloud_ready}}, status: {fpcalc: {found, detail}, acoustid: {state: "missing"|"untested"|"ok"|"refused"|"unreachable", detail, checked_at}}, auto_add: {stations, added_this_week}, links, scan: {order: ["acoustid", "audd", "acrcloud"], labels, ready: {acoustid, audd, acrcloud}, usage: {acoustid: {requests, found}, …}, month: "October", available}}`. `PUT` takes any of those keys; `acoustid_api_key` is the existing `acoustid.api_key`, write-only (an empty one leaves it alone). `audd_api_token`, `acrcloud_host`, `acrcloud_access_key` and `acrcloud_access_secret` are write-only too (`radio.*` in the config, encrypted with the app's other secrets and masked in every settings read, `/api/v1/settings` included); the host must be a name under `acrcloud.com` (`identify-eu-west-1.acrcloud.com`). `remove: ["audd"]` or `["acrcloud"]` clears a service's keys. `usage` counts this month's requests each service was sent (scans and paid tests) and how many found the track. A bad value is 400 and nothing is saved.
 
