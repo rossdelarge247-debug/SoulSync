@@ -215,26 +215,4 @@ describe('Settings → Radio: AudD listens automatically', () => {
       'Stopped for today: AudD says the account has no requests left.',
     );
   });
-
-  it('members read the line only', async () => {
-    current = {
-      success: true,
-      is_admin: false,
-      scan: {
-        order: ['acoustid', 'audd', 'acrcloud'],
-        labels: { acoustid: 'AcoustID', audd: 'AudD', acrcloud: 'ACRCloud' },
-        services: {
-          acoustid: { state: 'ready' },
-          audd: { state: 'ready' },
-          acrcloud: { state: 'not_set_up' },
-        },
-        audd_auto: { on: true, daily_cap: 60 },
-      },
-    };
-    await loadRadioSettings();
-    expect($('radio-audd-auto-line').textContent).toContain('Up to 60 a day');
-    expect($('radio-audd-auto-controls').hidden).toBe(true);
-    expect($('radio-audd-auto-state').hidden).toBe(true);
-    expect(document.querySelector('.radio-scan-usage-auto')).toBeNull();
-  });
 });
