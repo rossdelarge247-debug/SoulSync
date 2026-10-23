@@ -28,7 +28,11 @@ _ORB = (_WL / "-ui" / "wishlist-orb.tsx").read_text(encoding="utf-8", errors="re
 _WANTED = _ROOT / "webui" / "src" / "routes" / "wanted"
 _WANTED_TAB = (_WANTED / "-ui" / "wanted-tab.tsx").read_text(encoding="utf-8", errors="replace")
 _WANTED_HELPERS = (_WANTED / "-wanted.helpers.ts").read_text(encoding="utf-8", errors="replace")
-_NEBULA = (_WANTED / "-ui" / "legacy-views.tsx").read_text(encoding="utf-8", errors="replace")
+_NEBULA = (_WANTED / "-ui" / "nebula-view.tsx").read_text(encoding="utf-8", errors="replace")
+_NEBULA_HELPERS = (_WANTED / "-wanted.nebula.ts").read_text(encoding="utf-8", errors="replace")
+# where the Wanted tab hands the nebula its props
+_NEBULA_CALL = _WANTED_TAB[_WANTED_TAB.index("<NebulaView"):]
+_NEBULA_CALL = _NEBULA_CALL[:_NEBULA_CALL.index("/>")]
 # the orb itself (one for music and video) lives in the shared parts
 _PARTS = (_WL / "-ui" / "nebula-parts.tsx").read_text(encoding="utf-8", errors="replace")
 # the artist detail moved out of the orb into a panel beside the nebula
@@ -70,10 +74,16 @@ def test_failing_filter_chip_is_wired():
     assert "{ key: 'not-found', label: 'Not found yet'" in _WANTED_TAB
     assert "tries >= WL_FAILING_ATTEMPTS ? 'not-found' : 'searching'" in _WANTED_HELPERS
     assert "filter === 'not-found' && (row.type !== 'wanted' || row.item.status !== 'not-found')" in _WANTED_HELPERS
-    # the nebula follows the same filter, and respects the rollup
-    assert "notFoundOnly={filter === 'not-found'}" in _WANTED_TAB
-    assert "notFoundOnly," in _NEBULA
-    assert "failingOnly && group.failingCount === 0" in _HELPERS
+    # the nebula follows the same filter, and respects the rollup. Since the
+    # board 9a redraw it takes the Show filter itself and draws one column per
+    # state: an artist is filed under its worst thing (not found first), so
+    # the "Not found yet" column is exactly the artists with something failing,
+    # and the other columns stand down while that filter is on.
+    assert "filter={filter}" in _NEBULA_CALL
+    assert "const WORST_FIRST: NebulaGroup[] = ['not-found', 'searching', 'found'];" in _NEBULA_HELPERS
+    assert "artist.group = WORST_FIRST.find((group) => states.has(group))" in _NEBULA_HELPERS
+    assert "artists: artists.filter((artist) => artist.group === group)" in _NEBULA_HELPERS
+    assert "hiddenBy={hiddenLabel && column.group !== filter ? hiddenLabel : null}" in _NEBULA
 
 
 def test_css_covers_every_class():
