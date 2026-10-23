@@ -239,6 +239,7 @@ export function AlbumsPage({ search, go }: { search: LibrarySearch; go: Go }) {
       </div>
       <div className={styles.headActions}>
         <FilterField
+          id="library-search-input"
           value={q}
           onChange={(next) => go({ q: next }, { replace: true })}
           placeholder={tab === 'genres' ? 'Filter genres' : 'Filter by title, artist or genre'}
@@ -544,7 +545,7 @@ export function AlbumsPage({ search, go }: { search: LibrarySearch; go: Go }) {
       ) : releasesQuery.isPending ? (
         <GridSkeleton />
       ) : releases.length ? (
-        <ul className={styles.grid} data-kind="albums" aria-label="Albums">
+        <ul className={styles.grid} id="library-albums-grid" data-kind="albums" aria-label="Albums">
           {groups}
         </ul>
       ) : (

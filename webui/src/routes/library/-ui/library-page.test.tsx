@@ -344,7 +344,7 @@ describe('Albums (7a)', () => {
     ).toBe('/artist-detail/library/1?album=1');
   });
 
-  it('the genre chips: the top seven, the rest under "N more", and a pick goes in the URL', async () => {
+  it('the genre chips: the top six, the rest under "N more", and a pick goes in the URL', async () => {
     const { router } = renderPage();
     await screen.findByText('Night Ferry');
     const row = screen.getByRole('group', { name: 'Genre' });
@@ -353,9 +353,10 @@ describe('Albums (7a)', () => {
         .getByRole('button', { name: /All\s*494/ })
         .getAttribute('aria-pressed'),
     ).toBe('true');
-    expect(within(row).getByRole('button', { name: /Classical\s*21/ })).toBeTruthy();
+    expect(within(row).getByRole('button', { name: /Post-rock\s*33/ })).toBeTruthy();
+    expect(within(row).queryByRole('button', { name: /^Classical/ })).toBeNull();
     expect(within(row).queryByRole('button', { name: /^Hip-hop/ })).toBeNull();
-    expect(within(row).getByRole('button', { name: /2 more/ })).toBeTruthy();
+    expect(within(row).getByRole('button', { name: /3 more/ })).toBeTruthy();
     fireEvent.click(within(row).getByRole('button', { name: /Ambient\s*48/ }));
     await waitFor(() => expect(lastReleases().get('genre')).toBe('ambient'));
     expect(router.state.location.search).toMatchObject({ view: 'albums', genre: 'ambient' });

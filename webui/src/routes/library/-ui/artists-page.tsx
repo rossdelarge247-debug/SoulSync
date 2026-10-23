@@ -158,6 +158,7 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
         </div>
         <div className={styles.headActions}>
           <FilterField
+            id="library-search-input"
             value={q}
             onChange={(next) => go({ q: next }, { replace: true })}
             placeholder="Filter by name or genre"
@@ -220,7 +221,12 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
       ) : query.isPending ? (
         <GridSkeleton count={12} />
       ) : artists.length ? (
-        <ul className={styles.grid} data-kind="artists" aria-label="Artists">
+        <ul
+          className={styles.grid}
+          id="library-artists-grid"
+          data-kind="artists"
+          aria-label="Artists"
+        >
           {artists.map((artist) => {
             const key = String(artist.id);
             const checked = picked.has(key);

@@ -185,9 +185,12 @@ export function FilterField({
   label,
   genres,
   onPickGenre,
+  id,
 }: {
   value: string;
   onChange: (next: string) => void;
+  /** The guided tour anchors to the library's field (helper.js). */
+  id?: string;
   placeholder: string;
   phonePlaceholder?: string;
   label: string;
@@ -246,6 +249,7 @@ export function FilterField({
       <label className={styles.filter}>
         <FunnelIcon />
         <input
+          id={id}
           type="text"
           value={draft}
           placeholder={narrow && phonePlaceholder ? phonePlaceholder : placeholder}
@@ -301,16 +305,17 @@ export function FilterField({
 }
 
 /**
- * The genre row: "All" with the grid's total, the top seven genres by count,
- * then "N more ▾" holding the rest (a picked genre that isn't in the top
- * seven takes the last place, so the pressed chip is always on show).
+ * The genre row: "All" with the grid's total, the top six genres by count
+ * (as 7a draws it, one row at 1440), then "N more ▾" holding the rest. A
+ * picked genre that isn't in the top six takes the last place, so the pressed
+ * chip is always on show.
  */
 export function GenreChips({
   genres,
   value,
   total,
   onChange,
-  top = 7,
+  top = 6,
 }: {
   genres: GenreCount[];
   value: string;
