@@ -102,6 +102,13 @@ describe('stats route', () => {
     expect(screen.getByText('24')).toBeInTheDocument();
     expect(window.SoulSyncWebShellBridge?.showReactHost).toHaveBeenCalledWith('stats');
     expect(window.SoulSyncWebShellBridge?.setActivePageChrome).toHaveBeenCalledWith('stats');
+    // 13a: the card is a short "Recently played" with the way to the whole history
+    expect(screen.getByText('Recently played')).toBeInTheDocument();
+    expect(screen.getByText('Track A')).toBeInTheDocument();
+    expect(screen.getByText('All of it in Listening history').getAttribute('href')).toBe(
+      '/library?view=history',
+    );
+    expect(screen.queryByText('Kind')).not.toBeInTheDocument();
   });
 
   it('still renders when listening stats status prefetch fails', async () => {

@@ -14,6 +14,7 @@ import { resolveLibrarySearch } from '../-library.types';
 import { Route } from '../route';
 import { AlbumsPage, type Go } from './albums-page';
 import { ArtistsPage } from './artists-page';
+import { HistoryPage } from './history-page';
 import styles from './library.module.css';
 
 /** Search params without the empty or default ones, so a default never sits in the URL. */
@@ -59,9 +60,10 @@ function UnmatchedImportsNotice() {
 }
 
 /**
- * Library → Artists (/library, its own sidebar row, 7f) and Library → Albums
- * (/library?view=albums, with its Genres tab, 7a–7e). Everything the grid
- * shows is in the URL: view, tab, show, genre, sort and the filter text.
+ * Library → Artists (/library, its own sidebar row, 7f), Library → Albums
+ * (/library?view=albums, with its Genres tab, 7a–7e) and Listening history
+ * (/library?view=history, 13a). Everything the grid shows is in the URL:
+ * view, tab, show, genre, sort and the filter text (and history's kind).
  */
 export function LibraryPage() {
   useReactPageShell('library');
@@ -91,6 +93,8 @@ export function LibraryPage() {
       <div ref={downloadsHost} data-library-downloads-host="" />
       {search.view === 'albums' ? (
         <AlbumsPage search={search} go={go} />
+      ) : search.view === 'history' ? (
+        <HistoryPage search={search} go={go} />
       ) : (
         <ArtistsPage search={search} go={go} />
       )}

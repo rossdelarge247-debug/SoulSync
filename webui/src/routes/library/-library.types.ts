@@ -49,12 +49,29 @@ function optional(value: unknown): string | undefined {
  * hand-typed or old link never takes the route down.
  */
 export const librarySearchSchema = z.object({
-  /** Which grid: Artists (its own sidebar row, the default) or Albums. */
+  /**
+   * Which page: Artists (its own sidebar row, the default), Albums, or
+   * Listening history (13a, its own row after Albums).
+   */
   view: z
-    .preprocess(
-      (v) => (searchString(v) === 'albums' ? 'albums' : undefined),
-      z.enum(['albums']).optional(),
-    )
+    .preprocess((v) => {
+      const s = searchString(v);
+      return s === 'albums' || s === 'history' ? s : undefined;
+    }, z.enum(['albums', 'history']).optional())
+    .catch(undefined),
+  /** Listening history's Kind (Music is the default). */
+  kind: z
+    .preprocess((v) => {
+      const s = searchString(v);
+      return s === 'podcast' || s === 'audiobook' ? s : undefined;
+    }, z.enum(['podcast', 'audiobook']).optional())
+    .catch(undefined),
+  /** Listening history's Range; absent means the one remembered per browser. */
+  range: z
+    .preprocess((v) => {
+      const s = searchString(v);
+      return s === 'today' || s === '7d' || s === '30d' || s === 'all' ? s : undefined;
+    }, z.enum(['today', '7d', '30d', 'all']).optional())
     .catch(undefined),
   /** Albums' two tabs (7a, 7e); Albums is the default. */
   tab: z
@@ -82,8 +99,11 @@ export type LibrarySearchParams = z.infer<typeof librarySearchSchema>;
 
 /** The URL's search with every default filled in, as the page reads it. */
 export interface LibrarySearch {
-  view: 'artists' | 'albums';
+  view: 'artists' | 'albums' | 'history';
   tab: 'albums' | 'genres';
+  kind: 'music' | 'podcast' | 'audiobook';
+  /** '' when the URL leaves it to the browser's remembered range. */
+  range: '' | 'today' | '7d' | '30d' | 'all';
   show: string;
   genre: string;
   sort: string;
@@ -94,6 +114,8 @@ export function resolveLibrarySearch(raw: LibrarySearchParams): LibrarySearch {
   return {
     view: raw.view ?? 'artists',
     tab: raw.tab ?? 'albums',
+    kind: raw.kind ?? 'music',
+    range: raw.range ?? '',
     show: raw.show ?? '',
     genre: raw.genre ?? '',
     sort: raw.sort ?? '',

@@ -160,12 +160,23 @@ describe('the URL', () => {
     expect(resolveLibrarySearch(raw)).toEqual({
       view: 'albums',
       tab: 'albums',
+      kind: 'music',
+      range: '',
       show: '',
       genre: 'ambient',
       sort: 'year',
       q: '',
     });
     expect(librarySearchSchema.parse({ view: 'nope', tab: 'x', q: 123 })).toEqual({ q: '123' });
+    // Listening history (13a): its kind and range, unknown values dropped
+    expect(librarySearchSchema.parse({ view: 'history', kind: 'podcast', range: '30d' })).toEqual({
+      view: 'history',
+      kind: 'podcast',
+      range: '30d',
+    });
+    expect(librarySearchSchema.parse({ view: 'history', kind: 'music', range: 'year' })).toEqual({
+      view: 'history',
+    });
     expect(pick('nope', ALBUM_SHOWS)).toBe('all');
     expect(pick('below', ALBUM_SHOWS)).toBe('below');
   });

@@ -928,6 +928,7 @@ describe('the markup', () => {
       'chat',
       'artists',
       'albums',
+      'history',
       'import',
       'stats',
       'podcasts',

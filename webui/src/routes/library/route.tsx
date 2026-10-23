@@ -39,6 +39,9 @@ export const Route = createFileRoute('/library')({
     // Warming the cache for the first paint, NOT a gate: a failure is the
     // page's own error state (the danger Notice over faded squares), never
     // the router's "Something went wrong".
+    // Listening history reads its own routes on mount (its range is the
+    // browser's remembered one, which the loader can't see)
+    if (deps.view === 'history') return;
     if (deps.view === 'albums') {
       if (deps.tab === 'genres') return;
       await context.queryClient

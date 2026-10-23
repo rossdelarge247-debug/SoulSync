@@ -1,0 +1,496 @@
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+import { Button } from '@/components/form';
+import { Notice, Skeleton, StatusTag } from '@/components/primitives';
+import { playInAppPlayer } from '@/features/playback/app-player';
+import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
+import { useProfile } from '@/platform/shell/route-controllers';
+
+import type { LibrarySearch } from '../-library.types';
+import type { Go } from './albums-page';
+
+import {
+  HISTORY_KINDS,
+  HISTORY_PAGE_SIZE,
+  HISTORY_RANGES,
+  browserTz,
+  clockTime,
+  dayHead,
+  emptyTitle,
+  groupByDay,
+  historyCountsQueryOptions,
+  historyInfiniteQueryOptions,
+  historyMeta,
+  lengthWords,
+  plural,
+  readRememberedRange,
+  rememberRange,
+  sourcePhrase,
+  spokenParts,
+  widerRange,
+  type HistoryKind,
+  type HistoryRange,
+  type MusicHistoryPage,
+  type MusicPlay,
+  type SpokenHistoryPlay,
+} from '../-library.history';
+import styles from './history.module.css';
+import { CountBadge, FilterField, MoreMenu, PlayIcon } from './parts';
+
+function artistHref(play: MusicPlay): string | null {
+  return play.artist_id === null || play.artist_id === ''
+    ? null
+    : `/artist-detail/library/${encodeURIComponent(String(play.artist_id))}`;
+}
+
+function albumHref(play: MusicPlay): string | null {
+  const base = artistHref(play);
+  return base && play.album_id !== null && play.album_id !== ''
+    ? `${base}?album=${play.album_id}`
+    : null;
+}
+
+/** Queue a play after the current track (13a's Play; the engine says "Playing next"). */
+function queueNext(play: MusicPlay): void {
+  if (!play.track_id || !window.playNext) {
+    window.showToast?.("The player isn't ready yet. Try again in a moment.", 'error');
+    return;
+  }
+  window.playNext({
+    id: play.track_id,
+    title: play.title,
+    artist: play.artist,
+    album: play.album,
+    file_path: play.file_path,
+    artist_id: play.artist_id,
+    album_id: play.album_id,
+    image_url: play.image_url,
+    bitrate: play.bitrate,
+    duration: play.length_s,
+  });
+}
+
+function playSpoken(play: SpokenHistoryPlay): void {
+  if (!play.src) return;
+  playInAppPlayer({
+    kind: play.kind,
+    id: play.media_id,
+    src: play.src,
+    title: play.title,
+    subtitle: play.subtitle || undefined,
+    artUrl: play.image_url,
+    durationHint: play.duration_s ?? null,
+  });
+}
+
+function usePhone(): boolean {
+  const query = '(max-width: 640px)';
+  const [phone, setPhone] = useState(
+    () => typeof window !== 'undefined' && Boolean(window.matchMedia?.(query).matches),
+  );
+  useEffect(() => {
+    const list = window.matchMedia?.(query);
+    if (!list) return;
+    const on = () => setPhone(list.matches);
+    list.addEventListener?.('change', on);
+    return () => list.removeEventListener?.('change', on);
+  }, []);
+  return phone;
+}
+
+function Art({ url }: { url: string | null | undefined }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span className={styles.art} aria-hidden="true">
+      {url && !failed ? (
+        <img src={url} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : null}
+    </span>
+  );
+}
+
+function MusicRow({ play, phone }: { play: MusicPlay; phone: boolean }) {
+  const time = clockTime(play.played_at);
+  const artist = artistHref(play);
+  const album = albumHref(play);
+  const phrase = sourcePhrase(play);
+  const gone = !play.in_library;
+  const rowRef = useRef<HTMLLIElement>(null);
+  const meta = (
+    <>
+      {artist ? <a href={artist}>{play.artist}</a> : play.artist || 'Unknown artist'}
+      {gone ? (
+        <> · {play.was_in_library ? 'no longer in your library' : 'not in your library'}</>
+      ) : (
+        <>
+          {play.album ? <> · {album ? <a href={album}>{play.album}</a> : play.album}</> : null}
+          {play.format ? (
+            <>
+              {' · '}
+              <span className={play.below_target ? styles.below : undefined}>{play.format}</span>
+            </>
+          ) : null}
+          {play.length_s ? <> · {lengthWords(play.length_s)}</> : null}
+        </>
+      )}
+      {phrase ? <> · {phrase}</> : null}
+      {phone && time ? <> · {time}</> : null}
+    </>
+  );
+  return (
+    <li
+      ref={rowRef}
+      className={styles.row}
+      data-gone={gone ? 'true' : undefined}
+      data-history-row={play.id}
+    >
+      {phone ? null : (
+        <time className={styles.time} dateTime={play.played_at.replace(' ', 'T') + 'Z'}>
+          {time}
+        </time>
+      )}
+      <Art url={play.image_url} />
+      <div className={styles.text}>
+        <span className={styles.title}>{play.title}</span>
+        <span className={styles.meta}>{meta}</span>
+      </div>
+      {phone ? null : (
+        <span className={styles.tagSlot}>
+          {play.below_target && !gone ? (
+            <StatusTag tone="warning">Below your target</StatusTag>
+          ) : null}
+        </span>
+      )}
+      <div className={styles.actions} data-reveal={phone ? undefined : 'hover'}>
+        {gone ? null : (
+          <>
+            <button
+              type="button"
+              className={styles.play}
+              aria-label={`Play ${play.title} next`}
+              title="Play next, after the current track"
+              onClick={() => queueNext(play)}
+            >
+              <PlayIcon />
+            </button>
+            {phone ? null : (
+              <MoreMenu
+                className={styles.more}
+                label={`More for ${play.title}`}
+                entries={[
+                  ...(artist
+                    ? [
+                        {
+                          key: 'artist',
+                          label: 'Open artist',
+                          onSelect: () => window.location.assign(artist),
+                        },
+                      ]
+                    : []),
+                  ...(album
+                    ? [
+                        {
+                          key: 'album',
+                          label: 'Open album',
+                          onSelect: () => window.location.assign(album),
+                        },
+                      ]
+                    : []),
+                  {
+                    key: 'playlist',
+                    label: 'Add to playlist…',
+                    onSelect: () =>
+                      openAddToPlaylist(
+                        {
+                          track_name: play.title,
+                          artist_name: play.artist,
+                          album_name: play.album,
+                          duration_ms: (play.length_s ?? 0) * 1000,
+                        },
+                        rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
+                      ),
+                  },
+                ]}
+              />
+            )}
+          </>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function SpokenRow({ play, phone }: { play: SpokenHistoryPlay; phone: boolean }) {
+  const time = clockTime(play.played_at);
+  const { lead, progress, resumable } = spokenParts(play);
+  const playable = Boolean(play.src);
+  return (
+    <li className={styles.row} data-history-row={`${play.kind}-${play.play_id}`}>
+      {phone ? null : (
+        <time className={styles.time} dateTime={play.played_at.replace(' ', 'T') + 'Z'}>
+          {time}
+        </time>
+      )}
+      <Art url={play.image_url} />
+      <div className={styles.text}>
+        <span className={styles.title}>{play.title}</span>
+        <span className={styles.meta}>
+          {lead}
+          {progress ? (
+            <>
+              {lead ? ' · ' : ''}
+              <span className={resumable ? styles.progress : undefined}>{progress}</span>
+            </>
+          ) : null}
+          {phone && time ? <> · {time}</> : null}
+        </span>
+      </div>
+      {phone ? null : <span className={styles.tagSlot} />}
+      <div className={styles.actions}>
+        {playable ? (
+          <button
+            type="button"
+            className={resumable ? styles.play : styles.ghostPlay}
+            aria-label={
+              resumable ? `Resume ${play.title}, ${progress}` : `Play ${play.title} again`
+            }
+            title={resumable ? 'Resume from where you left off' : 'Play from the start'}
+            onClick={() => playSpoken(play)}
+          >
+            <PlayIcon />
+          </button>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function RowsSkeleton() {
+  return (
+    <ul className={styles.list} aria-hidden="true">
+      {Array.from({ length: 6 }, (_v, i) => (
+        <li key={i} className={styles.row}>
+          <Skeleton className={styles.skeletonTime} />
+          <Skeleton className={styles.art} />
+          <div className={styles.text}>
+            <Skeleton className={styles.skeletonTitle} />
+            <Skeleton className={styles.skeletonMeta} />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Library → Listening history (13a, 13b): what this profile played, newest
+ * first, by day. Kind and Range sit under the header; the range is
+ * remembered per browser and the URL holds the kind, an explicit range and
+ * the filter.
+ */
+export function HistoryPage({ search, go }: { search: LibrarySearch; go: Go }) {
+  const { profileId } = useProfile();
+  const phone = usePhone();
+  const kind: HistoryKind = search.kind;
+  const [remembered, setRemembered] = useState<HistoryRange>(() => readRememberedRange());
+  const range: HistoryRange = search.range || remembered;
+  const q = search.q.trim();
+  const tz = useMemo(() => browserTz(), []);
+
+  const counts = useQuery(historyCountsQueryOptions(profileId, tz));
+  const query = useInfiniteQuery(historyInfiniteQueryOptions(profileId, { kind, range, q }, tz));
+  const pages = query.data?.pages ?? [];
+  const first = pages[0];
+  const items = useMemo(
+    () => pages.flatMap((p) => p.items as (MusicPlay | SpokenHistoryPlay)[]),
+    [pages],
+  );
+  const days = useMemo(
+    () => Object.assign({}, ...pages.map((p) => p.days)) as Record<string, number>,
+    [pages],
+  );
+  const total = first?.total ?? 0;
+  const groups = useMemo(() => groupByDay(items), [items]);
+  const now = new Date();
+
+  const pickRange = (next: HistoryRange) => {
+    rememberRange(next);
+    setRemembered(next);
+    // the remembered range is the default, so the URL only names another
+    go({ range: undefined }, { replace: true });
+  };
+
+  const music = first && kind === 'music' ? (first as MusicHistoryPage) : null;
+  const wider = widerRange(range);
+
+  return (
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div className={styles.headText}>
+          <div className={styles.titleRow}>
+            <h1 className={styles.heading}>Listening history</h1>
+            <a className={styles.statsLink} href="/stats">
+              Stats
+            </a>
+          </div>
+          <p className={styles.subtitle}>
+            What you&apos;ve played, newest first. Music here feeds Stats and scrobbling; podcasts
+            and audiobooks are kept apart.
+          </p>
+        </div>
+        <div className={styles.headActions}>
+          <FilterField
+            value={search.q}
+            onChange={(next) => go({ q: next }, { replace: true })}
+            placeholder="Filter by title, artist or album"
+            phonePlaceholder="Title, artist or album"
+            label="Filter what you played"
+          />
+          <a className={styles.openStats} href="/stats">
+            Open Stats
+          </a>
+        </div>
+      </header>
+
+      <div className={styles.toolbar}>
+        <div className={styles.kindRow} role="group" aria-labelledby="history-kind-label">
+          <span className={styles.rowLabel} id="history-kind-label">
+            Kind
+          </span>
+          <div className={styles.kinds}>
+            {HISTORY_KINDS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={styles.chip}
+                aria-pressed={kind === option.value}
+                onClick={() => go({ kind: option.value === 'music' ? undefined : option.value })}
+              >
+                {option.label}
+                <CountBadge count={counts.data?.[option.value].all} />
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className={styles.ranges} role="group" aria-label="Range">
+          {HISTORY_RANGES.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={styles.chip}
+              aria-pressed={range === option.value}
+              onClick={() => pickRange(option.value)}
+            >
+              {phone ? option.short : option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {first ? (
+        <p className={styles.metaLine}>
+          {historyMeta({
+            kind,
+            range,
+            total,
+            filtered: Boolean(q),
+            sources: music?.sources,
+            sharedWith: music?.shared_with,
+          })}
+        </p>
+      ) : null}
+
+      {query.isError ? (
+        <>
+          <Notice
+            tone="danger"
+            role="alert"
+            title="Couldn't load what you played"
+            actions={
+              <Button size="lg" variant="secondary" onClick={() => void query.refetch()}>
+                Try again
+              </Button>
+            }
+          >
+            SYNCHRO.S couldn&apos;t read your listening history just now. Nothing is lost; this is a
+            display problem.
+          </Notice>
+          <div className={styles.faded}>
+            <RowsSkeleton />
+          </div>
+        </>
+      ) : query.isPending ? (
+        <RowsSkeleton />
+      ) : items.length ? (
+        <div className={styles.groups} data-history-kind={kind}>
+          {groups.map((group) => (
+            <section key={group.day} className={styles.group} aria-label={dayHead(group.day, now)}>
+              <h2 className={styles.dayHead}>
+                <span className={styles.dayName}>{dayHead(group.day, now, phone)}</span>
+                {phone || days[group.day] === undefined ? null : (
+                  <span className={styles.dayCount}>
+                    · {plural(days[group.day], kind === 'podcast' ? 'episode' : 'play')}
+                  </span>
+                )}
+              </h2>
+              <ul className={styles.list}>
+                {group.items.map((play) =>
+                  play.kind === 'music' ? (
+                    <MusicRow key={`m-${play.id}`} play={play} phone={phone} />
+                  ) : (
+                    <SpokenRow key={`s-${play.play_id}`} play={play} phone={phone} />
+                  ),
+                )}
+              </ul>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className={styles.empty}>
+          <h2>{emptyTitle(kind, range, Boolean(q))}</h2>
+          <div className={styles.emptyActions}>
+            {q ? (
+              <Button size="lg" variant="secondary" onClick={() => go({ q: '' })}>
+                Clear the filter
+              </Button>
+            ) : wider ? (
+              <Button size="lg" variant="secondary" onClick={() => pickRange(wider)}>
+                Try{' '}
+                {HISTORY_RANGES.find((r) => r.value === wider)!.label.replace(
+                  'All time',
+                  'all time',
+                )}
+              </Button>
+            ) : null}
+            {kind === 'music' ? (
+              <Button size="lg" variant="ghost" onClick={() => void window.startLibraryRadio?.()}>
+                Shuffle your library
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {items.length ? (
+        <div className={styles.footer}>
+          <span>
+            {items.length.toLocaleString()} of {total.toLocaleString()}
+          </span>
+          {query.hasNextPage ? (
+            <Button
+              size="lg"
+              variant="secondary"
+              disabled={query.isFetchingNextPage}
+              onClick={() => void query.fetchNextPage()}
+            >
+              {query.isFetchingNextPage
+                ? 'Loading…'
+                : `Show ${Math.min(HISTORY_PAGE_SIZE, total - items.length)} more`}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
