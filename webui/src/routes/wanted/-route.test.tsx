@@ -189,9 +189,11 @@ const LABELS = [
     source: 'musicbrainz',
     backlog: false,
     // Read when the handler answers, not when this file loads: a fixed string
-    // goes stale on a slow run and reads "followed 11 minutes ago".
+    // goes stale on a slow run and reads "followed 11 minutes ago". Half a
+    // minute past ten, so a page clock read a few seconds either side of the
+    // answer still says ten (CI read "9 minutes ago" at exactly ten).
     get date_added() {
-      return sql(10 * 60_000);
+      return sql(10 * 60_000 + 30_000);
     },
     last_scan_timestamp: null,
   },
