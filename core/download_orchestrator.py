@@ -534,6 +534,10 @@ class DownloadOrchestrator:
         # streaming — funnels through here). A full disk mid-download is far
         # worse than a refused grab: on a Proxmox LXC the 8GB root fills until
         # the whole container hangs.
+        from core.drives.holds import download_refusal
+        _held = download_refusal()
+        if _held:
+            raise RuntimeError(_held)
         from core.disk_guard import music_has_room
         ok_room, free, floor = music_has_room()
         if not ok_room:

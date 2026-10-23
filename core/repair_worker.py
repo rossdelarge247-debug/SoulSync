@@ -552,6 +552,26 @@ def _quarantine_file_if_present(file_path, transfer_folder, source,
     return _recycle_resolved(resolved, transfer_folder, source)
 
 
+#: Maintenance jobs that would mark files missing, clean up or move files:
+#: they skip a run while the library's drive isn't connected
+DRIVE_AWAY_SKIPS = frozenset({
+    'dead_file_cleaner', 'orphan_file_detector', 'empty_folder_cleaner', 'expired_download_cleaner',
+    'untagged_downloads', 'missing_cover_art', 'audio_corruption_detector', 'fake_lossless_detector',
+    'short_preview_track', 'library_reorganize', 'library_retag', 'relocate', 'lossy_converter',
+    'duplicate_detector', 'single_album_dedup', 'acoustid_scanner', 'quality_upgrade_scanner',
+})
+
+
+def _skips_while_drive_away(job, job_id) -> bool:
+    if job_id not in DRIVE_AWAY_SKIPS and not getattr(job, 'writes_library_files', False):
+        return False
+    try:
+        from core.drives.markers import library_away
+        return library_away()
+    except Exception:  # noqa: BLE001 - the job's own visibility checks still run
+        return False
+
+
 class RepairWorker:
     """Multi-job background maintenance worker.
 
@@ -1228,8 +1248,19 @@ class RepairWorker:
                 run_status = 'failed'
                 run_error = detail[:500]
 
+        # A library whose drive isn't connected looks empty: every file would
+        # read as missing. The jobs that find missing files, clean up or move
+        # files skip the run and say why (core/drives/markers.py).
+        if run_status != 'failed' and _skips_while_drive_away(job, job_id):
+            from core.drives.markers import AWAY_SKIP_WORDS
+            logger.warning("%s skipped: the library's drive isn't connected", job.display_name)
+            _report_progress(phase='Skipped — drive not connected', log_line=AWAY_SKIP_WORDS, log_type='warning')
+            run_status = 'stopped'
+            run_error = AWAY_SKIP_WORDS
+            result.stopped_early = AWAY_SKIP_WORDS
+
         try:
-            if run_status != 'failed':
+            if run_status not in ('failed', 'stopped'):
                 result = job.scan(context)
         except Exception as e:
             logger.error("Job %s failed: %s", job_id, e, exc_info=True)
@@ -2433,6 +2464,13 @@ class RepairWorker:
         handler = self._fix_handlers().get(finding_type)
         if not handler:
             return {'success': False, 'error': f'No fix available for finding type: {finding_type}'}
+        try:
+            from core.drives.markers import library_away
+            if library_away():
+                return {'success': False, 'error': "Your library's drive isn't connected, so nothing was changed. "
+                                                   "Plug it in and try again."}
+        except Exception as e:  # noqa: BLE001 - the fix carries on
+            logger.debug("drive state for a fix: %s", e)
         return handler(entity_type, entity_id, file_path, details)
 
     def _fix_suspect_album_tag(self, entity_type, entity_id, file_path, details):

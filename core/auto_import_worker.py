@@ -31,6 +31,15 @@ AUDIO_EXTENSIONS = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.aac', '.wav', '.
 DISC_FOLDER_RE = re.compile(r'^(?:disc|cd|disk)\s*(\d+)$', re.IGNORECASE)
 
 
+def _drive_writes_held() -> bool:
+    """A drive move copying, or a music folder's drive away: imports wait."""
+    try:
+        from core.drives.holds import writes_held
+        return writes_held() is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @dataclass
 class FolderCandidate:
     path: str
@@ -507,7 +516,7 @@ class AutoImportWorker:
             return
 
         while not self.should_stop:
-            if not self.paused:
+            if not self.paused and not _drive_writes_held():
                 enabled = True
                 if self._config_manager:
                     enabled = self._config_manager.get('auto_import.enabled', False)
