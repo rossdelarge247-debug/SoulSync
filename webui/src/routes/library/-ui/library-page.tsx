@@ -4,6 +4,8 @@ import { useEffect, useRef } from 'react';
 
 import { Button } from '@/components/form';
 import { Notice } from '@/components/primitives';
+import { DriveAwayNotice } from '@/features/drives/drive-away-notice';
+import { useDriveStatus } from '@/features/drives/drive-status';
 import { useReactPageShell } from '@/platform/shell/route-controllers';
 
 import type { LibrarySearch, LibrarySearchParams } from '../-library.types';
@@ -14,6 +16,7 @@ import { resolveLibrarySearch } from '../-library.types';
 import { Route } from '../route';
 import { AlbumsPage, type Go } from './albums-page';
 import { ArtistsPage } from './artists-page';
+import { LibraryDriveAway } from './drive-away';
 import { HistoryPage } from './history-page';
 import styles from './library.module.css';
 import { TracksPage } from './tracks-page';
@@ -72,6 +75,9 @@ export function LibraryPage() {
   useLibraryChanged();
   const search = resolveLibrarySearch(Route.useSearch());
   const navigate = useNavigate({ from: Route.fullPath });
+  // a drive that's away is never an empty library (14k)
+  const drive = useDriveStatus();
+  const away = Boolean(drive.status?.library_away);
 
   const go: Go = (patch, options) =>
     void navigate({
@@ -87,10 +93,19 @@ export function LibraryPage() {
     window.showLibraryDownloadsSection?.();
   }, []);
 
-  // Library → Tracks: the DJ data (BPM, key and energy), its own page
+  // Library → Tracks: the DJ data (BPM, key and energy), its own page. Like
+  // Listening history it reads the database, not the drive, so a drive that's
+  // away gets the Notice above the list rather than the page in its place.
   if (search.view === 'tracks') {
     return (
       <div id="library-page" className={styles.root}>
+        {away && drive.status ? (
+          <DriveAwayNotice
+            status={drive.status}
+            checking={drive.checking}
+            onCheckAgain={() => void drive.checkNow()}
+          />
+        ) : null}
         <TracksPage search={search} go={go} />
       </div>
     );
@@ -102,10 +117,21 @@ export function LibraryPage() {
     <div id="library-page" className={styles.root}>
       <UnmatchedImportsNotice />
       <div ref={downloadsHost} data-library-downloads-host="" />
-      {search.view === 'albums' ? (
+      {away && search.view !== 'history' ? (
+        <LibraryDriveAway view={search.view === 'albums' ? 'albums' : 'artists'} />
+      ) : search.view === 'albums' ? (
         <AlbumsPage search={search} go={go} />
       ) : search.view === 'history' ? (
-        <HistoryPage search={search} go={go} />
+        <>
+          {away && drive.status ? (
+            <DriveAwayNotice
+              status={drive.status}
+              checking={drive.checking}
+              onCheckAgain={() => void drive.checkNow()}
+            />
+          ) : null}
+          <HistoryPage search={search} go={go} />
+        </>
       ) : (
         <ArtistsPage search={search} go={go} />
       )}

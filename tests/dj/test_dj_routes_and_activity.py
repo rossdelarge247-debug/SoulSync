@@ -196,12 +196,13 @@ def test_activity_shows_the_sweep_with_stop_then_what_it_did(db, monkeypatch):
     assert item["status"] == "running" and item["title"] == "Working out BPM, key and energy"
     assert item["detail"] == "4,980 tracks · 1,240 done · waiting while a download runs"
     assert item["ref"]["stop_path"] == "library/dj/stop" and item["link"] == "/library?view=tracks"
+    assert item["kind"] == "library"  # under Activity's Library jobs filter
     assert out["running_count"] >= 1
 
     _sql(db, "UPDATE library_jobs SET status = 'done', done = 4970, failed = 3, found_releases = 1200, "
              "found_artists = 7, finished_at = ? WHERE id = ?", (int(time.time()), run_id))
     monkeypatch.setattr(feed, "_live_dj_job", lambda: None)
-    out = feed.build_feed(db, feed.Viewer(profile_id=1, is_admin=True), kind="automation", live_batches={},
+    out = feed.build_feed(db, feed.Viewer(profile_id=1, is_admin=True), kind="library", live_batches={},
                           running_automations={})
     [item] = [i for i in out["items"] if i["id"] == f"library-job:{run_id}"]
     assert item["title"] == "Worked out BPM, key and energy" and item["status"] == "warning"
@@ -209,7 +210,7 @@ def test_activity_shows_the_sweep_with_stop_then_what_it_did(db, monkeypatch):
                               "BPM and key written into 1,200 files")
     assert "stop_path" not in item["ref"]
     # a member sees nothing of the admin's sweep
-    member = feed.build_feed(db, feed.Viewer(profile_id=5, is_admin=False), kind="automation",
+    member = feed.build_feed(db, feed.Viewer(profile_id=5, is_admin=False), kind="library",
                              live_batches={}, running_automations={})
     assert not [i for i in member["items"] if i["id"] == f"library-job:{run_id}"]
 

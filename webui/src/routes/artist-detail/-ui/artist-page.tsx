@@ -10,6 +10,8 @@ import {
   useAudiobookFolderConfigured,
   useSetAudiobookRoute,
 } from '@/features/audiobook-routes/audiobook-routes.queries';
+import { DriveAwayNotice } from '@/features/drives/drive-away-notice';
+import { useDriveStatus } from '@/features/drives/drive-status';
 import { useModuleOff } from '@/features/modules/module-gate';
 import { profileAsksFirst } from '@/platform/shell/download-rights';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
@@ -300,6 +302,9 @@ export function ArtistPage() {
   const profileId = profile?.profileId ?? 0;
   const isAdmin = Boolean(profile?.isAdmin);
   const phone = usePhone();
+  // a library artist whose drive is away: the Notice instead of the releases (14k)
+  const drive = useDriveStatus(source === 'library');
+  const driveAway = source === 'library' && Boolean(drive.status?.library_away);
   const tab: ArtistTab = search.tab ?? 'releases';
   const filter: ReleaseFilter = search.show ?? 'all';
   const asksFirst = profileAsksFirst();
@@ -1114,6 +1119,19 @@ export function ArtistPage() {
       ) : null}
     </>
   ) : null;
+
+  if (driveAway && drive.status) {
+    return (
+      <div className={styles.page} data-drive-away-page="artist">
+        {header}
+        <DriveAwayNotice
+          status={drive.status}
+          checking={drive.checking}
+          onCheckAgain={() => void drive.checkNow()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={styles.page}>

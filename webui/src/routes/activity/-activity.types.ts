@@ -3,7 +3,14 @@
  * The contract is docs/design/CONTRACTS.md, "Activity feed".
  */
 
-export type ActivityKind = 'download' | 'import' | 'automation' | 'sync' | 'safety' | 'radio';
+export type ActivityKind =
+  | 'download'
+  | 'import'
+  | 'automation'
+  | 'library'
+  | 'sync'
+  | 'safety'
+  | 'radio';
 export type ActivityStatus = 'running' | 'ok' | 'warning' | 'error' | 'info';
 
 export interface ActivityRef {
@@ -73,6 +80,7 @@ export type ActivityShow =
   | 'downloads'
   | 'imports'
   | 'automations'
+  | 'library'
   | 'playlists'
   | 'radio'
   | 'needs-you';

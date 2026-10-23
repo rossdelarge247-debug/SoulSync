@@ -2748,6 +2748,15 @@ function npv2SyncVisualsHeader() {
         const title = document.getElementById('np-v2-visuals-title');
         const sub = document.getElementById('np-v2-visuals-artist');
         const theme = document.getElementById('np-v2-visuals-theme-name');
+        // a station: src/shell/player-radio.ts names the identified track and the station
+        const radio = t.kind === 'radio' && window.SoulSyncRadio && window.SoulSyncRadio.state();
+        if (radio && radio.station) {
+            if (!npv2Bridge()) {
+                const m = npv2ThemeList().find((x) => x.id === NPV2.theme);
+                if (theme) theme.textContent = m ? m.name : NPV2.theme;
+            }
+            return;
+        }
         if (title) title.textContent = t.title || NPV2_VIZ.title || 'Unknown Track';
         if (sub) {
             const bits = [t.artist, t.album].filter(Boolean);
@@ -2756,8 +2765,10 @@ function npv2SyncVisualsHeader() {
         const art = document.getElementById('np-v2-visuals-art');
         if (art) {
             const src = t.image_url || '';
+            // art that fails hides: never the broken-image glyph
+            art.onerror = () => { art.dataset.broken = src; art.hidden = true; };
             if (src && art.getAttribute('src') !== src) art.setAttribute('src', src);
-            art.hidden = !src;
+            art.hidden = !src || art.dataset.broken === src;
         }
         // with src/features/visuals loaded, it names the visual (family, author)
         if (!npv2Bridge()) {

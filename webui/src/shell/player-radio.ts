@@ -31,6 +31,21 @@
  *   it) and disabled (its reason as the title). Each change is announced in
  *   the player's live region.
  *
+ * - The tray (Ross, 2026-10-23, reversing 4a's "radio has no tray on a
+ *   desktop"; no board yet): the bar expands into 6a's 360px tray like music,
+ *   filled with radio. The record: the station's 112px logo (its letters,
+ *   our logo route over them), Now playing with its source phrase, the title,
+ *   the artist (a link to Search) and the release, the readout (Stream
+ *   "AAC 256 kbps · relayed", Path), Add to Wanted or the tag, and "…" (so
+ *   Visuals, F, is in reach). The deck: the meter, Live and the time
+ *   listened, Stop and the stream picker, Scan now with the sheet's card
+ *   while it runs, volume and output. The list: Heard today (N) / Recent
+ *   stations, the auto-add switch row (9c's confirm swaps in), and "All of
+ *   it on NTS 1’s page".
+ * - The meter's bars are counted from its width (ResizeObserver), in the bar
+ *   and the deck, so it fills the room it has (Ross, 2026-10-23).
+ * - The Visuals overlay's header names the identified track and the station.
+ *
  * Every word from a station or a track goes in with textContent.
  */
 
@@ -40,9 +55,29 @@ import type {
   RadioSessionState,
   StationResponse,
 } from '@/features/radio/radio.types';
+import type { HeardItem, HeardResponse } from '@/features/radio/radio.types';
 
-import { logoText, nowLines, playerAction } from '@/features/radio/radio.format';
 import {
+  agoWords,
+  cardSubline,
+  heardRowView,
+  heardToday,
+  logoText,
+  nowLines,
+  playerAction,
+  secondsSince,
+  stationPossessive,
+  streamReadout,
+} from '@/features/radio/radio.format';
+import {
+  readRecentStations,
+  recentAsStation,
+  rememberStation,
+  type RecentStation,
+} from '@/features/radio/radio.recent';
+import {
+  ownLogo,
+  radioVisualsHeader,
   scanAnswer,
   scanButton,
   scanPanel,
@@ -53,6 +88,8 @@ import {
 } from '@/features/radio/radio.scan';
 import { RADIO_EVENT } from '@/features/radio/radio.types';
 import { appURL } from '@/platform/url-base';
+
+import { formatClock, meterBarCount, meterBarWidth, meterBin, pathLabel } from './player-state';
 
 const SVG_STOP =
   '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
@@ -65,6 +102,8 @@ const SVG_CLOSE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>';
 const SVG_VOLUME =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7"/></svg>';
+const SVG_PLAY =
+  '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>';
 const SVG_CHEVRON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
@@ -86,6 +125,62 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (cls) node.className = cls;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+/**
+ * A station's logo tile: its letters, with our own logo route over them once
+ * the image has loaded. A logo that fails (or none) leaves the letters, never
+ * the browser's broken-image glyph (Ross, 2026-10-23). `letters` is the
+ * tile's own letters node when it has one (the record's); otherwise the tile
+ * holds the letters as text and the image beside them.
+ */
+export function fillLogo(
+  tile: HTMLElement,
+  station: { name: string; logo_text?: string; logo_url?: string | null },
+  letters?: HTMLElement | null,
+): void {
+  const doc = tile.ownerDocument;
+  const text = logoText(station.name, station.logo_text);
+  if (letters) {
+    if (letters.textContent !== text) letters.textContent = text;
+  } else {
+    let span = tile.querySelector<HTMLElement>(':scope > .ss-player-logo-letters');
+    if (!span) {
+      span = doc.createElement('span');
+      span.className = 'ss-player-logo-letters';
+      tile.prepend(span);
+    }
+    if (span.textContent !== text) span.textContent = text;
+  }
+  const src = ownLogo(station.logo_url ?? '');
+  const want = src ? appURL(src as `/${string}`) : '';
+  let img = tile.querySelector<HTMLImageElement>('img');
+  if (!want) {
+    if (img) {
+      img.hidden = true;
+      img.removeAttribute('src');
+      delete img.dataset.src;
+      img.classList.remove('is-loaded');
+    }
+    return;
+  }
+  if (img?.dataset.src === want) return;
+  if (!img) {
+    img = doc.createElement('img');
+    img.alt = '';
+    tile.append(img);
+  }
+  const node = img;
+  node.dataset.src = want;
+  node.classList.remove('is-loaded');
+  node.hidden = false;
+  node.onload = () => node.classList.add('is-loaded');
+  // the letters stay underneath; the image hides, so no broken-image glyph
+  node.onerror = () => {
+    node.hidden = true;
+    node.classList.remove('is-loaded');
+  };
+  node.src = want;
 }
 
 /** The phone mini bar's two lines for radio: "track · station", "station · Live · …". */
@@ -429,11 +524,16 @@ export function bootRadioChrome(
    * Not now. The numbers come from GET …/auto-add; until they do, the tiles
    * say "—" and Turn on waits.
    */
-  function confirmCard(stationName: string, c: NonNullable<typeof autoConfirm>): HTMLElement {
+  function confirmCard(
+    stationName: string,
+    c: NonNullable<typeof autoConfirm>,
+    where: 'sheet' | 'tray' = 'sheet',
+  ): HTMLElement {
     const n = c.numbers;
     const card = el(doc, 'div', 'ss-player-radio-confirm');
     card.setAttribute('role', 'group');
-    const titleId = 'ss-player-radio-confirm-title';
+    const titleId =
+      where === 'sheet' ? 'ss-player-radio-confirm-title' : 'ss-player-rtray-confirm-title';
     card.setAttribute('aria-labelledby', titleId);
     const title = el(
       doc,
@@ -507,7 +607,7 @@ export function bootRadioChrome(
   async function openAutoConfirm(stationId: string): Promise<void> {
     autoConfirm = { stationId, numbers: null, failed: null, busy: false };
     drawPanel();
-    root.querySelector<HTMLElement>('[data-player-radio-auto-cancel]')?.focus();
+    focusHere('[data-player-radio-auto-cancel]');
     try {
       const res = await fetcher(
         appURL(`/api/radio/stations/${encodeURIComponent(stationId)}/auto-add`),
@@ -523,7 +623,17 @@ export function bootRadioChrome(
         autoConfirm.failed = 'SYNCHRO.S didn’t answer. Try again in a moment.';
     }
     drawPanel();
-    root.querySelector<HTMLElement>('[data-player-radio-auto-confirm]')?.focus();
+    focusHere('[data-player-radio-auto-confirm]');
+  }
+
+  const isPhone = () => Boolean(win.matchMedia?.('(max-width: 768px)').matches);
+
+  /** Focus the control in the place that shows: the tray on a desktop, the sheet on a phone. */
+  function focusHere(sel: string): void {
+    const box = isPhone()
+      ? root.querySelector<HTMLElement>('[data-player-radio-panel]')
+      : root.querySelector<HTMLElement>('[data-player-radio-tray]');
+    (box?.querySelector<HTMLElement>(sel) ?? root.querySelector<HTMLElement>(sel))?.focus();
   }
 
   async function setAutoAdd(stationId: string, enabled: boolean): Promise<string | null> {
@@ -549,16 +659,9 @@ export function bootRadioChrome(
   function headNode(st: RadioSessionState): HTMLElement {
     const station = st.station!;
     const head = el(doc, 'div', 'ss-player-radio-head');
-    const logo = el(doc, 'span', 'ss-player-radio-logo', logoText(station.name, station.logo_text));
+    const logo = el(doc, 'span', 'ss-player-radio-logo');
     logo.setAttribute('aria-hidden', 'true');
-    if (station.logo_url) {
-      const img = el(doc, 'img');
-      img.alt = '';
-      img.onload = () => img.classList.add('is-loaded');
-      img.onerror = () => img.remove();
-      img.src = station.logo_url.startsWith('/') ? appURL(station.logo_url as `/${string}`) : '';
-      if (img.src) logo.append(img);
-    }
+    fillLogo(logo, station);
     const text = el(doc, 'div', 'ss-player-radio-head-text');
     const top = el(doc, 'div', 'ss-player-radio-head-top');
     const name = el(doc, 'a', 'ss-player-radio-name', station.name) as HTMLAnchorElement;
@@ -746,6 +849,16 @@ export function bootRadioChrome(
       'ss-player-radio-link--heard',
     );
     row('Station page', stationHref(station.id), 'ss-player-radio-link--page');
+    // Visuals (10e, 10f) from the sheet: the phone has no F key and no "…" here
+    const visuals = el(doc, 'button', 'ss-player-radio-heard ss-player-radio-link--visuals');
+    visuals.type = 'button';
+    visuals.dataset.playerRadioVisuals = '';
+    visuals.setAttribute('aria-haspopup', 'dialog');
+    visuals.append(el(doc, 'span', '', 'Visuals'));
+    const chev = el(doc, 'span', 'ss-player-radio-chevron');
+    chev.innerHTML = SVG_CHEVRON;
+    visuals.append(chev);
+    links.append(visuals);
     return links;
   }
 
@@ -802,41 +915,518 @@ export function bootRadioChrome(
     body.replaceChildren(nowRow(st), addNode(st, panelView), scanNode(st, panelView), auto);
     links.replaceChildren(linksNode(st));
     restoreFocus(panel, keep);
+    // the tray's auto-add row follows the same state (9c's confirm swaps in there too)
+    drawTrayAuto(st);
   }
 
   // ── the meter ──────────────────────────────────────────────────────────
-  function ensureBars(meter: HTMLElement, n: number): HTMLElement[] {
+  // its bars are counted from its width, kept by a ResizeObserver, so it
+  // fills the room it has in the bar and the deck (Ross, 2026-10-23)
+  const meterWidths = new WeakMap<Element, number>();
+  const resize =
+    typeof ResizeObserver === 'function'
+      ? new ResizeObserver((entries) => {
+          for (const e of entries) meterWidths.set(e.target, e.contentRect.width);
+          // still (reduced motion): draw once at the new width
+          if (!meterFrame) drawMeter();
+        })
+      : null;
+  for (const meter of root.querySelectorAll('[data-player-meter]')) resize?.observe(meter);
+
+  function ensureBars(meter: HTMLElement, n: number, width: number): HTMLElement[] {
     if (meter.childElementCount !== n) {
       meter.replaceChildren(...Array.from({ length: n }, () => el(doc, 'span')));
+    }
+    const bw = meterBarWidth(width, n);
+    const value = bw ? `${bw}px` : '';
+    if (meter.style.getPropertyValue('--meter-bar') !== value) {
+      if (value) meter.style.setProperty('--meter-bar', value);
+      else meter.style.removeProperty('--meter-bar');
     }
     return [...meter.children] as HTMLElement[];
   }
 
-  const bins = new Uint8Array(64);
+  // its own tap off the player's analyser (128 bins; the player's has 32), so a
+  // wide meter has a bin for each bar; spread logarithmically, as heard
+  let tap: AnalyserNode | null = null;
+  let tapSource: AnalyserNode | null = null;
+  const bins = new Uint8Array(128);
+  function meterTap(): AnalyserNode | null {
+    const shared = analyser();
+    if (!shared) return null;
+    if (tap && tapSource === shared) return tap;
+    try {
+      const node = shared.context.createAnalyser();
+      node.fftSize = 256;
+      node.smoothingTimeConstant = 0.75;
+      shared.connect(node);
+      tap = node;
+      tapSource = shared;
+      return tap;
+    } catch {
+      return shared;
+    }
+  }
   function drawMeter(): void {
     meterFrame = 0;
     if (!isRadio()) return;
-    const node = analyser();
-    let level: number[] | null = null;
+    const node = meterTap();
+    let level: Uint8Array | null = null;
     if (node) {
       try {
         node.getByteFrequencyData(bins);
-        level = Array.from(bins.slice(0, Math.min(bins.length, node.frequencyBinCount)));
+        level = bins.subarray(0, Math.min(bins.length, node.frequencyBinCount));
       } catch {
         level = null;
       }
     }
     for (const meter of root.querySelectorAll<HTMLElement>('[data-player-meter]')) {
       if (meter.hidden) continue;
-      const n = meter.classList.contains('ss-player-meter--deck') ? 48 : 24;
-      const bars = ensureBars(meter, n);
+      const deck = meter.classList.contains('ss-player-meter--deck');
+      const width = meterWidths.get(meter) ?? meter.clientWidth;
+      // the deck's bars are a little wider: a bar every 8px, the bar's every 6px
+      const n = meterBarCount(width, deck ? 8 : 6);
+      const bars = ensureBars(meter, n, width);
+      // up to about 10 kHz: above it most stations carry little to show
+      const top = level ? Math.max(2, Math.floor(level.length * 0.45)) : 2;
       bars.forEach((bar, i) => {
-        const v = level ? (level[Math.floor((i / n) * Math.max(1, level.length - 8))] ?? 0) : 64;
+        const v = level ? (level[meterBin(i, n, top)] ?? 0) : 64;
         bar.style.height = `${Math.max(8, Math.round((v / 255) * 100))}%`;
       });
     }
     if (!win.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
       meterFrame = win.requestAnimationFrame(drawMeter);
+    }
+  }
+
+  // ── the tray (Ross, 2026-10-23) ────────────────────────────────────────
+  const storage = (() => {
+    try {
+      return win.localStorage;
+    } catch {
+      return null;
+    }
+  })();
+  let trayTab: 'heard' | 'recent' = 'heard';
+  let heard: {
+    stationId: string;
+    items: HeardItem[] | null;
+    failed: boolean;
+    loading: boolean;
+    at: number;
+  } | null = null;
+  let heardBusy: number | null = null;
+  let heardKey = '';
+  let lastHeardId: number | null | undefined;
+  let recentKey = '';
+  let rememberedId = '';
+  let streamsKey = '';
+  let trayAutoKey = '';
+
+  const tray = () => root.querySelector<HTMLElement>('[data-player-radio-tray]');
+  const inTray = <T extends Element = HTMLElement>(sel: string): T | null =>
+    tray()?.querySelector<T>(sel) ?? null;
+  const trayOpen = () => doc.documentElement.getAttribute('data-player') === 'tray' && !isPhone();
+
+  function setText(node: Element | null, text: string): void {
+    if (node && node.textContent !== text) node.textContent = text;
+  }
+  function setHidden(node: Element | null, hidden: boolean): void {
+    if (!node) return;
+    if (hidden) node.setAttribute('hidden', '');
+    else node.removeAttribute('hidden');
+  }
+
+  async function loadHeard(stationId: string): Promise<void> {
+    if (heard?.loading && heard.stationId === stationId) return;
+    const keep = heard?.stationId === stationId ? heard.items : null;
+    heard = { stationId, items: keep, failed: false, loading: true, at: Date.now() };
+    drawHeard();
+    try {
+      const q = new URLSearchParams({ station_id: stationId, days: '1' });
+      const res = await fetcher(appURL(`/api/radio/heard?${q.toString()}`), {
+        credentials: 'same-origin',
+      });
+      const body = (await res.json()) as HeardResponse;
+      if (heard?.stationId !== stationId) return;
+      if (!res.ok || !Array.isArray(body.items)) throw new Error(String(res.status));
+      heard = { ...heard, items: body.items, loading: false, failed: false };
+    } catch {
+      if (heard?.stationId === stationId) heard = { ...heard, loading: false, failed: true };
+    }
+    drawHeard();
+  }
+
+  async function wantHeard(item: HeardItem): Promise<void> {
+    if (heardBusy !== null) return;
+    heardBusy = item.id;
+    drawHeard();
+    const toast = (win as Window & { showToast?: (m: string, t: string) => void }).showToast;
+    try {
+      const res = await fetcher(appURL(`/api/radio/heard/${item.id}/want`), {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        skipped?: boolean;
+      };
+      if (!res.ok) toast?.(body.message || 'SYNCHRO.S didn’t take it. Try again.', 'error');
+      else
+        toast?.(
+          body.skipped
+            ? body.message || `${item.title} is already in your library.`
+            : `Added ${item.title} to Wanted.`,
+          body.skipped ? 'info' : 'success',
+        );
+    } catch {
+      toast?.('SYNCHRO.S didn’t answer. Try again in a moment.', 'error');
+    }
+    heardBusy = null;
+    void radio()?.refresh();
+    if (heard) void loadHeard(heard.stationId);
+  }
+
+  function heardRow(item: HeardItem): HTMLElement {
+    const view = heardRowView(item);
+    const row = el(doc, 'div', 'ss-player-rtray-row-heard');
+    row.setAttribute('role', 'listitem');
+    const time = el(doc, 'span', 'ss-player-rtray-time', clockAt(item.heard_at));
+    const text = el(doc, 'span', 'ss-player-rtray-text');
+    text.append(
+      el(doc, 'span', 'ss-player-rtray-title', view.title),
+      el(doc, 'span', 'ss-player-rtray-meta', view.line),
+    );
+    row.append(time, text);
+    if (view.action) {
+      const label = view.action === 'upgrade' ? 'Upgrade' : 'Add';
+      const b = el(doc, 'button', 'ss-player-radio-add', heardBusy === item.id ? 'Adding…' : label);
+      b.type = 'button';
+      b.dataset.playerRtrayWant = String(item.id);
+      b.setAttribute(
+        'aria-label',
+        `${view.action === 'upgrade' ? 'Upgrade' : 'Add'} ${view.title}${item.artist ? ` by ${item.artist}` : ''} ${view.action === 'upgrade' ? 'via' : 'to'} Wanted`,
+      );
+      if (heardBusy !== null) b.setAttribute('aria-disabled', 'true');
+      row.append(b);
+    } else if (view.status) {
+      const tag = el(doc, 'span', 'ss-player-rtray-status', view.status.label);
+      tag.dataset.tone = view.status.tone;
+      row.append(tag);
+    } else row.append(el(doc, 'span'));
+    return row;
+  }
+
+  function clockAt(unix: number): string {
+    return new Date(unix * 1000).toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }
+
+  function drawHeard(): void {
+    const st = radio()?.state();
+    const list = inTray('[data-player-rtray-heard-list]');
+    const status = inTray('[data-player-rtray-heard-status]');
+    if (!list || !status || !st?.station) return;
+    const items =
+      heard?.stationId === st.station.id && heard.items ? heardToday(heard.items) : null;
+    setText(inTray('[data-player-rtray-heard-count]'), String(items?.length ?? 0));
+    setAttr(
+      inTray('[data-player-rtray-tab="heard"]'),
+      'aria-label',
+      `Heard today, ${items?.length ?? 0}`,
+    );
+    const key = JSON.stringify([
+      st.station.id,
+      heard?.failed,
+      heard?.loading && !items,
+      heardBusy,
+      items?.map((i) => [i.id, i.state, i.below_target]),
+    ]);
+    if (key === heardKey) return;
+    heardKey = key;
+    const keep = doc.activeElement as HTMLElement | null;
+    const keepId = list.contains(keep) ? keep?.dataset.playerRtrayWant : undefined;
+    if (!items) {
+      list.replaceChildren();
+      status.replaceChildren();
+      if (heard?.failed) {
+        status.append(el(doc, 'span', '', 'Heard today didn’t load. '));
+        const retry = el(doc, 'button', 'ss-player-text-btn', 'Try again');
+        retry.type = 'button';
+        retry.dataset.playerRtrayHeardRetry = '';
+        status.append(retry);
+      } else status.textContent = 'Loading what was heard today…';
+      status.hidden = false;
+      return;
+    }
+    if (!items.length) {
+      list.replaceChildren();
+      status.textContent = `Nothing heard on ${st.station.name} today yet. Tracks show here as they’re identified while you listen.`;
+      status.hidden = false;
+      return;
+    }
+    status.hidden = true;
+    list.replaceChildren(...items.map(heardRow));
+    if (keepId)
+      (
+        list.querySelector<HTMLElement>(`[data-player-rtray-want="${keepId}"]`) ??
+        inTray<HTMLElement>('[data-player-rtray-tab="heard"]')
+      )?.focus();
+  }
+
+  function stationRow(s: RecentStation, current: boolean): HTMLElement {
+    const row = el(doc, 'div', 'ss-player-rtray-row-station');
+    row.setAttribute('role', 'listitem');
+    if (current) row.setAttribute('aria-current', 'true');
+    const logo = el(doc, 'span', 'ss-player-rtray-stationlogo');
+    logo.setAttribute('aria-hidden', 'true');
+    fillLogo(logo, s);
+    const text = el(doc, 'span', 'ss-player-rtray-text');
+    text.append(
+      el(doc, 'span', 'ss-player-rtray-title', s.name),
+      el(doc, 'span', 'ss-player-rtray-meta', cardSubline(recentAsStation(s))),
+    );
+    row.append(logo, text);
+    if (current) {
+      const tag = el(doc, 'span', 'ss-player-tag', 'Playing');
+      tag.dataset.tone = 'info';
+      row.append(tag);
+    } else {
+      const play = el(doc, 'button', 'ss-player-btn ss-player-rtray-play');
+      play.type = 'button';
+      play.dataset.playerRtrayPlay = s.id;
+      play.setAttribute('aria-label', `Play ${s.name}`);
+      play.innerHTML = SVG_PLAY;
+      row.append(play);
+    }
+    return row;
+  }
+
+  function drawRecent(st: RadioSessionState): void {
+    const list = inTray('[data-player-rtray-recent-list]');
+    const status = inTray('[data-player-rtray-recent-status]');
+    if (!list || !status) return;
+    const items = readRecentStations(storage);
+    const key = JSON.stringify([st.station?.id, items.map((s) => [s.id, s.name, s.logo_url])]);
+    if (key === recentKey) return;
+    recentKey = key;
+    const focused = doc.activeElement as HTMLElement | null;
+    const keepId = list.contains(focused) ? focused?.dataset.playerRtrayPlay : undefined;
+    if (!items.length) {
+      list.replaceChildren();
+      status.textContent =
+        'Stations you play in this browser show here, newest first, so you can go back to one.';
+      status.hidden = false;
+      return;
+    }
+    status.hidden = true;
+    list.replaceChildren(...items.map((s) => stationRow(s, s.id === st.station?.id)));
+    if (keepId) list.querySelector<HTMLElement>(`[data-player-rtray-play="${keepId}"]`)?.focus();
+  }
+
+  function setAttr(node: Element | null, name: string, value: string): void {
+    if (node && node.getAttribute(name) !== value) node.setAttribute(name, value);
+  }
+
+  function selectTab(tab: 'heard' | 'recent', focus = false): void {
+    trayTab = tab;
+    for (const b of tray()?.querySelectorAll<HTMLElement>('[data-player-rtray-tab]') ?? []) {
+      const on = b.dataset.playerRtrayTab === tab;
+      setAttr(b, 'aria-selected', on ? 'true' : 'false');
+      setAttr(b, 'tabindex', on ? '0' : '-1');
+      if (on && focus) b.focus();
+    }
+    for (const p of tray()?.querySelectorAll<HTMLElement>('[data-player-rtray-panel]') ?? []) {
+      p.classList.toggle('hidden', p.dataset.playerRtrayPanel !== tab);
+    }
+    drawFoot();
+  }
+
+  function drawFoot(): void {
+    const foot = inTray('[data-player-rtray-foot]');
+    const station = radio()?.state().station;
+    if (!foot || !station) return;
+    const href: `/${string}` = trayTab === 'heard' ? stationHref(station.id) : '/radio';
+    const text =
+      trayTab === 'heard'
+        ? `All of it on ${stationPossessive(station.name)} page`
+        : 'All stations on the Radio page';
+    const a = foot.querySelector<HTMLAnchorElement>('a');
+    if (a && a.dataset.playerRadioGo === href && a.textContent === text) return;
+    const link = el(doc, 'a', '', text) as HTMLAnchorElement;
+    link.href = appURL(href);
+    link.dataset.playerRadioGo = href;
+    foot.replaceChildren(link);
+  }
+
+  function drawTrayAuto(st: RadioSessionState): void {
+    const box = inTray('[data-player-rtray-auto]');
+    const station = st.station;
+    if (!box || !station) return;
+    const on =
+      autoSet?.stationId === station.id
+        ? autoSet.on
+        : Boolean(stationInfo?.data?.station.auto_add ?? station.auto_add);
+    const c = autoConfirm?.stationId === station.id ? autoConfirm : null;
+    const key = JSON.stringify([station.id, station.name, on, c]);
+    if (key === trayAutoKey) return;
+    trayAutoKey = key;
+    const keep = focusKey(box);
+    box.replaceChildren(c ? confirmCard(station.name, c, 'tray') : autoRow(station.name, on));
+    restoreFocus(box, keep);
+  }
+
+  function drawTray(st: RadioSessionState): void {
+    const box = tray();
+    const station = st.station;
+    if (!box || !station) return;
+    // the record: the logo, Now playing, the readout, Add or the tag
+    const logoTile = inTray('.ss-player-rtray-logo');
+    if (logoTile) fillLogo(logoTile, station, inTray('[data-player-rtray-letters]'));
+    const view = sheetNowPlaying(st);
+    const np = scanAnswer(st.scan) ?? st.nowPlaying;
+    const named = np?.state === 'identified' && np.track ? np.track : null;
+    setText(inTray('[data-player-rtray-label]'), view.label);
+    setText(inTray('[data-player-rtray-title]'), view.title);
+    const artistLink = inTray<HTMLAnchorElement>('[data-player-rtray-artist]');
+    if (artistLink) {
+      setHidden(artistLink, !named?.artist);
+      if (named?.artist) {
+        setText(artistLink, named.artist);
+        const q = new URLSearchParams({ q: named.artist, type: 'artists' });
+        setAttr(artistLink, 'href', appURL(`/search?${q.toString()}`));
+        artistLink.dataset.playerRadioGo = `/search?${q.toString()}`;
+        setAttr(artistLink, 'aria-label', `Search for ${named.artist}`);
+      }
+    }
+    setHidden(inTray('[data-player-rtray-artist-plain]'), true);
+    setText(
+      inTray('[data-player-rtray-line]'),
+      named && np
+        ? [named.release, agoWords(secondsSince(np, st.skew))].filter(Boolean).join(' · ')
+        : view.line,
+    );
+    setText(inTray('[data-player-rtray-stream]'), streamReadout(st.stream, station, st.mode));
+    const out = root.querySelector('[data-player-output-label]')?.textContent || 'This device';
+    setText(inTray('[data-player-rtray-path]'), pathLabel(station.name, out));
+    const actionBox = inTray('[data-player-rtray-action]');
+    if (actionBox) {
+      const keep = focusKey(actionBox);
+      const services = st.nowPlaying?.scan?.services ?? [];
+      const panel = scanPanel(st.scan, st.scanError, st.scanStarting, services);
+      let action =
+        panel?.state === 'identified' ? scanActionNode(panel, false, st) : actionNode(st, false);
+      if (!action) {
+        // nothing identified yet: disabled-neutral, its reason as the title (as in the bar)
+        const b = el(doc, 'button', 'ss-player-radio-add', 'Add to Wanted');
+        b.type = 'button';
+        b.dataset.playerRadioAdd = '';
+        b.setAttribute('aria-disabled', 'true');
+        b.title = 'Nothing identified to add yet.';
+        b.setAttribute('aria-label', 'Add to Wanted. Nothing identified to add yet.');
+        action = b;
+      }
+      actionBox.replaceChildren(action);
+      restoreFocus(actionBox, keep);
+    }
+
+    // the deck: the stream picker, Scan now and its words
+    const select = inTray<HTMLSelectElement>('[data-player-rtray-streams]');
+    if (select) {
+      const streams = station.streams ?? [];
+      const key = JSON.stringify([station.id, streams.map((x) => [x.id, x.label])]);
+      if (key !== streamsKey) {
+        streamsKey = key;
+        select.replaceChildren(
+          ...streams.map((x) => {
+            const o = el(doc, 'option', '', x.label) as HTMLOptionElement;
+            o.value = x.id;
+            return o;
+          }),
+        );
+      }
+      setHidden(select, streams.length < 2);
+      const cur = st.stream?.id ?? '';
+      if (doc.activeElement !== select && cur && select.value !== cur) select.value = cur;
+    }
+    const scanBox = inTray('[data-player-rtray-scan]');
+    const services = st.nowPlaying?.scan?.services ?? [];
+    const panelView = scanPanel(st.scan, st.scanError, st.scanStarting, services);
+    if (scanBox) {
+      const keep = focusKey(scanBox);
+      scanBox.replaceChildren(scanButtonNode(st, false));
+      restoreFocus(scanBox, keep);
+    }
+    const words = inTray('[data-player-rtray-scanwords]');
+    if (words) {
+      const running = panelView?.state === 'listening' || panelView?.state === 'identifying';
+      const parts: HTMLElement[] = [];
+      if (running && panelView!.progress != null) {
+        const bar = el(doc, 'span', 'ss-player-radio-scan-progress');
+        bar.setAttribute('aria-hidden', 'true');
+        const fill = el(doc, 'span');
+        fill.style.width = `${Math.round(panelView!.progress * 100)}%`;
+        bar.append(fill);
+        parts.push(bar);
+      }
+      const said = sheetScanWords(panelView, services);
+      if (said) {
+        const p = el(doc, 'p', '', said.text);
+        if (said.danger) p.dataset.tone = 'danger';
+        parts.push(p);
+      } else if (!panelView) {
+        const sb = scanButton(st);
+        const trouble = sb.disabled ? null : scanTrouble(st.nowPlaying?.scan);
+        if (trouble) parts.push(el(doc, 'p', '', trouble.sheet));
+      }
+      words.replaceChildren(...parts);
+      setHidden(words, !parts.length);
+    }
+
+    // the list
+    drawHeard();
+    drawRecent(st);
+    drawTrayAuto(st);
+    drawFoot();
+  }
+
+  function drawListened(): void {
+    const node = inTray('[data-player-rtray-listened]');
+    if (!node || !isRadio()) return;
+    const a =
+      (
+        win as Window & { SoulSyncPlayer?: { audio?: () => HTMLAudioElement | null } }
+      ).SoulSyncPlayer?.audio?.() ?? doc.querySelector<HTMLAudioElement>('#audio-player');
+    const t = a && Number.isFinite(a.currentTime) ? a.currentTime : 0;
+    setText(node, formatClock(t));
+  }
+
+  // ── the Visuals overlay's header ───────────────────────────────────────
+  function drawVisualsHeader(st: RadioSessionState): void {
+    const head = radioVisualsHeader(st);
+    if (!head) return;
+    setText(doc.getElementById('np-v2-visuals-title'), head.title);
+    setText(doc.getElementById('np-v2-visuals-artist'), head.line);
+    const art = doc.getElementById('np-v2-visuals-art') as HTMLImageElement | null;
+    if (art) {
+      const src = head.art
+        ? head.art.startsWith('/')
+          ? appURL(head.art as `/${string}`)
+          : head.art
+        : '';
+      if (!src || art.dataset.broken === src) {
+        art.hidden = true;
+        return;
+      }
+      art.onerror = () => {
+        art.dataset.broken = src;
+        art.hidden = true;
+      };
+      if (art.getAttribute('src') !== src) art.setAttribute('src', src);
+      art.hidden = false;
     }
   }
 
@@ -851,16 +1441,76 @@ export function bootRadioChrome(
     }
     drawSlot(st);
     drawPanel();
+    drawTray(st);
+    drawVisualsHeader(st);
     if (st.station && stationInfo?.id !== st.station.id) void loadStation(st.station.id);
+    if (st.station && st.status === 'playing' && rememberedId !== st.station.id) {
+      rememberedId = st.station.id;
+      rememberStation(storage, st.station);
+      recentKey = '';
+      drawRecent(st);
+    }
+    // Heard today: read when the tray opens or the station changes, and again
+    // when the station names a new track (at most every 15 s)
+    if (st.station && trayOpen()) {
+      const hid = st.nowPlaying?.heard_id ?? null;
+      const stale = heard?.stationId !== st.station.id;
+      const moved = hid !== lastHeardId && Date.now() - (heard?.at ?? 0) > 15_000;
+      if (stale || (moved && !heard?.loading)) {
+        lastHeardId = hid;
+        void loadHeard(st.station.id);
+      }
+    }
     if (!meterFrame) meterFrame = win.requestAnimationFrame(drawMeter);
     // "identified 40 s ago" keeps counting between polls
-    if (!tick) tick = setInterval(() => isRadio() && drawSlot(radio()!.state()), 5000);
+    if (!tick)
+      tick = setInterval(() => {
+        if (!isRadio()) return;
+        const now = radio()!.state();
+        drawSlot(now);
+        drawTray(now);
+      }, 5000);
   }
 
   // ── events ─────────────────────────────────────────────────────────────
   const onClick = async (event: Event) => {
     if (!isRadio()) return;
     const target = event.target as Element | null;
+    // the tray's list (Ross, 2026-10-23)
+    const tab = target?.closest<HTMLElement>('[data-player-rtray-tab]');
+    if (tab) {
+      event.preventDefault();
+      selectTab(tab.dataset.playerRtrayTab === 'recent' ? 'recent' : 'heard');
+      return;
+    }
+    const want = target?.closest<HTMLElement>('[data-player-rtray-want]');
+    if (want) {
+      event.preventDefault();
+      if (want.getAttribute('aria-disabled') === 'true') return;
+      const item = heard?.items?.find((i) => String(i.id) === want.dataset.playerRtrayWant);
+      if (item) await wantHeard(item);
+      return;
+    }
+    if (target?.closest('[data-player-rtray-heard-retry]')) {
+      event.preventDefault();
+      const st = radio()?.state();
+      if (st?.station) void loadHeard(st.station.id);
+      return;
+    }
+    const playBtn = target?.closest<HTMLElement>('[data-player-rtray-play]');
+    if (playBtn) {
+      event.preventDefault();
+      const s = readRecentStations(storage).find((x) => x.id === playBtn.dataset.playerRtrayPlay);
+      if (s) await radio()?.play(s.id, { station: recentAsStation(s) });
+      return;
+    }
+    if (target?.closest('[data-player-radio-visuals]')) {
+      event.preventDefault();
+      // the sheet closes first; the overlay gives the focus back to the mini bar
+      root.querySelector<HTMLElement>('[data-player-sheet-close]')?.click();
+      (win as Window & { npV2?: { openVisuals?: () => void } }).npV2?.openVisuals?.();
+      return;
+    }
     const add = target?.closest<HTMLElement>('[data-player-radio-add]');
     if (add) {
       event.preventDefault();
@@ -936,7 +1586,7 @@ export function bootRadioChrome(
       autoSet = { stationId: id, on: true };
       if (stationInfo) stationInfo.data = null;
       drawPanel();
-      root.querySelector<HTMLElement>('[data-player-radio-auto]')?.focus();
+      focusHere('[data-player-radio-auto]');
       (win as Window & { showToast?: (m: string, t: string) => void }).showToast?.(
         `Auto-add is on for ${name}.`,
         'success',
@@ -949,7 +1599,7 @@ export function bootRadioChrome(
       // Not now: the switch row comes back, off
       autoConfirm = null;
       drawPanel();
-      root.querySelector<HTMLElement>('[data-player-radio-auto]')?.focus();
+      focusHere('[data-player-radio-auto]');
       return;
     }
     const sw = target?.closest<HTMLElement>('[data-player-radio-auto]');
@@ -978,16 +1628,21 @@ export function bootRadioChrome(
       }
     }
   };
-  // the bar's left button opens the station's page on a desktop (the tray
-  // isn't drawn for radio); on a phone it opens the sheet as always
-  const onToggle = (event: Event) => {
-    if (!isRadio() || win.matchMedia?.('(max-width: 768px)').matches) return;
-    const target = event.target as Element | null;
-    if (!target?.closest('.ss-player-bar [data-player-toggle]')) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
+  // the tabs: the arrow keys move between Heard today and Recent stations
+  const onKey = (event: Event) => {
+    const ev = event as KeyboardEvent;
+    const tab = (ev.target as Element | null)?.closest?.('[data-player-rtray-tab]');
+    if (!tab || (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight')) return;
+    ev.preventDefault();
+    selectTab(trayTab === 'heard' ? 'recent' : 'heard', true);
+  };
+  // another of the station's streams: the station restarts on it
+  const onChange = (event: Event) => {
+    const select = event.target as HTMLSelectElement | null;
+    if (!select?.matches?.('[data-player-rtray-streams]')) return;
     const st = radio()?.state();
-    if (st?.station) go(win, stationHref(st.station.id));
+    if (!st?.station || select.value === st.stream?.id) return;
+    void radio()?.play(st.station.id, { streamId: select.value, station: st.station });
   };
   // the sheet's volume goes through the deck's slider, which the player listens to
   const onInput = (event: Event) => {
@@ -1000,17 +1655,37 @@ export function bootRadioChrome(
     deck.dispatchEvent(new Event('input', { bubbles: true }));
   };
   root.addEventListener('click', onClick);
-  root.addEventListener('click', onToggle, true);
+  root.addEventListener('keydown', onKey);
+  root.addEventListener('change', onChange);
   root.addEventListener('input', onInput);
+  // the time listened runs with the stream
+  const audioEl =
+    (
+      win as Window & { SoulSyncPlayer?: { audio?: () => HTMLAudioElement | null } }
+    ).SoulSyncPlayer?.audio?.() ?? doc.querySelector<HTMLAudioElement>('#audio-player');
+  audioEl?.addEventListener('timeupdate', drawListened);
+  // the tray opening (html[data-player="tray"]) reads Heard today
+  const layout =
+    typeof MutationObserver === 'function'
+      ? new MutationObserver(() => {
+          if (trayOpen()) draw();
+        })
+      : null;
+  layout?.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-player'] });
   win.addEventListener(RADIO_EVENT, draw);
   win.addEventListener('ss:player', draw);
   cleanups.push(
     () => root.removeEventListener('click', onClick),
-    () => root.removeEventListener('click', onToggle, true),
+    () => root.removeEventListener('keydown', onKey),
+    () => root.removeEventListener('change', onChange),
+    () => audioEl?.removeEventListener('timeupdate', drawListened),
+    () => layout?.disconnect(),
+    () => resize?.disconnect(),
     () => root.removeEventListener('input', onInput),
     () => win.removeEventListener(RADIO_EVENT, draw),
     () => win.removeEventListener('ss:player', draw),
   );
+  selectTab('heard');
   draw();
   return {
     draw,

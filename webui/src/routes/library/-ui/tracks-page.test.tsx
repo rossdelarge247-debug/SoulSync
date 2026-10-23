@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
+import { resetDriveStatus } from '@/features/drives/drive-status';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
@@ -101,6 +102,26 @@ const MIXES = {
 };
 
 let requested: { url: string; method: string }[] = [];
+let driveAway = false;
+
+const DRIVE = {
+  success: true,
+  checked_at: 0,
+  interval: 30,
+  library_away: true,
+  away: ['library'],
+  folders: {
+    library: {
+      role: 'library',
+      label: 'Library',
+      connected: false,
+      last_seen: 1792000000,
+      drive: 'Music HD',
+    },
+  },
+  can_check: true,
+  boot_id: 'b',
+};
 
 beforeEach(() => {
   window.SoulSyncWebShellBridge = createShellBridge();
@@ -108,6 +129,8 @@ beforeEach(() => {
   window.showToast = vi.fn();
   window.playNext = vi.fn();
   requested = [];
+  driveAway = false;
+  resetDriveStatus();
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -119,6 +142,8 @@ beforeEach(() => {
       if (u.pathname.endsWith('/api/library/dj/browse')) body = BROWSE;
       else if (u.pathname.endsWith('/api/library/dj/status')) body = STATUS;
       else if (u.pathname.endsWith('/api/library/dj/mixes/1')) body = MIXES;
+      else if (u.pathname.endsWith('/api/drives/status'))
+        body = driveAway ? DRIVE : { ...DRIVE, library_away: false, away: [] };
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -217,5 +242,13 @@ describe('Library → Tracks', () => {
       }),
     );
     expect(within(dialog).getByRole('button', { name: 'Add Low Tide to a playlist' })).toBeTruthy();
+  });
+
+  it("keeps the list when the library's drive is away, with the Notice above it", async () => {
+    driveAway = true;
+    renderPage();
+    await screen.findByText('Static Bloom');
+    await screen.findByText(/isn.t connected/);
+    expect(screen.getByRole('heading', { level: 1, name: 'Tracks' })).toBeTruthy();
   });
 });

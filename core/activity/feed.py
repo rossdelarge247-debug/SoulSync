@@ -11,11 +11,11 @@ download        library_history downloads, folded into          shared (as
                 are running, stopped early or had failures      /history)
 import          library_history imports (media server scans,    shared
                 Staging), folded; auto_import_history rows      Import page
-automation      automation_run_history + live runs; library_jobs profile (+
-                (Look for releases you don't have) + the live    system rows;
-                run                                             jobs: admins
-                                                                or who
-                                                                started it)
+automation      automation_run_history + live runs              profile (+
+                                                                system rows)
+library         library_jobs: Look for releases you don't have, admins, or
+                Move your music to another drive and the DJ      who started
+                analysis, with their live runs (HANDOFF 90)      it
 sync            playlist_pipeline_run_history (mirror runs);    profile
                 playlist sync_history rows
 safety          action_plan_events (preview expired/confirmed)  admin, or
@@ -77,7 +77,7 @@ from utils.logging_config import get_logger
 
 logger = get_logger("activity.feed")
 
-KINDS = ("download", "import", "automation", "sync", "safety", "radio")
+KINDS = ("download", "import", "automation", "library", "sync", "safety", "radio")
 FILTERS = KINDS + ("needs_you",)
 RANGES = ("today", "7d", "30d")
 DEFAULT_RANGE = "7d"
@@ -95,7 +95,8 @@ _RANK = {"lh_download": 1, "lh_import": 2, "auto_import": 3, "sync_history": 4,
 _SOURCES = {
     "download": ("lh_download", "sync_history"),
     "import": ("lh_import", "auto_import"),
-    "automation": ("automation", "automation_live", "library_job"),
+    "automation": ("automation", "automation_live"),
+    "library": ("library_job",),
     "sync": ("sync_history", "mirror"),
     "safety": ("safety",),
     "radio": ("radio",),
@@ -949,6 +950,17 @@ _JOB_TITLES = {
 _JOB_LINK = "/library?show=incomplete"
 _JOB_STOP = "library/missing-releases/stop"
 
+# the drive move (core/drives/move.py), the second library job
+_MOVE_TITLES = {
+    "running": "Moving your music to {target}",
+    "done": "Moved your music to {target}",
+    "stopped": "Stopped moving your music to {target}",
+    "failed": "Couldn't move your music to {target}",
+}
+_MOVE_LINK = "/move"
+_MOVE_STOP = "drives/move/stop"
+
+
 
 def _job_found(row: Dict[str, Any]) -> str:
     n, artists = int(row.get("found_releases") or 0), int(row.get("found_artists") or 0)
@@ -1013,7 +1025,7 @@ def _dj_job_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
         detail = _sentence(_many(total, "track"), f"{done:,} done", _DJ_WAITING.get(live.get("waiting") or "", ""))
         ref["stop_path"] = _DJ_STOP
         return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=int(row["started_at"] or 0),
-                     kind="automation", status="running", title=_DJ_TITLES["running"], detail=detail,
+                     kind="library", status="running", title=_DJ_TITLES["running"], detail=detail,
                      link=_DJ_LINK, ref=ref)
     status = row.get("status") or "done"
     if status == "running":
@@ -1026,11 +1038,71 @@ def _dj_job_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
     else:
         detail, tone = _sentence(f"{done:,} of {_many(total, 'track')} done", str(row.get("note") or "")), "error"
     t = int(row.get("finished_at") or row.get("started_at") or 0)
-    return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=t, kind="automation",
+    return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=t, kind="library",
                  status=tone, title=_DJ_TITLES.get(status, _DJ_TITLES["done"]), detail=detail, link=_DJ_LINK, ref=ref)
 
 
+def _drive_move_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
+    """A drive move's row: its own words, the flow as the link, Stop while it runs.
+    Sizes are the move's own (decimal GB, as the computer's Finder says them)."""
+    from core.drives.move import size_words as drive_size
+    move = {}
+    try:
+        found = ctx.conn.execute("SELECT status, plan_json, progress_json, failure_json FROM drive_moves "
+                                 "WHERE job_id = ? ORDER BY id DESC LIMIT 1", (int(row["id"]),)).fetchone()
+        move = dict(found) if found else {}
+    except Exception:  # noqa: BLE001 - no table yet
+        move = {}
+    plan = _json(move.get("plan_json")) or {}
+    progress = _json(move.get("progress_json")) or {}
+    failure = _json(move.get("failure_json")) or {}
+    target = plan.get("target_label") or "another drive"
+    source = plan.get("source_label") or "the old drive"
+    status = row.get("status") or "done"
+    live = status == "running" and _drive_move_running()
+    if status == "running" and not live:
+        status = "stopped"
+    ref: Dict[str, Any] = {"job_id": int(row["id"])}
+    total_bytes = int(plan.get("total_bytes") or 0)
+    if live:
+        copied = int(progress.get("copied_bytes") or 0)
+        phase = row.get("note") or "copying"
+        if phase == "verifying":
+            detail = _sentence(f"Checking every file · {int(progress.get('checked') or 0):,} of "
+                               f"{int(progress.get('total') or 0):,} match", f"your music is still on {source}")
+        else:
+            detail = _sentence(f"{drive_size(copied)} of {drive_size(total_bytes)}", f"your music is still on {source}")
+        ref["stop_path"] = _MOVE_STOP
+        tone, title = "running", _MOVE_TITLES["running"]
+    elif status == "done":
+        tone, title = "ok", _MOVE_TITLES["done"]
+        after = {"removed": f"the old copies are gone from {source}",
+                 "switched_back": f"switched back to {source} since"}.get(move.get("status") or "",
+                                                                          f"the old copies are kept on {source}")
+        detail = _sentence(drive_size(total_bytes), after)
+    elif status == "stopped":
+        tone, title = "warning", _MOVE_TITLES["stopped"]
+        why = "when SYNCHRO.S restarted" if failure.get("kind") == "restart" else ""
+        detail = _sentence(f"Your music is untouched on {source}", why)
+    else:
+        tone, title = "error", _MOVE_TITLES["failed"]
+        detail = _sentence(str(failure.get("words") or row.get("note") or ""), f"Your music is untouched on {source}")
+    t = int(row.get("started_at") or 0) if live else int(row.get("finished_at") or row.get("started_at") or 0)
+    return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=t, kind="library", status=tone,
+                 title=title.format(target=target), detail=detail, link=_MOVE_LINK, ref=ref)
+
+
+def _drive_move_running() -> bool:
+    try:
+        import api.drives as drives_api
+        return bool(drives_api.JOB is not None and drives_api.JOB.running())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _library_job_item(ctx: _Ctx, row: Dict[str, Any], live: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if row.get("kind") == "drive_move":
+        return _drive_move_item(ctx, row)
     if row.get("kind") == "dj_analysis":
         return _dj_job_item(ctx, row)
     total = int(row.get("total") or 0)
@@ -1041,7 +1113,7 @@ def _library_job_item(ctx: _Ctx, row: Dict[str, Any], live: Optional[Dict[str, A
         if until:
             detail = _sentence(detail, f"waiting for Spotify's pause, {duration_words(max(1, int(until) - ctx.now))} left")
         return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=int(row["started_at"] or 0),
-                     kind="automation", status="running", title=_JOB_TITLES["running"], detail=detail, link=_JOB_LINK,
+                     kind="library", status="running", title=_JOB_TITLES["running"], detail=detail, link=_JOB_LINK,
                      ref={"job_id": int(row["id"]), "stop_path": _JOB_STOP})
     status = row.get("status") or "done"
     if status == "running":
@@ -1059,7 +1131,7 @@ def _library_job_item(ctx: _Ctx, row: Dict[str, Any], live: Optional[Dict[str, A
     else:
         detail, tone = _sentence(f"{done:,} of {plural(total, 'artist')} checked", str(row.get("note") or "")), "error"
     t = int(row.get("finished_at") or row.get("started_at") or 0)
-    return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=t, kind="automation",
+    return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=t, kind="library",
                  status=tone, title=_JOB_TITLES.get(status, _JOB_TITLES["done"]), detail=detail, link=_JOB_LINK,
                  ref={"job_id": int(row["id"])})
 
@@ -1088,7 +1160,8 @@ def _library_job_items(ctx: _Ctx, cursor, limit: int) -> List[Dict[str, Any]]:
         row = dict(r)
         if not _job_visible(ctx, row.get("profile_id")):
             continue
-        is_live = live is not None and row.get("kind") != "dj_analysis" and int(live.get("id") or 0) == int(row["id"])
+        is_live = (live is not None and row.get("kind") not in ("drive_move", "dj_analysis")
+                   and int(live.get("id") or 0) == int(row["id"]))
         item = _library_job_item(ctx, row, live if is_live else None)
         if _before_cursor(item["_key"], cursor):
             out.append(item)
@@ -1264,7 +1337,8 @@ def _counts(ctx: _Ctx, sessions) -> Dict[str, int]:
         counts["import"] += conn.execute(f"SELECT COUNT(*) {frm}", params).fetchone()[0]
     frm, _t, params = _automation_query(ctx)
     counts["automation"] = conn.execute(f"SELECT COUNT(*) {frm}", params).fetchone()[0] + len(
-        _live_automation_items(ctx, None, MAX_LIMIT)) + _library_job_count(ctx)
+        _live_automation_items(ctx, None, MAX_LIMIT))
+    counts["library"] = _library_job_count(ctx)
     t = _ts("COALESCE(finished_at, started_at)")
     counts["sync"] += conn.execute(
         f"SELECT COUNT(*) FROM playlist_pipeline_run_history WHERE profile_id = ? AND {t} >= ?",
@@ -1282,6 +1356,8 @@ def _running_count(ctx: _Ctx) -> int:
     n += sum(1 for aid in ctx.running_automations if int(aid) in ctx.automations)
     live_job = _live_library_job()
     if live_job is not None and _job_visible(ctx, live_job.get("profile_id")):
+        n += 1
+    if ctx.viewer.is_admin and _drive_move_running():
         n += 1
     dj_job = _live_dj_job()
     if dj_job is not None and _job_visible(ctx, dj_job.get("profile_id")):

@@ -339,5 +339,10 @@ def test_busy_reason_reads_downloads_and_imports(db, monkeypatch):
     assert worker.busy_reason(db) == "import"
 
 
-def test_library_away_without_the_drive_guard_is_false():
-    assert worker.library_away() in (False, True)
+def test_library_away_follows_the_drive_watch(monkeypatch):
+    import core.drives.markers as markers
+
+    monkeypatch.setattr(markers, "library_away", lambda: True)
+    assert worker.library_away() is True
+    monkeypatch.setattr(markers, "library_away", lambda: False)
+    assert worker.library_away() is False

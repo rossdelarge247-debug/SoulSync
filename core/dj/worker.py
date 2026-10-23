@@ -13,8 +13,8 @@ Gentle on a laptop:
 * after each track it rests at least as long as the track took (so it uses
   at most about half of one core) and never less than ``MIN_REST_SECONDS``;
 * it waits while a download batch or an auto-import is running, and while the
-  library's drive isn't connected (``core.drives.markers.library_away``, once
-  the drive move lands), saying so in Activity.
+  library's drive isn't connected (``core.drives.markers.library_away``),
+  saying so in Activity.
 
 Resumable and versioned: every finished track is its own ``track_dj`` row at
 ``dj_analyzer_version`` (Sample Studio's ``ANALYZER_VERSION``), so a restart
@@ -101,17 +101,12 @@ def settings_state() -> Dict[str, bool]:
 # ── what makes it wait ───────────────────────────────────────────────────────
 
 def library_away() -> bool:
-    """True while the library's drive isn't connected (the drive move's
-    guard). False on a base without it: then a missing file is just marked
-    unreachable."""
-    try:
-        from core.drives.markers import library_away as away  # type: ignore[import-not-found]
-    except Exception:  # noqa: BLE001 - no drive guard on this build
-        return False
-    try:
-        return bool(away())
-    except Exception:  # noqa: BLE001
-        return False
+    """True while the library's drive isn't connected: the drive watch's last
+    look (core.drives.markers). The sweep waits rather than marking every
+    file unreachable."""
+    from core.drives.markers import library_away as away
+
+    return away()
 
 
 def busy_reason(database) -> Optional[str]:

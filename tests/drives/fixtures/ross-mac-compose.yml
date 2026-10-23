@@ -1,0 +1,41 @@
+# SYNCHRO.S on Ross's Mac (from the Mac guide).
+# Keep this file in ~/SoulSync and run `docker compose up -d` here.
+
+services:
+  soulsync:
+    image: boulderbadgedad/soulsync:latest
+    container_name: soulsync
+    restart: unless-stopped
+    ports:
+      - "8008:8008"   # the web page
+    environment:
+      - TZ=Europe/London
+      - PUID=501
+      - PGID=20
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - soulsync_data:/app/data
+      # your music, downloads and the import folder
+      - ./music:/app/Transfer
+      - ./downloads:/app/downloads
+      - ./staging:/app/Staging
+    depends_on:
+      - slskd
+
+  slskd:
+    image: slskd/slskd:latest
+    container_name: slskd
+    restart: unless-stopped
+    ports:
+      - "5030:5030"
+      - "50300:50300"
+    environment:
+      - SLSKD_SHARED_DIR=/music
+    volumes:
+      - ./slskd:/app
+      - ./downloads:/app/downloads
+      - ./music:/music:ro
+
+volumes:
+  soulsync_data:

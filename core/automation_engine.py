@@ -658,6 +658,18 @@ class AutomationEngine:
             return None
 
     @staticmethod
+    def drive_hold_result(action_type):
+        """A skip result while a drive move copies or the library's drive is
+        away and this action writes to the music folders, else None."""
+        try:
+            from core.drives.holds import automation_hold_reason
+            reason = automation_hold_reason(action_type)
+        except Exception as e:  # noqa: BLE001 - never stop automations over this
+            logger.debug("drive hold check failed: %s", e)
+            return None
+        return {'status': 'skipped', 'reason': reason} if reason else None
+
+    @staticmethod
     def module_skip_result(module):
         try:
             from core.modules import display_name
@@ -1357,6 +1369,11 @@ class AutomationEngine:
 
         action_type = auto.get('action_type')
 
+        if self.drive_hold_result(action_type):
+            logger.info(f"Event automation '{auto.get('name')}' skipped — "
+                        f"{self.drive_hold_result(action_type)['reason']}")
+            return
+
         # Check for action delay
         try:
             action_config = json.loads(auto.get('action_config') or '{}')
@@ -1511,6 +1528,15 @@ class AutomationEngine:
             result = self.module_skip_result(module)
             logger.info(f"Automation '{auto.get('name')}' skipped — {result['reason']}")
             self._finish_run(auto, automation_id, result, error=None)
+            return
+
+        # A drive move copying, or the library's drive away: the actions that
+        # download, import, move or delete files wait (core/drives/holds.py).
+        # Run now waits too; the schedule stays alive.
+        drive_hold = self.drive_hold_result(auto.get('action_type'))
+        if drive_hold:
+            logger.info(f"Automation '{auto.get('name')}' skipped — {drive_hold['reason']}")
+            self._finish_run(auto, automation_id, drive_hold, error=None)
             return
 
         # Global per-side pause: a scheduled slot is skipped but the schedule
