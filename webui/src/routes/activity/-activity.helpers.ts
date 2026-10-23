@@ -20,6 +20,8 @@ export const SHOW_OPTIONS: ReadonlyArray<{
   { value: 'downloads', label: 'Downloads', kind: 'download' },
   { value: 'imports', label: 'Imports', kind: 'import' },
   { value: 'automations', label: 'Automations', kind: 'automation' },
+  // Look for releases you don't have and Move your music to another drive (HANDOFF 90)
+  { value: 'library', label: 'Library jobs', kind: 'library' },
   { value: 'playlists', label: 'Playlists', kind: 'sync' },
   // Internet radio's auto-add, one item per station per hour; hidden while the module is off
   { value: 'radio', label: 'Radio', kind: 'radio' },
@@ -334,13 +336,13 @@ export function retryAction(item: ActivityItem): RetryAction | null {
 
 /**
  * Stop, where a running item can be stopped: a library job such as "Looking
- * for releases you don't have" (HANDOFF 68) names its stop route in
- * `ref.stop_path`, under /api/library/.
+ * for releases you don't have" (HANDOFF 68) or a drive move names its stop
+ * route in `ref.stop_path`, under /api/library/ or /api/drives/.
  */
 export function stopAction(item: ActivityItem): RetryAction | null {
   if (item.status !== 'running') return null;
   const path = item.ref?.stop_path;
-  if (typeof path !== 'string' || !/^library\/[a-z0-9/-]+$/.test(path)) return null;
+  if (typeof path !== 'string' || !/^(library|drives)\/[a-z0-9/-]+$/.test(path)) return null;
   return { path, label: 'Stop' };
 }
 
@@ -471,6 +473,14 @@ export function emptyCopy(show: ActivityShow, range: ActivityRange): EmptyCopy {
           'Each time a mirrored playlist is checked or synced, it shows here with what changed.',
         hint: 'Playlists are mirrored on their schedule, or you can sync one now.',
         link: { label: 'Open playlists', href: '/sync' },
+      };
+    case 'library':
+      return {
+        title: `No library jobs ${when}`,
+        description:
+          'Looking for releases you don’t have and moving your music to another drive show here while they run, with Stop, and what they did after.',
+        hint: 'Look for releases from Library → Artists; move your music from Settings → Library → Folders.',
+        link: { label: 'Open Artists', href: '/library' },
       };
     case 'radio':
       return {

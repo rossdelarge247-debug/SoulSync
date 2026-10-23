@@ -1,0 +1,384 @@
+/**
+ * The drives routes (api/drives.py, CONTRACTS.md "Your music's drives").
+ * Plain fetch through appURL, so the pieces work inside the React app and
+ * in the islands mounted into the legacy Settings page alike.
+ */
+
+import { appURL } from '@/platform/url-base';
+
+export type Role = 'library' | 'downloads' | 'staging';
+export const ROLES: Role[] = ['library', 'downloads', 'staging'];
+export type Platform = 'mac' | 'linux' | 'windows';
+export type Tone = 'success' | 'info' | 'warning' | 'danger' | 'neutral';
+
+export interface FolderState {
+  role: Role;
+  label: string;
+  connected: boolean;
+  last_seen: number | null;
+  drive: string | null;
+  path?: string;
+  reason?: string;
+}
+
+export interface DriveStatus {
+  success: boolean;
+  checked_at: number;
+  interval: number;
+  library_away: boolean;
+  away: Role[];
+  folders: Record<Role, FolderState>;
+  can_check: boolean;
+  boot_id: string;
+  move?: { id: number; status: MoveStatus; promise: PromiseLine };
+  reminder?: Reminder | null;
+}
+
+export interface Reminder {
+  move_id: number;
+  source_label: string;
+  target_label: string;
+  bytes: number;
+  files: number;
+  switched_at: number;
+}
+
+export interface FolderRow {
+  role: Role;
+  label: string;
+  path: string;
+  drive: string;
+  holds: string;
+  files: number | null;
+  bytes: number | null;
+  albums?: number;
+}
+
+export interface FoldersPayload {
+  success: boolean;
+  folders: FolderRow[];
+  drive: {
+    label: string;
+    free: number | null;
+    total: number | null;
+    percent: number | null;
+    tone: 'warning' | 'danger' | null;
+  };
+  move: { id: number; status: MoveStatus } | null;
+  platform: Platform;
+}
+
+export interface Drive {
+  name: string;
+  path: string;
+  total: number | null;
+  free: number | null;
+  format: string | null;
+  backup: boolean;
+  read_only: boolean;
+  offered: boolean;
+}
+
+export interface DockerPayload {
+  success: boolean;
+  platform: Platform;
+  guessed: Platform;
+  compose_folder: string;
+  roots: string[];
+  visible_roots: string[];
+  drives: Drive[];
+  boot_id: string;
+  lines: { mounts: string[]; slskd_config: string };
+  token: { state: 'none' | 'live' | 'used' | 'expired'; expires_at?: number };
+  undo: string;
+  windows_ready: boolean;
+}
+
+export interface DockerCommand {
+  success: boolean;
+  command: string;
+  undo: string;
+  expires_at: number;
+  platform: Platform;
+  lines: { mounts: string[]; slskd_config: string };
+  compose_folder: string;
+  error?: string;
+  field?: string;
+}
+
+export interface DockerCheck {
+  success: boolean;
+  boot_id: string;
+  drives: Drive[];
+  visible: boolean;
+  roots: string[];
+  token: DockerPayload['token'];
+  platform: Platform;
+}
+
+export type MoveStatus =
+  | 'draft'
+  | 'copying'
+  | 'verifying'
+  | 'switching'
+  | 'switched'
+  | 'failed'
+  | 'stopped'
+  | 'removed'
+  | 'switched_back';
+
+export interface PromiseLine {
+  tone: Tone;
+  words: string;
+}
+
+export interface Choice {
+  roles: Record<Role, boolean>;
+  target: string;
+  separate: boolean;
+  per_role: Partial<Record<Role, string>>;
+  exfat: 'carry_on' | 'erase' | null;
+  checksum: boolean;
+}
+
+export interface CheckRow {
+  key: string;
+  title: string;
+  tone: Tone;
+  tag: string;
+  detail: string;
+  stop?: boolean;
+  needs_choice?: boolean;
+  choice?: string | null;
+  sign_in?: boolean;
+}
+
+export interface Checks {
+  rows: CheckRow[];
+  at: number;
+  speed: number | null;
+  format: string | null;
+  need: number;
+  ok: boolean;
+  summary: string;
+  dests: Partial<Record<Role, string>>;
+}
+
+export interface Plan {
+  order: Role[];
+  dests: Partial<Record<Role, string>>;
+  sources: Partial<Record<Role, string>>;
+  total_bytes: number;
+  total_files: number;
+  estimate_seconds: number;
+  checksum_seconds: number;
+  target_label: string;
+  source_label: string;
+  automations: string[];
+  speed: number;
+  library_paths: number;
+}
+
+export interface MoveFolder {
+  role: Role;
+  label: string;
+  source?: string;
+  dest?: string;
+  files: number;
+  bytes: number;
+  copied_files: number;
+  copied_bytes: number;
+  verified: number;
+}
+
+export interface AfterCheck {
+  key: string;
+  ok: boolean;
+  title: string;
+  detail: string;
+  mono?: boolean;
+}
+
+export interface Failure {
+  kind:
+    | 'drive_away'
+    | 'full'
+    | 'write'
+    | 'mismatch'
+    | 'unreadable'
+    | 'refused'
+    | 'restart'
+    | 'error';
+  words: string;
+  at: number;
+  source_label?: string;
+  target_label?: string;
+  files?: Array<{ role: Role; rel: string; why: string; size?: number }>;
+  count?: number;
+  copied?: number;
+  total?: number;
+  matching_files?: number;
+}
+
+export interface Move {
+  id: number;
+  status: MoveStatus;
+  created_at: number;
+  updated_at: number;
+  started_at: number | null;
+  switched_at: number | null;
+  finished_at: number | null;
+  promise: PromiseLine;
+  choice: Choice;
+  checks: Checks | null;
+  plan: Plan | null;
+  failure: Failure | null;
+  result: {
+    checks?: AfterCheck[];
+    media?: {
+      name: string;
+      label: string;
+      state: string;
+      folder?: string;
+      old_location?: string | null;
+    };
+    removed?: { files: number; bytes: number; skipped: number };
+    slskd?: Record<string, unknown>;
+  };
+  has_slskd_session: boolean;
+  folders: MoveFolder[];
+  progress: {
+    phase?: string;
+    role?: Role | null;
+    current?: string | null;
+    copied_bytes: number;
+    total_bytes: number;
+    speed?: number | null;
+    eta_seconds: number | null;
+    checked?: number;
+    total?: number;
+    different?: number;
+    step?: string;
+    waiting_for?: string[];
+  };
+}
+
+export interface Overview {
+  folders: FolderRow[];
+  drives: Drive[];
+  home_label: string;
+  home_free: number | null;
+  platform: Platform;
+  visible: boolean;
+  roots: string[];
+}
+
+export interface MovePayload {
+  success: boolean;
+  move: Move | null;
+  overview?: Overview;
+  boot_id: string;
+  running: boolean;
+  error?: string;
+}
+
+export interface RemovePreview {
+  success: boolean;
+  plan_id: string;
+  total: number;
+  total_bytes: number;
+  sample: Array<{ path: string; size: number; action: string; reason: string }>;
+  truncated: boolean;
+  created_at: number;
+  expires_at: number;
+  error?: string;
+  code?: string;
+}
+
+export class DrivesError extends Error {
+  status: number;
+  field?: string;
+  code?: string;
+  constructor(message: string, status: number, field?: string, code?: string) {
+    super(message);
+    this.status = status;
+    this.field = field;
+    this.code = code;
+  }
+}
+
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(appURL(path), {
+      method,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      credentials: 'same-origin',
+    });
+  } catch {
+    // the server is restarting (the Docker step) or the network dropped
+    throw new DrivesError('SYNCHRO.S didn’t answer.', 0);
+  }
+  let data: unknown = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+  if (!response.ok) {
+    const payload = (data ?? {}) as { error?: string; field?: string; code?: string };
+    throw new DrivesError(
+      payload.error || 'That didn’t go through.',
+      response.status,
+      payload.field,
+      payload.code,
+    );
+  }
+  return data as T;
+}
+
+export const drivesApi = {
+  status: () => call<DriveStatus>('GET', '/api/drives/status'),
+  checkNow: () => call<DriveStatus>('POST', '/api/drives/status/check'),
+  folders: () => call<FoldersPayload>('GET', '/api/drives/folders'),
+  docker: () => call<DockerPayload>('GET', '/api/drives/docker'),
+  dockerCommand: (folder: string, platform: Platform) =>
+    call<DockerCommand>('POST', '/api/drives/docker/command', { folder, platform }),
+  dockerCheck: () => call<DockerCheck>('GET', '/api/drives/docker/check'),
+  browse: (path?: string) =>
+    call<{ success: boolean; path: string | null; folders: Array<{ name: string; path: string }> }>(
+      'GET',
+      `/api/drives/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`,
+    ),
+  move: () => call<MovePayload>('GET', '/api/drives/move'),
+  draft: () => call<MovePayload>('POST', '/api/drives/move'),
+  choose: (id: number, choice: Partial<Choice>) =>
+    call<MovePayload>('PUT', `/api/drives/move/${id}/choice`, choice),
+  check: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/check`),
+  slskdSession: (id: number, username: string, password: string) =>
+    call<MovePayload>('POST', `/api/drives/move/${id}/slskd-session`, { username, password }),
+  plan: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/plan`),
+  start: (id: number, checksum: boolean) =>
+    call<MovePayload>('POST', `/api/drives/move/${id}/start`, { checksum }),
+  stop: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/stop`),
+  resume: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/resume`),
+  recopy: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/recopy`),
+  skipUnreadable: (id: number) =>
+    call<MovePayload>('POST', `/api/drives/move/${id}/skip-unreadable`),
+  removePreview: (id: number) =>
+    call<RemovePreview>('POST', `/api/drives/move/${id}/remove-preview`),
+  remove: (id: number, planId: string) =>
+    call<MovePayload & { deleted: number; freed_bytes: number; skipped: number }>(
+      'POST',
+      `/api/drives/move/${id}/remove`,
+      { plan_id: planId },
+    ),
+  switchBack: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/switch-back`),
+  leave: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/leave`),
+};
+
+/** The full list behind a Remove the old copies… preview. */
+export function planListURL(planId: string): string {
+  return appURL(`/api/drives/plan-list/${encodeURIComponent(planId)}`);
+}

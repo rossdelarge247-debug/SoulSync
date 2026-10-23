@@ -33,6 +33,7 @@ export function normalizeActivity(payload: Partial<ActivityResponse>): ActivityR
       download: 0,
       import: 0,
       automation: 0,
+      library: 0,
       sync: 0,
       safety: 0,
       radio: 0,
