@@ -388,7 +388,7 @@ export function HistoryPage({ search, go }: { search: LibrarySearch; go: Go }) {
         </div>
       </div>
 
-      {first ? (
+      {first && total > 0 ? (
         <p className={styles.metaLine}>
           {historyMeta({
             kind,
