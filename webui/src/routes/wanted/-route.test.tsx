@@ -188,7 +188,11 @@ const LABELS = [
     label_name: 'Lighttown Recordings',
     source: 'musicbrainz',
     backlog: false,
-    date_added: sql(10 * 60_000),
+    // Read when the handler answers, not when this file loads: a fixed string
+    // goes stale on a slow run and reads "followed 11 minutes ago".
+    get date_added() {
+      return sql(10 * 60_000);
+    },
     last_scan_timestamp: null,
   },
 ];
