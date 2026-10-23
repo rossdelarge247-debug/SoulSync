@@ -197,7 +197,7 @@ describe('Mirror a playlist: choosing', () => {
     fireEvent.click(within(screen.getAllByTestId('mirror-row')[0]).getByRole('radio'));
     const pause = await screen.findByRole('dialog', { name: 'Spotify is paused' }, SLOW);
     expect(pause.textContent).toContain(
-      'Mirroring “Coastal evenings” needs Spotify’s playlist, so it waits. Nothing is lost',
+      'Mirroring “Coastal evenings” needs Spotify’s playlist, so it waits. It starts by itself when the pause ends, if this page stays open.',
     );
     expect(reads).toBe(0);
     // Wait for it: the pause ends (the status push says so) and the playlist is read

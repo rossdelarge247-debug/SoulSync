@@ -23,7 +23,7 @@ import styles from './spotify-paused-dialog.module.css';
 import { useSpotifyPause } from './use-spotify-pause';
 
 /** What the description adds after the thing that waits. */
-export const NOTHING_LOST = 'Nothing is lost: it starts by itself when the pause ends.';
+export const NOTHING_LOST = 'It starts by itself when the pause ends, if this page stays open.';
 
 export function SpotifyPausedDialog({
   open,
