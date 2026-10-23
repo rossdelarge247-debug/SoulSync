@@ -1917,3 +1917,10 @@ button.ss-player-radio-heard {
 /* the overlay's transport follows the player's kinds: a hidden control is
    gone (radio has no Previous or Next there either) */
 #np-modal-overlay [hidden] { display: none !important; }
+/* the confirm in the tray's list: tighter, so its question shows at 360px */
+.ss-player-rtray-list:has(.ss-player-radio-confirm) [data-player-rtray-foot] { display: none; }
+.ss-player-rtray-auto .ss-player-radio-confirm-title { font-size: 15px; }
+.ss-player-rtray-auto .ss-player-radio-confirm-guard { font-size: 13px; line-height: 1.4; }
+.ss-player-rtray-auto .ss-player-radio-tile { padding: 6px 10px; }
+.ss-player-rtray-auto .ss-player-radio-tile-label { font-size: 13px; }
+.ss-player-rtray-auto .ss-player-radio-tile-value { font-size: 18px; }
