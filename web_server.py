@@ -23879,6 +23879,18 @@ _cfg_targets(get_database_=get_database,
                                              'checked_at': _status_cache_timestamps.get('soulseek') or None})
 app.register_blueprint(_bp_targets())
 
+# Library → Albums, Genres and Artists (api/library_index.py): the release
+# index, the genre tiles, the artists grid and Remove from library's plan. The
+# bulk add to Wanted is /api/wishlist/bulk's "add" action, which calls it.
+from api.library_index import configure as _cfg_library_index, create_blueprint as _bp_library_index
+_cfg_library_index(
+    get_database_=get_database,
+    fix_art_url_=lambda url: fix_artist_image_url(url),
+    resolve_library_path_=lambda path: _resolve_library_file_path(path),
+    transfer_folder_=lambda: docker_resolve_path(config_manager.get('soulseek.transfer_path', './Transfer')),
+)
+app.register_blueprint(_bp_library_index())
+
 # The player's reads (api/player.py): waveform peaks, the readout's audio
 # details and Recent. Files are found through Sample Studio's resolver, which
 # tries the playback resolver first, so a track that plays also draws.

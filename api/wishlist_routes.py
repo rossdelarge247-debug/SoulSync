@@ -454,9 +454,16 @@ def bulk_wishlist_action():
     ``grab`` submits the normal manual download batch for just the selected
     ids — same 409 guard and download-permission check as /download_missing.
     Partial per-item failures come back as HTTP 207 with per-item results.
+
+    ``{"action": "add", "release_ids": [...] | "filter": {...}, "quality":
+    "target" | <quality profile id>}`` puts library releases on Wanted
+    (Library → Albums, 7c/7d); see api/library_index.bulk_add.
     """
     data = request.get_json() or {}
     action = (data.get('action') or '').strip().lower()
+    if action == 'add':
+        from api.library_index import bulk_add as _library_bulk_add
+        return _library_bulk_add(data)
     if action not in _BULK_WISHLIST_ACTIONS:
         return jsonify({"success": False, "error": f"Unknown bulk action '{action}'"}), 400
 

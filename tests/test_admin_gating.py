@@ -48,6 +48,9 @@ GATED = [
     # Settings → Radio and its Scan now service tests (a Test can spend a paid request)
     ('PUT', '/api/radio/settings'),
     ('POST', '/api/radio/scan/test'),
+    # Library → Albums' Remove from library (files to the recycle bin)
+    ('POST', '/api/library/albums/remove-preview'),
+    ('POST', '/api/library/albums/remove'),
 ]
 
 
