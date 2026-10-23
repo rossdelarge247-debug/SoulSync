@@ -16,6 +16,7 @@ import { AlbumsPage, type Go } from './albums-page';
 import { ArtistsPage } from './artists-page';
 import { HistoryPage } from './history-page';
 import styles from './library.module.css';
+import { TracksPage } from './tracks-page';
 
 /** Search params without the empty or default ones, so a default never sits in the URL. */
 function tidy(search: Partial<LibrarySearch>): LibrarySearchParams {
@@ -61,7 +62,8 @@ function UnmatchedImportsNotice() {
 
 /**
  * Library → Artists (/library, its own sidebar row, 7f), Library → Albums
- * (/library?view=albums, with its Genres tab, 7a–7e) and Listening history
+ * (/library?view=albums, with its Genres tab, 7a–7e), Tracks
+ * (/library?view=tracks, the DJ data) and Listening history
  * (/library?view=history, 13a). Everything the grid shows is in the URL:
  * view, tab, show, genre, sort and the filter text (and history's kind).
  */
@@ -84,6 +86,15 @@ export function LibraryPage() {
   useEffect(() => {
     window.showLibraryDownloadsSection?.();
   }, []);
+
+  // Library → Tracks: the DJ data (BPM, key and energy), its own page
+  if (search.view === 'tracks') {
+    return (
+      <div id="library-page" className={styles.root}>
+        <TracksPage search={search} go={go} />
+      </div>
+    );
+  }
 
   return (
     // #library-page is the guided tour's anchor (helper.js) and tells these

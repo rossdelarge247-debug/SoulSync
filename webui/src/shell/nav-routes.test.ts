@@ -42,6 +42,8 @@ describe('which row a page lights', () => {
     ['library', '?view=albums', 'albums'],
     ['library', '?sort=name&view=albums', 'albums'],
     ['library', '?view=history', 'history'],
+    ['library', '?view=tracks', 'tracks'],
+    ['library', '?view=tracks&bpm=120-128', 'tracks'],
     ['library', '?view=history&kind=podcast', 'history'],
     ['artist-detail', '', 'artists'],
     ['import', '', 'import'],

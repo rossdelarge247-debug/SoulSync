@@ -42,6 +42,8 @@ export const Route = createFileRoute('/library')({
     // Listening history reads its own routes on mount (its range is the
     // browser's remembered one, which the loader can't see)
     if (deps.view === 'history') return;
+    // Tracks reads its own routes on mount (core/dj; the DJ data)
+    if (deps.view === 'tracks') return;
     if (deps.view === 'albums') {
       if (deps.tab === 'genres') return;
       await context.queryClient

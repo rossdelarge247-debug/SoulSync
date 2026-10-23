@@ -26,9 +26,12 @@ export type ArtistShow = (typeof ARTIST_SHOWS)[number];
 export const ALBUM_SORTS = ['recent', 'artist', 'title', 'year', 'genre'] as const;
 export const GENRE_SORTS = ['albums', 'name'] as const;
 export const ARTIST_SORTS = ['name', 'recent', 'missing'] as const;
+/** Library → Tracks (the DJ data, BACKLOG "DJ area"): BPM first. */
+export const TRACK_SORTS = ['bpm', 'key', 'energy', 'title', 'artist', 'recent'] as const;
 export type AlbumSort = (typeof ALBUM_SORTS)[number];
 export type GenreSort = (typeof GENRE_SORTS)[number];
 export type ArtistSort = (typeof ARTIST_SORTS)[number];
+export type TrackSort = (typeof TRACK_SORTS)[number];
 
 /** "Show 50 more" adds this many (board 7a's footer). */
 export const LIBRARY_PAGE_SIZE = 50;
@@ -50,15 +53,20 @@ function optional(value: unknown): string | undefined {
  */
 export const librarySearchSchema = z.object({
   /**
-   * Which page: Artists (its own sidebar row, the default), Albums, or
-   * Listening history (13a, its own row after Albums).
+   * Which page: Artists (its own sidebar row, the default), Albums, Tracks
+   * (the DJ data: BPM, key and energy, its own row after Albums), or
+   * Listening history (13a, its own row after Tracks).
    */
   view: z
     .preprocess((v) => {
       const s = searchString(v);
-      return s === 'albums' || s === 'history' ? s : undefined;
-    }, z.enum(['albums', 'history']).optional())
+      return s === 'albums' || s === 'history' || s === 'tracks' ? s : undefined;
+    }, z.enum(['albums', 'history', 'tracks']).optional())
     .catch(undefined),
+  /** Tracks' BPM range, "120-128" (either side may be empty). */
+  bpm: z.preprocess(optional, z.string().max(16).optional()).catch(undefined),
+  /** Tracks' key: a Camelot code ("8A"), or "8A:mix" for the keys that mix with it. */
+  key: z.preprocess(optional, z.string().max(12).optional()).catch(undefined),
   /** Listening history's Kind (Music is the default). */
   kind: z
     .preprocess((v) => {
@@ -99,7 +107,7 @@ export type LibrarySearchParams = z.infer<typeof librarySearchSchema>;
 
 /** The URL's search with every default filled in, as the page reads it. */
 export interface LibrarySearch {
-  view: 'artists' | 'albums' | 'history';
+  view: 'artists' | 'albums' | 'history' | 'tracks';
   tab: 'albums' | 'genres';
   kind: 'music' | 'podcast' | 'audiobook';
   /** '' when the URL leaves it to the browser's remembered range. */
@@ -108,6 +116,9 @@ export interface LibrarySearch {
   genre: string;
   sort: string;
   q: string;
+  /** Tracks' BPM range and key ('' when unset). */
+  bpm: string;
+  key: string;
 }
 
 export function resolveLibrarySearch(raw: LibrarySearchParams): LibrarySearch {
@@ -120,6 +131,8 @@ export function resolveLibrarySearch(raw: LibrarySearchParams): LibrarySearch {
     genre: raw.genre ?? '',
     sort: raw.sort ?? '',
     q: raw.q ?? '',
+    bpm: raw.bpm ?? '',
+    key: raw.key ?? '',
   };
 }
 
