@@ -179,15 +179,15 @@ def test_activity_shows_the_run(db, monkeypatch):
     job.start(db, 1, _artists(db), on_finish=lambda st: {"found_releases": 61, "found_artists": 18},
               background=False)
     monkeypatch.setattr(feed, "_live_library_job", lambda: None)
-    out = feed.build_feed(db, feed.Viewer(profile_id=1, is_admin=True), kind="automation", live_batches={},
+    out = feed.build_feed(db, feed.Viewer(profile_id=1, is_admin=True), kind="library", live_batches={},
                           running_automations={})
     [item] = [i for i in out["items"] if i["id"].startswith("library-job:")]
     assert item["title"] == "Looked for releases you don't have"
     assert item["detail"] == "2 artists · found 61 releases by 18 artists"
     assert item["status"] == "ok" and item["link"] == "/library?show=incomplete"
-    assert out["counts"]["automation"] >= 1
+    assert item["kind"] == "library" and out["counts"]["library"] >= 1
     # another profile's run stays out for a member
-    member = feed.build_feed(db, feed.Viewer(profile_id=5, is_admin=False), kind="automation",
+    member = feed.build_feed(db, feed.Viewer(profile_id=5, is_admin=False), kind="library",
                              live_batches={}, running_automations={})
     assert not [i for i in member["items"] if i["id"].startswith("library-job:")]
 
