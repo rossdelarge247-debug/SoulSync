@@ -260,6 +260,35 @@ def test_remove_from_library_previews_then_moves_to_the_recycle_bin(client, db, 
     assert os.listdir(os.path.join(str(client.library), ".deleted"))
 
 
+def test_the_artist_pages_remove_goes_through_the_same_plan(client, db):
+    """HANDOFF 74: every album of the artist, previewed, to the recycle bin;
+    the artist row goes once nothing of theirs is left."""
+    for path in [r["file_path"] for r in _rows(db, "SELECT file_path FROM tracks WHERE artist_id = 1")]:
+        with open(path, "wb") as fh:
+            fh.write(b"x" * 10)
+    _sql(db, "INSERT INTO albums (id, artist_id, title) VALUES (12, 1, 'Empty Row')")
+    preview = client.post("/api/library/albums/remove-preview", json={"artist_id": 1}).get_json()
+    assert preview["success"] and preview["total"] == 5
+    assert preview["meta"]["albums"] == 3 and preview["meta"]["artist_id"] == "1"
+    assert {i["reason"] for i in preview["sample"]} == {"Pale Harbour · Night Ferry", "Pale Harbour · Tidewater"}
+    # nothing moved or forgotten by the preview
+    assert len(_rows(db, "SELECT id FROM albums WHERE artist_id = 1")) == 3
+    done = client.post("/api/library/albums/remove", json={"plan_id": preview["plan_id"]}).get_json()
+    assert done["albums_removed"] == 3 and done["files_moved"] == 5 and done["artist_removed"] is True
+    assert _rows(db, "SELECT id FROM artists WHERE id = 1") == []
+    assert len(_rows(db, "SELECT id FROM artists WHERE id = 2")) == 1
+
+
+def test_the_artist_stays_while_something_of_theirs_is_left(client, db):
+    _sql(db, "INSERT INTO albums (id, artist_id, title) VALUES (30, 2, 'Brine')")
+    _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path) VALUES ('g1', 10, 2, 'Guest', '')")
+    preview = client.post("/api/library/albums/remove-preview", json={"artist_id": 2}).get_json()
+    done = client.post("/api/library/albums/remove", json={"plan_id": preview["plan_id"]}).get_json()
+    # their guest track on Pale Harbour's album keeps them
+    assert done["albums_removed"] == 1 and done["artist_removed"] is False
+    assert len(_rows(db, "SELECT id FROM artists WHERE id = 2")) == 1
+
+
 def test_remove_from_library_is_for_admins(client, db):
     client.who.update(pid=db.create_profile(name="kim"), admin=False)
     assert client.post("/api/library/albums/remove-preview", json={"album_ids": [10]}).status_code == 403

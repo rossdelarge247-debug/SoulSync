@@ -37,7 +37,9 @@ POST /api/library/missing-releases/stop   (admins)
 POST /api/library/albums/remove-preview  (admins)
 POST /api/library/albums/remove          (admins, ``{plan_id}``)
     Remove from library, through Preview then confirm: the albums' files go to
-    the recycle bin and their rows leave the library.
+    the recycle bin and their rows leave the library. ``artist_id`` in the
+    preview picks every album of one library artist (the Artist page's
+    Remove from library), and the artist's row goes once nothing is left.
 
 The bulk add itself is ``POST /api/wishlist/bulk`` with ``action: "add"``
 (api/wishlist_routes.py), which calls :func:`bulk_add` here.
@@ -345,8 +347,24 @@ def upgrade_albums():
 # ── Remove from library (Preview, then confirm) ──────────────────────────────
 
 
+def _artist_album_ids(artist_id: Any) -> List[Any]:
+    """Every album row of one library artist in the caller's library scope
+    (the Artist page's Remove from library, HANDOFF 74), files or not."""
+    database = get_database()
+    scope_sql, scope_params = database._current_scope_sql("owner_profile_id")
+    conn = database._get_connection()
+    try:
+        rows = conn.execute(f"SELECT id FROM albums WHERE artist_id = ? AND {scope_sql} ORDER BY id",
+                            [str(artist_id), *scope_params]).fetchall()
+    finally:
+        conn.close()
+    return [r["id"] for r in rows]
+
+
 def _album_ids(body: Dict[str, Any], pid: int) -> List[Any]:
     ids: List[Any] = [a for a in body.get("album_ids") or [] if a not in (None, "")]
+    if body.get("artist_id") not in (None, ""):
+        ids.extend(_artist_album_ids(body["artist_id"]))
     if body.get("release_ids") or isinstance(body.get("filter"), dict):
         index = _index_for(pid)
         releases, _unknown = _index.resolve_selection(index, body)
@@ -399,7 +417,13 @@ def remove_preview():
             "album_id": row["album_id"],
             "track_id": row["track_id"],
         })
-    plan = plan_store.create(REMOVE_TOOL, items, meta={"albums": len(albums), "album_ids": sorted(albums)})
+    # an album row with no tracks left still leaves the library with the rest
+    albums |= {str(a) for a in album_ids}
+    meta: Dict[str, Any] = {"albums": len(albums), "album_ids": sorted(albums)}
+    if body.get("artist_id") not in (None, ""):
+        # the Artist page's Remove: the artist row goes too once nothing is left
+        meta["artist_id"] = str(body["artist_id"])
+    plan = plan_store.create(REMOVE_TOOL, items, meta=meta)
     return jsonify({"success": True, **plan.summary()})
 
 
@@ -452,11 +476,37 @@ def remove_confirm():
             conn.commit()
         finally:
             conn.close()
+    artist_removed = _forget_empty_artist(plan.meta.get("artist_id")) if not failed_albums else False
     _index.clear_cache()
     logger.warning("[Library] Removed %s album(s): %s file(s) to the recycle bin, %s already gone, %s failed",
                    removed, moved, skipped, len(errors))
     return jsonify({"success": True, "albums_removed": removed, "files_moved": moved, "skipped": skipped,
-                    "errors": errors[:20], "kept_albums": len(failed_albums)})
+                    "errors": errors[:20], "kept_albums": len(failed_albums), "artist_removed": artist_removed})
+
+
+def _forget_empty_artist(artist_id: Any) -> bool:
+    """After the Artist page's Remove: the artist row, once no album or track
+    of theirs is left, with the rows keyed on its library id (as the old
+    database-only delete swept them). False when something of theirs stays."""
+    if artist_id in (None, ""):
+        return False
+    database = get_database()
+    conn = database._get_connection()
+    try:
+        left = conn.execute("SELECT (SELECT COUNT(*) FROM albums WHERE artist_id = ?) + "
+                            "(SELECT COUNT(*) FROM tracks WHERE artist_id = ?)", (artist_id, artist_id)).fetchone()[0]
+        if left:
+            return False
+        for table, column in (("similar_artists", "source_artist_id"), ("rematch_hints", "artist_id")):
+            try:
+                conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (artist_id,))
+            except Exception as exc:  # noqa: BLE001 - an older install may lack the table
+                logger.debug("artist remove: %s sweep skipped: %s", table, exc)
+        gone = conn.execute("DELETE FROM artists WHERE id = ?", (artist_id,)).rowcount
+        conn.commit()
+        return bool(gone)
+    finally:
+        conn.close()
 
 
 # ── Look for releases you don't have (HANDOFF 68) ───────────────────────────

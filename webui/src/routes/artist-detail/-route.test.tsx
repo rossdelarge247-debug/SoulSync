@@ -1062,22 +1062,59 @@ describe('the "…" menu keeps what the old page did', () => {
     expect(within(dialog).getByText('Tide Records')).toBeInTheDocument();
   });
 
-  it('removes the artist from the library only after a danger confirm', async () => {
-    fixture.handlers.push((call) =>
-      call.path === '/api/library/artist/42' && call.method === 'DELETE'
-        ? json({ success: true, albums_deleted: 9, tracks_deleted: 132 })
-        : undefined,
-    );
+  it('removes the artist through the Safe action, to the recycle bin (HANDOFF 74)', async () => {
+    fixture.handlers.push((call) => {
+      if (call.path === '/api/library/albums/remove-preview')
+        return json({
+          success: true,
+          plan_id: 'p1',
+          total: 2,
+          total_bytes: 2048,
+          sample: [
+            {
+              path: '/m/Pale Harbour/Night Ferry/01.flac',
+              reason: 'Pale Harbour · Night Ferry',
+              size: 1024,
+            },
+            {
+              path: '/m/Pale Harbour/Night Ferry/02.flac',
+              reason: 'Pale Harbour · Night Ferry',
+              size: 1024,
+            },
+          ],
+          meta: { albums: 1, album_ids: ['L-nf'], artist_id: '42' },
+          created_at: 1,
+          expires_at: 4102444800,
+        });
+      if (call.path === '/api/library/albums/remove')
+        return json({
+          success: true,
+          albums_removed: 1,
+          files_moved: 2,
+          skipped: 0,
+          errors: [],
+          artist_removed: true,
+        });
+      return undefined;
+    });
     renderArtist();
     await ready();
     await choose('More actions for Pale Harbour', 'Remove from library…');
     const dialog = await screen.findByRole('dialog', {
       name: 'Remove Pale Harbour from your library?',
     });
-    expect(within(dialog).getByText(/not one file on disk is deleted/)).toBeInTheDocument();
+    await within(dialog).findByText(/go(es)? to the recycle bin/);
+    expect(JSON.parse(callsTo('/api/library/albums/remove-preview')[0].body)).toEqual({
+      artist_id: '42',
+    });
+    // no database-only delete any more, and nothing moves before the confirm
     expect(callsTo('/api/library/artist/42', 'DELETE')).toHaveLength(0);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove from library' }));
-    await waitFor(() => expect(callsTo('/api/library/artist/42', 'DELETE')).toHaveLength(1));
+    expect(callsTo('/api/library/albums/remove')).toHaveLength(0);
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'I checked the list' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove 1 album' }));
+    await waitFor(() => expect(callsTo('/api/library/albums/remove')).toHaveLength(1));
+    expect(JSON.parse(callsTo('/api/library/albums/remove')[0].body)).toEqual({ plan_id: 'p1' });
+    expect(await screen.findByText('Removed Pale Harbour from your library')).toBeInTheDocument();
   });
 
   it('lets More filters choose what the page lists, as the old filter bar did', async () => {
