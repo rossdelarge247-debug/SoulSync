@@ -46,6 +46,34 @@ describe('normalizeSummary', () => {
     expect(summary.targets[0].reason).toBe('Soulseek is down.');
     expect(summary.targets[2].reason).toBeNull();
   });
+
+  it("reads the followed card's kinds, null for a kind not counted", () => {
+    const summary = normalizeSummary({
+      targets: [
+        {
+          key: 'followed',
+          set_up: true,
+          status: 'ok',
+          artists: 18,
+          following: { total: 24, artists: 18, labels: 6, podcasts: null, authors: null },
+        },
+        { key: 'wanted', set_up: true, status: 'ok' },
+      ],
+    });
+    expect(summary.targets[2].following).toEqual({
+      total: 24,
+      artists: 18,
+      labels: 6,
+      podcasts: null,
+      authors: null,
+    });
+    expect(summary.targets[0].following).toBeNull();
+    // no total sent: the kinds are added up
+    const added = normalizeSummary({
+      targets: [{ key: 'followed', following: { artists: 2, labels: 1, podcasts: 3, authors: 0 } }],
+    });
+    expect(added.targets[2].following?.total).toBe(6);
+  });
 });
 
 describe('normalizeLatest', () => {

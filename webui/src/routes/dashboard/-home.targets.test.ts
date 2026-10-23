@@ -56,7 +56,7 @@ describe('a live card', () => {
     expect(view.problem).toBeNull();
   });
 
-  it('Mirrored playlists and Followed artists say how many playlists and artists', () => {
+  it('Mirrored playlists and Following say how many playlists and artists', () => {
     const mirrored = live(
       target({ key: 'mirrored', items: 1140, have: 1140, playlists: 3, next_search_at: at(22, 6) }),
     );
@@ -71,7 +71,69 @@ describe('a live card', () => {
     expect(followed.title).toBe('1 artist · 52 new tracks');
     expect(followed.tag).toEqual({ word: 'Not found yet', tone: 'neutral' });
     expect(followed.meta).toEqual(['No search scheduled']);
-    expect(followed.link).toEqual({ route: 'followed', label: 'Open Followed artists' });
+    expect(followed.label).toBe('Following');
+    expect(followed.link).toEqual({ route: 'followed', label: 'Open Following' });
+  });
+
+  it('Following counts every kind the Following tab lists', () => {
+    const view = live(
+      target({
+        key: 'followed',
+        artists: 18,
+        items: 52,
+        have: 45,
+        not_found_yet: 7,
+        following: { total: 31, artists: 18, labels: 6, podcasts: 4, authors: 3 },
+      }),
+    );
+    expect(view.title).toBe('31 followed · 52 new tracks');
+    expect(view.meta).toEqual([
+      '18 artists, 6 labels, 4 podcasts, 3 authors',
+      'No search scheduled',
+    ]);
+  });
+
+  it('Following leaves out kinds with none, and kinds not counted (module off)', () => {
+    const some = live(
+      target({
+        key: 'followed',
+        artists: 2,
+        items: 3,
+        have: 3,
+        following: { total: 3, artists: 2, labels: 0, podcasts: 1, authors: null },
+      }),
+    );
+    expect(some.title).toBe('3 followed · 3 new tracks');
+    expect(some.meta).toEqual(['2 artists, 1 podcast', 'No search scheduled']);
+
+    // one kind: the title names it, and the meta doesn't repeat it
+    const labelsOnly = live(
+      target({
+        key: 'followed',
+        artists: 0,
+        following: { total: 6, artists: 0, labels: 6, podcasts: null, authors: null },
+      }),
+    );
+    expect(labelsOnly.title).toBe('6 labels · 0 new tracks');
+    expect(labelsOnly.tag).toEqual({ word: 'Up to date', tone: 'success' });
+    expect(labelsOnly.meta).toEqual(['No search scheduled']);
+
+    const artistsOnly = live(
+      target({
+        key: 'followed',
+        artists: 1,
+        items: 2,
+        have: 2,
+        following: { total: 1, artists: 1, labels: 0, podcasts: 0, authors: 0 },
+      }),
+    );
+    expect(artistsOnly.title).toBe('1 artist · 2 new tracks');
+  });
+
+  it('an older summary without following still counts artists', () => {
+    const view = live(target({ key: 'followed', artists: 4, items: 0 }));
+    expect(view.title).toBe('4 artists · 0 new tracks');
+    expect(view.meta).toEqual(['No search scheduled']);
   });
 
   it('Quality reads its real name and how many tracks were checked', () => {

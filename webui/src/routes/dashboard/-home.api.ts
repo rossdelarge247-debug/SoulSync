@@ -36,10 +36,24 @@ export interface HomeTarget {
   playlists: number | null;
   /** followed: how many artists */
   artists: number | null;
+  /**
+   * followed: everything the Following tab lists, by kind. podcasts and
+   * authors are null while their module is off (or the profile can't see
+   * Audiobooks), and then left out of total.
+   */
+  following: FollowingCounts | null;
   /** quality: the target's name ("FLAC or better") */
   name: string | null;
   /** quality: library tracks checked against it */
   tracksChecked: number | null;
+}
+
+export interface FollowingCounts {
+  total: number;
+  artists: number;
+  labels: number;
+  podcasts: number | null;
+  authors: number | null;
 }
 
 export interface TargetsSummary {
@@ -106,9 +120,23 @@ function notSetUp(key: TargetKey): HomeTarget {
     checkedAt: null,
     playlists: null,
     artists: null,
+    following: null,
     name: null,
     tracksChecked: null,
   };
+}
+
+function normalizeFollowing(value: unknown): FollowingCounts | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Raw;
+  const kinds = {
+    artists: count(raw.artists),
+    labels: count(raw.labels),
+    podcasts: optionalCount(raw.podcasts),
+    authors: optionalCount(raw.authors),
+  };
+  const sum = kinds.artists + kinds.labels + (kinds.podcasts ?? 0) + (kinds.authors ?? 0);
+  return { total: raw.total == null ? sum : count(raw.total), ...kinds };
 }
 
 export function normalizeTarget(key: TargetKey, raw: Raw | undefined): HomeTarget {
@@ -138,6 +166,7 @@ export function normalizeTarget(key: TargetKey, raw: Raw | undefined): HomeTarge
     checkedAt: seconds(raw.checked_at),
     playlists: optionalCount(raw.playlists),
     artists: optionalCount(raw.artists),
+    following: normalizeFollowing(raw.following),
     name: text(raw.name),
     tracksChecked: optionalCount(raw.tracks_checked),
   };

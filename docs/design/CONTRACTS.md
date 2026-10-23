@@ -119,7 +119,9 @@ The four targets in fixed order: `wanted`, `mirrored`, `followed`, `quality`. Fo
      "schedule_paused": false, "status": "searching", "reason": null},
     {"key": "mirrored", "set_up": false, "items": 0, "have": 0, "in_progress": 0, "not_found_yet": 0,
      "playlists": 0, "status": "not_set_up", "…": "…"},
-    {"key": "followed", "set_up": true, "artists": 18, "status": "cant_search",
+    {"key": "followed", "set_up": true, "artists": 18,
+     "following": {"total": 31, "artists": 18, "labels": 6, "podcasts": 4, "authors": 3},
+     "status": "cant_search",
      "reason_code": "download_source_unreachable",
      "reason": "Soulseek (slskd) didn't answer when SYNCHRO.S last checked, 4 minutes ago, so searches can't run.",
      "checked_at": 1792569760, "…": "…"},
@@ -135,7 +137,7 @@ The four targets in fixed order: `wanted`, `mirrored`, `followed`, `quality`. Fo
 
 - **wanted**: your Wanted tracks, plus the ones found from it in the last 30 days (`have`). `in_progress` is still retried every cycle or soon; `not_found_yet` has reached the slowest retry cadence (4+ tries with the standard retry profile).
 - **mirrored**: tracks across your mirrored playlists: in the library (`have`), on Wanted (`in_progress`), neither (`not_found_yet`). `playlists` counts them.
-- **followed**: new-release tracks from the artists you follow: on Wanted from the watchlist scan (split as for Wanted), and downloaded for one of them in the last 30 days (`have`). `artists` counts who you follow.
+- **followed**: new-release tracks from the artists you follow: on Wanted from the watchlist scan (split as for Wanted), and downloaded for one of them in the last 30 days (`have`). `artists` counts the artists you follow. `following` counts everything the Wanted page's Following tab lists, by kind, from the same readers: `artists` (`GET /api/watchlist/count`), `labels` (`GET /api/labels/watchlist`, the install's), `podcasts` (your `GET /api/podcasts/watchlist`) and `authors` (your `GET /api/audiobooks/watchlist`: authors, narrators and series). `podcasts` is `null` while the Podcasts module is off, `authors` while the Audiobooks module is off or your profile isn't given the Audiobooks page; a `null` kind is left out of `total`. The card is set up when `total` is above 0, so following only a podcast or a label counts. `following` is worked out on every call (not in the 30-second cache), so a module switch shows at once. Home's card is labelled "Following": its title is the total and the new tracks ("31 followed · 52 new tracks", or the one kind when there's only one, "18 artists · 52 new tracks"), and on wide screens the footer says which kinds ("18 artists, 6 labels, 4 podcasts, 3 authors", leaving out kinds with none).
 - **quality**: library tracks checked against the default quality profile (`tracks_checked`, `meeting_target`); `in_progress` is upgrades queued on Wanted. Checked from the file type and stored bitrate, no file reads.
 - `status` is `not_set_up`, `cant_search` (the download source failed its last check, within 30 minutes; the check /status already makes, never a new probe), `searching` (something in progress) or `ok`. `reason` is set only for `cant_search`.
 - `next_search_at` is the soonest run of an enabled automation you can see that serves the target; null when none, or when automations are paused (`schedule_paused`).

@@ -3,8 +3,11 @@
 GET /api/targets/summary
     The four targets in fixed order (wanted, mirrored, followed, quality); see
     core/targets/summary.py for where each number comes from. Profile-scoped
-    (Wanted, mirrors, followed artists, automations) and library-scoped
-    (quality). Never probes slskd: it reads the check /status already caches.
+    (Wanted, mirrors, followed artists, podcasts and authors, automations) and
+    library-scoped (quality). The followed card counts every kind the Following
+    tab lists; podcasts while the Podcasts module is on, authors while the
+    Audiobooks module is on and the profile may see Audiobooks. Never probes
+    slskd: it reads the check /status already caches.
 
 GET /api/quality/presets
     For each preset (mp3_320, flac, flac_24, lossless) how many library tracks
@@ -25,7 +28,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
 
-from core.profile_context import admin_only, get_current_profile_id
+from core.profile_context import admin_only, get_current_profile_id, is_admin_request
 from core.quality import presets as _presets
 from core.targets import summary as _summary
 from utils.logging_config import get_logger
@@ -46,13 +49,32 @@ def configure(*, get_database_, download_source_state_=None) -> None:
     download_source_state = download_source_state_
 
 
+def _following_kinds(database, pid: int):
+    """Which kinds beyond artists and labels this profile's Following tab shows:
+    podcasts while their module is on; authors while the Audiobooks module is
+    on and the profile is given the Audiobooks page."""
+    from core.permissions import page_denied
+
+    kinds = _summary.default_following_kinds()
+    if kinds.get("authors") and not is_admin_request():
+        try:
+            allowed = (database.get_profile(int(pid)) or {}).get("allowed_pages")
+        except Exception:  # noqa: BLE001 - unknown pages: count nothing extra
+            allowed = []
+        if page_denied("/api/audiobooks", allowed, False):
+            kinds["authors"] = False
+    return kinds
+
+
 @bp.route("/api/targets/summary", methods=["GET"])
 def get_targets_summary():
     pid = get_current_profile_id()
     if pid is None:
         return jsonify({"success": False, "error": "profile_required"}), 401
     try:
-        data = _summary.build_summary(get_database(), int(pid), download_source=download_source_state)
+        database = get_database()
+        data = _summary.build_summary(database, int(pid), download_source=download_source_state,
+                                      following_kinds=_following_kinds(database, int(pid)))
     except Exception as exc:  # noqa: BLE001
         logger.error("targets summary failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't work out your targets"}), 500

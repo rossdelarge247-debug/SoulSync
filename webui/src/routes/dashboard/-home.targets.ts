@@ -4,13 +4,15 @@
  * by unit tests without rendering.
  *
  * Copy follows the boards ("Main v2", "Main (390)", "Flows" 2s) with the real
- * data's limits from docs/design/HANDOFF.md: Wanted counts tracks, Followed
- * artists counts tracks from new releases, Quality names its real target.
+ * data's limits from docs/design/HANDOFF.md: Wanted counts tracks, Following
+ * counts what you follow (every kind the Wanted page's Following tab lists)
+ * and the tracks from followed artists' new releases, Quality names its real
+ * target.
  */
 
 import type { StatusTagTone } from '@/components/primitives';
 
-import type { HomeTarget, TargetKey } from './-home.api';
+import type { FollowingCounts, HomeTarget, TargetKey } from './-home.api';
 import type { HomeRouteKey } from './-home.routes';
 
 import { formatCount, nextSearchPhrase, nextSearchShort, plural } from './-home.time';
@@ -18,7 +20,7 @@ import { formatCount, nextSearchPhrase, nextSearchShort, plural } from './-home.
 export const TARGET_LABELS: Record<TargetKey, string> = {
   wanted: 'Wanted',
   mirrored: 'Mirrored playlists',
-  followed: 'Followed artists',
+  followed: 'Following',
   quality: 'Quality',
 };
 
@@ -81,7 +83,7 @@ export type TargetCardView = LiveCardView | NotSetUpCardView;
 const LINKS: Record<TargetKey, LinkView> = {
   wanted: { route: 'wanted', label: 'Open Wanted' },
   mirrored: { route: 'mirrored', label: 'Open Mirrored playlists' },
-  followed: { route: 'followed', label: 'Open Followed artists' },
+  followed: { route: 'followed', label: 'Open Following' },
   quality: { dialog: 'quality', label: 'Change target' },
 };
 
@@ -134,7 +136,7 @@ export const SETUP_PANEL_ITEMS: ReadonlyArray<{
   },
   {
     key: 'followed',
-    title: 'Followed artists',
+    title: 'Following',
     sentence: 'New releases added to Wanted as they come out.',
     action: { route: 'followArtist', label: 'Follow an artist' },
   },
@@ -171,11 +173,40 @@ function title(target: HomeTarget): string {
       return plural(target.items, 'track');
     case 'mirrored':
       return `${plural(target.playlists ?? 0, 'playlist')} · ${plural(target.items, 'track')}`;
-    case 'followed':
-      return `${plural(target.artists ?? 0, 'artist')} · ${plural(target.items, 'new track')}`;
+    case 'followed': {
+      const kinds = followingKinds(target);
+      // one kind: name it ("18 artists"); more: the total ("31 followed")
+      const head =
+        kinds.length === 1
+          ? kinds[0]
+          : `${formatCount(target.following?.total ?? target.artists ?? 0)} followed`;
+      return `${head} · ${plural(target.items, 'new track')}`;
+    }
     case 'quality':
       return target.name ?? 'Your quality target';
   }
+}
+
+const KIND_WORDS: ReadonlyArray<[Exclude<keyof FollowingCounts, 'total'>, string]> = [
+  ['artists', 'artist'],
+  ['labels', 'label'],
+  ['podcasts', 'podcast'],
+  ['authors', 'author'],
+];
+
+/**
+ * What the Followed card counts, kind by kind, in the Following tab's order:
+ * ["18 artists", "6 labels", "4 podcasts", "3 authors"]. Kinds with none (or
+ * not counted, their module off) are left out; an older summary without
+ * `following` counts artists only.
+ */
+export function followingKinds(target: HomeTarget): string[] {
+  const f = target.following;
+  if (!f) return [plural(target.artists ?? 0, 'artist')];
+  const parts = KIND_WORDS.filter(([key]) => (f[key] ?? 0) > 0).map(([key, word]) =>
+    plural(f[key] ?? 0, word),
+  );
+  return parts.length ? parts : [plural(0, 'artist')];
 }
 
 /** "Next search in about 2 hours", or why there isn't one. */
@@ -214,6 +245,11 @@ export function targetCardView(target: HomeTarget, nowMs: number): TargetCardVie
 
   const meta: string[] = [];
   if (quality) meta.push(`${formatCount(target.tracksChecked ?? target.items)} tracks checked`);
+  if (target.key === 'followed') {
+    // more than one kind: the title says the total, the meta says which
+    const kinds = followingKinds(target);
+    if (kinds.length > 1) meta.push(kinds.join(', '));
+  }
   meta.push(nextSearchSentence(target, nowMs));
 
   const items = target.items;

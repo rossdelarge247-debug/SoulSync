@@ -19,7 +19,11 @@ followed
     New-release tracks from followed artists: ``in_progress`` and
     ``not_found_yet`` are Wanted rows the watchlist scan added (split as for
     Wanted); ``have`` is downloads credited to one of the profile's followed
-    artists in the last ``FOUND_WINDOW_DAYS``.
+    artists in the last ``FOUND_WINDOW_DAYS``. ``following`` counts what the
+    Wanted page's Following tab lists, by kind (:func:`following_counts`):
+    artists, labels, podcasts and authors, the last two only while their
+    module is on (and, for authors, the profile may see Audiobooks); it's set
+    up when anything is followed. Worked out on every call, not cached.
 quality
     Library tracks in the profile's library scope checked against the default
     quality profile's bar (core/quality/presets.py: extension + stored bitrate,
@@ -122,6 +126,45 @@ def _followed(conn, pid: int, slow: int, found_since: str) -> Dict[str, Any]:
             "found_window_days": FOUND_WINDOW_DAYS}
 
 
+def _author_count(pid: int, audiobook_db: Optional[Callable[[], Any]]) -> int:
+    """Followed audiobook authors, narrators and series (the Following tab's
+    Authors). An install that never used audiobooks has no database file, and
+    counting doesn't create one."""
+    try:
+        if audiobook_db is None:
+            from core.audiobook_database import get_audiobook_db, subsystem_in_use
+            if not subsystem_in_use():
+                return 0
+            audiobook_db = get_audiobook_db
+        return len(audiobook_db().get_watchlist(pid) or [])
+    except Exception as exc:  # noqa: BLE001 - a broken audiobook db doesn't break Home
+        logger.debug("followed authors unavailable: %s", exc)
+        return 0
+
+
+def following_counts(database, pid: int, *, podcasts: bool, authors: bool,
+                     audiobook_db: Optional[Callable[[], Any]] = None) -> Dict[str, Any]:
+    """What the Following tab lists, by kind, from the readers it uses:
+    followed artists (``GET /api/watchlist/count``), labels
+    (``GET /api/labels/watchlist``, the install's), podcasts (the profile's
+    ``watchlist_podcasts``, as ``GET /api/podcasts/watchlist`` and its summary)
+    and authors (``GET /api/audiobooks/watchlist``). A kind whose module is
+    off (or, for authors, whose page the profile isn't given) is ``None`` and
+    left out of the total."""
+    artists = int(database.get_watchlist_count(profile_id=pid) or 0)
+    labels = len(database.get_watchlist_labels() or [])
+    pods = int(database.get_watchlist_podcasts_count(profile_id=pid) or 0) if podcasts else None
+    auths = _author_count(pid, audiobook_db) if authors else None
+    total = artists + labels + (pods or 0) + (auths or 0)
+    return {"total": total, "artists": artists, "labels": labels, "podcasts": pods, "authors": auths}
+
+
+def default_following_kinds(config=None) -> Dict[str, bool]:
+    """Podcasts and authors count while their modules are on."""
+    from core import modules
+    return {"podcasts": modules.is_enabled("podcasts", config), "authors": modules.is_enabled("audiobooks", config)}
+
+
 def _quality(database, conn, pid: int) -> Dict[str, Any]:
     target = quality_presets.current_target(database)
     bar = target["targets"]
@@ -191,10 +234,17 @@ def source_problem(source: Optional[Dict[str, Any]], now: float) -> Optional[Dic
 
 
 def build_summary(database, profile_id: int, *, now: Optional[float] = None,
-                  download_source: Optional[Callable[[], Optional[Dict[str, Any]]]] = None) -> Dict[str, Any]:
+                  download_source: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
+                  following_kinds: Optional[Dict[str, bool]] = None,
+                  audiobook_db: Optional[Callable[[], Any]] = None) -> Dict[str, Any]:
+    """``following_kinds``: ``{"podcasts": bool, "authors": bool}``, which of
+    those the Followed card counts (default: while their modules are on)."""
     now = time.time() if now is None else float(now)
     pid = int(profile_id)
     numbers = _numbers(database, pid, now)
+    kinds = following_kinds if following_kinds is not None else default_following_kinds()
+    following = following_counts(database, pid, podcasts=bool(kinds.get("podcasts")),
+                                 authors=bool(kinds.get("authors")), audiobook_db=audiobook_db)
     with closing(database._get_connection()) as conn:
         automations = visible_automations(conn, pid)
         paused = automations_paused(conn)
@@ -208,6 +258,9 @@ def build_summary(database, profile_id: int, *, now: Optional[float] = None,
     targets = []
     for key in ORDER:
         target = {"key": key, **numbers[key]}
+        if key == "followed":
+            target["following"] = following
+            target["set_up"] = following["total"] > 0
         nxt = None if paused else next_scheduled(automations, **_ACTIONS[key])
         target["next_search_at"] = nxt["at"] if nxt else None
         target["next_search_automation"] = (
@@ -239,4 +292,4 @@ def build_summary(database, profile_id: int, *, now: Optional[float] = None,
 
 
 __all__ = ["ORDER", "FOUND_WINDOW_DAYS", "CACHE_TTL_SECONDS", "SOURCE_CHECK_MAX_AGE", "build_summary",
-           "clear_cache", "slow_retry_threshold", "source_problem"]
+           "clear_cache", "slow_retry_threshold", "source_problem", "following_counts", "default_following_kinds"]
