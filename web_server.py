@@ -23897,6 +23897,13 @@ _cfg_library_index(
 )
 app.register_blueprint(_bp_library_index())
 
+# The library's DJ data (api/dj.py): BPM, key (Camelot) and energy per track,
+# Library → Tracks and "Mixes well with…". The analysis runs in the background
+# (core/dj/worker.py, started below with the runtime services).
+from api.dj import configure as _cfg_dj, create_blueprint as _bp_dj
+_cfg_dj(get_database_=get_database, fix_art_url_=lambda url: fix_artist_image_url(url))
+app.register_blueprint(_bp_dj())
+
 # The player's reads (api/player.py): waveform peaks, the readout's audio
 # details and Recent. Files are found through Sample Studio's resolver, which
 # tries the playback resolver first, so a track that plays also draws.
@@ -25589,6 +25596,17 @@ def _start_slskd_share_check():
                               name='SlskdShareCheck').start()
     except Exception as _ssc_err:
         logger.debug(f"could not start slskd share check: {_ssc_err}")
+
+
+@_deferred_start("DJ analysis")
+def _start_dj_analysis():
+    # BPM, key and energy for the whole library, one track at a time at low
+    # priority; the first sweep waits two minutes after boot (core/dj/worker.py)
+    try:
+        from core.dj.worker import start_scheduler as _dj_start
+        _dj_start(get_database)
+    except Exception as _dj_err:
+        logger.warning(f"could not start the DJ analysis: {_dj_err}")
 
 
 # Direct execution: python web_server.py (dev/Windows fallback)

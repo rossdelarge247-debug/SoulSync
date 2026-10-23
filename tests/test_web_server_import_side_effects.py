@@ -60,6 +60,8 @@ EXPECTED_DEFERRED_STARTS = [
     "popularity backfill autostart",
     # one-shot: once slskd answers, rescan if it shares 0 files (core/slskd_share_rescan.py)
     "slskd share check",
+    # the library's BPM, key and energy, in the background (core/dj/worker.py)
+    "DJ analysis",
 ]
 
 # Start name -> the web_server global holding the worker it starts.
