@@ -44,6 +44,14 @@
   margin-top: 6px;
 }
 
+/* the sentence under the title (boards 7d, 9b) */
+.description {
+  margin: 4px 0 0;
+  color: var(--ss-text-tertiary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
 .title {
   margin: 0;
   font-size: 1.4rem;
