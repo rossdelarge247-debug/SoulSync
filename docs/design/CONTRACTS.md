@@ -732,6 +732,39 @@ When Spotify answers "too many requests", SYNCHRO.S stops calling it for a while
 - `GET /api/spotify/rate-limit-status` also returns `source`, `trigger` and `post_ban_cooldown`.
 - The words: `src/features/spotify-pause/spotify-pause.ts` (`spotifyPauseView`, `formatWait`, `TRY_AGAIN_NOTE`), also on `window` for the classic scripts as `ssSpotifyPauseView`, `ssClearSpotifyPause`, `ssCanClearSpotifyPause` and `ssSpotifyTryAgainNote`.
 
+### Visuals (boards 10a–10f)
+
+MilkDrop's preset list, one preset by key, favourites per profile, and where an admin's own presets live (`api/visuals.py`, `core/visuals/`). Every route needs a profile (401 `profile_required`). Recent, the chosen visual and family, Quality, Auto-cycle and Blend stay in the browser (`soulsync-visuals-*` keys, Auto-cycle in the SYNCHRO.S visuals' `soulsync-npv2-viz-autocycle`); nothing about them reaches the server.
+
+**The index: `GET /api/visuals/presets?family=milkdrop&q=&author=`.** Asked for once, when the MilkDrop family is first opened (never on page load); the browser then searches and filters it itself. `q` (every word in the name or the author) and `author` (case-insensitive) filter here too. Any other `family` is a 400 `bad_family`.
+
+```json
+{"success": true, "family": "milkdrop", "total": 1756, "count": 1756, "bundled": 1754,
+ "presets": [{"key": "md-a2d4673ae1656827", "name": "Eggs", "author": "Geiss",
+              "full_name": "Geiss - Eggs", "size": 1212, "source": "bundled"}],
+ "authors": [{"name": "Geiss", "key": "geiss", "count": 266}],
+ "own": {"configured": true, "count": 2, "problem": null, "truncated": false}}
+```
+
+- A–Z by name. `name` and `author` come from the preset's "Author - Title" (the file name for your own); leading underscores and the like are dropped from the author, and a name without " - " has `author: null` (the list says "author unknown"). `authors` folds spellings together (Flexi / flexi) and shows the commonest.
+- **Bundled** presets are the installed `butterchurn-presets` npm package's `presets/converted/` (1,754 in 2.4.7), copied out of `node_modules` by the build (`webui/scripts/milkdrop-presets.mjs`, the last step of `npm run build`) into `static/dist/visuals/milkdrop/` as `index.json` and one `<key>.json` each. Nothing is in the repository; an install without a build lists none. `key` is `md-` + the first 16 hex of sha1(name).
+- **Your own** are `.milk` files in the folder an admin set (`visuals.own_presets_dir`, below), walked three levels deep, at most 5,000, each at most 512 KB; hidden files, other extensions and anything that resolves outside the folder (links) are left out. `key` is `own-` + 16 hex of the path inside the folder. `own.problem` is `missing` or `unreadable` when the folder can't be listed. The listing is reused for 30 seconds.
+
+**One preset: `GET /api/visuals/presets/<key>`.** Fetched when it's picked and kept (`Cache-Control: private, max-age=604800` for bundled, an hour for yours, plus an ETag; the page also keeps it for the session). A bundled key answers Butterchurn's JSON; your own answers its `.milk` text (`text/plain; charset=utf-8`, `X-Preset-Format: milk`), which the browser converts (`milkdrop-preset-converter`). An unknown or malformed key is a 404 `not_found`. An own key is looked up in a listing of the folder (the request never names a path), and the file it names is checked again before it's read: still inside the folder once resolved, `.milk`, a regular file, under the cap.
+
+**Favourites: `GET /api/visuals/favourites?family=milkdrop`, `PUT` and `DELETE /api/visuals/favourites/<family>/<key>`.** The signed-in profile's stars, newest first: `{"success": true, "family": "milkdrop", "keys": ["md-…"]}`; a change answers `{"success": true, "family", "key", "favourite": true|false}` (starring twice is fine). Only `milkdrop` (400 `bad_family`); a key that isn't a preset key is a 400 `bad_key`; 2,000 per profile (409 `too_many`). Table `visual_favourites (profile_id, family, preset_key, created_at)`, primary key on the first three (`core/visuals/favourites.py`, a MusicDatabase migration step).
+
+**Your own presets folder: `GET /api/visuals/settings`, `PUT /api/visuals/settings` (admins).**
+
+```json
+{"success": true, "admin": true, "own_presets_dir": "/music/milkdrop",
+ "own": {"configured": true, "count": 2, "problem": null, "truncated": false}}
+```
+
+- `own_presets_dir` is only in an admin's answer. PUT `{"own_presets_dir": "/music/milkdrop"}` (or `""` for none) checks the folder first: a full path (400 `bad_path`), that exists (400 `missing`) and can be read (400 `unreadable`); members get 403 `admin_only`. Docker paths go through the same resolver as the other folders. Shown in Player settings → MilkDrop.
+
+**The radio card's restart** uses the existing `POST /api/radio/play` with `force_relay: true` (`SoulSyncRadio.play(id, {forceRelay: true})`); nothing new on the server.
+
 ## Available today, not yet designed for
 
 - **Library history:** `GET /api/library/history?type=download|import|podcast`. Past downloads and imports.

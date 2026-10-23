@@ -9,7 +9,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Automation assistant (AI) and a block editor | Built | [below](#automation-assistant-ai-and-a-block-editor) |
 | Internet radio with track identification | Built | [below](#internet-radio-with-track-identification) |
 | Merge duplicate artist | Exploring | [below](#merge-duplicate-artist) |
-| Classic Winamp visualisers (MilkDrop, AVS, bars and scope) | Ready for Design | [below](#classic-winamp-visualisers-milkdrop-avs-bars-and-scope) |
+| Classic Winamp visualisers (MilkDrop, AVS, bars and scope) | Built (AVS: later spike) | [below](#classic-winamp-visualisers-milkdrop-avs-bars-and-scope) |
 | Move your music folders to another drive | Exploring | [below](#move-your-music-folders-to-another-drive) |
 
 ---
@@ -192,7 +192,20 @@ Dev to check how artists are keyed across the library, Wanted and Following befo
 
 ## Classic Winamp visualisers (MilkDrop, AVS, bars and scope)
 
-**Status:** Ready for Design · raised by Ross, 2026-10-22
+**Status:** Built (AVS: later spike) · raised by Ross, 2026-10-22 · drawn by Design on 23 October (`Visuals (Winamp visualisers).dc.html`, 10a–10f) and approved by Ross the same day, with his decisions (auto-cycle Off by default; phones start at Full; presets through npm plus your own folder; AVS not in this phase). Built on `ux/oct23-4`: `HANDOFF.md`, "Dev, phase 4 (the visualisers: MilkDrop and Classic)"; the routes are in `CONTRACTS.md`, "Visuals".
+
+### What was built
+
+- **SYNCHRO.S** (today's 18 visuals), **MilkDrop** and **Classic** (Winamp's 19 bars with falling peaks, and the oscilloscope) as three families in the overlay's panel, with search, favourites per profile, Recent, an Author select, hover preview, the credit, auto-cycle (Off by default), Blend, Quality with the frame-rate guard, and every state on 10d.
+- **Presets:** Butterchurn and `butterchurn-presets` are npm dependencies of `webui` (package.json and the lockfile). The build copies the presets out of `node_modules`; nothing is vendored. An admin can add a folder of `.milk` files ("Author - Title.milk"), converted in the browser when one is picked.
+
+### Licences and where the presets come from (Dev checked, 23 October)
+
+- **butterchurn 2.6.7:** MIT (package metadata and `LICENSE`, © 2013–2018 Jordan Berg). Its dependencies `@babel/runtime` and `ecma-proposal-math-extensions` are MIT.
+- **butterchurn-presets 2.4.7:** MIT (package metadata and `LICENSE`, © 2013–2018 Jordan Berg); dependencies `babel-runtime`, `core-js` 2, `regenerator-runtime`, `lodash` and `ecma-proposal-math-extensions`, all MIT. The package has no repository field; its source is `github.com/jberg/butterchurn-presets` (the README says only "Presets for the Butterchurn Music Visualizer").
+- **Where the presets come from:** they're the MilkDrop community's own `.milk` presets (Geiss, Rovastar, Flexi, Eo.S., Aderrasi, martin, fiShbRaiN, Zylot, $$$ Royal and about 330 more authors), converted to Butterchurn's JSON by Jordan Berg's converter; the repository keeps the original `.milk` files beside the converted ones (`presets/milkdrop/`, `presets/converted/`). The package ships 1,754 converted presets (`presets/converted/`), of which 395 are in its curated packs (base, Extra, Extra2, MD1, Minimal, NonMinimal); the repository also keeps a list of 23 it found broken. Each preset's name is "Author - Title", which is the credit; the authors gave no licence of their own, as with every MilkDrop pack (Winamp's, projectM's), and the MIT notice covers Jordan Berg's packaging and conversion. That's what Design and Ross expected ("MIT packaging of converted classic presets; each preset's name stays its creator's"), so Dev built on it. The app lists all 1,754; a preset that doesn't compile in a browser says "Won't load" and auto-cycle skips it.
+- **The converter for your own presets:** `milkdrop-preset-converter` 0.1.2 (MIT, Jordan Berg) with `milkdrop-eel-parser` 0.0.1 (MIT), `milkdrop-preset-utils` 0.1.0 (MIT) and `hlslparser-js` 0.1.1 (MIT, for the shaders). It runs in the browser, loaded only when one of your own is picked.
+- **AVS: a later spike, not built.** Winamp's own AVS source is under a licence that doesn't allow reuse. The candidate is Webvs (MIT, unmaintained, partial effects): try about 20 well-known presets and ship only if most render right, fed only from presets the person supplies (never bundled). Until then the AVS family button isn't shown (Ross, 23 October).
 
 ### The problem
 
