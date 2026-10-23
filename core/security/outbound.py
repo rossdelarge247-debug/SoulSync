@@ -12,13 +12,15 @@ once it's connected. Proxies from the environment are ignored (a proxy would
 make the peer the proxy, and could reach the LAN on our behalf).
 
 Used by Internet radio (``core/internet_radio``) for station streams, the
-station directory and now-playing feeds. :func:`is_public_ip` is chat's test,
+station directory and now-playing feeds, and by AcoustID lookups
+(``core/acoustid_api.py``) through :func:`guarded_json`. :func:`is_public_ip` is chat's test,
 which chat now imports from here.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import json
 import socket
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
@@ -267,5 +269,72 @@ def guarded_request(method: str, url: str, *, headers: Optional[Dict[str, str]] 
     raise OutboundBlocked("The address redirected too many times.")
 
 
+class RequestFailed(Exception):
+    """A guarded request that brought back no answer to read.
+
+    ``kind`` is ``blocked`` (the address was refused), ``offline`` (no
+    connection, a timeout, or the answer broke off; ``timed_out`` says
+    whether it was a timeout) or ``too_large`` (the answer passed the cap).
+    ``str()`` is safe to show: it never holds the request's body or address.
+    """
+
+    def __init__(self, kind: str, message: str, *, timed_out: bool = False):
+        super().__init__(message)
+        self.kind = kind
+        self.timed_out = timed_out
+
+
+def guarded_json(method: str, url: str, *, data: Optional[Dict[str, str]] = None,
+                 files: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, str]] = None,
+                 headers: Optional[Dict[str, str]] = None, timeout=(5, 25), max_bytes: int = 512 * 1024,
+                 max_redirects: int = 0, request: Optional[Callable[..., Any]] = None) -> Tuple[int, Any]:
+    """``(status, parsed JSON or None)`` through :func:`guarded_request`.
+
+    The answer is read in chunks and refused past ``max_bytes``; an answer
+    that isn't JSON comes back as ``None`` with its status, for the caller to
+    judge. Raises :class:`RequestFailed`. ``request`` stands in for
+    :func:`guarded_request` (a caller passes its own module's reference so a
+    test can replace it).
+    """
+    import requests
+
+    send = request or guarded_request
+    try:
+        resp, _final = send(method, url, data=data, files=files, params=params, headers=headers, timeout=timeout,
+                            stream=True, max_redirects=max_redirects)
+    except OutboundBlocked as exc:
+        raise RequestFailed("blocked", str(exc)) from None
+    except Exception as exc:  # noqa: BLE001 - timeouts, refused connections, DNS: all "didn't answer"
+        timed_out = isinstance(exc, requests.exceptions.Timeout)
+        raise RequestFailed("offline", "The request timed out." if timed_out else "The service couldn't be reached.",
+                            timed_out=timed_out) from None
+    try:
+        status = resp.status_code
+        chunks, total = [], 0
+        for chunk in resp.iter_content(chunk_size=32 * 1024):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                raise RequestFailed("too_large", "The answer was too large.")
+            chunks.append(chunk)
+    except RequestFailed:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the answer broke off
+        timed_out = isinstance(exc, requests.exceptions.Timeout)
+        raise RequestFailed("offline", "The answer broke off.", timed_out=timed_out) from None
+    finally:
+        try:
+            resp.close()
+        except Exception:  # noqa: BLE001,S110
+            pass
+    body = b"".join(chunks)
+    try:
+        parsed = json.loads(body.decode("utf-8", errors="replace")) if body else None
+    except ValueError:
+        parsed = None
+    return status, parsed
+
+
 __all__ = ["OutboundBlocked", "MAX_REDIRECTS", "is_public_ip", "resolve", "check_url",
-           "guarded_session", "guarded_request"]
+           "guarded_session", "guarded_request", "RequestFailed", "guarded_json"]

@@ -62,8 +62,10 @@ def _client(monkeypatch, raw):
     for name in ('WebServiceError', 'NoBackendError', 'FingerprintGenerationError'):
         setattr(fake, name, type(name, (Exception,), {}))
     fake.parse_lookup_result = lambda data: pytest.fail('pyacoustid parser drops duration')
-    fake.match = lambda api_key, path, parse=True: raw
+    fake.fingerprint_file = lambda path: (234.0, 'AQAAfake')
     monkeypatch.setitem(sys.modules, 'acoustid', fake)
+    from core import acoustid_api
+    monkeypatch.setattr(acoustid_api, 'lookup', lambda *a, **k: (200, raw))
     monkeypatch.setattr(acc, 'ACOUSTID_AVAILABLE', True)
     client = AcoustIDClient()
     client._api_key = 'testkey123'

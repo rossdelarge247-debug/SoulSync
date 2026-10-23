@@ -215,7 +215,7 @@ class TidalClient:
                 logger.warning("Tidal client ID or secret not configured")
                 return False
             
-            logger.info(f"Loaded Tidal config with client ID: {self.client_id[:8]}...")
+            logger.info("Loaded Tidal config with a client ID")
             return True
         except Exception as e:
             logger.error(f"Failed to load Tidal configuration: {e}")
@@ -310,8 +310,7 @@ class TidalClient:
         challenge_bytes = hashlib.sha256(self.code_verifier.encode('utf-8')).digest()
         self.code_challenge = base64.urlsafe_b64encode(challenge_bytes).decode('utf-8').rstrip('=')
         
-        logger.info(f"Generated PKCE verifier: {self.code_verifier[:10]}...")
-        logger.info(f"Generated PKCE challenge: {self.code_challenge[:10]}...")
+        logger.info("Generated PKCE verifier and challenge")
     
     def authenticate(self):
         """Start OAuth authentication flow"""
@@ -397,7 +396,7 @@ class TidalClient:
                 
                 if 'code' in query_params:
                     tidal_client_ref.auth_code = query_params['code'][0]
-                    logger.info(f"Received Tidal authorization code: {tidal_client_ref.auth_code[:10]}...")
+                    logger.info("Received Tidal authorization code")
                     
                     # Send success response
                     handler_self.send_response(200)
@@ -542,8 +541,8 @@ class TidalClient:
     def fetch_token_from_code(self, auth_code: str) -> bool:
         """Exchange authorization code for access tokens (for web server callback)"""
         try:
-            logger.info(f"Starting token exchange with code: {auth_code[:20]}...")
-            logger.info(f"Using code_verifier: {self.code_verifier[:20] if self.code_verifier else 'None'}...")
+            logger.info("Starting token exchange with the authorization code")
+            logger.info(f"Using code_verifier: {'set' if self.code_verifier else 'None'}")
             logger.info(f"Using redirect_uri: {self.redirect_uri}")
             
             self.auth_code = auth_code

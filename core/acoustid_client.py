@@ -1,10 +1,10 @@
 """
 AcoustID Client for audio fingerprinting and lookup.
 
-Uses the pyacoustid library which handles:
-- Fingerprint generation via chromaprint library
-- AcoustID API lookups
-- Rate limiting
+Uses the pyacoustid library for fingerprint generation (the chromaprint
+library or fpcalc). Lookups go through ``core/acoustid_api.py``, the one
+guarded AcoustID path (fixed host, TLS verified, timeouts, capped answer,
+paced to three a second). The API key is never logged, in whole or in part.
 
 The fpcalc binary is auto-downloaded if not found (Windows, macOS, Linux x86_64).
 """
@@ -80,6 +80,28 @@ def parse_lookup_with_duration(data: Dict[str, Any]):
             if not isinstance(duration, (int, float)) or isinstance(duration, bool) or duration <= 0:
                 duration = None
             yield score, recording["id"], recording.get("title"), artist_name, duration
+
+
+def _lookup_raw(api_key: str, duration: float, fingerprint: Any) -> Dict[str, Any]:
+    """AcoustID's raw JSON answer for a fingerprint, through the guarded path
+    (``core/acoustid_api.py``). Raises ``acoustid.WebServiceError`` in words
+    that never hold the key, as pyacoustid's own lookup did."""
+    import acoustid
+    from core import acoustid_api
+
+    try:
+        _status, data = acoustid_api.lookup(api_key, int(duration), fingerprint, meta="recordings")
+    except acoustid_api.RequestFailed as exc:
+        if exc.timed_out:
+            raise acoustid.WebServiceError("HTTP request timed out") from None
+        if exc.kind == "blocked":
+            raise acoustid.WebServiceError("HTTP request refused by the outbound guard") from None
+        if exc.kind == "too_large":
+            raise acoustid.WebServiceError("response is too large") from None
+        raise acoustid.WebServiceError("HTTP request failed") from None
+    if not isinstance(data, dict):
+        raise acoustid.WebServiceError("response is not valid JSON")
+    return data
 
 
 def _get_fpcalc_download_url() -> Optional[str]:
@@ -317,7 +339,7 @@ class AcoustIDClient:
         if not self.api_key:
             return False, "No API key configured"
 
-        import requests
+        from core import acoustid_api
 
         try:
             # Authoritative key check: a direct API lookup with a dummy
@@ -326,19 +348,15 @@ class AcoustIDClient:
             # (The previous real-file path trusted "no exception = valid", but
             # fingerprint_and_lookup swallows the invalid-key error and returns
             # None — so it reported broken keys as valid. #756-adjacent.)
-            url = 'https://api.acoustid.org/v2/lookup'
-            params = {
-                'client': self.api_key,
-                'duration': 187,
-                'fingerprint': 'AQADtMkWaYkSZRGO',
-                'meta': 'recordings'
-            }
-
-            response = requests.get(url, params=params, timeout=10)
-            data = response.json()
+            _status, data = acoustid_api.lookup(self.api_key, 187, 'AQADtMkWaYkSZRGO', meta='recordings',
+                                                timeout=(5, 10))
+            if not isinstance(data, dict):
+                return False, "Error: AcoustID's answer couldn't be read"
 
             if data.get('status') == 'error':
                 error = data.get('error', {})
+                if not isinstance(error, dict):
+                    error = {}
                 error_code = error.get('code', 0)
                 error_msg = error.get('message', '')
 
@@ -352,13 +370,13 @@ class AcoustIDClient:
             # Status is 'ok' - key is valid
             return True, "AcoustID API key is valid"
 
-        except requests.exceptions.Timeout:
-            return False, "AcoustID API timeout - try again later"
-        except requests.exceptions.RequestException as e:
-            return False, f"Network error: {str(e)}"
+        except acoustid_api.RequestFailed as e:
+            if e.timed_out:
+                return False, "AcoustID API timeout - try again later"
+            return False, f"Network error: {e}"
         except Exception as e:
-            logger.error(f"Error testing AcoustID API key: {e}")
-            return False, f"Error: {str(e)}"
+            logger.error(f"Error testing AcoustID API key: {type(e).__name__}")
+            return False, f"Error: {type(e).__name__}"
 
     def lookup_with_status(self, audio_file: str) -> Dict[str, Any]:
         """Fingerprint + AcoustID lookup returning a STRUCTURED result.
@@ -404,45 +422,39 @@ class AcoustIDClient:
         try:
             import acoustid
 
-            api_key_preview = f"{self.api_key[:8]}..." if self.api_key and len(self.api_key) > 8 else "NOT SET"
-            logger.info(f"Fingerprinting and looking up: {audio_file} (API key: {api_key_preview})")
+            # Never log the key, or any part of it.
+            logger.info(f"Fingerprinting and looking up: {audio_file}")
 
             recordings = []
             seen_mbids = set()
             best_score = 0.0
 
-            # Try to get raw parsed JSON response first if pyacoustid supports parse_lookup_result,
-            # so we can inspect error codes instead of losing them to pyacoustid's bare "status: error".
-            raw_response = None
-            if hasattr(acoustid, 'parse_lookup_result'):
-                try:
-                    raw_response = acoustid.match(self.api_key, audio_file, parse=False)
-                except (acoustid.NoBackendError, acoustid.FingerprintGenerationError):
-                    raise
-                except Exception:
-                    raw_response = None
+            # Fingerprint here (Chromaprint or fpcalc, through pyacoustid), then
+            # look it up through the one guarded AcoustID path, keeping the raw
+            # JSON so error codes aren't lost to a bare "status: error".
+            duration, fp = acoustid.fingerprint_file(audio_file)
+            raw_response = _lookup_raw(self.api_key, duration, fp)
 
-            if isinstance(raw_response, dict):
-                if raw_response.get('status') != 'ok':
-                    err = raw_response.get('error', {})
-                    err_code = err.get('code', 0)
-                    err_msg = err.get('message', 'Unknown AcoustID error')
-                    invalid = (err_code == 4 or 'invalid' in err_msg.lower() or 'key' in err_msg.lower())
-                    if invalid:
-                        logger.error(
-                            "AcoustID API key appears to be invalid (Application API key required): %s (code %s)",
-                            err_msg, err_code
-                        )
-                    elif 'rate' in err_msg.lower() or 'limit' in err_msg.lower() or err_code == 5:
-                        logger.warning("Rate limited by AcoustID — will retry later: %s", err_msg)
-                    return {'status': 'error', 'recordings': [], 'invalid_key': invalid,
-                            'error': f'AcoustID API error (code {err_code}): {err_msg}'}
-                match_results = parse_lookup_with_duration(raw_response)
-            else:
-                match_results = acoustid.match(self.api_key, audio_file, parse=True)
+            if raw_response.get('status') != 'ok':
+                err = raw_response.get('error', {})
+                if not isinstance(err, dict):
+                    err = {}
+                err_code = err.get('code', 0)
+                err_msg = err.get('message', 'Unknown AcoustID error')
+                invalid = (err_code == 4 or 'invalid' in err_msg.lower() or 'key' in err_msg.lower())
+                if invalid:
+                    logger.error(
+                        "AcoustID API key appears to be invalid (Application API key required): %s (code %s)",
+                        err_msg, err_code
+                    )
+                elif 'rate' in err_msg.lower() or 'limit' in err_msg.lower() or err_code == 5:
+                    logger.warning("Rate limited by AcoustID — will retry later: %s", err_msg)
+                return {'status': 'error', 'recordings': [], 'invalid_key': invalid,
+                        'error': f'AcoustID API error (code {err_code}): {err_msg}'}
+            match_results = parse_lookup_with_duration(raw_response)
 
             for result in match_results:
-                # match() with parse=True returns (score, recording_id, title, artist)
+                # (score, recording_id, title, artist, duration)
                 if not isinstance(result, tuple) or len(result) < 2:
                     logger.warning(f"Unexpected result format: {result}")
                     continue
@@ -481,8 +493,7 @@ class AcoustIDClient:
             logger.warning(f"Failed to fingerprint {audio_file}: {e}")
             return {'status': 'fingerprint_error', 'recordings': [], 'error': f'Could not fingerprint file: {e}'}
         except acoustid.WebServiceError as e:
-            api_key_preview = f"{self.api_key[:8]}..." if self.api_key and len(self.api_key) > 8 else "???"
-            logger.warning(f"AcoustID API error (key: {api_key_preview}): {e}")
+            logger.warning(f"AcoustID API error: {e}")
             error_str = str(e).lower()
             # Old pyacoustid reports an invalid key as the bare "status: error"
             # (it drops the detail), so treat that as an invalid-key signal too.

@@ -25,9 +25,17 @@ from core.acoustid_verification import AcoustIDVerification, VerificationResult
 
 # ── lookup_with_status: structured status distinction ──────────────────────
 
-def _client_with_fake_acoustid(monkeypatch, *, match=None, raises=None):
-    """An AcoustIDClient wired to a fake `acoustid` module so we can drive
-    match() without network or chromaprint."""
+def _raw(matches):
+    """AcoustID's JSON answer for (score, mbid, title, artist) tuples."""
+    return {"status": "ok", "results": [
+        {"score": score, "id": f"r{i}", "recordings": [{"id": mbid, "title": title, "artists": [{"name": artist}]}]}
+        for i, (score, mbid, title, artist) in enumerate(matches)]}
+
+
+def _client_with_fake_acoustid(monkeypatch, *, match=None, raises=None, raw=None):
+    """An AcoustIDClient wired to a fake `acoustid` module (fingerprinting) and
+    a stand-in for the guarded lookup, so neither network nor chromaprint is
+    needed. ``fake.lookup`` can be replaced to drive the answer."""
     fake = types.ModuleType("acoustid")
 
     class WebServiceError(Exception):
@@ -43,14 +51,17 @@ def _client_with_fake_acoustid(monkeypatch, *, match=None, raises=None):
     fake.NoBackendError = NoBackendError
     fake.FingerprintGenerationError = FingerprintGenerationError
 
-    def _match(api_key, audio_file, parse=True):
+    def _fingerprint_file(audio_file):
         if raises is not None:
             raise raises
-        return match or []
+        return 187.4, "AQAAfake"
 
-    fake.match = _match
+    fake.fingerprint_file = _fingerprint_file
+    fake.lookup = lambda *a, **k: (200, raw if raw is not None else _raw(match or []))
     monkeypatch.setitem(sys.modules, "acoustid", fake)
     monkeypatch.setattr(acc, "ACOUSTID_AVAILABLE", True)
+    from core import acoustid_api
+    monkeypatch.setattr(acoustid_api, "lookup", lambda *a, **k: fake.lookup(*a, **k))
 
     c = AcoustIDClient()
     c._api_key = "testkey123"   # bypass config
@@ -81,7 +92,7 @@ def test_lookup_status_error_on_webservice(tmp_path, monkeypatch):
 
     def _raise(*a, **k):
         raise fake.WebServiceError("status: error")
-    fake.match = _raise
+    monkeypatch.setattr(acc, "_lookup_raw", _raise)
 
     res = c.lookup_with_status(str(f))
     assert res["status"] == "error"
@@ -94,7 +105,7 @@ def test_lookup_status_no_backend(tmp_path, monkeypatch):
 
     def _raise(*a, **k):
         raise fake.NoBackendError()
-    fake.match = _raise
+    fake.fingerprint_file = _raise
 
     assert c.lookup_with_status(str(f))["status"] == "no_backend"
 
@@ -122,7 +133,7 @@ def test_legacy_wrapper_returns_none_on_error(tmp_path, monkeypatch):
 
     def _raise(*a, **k):
         raise fake.WebServiceError("status: error")
-    fake.match = _raise
+    monkeypatch.setattr(acc, "_lookup_raw", _raise)
     assert c.fingerprint_and_lookup(str(f)) is None
 
 
@@ -154,16 +165,14 @@ def test_verify_reports_skip_for_no_match():
 # ── test_api_key: invalid key reported as invalid ──────────────────────────
 
 def _api_response(payload):
-    r = MagicMock()
-    r.json.return_value = payload
-    return r
+    return lambda *a, **k: (200, payload)
 
 
 def test_test_api_key_invalid_when_code_4(monkeypatch):
     c = AcoustIDClient()
     c._api_key = "badkey"
-    with patch("requests.get",
-               return_value=_api_response({"status": "error", "error": {"code": 4, "message": "invalid API key"}})):
+    with patch("core.acoustid_api.lookup",
+               side_effect=_api_response({"status": "error", "error": {"code": 4, "message": "invalid API key"}})):
         ok, msg = c.test_api_key()
     assert ok is False
     assert "invalid" in msg.lower()
@@ -173,8 +182,8 @@ def test_test_api_key_valid_when_accepted(monkeypatch):
     c = AcoustIDClient()
     c._api_key = "goodkey"
     # A non-key error (e.g. bad dummy fingerprint) means the key was accepted.
-    with patch("requests.get",
-               return_value=_api_response({"status": "error", "error": {"code": 3, "message": "invalid fingerprint"}})):
+    with patch("core.acoustid_api.lookup",
+               side_effect=_api_response({"status": "error", "error": {"code": 3, "message": "invalid fingerprint"}})):
         ok, msg = c.test_api_key()
     assert ok is True
     assert "valid" in msg.lower()
@@ -222,9 +231,8 @@ def test_lookup_status_structured_error_code_and_message(tmp_path, monkeypatch):
     c, fake = _client_with_fake_acoustid(monkeypatch)
     monkeypatch.setattr(c, "_api_key", "user_key_instead_of_app_key")
 
-    # Mock pyacoustid match(parse=False) returning error dict
-    fake.parse_lookup_result = MagicMock()
-    fake.match = MagicMock(return_value={"status": "error", "error": {"code": 4, "message": "invalid client key"}})
+    # The lookup answers with AcoustID's error dict
+    fake.lookup = MagicMock(return_value=(200, {"status": "error", "error": {"code": 4, "message": "invalid client key"}}))
 
     res = c.lookup_with_status(str(f))
     assert res["status"] == "error"

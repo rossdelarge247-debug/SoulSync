@@ -9,7 +9,8 @@ are never used by the automatic identification.
 Every request goes through the outbound guard
 (``core/security/outbound.py``): public addresses only, TLS verified, no
 redirects followed for a request with a body, timeouts on connect and read,
-the answer capped. The hosts are fixed here (AcoustID's and AudD's API
+the answer capped. AcoustID's lookup is the shared one in
+``core/acoustid_api.py``, which the download identifier uses too. The hosts are fixed here (AcoustID's and AudD's API
 hosts); ACRCloud's is the admin's project host, accepted only under
 ``acrcloud.com`` (:func:`core.internet_radio.settings.acrcloud_host`).
 
@@ -34,14 +35,15 @@ import wave
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
+from core import acoustid_api
 from core.internet_radio.net import USER_AGENT
 from core.internet_radio.settings import acrcloud_host
-from core.security.outbound import OutboundBlocked, guarded_request
+from core.security.outbound import RequestFailed, guarded_json, guarded_request
 from utils.logging_config import get_logger
 
 logger = get_logger("internet_radio.scan")
 
-ACOUSTID_URL = "https://api.acoustid.org/v2/lookup"
+ACOUSTID_URL = acoustid_api.ACOUSTID_URL
 AUDD_URL = "https://api.audd.io/"
 ACRCLOUD_PATH = "/v1/identify"
 
@@ -95,40 +97,12 @@ class _Failed(Exception):
         self.status = status
 
 
-def _post(url: str, *, data: Dict[str, str], files: Optional[Dict[str, Any]] = None) -> Any:
-    """POST a form, return the parsed JSON. Raises :class:`_Failed`."""
-    try:
-        resp, _final = guarded_request("POST", url, data=data, files=files, timeout=TIMEOUT, stream=True,
-                                       max_redirects=0, headers={"User-Agent": USER_AGENT,
-                                                                 "Accept": "application/json"})
-    except OutboundBlocked:
-        raise _Failed("provider_error") from None
-    except Exception:  # noqa: BLE001 - timeouts, refused connections, DNS: all "didn't answer"
-        raise _Failed("offline") from None
-    try:
-        status = resp.status_code
-        chunks, total = [], 0
-        for chunk in resp.iter_content(chunk_size=32 * 1024):
-            if not chunk:
-                continue
-            total += len(chunk)
-            if total > MAX_ANSWER_BYTES:
-                raise _Failed("provider_error", status)
-            chunks.append(chunk)
-    except _Failed:
-        raise
-    except Exception:  # noqa: BLE001 - the answer broke off
-        raise _Failed("offline") from None
-    finally:
-        try:
-            resp.close()
-        except Exception:  # noqa: BLE001,S110
-            pass
-    body = b"".join(chunks)
-    try:
-        parsed = json.loads(body.decode("utf-8", errors="replace")) if body else None
-    except ValueError:
-        parsed = None
+_HEADERS = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+_FAILED = {"blocked": "provider_error", "offline": "offline", "too_large": "provider_error"}
+
+
+def _answer(status: int, parsed: Any) -> Any:
+    """The parsed answer, or :class:`_Failed` from the status when it isn't one."""
     if parsed is None:
         if status == 429:
             raise _Failed("rate_limited", status)
@@ -140,6 +114,26 @@ def _post(url: str, *, data: Dict[str, str], files: Optional[Dict[str, Any]] = N
     if status == 429:
         raise _Failed("rate_limited", status)
     return parsed
+
+
+def _post(url: str, *, data: Dict[str, str], files: Optional[Dict[str, Any]] = None) -> Any:
+    """POST a form, return the parsed JSON. Raises :class:`_Failed`."""
+    try:
+        status, parsed = guarded_json("POST", url, data=data, files=files, timeout=TIMEOUT, headers=_HEADERS,
+                                      max_bytes=MAX_ANSWER_BYTES, max_redirects=0, request=guarded_request)
+    except RequestFailed as exc:
+        raise _Failed(_FAILED.get(exc.kind, "offline")) from None
+    return _answer(status, parsed)
+
+
+def _acoustid_lookup(key: str, duration: int, fp: str, meta: str) -> Any:
+    """AcoustID's lookup, through the one path everything uses (``core/acoustid_api.py``)."""
+    try:
+        status, parsed = acoustid_api.lookup(key, duration, fp, meta=meta, timeout=TIMEOUT, headers=_HEADERS,
+                                             request=guarded_request)
+    except RequestFailed as exc:
+        raise _Failed(_FAILED.get(exc.kind, "offline")) from None
+    return _answer(status, parsed)
 
 
 def _clip(path: str) -> bytes:
@@ -216,9 +210,8 @@ def acoustid(path: str, key: str, fpcalc: str, *, run: Callable[..., Any] = subp
     if fp is None:
         return _error("acoustid", "bad_audio")
     try:
-        body = _post(ACOUSTID_URL, data={"client": key, "duration": str(int(round(fp["duration"]))),
-                                         "fingerprint": fp["fingerprint"], "meta": "recordings releasegroups compress",
-                                         "format": "json"})
+        body = _acoustid_lookup(key, int(round(fp["duration"])), fp["fingerprint"],
+                                "recordings releasegroups compress")
     except _Failed as exc:
         return _error("acoustid", exc.kind)
     if not isinstance(body, dict):
@@ -251,8 +244,7 @@ def acoustid_test(key: str) -> ProviderResult:
     """Is the key accepted? A lookup with a made-up fingerprint: AcoustID
     checks the key first (error 4), then refuses the fingerprint. Free."""
     try:
-        body = _post(ACOUSTID_URL, data={"client": key, "duration": "187", "fingerprint": "AQADtMkWaYkSZRGO",
-                                         "meta": "recordings", "format": "json"})
+        body = _acoustid_lookup(key, 187, "AQADtMkWaYkSZRGO", "recordings")
     except _Failed as exc:
         return _error("acoustid", exc.kind)
     if isinstance(body, dict) and body.get("status") != "ok":
