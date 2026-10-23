@@ -1106,8 +1106,10 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 }
 #np-v2-visuals-drawer.hidden,
 #np-v2-visuals-sidepanel.hidden { display: none; }
+/* the panel opens under the header (media-player-v2.js measures it into
+   --npv2-panel-top), so the ‹ › arrows and the close button stay reachable */
 #np-v2-visuals-sidepanel {
-    top: 0;
+    top: var(--npv2-panel-top, 76px);
     right: 0;
     bottom: 0;
     z-index: 4;
@@ -1116,6 +1118,7 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
     width: min(400px, 100vw);
     background: var(--ss-ground-note);
     border-left: 1px solid rgba(255, 255, 255, 0.12);
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 .np-v2-sidepanel-head {
     display: flex;
@@ -1315,6 +1318,7 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     .ss-player-menu { left: 12px !important; right: 12px; width: auto; z-index: 9700; }
     .ss-player-themes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     #np-v2-visuals-header { flex-direction: column; right: 72px; }
+    #np-v2-visuals-sidepanel { top: var(--npv2-panel-top, 152px); }
 }
 
 /* ── radio (build e; boards 4a, 4i, 4j) ─────────────────────────────────
