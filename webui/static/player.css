@@ -1227,8 +1227,9 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
     text-align: center;
 }
 
-/* the visuals cover everything, the floating buttons too */
-body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn) { display: none !important; }
+/* the visuals cover everything, the floating buttons too (and the help's
+   first-run "New here?" tip beside them) */
+body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn, .helper-first-launch-tip) { display: none !important; }
 
 /* the mini bar is phones only */
 .ss-player-mini { display: none; }
