@@ -1515,6 +1515,45 @@ class ConfigManager:
         # the database write (and any retry sleeps) without holding it.
         self._save_config()
 
+    def write_in_transaction(self, conn, updates: Dict[str, Any]) -> None:
+        """Write the stored config with ``updates`` (dot keys) applied through
+        ``conn``, an open transaction on the config database that the caller
+        commits or rolls back, then call :meth:`apply_committed` after a commit.
+
+        The drive move's switch uses this so the folder settings and the
+        library's stored paths change in ONE database transaction. Hold
+        :meth:`save_lock` around both calls so no other save lands between."""
+        if getattr(self, '_db_row_protected', False):
+            raise RuntimeError("The stored settings couldn't be read this session, so they can't be rewritten.")
+        with self._sync.lock:
+            snapshot = copy.deepcopy(self.config_data)
+        for key, value in updates.items():
+            node = snapshot
+            parts = key.split('.')
+            for part in parts[:-1]:
+                node = node.setdefault(part, {})
+            node[parts[-1]] = value
+        blob = json.dumps(self._encrypt_sensitive(snapshot), indent=2)
+        conn.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT, "
+                     "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        conn.execute("INSERT OR REPLACE INTO metadata (key, value, updated_at) "
+                     "VALUES ('app_config', ?, CURRENT_TIMESTAMP)", (blob,))
+
+    def apply_committed(self, updates: Dict[str, Any]) -> None:
+        """Set ``updates`` in memory without saving: they're already stored
+        (:meth:`write_in_transaction`)."""
+        with self._sync.lock:
+            for key, value in updates.items():
+                node = self.config_data
+                parts = key.split('.')
+                for part in parts[:-1]:
+                    node = node.setdefault(part, {})
+                node[parts[-1]] = value
+
+    def save_lock(self):
+        """The lock every config save holds while it writes."""
+        return self._sync.save_lock
+
     def clear_secret(self, key: str) -> bool:
         """Remove one stored secret: the explicit "Remove" a settings screen
         offers, since ``set()`` treats an empty value as "keep the existing

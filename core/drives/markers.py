@@ -301,6 +301,12 @@ class DriveWatch:
             state = self._state
         return state if state is not None else self.check_now()
 
+    def peek(self) -> Optional[Dict[str, Any]]:
+        """The last look, or None before the first (never looks itself, so
+        the guards on hot paths don't touch the disk)."""
+        with self._lock:
+            return self._state
+
     def remember_written(self, role: str, path: str) -> None:
         """Record that a marker was written at ``path`` (the move's switch)."""
         self._store(role, path, written=self._clock(), seen=self._clock())
@@ -327,11 +333,14 @@ def set_watch(watch: Optional[DriveWatch]) -> Optional[DriveWatch]:
 
 
 def library_away() -> bool:
-    """Whether the library's drive isn't connected. Errs on "connected" when
-    the state can't be read at all, so nothing new is ever blocked by a bug
-    here; the guarded jobs carry their own visibility checks too."""
+    """Whether the library's drive isn't connected, from the watch's last
+    look. Errs on "connected" when there's no look yet (the watch starts with
+    the app and looks at once) or the state can't be read, so nothing is ever
+    blocked by a bug here; the guarded jobs carry their own visibility checks
+    too."""
     try:
-        return bool(get_watch().state().get("library_away"))
+        state = get_watch().peek()
+        return bool(state and state.get("library_away"))
     except Exception as exc:  # noqa: BLE001
         logger.debug("drive state unreadable: %s", exc)
         return False
@@ -339,7 +348,8 @@ def library_away() -> bool:
 
 def away_roles() -> List[str]:
     try:
-        return list(get_watch().state().get("away") or [])
+        state = get_watch().peek()
+        return list((state or {}).get("away") or [])
     except Exception:  # noqa: BLE001
         return []
 
