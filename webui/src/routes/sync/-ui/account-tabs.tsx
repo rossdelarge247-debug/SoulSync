@@ -34,6 +34,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { spotifyGate } from '@/features/spotify-pause/spotify-gate';
+
 import type { AccountPlaylistRow } from '../-sync.accounts';
 import type { AccountPlaylistTracks } from '../-sync.api';
 
@@ -150,6 +152,10 @@ export function SpotifyTab({ selectedIds, onToggleSelect, registerRows }: Accoun
 
   /** openPlaylistDetailsModal (1832-1876). */
   const openDetails = useCallback(async (row: AccountPlaylistRow) => {
+    // while Spotify is paused, say so first (board 12b); closing it does nothing
+    if (!(await spotifyGate(`Opening “${row.name}” needs Spotify’s playlist, so it waits.`))) {
+      return;
+    }
     window.showLoadingOverlay?.(`Loading playlist: ${row.name}...`);
     try {
       const detail = await fetchSpotifyPlaylistTracks(String(row.id));

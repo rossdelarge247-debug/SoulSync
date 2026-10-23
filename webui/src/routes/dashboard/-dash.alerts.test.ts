@@ -90,7 +90,7 @@ describe('serviceAlerts', () => {
       "Spotify asked us to wait 12 min (after checking an artist's albums)",
     );
     expect(serviceAlerts(payload, 125)[0].line).toBe(
-      "Spotify asked us to wait 9 min 55 s (after checking an artist's albums)",
+      "Spotify asked us to wait 10 min (after checking an artist's albums)",
     );
     expect(serviceAlerts(payload, 125)[0].advice).toContain('That time came from Spotify');
   });

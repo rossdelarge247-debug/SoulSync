@@ -13,6 +13,7 @@ import {
   playerAction,
   possessive,
   qualityText,
+  sourcePhrase,
   sourceWords,
 } from './radio.format';
 
@@ -66,8 +67,11 @@ describe('radio words', () => {
   });
 
   it('names the source as the boards do', () => {
-    expect(sourceWords('station_feed', 'NTS 1')).toBe('Identified from NTS’s now-playing feed');
-    expect(sourceWords('stream_titles', 'NTS 1')).toBe('Identified from the stream’s track names');
+    expect(sourceWords('station_feed')).toBe('From the station');
+    expect(sourceWords('stream_titles')).toBe('From the stream’s names');
+    expect(sourceWords('scan_audd')).toBe('Found by AudD · Scan now');
+    expect(sourcePhrase('fingerprint')).toBe('fingerprint');
+    expect(sourcePhrase('scan_acrcloud')).toBe('found by ACRCloud · Scan now');
     expect(possessive('Radio Paradise · Main Mix')).toBe('Radio Paradise’s');
   });
 
@@ -102,7 +106,13 @@ describe('radio words', () => {
   });
 
   it('works out the player lines and its one action', () => {
-    expect(nowLines(np(), 0).line).toMatch(/^Pale Harbour · identified/);
+    // the source phrase tells who named it (HANDOFF 58)
+    expect(nowLines(np(), 0).line).toMatch(
+      /^Pale Harbour · Lantern · from the station · \d+ (s|min|h) ago$/,
+    );
+    expect(nowLines({ ...np(), source: 'scan_audd' }, 0).line).toContain(
+      'found by AudD · Scan now',
+    );
     expect(nowLines(np({ state: 'listening', track: null }), 0).title).toBe('Listening…');
     expect(nowLines(np({ state: 'not_identified', track: null }), 0).title).toBe('Not identified');
     expect(playerAction(np())).toBe('add');

@@ -488,6 +488,35 @@ describe('SpotifyTab', () => {
     expect(calls).toBe(after);
   });
 
+  it('while Spotify is paused, opening a playlist asks first (12b); closing it does nothing', async () => {
+    const paused = {
+      spotify: {
+        rate_limited: true,
+        rate_limit: { remaining_seconds: 600, retry_after: 720, source: 'spotify' },
+      },
+    };
+    responder = (url) => (url.includes('/status') ? paused : [SPOTIFY_ROW]);
+    const ask = vi.fn(
+      async (_request: { description: string }): Promise<'closed' | 'cleared' | 'wait'> => 'closed',
+    );
+    vi.stubGlobal('ssOpenSpotifyPaused', ask);
+    render(<SpotifyTab registerRows={() => {}} />);
+    await waitFor(() => expect(screen.getByText('Road Trip')).toBeInTheDocument());
+    fireEvent.click(document.querySelector('#action-btn-p1') as Element);
+    await waitFor(() => expect(ask).toHaveBeenCalled());
+    expect(ask.mock.calls[0][0].description).toBe(
+      'Opening “Road Trip” needs Spotify’s playlist, so it waits.',
+    );
+    await act(async () => {});
+    expect(calls.some((c) => c.url.includes('/api/spotify/playlist/p1'))).toBe(false);
+    // Try again now (an admin): it opens straight away
+    ask.mockImplementation(async () => 'cleared');
+    fireEvent.click(document.querySelector('#action-btn-p1') as Element);
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes('/api/spotify/playlist/p1'))).toBe(true),
+    );
+  });
+
   it('loads, renders cards, and keeps the vanilla container + button ids', async () => {
     responder = () => [SPOTIFY_ROW];
     render(<SpotifyTab registerRows={() => {}} />);

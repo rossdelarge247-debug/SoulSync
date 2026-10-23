@@ -3872,6 +3872,9 @@ function npv2HandleKeys(event) {
             break;
         case 'v':
         case 'V':
+            // the Visuals' own keys (HANDOFF 60): V and Shift+V only while
+            // the overlay is open; F is the key that opens it
+            if (!npv2ModalOpen()) return;
             event.preventDefault();
             if (event.shiftKey) npv2PrevTheme(); else npv2CycleTheme();
             break;

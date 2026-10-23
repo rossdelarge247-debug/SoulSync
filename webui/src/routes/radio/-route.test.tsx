@@ -366,6 +366,11 @@ describe('the Radio pages', () => {
     const rows = await screen.findAllByTestId('heard-row');
     expect(rows).toHaveLength(2);
     expect(within(rows[0]!).getByText('In your library')).toBeInTheDocument();
+    // the source phrase, as the bar and Now playing say it (HANDOFF 58)
+    expect(
+      within(rows[0]!).getByText('Pale Harbour · Lantern · from the station'),
+    ).toBeInTheDocument();
+    expect(within(rows[1]!).getByText('Tidewater · from the stream’s names')).toBeInTheDocument();
     fireEvent.click(within(rows[1]!).getByRole('button', { name: 'Add to Wanted' }));
     await waitFor(() => expect(calls).toContain('want:2'));
   });

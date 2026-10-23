@@ -1013,70 +1013,145 @@
 }
 
 /* Scan now: the foot of the Now playing card (Design to draw it, HANDOFF 58) */
+/* Scan now's strip (board 11b): 1fr auto under the card's hairline; the
+   words at 14px and 72%, 86% for progress and results; the 132px control. */
 .scan {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
+  align-items: center;
   padding: 16px 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--ss-hairline);
 }
 .scanText {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   min-width: 0;
 }
-.scanTitle {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-.scanTitle .label {
-  margin-right: 6px;
+.scanText:has(.scanNote) {
+  gap: 2px;
 }
 .scanLine {
-  margin: 2px 0 0;
+  margin: 0;
+  color: var(--ss-text-tertiary);
   font-size: 14px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.scanText[data-news='true'] .scanLine {
   color: var(--ss-text-secondary);
 }
-.scan[data-state='failed'] .scanLine {
+.scanText .scanLine[data-tone='danger'] {
   color: var(--ss-danger);
 }
 .scanNote {
-  margin: 2px 0 0;
-  font-size: 14px;
+  margin: 0;
   color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
 }
 .scanProgress {
+  position: relative;
   display: block;
-  max-width: 320px;
   height: 4px;
-  margin-top: 8px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.16);
   overflow: hidden;
 }
 .scanProgress > span {
-  display: block;
-  height: 100%;
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
   background: rgb(var(--ss-accent-light-rgb));
   transition: width 0.9s linear;
 }
-.scanActions {
-  display: flex;
-  flex-wrap: wrap;
+.scanControl {
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 8px;
+  box-sizing: border-box;
+  min-height: 44px;
+  min-width: 132px;
+  padding: 0 14px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-control-fill);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+.scanControl:hover:not([aria-disabled='true']) {
+  background: var(--ss-control-fill-hover);
+}
+.scanControl:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+.scanControl[aria-disabled='true'] {
+  color: var(--ss-disabled-text);
+  cursor: default;
+}
+.scanControl[data-busy] {
+  border-color: rgba(var(--ss-accent-rgb), 0.45);
+  background: rgba(var(--ss-accent-rgb), 0.14);
+  color: rgb(var(--ss-accent-light-rgb));
+}
+.scanControl[data-busy='listening'] svg {
+  animation: radio-scan-pulse 1.6s ease-in-out infinite;
+}
+.scanSpinner {
+  flex: none;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-circle, 50%);
+  border: 2px solid rgba(var(--ss-accent-light-rgb), 0.3);
+  border-top-color: rgb(var(--ss-accent-light-rgb));
+  animation: radio-scan-spin 0.9s linear infinite;
+}
+@keyframes radio-scan-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes radio-scan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scanControl[data-busy] svg,
+  .scanSpinner {
+    animation: none;
+  }
+}
+.inlineLinkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  cursor: pointer;
+}
+.inlineLinkButton:hover {
+  text-decoration: underline;
+}
+.inlineLinkButton:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
 }
 @media (max-width: 768px) {
   .scan {
-    flex-direction: column;
-    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
     padding: 16px;
   }
-  .scanActions {
-    justify-content: stretch;
-  }
-  .scanActions > * {
-    flex: 1;
+  .scanControl {
+    width: 100%;
   }
 }

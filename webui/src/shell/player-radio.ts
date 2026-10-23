@@ -12,11 +12,17 @@
  *   to today's Heard list (4j). Switching auto-add on swaps the switch row
  *   for the confirm with the three numbers, in the sheet (9c); off is at once.
  * - The level meter, drawn from the player's analyser while radio plays.
- * - Scan now: a button beside the bar's action and in the sheet. While it
- *   listens the bar's track line says "Listening…" with the seconds left;
- *   then the track it found with its own Add to Wanted (or the tag), Not
- *   found, or why it failed. Each change is announced in the player's live
- *   region.
+ * - Scan now (11a, HANDOFF 58): the quiet 132px control after the one
+ *   action (icon-only under 1180px), and full width in the sheet. While it
+ *   runs the scan takes the track's place in the bar (title: "Capturing 10
+ *   seconds · 6 s left" over a 220px progress bar, then "Identifying…" over
+ *   the service being asked) and the action slot empties. After, the answer
+ *   sits in the track block with its source phrase, Add to Wanted or the tag
+ *   beside it, and the control reads "Scan again". No Done: the answer lasts
+ *   until the station names the next track, the next scan, or Stop. Not
+ *   found, Failed (in the danger colour, naming the service and who can fix
+ *   it) and disabled (its reason as the title). Each change is announced in
+ *   the player's live region.
  *
  * Every word from a station or a track goes in with textContent.
  */
@@ -35,7 +41,7 @@ import {
   secondsSince,
   sourceWords,
 } from '@/features/radio/radio.format';
-import { scanButton, scanPanel, type ScanPanel } from '@/features/radio/radio.scan';
+import { scanAnswer, scanButton, scanPanel, type ScanPanel } from '@/features/radio/radio.scan';
 import { RADIO_EVENT } from '@/features/radio/radio.types';
 import { appURL } from '@/platform/url-base';
 
@@ -44,7 +50,8 @@ const SVG_STOP =
 const SVG_NOTE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
 const SVG_SCAN =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 12h1.5M7.5 8v8M11 5v14M14.5 9v6M18 7v10M21 11v2"/></svg>';
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"/></svg>';
+const SPINNER = '<span class="ss-player-radio-spinner" aria-hidden="true"></span>';
 const SVG_CHEVRON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
@@ -185,20 +192,21 @@ export function bootRadioChrome(
     );
     b.type = 'button';
     b.dataset.playerRadioScan = '';
-    b.innerHTML = SVG_SCAN;
+    // a pulsing waveform while it listens, a spinner while it identifies
+    b.innerHTML = view.phase === 'identifying' ? SPINNER : SVG_SCAN;
     b.append(el(doc, 'span', '', view.label));
     if (view.disabled) {
       b.setAttribute('aria-disabled', 'true');
       if (view.reason) b.title = view.reason;
     }
-    if (view.busy) b.dataset.busy = 'true';
+    if (view.busy) b.dataset.busy = view.phase ?? 'true';
     b.setAttribute(
       'aria-label',
       view.busy
-        ? 'Scan now: listening'
+        ? `Scan now: ${view.label.replace('…', '').toLowerCase()}`
         : view.disabled
-          ? `Scan now. ${view.reason}`
-          : 'Scan now: identify what’s playing',
+          ? `${view.label}. ${view.reason}`
+          : `${view.label}: identify what’s playing`,
     );
     return b;
   }
@@ -236,7 +244,6 @@ export function bootRadioChrome(
   const FOCUS_KEYS = [
     'playerRadioScan',
     'playerRadioScanAdd',
-    'playerRadioScanDismiss',
     'playerRadioAdd',
     'playerRadioStop',
     'playerRadioAuto',
@@ -257,14 +264,6 @@ export function bootRadioChrome(
     next?.focus();
   }
 
-  // the bar has little room: the artist and who found it, or the state's line
-  function barLine(panel: ScanPanel, st: RadioSessionState): string {
-    if (panel.state === 'identified' && st.scan?.track) {
-      return `${st.scan.track.artist} · found by ${st.scan.source_label ?? 'Scan now'}`;
-    }
-    return panel.line;
-  }
-
   let announced = '';
   function announce(panel: ScanPanel | null): void {
     const text = panel?.announce ?? '';
@@ -274,23 +273,57 @@ export function bootRadioChrome(
     if (live && text) live.textContent = text;
   }
 
+  /** The bar's track block: the station's name for what's on, or the scan in its place. */
+  function trackBlock(st: RadioSessionState, panel: ScanPanel | null): HTMLElement {
+    const now = el(doc, 'span', 'ss-player-radio-now');
+    const answer = panel?.state === 'identified' ? scanAnswer(st.scan) : null;
+    if (panel) now.dataset.scan = panel.state;
+    if (answer) {
+      // the answer reads like a name the station gave; its source phrase says who found it
+      const lines = nowLines(answer, st.skew);
+      now.append(
+        el(doc, 'span', 'ss-player-title', lines.title),
+        el(doc, 'span', 'ss-player-meta', lines.line),
+      );
+      now.title = `${lines.title} · ${lines.line}`;
+      return now;
+    }
+    if (panel) {
+      now.append(el(doc, 'span', 'ss-player-title', panel.title));
+      if (panel.progress != null) {
+        const bar = el(doc, 'span', 'ss-player-radio-now-bar');
+        bar.setAttribute('aria-hidden', 'true');
+        const fill = el(doc, 'span');
+        fill.style.width = `${Math.round(panel.progress * 100)}%`;
+        bar.append(fill);
+        now.append(bar);
+      } else {
+        const meta = el(doc, 'span', 'ss-player-meta', panel.line);
+        if (panel.danger) meta.dataset.tone = 'danger';
+        now.append(meta);
+      }
+      now.title = [panel.title, panel.line].filter(Boolean).join(' · ');
+      return now;
+    }
+    const lines = nowLines(st.nowPlaying, st.skew);
+    now.append(
+      el(doc, 'span', 'ss-player-title', lines.title),
+      el(doc, 'span', 'ss-player-meta', lines.line),
+    );
+    return now;
+  }
+
   function drawSlot(st: RadioSessionState): void {
-    const panel = scanPanel(st.scan, st.scanError, st.scanStarting);
+    const services = st.nowPlaying?.scan?.services ?? [];
+    const panel = scanPanel(st.scan, st.scanError, st.scanStarting, services);
     announce(panel);
     for (const slot of root.querySelectorAll<HTMLElement>('[data-player-action-slot]')) {
       const keep = focusKey(slot);
       slot.replaceChildren();
       if (!st.station) continue;
-      const lines = nowLines(st.nowPlaying, st.skew);
-      const now = el(doc, 'span', 'ss-player-radio-now');
-      if (panel) now.dataset.scan = panel.state;
-      now.append(
-        el(doc, 'span', 'ss-player-title', panel ? panel.title : lines.title),
-        el(doc, 'span', 'ss-player-meta', panel ? barLine(panel, st) : lines.line),
-      );
-      if (panel?.line)
-        now.title = [panel.title, panel.line, panel.note].filter(Boolean).join(' · ');
-      slot.append(now);
+      slot.append(trackBlock(st, panel));
+      // the action slot: the answer's own Add (or tag); empty while a scan
+      // runs or after one that found nothing; else the station's track's
       const action = panel
         ? panel.state === 'identified'
           ? scanActionNode(panel, false, st)
@@ -527,7 +560,7 @@ export function bootRadioChrome(
         ),
       );
       const src = [
-        sourceWords(np.source, station.name).replace('Identified from ', 'From '),
+        sourceWords(np.source),
         agoWords(secondsSince(np, st.skew)),
         st.stream?.label.replace(' (best offered)', ''),
       ]
@@ -565,16 +598,25 @@ export function bootRadioChrome(
     }
 
     const scan = el(doc, 'div', 'ss-player-radio-scanbox');
-    const panelView = scanPanel(st.scan, st.scanError, st.scanStarting);
+    const panelView = scanPanel(
+      st.scan,
+      st.scanError,
+      st.scanStarting,
+      st.nowPlaying?.scan?.services ?? [],
+    );
     if (panelView) {
       const result = el(doc, 'div', 'ss-player-radio-scanresult');
       result.dataset.state = panelView.state;
       result.append(
         el(doc, 'p', 'ss-player-label', 'Scan now'),
         el(doc, 'p', 'ss-player-radio-scan-title', panelView.title),
-        el(doc, 'p', 'ss-player-radio-line', panelView.line),
       );
-      if (panelView.note) result.append(el(doc, 'p', 'ss-player-radio-source', panelView.note));
+      if (panelView.line) result.append(el(doc, 'p', 'ss-player-radio-line', panelView.line));
+      // the source phrase starts this line, so it takes a capital
+      if (panelView.note) {
+        const note = panelView.note[0].toUpperCase() + panelView.note.slice(1);
+        result.append(el(doc, 'p', 'ss-player-radio-source', note));
+      }
       if (panelView.progress != null) {
         const bar = el(doc, 'span', 'ss-player-radio-scan-progress');
         const fill = el(doc, 'span');
@@ -583,16 +625,13 @@ export function bootRadioChrome(
         bar.setAttribute('aria-hidden', 'true');
         result.append(bar);
       }
-      const row = el(doc, 'div', 'ss-player-radio-scan-row');
+      // no Done (HANDOFF 58): the answer stays until the station names the next track
       const act = panelView.state === 'identified' ? scanActionNode(panelView, false, st) : null;
-      if (act) row.append(act);
-      if (panelView.state !== 'listening') {
-        const done = el(doc, 'button', 'ss-player-ghost', 'Done');
-        done.type = 'button';
-        done.dataset.playerRadioScanDismiss = '';
-        row.append(done);
+      if (act) {
+        const row = el(doc, 'div', 'ss-player-radio-scan-row');
+        row.append(act);
+        result.append(row);
       }
-      if (row.childElementCount) result.append(row);
       scan.append(result);
     }
     scan.append(scanButtonNode(st, true));
@@ -721,11 +760,6 @@ export function bootRadioChrome(
           'Added to Wanted.',
           'success',
         );
-      return;
-    }
-    if (target?.closest('[data-player-radio-scan-dismiss]')) {
-      event.preventDefault();
-      radio()?.dismissScan?.();
       return;
     }
     if (target?.closest('[data-player-radio-stop]')) {

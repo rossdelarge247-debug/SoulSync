@@ -186,6 +186,23 @@ export function videoPageTitle(videoPageId: string | null, rowLabel: string | nu
   return rowLabel || 'Video';
 }
 
+/** The video side's own subtitle (static/video/video-side.js VIDEO_SUBTITLE). */
+export const VIDEO_SUBTITLE = 'Movies, TV & YouTube';
+
+/**
+ * The browser tab's title (HANDOFF 62): "SYNCHRO.S" on Home, "Wanted ·
+ * SYNCHRO.S" on an inner page, and the video side's subtitle before the name.
+ */
+export function documentTitle(
+  side: 'music' | 'video',
+  pageId: string | null,
+  name: string,
+): string {
+  if (side === 'video') return `${VIDEO_SUBTITLE} · ${APP_NAME}`;
+  if (pageId === 'dashboard' || !name || name === APP_NAME) return APP_NAME;
+  return `${name} · ${APP_NAME}`;
+}
+
 // ── badges ───────────────────────────────────────────────────────────────────
 
 /** GET /api/activity/status, read. null means unknown (not "none"). */

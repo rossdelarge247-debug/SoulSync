@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   spokenProgressWords,
   spokenRecentMeta,
+  spokenPlayLine,
   albumLine,
   barCount,
   chapterTicks,
@@ -285,7 +286,29 @@ describe('podcast and audiobook progress words (HANDOFF 46)', () => {
       }),
     ).toBe('Podcast · Quiet Rooms · 23 min left');
     expect(spokenRecentMeta({ kind: 'audiobook', subtitle: 'Ann Leckie', finished: true })).toBe(
-      'Audiobook · Ann Leckie · Finished',
+      'Audiobook · Ann Leckie · sample · Finished',
     );
+  });
+
+  it('says "sample" in an audiobook’s play line (HANDOFF 67), never a podcast’s', () => {
+    expect(
+      spokenPlayLine({
+        kind: 'audiobook',
+        subtitle: 'Tide Lines',
+        position_s: 60,
+        duration_s: 240,
+      }),
+    ).toBe('Tide Lines · sample · 3 min left');
+    expect(spokenPlayLine({ kind: 'audiobook', subtitle: 'Tide Lines' })).toBe(
+      'Tide Lines · sample',
+    );
+    expect(
+      spokenPlayLine({
+        kind: 'podcast',
+        subtitle: 'Quiet Rooms',
+        position_s: 420,
+        duration_s: 1800,
+      }),
+    ).toBe('Quiet Rooms · 23 min left');
   });
 });

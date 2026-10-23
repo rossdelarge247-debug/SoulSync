@@ -11,7 +11,7 @@ import { type ReactNode, useState } from 'react';
 
 import { OptionButton, OptionButtonGroup } from '@/components/form';
 import { playInAppPlayer } from '@/features/playback/app-player';
-import { spokenProgressWords } from '@/shell/player-state';
+import { spokenPlayLine, spokenProgressWords } from '@/shell/player-state';
 
 import type { StatsRecentTrack } from '../-stats.types';
 
@@ -146,9 +146,7 @@ function SpokenRow({ play, when }: { play: SpokenPlay; when: string }) {
       </button>
       <span className={styles.historySpokenText}>
         <span className={styles.statsRecentTitle}>{play.title}</span>
-        <span className={styles.historySpokenMeta}>
-          {[play.subtitle, progress].filter(Boolean).join(' · ')}
-        </span>
+        <span className={styles.historySpokenMeta}>{spokenPlayLine(play)}</span>
       </span>
       <span className={styles.statsRecentTime}>{when}</span>
     </div>

@@ -137,8 +137,10 @@ def test_music_sidebar_nav_still_intact():
         sidebar[sidebar.index('class="ss-nav-bottom"'):]
     for page in ("dashboard", "sync", "library", "settings", "issues", "help"):
         assert f'data-page="{page}"' in music_nav, f"music nav lost '{page}'"
-    # The music subtitle is still the default in markup (JS swaps it at runtime).
-    assert "Music Sync & Manager" in _INDEX
+    # The tab says the app's name alone until the shell names the page
+    # (HANDOFF 62); the old "Music Sync & Manager" tail is gone.
+    assert "<title>SYNCHRO.S</title>" in _INDEX
+    assert "Music Sync & Manager" not in _INDEX
 
 
 # --- the video dashboard (first built page) -------------------------------

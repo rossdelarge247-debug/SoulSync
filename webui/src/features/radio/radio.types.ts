@@ -281,11 +281,14 @@ export interface RadioSessionState {
   /** The browser's clock minus the server's, seconds. */
   skew: number;
   adding: boolean;
-  /** Scan now: the scan in progress or its answer, until dismissed or the station stops. */
+  /** Scan now: the scan in progress or its answer, until the station names the
+   *  next track, the next scan, or Stop. */
   scan?: ScanResult | null;
-  /** Scan now refused before it started (a limit, no service), in words. */
+  /** Scan now refused before it started (no service, busy), in words. */
   scanError?: string | null;
   scanStarting?: boolean;
+  /** The per-minute limit: when Scan now can run again (browser ms); null when it can. */
+  scanWaitUntil?: number | null;
 }
 
 export interface RadioSessionApi {
@@ -299,7 +302,6 @@ export interface RadioSessionApi {
   scanNow?(): Promise<void>;
   /** Add what the scan found to Wanted (its Heard row). */
   addScanToWanted?(): Promise<boolean>;
-  dismissScan?(): void;
 }
 
 export const RADIO_EVENT = 'ss:radio';

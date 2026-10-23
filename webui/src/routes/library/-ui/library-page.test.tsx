@@ -616,6 +616,23 @@ describe('Artists (7f)', () => {
     expect(within(halide).getByRole('button', { name: "Play Halide's top tracks" })).toBeTruthy();
   });
 
+  it('the header "…": Shuffle, a hairline, then Follow every artist and Export (HANDOFF 73)', async () => {
+    renderPage('/library');
+    await screen.findByText('Pale Harbour');
+    fireEvent.click(screen.getByRole('button', { name: 'More for your library' }));
+    await screen.findByRole('menuitem', { name: 'Shuffle your library' });
+    const menu = screen.getByRole('menu');
+    const parts = [...menu.querySelectorAll('[role="menuitem"], [role="separator"]')].map((el) =>
+      el.getAttribute('role') === 'separator' ? '—' : el.textContent,
+    );
+    expect(parts).toEqual([
+      'Shuffle your library',
+      '—',
+      "Follow every artist you don't follow…",
+      'Export artists…',
+    ]);
+  });
+
   it('hover adds: one missing at once, several through the confirm', async () => {
     renderPage('/library');
     await screen.findByText('Vera Lund');

@@ -15,8 +15,10 @@
  *   ends the session too.
  * - Scan now: `POST /api/radio/scan`, then `GET /api/radio/scan/<id>` every
  *   second while it listens (about ten seconds on the server, then the
- *   identification services). The answer stays until it's dismissed, the
- *   station stops or another starts.
+ *   identification services). There's no Done (HANDOFF 58): the answer
+ *   lives as long as a track the station named, until the station names the
+ *   next one, the next scan, Stop or another station. The per-minute limit
+ *   keeps the last answer and says when Scan now can run again.
  */
 
 import type {
@@ -67,6 +69,7 @@ function idle(): RadioSessionState {
     scan: null,
     scanError: null,
     scanStarting: false,
+    scanWaitUntil: null,
   };
 }
 
@@ -82,6 +85,7 @@ export function createRadioSession(deps: RadioSessionDeps): RadioSessionApi & { 
   let st: RadioSessionState = idle();
   let timer: ReturnType<typeof setTimeout> | null = null;
   let scanTimer: ReturnType<typeof setTimeout> | null = null;
+  let waitTimer: ReturnType<typeof setTimeout> | null = null;
   let scanGeneration = 0;
   let generation = 0;
   let lastPlay: { stationId: string; streamId?: string; station?: Station } | null = null;
@@ -129,7 +133,11 @@ export function createRadioSession(deps: RadioSessionDeps): RadioSessionApi & { 
       if (gen !== generation) return;
       if (res.ok && body.success !== false) {
         const skew = body.now ? now() / 1000 - body.now : st.skew;
-        set({ nowPlaying: body, skew });
+        set({
+          nowPlaying: body,
+          skew,
+          ...(stationNamedNext(body) ? { scan: null, scanError: null } : {}),
+        });
         pushToPlayer();
       }
     } catch {
@@ -232,6 +240,25 @@ export function createRadioSession(deps: RadioSessionDeps): RadioSessionApi & { 
   }
 
   // ── Scan now ─────────────────────────────────────────────────────────────
+  /** The station named a track after the scan finished: the answer has had its turn. */
+  function stationNamedNext(np: NowPlaying): boolean {
+    const scan = st.scan;
+    const done = scan && scan.state !== 'listening' ? (scan.finished_at ?? scan.now) : null;
+    if (done == null && !st.scanError) return false;
+    if (np.state !== 'identified' || !np.source || np.source.startsWith('scan_')) return false;
+    // a refusal has no server time: any track named after it replaces it
+    if (done == null)
+      return np.identified_at != null && np.identified_at > (st.nowPlaying?.identified_at ?? 0);
+    return (np.identified_at ?? 0) > done;
+  }
+
+  function waitUntil(ms: number | null) {
+    if (waitTimer) clearTimeout(waitTimer);
+    waitTimer = null;
+    if (ms) waitTimer = setTimeout(() => set({ scanWaitUntil: null }), Math.max(0, ms - now()));
+    set({ scanWaitUntil: ms });
+  }
+
   function clearScanTimer() {
     if (scanTimer) clearTimeout(scanTimer);
     scanTimer = null;
@@ -266,24 +293,34 @@ export function createRadioSession(deps: RadioSessionDeps): RadioSessionApi & { 
   async function scanNow(): Promise<void> {
     if (st.status !== 'playing' || !st.sessionId) return;
     if (st.scanStarting || st.scan?.state === 'listening') return;
+    if (st.scanWaitUntil && st.scanWaitUntil > now()) return;
     clearScanTimer();
     const gen = scanGeneration;
-    set({ scanStarting: true, scanError: null, scan: null });
+    // the last answer stays until this one is under way (or the limit says no)
+    set({ scanStarting: true });
     try {
       const res = await api('scan', {
         method: 'POST',
         body: JSON.stringify({ session_id: st.sessionId }),
       });
-      const body = await json<ScanResult & { success?: boolean; message?: string }>(res);
+      const body = await json<
+        ScanResult & { success?: boolean; message?: string; error?: string; retry_after?: number }
+      >(res);
       if (gen !== scanGeneration) return;
       if (!res.ok || body.success === false) {
+        if (body.error === 'rate_limited' && body.retry_after) {
+          set({ scanStarting: false });
+          waitUntil(now() + body.retry_after * 1000);
+          return;
+        }
         set({
           scanStarting: false,
+          scan: null,
           scanError: body.message || 'The scan couldn’t start. Try again.',
         });
         return;
       }
-      set({ scanStarting: false, scan: body });
+      set({ scanStarting: false, scan: body, scanError: null });
       if (body.state === 'listening') {
         scanTimer = setTimeout(() => void pollScan(body.scan_id, gen), SCAN_POLL_MS);
       } else if (body.state === 'identified') {
@@ -317,12 +354,6 @@ export function createRadioSession(deps: RadioSessionDeps): RadioSessionApi & { 
       set({ adding: false });
       void refresh();
     }
-  }
-
-  function dismissScan(): void {
-    if (st.scan?.state === 'listening') return;
-    clearScanTimer();
-    set({ scan: null, scanError: null, scanStarting: false });
   }
 
   async function stop(): Promise<void> {
@@ -412,9 +443,9 @@ export function createRadioSession(deps: RadioSessionDeps): RadioSessionApi & { 
     refresh,
     scanNow,
     addScanToWanted,
-    dismissScan,
     dispose() {
       if (timer) clearTimeout(timer);
+      if (waitTimer) clearTimeout(waitTimer);
       clearScanTimer();
       deps.win.removeEventListener('ss:player', onPlayer);
       deps.win.removeEventListener('ss:radio-stream-ended', onEnded);

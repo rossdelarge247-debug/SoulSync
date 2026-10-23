@@ -22,6 +22,7 @@ import { Button, OptionButton } from '@/components/form';
 import { Switch } from '@/components/form/form';
 import { LoadingState, Notice, SkeletonList, StatusTag } from '@/components/primitives';
 import { qualityPresetsQueryOptions } from '@/features/quality/quality.api';
+import { useSpotifyGate } from '@/features/spotify-pause/spotify-paused-dialog';
 
 import type { LoadedPlaylist } from './mirror.api';
 import type { MirrorCandidate } from './mirror.model';
@@ -144,9 +145,22 @@ export function MirrorPlaylistDialog({
   const all = mode === 'account' ? accountRows : linked ? [linked] : [];
   const selected = all.find((c) => `${c.source}:${c.id}` === selectedKey) ?? null;
 
+  // a Spotify playlist while Spotify is paused asks first (board 12b)
+  const spotify = useSpotifyGate();
   const tracks = useQuery({
     queryKey: ['mirror', 'tracks', selected?.source, selected?.id],
-    queryFn: () => loadPlaylist(selected as MirrorCandidate),
+    queryFn: async () => {
+      const candidate = selected as MirrorCandidate;
+      if (
+        candidate.source === 'spotify' &&
+        !(await spotify.gate(
+          `Mirroring “${candidate.name}” needs Spotify’s playlist, so it waits.`,
+        ))
+      ) {
+        throw new Error('Spotify is paused, so its playlist can’t be read yet.');
+      }
+      return loadPlaylist(candidate);
+    },
     enabled: open && Boolean(selected),
     staleTime: 60_000,
   });
@@ -590,6 +604,7 @@ export function MirrorPlaylistDialog({
         </Button>
         {primary}
       </DialogFooter>
+      {spotify.dialog}
     </DialogFrame>
   );
 }

@@ -58,8 +58,8 @@ describe('getMetadataSourcePresentation', () => {
       { rate_limited: true, rate_limit: { remaining_seconds: 90 } },
     );
     expect(p.statusClass).toBe('rate-limited');
-    expect(p.statusText).toBe('Spotify paused · 1 min 30 s');
-    expect(p.dotTitle).toBe('Paused Spotify for 1 min 30 s to be safe');
+    expect(p.statusText).toBe('Spotify paused · 2 min');
+    expect(p.dotTitle).toBe('Paused Spotify for 2 min to be safe');
   });
 
   it('spotify_free is part of the spotify family', () => {

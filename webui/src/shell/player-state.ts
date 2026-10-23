@@ -457,7 +457,7 @@ export function formatSpeed(speed: number): string {
 /** "3 min ago", "2 h ago", "yesterday", "12 Oct". `playedAt` is UTC "YYYY-MM-DD HH:MM:SS". */
 /**
  * The meta line of an episode or an audiobook in Recent and Listening history:
- * "Podcast · Quiet Rooms · 23 min left", "Audiobook · Ann Leckie · Finished".
+ * "Podcast · Quiet Rooms · 23 min left", "Audiobook · Ann Leckie · sample · Finished".
  */
 export function spokenRecentMeta(item: {
   kind?: string;
@@ -467,7 +467,24 @@ export function spokenRecentMeta(item: {
   finished?: boolean;
 }): string {
   const kind = item.kind === 'audiobook' ? 'Audiobook' : 'Podcast';
-  return [kind, item.subtitle || '', spokenProgressWords(item)].filter(Boolean).join(' · ');
+  return [kind, spokenPlayLine(item)].filter(Boolean).join(' · ');
+}
+
+/**
+ * An episode's or an audiobook's play line without its kind: "Quiet Rooms ·
+ * 23 min left". Audiobooks play only the store's sample, so theirs says so:
+ * "Tide Lines · sample · 3 min left" (HANDOFF 67).
+ */
+export function spokenPlayLine(item: {
+  kind?: string;
+  subtitle?: string | null;
+  position_s?: number | null;
+  duration_s?: number | null;
+  finished?: boolean;
+}): string {
+  return [item.subtitle || '', item.kind === 'audiobook' ? 'sample' : '', spokenProgressWords(item)]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /** "23 min left", "Finished", "1 h 5 min left", or '' when it hasn't started. */

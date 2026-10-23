@@ -134,6 +134,39 @@
   gap: 8px;
 }
 
+/* The stacked Notice (board 12a): one column, the actions under the text. */
+.noticeStacked {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  padding: 16px 20px;
+}
+
+/* the dot beside the title's first line (6px down at a 16/1.3 title) */
+.noticeStacked .noticeMain {
+  gap: 10px;
+}
+
+.noticeStacked .noticeDot {
+  margin-top: 6px;
+}
+
+.noticeStacked .noticeTitle {
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.noticeStacked .noticeBody {
+  max-width: 84ch;
+  color: var(--ss-text-secondary);
+  font-size: 15px;
+}
+
+.noticeStacked .noticeActions {
+  align-items: center;
+  gap: 12px;
+}
+
 @media (max-width: 640px) {
   .noticeTitled {
     grid-template-columns: minmax(0, 1fr);
@@ -148,6 +181,11 @@
 
   .noticeActions > * {
     width: 100%;
+  }
+
+  .noticeStacked {
+    gap: 10px;
+    padding: 16px;
   }
 }
 

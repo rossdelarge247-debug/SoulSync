@@ -67,10 +67,25 @@ export type NoticeProps = Omit<ComponentPropsWithoutRef<'div'>, 'className' | 't
   title?: ReactNode;
   /** Buttons beside (desktop) or under (phone) the text. Titled Notices only. */
   actions?: ReactNode;
+  /**
+   * `stacked` (the Spotify pause, board 12a): the title, the sentence and
+   * then the actions in one column, at 16/20 padding with a 16px title and
+   * 15px body; a note can sit beside the button in `actions`.
+   */
+  layout?: 'inline' | 'stacked';
 };
 
 export const Notice = forwardRef<HTMLDivElement, NoticeProps>(function Notice(
-  { actions, children, className, title, tone = 'info', role = 'note', ...props },
+  {
+    actions,
+    children,
+    className,
+    layout = 'inline',
+    title,
+    tone = 'info',
+    role = 'note',
+    ...props
+  },
   ref,
 ) {
   if (title == null || title === false) {
@@ -86,11 +101,44 @@ export const Notice = forwardRef<HTMLDivElement, NoticeProps>(function Notice(
       </div>
     );
   }
+  if (layout === 'stacked') {
+    // the title row (dot + title), then the sentence and the actions from the
+    // padding edge, under the dot (12a, 12d)
+    return (
+      <div
+        ref={ref}
+        className={clsx(styles.noticeTitled, styles.noticeStacked, className)}
+        data-tone={tone}
+        data-layout={layout}
+        data-slot="notice"
+        role={role}
+        {...props}
+      >
+        <div className={styles.noticeMain}>
+          <span className={styles.noticeDot} aria-hidden="true" />
+          <p className={styles.noticeTitle} data-slot="notice-title">
+            {title}
+          </p>
+        </div>
+        {children ? (
+          <div className={styles.noticeBody} data-slot="notice-body">
+            {children}
+          </div>
+        ) : null}
+        {actions ? (
+          <div className={styles.noticeActions} data-slot="notice-actions">
+            {actions}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div
       ref={ref}
       className={clsx(styles.noticeTitled, className)}
       data-tone={tone}
+      data-layout={layout}
       data-slot="notice"
       role={role}
       {...props}

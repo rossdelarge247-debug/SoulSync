@@ -18,13 +18,32 @@ afterEach(() => {
   delete (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer;
 });
 
-function renderHistory() {
+function renderHistory(withAudiobook = false) {
   const seen: string[] = [];
   server.use(
     http.get('/api/player/plays', ({ request }) => {
       const kind = new URL(request.url).searchParams.get('kind') ?? '';
       seen.push(kind);
-      if (kind === 'audiobook') return HttpResponse.json({ success: true, items: [] });
+      if (kind === 'audiobook')
+        return HttpResponse.json({
+          success: true,
+          items: withAudiobook
+            ? [
+                {
+                  play_id: 2,
+                  kind: 'audiobook',
+                  media_id: 'book-1',
+                  title: 'The Long Shore',
+                  subtitle: 'Tide Lines',
+                  src: 'https://cdn.example/sample.mp3',
+                  duration_s: 240,
+                  played_at: '2026-10-22 11:57:00',
+                  position_s: 60,
+                  finished: false,
+                },
+              ]
+            : [],
+        });
       return HttpResponse.json({
         success: true,
         items: [
@@ -88,6 +107,13 @@ describe('Listening history', () => {
         src: 'https://cdn.example/ep12.mp3',
       }),
     );
+  });
+
+  it('says "sample" in an audiobook’s meta line (HANDOFF 67)', async () => {
+    renderHistory(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Audiobooks' }));
+    expect(await screen.findByText('The Long Shore')).toBeInTheDocument();
+    expect(screen.getByText('Tide Lines · sample · 3 min left')).toBeInTheDocument();
   });
 
   it('says so when there are no audiobooks yet', async () => {

@@ -107,6 +107,20 @@ describe('the current row', () => {
     expect($('#ss-page-name').textContent).toBe('Wanted');
   });
 
+  it('titles the browser tab after the page (HANDOFF 62)', async () => {
+    const nav = start();
+    nav.markActive('wishlist');
+    expect(document.title).toBe('Wanted · SYNCHRO.S');
+    nav.markActive('dashboard');
+    expect(document.title).toBe('SYNCHRO.S');
+    document.body.setAttribute('data-side', 'video');
+    $('#app-sidebar .video-nav [data-video-page="video-calendar"]').classList.add('active');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.title).toBe('Movies, TV & YouTube · SYNCHRO.S');
+    document.body.removeAttribute('data-side');
+  });
+
   it('lights Albums on the library album view and Artists otherwise', () => {
     window.history.replaceState(null, '', '/library?view=albums');
     const nav = start();

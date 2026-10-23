@@ -87,7 +87,7 @@ describe('AlertsBand', () => {
     expect(view.container.querySelector('[data-card="alerts"]')).toBeNull();
   });
 
-  describe('a Spotify pause', () => {
+  describe('a Spotify pause (board 12a)', () => {
     const PAUSED = {
       ...HEALTHY,
       metadata_source: { source: 'spotify', connected: false },
@@ -96,12 +96,23 @@ describe('AlertsBand', () => {
         rate_limited: true,
         rate_limit: {
           active: true,
-          remaining_seconds: 125,
+          remaining_seconds: 660,
           retry_after: 720,
           source: 'spotify',
-          trigger: "checking an artist's albums",
+          trigger: "checking an artist's albums for the watchlist scan",
+          feature: 'the watchlist scan',
         },
       },
+    };
+    const asAdmin = () => {
+      window.SoulSyncWebShellBridge = {
+        getCurrentProfileContext: () => ({ profileId: 1, isAdmin: true }),
+      } as unknown as typeof window.SoulSyncWebShellBridge;
+    };
+    const asMember = () => {
+      window.SoulSyncWebShellBridge = {
+        getCurrentProfileContext: () => ({ profileId: 2, isAdmin: false }),
+      } as unknown as typeof window.SoulSyncWebShellBridge;
     };
 
     afterEach(() => {
@@ -109,32 +120,53 @@ describe('AlertsBand', () => {
       Reflect.deleteProperty(window, 'SoulSyncWebShellBridge');
     });
 
-    it('says whose number the time is and counts down live', async () => {
-      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    it('is its own warning Notice: the one fact in the title, counting down', async () => {
+      asAdmin();
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'Date'] });
       const view = await mountWith(PAUSED);
-      const title = () => view.container.querySelector('[data-slot="notice-title"]')!.textContent;
-      expect(title()).toBe(
-        "Spotify asked us to wait 2 min 5 s (after checking an artist's albums)",
-      );
-      expect(view.container.textContent).toContain('That time came from Spotify');
+      const notice = view.container.querySelector('.dash-spotify-pause')!;
+      const title = () => notice.querySelector('[data-slot="notice-title"]')!.textContent;
+      expect(title()).toBe('Spotify asked us to wait 11 min');
+      expect(notice.getAttribute('data-tone')).toBe('warning');
+      expect(notice.getAttribute('data-layout')).toBe('stacked');
       // no live region: a ticking alert would be read out every second
-      expect(view.container.querySelector('[data-card="alerts"]')!.getAttribute('role')).toBe(
-        'note',
+      expect(notice.getAttribute('role')).toBe('note');
+      expect(notice.querySelector('.dash-spotify-pause-wide')!.textContent).toBe(
+        "After checking an artist's albums for the watchlist scan. That time came from Spotify, so " +
+          'SYNCHRO.S waits exactly that long. Searches and downloads carry on; only what asks ' +
+          'Spotify (playlists, new releases, the watchlist scan) waits.',
+      );
+      expect(notice.querySelector('.dash-spotify-pause-narrow')!.textContent).toBe(
+        "After checking an artist's albums for the watchlist scan. Searches and downloads carry " +
+          'on; only what asks Spotify waits.',
       );
       act(() => {
-        vi.advanceTimersByTime(6000);
+        vi.advanceTimersByTime(61_000);
       });
-      expect(title()).toBe(
-        "Spotify asked us to wait 1 min 59 s (after checking an artist's albums)",
+      expect(title()).toBe('Spotify asked us to wait 10 min');
+      // the state is announced once, the clock never
+      expect(notice.querySelector('.dash-sr')!.textContent).toBe(
+        'Spotify asked SYNCHRO.S to wait.',
       );
-      // members don't get Try again now
+      // the pause alone: no Open Settings, no second alert
+      expect(screen.queryByRole('button', { name: 'Open Settings' })).toBeNull();
+      expect(view.container.querySelector('.dash-alerts')).toBeNull();
+    });
+
+    it('a member gets "An admin can try again sooner." and no button', async () => {
+      asMember();
+      const view = await mountWith(PAUSED);
       expect(screen.queryByRole('button', { name: 'Try again now' })).toBeNull();
+      expect(
+        view.container.querySelector('.dash-spotify-pause [data-slot="notice-body"]')!.textContent,
+      ).toBe(
+        "After checking an artist's albums for the watchlist scan. Searches and downloads carry " +
+          'on; only what asks Spotify waits. An admin can try again sooner.',
+      );
     });
 
     it('lets an admin try again now, and says the pause can come back', async () => {
-      window.SoulSyncWebShellBridge = {
-        getCurrentProfileContext: () => ({ profileId: 1, isAdmin: true }),
-      } as unknown as typeof window.SoulSyncWebShellBridge;
+      asAdmin();
       const calls: string[] = [];
       vi.stubGlobal(
         'fetch',
@@ -161,18 +193,60 @@ describe('AlertsBand', () => {
       );
     });
 
-    it('an estimate says so', async () => {
+    it('an estimate says it is a guess, and the note says "longer"', async () => {
+      asAdmin();
       const view = await mountWith({
         ...PAUSED,
         spotify: {
           ...PAUSED.spotify,
-          rate_limit: { ...PAUSED.spotify.rate_limit, source: 'estimate', remaining_seconds: 600 },
+          rate_limit: {
+            remaining_seconds: 540,
+            retry_after: 600,
+            source: 'estimate',
+            trigger: 'searching for tracks',
+            feature: null,
+          },
         },
       });
-      expect(view.container.textContent).toContain(
-        "Paused Spotify for 10 min to be safe (after checking an artist's albums)",
+      const notice = view.container.querySelector('.dash-spotify-pause')!;
+      expect(notice.querySelector('[data-slot="notice-title"]')!.textContent).toBe(
+        'Paused Spotify for 9 min to be safe',
       );
-      expect(view.container.textContent).toContain('SYNCHRO.S’s estimate');
+      expect(notice.textContent).toContain(
+        'Spotify said “too many requests” after searching for tracks, but not how long to wait, ' +
+          'so this is SYNCHRO.S’s guess: 10 minutes, and twice as long if it happens again within ' +
+          'the hour. Searches and downloads carry on; only what asks Spotify waits.',
+      );
+      expect(notice.querySelector('.dash-alert-note')!.textContent).toBe(
+        'Clears SYNCHRO.S’s pause. If Spotify is still limiting, the pause comes back, longer.',
+      );
+    });
+
+    it('easing back in is info, for everyone, with no button', async () => {
+      asAdmin();
+      const view = await mountWith({
+        ...PAUSED,
+        spotify: { authenticated: true, rate_limited: false, post_ban_cooldown: 300 },
+      });
+      const notice = view.container.querySelector('.dash-spotify-pause')!;
+      expect(notice.getAttribute('data-tone')).toBe('info');
+      expect(notice.querySelector('[data-slot="notice-title"]')!.textContent).toBe(
+        'Spotify is back',
+      );
+      expect(notice.textContent).toContain(
+        'Anything you do yourself uses it now. Background jobs wait 5 min more, then SYNCHRO.S ' +
+          'spaces its calls out for a quarter of an hour',
+      );
+      expect(screen.queryByRole('button', { name: 'Try again now' })).toBeNull();
+    });
+
+    it('sits beside another problem as two Notices', async () => {
+      asAdmin();
+      const view = await mountWith({ ...PAUSED, soulseek: { connected: false } });
+      expect(view.container.querySelector('.dash-spotify-pause')).not.toBeNull();
+      expect(view.container.querySelector('.dash-alerts')!.textContent).toContain(
+        'Download source',
+      );
     });
   });
 });

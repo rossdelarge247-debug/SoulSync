@@ -35,6 +35,7 @@ import {
   COUNT_NOUNS,
   countedLabel,
   downServices,
+  documentTitle,
   downServicesText,
   NAV_GROUPS,
   NAV_TARGETS,
@@ -322,6 +323,9 @@ export function initNavShell(options: NavShellOptions = {}): NavShell | null {
     // Home on a phone shows the app's name where the page name goes (8a)
     const wordmark =
       side() !== 'video' && !pageNameOverride && activePage === 'dashboard' && isPhone();
+    // the tab's title follows the page's name (HANDOFF 62)
+    const title = documentTitle(side(), pageNameOverride ? null : activePage, text);
+    if (doc.title !== title) doc.title = title;
     if (wordmark) text = APP_NAME;
     pageName.classList.toggle('ss-page-name--wordmark', wordmark);
     if (pageName.textContent !== text) pageName.textContent = text;

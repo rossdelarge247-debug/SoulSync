@@ -50873,32 +50873,61 @@ tr.tag-diff-same {
     letter-spacing: 0.02em;
 }
 
-/* ── Spotify pause (rate limit): header tag + a warning box in the body ──
-   Filled by renderStgSpotifyPause() in settings.js; counts down live. */
+/* ── Spotify pause (rate limit), board 12c: a StatusTag in the header with
+   the time, and a warning (info while easing back in) box in the body with
+   the sentence, the button and its note. Filled by renderStgSpotifyPause()
+   in settings.js; counts down live. ── */
 #settings-page .stg-spotify-pause-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     margin-left: auto;
     margin-right: 8px;
-    font-size: 14px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(251, 191, 36, 0.12);
     color: #fbbf24;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
+#settings-page .stg-spotify-pause-tag::before {
+    content: '';
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+}
+#settings-page .src-modal-header .stg-spotify-pause-tag { display: none; }
+#settings-page #service-config-modal:has(.stg-service[data-service="spotify"]) .src-modal-header .stg-spotify-pause-tag { display: inline-flex; }
+#settings-page .stg-spotify-pause-tag[data-tone="info"] { background: rgba(56, 189, 248, 0.12); color: #38bdf8; }
+#settings-page .stg-spotify-pause-tag[data-tone="success"] { background: rgba(74, 222, 128, 0.12); color: #4ade80; }
 #settings-page .stg-spotify-pause {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
     margin: 10px 18px;
-    padding: 12px 14px;
-    border-radius: 14px;
+    padding: 14px 16px;
+    border-radius: 10px;
     border: 1px solid rgba(251, 191, 36, 0.35);
     background: rgba(251, 191, 36, 0.07);
     font-size: 15px;
-    line-height: 1.45;
+    line-height: 1.5;
 }
-#settings-page .stg-spotify-pause p { margin: 0 0 6px; }
+#settings-page .stg-spotify-pause[data-tone="info"] {
+    border-color: rgba(56, 189, 248, 0.35);
+    background: rgba(56, 189, 248, 0.07);
+}
+#settings-page .stg-spotify-pause p { margin: 0; }
 #settings-page .stg-spotify-pause-sentence {
-    font-weight: 600;
+    color: rgba(255, 255, 255, 0.86);
     font-variant-numeric: tabular-nums;
 }
-#settings-page .stg-spotify-pause-detail,
-#settings-page .stg-spotify-pause-note {
+#settings-page .stg-spotify-pause-note,
+#settings-page .stg-spotify-pause-member {
     font-size: 14px;
     color: rgba(255, 255, 255, 0.62);
 }
@@ -50907,9 +50936,9 @@ tr.tag-diff-same {
     flex-wrap: wrap;
     align-items: center;
     gap: 12px;
-    margin-top: 8px;
 }
-#settings-page .stg-spotify-pause-actions[hidden] { display: none; }
+#settings-page .stg-spotify-pause-actions[hidden],
+#settings-page .stg-spotify-pause-member[hidden] { display: none; }
 #settings-page .stg-spotify-pause-retry {
     min-height: 44px;
     padding: 0 16px;
@@ -50918,11 +50947,22 @@ tr.tag-diff-same {
     background: rgba(255, 255, 255, 0.06);
     color: #fff;
     font: inherit;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 500;
     cursor: pointer;
+    transition: background 120ms ease;
 }
 #settings-page .stg-spotify-pause-retry:hover { background: rgba(255, 255, 255, 0.10); }
-#settings-page .stg-spotify-pause-retry[aria-disabled="true"] { opacity: 0.62; cursor: default; }
+#settings-page .stg-spotify-pause-retry:focus-visible { outline: 2px solid rgb(var(--ss-accent-light-rgb)); outline-offset: 2px; }
+#settings-page .stg-spotify-pause-retry[aria-disabled="true"] {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.62);
+    cursor: default;
+}
+@media (max-width: 640px) {
+    #settings-page .stg-spotify-pause-actions { flex-direction: column; align-items: stretch; }
+    #settings-page .stg-spotify-pause-retry { width: 100%; }
+}
 
 /* ── Verify failure warning bar at top of expanded panel ──
    Shown when the verify call failed. Removed on next successful verify. */
@@ -56029,6 +56069,34 @@ body.max-performance #page-particles-canvas {
 }
 .dash-alerts [data-slot="notice-title"] {
     font-variant-numeric: tabular-nums;
+}
+/* The Spotify pause (board 12a, 12d): its own stacked Notice in the alerts
+   band, the title counting down in tabular figures. The Notice brings the
+   look; this places it and swaps the phone's shorter sentence in. */
+.dash-spotify-pause {
+    grid-column: 1 / -1;
+}
+.dash-spotify-pause [data-slot="notice-title"],
+.dash-spotify-pause [data-slot="notice-body"] {
+    font-variant-numeric: tabular-nums;
+}
+.dash-spotify-pause .dash-alert-note {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+}
+.dash-spotify-pause-narrow { display: none; }
+@media (max-width: 640px) {
+    .dash-spotify-pause-wide { display: none; }
+    .dash-spotify-pause-narrow { display: block; }
+}
+.dash-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
 }
 
 /* ── The Listen band (data-card="listen") — the payoff row. Boxless like

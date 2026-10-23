@@ -22,7 +22,14 @@ import {
   shortName,
   sourceWords,
 } from '@/features/radio/radio.format';
-import { scanButton, scanPanel } from '@/features/radio/radio.scan';
+import {
+  scanAnswer,
+  scanButton,
+  scanPanel,
+  scanWaitSeconds,
+  scanWaitWords,
+  SERVICE_LABELS,
+} from '@/features/radio/radio.scan';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
 import {
@@ -152,7 +159,7 @@ export function NowPlayingCard({
               {np.track.release ? ` · ${np.track.release}` : ''}
             </p>
             <p className={styles.nowSource}>
-              {sourceWords(np.source, station.name)} · {ago}
+              {[sourceWords(np.source), ago].filter(Boolean).join(' · ')}
             </p>
           </div>
           <div className={styles.nowAside}>
@@ -269,94 +276,156 @@ export function NowPlayingCard({
 }
 
 /**
- * Scan now (HANDOFF "Dev, Scan now for radio"; Design to draw it, question 58):
- * the foot of the Now playing card. The button, disabled with its reason when
- * nothing plays here or no identification service is set up; while it
- * listens, a live region with the seconds left; then the track with which
- * service found it and Add to Wanted (or the tag), Not found, or why it
- * failed, with Done.
+ * Scan now's strip at the foot of the Now playing card (board 11b, HANDOFF
+ * 58). A scan's answer goes into the card itself; the strip only talks about
+ * scanning: what it does before, where it is while it runs, what happened
+ * after. `1fr auto`, the words at 14px and 72% (86% for progress and
+ * results), the same 132px control as the bar. Its states: ready, listening
+ * (with the full-width bar), identifying, found ("Scan again"), not found,
+ * failed (the danger line and who can fix it, the Settings link for admins),
+ * no service (the sentence and a disabled control) and the per-minute wait.
+ * No Done.
  */
 export function ScanStrip({
   session,
   playingHere,
+  isAdmin = false,
 }: {
   session: RadioSessionState;
   playingHere: boolean;
+  isAdmin?: boolean;
 }) {
+  const waiting = playingHere ? scanWaitSeconds(session) : 0;
+  useTick(waiting > 0 ? 1000 : 5000);
   const button = scanButton(playingHere ? session : null);
+  const services = session.nowPlaying?.scan?.services ?? [];
   const panel = playingHere
-    ? scanPanel(session.scan, session.scanError, session.scanStarting)
+    ? scanPanel(session.scan, session.scanError, session.scanStarting, services)
     : null;
   const api = radioSession();
-  return (
-    <div className={styles.scan} data-state={panel?.state ?? 'idle'} data-testid="scan-strip">
-      <div className={styles.scanText} role="status" aria-live="polite" aria-atomic="true">
-        {panel ? (
-          <>
-            <p className={styles.scanTitle}>
-              {panel.state === 'identified' ? (
-                <>
-                  <span className={styles.label}>Scan now found</span> {panel.title}
-                </>
-              ) : (
-                panel.title
-              )}
-            </p>
-            <p className={styles.scanLine}>{panel.line}</p>
-            {panel.note ? <p className={styles.scanNote}>{panel.note}</p> : null}
-            {panel.progress != null ? (
-              <span className={styles.scanProgress} aria-hidden="true">
-                <span style={{ width: `${Math.round(panel.progress * 100)}%` }} />
-              </span>
-            ) : null}
-          </>
-        ) : (
-          <p className={styles.scanLine}>
-            {button.disabled && button.reason
-              ? button.reason
-              : 'Not named, or not right? Scan now listens to about 10 seconds and asks the identification services.'}
+  const running = panel?.state === 'listening' || panel?.state === 'identifying';
+  let words: ReactNode;
+  let news = false;
+  if (running) {
+    news = true;
+    words = (
+      <>
+        <p className={styles.scanLine}>{panel.strip}</p>
+        {panel.progress != null ? (
+          <span className={styles.scanProgress} aria-hidden="true">
+            <span style={{ width: `${Math.round(panel.progress * 100)}%` }} />
+          </span>
+        ) : null}
+      </>
+    );
+  } else if (waiting > 0) {
+    words = <p className={styles.scanLine}>{scanWaitWords(waiting)}</p>;
+  } else if (panel?.state === 'identified') {
+    news = true;
+    const scan = session.scan!;
+    const ago = agoWords(
+      secondsSince({ identified_at: scan.finished_at ?? scan.now, now: scan.now }, session.skew),
+    );
+    words = (
+      <p className={styles.scanLine}>
+        Scan now found this {ago}. Scan again if the station has moved on; its own feed replaces the
+        answer when it next names a track.
+      </p>
+    );
+  } else if (panel) {
+    news = true;
+    words = (
+      <>
+        <p className={styles.scanLine} data-tone={panel.state === 'failed' ? 'danger' : undefined}>
+          {panel.strip}
+        </p>
+        {panel.stripMore ? (
+          <p className={styles.scanNote}>
+            {panel.settingsLink && isAdmin ? (
+              <SettingsLinked text={panel.stripMore} />
+            ) : (
+              panel.stripMore
+            )}
           </p>
+        ) : null}
+      </>
+    );
+  } else if (button.disabled && button.reason) {
+    words = (
+      <p className={styles.scanLine}>
+        {isAdmin && button.reason.includes('Settings → Radio') ? (
+          <SettingsLinked text={button.reason} />
+        ) : (
+          button.reason
         )}
+      </p>
+    );
+  } else {
+    words = (
+      <p className={styles.scanLine}>
+        Not sure what this is? Scan now listens to ten seconds of the stream on the server and asks{' '}
+        {services.length
+          ? services.map((sv) => SERVICE_LABELS[sv]).join(', then ')
+          : 'the identification services'}
+        .
+      </p>
+    );
+  }
+  return (
+    <div
+      className={styles.scan}
+      data-state={waiting > 0 && !running ? 'waiting' : (panel?.state ?? 'idle')}
+      data-testid="scan-strip"
+    >
+      <div
+        className={styles.scanText}
+        data-news={news ? 'true' : undefined}
+        role={panel?.state === 'failed' ? 'alert' : 'status'}
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {words}
       </div>
-      <div className={styles.scanActions}>
-        {panel?.state === 'identified' ? (
-          panel.action === 'in_library' ? (
-            <StatusTag tone="success">In your library</StatusTag>
-          ) : panel.action === 'on_wanted' ? (
-            <StatusTag tone="info">On Wanted</StatusTag>
-          ) : (
-            <Button
-              size="lg"
-              variant={panel.action === 'below_target' ? undefined : 'primary'}
-              disabled={session.adding || panel.action === 'adding_disabled'}
-              disabledReason={panel.action === 'adding_disabled' ? 'In a moment' : undefined}
-              onClick={() =>
-                void api
-                  ?.addScanToWanted?.()
-                  .then((ok) => ok && window.showToast?.('Added to Wanted.', 'success'))
-              }
-            >
-              {panel.action === 'below_target' ? 'Upgrade via Wanted' : 'Add to Wanted'}
-            </Button>
-          )
-        ) : null}
-        {panel && panel.state !== 'listening' ? (
-          <Button size="lg" variant="ghost" onClick={() => api?.dismissScan?.()}>
-            Done
-          </Button>
-        ) : null}
-        <Button
-          size="lg"
-          disabled={button.disabled}
-          focusableWhenDisabled
-          aria-label={button.busy ? 'Scan now: listening' : undefined}
-          onClick={() => void api?.scanNow?.()}
-        >
-          {button.busy ? <Spinner size={16} /> : <ScanIcon />}
-          {button.label}
-        </Button>
-      </div>
+      <button
+        type="button"
+        className={styles.scanControl}
+        data-busy={button.phase ?? undefined}
+        aria-disabled={button.disabled ? 'true' : undefined}
+        title={button.disabled && button.reason ? button.reason : undefined}
+        aria-label={
+          button.busy ? `Scan now: ${button.label.replace('…', '').toLowerCase()}` : undefined
+        }
+        onClick={() => {
+          if (!button.disabled) void api?.scanNow?.();
+        }}
+      >
+        {button.phase === 'identifying' ? (
+          <span className={styles.scanSpinner} aria-hidden="true" />
+        ) : (
+          <ScanIcon />
+        )}
+        {button.label}
+      </button>
     </div>
+  );
+}
+
+/** "… in Settings → Radio." with Settings → Radio as the link (admins). */
+function SettingsLinked({ text }: { text: string }) {
+  const at = text.indexOf('Settings → Radio');
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <button
+        type="button"
+        className={styles.inlineLinkButton}
+        onClick={() => window.openRadioSettings?.()}
+      >
+        Settings → Radio
+      </button>
+      {text.slice(at + 'Settings → Radio'.length)}
+    </>
   );
 }
 
@@ -366,13 +435,13 @@ function ScanIcon() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="2"
       strokeLinecap="round"
       aria-hidden="true"
       width="18"
       height="18"
     >
-      <path d="M4 12h1.5M7.5 8v8M11 5v14M14.5 9v6M18 7v10M21 11v2" />
+      <path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4" />
     </svg>
   );
 }
@@ -663,6 +732,8 @@ export function StationPage({
   }
   const admin = data.is_admin ?? isAdmin;
   const identificationOn = data.identification;
+  // a scan's answer goes into the card (11b), as long as the session holds it
+  const answer = playingHere ? scanAnswer(session.scan) : null;
   const currentStream = session.stream?.id ?? (streamId || station.streams[0]?.id || '');
   const lossless = station.streams.some((s) => s.lossless);
 
@@ -818,18 +889,24 @@ export function StationPage({
         <div className={styles.col}>
           <NowPlayingCard
             station={station}
-            np={identificationOn ? np : { ...(np ?? ({} as NowPlaying)), state: 'off' }}
+            np={
+              !identificationOn ? { ...(np ?? ({} as NowPlaying)), state: 'off' } : (answer ?? np)
+            }
             skew={session.skew}
             playingHere={playingHere}
             adding={session.adding}
             scan={
-              identificationOn ? <ScanStrip session={session} playingHere={playingHere} /> : null
+              identificationOn ? (
+                <ScanStrip session={session} playingHere={playingHere} isAdmin={admin} />
+              ) : null
             }
             onAdd={() => {
-              if (playingHere)
-                void radioSession()
-                  ?.addToWanted()
-                  .then((ok) => ok && window.showToast?.('Added to Wanted.', 'success'));
+              if (!playingHere) return;
+              // a scan's answer adds through its own Heard row
+              const add = answer
+                ? radioSession()?.addScanToWanted?.()
+                : radioSession()?.addToWanted();
+              void add?.then((ok) => ok && window.showToast?.('Added to Wanted.', 'success'));
             }}
           />
           <AutoAddCard
