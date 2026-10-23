@@ -1458,25 +1458,11 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
 }
 .ss-player-radio-now .ss-player-meta[data-tone='danger'] { color: var(--ss-danger, #f87171); }
 .ss-player-radio-scan--wide { width: 100%; }
-.ss-player-radio-scanbox { display: flex; flex-direction: column; gap: 8px; }
-.ss-player-radio-scanresult {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.04);
-}
-.ss-player-radio-scanresult .ss-player-label { margin: 0; }
-.ss-player-radio-scanresult[data-state='failed'] .ss-player-radio-line { color: var(--ss-danger, #f87171); }
-.ss-player-radio-scan-title { margin: 0; font-size: 17px; font-weight: 600; }
 .ss-player-radio-scan-progress {
     display: block;
     height: 4px;
-    margin-top: 8px;
     border-radius: 2px;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.16);
     overflow: hidden;
 }
 .ss-player-radio-scan-progress > span {
@@ -1485,8 +1471,6 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     background: rgb(var(--ss-accent-light-rgb));
     transition: width 0.9s linear;
 }
-.ss-player-radio-scan-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.ss-player-radio-scan-row .ss-player-radio-add { flex: 1; }
 @media (max-width: 1180px) {
     /* the bar's centre is narrow: the scan control keeps its icon only */
     .ss-player-bar .ss-player-radio-scan > span:not(.ss-player-radio-spinner) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -1514,81 +1498,157 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
 .ss-player-mini-slot .ss-player-radio-add { min-height: 44px; padding: 0 14px; }
 .ss-player[data-source='radio'] .ss-player-mini { grid-template-columns: minmax(0, 1fr) auto; }
 
-/* the sheet's station card (4j) */
+/* the phone sheet (11d, 11e; HANDOFF 82): 9c's head, Now playing as a 56px
+   row, Add to Wanted then Scan now full width, the auto-add row, volume and
+   Stop, two link rows. The sheet's own "Now playing / Close" row gives way to
+   the head's 44px Close; the deck stays hidden (the sheet draws its volume). */
+.ss-player[data-source='radio'] .ss-player-sheet-row { display: none !important; }
 .ss-player[data-source='radio'] .ss-player-radio { display: flex !important; }
 .ss-player-radio { flex-direction: column; gap: 16px; }
-.ss-player-radio-head { display: flex; align-items: center; gap: 8px; }
-.ss-player-radio-name { font-size: 17px; font-weight: 600; }
-.ss-player-radio-head .ss-player-link { margin-left: auto; font-size: 15px; }
+.ss-player-radio-body { display: flex; flex-direction: column; gap: 16px; }
+.ss-player-radio-head { display: flex; align-items: center; gap: 12px; }
+.ss-player-radio-logo {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 56px;
+    height: 56px;
+    overflow: hidden;
+    border-radius: var(--ss-radius-tag, 6px);
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--ss-text);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+.ss-player-radio-logo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 120ms ease; }
+.ss-player-radio-logo img.is-loaded { opacity: 1; }
+.ss-player-radio-head-text { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.ss-player-radio-head-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ss-player-radio-name { min-width: 0; overflow: hidden; color: var(--ss-text); font-size: 16px; font-weight: 600; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.ss-player-radio-name:hover { text-decoration: underline; }
+.ss-player-radio-head-top .ss-player-live-tag { flex: none; }
+.ss-player-radio-head-meta { overflow: hidden; color: var(--ss-text-meta); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.ss-player-radio-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ss-radius-control);
+    background: transparent;
+    color: var(--ss-text-secondary);
+    cursor: pointer;
+    transition: var(--ss-transition);
+}
+.ss-player-radio-close svg { width: 20px; height: 20px; }
+.ss-player-radio-close:hover { background: var(--ss-hover-wash); }
+.ss-player-radio-nowrow { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; }
 .ss-player-radio-art {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 200px;
-    height: 200px;
-    margin: 0 auto;
-    border-radius: var(--ss-radius-card);
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--ss-text-meta);
+    width: 56px;
+    height: 56px;
     overflow: hidden;
+    border-radius: var(--ss-radius-tag, 6px);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--ss-text-meta);
 }
-.ss-player-radio-art svg { width: 56px; height: 56px; }
+.ss-player-radio-art svg { width: 24px; height: 24px; }
 .ss-player-radio-art img { width: 100%; height: 100%; object-fit: cover; }
-.ss-player-radio-card { display: flex; flex-direction: column; gap: 4px; }
-.ss-player-radio-card .ss-player-label { margin: 0; }
-.ss-player-radio-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
-.ss-player-radio-line { margin: 0; font-size: 15px; color: var(--ss-text-secondary); }
-.ss-player-radio-source { margin: 0; font-size: 14px; color: var(--ss-text-meta); }
-.ss-player-radio-actions { display: flex; }
+.ss-player-radio-nowtext { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ss-player-radio-label { color: var(--ss-text-meta); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.ss-player-radio-title { font-size: 16px; font-weight: 600; line-height: 1.35; }
+.ss-player-radio-source { margin: 0; font-size: 14px; line-height: 1.4; color: var(--ss-text-meta); }
+.ss-player-radio-addbox,
+.ss-player-radio-scanbox { display: flex; flex-direction: column; gap: 6px; }
+.ss-player-radio-addbox .ss-player-radio-tag { align-self: center; }
+.ss-player-radio-reason { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ss-text-meta); text-align: center; }
 .ss-player-radio-add--wide { width: 100%; }
-.ss-player-radio-auto {
+/* while a scan runs: the control in a 4% card with the bar and the words under it */
+.ss-player-radio-scancard {
     display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 12px;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px 14px;
     border: 1px solid var(--ss-surface-card-border);
     border-radius: var(--ss-radius-card);
     background: var(--ss-surface-card);
 }
+.ss-player-radio-scanwords { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ss-text-tertiary); }
+.ss-player-radio-scanbox .ss-player-radio-scanwords { text-align: center; }
+.ss-player-radio-scanwords[data-tone='danger'] { color: var(--ss-danger); }
+/* the auto-add row: the 104 × 44 switch (its word first, the track right) and its words */
+.ss-player-radio-auto { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 12px; align-items: center; }
 .ss-player-radio-switch {
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    flex: none;
-    min-width: 104px;
-    min-height: 44px;
-    padding: 0 12px;
+    box-sizing: border-box;
+    width: 104px;
+    height: 44px;
+    padding: 0 10px;
     border: 1px solid var(--ss-control-border);
     border-radius: var(--ss-radius-control);
     background: var(--ss-control-fill);
     color: var(--ss-text);
     font: inherit;
-    font-size: 15px;
-    font-weight: 500;
     cursor: pointer;
 }
+.ss-player-radio-switch-text { flex: 1; font-size: 14px; font-weight: 600; text-align: left; }
 .ss-player-radio-switch-track {
     position: relative;
+    flex: none;
     width: 40px;
     height: 24px;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.16);
 }
 .ss-player-radio-switch-track::after {
     content: '';
     position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 18px;
-    height: 18px;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     background: #fff;
     transition: var(--ss-transition);
 }
 .ss-player-radio-switch[aria-checked='true'] .ss-player-radio-switch-track { background: rgb(var(--ss-accent-light-rgb)); }
-.ss-player-radio-switch[aria-checked='true'] .ss-player-radio-switch-track::after { left: 19px; background: #0b0b0f; }
+.ss-player-radio-switch[aria-checked='true'] .ss-player-radio-switch-track::after { left: 18px; background: #0b0b0f; }
 .ss-player-radio-auto-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ss-player-radio-auto-title { font-size: 15px; font-weight: 600; }
+.ss-player-radio-auto-title { font-size: 15px; font-weight: 500; }
+.ss-player-radio-auto-text .ss-player-meta { font-size: 14px; line-height: 1.4; }
+/* volume and Stop */
+.ss-player-radio-controls { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.ss-player-radio-volicon { display: inline-flex; justify-content: center; color: var(--ss-text-meta); }
+.ss-player-radio-volicon svg { width: 20px; height: 20px; }
+.ss-player-radio-volume { width: 100%; min-width: 0; }
+.ss-player-radio-stop--sheet {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: var(--ss-radius-control);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+}
+.ss-player-radio-stop--sheet:hover { background: var(--ss-control-fill-hover); }
+.ss-player-radio-close:focus-visible,
+.ss-player-radio-name:focus-visible,
+.ss-player-radio-stop--sheet:focus-visible { outline: var(--ss-focus-ring); outline-offset: 2px; }
+.ss-player-radio-links { display: flex; flex-direction: column; }
 /* the sheet's in-place auto-add confirm (9c): it takes the switch row's place */
 .ss-player-radio-confirm {
     display: flex;
@@ -1625,17 +1685,16 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     align-items: center;
     justify-content: space-between;
     min-height: 44px;
+    border-top: 1px solid var(--ss-hairline);
     color: var(--ss-text);
     font-size: 15px;
+    font-weight: 500;
     text-decoration: none;
 }
+.ss-player-radio-chevron { display: inline-flex; }
 .ss-player-radio-chevron svg { width: 18px; height: 18px; color: var(--ss-text-meta); }
-@media (max-width: 768px) {
-    html[data-player-sheet] .ss-player[data-source='radio'] .ss-player-deck {
-        display: flex !important;
-    }
-    html[data-player-sheet] .ss-player[data-source='radio'] .ss-player-deck > :not(.ss-player-volume-row) { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+    .ss-player-radio-logo img { transition: none; }
 }
-.ss-player-radio-controls { display: flex; justify-content: flex-end; }
 
 .ss-player-radio-auto-text .ss-player-meta { white-space: normal; overflow: visible; text-overflow: clip; }

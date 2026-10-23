@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RadioSessionApi, RadioSessionState } from '@/features/radio/radio.types';
 
-import { bootRadioChrome, radioMiniLines } from './player-radio';
+import { bootRadioChrome, radioMiniLines, sheetStationLine } from './player-radio';
 
 const EVIL = '<img src=x onerror="window.__pwned=1">';
 
@@ -350,10 +350,10 @@ describe('Scan now in the player', () => {
       /Kelp · Shore · found by ACRCloud · Scan now · \d+ (s|min|h) ago/,
     );
     expect(slot.querySelector('[data-player-radio-scan]')!.textContent).toBe('Scan again');
-    // the sheet's card says who found it at the start of its line
-    expect(document.querySelector('[data-player-radio-panel]')!.textContent).toContain(
-      'Found by ACRCloud · Scan now',
-    );
+    // the sheet's Now playing says who found it in its label (11e)
+    expect(
+      document.querySelector('[data-player-radio-panel] .ss-player-radio-label')!.textContent,
+    ).toBe('Now playing · found by ACRCloud');
     slot.querySelector<HTMLElement>('[data-player-radio-scan-add]')!.click();
     await Promise.resolve();
     expect(api.addScanToWanted).toHaveBeenCalled();
@@ -588,6 +588,270 @@ describe('the sheet’s auto-add confirm, in place (9c)', () => {
     );
     await vi.waitFor(() => expect(sw()?.getAttribute('aria-checked')).toBe('false'));
     expect(panel().querySelector('.ss-player-radio-confirm')).toBeNull();
+    chrome!.dispose();
+  });
+});
+
+describe('the phone radio sheet (11d, 11e; HANDOFF 82)', () => {
+  const SCAN_BASE = {
+    scan_id: 'sc1',
+    station_id: 'nts-1',
+    trying: null,
+    trying_label: null,
+    capture_seconds: 10,
+    track: null,
+    source: null,
+    source_label: null,
+    heard_id: null,
+    library: null,
+    on_wanted: false,
+    reason: null,
+    provider_error: null,
+    asked: [],
+    started_at: 1,
+    finished_at: null,
+    now: 2,
+  };
+  const panel = () => document.querySelector<HTMLElement>('[data-player-radio-panel]')!;
+  beforeEach(() => {
+    window.showToast = vi.fn();
+  });
+  afterEach(() => {
+    document.body.innerHTML = '';
+    window.showToast = undefined;
+  });
+
+  it('has 9c’s head: the logo, the name, Live, "kind · city · quality" and a 44px Close', () => {
+    const st = state();
+    st.station!.name = 'NTS 1';
+    st.station!.logo_url = '/api/radio/stations/nts-1/logo?v=3f9a';
+    const { chrome } = mount(st);
+    const head = panel().querySelector('.ss-player-radio-head')!;
+    const logo = head.querySelector('.ss-player-radio-logo')!;
+    expect(logo.textContent).toBe('NTS');
+    // the logo comes from our own route, never the station's host
+    expect(logo.querySelector('img')!.getAttribute('src')).toMatch(
+      /\/api\/radio\/stations\/nts-1\/logo\?v=3f9a$/,
+    );
+    const name = head.querySelector<HTMLAnchorElement>('.ss-player-radio-name')!;
+    expect(name.textContent).toBe('NTS 1');
+    expect(name.dataset.playerRadioGo).toBe('/radio/station/nts-1');
+    expect(head.querySelector('.ss-player-live-tag')!.textContent).toBe('Live');
+    expect(head.querySelector('.ss-player-radio-head-meta')!.textContent).toBe(
+      'Eclectic · London · AAC 256',
+    );
+    // no 200px art tile, and the Station page left the head for its link row
+    expect(panel().querySelector('.ss-player-radio-head .ss-player-link')).toBeNull();
+    const close = head.querySelector<HTMLElement>('[data-player-radio-close]')!;
+    expect(close.getAttribute('aria-label')).toBe('Close');
+    const closed = vi.fn();
+    document.querySelector('[data-player-sheet-close]')!.addEventListener('click', closed);
+    close.click();
+    expect(closed).toHaveBeenCalled();
+    chrome!.dispose();
+  });
+
+  it('words the head line for a link and a lossless stream', () => {
+    const st = state();
+    st.station!.source = 'your_link';
+    st.station!.city = '';
+    st.stream = { id: 'f', label: 'FLAC', codec: 'FLAC', bitrate_kbps: 1000, lossless: true };
+    expect(sheetStationLine(st)).toBe('Your link · FLAC');
+  });
+
+  it('shows Now playing as a 56px row with its label, title and source line', () => {
+    const { chrome } = mount(state());
+    const row = panel().querySelector('.ss-player-radio-nowrow')!;
+    expect(row.getAttribute('aria-live')).toBe('polite');
+    expect(row.querySelector('.ss-player-radio-label')!.textContent).toBe(
+      'Now playing · from the stream’s names',
+    );
+    expect(row.querySelector('.ss-player-radio-title')!.textContent).toBe('Night Ferry (Dub)');
+    expect(row.querySelector('.ss-player-radio-source')!.textContent).toMatch(
+      /^Tidewater <img src=x onerror="window.__pwned=1"> · \d+ s ago$/,
+    );
+    // Add to Wanted, full width, then Scan now full width under it
+    const order = [
+      ...panel().querySelectorAll('[data-player-radio-add], [data-player-radio-scan]'),
+    ];
+    expect(order.map((b) => b.textContent)).toEqual(['Add to Wanted', 'Scan now']);
+    expect(order[1]!.classList.contains('ss-player-radio-scan--wide')).toBe(true);
+    chrome!.dispose();
+  });
+
+  it('while nothing is identified, Add is disabled-neutral with its reason under it', async () => {
+    const st = state();
+    st.nowPlaying = {
+      ...st.nowPlaying!,
+      state: 'not_identified',
+      track: null,
+      heard_id: null,
+      reason: 'The station’s feed says “a show”',
+    };
+    const { api, chrome } = mount(st);
+    const add = panel().querySelector<HTMLElement>('[data-player-radio-add]')!;
+    expect(add.getAttribute('aria-disabled')).toBe('true');
+    const why = document.getElementById(add.getAttribute('aria-describedby')!)!;
+    expect(why.textContent).toBe('Nothing identified to add yet.');
+    expect(panel().querySelector('.ss-player-radio-title')!.textContent).toBe('Not identified');
+    expect(panel().querySelector('.ss-player-radio-source')!.textContent).toBe(
+      'The station’s feed says “a show”',
+    );
+    add.click();
+    await Promise.resolve();
+    expect(api.addToWanted).not.toHaveBeenCalled();
+    chrome!.dispose();
+  });
+
+  it('a running scan sits in a 4% card with the bar and the words; no result card', () => {
+    const st = state();
+    st.nowPlaying!.scan = { available: true, reason: null, services: ['acoustid', 'audd'] };
+    st.scan = {
+      ...SCAN_BASE,
+      state: 'listening',
+      phase: 'capturing',
+      progress: 0.4,
+      seconds_left: 6,
+    };
+    const { chrome } = mount(st);
+    const card = panel().querySelector<HTMLElement>('.ss-player-radio-scancard')!;
+    expect(card.dataset.state).toBe('listening');
+    expect(card.querySelector('[data-player-radio-scan]')!.textContent).toBe('Listening…');
+    expect(
+      card.querySelector<HTMLElement>('.ss-player-radio-scan-progress > span')!.style.width,
+    ).toBe('40%');
+    expect(card.querySelector('.ss-player-radio-scanwords')!.textContent).toBe(
+      'Capturing 10 seconds · 6 s left · then AcoustID, then AudD',
+    );
+    // identifying: who's asked, no bar
+    st.scan = {
+      ...st.scan,
+      phase: 'identifying',
+      trying: 'audd',
+      trying_label: 'AudD',
+      asked: ['acoustid', 'audd'],
+    };
+    chrome!.draw();
+    const again = panel().querySelector<HTMLElement>('.ss-player-radio-scancard')!;
+    expect(again.querySelector('.ss-player-radio-scan-progress')).toBeNull();
+    expect(again.querySelector('.ss-player-radio-scanwords')!.textContent).toBe(
+      'Asking AudD · AcoustID had no match',
+    );
+    expect(document.body.textContent).not.toMatch(/\bDone\b/);
+    chrome!.dispose();
+  });
+
+  it('the answer becomes Now playing, Add adds it, and the control reads "Scan again"', async () => {
+    const st = state();
+    st.scan = {
+      ...SCAN_BASE,
+      state: 'identified',
+      phase: 'identifying',
+      progress: 1,
+      seconds_left: 0,
+      track: { artist: 'Marrow Field', title: 'Glasshouse', release: 'Glasshouse EP' },
+      source: 'scan_audd',
+      source_label: 'AudD',
+      heard_id: 41,
+      library: { in_library: false, below_target: null, track_id: null },
+      asked: ['acoustid', 'audd'],
+      finished_at: Date.now() / 1000 - 20,
+      now: Date.now() / 1000,
+    };
+    const { api, chrome } = mount(st);
+    api.addScanToWanted = vi.fn(async () => true);
+    const row = panel().querySelector('.ss-player-radio-nowrow')!;
+    expect(row.querySelector('.ss-player-radio-label')!.textContent).toBe(
+      'Now playing · found by AudD',
+    );
+    expect(row.querySelector('.ss-player-radio-title')!.textContent).toBe('Glasshouse');
+    expect(row.querySelector('.ss-player-radio-source')!.textContent).toBe(
+      'Marrow Field · Glasshouse EP · Scan now · 20 s ago',
+    );
+    expect(panel().querySelector('.ss-player-radio-scancard')).toBeNull();
+    expect(panel().querySelector('[data-player-radio-scan]')!.textContent).toBe('Scan again');
+    expect(panel().querySelector('.ss-player-radio-scanwords')).toBeNull();
+    panel().querySelector<HTMLElement>('[data-player-radio-scan-add]')!.click();
+    await vi.waitFor(() => expect(api.addScanToWanted).toHaveBeenCalled());
+    chrome!.dispose();
+  });
+
+  it('says a failure under Scan again in the danger colour', () => {
+    const st = state({
+      scan: {
+        ...SCAN_BASE,
+        state: 'failed',
+        phase: 'identifying',
+        progress: 1,
+        seconds_left: 0,
+        asked: ['audd'],
+        provider_error: { provider: 'audd', label: 'AudD', kind: 'bad_key', message: 'x' },
+      },
+    });
+    const { chrome } = mount(st);
+    const words = panel().querySelector<HTMLElement>('.ss-player-radio-scanwords')!;
+    expect(words.textContent).toBe(
+      'Scan didn’t work · AudD refused the key · an admin can fix it in Settings → Radio',
+    );
+    expect(words.dataset.tone).toBe('danger');
+    chrome!.dispose();
+  });
+
+  it('keeps volume and Stop across redraws, and the slider moves the player’s volume', async () => {
+    const { api, chrome } = mount(state());
+    const deck = document.createElement('input');
+    deck.type = 'range';
+    deck.className = 'ss-player-volume ss-player-volume--deck';
+    deck.value = '70';
+    const heardVolume = vi.fn();
+    deck.addEventListener('input', () => heardVolume(deck.value));
+    document.getElementById('ss-player-tray')!.append(deck);
+    const vol = panel().querySelector<HTMLInputElement>('[data-player-radio-volume]')!;
+    expect(vol.getAttribute('aria-label')).toBe('Volume');
+    vol.value = '35';
+    vol.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(heardVolume).toHaveBeenCalledWith('35');
+    chrome!.draw();
+    // the same node: a drag isn't cut short when a poll redraws the sheet
+    expect(panel().querySelector('[data-player-radio-volume]')).toBe(vol);
+    const stop = panel().querySelector<HTMLElement>(
+      '.ss-player-radio-controls [data-player-radio-stop]',
+    )!;
+    expect(stop.textContent).toBe('Stop');
+    stop.click();
+    await vi.waitFor(() => expect(api.stop).toHaveBeenCalled());
+    chrome!.dispose();
+  });
+
+  it('ends with two link rows: Heard today with its count, and the Station page', async () => {
+    const st = state();
+    st.station!.name = 'NTS 1';
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            station: { ...st.station, auto_add: false },
+            heard_today: { identified: 14, not_identified: 2 },
+          }),
+          { status: 200 },
+        ),
+    );
+    const { chrome } = mount(st, fetchImpl as unknown as typeof fetch);
+    await vi.waitFor(() =>
+      expect(panel().querySelector('.ss-player-radio-link--heard')!.textContent).toBe(
+        'Heard on NTS 1 today · 14',
+      ),
+    );
+    const page = panel().querySelector<HTMLAnchorElement>('.ss-player-radio-link--page')!;
+    expect(page.textContent).toBe('Station page');
+    expect(page.dataset.playerRadioGo).toBe('/radio/station/nts-1');
+    expect(
+      panel().querySelector<HTMLAnchorElement>('.ss-player-radio-link--heard')!.dataset
+        .playerRadioGo,
+    ).toBe('/radio/station/nts-1#heard');
+    // the switch's word comes first, the track right (11d)
+    const sw = panel().querySelector('[data-player-radio-auto]')!;
+    expect(sw.firstElementChild!.textContent).toBe('Off');
     chrome!.dispose();
   });
 });
