@@ -313,7 +313,7 @@ class QobuzClient(DownloadSourcePlugin):
                     decoded = base64.b64decode(trimmed).decode("utf-8")
                     if decoded and len(decoded) >= 30:
                         decoded_secrets.append((tz, decoded))
-                        logger.debug(f"Decoded candidate secret from {tz}: {decoded[:8]}...")
+                        logger.debug(f"Decoded a candidate secret from {tz}")
                 except (base64.binascii.Error, UnicodeDecodeError) as e:
                     logger.debug(f"Failed to decode secret from {tz}: {e}")
                     continue

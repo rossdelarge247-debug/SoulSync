@@ -250,7 +250,7 @@ function npv2ThemeList() {
         { id: 'warp', name: 'Warp', blurb: 'Starfield at light speed' },
         { id: 'nebula', name: 'Nebula', blurb: 'Drifting deep-space clouds' },
         { id: 'bloom', name: 'Bloom', blurb: 'Beat rings expanding out' },
-        { id: 'none', name: 'Off', blurb: 'Just the ambient glow' },
+        { id: 'none', name: 'Off', blurb: 'No visual, just the track and the controls' },
     ];
 }
 
@@ -1292,7 +1292,7 @@ const NPV2_PAINT = {
     },
 
     // --- Off ----------------------------------------------------------------------
-    none() { /* the CSS ambient glow carries the vibe */ },
+    none() { /* no visual: the canvas is hidden, the overlay is black under the track and the controls */ },
 
     // --- WMP Battery: sparks rise, beat kicks burst them -------------------------
     battery(ctx, w, h, S) {
@@ -2792,8 +2792,24 @@ function npv2OpenVisualsPanel(tab) {
         const t = document.getElementById('np-v2-sidepanel-title');
         if (t) t.textContent = names[tab] || tab;
         panel.classList.remove('hidden');
+        npv2PlaceVisualsPanel();
         npv2ToggleVisualsDrawer(false);
         npv2VisualsWakeUI();
+    } catch (e) {}
+}
+
+// The panel opens under the header, so the header's ‹ › arrows (and the
+// close button) stay reachable while it's open. The header wraps on a phone,
+// so its real height is measured; the CSS keeps a fallback for when it can't be.
+function npv2PlaceVisualsPanel() {
+    try {
+        const panel = document.getElementById('np-v2-visuals-sidepanel');
+        const header = document.getElementById('np-v2-visuals-header');
+        if (!panel || !header || panel.classList.contains('hidden')) return;
+        const modal = panel.offsetParent || panel.parentNode;
+        const top = modal && modal.getBoundingClientRect ? modal.getBoundingClientRect().top : 0;
+        const bottom = header.getBoundingClientRect().bottom - top;
+        if (bottom > 0) panel.style.setProperty('--npv2-panel-top', Math.round(bottom + 16) + 'px');
     } catch (e) {}
 }
 
@@ -3749,6 +3765,7 @@ function npv2WireTransport() {
         });
         const spc = document.getElementById('np-v2-sidepanel-close');
         if (spc) spc.addEventListener('click', () => npv2CloseVisualsPanel());
+        window.addEventListener('resize', () => npv2PlaceVisualsPanel());
     } catch (e) {}
 
     try {

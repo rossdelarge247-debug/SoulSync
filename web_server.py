@@ -5874,7 +5874,7 @@ def auth_tidal():
         with tidal_oauth_lock:
             tidal_oauth_state["redirect_uri"] = temp_tidal_client.redirect_uri
 
-        logger.info(f"Stored PKCE - verifier: {temp_tidal_client.code_verifier[:20]}... challenge: {temp_tidal_client.code_challenge[:20]}...")
+        logger.info("Stored PKCE verifier and challenge")
 
         # Store profile_id for per-profile auth
         profile_id = request.args.get('profile_id', '')
@@ -21666,7 +21666,7 @@ def start_oauth_callback_servers():
 
                 if 'code' in query_params:
                     auth_code = query_params['code'][0]
-                    _oauth_logger.info(f"Received Spotify authorization code: {auth_code[:10]}...")
+                    _oauth_logger.info("Received Spotify authorization code")
 
                     # Manually trigger the token exchange using spotipy's auth manager
                     try:
@@ -21810,7 +21810,7 @@ def start_oauth_callback_servers():
 
             if 'code' in query_params:
                 auth_code = query_params['code'][0]
-                logger.info(f"Received Tidal authorization code: {auth_code[:10]}...")
+                logger.info("Received Tidal authorization code")
 
                 # Exchange the authorization code for tokens
                 try:
@@ -21825,7 +21825,7 @@ def start_oauth_callback_servers():
                         temp_client.code_verifier = tidal_oauth_state["code_verifier"]
                         temp_client.code_challenge = tidal_oauth_state["code_challenge"]
 
-                    logger.info(f"Restored PKCE - verifier: {temp_client.code_verifier[:20] if temp_client.code_verifier else 'None'}... challenge: {temp_client.code_challenge[:20] if temp_client.code_challenge else 'None'}...")
+                    logger.info(f"Restored PKCE - verifier: {'set' if temp_client.code_verifier else 'None'}, challenge: {'set' if temp_client.code_challenge else 'None'}")
 
                     success = temp_client.fetch_token_from_code(auth_code)
 

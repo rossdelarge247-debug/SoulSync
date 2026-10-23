@@ -1,6 +1,6 @@
 /**
  * Targets: the four cards in their fixed order (Wanted, Mirrored playlists,
- * Followed artists, Quality), or, with none of the first three set up, the one
+ * Following, Quality), or, with none of the first three set up, the one
  * "Tell SoulSync what you want" panel (board 1b). Loading and a failed load
  * follow the design system: words beside a spinner then card-shaped
  * placeholders; a danger Notice in front of faded placeholders.

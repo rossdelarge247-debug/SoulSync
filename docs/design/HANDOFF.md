@@ -47,6 +47,15 @@ Questions 1–28 were answered in Design's session of 22 October, and 29–57 in
 
 ## Log
 
+### 2026-10-23: Dev, four leftovers
+
+Built on `fix/small-leftovers` from `integration`. No boards; one change Design should know about is the Home card's name (3).
+
+1. **AcoustID lookups.** The download identifier (and through it the radio's automatic fingerprint) and Scan now share one lookup path, `core/acoustid_api.py`, which goes through the outbound guard like Scan now's other services: `api.acoustid.org` only, over TLS, with timeouts and a capped answer. Scores, thresholds and what each error says are unchanged. No part of an API key is written to the logs any more.
+2. **Visuals.** A panel opened inside the Visuals (Up next, Recent, Lyrics, Details, Settings) now starts under the header instead of at the top, so the ‹ › arrows and the close button stay reachable; it looks the same otherwise (a top border where it meets the header). Off's tooltip says "No visual, just the track and the controls" (the ambient glow went with the player rebuild; Off is the black overlay with the track and the controls). Code: `static/media-player-v2.js` (`npv2PlaceVisualsPanel`), `static/player.css`.
+3. **Home's Following card.** It counted artists only; it now counts everything the Wanted page's Following tab lists: artists, labels, podcasts and authors (podcasts while the Podcasts module is on, authors while Audiobooks is on and the profile may see it). The card is labelled "Following", like the tab (was "Followed artists"), with "Open Following". Its title is the total and the new tracks, "31 followed · 52 new tracks" (one kind is named: "18 artists · 52 new tracks"), and on wide screens the footer says which kinds: "18 artists, 6 labels, 4 podcasts, 3 authors · Next search in about 2 hours". Following only a podcast or a label sets the card up. The summary's new `following` field is in `CONTRACTS.md` ("Home targets"). Redraw if you'd say it differently.
+4. **Radio automations.** A radio automation (trigger "A track I don't have played on a favourite station") created or turned on while no station was being watched now starts the radio watcher at once, instead of after the next play, favourite, Radio page visit or restart. Nothing happens while the Radio module is off.
+
 ### 2026-10-23: Dev, evening phase 4 (nebula, Follow…, radio sheet confirm)
 
 Built on `ux/evening-4` from `integration`, from Phase 4 of Design's "Build order for Dev, 22 October evening": `Follow-ups (nebula, follow, confirm, record).dc.html` 9a–9c, approved by Ross (9d was built in phase 1). Design's answers 32, 36 and 51 are done and out of the open list. No routes changed: everything goes through routes that were there (`CONTRACTS.md`, "Wanted page" and "Internet radio"). The patterns are in `DESIGN-SYSTEM.md` ("Wanted as a nebula", "Follow… dialog", "A confirm in place"). Code: `webui/src/routes/wanted` (`-wanted.nebula.ts`, `-ui/nebula-view.tsx`, `-wanted.follow.ts`, `-ui/follow-dialog.tsx`), `webui/src/shell/player-radio.ts`, `webui/static/player.css`.

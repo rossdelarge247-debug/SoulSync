@@ -142,6 +142,83 @@ def test_followed_counts_new_release_tracks(db, rows):
     assert f["artists"] == 1 and f["set_up"] is True
 
 
+class _AudiobookDb:
+    def __init__(self, rows):
+        self.rows = rows
+        self.asked = []
+
+    def get_watchlist(self, profile_id=1):
+        self.asked.append(profile_id)
+        return [r for r in self.rows if r["profile_id"] == profile_id]
+
+
+def _follow_everything(db):
+    for pid, (sp, name) in ((1, ("sp1", "Saltmarsh")), (1, ("sp2", "Kelp")), (2, ("sp3", "Other"))):
+        _sql(db, "INSERT INTO watchlist_artists (spotify_artist_id, artist_name, profile_id) VALUES (?, ?, ?)",
+             (sp, name, pid))
+    for mbid, name in (("l1", "Warp"), ("l2", "Ninja Tune"), ("l3", "Hyperdub")):
+        _sql(db, "INSERT INTO watchlist_labels (musicbrainz_label_id, label_name) VALUES (?, ?)", (mbid, name))
+    for pid, feed in ((1, "https://a/feed.xml"), (2, "https://b/feed.xml"), (2, "https://c/feed.xml")):
+        _sql(db, "INSERT INTO watchlist_podcasts (feed_url, title, profile_id) VALUES (?, ?, ?)", (feed, feed, pid))
+    return _AudiobookDb([{"name": "Le Guin", "profile_id": 1}, {"name": "Pratchett", "profile_id": 1},
+                         {"name": "Banks", "profile_id": 2}])
+
+
+def _followed(db, pid=1, kinds=None, books=None):
+    summary.clear_cache()
+    body = summary.build_summary(db, pid, now=NOW, following_kinds=kinds, audiobook_db=(lambda: books))
+    return {t["key"]: t for t in body["targets"]}["followed"], body
+
+
+def test_followed_counts_every_kind_the_following_tab_lists(db):
+    books = _follow_everything(db)
+    f, _ = _followed(db, kinds={"podcasts": True, "authors": True}, books=books)
+    # profile 1: 2 artists, the install's 3 labels, 1 podcast, 2 authors
+    assert f["following"] == {"total": 8, "artists": 2, "labels": 3, "podcasts": 1, "authors": 2}
+    assert f["artists"] == 2 and f["set_up"] is True
+    assert books.asked == [1]
+    g, _ = _followed(db, pid=2, kinds={"podcasts": True, "authors": True}, books=books)
+    assert g["following"] == {"total": 7, "artists": 1, "labels": 3, "podcasts": 2, "authors": 1}
+
+
+def test_podcasts_and_authors_dont_count_while_off(db):
+    books = _follow_everything(db)
+    f, _ = _followed(db, kinds={"podcasts": False, "authors": False}, books=books)
+    assert f["following"] == {"total": 5, "artists": 2, "labels": 3, "podcasts": None, "authors": None}
+    assert books.asked == []  # the audiobook database isn't even opened
+
+
+def test_the_modules_decide_by_default(db, monkeypatch):
+    from core import modules
+    books = _follow_everything(db)
+    state = {"podcasts": False, "audiobooks": True}
+    monkeypatch.setattr(modules, "is_enabled", lambda name, config=None: state.get(name, True))
+    f, _ = _followed(db, books=books)
+    assert (f["following"]["podcasts"], f["following"]["authors"]) == (None, 2)
+    state.update(podcasts=True, audiobooks=False)
+    f, _ = _followed(db, books=books)
+    assert (f["following"]["podcasts"], f["following"]["authors"]) == (1, None)
+
+
+def test_following_only_a_podcast_sets_the_card_up(db):
+    _sql(db, "INSERT INTO watchlist_podcasts (feed_url, title, profile_id) VALUES ('https://a', 'A', 1)")
+    f, body = _followed(db, kinds={"podcasts": True, "authors": False})
+    assert f["set_up"] is True and f["status"] == "ok" and f["artists"] == 0
+    assert f["following"]["total"] == 1 and body["any_set_up"] is True
+    f, body = _followed(db, kinds={"podcasts": False, "authors": False})
+    assert f["set_up"] is False and f["status"] == "not_set_up" and body["any_set_up"] is False
+
+
+def test_no_audiobook_file_is_created_to_count_authors(db, monkeypatch, tmp_path):
+    import core.audiobook_database as abdb
+    monkeypatch.setattr(abdb, "subsystem_in_use", lambda db_path=abdb.DEFAULT_DB_PATH: False)
+    monkeypatch.setattr(abdb, "get_audiobook_db", lambda: pytest.fail("opened the audiobook database"))
+    summary.clear_cache()
+    body = summary.build_summary(db, 1, now=NOW, following_kinds={"podcasts": False, "authors": True})
+    f = {t["key"]: t for t in body["targets"]}["followed"]
+    assert f["following"]["authors"] == 0
+
+
 # ── quality ───────────────────────────────────────────────────────────────────
 
 def test_quality_checks_the_library_against_the_default_profile(db, rows):
@@ -254,6 +331,33 @@ def test_the_presets_endpoint(client, db):
     assert body["success"] is True and body["total"] == 2
     assert [p["key"] for p in body["presets"]] == ["mp3_320", "flac", "flac_24", "lossless"]
     assert body["current"]["name"]
+
+
+def test_the_endpoint_counts_kinds_by_module_and_page(client, db, monkeypatch):
+    import api.targets as targets_api
+    from core import modules
+    books = _follow_everything(db)
+    real = summary.build_summary
+    monkeypatch.setattr(summary, "build_summary", lambda *a, **k: real(*a, audiobook_db=lambda: books, **k))
+    state = {"podcasts": True, "audiobooks": True}
+    monkeypatch.setattr(modules, "is_enabled", lambda name, config=None: state.get(name, True))
+    admin = {"on": False}
+    monkeypatch.setattr(targets_api, "is_admin_request", lambda: admin["on"])
+    pages = {1: ["wishlist", "watchlist", "audiobooks"], 2: ["wishlist", "watchlist"]}
+    monkeypatch.setattr(db, "get_profile", lambda pid: {"id": pid, "allowed_pages": pages.get(pid)})
+
+    def following(pid):
+        client.who["pid"] = pid
+        body = client.get("/api/targets/summary").get_json()
+        return {t["key"]: t for t in body["targets"]}["followed"]["following"]
+
+    assert following(1) == {"total": 8, "artists": 2, "labels": 3, "podcasts": 1, "authors": 2}
+    # profile 2 isn't given the Audiobooks page: its authors aren't counted
+    assert following(2) == {"total": 6, "artists": 1, "labels": 3, "podcasts": 2, "authors": None}
+    admin["on"] = True  # admins see every page
+    assert following(2)["authors"] == 1
+    state["podcasts"] = False
+    assert following(1)["podcasts"] is None and following(1)["total"] == 7
 
 
 def test_both_endpoints_need_a_profile(client):

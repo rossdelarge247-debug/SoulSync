@@ -157,6 +157,46 @@ def _check_update_cycle(
 
 
 # ---------------------------------------------------------------------------
+# The radio watcher: a radio automation saved or turned on wakes it
+# ---------------------------------------------------------------------------
+
+RADIO_TRIGGER = 'radio_track_heard'
+
+# Set by api/radio.py's configure(): starts the radio now-playing watcher if
+# something needs it (``Watcher.ensure``). None until the radio API is wired.
+_radio_watcher_wake = None
+
+
+def set_radio_watcher_wake(fn) -> None:
+    global _radio_watcher_wake
+    _radio_watcher_wake = fn
+
+
+def wake_radio_watcher(database, automation_ids) -> bool:
+    """After a save or a toggle: when one of these automations is enabled and
+    uses the radio trigger, and the radio module is on, ask the radio watcher
+    to start (it only does when a station needs watching, e.g. the profile's
+    favourites). Without this the watcher waited for the next play, favourite,
+    Radio page visit or restart. Cheap (a row read per id, nothing at all
+    while the module is off) and never fails the save. True when it asked."""
+    wake = _radio_watcher_wake
+    if wake is None or not automation_ids:
+        return False
+    try:
+        from core.modules import is_enabled
+        if not is_enabled('radio'):
+            return False
+        for aid in automation_ids:
+            auto = database.get_automation(aid)
+            if auto and auto.get('enabled') and auto.get('trigger_type') == RADIO_TRIGGER:
+                wake()
+                return True
+    except Exception as exc:  # noqa: BLE001 - the save already happened; the watcher can wait
+        logger.debug("radio watcher wake after automation save failed: %s", exc)
+    return False
+
+
+# ---------------------------------------------------------------------------
 # CRUD helpers — return (response_dict, http_status)
 # ---------------------------------------------------------------------------
 
@@ -218,6 +258,7 @@ def create_automation(
 
     if automation_engine:
         automation_engine.schedule_automation(auto_id)
+    wake_radio_watcher(database, [auto_id])
     return {'success': True, 'id': auto_id}, 200
 
 
@@ -280,6 +321,7 @@ def update_automation(
             automation_engine.schedule_automation(automation_id)
         else:
             automation_engine.cancel_automation(automation_id)
+    wake_radio_watcher(database, [automation_id])
     return {'success': True}, 200
 
 
@@ -323,6 +365,8 @@ def bulk_toggle(
                     automation_engine.schedule_automation(aid)
                 else:
                     automation_engine.cancel_automation(aid)
+    if enabled and updated > 0:
+        wake_radio_watcher(database, automation_ids)
     return {'success': True, 'updated': updated}, 200
 
 
@@ -367,6 +411,7 @@ def duplicate_automation(
         return {'error': 'Failed to duplicate automation'}, 500
     if automation_engine:
         automation_engine.schedule_automation(new_id)
+    wake_radio_watcher(database, [new_id])
     return {'success': True, 'id': new_id}, 200
 
 
@@ -382,6 +427,7 @@ def toggle_automation(database, automation_engine, automation_id: int) -> tuple[
             automation_engine.schedule_automation(automation_id)
         else:
             automation_engine.cancel_automation(automation_id)
+    wake_radio_watcher(database, [automation_id])
     return {'success': True}, 200
 
 

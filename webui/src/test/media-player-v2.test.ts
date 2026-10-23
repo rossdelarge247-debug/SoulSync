@@ -2069,3 +2069,125 @@ describe('the visuals canvas follows the picked visual', () => {
     expect(canvas.style.display).not.toBe('none');
   });
 });
+
+// ---------------------------------------------------------------------------
+// The Visuals overlay's panel opens under the header, so the ‹ › arrows stay
+// reachable; and Off's tooltip says what Off shows now (no glow any more).
+// ---------------------------------------------------------------------------
+
+describe('the Visuals panel leaves the header reachable', () => {
+  const css = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
+  const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+
+  const rule = (selector: string, source = css) => {
+    const at = source.indexOf(`${selector} {`);
+    expect(at).toBeGreaterThanOrEqual(0);
+    return source.slice(at, source.indexOf('}', at) + 1);
+  };
+
+  const build = () => {
+    document.body.innerHTML = `
+      <div class="np-modal">
+        <div id="np-v2-visuals-header">
+          <div id="np-v2-visuals-theme-switch">
+            <button id="np-v2-visuals-theme-prev">‹</button><button id="np-v2-visuals-theme-next">›</button>
+          </div>
+        </div>
+        <div id="np-v2-visuals-drawer" class="hidden"><button data-tab="queue"></button></div>
+        <div id="np-v2-visuals-sidepanel" class="hidden">
+          <span id="np-v2-sidepanel-title"></span><div id="np-v2-sidepanel-body"></div>
+        </div>
+        <div id="np-queue-panel" class="hidden"></div>
+      </div>`;
+    const header = document.getElementById('np-v2-visuals-header') as HTMLElement;
+    header.getBoundingClientRect = () =>
+      ({ top: 16, bottom: 60, left: 24, right: 1364 }) as DOMRect;
+    const modal = document.querySelector('.np-modal') as HTMLElement;
+    modal.getBoundingClientRect = () => ({ top: 0, bottom: 900, left: 0, right: 1440 }) as DOMRect;
+    const run = new Function(
+      [
+        "const NPV2_SIDE_PANELS = { queue: 'np-queue-panel' };",
+        'let npv2SidePanelHome = null;',
+        'let npv2SidePanelTab = null;',
+        'function npv2SelectTab() {}',
+        'function npv2VisualsWakeUI() {}',
+        extractFunction('npv2OpenVisualsPanel', v2),
+        extractFunction('npv2CloseVisualsPanel', v2),
+        extractFunction('npv2PlaceVisualsPanel', v2),
+        extractFunction('npv2ToggleVisualsDrawer', v2),
+        'return { npv2OpenVisualsPanel, npv2CloseVisualsPanel };',
+      ].join('\n'),
+    );
+    return run() as any;
+  };
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('the panel starts under the header, not at the top of the overlay', () => {
+    const panel = rule('#np-v2-visuals-sidepanel');
+    expect(panel).toMatch(/top: var\(--npv2-panel-top, 76px\);/);
+    expect(panel).not.toMatch(/top: 0;/);
+    // the header (and its arrows) sit at 16px with 44px controls: 76px clears them
+    expect(rule('#np-v2-visuals-header')).toMatch(/top: 16px;/);
+    expect(css).toMatch(/\.np-v2-visuals-arrow,[^{]*\{[^}]*min-height: 44px;/);
+    // phones stack the header, so the fallback is lower there
+    expect(css).toMatch(/#np-v2-visuals-sidepanel \{ top: var\(--npv2-panel-top, 152px\); \}/);
+    // the look is otherwise the same: the 400px note-ground column on the right
+    expect(panel).toMatch(/width: min\(400px, 100vw\);/);
+    expect(panel).toMatch(/background: var\(--ss-ground-note\);/);
+    expect(html).toContain('id="np-v2-visuals-theme-prev"');
+  });
+
+  it('opening a panel measures the header and places the panel below it', () => {
+    const api = build();
+    api.npv2OpenVisualsPanel('queue');
+    const panel = document.getElementById('np-v2-visuals-sidepanel') as HTMLElement;
+    expect(panel.classList.contains('hidden')).toBe(false);
+    expect(panel.style.getPropertyValue('--npv2-panel-top')).toBe('76px');
+    // the arrows stay where they were, outside the panel
+    expect(panel.contains(document.getElementById('np-v2-visuals-theme-prev'))).toBe(false);
+    expect(panel.contains(document.getElementById('np-v2-visuals-theme-next'))).toBe(false);
+    api.npv2CloseVisualsPanel();
+    expect(panel.classList.contains('hidden')).toBe(true);
+  });
+
+  it('a taller (wrapped) header pushes the panel further down', () => {
+    const api = build();
+    const header = document.getElementById('np-v2-visuals-header') as HTMLElement;
+    header.getBoundingClientRect = () =>
+      ({ top: 16, bottom: 140, left: 24, right: 318 }) as DOMRect;
+    api.npv2OpenVisualsPanel('queue');
+    const panel = document.getElementById('np-v2-visuals-sidepanel') as HTMLElement;
+    expect(panel.style.getPropertyValue('--npv2-panel-top')).toBe('156px');
+  });
+
+  it('without layout (nothing measured) the CSS fallback stands', () => {
+    const api = build();
+    const header = document.getElementById('np-v2-visuals-header') as HTMLElement;
+    header.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0 }) as DOMRect;
+    api.npv2OpenVisualsPanel('queue');
+    const panel = document.getElementById('np-v2-visuals-sidepanel') as HTMLElement;
+    expect(panel.style.getPropertyValue('--npv2-panel-top')).toBe('');
+  });
+});
+
+describe('the Off visual says what it shows', () => {
+  const { npv2ThemeList } = v2Harness(['npv2ThemeList']);
+
+  it('no visual, just the track and the controls; no mention of the gone glow', () => {
+    const off = npv2ThemeList().find((t: { id: string }) => t.id === 'none');
+    expect(off.name).toBe('Off');
+    expect(off.blurb).toBe('No visual, just the track and the controls');
+    expect(v2).not.toMatch(/ambient glow/i);
+  });
+
+  it('Off really hides the canvas (so the overlay is black under the track and the controls)', () => {
+    expect(extractFunction('npv2SyncBgCanvas', v2)).toContain(
+      "NPV2.theme !== 'none' ? '' : 'none'",
+    );
+    const css = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
+    expect(css).toMatch(/#np-modal-overlay \{[^}]*background: #000;/);
+  });
+});

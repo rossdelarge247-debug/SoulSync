@@ -14,8 +14,8 @@ listening through the relay.
 
 It only runs while it has work. :meth:`Watcher.ensure` starts it when
 something needs it (a station is played, auto-add is turned on, a favourite
-is added, the module is turned on, or at boot when a station is already
-watched), and it stops itself once it has had nothing to do for
+is added, a radio automation is saved or turned on, the module is turned on,
+or at boot when a station is already watched), and it stops itself once it has had nothing to do for
 :data:`IDLE_STOP_SECONDS`.
 
 While running it drops Heard rows older than Settings → Radio's days, at
