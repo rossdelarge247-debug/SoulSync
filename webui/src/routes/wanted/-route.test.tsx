@@ -1036,6 +1036,314 @@ describe('Wanted as a nebula (9a)', () => {
   });
 });
 
+describe('Follow… (9b)', () => {
+  const kind = (name: string) =>
+    within(screen.getByRole('group', { name: 'Kind' })).getByRole('button', { name });
+
+  /** The four searches and follows, as the routes answer them. */
+  function mockFollow(posts: { path: string; body: unknown }[]) {
+    const record = async (request: Request) => {
+      posts.push({ path: new URL(request.url).pathname, body: await request.clone().json() });
+    };
+    server.use(
+      http.post('*/api/library/search-service', async ({ request }) => {
+        await record(request);
+        return HttpResponse.json({
+          success: true,
+          results: [
+            { id: 'dz-1', name: 'Low Tide Collective', image: null, extra: '41k fans' },
+            { id: 'dz-2', name: 'Pale Harbour', image: null, extra: '12k fans' },
+          ],
+        });
+      }),
+      http.post('*/api/watchlist/add', async ({ request }) => {
+        await record(request);
+        return HttpResponse.json({ success: true });
+      }),
+      http.post('*/api/labels/search', async ({ request }) => {
+        await record(request);
+        return HttpResponse.json({
+          labels: [
+            {
+              id: 'mb-hessle',
+              name: 'Hessle Audio',
+              type: 'original production',
+              area: 'UK',
+              is_watching: true,
+            },
+            {
+              id: 'mb-quiet',
+              name: 'Quiet Rooms Records',
+              type: 'imprint',
+              area: 'UK',
+              is_watching: false,
+            },
+          ],
+        });
+      }),
+      http.post('*/api/labels/watchlist/add', async ({ request }) => {
+        await record(request);
+        return HttpResponse.json({ success: true, is_watching: true });
+      }),
+      http.get('*/api/podcasts/search', () =>
+        HttpResponse.json({
+          success: true,
+          results: [
+            {
+              title: 'Quiet Rooms Radio',
+              author: 'The Quiet Rooms',
+              description: '',
+              feed_url: 'https://feeds.example.com/qrr',
+              itunes_id: 48,
+              explicit: false,
+              categories: [],
+              episode_count: 48,
+            },
+            {
+              title: 'Resident Advisor Exchange',
+              author: 'Resident Advisor',
+              description: '',
+              feed_url: 'https://feeds.example.com/exchange',
+              explicit: false,
+              categories: [],
+              episode_count: 761,
+            },
+          ],
+        }),
+      ),
+      http.post('*/api/podcasts/watchlist/add', async ({ request }) => {
+        await record(request);
+        return HttpResponse.json({ success: true, is_watching: true });
+      }),
+      http.get('*/api/audiobooks/search', ({ request }) => {
+        expect(new URL(request.url).searchParams.get('type')).toBe('author');
+        const book = (title: string, author: string, owned = false) => ({
+          asin: title,
+          title,
+          subtitle: '',
+          authors: [{ name: author, asin: null }],
+          narrators: [],
+          author_names: [author],
+          narrator_names: [],
+          series: [],
+          release_date: '2020-01-01',
+          cover_url: '',
+          owned,
+        });
+        return HttpResponse.json({
+          success: true,
+          source: 'audible',
+          results: [
+            book('Piranesi', 'Susanna Clarke', true),
+            book('Jonathan Strange', 'Susanna Clarke'),
+            book('The Dispossessed', 'Ursula K. Le Guin'),
+          ],
+        });
+      }),
+      http.post('*/api/audiobooks/watchlist', async ({ request }) => {
+        await record(request);
+        return HttpResponse.json({ success: true, followed: true, watching: true });
+      }),
+      http.get('*/api/discovery/lookback-period', () => HttpResponse.json({ period: '30' })),
+    );
+  }
+
+  async function openFollow(entry = '/wanted?tab=followed') {
+    renderRoute(entry);
+    await screen.findByRole('list', { name: 'Following' });
+    fireEvent.click(screen.getByRole('button', { name: 'Follow…' }));
+    return screen.findByRole('dialog', { name: 'Follow…' });
+  }
+
+  it('one dialog for all four kinds; the primary waits for a pick', async () => {
+    const posts: { path: string; body: unknown }[] = [];
+    mockApi({ labels: LABELS, podcasts: PODCASTS, authors: AUTHORS });
+    mockFollow(posts);
+    const dialog = await openFollow();
+    expect(
+      within(dialog).getByText('New releases or episodes go to Wanted as they come out.'),
+    ).toBeInTheDocument();
+    expect(
+      within(within(dialog).getByRole('group', { name: 'Kind' }))
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Artist', 'Label', 'Podcast', 'Author']);
+    expect(kind('Artist')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByRole('combobox', { name: 'Search on' })).toHaveValue('deezer');
+    expect(
+      within(dialog).getByText('Type at least 2 letters of the artist’s name.'),
+    ).toBeInTheDocument();
+    const primary = within(dialog).getByRole('button', { name: 'Follow' });
+    expect(primary).toHaveAttribute('aria-disabled', 'true');
+    expect(within(dialog).getByText('Pick one from the results')).toBeInTheDocument();
+  });
+
+  it('follows an artist from the search; one already followed is a disabled row', async () => {
+    const posts: { path: string; body: unknown }[] = [];
+    mockApi();
+    mockFollow(posts);
+    const dialog = await openFollow();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Search artists' }), {
+      target: { value: 'tide' },
+    });
+    const results = await within(dialog).findByRole('radiogroup', { name: 'Results' });
+    expect(posts).toContainEqual({
+      path: '/api/library/search-service',
+      body: { service: 'deezer', entity_type: 'artist', query: 'tide' },
+    });
+    // Pale Harbour is followed already: no radio, the Following tag
+    expect(within(results).getAllByRole('radio')).toHaveLength(1);
+    expect(within(results).getByText('Following')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        /^Checked every 24 hours with your other follows\. The first check adds what came out in the last 30 days/,
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(results).getByRole('radio'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Follow Low Tide Collective' }));
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        path: '/api/watchlist/add',
+        body: { artist_id: 'dz-1', artist_name: 'Low Tide Collective', source: 'deezer' },
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(window.showToast).toHaveBeenCalledWith('Following Low Tide Collective.', 'success');
+  });
+
+  it('the source inside the field picks where artists are searched', async () => {
+    const posts: { path: string; body: unknown }[] = [];
+    mockApi();
+    mockFollow(posts);
+    const dialog = await openFollow();
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Search on' }), {
+      target: { value: 'spotify' },
+    });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Search artists' }), {
+      target: { value: 'tide' },
+    });
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        path: '/api/library/search-service',
+        body: { service: 'spotify', entity_type: 'artist', query: 'tide' },
+      }),
+    );
+  });
+
+  it('follows a label (only new releases), opened on the kind in view', async () => {
+    const posts: { path: string; body: unknown }[] = [];
+    mockApi({ labels: LABELS });
+    mockFollow(posts);
+    const dialog = await openFollow('/wanted?tab=followed&kind=labels');
+    expect(kind('Label')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByText('MusicBrainz')).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Search labels' }), {
+      target: { value: 'quiet' },
+    });
+    const results = await within(dialog).findByRole('radiogroup', { name: 'Results' });
+    expect(within(results).getByText('Original production · UK')).toBeInTheDocument();
+    fireEvent.click(within(results).getByRole('radio'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Follow Quiet Rooms Records' }));
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        path: '/api/labels/watchlist/add',
+        body: { musicbrainz_label_id: 'mb-quiet', label_name: 'Quiet Rooms Records' },
+      }),
+    );
+  });
+
+  it('a podcast has its two switches, and follows with them', async () => {
+    const posts: { path: string; body: unknown }[] = [];
+    mockApi({ podcasts: PODCASTS });
+    mockFollow(posts);
+    const dialog = await openFollow();
+    fireEvent.click(kind('Podcast'));
+    expect(within(dialog).getByText('Apple Podcasts')).toBeInTheDocument();
+    const download = within(dialog).getByRole('switch', { name: 'Download new episodes' });
+    const keep = within(dialog).getByRole('switch', { name: 'Keep every episode' });
+    expect(download).toHaveAttribute('aria-checked', 'true');
+    expect(keep).toHaveAttribute('aria-checked', 'false');
+    expect(
+      within(dialog).getByText('Off: each episode is removed a week after it downloads.'),
+    ).toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Search podcasts' }), {
+      target: { value: 'quiet' },
+    });
+    const results = await within(dialog).findByRole('radiogroup', { name: 'Results' });
+    // Resident Advisor Exchange is followed already
+    expect(within(results).getAllByRole('radio')).toHaveLength(1);
+    expect(within(results).getByText('by The Quiet Rooms · 48 episodes')).toBeInTheDocument();
+    fireEvent.click(within(results).getByRole('radio'));
+    expect(
+      within(dialog).getByText(/The 48 episodes already out stay where they are/),
+    ).toBeInTheDocument();
+    fireEvent.click(keep);
+    expect(keep).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Follow Quiet Rooms Radio' }));
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        path: '/api/podcasts/watchlist/add',
+        body: expect.objectContaining({
+          feed_url: 'https://feeds.example.com/qrr',
+          title: 'Quiet Rooms Radio',
+          auto_download: true,
+          retention_days: 0,
+        }),
+      }),
+    );
+  });
+
+  it('a profile without download rights can follow a podcast but not download it', async () => {
+    (window as { canDownload?: () => boolean }).canDownload = () => false;
+    mockApi({ podcasts: PODCASTS });
+    mockFollow([]);
+    const dialog = await openFollow();
+    fireEvent.click(kind('Podcast'));
+    const download = within(dialog).getByRole('switch', { name: 'Download new episodes' });
+    expect(download).toHaveAttribute('aria-checked', 'false');
+    expect(download).toHaveAttribute('aria-disabled', 'true');
+    expect(
+      within(dialog).getByText(
+        'Your profile can’t download, so new episodes are counted, not downloaded.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('follows an audiobook author found by an author search', async () => {
+    const posts: { path: string; body: unknown }[] = [];
+    mockApi({ authors: AUTHORS });
+    mockFollow(posts);
+    const dialog = await openFollow();
+    fireEvent.click(kind('Author'));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Search authors' }), {
+      target: { value: 'clarke' },
+    });
+    const results = await within(dialog).findByRole('radiogroup', { name: 'Results' });
+    // Le Guin is followed already; Clarke has two books, one owned
+    expect(within(results).getAllByRole('radio')).toHaveLength(1);
+    expect(within(results).getByText('You have 1')).toBeInTheDocument();
+    fireEvent.click(within(results).getByRole('radio'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Follow Susanna Clarke' }));
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        path: '/api/audiobooks/watchlist',
+        body: expect.objectContaining({ name: 'Susanna Clarke', role: 'author', backfill: false }),
+      }),
+    );
+  });
+
+  it('an empty kind opens Follow… on that kind', async () => {
+    mockApi({ labels: [] });
+    mockFollow([]);
+    renderRoute('/wanted?tab=followed&kind=labels');
+    fireEvent.click(await screen.findByRole('button', { name: 'Follow a label…' }));
+    await screen.findByRole('dialog', { name: 'Follow…' });
+    expect(kind('Label')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
 describe('loading, empty and failure', () => {
   it('says it is loading, keeps the header and tabs, and shimmers the count', async () => {
     mockApi({ hangTracks: true });
@@ -1076,8 +1384,9 @@ describe('loading, empty and failure', () => {
     expect(
       await screen.findByRole('heading', { name: "You're not following anyone yet" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Search for an artist' }));
-    expect(await screen.findByRole('dialog', { name: 'Follow an artist' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Follow an artist…' }));
+    expect(await screen.findByRole('dialog', { name: 'Follow…' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Artist' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('a Following list that fails to load says so', async () => {
@@ -1380,31 +1689,6 @@ describe('Following tab', () => {
     ]);
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Followed artist settings…' }));
     await waitFor(() => expect(search(router).get('settings')).toBe('true'));
-  });
-
-  it('Follow… asks what to follow', async () => {
-    mockApi();
-    const { router } = renderRoute('/wanted?tab=followed');
-    await screen.findByText('Pale Harbour');
-    fireEvent.click(screen.getByRole('button', { name: 'Follow…' }));
-    const menu = await waitFor(() => {
-      const found = document.querySelector<HTMLElement>('[role="menu"]');
-      expect(found).not.toBeNull();
-      return found!;
-    });
-    expect(
-      within(menu)
-        .getAllByRole('menuitem')
-        .map((i) => i.textContent),
-    ).toEqual([
-      'An artist…',
-      'A label (opens Search)',
-      'A podcast (opens Podcasts)',
-      'An audiobook author (opens Audiobooks)',
-    ]);
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'An artist…' }));
-    expect(await screen.findByRole('dialog', { name: 'Follow an artist' })).toBeInTheDocument();
-    expect(search(router).get('tab')).toBe('followed');
   });
 
   it('says "Checking…" while a check runs, on the row it is checking too', async () => {
