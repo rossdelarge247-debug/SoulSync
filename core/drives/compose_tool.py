@@ -1,0 +1,703 @@
+"""The Docker step's tool (boards 14c, 14d): adds the drives mount to the
+services in ``docker-compose.yml`` that read the music folders, keeps a copy,
+restarts, and undoes.
+
+This file runs in two places, so it imports only the standard library:
+
+* SYNCHRO.S serves it inside the helper script (``/api/drives/helper.sh``),
+  which runs it with the computer's own ``python3`` (macOS has one once the
+  Command Line Tools are installed, step 1 of the Mac guide);
+* the app imports its YAML block functions to edit ``slskd.yml`` at the
+  switch.
+
+**How it edits YAML.** Not with sed, and not by loading and dumping the file
+(that would lose comments, anchors and the person's layout). It reads the
+block structure (keys, their indentation, sequences under them) and only ever
+*inserts* whole lines: every line already there stays exactly as it was. It
+refuses what it can't edit safely (a flow list like ``volumes: [a, b]``, a
+service whose keys come from a ``<<:`` merge, tabs) and says to do it by
+hand. Before writing, the new file is checked with ``docker compose config``.
+
+Run as a program: ``python3 compose_tool.py [--undo] [--dry-run] [--yes]
+[--platform mac|linux] [--file docker-compose.yml]`` from the folder that
+holds the compose file.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+from typing import Dict, List, Optional, Sequence, Tuple
+
+BACKUP_NAME = "docker-compose.before-drives.yml"
+COMPOSE_NAMES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
+DRIVE_MOUNTS = {"mac": ["/Volumes:/Volumes"], "linux": ["/mnt:/mnt", "/media:/media"]}
+SLSKD_CONFIG_TARGET = "/slskd-config"
+MUSIC_TARGETS = ("/app/Transfer", "/app/downloads", "/app/Staging")
+
+
+class Unsupported(ValueError):
+    """The file has a shape this tool won't edit; the message says why."""
+
+
+# ── reading lines ─────────────────────────────────────────────────────────────
+
+_KEY = re.compile(r"""^(?P<key>"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s#'"\-?:,\[\]{}&*!|>%@`][^:#]*?|-[^\s][^:#]*?)\s*:(?:\s+(?P<rest>.*))?$""")
+
+
+def _strip_comment(text: str) -> str:
+    """``text`` without a trailing ``# comment`` (one outside quotes)."""
+    out = []
+    quote = None
+    prev = " "
+    for ch in text:
+        if quote:
+            out.append(ch)
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"') and prev in " \t[{,:-":
+            quote = ch
+            out.append(ch)
+        elif ch == "#" and prev in " \t":
+            break
+        else:
+            out.append(ch)
+        prev = ch
+    return "".join(out).rstrip()
+
+
+class Line:
+    __slots__ = ("idx", "raw", "body", "indent", "content")
+
+    def __init__(self, idx: int, raw: str) -> None:
+        self.idx = idx
+        self.raw = raw
+        self.body = raw.rstrip("\r\n")
+        stripped = self.body.lstrip(" ")
+        if self.body[: len(self.body) - len(stripped)].count("\t") or stripped.startswith("\t"):
+            raise Unsupported("The file uses tabs for indentation.")
+        self.indent = len(self.body) - len(stripped)
+        self.content = "" if stripped.startswith("#") else _strip_comment(stripped)
+
+    @property
+    def blank(self) -> bool:
+        return self.content == ""
+
+
+def _lines(text: str) -> List[Line]:
+    return [Line(i, raw) for i, raw in enumerate(text.splitlines(keepends=True))]
+
+
+def _newline(text: str) -> str:
+    return "\r\n" if "\r\n" in text else "\n"
+
+
+def _unquote(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return bytes(value[1:-1], "utf-8").decode("unicode_escape")
+    return value
+
+
+_PLAIN = re.compile(r"^[A-Za-z0-9_./~$][A-Za-z0-9_./~:=@+$ -]*$")
+
+
+def scalar(value: str) -> str:
+    """``value`` as a YAML scalar: plain when that's unambiguous, else single-quoted."""
+    if _PLAIN.match(value) and ": " not in value and " #" not in value and not value.endswith((":", " ")):
+        return value
+    return "'" + value.replace("'", "''") + "'"
+
+
+# ── the block structure ───────────────────────────────────────────────────────
+
+class Node:
+    """A ``key:`` line and the lines its value spans."""
+
+    def __init__(self, line: Line, key: str, rest: str, end: int, last: int) -> None:
+        self.line = line
+        self.key = key
+        self.rest = rest            # what follows the colon on the key's line
+        self.end = end              # index after the block's last line (comments included)
+        self.last = last            # index of the block's last content line
+
+    @property
+    def indent(self) -> int:
+        return self.line.indent
+
+
+def _block_end(lines: List[Line], start: int, indent: int, *, allow_seq_at_indent: bool) -> Tuple[int, int]:
+    """(end, last): the block that starts after line ``start`` holds the
+    lines indented more than ``indent`` (and, for a value that's a sequence,
+    ``- `` items at the same indent)."""
+    last = start
+    i = start + 1
+    while i < len(lines):
+        ln = lines[i]
+        if ln.blank:
+            i += 1
+            continue
+        if ln.indent > indent or (allow_seq_at_indent and ln.indent == indent and ln.content.startswith("- ")):
+            last = i
+            i += 1
+            continue
+        break
+    return last + 1, last
+
+
+def _children(lines: List[Line], start: int, end: int, *, parent_indent: int) -> List[Node]:
+    """The mapping keys directly under a block (lines start+1 .. end)."""
+    out: List[Node] = []
+    child_indent = None
+    i = start + 1
+    while i < end:
+        ln = lines[i]
+        if ln.blank:
+            i += 1
+            continue
+        if ln.indent <= parent_indent and not (ln.indent == parent_indent and ln.content.startswith("- ")):
+            break
+        if child_indent is None:
+            child_indent = ln.indent
+        if ln.indent == child_indent:
+            m = _KEY.match(ln.content)
+            if m and not ln.content.startswith("- "):
+                key = _unquote(m.group("key"))
+                rest = (m.group("rest") or "").strip()
+                block_end, last = _block_end(lines, i, ln.indent, allow_seq_at_indent=True)
+                out.append(Node(ln, key, rest, block_end, last))
+                i = block_end
+                continue
+        i += 1
+    return out
+
+
+def top_level(lines: List[Line]) -> List[Node]:
+    for ln in lines:
+        if not ln.blank and ln.content.startswith(("---", "...")) and ln.idx > 0:
+            raise Unsupported("The file holds more than one YAML document.")
+    return _children(lines, -1, len(lines), parent_indent=-1)
+
+
+def find(lines: List[Line], path: Sequence[str]) -> Optional[Node]:
+    nodes = top_level(lines)
+    node = None
+    for key in path:
+        node = next((n for n in nodes if n.key == key), None)
+        if node is None:
+            return None
+        nodes = _children(lines, node.line.idx, node.end, parent_indent=node.indent)
+    return node
+
+
+def children_of(lines: List[Line], node: Node) -> List[Node]:
+    return _children(lines, node.line.idx, node.end, parent_indent=node.indent)
+
+
+def seq_items(lines: List[Line], node: Node) -> List[Tuple[int, int, int, str]]:
+    """The ``- item`` entries of a block sequence value: (first line index,
+    last line index, dash indent, the item's text on its first line)."""
+    if node.rest:
+        if node.rest.startswith(("[", "{")):
+            raise Unsupported(f"“{node.key}” is written on one line ({node.rest}).")
+        if node.rest.startswith(("*", "&", "!")):
+            raise Unsupported(f"“{node.key}” uses a YAML anchor or tag.")
+        raise Unsupported(f"“{node.key}” isn't a list.")
+    items = []
+    i = node.line.idx + 1
+    dash = None
+    while i < node.end:
+        ln = lines[i]
+        if ln.blank:
+            i += 1
+            continue
+        if ln.content.startswith("- ") or ln.content == "-":
+            if dash is None:
+                dash = ln.indent
+            if ln.indent == dash:
+                end, last = _block_end(lines, i, ln.indent, allow_seq_at_indent=False)
+                items.append((i, last, ln.indent, ln.content[1:].strip()))
+                i = end
+                continue
+        elif dash is None:
+            raise Unsupported(f"“{node.key}” isn't a list.")
+        i += 1
+    return items
+
+
+def _indent_step(lines: List[Line]) -> int:
+    for ln in lines:
+        if not ln.blank and ln.indent > 0:
+            return ln.indent
+    return 2
+
+
+def _insert(text: str, at: int, new_lines: List[str]) -> str:
+    """``text`` with ``new_lines`` inserted before line index ``at``."""
+    nl = _newline(text)
+    raw = text.splitlines(keepends=True)
+    if at > 0 and at == len(raw) and raw and not raw[-1].endswith(("\n", "\r")):
+        raw[-1] = raw[-1] + nl
+    block = [line + nl for line in new_lines]
+    return "".join(raw[:at] + block + raw[at:])
+
+
+def add_seq_item(text: str, path: Sequence[str], value: str) -> str:
+    """``text`` with ``- value`` added to the sequence at ``path`` (made when
+    missing, under a parent that must exist)."""
+    lines = _lines(text)
+    node = find(lines, path)
+    step = _indent_step(lines)
+    if node is not None:
+        items = seq_items(lines, node)
+        if items:
+            last = items[-1]
+            return _insert(text, last[1] + 1, [" " * last[2] + "- " + value])
+        return _insert(text, node.line.idx + 1, [" " * (node.indent + step) + "- " + value])
+    parent = find(lines, path[:-1]) if len(path) > 1 else None
+    if parent is None:
+        raise Unsupported(f"There's no “{'.'.join(path[:-1])}” to add to.")
+    if parent.rest:
+        raise Unsupported(f"“{parent.key}” is written on one line.")
+    kids = children_of(lines, parent)
+    if any(k.key == "<<" for k in kids):
+        raise Unsupported(f"“{parent.key}” takes its keys from a YAML merge (<<:), so adding “{path[-1]}” "
+                          "would hide the merged ones.")
+    child_indent = kids[0].indent if kids else parent.indent + step
+    at = parent.last + 1
+    return _insert(text, at, [" " * child_indent + scalar(path[-1]) + ":",
+                              " " * (child_indent + step) + "- " + value])
+
+
+def set_seq(text: str, path: Sequence[str], values: Sequence[str]) -> str:
+    """``text`` with the sequence at ``path`` holding exactly ``values``:
+    items not wanted are removed, missing ones added; comments between items
+    stay. The mapping above it is made when missing."""
+    out = text
+    lines = _lines(out)
+    node = find(lines, path)
+    wanted = [str(v) for v in values]
+    if node is not None:
+        items = seq_items(lines, node)
+        keep = []
+        drop = []
+        for first, last, _dash, item in items:
+            if _unquote(item) in wanted and _unquote(item) not in keep:
+                keep.append(_unquote(item))
+            else:
+                drop.append((first, last))
+        raw = out.splitlines(keepends=True)
+        for first, last in sorted(drop, reverse=True):
+            del raw[first:last + 1]
+        out = "".join(raw)
+        for v in wanted:
+            if v not in keep:
+                out = add_seq_item(out, path, scalar(v))
+        return out
+    out = ensure_mapping(out, path[:-1])
+    for v in wanted:
+        out = add_seq_item(out, path, scalar(v))
+    return out
+
+
+def ensure_mapping(text: str, path: Sequence[str]) -> str:
+    """``text`` with block mappings along ``path`` (made at the end of their
+    parent when missing)."""
+    lines = _lines(text)
+    step = _indent_step(lines)
+    for depth in range(1, len(path) + 1):
+        sub = path[:depth]
+        lines = _lines(text)
+        if find(lines, sub) is not None:
+            continue
+        if depth == 1:
+            nl = _newline(text)
+            body = text if (not text or text.endswith(("\n", "\r"))) else text + nl
+            text = body + scalar(sub[0]) + ":" + nl
+            continue
+        parent = find(lines, sub[:-1])
+        assert parent is not None
+        if parent.rest:
+            raise Unsupported(f"“{parent.key}” is written on one line.")
+        kids = children_of(lines, parent)
+        indent = kids[0].indent if kids else parent.indent + step
+        text = _insert(text, parent.last + 1, [" " * indent + scalar(sub[-1]) + ":"])
+    return text
+
+
+def set_scalar(text: str, path: Sequence[str], value: str) -> str:
+    """``text`` with ``path`` set to the scalar ``value``. An existing line is
+    rewritten (its comment kept); a missing key is added."""
+    lines = _lines(text)
+    node = find(lines, path)
+    if node is not None:
+        if node.end - 1 > node.line.idx and any(not ln.blank for ln in lines[node.line.idx + 1:node.end]):
+            raise Unsupported(f"“{node.key}” holds more than one value.")
+        body = node.line.body
+        colon = body.index(":", node.line.indent + len(node.line.content.split(":")[0]))
+        tail = body[colon + 1:]
+        comment = ""
+        stripped_tail = _strip_comment(tail)
+        if len(stripped_tail) < len(tail.rstrip()):
+            comment = "  " + tail[len(stripped_tail):].strip()
+        ending = node.line.raw[len(node.line.body):]
+        raw = text.splitlines(keepends=True)
+        raw[node.line.idx] = body[:colon + 1] + " " + scalar(value) + comment + ending
+        return "".join(raw)
+    text = ensure_mapping(text, path[:-1]) if len(path) > 1 else text
+    lines = _lines(text)
+    step = _indent_step(lines)
+    if len(path) == 1:
+        nl = _newline(text)
+        body = text if (not text or text.endswith(("\n", "\r"))) else text + nl
+        return body + scalar(path[0]) + ": " + scalar(value) + nl
+    parent = find(lines, path[:-1])
+    kids = children_of(lines, parent)
+    indent = kids[0].indent if kids else parent.indent + step
+    return _insert(text, parent.last + 1, [" " * indent + scalar(path[-1]) + ": " + scalar(value)])
+
+
+def get_scalar(text: str, path: Sequence[str]) -> Optional[str]:
+    node = find(_lines(text), path)
+    if node is None or not node.rest:
+        return None
+    return _unquote(node.rest)
+
+
+def get_seq(text: str, path: Sequence[str]) -> List[str]:
+    lines = _lines(text)
+    node = find(lines, path)
+    if node is None:
+        return []
+    return [_unquote(item) for _f, _l, _d, item in seq_items(lines, node)]
+
+
+# ── docker-compose ────────────────────────────────────────────────────────────
+
+def _split_short_volume(item: str) -> Tuple[str, str]:
+    """(source, target) of a short-syntax volume ``src:dst[:mode]``."""
+    value = _unquote(item)
+    # a Windows source has a drive letter: C:\x:/y
+    m = re.match(r"^([A-Za-z]:[\\/][^:]*|[^:]+):([^:]+)(?::[a-z,]+)?$", value)
+    if m:
+        return m.group(1), m.group(2)
+    return "", value
+
+
+def service_info(text: str) -> List[Dict[str, object]]:
+    """Each service: name, image, volumes as (source, target), whether it has
+    a merge key, and whether its volumes can be edited here."""
+    lines = _lines(text)
+    services = find(lines, ["services"])
+    if services is None:
+        raise Unsupported("There's no “services:” in this file.")
+    if services.rest:
+        raise Unsupported("“services” is written on one line.")
+    out = []
+    for svc in children_of(lines, services):
+        kids = children_of(lines, svc)
+        image = next((_unquote(k.rest) for k in kids if k.key == "image"), "")
+        vols_node = next((k for k in kids if k.key == "volumes"), None)
+        volumes: List[Tuple[str, str]] = []
+        problem = None
+        if vols_node is not None:
+            try:
+                for first, _last, dash, item in seq_items(lines, vols_node):
+                    if ":" in item and not re.match(r"^(type|source|target|read_only|bind|volume)\s*:", item):
+                        volumes.append(_split_short_volume(item))
+                    else:
+                        # long syntax: read source/target from the item's lines
+                        src = tgt = ""
+                        j = first
+                        while j < len(lines) and (j == first or lines[j].indent > dash or lines[j].blank):
+                            c = lines[j].content[2:] if j == first else lines[j].content
+                            m = _KEY.match(c) if c else None
+                            if m:
+                                k = _unquote(m.group("key"))
+                                if k == "source":
+                                    src = _unquote(m.group("rest") or "")
+                                elif k == "target":
+                                    tgt = _unquote(m.group("rest") or "")
+                            j += 1
+                            if j >= vols_node.end:
+                                break
+                        volumes.append((src, tgt))
+            except Unsupported as exc:
+                problem = str(exc)
+        env = next((k for k in kids if k.key == "environment"), None)
+        out.append({"name": svc.key, "image": image, "volumes": volumes,
+                    "merge": any(k.key == "<<" for k in kids), "problem": problem,
+                    "has_volumes": vols_node is not None, "has_env": env is not None})
+    return out
+
+
+def _role(svc: Dict[str, object]) -> Optional[str]:
+    name = str(svc["name"]).lower()
+    image = str(svc["image"]).lower()
+    targets = [t for _s, t in svc["volumes"]]  # type: ignore[misc]
+    if "slskd" in image or name == "slskd":
+        return "slskd"
+    for media in ("plex", "jellyfin", "navidrome"):
+        if media in image or name == media:
+            return media
+    if "soulsync" in image or "synchros" in image or any(t in MUSIC_TARGETS for t in targets):
+        return "synchros"
+    return None
+
+
+def plan(text: str, platform: str) -> Dict[str, object]:
+    """What would change: per service, the lines to add. Never edits."""
+    mounts = DRIVE_MOUNTS.get(platform)
+    if not mounts:
+        raise Unsupported(f"This helper doesn't know {platform}.")
+    services = service_info(text)
+    app = next((s for s in services if _role(s) == "synchros"), None)
+    if app is None:
+        raise Unsupported("No service in this file mounts SYNCHRO.S's music folders (/app/Transfer, "
+                          "/app/downloads or /app/Staging).")
+    music_sources = {src for src, tgt in app["volumes"] if tgt in MUSIC_TARGETS and src}  # type: ignore[misc]
+    changes = []
+    missing_media = []
+    slskd_config_source = None
+    for svc in services:
+        role = _role(svc)
+        shares_music = any(src in music_sources for src, _t in svc["volumes"])  # type: ignore[misc]
+        if role is None and not shares_music:
+            continue
+        if role == "slskd":
+            for src, tgt in svc["volumes"]:  # type: ignore[misc]
+                if tgt.rstrip("/") == "/app" and src:
+                    slskd_config_source = src
+        have_targets = {tgt for _s, tgt in svc["volumes"]}  # type: ignore[misc]
+        add = [m for m in mounts if m.split(":")[-1] not in have_targets]
+        changes.append({"service": svc["name"], "role": role or "music", "add": add,
+                        "problem": svc["problem"] or (
+                            "its keys come from a YAML merge (<<:)" if svc["merge"] and not svc["has_volumes"] else None)})
+    # the slskd config folder goes to SYNCHRO.S once slskd's /app source is known
+    if slskd_config_source is None:
+        for svc in services:
+            if _role(svc) == "slskd":
+                for src, tgt in svc["volumes"]:  # type: ignore[misc]
+                    if tgt.rstrip("/") == "/app" and src:
+                        slskd_config_source = src
+    if slskd_config_source:
+        app_change = next(c for c in changes if c["service"] == app["name"])
+        have = {tgt for _s, tgt in app["volumes"]}  # type: ignore[misc]
+        if SLSKD_CONFIG_TARGET not in have:
+            app_change["add"].append(f"{slskd_config_source}:{SLSKD_CONFIG_TARGET}")
+    roles = {_role(s) for s in services}
+    for media in ("plex", "jellyfin", "navidrome"):
+        if media not in roles:
+            missing_media.append(media)
+    return {"app": app["name"], "changes": changes, "slskd_config": slskd_config_source,
+            "has_slskd": "slskd" in roles, "missing_media": missing_media,
+            "nothing_to_do": all(not c["add"] for c in changes)}
+
+
+def apply(text: str, the_plan: Dict[str, object]) -> str:
+    """``text`` with the plan's lines added (only insertions)."""
+    out = text
+    for change in the_plan["changes"]:  # type: ignore[union-attr]
+        if change["problem"] and change["add"]:
+            raise Unsupported(f"“{change['service']}”: {change['problem']}.")
+        for line in change["add"]:
+            out = add_seq_item(out, ["services", change["service"], "volumes"], scalar(line))
+    return out
+
+
+def diff_lines(before: str, after: str) -> List[str]:
+    """The new file with "+ " before each added line (the context the person sees)."""
+    old = before.splitlines()
+    new = after.splitlines()
+    out = []
+    i = 0
+    for line in new:
+        if i < len(old) and old[i] == line:
+            out.append("  " + line)
+            i += 1
+        else:
+            out.append("+ " + line)
+    return out
+
+
+# ── the program ───────────────────────────────────────────────────────────────
+
+def _say(msg: str = "") -> None:
+    sys.stdout.write(msg + "\n")
+    sys.stdout.flush()
+
+
+def _ask(question: str) -> bool:
+    try:
+        with open("/dev/tty", "r+") as tty:
+            tty.write(question)
+            tty.flush()
+            answer = tty.readline()
+    except OSError:
+        sys.stdout.write(question)
+        sys.stdout.flush()
+        answer = sys.stdin.readline()
+    return answer.strip().lower() in ("y", "yes")
+
+
+def _compose_cmd() -> Optional[List[str]]:
+    for cmd in (["docker", "compose"], ["docker-compose"]):
+        try:
+            if subprocess.run(cmd + ["version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                return cmd
+        except OSError:
+            continue
+    return None
+
+
+def _validate(cmd: List[str], folder: str, name: str) -> Optional[str]:
+    """None when ``docker compose config`` reads the file, else its words."""
+    proc = subprocess.run(cmd + ["-f", name, "config", "-q"], cwd=folder, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True)
+    return None if proc.returncode == 0 else (proc.stdout or "").strip()[-600:]
+
+
+def _restart(cmd: List[str], folder: str, name: str) -> bool:
+    _say("Restarting SYNCHRO.S and the services that changed (about a minute)…")
+    return subprocess.run(cmd + ["-f", name, "up", "-d"], cwd=folder).returncode == 0
+
+
+def _write_atomic(path: str, data: bytes) -> None:
+    tmp = path + ".drives-tmp"
+    mode = None
+    try:
+        mode = os.stat(path).st_mode & 0o7777
+    except OSError:
+        pass
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    if mode is not None:
+        os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def _guess_platform() -> str:
+    return "mac" if sys.platform == "darwin" else "linux"
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    undo = "--undo" in args
+    dry = "--dry-run" in args
+    yes = "--yes" in args
+    platform = _guess_platform()
+    if "--platform" in args:
+        platform = args[args.index("--platform") + 1]
+    folder = os.getcwd()
+    name = None
+    if "--file" in args:
+        name = args[args.index("--file") + 1]
+    else:
+        name = next((n for n in COMPOSE_NAMES if os.path.isfile(os.path.join(folder, n))), None)
+    if not name or not os.path.isfile(os.path.join(folder, name)):
+        _say(f"There's no docker-compose.yml in {folder}.")
+        _say("Go to the folder SYNCHRO.S was installed in (the one with docker-compose.yml), then paste again.")
+        return 2
+    path = os.path.join(folder, name)
+    backup = os.path.join(folder, BACKUP_NAME)
+    cmd = None if dry else _compose_cmd()
+    if not dry and cmd is None:
+        _say("Docker isn't answering here. Start Docker Desktop, then paste the command again.")
+        return 3
+
+    if undo:
+        if not os.path.isfile(backup):
+            _say(f"There's no {BACKUP_NAME} here, so there's nothing to put back.")
+            return 4
+        with open(backup, "rb") as f:
+            original = f.read()
+        if dry:
+            _say(f"Would put {BACKUP_NAME} back as {name} and restart.")
+            return 0
+        if not yes and not _ask(f"Put {BACKUP_NAME} back as {name} and restart? (y/n) "):
+            _say("Nothing changed.")
+            return 1
+        _write_atomic(path, original)
+        os.unlink(backup)
+        if not _restart(cmd, folder, name):
+            _say(f"{name} is back as it was, but Docker couldn't restart. Run: docker compose up -d")
+            return 5
+        _say(f"Done. {name} is back as it was. Go back to SYNCHRO.S.")
+        return 0
+
+    with open(path, "rb") as f:
+        raw = f.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        _say(f"{name} isn't plain text SYNCHRO.S can read. Nothing changed.")
+        return 6
+    try:
+        the_plan = plan(text, platform)
+        new_text = apply(text, the_plan)
+    except Unsupported as exc:
+        _say(f"The helper can't change {name} safely: {exc}")
+        _say("Nothing changed. Add the lines by hand instead (SYNCHRO.S shows them under “See the lines it adds”).")
+        return 7
+    if the_plan["nothing_to_do"]:
+        _say(f"{name} already lets SYNCHRO.S see your drives. Nothing to change.")
+        return 0
+
+    _say(f"In {path}, the helper will add:")
+    _say("")
+    for change in the_plan["changes"]:  # type: ignore[union-attr]
+        for line in change["add"]:
+            _say(f"  {change['service']}:  + - {line}")
+    missing = [m for m in the_plan["missing_media"] if m == "plex"]  # type: ignore[union-attr]
+    if missing:
+        _say("")
+        _say("Plex isn't in this file, so it isn't changed. If Plex runs on this computer itself, it sees")
+        _say("your drives already; if it runs somewhere else, add its folder by hand.")
+    _say("")
+    _say(f"A copy of the file as it is now is kept as {BACKUP_NAME}.")
+    if dry:
+        _say("")
+        for line in diff_lines(text, new_text):
+            if line.startswith("+ "):
+                _say(line)
+        return 0
+    if not yes and not _ask("Go ahead? (y/n) "):
+        _say("Nothing changed.")
+        return 1
+
+    tmp_name = ".docker-compose.drives-new.yml"
+    tmp_path = os.path.join(folder, tmp_name)
+    with open(tmp_path, "wb") as f:
+        f.write(new_text.encode("utf-8"))
+    try:
+        problem = _validate(cmd, folder, tmp_name)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+    if problem:
+        _say("Docker didn't accept the changed file, so nothing was changed:")
+        _say(problem)
+        return 8
+    if not os.path.exists(backup):
+        shutil.copyfile(path, backup)
+    _write_atomic(path, new_text.encode("utf-8"))
+    _say(f"Changed {path}")
+    if not _restart(cmd, folder, name):
+        _say("The file is changed, but Docker couldn't restart. Run: docker compose up -d")
+        _say("To undo: sh drives-helper.sh --undo")
+        return 9
+    _say("Done. Go back to SYNCHRO.S.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
