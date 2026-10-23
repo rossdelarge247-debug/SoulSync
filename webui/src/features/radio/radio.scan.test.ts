@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import type { RadioSessionState, ScanResult } from './radio.types';
+import type {
+  RadioSessionState,
+  ScanAvailability,
+  ScanResult,
+  ScanService,
+  ScanServiceState,
+} from './radio.types';
 
 import {
+  askWords,
+  autoAuddNote,
   scanAnswer,
   scanButton,
   scanPanel,
+  scanTrouble,
   scanWaitSeconds,
   serviceList,
   sheetNowPlaying,
@@ -299,5 +308,71 @@ describe('the phone sheet’s words (11d, 11e)', () => {
       danger: true,
     });
     expect(sheetScanWords(null)).toBeNull();
+  });
+});
+
+describe('Scan now’s state for everyone (15b, HANDOFF 87)', () => {
+  const avail = (
+    services: ScanService[],
+    states: Partial<Record<ScanService, ScanServiceState>>,
+    audd_auto?: ScanAvailability['audd_auto'],
+  ): ScanAvailability => ({ available: true, reason: null, services, states, audd_auto });
+
+  it('names the services a press asks, in order', () => {
+    expect(askWords(['acoustid', 'audd'])).toBe('AcoustID, then AudD');
+    expect(askWords(['acoustid', 'audd', 'acrcloud'])).toBe('AcoustID, then AudD, then ACRCloud');
+    expect(askWords([])).toBe('the identification services');
+  });
+
+  it('says nothing while every service set up is fine, or the server didn’t say', () => {
+    expect(
+      scanTrouble(avail(['acoustid', 'audd'], { acoustid: 'ready', audd: 'ready' })),
+    ).toBeNull();
+    expect(scanTrouble({ available: true, reason: null, services: ['audd'] })).toBeNull();
+    expect(scanTrouble(null)).toBeNull();
+  });
+
+  it('words one service, several, and nothing left to ask', () => {
+    expect(
+      scanTrouble(avail(['acoustid', 'audd'], { acoustid: 'ready', audd: 'refused' })),
+    ).toEqual({
+      strip:
+        'AudD refused its token, so Scan now asks AcoustID alone, which knows fewer tracks. An admin can fix it in Settings → Radio.',
+      sheet: 'AudD refused its token; AcoustID only.',
+      settingsLink: true,
+    });
+    const both = scanTrouble(
+      avail(['acoustid', 'audd', 'acrcloud'], {
+        acoustid: 'ready',
+        audd: 'no_requests_left',
+        acrcloud: 'refused',
+      }),
+    )!;
+    expect(both.strip).toBe(
+      'AudD has no requests left this month and ACRCloud refused its keys, so Scan now asks AcoustID alone, which knows fewer tracks. An admin can fix them in Settings → Radio.',
+    );
+    expect(both.sheet).toBe('AudD and ACRCloud can’t be asked; AcoustID only.');
+    const none = scanTrouble(
+      avail(['audd'], { acoustid: 'not_set_up', audd: 'no_requests_left' }),
+    )!;
+    expect(none.strip).toBe(
+      'AudD has no requests left this month, so Scan now has nothing left to ask. An admin can add requests in Settings → Radio.',
+    );
+    expect(none.sheet).toBe('AudD has no requests left this month; nothing else to ask.');
+    // AcoustID refused drops out of the chain, so it's said too
+    const acoustid = scanTrouble(
+      avail(['audd', 'acrcloud'], { acoustid: 'refused', audd: 'ready', acrcloud: 'ready' }),
+    )!;
+    expect(acoustid.strip).toBe(
+      'AcoustID refused its key, so Scan now asks AudD, then ACRCloud instead. An admin can fix it in Settings → Radio.',
+    );
+  });
+
+  it('says automatic AudD’s used-up day, and nothing else of it', () => {
+    expect(autoAuddNote(avail(['audd'], {}, { on: true, stopped: 'cap_reached' }))).toContain(
+      'AudD’s daily limit for listening automatically is used up',
+    );
+    expect(autoAuddNote(avail(['audd'], {}, { on: true, stopped: 'out_of_credit' }))).toBeNull();
+    expect(autoAuddNote(avail(['audd'], {}, { on: false, stopped: 'cap_reached' }))).toBeNull();
   });
 });

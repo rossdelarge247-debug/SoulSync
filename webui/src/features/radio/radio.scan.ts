@@ -11,7 +11,13 @@
  * (src/shell/radio-session.ts).
  */
 
-import type { NowPlaying, RadioSessionState, ScanResult, ScanService } from './radio.types';
+import type {
+  NowPlaying,
+  RadioSessionState,
+  ScanAvailability,
+  ScanResult,
+  ScanService,
+} from './radio.types';
 
 import { agoWords, nowLines, secondsSince, sourcePhrase } from './radio.format';
 
@@ -422,4 +428,83 @@ export function sheetScanWords(
   }
   if (panel.state === 'identifying') return { text: panel.line, danger: false };
   return { text: [panel.title, panel.line].filter(Boolean).join(' · '), danger: panel.danger };
+}
+
+/** "asks AcoustID, then AudD": the services a press asks, in order (15b). */
+export function askWords(services: readonly ScanService[]): string {
+  return services.length
+    ? services.map((s) => SERVICE_LABELS[s] ?? s).join(', then ')
+    : 'the identification services';
+}
+
+/** What each service calls its key. */
+const KEY_WORDS: Record<ScanService, string> = {
+  acoustid: 'its key',
+  audd: 'its token',
+  acrcloud: 'its keys',
+};
+
+export interface ScanTrouble {
+  /** The station strip's line, said for everyone with the warning dot (15b). */
+  strip: string;
+  /** The phone sheet's one line under Scan now. */
+  sheet: string;
+  /** "Settings → Radio" is in the strip's line (a link for admins). */
+  settingsLink: boolean;
+}
+
+/**
+ * A service that's refused or out of requests, said for everyone where they
+ * press Scan now (HANDOFF 87, board 15b): "AudD has no requests left this
+ * month, so Scan now asks AcoustID alone, which knows fewer tracks. An admin
+ * can add requests in Settings → Radio." null when every service set up is
+ * fine (or the server didn't say).
+ */
+export function scanTrouble(avail: ScanAvailability | null | undefined): ScanTrouble | null {
+  const states = avail?.states;
+  if (!avail || !states) return null;
+  const bad = (s: ScanService) => states[s] === 'refused' || states[s] === 'no_requests_left';
+  const order: ScanService[] = ['acoustid', 'audd', 'acrcloud'];
+  const troubled = order.filter(bad);
+  if (!troubled.length) return null;
+  const left = avail.services.filter((s) => !bad(s));
+  const what = (s: ScanService) =>
+    states[s] === 'refused'
+      ? `${SERVICE_LABELS[s]} refused ${KEY_WORDS[s]}`
+      : `${SERVICE_LABELS[s]} has no requests left this month`;
+  const said = troubled.map(what);
+  const head =
+    said.length === 1 ? said[0] : `${said.slice(0, -1).join(', ')} and ${said[said.length - 1]}`;
+  const then = !left.length
+    ? 'so Scan now has nothing left to ask'
+    : left.length === 1
+      ? `so Scan now asks ${SERVICE_LABELS[left[0]]} alone${left[0] === 'acoustid' ? ', which knows fewer tracks' : ''}`
+      : `so Scan now asks ${askWords(left)} instead`;
+  const onlyCredit = troubled.every((s) => states[s] === 'no_requests_left');
+  const who =
+    troubled.length > 1
+      ? 'An admin can fix them in Settings → Radio.'
+      : onlyCredit
+        ? 'An admin can add requests in Settings → Radio.'
+        : 'An admin can fix it in Settings → Radio.';
+  const sheetHead = troubled.length === 1 ? said[0] : `${serviceList(troubled)} can’t be asked`;
+  const sheetTail = !left.length
+    ? 'nothing else to ask'
+    : `${left.map((s) => SERVICE_LABELS[s]).join(' and ')} only`;
+  return {
+    strip: `${head}, ${then}. ${who}`,
+    sheet: `${sheetHead}; ${sheetTail}.`,
+    settingsLink: true,
+  };
+}
+
+/**
+ * Automatic AudD's state where it fits (the station strip, under the ready
+ * sentence): its daily limit used up, said for everyone. A refused token or
+ * no requests left is already the service's own line.
+ */
+export function autoAuddNote(avail: ScanAvailability | null | undefined): string | null {
+  const auto = avail?.audd_auto;
+  if (!auto?.on || auto.stopped !== 'cap_reached') return null;
+  return 'AudD’s daily limit for listening automatically is used up, so tracks the station doesn’t name wait for Scan now until midnight.';
 }

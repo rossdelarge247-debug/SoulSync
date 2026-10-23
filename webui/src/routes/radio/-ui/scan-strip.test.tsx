@@ -98,9 +98,11 @@ describe('the station page’s Scan now strip (11b)', () => {
   it('ready: says what it does, in the order it asks', () => {
     const a = api();
     render(<ScanStrip session={session({ nowPlaying: SERVICES })} playingHere />);
+    // 15b's ready sentence names the services a press asks, in order
     expect(strip()).toHaveTextContent(
-      'Not sure what this is? Scan now listens to ten seconds of the stream on the server and asks AcoustID, then AudD.',
+      'Not the track you hear? Scan now listens for 10 seconds and asks AcoustID, then AudD.',
     );
+    expect(strip().querySelector('[data-tone="warning"]')).toBeNull();
     expect(control()).toHaveTextContent('Scan now');
     fireEvent.click(control());
     expect(a.scanNow).toHaveBeenCalled();
@@ -241,8 +243,90 @@ describe('a scan’s answer in the Now playing card (11b)', () => {
       />,
     );
     expect(screen.getByText('Glasshouse')).toBeInTheDocument();
-    expect(screen.getByText(/Found by AudD · Scan now · \d+ s ago/)).toBeInTheDocument();
+    // 86: the card's line stops after the time (no "the station's feed says …")
+    const line = screen.getByText(/Found by AudD · Scan now · \d+ s ago/);
+    expect(line.textContent).toMatch(/^Found by AudD · Scan now · \d+ s ago$/);
     fireEvent.click(screen.getByRole('button', { name: 'Add to Wanted' }));
     expect(onAdd).toHaveBeenCalled();
+  });
+});
+
+describe('Scan now’s state for everyone (15b, HANDOFF 87)', () => {
+  afterEach(() => {
+    window.SoulSyncRadio = undefined;
+  });
+  const np = (scan: Record<string, unknown>) =>
+    ({
+      scan: { available: true, reason: null, ...scan },
+    }) as unknown as RadioSessionState['nowPlaying'];
+
+  it('says a service out of requests for a member, with the warning dot and who can fix it', () => {
+    api();
+    render(
+      <ScanStrip
+        session={session({
+          nowPlaying: np({
+            services: ['acoustid', 'audd'],
+            states: { acoustid: 'ready', audd: 'no_requests_left', acrcloud: 'not_set_up' },
+            audd_auto: { on: true, stopped: 'out_of_credit' },
+          }),
+        })}
+        playingHere
+      />,
+    );
+    const line = strip().querySelector('[data-tone="warning"]')!;
+    expect(line).toHaveTextContent(
+      'AudD has no requests left this month, so Scan now asks AcoustID alone, which knows fewer tracks. An admin can add requests in Settings → Radio.',
+    );
+    expect(line.querySelector('span[aria-hidden="true"]')).not.toBeNull();
+    // a member gets the words, not the link
+    expect(strip().querySelector('button[type="button"]:not([class*="scanControl"])')).toBeNull();
+    expect(strip()).not.toHaveTextContent('Not the track you hear?');
+    // still pressable
+    expect(control()).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('gives admins Settings → Radio as a link for a refused key', () => {
+    api();
+    const open = vi.fn();
+    window.openRadioSettings = open;
+    render(
+      <ScanStrip
+        session={session({
+          nowPlaying: np({
+            services: ['audd', 'acrcloud'],
+            states: { acoustid: 'not_set_up', audd: 'refused', acrcloud: 'ready' },
+          }),
+        })}
+        playingHere
+        isAdmin
+      />,
+    );
+    expect(strip()).toHaveTextContent(
+      'AudD refused its token, so Scan now asks ACRCloud alone. An admin can fix it in Settings → Radio.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Settings → Radio' }));
+    expect(open).toHaveBeenCalled();
+    window.openRadioSettings = undefined;
+  });
+
+  it('says automatic AudD’s used-up day under the ready sentence', () => {
+    api();
+    render(
+      <ScanStrip
+        session={session({
+          nowPlaying: np({
+            services: ['acoustid', 'audd'],
+            states: { acoustid: 'ready', audd: 'ready', acrcloud: 'not_set_up' },
+            audd_auto: { on: true, stopped: 'cap_reached' },
+          }),
+        })}
+        playingHere
+      />,
+    );
+    expect(strip()).toHaveTextContent('asks AcoustID, then AudD.');
+    expect(strip()).toHaveTextContent(
+      'AudD’s daily limit for listening automatically is used up, so tracks the station doesn’t name wait for Scan now until midnight.',
+    );
   });
 });

@@ -1620,6 +1620,8 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
 .ss-player-radio-scanwords { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ss-text-tertiary); }
 .ss-player-radio-scanbox .ss-player-radio-scanwords { text-align: center; }
 .ss-player-radio-scanwords[data-tone='danger'] { color: var(--ss-danger); }
+/* 15b: a service refused or out of requests, one line under Scan now */
+.ss-player-radio-scantrouble { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ss-text-tertiary); }
 /* the auto-add row: the 104 × 44 switch (its word first, the track right) and its words */
 .ss-player-radio-auto { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 12px; align-items: center; }
 .ss-player-radio-switch {

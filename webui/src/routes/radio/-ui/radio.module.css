@@ -1045,6 +1045,21 @@
 .scanText .scanLine[data-tone='danger'] {
   color: var(--ss-danger);
 }
+/* a service refused or out of requests (15b): the warning dot, at 86% */
+.scanText .scanLine[data-tone='warning'] {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--ss-text-secondary);
+}
+.scanDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--ss-warning);
+}
 .scanNote {
   margin: 0;
   color: var(--ss-text-meta);
