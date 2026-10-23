@@ -684,10 +684,19 @@ def _summary(releases: Iterable[Dict[str, Any]], sample: int = 4) -> Dict[str, A
 
 
 def wantable(release: Dict[str, Any]) -> bool:
-    """Something to add: you don't have all of it and it isn't on Wanted."""
+    """Something to add when picked by hand: you don't have all of it and it
+    isn't on Wanted (an album you have part of counts)."""
     if release["wanted"]:
         return False
     return release["kind"] == "missing" or release["state"] == "partial"
+
+
+def addable_missing(release: Dict[str, Any]) -> bool:
+    """What the "missing" buttons add ("Select all N missing", the genre
+    line's "Add the 17 missing", a genre or artist tile's hover): releases
+    you don't have at all that aren't on Wanted yet. An album you have part
+    of is picked by hand."""
+    return release["kind"] == "missing" and not release["wanted"]
 
 
 def album_page(index: ReleaseIndex, *, show: Any = "all", genre: Any = "", q: Any = "", sort: Any = "recent",
@@ -728,10 +737,12 @@ def album_page(index: ReleaseIndex, *, show: Any = "all", genre: Any = "", q: An
         "sort": sort,
         "genre": index.genre_names.get(genre_key, genre or "") if genre_key else "",
         "show_counts": show_counts,
+        # the "All" chip: this show and text, any genre
+        "genre_total": len(shown),
         "genres": [{"key": k, "name": index.genre_names.get(k, k), "count": n}
                    for k, n in sorted(genre_counts.items(), key=lambda kv: (-kv[1], index.genre_names.get(kv[0], kv[0]).casefold()))],
         "totals": totals(index),
-        "missing_summary": _summary(r for r in ordered if wantable(r)),
+        "missing_summary": _summary(r for r in ordered if addable_missing(r)),
         "target": index.target,
     }
     if genre_key:
@@ -742,7 +753,7 @@ def album_page(index: ReleaseIndex, *, show: Any = "all", genre: Any = "", q: An
             "library": sum(1 for r in whole if r["kind"] == "library"),
             "missing": sum(1 for r in whole if r["kind"] == "missing"),
             "below": sum(1 for r in whole if r["below_target"] > 0),
-            "wantable": _summary(_sort_releases([r for r in whole if wantable(r)], sort, genre_key)),
+            "wantable": _summary(_sort_releases([r for r in whole if addable_missing(r)], sort, genre_key)),
             "below_album_ids": [r["album_id"] for r in whole if r["below_target"] > 0 and r["album_id"] is not None],
         }
     return body
@@ -778,7 +789,7 @@ def genre_tiles(index: ReleaseIndex, *, show: Any = "all", sort: Any = "albums",
                     tile["_covers"].append((r.get("plays") or 0, _added_key(r), r["art_url"]))
             else:
                 tile["missing"] += 1
-            if wantable(r):
+            if addable_missing(r):
                 tile["wantable"] += 1
             if r["below_target"] > 0:
                 tile["below"] += 1
@@ -866,6 +877,7 @@ def artist_page(index: ReleaseIndex, *, show: Any = "all", genre: Any = "", q: A
         "sort": sort,
         "genre": names.get(genre_key) or index.genre_names.get(genre_key, genre or "") if genre_key else "",
         "show_counts": show_counts,
+        "genre_total": sum(1 for a, st, _k in texted if show_ok(a, st, show)),
         "genres": [{"key": k, "name": names.get(k, k), "count": n}
                    for k, n in sorted(genre_counts.items(), key=lambda kv: (-kv[1], names.get(kv[0], kv[0]).casefold()))],
         "totals": totals(index),
@@ -881,8 +893,9 @@ def resolve_selection(index: ReleaseIndex, body: Dict[str, Any]) -> Tuple[List[D
     """``release_ids`` plus, optionally, ``filter`` (everything matching it,
     less ``exclude_ids``): what a selection means. ``filter`` takes ``show``,
     ``genre`` / ``genres`` (any of them), ``q`` and ``artist_ids``; a filter
-    selects only releases there is something to add for (``wantable``), which
-    is what "Select all N missing" and the genre line's button mean.
+    selects only releases you don't have that aren't on Wanted
+    (``addable_missing``), which is what "Select all N missing" and the genre
+    line's button mean.
 
     Returns ``(releases, unknown_ids)``; order is the filter's (recently added)
     then the ids'."""
@@ -900,7 +913,7 @@ def resolve_selection(index: ReleaseIndex, body: Dict[str, Any]) -> Tuple[List[D
         artist_ids = {str(a) for a in flt.get("artist_ids") or [] if a not in (None, "")}
         exclude = {str(i) for i in body.get("exclude_ids") or []}
         for r in _sort_releases(index.releases, "recent"):
-            if r["id"] in exclude or not wantable(r):
+            if r["id"] in exclude or not addable_missing(r):
                 continue
             if artist_ids and str(r["artist_id"]) not in artist_ids:
                 continue
@@ -938,7 +951,7 @@ def selection_summary(index: ReleaseIndex, releases: List[Dict[str, Any]], *, sa
 
 __all__ = [
     "ALBUM_SHOWS", "ALBUM_SORTS", "ARTIST_SHOWS", "ARTIST_SORTS", "GENRE_SHOWS", "GENRE_SORTS",
-    "MAX_SELECTION", "ReleaseIndex", "album_page", "artist_page", "build_index", "clear_cache",
+    "MAX_SELECTION", "ReleaseIndex", "addable_missing", "album_page", "artist_page", "build_index", "clear_cache",
     "genre_tiles", "get_index", "norm_name", "norm_title", "parse_genres", "primary_genre",
     "resolve_selection", "selection_summary", "totals", "wantable",
 ]

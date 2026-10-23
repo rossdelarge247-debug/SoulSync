@@ -233,6 +233,7 @@ def test_show_counts_genre_counts_and_totals(library):
     assert [r["title"] for r in page["releases"]] == ["Lantern"]
     assert page["show_counts"] == {"all": 4, "library": 3, "missing": 1, "below": 0}
     assert {g["name"]: g["count"] for g in page["genres"]} == {"Ambient": 1, "Folk": 1}
+    assert page["genre_total"] == 2
 
 
 def test_the_genre_summary_line(library):
@@ -240,9 +241,9 @@ def test_the_genre_summary_line(library):
     summary = page["genre_summary"]
     assert (summary["name"], summary["albums"], summary["library"], summary["missing"], summary["below"]) == (
         "Ambient", 4, 3, 1, 0)
-    # Lantern is on Wanted and Tidewater is short one track: one to add
-    assert summary["wantable"]["count"] == 1 and summary["wantable"]["tracks"] == 1
-    assert summary["wantable"]["sample"][0]["title"] == "Tidewater"
+    # Lantern, the one Ambient album you don't have, is on Wanted already;
+    # Tidewater (short a track) is picked by hand, not by the genre's button
+    assert summary["wantable"]["count"] == 0
 
 
 def test_sorts(library):
@@ -294,6 +295,8 @@ def test_genre_tiles(library):
     assert [t["name"] for t in body["genres"]][0] == "Ambient"
     amb = tiles["Ambient"]
     assert (amb["albums"], amb["library"], amb["missing"], amb["below"]) == (4, 3, 1, 0)
+    # Ambient's one missing album is on Wanted: nothing to add from the tile
+    assert amb["wantable"] == 0 and tiles["Folk"]["wantable"] == 1
     assert tiles["Folk"]["below"] == 1 and tiles["Jazz"]["missing"] == 0
     assert body["show_counts"] == {"all": 3, "gaps": 2}
     gaps = ri.genre_tiles(ri.build_index(library, 1), show="gaps", sort="name")
@@ -321,6 +324,7 @@ def test_artist_counts_following_and_filters(library):
     assert (ph["releases"], ph["in_library"], ph["missing"], ph["wanted"], ph["following"]) == (3, 2, 1, 1, True)
     assert artists["Saltmarsh"]["wantable"] == 1
     assert page["show_counts"] == {"all": 3, "following": 1, "incomplete": 2}
+    assert page["genre_total"] == 3
     assert [a["name"] for a in ri.artist_page(index, show="incomplete", sort="missing")["artists"]] == [
         "Pale Harbour", "Saltmarsh"]
     assert [a["name"] for a in ri.artist_page(index, genre="folk")["artists"]] == ["Saltmarsh"]
@@ -343,8 +347,11 @@ def test_artists_with_the_same_name_fold_into_one(db):
 
 def test_a_filter_selects_what_there_is_to_add(library):
     index = ri.build_index(library, 1)
-    chosen, unknown = ri.resolve_selection(index, {"filter": {"show": "all", "genre": "Ambient"}})
-    assert [r["title"] for r in chosen] == ["Tidewater"] and unknown == []
+    chosen, unknown = ri.resolve_selection(index, {"filter": {"show": "all", "genre": "Folk"}})
+    assert [r["title"] for r in chosen] == ["Weather Systems"] and unknown == []
+    # an album you have part of is picked by hand, never by a filter
+    chosen, _ = ri.resolve_selection(index, {"filter": {"show": "all", "genre": "Ambient"}})
+    assert chosen == []
     chosen, _ = ri.resolve_selection(index, {"filter": {"show": "missing"}, "exclude_ids": ["release:spotify:x2"],
                                              "release_ids": ["album:10", "nope"]})
     assert [r["title"] for r in chosen] == ["Night Ferry"]
