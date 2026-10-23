@@ -937,6 +937,30 @@ def delete_link(link_id):
     return jsonify({"success": True})
 
 
+@bp.route("/api/radio/links/<int:link_id>", methods=["PUT"])
+@admin_only
+def update_link(link_id):
+    """Change a link's logo (HANDOFF 66): ``{logo_url}``, checked and fetched
+    the way adding a link checks it; an empty one goes back to the letters."""
+    body = request.get_json(silent=True) or {}
+    if store.get_link(_db(), link_id) is None:
+        return _err(404, "not_found", "That link isn't there any more.")
+    if "logo_url" not in body:
+        return _err(400, "bad_request", "Send the logo address.")
+    raw = body.get("logo_url")
+    if raw is not None and not isinstance(raw, str):
+        return _err(400, "bad_request", "The logo address is text.")
+    logo_url = (raw or "").strip()
+    if len(logo_url) > 2000:
+        return _err(400, "logo_failed", "That address is too long to be a logo's.")
+    if logo_url:
+        error = _check_logo(logo_url)
+        if error:
+            return _err(400, "logo_failed", error)
+    store.set_link_logo(_db(), link_id, logo_url or None)
+    return jsonify({"success": True, "link": _public_link(store.get_link(_db(), link_id))})
+
+
 # ── settings (admins) ────────────────────────────────────────────────────────
 
 def _identification_status() -> Dict[str, Any]:

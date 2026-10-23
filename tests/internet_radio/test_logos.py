@@ -267,3 +267,54 @@ def test_members_cant_add_a_logo(client, who):
     r = client.post("/api/radio/links", json={"url": "https://x.example.com/s", "name": "X", "kind": "world",
                                               "logo_url": "https://x.example.com/l.png"})
     assert r.status_code == 403
+
+
+
+# ── Change logo… (HANDOFF 66) ──
+
+def _link(client, monkeypatch):
+    _passing(monkeypatch)
+    return client.post("/api/radio/links", json={"url": "https://x.example.com/live.mp3", "name": "Lowlands",
+                                                 "kind": "electronic"}).get_json()["link"]
+
+
+def test_a_links_logo_can_be_changed_through_the_same_check(client, db, monkeypatch):
+    link = _link(client, monkeypatch)
+    fetched = []
+    monkeypatch.setattr(logos, "fetch", lambda url, request=None: fetched.append(url) or (PNG, "image/png"))
+    r = client.put(f"/api/radio/links/{link['id']}", json={"logo_url": "https://x.example.com/new.png"})
+    assert r.status_code == 200 and r.get_json()["link"]["logo_url"] == "https://x.example.com/new.png"
+    assert fetched == ["https://x.example.com/new.png"]
+    favs = client.get("/api/radio/stations").get_json()["favourites"]
+    mine = next(s for s in favs if s["id"] == f"link-{link['id']}")
+    assert mine["logo_url"].startswith(f"/api/radio/stations/link-{link['id']}/logo?v=")
+    # empty goes back to the letters
+    r = client.put(f"/api/radio/links/{link['id']}", json={"logo_url": ""})
+    assert r.get_json()["link"]["logo_url"] is None
+    assert store.get_link(db, link["id"])["logo_url"] is None
+
+
+def test_a_bad_logo_changes_nothing(client, db, monkeypatch):
+    link = _link(client, monkeypatch)
+    monkeypatch.setattr(logos, "fetch", lambda url, request=None: (PNG, "image/png"))
+    client.put(f"/api/radio/links/{link['id']}", json={"logo_url": "https://x.example.com/ok.png"})
+
+    def svg(url, request=None):
+        raise logos.LogoError("SVG logos can't be used: PNG, JPEG, GIF, WebP or ICO only.")
+    monkeypatch.setattr(logos, "fetch", svg)
+    r = client.put(f"/api/radio/links/{link['id']}", json={"logo_url": "https://x.example.com/l.svg"})
+    assert r.status_code == 400 and r.get_json()["error"] == "logo_failed" and "SVG" in r.get_json()["message"]
+    # the outbound guard refuses before anything is fetched
+    monkeypatch.setattr(radio_api, "check_url", lambda url: (False, "That address is on a private or local network."))
+    r = client.put(f"/api/radio/links/{link['id']}", json={"logo_url": "http://192.168.1.4/l.png"})
+    assert r.status_code == 400 and "private" in r.get_json()["message"]
+    assert store.get_link(db, link["id"])["logo_url"] == "https://x.example.com/ok.png"
+    assert client.put(f"/api/radio/links/{link['id']}", json={"logo_url": 5}).status_code == 400
+    assert client.put(f"/api/radio/links/{link['id']}", json={}).status_code == 400
+    assert client.put("/api/radio/links/999", json={"logo_url": ""}).status_code == 404
+
+
+def test_built_in_stations_have_no_logo_override(client):
+    # only links have a PUT; a built-in's id isn't a link's number
+    assert client.put("/api/radio/links/nts-1", json={"logo_url": "https://x.example.com/l.png"}).status_code in (
+        404, 405)

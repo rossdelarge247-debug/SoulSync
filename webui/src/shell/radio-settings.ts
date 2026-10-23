@@ -9,11 +9,16 @@
  * - Auto-add: the daily limit per station, and the stations with it on.
  * - Streams: the relay rule, prefer lossless, how long Heard is kept.
  * - Your stream links: name and address, quality or a warning, who added it,
- *   Check and Remove.
- * - Scan now services: AcoustID, AudD and ACRCloud in the order a scan asks
- *   them, whether each is ready, this month's requests, a Test each, and the
- *   paid services' keys (write-only: the page is told only whether each is
- *   set) with Remove.
+ *   Check, and a "…" with Change logo… (HANDOFF 66: the address under the
+ *   row, checked and fetched like adding a link) and Remove.
+ * - Scan now services (board 11c, HANDOFF 58): AcoustID, AudD and ACRCloud
+ *   in the order a scan asks them, as numbered rows: the name over one line
+ *   of what it needs ("Token set, 14 March 2026 · Replace the token…"), a
+ *   StatusTag (Ready / Not set up / Refused / No requests left), this
+ *   month's requests and finds, Test and (paid) Remove. An unset service
+ *   opens its fields under its row with "Save and test", the card's one
+ *   primary. Keys are write-only: the page is told only whether each is set
+ *   and when it was saved. Members see the rows and tags, nothing else.
  *
  * Each control saves as soon as it changes (PUT /api/radio/settings). The tab
  * shows while the Internet radio module is on; the routes are admins only.
@@ -71,6 +76,8 @@ export interface RadioSettingsBody {
     check_error: string | null;
     added_by: string | null;
     added_at: number | null;
+    /** the logo address an admin gave, or null (HANDOFF 55, 66) */
+    logo_url?: string | null;
   }[];
 }
 
@@ -79,6 +86,10 @@ export type ScanServiceId = 'acoustid' | 'audd' | 'acrcloud';
 const TAB_ID = 'stg-tab-radio';
 let body: RadioSettingsBody | null = null;
 let bound = false;
+/** The link whose "Change logo…" panel is open under its row (HANDOFF 66). */
+let logoOpen: number | null = null;
+let logoError: string | null = null;
+let logoBusy = false;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T | null;
@@ -649,14 +660,209 @@ function renderLinks(): void {
     check.textContent = 'Check';
     check.dataset.radioLinkCheck = String(link.id);
     check.setAttribute('aria-label', `Check ${link.name}`);
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'radio-button radio-button--ghost';
-    remove.textContent = 'Remove';
-    remove.dataset.radioLinkRemove = String(link.id);
-    remove.setAttribute('aria-label', `Remove ${link.name}`);
-    li.append(text, quality, who, check, remove);
+    li.append(text, quality, who, check, rowMenu(link));
     list.append(li);
+    if (logoOpen === link.id) list.append(logoPanel(link));
+  }
+}
+
+type RadioLink = NonNullable<RadioSettingsBody['links']>[number];
+
+/** The row's "…": Change logo… (HANDOFF 66) and Remove. */
+function rowMenu(link: RadioLink): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'radio-menu-wrap';
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'radio-button radio-button--ghost radio-more';
+  more.dataset.radioLinkMore = String(link.id);
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-expanded', 'false');
+  more.setAttribute('aria-label', `More for ${link.name}`);
+  more.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+  const menu = document.createElement('div');
+  menu.className = 'radio-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', link.name);
+  menu.hidden = true;
+  const item = (label: string, attr: string) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'radio-menu-item';
+    b.setAttribute('role', 'menuitem');
+    b.tabIndex = -1;
+    b.textContent = label;
+    b.setAttribute(attr, String(link.id));
+    return b;
+  };
+  menu.append(
+    item('Change logo…', 'data-radio-link-logo'),
+    item('Remove', 'data-radio-link-remove'),
+  );
+  wrap.append(more, menu);
+  return wrap;
+}
+
+function closeMenus(focusButton = false): void {
+  for (const menu of document.querySelectorAll<HTMLElement>('#radio-links .radio-menu')) {
+    if (menu.hidden) continue;
+    menu.hidden = true;
+    const more = menu.previousElementSibling as HTMLElement | null;
+    more?.setAttribute('aria-expanded', 'false');
+    if (focusButton) more?.focus();
+  }
+}
+
+function openMenu(more: HTMLElement): void {
+  closeMenus();
+  const menu = more.nextElementSibling as HTMLElement | null;
+  if (!menu) return;
+  menu.hidden = false;
+  more.setAttribute('aria-expanded', 'true');
+  menu.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+}
+
+/** "Change logo…" under the row: the address, checked and fetched like adding a link. */
+function logoPanel(link: RadioLink): HTMLElement {
+  const li = document.createElement('li');
+  li.className = 'radio-logo-panel';
+  li.dataset.radioLogoPanel = String(link.id);
+  const preview = document.createElement('span');
+  preview.className = 'radio-logo-preview';
+  preview.setAttribute('aria-hidden', 'true');
+  preview.textContent = linkLetters(link.name);
+  if (link.logo_url) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = appURL(`/api/radio/stations/link-${link.id}/logo`);
+    img.onload = () => img.classList.add('is-loaded');
+    img.onerror = () => img.remove();
+    preview.append(img);
+  }
+  const field = document.createElement('div');
+  field.className = 'radio-field';
+  const label = document.createElement('label');
+  label.className = 'radio-label';
+  label.htmlFor = `radio-logo-${link.id}`;
+  label.textContent = `Logo for ${link.name}`;
+  const row = document.createElement('div');
+  row.className = 'radio-key-row';
+  const input = document.createElement('input');
+  input.id = `radio-logo-${link.id}`;
+  input.className = 'radio-input';
+  input.type = 'url';
+  input.inputMode = 'url';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.placeholder = 'https://…/logo.png';
+  input.value = link.logo_url ?? '';
+  input.dataset.radioLogoInput = String(link.id);
+  input.setAttribute('aria-describedby', `radio-logo-help-${link.id}`);
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'radio-button radio-button--primary';
+  saveBtn.textContent = logoBusy ? 'Checking…' : 'Save logo';
+  saveBtn.dataset.radioLogoSave = String(link.id);
+  if (logoBusy) saveBtn.setAttribute('aria-disabled', 'true');
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'radio-button radio-button--ghost';
+  cancel.textContent = 'Cancel';
+  cancel.dataset.radioLogoCancel = String(link.id);
+  row.append(input, saveBtn, cancel);
+  const help = document.createElement('p');
+  help.className = 'radio-help';
+  help.id = `radio-logo-help-${link.id}`;
+  help.textContent = link.logo_url
+    ? 'A PNG, JPEG, GIF, WebP or ICO image up to 512 KB. SYNCHRO.S fetches it once and keeps it. Empty the field to show the letters instead.'
+    : 'A PNG, JPEG, GIF, WebP or ICO image up to 512 KB. SYNCHRO.S fetches it once and keeps it. Until then the station shows its letters.';
+  field.append(label, row, help);
+  if (logoError) {
+    const err = document.createElement('p');
+    err.className = 'radio-save-status';
+    err.dataset.tone = 'danger';
+    err.setAttribute('role', 'alert');
+    err.textContent = logoError;
+    field.append(err);
+  }
+  li.append(preview, field);
+  return li;
+}
+
+function linkLetters(name: string): string {
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
+  return words
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
+}
+
+function openLogo(id: number | null): void {
+  logoOpen = id;
+  logoError = null;
+  renderLinks();
+  if (id !== null) document.getElementById(`radio-logo-${id}`)?.focus();
+}
+
+function setLinksStatus(text: string, tone: 'success' | 'danger' | 'neutral' = 'neutral'): void {
+  const el = $('radio-links-status');
+  if (!el) return;
+  el.textContent = text;
+  el.dataset.tone = tone;
+}
+
+/** PUT /api/radio/links/<id> {logo_url}: the same check and fetch as adding a link. */
+async function saveLogo(id: number): Promise<void> {
+  if (logoBusy) return;
+  const input = document.getElementById(`radio-logo-${id}`) as HTMLInputElement | null;
+  const value = input?.value.trim() ?? '';
+  const name = body?.links?.find((l) => l.id === id)?.name ?? 'the station';
+  logoBusy = true;
+  logoError = null;
+  renderLinks();
+  const keep = document.getElementById(`radio-logo-${id}`) as HTMLInputElement | null;
+  if (keep) keep.value = value;
+  try {
+    const res = await fetch(appURL(`/api/radio/links/${id}`), {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logo_url: value }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      message?: string;
+      link?: RadioLink;
+    };
+    logoBusy = false;
+    if (!res.ok) {
+      logoError = data.message || 'That logo couldn’t be used. Nothing was changed.';
+      renderLinks();
+      const again = document.getElementById(`radio-logo-${id}`) as HTMLInputElement | null;
+      if (again) {
+        again.value = value;
+        again.focus();
+      }
+      return;
+    }
+    if (data.link && body?.links) {
+      body.links = body.links.map((l) => (l.id === id ? { ...l, ...data.link } : l));
+    }
+    logoOpen = null;
+    renderLinks();
+    setLinksStatus(
+      value
+        ? `Logo changed. ${name} shows it in everyone’s Favourites.`
+        : `${name} shows its letters again.`,
+      'success',
+    );
+    document.querySelector<HTMLElement>(`[data-radio-link-more="${id}"]`)?.focus();
+  } catch {
+    logoBusy = false;
+    logoError = 'SYNCHRO.S didn’t answer, so nothing was changed.';
+    renderLinks();
   }
 }
 
@@ -788,68 +994,115 @@ function bind(): void {
     const days = Number((event.target as HTMLSelectElement).value);
     void save({ keep_heard_days: days }, `Saved. Heard on radio keeps ${days} days.`);
   });
-  const audd = $<HTMLInputElement>('radio-audd-token');
-  const saveAudd = () => {
-    const value = audd?.value.trim() ?? '';
-    if (!value) {
-      setScanStatus('Paste the AudD token first.');
-      return;
-    }
-    void save(
-      { audd_api_token: value },
-      'Saved. Test it to check AudD accepts it.',
-      setScanStatus,
-    ).then((ok) => {
-      if (ok && audd) audd.value = '';
-    });
-  };
-  $('radio-audd-save')?.addEventListener('click', saveAudd);
-  audd?.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      saveAudd();
-    }
-  });
-  $('radio-acr-save')?.addEventListener('click', () => {
-    const patch: Record<string, string> = {};
-    const fields: [string, string][] = [
-      ['radio-acr-host', 'acrcloud_host'],
-      ['radio-acr-key', 'acrcloud_access_key'],
-      ['radio-acr-secret', 'acrcloud_access_secret'],
-    ];
-    for (const [id, key] of fields) {
-      const value = $<HTMLInputElement>(id)?.value.trim();
-      if (value) patch[key] = value;
-    }
-    if (!Object.keys(patch).length) {
-      setScanStatus('Fill in the host, access key and access secret first.');
-      return;
-    }
-    void save(patch, 'Saved. Test it to check ACRCloud accepts it.', setScanStatus).then((ok) => {
-      if (ok) for (const [id] of fields) $<HTMLInputElement>(id)!.value = '';
-    });
-  });
   $('radio-scan-services')?.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
-    const test = target.closest<HTMLButtonElement>('[data-radio-scan-test]');
-    if (test && !test.hidden) void testService(test.dataset.radioScanTest as ScanServiceId);
-    const remove = target.closest<HTMLElement>('[data-radio-scan-remove]');
+    const pick = (attr: string) =>
+      target.closest<HTMLElement>(`[${attr}]`)?.getAttribute(attr) as ScanServiceId | undefined;
+    const test = pick('data-radio-scan-test');
+    if (test) {
+      void testService(test);
+      return;
+    }
+    const saveId = pick('data-radio-scan-save');
+    if (saveId) {
+      void saveService(saveId);
+      return;
+    }
+    const replace = pick('data-radio-scan-replace') ?? pick('data-radio-scan-setup');
+    if (replace) {
+      openServiceFields(openFields === replace && fieldsChosen ? null : replace);
+      return;
+    }
+    const cancel = pick('data-radio-scan-cancel');
+    if (cancel) {
+      openServiceFields(null);
+      document
+        .querySelector<HTMLElement>(`[data-service="${cancel}"] [data-radio-scan-replace]`)
+        ?.focus();
+      return;
+    }
+    const remove = pick('data-radio-scan-remove');
     if (remove) {
-      const id = remove.dataset.radioScanRemove as ScanServiceId;
-      const label = body?.scan?.labels[id] ?? id;
+      const label = body?.scan?.labels?.[remove] ?? SCAN_LABELS[remove];
       void save(
-        { remove: [id] },
+        { remove: [remove] },
         `Removed. Scan now won’t ask ${label} until its keys are added again.`,
         setScanStatus,
       );
+    }
+  });
+  $('radio-scan-services')?.addEventListener('keydown', (event) => {
+    const target = event.target as HTMLElement;
+    const field = target.closest<HTMLElement>('[data-fields]');
+    if (event.key === 'Enter' && field && target.tagName === 'INPUT') {
+      event.preventDefault();
+      void saveService(field.dataset.fields as ScanServiceId);
     }
   });
   $('radio-links')?.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
     const check = target.closest<HTMLElement>('[data-radio-link-check]');
     if (check) void linkAction(check.dataset.radioLinkCheck!, 'check');
+    const more = target.closest<HTMLElement>('[data-radio-link-more]');
+    if (more) {
+      if (more.getAttribute('aria-expanded') === 'true') closeMenus(true);
+      else openMenu(more);
+      return;
+    }
     const remove = target.closest<HTMLElement>('[data-radio-link-remove]');
-    if (remove) void linkAction(remove.dataset.radioLinkRemove!, 'remove');
+    if (remove) {
+      closeMenus();
+      void linkAction(remove.dataset.radioLinkRemove!, 'remove');
+    }
+    const logo = target.closest<HTMLElement>('[data-radio-link-logo]');
+    if (logo) {
+      closeMenus();
+      openLogo(Number(logo.dataset.radioLinkLogo));
+    }
+    const saveLogoBtn = target.closest<HTMLElement>('[data-radio-logo-save]');
+    if (saveLogoBtn) void saveLogo(Number(saveLogoBtn.dataset.radioLogoSave));
+    const cancel = target.closest<HTMLElement>('[data-radio-logo-cancel]');
+    if (cancel) {
+      const id = cancel.dataset.radioLogoCancel;
+      openLogo(null);
+      document.querySelector<HTMLElement>(`[data-radio-link-more="${id}"]`)?.focus();
+    }
+  });
+  $('radio-links')?.addEventListener('keydown', (event) => {
+    const target = event.target as HTMLElement;
+    if (target.matches('[data-radio-logo-input]') && event.key === 'Enter') {
+      event.preventDefault();
+      void saveLogo(Number(target.dataset.radioLogoInput));
+      return;
+    }
+    if (target.matches('[data-radio-logo-input]') && event.key === 'Escape') {
+      event.preventDefault();
+      const id = target.dataset.radioLogoInput;
+      openLogo(null);
+      document.querySelector<HTMLElement>(`[data-radio-link-more="${id}"]`)?.focus();
+      return;
+    }
+    const menu = target.closest<HTMLElement>('.radio-menu');
+    if (!menu) return;
+    const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    const at = items.indexOf(target);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeMenus(true);
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      items[(at + step + items.length) % items.length]?.focus();
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      items[event.key === 'Home' ? 0 : items.length - 1]?.focus();
+    } else if (event.key === 'Tab') {
+      closeMenus();
+    }
+  });
+  document.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    if (!target?.closest('#radio-links .radio-menu-wrap')) closeMenus();
   });
   // links into React pages stay in the app
   for (const id of ['radio-run-setup', 'radio-auto-activity', 'radio-add-link']) {
@@ -893,4 +1146,7 @@ export function _resetRadioSettingsForTests(): void {
   bound = false;
   openFields = null;
   fieldsChosen = false;
+  logoOpen = null;
+  logoError = null;
+  logoBusy = false;
 }

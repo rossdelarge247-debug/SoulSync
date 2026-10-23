@@ -160,6 +160,13 @@ def record_link_check(db, link_id: int, *, ok: bool, error: Optional[str], codec
         conn.commit()
 
 
+def set_link_logo(db, link_id: int, logo_url: Optional[str]) -> bool:
+    with db._get_connection() as conn:
+        cur = conn.execute("UPDATE radio_links SET logo_url = ? WHERE id = ?", (logo_url or None, int(link_id)))
+        conn.commit()
+        return cur.rowcount > 0
+
+
 def remove_link(db, link_id: int) -> bool:
     with db._get_connection() as conn:
         cur = conn.execute("DELETE FROM radio_links WHERE id = ?", (int(link_id),))
