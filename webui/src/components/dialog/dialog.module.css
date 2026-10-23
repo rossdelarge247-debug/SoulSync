@@ -104,6 +104,15 @@
   border-top: 1px solid var(--white-a06);
 }
 
+/* the footer's note (15e): 14px meta at its left, the buttons kept right */
+.footerNote {
+  flex: 1 1 200px;
+  min-width: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 @media (max-width: 640px) {
   .viewport {
     padding: 12px;
@@ -130,5 +139,9 @@
 
   .footer > button {
     width: 100%;
+  }
+
+  .footerNote {
+    flex: none;
   }
 }

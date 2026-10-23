@@ -100,9 +100,19 @@ export function DialogBody({ children }: { children: ReactNode }) {
   );
 }
 
-export function DialogFooter({ children }: { children: ReactNode }) {
+/**
+ * The footer row of buttons. `note` is the 14px meta line the boards put at
+ * its left, taking the slack so the buttons stay right (15e: "It runs in the
+ * background; Activity shows it, with Stop.").
+ */
+export function DialogFooter({ children, note }: { children: ReactNode; note?: ReactNode }) {
   return (
     <div className={styles.footer} data-slot="dialog-footer">
+      {note ? (
+        <span className={styles.footerNote} data-slot="dialog-footer-note">
+          {note}
+        </span>
+      ) : null}
       {children}
     </div>
   );

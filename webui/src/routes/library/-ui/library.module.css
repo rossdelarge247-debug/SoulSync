@@ -799,6 +799,32 @@
   outline-offset: var(--ss-focus-offset);
 }
 
+/* a link inside a sentence (15e's "· Stop", "· Show them"): the sentence's size */
+.inlineLink {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  cursor: pointer;
+}
+
+.inlineLink:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.inlineLink:disabled {
+  color: var(--ss-text-meta);
+  cursor: default;
+}
+
+.inlineLink:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 /* ── The selection bar (7c): at the foot of the column, above the player ── */
 
 .barDock {
