@@ -26,9 +26,15 @@ export type CheckState =
   | { kind: 'still' }
   | { kind: 'not_yet' };
 
+/** The boot id this tab saw when the step opened, kept through a reload
+ *  during the restart, forgotten after half an hour. */
 function readBoot(): string | null {
   try {
-    return sessionStorage.getItem(BOOT_KEY);
+    const raw = JSON.parse(sessionStorage.getItem(BOOT_KEY) || 'null') as {
+      boot: string;
+      at: number;
+    } | null;
+    return raw && Date.now() - raw.at < 30 * 60 * 1000 ? raw.boot : null;
   } catch {
     return null;
   }
@@ -36,7 +42,7 @@ function readBoot(): string | null {
 
 function saveBoot(value: string): void {
   try {
-    sessionStorage.setItem(BOOT_KEY, value);
+    sessionStorage.setItem(BOOT_KEY, JSON.stringify({ boot: value, at: Date.now() }));
   } catch {
     /* private window: the step still works, it just can't tell a restart after a reload */
   }
@@ -87,6 +93,9 @@ export function DockerStep({
   const [showSteps, setShowSteps] = useState(!phone);
   const [now, setNow] = useState(() => Date.now());
   const stepBoot = useRef<string | null>(readBoot());
+  // drives already visible when the step opened aren't news ("it worked")
+  // until SYNCHRO.S restarts or Check again is pressed
+  const seenAtStart = useRef<boolean | null>(null);
   const minting = useRef(false);
 
   useEffect(() => {
@@ -96,6 +105,7 @@ export function DockerStep({
       .then((d) => {
         if (!live) return;
         setInfo(d);
+        if (seenAtStart.current === null) seenAtStart.current = d.drives.some((x) => x.offered);
         setPlatform((p) => p ?? d.platform);
         setFolder((f) => f || d.compose_folder);
         if (!stepBoot.current) {
@@ -137,8 +147,10 @@ export function DockerStep({
       const check = await drivesApi.dockerCheck();
       const restarted = stepBoot.current !== null && check.boot_id !== stepBoot.current;
       const offered = check.drives.filter((d) => d.offered);
-      if (offered.length) {
+      if (offered.length && (manual || restarted || seenAtStart.current === false)) {
         setState({ kind: 'worked', drive: offered[0].name });
+      } else if (offered.length) {
+        // nothing new: the drives were there when the step opened
       } else if (restarted) {
         setState({ kind: 'still' });
       } else if (manual) {

@@ -177,6 +177,7 @@ export interface Plan {
   automations: string[];
   speed: number;
   library_paths: number;
+  media_label?: string;
 }
 
 export interface MoveFolder {

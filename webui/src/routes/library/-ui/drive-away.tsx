@@ -35,7 +35,7 @@ export function LibraryDriveAway({ view }: { view: 'albums' | 'artists' }) {
         <div className={styles.headText}>
           <h1 className={styles.title}>{view === 'albums' ? 'Albums' : 'Artists'}</h1>
           <p className={styles.subtitle}>
-            {n !== null && n !== undefined
+            {n
               ? `${n.toLocaleString('en-GB')} ${n === 1 ? what : `${what}s`} when ${drive} was last seen`
               : `As they were when ${drive} was last seen`}
           </p>

@@ -1010,7 +1010,10 @@ def _drive_move_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
         tone, title = "running", _MOVE_TITLES["running"]
     elif status == "done":
         tone, title = "ok", _MOVE_TITLES["done"]
-        detail = _sentence(drive_size(total_bytes), f"the old copies are kept on {source}")
+        after = {"removed": f"the old copies are gone from {source}",
+                 "switched_back": f"switched back to {source} since"}.get(move.get("status") or "",
+                                                                          f"the old copies are kept on {source}")
+        detail = _sentence(drive_size(total_bytes), after)
     elif status == "stopped":
         tone, title = "warning", _MOVE_TITLES["stopped"]
         why = "when SYNCHRO.S restarted" if failure.get("kind") == "restart" else ""

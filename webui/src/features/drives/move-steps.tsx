@@ -166,7 +166,7 @@ export function ChooseStep(props: StepProps) {
       onLeave={leave}
       footer={
         <>
-          <p className={styles.footNote}>
+          <p className={`${styles.footNote} ${styles.hidePhone}`}>
             Next, SYNCHRO.S checks {label}’s space, format and that it can write there. Nothing is
             copied yet.
           </p>
@@ -260,7 +260,7 @@ export function ChooseStep(props: StepProps) {
             <button
               key={d.path}
               type="button"
-              className={styles.driveCard}
+              className={`${styles.driveCard} ${d.offered ? '' : styles.hidePhone}`}
               aria-pressed={selected?.path === d.path}
               aria-disabled={!d.offered || undefined}
               onClick={() => pick(d)}
@@ -707,7 +707,7 @@ export function PlanStep(props: StepProps) {
           <span className={styles.wide}>: the count and each file’s size</span>.
         </li>
         <li>
-          Switch SYNCHRO.S, slskd and your media server to {target}
+          Switch SYNCHRO.S, slskd{plan.media_label ? ` and ${plan.media_label}` : ''} to {target}
           <span className={styles.wide}>
             {plan.library_paths
               ? `, update the ${plan.library_paths.toLocaleString('en-GB')} paths SYNCHRO.S keeps,`
@@ -731,7 +731,9 @@ export function PlanStep(props: StepProps) {
             <span className={styles.wide}>
               Catches a file that arrived the right size but damaged.{' '}
             </span>
-            Adds about {durationWords(plan.checksum_seconds)}.
+            {plan.checksum_seconds < 90
+              ? 'Adds less than a minute.'
+              : `Adds about ${durationWords(plan.checksum_seconds)}.`}
           </p>
         </div>
         <LabelledSwitch

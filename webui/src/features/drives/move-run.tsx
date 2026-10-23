@@ -213,7 +213,7 @@ export function SwitchStep({ move, act, close }: RunProps) {
   const switching = move.status === 'switching';
   const checkedAll = switching || p.phase === 'verified';
   const pct = total ? Math.min(100, (checked / total) * 100) : 0;
-  const media = 'Plex';
+  const media = plan?.media_label || 'your media server';
   const step = p.step;
   const rows: Array<{ n: number; title: string; meta: string; state: 'done' | 'now' | 'next' }> = [
     {
@@ -520,8 +520,9 @@ export function FailureView({ move, act, close, busy, error }: RunProps) {
       leaveLabel="Leave"
       onLeave={close}
       phoneTitle="Move to another drive"
+      footerPhoneOnly
       footer={
-        <div className={`${styles.footEnd} ${styles.phoneOnly}`} style={{ width: '100%' }}>
+        <div className={styles.footEnd} style={{ width: '100%', flexDirection: 'column' }}>
           {primary ? (
             <Button size="lg" variant="primary" disabled={busy} onClick={() => void primary?.run()}>
               {primary.label}
@@ -547,28 +548,31 @@ export function FailureView({ move, act, close, busy, error }: RunProps) {
         data-failure={f.kind}
         title={<span style={{ fontSize: 22 }}>{failureTitle(f, target)}</span>}
         actions={
-          <span className={styles.hidePhone} style={{ display: 'contents' }}>
-            {primary ? (
-              <Button
-                size="lg"
-                variant="primary"
-                disabled={busy}
-                onClick={() => void primary?.run()}
-              >
-                {primary.label}
-              </Button>
-            ) : null}
-            {secondary ? (
-              <Button
-                size="lg"
-                variant="secondary"
-                disabled={busy}
-                onClick={() => void secondary?.run()}
-              >
-                {secondary.label}
-              </Button>
-            ) : null}
-          </span>
+          <>
+            <span className={styles.hidePhone} style={{ display: 'contents' }}>
+              {primary ? (
+                <Button
+                  size="lg"
+                  variant="primary"
+                  disabled={busy}
+                  onClick={() => void primary?.run()}
+                >
+                  {primary.label}
+                </Button>
+              ) : null}
+              {secondary ? (
+                <Button
+                  size="lg"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void secondary?.run()}
+                >
+                  {secondary.label}
+                </Button>
+              ) : null}
+            </span>
+            {note ? <p className={`${styles.note} ${styles.failureNote}`}>{note}</p> : null}
+          </>
         }
       >
         <p>
@@ -591,7 +595,6 @@ export function FailureView({ move, act, close, busy, error }: RunProps) {
             {(f.count ?? 0) > 12 ? <li>and {count((f.count ?? 0) - 12, 'more file')}</li> : null}
           </ul>
         ) : null}
-        {note ? <p className={styles.note}>{note}</p> : null}
       </Notice>
       {error ? (
         <Notice tone="danger" title="That didn’t go through" role="alert">

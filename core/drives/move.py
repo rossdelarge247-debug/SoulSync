@@ -691,6 +691,7 @@ class MoveJob:
                 disks.drive_root_of(sources[r]) for r in dests) else self.label_of(sources[order[-1]]),
             "automations": autos, "speed": speed,
             "library_paths": self._stored_path_count(sources.get("library")) if "library" in dests else 0,
+            "media_label": getattr(self._media(), "label", "") or "",
         }
         self.store.update(move_id, plan=plan)
         return self.store.row(move_id)  # type: ignore[return-value]

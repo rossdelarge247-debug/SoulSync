@@ -27,6 +27,8 @@ export interface FlowShellProps {
   onBack?: () => void;
   phoneTitle?: string;
   footer?: ReactNode;
+  /** the footer only on a phone (the failure's buttons sit in its Notice on a computer) */
+  footerPhoneOnly?: boolean;
   children: ReactNode;
 }
 
@@ -90,6 +92,7 @@ export function FlowShell({
   onBack,
   phoneTitle = 'Move to another drive',
   footer,
+  footerPhoneOnly = false,
   children,
 }: FlowShellProps) {
   const titleId = useId();
@@ -98,6 +101,11 @@ export function FlowShell({
   useEffect(() => {
     scrollRef.current?.scrollTo?.({ top: 0 });
   }, [step, phoneTitle]);
+  // the app's floating buttons step aside while the flow is open
+  useEffect(() => {
+    document.body.setAttribute('data-drive-move-open', '');
+    return () => document.body.removeAttribute('data-drive-move-open');
+  }, []);
   return (
     <div
       className={styles.overlay}
@@ -178,7 +186,11 @@ export function FlowShell({
           {children}
         </div>
       </div>
-      {footer ? <footer className={styles.footer}>{footer}</footer> : null}
+      {footer ? (
+        <footer className={`${styles.footer} ${footerPhoneOnly ? styles.footerPhoneOnly : ''}`}>
+          {footer}
+        </footer>
+      ) : null}
     </div>
   );
 }
