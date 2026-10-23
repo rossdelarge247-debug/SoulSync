@@ -121,6 +121,9 @@ def app(db, config, library, who, events, monkeypatch, fake_watcher):
     monkeypatch.setattr(radio_api, "get_current_profile_id", lambda: who["pid"])
     monkeypatch.setattr(radio_api, "is_admin_request", lambda: who["admin"])
     monkeypatch.setattr("core.profile_context.is_admin_request", lambda: who["admin"])
+    # configure() registers the watcher wake with the automation API; undo it after the test
+    import core.automation.api as automation_api
+    monkeypatch.setattr(automation_api, "_radio_watcher_wake", automation_api._radio_watcher_wake)
     radio_api.configure(get_database_=lambda: db, config_manager_=config,
                         library_presence_=library.presence, add_to_wanted_=library.add,
                         download_denied_=lambda pid: who["denied"],

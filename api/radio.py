@@ -98,6 +98,10 @@ def configure(*, get_database_, config_manager_, library_presence_=None, add_to_
         rows = _library_presence(pid, [{"name": title, "artist": artist}]) or [{}]
         return rows[0] if rows else {}
 
+    # a radio automation saved or turned on starts the watcher straight away
+    from core.automation import api as automation_api
+    automation_api.set_radio_watcher_wake(_wake_watcher)
+
     hub.configure(HubDeps(
         get_database=get_database_, config=config_manager_, library_check=library_check,
         add_to_wanted=lambda pid, heard: _add_to_wanted(pid, heard),
