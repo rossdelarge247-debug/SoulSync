@@ -35,6 +35,7 @@ import {
   type MusicPlay,
   type SpokenHistoryPlay,
 } from '../-library.history';
+import { ActionSheet } from './action-sheet';
 import styles from './history.module.css';
 import { CountBadge, FilterField, MoreMenu, PlayIcon } from './parts';
 
@@ -110,13 +111,33 @@ function Art({ url }: { url: string | null | undefined }) {
   );
 }
 
-function MusicRow({ play, phone }: { play: MusicPlay; phone: boolean }) {
+function MusicRow({
+  play,
+  phone,
+  first = false,
+}: {
+  play: MusicPlay;
+  phone: boolean;
+  /** The list's first row: on a phone its Play is filled, the rest are ghosts (15d). */
+  first?: boolean;
+}) {
   const time = clockTime(play.played_at);
   const artist = artistHref(play);
   const album = albumHref(play);
   const phrase = sourcePhrase(play);
   const gone = !play.in_library;
   const rowRef = useRef<HTMLLIElement>(null);
+  const [sheet, setSheet] = useState(false);
+  const addToPlaylist = () =>
+    openAddToPlaylist(
+      {
+        track_name: play.title,
+        artist_name: play.artist,
+        album_name: play.album,
+        duration_ms: (play.length_s ?? 0) * 1000,
+      },
+      rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
+    );
   const meta = (
     <>
       {artist ? <a href={artist}>{play.artist}</a> : play.artist || 'Unknown artist'}
@@ -124,7 +145,10 @@ function MusicRow({ play, phone }: { play: MusicPlay; phone: boolean }) {
         <> · {play.was_in_library ? 'no longer in your library' : 'not in your library'}</>
       ) : (
         <>
-          {play.album ? <> · {album ? <a href={album}>{play.album}</a> : play.album}</> : null}
+          {/* on a phone the album is in the "…" sheet's Open album (15d) */}
+          {play.album && !phone ? (
+            <> · {album ? <a href={album}>{play.album}</a> : play.album}</>
+          ) : null}
           {play.format ? (
             <>
               {' · '}
@@ -143,6 +167,7 @@ function MusicRow({ play, phone }: { play: MusicPlay; phone: boolean }) {
       ref={rowRef}
       className={styles.row}
       data-gone={gone ? 'true' : undefined}
+      data-actions={phone && !gone ? '2' : undefined}
       data-history-row={play.id}
     >
       {phone ? null : (
@@ -167,14 +192,57 @@ function MusicRow({ play, phone }: { play: MusicPlay; phone: boolean }) {
           <>
             <button
               type="button"
-              className={styles.play}
+              className={phone && !first ? styles.ghostPlay : styles.play}
               aria-label={`Play ${play.title} next`}
               title="Play next, after the current track"
               onClick={() => queueNext(play)}
             >
               <PlayIcon />
             </button>
-            {phone ? null : (
+            {phone ? (
+              // 15d: "…" opens the phone's action sheet
+              <>
+                <button
+                  type="button"
+                  className={styles.phoneMore}
+                  aria-label={`More for ${play.title}`}
+                  aria-haspopup="dialog"
+                  aria-expanded={sheet}
+                  onClick={() => setSheet(true)}
+                >
+                  <MoreDotsIcon />
+                </button>
+                {sheet ? (
+                  <ActionSheet
+                    label={`More for ${play.title}`}
+                    heading={[play.title, play.artist].filter(Boolean).join(' · ')}
+                    onClose={() => setSheet(false)}
+                    actions={[
+                      { key: 'next', label: 'Play next', onSelect: () => queueNext(play) },
+                      { key: 'playlist', label: 'Add to playlist…', onSelect: addToPlaylist },
+                      ...(artist
+                        ? [
+                            {
+                              key: 'artist',
+                              label: 'Open artist',
+                              onSelect: () => window.location.assign(artist),
+                            },
+                          ]
+                        : []),
+                      ...(album
+                        ? [
+                            {
+                              key: 'album',
+                              label: 'Open album',
+                              onSelect: () => window.location.assign(album),
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
+                ) : null}
+              </>
+            ) : (
               <MoreMenu
                 className={styles.more}
                 label={`More for ${play.title}`}
@@ -197,20 +265,7 @@ function MusicRow({ play, phone }: { play: MusicPlay; phone: boolean }) {
                         },
                       ]
                     : []),
-                  {
-                    key: 'playlist',
-                    label: 'Add to playlist…',
-                    onSelect: () =>
-                      openAddToPlaylist(
-                        {
-                          track_name: play.title,
-                          artist_name: play.artist,
-                          album_name: play.album,
-                          duration_ms: (play.length_s ?? 0) * 1000,
-                        },
-                        rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
-                      ),
-                  },
+                  { key: 'playlist', label: 'Add to playlist…', onSelect: addToPlaylist },
                 ]}
               />
             )}
@@ -218,6 +273,25 @@ function MusicRow({ play, phone }: { play: MusicPlay; phone: boolean }) {
         )}
       </div>
     </li>
+  );
+}
+
+function MoreDotsIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+    </svg>
   );
 }
 
@@ -437,7 +511,12 @@ export function HistoryPage({ search, go }: { search: LibrarySearch; go: Go }) {
               <ul className={styles.list}>
                 {group.items.map((play) =>
                   play.kind === 'music' ? (
-                    <MusicRow key={`m-${play.id}`} play={play} phone={phone} />
+                    <MusicRow
+                      key={`m-${play.id}`}
+                      play={play}
+                      phone={phone}
+                      first={play === items[0]}
+                    />
                   ) : (
                     <SpokenRow key={`s-${play.play_id}`} play={play} phone={phone} />
                   ),

@@ -383,6 +383,35 @@
   background: transparent;
 }
 
+/* the phone's "…" (15d): a 44px ghost; selected while its sheet is open */
+.phoneMore {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  background: transparent;
+  color: var(--ss-text-secondary);
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.phoneMore[aria-expanded='true'] {
+  border-color: var(--ss-selected-border);
+  background: var(--ss-selected-fill);
+  color: var(--ss-text);
+}
+
+.phoneMore:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
 /* ── Loading, empty, footer ─────────────────────────────────────────── */
 
 .skeletonTime {
@@ -522,5 +551,19 @@
   .art {
     width: 44px;
     height: 44px;
+  }
+
+  /* music rows (15d): 44px 1fr 44px 44px at 8px, Play and "…" each in a column */
+  .row[data-actions='2'] {
+    grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+    gap: 8px;
+  }
+
+  .row[data-actions='2'] .text {
+    padding-left: 4px;
+  }
+
+  .row[data-actions='2'] .actions {
+    display: contents;
   }
 }
