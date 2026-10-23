@@ -21,18 +21,36 @@ hand. Before writing, the new file is checked with ``docker compose config``.
 Run as a program: ``python3 compose_tool.py [--undo] [--dry-run] [--yes]
 [--platform mac|linux] [--file docker-compose.yml]`` from the folder that
 holds the compose file.
+
+**Which files.** With the default file name, Docker also reads
+``docker-compose.override.yml`` (and ``COMPOSE_FILE`` when it's set), so the
+tool runs ``docker compose`` without ``-f`` and checks the edit together with
+the same files. With ``COMPOSE_FILE`` set it edits the first file listed.
+``--file`` names one file and uses only that one.
+
+**Undo.** Each run that changes the file keeps the file as it was in
+``docker-compose.before-drives.yml`` and a fingerprint (SHA-256) of the file
+it wrote. ``--undo`` puts the copy back only while the file is still exactly
+what the helper wrote, so later edits are never lost.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
-import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Dict, List, Optional, Sequence, Tuple
 
 BACKUP_NAME = "docker-compose.before-drives.yml"
+STATE_NAME = ".docker-compose.drives-helper.json"
+OVERRIDE_NAMES = {"docker-compose.yml": ("docker-compose.override.yml", "docker-compose.override.yaml"),
+                  "docker-compose.yaml": ("docker-compose.override.yml", "docker-compose.override.yaml"),
+                  "compose.yml": ("compose.override.yml", "compose.override.yaml"),
+                  "compose.yaml": ("compose.override.yml", "compose.override.yaml")}
 COMPOSE_NAMES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
 DRIVE_MOUNTS = {"mac": ["/Volumes:/Volumes"], "linux": ["/mnt:/mnt", "/media:/media"]}
 SLSKD_CONFIG_TARGET = "/slskd-config"
@@ -362,6 +380,27 @@ def set_scalar(text: str, path: Sequence[str], value: str) -> str:
     return _insert(text, parent.last + 1, [" " * indent + scalar(path[-1]) + ": " + scalar(value)])
 
 
+def delete_scalar(text: str, path: Sequence[str]) -> str:
+    """``text`` without the one-line key at ``path`` (and without its parent
+    mappings when that leaves them empty). Missing: unchanged."""
+    lines = _lines(text)
+    node = find(lines, path)
+    if node is None:
+        return text
+    if node.end - 1 > node.line.idx and any(not ln.blank for ln in lines[node.line.idx + 1:node.end]):
+        raise Unsupported(f"“{node.key}” holds more than one value.")
+    raw = text.splitlines(keepends=True)
+    del raw[node.line.idx]
+    out = "".join(raw)
+    if len(path) > 1:
+        parent_lines = _lines(out)
+        parent = find(parent_lines, path[:-1])
+        if parent is not None and not parent.rest and not children_of(parent_lines, parent) \
+                and not any(not ln.blank for ln in parent_lines[parent.line.idx + 1:parent.end]):
+            return delete_scalar(out, path[:-1])
+    return out
+
+
 def get_scalar(text: str, path: Sequence[str]) -> Optional[str]:
     node = find(_lines(text), path)
     if node is None or not node.rest:
@@ -555,32 +594,83 @@ def _compose_cmd() -> Optional[List[str]]:
     return None
 
 
-def _validate(cmd: List[str], folder: str, name: str) -> Optional[str]:
-    """None when ``docker compose config`` reads the file, else its words."""
-    proc = subprocess.run(cmd + ["-f", name, "config", "-q"], cwd=folder, stdout=subprocess.PIPE,
+def _f_args(files: Sequence[str]) -> List[str]:
+    out: List[str] = []
+    for f in files:
+        out += ["-f", f]
+    return out
+
+
+def _validate(cmd: List[str], folder: str, files: Sequence[str]) -> Optional[str]:
+    """None when ``docker compose config`` reads the files together, else its words."""
+    proc = subprocess.run(cmd + _f_args(files) + ["config", "-q"], cwd=folder, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, text=True)
     return None if proc.returncode == 0 else (proc.stdout or "").strip()[-600:]
 
 
-def _restart(cmd: List[str], folder: str, name: str) -> bool:
+def _restart(cmd: List[str], folder: str, files: Optional[Sequence[str]]) -> bool:
+    """``docker compose up -d``: with ``-f`` only for ``--file``; otherwise
+    Docker reads its own set (the override file, ``COMPOSE_FILE``)."""
     _say("Restarting SYNCHRO.S and the services that changed (about a minute)…")
-    return subprocess.run(cmd + ["-f", name, "up", "-d"], cwd=folder).returncode == 0
+    return subprocess.run(cmd + (_f_args(files) if files else []) + ["up", "-d"], cwd=folder).returncode == 0
 
 
-def _write_atomic(path: str, data: bytes) -> None:
-    tmp = path + ".drives-tmp"
-    mode = None
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _write_atomic(path: str, data: bytes, mode: Optional[int] = None) -> None:
+    """Write ``path`` through a new, uniquely named file (never through a
+    link) renamed over it."""
+    if mode is None:
+        try:
+            mode = os.stat(path).st_mode & 0o7777
+        except OSError:
+            mode = None
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".drives-", suffix=".tmp")
     try:
-        mode = os.stat(path).st_mode & 0o7777
-    except OSError:
-        pass
-    with open(tmp, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    if mode is not None:
-        os.chmod(tmp, mode)
-    os.replace(tmp, path)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _read_state(path: str) -> Dict[str, str]:
+    try:
+        if os.path.islink(path):
+            return {}
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _compose_files(folder: str, args: List[str]) -> Tuple[Optional[str], List[str], bool]:
+    """(the file to edit, the files Docker reads with it, whether to pass -f)."""
+    if "--file" in args:
+        name = args[args.index("--file") + 1]
+        return name, [name], True
+    env = os.environ.get("COMPOSE_FILE", "").strip()
+    if env:
+        sep = os.environ.get("COMPOSE_PATH_SEPARATOR") or os.pathsep
+        files = [f for f in env.split(sep) if f.strip()]
+        if files:
+            return files[0], files, False
+    name = next((n for n in COMPOSE_NAMES if os.path.isfile(os.path.join(folder, n))), None)
+    if name is None:
+        return None, [], False
+    overrides = [o for o in OVERRIDE_NAMES.get(name, ()) if os.path.isfile(os.path.join(folder, o))]
+    return name, [name] + overrides[:1], False
 
 
 def _guess_platform() -> str:
@@ -596,28 +686,39 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if "--platform" in args:
         platform = args[args.index("--platform") + 1]
     folder = os.getcwd()
-    name = None
-    if "--file" in args:
-        name = args[args.index("--file") + 1]
-    else:
-        name = next((n for n in COMPOSE_NAMES if os.path.isfile(os.path.join(folder, n))), None)
+    name, files, use_f = _compose_files(folder, args)
+    from_env = bool(os.environ.get("COMPOSE_FILE", "").strip()) and "--file" not in args
     if not name or not os.path.isfile(os.path.join(folder, name)):
+        if from_env:
+            _say(f"COMPOSE_FILE is set to {os.environ.get('COMPOSE_FILE')}, but there's no {name} in {folder}.")
+            _say("Run this where those files are, or unset COMPOSE_FILE. Nothing changed.")
+            return 2
         _say(f"There's no docker-compose.yml in {folder}.")
         _say("Go to the folder SYNCHRO.S was installed in (the one with docker-compose.yml), then paste again.")
         return 2
     path = os.path.join(folder, name)
-    backup = os.path.join(folder, BACKUP_NAME)
+    home = os.path.dirname(path)
+    backup = os.path.join(home, BACKUP_NAME)
+    state_path = os.path.join(home, STATE_NAME)
+    restart_files = files if use_f else None
     cmd = None if dry else _compose_cmd()
     if not dry and cmd is None:
         _say("Docker isn't answering here. Start Docker Desktop, then paste the command again.")
         return 3
 
     if undo:
-        if not os.path.isfile(backup):
+        if not os.path.isfile(backup) or os.path.islink(backup):
             _say(f"There's no {BACKUP_NAME} here, so there's nothing to put back.")
             return 4
         with open(backup, "rb") as f:
             original = f.read()
+        with open(path, "rb") as f:
+            now = f.read()
+        state = _read_state(state_path)
+        if state.get("file") != os.path.basename(name) or state.get("wrote") != _sha256(now):
+            _say(f"{name} has changed since the helper edited it, so --undo won't put {BACKUP_NAME} back over")
+            _say("those changes. Nothing changed. Compare the two files and copy back what you want by hand.")
+            return 12
         if dry:
             _say(f"Would put {BACKUP_NAME} back as {name} and restart.")
             return 0
@@ -625,8 +726,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             _say("Nothing changed.")
             return 1
         _write_atomic(path, original)
-        os.unlink(backup)
-        if not _restart(cmd, folder, name):
+        for leftover in (backup, state_path):
+            try:
+                os.unlink(leftover)
+            except OSError:
+                pass
+        if not _restart(cmd, folder, restart_files):
             _say(f"{name} is back as it was, but Docker couldn't restart. Run: docker compose up -d")
             return 5
         _say(f"Done. {name} is back as it was. Go back to SYNCHRO.S.")
@@ -644,6 +749,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         new_text = apply(text, the_plan)
     except Unsupported as exc:
         _say(f"The helper can't change {name} safely: {exc}")
+        if from_env and len(files) > 1:
+            _say(f"COMPOSE_FILE is set, and the helper edits only its first file ({name}).")
         _say("Nothing changed. Add the lines by hand instead (SYNCHRO.S shows them under “See the lines it adds”).")
         return 7
     if the_plan["nothing_to_do"]:
@@ -655,6 +762,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for change in the_plan["changes"]:  # type: ignore[union-attr]
         for line in change["add"]:
             _say(f"  {change['service']}:  + - {line}")
+    if len(files) > 1:
+        _say("")
+        _say(f"Docker reads it together with {', '.join(files[1:])}; the helper checks them together.")
     missing = [m for m in the_plan["missing_media"] if m == "plex"]  # type: ignore[union-attr]
     if missing:
         _say("")
@@ -672,12 +782,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         _say("Nothing changed.")
         return 1
 
-    tmp_name = ".docker-compose.drives-new.yml"
-    tmp_path = os.path.join(folder, tmp_name)
-    with open(tmp_path, "wb") as f:
-        f.write(new_text.encode("utf-8"))
+    data = new_text.encode("utf-8")
+    fd, tmp_path = tempfile.mkstemp(dir=home, prefix=".docker-compose.drives-new.", suffix=".yml")
     try:
-        problem = _validate(cmd, folder, tmp_name)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        tmp_rel = os.path.relpath(tmp_path, folder)
+        problem = _validate(cmd, folder, [tmp_rel] + list(files[1:]))
     finally:
         try:
             os.unlink(tmp_path)
@@ -687,11 +798,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         _say("Docker didn't accept the changed file, so nothing was changed:")
         _say(problem)
         return 8
-    if not os.path.exists(backup):
-        shutil.copyfile(path, backup)
-    _write_atomic(path, new_text.encode("utf-8"))
+    # this run's "before", and a fingerprint of what it writes, so --undo can
+    # tell whether the file was edited since
+    _write_atomic(backup, raw, mode=0o644)
+    _write_atomic(state_path, json.dumps({"file": os.path.basename(name), "wrote": _sha256(data)}).encode("utf-8"),
+                  mode=0o644)
+    _write_atomic(path, data)
     _say(f"Changed {path}")
-    if not _restart(cmd, folder, name):
+    if not _restart(cmd, folder, restart_files):
         _say("The file is changed, but Docker couldn't restart. Run: docker compose up -d")
         _say("To undo: sh drives-helper.sh --undo")
         return 9

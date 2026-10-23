@@ -30,6 +30,12 @@ POST /api/drives/move/<id>/remove-preview   Remove the old copies… (14i, the S
 POST /api/drives/move/<id>/remove       … with ``{plan_id}``
 POST /api/drives/move/<id>/switch-back  Switch back to the old drive
 POST /api/drives/move/<id>/leave        leave a draft
+
+Every POST, PUT and DELETE here takes a JSON body (``Content-Type:
+application/json``) and is refused from another site (``Origin`` or
+``Sec-Fetch-Site``, when the browser sends them). The slow parts of Choose and
+Check (folder sizes, the write test) run in the background; the page reads
+``overview.measuring`` and ``checks.running`` until they're done.
 """
 
 from __future__ import annotations
@@ -37,6 +43,7 @@ from __future__ import annotations
 import os
 import uuid
 from typing import Any, Callable, Dict, Optional
+from urllib.parse import urlsplit
 
 from flask import Blueprint, Response, jsonify, request
 
@@ -112,7 +119,43 @@ def _no_store(resp):
 
 
 def _refused(exc: moving.MoveError):
-    return jsonify({"success": False, "error": str(exc)}), exc.status
+    body = {"success": False, "error": str(exc)}
+    if getattr(exc, "code", None):
+        body["code"] = exc.code
+    return jsonify(body), exc.status
+
+
+def _same_site() -> bool:
+    """Whether a request comes from SYNCHRO.S's own pages, by what the
+    browser says (requests without the headers, like the tests', pass)."""
+    site = request.headers.get("Sec-Fetch-Site")
+    if site and site not in ("same-origin", "none"):
+        return False
+    origin = request.headers.get("Origin")
+    if origin:
+        if origin == "null":
+            return False
+        try:
+            parts = urlsplit(origin)
+        except ValueError:
+            return False
+        hosts = {(request.host or "").lower()}
+        hosts.update(h.strip().lower() for h in (request.headers.get("X-Forwarded-Host") or "").split(",") if h.strip())
+        if parts.netloc.lower() not in hosts:
+            return False
+    return True
+
+
+@bp.before_request
+def _guard_writes():
+    """Changes only from SYNCHRO.S's own pages, as JSON."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    if not _same_site():
+        return jsonify({"success": False, "error": "That came from another site, so nothing changed."}), 403
+    if request.mimetype != "application/json":
+        return jsonify({"success": False, "error": "Send this as JSON."}), 415
+    return None
 
 
 def _label(path: str) -> str:
@@ -255,13 +298,16 @@ def post_docker_command():
         if plat not in disks.PLATFORMS:
             return jsonify({"success": False, "error": "Choose Mac, Linux or Windows."}), 400
         _config().set("drives.platform", plat)
-    _config().set("drives.compose_folder", folder)
-    minted = helper.TOKENS.mint(get_current_profile_id() or 1)
     # the address this browser used (with SOULSYNC_URL_BASE, if set): the
     # Terminal on the same computer reaches SYNCHRO.S the same way
-    base = request.url_root.rstrip("/")
+    try:
+        base = helper.clean_base_url(request.url_root)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    _config().set("drives.compose_folder", folder)
+    minted = helper.TOKENS.mint(get_current_profile_id() or 1)
     plat = _platform()
-    return _no_store(jsonify({"success": True, "command": helper.command(base, minted["token"], folder),
+    return _no_store(jsonify({"success": True, "command": helper.command(base, minted["token"], folder, plat),
                               "undo": helper.undo_command(folder), "expires_at": minted["expires_at"],
                               "platform": plat, "lines": _lines(plat), "compose_folder": folder}))
 
@@ -320,7 +366,9 @@ def get_browse():
 
 def _overview() -> Dict[str, Any]:
     plat, found = _drives_view()
-    rows = _folder_rows(wait=True)
+    # sizes come from the background measure; the page asks again while
+    # ``measuring`` (a big library takes a while to walk)
+    rows = _folder_rows(wait=False)
     albums = _albums()
     for r in rows:
         if r["role"] == "library" and albums is not None:
@@ -328,7 +376,8 @@ def _overview() -> Dict[str, Any]:
     lib = rows[0]["path"]
     space = disks.usage(lib) or {}
     return {"folders": rows, "drives": found, "home_label": _label(lib), "home_free": space.get("free"),
-            "platform": plat, "visible": bool(found), "roots": list(disks.drives_roots(plat))}
+            "platform": plat, "visible": bool(found), "roots": list(disks.drives_roots(plat)),
+            "measuring": any(r["files"] is None for r in rows)}
 
 
 def _move_payload(move, *, overview: bool = False) -> Dict[str, Any]:
@@ -379,7 +428,7 @@ def put_choice(move_id: int):
 @bp.route("/api/drives/move/<int:move_id>/check", methods=["POST"])
 @admin_only
 def post_check(move_id: int):
-    return _act(lambda: _job().check(move_id))
+    return _act(lambda: _job().check(move_id, background=True))
 
 
 @bp.route("/api/drives/move/<int:move_id>/slskd-session", methods=["POST"])
@@ -387,7 +436,7 @@ def post_check(move_id: int):
 def post_slskd_session(move_id: int):
     body = request.get_json(silent=True) or {}
     return _act(lambda: _job().slskd_sign_in(move_id, str(body.get("username") or "")[:200],
-                                             str(body.get("password") or "")[:500]))
+                                             str(body.get("password") or "")[:500], background=True))
 
 
 @bp.route("/api/drives/move/<int:move_id>/plan", methods=["POST"])
@@ -457,7 +506,10 @@ def post_remove(move_id: int):
 @bp.route("/api/drives/move/<int:move_id>/switch-back", methods=["POST"])
 @admin_only
 def post_switch_back(move_id: int):
-    return _act(lambda: _job().switch_back(move_id))
+    body = request.get_json(silent=True) or {}
+    username = str(body.get("username") or "")[:200] or None
+    password = str(body.get("password") or "")[:500]
+    return _act(lambda: _job().switch_back(move_id, username=username, password=password))
 
 
 @bp.route("/api/drives/move/<int:move_id>/leave", methods=["POST"])

@@ -3,7 +3,11 @@
 An admin opens the Docker step; SYNCHRO.S mints a token and shows one line to
 paste into the computer's Terminal::
 
-    cd ~/SoulSync && curl -fsSL "http://<this address>/api/drives/helper.sh?t=<token>" -o drives-helper.sh && sh drives-helper.sh
+    cd ~/SoulSync && curl -fsSL 'http://<this address>/api/drives/helper.sh?t=<token>' -o drives-helper.sh && echo '<sha256>  drives-helper.sh' | shasum -a 256 -c - && sh drives-helper.sh
+
+(``sha256sum -c -`` on Linux.) The address is checked against a strict set
+of URL characters and quoted for the shell, and the script only runs when it
+is byte for byte the one SYNCHRO.S serves.
 
 The script is saved (so ``sh drives-helper.sh --undo`` works later, and so its
 question can be answered from the keyboard, which a piped script can't) and
@@ -23,6 +27,7 @@ import hmac
 import os
 import re
 import secrets
+import shlex
 import threading
 import time
 from typing import Callable, Dict, Optional
@@ -32,6 +37,9 @@ TOKEN_BYTES = 32
 SCRIPT_NAME = "drives-helper.sh"
 DEFAULT_COMPOSE_FOLDER = "~/SoulSync"
 _FOLDER_OK = re.compile(r"^[A-Za-z0-9 _./~@+-]{1,300}$")
+#: SYNCHRO.S's own address as the browser used it: a scheme, a host (a name,
+#: an IPv4 or a bracketed IPv6 address), an optional port and a plain path
+_BASE_OK = re.compile(r"^https?://(?:[A-Za-z0-9.-]{1,253}|\[[0-9A-Fa-f:.]{2,45}\])(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?$")
 
 
 def _hash(token: str) -> bytes:
@@ -118,10 +126,31 @@ def _shell_folder(folder: str) -> str:
     return f'"{folder}"' if not re.fullmatch(r"[A-Za-z0-9_./-]+", folder) else folder
 
 
-def command(base_url: str, token: str, folder: str) -> str:
-    """The line to paste (Mac and Linux)."""
-    url = f"{base_url.rstrip('/')}/api/drives/helper.sh?t={token}"
-    return f'cd {_shell_folder(folder)} && curl -fsSL "{url}" -o {SCRIPT_NAME} && sh {SCRIPT_NAME}'
+def clean_base_url(value: object) -> str:
+    """SYNCHRO.S's address for the command, or ValueError: it goes into a
+    line the person pastes into a shell, so only plain URL characters."""
+    if not isinstance(value, str) or len(value) > 500:
+        raise ValueError("SYNCHRO.S's address can't go into a command.")
+    text = value.strip().rstrip("/")
+    if not _BASE_OK.match(text):
+        raise ValueError("SYNCHRO.S's address has characters that can't go into a command. Open SYNCHRO.S "
+                         "by its plain address (like http://192.168.1.20:8008) and try again.")
+    return text
+
+
+def script_sha256() -> str:
+    return hashlib.sha256(script().encode("utf-8")).hexdigest()
+
+
+def command(base_url: str, token: str, folder: str, platform: str = "mac") -> str:
+    """The line to paste (Mac and Linux): fetch the script, check it is the
+    one SYNCHRO.S serves (``shasum`` on a Mac, ``sha256sum`` on Linux), run it."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", token or ""):
+        raise ValueError("bad token")
+    url = f"{clean_base_url(base_url)}/api/drives/helper.sh?t={token}"
+    check = "shasum -a 256 -c -" if platform == "mac" else "sha256sum -c -"
+    return (f"cd {_shell_folder(folder)} && curl -fsSL {shlex.quote(url)} -o {SCRIPT_NAME} && "
+            f"echo '{script_sha256()}  {SCRIPT_NAME}' | {check} && sh {SCRIPT_NAME}")
 
 
 def undo_command(folder: str) -> str:
@@ -143,11 +172,13 @@ SCRIPT_TEMPLATE = r"""#!/bin/sh
 #   sh drives-helper.sh            shows the lines it adds and asks first
 #   sh drives-helper.sh --dry-run  only shows them
 #   sh drives-helper.sh --undo     puts docker-compose.before-drives.yml back
+#                                  (only while the file is as the helper left it)
 #
 # It keeps a copy of your set-up file as docker-compose.before-drives.yml
 # before it changes a line, edits the file with a small Python program (below,
-# readable) rather than sed, checks the result with `docker compose config`,
-# and restarts with `docker compose up -d`.
+# readable) rather than sed, checks the result with `docker compose config`
+# (together with docker-compose.override.yml or COMPOSE_FILE's files), and
+# restarts with `docker compose up -d`.
 set -u
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -196,4 +227,4 @@ def script() -> str:
 
 
 __all__ = ["DEFAULT_COMPOSE_FOLDER", "HelperTokens", "SCRIPT_NAME", "TOKENS", "TOKEN_TTL_SECONDS",
-           "clean_compose_folder", "command", "script", "undo_command"]
+           "clean_base_url", "clean_compose_folder", "command", "script", "script_sha256", "undo_command"]

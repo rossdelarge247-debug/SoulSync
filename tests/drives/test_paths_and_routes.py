@@ -132,7 +132,7 @@ def test_members_read_the_state_without_paths_or_check_again(routes):
 
 def test_admins_read_paths_and_the_away_state(routes):
     os.rename(routes["roots"]["library"], routes["roots"]["library"] + "-x")
-    body = routes["client"].post("/api/drives/status/check").get_json()
+    body = routes["client"].post("/api/drives/status/check", json={}).get_json()
     assert body["library_away"] is True and body["away"] == ["library"]
     assert body["folders"]["library"]["path"] == routes["roots"]["library"]
     assert body["folders"]["library"]["drive"] == "Macintosh HD"
@@ -158,8 +158,10 @@ def test_the_docker_step_mints_a_one_use_command(routes):
     bad = c.post("/api/drives/docker/command", json={"folder": "~/x; rm -rf ~"})
     assert bad.status_code == 400 and bad.get_json()["field"] == "folder"
     made = c.post("/api/drives/docker/command", json={"folder": "~/synchros", "platform": "mac"}).get_json()
-    assert made["command"].startswith('cd ~/synchros && curl -fsSL "http://localhost/api/drives/helper.sh?t=')
-    token = made["command"].split("?t=")[1].split('"')[0]
+    assert made["command"].startswith("cd ~/synchros && curl -fsSL 'http://localhost/api/drives/helper.sh?t=")
+    token = made["command"].split("?t=")[1].split("'")[0]
+    assert f"echo '{helper.script_sha256()}  drives-helper.sh' | shasum -a 256 -c - && sh drives-helper.sh" \
+        in made["command"]
     assert routes["config"].get("drives.compose_folder") == "~/synchros"
     # curl has no session: the token is the credential, once
     routes["state"]["profile"] = None
@@ -203,12 +205,23 @@ def test_browse_lists_folders_on_a_drive_only(routes, tmp_path):
     assert c.get("/api/drives/browse", query_string={"path": str(routes["drive"]) + "/../.."}).status_code == 400
 
 
+def _settled(c, path="/api/drives/move", until=lambda body: True):
+    import time
+    for _ in range(200):
+        body = c.get(path).get_json()
+        if until(body):
+            return body
+        time.sleep(0.05)
+    raise AssertionError("never settled")
+
+
 def test_the_move_through_the_routes(routes):
     c = routes["client"]
-    draft = c.post("/api/drives/move").get_json()
+    draft = c.post("/api/drives/move", json={}).get_json()
     move_id = draft["move"]["id"]
     assert draft["move"]["promise"]["words"] == "Nothing has changed yet"
-    overview = draft["overview"]
+    # the folder sizes are measured in the background; the page asks again
+    overview = _settled(c, until=lambda b: not b["overview"]["measuring"])["overview"]
     assert [f["role"] for f in overview["folders"]] == ["library", "downloads", "staging"]
     assert overview["folders"][0]["files"] == 4 and overview["folders"][0]["albums"] == 2
     assert overview["drives"][0]["name"] == "Music HD" and overview["home_label"] == "Macintosh HD"
@@ -217,19 +230,22 @@ def test_the_move_through_the_routes(routes):
                                                           "roles": {"library": True, "downloads": False,
                                                                     "staging": True}})
     assert r.status_code == 200
-    checked = c.post(f"/api/drives/move/{move_id}/check").get_json()["move"]
+    first = c.post(f"/api/drives/move/{move_id}/check", json={}).get_json()["move"]
+    assert first["checks"]["running"] is True  # the write test and the walks run in the background
+    import api.drives as drives_api
+    drives_api.JOB.join_check(30)
+    checked = c.get("/api/drives/move").get_json()["move"]
     assert checked["checks"]["ok"] is True
-    planned = c.post(f"/api/drives/move/{move_id}/plan").get_json()["move"]
+    planned = c.post(f"/api/drives/move/{move_id}/plan", json={}).get_json()["move"]
     assert planned["plan"]["order"] == ["staging", "library"]
     started = c.post(f"/api/drives/move/{move_id}/start", json={"checksum": True}).get_json()
     assert started["success"]
-    import api.drives as drives_api
     drives_api.JOB.join(30)
     after = c.get("/api/drives/move").get_json()["move"]
     assert after["status"] == "switched"
     assert after["promise"]["words"] == "Switched to Music HD · the old copies are kept"
     assert "config_before" not in (after["result"].get("slskd") or {})
-    preview = c.post(f"/api/drives/move/{move_id}/remove-preview").get_json()
+    preview = c.post(f"/api/drives/move/{move_id}/remove-preview", json={}).get_json()
     assert preview["total"] == 6 and preview["sample"][0]["action"] == "delete"
     listing = c.get(f"/api/drives/plan-list/{preview['plan_id']}")
     assert listing.status_code == 200 and listing.data.count(b"\n") == 6
@@ -241,10 +257,34 @@ def test_the_move_through_the_routes(routes):
 
 def test_a_refusal_is_a_sentence_not_a_crash(routes):
     c = routes["client"]
-    move_id = c.post("/api/drives/move").get_json()["move"]["id"]
-    r = c.post(f"/api/drives/move/{move_id}/plan")
+    move_id = c.post("/api/drives/move", json={}).get_json()["move"]["id"]
+    r = c.post(f"/api/drives/move/{move_id}/plan", json={})
     assert r.status_code == 409 and r.get_json()["error"] == "Check the drive first."
-    assert c.post("/api/drives/move/999/check").status_code == 404
+    assert c.post("/api/drives/move/999/check", json={}).status_code == 404
+
+
+def test_changes_need_json_from_the_apps_own_pages(routes):
+    c = routes["client"]
+    assert c.post("/api/drives/move").status_code == 415
+    assert c.post("/api/drives/move", data="{}", content_type="text/plain").status_code == 415
+    assert c.post("/api/drives/move", json={}, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert c.post("/api/drives/move", json={}, headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert c.post("/api/drives/move", json={}, headers={"Origin": "null"}).status_code == 403
+    ok = c.post("/api/drives/move", json={}, headers={"Origin": "http://localhost",
+                                                      "Sec-Fetch-Site": "same-origin"})
+    assert ok.status_code == 200
+    # reads and the token-guarded script are untouched
+    assert c.get("/api/drives/move", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 200
+
+
+def test_the_command_refuses_an_address_that_isnt_a_plain_url(routes):
+    c = routes["client"]
+    r = c.post("/api/drives/docker/command", json={"folder": "~/SoulSync", "platform": "linux"},
+               base_url='http://x"$(id)"')
+    assert r.status_code == 400
+    assert helper.TOKENS.state() == {"state": "none"}
+    made = c.post("/api/drives/docker/command", json={"folder": "~/SoulSync", "platform": "linux"}).get_json()
+    assert "| sha256sum -c - && sh drives-helper.sh" in made["command"]
 
 
 # ── the Settings page can't undo a move ──────────────────────────────────────

@@ -256,9 +256,11 @@ def test_yes_keeps_a_copy_edits_validates_restarts_and_says_done(folder):
     assert data["services"]["slskd"]["volumes"][-1] == "/Volumes:/Volumes"
     assert "# Keep this file in ~/SoulSync" in new
     calls = _calls(folder)
-    assert any(c.startswith("docker compose -f .docker-compose.drives-new.yml config -q") for c in calls)
-    assert calls[-1] == "docker compose -f docker-compose.yml up -d"
-    assert not (home / ".docker-compose.drives-new.yml").exists()
+    assert any(c.startswith("docker compose -f .docker-compose.drives-new.") and c.endswith(".yml config -q")
+               for c in calls)
+    # no -f: Docker reads its own set of files (an override, COMPOSE_FILE)
+    assert calls[-1] == "docker compose up -d"
+    assert not [p for p in os.listdir(home) if p.startswith(".docker-compose.drives-new")]
     if REAL_DOCKER:
         # docker compose itself reads the changed file
         out = subprocess.run([REAL_DOCKER, "compose", "-f", "docker-compose.yml", "config", "--format", "json"],
@@ -273,7 +275,7 @@ def test_undo_puts_the_original_back_byte_for_byte(folder):
     assert (folder["home"] / "docker-compose.yml").read_bytes() == _ross()
     assert not (folder["home"] / C.BACKUP_NAME).exists()
     assert "back as it was" in r.stdout
-    assert _calls(folder)[-1] == "docker compose -f docker-compose.yml up -d"
+    assert _calls(folder)[-1] == "docker compose up -d"
 
 
 def test_undo_without_a_copy_says_so(folder):
@@ -358,8 +360,9 @@ def test_tokens_are_kept_only_as_hashes():
 
 def test_the_command_and_its_folder():
     cmd = H.command("http://192.168.1.20:8008", "TOKEN", "~/SoulSync")
-    assert cmd == ('cd ~/SoulSync && curl -fsSL "http://192.168.1.20:8008/api/drives/helper.sh?t=TOKEN" '
-                   "-o drives-helper.sh && sh drives-helper.sh")
+    assert cmd == ("cd ~/SoulSync && curl -fsSL 'http://192.168.1.20:8008/api/drives/helper.sh?t=TOKEN' "
+                   f"-o drives-helper.sh && echo '{H.script_sha256()}  drives-helper.sh' | shasum -a 256 -c - "
+                   "&& sh drives-helper.sh")
     assert H.command("http://h", "T", "~/My Music/SoulSync").startswith('cd ~/"My Music/SoulSync" && ')
     assert H.undo_command("~/SoulSync") == "cd ~/SoulSync && sh drives-helper.sh --undo"
     assert H.clean_compose_folder("") == "~/SoulSync"
@@ -380,3 +383,97 @@ def test_the_script_runs_in_well_under_a_minute(folder):
     started = time.monotonic()
     _run(folder, "--dry-run")
     assert time.monotonic() - started < 30
+
+
+@pytest.mark.parametrize("base", ['http://h"; rm -rf ~; echo "', "http://h/$(id)", "http://h/`id`", "ftp://h",
+                                  "http://h/a b", "http://h/?x=1", "http://h:8008'"])
+def test_the_command_refuses_an_address_with_shell_characters(base):
+    with pytest.raises(ValueError):
+        H.command(base, "TOKEN", "~/SoulSync")
+
+
+def test_the_commands_checksum_matches_the_served_script(tmp_path):
+    (tmp_path / H.SCRIPT_NAME).write_text(H.script())
+    cmd = H.command("http://[::1]:8008/synchros", "T-1_x", "~/SoulSync", "linux")
+    assert "'http://[::1]:8008/synchros/api/drives/helper.sh?t=T-1_x'" in cmd
+    check = cmd.split(" && ")[2]
+    assert check.endswith("| sha256sum -c -")
+    if shutil.which("sha256sum"):
+        ok = subprocess.run(["sh", "-c", check], cwd=tmp_path, capture_output=True, text=True)
+        assert ok.returncode == 0, ok.stdout + ok.stderr
+        (tmp_path / H.SCRIPT_NAME).write_text(H.script() + "echo tampered\n")
+        bad = subprocess.run(["sh", "-c", check], cwd=tmp_path, capture_output=True, text=True)
+        assert bad.returncode != 0
+
+
+OVERRIDE = "services:\n  soulsync:\n    environment:\n      - EXTRA=1\n"
+
+
+def test_an_override_file_is_checked_with_the_edit_and_kept_at_the_restart(folder):
+    (folder["home"] / "docker-compose.override.yml").write_text(OVERRIDE)
+    r = _run(folder, stdin="y\n")
+    assert r.returncode == 0, r.stdout + r.stderr
+    calls = _calls(folder)
+    check = next(c for c in calls if c.endswith("config -q"))
+    assert check.startswith("docker compose -f .docker-compose.drives-new.")
+    assert check.endswith(" -f docker-compose.override.yml config -q")
+    assert calls[-1] == "docker compose up -d"
+    assert (folder["home"] / "docker-compose.override.yml").read_text() == OVERRIDE
+
+
+def test_compose_file_is_respected(folder):
+    home = folder["home"]
+    (home / "docker-compose.yml").rename(home / "base.yml")
+    (home / "extra.yml").write_text(OVERRIDE)
+    env = {**folder["env"], "COMPOSE_FILE": "base.yml:extra.yml"}
+    r = subprocess.run(["sh", H.SCRIPT_NAME, "--platform", "mac"], cwd=home, env=env, input="y\n",
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "/Volumes:/Volumes" in (home / "base.yml").read_text()
+    assert (home / "extra.yml").read_text() == OVERRIDE
+    calls = _calls(folder)
+    assert next(c for c in calls if c.endswith("config -q")).endswith(" -f extra.yml config -q")
+    assert calls[-1] == "docker compose up -d"
+
+
+def test_compose_file_whose_first_file_isnt_synchros_is_refused_clearly(folder):
+    home = folder["home"]
+    (home / "first.yml").write_text("services:\n  other:\n    image: nginx\n")
+    env = {**folder["env"], "COMPOSE_FILE": "first.yml:docker-compose.yml"}
+    r = subprocess.run(["sh", H.SCRIPT_NAME, "--platform", "mac", "--yes"], cwd=home, env=env,
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 7 and "COMPOSE_FILE is set" in r.stdout and "first file" in r.stdout
+    assert (home / "docker-compose.yml").read_bytes() == _ross()
+
+
+def test_undo_refuses_after_the_file_was_edited_since(folder):
+    assert _run(folder, stdin="y\n").returncode == 0
+    path = folder["home"] / "docker-compose.yml"
+    edited = path.read_text() + "# my own change\n"
+    path.write_text(edited)
+    r = _run(folder, "--undo", "--yes")
+    assert r.returncode == 12 and "changed since the helper edited it" in r.stdout
+    assert path.read_text() == edited
+    assert (folder["home"] / C.BACKUP_NAME).exists()
+
+
+def test_each_run_keeps_its_own_before_copy(folder):
+    assert _run(folder, stdin="y\n").returncode == 0
+    path = folder["home"] / "docker-compose.yml"
+    # the person takes the lines out again by hand, then runs the helper again
+    path.write_bytes(_ross().replace(b"# Keep this file", b"# Keep my file"))
+    assert _run(folder, stdin="y\n").returncode == 0
+    assert (folder["home"] / C.BACKUP_NAME).read_bytes() == _ross().replace(b"# Keep this file", b"# Keep my file")
+    assert _run(folder, "--undo", "--yes").returncode == 0
+    assert b"# Keep my file" in path.read_bytes()
+
+
+def test_writes_never_follow_a_planted_link(folder, tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep")
+    home = folder["home"]
+    os.symlink(str(outside), str(home / C.BACKUP_NAME))
+    r = _run(folder, stdin="y\n")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert outside.read_text() == "keep"
+    assert not os.path.islink(home / C.BACKUP_NAME)
