@@ -8,6 +8,7 @@ import { openWishlistInspector } from '@/features/downloads/inspector-modal';
 import { profileAsksFirst } from '@/platform/shell/download-rights';
 
 import type { useWantedData } from '../-wanted.hooks';
+import type { WantedView } from '../-wanted.nebula';
 
 import {
   qualityProfilesQueryOptions,
@@ -56,13 +57,15 @@ import {
 } from '../../wishlist/-wishlist.api';
 import { useLiveWishlist } from '../../wishlist/-wishlist.live';
 import { ConfirmDialog } from './confirm-dialog';
-import { AudiobooksView, NebulaView } from './legacy-views';
+import { AudiobooksView } from './legacy-views';
+import { NebulaView } from './nebula-view';
 import {
   FilterButtons,
   ListFailure,
   ListFooter,
   SortSelect,
   SubHead,
+  ViewToggle,
   type FilterOption,
 } from './parts';
 import { FoundRowView, WantedRowView, type WantedRowHandlers } from './rows';
@@ -71,13 +74,6 @@ import styles from './wanted-page.module.css';
 export const WANTED_SORT_OPTIONS: { key: WantedSort; label: string }[] = [
   { key: 'newest', label: 'Newest first' },
   { key: 'oldest', label: 'Oldest first' },
-  { key: 'most-tries', label: 'Most tries first' },
-  { key: 'artist', label: 'Artist A–Z' },
-];
-
-/** The nebula keeps the old Wishlist's orders, under the same URL values. */
-const NEBULA_SORT_OPTIONS: { key: WantedSort; label: string }[] = [
-  { key: 'newest', label: 'Busiest first' },
   { key: 'most-tries', label: 'Most tries first' },
   { key: 'artist', label: 'Artist A–Z' },
 ];
@@ -104,6 +100,7 @@ function ScheduleLine({
   canSearch,
   pending,
   onSearchNow,
+  note,
 }: {
   processing: boolean;
   schedule: ScheduleState;
@@ -111,6 +108,8 @@ function ScheduleLine({
   canSearch: boolean;
   pending: boolean;
   onSearchNow: () => void;
+  /** A sentence after the action (the nebula says how it's drawn); wide only. */
+  note?: string;
 }) {
   if (processing) {
     return (
@@ -153,6 +152,7 @@ function ScheduleLine({
       <span className={styles.lineLong}>{long}</span>
       <span className={styles.lineShort}>{short}</span>
       {action}
+      {note ? <span className={styles.lineLong}> · {note}</span> : null}
     </p>
   );
 }
@@ -162,6 +162,8 @@ export function WantedTab({
   search,
   data,
   tabs,
+  view,
+  onView,
   selecting,
   onStopSelecting,
   findOpen,
@@ -173,6 +175,9 @@ export function WantedTab({
   data: ReturnType<typeof useWantedData>;
   /** The tab bar, drawn at the start of this tab's toolbar row. */
   tabs: ReactNode;
+  /** List or nebula (9a), remembered per browser by the page. */
+  view: WantedView;
+  onView: (view: WantedView) => void;
   selecting: boolean;
   onStopSelecting: () => void;
   findOpen: boolean;
@@ -182,7 +187,7 @@ export function WantedTab({
   const navigate = useNavigate();
   const filter = resolveWantedFilter(search.filter);
   const sort = resolveWantedSort(search.sort);
-  const nebula = search.view === 'nebula';
+  const nebula = view === 'nebula';
   const pages = search.page ?? 1;
   const query = search.q ?? '';
   const now = useNow();
@@ -465,11 +470,16 @@ export function WantedTab({
             value={filter}
             onChange={(next) => go({ filter: next === 'all' ? undefined : next, page: undefined })}
           />
-          <SortSelect
-            options={nebula ? NEBULA_SORT_OPTIONS : WANTED_SORT_OPTIONS}
-            value={nebula && sort === 'oldest' ? 'newest' : sort}
-            onChange={(next) => go({ sort: next === 'newest' ? undefined : next, page: undefined })}
-          />
+          {nebula ? null : (
+            <SortSelect
+              options={WANTED_SORT_OPTIONS}
+              value={sort}
+              onChange={(next) =>
+                go({ sort: next === 'newest' ? undefined : next, page: undefined })
+              }
+            />
+          )}
+          <ViewToggle view={view} onView={onView} />
         </div>,
       )}
 
@@ -480,6 +490,11 @@ export function WantedTab({
         canSearch={canSearch}
         pending={searchAll.isPending}
         onSearchNow={() => searchAll.mutate()}
+        note={
+          nebula
+            ? 'Each artist is sized by how much of theirs you’re waiting on; the groups are what the searches say.'
+            : undefined
+        }
       />
 
       {filter === 'not-found' && counts.notFound > 0 ? (
@@ -564,31 +579,30 @@ export function WantedTab({
         </div>
       ) : null}
 
-      {search.view === 'nebula' ? (
-        <>
-          <p className={styles.line}>
-            <span>Wanted, drawn as one orb per artist.</span>
-            <button
-              type="button"
-              className={styles.linkButton}
-              onClick={() => go({ view: undefined })}
-            >
-              Show as a list
-            </button>
-          </p>
-          <div className={styles.legacyView}>
-            <NebulaView
-              profileId={profileId}
-              routedArtists={data.routedArtists}
-              query={query}
-              notFoundOnly={filter === 'not-found'}
-              sort={sort === 'artist' ? 'name' : sort === 'most-tries' ? 'failing' : 'busiest'}
-              processing={processing}
-              cycle={cycle.data?.cycle ?? 'albums'}
-              onChanged={() => void refresh()}
-            />
-          </div>
-        </>
+      {nebula ? (
+        <NebulaView
+          profileId={profileId}
+          items={data.items}
+          found={found}
+          query={query}
+          filter={filter}
+          imageSources={data.imageSources}
+          now={now}
+          canSearch={canSearch}
+          qualityName={(item) =>
+            (item.qualityProfileId ? names.byId.get(item.qualityProfileId) : undefined) ??
+            names.fallback
+          }
+          handlers={{
+            onOpenArtist: handlers.onOpenArtist,
+            onSearchNow: (items, label) => void grab(items, label),
+            onRemove: (items) => {
+              if (items.length === 1 && items[0].trackIds.length === 1) void removeItems(items);
+              else setConfirm(items);
+            },
+            onSearchByHand: handlers.onSearchByHand,
+          }}
+        />
       ) : (
         <>
           <ul className={styles.list} aria-label="Wanted">

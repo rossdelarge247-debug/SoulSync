@@ -15,6 +15,7 @@ import {
   useWantedData,
   useWantedPageShell,
 } from '../-wanted.hooks';
+import { readStoredView, storeView, type WantedView } from '../-wanted.nebula';
 import { resolveTab, type WantedSearch, type WantedTab } from '../-wanted.types';
 import {
   similarArtistsStatusQueryOptions,
@@ -152,6 +153,23 @@ export function WantedPage() {
       replace: options?.replace,
     });
 
+  // List or nebula (9a): a toggle remembered per browser. An old
+  // ?view=nebula link still opens the nebula, and is remembered too.
+  const [storedView, setStoredView] = useState<WantedView>(readStoredView);
+  const view: WantedView = search.view === 'nebula' ? 'nebula' : storedView;
+  useEffect(() => {
+    if (search.view === 'nebula') {
+      storeView('nebula');
+      setStoredView('nebula');
+    }
+  }, [search.view]);
+  const setView = (next: WantedView) => {
+    storeView(next);
+    setStoredView(next);
+    setSelecting(false);
+    if (search.view) go({ view: undefined }, { replace: true });
+  };
+
   // Update similar artists: started here, polled until it says done. It
   // shares the scan worker, so the two never run together.
   const [similarRunning, setSimilarRunning] = useState(false);
@@ -206,7 +224,7 @@ export function WantedPage() {
     ...(mainView
       ? ([
           { key: 'find', label: 'Find in this list', onSelect: () => setFindOpen(true) },
-          ...(search.view === 'nebula'
+          ...(view === 'nebula'
             ? []
             : [
                 {
@@ -215,11 +233,6 @@ export function WantedPage() {
                   onSelect: () => setSelecting((on) => !on),
                 },
               ]),
-          {
-            key: 'view',
-            label: search.view === 'nebula' ? 'Show as a list' : 'Show as a nebula',
-            onSelect: () => go({ view: search.view === 'nebula' ? undefined : 'nebula' }),
-          },
         ] satisfies MenuEntry[])
       : [{ key: 'music', label: 'Music on Wanted', onSelect: () => go({ media: undefined }) }]),
     { key: 'retry', label: 'How often to try again…', onSelect: () => setDialog('retry') },
@@ -357,6 +370,8 @@ export function WantedPage() {
           search={search}
           data={data}
           tabs={tabs}
+          view={view}
+          onView={setView}
           selecting={selecting}
           onStopSelecting={() => setSelecting(false)}
           findOpen={findOpen}

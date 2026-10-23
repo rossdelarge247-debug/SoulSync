@@ -512,6 +512,11 @@ afterEach(() => {
   delete window.openWatchlistHistoryModal;
   delete (window as { canDownload?: () => boolean }).canDownload;
   vi.mocked(openWishlistInspector).mockReset();
+  try {
+    window.localStorage.removeItem('soulsync_wanted_view');
+  } catch {
+    /* jsdom always has it */
+  }
 });
 
 describe('Wanted tab', () => {
@@ -800,7 +805,6 @@ describe('Wanted tab', () => {
     ).toEqual([
       'Find in this list',
       'Select several',
-      'Show as a nebula',
       'How often to try again…',
       'Download everything now…',
       'Removed and skipped tracks…',
@@ -822,10 +826,6 @@ describe('Wanted tab', () => {
     });
     await waitFor(() => expect(search(router).get('q')).toBe('night'));
     expect(within(list('Wanted')).getAllByRole('listitem')).toHaveLength(1);
-
-    menu = await openMenu('More for Wanted');
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Show as a nebula' }));
-    await waitFor(() => expect(search(router).get('view')).toBe('nebula'));
   });
 
   it('changes how often not-found tracks are tried again', async () => {
@@ -848,6 +848,191 @@ describe('Wanted tab', () => {
     fireEvent.click(within(dialog).getByText('Patient'));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Use Patient' }));
     await waitFor(() => expect(sent).toEqual({ profile: 'patient' }));
+  });
+});
+
+describe('Wanted as a nebula (9a)', () => {
+  /** The library's numbers for Pale Harbour (GET /api/library/artist-index). */
+  function mockArtistIndex(wantable = 1) {
+    server.use(
+      http.get('*/api/library/artist-index', () =>
+        HttpResponse.json({
+          success: true,
+          artists: [
+            {
+              id: 77,
+              name: 'Pale Harbour',
+              image_url: null,
+              genres: [],
+              following: false,
+              releases: 6,
+              in_library: 3,
+              missing: 3,
+              wanted: 2,
+              wantable,
+            },
+          ],
+          total: 1,
+          page: 1,
+          limit: 20,
+          has_more: false,
+        }),
+      ),
+    );
+  }
+
+  const field = () => screen.getByRole('group', { name: 'Wanted by artist' });
+
+  it('the view toggle replaces the menu item, and the browser remembers it', async () => {
+    mockApi();
+    mockArtistIndex();
+    renderRoute('/wanted');
+    await screen.findByText('Harbour Light');
+    const view = screen.getByRole('group', { name: 'View' });
+    const asList = within(view).getByRole('button', { name: 'Show as a list' });
+    const asNebula = within(view).getByRole('button', { name: 'Show as a nebula' });
+    expect(asList).toHaveAttribute('aria-pressed', 'true');
+    expect(asNebula).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(asNebula);
+    expect(await screen.findByRole('group', { name: 'Wanted by artist' })).toBeInTheDocument();
+    expect(asNebula).toHaveAttribute('aria-pressed', 'true');
+    expect(window.localStorage.getItem('soulsync_wanted_view')).toBe('nebula');
+    // no Sort in the nebula, and the list is gone
+    expect(screen.queryByRole('combobox', { name: 'Sort' })).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Wanted' })).toBeNull();
+
+    fireEvent.click(asList);
+    expect(await screen.findByRole('list', { name: 'Wanted' })).toBeInTheDocument();
+    expect(window.localStorage.getItem('soulsync_wanted_view')).toBe('list');
+  });
+
+  it('opens on the nebula next time, and an old ?view=nebula link still does', async () => {
+    window.localStorage.setItem('soulsync_wanted_view', 'nebula');
+    mockApi();
+    mockArtistIndex();
+    renderRoute('/wanted');
+    expect(await screen.findByRole('group', { name: 'Wanted by artist' })).toBeInTheDocument();
+
+    window.localStorage.removeItem('soulsync_wanted_view');
+    document.body.innerHTML = '';
+    renderRoute('/wanted?view=nebula');
+    expect(await screen.findByRole('group', { name: 'Wanted by artist' })).toBeInTheDocument();
+    expect(window.localStorage.getItem('soulsync_wanted_view')).toBe('nebula');
+  });
+
+  it('three columns in the page’s words; each artist filed under its worst thing', async () => {
+    window.localStorage.setItem('soulsync_wanted_view', 'nebula');
+    mockApi();
+    mockArtistIndex();
+    renderRoute('/wanted');
+    await screen.findByRole('group', { name: 'Wanted by artist' });
+    const heads = within(field())
+      .getAllByRole('heading', { level: 3 })
+      .map((h) => h.textContent);
+    // the counts are things in each state, as the Show filters count them
+    expect(heads).toEqual(['Searching · 1', 'Not found yet · 2', 'Found this week · 1']);
+    // Pale Harbour: Harbour Light searching, Night Ferry not found → Not found yet
+    const notFound = screen.getByRole('region', { name: 'Not found yet · 2' });
+    expect(
+      within(notFound).getByRole('button', { name: 'Pale Harbour, 2 things on Wanted' }),
+    ).toHaveAttribute('aria-pressed', 'false');
+    expect(
+      within(notFound).getByRole('button', { name: /^Saltmarsh, 1 thing on Wanted/ }),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole('region', { name: 'Searching · 1' })).getByText(
+        'Nothing is in its first searches.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('a Show filter keeps the three columns and says what it hides', async () => {
+    window.localStorage.setItem('soulsync_wanted_view', 'nebula');
+    mockApi();
+    mockArtistIndex();
+    renderRoute('/wanted?filter=found');
+    await screen.findByRole('group', { name: 'Wanted by artist' });
+    expect(
+      within(screen.getByRole('region', { name: 'Not found yet · 2' })).getByText(
+        'Not shown while Show is on Found this week.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('an artist opens beside the field: why it’s stuck, the items, the three actions', async () => {
+    window.localStorage.setItem('soulsync_wanted_view', 'nebula');
+    const posts = mockApi();
+    mockArtistIndex(1);
+    renderRoute('/wanted');
+    await screen.findByRole('group', { name: 'Wanted by artist' });
+    const artist = screen.getByRole('button', { name: 'Pale Harbour, 2 things on Wanted' });
+    fireEvent.click(artist);
+    expect(artist).toHaveAttribute('aria-pressed', 'true');
+
+    const panel = await screen.findByRole('complementary', { name: 'Pale Harbour on Wanted' });
+    expect(within(panel).getByRole('heading', { level: 2, name: 'Pale Harbour' })).toHaveFocus();
+    expect(
+      await within(panel).findByText('6 releases · 3 in your library · 2 on Wanted · Following'),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByText(
+        /^22 tries with Night Ferry \(Live\): user went offline\. Last try 1 hour ago\.$/,
+      ),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText('Not found yet · 22 tries')).toBeInTheDocument();
+    expect(within(panel).getByText('Searching · 1 try')).toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Search now for both' }));
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        path: '/api/wishlist/bulk',
+        body: { action: 'grab', track_ids: ['hl', 'nf'] },
+      }),
+    );
+
+    fireEvent.click(
+      within(panel).getByRole('button', { name: 'Accept any quality for Night Ferry (Live)' }),
+    );
+    expect(openWishlistInspector).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'nf', name: 'Night Ferry (Live)' }),
+    );
+
+    // one release to want: added at once, through the phase 3 bulk add
+    fireEvent.click(
+      await within(panel).findByRole('button', { name: 'Want the 1 other release you’re missing' }),
+    );
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        path: '/api/wishlist/bulk',
+        body: { action: 'add', filter: { artist_ids: [77] }, quality: 'target' },
+      }),
+    );
+  });
+
+  it('Remove both asks first; Escape closes the panel and gives the focus back', async () => {
+    window.localStorage.setItem('soulsync_wanted_view', 'nebula');
+    mockApi();
+    mockArtistIndex();
+    renderRoute('/wanted');
+    await screen.findByRole('group', { name: 'Wanted by artist' });
+    const artist = screen.getByRole('button', { name: 'Pale Harbour, 2 things on Wanted' });
+    fireEvent.click(artist);
+    const panel = await screen.findByRole('complementary', { name: 'Pale Harbour on Wanted' });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Remove both from Wanted' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Remove 2 things from Wanted?' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() =>
+      expect(screen.queryByRole('complementary', { name: 'Pale Harbour on Wanted' })).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Pale Harbour, 2 things on Wanted' }),
+      ).toHaveFocus(),
+    );
   });
 });
 

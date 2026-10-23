@@ -2,6 +2,7 @@ import { queryOptions } from '@tanstack/react-query';
 
 import { apiClient, readJson } from '@/app/api-client';
 
+import type { ArtistIndexResponse, IndexArtist } from '../library/-library.types';
 import type {
   FollowedSummaryResponse,
   FoundResponse,
@@ -10,6 +11,7 @@ import type {
 } from './-wanted.types';
 
 import { fetchFollowedAuthors, fetchWishlist } from '../audiobooks/-audiobooks.api';
+import { LIBRARY_QUERY_KEY } from '../library/-library.api';
 import { WATCHLIST_QUERY_KEY } from '../watchlist/-watchlist.api';
 import { WISHLIST_QUERY_KEY } from '../wishlist/-wishlist.api';
 
@@ -134,4 +136,34 @@ export async function scanPodcastsNow(): Promise<PodcastScanResult> {
   return readJson<PodcastScanResult>(
     apiClient.post('podcasts/watchlist/scan-now', { timeout: 120_000 }),
   );
+}
+
+/**
+ * The library's numbers for one artist, by exact name (the nebula's panel:
+ * "6 releases · 3 in your library", and what "Want the N other releases"
+ * adds): GET /api/library/artist-index, which reads the acting profile in
+ * the caller's library scope. Null when the library has no artist of that
+ * name. Under the library's key, so a bulk add refreshes it.
+ */
+export function libraryArtistQueryOptions(profileId: number, name: string) {
+  return queryOptions({
+    queryKey: [
+      ...LIBRARY_QUERY_KEY,
+      'artist-by-name',
+      profileId,
+      name.trim().toLowerCase(),
+    ] as const,
+    queryFn: async (): Promise<IndexArtist | null> => {
+      const payload = await readJson<ArtistIndexResponse>(
+        apiClient.get('library/artist-index', { searchParams: { q: name.trim(), limit: 20 } }),
+      );
+      if (payload.success === false) throw new Error(payload.error || 'No artist index');
+      const wanted = name.trim().toLowerCase();
+      return (
+        (payload.artists ?? []).find((artist) => artist.name.trim().toLowerCase() === wanted) ??
+        null
+      );
+    },
+    staleTime: 30_000,
+  });
 }

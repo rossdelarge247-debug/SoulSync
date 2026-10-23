@@ -82,6 +82,70 @@ export function SortSelect<T extends string>({
   );
 }
 
+/**
+ * List or nebula (9a): two 44px icon buttons beside the Show filters, each
+ * with its name and aria-pressed; the page remembers the choice per browser.
+ */
+export function ViewToggle({
+  view,
+  onView,
+}: {
+  view: 'list' | 'nebula';
+  onView: (view: 'list' | 'nebula') => void;
+}) {
+  return (
+    <div className={styles.viewToggle} role="group" aria-label="View">
+      <button
+        type="button"
+        className={styles.viewButton}
+        aria-pressed={view === 'list'}
+        aria-label="Show as a list"
+        title="Show as a list"
+        onClick={() => onView('list')}
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className={styles.viewButton}
+        aria-pressed={view === 'nebula'}
+        aria-label="Show as a nebula"
+        title="Show as a nebula"
+        onClick={() => onView('nebula')}
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="7" cy="8" r="3" />
+          <circle cx="16.5" cy="7.5" r="2" />
+          <circle cx="15" cy="16" r="4" />
+          <circle cx="5.5" cy="17" r="1.5" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 /** "6 of 312" and "Show 50 more" (or "Show all" when the rest fits in a page). */
 export function ListFooter({
   shown,
