@@ -67,7 +67,7 @@ function state(over: Partial<RadioSessionState> = {}): RadioSessionState {
   };
 }
 
-function mount(st: RadioSessionState) {
+function mount(st: RadioSessionState, fetchOverride?: typeof fetch) {
   document.body.innerHTML = `
     <section id="media-player" class="ss-player" data-source="radio">
       <div class="ss-player-bar">
@@ -87,7 +87,7 @@ function mount(st: RadioSessionState) {
     addToWanted: vi.fn(async () => true),
     refresh: vi.fn(),
   };
-  const fetchImpl = vi.fn(async () => new Response('{}', { status: 404 }));
+  const fetchImpl = fetchOverride ?? vi.fn(async () => new Response('{}', { status: 404 }));
   const chrome = bootRadioChrome({
     radio: () => api,
     analyser: () => null,
@@ -381,5 +381,171 @@ describe('Scan now in the player', () => {
       'no requests left',
     );
     r.chrome!.dispose();
+  });
+});
+
+describe('the sheet’s auto-add confirm, in place (9c)', () => {
+  const NUMBERS = {
+    success: true,
+    enabled: false,
+    identified_yesterday: 61,
+    already_have: 19,
+    would_add: 42,
+    would_add_without_limit: 42,
+    daily_limit: 50,
+    added_today: 0,
+    can_download: true,
+    has_now_playing: true,
+  };
+
+  function server(numbers: Record<string, unknown> = NUMBERS, putStatus = 200) {
+    const calls: { method: string; url: string; body: unknown }[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (url.endsWith('/auto-add') && method === 'GET')
+        return new Response(JSON.stringify(numbers), { status: 200 });
+      if (url.endsWith('/auto-add') && method === 'PUT')
+        return new Response(
+          JSON.stringify(
+            putStatus === 200
+              ? { ...numbers, enabled: true }
+              : {
+                  success: false,
+                  error: 'no_download_rights',
+                  message: 'Turning on auto-add needs download rights.',
+                },
+          ),
+          { status: putStatus },
+        );
+      return new Response('{}', { status: 404 });
+    });
+    return { calls, fetchImpl: fetchImpl as unknown as typeof fetch };
+  }
+
+  const panel = () => document.querySelector<HTMLElement>('[data-player-radio-panel]')!;
+  const sw = () => panel().querySelector<HTMLElement>('[role="switch"]');
+
+  beforeEach(() => {
+    window.showToast = vi.fn();
+  });
+  afterEach(() => {
+    document.body.innerHTML = '';
+    window.showToast = undefined;
+  });
+
+  it('switching on swaps the switch row for the question and the three numbers', async () => {
+    const { calls, fetchImpl } = server();
+    const { chrome } = mount(state(), fetchImpl);
+    sw()!.click();
+    const card = await vi.waitFor(() => {
+      const found = panel().querySelector<HTMLElement>('[role="group"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(sw()).toBeNull();
+    expect(card.getAttribute('aria-labelledby')).toBeTruthy();
+    expect(card.textContent).toContain(`Add everything NTS 1 ${EVIL} plays to Wanted?`);
+    expect(card.textContent).toContain(
+      'Skips what you have or already want, at your quality target. Stops at 50 a day. Shows in Activity.',
+    );
+    await vi.waitFor(() =>
+      expect(
+        [...card.ownerDocument.querySelectorAll('.ss-player-radio-tile')].map((t) => t.textContent),
+      ).toEqual(['Identified yesterday61', 'You already have19', 'Would be added42']),
+    );
+    const buttons = [...panel().querySelectorAll('.ss-player-radio-confirm button')].map(
+      (b) => b.textContent,
+    );
+    expect(buttons).toEqual([`Turn on auto-add for NTS 1 ${EVIL}`, 'Not now']);
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+    chrome!.dispose();
+  });
+
+  it('Turn on puts auto-add on and brings the switch back, on', async () => {
+    const { calls, fetchImpl } = server();
+    const { chrome } = mount(state(), fetchImpl);
+    sw()!.click();
+    const yes = await vi.waitFor(() => {
+      const b = panel().querySelector<HTMLElement>('[data-player-radio-auto-confirm]');
+      expect(b?.getAttribute('aria-disabled')).toBeNull();
+      return b!;
+    });
+    yes.click();
+    await vi.waitFor(() => expect(sw()?.getAttribute('aria-checked')).toBe('true'));
+    expect(calls).toContainEqual({
+      method: 'PUT',
+      url: expect.stringMatching(/\/api\/radio\/stations\/nts-1\/auto-add$/),
+      body: { enabled: true },
+    });
+    expect(window.showToast).toHaveBeenCalledWith(`Auto-add is on for NTS 1 ${EVIL}.`, 'success');
+    chrome!.dispose();
+  });
+
+  it('Not now puts the switch row back, off, and turns nothing on', async () => {
+    const { calls, fetchImpl } = server();
+    const { chrome } = mount(state(), fetchImpl);
+    sw()!.click();
+    const no = await vi.waitFor(() => {
+      const b = panel().querySelector<HTMLElement>('[data-player-radio-auto-cancel]');
+      expect(b).not.toBeNull();
+      return b!;
+    });
+    no.click();
+    expect(sw()?.getAttribute('aria-checked')).toBe('false');
+    expect(document.activeElement).toBe(sw());
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+    chrome!.dispose();
+  });
+
+  it('a refusal stays in the card, in words', async () => {
+    const { fetchImpl } = server(NUMBERS, 403);
+    const { chrome } = mount(state(), fetchImpl);
+    sw()!.click();
+    const yes = await vi.waitFor(() => {
+      const b = panel().querySelector<HTMLElement>('[data-player-radio-auto-confirm]');
+      expect(b?.getAttribute('aria-disabled')).toBeNull();
+      return b!;
+    });
+    yes.click();
+    await vi.waitFor(() =>
+      expect(panel().querySelector('.ss-player-radio-confirm-error')?.textContent).toBe(
+        'Turning on auto-add needs download rights.',
+      ),
+    );
+    chrome!.dispose();
+  });
+
+  it('a profile without download rights is told so, with Not now only', async () => {
+    const { fetchImpl } = server({ ...NUMBERS, can_download: false });
+    const { chrome } = mount(state(), fetchImpl);
+    sw()!.click();
+    await vi.waitFor(() =>
+      expect(panel().textContent).toContain(
+        'Auto-add needs download rights, so it can’t be turned on for your profile.',
+      ),
+    );
+    expect(panel().querySelector('[data-player-radio-auto-confirm]')).toBeNull();
+    chrome!.dispose();
+  });
+
+  it('turning off stays immediate, with no card', async () => {
+    const st = state();
+    st.station!.auto_add = true;
+    const { calls, fetchImpl } = server();
+    const { chrome } = mount(st, fetchImpl);
+    expect(sw()?.getAttribute('aria-checked')).toBe('true');
+    sw()!.click();
+    await vi.waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'PUT',
+        url: expect.stringMatching(/auto-add$/),
+        body: { enabled: false },
+      }),
+    );
+    await vi.waitFor(() => expect(sw()?.getAttribute('aria-checked')).toBe('false'));
+    expect(panel().querySelector('.ss-player-radio-confirm')).toBeNull();
+    chrome!.dispose();
   });
 });

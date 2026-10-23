@@ -54,22 +54,38 @@ export function DialogFrame({
   );
 }
 
+/**
+ * The title row. `description` is the one sentence under the title that the
+ * boards draw (15px at 72%, 4px below it), read as the dialog's description.
+ * Each part carries a `data-slot` so a dialog drawn to a board can restyle
+ * its frame without reaching into this module's class names.
+ */
 export function DialogHeader({
   children,
   closeLabel = 'Close dialog',
+  description,
   title,
 }: {
   children?: ReactNode;
   closeLabel?: string;
+  description?: ReactNode;
   title: ReactNode;
 }) {
   return (
-    <div className={styles.header}>
+    <div className={styles.header} data-slot="dialog-header">
       <div className={styles.headerContent}>
         <Dialog.Title className={styles.title}>{title}</Dialog.Title>
+        {description ? (
+          <Dialog.Description className={styles.description}>{description}</Dialog.Description>
+        ) : null}
         {children ? <div className={styles.headerMeta}>{children}</div> : null}
       </div>
-      <Dialog.Close className={styles.close} aria-label={closeLabel} title={closeLabel}>
+      <Dialog.Close
+        className={styles.close}
+        aria-label={closeLabel}
+        title={closeLabel}
+        data-slot="dialog-close"
+      >
         ×
       </Dialog.Close>
     </div>
@@ -77,9 +93,17 @@ export function DialogHeader({
 }
 
 export function DialogBody({ children }: { children: ReactNode }) {
-  return <div className={styles.body}>{children}</div>;
+  return (
+    <div className={styles.body} data-slot="dialog-body">
+      {children}
+    </div>
+  );
 }
 
 export function DialogFooter({ children }: { children: ReactNode }) {
-  return <div className={styles.footer}>{children}</div>;
+  return (
+    <div className={styles.footer} data-slot="dialog-footer">
+      {children}
+    </div>
+  );
 }

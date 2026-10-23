@@ -324,6 +324,49 @@
   font-weight: 500;
 }
 
+/* List / nebula (9a): two 44px icon buttons, the pressed one selected. */
+.viewToggle {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.viewButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  background: transparent;
+  color: var(--ss-text-secondary);
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.viewButton:hover {
+  background: var(--ss-hover-wash);
+}
+
+.viewButton:active {
+  opacity: var(--ss-pressed-opacity);
+}
+
+.viewButton:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.viewButton[aria-pressed='true'],
+.viewButton[aria-pressed='true']:hover {
+  border-color: var(--ss-selected-border);
+  background: var(--ss-selected-fill);
+  color: var(--ss-text);
+}
+
 /* The Following tab's Kind row (board 5e): its label, the kinds, the sort. */
 .kindRow {
   display: flex;
@@ -716,7 +759,7 @@ span.art:has(.artIcon) {
   font-size: 14px;
 }
 
-/* ── Secondary views (nebula, audiobooks, labels, podcasts) ─────────── */
+/* ── Secondary views (audiobooks) ────────────────────────────────────── */
 
 .subHead {
   display: flex;
@@ -740,94 +783,12 @@ span.art:has(.artIcon) {
 
 .legacyView {
   min-width: 0;
-  /* the nebula's zones and artist panel (wishlist-premier.css) read these;
+  /* the audiobook view's old parts (wishlist-premier.css) read these;
      upstream sets them on its .wlp page wrapper, which Wanted doesn't use */
   --wlp-warn: var(--ss-warning-rgb);
   --wlp-danger: var(--ss-danger-rgb);
   --wlp-surface: var(--ss-surface-card);
   --wlp-ease-spring: var(--ss-ease);
-}
-
-/* the field stacks its zones, worst first, instead of the old centred row of orbs */
-.legacyView :global(.wl-nebula-field.wlp-field) {
-  flex-direction: column;
-  flex-wrap: nowrap;
-  justify-content: flex-start;
-  gap: 24px;
-  padding: 16px 0 32px;
-}
-
-/* upstream styles these only inside its .wlp page; here they follow the
-   design system's type and contrast (14px and up, meta at 62% white) */
-.legacyView :global(.wlp-zone-title) {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 0;
-}
-
-.legacyView :global(.wlp-zone-sub) {
-  font-size: 14px;
-  color: var(--ss-text-meta);
-}
-
-.legacyView :global(.wlp-zone-retry) {
-  min-height: 44px;
-  padding: 0 16px;
-  border: 1px solid var(--ss-control-border);
-  border-radius: var(--ss-radius-control);
-  background: var(--ss-control-fill);
-  color: var(--ss-text-secondary);
-  font-size: 15px;
-  font-weight: 500;
-  transition: var(--ss-transition);
-}
-
-.legacyView :global(.wlp-zone-retry:hover:not(:disabled)) {
-  background: var(--ss-control-fill-hover);
-  color: var(--ss-text);
-}
-
-/* style.css gives an open orb the old inline-box look; the panel beside the
-   field shows the artist now, so the orb stays where it is */
-.legacyView :global(.wl-orb-group.expanded) {
-  flex-basis: auto;
-  max-width: none;
-  padding: 0;
-  border-radius: 0;
-  background: none;
-  box-shadow: none;
-  z-index: auto;
-}
-
-.legacyView :global(.wl-orb-label) {
-  max-width: 100%;
-  margin-top: 6px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--ss-text-secondary);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.legacyView :global(.wl-orb-label:hover) {
-  color: rgb(var(--ss-accent-light-rgb));
-}
-
-.legacyView :global(.wl-orb-meta) {
-  font-size: 14px;
-  color: var(--ss-text-meta);
-}
-
-.legacyView :global(.wl-orb-meta--stuck) {
-  color: var(--ss-warning);
-}
-
-.legacyView :global(.wl-orb-label:focus-visible),
-.legacyView :global(.wlp-zone-retry:focus-visible) {
-  outline: var(--ss-focus-ring);
-  outline-offset: var(--ss-focus-offset);
 }
 
 .visuallyHidden {

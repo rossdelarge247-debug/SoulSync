@@ -9,21 +9,23 @@ import { useProfile } from '@/platform/shell/route-controllers';
 
 import type { Go } from './wanted-tab';
 
+import { kindFromFilter, type FollowKind } from '../-wanted.follow';
 import {
   useFollowedScan,
   useFollowingCount,
   useWantedData,
   useWantedPageShell,
 } from '../-wanted.hooks';
-import { resolveTab, type WantedSearch, type WantedTab } from '../-wanted.types';
+import { readStoredView, storeView, type WantedView } from '../-wanted.nebula';
+import { resolveFollowKind, resolveTab, type WantedSearch, type WantedTab } from '../-wanted.types';
 import {
   similarArtistsStatusQueryOptions,
   startSimilarArtistsUpdate,
   watchlistArtistsQueryOptions,
 } from '../../watchlist/-watchlist.api';
 import { Route } from '../route';
-import { ActionMenu, MenuButton, type MenuEntry } from './action-menu';
-import { FollowArtistDialog } from './follow-artist-dialog';
+import { ActionMenu, type MenuEntry } from './action-menu';
+import { FollowDialog } from './follow-dialog';
 import { FollowedTab } from './followed-tab';
 import { CountBadge } from './parts';
 import { RetryTimingDialog } from './retry-timing-dialog';
@@ -141,6 +143,11 @@ export function WantedPage() {
   const [selecting, setSelecting] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [dialog, setDialog] = useState<'follow' | 'retry' | null>(null);
+  const [followKind, setFollowKind] = useState<FollowKind>('artist');
+  const openFollow = (kind: FollowKind) => {
+    setFollowKind(kind);
+    setDialog('follow');
+  };
   useEffect(() => {
     setSelecting(false);
     setFindOpen(false);
@@ -151,6 +158,23 @@ export function WantedPage() {
       search: (prev: WantedSearch) => tidy({ ...prev, ...patch }),
       replace: options?.replace,
     });
+
+  // List or nebula (9a): a toggle remembered per browser. An old
+  // ?view=nebula link still opens the nebula, and is remembered too.
+  const [storedView, setStoredView] = useState<WantedView>(readStoredView);
+  const view: WantedView = search.view === 'nebula' ? 'nebula' : storedView;
+  useEffect(() => {
+    if (search.view === 'nebula') {
+      storeView('nebula');
+      setStoredView('nebula');
+    }
+  }, [search.view]);
+  const setView = (next: WantedView) => {
+    storeView(next);
+    setStoredView(next);
+    setSelecting(false);
+    if (search.view) go({ view: undefined }, { replace: true });
+  };
 
   // Update similar artists: started here, polled until it says done. It
   // shares the scan worker, so the two never run together.
@@ -206,7 +230,7 @@ export function WantedPage() {
     ...(mainView
       ? ([
           { key: 'find', label: 'Find in this list', onSelect: () => setFindOpen(true) },
-          ...(search.view === 'nebula'
+          ...(view === 'nebula'
             ? []
             : [
                 {
@@ -215,11 +239,6 @@ export function WantedPage() {
                   onSelect: () => setSelecting((on) => !on),
                 },
               ]),
-          {
-            key: 'view',
-            label: search.view === 'nebula' ? 'Show as a list' : 'Show as a nebula',
-            onSelect: () => go({ view: search.view === 'nebula' ? undefined : 'nebula' }),
-          },
         ] satisfies MenuEntry[])
       : [{ key: 'music', label: 'Music on Wanted', onSelect: () => go({ media: undefined }) }]),
     { key: 'retry', label: 'How often to try again…', onSelect: () => setDialog('retry') },
@@ -293,34 +312,6 @@ export function WantedPage() {
     },
   ];
 
-  /** "Follow…" asks what: an artist here, the rest where they're followed. */
-  const followMenu: MenuEntry[] = [
-    { key: 'artist', label: 'An artist…', onSelect: () => setDialog('follow') },
-    {
-      key: 'label',
-      label: 'A label (opens Search)',
-      onSelect: () => void navigate({ to: '/search' }),
-    },
-    ...(podcastsAllowed
-      ? [
-          {
-            key: 'podcast',
-            label: 'A podcast (opens Podcasts)',
-            onSelect: () => void navigate({ to: '/podcasts' }),
-          },
-        ]
-      : []),
-    ...(audiobooksAllowed
-      ? [
-          {
-            key: 'author',
-            label: 'An audiobook author (opens Audiobooks)',
-            onSelect: () => void navigate({ to: '/audiobooks' }),
-          },
-        ]
-      : []),
-  ];
-
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -342,7 +333,14 @@ export function WantedPage() {
               Add to Wanted
             </Button>
           ) : (
-            <MenuButton label="Follow…" entries={followMenu} className={styles.primary} />
+            <Button
+              size="lg"
+              variant="primary"
+              className={styles.primary}
+              onClick={() => openFollow(kindFromFilter(resolveFollowKind(search)))}
+            >
+              Follow…
+            </Button>
           )}
           <ActionMenu
             label={tab === 'wanted' ? 'More for Wanted' : 'More for Following'}
@@ -357,6 +355,8 @@ export function WantedPage() {
           search={search}
           data={data}
           tabs={tabs}
+          view={view}
+          onView={setView}
           selecting={selecting}
           onStopSelecting={() => setSelecting(false)}
           findOpen={findOpen}
@@ -377,14 +377,16 @@ export function WantedPage() {
           scan={scan}
           scanning={scanning}
           similarRunning={similarRunning}
-          onFollowArtist={() => setDialog('follow')}
+          onFollow={openFollow}
           allowed={allowed}
         />
       )}
 
-      <FollowArtistDialog
+      <FollowDialog
         open={dialog === 'follow'}
         profileId={profileId}
+        initialKind={followKind}
+        allowed={allowed}
         followedNames={followedNames}
         onClose={() => setDialog(null)}
       />

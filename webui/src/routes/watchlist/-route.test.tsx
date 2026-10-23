@@ -493,14 +493,11 @@ describe('labels and podcasts you follow, as rows', () => {
     );
   });
 
-  it('no labels followed says where to follow one', async () => {
+  it('no labels followed says so and offers Follow… on labels', async () => {
     stubFetch({ labels: [] });
     renderRoute('/wanted?tab=followed&kind=labels');
-    expect(
-      await screen.findByText(
-        'You don’t follow any labels yet. Search for one, open it, and choose Follow.',
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('You don’t follow any labels yet.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow a label…' })).toBeInTheDocument();
   });
 
   it('a podcast shows its episodes and whether new ones download', async () => {
@@ -512,14 +509,11 @@ describe('labels and podcasts you follow, as rows', () => {
     ).toBeInTheDocument();
   });
 
-  it('no podcasts followed says where to follow one', async () => {
+  it('no podcasts followed says so and offers Follow… on podcasts', async () => {
     stubFetch({ podcasts: [] });
     renderRoute('/wanted?tab=followed&kind=podcasts');
-    expect(
-      await screen.findByText(
-        'You don’t follow any podcasts yet. Find one on the Podcasts page and follow it.',
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('You don’t follow any podcasts yet.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow a podcast…' })).toBeInTheDocument();
   });
 
   it('saves a podcast’s keep and download settings', async () => {

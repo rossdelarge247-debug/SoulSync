@@ -81,6 +81,11 @@ export function useWantedData(profileId: number, enabled = true) {
     [tracks, routedKey],
   );
   const items = useMemo(() => buildWantedItems(music), [music]);
+  // the artist photos both wishlist answers carry (the nebula's circles)
+  const imageSources = useMemo(
+    () => [albums.data ?? {}, singles.data ?? {}],
+    [albums.data, singles.data],
+  );
 
   const refetch = useCallback(
     () => Promise.all([albums.refetch(), singles.refetch()]),
@@ -89,6 +94,7 @@ export function useWantedData(profileId: number, enabled = true) {
 
   return {
     items,
+    imageSources,
     routedArtists: routed,
     isPending: albums.isPending || singles.isPending,
     isError: albums.isError || singles.isError,

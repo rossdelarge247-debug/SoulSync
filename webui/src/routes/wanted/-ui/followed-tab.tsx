@@ -21,6 +21,7 @@ import {
   podcastSummaryQueryOptions,
   scanPodcastsNow,
 } from '../-wanted.api';
+import { kindFromFilter } from '../-wanted.follow';
 import {
   artistRow,
   audiobookRole,
@@ -334,40 +335,26 @@ function CheckLine({
   );
 }
 
-/** Where to follow more of a kind, for its empty list. */
+/** An empty kind: say so, and open Follow… on that kind (9b). */
 function KindEmpty({
   kind,
-  onFollowArtist,
+  onFollow,
 }: {
   kind: FollowKindFilter;
-  onFollowArtist: () => void;
+  onFollow: (kind: FollowKind) => void;
 }) {
-  const navigate = useNavigate();
-  const go = (to: '/search' | '/podcasts' | '/audiobooks') => void navigate({ to });
-  const [text, action, onClick] =
+  const [text, action] =
     kind === 'labels'
-      ? [
-          'You don’t follow any labels yet. Search for one, open it, and choose Follow.',
-          'Search for a label',
-          () => go('/search'),
-        ]
+      ? ['You don’t follow any labels yet.', 'Follow a label…']
       : kind === 'podcasts'
-        ? [
-            'You don’t follow any podcasts yet. Find one on the Podcasts page and follow it.',
-            'Find a podcast',
-            () => go('/podcasts'),
-          ]
+        ? ['You don’t follow any podcasts yet.', 'Follow a podcast…']
         : kind === 'authors'
-          ? [
-              'You don’t follow any audiobook authors yet. Open an author from Audiobooks and follow them.',
-              'Browse audiobooks',
-              () => go('/audiobooks'),
-            ]
-          : ['You don’t follow any artists yet.', 'Search for an artist', onFollowArtist];
+          ? ['You don’t follow any audiobook authors yet.', 'Follow an author…']
+          : ['You don’t follow any artists yet.', 'Follow an artist…'];
   return (
     <div className={styles.listEmpty}>
       <p className={styles.dialogText}>{text}</p>
-      <Button size="lg" onClick={onClick}>
+      <Button size="lg" onClick={() => onFollow(kindFromFilter(kind))}>
         {action}
       </Button>
     </div>
@@ -387,7 +374,7 @@ export function FollowedTab({
   scan,
   scanning,
   similarRunning,
-  onFollowArtist,
+  onFollow,
   allowed,
 }: {
   profileId: number;
@@ -403,7 +390,8 @@ export function FollowedTab({
   scanning: boolean;
   /** "Update similar artists" shares the scan worker. */
   similarRunning: boolean;
-  onFollowArtist: () => void;
+  /** Open Follow… (9b) on a kind. */
+  onFollow: (kind: FollowKind) => void;
   allowed: FollowKindsAllowed;
 }) {
   const navigate = useNavigate();
@@ -944,8 +932,8 @@ export function FollowedTab({
           description="Follow an artist or a label and each new release is added to Wanted as it comes out, then searched for like anything else on the list. Podcasts and audiobook authors can be followed too. Following is the only thing here that keeps adding to Wanted by itself."
           hint="You can follow from Search, from an artist or label page, or from Podcasts and Audiobooks."
           actions={
-            <Button size="lg" variant="primary" onClick={onFollowArtist}>
-              Search for an artist
+            <Button size="lg" variant="primary" onClick={() => onFollow('artist')}>
+              Follow an artist…
             </Button>
           }
         />
@@ -1164,7 +1152,7 @@ export function FollowedTab({
       <ul className={styles.list} aria-label="Following">
         {inKind.length === 0 && !query && filter === 'all' && kind !== 'all' ? (
           <li>
-            <KindEmpty kind={kind} onFollowArtist={onFollowArtist} />
+            <KindEmpty kind={kind} onFollow={onFollow} />
           </li>
         ) : shown.length === 0 ? (
           <li>
