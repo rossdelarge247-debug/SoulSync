@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 const SURFACES: Array<[string, string]> = [
   ['discover album shelves', 'src/routes/discover/-ui/album-shelves.tsx'],
   ['dashboard content rails', 'src/routes/dashboard/-ui/content-rails.tsx'],
-  ['library artist grid', 'src/routes/library/-ui/library-artist-card.tsx'],
+  ['library album and artist grid', 'src/routes/library/-ui/release-tile.tsx'],
   ['artist-detail album grid', 'src/routes/artist-detail/-ui/enhanced-view.tsx'],
 ];
 

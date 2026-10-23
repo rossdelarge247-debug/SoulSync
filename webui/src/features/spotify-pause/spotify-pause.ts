@@ -9,11 +9,9 @@
  * pause, background jobs wait out `post_ban_cooldown` seconds and then ease
  * back in slowly. CONTRACTS.md, "Spotify pause".
  *
- * Pure apart from `useSpotifyPause` (a 1 s tick) and `clearSpotifyPause`
+ * Pure apart from `clearSpotifyPause`
  * (the admins' "Try again now").
  */
-
-import { useEffect, useState } from 'react';
 
 import { appURL } from '@/platform/url-base';
 
@@ -135,25 +133,4 @@ export async function clearSpotifyPause(): Promise<string | null> {
   } catch {
     return 'SYNCHRO.S didn’t answer. Try again in a moment.';
   }
-}
-
-/** The live view: re-reads the clock every second while Spotify is paused. */
-export function useSpotifyPause(
-  status: SpotifyPauseStatus | null | undefined,
-): SpotifyPauseView | null {
-  const [receivedAt, setReceivedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = Date.now();
-    setReceivedAt(t);
-    setNow(t);
-  }, [status]);
-  const view = spotifyPauseView(status, Math.max(0, now - receivedAt) / 1000);
-  const ticking = view !== null;
-  useEffect(() => {
-    if (!ticking) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [ticking]);
-  return view;
 }

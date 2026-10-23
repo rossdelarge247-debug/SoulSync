@@ -45,27 +45,19 @@ def test_react_listens_for_that_exact_event():
 
 
 def test_react_page_now_owns_the_ids_the_vanilla_page_had():
-    """Inverted by the cleanup.
+    """Inverted by the cleanup, and narrowed by the redesign (boards 7a–7g).
 
-    While both pages existed the React page rendered classes only, because
-    getElementById returns whichever node comes first in the document and that
-    was the vanilla one. The vanilla markup is gone now, so React must carry
-    the ids — the guided tour anchors to them (helper.js HELP_CONTENT), and
-    #library-page is what tells the music controls apart from the VIDEO
-    library page, which renders .library-controls of its own.
+    The vanilla markup is gone, so React carries the ids: the guided tour
+    anchors to them (helper.js HELP_CONTENT), and #library-page is what tells
+    the music controls apart from the VIDEO library page. The redesigned page
+    keeps the ids that still have a control: the page, its filter field and
+    the artists grid. The alphabet strip, the watchlist chips, the page count
+    and Previous / Next are gone with the old grid; a tour step pointing at
+    one centres itself (its copy is the tour's to rewrite).
     """
-    page = (
-        _ROOT / "webui" / "src" / "routes" / "library" / "-ui" / "library-page.tsx"
-    ).read_text(encoding="utf-8")
-    for anchor in (
-        "library-page",
-        "library-search-input",
-        "watchlist-filter",
-        "alphabet-selector",
-        "library-artists-grid",
-        "library-pagination",
-        "library-artist-count",
-    ):
+    ui = _ROOT / "webui" / "src" / "routes" / "library" / "-ui"
+    page = "\n".join(p.read_text(encoding="utf-8") for p in sorted(ui.glob("*.tsx")) if ".test." not in p.name)
+    for anchor in ("library-page", "library-search-input", "library-artists-grid"):
         assert f'id="{anchor}"' in page, f"tour/vanilla anchor #{anchor} is not rendered anywhere"
 
     index = (_ROOT / "webui" / "index.html").read_text(encoding="utf-8")

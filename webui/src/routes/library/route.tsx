@@ -4,14 +4,21 @@ import { LegacyRouteController } from '@/platform/shell/route-controllers';
 import { guardPageAccess } from '@/platform/shell/route-guard';
 import { getShellRouteByPageId } from '@/platform/shell/route-manifest';
 
-import { libraryAlbumsQueryOptions, libraryArtistsQueryOptions } from './-library.api';
-import { librarySearchSchema } from './-library.types';
+import { artistIndexInfiniteQueryOptions, releasesInfiniteQueryOptions } from './-library.api';
+import {
+  ALBUM_SHOWS,
+  ALBUM_SORTS,
+  ARTIST_SHOWS,
+  ARTIST_SORTS,
+  librarySearchSchema,
+  pick,
+  resolveLibrarySearch,
+} from './-library.types';
 import { LibraryPage } from './-ui/library-page';
 
 /**
  * Whether the shell has handed /library over to React yet.
  *
- * The route file exists (and is tested) before the React page reaches parity.
  * Without this check TanStack would match /library regardless of the manifest
  * and the vanilla page and the React host would both activate. Delete this
  * indirection once the vanilla library page is gone.
@@ -25,24 +32,37 @@ export const Route = createFileRoute('/library')({
   beforeLoad: ({ context }) => {
     guardPageAccess(context.shell.bridge, 'library');
   },
-  loaderDeps: ({ search }) => search,
+  loaderDeps: ({ search }) => resolveLibrarySearch(search),
   loader: async ({ context, deps }) => {
     if (!isReactOwned()) return;
-
     const { profile } = context.shell;
-    // Warming the cache for the first paint — NOT a gate. Letting this reject
-    // would hand the route to defaultErrorComponent and replace the whole page
-    // with "Something went wrong" on any backend hiccup, where the vanilla page
-    // toasted and stayed usable (filters and the alphabet still work, and the
-    // next click retries). The component's useQuery reads the same failure and
-    // renders the error state itself.
-    // Whichever grid is about to paint — warming the other one would fetch 75
-    // rows nothing is going to render.
-    await (
-      deps.view === 'albums'
-        ? context.queryClient.ensureQueryData(libraryAlbumsQueryOptions(profile.profileId, deps))
-        : context.queryClient.ensureQueryData(libraryArtistsQueryOptions(profile.profileId, deps))
-    ).catch(() => undefined);
+    // Warming the cache for the first paint, NOT a gate: a failure is the
+    // page's own error state (the danger Notice over faded squares), never
+    // the router's "Something went wrong".
+    if (deps.view === 'albums') {
+      if (deps.tab === 'genres') return;
+      await context.queryClient
+        .prefetchInfiniteQuery(
+          releasesInfiniteQueryOptions(profile.profileId, {
+            show: pick(deps.show, ALBUM_SHOWS),
+            genre: deps.genre,
+            q: deps.q,
+            sort: pick(deps.sort, ALBUM_SORTS),
+          }),
+        )
+        .catch(() => undefined);
+      return;
+    }
+    await context.queryClient
+      .prefetchInfiniteQuery(
+        artistIndexInfiniteQueryOptions(profile.profileId, {
+          show: pick(deps.show, ARTIST_SHOWS),
+          genre: deps.genre,
+          q: deps.q,
+          sort: pick(deps.sort, ARTIST_SORTS),
+        }),
+      )
+      .catch(() => undefined);
   },
   component: LibraryRouteComponent,
 });

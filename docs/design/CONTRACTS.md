@@ -44,6 +44,7 @@ Item actions include `recycle` (duplicate cleaner) and `move_to_staging` (Deep S
 
 Plan routes that exist today:
 
+- **Remove from library (Library → Albums):** `POST /api/library/albums/remove-preview`, then `/api/library/albums/remove` with `{plan_id}`; tool `library_album_remove`, admins only. The files go to the recycle bin (see "Library: Albums, Genres and Artists").
 - **Duplicate cleaner:** `POST /api/duplicate-cleaner/preview`, then `/api/duplicate-cleaner/start` with `{plan_id}`; `GET /api/duplicate-cleaner/plan` pages the full list.
 - **Deep Scan:** `POST /api/database/deep-scan/preview`, which also returns `staging_path` and `max_move_percent` (25). `GET /api/database/deep-scan/plan` pages the full list without using the plan up.
 - **Repair fixes:** `POST /api/repair/findings/bulk-fix-preview`, then `/api/repair/findings/bulk-fix-start` with `{plan_id}`. Both take a whole type, or a selection as `ids` plus `fix_actions` (finding type → action). Each preview item has a plain sentence ("Moves the file to the recycle bin") and an `effect_kind`. The preview also returns `recycle_deletes`, so copy can say "recycle bin" or "deleted permanently" correctly.
@@ -571,6 +572,81 @@ Everything is behind the "Internet radio" module (`radio` in `GET /api/modules`,
 **The radio trigger:** `radio_track_heard` in `GET /api/automations/blocks` (drawer "Radio"), label "A track I don't have played on a favourite station", conditions on `station`, `artist`, `title`; variables `station`, `artist`, `title`, `release`, `source`. It fires when a track is identified, for an owner who doesn't have it, on the owner's favourite stations, or on the stations a `trigger_config` `stations: [ids]` list names (API and Assistant only; the editor keeps the default). Stations favourited by owners of such automations are watched by feed without anyone listening.
 
 **Setup check:** `radio.fpcalc` and `radio.acoustid` (category `radio`, "Internet radio"), while the module is on. Not configured is `skipped`; fpcalc missing with a key set is a warning; a refused key is a problem.
+
+### Library: Albums, Genres and Artists (boards 7a–7g)
+
+Built on `ux/evening-3`. Code: `core/library/release_index.py` (the index), `core/library/bulk_wanted.py` (the bulk add), `api/library_index.py` (the routes); the page is `src/routes/library`. Every route needs a profile (401 without one) and reads the **acting profile** (`acting_profile_id`: the session's own for a member; an admin may name one with `profile_id`) in the caller's library scope (active media server, the profile's library), like the other library and Wanted routes.
+
+**The release index.** One build per profile and library, cached 30 seconds (cleared by these routes' own writes; one build per key at a time). It reads, in five set-based queries and never one per album: your albums with the tracks that have a file, grouped by album and audio quality; the profile's Wanted rows; the metadata cache's releases; the watchlist. Measured on seeded libraries: 4,000 albums / 43,000 tracks / 10,500 cached releases build in about 150 ms and serve a page in 1–7 ms; 12,000 albums / 128,000 tracks in about 500 ms and 4–20 ms. The queries use existing indexes (`idx_albums_source_owner`, `idx_tracks_album_id`, `idx_mce_stats`, the `wishlist_tracks` profile index); no migration was needed.
+
+A **release** is one of:
+
+- an album you have (`kind: "library"`, id `album:<library id>`): at least one track with a file. `state` is `owned`, `partial` (fewer tracks with a file than the metadata source's `api_track_count`), or `below_target` (any track below the quality target, judged like `GET /api/quality/presets`: extension and stored bitrate, no file reads). `format` is what most of its tracks are ("FLAC", "FLAC 24/96", "MP3 320");
+- an album of one of your artists you don't have (`kind: "missing"`, id `release:<source>:<id>`): a release a metadata service listed for an artist in your library, from SYNCHRO.S's metadata cache (`metadata_cache_entities`, filled whenever a discography is fetched: the Artist page, a followed-artist scan, enrichment). Albums and EPs only (singles and compilations aren't listed); matched to the library artist by that source's artist id when the library has one (a namesake on a source where the library knows the artist by another id is left out), by name otherwise; a title that matches one you have, editions folded ("(Deluxe Edition)", "- Remastered 2011"), is yours. One release listed by several sources appears once (Spotify, Deezer, iTunes, Discogs, … in that order). Releases age out of the cache with it (30 days unused); visiting the artist brings them back;
+- an album only on Wanted (`kind: "missing"`, id `wanted:<source>:<album id>`): your artist's album on this profile's Wanted that neither list above has.
+
+`wanted` is `null` or `{status: "searching" | "not_found", tracks}` for a release you don't have, or have part of, with rows on this profile's Wanted (grouped by album title and artist); `not_found` once the most-tried row has had 3 tries, as on the Wanted page.
+
+**Genre: where it comes from** (Design's question). The album's own `albums.genres`: what the media server read from the files' tags, which SYNCHRO.S's enrichment fills in from Deezer, Last.fm, Discogs, Qobuz, AudioDB or Bandcamp where the tags had none (after the genre whitelist; `genres_locked` keeps a genre SYNCHRO.S settled through rescans). An album with no genres takes its artist's (`artists.genres`, the same two sources plus Spotify's artist genres). A release you don't have takes the genres the metadata service gave it, else its artist's. Both, then: file tags first, the metadata services fill the gaps. An album with several genres counts in each; genres are folded by case ("ambient" and "Ambient" are one, shown capitalised).
+
+**`GET /api/library/releases`** (the Albums tab, 7a–7c). Params: `show` (`all`, `library`, `missing`, `below`), `genre` (a genre's key, lower case), `q` (matches title, artist or genre), `sort` (`recent`, `artist`, `title`, `year`, `genre`), `page`, `limit` (50, at most 200). Unknown values fall back to the default.
+
+```json
+{
+  "success": true,
+  "releases": [
+    {"id": "album:811", "kind": "library", "album_id": "811", "title": "Tidewater", "artist_id": "42",
+     "artist_name": "Pale Harbour", "year": 2026, "art_url": "/api/image?…", "genres": ["Ambient"],
+     "album_type": "album", "tracks_total": 12, "tracks_owned": 11, "below_target": 0, "format": "FLAC",
+     "state": "partial", "wanted": null, "added_at": "2026-10-20 09:00:00", "source": null, "source_id": null},
+    {"id": "release:spotify:4xyz", "kind": "missing", "album_id": null, "title": "Lantern", "…": "…",
+     "state": "missing", "wanted": {"status": "not_found", "tracks": 11}, "source": "spotify", "source_id": "4xyz"}
+  ],
+  "total": 494, "page": 1, "limit": 50, "has_more": true, "show": "all", "sort": "recent", "genre": "",
+  "show_counts": {"all": 494, "library": 410, "missing": 61, "below": 23},
+  "genre_total": 494,
+  "genres": [{"key": "electronic", "name": "Electronic", "count": 212}, "…"],
+  "totals": {"albums": 494, "library": 410, "missing": 61, "below": 23, "tracks": 4980, "genres": 38,
+             "artists": 186, "following": 18, "incomplete": 41},
+  "missing_summary": {"count": 61, "tracks": 520, "artists": [{"id": "42", "name": "Pale Harbour"}], "sample": ["…4 releases"]},
+  "genre_summary": {"name": "Ambient", "albums": 48, "library": 31, "missing": 17, "below": 4,
+                    "wantable": {"count": 17, "tracks": 189, "artists": [], "sample": []}, "below_album_ids": ["811"]},
+  "target": {"name": "FLAC or better", "preset": "flac", "quality_profile_id": 1, "quality_profile_name": "Default"},
+  "built_ms": 148.7
+}
+```
+
+- `show_counts` are counted with the genre and text filter applied; `genres` (most albums first) with the show and text filter applied; `genre_total` is the "All" chip (show and text, any genre). So Genre and Show combine and each one's counts follow the other.
+- `sort=genre` adds `group` to each release (the picked genre, else its first, else "No genre") for the headings.
+- `missing_summary` is what "Select all N missing" picks under this view: releases you don't have at all that aren't on Wanted. `genre_summary` (only with a genre) is the 7b line; its `wantable` is what "Add the 17 missing to Wanted" adds.
+
+**`GET /api/library/genres`** (7e). Params `show` (`all`, `gaps`), `sort` (`albums`, `name`), `q`. Each tile: `{key, name, albums, library, missing, wantable, below, covers}`; `covers` are up to four art URLs of the genre's albums you have, most played first (`tracks.play_count`), then the newest. `show_counts: {all, gaps}`, `totals`, `target`.
+
+**`GET /api/library/artist-index`** (7f). Params `show` (`all`, `following`, `incomplete`), `genre`, `q` (name or genre), `sort` (`name`, `recent`, `missing`), `page`, `limit`. Each artist: `{id, name, image_url, genres, following, releases, in_library, missing, wanted, wantable}` (`releases` = in your library + not; `wantable` = missing and not on Wanted, the hover's "Add N missing"). Artists are folded by name like the old grid (the lowest library id). `following` is this profile's watchlist (Spotify, iTunes or Deezer id, else the name). Plus `show_counts`, `genre_total`, `genres` (artist counts), `totals`.
+
+**A selection**, as the next three routes take it: `release_ids` (any releases, picked by hand: an album you have part of adds its missing tracks), and/or `filter` (`show`, `genre` or `genres` (any of them), `q`, `artist_ids`) less `exclude_ids`. A filter picks only releases you don't have at all that aren't on Wanted. At most 500 releases per call: more is `400 {"error": "too_many", "count", "max", "message"}` ("That's 1,204 albums. Add up to 500 at a time: pick a genre or an artist to narrow it.").
+
+**"Select all" is server-side, by filter** (Design's question). The bar's "Select all 61 missing" stores the filter it was pressed under; the page sends that filter with the albums unticked since as `exclude_ids` and any hand picks as `release_ids`, and the server resolves it against the whole library, not the loaded page. It's cheap (the index is already built for the page) and the confirm's numbers are counted the same way, so what the confirm says is what gets added.
+
+**`POST /api/library/releases/summary`** (7d). The confirm's numbers for a selection: `{count, tracks, artists: [{id, name}], sample, selected, already_have, already_wanted, types: {album: 16, ep: 1}, target, following: [artist ids already followed]}`. `count`/`tracks` are what would be added (tracks = what you don't have); `sample` is the first 4, or `sample: N` in the body for more (the confirm's Show all).
+
+**`POST /api/wishlist/bulk` with `action: "add"`** (the bulk add). Body: a selection plus `quality` (`"target"`, or a quality profile id from `GET /api/quality-profile/custom`; an unknown one is `400 unknown_quality`) and optionally `follow_artists: true`. For each release: an album you have whole (or below the target) is **already have**; one with rows on this profile's Wanted is **already wanted**; otherwise its tracklist comes from the metadata service (the album's own source id where known, the source-priority lookup the Artist page's Add to Wanted uses; four at a time) and every track you don't have on that album goes on Wanted with `source_type: "album"`, held to the quality asked. A release whose tracks were all on Wanted already counts as already wanted; one whose tracklist can't be found is **failed**. Rows go through `add_to_wishlist_detailed` for the acting profile, so the ignore list, the blocklist and request rules apply as for one album: **a profile without download rights adds requests** an admin approves (`asks_first: true`), and a request limit refuses what's past it (`refused`).
+
+```json
+{"success": true, "added": 15, "already_wanted": 2, "already_have": 0, "failed": 0, "refused": 0,
+ "tracks_added": 170, "asks_first": false,
+ "followed": {"followed": 4, "already_following": 1, "no_id": 1},
+ "results": [{"id": "release:spotify:4xyz", "title": "Lantern", "artist_name": "Pale Harbour", "outcome": "added", "tracks_added": 11, "message": ""}],
+ "unknown_ids": []}
+```
+
+The route's other actions (`grab`, `skip`, `retry` on `track_ids`) are unchanged.
+
+**`POST /api/library/artists/follow`** `{artist_ids: [library artist ids]}` (the bar's Follow these artists, and the confirm's "Also follow"): each on the first source the library has an id for, the active metadata source first. `{followed, already_following, no_id}`.
+
+**`POST /api/library/albums/upgrade`** (admins) `{album_ids}` or a selection: the genre line's "Upgrade the 4 below target". Applies the Quality Upgrade Finder's pending findings for those albums' tracks through Library Maintenance, as the Apply Quality Upgrades automation does (each better copy goes on Wanted). `{queued, failed, albums, albums_with_upgrades, albums_without}`; albums without a finding yet are counted, not guessed at. `503 maintenance_off` when Library Maintenance isn't running.
+
+**Remove from library** (admins; the bar's "…", through Preview, then confirm). `POST /api/library/albums/remove-preview` with `album_ids` or a selection returns a plan (tool `library_album_remove`): one item per track, `{path, action: "recycle", reason: "artist · album", size, album_id, track_id}`, `meta.albums`. `POST /api/library/albums/remove` with `{plan_id}` moves each file to the recycle bin (`.deleted` under the library folder, restorable from Maintenance → Recycle bin) and drops the albums and their tracks from the library; an album with a file that couldn't be moved keeps its rows. `{albums_removed, files_moved, skipped, errors, kept_albums}`. Plan refusals are the usual 409s.
 
 ### Spotify pause (rate limits): the `spotify` slice of `/status`, `POST /api/spotify/rate-limit/clear`
 
