@@ -19,6 +19,7 @@ import {
   logoText,
   possessive,
   qualityText,
+  sourcePhrase,
 } from '@/features/radio/radio.format';
 
 import { playStation, radioSession } from '../-radio.session';
@@ -298,8 +299,9 @@ export function HeardRow({
   const tag = heardTag(item);
   const named = item.state !== 'not_identified' && item.title;
   const title = named ? (item.title as string) : 'Not identified';
+  // the same source phrase as the bar and now playing (HANDOFF 58)
   const sub = named
-    ? [item.artist, item.release].filter(Boolean).join(' · ')
+    ? [item.artist, item.release, sourcePhrase(item.source)].filter(Boolean).join(' · ')
     : `${durationWords(item.duration_s)[0]!.toUpperCase()}${durationWords(item.duration_s).slice(1)} · probably a mix or talk`;
   return (
     <div
