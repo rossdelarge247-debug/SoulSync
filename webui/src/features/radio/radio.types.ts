@@ -293,7 +293,12 @@ export interface RadioSessionState {
 
 export interface RadioSessionApi {
   state(): RadioSessionState;
-  play(stationId: string, options?: { streamId?: string; station?: Station }): Promise<void>;
+  /** `forceRelay` asks for the station through SYNCHRO.S (the Visuals' "Play
+   *  through SYNCHRO.S", for a direct stream the browser can't read). */
+  play(
+    stationId: string,
+    options?: { streamId?: string; station?: Station; forceRelay?: boolean },
+  ): Promise<void>;
   stop(): Promise<void>;
   retry(): Promise<void>;
   addToWanted(): Promise<boolean>;

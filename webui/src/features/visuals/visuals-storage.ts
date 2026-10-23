@@ -1,0 +1,146 @@
+/**
+ * What the Visuals remember per browser (HANDOFF "Visuals, what's remembered
+ * where"): the family, MilkDrop's preset, Recent, Quality, Blend, Classic's
+ * settings and how often the key hints have shown. Auto-cycle is the
+ * SYNCHRO.S visuals' own key, shared. Favourites are per profile, on the
+ * server. "Play visuals this time" lasts the session.
+ *
+ * Storage can be missing or throw (private windows, blocked site data): every
+ * read falls back and every write is best effort.
+ */
+
+import type { ClassicMode, Family, Quality, ScopeDraw } from './visuals.types';
+
+import { normaliseQuality, RECENT_MAX } from './visuals.logic';
+
+const PREFIX = 'soulsync-visuals-';
+/** the SYNCHRO.S visuals' key (static/media-player-v2.js npv2GetG) */
+export const AUTOCYCLE_KEY = 'soulsync-npv2-viz-autocycle';
+const PLAY_ANYWAY_KEY = 'soulsync-visuals-play-anyway';
+const FAILED_KEY = 'soulsync-visuals-failed';
+
+export interface VisualsPrefs {
+  family: Family;
+  preset: string | null;
+  recent: string[];
+  quality: Quality;
+  blend: boolean;
+  classicMode: ClassicMode;
+  classicPeaks: boolean;
+  scopeDraw: ScopeDraw;
+  hints: number;
+}
+
+export const DEFAULT_PREFS: VisualsPrefs = {
+  family: 'synchros',
+  preset: null,
+  recent: [],
+  quality: 'full',
+  blend: true,
+  classicMode: 'bars',
+  classicPeaks: true,
+  scopeDraw: 'lines',
+  hints: 0,
+};
+
+function local(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+function session(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+function read(store: Storage | null, key: string): string | null {
+  try {
+    return store ? store.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+function write(store: Storage | null, key: string, value: string | null): void {
+  try {
+    if (!store) return;
+    if (value === null) store.removeItem(key);
+    else store.setItem(key, value);
+  } catch {
+    // best effort
+  }
+}
+
+export function loadPrefs(): VisualsPrefs {
+  const s = local();
+  const get = (k: string) => read(s, PREFIX + k);
+  const family = get('family');
+  let recent: string[] = [];
+  try {
+    const raw = JSON.parse(get('recent') || '[]');
+    if (Array.isArray(raw))
+      recent = raw.filter((k): k is string => typeof k === 'string').slice(0, RECENT_MAX);
+  } catch {
+    recent = [];
+  }
+  const mode = get('classic-mode');
+  const draw = get('scope-draw');
+  const hints = Number(get('hints'));
+  return {
+    family: family === 'milkdrop' || family === 'classic' ? family : 'synchros',
+    preset: get('preset') || null,
+    recent,
+    quality: normaliseQuality(get('quality')),
+    blend: get('blend') !== '0',
+    classicMode: mode === 'scope' ? 'scope' : 'bars',
+    classicPeaks: get('classic-peaks') !== '0',
+    scopeDraw: draw === 'dots' || draw === 'solid' ? draw : 'lines',
+    hints: Number.isFinite(hints) && hints > 0 ? Math.floor(hints) : 0,
+  };
+}
+
+export function savePrefs(p: Partial<VisualsPrefs>): void {
+  const s = local();
+  const set = (k: string, v: string | null) => write(s, PREFIX + k, v);
+  if (p.family !== undefined) set('family', p.family);
+  if (p.preset !== undefined) set('preset', p.preset);
+  if (p.recent !== undefined) set('recent', JSON.stringify(p.recent.slice(0, RECENT_MAX)));
+  if (p.quality !== undefined) set('quality', p.quality);
+  if (p.blend !== undefined) set('blend', p.blend ? '1' : '0');
+  if (p.classicMode !== undefined) set('classic-mode', p.classicMode);
+  if (p.classicPeaks !== undefined) set('classic-peaks', p.classicPeaks ? '1' : '0');
+  if (p.scopeDraw !== undefined) set('scope-draw', p.scopeDraw);
+  if (p.hints !== undefined) set('hints', String(p.hints));
+}
+
+export function loadAutocycle(): string {
+  return read(local(), AUTOCYCLE_KEY) || 'off';
+}
+
+export function playAnyway(): boolean {
+  return read(session(), PLAY_ANYWAY_KEY) === '1';
+}
+
+export function setPlayAnyway(on: boolean): void {
+  write(session(), PLAY_ANYWAY_KEY, on ? '1' : null);
+}
+
+/** Presets that wouldn't load, this session: auto-cycle skips them. */
+export function loadFailed(): string[] {
+  try {
+    const raw = JSON.parse(read(session(), FAILED_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((k): k is string => typeof k === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveFailed(keys: readonly string[]): void {
+  write(session(), FAILED_KEY, JSON.stringify(keys.slice(-200)));
+}
