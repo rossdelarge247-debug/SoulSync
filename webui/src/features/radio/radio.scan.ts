@@ -508,3 +508,38 @@ export function autoAuddNote(avail: ScanAvailability | null | undefined): string
   if (!auto?.on || auto.stopped !== 'cap_reached') return null;
   return 'AudD’s daily limit for listening automatically is used up, so tracks the station doesn’t name wait for Scan now until midnight.';
 }
+
+/** Our own logo route only (the server fetches and caches the station's logo). */
+export function ownLogo(url: string | null | undefined): string | null {
+  return typeof url === 'string' && /^\/api\/radio\/stations\/[A-Za-z0-9-]+\/logo(\?|$)/.test(url)
+    ? url
+    : null;
+}
+
+/**
+ * The Visuals overlay's header while a station plays: the identified track
+ * over "artist · station" (a scan's answer while it lasts), or the station
+ * over "Live · Listening…" while nothing is named. The art is the track's
+ * own (https only, as on the station page), else the station's logo.
+ */
+export function radioVisualsHeader(
+  st: Pick<RadioSessionState, 'station' | 'nowPlaying' | 'scan' | 'skew'>,
+): { title: string; line: string; art: string | null } | null {
+  const station = st.station;
+  if (!station) return null;
+  const np = scanAnswer(st.scan) ?? st.nowPlaying;
+  const logo = ownLogo(station.logo_url);
+  if (np?.state === 'identified' && np.track) {
+    const art = np.track.art_url?.startsWith('https://') ? np.track.art_url : logo;
+    return {
+      title: np.track.title,
+      line: [np.track.artist, station.name].filter(Boolean).join(' · '),
+      art,
+    };
+  }
+  return {
+    title: station.name,
+    line: ['Live', nowLines(np, st.skew).title].join(' · '),
+    art: logo,
+  };
+}
