@@ -58,6 +58,8 @@ export interface SpotifyPauseView {
   tone: 'warning' | 'info';
   /** The Connections card's header tag: "Paused by Spotify · 11 min". */
   tag: string;
+  /** The Spotify tile's own tag in the Connections grid, shorter (15a): "Paused · 11 min", "Easing back in". */
+  tileTag: string;
   /** Home's sentence for an admin at full width (names the trigger, whose number, what works). */
   body: string;
   /** The same on a phone (12d), shorter. */
@@ -188,6 +190,7 @@ export function spotifyPauseView(
         title: fromSpotify ? `Spotify asked us to wait ${t}` : `Paused Spotify for ${t} to be safe`,
         tone: 'warning',
         tag: fromSpotify ? `Paused by Spotify · ${t}` : `Paused to be safe · ${t}`,
+        tileTag: `Paused · ${t}`,
         body: fromSpotify
           ? `${lead} That time came from Spotify, so SYNCHRO.S waits exactly that long. ${STILL_WORKS_LONG}`
           : `${guess} ${STILL_WORKS}`,
@@ -227,6 +230,7 @@ export function spotifyPauseView(
       title: 'Spotify is back',
       tone: 'info',
       tag: `Easing back in · ${t}`,
+      tileTag: 'Easing back in',
       body,
       bodyNarrow: body,
       bodyMember: body,

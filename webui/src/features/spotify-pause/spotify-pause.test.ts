@@ -134,6 +134,8 @@ describe('the boards’ words (Spotify pause 12a–12d)', () => {
     expect(v.title).toBe('Spotify asked us to wait 12 min');
     expect(v.tone).toBe('warning');
     expect(v.tag).toBe('Paused by Spotify · 12 min');
+    // the tile's own tag is shorter (15a)
+    expect(v.tileTag).toBe('Paused · 12 min');
     expect(v.tryAgainNote).toBe(TRY_AGAIN_NOTE);
     expect(v.cardSentence).toBe(
       "Spotify asked us to wait 12 min, after checking an artist's albums for the watchlist scan. " +
@@ -161,6 +163,7 @@ describe('the boards’ words (Spotify pause 12a–12d)', () => {
     })!;
     expect(v.title).toBe('Paused Spotify for 9 min to be safe');
     expect(v.tag).toBe('Paused to be safe · 9 min');
+    expect(v.tileTag).toBe('Paused · 9 min');
     expect(v.whose).toBe('SYNCHRO.S’s guess');
     expect(v.tryAgainNote).toMatch(/comes back, longer\.$/);
     expect(v.cardNote).toMatch(/comes back, longer\.$/);
@@ -177,6 +180,7 @@ describe('the boards’ words (Spotify pause 12a–12d)', () => {
     expect(v.title).toBe('Spotify is back');
     expect(v.tone).toBe('info');
     expect(v.tag).toBe('Easing back in · 5 min');
+    expect(v.tileTag).toBe('Easing back in');
     expect(v.tryAgainNote).toBeNull();
     expect(v.cardNote).toBeNull();
   });

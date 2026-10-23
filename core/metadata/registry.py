@@ -385,6 +385,7 @@ def get_spotify_client_for_profile(profile_id: Optional[int] = None):
         )
 
         profile_client = SpotifyClient()
+        profile_client._publishes_account = False   # /status's account is the global one
         profile_client.sp = make_spotipy_client(auth_manager)
         profile_client.user_id = None
 

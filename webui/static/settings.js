@@ -907,6 +907,11 @@ function buildServiceTiles() {
                : set ? '<span class="src-tile-chip src-tile-chip--on">configured</span>'
                      : '<span class="src-tile-chip">not set up</span>');
         const brand = (m.colour || '').replace('#', '');
+        // the Spotify tile carries the pause before its modal opens (15a)
+        const pause = id === 'spotify' ? _stgSpotifyTileTag() : null;
+        const tileChip = pause
+            ? `<span class="src-tile-chip svc-tile-pause" data-tone="${pause.tone}">${escapeHtml(pause.text)}</span>`
+            : chip;
         return `<button type="button" class="svc-tile${set ? ' is-active' : ''}" `
              + `data-service-tile="${escapeHtml(id)}" onclick="openServiceModal('${escapeHtml(id)}')" `
              + `style="--svc-brand: ${escapeHtml(m.colour || '#8a8a8a')}" `
@@ -914,7 +919,7 @@ function buildServiceTiles() {
              + `<span class="src-tile-dot hss-${state}"></span>`
              + `<span class="svc-tile-art">${art}</span>`
              + `<span class="svc-tile-name">${escapeHtml(m.name)}</span>`
-             + chip + '</button>';
+             + tileChip + '</button>';
     };
 
     const byId = new Map(frames.map(f => [f.getAttribute(attr), f]));
@@ -962,8 +967,13 @@ function openServiceModal(id) {
     body.appendChild(frame);
     // the accordion inside is collapsed by default; in a modal it IS the content
     frame.querySelector('.stg-service-body')?.style.setProperty('display', 'block');
+    overlay.dataset.svc = id;
     overlay.hidden = false;
     document.body.classList.add('src-modal-open');
+    if (id === 'spotify') {
+        renderStgSpotifyModal();
+        renderStgSpotifyPause();
+    }
 }
 window.openServiceModal = openServiceModal;
 
@@ -980,6 +990,9 @@ function closeServiceModal() {
         }
     }
     _svcOpen = null;
+    delete overlay.dataset.svc;
+    const foot = document.getElementById('svc-modal-foot');
+    if (foot) { foot.hidden = true; foot.replaceChildren(); }
     overlay.hidden = true;
     document.body.classList.remove('src-modal-open');
     // an api key typed seconds before closing would otherwise sit on the 2s
@@ -1434,6 +1447,7 @@ function syncSpotifySettingsAuthState(statusData) {
     _stgSpotifyPauseStatus = statusData;
     _stgSpotifyPauseAt = Date.now();
     renderStgSpotifyPause();
+    renderStgSpotifyModal();
     if ((rateLimited || cooldown) && !_stgSpotifyPauseTimer) {
         _stgSpotifyPauseTimer = setInterval(renderStgSpotifyPause, 1000);
     }
@@ -1459,7 +1473,9 @@ function renderStgSpotifyPause() {
     // the card opens in the service modal, whose own head is the card's
     // header there: the tag goes in both (CSS shows the modal's only while
     // Spotify is the one open)
-    const modalHead = document.querySelector('#service-config-modal .src-modal-header');
+    // (15a: beside the name, in the head's title row)
+    const modalHead = document.querySelector('#service-config-modal .src-modal-titlerow')
+        || document.querySelector('#service-config-modal .src-modal-header');
     let box = body ? body.querySelector('.stg-spotify-pause') : null;
     const tagIn = (host, before) => {
         if (!host) return null;
@@ -1473,6 +1489,7 @@ function renderStgSpotifyPause() {
         return t;
     };
     const tags = () => [tagIn(header, '.stg-service-chevron'), tagIn(modalHead, '.src-modal-close')].filter(Boolean);
+    renderStgSpotifyTile(view);
     const dropTags = () => [header, modalHead].forEach((h) => h?.querySelector('.stg-spotify-pause-tag')?.remove());
 
     if (!view) {
@@ -1511,6 +1528,100 @@ function renderStgSpotifyPause() {
     member.textContent = 'An admin can try again sooner.';
     const note = box.querySelector('.stg-spotify-pause-note');
     if (paused && canRetry && !note.dataset.busy && !note.dataset.result) note.textContent = view.cardNote || '';
+}
+
+// The Spotify tile's own tag in the Connections grid (15a): "Paused · 11 min"
+// (warning), "Easing back in" (info); the tile's usual chip otherwise.
+function _stgSpotifyTileTag() {
+    if (typeof window.ssSpotifyPauseView !== 'function' || !_stgSpotifyPauseStatus) return null;
+    const elapsed = Math.max(0, (Date.now() - _stgSpotifyPauseAt) / 1000);
+    const view = window.ssSpotifyPauseView(_stgSpotifyPauseStatus, elapsed);
+    return view ? { text: view.tileTag || view.tag, tone: view.tone } : null;
+}
+
+function renderStgSpotifyTile(view) {
+    const tile = document.querySelector('#settings-page [data-service-tile="spotify"]');
+    if (!tile) return;
+    const chip = tile.querySelector('.svc-tile-pause');
+    if (!view) {
+        // the pause ended: the tile's usual chip comes back
+        if (chip && typeof buildServiceTiles === 'function') buildServiceTiles();
+        return;
+    }
+    if (!chip) {
+        if (typeof buildServiceTiles === 'function') buildServiceTiles();
+        return;
+    }
+    chip.dataset.tone = view.tone;
+    chip.textContent = view.tileTag || view.tag;
+}
+
+// The Spotify service modal's head and footer (15a, HANDOFF 85): the legacy
+// form stays; the head says "Connected as ross · 14 playlists · metadata
+// source" under the name and the tag, and the footer has Disconnect as a ghost
+// on the left, Test connection and Save on the right. The name and the count
+// come from /status's spotify.account (what the server already saw; nothing
+// asks Spotify for them).
+function spotifyAccountParts(status, metadataSource) {
+    if (!status || status.authenticated !== true) return null;
+    const account = status.account || {};
+    const parts = [];
+    parts.push(account.name ? { lead: 'Connected as ', strong: String(account.name) } : { text: 'Connected' });
+    if (typeof account.playlists === 'number') {
+        parts.push({ text: `${account.playlists} playlist${account.playlists === 1 ? '' : 's'}` });
+    }
+    if (metadataSource === 'spotify') parts.push({ text: 'metadata source' });
+    return parts;
+}
+
+function renderStgSpotifyModal() {
+    const overlay = document.getElementById('service-config-modal');
+    if (!overlay || overlay.hidden || overlay.dataset.svc !== 'spotify') return;
+    const status = (typeof _lastStatusPayload !== 'undefined' && _lastStatusPayload && _lastStatusPayload.spotify)
+        || _stgSpotifyPauseStatus;
+    const source = typeof _lastStatusPayload !== 'undefined' && _lastStatusPayload
+        ? (_lastStatusPayload.metadata_source || {}).source : null;
+    const sub = document.getElementById('svc-modal-sub');
+    const parts = spotifyAccountParts(status, source);
+    if (sub && parts) {
+        if (!('detail' in sub.dataset)) sub.dataset.detail = sub.textContent;
+        sub.replaceChildren();
+        parts.forEach((p, i) => {
+            if (i) sub.append(' · ');
+            if (p.strong) {
+                const b = document.createElement('strong');
+                b.textContent = p.strong;
+                sub.append(p.lead, b);
+            } else {
+                sub.append(p.text);
+            }
+        });
+    } else if (sub && 'detail' in sub.dataset) {
+        sub.textContent = sub.dataset.detail;
+        delete sub.dataset.detail;
+    }
+    const foot = document.getElementById('svc-modal-foot');
+    if (!foot) return;
+    if (!foot.childElementCount) {
+        const btn = (label, cls, onClick) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = `src-modal-btn ${cls}`;
+            b.textContent = label;
+            b.addEventListener('click', onClick);
+            return b;
+        };
+        const disconnect = btn('Disconnect', 'src-modal-btn--ghost', () => disconnectSpotify());
+        disconnect.dataset.spotifyDisconnect = '';
+        const gap = document.createElement('span');
+        gap.className = 'src-modal-foot-gap';
+        foot.append(disconnect, gap,
+            btn('Test connection', 'src-modal-btn--secondary', () => testConnection('spotify')),
+            btn('Save', 'src-modal-btn--primary', () => saveSettings()));
+    }
+    foot.hidden = false;
+    const disconnect = foot.querySelector('[data-spotify-disconnect]');
+    if (disconnect) disconnect.hidden = !(status && status.authenticated === true);
 }
 
 async function retryStgSpotifyPause(event) {
