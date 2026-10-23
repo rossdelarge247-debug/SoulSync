@@ -3,6 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
+import { DjMeta } from '@/features/dj/dj-meta';
+import { useDjInfo, type DjInfo } from '@/features/dj/dj.api';
+import { useMixesWith, type MixesSeed } from '@/features/dj/mixes-dialog';
 import { playInAppPlayer } from '@/features/playback/app-player';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { useProfile } from '@/platform/shell/route-controllers';
@@ -115,11 +118,17 @@ function MusicRow({
   play,
   phone,
   first = false,
+  dj,
+  onMixes,
 }: {
   play: MusicPlay;
   phone: boolean;
   /** The list's first row: on a phone its Play is filled, the rest are ghosts (15d). */
   first?: boolean;
+  /** The track's BPM and key (the library's DJ data), when known. */
+  dj?: DjInfo;
+  /** "Mixes well with…" in the "…" menu, for a track in the library. */
+  onMixes?: (seed: MixesSeed) => void;
 }) {
   const time = clockTime(play.played_at);
   const artist = artistHref(play);
@@ -138,6 +147,16 @@ function MusicRow({
       },
       rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
     );
+  const mixesEntry =
+    onMixes && play.track_id
+      ? [
+          {
+            key: 'mixes',
+            label: 'Mixes well with…',
+            onSelect: () => onMixes({ id: String(play.track_id), title: play.title }),
+          },
+        ]
+      : [];
   const meta = (
     <>
       {artist ? <a href={artist}>{play.artist}</a> : play.artist || 'Unknown artist'}
@@ -156,6 +175,7 @@ function MusicRow({
             </>
           ) : null}
           {play.length_s ? <> · {lengthWords(play.length_s)}</> : null}
+          {phone ? null : <DjMeta dj={dj} lead />}
         </>
       )}
       {phrase ? <> · {phrase}</> : null}
@@ -238,6 +258,7 @@ function MusicRow({
                             },
                           ]
                         : []),
+                      ...mixesEntry,
                     ]}
                   />
                 ) : null}
@@ -266,6 +287,7 @@ function MusicRow({
                       ]
                     : []),
                   { key: 'playlist', label: 'Add to playlist…', onSelect: addToPlaylist },
+                  ...mixesEntry,
                 ]}
               />
             )}
@@ -397,6 +419,11 @@ export function HistoryPage({ search, go }: { search: LibrarySearch; go: Go }) {
 
   const music = first && kind === 'music' ? (first as MusicHistoryPage) : null;
   const wider = widerRange(range);
+  // BPM and key on the music rows (the library's DJ data), one request per page set
+  const djInfo = useDjInfo(
+    kind === 'music' ? items.map((p) => (p.kind === 'music' ? p.track_id : null)) : [],
+  );
+  const mixes = useMixesWith();
 
   return (
     <div className={styles.page}>
@@ -516,6 +543,8 @@ export function HistoryPage({ search, go }: { search: LibrarySearch; go: Go }) {
                       play={play}
                       phone={phone}
                       first={play === items[0]}
+                      dj={play.track_id ? djInfo[String(play.track_id)] : undefined}
+                      onMixes={mixes.open}
                     />
                   ) : (
                     <SpokenRow key={`s-${play.play_id}`} play={play} phone={phone} />
@@ -570,6 +599,7 @@ export function HistoryPage({ search, go }: { search: LibrarySearch; go: Go }) {
           ) : null}
         </div>
       ) : null}
+      {mixes.dialog}
     </div>
   );
 }

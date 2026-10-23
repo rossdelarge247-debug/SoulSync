@@ -131,6 +131,25 @@ const COUNTS = {
   },
 };
 
+// the library's DJ data for the first row (BACKLOG "DJ area")
+const DJ = {
+  success: true,
+  tracks: {
+    '1': {
+      bpm: 124,
+      bpm_source: 'tag',
+      key: '8A',
+      key_name: 'Am',
+      key_long: 'A minor',
+      key_source: 'tag',
+      key_confidence: null,
+      key_uncertain: false,
+      energy: 7,
+      analyzed: true,
+    },
+  },
+};
+
 let requested: string[] = [];
 let empty = false;
 
@@ -156,6 +175,7 @@ beforeEach(() => {
       else if (u.pathname.endsWith('/api/library/listening-history'))
         body = empty ? { ...MUSIC, items: [], total: 0, days: {}, sources: [] } : MUSIC;
       else if (u.pathname.endsWith('/api/player/plays')) body = PODCASTS;
+      else if (u.pathname.endsWith('/api/library/dj/tracks')) body = DJ;
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -373,7 +393,7 @@ describe('Listening history on a phone (15d, HANDOFF 94)', () => {
       within(sheet)
         .getAllByRole('button')
         .map((b) => b.textContent),
-    ).toEqual(['Play next', 'Add to playlist…', 'Open artist', 'Open album']);
+    ).toEqual(['Play next', 'Add to playlist…', 'Open artist', 'Open album', 'Mixes well with…']);
     fireEvent.click(within(sheet).getByRole('button', { name: 'Play next' }));
     expect(window.playNext).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -383,5 +403,18 @@ describe('Listening history on a phone (15d, HANDOFF 94)', () => {
     expect(within(ferry).queryByRole('button', { name: 'Open album' })).toBeNull();
     fireEvent.keyDown(ferry, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+});
+
+describe('Listening history: the DJ data', () => {
+  it("shows a row's BPM and key and offers Mixes well with…", async () => {
+    renderPage();
+    const row = (await screen.findByText('Static Bloom')).closest('li')!;
+    await within(row).findByText('124 BPM');
+    expect(within(row).getByText('8A').getAttribute('title')).toBe(
+      "A minor (Am), from the file's tag",
+    );
+    fireEvent.click(within(row).getByRole('button', { name: 'More for Static Bloom' }));
+    expect(await screen.findByRole('menuitem', { name: 'Mixes well with…' })).toBeTruthy();
   });
 });

@@ -14,6 +14,8 @@ import type { QualityRule } from '@/features/quality/quality.model';
 
 import { Button } from '@/components/form';
 import { LoadingState, Notice, SkeletonList, StatusTag } from '@/components/primitives';
+import { DjMeta } from '@/features/dj/dj-meta';
+import { useDjInfo } from '@/features/dj/dj.api';
 import { AppLink } from '@/routes/activity/-ui/app-link';
 import { albumQueueTrack } from '@/routes/library/-library.helpers';
 
@@ -117,6 +119,8 @@ export function LibrarySection({
   const limit = type === 'everything' ? rowLimit(type, phone, 2) : more ? rows.length : TYPED_ROWS;
   const shown = rows.slice(0, limit);
   const albumIds = shown.filter((r) => r.kind === 'album').map((r) => r.item.id);
+  // BPM and key on the track rows (the library's DJ data)
+  const djInfo = useDjInfo(shown.filter((r) => r.kind === 'track').map((r) => String(r.item.id)));
   const albumTracks = useQueries({
     queries: albumIds.map((id) => ({ ...albumTracksQueryOptions(id), enabled: Boolean(bar) })),
   });
@@ -307,9 +311,11 @@ export function LibrarySection({
                   <span className={styles.rowTitle}>{track.title}</span>
                   <span className={`${styles.rowMeta} ${styles.wideOnly}`}>
                     {trackMeta(track, verdict)}
+                    <DjMeta dj={djInfo[String(track.id)]} lead />
                   </span>
                   <span className={`${styles.rowMeta} ${styles.phoneOnly}`}>
                     {shortMeta(row, verdict)}
+                    <DjMeta dj={djInfo[String(track.id)]} lead />
                   </span>
                 </div>
                 <span className={styles.tagCell}>

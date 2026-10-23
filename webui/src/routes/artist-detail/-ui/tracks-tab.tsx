@@ -3,6 +3,9 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { EmptyState, LoadingState, Notice, SkeletonList } from '@/components/primitives';
+import { DjMeta } from '@/features/dj/dj-meta';
+import { useDjInfo } from '@/features/dj/dj.api';
+import { useMixesWith } from '@/features/dj/mixes-dialog';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { getShellBridge } from '@/platform/shell/bridge';
 import { profileAsksFirst } from '@/platform/shell/download-rights';
@@ -268,6 +271,9 @@ function LibraryTracks({
 
   const play = (track: EnhancedTrack, album: EnhancedAlbum) =>
     getShellBridge()?.playLibraryTrack(track as never, text(album.title), artistName);
+  // BPM and key under each title (the library's DJ data), and "Mixes well with…"
+  const djInfo = useDjInfo(groups.flatMap((g) => g.tracks.map((t) => text(t.id))));
+  const mixes = useMixesWith();
 
   return (
     <>
@@ -307,7 +313,13 @@ function LibraryTracks({
                         {[durationText(track.duration), qualityText(track)]
                           .filter(Boolean)
                           .join(' · ')}
+                        <DjMeta dj={djInfo[text(track.id)]} lead />
                       </span>
+                      {djInfo[text(track.id)] ? (
+                        <span className={`${styles.rowMeta} ${styles.rowMetaWide}`}>
+                          <DjMeta dj={djInfo[text(track.id)]} />
+                        </span>
+                      ) : null}
                     </span>
                     <span className={styles.rowAside}>{durationText(track.duration)}</span>
                     <span className={styles.rowAside}>{qualityText(track)}</span>
@@ -339,6 +351,11 @@ function LibraryTracks({
                             if (row) openAddToPlaylist(row);
                           },
                         },
+                        {
+                          key: 'mixes',
+                          label: 'Mixes well with…',
+                          onSelect: () => mixes.open({ id: text(track.id), title }),
+                        },
                       ]}
                     />
                   </li>
@@ -358,6 +375,7 @@ function LibraryTracks({
           </Button>
         </div>
       ) : null}
+      {mixes.dialog}
     </>
   );
 }
