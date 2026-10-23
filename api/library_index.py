@@ -27,6 +27,13 @@ POST /api/library/albums/upgrade  (admins)
     The genre line's "Upgrade the N below target": applies the pending
     quality-upgrade findings for those albums' tracks (each better copy goes
     on Wanted), as the Apply Quality Upgrades automation does.
+GET  /api/library/missing-releases
+POST /api/library/missing-releases/start  (admins)
+POST /api/library/missing-releases/stop   (admins)
+    Look for releases you don't have: a background job that fetches the
+    discography of every library artist the metadata cache lists nothing for
+    (core/library/missing_releases.py), shown in Activity.
+
 POST /api/library/albums/remove-preview  (admins)
 POST /api/library/albums/remove          (admins, ``{plan_id}``)
     Remove from library, through Preview then confirm: the albums' files go to
@@ -450,6 +457,71 @@ def remove_confirm():
                    removed, moved, skipped, len(errors))
     return jsonify({"success": True, "albums_removed": removed, "files_moved": moved, "skipped": skipped,
                     "errors": errors[:20], "kept_albums": len(failed_albums)})
+
+
+# ── Look for releases you don't have (HANDOFF 68) ───────────────────────────
+
+def _missing_job():
+    from core.library import missing_releases
+    return missing_releases
+
+
+@bp.route("/api/library/missing-releases", methods=["GET"])
+def get_missing_releases():
+    """The running job or the last run, how many artists the cache lists
+    nothing for, and whether this profile may start one (admins)."""
+    pid = _profile()
+    if pid is None:
+        return _no_profile()
+    from core.profile_context import is_admin_request
+    jobs = _missing_job()
+    try:
+        candidates = len(_index.artists_without_releases(_index_for(pid)))
+        state = jobs.public_state(get_database())
+    except Exception as exc:  # noqa: BLE001
+        logger.error("missing releases state failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    response = jsonify({"success": True, "job": state, "candidates": candidates,
+                        "can_start": bool(is_admin_request())})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.route("/api/library/missing-releases/start", methods=["POST"])
+@admin_only
+def start_missing_releases():
+    """Start fetching the discography of every library artist the metadata
+    cache lists nothing for, in the background (Activity shows it)."""
+    pid = _profile() or 1
+    jobs = _missing_job()
+    from core.library_scope import current_library_scope, reset_library_scope, set_library_scope
+    database = get_database()
+    artists = _index.artists_without_releases(_index_for(pid))
+    if not artists:
+        return jsonify({"success": False, "error": "Every artist in your library already has its releases listed."}), 409
+    scope = current_library_scope()
+
+    def on_finish(state):
+        token = set_library_scope(scope)
+        try:
+            return jobs.count_found(database, pid, state["checked"], fix_art=fix_art_url)
+        finally:
+            reset_library_scope(token)
+
+    try:
+        jobs.JOB.start(database, pid, artists, on_finish=on_finish)
+    except jobs.JobRunning as exc:
+        return jsonify({"success": False, "error": str(exc)}), 409
+    return jsonify({"success": True, "job": jobs.public_state(database)}), 202
+
+
+@bp.route("/api/library/missing-releases/stop", methods=["POST"])
+@admin_only
+def stop_missing_releases():
+    jobs = _missing_job()
+    if not jobs.JOB.stop():
+        return jsonify({"success": False, "error": "Nothing is looking for releases right now."}), 409
+    return jsonify({"success": True})
 
 
 def create_blueprint():

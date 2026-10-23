@@ -11,8 +11,11 @@ download        library_history downloads, folded into          shared (as
                 are running, stopped early or had failures      /history)
 import          library_history imports (media server scans,    shared
                 Staging), folded; auto_import_history rows      Import page
-automation      automation_run_history + live runs              profile (+
-                                                                system rows)
+automation      automation_run_history + live runs; library_jobs profile (+
+                (Look for releases you don't have) + the live    system rows;
+                run                                             jobs: admins
+                                                                or who
+                                                                started it)
 sync            playlist_pipeline_run_history (mirror runs);    profile
                 playlist sync_history rows
 safety          action_plan_events (preview expired/confirmed)  admin, or
@@ -87,12 +90,12 @@ STALE_RUNNING_SECONDS = 6 * 3600
 
 # Tie-break order for items with the same timestamp; part of the cursor.
 _RANK = {"lh_download": 1, "lh_import": 2, "auto_import": 3, "sync_history": 4,
-         "mirror": 5, "automation": 6, "automation_live": 7, "safety": 8, "radio": 9}
+         "mirror": 5, "automation": 6, "automation_live": 7, "safety": 8, "radio": 9, "library_job": 10}
 
 _SOURCES = {
     "download": ("lh_download", "sync_history"),
     "import": ("lh_import", "auto_import"),
-    "automation": ("automation", "automation_live"),
+    "automation": ("automation", "automation_live", "library_job"),
     "sync": ("sync_history", "mirror"),
     "safety": ("safety",),
     "radio": ("radio",),
@@ -935,6 +938,104 @@ def _radio_count(ctx: _Ctx) -> int:
         return 0
 
 
+# ── library jobs (Look for releases you don't have, HANDOFF 68) ─────────────
+
+_JOB_TITLES = {
+    "running": "Looking for releases you don't have",
+    "done": "Looked for releases you don't have",
+    "stopped": "Stopped looking for releases you don't have",
+    "failed": "Couldn't finish looking for releases you don't have",
+}
+_JOB_LINK = "/library?show=incomplete"
+_JOB_STOP = "library/missing-releases/stop"
+
+
+def _job_found(row: Dict[str, Any]) -> str:
+    n, artists = int(row.get("found_releases") or 0), int(row.get("found_artists") or 0)
+    if not n:
+        return "found nothing new"
+    return f"found {plural(n, 'release')} by {plural(artists, 'artist')}"
+
+
+def _job_visible(ctx: _Ctx, profile_id) -> bool:
+    try:
+        return ctx.viewer.is_admin or int(profile_id) == int(ctx.viewer.profile_id)
+    except (TypeError, ValueError):
+        return ctx.viewer.is_admin
+
+
+def _library_job_item(ctx: _Ctx, row: Dict[str, Any], live: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    total = int(row.get("total") or 0)
+    if live is not None:
+        done = int(live.get("done") or 0)
+        detail = _sentence(plural(total, "artist"), f"{done:,} done")
+        until = live.get("waiting_until")
+        if until:
+            detail = _sentence(detail, f"waiting for Spotify's pause, {duration_words(max(1, int(until) - ctx.now))} left")
+        return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=int(row["started_at"] or 0),
+                     kind="automation", status="running", title=_JOB_TITLES["running"], detail=detail, link=_JOB_LINK,
+                     ref={"job_id": int(row["id"]), "stop_path": _JOB_STOP})
+    status = row.get("status") or "done"
+    if status == "running":
+        status = "stopped"  # its thread is gone: a restart cut it off
+    done = int(row.get("done") or 0)
+    failed = int(row.get("failed") or 0)
+    cant = f"{plural(failed, 'artist')} couldn't be checked" if failed else ""
+    if status == "done":
+        detail, tone = _sentence(plural(total, "artist"), _job_found(row), cant), ("warning" if failed else "ok")
+    elif status == "stopped":
+        why = "when SYNCHRO.S restarted" if row.get("note") == "restart" else ""
+        detail = _sentence(f"Stopped after {done:,} of {plural(total, 'artist')}" + (f" {why}" if why else ""),
+                           _job_found(row))
+        tone = "warning"
+    else:
+        detail, tone = _sentence(f"{done:,} of {plural(total, 'artist')} checked", str(row.get("note") or "")), "error"
+    t = int(row.get("finished_at") or row.get("started_at") or 0)
+    return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=t, kind="automation",
+                 status=tone, title=_JOB_TITLES.get(status, _JOB_TITLES["done"]), detail=detail, link=_JOB_LINK,
+                 ref={"job_id": int(row["id"])})
+
+
+def _live_library_job() -> Optional[Dict[str, Any]]:
+    try:
+        from core.library.missing_releases import JOB
+        return JOB.live()
+    except Exception:  # noqa: BLE001 - no job module: nothing running
+        return None
+
+
+def _library_job_items(ctx: _Ctx, cursor, limit: int) -> List[Dict[str, Any]]:
+    t = "COALESCE(finished_at, started_at)"
+    cond, cparams = _after_cursor(t, "id", _RANK["library_job"], cursor)
+    try:
+        rows = ctx.conn.execute(
+            f"SELECT * FROM library_jobs WHERE {t} >= ? AND {cond} ORDER BY {t} DESC, id DESC LIMIT ?",
+            [ctx.since] + cparams + [limit]).fetchall()
+    except Exception as exc:  # noqa: BLE001 - no table yet reads as nothing
+        logger.debug("library jobs unreadable: %s", exc)
+        return []
+    live = _live_library_job()
+    out = []
+    for r in rows:
+        row = dict(r)
+        if not _job_visible(ctx, row.get("profile_id")):
+            continue
+        is_live = live is not None and int(live.get("id") or 0) == int(row["id"])
+        item = _library_job_item(ctx, row, live if is_live else None)
+        if _before_cursor(item["_key"], cursor):
+            out.append(item)
+    return out
+
+
+def _library_job_count(ctx: _Ctx) -> int:
+    try:
+        rows = ctx.conn.execute(
+            "SELECT profile_id FROM library_jobs WHERE COALESCE(finished_at, started_at) >= ?", (ctx.since,)).fetchall()
+    except Exception:  # noqa: BLE001
+        return 0
+    return sum(1 for r in rows if _job_visible(ctx, r[0]))
+
+
 # ── needs you ─────────────────────────────────────────────────────────────────
 
 def _needs_you_automation_ids(ctx: _Ctx) -> List[int]:
@@ -1074,6 +1175,8 @@ def _fetch(ctx: _Ctx, sources: Iterable[str], kinds: Iterable[str], cursor, limi
             out += _safety_items(ctx, cursor, limit)
         elif source == "radio":
             out += _radio_items(ctx, cursor, limit)
+        elif source == "library_job":
+            out += _library_job_items(ctx, cursor, limit)
     out.sort(key=lambda i: i["_key"], reverse=True)
     return out
 
@@ -1093,7 +1196,7 @@ def _counts(ctx: _Ctx, sessions) -> Dict[str, int]:
         counts["import"] += conn.execute(f"SELECT COUNT(*) {frm}", params).fetchone()[0]
     frm, _t, params = _automation_query(ctx)
     counts["automation"] = conn.execute(f"SELECT COUNT(*) {frm}", params).fetchone()[0] + len(
-        _live_automation_items(ctx, None, MAX_LIMIT))
+        _live_automation_items(ctx, None, MAX_LIMIT)) + _library_job_count(ctx)
     t = _ts("COALESCE(finished_at, started_at)")
     counts["sync"] += conn.execute(
         f"SELECT COUNT(*) FROM playlist_pipeline_run_history WHERE profile_id = ? AND {t} >= ?",
@@ -1109,6 +1212,9 @@ def _running_count(ctx: _Ctx) -> int:
     owner_ok = _batch_visible_fn(ctx)
     n = sum(1 for b in ctx.live_batches.values() if owner_ok(b.get("profile_id")))
     n += sum(1 for aid in ctx.running_automations if int(aid) in ctx.automations)
+    live_job = _live_library_job()
+    if live_job is not None and _job_visible(ctx, live_job.get("profile_id")):
+        n += 1
     if ctx.viewer.can_see_imports:
         n += ctx.conn.execute(
             "SELECT COUNT(*) FROM auto_import_history WHERE status IN ('processing', 'approved', 'scanning') "

@@ -250,6 +250,8 @@ const GENRES = {
 
 let requested: string[] = [];
 let posted: { url: string; body: unknown }[] = [];
+let missingState: Record<string, unknown> = {};
+let artistsBody: Record<string, unknown> = ARTISTS;
 
 beforeEach(() => {
   window.SoulSyncWebShellBridge = createShellBridge();
@@ -258,6 +260,8 @@ beforeEach(() => {
   window.playTrackList = vi.fn(async () => undefined);
   requested = [];
   posted = [];
+  missingState = { success: true, job: null, candidates: 0, can_start: false };
+  artistsBody = ARTISTS;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
@@ -271,7 +275,10 @@ beforeEach(() => {
       if (u.pathname.endsWith('/api/library/releases')) body = releasesBody(u);
       else if (u.pathname.endsWith('/api/library/releases/summary')) body = SUMMARY;
       else if (u.pathname.endsWith('/api/wishlist/bulk')) body = ADD_RESULT;
-      else if (u.pathname.endsWith('/api/library/artist-index')) body = ARTISTS;
+      else if (u.pathname.endsWith('/api/library/artist-index')) body = artistsBody;
+      else if (u.pathname.endsWith('/api/library/missing-releases')) body = missingState;
+      else if (u.pathname.endsWith('/api/library/missing-releases/start'))
+        body = { success: true, job: { id: 1, status: 'running' } };
       else if (u.pathname.endsWith('/api/library/genres')) body = GENRES;
       else if (u.pathname.endsWith('/api/library/artists/follow'))
         body = { success: true, followed: 1, already_following: 0, no_id: 0 };
@@ -668,5 +675,84 @@ describe('Artists (7f)', () => {
         artist_ids: ['2', '3'],
       }),
     );
+  });
+});
+
+describe("Look for releases you don't have (68)", () => {
+  it('sits after the hairline for admins, asks first, then starts the job', async () => {
+    missingState = { success: true, job: null, candidates: 212, can_start: true };
+    renderPage('/library');
+    await screen.findByText('Pale Harbour');
+    fireEvent.click(screen.getByRole('button', { name: 'More for your library' }));
+    await screen.findByRole('menuitem', { name: 'Shuffle your library' });
+    const parts = [
+      ...screen.getByRole('menu').querySelectorAll('[role="menuitem"], [role="separator"]'),
+    ].map((el) => (el.getAttribute('role') === 'separator' ? '—' : el.textContent));
+    expect(parts).toEqual([
+      'Shuffle your library',
+      '—',
+      "Look for releases you don't have…",
+      "Follow every artist you don't follow…",
+      'Export artists…',
+    ]);
+    fireEvent.click(screen.getByRole('menuitem', { name: "Look for releases you don't have…" }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText("Look for releases you don't have?")).toBeTruthy();
+    expect(within(dialog).getByText(/releases of the 212 artists in your library/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Look up 212 artists' }));
+    await waitFor(() =>
+      expect(posted.some((p) => p.url.endsWith('/api/library/missing-releases/start'))).toBe(true),
+    );
+  });
+
+  it('the header says how far it got, then what it found', async () => {
+    missingState = {
+      success: true,
+      job: { id: 1, status: 'running', total: 212, done: 40, started_at: 1, recent: true },
+      candidates: 212,
+      can_start: true,
+    };
+    const { unmount } = renderPage('/library');
+    await screen.findByText(
+      "186 artists · 18 you follow · 41 with releases you don't have · Looking for releases you don't have: 40 of 212 artists done",
+    );
+    unmount();
+    missingState = {
+      success: true,
+      job: {
+        id: 1,
+        status: 'done',
+        total: 212,
+        done: 212,
+        found_releases: 61,
+        found_artists: 18,
+        started_at: 1,
+        recent: true,
+      },
+      candidates: 3,
+      can_start: true,
+    };
+    renderPage('/library');
+    await screen.findByText(
+      "186 artists · 18 you follow · 41 with releases you don't have · The last look found 61 releases you don't have, by 18 artists",
+    );
+  });
+
+  it('is the action of the empty Show → Incomplete', async () => {
+    missingState = { success: true, job: null, candidates: 9, can_start: true };
+    artistsBody = { ...ARTISTS, artists: [], total: 0, has_more: false, show: 'incomplete' };
+    renderPage('/library?show=incomplete');
+    await screen.findByText("No artists with releases you don't have, yet");
+    expect(await screen.findByText(/It has none listed for 9 artists\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: "Look for releases you don't have…" }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+
+  it('members do not see it', async () => {
+    missingState = { success: true, job: null, candidates: 9, can_start: false };
+    artistsBody = { ...ARTISTS, artists: [], total: 0, has_more: false, show: 'incomplete' };
+    renderPage('/library?show=incomplete');
+    await screen.findByText("No artists with releases you don't have, yet");
+    expect(screen.queryByRole('button', { name: "Look for releases you don't have…" })).toBeNull();
   });
 });

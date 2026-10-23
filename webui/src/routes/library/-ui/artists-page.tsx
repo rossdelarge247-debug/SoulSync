@@ -1,5 +1,5 @@
-import { useInfiniteQuery, useMutation } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { StatusTag } from '@/components/primitives';
@@ -9,12 +9,18 @@ import type { IndexArtist, LibrarySearch } from '../-library.types';
 
 import { addToWanted, artistIndexInfiniteQueryOptions, followArtists } from '../-library.api';
 import { addedSentence } from '../-library.grid';
+import {
+  missingHeaderPhrase,
+  missingReleasesQueryOptions,
+  startMissingReleases,
+} from '../-library.missing';
 import { ARTIST_SHOWS, ARTIST_SORTS, pick } from '../-library.types';
 import { loadTopTracks, trackArtistLabel } from '../../artist-detail/-artist-detail.top-tracks';
 import { AddConfirm, QualityPicker, useRefreshLibrary, type AddRequest } from './add-confirm';
 import { GridSkeleton, LoadFailed, pageMenuEntries, type Go } from './albums-page';
 import { ExportArtistsModal } from './export-modal';
 import styles from './library.module.css';
+import { LookForReleasesConfirm } from './look-for-releases';
 import {
   CheckMark,
   FilterField,
@@ -62,8 +68,36 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
   const [qualityFor, setQualityFor] = useState<AddRequest | null>(null);
   const [exporting, setExporting] = useState(false);
   const [watchingAll, setWatchingAll] = useState(false);
+  const [lookingFor, setLookingFor] = useState(false);
   const [playing, setPlaying] = useState<ReadonlySet<string>>(new Set());
   const refresh = useRefreshLibrary();
+
+  // Look for releases you don't have (68): the job, polled while it runs;
+  // when it ends the grid is read again so its finds show
+  const missing = useQuery(missingReleasesQueryOptions(profileId));
+  const job = missing.data?.job ?? null;
+  const canLook = Boolean(missing.data?.can_start);
+  const lookable = canLook && (missing.data?.candidates ?? 0) > 0 && job?.status !== 'running';
+  const lastStatus = useRef(job?.status);
+  useEffect(() => {
+    if (lastStatus.current === 'running' && job && job.status !== 'running') refresh();
+    lastStatus.current = job?.status;
+  }, [job, refresh]);
+  const queryClient = useQueryClient();
+  const startLooking = useMutation({
+    mutationFn: startMissingReleases,
+    onSuccess: () => {
+      setLookingFor(false);
+      window.showToast?.(
+        "Looking for releases you don't have. Activity shows how it's going.",
+        'success',
+      );
+      void queryClient.invalidateQueries({
+        queryKey: missingReleasesQueryOptions(profileId).queryKey,
+      });
+    },
+    onError: (error: Error) => window.showToast?.(error.message, 'error'),
+  });
 
   const stopSelecting = () => {
     setSelecting(false);
@@ -152,7 +186,10 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
                   plural(totals.artists, 'artist'),
                   `${totals.following.toLocaleString()} you follow`,
                   `${totals.incomplete.toLocaleString()} with releases you don't have`,
-                ].join(' · ')
+                  missingHeaderPhrase(job),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
               : ' '}
           </p>
         </div>
@@ -179,10 +216,23 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
             className={styles.pageMenu}
             label="More for your library"
             entries={[
-              // HANDOFF 73's order; "Look for releases you don't have…" (68)
-              // joins after the hairline in a later phase
+              // HANDOFF 73's order, with "Look for releases you don't have…"
+              // (68, admins) after the hairline
               ...pageMenuEntries(),
               { key: 'tools', separator: true },
+              ...(canLook
+                ? [
+                    {
+                      key: 'look',
+                      label:
+                        job?.status === 'running'
+                          ? "Looking for releases you don't have…"
+                          : "Look for releases you don't have…",
+                      disabled: !lookable,
+                      onSelect: () => setLookingFor(true),
+                    },
+                  ]
+                : []),
               {
                 key: 'watch-all',
                 label: "Follow every artist you don't follow…",
@@ -319,6 +369,35 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
             );
           })}
         </ul>
+      ) : show === 'incomplete' && !q && !genre ? (
+        // the empty Show → Incomplete (68): gaps show only once a discography
+        // is fetched, so the way to find them is right here
+        <div className={styles.empty}>
+          <h2>No artists with releases you don&apos;t have, yet</h2>
+          <p>
+            SYNCHRO.S knows what&apos;s missing only for artists whose releases it has looked up.
+            {missing.data?.candidates
+              ? ` It has none listed for ${plural(missing.data.candidates, 'artist')}.`
+              : ''}
+          </p>
+          {canLook ? (
+            <Button
+              size="lg"
+              variant="secondary"
+              disabled={!lookable}
+              disabledReason={
+                job?.status === 'running'
+                  ? 'Already looking; Activity shows how far it got.'
+                  : !missing.data?.candidates
+                    ? 'Every artist already has its releases listed.'
+                    : undefined
+              }
+              onClick={() => setLookingFor(true)}
+            >
+              Look for releases you don&apos;t have…
+            </Button>
+          ) : null}
+        </div>
       ) : (
         <div className={styles.empty}>
           <h2>{filtered ? 'No artists match' : 'No artists yet'}</h2>
@@ -407,6 +486,14 @@ export function ArtistsPage({ search, go }: { search: LibrarySearch; go: Go }) {
       ) : null}
       {exporting ? <ExportArtistsModal onClose={() => setExporting(false)} /> : null}
       {watchingAll ? <WatchAllModal onClose={() => setWatchingAll(false)} /> : null}
+      {lookingFor ? (
+        <LookForReleasesConfirm
+          candidates={missing.data?.candidates ?? 0}
+          busy={startLooking.isPending}
+          onClose={() => setLookingFor(false)}
+          onConfirm={() => startLooking.mutate()}
+        />
+      ) : null}
     </div>
   );
 }

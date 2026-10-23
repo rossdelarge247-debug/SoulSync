@@ -132,6 +132,12 @@ function TimelineRow({
             </button>
           ) : action?.type === 'retry' ? (
             <RetryButton retry={action.retry} title={item.title} />
+          ) : action?.type === 'stop' ? (
+            <RetryButton
+              retry={action.stop}
+              title={item.title}
+              words={{ pending: 'Stopping…', done: 'Stopping', failed: 'Couldn’t stop it' }}
+            />
           ) : action?.type === 'open' ? (
             <AppLink to={action.href} className={styles.actionLink}>
               Open
@@ -144,7 +150,16 @@ function TimelineRow({
   );
 }
 
-function RetryButton({ retry, title }: { retry: RetryAction; title: string }) {
+/** A one-click POST on a row: Retry now, or Stop for a running library job. */
+function RetryButton({
+  retry,
+  title,
+  words = { pending: 'Retrying…', done: 'Retry started', failed: 'Couldn’t retry' },
+}: {
+  retry: RetryAction;
+  title: string;
+  words?: { pending: string; done: string; failed: string };
+}) {
   const queryClient = useQueryClient();
   const [done, setDone] = useState(false);
   const mutation = useMutation({
@@ -154,13 +169,13 @@ function RetryButton({ retry, title }: { retry: RetryAction; title: string }) {
       void invalidateActivity(queryClient);
     },
     onError: (error) => {
-      window.showToast?.(`Couldn’t retry: ${errorText(error)}.`, 'error');
+      window.showToast?.(`${words.failed}: ${errorText(error)}.`, 'error');
     },
   });
   if (done) {
     return (
       <span className={styles.actionNote} role="status">
-        Retry started
+        {words.done}
       </span>
     );
   }
@@ -174,7 +189,7 @@ function RetryButton({ retry, title }: { retry: RetryAction; title: string }) {
         if (!mutation.isPending) mutation.mutate();
       }}
     >
-      {mutation.isPending ? 'Retrying…' : retry.label}
+      {mutation.isPending ? words.pending : retry.label}
     </button>
   );
 }
