@@ -2,6 +2,8 @@ import '@vitejs/plugin-react/preamble';
 import { createRoot } from 'react-dom/client';
 
 import { mountCandidateInspectorHost } from '@/features/downloads/inspector-modal';
+import { mountFoldersCard } from '@/features/drives/folders-card';
+import { mountDriveMoveHost } from '@/features/drives/move-flow';
 import { mountOnboardingHost } from '@/features/onboarding/host';
 import { mountAddToPlaylistHost } from '@/features/playlists/add-to-playlist';
 import { mountLossyDeleteOriginalHost } from '@/features/safe-action/lossy-delete-original';
@@ -77,4 +79,6 @@ mountVideoRepairFixHost();
 mountLossyDeleteOriginalHost();
 mountSpotifyPausedHost();
 mountVisualsWhenNeeded();
+mountDriveMoveHost();
+mountFoldersCard();
 void bootstrapApp();

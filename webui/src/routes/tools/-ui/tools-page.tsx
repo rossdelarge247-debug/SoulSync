@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import {
   BlacklistCard,
   ConfigMigrationCard,
+  MoveMusicCard,
   DiscoveryPoolCard,
   ManualLibraryMatchCard,
   MetadataCacheCard,
@@ -164,6 +165,7 @@ export function ToolsPage() {
           blurb="Backups, moving install, and the lists you have told SYNCHRO.S to respect."
           glow="245,158,11"
         >
+          <MoveMusicCard />
           <BackupManagerCard />
           <ConfigMigrationCard />
           <MetadataCacheCard />
