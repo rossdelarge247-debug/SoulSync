@@ -16,7 +16,10 @@ function reply(body: unknown, status = 200) {
   });
 }
 
-function setup(scanReplies: { status?: number; body: Record<string, unknown> }[]) {
+function setup(
+  scanReplies: { status?: number; body: Record<string, unknown> }[],
+  nowPlaying: () => Record<string, unknown> = () => ({ state: 'listening' }),
+) {
   const calls: { url: string; method: string; body: unknown }[] = [];
   const queue = [...scanReplies];
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -40,7 +43,7 @@ function setup(scanReplies: { status?: number; body: Record<string, unknown> }[]
       });
     }
     if (url.includes('/api/radio/now-playing')) {
-      return reply({ success: true, state: 'listening', now: Date.now() / 1000 });
+      return reply({ success: true, now: Date.now() / 1000, ...nowPlaying() });
     }
     if (url.includes('/api/radio/scan')) {
       const next = queue.shift() ?? { body: { success: true, state: 'not_found' } };
@@ -110,21 +113,45 @@ describe('Scan now in the radio session', () => {
   it('says why when a scan is refused', async () => {
     const { session } = setup([
       {
-        status: 429,
+        status: 409,
         body: {
           success: false,
-          error: 'rate_limited',
-          message: 'That’s 3 scans in a minute. Try again in 20 s.',
+          error: 'busy',
+          message: 'Two scans are already listening on this server.',
+          retry_after: 10,
         },
       },
     ]);
     await session.play('nts-1');
     await session.scanNow!();
     expect(session.state().scan).toBeNull();
-    expect(session.state().scanError).toMatch(/3 scans in a minute/);
+    expect(session.state().scanError).toMatch(/Two scans/);
   });
 
-  it('adds what it found to Wanted through its Heard row, and Done clears it', async () => {
+  it('the per-minute limit keeps the last answer and says when it can run again', async () => {
+    const { session, calls } = setup([
+      { body: FOUND },
+      {
+        status: 429,
+        body: { success: false, error: 'rate_limited', message: 'x', retry_after: 40 },
+      },
+    ]);
+    await session.play('nts-1');
+    await session.scanNow!();
+    expect(session.state().scan?.state).toBe('identified');
+    await session.scanNow!();
+    expect(session.state().scan?.state).toBe('identified');
+    expect(session.state().scanError).toBeNull();
+    expect(session.state().scanWaitUntil).toBeGreaterThan(Date.now() + 39_000);
+    // no request while waiting
+    const starts = calls.filter((c) => c.url.endsWith('/api/radio/scan')).length;
+    await session.scanNow!();
+    expect(calls.filter((c) => c.url.endsWith('/api/radio/scan')).length).toBe(starts);
+    await vi.advanceTimersByTimeAsync(40_500);
+    expect(session.state().scanWaitUntil).toBeNull();
+  });
+
+  it('adds what it found to Wanted through its Heard row; there is no Done', async () => {
     const { session, calls } = setup([{ body: FOUND }]);
     await session.play('nts-1');
     await session.scanNow!();
@@ -133,7 +160,41 @@ describe('Scan now in the radio session', () => {
       calls.some((c) => c.url.endsWith('/api/radio/heard/12/want') && c.method === 'POST'),
     ).toBe(true);
     expect(session.state().scan?.on_wanted).toBe(true);
-    session.dismissScan!();
+    expect('dismissScan' in session).toBe(false);
+  });
+
+  it('the answer lasts until the station names the next track', async () => {
+    let np: Record<string, unknown> = { state: 'listening' };
+    const t0 = Date.now() / 1000;
+    const { session } = setup([{ body: { ...FOUND, finished_at: t0, now: t0 } }], () => np);
+    await session.play('nts-1');
+    await session.scanNow!();
+    // the server holds the scan's answer as now playing: it stays
+    np = {
+      state: 'identified',
+      source: 'scan_audd',
+      identified_at: t0,
+      track: { artist: 'Tidewater', title: 'Night Ferry' },
+    };
+    await session.refresh();
+    expect(session.state().scan?.state).toBe('identified');
+    // an older name from the station doesn't replace it either
+    np = {
+      state: 'identified',
+      source: 'station_feed',
+      identified_at: t0 - 60,
+      track: { artist: 'A', title: 'B' },
+    };
+    await session.refresh();
+    expect(session.state().scan?.state).toBe('identified');
+    // the station names the next track: the answer has had its turn
+    np = {
+      state: 'identified',
+      source: 'station_feed',
+      identified_at: t0 + 120,
+      track: { artist: 'C', title: 'D' },
+    };
+    await session.refresh();
     expect(session.state().scan).toBeNull();
   });
 

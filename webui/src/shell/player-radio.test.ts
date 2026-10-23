@@ -110,7 +110,8 @@ describe('the player’s radio mode', () => {
     const { chrome } = mount(state());
     const slot = document.querySelector('[data-player-action-slot]')!;
     expect(slot.textContent).toContain('Night Ferry (Dub)');
-    expect(slot.textContent).toMatch(/identified \d+ s ago/);
+    // the source phrase says who named it (HANDOFF 58)
+    expect(slot.textContent).toMatch(/from the stream’s names · \d+ s ago/);
     // ONE action; Scan now sits beside it
     expect(slot.querySelectorAll('button:not([data-player-radio-scan])')).toHaveLength(1);
     expect(slot.querySelector('button')!.textContent).toBe('Add to Wanted');
@@ -283,16 +284,39 @@ describe('Scan now in the player', () => {
     const slot = document.querySelector('[data-player-action-slot]')!;
     expect(slot.textContent).toContain('Listening…');
     expect(slot.textContent).toContain('Capturing 10 seconds · 6 s left');
-    expect(slot.querySelector('[data-player-radio-scan]')!.getAttribute('aria-disabled')).toBe(
-      'true',
+    const scanBtn = slot.querySelector<HTMLElement>('[data-player-radio-scan]')!;
+    expect(scanBtn.getAttribute('aria-disabled')).toBe('true');
+    expect(scanBtn.dataset.busy).toBe('listening');
+    // the scan takes the track's place: its title over the 220px bar, and the action slot empties
+    const block = slot.querySelector('.ss-player-radio-now')!;
+    expect(block.querySelector('.ss-player-title')!.textContent).toBe(
+      'Capturing 10 seconds · 6 s left',
     );
+    expect(block.querySelector<HTMLElement>('.ss-player-radio-now-bar > span')!.style.width).toBe(
+      '40%',
+    );
+    expect(slot.querySelector('[data-player-radio-add]')).toBeNull();
     expect(document.getElementById('ss-player-live')!.textContent).toMatch(
       /Listening to the station/,
     );
+    // identifying: who is asked, and a spinner on the control
+    st.scan = {
+      ...st.scan!,
+      phase: 'identifying',
+      trying: 'audd',
+      trying_label: 'AudD',
+      asked: ['acoustid', 'audd'],
+    };
+    chrome!.draw();
+    expect(slot.querySelector('.ss-player-radio-now')!.textContent).toBe(
+      'Identifying…Asking AudD · AcoustID had no match',
+    );
+    expect(slot.querySelector('[data-player-radio-scan] .ss-player-radio-spinner')).not.toBeNull();
+    expect(slot.querySelector('[data-player-radio-scan]')!.textContent).toBe('Identifying…');
     chrome!.dispose();
   });
 
-  it('shows what the scan found with its own Add, and Done in the sheet', async () => {
+  it('the answer sits in the track block with its source phrase, its own Add, and "Scan again"; no Done', async () => {
     const st = state({
       scan: {
         scan_id: 'sc1',
@@ -320,16 +344,19 @@ describe('Scan now in the player', () => {
     });
     const { api, chrome } = mount(st);
     api.addScanToWanted = vi.fn(async () => true);
-    api.dismissScan = vi.fn();
     const slot = document.querySelector('[data-player-action-slot]')!;
     expect(slot.textContent).toContain('Low Tide');
-    expect(slot.textContent).toContain('Kelp · found by ACRCloud');
+    expect(slot.textContent).toMatch(
+      /Kelp · Shore · found by ACRCloud · Scan now · \d+ (s|min|h) ago/,
+    );
+    expect(slot.querySelector('[data-player-radio-scan]')!.textContent).toBe('Scan again');
     slot.querySelector<HTMLElement>('[data-player-radio-scan-add]')!.click();
     await Promise.resolve();
     expect(api.addScanToWanted).toHaveBeenCalled();
-    document.querySelector<HTMLElement>('[data-player-radio-scan-dismiss]')!.click();
-    await Promise.resolve();
-    expect(api.dismissScan).toHaveBeenCalled();
+    // no Done anywhere, nor a second tag
+    expect(document.body.textContent).not.toMatch(/\bDone\b/);
+    expect(document.querySelector('[data-player-radio-scan-dismiss]')).toBeNull();
+    expect(slot.querySelectorAll('.ss-player-tag')).toHaveLength(0);
     chrome!.dispose();
   });
 
@@ -368,18 +395,29 @@ describe('Scan now in the player', () => {
       'DJ mixes and talk',
     );
     r.chrome!.dispose();
+    expect(
+      document.querySelector('[data-player-action-slot] .ss-player-radio-now')!.textContent,
+    ).toBe('Couldn’t identify thisDJ mixes and talk often can’t be');
+    r.chrome!.dispose();
     r = mount(
       state({
         scan: {
           ...base,
           state: 'failed',
-          reason: 'AudD says this account has no requests left for now.',
+          reason: 'AudD refused the key. An admin can check it in Settings → Radio.',
+          asked: ['audd'],
+          provider_error: { provider: 'audd', label: 'AudD', kind: 'bad_key', message: 'x' },
         },
       }),
     );
-    expect(document.querySelector('[data-player-action-slot]')!.textContent).toContain(
-      'no requests left',
-    );
+    const block = document.querySelector('[data-player-action-slot] .ss-player-radio-now')!;
+    expect(block.querySelector('.ss-player-title')!.textContent).toBe('Scan didn’t work');
+    const meta = block.querySelector<HTMLElement>('.ss-player-meta')!;
+    expect(meta.textContent).toBe('AudD refused the key · an admin can fix it in Settings → Radio');
+    expect(meta.dataset.tone).toBe('danger');
+    expect(
+      document.querySelector('[data-player-action-slot] [data-player-radio-scan]')!.textContent,
+    ).toBe('Scan again');
     r.chrome!.dispose();
   });
 });

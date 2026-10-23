@@ -37,23 +37,35 @@ export function shortName(name: string): string {
   return first.replace(/\s+\d+$/, '').trim() || name;
 }
 
-export function sourceWords(source: IdSource | null, stationName: string): string {
+/**
+ * Where a name came from, as the meta line says it (HANDOFF 58): "from the
+ * station", "from the stream’s names", "fingerprint", "found by AudD · Scan
+ * now". This phrase is how a scan's answer is told from the station's; there
+ * is never a second tag.
+ */
+export function sourcePhrase(source: IdSource | null | undefined): string {
   switch (source) {
     case 'station_feed':
-      return `Identified from ${possessive(stationName)} now-playing feed`;
+      return 'from the station';
     case 'stream_titles':
-      return 'Identified from the stream’s track names';
+      return 'from the stream’s names';
     case 'fingerprint':
-      return 'Identified by fingerprint';
+      return 'fingerprint';
     case 'scan_acoustid':
-      return 'Found by AcoustID (Scan now)';
+      return 'found by AcoustID · Scan now';
     case 'scan_audd':
-      return 'Found by AudD (Scan now)';
+      return 'found by AudD · Scan now';
     case 'scan_acrcloud':
-      return 'Found by ACRCloud (Scan now)';
+      return 'found by ACRCloud · Scan now';
     default:
       return '';
   }
+}
+
+/** The source phrase at the start of a line: "From the station", "Found by AudD · Scan now". */
+export function sourceWords(source: IdSource | null | undefined): string {
+  const phrase = sourcePhrase(source);
+  return phrase ? phrase[0].toUpperCase() + phrase.slice(1) : '';
 }
 
 /** Seconds since it was identified, by the server's clock. */
@@ -166,9 +178,17 @@ export function nowLines(
       identified: false,
     };
   if (np.state === 'identified' && np.track) {
+    // "Pale Harbour · from the station · 40 s ago"
     return {
       title: np.track.title,
-      line: `${np.track.artist} · identified ${agoWords(secondsSince(np, skew))}`,
+      line: [
+        np.track.artist,
+        np.track.release,
+        sourcePhrase(np.source),
+        agoWords(secondsSince(np, skew)),
+      ]
+        .filter(Boolean)
+        .join(' · '),
       identified: true,
     };
   }
