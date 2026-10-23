@@ -10,6 +10,12 @@
  * state — no second opinion about what "down" means.
  */
 
+import {
+  spotifyPauseView,
+  type SpotifyPauseStatus,
+  type SpotifyPauseView,
+} from '@/features/spotify-pause/spotify-pause';
+
 import type { ServiceStatusPayload } from './-dash.api';
 
 import { genericServiceCard, metadataSourceCard, soulseekCard } from './-dash.services';
@@ -25,6 +31,8 @@ export interface DashAlert {
   line?: string;
   /** What to do, under a lone alert, in place of the connection advice. */
   advice?: string;
+  /** Set when the metadata alert is Spotify's rate-limit pause. */
+  spotifyPause?: SpotifyPauseView;
 }
 
 /** The library card's no-library copy (-ui/library-card.tsx), as one line. */
@@ -37,18 +45,27 @@ function severityOf(indicatorClass: string): 'warn' | 'error' {
 }
 
 /** Alerts for the current /status payload; [] while healthy or before the
- *  first payload (null) — a booting page shows no false alarms. */
-export function serviceAlerts(payload: ServiceStatusPayload | null): DashAlert[] {
+ *  first payload (null) — a booting page shows no false alarms.
+ *  `elapsedSeconds` since the payload arrived keeps a Spotify pause counting down. */
+export function serviceAlerts(
+  payload: ServiceStatusPayload | null,
+  elapsedSeconds = 0,
+): DashAlert[] {
   if (!payload) return [];
   const alerts: DashAlert[] = [];
 
   const meta = metadataSourceCard(payload.metadata_source || {}, payload.spotify || {});
   if (!meta.indicatorClass.includes(' connected')) {
+    // A rate-limit pause says why, for how long and whose number it is
+    const pause = meta.indicatorClass.includes('rate-limited')
+      ? spotifyPauseView(payload.spotify as SpotifyPauseStatus | undefined, elapsedSeconds)
+      : null;
     alerts.push({
       key: 'metadata',
       label: meta.title || 'Metadata Source',
-      detail: meta.statusText,
+      detail: pause ? pause.short : meta.statusText,
       severity: severityOf(meta.indicatorClass),
+      ...(pause ? { line: pause.sentence, advice: pause.detail, spotifyPause: pause } : {}),
     });
   }
 

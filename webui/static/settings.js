@@ -1430,6 +1430,83 @@ function syncSpotifySettingsAuthState(statusData) {
     if (dot) {
         dot.style.color = needsAttention ? '#f1c40f' : '#1DB954';
     }
+
+    _stgSpotifyPauseStatus = statusData;
+    _stgSpotifyPauseAt = Date.now();
+    renderStgSpotifyPause();
+    if ((rateLimited || cooldown) && !_stgSpotifyPauseTimer) {
+        _stgSpotifyPauseTimer = setInterval(renderStgSpotifyPause, 1000);
+    }
+}
+
+// The Spotify card's pause line (Settings → Connections): a live countdown
+// in the header, and in the body what happened, whose number the time is and,
+// for admins, "Try again now". Words from the shell bundle's spotifyPauseView.
+let _stgSpotifyPauseStatus = null;
+let _stgSpotifyPauseAt = 0;
+let _stgSpotifyPauseTimer = null;
+
+function renderStgSpotifyPause() {
+    const card = document.querySelector('#settings-page .stg-service[data-service="spotify"]');
+    const elapsed = Math.max(0, (Date.now() - _stgSpotifyPauseAt) / 1000);
+    const view = card && typeof window.ssSpotifyPauseView === 'function'
+        ? window.ssSpotifyPauseView(_stgSpotifyPauseStatus, elapsed) : null;
+    const header = card ? card.querySelector('.stg-service-header') : null;
+    const body = card ? card.querySelector('.stg-service-body') : null;
+    let tag = header ? header.querySelector('.stg-spotify-pause-tag') : null;
+    let box = body ? body.querySelector('.stg-spotify-pause') : null;
+
+    if (!view) {
+        if (tag) tag.remove();
+        if (box) box.remove();
+        if (_stgSpotifyPauseTimer) { clearInterval(_stgSpotifyPauseTimer); _stgSpotifyPauseTimer = null; }
+        return;
+    }
+    if (header && !tag) {
+        tag = document.createElement('span');
+        tag.className = 'stg-spotify-pause-tag';
+        const chevron = header.querySelector('.stg-service-chevron');
+        if (chevron) header.insertBefore(tag, chevron); else header.appendChild(tag);
+    }
+    if (tag) tag.textContent = view.short;
+    if (body && !box) {
+        box = document.createElement('div');
+        box.className = 'stg-spotify-pause';
+        box.innerHTML = '<p class="stg-spotify-pause-sentence"></p>'
+            + '<p class="stg-spotify-pause-detail"></p>'
+            + '<div class="stg-spotify-pause-actions" hidden>'
+            + '<button type="button" class="stg-spotify-pause-retry">Try again now</button>'
+            + '<span class="stg-spotify-pause-note" aria-live="polite"></span></div>';
+        box.querySelector('.stg-spotify-pause-retry').addEventListener('click', retryStgSpotifyPause);
+        body.insertBefore(box, body.firstChild);
+    }
+    if (!box) return;
+    box.querySelector('.stg-spotify-pause-sentence').textContent = `${view.sentence}.`;
+    box.querySelector('.stg-spotify-pause-detail').textContent = view.detail;
+    const actions = box.querySelector('.stg-spotify-pause-actions');
+    const canRetry = typeof window.ssCanClearSpotifyPause === 'function' && window.ssCanClearSpotifyPause();
+    actions.hidden = !canRetry;
+    const note = box.querySelector('.stg-spotify-pause-note');
+    if (canRetry && !note.dataset.busy && !note.dataset.result) note.textContent = window.ssSpotifyTryAgainNote || '';
+}
+
+async function retryStgSpotifyPause(event) {
+    const btn = event.currentTarget;
+    const note = btn.parentElement.querySelector('.stg-spotify-pause-note');
+    if (typeof window.ssClearSpotifyPause !== 'function') return;
+    btn.setAttribute('aria-disabled', 'true');
+    note.dataset.busy = '1';
+    note.textContent = 'Clearing the pause…';
+    const error = await window.ssClearSpotifyPause();
+    btn.removeAttribute('aria-disabled');
+    delete note.dataset.busy;
+    if (error) {
+        note.dataset.result = '1';
+        note.textContent = error;
+        return;
+    }
+    showToast('Pause cleared. Trying Spotify again. If it’s still limiting, the pause comes back.', 'info');
+    if (typeof fetchAndUpdateServiceStatus === 'function') await fetchAndUpdateServiceStatus();
 }
 
 function _stgSetCheckingState(service, isChecking) {
@@ -7482,7 +7559,8 @@ let _spotifyRateLimitShown = false;
 let _spotifyInCooldown = false;
 let _rateLimitModalOpen = false;
 let _rateLimitCountdownInterval = null;
-let _rateLimitExpiresAt = 0;
+let _rateLimitInfo = null;
+let _rateLimitReceivedAt = 0;
 
 function handleSpotifyRateLimit(rateLimitInfo) {
     if (!rateLimitInfo || !rateLimitInfo.active) {
@@ -7498,10 +7576,11 @@ function handleSpotifyRateLimit(rateLimitInfo) {
         }
         return;
     }
-    // Update countdown if modal is open (status pushes every 10s keep it accurate)
-    if (_rateLimitModalOpen && rateLimitInfo.remaining_seconds) {
-        _rateLimitExpiresAt = Date.now() + (rateLimitInfo.remaining_seconds * 1000);
-    }
+    // Each status push re-anchors the countdown (the pause can also be
+    // replaced by a longer one while the modal is open)
+    _rateLimitInfo = rateLimitInfo;
+    _rateLimitReceivedAt = Date.now();
+    if (_rateLimitModalOpen) renderRateLimitModal();
     if (!_spotifyRateLimitShown) {
         _spotifyRateLimitShown = true;
         _spotifyInCooldown = false;
@@ -7514,28 +7593,63 @@ function handleSpotifyRateLimit(rateLimitInfo) {
     }
 }
 
+// The modal's words come from the shell bundle's spotifyPauseView
+// (src/features/spotify-pause/spotify-pause.ts), so it says exactly what Home
+// and Settings say: whose number the time is, and what we were doing.
+function renderRateLimitModal() {
+    const info = _rateLimitInfo;
+    if (!info) return;
+    const elapsed = Math.max(0, (Date.now() - _rateLimitReceivedAt) / 1000);
+    const remaining = Math.max(0, Math.round((info.remaining_seconds || 0) - elapsed));
+    const view = typeof window.ssSpotifyPauseView === 'function'
+        ? window.ssSpotifyPauseView({ rate_limited: true, rate_limit: info }, elapsed) : null;
+
+    const sentence = document.getElementById('rate-limit-sentence');
+    const detail = document.getElementById('rate-limit-detail');
+    const countdown = document.getElementById('rate-limit-countdown');
+    const howLong = document.getElementById('rate-limit-ban-duration');
+    const trigger = document.getElementById('rate-limit-endpoint');
+    if (view && view.kind === 'paused') {
+        if (sentence) sentence.textContent = `${view.sentence}.`;
+        if (detail) detail.textContent = view.detail;
+        if (countdown) countdown.textContent = view.timeLeft;
+    } else if (countdown) {
+        countdown.textContent = formatRateLimitDuration(remaining);
+    }
+    if (howLong) {
+        const total = formatRateLimitDuration(info.retry_after || info.remaining_seconds);
+        howLong.textContent = info.source === 'spotify'
+            ? `${total}, Spotify’s number`
+            : `${total}, SYNCHRO.S’s estimate`;
+    }
+    if (trigger) trigger.textContent = info.trigger || info.endpoint || 'A Spotify request';
+
+    const canRetry = typeof window.ssCanClearSpotifyPause === 'function' && window.ssCanClearSpotifyPause();
+    const retryBtn = document.getElementById('rate-limit-retry-btn');
+    const retryNote = document.getElementById('rate-limit-retry-note');
+    if (retryBtn) retryBtn.classList.toggle('hidden', !canRetry);
+    if (retryNote) {
+        retryNote.classList.toggle('hidden', !canRetry);
+        if (canRetry && !retryNote.dataset.busy) {
+            retryNote.textContent = window.ssSpotifyTryAgainNote || '';
+        }
+    }
+    return remaining;
+}
+
 function showRateLimitModal(rateLimitInfo) {
     const overlay = document.getElementById('rate-limit-modal-overlay');
     if (!overlay) return;
 
-    // Populate details
-    const banDuration = document.getElementById('rate-limit-ban-duration');
-    const endpoint = document.getElementById('rate-limit-endpoint');
-    const countdown = document.getElementById('rate-limit-countdown');
+    _rateLimitInfo = rateLimitInfo;
+    _rateLimitReceivedAt = Date.now();
+    renderRateLimitModal();
 
-    banDuration.textContent = formatRateLimitDuration(rateLimitInfo.retry_after || rateLimitInfo.remaining_seconds);
-    endpoint.textContent = rateLimitInfo.endpoint || 'unknown';
-    countdown.textContent = formatRateLimitDuration(rateLimitInfo.remaining_seconds);
-
-    // Set expiry for live countdown
-    _rateLimitExpiresAt = Date.now() + (rateLimitInfo.remaining_seconds * 1000);
-
-    // Start live countdown timer
+    // Live countdown, re-rendered every second from the last push
     if (_rateLimitCountdownInterval) clearInterval(_rateLimitCountdownInterval);
     _rateLimitCountdownInterval = setInterval(() => {
-        const remaining = Math.max(0, Math.round((_rateLimitExpiresAt - Date.now()) / 1000));
-        countdown.textContent = formatRateLimitDuration(remaining);
-        if (remaining <= 0) {
+        const remaining = renderRateLimitModal();
+        if (!remaining) {
             clearInterval(_rateLimitCountdownInterval);
             _rateLimitCountdownInterval = null;
         }
@@ -7553,6 +7667,27 @@ function closeRateLimitModal() {
         _rateLimitCountdownInterval = null;
     }
     _rateLimitModalOpen = false;
+}
+
+// "Try again now" (admins): clears SYNCHRO.S's own pause. If Spotify is still
+// limiting, the next call brings the pause back.
+async function retrySpotifyFromRateLimit() {
+    const note = document.getElementById('rate-limit-retry-note');
+    const btn = document.getElementById('rate-limit-retry-btn');
+    if (typeof window.ssClearSpotifyPause !== 'function') return;
+    if (btn) btn.setAttribute('aria-disabled', 'true');
+    if (note) { note.dataset.busy = '1'; note.textContent = 'Clearing the pause…'; }
+    const error = await window.ssClearSpotifyPause();
+    if (btn) btn.removeAttribute('aria-disabled');
+    if (note) delete note.dataset.busy;
+    if (error) {
+        if (note) note.textContent = error;
+        return;
+    }
+    _spotifyRateLimitShown = false;
+    closeRateLimitModal();
+    showToast('Pause cleared. Trying Spotify again. If it’s still limiting, the pause comes back.', 'info');
+    if (typeof fetchAndUpdateServiceStatus === 'function') await fetchAndUpdateServiceStatus();
 }
 
 async function disconnectSpotifyFromRateLimit() {

@@ -12274,35 +12274,40 @@
                         <line x1="12" y1="9" x2="12" y2="13" />
                         <line x1="12" y1="17" x2="12.01" y2="17" />
                     </svg>
-                    <h2>Spotify Rate Limited</h2>
+                    <h2>Spotify is paused</h2>
                 </div>
-                <button class="confirm-modal-close" onclick="closeRateLimitModal()">✕</button>
+                <button class="confirm-modal-close" onclick="closeRateLimitModal()" aria-label="Close">✕</button>
             </div>
             <div class="confirm-modal-content rate-limit-modal-content">
-                <p class="rate-limit-description">Spotify has temporarily blocked API access. All Spotify features
-                    (search, enrichment, playlists) are paused until the ban expires.</p>
+                <!-- Filled from the status push by settings.js (renderRateLimitModal),
+                     in the words of src/features/spotify-pause/spotify-pause.ts. -->
+                <p class="rate-limit-description" id="rate-limit-sentence">Spotify asked SYNCHRO.S to slow down, so Spotify
+                    features (search, enrichment, playlists) use your other sources until the pause ends.</p>
                 <div class="rate-limit-details">
                     <div class="rate-limit-detail-row">
-                        <span class="rate-limit-label">Ban Duration</span>
+                        <span class="rate-limit-label">Time left</span>
+                        <span class="rate-limit-value rate-limit-countdown" id="rate-limit-countdown">—</span>
+                    </div>
+                    <div class="rate-limit-detail-row">
+                        <span class="rate-limit-label">How long</span>
                         <span class="rate-limit-value" id="rate-limit-ban-duration">—</span>
                     </div>
                     <div class="rate-limit-detail-row">
-                        <span class="rate-limit-label">Triggered By</span>
+                        <span class="rate-limit-label">What we were doing</span>
                         <span class="rate-limit-value rate-limit-endpoint" id="rate-limit-endpoint">—</span>
                     </div>
-                    <div class="rate-limit-detail-row">
-                        <span class="rate-limit-label">Time Remaining</span>
-                        <span class="rate-limit-value rate-limit-countdown" id="rate-limit-countdown">—</span>
-                    </div>
                 </div>
-                <p class="rate-limit-hint">While rate limiting is active, Spotify-specific features are unavailable. You
-                    can wait for the ban to expire or disconnect Spotify to clear it immediately.</p>
+                <p class="rate-limit-hint" id="rate-limit-detail">You can wait for the pause to end, or disconnect
+                    Spotify to clear it and stop Spotify-specific features.</p>
+                <p class="rate-limit-hint rate-limit-retry-note hidden" id="rate-limit-retry-note" aria-live="polite"></p>
             </div>
             <div class="confirm-modal-actions rate-limit-modal-actions">
                 <button class="modal-button modal-button--secondary" onclick="closeRateLimitModal()">Dismiss</button>
+                <button class="modal-button modal-button--secondary hidden" id="rate-limit-retry-btn"
+                    onclick="retrySpotifyFromRateLimit()">Try again now</button>
                 <button class="modal-button rate-limit-disconnect-btn" onclick="disconnectSpotifyFromRateLimit()">
                     Disconnect
-                    <span class="rate-limit-disconnect-sub">Clear the ban and pause Spotify-specific features</span>
+                    <span class="rate-limit-disconnect-sub">Clear the pause and stop Spotify-specific features</span>
                 </button>
             </div>
         </div>

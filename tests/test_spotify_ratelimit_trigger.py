@@ -1,7 +1,7 @@
 """What may and may not trigger a global Spotify ban.
 
-A ban from the auth probe pauses every Spotify feature for at least 30
-minutes and pops a modal claiming search, enrichment and playlists are all
+A pause from the auth probe stops every Spotify feature (for Spotify's
+Retry-After, or an estimate starting at 10 minutes) and pops a modal claiming search, enrichment and playlists are all
 down. That is the right response to a real 429 and a very wrong one to
 anything else, so the trigger has to key on the STATUS rather than on words
 that happen to appear in an exception message SoulSync does not control.
@@ -40,8 +40,11 @@ class TestTriggerIsStatusNotWords:
         code = "\n".join(ln for ln in _SRC.splitlines()
                          if not ln.lstrip().startswith("#"))
         assert '"rate" in error_str' not in code
-        # The decorator's own check is the two-word phrase, which is fine.
-        assert '"rate limit" in error_str' in code
+        # The shared predicate (is_rate_limit_error, used by the decorator and
+        # _detect_and_set_rate_limit) keys on the status first and only falls
+        # back to the two-word phrase, which is fine.
+        assert '"rate limit" in text' in code
+        assert "return status == 429" in code
 
     def test_the_real_status_code_is_checked_first(self):
         cond = _probe_condition()
@@ -55,11 +58,14 @@ class TestTriggerIsStatusNotWords:
         assert '"http status: 429" in _low' in cond
         assert '"too many requests" in _low' in cond
 
-    def test_a_thirty_minute_floor_still_applies_to_real_limits(self):
-        # The escalation behaviour is deliberate and must survive this change:
-        # a probe 429 means Spotify is actively throttling, so a short or
-        # missing Retry-After must not produce a token ban.
-        assert "_BASE_UNKNOWN_BAN" in _probe_condition()
+    def test_a_probe_429_always_pauses_globally(self):
+        # A probe 429 means Spotify is actively throttling, so it always pauses
+        # every Spotify call: for exactly Spotify's Retry-After when it sends
+        # one, or on the estimate ladder (_BASE_UNKNOWN_BAN first) when not.
+        cond = _probe_condition()
+        assert "retry_after_from_exception(e)" in cond
+        assert "_set_global_rate_limit(" in cond
+        assert "_BASE_UNKNOWN_BAN" in cond
 
 
 class TestTheConditionInPractice:
@@ -105,7 +111,9 @@ class TestTheConditionInPractice:
 
 class TestModalHonesty:
     def test_the_modal_still_names_what_is_paused(self):
-        # Not changed here, but pinned: if the copy ever claims more than the
-        # ban actually does, that is a bug in its own right.
+        # Pinned: if the copy ever claims more than the pause actually does,
+        # that is a bug in its own right. The live sentence comes from
+        # spotify-pause.ts; this is the fallback the markup carries.
         index = (_ROOT / "webui" / "index.html").read_text(encoding="utf-8")
-        assert re.search(r"Spotify has temporarily blocked API access", index)
+        assert re.search(r"Spotify is paused", index)
+        assert re.search(r"features \(search, enrichment, playlists\) use your other sources", index)

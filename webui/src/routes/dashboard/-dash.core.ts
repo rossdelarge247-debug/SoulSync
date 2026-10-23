@@ -19,6 +19,8 @@
  *   not-authenticated, rate-limited AND daily-budget as "stuck" states.
  */
 
+import { formatWait } from '@/features/spotify-pause/spotify-pause';
+
 import type {
   CurrentItem,
   EnrichProgress,
@@ -329,20 +331,24 @@ export function spotifyPill(data: ProviderStatusPayload): PillView {
   const bridgingFree = data.using_free === true;
   const notAuthenticated = data.authenticated === false && !bridgingFree;
   const rateLimitedStuck = isRateLimited && !bridgingFree;
+  // After a pause the worker waits out the cooldown before calling Spotify again.
+  const coolingDown = !isRateLimited && !bridgingFree && (data.post_ban_cooldown ?? 0) > 0;
+  const pausedBySpotify = data.rate_limit?.source === 'spotify';
   // The daily budget is a real-API cap; bridged to Free it no longer applies.
   const budgetStuck = Boolean(data.daily_budget && data.daily_budget.exhausted) && !bridgingFree;
 
   let stateClass: PillView['stateClass'] = null;
   if (data.paused) stateClass = 'paused';
   else if (notAuthenticated) stateClass = 'no-auth';
-  else if (rateLimitedStuck || budgetStuck) stateClass = 'paused';
+  else if (rateLimitedStuck || coolingDown || budgetStuck) stateClass = 'paused';
   else if (data.idle) stateClass = 'complete';
   else if (data.running && !data.paused) stateClass = 'active';
 
   let status: string;
   if (data.paused) status = 'Paused';
   else if (notAuthenticated) status = 'Not Authenticated';
-  else if (rateLimitedStuck) status = 'Rate Limited';
+  else if (rateLimitedStuck) status = pausedBySpotify ? 'Paused by Spotify' : 'Paused to be safe';
+  else if (coolingDown) status = 'Easing back in';
   else if (bridgingFree) status = 'Running (Spotify Free)';
   else if (budgetStuck) status = 'Daily Limit Reached';
   else if (data.idle) status = 'Complete';
@@ -359,8 +365,10 @@ export function spotifyPill(data: ProviderStatusPayload): PillView {
     const remaining = data.rate_limit?.remaining_seconds || 0;
     current =
       remaining > 0
-        ? `Waiting ${Math.ceil(remaining / 60)}m for rate limit to clear`
-        : 'Waiting for rate limit to clear';
+        ? `Starts again in ${formatWait(remaining)}`
+        : 'Waiting for Spotify’s pause to end';
+  } else if (coolingDown) {
+    current = `Starts again in ${formatWait(data.post_ban_cooldown)}, slowly`;
   } else if (bridgingFree && data.current_item && name) {
     current = `Now: ${name} (via Spotify Free)`;
   } else if (budgetStuck) {

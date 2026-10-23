@@ -1201,7 +1201,7 @@ function handleServiceStatusUpdate(data) {
             _spotifyRateLimitShown = false;
             _spotifyInCooldown = true;
             closeRateLimitModal();
-            showToast('Spotify ban expired \u2014 recovering shortly', 'info');
+            showToast('Spotify\u2019s pause is over. Background jobs ease back in slowly.', 'info');
         }
     } else {
         if (_spotifyInCooldown) {

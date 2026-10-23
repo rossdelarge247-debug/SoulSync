@@ -9,6 +9,8 @@
  *   UI component; everything computable is here).
  */
 
+import { spotifyPauseView, type SpotifyRateLimit } from '@/features/spotify-pause/spotify-pause';
+
 // ── /status payload slices ───────────────────────────────────────────────────
 
 export interface MetadataSourceStatus {
@@ -21,8 +23,8 @@ export interface MetadataSourceStatus {
 export interface SpotifyStatus {
   authenticated?: boolean;
   rate_limited?: boolean;
-  rate_limit?: { remaining_seconds?: number } | null;
-  post_ban_cooldown?: number;
+  rate_limit?: SpotifyRateLimit | null;
+  post_ban_cooldown?: number | null;
   [key: string]: unknown;
 }
 
@@ -84,24 +86,15 @@ export function getMetadataSourcePresentation(
   const rateLimited = !!(spotifyFamily && spotifyStatus?.rate_limited && spotifyStatus?.rate_limit);
   const cooldown = !!(spotifyFamily && (spotifyStatus?.post_ban_cooldown ?? 0) > 0);
 
-  if (rateLimited) {
-    const remaining = spotifyStatus.rate_limit?.remaining_seconds || 0;
+  // The words come from the shared Spotify pause view (spotify-pause.ts);
+  // shared-helpers.js reads the same function through the shell bundle.
+  const pause = rateLimited || cooldown ? spotifyPauseView(spotifyStatus) : null;
+  if (rateLimited || cooldown) {
     return {
       statusClass: 'rate-limited',
-      statusText: `Spotify paused — ${formatRateLimitDuration(remaining)}`,
+      statusText: pause?.short ?? (rateLimited ? 'Spotify paused' : 'Spotify easing back in'),
       dotClass: 'rate-limited',
-      dotTitle: `Spotify paused — ${formatRateLimitDuration(remaining)} remaining`,
-      sessionActive,
-    };
-  }
-
-  if (cooldown) {
-    const remaining = spotifyStatus.post_ban_cooldown!;
-    return {
-      statusClass: 'rate-limited',
-      statusText: `Spotify recovering — ${formatRateLimitDuration(remaining)}`,
-      dotClass: 'rate-limited',
-      dotTitle: `Spotify recovering — ${formatRateLimitDuration(remaining)} cooldown`,
+      dotTitle: pause?.sentence ?? 'Spotify paused',
       sessionActive,
     };
   }

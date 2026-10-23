@@ -30,6 +30,27 @@ Questions 1–28 were answered in Design's session of 22 October, and 29–57 in
 
 ## Log
 
+### 2026-10-23: Dev, Spotify rate limits
+
+Built on `fix/spotify-rate-limit` from `integration`. Ross saw "Rate limit detected on get_artist_albums - no Retry-After header, using 14400s default", then "GLOBAL RATE LIMIT ACTIVATED: 14400s ban": one 429 bought a four-hour pause, and the UI said "banned for 4 hours", which looked stuck.
+
+**The cause.** Spotify did send Retry-After; SYNCHRO.S never saw it. spotipy 2.26.0 builds its session with urllib3 `Retry(total=retries, status=status_retries, status_forcelist=(429, 500, 502, 503, 504))`. `core/spotify_client.py` passed `retries=0`, but urllib3's `Retry.is_retry` checks `status_forcelist` before `total`, so a 429 still counts as retryable, the zero budget is exhausted at once and urllib3 raises `MaxRetryError`. spotipy turns that into `SpotifyException(429, "… Max Retries")` with no headers (`spotipy/client.py`, the `RetryError` branch), and `_detect_and_set_rate_limit` mapped "max retries" to `_BASE_MAX_RETRIES_BAN = 14400`. The decorator did the same after five retries. A test against a local server reproduces both halves.
+
+**What changed**
+
+- **The real Retry-After.** Every official client is built by `make_spotipy_client()`: a requests session whose adapter never retries (`HTTPAdapter(max_retries=0)`, no forcelist), `retries=0`, `status_retries=0`. A 429 reaches us as an HTTP error carrying `Retry-After`; `retry_after_from_exception()` reads it (seconds or an HTTP date, from `.headers`, `.response.headers` or the cause chain). Used by the main client, the auth probe and the per-profile clients (`core/metadata/registry.py`). Spotify's time is obeyed exactly, however long.
+- **Guesses when there's no header.** 10 minutes first, doubling for each repeat within an hour of the previous pause ending, 4 hours at most (`estimated_pause_seconds`). Requests already in flight when a pause starts don't escalate it. The decorator retries a header-less 429 once after ~5 s, then estimates; a short Retry-After is slept through up to three times, then estimated. No more flat 4 hours.
+- **After a pause.** Background jobs (no Flask request on the thread) keep waiting for a cooldown as long as the pause, between 1 and 30 minutes; a person's own request may go ahead at once. Then, for 15 minutes, calls are spaced 2 s apart easing back to normal, with random jitter, so a backlog trickles instead of firing together. The enrichment worker already slept through the pause and cooldown; its status now carries `post_ban_cooldown`. The watchlist scan and the enrichment worker name themselves (`spotify_feature`), so a pause they trigger says so.
+- **Try again now** (admins): `POST /api/spotify/rate-limit/clear` clears the local pause, keeping the estimate's history so a repeat comes back longer.
+- **What people see.** One set of words (`src/features/spotify-pause/spotify-pause.ts`), counting down live: "Spotify asked us to wait 12 min (after checking an artist's albums)" with "That time came from Spotify", or "Paused Spotify for 10 min to be safe (after …)" with "Spotify didn't say how long to wait, so this is SYNCHRO.S's estimate." After the pause: "Spotify is back. Background jobs wait 5 min more". Home's alert (a note, not a live region, since it ticks), the rate-limit modal (now "Spotify is paused": time left, how long and whose number, what we were doing), Settings → Connections' Spotify card (a tag in its header and a warning box in its body) and the enrichment chip ("Paused by Spotify" / "Paused to be safe" / "Easing back in"). Admins get "Try again now" with "Clears SYNCHRO.S's pause. If Spotify is still limiting, the pause comes back." beside it.
+- Nothing evades Spotify's limits: no extra keys or apps, only obeying them accurately.
+
+**Contracts:** new `source`, `trigger`, `feature`, `estimate_step` in `rate_limit`; `post_ban_cooldown` in the worker status; the clear route (CONTRACTS.md, "Spotify pause").
+
+**Not drawn yet:** the modal, the Settings box and Home's Try again now follow the design system's attention box and buttons but have no board. Please draw the Spotify pause's states (paused by Spotify, paused on our estimate, easing back in, member vs admin) if you'd change them.
+
+**Tests:** `tests/test_spotify_rate_limit.py` (38: spotipy against a local server with and without the fix, header extraction for 429 with and without a header and `MaxRetryError`, the ladder, stragglers, Try again now's history, the post-pause pacing and jitter, background vs interactive in the cooldown, the decorator, trigger words, the worker pausing); vitest `spotify-pause.test.ts`, the alerts band's live countdown and Try again now, and the updated services, alerts and enrichment-chip tests.
+
 ### 2026-10-22: Dev, evening phase 1 (the name and the small answers)
 
 Built on `ux/evening-1` from `integration`, from Phase 1 of Design's "Build order for Dev, 22 October evening" (approved by Ross): the boards `Wordmark (SYNCHRO.S)` (8a) and `Follow-ups (nebula, follow, confirm, record)` (9d), and Design's answers to 29–57 where there's no board. No routes changed.

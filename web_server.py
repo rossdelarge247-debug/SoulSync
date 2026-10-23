@@ -6177,12 +6177,40 @@ def spotify_rate_limit_status():
                     'retry_after': rate_limit_info.get('retry_after'),
                     'endpoint': rate_limit_info.get('endpoint'),
                     'expires_at': rate_limit_info.get('expires_at'),
+                    'source': rate_limit_info.get('source'),
+                    'trigger': rate_limit_info.get('trigger'),
                 })
+            payload['post_ban_cooldown'] = info.get('post_ban_cooldown')
             return jsonify(payload)
         return jsonify({'rate_limited': False})
     except Exception as e:
         logger.error(f"Error getting Spotify rate limit status: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/spotify/rate-limit/clear', methods=['POST'])
+@admin_only
+def spotify_rate_limit_clear():
+    """"Try again now" (admins): clear the local Spotify pause and cooldown.
+
+    Only SYNCHRO.S's own pause is cleared. If Spotify is still limiting, the
+    next call gets another 429 and the pause comes back, longer if it was an
+    estimate (the ladder's history is kept for exactly that reason).
+    """
+    try:
+        from core.spotify_client import _clear_rate_limit
+        _clear_rate_limit(keep_history=True)
+        if spotify_client:
+            spotify_client._invalidate_auth_cache()
+        worker_client = getattr(spotify_enrichment_worker, 'client', None)
+        if worker_client is not None and hasattr(worker_client, '_invalidate_auth_cache'):
+            worker_client._invalidate_auth_cache()
+        invalidate_metadata_status_caches()
+        add_activity_item("", "Spotify pause cleared", "An admin chose Try again now", "Now")
+        return jsonify({'success': True, 'spotify': get_spotify_status(spotify_client=spotify_client)})
+    except Exception as e:
+        logger.error(f"Error clearing Spotify rate limit: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/tidal/callback')

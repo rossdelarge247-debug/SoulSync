@@ -1,9 +1,14 @@
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
 from typing import Dict, List, Optional, Any
+import email.utils
+import math
+import random
 import re
 import time
 import threading
+from contextlib import contextmanager
+from datetime import timezone
 from functools import wraps
 from dataclasses import dataclass
 from core.http_error_status import http_error_status
@@ -106,7 +111,7 @@ def _request_scoped_free_opt_in() -> bool:
     except Exception:
         return False
 
-def _get_min_api_interval():
+def _get_base_api_interval():
     """Get configurable API interval from settings, falling back to default."""
     try:
         from core.settings import config_manager
@@ -117,41 +122,261 @@ def _get_min_api_interval():
         logger.debug("get min_api_interval setting: %s", e)
     return MIN_API_INTERVAL
 
+
+def _get_min_api_interval():
+    """Seconds to leave between Spotify calls right now: the configured
+    interval normally; slower, with random jitter, while easing back in after
+    a pause (post_ban_pacing_interval), so the first calls after a pause
+    trickle out instead of firing together."""
+    base = _get_base_api_interval()
+    with _rate_limit_lock:
+        since = _seconds_since_pause_ended_locked(time.time())
+        cooldown_len = _rate_limit_cooldown_len
+    interval = post_ban_pacing_interval(since, cooldown_len, base)
+    if interval > base:
+        interval += random.uniform(0, interval * _POST_BAN_JITTER)
+    return interval
+
 # Request queuing for burst handling
 import queue
 _request_queue = queue.Queue()
 _queue_processor_running = False
 
-# Global rate limit ban state — when Spotify returns a long Retry-After (>60s),
-# we set this so ALL API calls are suppressed until the ban expires.
+# Global rate-limit pause state. When Spotify answers 429 we stop calling it
+# until the pause ends: for exactly as long as its Retry-After header says
+# when it sends one, or for an escalating estimate when it doesn't.
 _rate_limit_lock = threading.Lock()
-_rate_limit_until = 0       # Unix timestamp when the ban expires (0 = not banned)
-_rate_limit_retry_after = 0  # Original Retry-After value in seconds
-_rate_limit_endpoint = None  # Which function triggered the ban
-_rate_limit_set_at = 0       # When the ban was set
-_rate_limit_ban_ended_at = 0  # When the last ban expired naturally (for post-ban cooldown)
-_rate_limit_hit_count = 0    # How many times we've been rate limited recently (for escalation)
-_rate_limit_first_hit = 0    # Timestamp of the first hit in the current escalation window
+_rate_limit_until = 0       # Unix timestamp when the pause ends (0 = not paused)
+_rate_limit_retry_after = 0  # Length of the current pause in seconds
+_rate_limit_endpoint = None  # Which function triggered the pause
+_rate_limit_set_at = 0       # When the pause was set
+_rate_limit_source = None    # 'spotify' (its Retry-After) or 'estimate' (our guess)
+_rate_limit_feature = None   # The background job that was running, when one said so
+_rate_limit_hit_count = 0    # Estimate ladder step (1 = first guess); see estimated_pause_seconds
+_rate_limit_last_until = 0   # When the previous pause ended, for escalation (survives "Try again now")
+_rate_limit_cooldown_len = 0  # Length of the post-pause cooldown that follows this pause
+_rate_limit_end_logged = False
 
-# Threshold: if Retry-After exceeds this, activate global ban instead of sleeping
+# Threshold: if Retry-After exceeds this, pause globally instead of sleeping
 _LONG_RATE_LIMIT_THRESHOLD = 60  # seconds
 
-# After a ban expires, wait this long before making any auth probe calls.
-# This prevents the "immediate re-probe → re-ban" cycle where Spotify's
-# server-side cooldown outlasts the Retry-After (or our default ban
-# duration) we used. A user who'd just sat through a 4-hour MAX_RETRIES
-# ban had it expire, hit our 5-minute cooldown, made a single
-# get_artist_albums call 32 seconds after the cooldown ended, and got
-# slapped with another 4-hour ban — the post-ban cooldown was too short
-# for Spotify's server to forget the previous offense. 30 minutes is a
-# better empirical floor; can be revisited if reports persist.
-_POST_BAN_COOLDOWN = 1800  # 30 minutes
+# After a pause ends, background jobs (enrichment worker, watchlist and
+# following scans, mirrored-playlist auto-sync, discography lookups) keep
+# waiting for a cooldown, then ease back in with slower, jittered pacing, so
+# a backlog doesn't fire the moment the pause lifts and earn another one.
+# The cooldown is as long as the pause itself, at least a minute and at most
+# 30 minutes. Interactive requests (a person clicking something) may use
+# Spotify again as soon as the pause ends, paced the same careful way.
+#
+# History: a user who'd sat through a 4-hour pause, then a 5-minute cooldown,
+# was paused again 32 seconds later by a single get_artist_albums call. That
+# 4 hours was itself a guess (see _detect_and_set_rate_limit), and the
+# immediate stampede afterwards is what the cooldown + easing period prevent.
+_POST_BAN_COOLDOWN = 1800   # 30 minutes, the longest cooldown
+_POST_BAN_COOLDOWN_MIN = 60
+_POST_BAN_RAMP = 900        # then 15 minutes easing from _POST_BAN_INTERVAL back to normal
+_POST_BAN_INTERVAL = 2.0    # seconds between calls while easing back in
+_POST_BAN_JITTER = 0.5      # up to this fraction of the interval added at random
 
-# Escalation: if we get rate limited again within this window, increase ban duration
-_ESCALATION_WINDOW = 3600   # 1 hour — if re-limited within this, escalate
-_ESCALATION_MAX = 14400     # 4 hours max ban
-_BASE_UNKNOWN_BAN = 1800    # 30 min default when Retry-After header is missing
-_BASE_MAX_RETRIES_BAN = 14400  # 4 hours default when spotipy exhausted all retries (severe rate limit)
+# Estimates when Spotify sends no Retry-After: start short and double for each
+# repeat that comes within an hour of the previous pause ending, up to 4 hours.
+# 10 min → 20 → 40 → 80 → 160 → 240 (cap).
+_ESCALATION_WINDOW = 3600   # 1 hour after the previous pause ended
+_ESCALATION_MAX = 14400     # 4 hours, the longest estimate
+_BASE_UNKNOWN_BAN = 600     # 10 min first estimate when Retry-After is missing
+
+# What each call is, in plain words, for "after checking an artist's albums".
+_ENDPOINT_WORDS = {
+    'get_artist_albums': "checking an artist's albums",
+    'get_artist_albums_page': "checking an artist's albums",
+    'get_artist': 'looking up an artist',
+    'get_artists_batch': 'looking up artists',
+    'get_artist_top_tracks': "reading an artist's top tracks",
+    'get_album': 'looking up an album',
+    'get_album_tracks': "reading an album's tracks",
+    'get_track_details': 'looking up a track',
+    'get_track_features': "reading a track's audio features",
+    'search_tracks': 'searching for tracks',
+    'search_artists': 'searching for artists',
+    'search_albums': 'searching for albums',
+    'get_followed_artists': 'reading the artists you follow',
+    'get_user_playlists': 'reading your playlists',
+    'get_user_playlists_metadata_only': 'reading your playlists',
+    'get_playlist_by_id': 'reading a playlist',
+    '_get_playlist_tracks': "reading a playlist's tracks",
+    'get_saved_tracks': 'reading your liked songs',
+    'get_saved_tracks_count': 'counting your liked songs',
+    'get_saved_albums': 'reading your saved albums',
+    'get_user_info': 'reading your Spotify profile',
+    'create_or_update_playlist': 'updating a playlist on Spotify',
+    'remove_playlist_tracks': 'updating a playlist on Spotify',
+    'is_spotify_authenticated': 'checking the Spotify connection',
+}
+
+_feature_context = threading.local()
+
+
+@contextmanager
+def spotify_feature(label: str):
+    """Name the job making Spotify calls on this thread ("the watchlist scan"),
+    so a pause it triggers can say so in the UI."""
+    previous = getattr(_feature_context, 'label', None)
+    _feature_context.label = label
+    try:
+        yield
+    finally:
+        _feature_context.label = previous
+
+
+def current_spotify_feature() -> Optional[str]:
+    return getattr(_feature_context, 'label', None)
+
+
+def describe_rate_limit_trigger(endpoint: Optional[str], feature: Optional[str] = None) -> str:
+    """Plain words for what was happening when Spotify said wait. Pure."""
+    words = _ENDPOINT_WORDS.get(endpoint or '', 'a Spotify request')
+    return f"{words} for {feature}" if feature else words
+
+
+def estimated_pause_seconds(step: int) -> int:
+    """The pause we guess when Spotify sends no Retry-After. ``step`` is 1 for
+    the first guess and grows for repeats within _ESCALATION_WINDOW. Pure."""
+    step = max(1, int(step))
+    return int(min(_BASE_UNKNOWN_BAN * (2 ** (step - 1)), _ESCALATION_MAX))
+
+
+def post_ban_cooldown_length(pause_seconds: float) -> int:
+    """How long background jobs keep waiting after a pause ends. Pure."""
+    return int(min(_POST_BAN_COOLDOWN, max(_POST_BAN_COOLDOWN_MIN, pause_seconds or 0)))
+
+
+def post_ban_pacing_interval(seconds_since_end: Optional[float], cooldown_len: float,
+                             base_interval: float) -> float:
+    """Seconds between Spotify calls given how long ago the last pause ended.
+
+    During the cooldown: _POST_BAN_INTERVAL. Then it eases linearly back to
+    ``base_interval`` over _POST_BAN_RAMP. Never below ``base_interval``. Pure.
+    """
+    if seconds_since_end is None or seconds_since_end < 0:
+        return base_interval
+    slow = max(base_interval, _POST_BAN_INTERVAL)
+    if seconds_since_end < cooldown_len:
+        return slow
+    into_ramp = seconds_since_end - cooldown_len
+    if into_ramp >= _POST_BAN_RAMP:
+        return base_interval
+    return max(base_interval, slow - (slow - base_interval) * (into_ramp / _POST_BAN_RAMP))
+
+
+def parse_retry_after(value, now: Optional[float] = None) -> Optional[int]:
+    """A Retry-After header value (seconds, or an HTTP date) as whole seconds."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return max(0, int(math.ceil(value)))
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return max(0, int(math.ceil(float(text))))
+    except ValueError:
+        pass
+    try:
+        when = email.utils.parsedate_to_datetime(text)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0, int(math.ceil(when.timestamp() - (time.time() if now is None else now))))
+
+
+def _header_value(headers, name: str):
+    if not headers or not hasattr(headers, 'get'):
+        return None
+    value = headers.get(name)
+    if value is None and hasattr(headers, 'items'):
+        lowered = name.lower()
+        for key, candidate in headers.items():
+            if isinstance(key, str) and key.lower() == lowered:
+                return candidate
+    return value
+
+
+def retry_after_from_exception(exception) -> Optional[int]:
+    """Spotify's Retry-After, in seconds, from whatever spotipy or requests
+    raised; None when the error carries no such header.
+
+    Looks at ``.headers`` (SpotifyException), ``.response.headers``
+    (requests.HTTPError) along the exception's cause chain, then at the
+    message. A spotipy "Max Retries" error (urllib3 retried the 429 itself and
+    gave up) never has it, which is why the client is built with
+    make_spotipy_client().
+    """
+    seen = set()
+    current = exception
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        for headers in (getattr(current, 'headers', None),
+                        getattr(getattr(current, 'response', None), 'headers', None)):
+            seconds = parse_retry_after(_header_value(headers, 'Retry-After'))
+            if seconds is not None:
+                return seconds
+        current = current.__cause__ or current.__context__
+    match = re.search(r'[Rr]etry[- ][Aa]fter[:\s]+(\d+)', str(exception))
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def is_rate_limit_error(exception) -> bool:
+    """A 429 from Spotify. Keys on the status; text only for statusless errors."""
+    status = http_error_status(exception)
+    if status is not None:
+        return status == 429
+    text = str(exception).lower()
+    return "429" in text or "rate limit" in text or "too many requests" in text
+
+
+def _no_retry_session():
+    """A requests session whose adapter never retries on its own.
+
+    spotipy 2.26 builds its session with urllib3 Retry(total=retries,
+    status=status_retries, status_forcelist=(429, 500, 502, 503, 504)). Even
+    with retries=0, a status in status_forcelist counts as retryable
+    (urllib3's Retry.is_retry checks the forcelist before ``total``), so the
+    429 is "retried", the zero budget is exhausted at once, and urllib3 raises
+    MaxRetryError. spotipy turns that into SpotifyException(429, "Max
+    Retries") with NO headers, and Spotify's Retry-After is lost. A plain
+    HTTPAdapter (Retry(0), no forcelist) hands the 429 back as a response, so
+    spotipy raises the HTTPError branch with ``headers=response.headers``.
+    """
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=0)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    return session
+
+
+def make_spotipy_client(auth_manager=None, *, requests_timeout=15, **kwargs) -> "spotipy.Spotify":
+    """Build a spotipy client whose 429s reach us with Spotify's Retry-After.
+
+    No internal retries (the rate_limited decorator and the global pause
+    handle them) and requests_timeout=15 so no request hangs indefinitely.
+    """
+    return spotipy.Spotify(
+        auth_manager=auth_manager,
+        requests_session=_no_retry_session(),
+        retries=0,
+        status_retries=0,
+        requests_timeout=requests_timeout,
+        **kwargs,
+    )
+
 
 class SpotifyRateLimitError(Exception):
     """Raised when Spotify API calls are blocked due to active global rate limit ban."""
@@ -161,57 +386,7 @@ class SpotifyRateLimitError(Exception):
         super().__init__(f"Spotify rate limited for {retry_after}s (triggered by {endpoint})")
 
 
-def _set_global_rate_limit(retry_after_seconds, endpoint_name, has_real_header=False):
-    """Activate the global rate limit ban. Escalates duration on repeated hits."""
-    global _rate_limit_until, _rate_limit_retry_after, _rate_limit_endpoint, _rate_limit_set_at
-    global _rate_limit_hit_count, _rate_limit_first_hit
-    with _rate_limit_lock:
-        now = time.time()
-
-        # Escalation: if we're hitting rate limits repeatedly, increase the ban
-        if not has_real_header:
-            # Only escalate when we don't have a real Retry-After (i.e., we're guessing)
-            if now - _rate_limit_first_hit < _ESCALATION_WINDOW and _rate_limit_first_hit > 0:
-                _rate_limit_hit_count += 1
-            else:
-                # New escalation window
-                _rate_limit_hit_count = 1
-                _rate_limit_first_hit = now
-
-            if _rate_limit_hit_count > 1:
-                # Double the ban for each repeated hit, up to max
-                escalated = retry_after_seconds * (2 ** (_rate_limit_hit_count - 1))
-                retry_after_seconds = min(escalated, _ESCALATION_MAX)
-                logger.warning(
-                    f"Rate limit escalation: hit #{_rate_limit_hit_count} within window, "
-                    f"ban escalated to {retry_after_seconds}s"
-                )
-
-        new_until = now + retry_after_seconds
-        # Only update if this extends the existing ban
-        if new_until > _rate_limit_until:
-            _rate_limit_until = new_until
-            _rate_limit_retry_after = retry_after_seconds
-            _rate_limit_endpoint = endpoint_name
-            _rate_limit_set_at = now
-            logger.warning(
-                f"GLOBAL RATE LIMIT ACTIVATED: {retry_after_seconds}s ban "
-                f"(expires {time.strftime('%H:%M:%S', time.localtime(new_until))}) "
-                f"triggered by {endpoint_name}"
-            )
-            # Record event for debug diagnostics
-            try:
-                from core.api_call_tracker import api_call_tracker
-                escalated = _rate_limit_hit_count > 1
-                api_call_tracker.record_event(
-                    'spotify', 'rate_limit_ban',
-                    endpoint=endpoint_name,
-                    duration=retry_after_seconds,
-                    detail=f'{"escalation #" + str(_rate_limit_hit_count) if escalated else "initial"}'
-                         f'{", real Retry-After" if has_real_header else ", estimated"}'
-                )
-            except Exception as e:
-                logger.debug("api_call_tracker record rate_limit_ban: %s", e)
+def _publish_rate_limit_status():
     try:
         from core.metadata.status import publish_spotify_status
 
@@ -226,45 +401,120 @@ def _set_global_rate_limit(retry_after_seconds, endpoint_name, has_real_header=F
         logger.debug("publish_spotify_status set rate limit: %s", e)
 
 
+def _set_global_rate_limit(retry_after_seconds, endpoint_name, has_real_header=False):
+    """Pause every Spotify call.
+
+    With ``has_real_header`` the pause is exactly Spotify's Retry-After,
+    however long. Without one, ``retry_after_seconds`` is ignored and the
+    estimate ladder decides (estimated_pause_seconds): 10 minutes first,
+    doubling for each repeat within an hour of the previous pause ending.
+    """
+    global _rate_limit_until, _rate_limit_retry_after, _rate_limit_endpoint, _rate_limit_set_at
+    global _rate_limit_hit_count, _rate_limit_last_until, _rate_limit_source, _rate_limit_feature
+    global _rate_limit_cooldown_len, _rate_limit_end_logged
+    feature = current_spotify_feature()
+    with _rate_limit_lock:
+        now = time.time()
+        if has_real_header and retry_after_seconds is not None:
+            seconds = max(1, int(math.ceil(float(retry_after_seconds))))
+            source = 'spotify'
+        else:
+            source = 'estimate'
+            if now < _rate_limit_until:
+                # Already paused: a request that was in flight when the pause
+                # began. It's the same episode, not a repeat.
+                return
+            repeat = _rate_limit_last_until > 0 and now - _rate_limit_last_until < _ESCALATION_WINDOW
+            _rate_limit_hit_count = _rate_limit_hit_count + 1 if repeat else 1
+            seconds = estimated_pause_seconds(_rate_limit_hit_count)
+            if _rate_limit_hit_count > 1:
+                logger.warning(
+                    f"Rate limit escalation: repeat #{_rate_limit_hit_count} within an hour, "
+                    f"estimate raised to {seconds}s"
+                )
+
+        new_until = now + seconds
+        # Only update if this extends the existing pause
+        if new_until <= _rate_limit_until:
+            return
+        _rate_limit_until = new_until
+        _rate_limit_last_until = new_until
+        _rate_limit_retry_after = seconds
+        _rate_limit_endpoint = endpoint_name
+        _rate_limit_set_at = now
+        _rate_limit_source = source
+        _rate_limit_feature = feature
+        _rate_limit_cooldown_len = post_ban_cooldown_length(seconds)
+        _rate_limit_end_logged = False
+        logger.warning(
+            f"GLOBAL RATE LIMIT ACTIVATED: {seconds}s pause "
+            f"({'Retry-After from Spotify' if source == 'spotify' else 'estimate, no Retry-After'}; "
+            f"expires {time.strftime('%H:%M:%S', time.localtime(new_until))}) "
+            f"triggered by {endpoint_name}{f' during {feature}' if feature else ''}"
+        )
+        escalation_step = _rate_limit_hit_count
+    # Record event for debug diagnostics
+    try:
+        from core.api_call_tracker import api_call_tracker
+        api_call_tracker.record_event(
+            'spotify', 'rate_limit_ban',
+            endpoint=endpoint_name,
+            duration=seconds,
+            detail=('real Retry-After' if source == 'spotify'
+                    else f'estimated, step {escalation_step}'),
+        )
+    except Exception as e:
+        logger.debug("api_call_tracker record rate_limit_ban: %s", e)
+    _publish_rate_limit_status()
+
+
 def _is_globally_rate_limited():
-    """Check if the global rate limit ban is active."""
-    global _rate_limit_ban_ended_at
+    """Check if the global rate limit pause is active."""
+    global _rate_limit_end_logged
     with _rate_limit_lock:
         if _rate_limit_until <= 0:
             return False
         if time.time() >= _rate_limit_until:
-            # Ban expired — record when it ended so post-ban cooldown can apply
-            if _rate_limit_ban_ended_at < _rate_limit_until:
-                _rate_limit_ban_ended_at = time.time()
-                logger.info("Rate limit ban expired, entering post-ban cooldown period")
+            if not _rate_limit_end_logged:
+                _rate_limit_end_logged = True
+                logger.info("Spotify pause ended, background jobs wait out the cooldown then ease back in")
             return False
         return True
 
 
+def _seconds_since_pause_ended_locked(now: float) -> Optional[float]:
+    if _rate_limit_until <= 0 or now < _rate_limit_until:
+        return None
+    return now - _rate_limit_until
+
+
 def _is_in_post_ban_cooldown():
-    """Check if we're in the post-ban cooldown period.
-    After a ban expires, we wait _POST_BAN_COOLDOWN seconds before allowing
-    auth probes to prevent the re-probe → re-ban cycle."""
-    with _rate_limit_lock:
-        if _rate_limit_ban_ended_at <= 0:
-            return False
-        elapsed = time.time() - _rate_limit_ban_ended_at
-        if elapsed < _POST_BAN_COOLDOWN:
-            return True
-        return False
+    """After a pause ends, background jobs wait out a cooldown before calling
+    Spotify again, so a backlog doesn't re-trigger the limit at once."""
+    return _get_post_ban_cooldown_remaining() > 0
 
 
 def _get_post_ban_cooldown_remaining():
     """Get remaining seconds in post-ban cooldown, or 0 if not in cooldown."""
     with _rate_limit_lock:
-        if _rate_limit_ban_ended_at <= 0:
+        since = _seconds_since_pause_ended_locked(time.time())
+        if since is None:
             return 0
-        remaining = _POST_BAN_COOLDOWN - (time.time() - _rate_limit_ban_ended_at)
-        return max(0, int(remaining))
+        return max(0, int(math.ceil(_rate_limit_cooldown_len - since)))
+
+
+def _is_interactive_request() -> bool:
+    """A person's own request (a Flask request on this thread), as opposed to
+    a background job. Background threads never have a request context."""
+    try:
+        from flask import has_request_context
+        return bool(has_request_context())
+    except Exception:
+        return False
 
 
 def _get_rate_limit_info():
-    """Get current rate limit ban details. Returns None if not rate limited."""
+    """Get current rate limit pause details. Returns None if not paused."""
     with _rate_limit_lock:
         if _rate_limit_until <= 0:
             return None
@@ -274,28 +524,45 @@ def _get_rate_limit_info():
             return None
         return {
             'active': True,
-            'remaining_seconds': int(remaining),
+            'remaining_seconds': int(math.ceil(remaining)),
             'retry_after': _rate_limit_retry_after,
             'endpoint': _rate_limit_endpoint,
             'set_at': _rate_limit_set_at,
-            'expires_at': _rate_limit_until
+            'expires_at': _rate_limit_until,
+            # 'spotify' = Spotify's own Retry-After; 'estimate' = our guess
+            'source': _rate_limit_source or 'estimate',
+            'feature': _rate_limit_feature,
+            'trigger': describe_rate_limit_trigger(_rate_limit_endpoint, _rate_limit_feature),
+            'estimate_step': _rate_limit_hit_count if _rate_limit_source == 'estimate' else None,
         }
 
 
-def _clear_rate_limit():
-    """Manually clear the global rate limit ban AND post-ban cooldown.
-    Used by disconnect/reconnect so the user can immediately retry."""
-    global _rate_limit_until, _rate_limit_retry_after, _rate_limit_endpoint, _rate_limit_set_at, _rate_limit_ban_ended_at
-    global _rate_limit_hit_count, _rate_limit_first_hit
+def _clear_rate_limit(keep_history: bool = False):
+    """Clear the local pause AND the post-pause cooldown.
+
+    Disconnect/reconnect forget everything. "Try again now" passes
+    ``keep_history=True`` so the estimate ladder remembers this episode: if
+    Spotify is still limiting, the next estimate is longer, not 10 minutes
+    again.
+    """
+    global _rate_limit_until, _rate_limit_retry_after, _rate_limit_endpoint, _rate_limit_set_at
+    global _rate_limit_hit_count, _rate_limit_last_until, _rate_limit_source, _rate_limit_feature
+    global _rate_limit_cooldown_len, _rate_limit_end_logged
     with _rate_limit_lock:
+        if keep_history and _rate_limit_until > 0:
+            _rate_limit_last_until = time.time()
         _rate_limit_until = 0
         _rate_limit_retry_after = 0
         _rate_limit_endpoint = None
         _rate_limit_set_at = 0
-        _rate_limit_ban_ended_at = 0
-        _rate_limit_hit_count = 0
-        _rate_limit_first_hit = 0
-    logger.info("Global rate limit ban cleared (including post-ban cooldown)")
+        _rate_limit_source = None
+        _rate_limit_feature = None
+        _rate_limit_cooldown_len = 0
+        _rate_limit_end_logged = False
+        if not keep_history:
+            _rate_limit_hit_count = 0
+            _rate_limit_last_until = 0
+    logger.info("Global rate limit pause cleared (including post-pause cooldown)")
     try:
         from core.metadata.status import publish_spotify_status
 
@@ -309,58 +576,23 @@ def _clear_rate_limit():
 
 
 def _detect_and_set_rate_limit(exception, endpoint_name="unknown"):
-    """Check if a Spotify exception is a 429 rate limit and activate global ban if so.
-    Returns True if rate limit was detected."""
-    error_str = str(exception)
-    # SpotifyException exposes the HTTP status; use text only for statusless errors.
-    status = http_error_status(exception)
-    is_rate_limit = (status == 429 if status is not None
-                     else "429" in error_str or "rate limit" in error_str.lower())
+    """If a Spotify exception is a 429, pause Spotify globally.
 
-    if is_rate_limit:
-        # Try to extract Retry-After from exception headers
-        retry_after = None
-        has_real_header = False
-
-        # Method 1: SpotifyException.headers (set by spotipy with retries=0)
-        exc_headers = getattr(exception, 'headers', None)
-        if exc_headers and hasattr(exc_headers, 'get'):
-            retry_after = exc_headers.get('Retry-After') or exc_headers.get('retry-after')
-            if retry_after:
-                logger.info(f"Extracted Retry-After from exception headers: {retry_after}")
-            else:
-                logger.debug(f"Exception has headers but no Retry-After key. Headers type: {type(exc_headers).__name__}, keys: {list(exc_headers.keys())[:10] if hasattr(exc_headers, 'keys') else 'N/A'}")
-
-        # Method 2: Parse from error message (some spotipy versions embed it)
-        if not retry_after:
-            import re
-            ra_match = re.search(r'[Rr]etry[- ][Aa]fter[:\s]+(\d+)', error_str)
-            if ra_match:
-                retry_after = ra_match.group(1)
-                logger.info(f"Extracted Retry-After from error message: {retry_after}")
-
-        if retry_after:
-            try:
-                delay = int(retry_after)
-                has_real_header = True
-                logger.info(f"Rate limit detected on {endpoint_name} — Retry-After header: {delay}s")
-            except (ValueError, TypeError):
-                delay = _BASE_UNKNOWN_BAN
-                logger.warning(f"Rate limit detected on {endpoint_name} — unparseable Retry-After: {retry_after}")
-        else:
-            # No Retry-After header available
-            if "max retries" in error_str.lower():
-                # Spotipy exhausted all retries on 429s — this is a severe ban.
-                # Spotify's actual Retry-After is consumed internally by spotipy and not
-                # passed in the exception. Use a long default to avoid re-triggering.
-                delay = _BASE_MAX_RETRIES_BAN  # 4 hours
-            else:
-                delay = _BASE_UNKNOWN_BAN  # 30 min
-            logger.warning(f"Rate limit detected on {endpoint_name} — no Retry-After header, using {delay}s default")
-
-        _set_global_rate_limit(delay, endpoint_name, has_real_header=has_real_header)
-        return True
-    return False
+    Spotify's Retry-After (now reaching us, see make_spotipy_client) is obeyed
+    exactly. Without one (including spotipy's "Max Retries" error, from a
+    client built some other way) the pause is an estimate from the ladder,
+    starting at 10 minutes, never a flat 4 hours.
+    Returns True if a rate limit was detected."""
+    if not is_rate_limit_error(exception):
+        return False
+    retry_after = retry_after_from_exception(exception)
+    if retry_after is not None:
+        logger.info(f"Rate limit detected on {endpoint_name} — Retry-After from Spotify: {retry_after}s")
+        _set_global_rate_limit(retry_after, endpoint_name, has_real_header=True)
+    else:
+        logger.warning(f"Rate limit detected on {endpoint_name} — no Retry-After header, pausing on an estimate")
+        _set_global_rate_limit(None, endpoint_name, has_real_header=False)
+    return True
 
 
 def _is_premium_required_error(exception) -> bool:
@@ -373,7 +605,7 @@ def _is_premium_required_error(exception) -> bool:
 
 
 def rate_limited(func):
-    """Decorator to enforce rate limiting on Spotify API calls with retry and exponential backoff"""
+    """Decorator to enforce rate limiting on Spotify API calls with retry and backoff"""
     @wraps(func)
     def wrapper(*args, **kwargs):
         global _last_api_call_time
@@ -384,14 +616,16 @@ def rate_limited(func):
         if _is_globally_rate_limited():
             return func(*args, **kwargs)
 
-        max_retries = 5
+        max_retries = 3          # short Retry-Afters we sleep through
+        no_header_retries = 1    # without a Retry-After, one careful retry, then estimate
 
         for attempt in range(max_retries + 1):
             # Re-check ban before each retry — a previous attempt may have triggered one
             if _is_globally_rate_limited():
                 raise SpotifyRateLimitError(0, func.__name__)
 
-            # Enforce minimum interval between API calls (configurable via settings)
+            # Enforce minimum interval between API calls (configurable via
+            # settings, slower and jittered while easing back in after a pause)
             _interval = _get_min_api_interval()
             with _api_call_lock:
                 current_time = time.time()
@@ -413,47 +647,35 @@ def rate_limited(func):
             except Exception as e:
                 error_str = str(e).lower()
                 status = http_error_status(e)
-                is_rate_limit = (status == 429 if status is not None
-                                 else "rate limit" in error_str or "429" in error_str)
+                is_rate_limit = is_rate_limit_error(e)
                 is_server_error = (status in (502, 503) if status is not None
                                    else "502" in error_str or "503" in error_str)
 
                 if is_rate_limit:
-                    # Try to extract Retry-After from spotipy exception headers
-                    retry_after = None
-                    if hasattr(e, 'headers') and e.headers:
-                        retry_after = e.headers.get('Retry-After') or e.headers.get('retry-after')
+                    retry_after = retry_after_from_exception(e)
 
-                    if retry_after:
-                        try:
-                            delay = int(retry_after)
-                        except (ValueError, TypeError):
-                            delay = None
+                    # A long Retry-After: pause globally for exactly that long
+                    if retry_after is not None and retry_after > _LONG_RATE_LIMIT_THRESHOLD:
+                        _set_global_rate_limit(retry_after, func.__name__, has_real_header=True)
+                        raise SpotifyRateLimitError(retry_after, func.__name__) from e
 
-                        # If Retry-After is long, activate global ban instead of sleeping
-                        if delay and delay > _LONG_RATE_LIMIT_THRESHOLD:
-                            _set_global_rate_limit(delay, func.__name__, has_real_header=True)
-                            raise SpotifyRateLimitError(delay, func.__name__) from e
-
-                        if delay:
-                            delay = delay + 1
-                        else:
-                            delay = 3.0 * (2 ** attempt)
+                    if retry_after is not None:
+                        delay = retry_after + 1
+                        can_retry = attempt < max_retries
                     else:
-                        delay = 3.0 * (2 ** attempt)  # 3, 6, 12, 24, 48
+                        delay = 5.0 + random.uniform(0, 2.0)
+                        can_retry = attempt < no_header_retries
 
-                    if attempt < max_retries:
-                        logger.warning(f"Spotify rate limit hit, retrying in {delay:.0f}s (attempt {attempt + 1}/{max_retries}): {func.__name__}")
+                    if can_retry:
+                        logger.warning(f"Spotify rate limit hit, retrying in {delay:.0f}s (attempt {attempt + 1}): {func.__name__}")
                         time.sleep(delay)
                         continue
-                    else:
-                        # All retries exhausted on 429s — activate global ban.
-                        # Don't trust the Retry-After header here — we already retried
-                        # with it multiple times and still got 429'd, so it's too short.
-                        _set_global_rate_limit(_BASE_MAX_RETRIES_BAN, func.__name__)
+                    # Still limited after waiting as asked, or no Retry-After
+                    # twice: pause on an estimate (10 min first, escalating).
+                    _set_global_rate_limit(None, func.__name__, has_real_header=False)
 
                 elif is_server_error and attempt < max_retries:
-                    delay = 2.0 * (2 ** attempt)  # 2, 4, 8, 16, 32
+                    delay = 2.0 * (2 ** attempt)  # 2, 4, 8
                     logger.warning(f"Spotify server error, retrying in {delay:.0f}s (attempt {attempt + 1}/{max_retries}): {func.__name__}")
                     time.sleep(delay)
                     continue
@@ -820,10 +1042,11 @@ class SpotifyClient:
                 cache_handler=DatabaseTokenCache(config_manager)
             )
             
-            self.sp = spotipy.Spotify(auth_manager=auth_manager, retries=0, requests_timeout=15)
-            # retries=0: prevent spotipy from sleeping for Retry-After duration on 429s
-            # (can be hours). Our rate_limited decorator + global ban handle retries instead.
-            # requests_timeout=15: prevent any single request from hanging indefinitely.
+            # No internal retries, so a 429 reaches us with Spotify's
+            # Retry-After instead of spotipy's header-less "Max Retries"
+            # (see make_spotipy_client). Our rate_limited decorator and the
+            # global pause handle retries instead.
+            self.sp = make_spotipy_client(auth_manager)
             # Don't fetch user info on startup - do it lazily to avoid blocking UI
             self.user_id = None
             logger.info("Spotify client initialized (user info will be fetched when needed)")
@@ -899,12 +1122,14 @@ class SpotifyClient:
                 logger.debug("publish_spotify_status rate-limited: %s", e)
             return False
 
-        # Post-ban cooldown: after a ban expires, don't probe Spotify immediately.
-        # Spotify's server-side cooldown can outlast the Retry-After they sent us,
-        # so probing right away would just re-trigger the ban.
-        if _is_in_post_ban_cooldown():
+        # Post-pause cooldown: background jobs don't touch Spotify yet, so a
+        # backlog can't re-trigger the limit the moment the pause ends. A
+        # person's own request (a Flask request on this thread) may go ahead:
+        # the pause Spotify asked for is over, and calls are paced slowly and
+        # jittered while easing back in (_get_min_api_interval).
+        if _is_in_post_ban_cooldown() and not _is_interactive_request():
             remaining = _get_post_ban_cooldown_remaining()
-            logger.debug(f"Post-ban cooldown active ({remaining}s left), skipping auth probe")
+            logger.debug(f"Post-ban cooldown active ({remaining}s left), background call skipped")
             try:
                 from core.metadata.status import publish_spotify_status
 
@@ -984,11 +1209,10 @@ class SpotifyClient:
         except Exception as e:
             logger.debug("cached token probe: %s", e)
 
-        # Use a dedicated probe client (retries=0) so a 429 here propagates
-        # immediately and we can detect long Retry-After bans.
+        # Use a dedicated no-retry probe client so a 429 here propagates
+        # immediately, with Spotify's Retry-After.
         try:
-            probe = spotipy.Spotify(
-                auth_manager=self.sp.auth_manager, retries=0, requests_timeout=15)
+            probe = make_spotipy_client(self.sp.auth_manager)
             probe.current_user()
             result = True
         except Exception as e:
@@ -1005,23 +1229,17 @@ class SpotifyClient:
             _status = getattr(e, "http_status", None) or getattr(e, "status", None)
             _low = error_str.lower()
             if _status == 429 or "http status: 429" in _low or "too many requests" in _low:
-                # ANY rate limit on the auth probe means Spotify is actively throttling us.
-                # Always activate a global ban — even with a short or missing Retry-After.
-                # Without this, the probe→429→probe cycle repeats every ~60s forever.
-                retry_after = None
-                if hasattr(e, 'headers') and e.headers:
-                    retry_after = e.headers.get('Retry-After') or e.headers.get('retry-after')
-                has_real_header = False
-                try:
-                    delay = int(retry_after) if retry_after else 0
-                    if retry_after:
-                        has_real_header = True
-                except (ValueError, TypeError):
-                    delay = 0
-                # Minimum 30 min for auth probe 429s — these indicate persistent throttling
-                ban_duration = max(delay, _BASE_UNKNOWN_BAN)
-                _set_global_rate_limit(ban_duration, 'is_spotify_authenticated', has_real_header=has_real_header)
-                logger.warning(f"Auth probe rate limited — activating {ban_duration}s global ban")
+                # ANY rate limit on the auth probe means Spotify is actively throttling us,
+                # so always pause globally. Without this, the probe→429→probe cycle repeats
+                # every ~60s forever. Spotify's Retry-After is obeyed exactly; without one
+                # the estimate ladder applies (_BASE_UNKNOWN_BAN first, escalating on repeats).
+                retry_after = retry_after_from_exception(e)
+                has_real_header = retry_after is not None
+                _set_global_rate_limit(
+                    retry_after if has_real_header else _BASE_UNKNOWN_BAN,
+                    'is_spotify_authenticated', has_real_header=has_real_header)
+                logger.warning("Auth probe rate limited — pausing Spotify "
+                               f"({'Retry-After ' + str(retry_after) + 's' if has_real_header else 'estimate'})")
                 rate_limited_state = True
                 result = True
             else:
@@ -1109,9 +1327,9 @@ class SpotifyClient:
         return _get_rate_limit_info()
 
     @staticmethod
-    def clear_rate_limit():
-        """Manually clear the rate limit ban."""
-        _clear_rate_limit()
+    def clear_rate_limit(keep_history: bool = False):
+        """Manually clear the rate limit pause (see _clear_rate_limit)."""
+        _clear_rate_limit(keep_history=keep_history)
 
     @staticmethod
     def get_post_ban_cooldown_remaining():

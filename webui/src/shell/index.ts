@@ -11,6 +11,13 @@
  * The assignment list IS the compatibility contract - the census test pins it.
  */
 
+import {
+  canClearSpotifyPause,
+  clearSpotifyPause,
+  spotifyPauseView,
+  TRY_AGAIN_NOTE,
+} from '@/features/spotify-pause/spotify-pause';
+
 import { initAiSettings, loadAiSettings, openAiSettings } from './ai-settings';
 import { initAppearanceSettings, syncAppearanceSettings } from './appearance';
 import {
@@ -175,6 +182,12 @@ export const SHELL_WINDOW_EXPORTS = {
   openAiSettings,
   loadRadioSettings,
   openRadioSettings,
+  // the Spotify pause (oct 23): the same words, countdown and "Try again now"
+  // for the rate-limit modal, the Settings card and the sidebar's service dot
+  ssSpotifyPauseView: spotifyPauseView,
+  ssClearSpotifyPause: clearSpotifyPause,
+  ssCanClearSpotifyPause: canClearSpotifyPause,
+  ssSpotifyTryAgainNote: TRY_AGAIN_NOTE,
 } as const;
 
 Object.assign(window, SHELL_WINDOW_EXPORTS);

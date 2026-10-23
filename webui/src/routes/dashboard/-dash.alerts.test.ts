@@ -67,7 +67,32 @@ describe('serviceAlerts', () => {
       },
     } as unknown as ServiceStatusPayload);
     expect(alerts.map((a) => a.key)).toEqual(['metadata']);
-    expect(alerts[0].detail).toBe('Spotify paused — 2m 0s');
+    expect(alerts[0].detail).toBe('Spotify paused · 2 min');
+    // the headline says why and whose number it is
+    expect(alerts[0].line).toBe('Paused Spotify for 2 min to be safe');
+    expect(alerts[0].advice).toContain('SYNCHRO.S’s estimate');
+  });
+
+  it('a Spotify pause counts down from when the payload arrived', () => {
+    const payload = {
+      ...HEALTHY,
+      spotify: {
+        authenticated: true,
+        rate_limited: true,
+        rate_limit: {
+          remaining_seconds: 720,
+          source: 'spotify',
+          trigger: "checking an artist's albums",
+        },
+      },
+    } as unknown as ServiceStatusPayload;
+    expect(serviceAlerts(payload)[0].line).toBe(
+      "Spotify asked us to wait 12 min (after checking an artist's albums)",
+    );
+    expect(serviceAlerts(payload, 125)[0].line).toBe(
+      "Spotify asked us to wait 9 min 55 s (after checking an artist's albums)",
+    );
+    expect(serviceAlerts(payload, 125)[0].advice).toContain('That time came from Spotify');
   });
 
   it('a payload with no metadata source at all alerts as disconnected', () => {

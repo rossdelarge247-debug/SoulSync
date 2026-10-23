@@ -86,4 +86,93 @@ describe('AlertsBand', () => {
     });
     expect(view.container.querySelector('[data-card="alerts"]')).toBeNull();
   });
+
+  describe('a Spotify pause', () => {
+    const PAUSED = {
+      ...HEALTHY,
+      metadata_source: { source: 'spotify', connected: false },
+      spotify: {
+        authenticated: true,
+        rate_limited: true,
+        rate_limit: {
+          active: true,
+          remaining_seconds: 125,
+          retry_after: 720,
+          source: 'spotify',
+          trigger: "checking an artist's albums",
+        },
+      },
+    };
+
+    afterEach(() => {
+      vi.useRealTimers();
+      Reflect.deleteProperty(window, 'SoulSyncWebShellBridge');
+    });
+
+    it('says whose number the time is and counts down live', async () => {
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+      const view = await mountWith(PAUSED);
+      const title = () => view.container.querySelector('[data-slot="notice-title"]')!.textContent;
+      expect(title()).toBe(
+        "Spotify asked us to wait 2 min 5 s (after checking an artist's albums)",
+      );
+      expect(view.container.textContent).toContain('That time came from Spotify');
+      // no live region: a ticking alert would be read out every second
+      expect(view.container.querySelector('[data-card="alerts"]')!.getAttribute('role')).toBe(
+        'note',
+      );
+      act(() => {
+        vi.advanceTimersByTime(6000);
+      });
+      expect(title()).toBe(
+        "Spotify asked us to wait 1 min 59 s (after checking an artist's albums)",
+      );
+      // members don't get Try again now
+      expect(screen.queryByRole('button', { name: 'Try again now' })).toBeNull();
+    });
+
+    it('lets an admin try again now, and says the pause can come back', async () => {
+      window.SoulSyncWebShellBridge = {
+        getCurrentProfileContext: () => ({ profileId: 1, isAdmin: true }),
+      } as unknown as typeof window.SoulSyncWebShellBridge;
+      const calls: string[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          calls.push(`${init?.method ?? 'GET'} ${url}`);
+          if (String(url).includes('/api/spotify/rate-limit/clear')) {
+            return new Response('{"success": true}', { status: 200 });
+          }
+          return Promise.reject(new Error('down'));
+        }),
+      );
+      const view = await mountWith(PAUSED);
+      expect(view.container.querySelector('.dash-alert-note')!.textContent).toBe(
+        'Clears SYNCHRO.S’s pause. If Spotify is still limiting, the pause comes back.',
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Try again now' }));
+      });
+      expect(
+        calls.some((c) => c.startsWith('POST') && c.includes('/api/spotify/rate-limit/clear')),
+      ).toBe(true);
+      expect(view.container.querySelector('.dash-alert-note')!.textContent).toBe(
+        'Pause cleared. Trying Spotify again.',
+      );
+    });
+
+    it('an estimate says so', async () => {
+      const view = await mountWith({
+        ...PAUSED,
+        spotify: {
+          ...PAUSED.spotify,
+          rate_limit: { ...PAUSED.spotify.rate_limit, source: 'estimate', remaining_seconds: 600 },
+        },
+      });
+      expect(view.container.textContent).toContain(
+        "Paused Spotify for 10 min to be safe (after checking an artist's albums)",
+      );
+      expect(view.container.textContent).toContain('SYNCHRO.S’s estimate');
+    });
+  });
 });

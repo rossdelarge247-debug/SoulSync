@@ -278,18 +278,37 @@ describe('spotifyPill', () => {
     ).toBe('Running (Spotify Free)');
   });
 
-  it('rate-limited without the bridge is stuck, with a minutes countdown', () => {
+  it('rate-limited without the bridge is stuck, with a countdown and whose number it is', () => {
     const view = spotifyPill({
       authenticated: true,
       rate_limited: true,
       rate_limit: { remaining_seconds: 150 },
     });
     expect(view.stateClass).toBe('paused');
-    expect(view.status).toBe('Rate Limited');
-    expect(view.current).toBe('Waiting 3m for rate limit to clear');
+    expect(view.status).toBe('Paused to be safe');
+    expect(view.current).toBe('Starts again in 2 min 30 s');
+    expect(
+      spotifyPill({
+        authenticated: true,
+        rate_limited: true,
+        rate_limit: { remaining_seconds: 720, source: 'spotify' },
+      }).status,
+    ).toBe('Paused by Spotify');
     expect(spotifyPill({ authenticated: true, rate_limited: true }).current).toBe(
-      'Waiting for rate limit to clear',
+      'Waiting for Spotify’s pause to end',
     );
+  });
+
+  it('after the pause the worker eases back in', () => {
+    const view = spotifyPill({ authenticated: true, running: true, post_ban_cooldown: 300 });
+    expect(view.stateClass).toBe('paused');
+    expect(view.status).toBe('Easing back in');
+    expect(view.current).toBe('Starts again in 5 min, slowly');
+    // bridged to Free, the cooldown doesn't apply
+    expect(
+      spotifyPill({ authenticated: true, running: true, using_free: true, post_ban_cooldown: 300 })
+        .status,
+    ).toBe('Running (Spotify Free)');
   });
 
   it('an exhausted budget shows the reset countdown in h/m', () => {

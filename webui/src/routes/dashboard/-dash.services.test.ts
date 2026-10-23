@@ -58,8 +58,8 @@ describe('getMetadataSourcePresentation', () => {
       { rate_limited: true, rate_limit: { remaining_seconds: 90 } },
     );
     expect(p.statusClass).toBe('rate-limited');
-    expect(p.statusText).toBe('Spotify paused — 1m 30s');
-    expect(p.dotTitle).toBe('Spotify paused — 1m 30s remaining');
+    expect(p.statusText).toBe('Spotify paused · 1 min 30 s');
+    expect(p.dotTitle).toBe('Paused Spotify for 1 min 30 s to be safe');
   });
 
   it('spotify_free is part of the spotify family', () => {
@@ -67,15 +67,15 @@ describe('getMetadataSourcePresentation', () => {
       { source: 'spotify_free', connected: true },
       { rate_limited: true, rate_limit: { remaining_seconds: 60 } },
     );
-    expect(p.statusText).toBe('Spotify paused — 1m 0s');
+    expect(p.statusText).toBe('Spotify paused · 1 min');
     // connected in the family also counts as an active session
     expect(p.sessionActive).toBe(true);
   });
 
   it('cooldown comes after rate-limited', () => {
     const p = getMetadataSourcePresentation({ source: 'spotify' }, { post_ban_cooldown: 120 });
-    expect(p.statusText).toBe('Spotify recovering — 2m 0s');
-    expect(p.dotTitle).toBe('Spotify recovering — 2m 0s cooldown');
+    expect(p.statusText).toBe('Spotify easing back in · 2 min');
+    expect(p.dotTitle).toBe('Spotify is back. Background jobs wait 2 min more');
   });
 
   it('a non-spotify source ignores spotify rate limits', () => {

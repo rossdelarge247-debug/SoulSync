@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime, date, timedelta
 from utils.logging_config import get_logger
 from database.music_database import MusicDatabase
-from core.spotify_client import SpotifyClient, SpotifyRateLimitError
+from core.spotify_client import SpotifyClient, SpotifyRateLimitError, spotify_feature
 from core.worker_utils import (
     ARTIST_NAME_MATCH_THRESHOLD,
     interruptible_sleep,
@@ -147,7 +147,7 @@ class SpotifyWorker:
             # Instead, use sp presence as a lightweight proxy for "configured".
             rate_limited = self.client.is_rate_limited()
             rate_limit_info = self.client.get_rate_limit_info() if rate_limited else None
-            in_cooldown = self.client.get_post_ban_cooldown_remaining() > 0
+            cooldown_left = self.client.get_post_ban_cooldown_remaining()
             authenticated = self.client.sp is not None
             # Is the worker serving via the no-creds Spotify Free source right
             # now? Two cases: bridging a rate-limit ban (only checked WHEN
@@ -170,7 +170,7 @@ class SpotifyWorker:
             authenticated = False
             rate_limited = False
             rate_limit_info = None
-            in_cooldown = False
+            cooldown_left = 0
             using_free = False
 
         return {
@@ -182,6 +182,9 @@ class SpotifyWorker:
             'rate_limited': rate_limited,
             'using_free': using_free,
             'rate_limit': rate_limit_info,
+            # Seconds left of the post-pause cooldown while the worker waits
+            # it out before touching Spotify again (None when not waiting).
+            'post_ban_cooldown': cooldown_left or None,
             'daily_budget': self._get_daily_budget_info(),
             'current_item': self.current_item,
             'stats': self.stats.copy(),
@@ -531,6 +534,7 @@ class SpotifyWorker:
 
     # ── Dispatcher ─────────────────────────────────────────────────────
 
+    @spotify_feature('background enrichment')
     def _process_item(self, item: Dict[str, Any]):
         try:
             item_type = item['type']
