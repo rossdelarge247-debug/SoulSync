@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -11,6 +13,7 @@ import {
   navGroupFor,
   navRowFor,
   pageTitle,
+  documentTitle,
   parseActivityStatus,
   phoneActivityLabel,
   runningCopy,
@@ -97,6 +100,31 @@ describe('the top bar page name', () => {
     expect(videoPageTitle('video-movie-detail', null)).toBe('Movie');
     expect(videoPageTitle('video-library', 'Library')).toBe('Library');
     expect(videoPageTitle(null, null)).toBe('Video');
+  });
+});
+
+describe('the browser tab’s title (HANDOFF 62)', () => {
+  it('is the name alone on Home and after the page’s name elsewhere', () => {
+    expect(documentTitle('music', 'dashboard', 'Home')).toBe('SYNCHRO.S');
+    expect(documentTitle('music', 'wishlist', 'Wanted')).toBe('Wanted · SYNCHRO.S');
+    expect(documentTitle('music', 'settings', 'Settings')).toBe('Settings · SYNCHRO.S');
+    expect(documentTitle('music', null, 'SYNCHRO.S')).toBe('SYNCHRO.S');
+  });
+
+  it('the tab says SYNCHRO.S alone before the shell names the page (HANDOFF 62)', () => {
+    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(html).toContain('<title>SYNCHRO.S</title>');
+    expect(html).not.toContain('Music Sync & Manager');
+  });
+
+  it('puts the video side’s subtitle first', () => {
+    expect(documentTitle('video', 'video-calendar', 'Calendar')).toBe(
+      'Movies, TV & YouTube · SYNCHRO.S',
+    );
+  });
+
+  it('never keeps the old tail', () => {
+    expect(documentTitle('music', 'library', 'Artists')).not.toMatch(/Music Sync/);
   });
 });
 
