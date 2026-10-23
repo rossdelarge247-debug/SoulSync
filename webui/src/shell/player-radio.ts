@@ -9,7 +9,8 @@
  *   and Pause for radio).
  * - The phone's mini bar: Add (or the tag) and Stop; it opens the sheet with
  *   the station's card, Add, the auto-add switch, volume and Stop, and a link
- *   to today's Heard list (4j).
+ *   to today's Heard list (4j). Switching auto-add on swaps the switch row
+ *   for the confirm with the three numbers, in the sheet (9c); off is at once.
  * - The level meter, drawn from the player's analyser while radio plays.
  * - Scan now: a button beside the bar's action and in the sheet. While it
  *   listens the bar's track line says "Listening…" with the seconds left;
@@ -134,6 +135,15 @@ export function bootRadioChrome(
     data: StationResponse | null;
     auto: AutoAddNumbers | null;
   } | null = null;
+  // the sheet's in-place auto-add confirm (9c), while it's up
+  let autoConfirm: {
+    stationId: string;
+    numbers: AutoAddNumbers | null;
+    failed: string | null;
+    busy: boolean;
+  } | null = null;
+  // what the sheet just set, until the station's own answer catches up
+  let autoSet: { stationId: string; on: boolean } | null = null;
 
   const isRadio = () => root.dataset.source === 'radio' && radio()?.state().station != null;
 
@@ -230,6 +240,8 @@ export function bootRadioChrome(
     'playerRadioAdd',
     'playerRadioStop',
     'playerRadioAuto',
+    'playerRadioAutoConfirm',
+    'playerRadioAutoCancel',
   ] as const;
   function focusKey(container: HTMLElement): string | null {
     const active = doc.activeElement as HTMLElement | null;
@@ -319,9 +331,154 @@ export function bootRadioChrome(
       const data = (await res.json()) as StationResponse;
       if (stationInfo?.id !== id || !res.ok) return;
       stationInfo.data = data;
+      if (autoSet?.stationId === id) autoSet = null;
       drawPanel();
     } catch {
       // the sheet shows what it has
+    }
+  }
+
+  /** The auto-add switch row (4j). */
+  function autoRow(stationName: string, on: boolean): HTMLElement {
+    const auto = el(doc, 'div', 'ss-player-radio-auto');
+    const sw = el(doc, 'button', 'ss-player-radio-switch');
+    sw.type = 'button';
+    sw.setAttribute('role', 'switch');
+    sw.setAttribute('aria-checked', on ? 'true' : 'false');
+    sw.dataset.playerRadioAuto = on ? 'on' : 'off';
+    sw.append(
+      el(doc, 'span', 'ss-player-radio-switch-track'),
+      el(doc, 'span', 'ss-player-radio-switch-text', on ? 'On' : 'Off'),
+    );
+    const autoText = el(doc, 'div', 'ss-player-radio-auto-text');
+    autoText.append(
+      el(doc, 'span', 'ss-player-radio-auto-title', `Auto-add what ${stationName} plays`),
+      el(doc, 'span', 'ss-player-meta', 'To Wanted, skipping what you have. Asks first.'),
+    );
+    sw.setAttribute('aria-label', `Auto-add what ${stationName} plays`);
+    auto.append(sw, autoText);
+    return auto;
+  }
+
+  /**
+   * The confirm in place of the switch row (9c, HANDOFF 51): the station
+   * page's question and three numbers (4d), stacked for the sheet, Turn on /
+   * Not now. The numbers come from GET …/auto-add; until they do, the tiles
+   * say "—" and Turn on waits.
+   */
+  function confirmCard(stationName: string, c: NonNullable<typeof autoConfirm>): HTMLElement {
+    const n = c.numbers;
+    const card = el(doc, 'div', 'ss-player-radio-confirm');
+    card.setAttribute('role', 'group');
+    const titleId = 'ss-player-radio-confirm-title';
+    card.setAttribute('aria-labelledby', titleId);
+    const title = el(
+      doc,
+      'p',
+      'ss-player-radio-confirm-title',
+      `Add everything ${stationName} plays to Wanted?`,
+    );
+    title.id = titleId;
+    const guard = el(
+      doc,
+      'p',
+      'ss-player-radio-confirm-guard',
+      `Skips what you have or already want, at your quality target. Stops at ${
+        n?.daily_limit ?? 50
+      } a day. Shows in Activity.`,
+    );
+    const text = el(doc, 'div', 'ss-player-radio-confirm-text');
+    text.append(title, guard);
+    card.append(text);
+
+    const blocked = n && !n.can_download;
+    if (blocked) {
+      card.append(
+        el(
+          doc,
+          'p',
+          'ss-player-radio-confirm-note',
+          'Auto-add needs download rights, so it can’t be turned on for your profile.',
+        ),
+      );
+    } else {
+      const tiles = el(doc, 'div', 'ss-player-radio-tiles');
+      const tile = (label: string, value: number | undefined) => {
+        const t = el(doc, 'div', 'ss-player-radio-tile');
+        t.append(
+          el(doc, 'span', 'ss-player-radio-tile-label', label),
+          el(doc, 'span', 'ss-player-radio-tile-value', value == null ? '—' : String(value)),
+        );
+        return t;
+      };
+      tiles.append(
+        tile('Identified yesterday', n?.identified_yesterday),
+        tile('You already have', n?.already_have),
+        tile('Would be added', n?.would_add),
+      );
+      card.append(tiles);
+    }
+    if (c.failed) card.append(el(doc, 'p', 'ss-player-radio-confirm-error', c.failed));
+
+    const actions = el(doc, 'div', 'ss-player-radio-confirm-actions');
+    if (!blocked) {
+      const yes = el(
+        doc,
+        'button',
+        'ss-player-radio-add ss-player-radio-add--wide',
+        `Turn on auto-add for ${stationName}`,
+      );
+      yes.type = 'button';
+      yes.dataset.playerRadioAutoConfirm = '';
+      if (!n || c.busy) yes.setAttribute('aria-disabled', 'true');
+      actions.append(yes);
+    }
+    const no = el(doc, 'button', 'ss-player-ghost ss-player-radio-confirm-cancel', 'Not now');
+    no.type = 'button';
+    no.dataset.playerRadioAutoCancel = '';
+    actions.append(no);
+    card.append(actions);
+    return card;
+  }
+
+  async function openAutoConfirm(stationId: string): Promise<void> {
+    autoConfirm = { stationId, numbers: null, failed: null, busy: false };
+    drawPanel();
+    root.querySelector<HTMLElement>('[data-player-radio-auto-cancel]')?.focus();
+    try {
+      const res = await fetcher(
+        appURL(`/api/radio/stations/${encodeURIComponent(stationId)}/auto-add`),
+        { credentials: 'same-origin' },
+      );
+      const data = (await res.json()) as AutoAddNumbers & { message?: string };
+      if (autoConfirm?.stationId !== stationId) return;
+      // radio's errors carry the sentence to show in `message` (`error` is a code)
+      if (!res.ok) autoConfirm.failed = data.message || 'SYNCHRO.S couldn’t count them.';
+      else autoConfirm.numbers = data;
+    } catch {
+      if (autoConfirm?.stationId === stationId)
+        autoConfirm.failed = 'SYNCHRO.S didn’t answer. Try again in a moment.';
+    }
+    drawPanel();
+    root.querySelector<HTMLElement>('[data-player-radio-auto-confirm]')?.focus();
+  }
+
+  async function setAutoAdd(stationId: string, enabled: boolean): Promise<string | null> {
+    try {
+      const res = await fetcher(
+        appURL(`/api/radio/stations/${encodeURIComponent(stationId)}/auto-add`),
+        {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled }),
+        },
+      );
+      if (res.ok) return null;
+      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      return data.message || 'SYNCHRO.S didn’t take it.';
+    } catch {
+      return 'SYNCHRO.S didn’t answer. Try again in a moment.';
     }
   }
 
@@ -444,24 +601,12 @@ export function bootRadioChrome(
       scan.append(el(doc, 'p', 'ss-player-radio-source', scanReason.reason));
     }
 
-    const auto = el(doc, 'div', 'ss-player-radio-auto');
-    const on = Boolean(stationInfo?.data?.station.auto_add ?? station.auto_add);
-    const sw = el(doc, 'button', 'ss-player-radio-switch');
-    sw.type = 'button';
-    sw.setAttribute('role', 'switch');
-    sw.setAttribute('aria-checked', on ? 'true' : 'false');
-    sw.dataset.playerRadioAuto = on ? 'on' : 'off';
-    sw.append(
-      el(doc, 'span', 'ss-player-radio-switch-track'),
-      el(doc, 'span', 'ss-player-radio-switch-text', on ? 'On' : 'Off'),
-    );
-    const autoText = el(doc, 'div', 'ss-player-radio-auto-text');
-    autoText.append(
-      el(doc, 'span', 'ss-player-radio-auto-title', `Auto-add what ${station.name} plays`),
-      el(doc, 'span', 'ss-player-meta', 'To Wanted, skipping what you have. Asks first.'),
-    );
-    sw.setAttribute('aria-label', `Auto-add what ${station.name} plays`);
-    auto.append(sw, autoText);
+    if (autoConfirm && autoConfirm.stationId !== station.id) autoConfirm = null;
+    const on =
+      autoSet?.stationId === station.id
+        ? autoSet.on
+        : Boolean(stationInfo?.data?.station.auto_add ?? station.auto_add);
+    const auto = autoConfirm ? confirmCard(station.name, autoConfirm) : autoRow(station.name, on);
 
     const heard = el(doc, 'a', 'ss-player-radio-heard') as HTMLAnchorElement;
     const count = stationInfo?.data?.heard_today.identified;
@@ -599,24 +744,68 @@ export function bootRadioChrome(
       go(win, href);
       return;
     }
+    const confirmBtn = target?.closest<HTMLElement>('[data-player-radio-auto-confirm]');
+    if (confirmBtn) {
+      event.preventDefault();
+      const st = radio()?.state();
+      if (!st?.station || !autoConfirm || confirmBtn.getAttribute('aria-disabled') === 'true')
+        return;
+      const id = st.station.id;
+      const name = st.station.name;
+      autoConfirm.busy = true;
+      autoConfirm.failed = null;
+      drawPanel();
+      const failed = await setAutoAdd(id, true);
+      if (autoConfirm?.stationId !== id) return;
+      if (failed) {
+        autoConfirm.busy = false;
+        autoConfirm.failed = failed;
+        drawPanel();
+        return;
+      }
+      autoConfirm = null;
+      autoSet = { stationId: id, on: true };
+      if (stationInfo) stationInfo.data = null;
+      drawPanel();
+      root.querySelector<HTMLElement>('[data-player-radio-auto]')?.focus();
+      (win as Window & { showToast?: (m: string, t: string) => void }).showToast?.(
+        `Auto-add is on for ${name}.`,
+        'success',
+      );
+      void loadStation(id);
+      return;
+    }
+    if (target?.closest('[data-player-radio-auto-cancel]')) {
+      event.preventDefault();
+      // Not now: the switch row comes back, off
+      autoConfirm = null;
+      drawPanel();
+      root.querySelector<HTMLElement>('[data-player-radio-auto]')?.focus();
+      return;
+    }
     const sw = target?.closest<HTMLElement>('[data-player-radio-auto]');
     if (sw) {
       event.preventDefault();
       const st = radio()?.state();
       if (!st?.station) return;
+      const id = st.station.id;
       if (sw.dataset.playerRadioAuto === 'on') {
-        await fetcher(appURL(`/api/radio/stations/${encodeURIComponent(st.station.id)}/auto-add`), {
-          method: 'PUT',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: false }),
-        });
+        // turning off stays immediate
+        const failed = await setAutoAdd(id, false);
+        if (failed) {
+          (win as Window & { showToast?: (m: string, t: string) => void }).showToast?.(
+            failed,
+            'error',
+          );
+          return;
+        }
+        autoSet = { stationId: id, on: false };
         if (stationInfo) stationInfo.data = null;
-        void loadStation(st.station.id);
+        drawPanel();
+        void loadStation(id);
       } else {
-        // turning it on asks first, with the numbers (4d), on the station's page
-        root.querySelector<HTMLElement>('[data-player-sheet-close]')?.click();
-        go(win, `${stationHref(st.station.id)}?confirm=auto-add` as `/${string}`);
+        // turning it on asks first, with the numbers, in the sheet (9c)
+        void openAutoConfirm(id);
       }
     }
   };
