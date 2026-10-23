@@ -12,6 +12,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Classic Winamp visualisers (MilkDrop, AVS, bars and scope) | Built (AVS: later spike) | [below](#classic-winamp-visualisers-milkdrop-avs-bars-and-scope) |
 | Move your music folders to another drive | Exploring | [below](#move-your-music-folders-to-another-drive) |
 | AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
+| DJ area: BPM, key and mixing (Traktor Pro 3) | Exploring (stage 1: Building) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
 
 ---
 
@@ -331,4 +332,54 @@ Automatic AudD (built on `feat/audd-auto`) asks AudD only when a watched station
 
 1. A higher cap: what daily cap (or monthly budget) would you be comfortable with? The field allows up to 1,000 today.
 2. Per-station opt-in: should "AudD on every track change" be a switch on each station (its page or Settings → Radio's auto-add list) rather than for every station, so only the stations you care most about spend requests?
+
+---
+
+## DJ area: BPM, key and mixing (Traktor Pro 3)
+
+**Status:** Exploring · raised by Ross, 2026-10-23 · **stage 1 is Building** on `feat/dj-stage1` (`HANDOFF.md`, "Dev, DJ stage 1"; routes in `CONTRACTS.md`, "DJ data"). Stages 2 and 3 are still being shaped.
+
+### The problem
+
+Ross DJs with **Traktor Pro 3** on a Mac. His music lives in SYNCHRO.S, but nothing there says a track's tempo or key, so building a set means analysing everything again in Traktor, and SYNCHRO.S can't answer "what mixes well with this?". The two libraries drift apart: playlists made in SYNCHRO.S don't reach Traktor, and Traktor's cue points, beat grids and ratings never come back.
+
+### What Ross wants, in three stages
+
+1. **Stage 1 (Building): BPM, key and energy for the whole library.**
+   - Work out BPM, musical key (shown in **Camelot** notation, 8A, with the musical name, A minor, as its title) and an energy level (1–10) for every track, in the background.
+   - Write BPM and key into the files' own tags so Traktor, Mixxx, Rekordbox and Serato read them.
+   - Library filters and sorting by BPM range and key.
+   - A **"Mixes well with…"** list per track: the same key, a neighbouring key on the Camelot wheel (±1) or the relative major/minor, at a similar BPM (±6%, half and double time allowed).
+2. **Stage 2 (later): Traktor Pro 3 integration,** in this order:
+   - **(a) Export** playlists, "Mixes well with" sets and recent additions as Traktor `.nml` playlist files, for Traktor's Import Playlist. The paths in the file must be the ones **the Mac sees** (for example `/Volumes/Music/…` or `/Users/ross/Music/…`), not the container's (`/app/Transfer/…`), so the export needs a container-to-Mac path mapping (the drive move's work on host paths may give it).
+   - **(b) Read `collection.nml`** (Traktor's own library file) **read-only**, to bring in cue points, beat grids, ratings, play counts and Traktor's own BPM and key.
+   - **(c) Maybe two-way sync later,** only while Traktor is closed (it rewrites `collection.nml` on quit and would overwrite a change), with a backup of the file on every write.
+3. **Stage 3 (Design exploration): a DJ area in the browser:** two decks with waveforms, sync, a crossfader, EQ and cues, plus a harmonic "next track" helper, all on Web Audio.
+
+### Licence
+
+**Mixxx is GPL, so none of its code can come into SYNCHRO.S** (MIT). Interop is through files only: tags in the audio files, and Traktor's `.nml` (an XML format Traktor documents by example; reading and writing it is our own code). Analysis is SYNCHRO.S's own (librosa, already used by Sample Studio).
+
+### What stage 1 gives (Dev built)
+
+- **The analysis is Sample Studio's,** extended rather than duplicated: one decode gives BPM, key (Krumhansl–Kessler profiles on the chroma, with a confidence) and now energy (the RMS level of the track's loudest half plus onset density, `core/sample/energy.py`). A track analysed in one is ready in the other.
+- **Values kept with their source:** a BPM or key already in the file's tags wins, then the BPM the metadata source gave at import (Beatport, Deezer, Tidal), then analysis. Energy is analysis only.
+- **Gentle on a laptop:** one track at a time at low CPU priority, resting between tracks, waiting while a download or an import runs and while the library's drive is unplugged. Activity shows it as a Library job with progress and Stop.
+- **Tags:** only filled where a file has none, unless Ross turns on replacing them. An uncertain key is never written.
+- **Library:** a **Tracks** page (its own sidebar row after Albums) with BPM, key and energy columns, a BPM range, a key filter ("and keys that mix") and sort by BPM; BPM and key on Listening history's, the Artist page's and Search's track rows; **Mixes well with…** in a track's "…" menu.
+- **Settings → Library:** "Work out BPM, key and energy" (on), "Write BPM and key into the files' tags" (off) and "Also replace a BPM or key already in a file" (off).
+
+### Questions for Design
+
+1. **DJ data in Library:** stage 1 draws BPM and key as plain meta ("124 BPM · 8A") and Tracks as a table with three number columns, with no board. Should key carry colour (DJ software colours the Camelot wheel), should energy be a number, a bar or dots, and should BPM and key show on Albums' and the Artist page's rows more prominently?
+2. **Where Tracks lives:** its own sidebar row after Albums (built), a tab beside Albums and Genres, or a "DJ" area of its own once stage 3 exists?
+3. **The "Mixes well with…" panel:** built as a 680 dialog listing matches with how each mixes ("Same key · +1.6%", "Relative major", "+1 on the wheel", "half time") and Play next / Add to playlist. Should it be a side panel that stays open while you play, show the Camelot wheel itself, or offer "Make a playlist from these" (which stage 2's export would then carry to Traktor)?
+4. **A browser DJ area (stage 3):** what could it look like at 1440 and on a phone: two decks with waveforms, sync, crossfader, EQ and cues, and a harmonic "next track" helper beside them? What's the smallest useful first version (one deck plus a cue-able "next track" preview)?
+5. **Traktor export (stage 2a):** where does it live: a "Send to Traktor" on a playlist's "…", on the Mixes well with panel, a Settings → Traktor card with the Mac's music path and the export folder, or all three?
+
+### Questions for Ross
+
+1. **Tag overwrite policy:** stage 1 only fills missing BPM and key and never replaces what another app wrote, and writing tags is **off** until you turn it on. Should writing be on by default, and do you want SYNCHRO.S's values over Traktor's when they disagree?
+2. **Energy scale:** 1–10 from loudness and how busy the track is, relative like Mixed In Key's. Is that the scale you'd use, or would you rather have Traktor's or Rekordbox's rating, or none at all?
+3. **Traktor's analysis:** when stage 2b reads `collection.nml`, should Traktor's BPM and key win over SYNCHRO.S's (they're the ones your beat grids use)?
 
