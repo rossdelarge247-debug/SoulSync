@@ -1439,9 +1439,12 @@ function syncSpotifySettingsAuthState(statusData) {
     }
 }
 
-// The Spotify card's pause line (Settings → Connections): a live countdown
-// in the header, and in the body what happened, whose number the time is and,
-// for admins, "Try again now". Words from the shell bundle's spotifyPauseView.
+// The Spotify card while paused (Settings → Connections, board 12c): a tag in
+// its header with the time ("Paused by Spotify · 11 min", "Paused to be safe
+// · 9 min", "Easing back in · 5 min"; back to "Connected" after), and in its
+// body a warning box with the sentence, an admin's "Try again now" and its
+// note (members: "An admin can try again sooner."). Words from the shell
+// bundle's spotifyPauseView; the tag counts down live.
 let _stgSpotifyPauseStatus = null;
 let _stgSpotifyPauseAt = 0;
 let _stgSpotifyPauseTimer = null;
@@ -1455,39 +1458,56 @@ function renderStgSpotifyPause() {
     const body = card ? card.querySelector('.stg-service-body') : null;
     let tag = header ? header.querySelector('.stg-spotify-pause-tag') : null;
     let box = body ? body.querySelector('.stg-spotify-pause') : null;
+    const ensureTag = () => {
+        if (header && !tag) {
+            tag = document.createElement('span');
+            tag.className = 'stg-spotify-pause-tag';
+            const chevron = header.querySelector('.stg-service-chevron');
+            if (chevron) header.insertBefore(tag, chevron); else header.appendChild(tag);
+        }
+        return tag;
+    };
 
     if (!view) {
-        if (tag) tag.remove();
         if (box) box.remove();
         if (_stgSpotifyPauseTimer) { clearInterval(_stgSpotifyPauseTimer); _stgSpotifyPauseTimer = null; }
+        // the easing has ended: the tag goes back to Connected (12c)
+        if (_stgSpotifyPauseStatus && _stgSpotifyPauseStatus.authenticated === true && ensureTag()) {
+            tag.dataset.tone = 'success';
+            tag.textContent = 'Connected';
+        } else if (tag) {
+            tag.remove();
+        }
         return;
     }
-    if (header && !tag) {
-        tag = document.createElement('span');
-        tag.className = 'stg-spotify-pause-tag';
-        const chevron = header.querySelector('.stg-service-chevron');
-        if (chevron) header.insertBefore(tag, chevron); else header.appendChild(tag);
+    if (ensureTag()) {
+        tag.dataset.tone = view.tone;
+        tag.textContent = view.tag;
     }
-    if (tag) tag.textContent = view.short;
     if (body && !box) {
         box = document.createElement('div');
         box.className = 'stg-spotify-pause';
+        box.setAttribute('role', 'note');
         box.innerHTML = '<p class="stg-spotify-pause-sentence"></p>'
-            + '<p class="stg-spotify-pause-detail"></p>'
             + '<div class="stg-spotify-pause-actions" hidden>'
             + '<button type="button" class="stg-spotify-pause-retry">Try again now</button>'
-            + '<span class="stg-spotify-pause-note" aria-live="polite"></span></div>';
+            + '<span class="stg-spotify-pause-note" aria-live="polite"></span></div>'
+            + '<p class="stg-spotify-pause-member" hidden></p>';
         box.querySelector('.stg-spotify-pause-retry').addEventListener('click', retryStgSpotifyPause);
         body.insertBefore(box, body.firstChild);
     }
     if (!box) return;
-    box.querySelector('.stg-spotify-pause-sentence').textContent = `${view.sentence}.`;
-    box.querySelector('.stg-spotify-pause-detail').textContent = view.detail;
+    box.dataset.tone = view.tone;
+    box.querySelector('.stg-spotify-pause-sentence').textContent = view.cardSentence;
     const actions = box.querySelector('.stg-spotify-pause-actions');
+    const member = box.querySelector('.stg-spotify-pause-member');
     const canRetry = typeof window.ssCanClearSpotifyPause === 'function' && window.ssCanClearSpotifyPause();
-    actions.hidden = !canRetry;
+    const paused = view.kind === 'paused';
+    actions.hidden = !(paused && canRetry);
+    member.hidden = !(paused && !canRetry);
+    member.textContent = 'An admin can try again sooner.';
     const note = box.querySelector('.stg-spotify-pause-note');
-    if (canRetry && !note.dataset.busy && !note.dataset.result) note.textContent = window.ssSpotifyTryAgainNote || '';
+    if (paused && canRetry && !note.dataset.busy && !note.dataset.result) note.textContent = view.cardNote || '';
 }
 
 async function retryStgSpotifyPause(event) {
