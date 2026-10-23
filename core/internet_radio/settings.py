@@ -8,6 +8,9 @@ Scan now's paid services (AudD, ACRCloud) keep their keys under
 ``radio.audd_api_token`` and ``radio.acrcloud_*``, all four in
 ``ConfigManager._SENSITIVE_PATHS`` (encrypted at rest, masked in every
 settings read). They're write-only here: a read says only whether each is set.
+
+``radio.audd_auto`` and ``radio.audd_auto_daily_cap`` are automatic AudD's
+switch and daily cap (0 turns it off; Scan now by hand never counts).
 """
 
 from __future__ import annotations
@@ -21,10 +24,15 @@ DEFAULTS = {
     "relay": "when_needed",
     "prefer_lossless": True,
     "keep_heard_days": 90,
+    # automatic AudD: asked only when the station doesn't name the track and
+    # the free fingerprint didn't know it (core/internet_radio/audd_auto.py)
+    "audd_auto": True,
+    "audd_auto_daily_cap": 100,
 }
 RELAY_CHOICES = ("when_needed", "always")
 KEEP_CHOICES = (7, 30, 90, 365)
 DAILY_LIMIT_MAX = 500
+AUDD_AUTO_CAP_MAX = 1000
 
 
 class SettingsError(ValueError):
@@ -119,6 +127,12 @@ def read(config) -> Dict[str, Any]:
     except (TypeError, ValueError):
         keep = DEFAULTS["keep_heard_days"]
     out["keep_heard_days"] = keep if keep in KEEP_CHOICES else DEFAULTS["keep_heard_days"]
+    out["audd_auto"] = bool(_get(config, "audd_auto"))
+    try:
+        cap = int(_get(config, "audd_auto_daily_cap"))
+    except (TypeError, ValueError):
+        cap = DEFAULTS["audd_auto_daily_cap"]
+    out["audd_auto_daily_cap"] = max(0, min(AUDD_AUTO_CAP_MAX, cap))
     return out
 
 
@@ -184,6 +198,21 @@ def save_with_changes(config, body: Any):
         if keep not in KEEP_CHOICES:
             raise SettingsError("Keep Heard on radio for 7, 30, 90 or 365 days.")
         writes["radio.keep_heard_days"] = keep
+    if "audd_auto" in body:
+        if not isinstance(body["audd_auto"], bool):
+            raise SettingsError("Listening automatically is on or off.")
+        writes["radio.audd_auto"] = body["audd_auto"]
+    if "audd_auto_daily_cap" in body:
+        raw_cap = body["audd_auto_daily_cap"]
+        if isinstance(raw_cap, bool):
+            raise SettingsError("The daily cap is a number of requests.")
+        try:
+            cap = int(raw_cap)
+        except (TypeError, ValueError):
+            raise SettingsError("The daily cap is a number of requests.") from None
+        if cap < 0 or cap > AUDD_AUTO_CAP_MAX:
+            raise SettingsError(f"The daily cap is between 0 and {AUDD_AUTO_CAP_MAX} requests. 0 turns it off.")
+        writes["radio.audd_auto_daily_cap"] = cap
     if "acoustid_api_key" in body:
         key = body["acoustid_api_key"]
         if key is not None and not isinstance(key, str):
@@ -246,4 +275,4 @@ def save_with_changes(config, body: Any):
 
 __all__ = ["DEFAULTS", "RELAY_CHOICES", "KEEP_CHOICES", "SettingsError", "read", "public", "save",
            "acoustid_key", "masked", "acrcloud_host", "save_with_changes", "audd_token", "acrcloud_credentials", "scan_services_public",
-           "SCAN_SECRET_PATHS"]
+           "SCAN_SECRET_PATHS", "AUDD_AUTO_CAP_MAX"]

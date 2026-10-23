@@ -12,7 +12,9 @@
 - ``radio_activity``: auto-add's Activity items, one per station per hour.
 - ``radio_shows``: shows seen on a station's feed, and tracklists fetched.
 - ``radio_scan_usage``: Scan now's requests to each identification service
-  (and how many found the track), per local month.
+  (and how many found the track), per local month. Automatic AudD's daily
+  count shares it: rows with ``provider`` ``audd_auto`` and a local day
+  (``2026-10-23``) in ``month``, so they never mix with a month's counts.
 - ``radio_scan_keys``: when each service's key was saved through Settings →
   Radio, and what the service last said of it (``ok``, ``bad_key`` or
   ``out_of_credit``). Never the key.
@@ -474,6 +476,41 @@ def scan_usage(db, now: Optional[float] = None) -> Dict[str, Dict[str, int]]:
         rows = conn.execute("SELECT provider, requests, found FROM radio_scan_usage WHERE month = ?",
                             (month_key(now),)).fetchall()
     return {r[0]: {"requests": int(r[1]), "found": int(r[2])} for r in rows}
+
+
+# ── automatic AudD's daily count ─────────────────────────────────────────────
+
+AUDD_AUTO_USAGE = "audd_auto"
+
+
+def day_key(now: Optional[float] = None) -> str:
+    """The local day, ``2026-10-23``: automatic AudD's cap resets at local midnight."""
+    return datetime.fromtimestamp(now if now is not None else time.time()).astimezone().strftime("%Y-%m-%d")
+
+
+def audd_auto_used(db, now: Optional[float] = None) -> int:
+    """Automatic AudD requests sent today (local day)."""
+    with db._get_connection() as conn:
+        row = conn.execute("SELECT requests FROM radio_scan_usage WHERE month = ? AND provider = ?",
+                           (day_key(now), AUDD_AUTO_USAGE)).fetchone()
+    return int(row[0]) if row else 0
+
+
+def claim_audd_auto(db, cap: int, now: Optional[float] = None) -> bool:
+    """Count one automatic AudD request against today's cap; False (and
+    nothing counted) when the cap is already reached."""
+    if cap <= 0:
+        return False
+    with _claim_lock, db._get_connection() as conn:
+        row = conn.execute("SELECT requests FROM radio_scan_usage WHERE month = ? AND provider = ?",
+                           (day_key(now), AUDD_AUTO_USAGE)).fetchone()
+        if row and int(row[0]) >= cap:
+            return False
+        conn.execute("INSERT INTO radio_scan_usage (month, provider, requests, found) VALUES (?, ?, 1, 0) "
+                     "ON CONFLICT(month, provider) DO UPDATE SET requests = requests + 1",
+                     (day_key(now), AUDD_AUTO_USAGE))
+        conn.commit()
+    return True
 
 
 # ── Scan now's keys: when each was saved, what its service last said ─────────

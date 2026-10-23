@@ -19,6 +19,10 @@
  *   opens its fields under its row with "Save and test", the card's one
  *   primary. Keys are write-only: the page is told only whether each is set
  *   and when it was saved. Members see the rows and tags, nothing else.
+ * - Under the rows, "Listen automatically when the station doesn't say":
+ *   automatic AudD's switch and daily cap (0 turns it off), with today's
+ *   count on AudD's row ("12 of 100 automatic today") and why it stopped for
+ *   the day. Members read its line only.
  *
  * Each control saves as soon as it changes (PUT /api/radio/settings). The tab
  * shows while the Internet radio module is on; the routes are admins only.
@@ -38,6 +42,9 @@ export interface RadioSettingsBody {
     relay: 'when_needed' | 'always';
     prefer_lossless: boolean;
     keep_heard_days: number;
+    /** automatic AudD: the switch and the daily cap (0 turns it off) */
+    audd_auto?: boolean;
+    audd_auto_daily_cap?: number;
     acoustid_api_key: { set: boolean; masked: string };
     scan_services?: {
       audd_api_token: { set: boolean };
@@ -57,6 +64,8 @@ export interface RadioSettingsBody {
     usage?: Record<ScanServiceId, { requests: number; found: number }>;
     services?: Partial<Record<ScanServiceId, { state: ScanServiceState; set_at?: number | null }>>;
     month?: string;
+    /** automatic AudD; a member's answer carries `on` and `daily_cap` only */
+    audd_auto?: AuddAuto;
   };
   status?: {
     fpcalc: { found: boolean; detail: string };
@@ -80,6 +89,14 @@ export interface RadioSettingsBody {
 }
 
 export type ScanServiceId = 'acoustid' | 'audd' | 'acrcloud';
+
+export interface AuddAuto {
+  on: boolean;
+  daily_cap: number;
+  used_today?: number;
+  ready?: boolean;
+  stopped?: 'bad_key' | 'out_of_credit' | 'cap_reached' | null;
+}
 
 const TAB_ID = 'stg-tab-radio';
 let body: RadioSettingsBody | null = null;
@@ -265,6 +282,69 @@ export function usageLine(
   return `${n} request${n === 1 ? '' : 's'}${when} · ${usage?.found ?? 0} found the track`;
 }
 
+// ── automatic AudD ──────────────────────────────────────────────────────
+
+/** The line under "Listen automatically when the station doesn't say". */
+export function autoLine(auto: AuddAuto | undefined): string {
+  if (!auto || !auto.on) return 'Off. AudD is asked only when someone presses Scan now.';
+  return (
+    'Only when the station doesn’t name the track and AcoustID didn’t know it. ' +
+    `Up to ${auto.daily_cap} a day; Scan now by hand doesn’t count.`
+  );
+}
+
+/** "12 of 100 automatic today" on AudD's row; '' while it's off. */
+export function autoUsageLine(auto: AuddAuto | undefined): string {
+  if (!auto || !auto.on) return '';
+  return `${auto.used_today ?? 0} of ${auto.daily_cap} automatic today`;
+}
+
+/** Why it isn't listening today, for admins; '' when nothing's in the way. */
+export function autoStateWords(auto: AuddAuto | undefined): string {
+  if (!auto || !auto.on) return '';
+  if (auto.ready === false) return 'Needs AudD’s token, above.';
+  switch (auto.stopped) {
+    case 'bad_key':
+      return 'Stopped for today: AudD refused the token.';
+    case 'out_of_credit':
+      return 'Stopped for today: AudD says the account has no requests left.';
+    case 'cap_reached':
+      return `Today’s ${auto.daily_cap} are used. It starts again at midnight.`;
+    default:
+      return '';
+  }
+}
+
+function renderAuto(): void {
+  if (!body) return;
+  const isAdmin = admin();
+  const scanAuto = body.scan?.audd_auto;
+  const s = body.settings;
+  // the admin's saved settings lead (the switch may be on with a cap of 0)
+  const switchOn = isAdmin && s ? s.audd_auto !== false : Boolean(scanAuto?.on);
+  const cap = isAdmin && s ? (s.audd_auto_daily_cap ?? 100) : (scanAuto?.daily_cap ?? 100);
+  const line = $('radio-audd-auto-line');
+  if (line) line.textContent = autoLine(scanAuto ?? { on: switchOn && cap > 0, daily_cap: cap });
+  const state = $('radio-audd-auto-state');
+  if (state) {
+    const words = isAdmin ? autoStateWords(scanAuto) : '';
+    state.textContent = words;
+    state.hidden = !words;
+    state.dataset.tone =
+      scanAuto?.stopped && scanAuto.stopped !== 'cap_reached' ? 'danger' : 'neutral';
+  }
+  const controls = $('radio-audd-auto-controls');
+  if (controls) controls.hidden = !isAdmin;
+  const sw = $('radio-audd-auto');
+  if (sw) {
+    sw.setAttribute('aria-checked', switchOn ? 'true' : 'false');
+    const text = sw.querySelector('.radio-switch-text');
+    if (text) text.textContent = switchOn ? 'On' : 'Off';
+  }
+  const field = $<HTMLInputElement>('radio-audd-auto-cap');
+  if (field && document.activeElement !== field) field.value = String(cap);
+}
+
 /** Which paid service's fields are open: the one an admin chose, else the first unset one. */
 export function fieldsFor(
   data: RadioSettingsBody,
@@ -434,6 +514,13 @@ function renderScan(): void {
       const setUp = id === 'acoustid' ? state !== 'not_set_up' : serviceSaved(id, body!);
       usage.textContent = usageLine(scan?.usage?.[id], scan?.month, setUp);
       if (!scan?.usage?.[id]?.requests) usage.dataset.quiet = 'true';
+      const today = id === 'audd' && setUp ? autoUsageLine(scan?.audd_auto) : '';
+      if (today) {
+        const auto = document.createElement('span');
+        auto.className = 'radio-scan-usage-auto';
+        auto.textContent = today;
+        usage.append(auto);
+      }
       const actions = document.createElement('div');
       actions.className = 'radio-scan-actions';
       // nothing to test until its keys are saved
@@ -479,6 +566,7 @@ function renderScan(): void {
   });
   const foot = $('radio-scan-foot');
   if (foot) foot.hidden = !isAdmin;
+  renderAuto();
 }
 
 function setScanStatus(text: string, tone: 'success' | 'danger' | 'neutral' = 'neutral'): void {
@@ -999,6 +1087,29 @@ function bind(): void {
   });
   $('radio-prefer-lossless')?.addEventListener('change', (event) => {
     void save({ prefer_lossless: (event.target as HTMLInputElement).checked }, 'Saved.');
+  });
+  $('radio-audd-auto')?.addEventListener('click', () => {
+    const on = !(body?.settings?.audd_auto ?? true);
+    void save(
+      { audd_auto: on },
+      on
+        ? 'Saved. AudD listens when a station doesn’t say what’s playing.'
+        : 'Saved. AudD is asked only when someone presses Scan now.',
+      setScanStatus,
+    );
+  });
+  const cap = $<HTMLInputElement>('radio-audd-auto-cap');
+  cap?.addEventListener('change', () => {
+    const n = Number(cap.value);
+    if (!Number.isInteger(n) || n < 0 || n > 1000) {
+      setScanStatus('The daily cap is a whole number from 0 to 1000. 0 turns it off.', 'danger');
+      return;
+    }
+    void save(
+      { audd_auto_daily_cap: n },
+      n === 0 ? 'Saved. A cap of 0 turns automatic AudD off.' : `Saved. Up to ${n} a day.`,
+      setScanStatus,
+    );
   });
   $('radio-keep')?.addEventListener('change', (event) => {
     const days = Number((event.target as HTMLSelectElement).value);

@@ -10564,21 +10564,51 @@
                                      its StatusTag, this month's counts, Test and (paid) Remove; an unset
                                      service's fields open under its row. Keys are write-only: the page is
                                      only ever told whether each is set and when it was saved. Members see
-                                     the rows and tags only. -->
+                                     the rows and tags only. Under the rows, automatic AudD's switch and
+                                     daily cap (admins; members read its line). -->
                                 <section class="settings-group radio-card radio-scan-card" data-stg="radio" aria-labelledby="radio-scan-title">
                                     <div class="radio-scan-head">
                                         <h3 id="radio-scan-title">Scan now services</h3>
-                                        <p class="radio-intro">Asked only when someone presses Scan now in the player
-                                            or on a station page, in this order, stopping at the first match. The
-                                            automatic identification and auto-add never use them. AcoustID is free;
-                                            AudD and ACRCloud are accounts with a monthly allowance.</p>
+                                        <p class="radio-intro">Asked when someone presses Scan now in the player or on
+                                            a station page, in this order, stopping at the first match. AudD can also
+                                            listen on its own when a station doesn't say what's playing (below).
+                                            AcoustID is free; AudD and ACRCloud are accounts with a monthly
+                                            allowance.</p>
                                     </div>
                                     <ul class="radio-scan-services" id="radio-scan-services" aria-label="Scan now services"></ul>
+                                    <div class="radio-scan-auto" id="radio-scan-auto">
+                                        <div class="radio-scan-auto-text">
+                                            <p class="radio-scan-auto-title" id="radio-audd-auto-title">Listen automatically
+                                                when the station doesn’t say</p>
+                                            <p class="radio-help" id="radio-audd-auto-line">Only when the station doesn't
+                                                name the track and AcoustID didn't know it. Up to 100 a day; Scan now by
+                                                hand doesn't count.</p>
+                                            <p class="radio-scan-auto-state" id="radio-audd-auto-state" aria-live="polite"
+                                                hidden></p>
+                                        </div>
+                                        <div class="radio-scan-auto-controls" id="radio-audd-auto-controls">
+                                            <label class="radio-scan-auto-cap" for="radio-audd-auto-cap">
+                                                <span class="radio-scan-field-label">Daily cap</span>
+                                                <span class="radio-suffix">
+                                                    <input id="radio-audd-auto-cap" class="radio-input" type="number"
+                                                        min="0" max="1000" step="1" inputmode="numeric"
+                                                        aria-describedby="radio-audd-auto-line">
+                                                    <span class="radio-suffix-text" aria-hidden="true">a day</span>
+                                                </span>
+                                            </label>
+                                            <button type="button" class="radio-switch" id="radio-audd-auto" role="switch"
+                                                aria-checked="true" aria-labelledby="radio-audd-auto-title"
+                                                aria-describedby="radio-audd-auto-line">
+                                                <span class="radio-switch-track" aria-hidden="true"></span><span
+                                                    class="radio-switch-text">On</span>
+                                            </button>
+                                        </div>
+                                    </div>
                                     <p class="radio-save-status radio-scan-status" id="radio-scan-status" aria-live="polite"></p>
                                     <p class="radio-scan-foot" id="radio-scan-foot">Test sends AudD or ACRCloud one second
                                         of silence and uses one request from the account's allowance; AcoustID's test is
-                                        a free key check. The month's counts are requests SYNCHRO.S sent, scans and tests
-                                        alike.</p>
+                                        a free key check. The month's counts are requests SYNCHRO.S sent: scans, tests and
+                                        automatic requests alike.</p>
                                 </section>
 
                                 <section class="settings-group radio-card" data-stg="radio" aria-labelledby="radio-auto-title">

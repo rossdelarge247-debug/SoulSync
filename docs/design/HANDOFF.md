@@ -36,6 +36,36 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 
 ## Log
 
+### 2026-10-23: Dev, AudD listens automatically when the station doesn't say
+
+Built on `feat/audd-auto` from `integration` (b3eefa91), from Ross's decisions of 23 October. AudD now identifies tracks on its own, but only when needed, and within a daily cap set in Settings → Radio. Routes changed: `GET`/`PUT /api/radio/settings` gain `settings.audd_auto` and `settings.audd_auto_daily_cap`, and `scan.audd_auto` (`CONTRACTS.md`, "Internet radio"); now playing's and Heard's `source` can be `audd`. BACKLOG gains "AudD on every track change" (Exploring). The row's pattern is in `DESIGN-SYSTEM.md` ("Scan now services").
+
+**When AudD is asked.** Only all of these together:
+
+- **The station is watched:** someone is playing it, or a profile has auto-add on for it.
+- **The station isn't naming the track:** its feed isn't naming one (or isn't healthy), and its stream title is empty, missing or generic (a show, the station's own name, an advert), as the stream-title parser already reads it.
+- **The free AcoustID fingerprint answered "no match".** An AcoustID error isn't a miss, so AudD isn't asked then.
+
+It rides on what's there: the clip the relay already captures for the automatic fingerprint (the same relay audio Scan now's tap uses), and the hub's fingerprint step (`RadioHub._run_fingerprint`), which asks AudD with the same clip when AcoustID found nothing. No second listener. AudD's call is Scan now's own (`scan_providers.audd`, through `guarded_json`).
+
+**The cap and pacing.** `radio.audd_auto` (on by default) and `radio.audd_auto_daily_cap` (100 by default, 0 to 1000, 0 turns it off). Each request is counted before it's sent, so the cap is never passed; it resets at local midnight. Scan now by hand and Test never count against it (they still count in the month's usage, as before, and automatic requests count there too). Per station: at least 3 minutes between automatic requests, and one per track window; a window ends when the stream title changes, or after 10 minutes on a station that never sends titles. A capped, paced or failed request spends its window, so nothing is retried in a loop (the fingerprint's own 150-second gap still holds too). AudD refusing the token or saying there are no requests left stops automatic AudD until local midnight and sets the card's Refused / No requests left tag (phase 2's `radio_scan_keys`); a new token, or a later answer AudD accepts, lifts it.
+
+**What people see.** An automatic answer reads "found by AudD" (a press keeps "found by AudD · Scan now"), and flows into Heard and auto-add like the automatic fingerprint's, with the same guards (owned or wanted, the quality target, the daily auto-add limit). When both miss, the reason says "neither AcoustID nor AudD recognised it". Settings → Radio's Scan now services card gains the row "Listen automatically when the station doesn't say": a plain line, the Daily cap field and the switch (admins), with "12 of 100 automatic today" under AudD's month counts and, when it has stopped, why ("Today's 100 are used. It starts again at midnight."). Members read the line only. The card's sentence no longer says the automatic identification never uses the paid services.
+
+Code: `core/internet_radio/audd_auto.py` (new: the rules, the cap, pacing, stopping for the day), `hub.py` (`audd_needed`, `station_names_track`, the step after the fingerprint, the title window), `settings.py`, `store.py` (`claim_audd_auto`, `audd_auto_used`: the day's count shares `radio_scan_usage`, as provider `audd_auto` keyed by local day), `api/radio.py`; `src/shell/radio-settings.ts` (`autoLine`, `autoUsageLine`, `autoStateWords`, `renderAuto`), `src/features/radio/radio.format.ts` (`audd`), `radio.types.ts`, `static/radio-settings.css`, `index.html`.
+
+**Decided by Dev**
+
+1. **On by default with the cap at 100**, as Ross set it; nothing is sent until an AudD token is saved, so an install without AudD sees no change.
+2. **Watched means played or auto-add on.** A station watched only for auto-add, with nobody playing it, gets automatic AudD only once something captures its audio: today only the relay does, as for the automatic fingerprint.
+3. **A request that couldn't be counted isn't sent**, and an AudD error leaves AcoustID's "no match" reason as it was.
+
+**Questions for Design:** 110–112 in the list above.
+
+**Tests:** Python: `tests/internet_radio/test_audd_auto.py` (new, 26 tests, fake clocks, AudD faked at the outbound guard: a named station or feed sends nothing, generic titles do, AcoustID finding it or erring sends nothing, only watched stations, off / cap 0 / no token, the cap and its midnight reset, Scan now's Test not counted, one request per window, 3 minutes apart, a title-less station's slow new window, per-station pacing, Refused and No requests left stop it for the day and set the tag, a new token lifts that, errors not retried, Heard and auto-add with their guards, Settings save and read, members, and the token in no log or answer), with the rest of `tests/internet_radio` and the files that read the files changed. `ruff check` is clean. Vitest: `radio-settings.audd-auto.test.ts` (new: the words, the switch, the cap, today's count on AudD's row only, why it stopped, members) and `radio.format.test.ts` ("found by AudD"), with the other radio files. `npm run check` has no errors; `tsc --noEmit` and `npm run build` are clean.
+
+**Screenshots** (in the session scratchpad; not in the repo): Settings → Radio's Scan now services card with the new row at 1440 and 390.
+
 ### 2026-10-23: Dev, phase 3 (Listening history, releases you don't have, Remove through the recycle bin)
 
 Built on `ux/oct23-3` from `integration`, from Phase 3 of Design's "Build order for Dev, 23 October": `Listening history (Library).dc.html` (13a, 13b), approved by Ross, and Design's answers 64, 67, 68, 73, 74, 76 and 80. Ross answered 76 **no**: no Any-quality profile and no route; the button is renamed. 64, 68, 74, 76 and 80 are out of the open list. The routes are in `CONTRACTS.md` ("Listening history"; "Library: Albums, Genres and Artists" for Remove, the album counts and the job; "Activity feed" for the job's rows); the patterns in `DESIGN-SYSTEM.md` ("Listening history", "Look for releases you don't have", "Remove from library, from the Artist page", and the nebula and Follow… rows).
@@ -114,6 +144,11 @@ Built on `ux/oct23-2` from `integration`, from Phase 2 of Design's "Build order 
 93. The Kind buttons' counts: 13a draws Music 1,204 beside "412 plays in the last 7 days", so the buttons count all time and the meta line counts the range. Built that way. Should the buttons follow the range instead?
 94. 13b draws only podcast rows. Music rows on a phone keep the 44px Play and drop the "…" (Open artist and Open album are the meta line's links; Add to playlist isn't reachable there). Draw the phone's music row if it needs the "…".
 95. "Look for releases you don't have…" has no board: built as an admins' tool (it spends the metadata services' limits for everyone) that asks first in the 680 dialog (three tiles: Artists to look up, At most 1 a second, Adds to Wanted Nothing), with the header's sentence carrying its progress and then what it found for a day. Draw the confirm and the header's sentence if you'd say them differently.
+
+**From AudD listening automatically (23 October)**
+110. AudD's automatic line has no board: built inside the "Scan now services" card, under the three rows, as a row of its own on a hairline (the title "Listen automatically when the station doesn't say" at 16/600, the line under it, the Daily cap field with "a day" and the switch on the right), with "12 of 100 automatic today" as a second line under AudD's month counts. Draw it if it belongs in Track identification instead, or as its own card.
+111. Why it stopped for today (Refused, No requests left, or the cap reached) is one line under the switch row's text, in the danger colour for the first two. The row's StatusTag already says Refused / No requests left. Is one line enough, or should the switch row carry its own tag?
+112. Members read the line only ("Only when the station doesn't name the track and AcoustID didn't know it. Up to 100 a day; …"), with no count, as 11c gives them no counts. Should members see today's count too?
 
 ## Log
 
