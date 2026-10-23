@@ -51,6 +51,7 @@ GATED = [
     # Library → Albums' Remove from library (files to the recycle bin)
     ('POST', '/api/library/albums/remove-preview'),
     ('POST', '/api/library/albums/remove'),
+    ('POST', '/api/library/albums/upgrade'),
 ]
 
 

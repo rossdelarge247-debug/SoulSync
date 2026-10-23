@@ -43,14 +43,14 @@ def db(tmp_path):
     # owned whole
     _sql(database, "INSERT INTO albums (id, artist_id, title, spotify_album_id) VALUES (10, 1, 'Night Ferry', 'sp-nf')")
     for i in range(3):
-        _sql(database, "INSERT INTO tracks (album_id, artist_id, title, file_path, bitrate) VALUES (10, 1, ?, ?, 900)",
-             (f"Ferry {i + 1}", f"{tmp_path}/nf{i}.flac"))
+        _sql(database, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, bitrate) VALUES (?, 10, 1, ?, ?, 900)",
+             (f"nf{i}", f"Ferry {i + 1}", f"{tmp_path}/nf{i}.flac"))
     # owned, one short
     _sql(database, "INSERT INTO albums (id, artist_id, title, api_track_count, spotify_album_id) "
                    "VALUES (11, 1, 'Tidewater', 3, 'sp-tw')")
     for i in range(2):
-        _sql(database, "INSERT INTO tracks (album_id, artist_id, title, file_path, bitrate) VALUES (11, 1, ?, ?, 900)",
-             (f"Tide {i + 1}", f"{tmp_path}/tw{i}.flac"))
+        _sql(database, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, bitrate) VALUES (?, 11, 1, ?, ?, 900)",
+             (f"tw{i}", f"Tide {i + 1}", f"{tmp_path}/tw{i}.flac"))
     for eid, title, artist, aid in (("x1", "Lantern", "Pale Harbour", "sp-ph"), ("x2", "Weather Systems", "Saltmarsh", None),
                                      ("x3", "Open Water", "Saltmarsh", None)):
         _sql(database, "INSERT INTO metadata_cache_entities (source, entity_type, entity_id, name, artist_name, artist_id, "
@@ -269,3 +269,22 @@ def test_remove_from_library_is_for_admins(client, db):
 def test_reads_need_a_profile(client):
     client.who["pid"] = None
     assert client.get("/api/library/releases").status_code == 401
+
+
+def test_upgrade_applies_pending_findings_for_those_albums(client, db, monkeypatch):
+    import api.library_index as lib_api
+    track = _rows(db, "SELECT id FROM tracks WHERE album_id = 10 ORDER BY id LIMIT 1")[0]["id"]
+    monkeypatch.setattr("core.quality.upgrades.pending_upgrades_for_tracks",
+                        lambda _db, ids: {str(track): {"finding_id": 77}} if str(track) in {str(i) for i in ids} else {})
+    applied = []
+    monkeypatch.setattr(lib_api, "bulk_fix_findings", lambda ids: applied.append(ids) or {"fixed": len(ids)})
+    body = client.post("/api/library/albums/upgrade", json={"album_ids": [10, 11]}).get_json()
+    assert applied == [[77]]
+    assert (body["queued"], body["albums_with_upgrades"], body["albums_without"]) == (1, 1, 1)
+
+
+def test_summary_sample_size(client):
+    body = client.post("/api/library/releases/summary", json={"filter": {"show": "missing"}, "sample": 50}).get_json()
+    assert len(body["sample"]) == 2
+    body = client.post("/api/library/releases/summary", json={"filter": {"show": "missing"}, "sample": 1}).get_json()
+    assert len(body["sample"]) == 1

@@ -920,10 +920,11 @@ def resolve_selection(index: ReleaseIndex, body: Dict[str, Any]) -> Tuple[List[D
     return chosen, unknown
 
 
-def selection_summary(index: ReleaseIndex, releases: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """The confirm's numbers (7d): what would be added, what's already there."""
+def selection_summary(index: ReleaseIndex, releases: List[Dict[str, Any]], *, sample: int = 4) -> Dict[str, Any]:
+    """The confirm's numbers (7d): what would be added, what's already there,
+    and the first ``sample`` of them."""
     to_add = [r for r in releases if wantable(r)]
-    summary = _summary(to_add)
+    summary = _summary(to_add, sample=sample)
     summary.update({
         "selected": len(releases),
         "already_have": sum(1 for r in releases if r["kind"] == "library" and r["state"] != "partial"),

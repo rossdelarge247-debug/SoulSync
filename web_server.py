@@ -23888,6 +23888,7 @@ _cfg_library_index(
     fix_art_url_=lambda url: fix_artist_image_url(url),
     resolve_library_path_=lambda path: _resolve_library_file_path(path),
     transfer_folder_=lambda: docker_resolve_path(config_manager.get('soulseek.transfer_path', './Transfer')),
+    bulk_fix_findings_=lambda ids: (repair_worker.bulk_fix_findings(finding_ids=ids) if repair_worker else None),
 )
 app.register_blueprint(_bp_library_index())
 

@@ -23,6 +23,10 @@ POST /api/library/releases/summary
 POST /api/library/artists/follow
     ``{artist_ids: [library artist ids]}``: follow each (the watchlist, per
     profile). Answers ``{followed, already_following, no_id}``.
+POST /api/library/albums/upgrade  (admins)
+    The genre line's "Upgrade the N below target": applies the pending
+    quality-upgrade findings for those albums' tracks (each better copy goes
+    on Wanted), as the Apply Quality Upgrades automation does.
 POST /api/library/albums/remove-preview  (admins)
 POST /api/library/albums/remove          (admins, ``{plan_id}``)
     Remove from library, through Preview then confirm: the albums' files go to
@@ -55,19 +59,23 @@ get_database = None
 fix_art_url = None
 resolve_library_path = None
 transfer_folder = None
+bulk_fix_findings = None
 
 REMOVE_TOOL = "library_album_remove"
 
 
-def configure(*, get_database_, fix_art_url_=None, resolve_library_path_=None, transfer_folder_=None) -> None:
+def configure(*, get_database_, fix_art_url_=None, resolve_library_path_=None, transfer_folder_=None,
+              bulk_fix_findings_=None) -> None:
     """``fix_art_url_(url)`` makes stored art loadable; ``resolve_library_path_
     (path)`` finds a track's file on this machine; ``transfer_folder_()`` is
-    the library folder the recycle bin sits in."""
-    global get_database, fix_art_url, resolve_library_path, transfer_folder
+    the library folder the recycle bin sits in; ``bulk_fix_findings_(ids)``
+    applies Library Maintenance findings (None while it isn't running)."""
+    global get_database, fix_art_url, resolve_library_path, transfer_folder, bulk_fix_findings
     get_database = get_database_
     fix_art_url = fix_art_url_
     resolve_library_path = resolve_library_path_
     transfer_folder = transfer_folder_
+    bulk_fix_findings = bulk_fix_findings_
 
 
 def _profile(body: Optional[Dict[str, Any]] = None) -> Optional[int]:
@@ -160,7 +168,11 @@ def post_selection_summary():
         index, releases, unknown, error = _selection(body, pid)
         if error:
             return error
-        summary = _index.selection_summary(index, releases)
+        try:
+            sample = max(1, min(_index.MAX_SELECTION, int(body.get("sample") or 4)))
+        except (TypeError, ValueError):
+            sample = 4
+        summary = _index.selection_summary(index, releases, sample=sample)
     except Exception as exc:  # noqa: BLE001
         logger.error("selection summary failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
@@ -281,6 +293,46 @@ def post_follow_artists():
     finally:
         _index.clear_cache()
     return jsonify({"success": True, **result})
+
+
+# ── Upgrade what's below the target ──────────────────────────────────────────
+
+
+@bp.route("/api/library/albums/upgrade", methods=["POST"])
+@admin_only
+def upgrade_albums():
+    """``{album_ids}`` (or a selection): the genre line's "Upgrade the N below
+    target" (7b). Applies the Quality Upgrade Finder's pending findings for
+    those albums' tracks, as the Apply Quality Upgrades automation does: each
+    better copy goes on Wanted. Albums whose tracks have no finding yet are
+    counted, not guessed at."""
+    from core.quality.upgrades import pending_upgrades_for_tracks
+    body = request.get_json(silent=True) or {}
+    pid = _profile(body) or 1
+    album_ids = _album_ids(body, pid)
+    if not album_ids:
+        return jsonify({"success": False, "error": "Choose albums you have first"}), 400
+    database = get_database()
+    conn = database._get_connection()
+    try:
+        marks = ",".join("?" * len(album_ids))
+        rows = conn.execute(f"SELECT id, album_id FROM tracks WHERE album_id IN ({marks}) AND file_path IS NOT NULL",
+                            [str(a) for a in album_ids]).fetchall()
+    finally:
+        conn.close()
+    pending = pending_upgrades_for_tracks(database, [r["id"] for r in rows])
+    finding_ids = sorted({int(p["finding_id"]) for p in pending.values() if p.get("finding_id") is not None})
+    with_findings = {str(r["album_id"]) for r in rows if str(r["id"]) in pending}
+    result = {"fixed": 0, "failed": 0}
+    if finding_ids:
+        if bulk_fix_findings is None:
+            return jsonify({"success": False, "error": "maintenance_off",
+                            "message": "Library Maintenance isn't running, so nothing could be queued."}), 503
+        result = bulk_fix_findings(finding_ids) or result
+    _index.clear_cache()
+    return jsonify({"success": True, "queued": int(result.get("fixed") or 0), "failed": int(result.get("failed") or 0),
+                    "albums": len(album_ids), "albums_with_upgrades": len(with_findings),
+                    "albums_without": len(album_ids) - len(with_findings)})
 
 
 # ── Remove from library (Preview, then confirm) ──────────────────────────────
