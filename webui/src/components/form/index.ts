@@ -3,6 +3,7 @@ export {
   FormActions,
   FormError,
   FormField,
+  LabelledSwitch,
   OptionButton,
   OptionButtonGroup,
   OptionCard,
