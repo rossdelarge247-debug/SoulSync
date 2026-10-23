@@ -335,7 +335,9 @@ function applyMaxPerformance(enabled) {
     } else if (window._maxPerfActive) {
         document.body.classList.add('max-performance');
     }
-    const saved = localStorage.getItem('soulsync-accent');
+    // the page shell's accent is this profile's (its own pick, else the
+    // install's); what this browser kept last may be another profile's
+    const saved = window._initialAccent || localStorage.getItem('soulsync-accent');
     if (saved) applyAccentColor(saved);
     // Bootstrap particles setting from localStorage — OFF by default (continuous
     // full-page canvas = real GPU cost); only on when the user explicitly enabled it.
@@ -369,10 +371,8 @@ async function bootstrapServerAppearanceSettings() {
         if (!response.ok || !settings || typeof settings !== 'object' || settings.error) return;
 
         const appearance = settings.ui_appearance || {};
-        const preset = appearance.accent_preset || '#8b5cf6';
-        const custom = appearance.accent_color || '#8b5cf6';
-        const accent = preset === 'custom' ? custom : preset;
-        applyAccentColor(accent);
+        // no accent here: ui_appearance holds the install's default, and this
+        // admin may have picked their own (the page shell already painted it)
 
         if (Object.prototype.hasOwnProperty.call(appearance, 'particles_enabled')) {
             applyParticlesSetting(appearance.particles_enabled !== false);

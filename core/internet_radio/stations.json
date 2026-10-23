@@ -3,6 +3,7 @@
     "The built-in stations on the Radio page, in the order they show. Free stations only.",
     "Edit freely: each station needs id (lowercase, hyphens), name, kind (electronic, world, eclectic, jazz_soul_funk), streams (best first) and source.",
     "logo_text: up to four letters for the logo tile when there is no logo (optional).",
+    "logo_url: an https address of the station's square logo (PNG, JPEG, GIF, WebP or ICO; never SVG), fetched and cached by the server and served from this server's own address; the letters show while it loads or when there's none. logo_source says where each came from. FIP's are left out: the only logo found for them is Radio France's, not FIP's.",
     "streams[].direct: the browser may play this stream itself (https, and the server allows other sites). Everything else is relayed by the server.",
     "now_playing.type: somafm, radioparadise, kexp, nts or radiofrance (core/internet_radio/feeds.py). tracklists.type: kexp or nts.",
     "source says where each address came from. None of these could be fetched from the sandbox this list was written in; they are the stations' published addresses as of 2026 and want a check on a real install (Setup check and Settings > Radio > Check do that)."
@@ -17,6 +18,8 @@
     {
       "id": "somafm-dronezone", "name": "SomaFM · Drone Zone", "kind": "electronic", "genre": "Ambient",
       "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/dronezone/",
+      "logo_url": "https://api.somafm.com/logos/256/dronezone256.png",
+      "logo_source": "SomaFM's channel list (somafm.com/channels.json, largeimage): https://api.somafm.com/logos/256/<channel>256.png. Not fetched from the sandbox: unverified.",
       "description": "Served best chilled, safe with most medications. Atmospheric textures with minimal beats. Listener-supported, no ads.",
       "streams": [
         {"id": "mp3-256", "url": "https://ice1.somafm.com/dronezone-256-mp3", "codec": "MP3", "bitrate_kbps": 256, "direct": true},
@@ -28,6 +31,8 @@
     {
       "id": "somafm-groovesalad", "name": "SomaFM · Groove Salad", "kind": "electronic", "genre": "Downtempo",
       "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/groovesalad/",
+      "logo_url": "https://api.somafm.com/logos/256/groovesalad256.png",
+      "logo_source": "SomaFM's channel list (somafm.com/channels.json, largeimage): https://api.somafm.com/logos/256/<channel>256.png. Not fetched from the sandbox: unverified.",
       "description": "A nicely chilled plate of ambient and downtempo beats and grooves.",
       "streams": [
         {"id": "mp3-256", "url": "https://ice1.somafm.com/groovesalad-256-mp3", "codec": "MP3", "bitrate_kbps": 256, "direct": true},
@@ -50,6 +55,8 @@
     {
       "id": "dublab", "logo_text": "dl", "name": "dublab", "kind": "electronic", "genre": "Leftfield",
       "city": "Los Angeles", "country": "United States", "homepage": "https://www.dublab.com/",
+      "logo_url": "https://www.dublab.com/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "Listener-supported radio from Los Angeles since 1999: leftfield, experimental, electronic and beyond, all DJ-presented.",
       "streams": [
         {"id": "mp3-128", "url": "https://dublab.out.airtime.pro/dublab_a", "codec": "MP3", "bitrate_kbps": 128}
@@ -60,6 +67,8 @@
     {
       "id": "rp-mellow", "name": "Radio Paradise · Mellow Mix", "kind": "electronic", "genre": "Downtempo",
       "city": "California", "country": "United States", "homepage": "https://radioparadise.com/",
+      "logo_url": "https://radioparadise.com/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "Radio Paradise's quieter mix: the gentler side of the main mix, with downtempo and ambient. Listener-supported, no ads.",
       "streams": [
         {"id": "flac", "url": "https://stream.radioparadise.com/mellow-flac", "codec": "FLAC", "bitrate_kbps": 1000, "lossless": true},
@@ -72,6 +81,8 @@
     {
       "id": "somafm-deepspaceone", "name": "SomaFM · Deep Space One", "kind": "electronic", "genre": "Ambient",
       "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/deepspaceone/",
+      "logo_url": "https://api.somafm.com/logos/256/deepspaceone256.png",
+      "logo_source": "SomaFM's channel list (somafm.com/channels.json, largeimage): https://api.somafm.com/logos/256/<channel>256.png. Not fetched from the sandbox: unverified.",
       "description": "Deep ambient electronic, experimental and space music. For inner and outer space exploration.",
       "streams": [
         {"id": "aac-128", "url": "https://ice1.somafm.com/deepspaceone-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
@@ -83,6 +94,8 @@
     {
       "id": "somafm-beatblender", "name": "SomaFM · Beat Blender", "kind": "electronic", "genre": "House",
       "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/beatblender/",
+      "logo_url": "https://api.somafm.com/logos/256/beatblender256.png",
+      "logo_source": "SomaFM's channel list (somafm.com/channels.json, largeimage): https://api.somafm.com/logos/256/<channel>256.png. Not fetched from the sandbox: unverified.",
       "description": "A late-night blend of deep house and downtempo chill.",
       "streams": [
         {"id": "aac-128", "url": "https://ice1.somafm.com/beatblender-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
@@ -94,6 +107,8 @@
     {
       "id": "somafm-fluid", "name": "SomaFM · Fluid", "kind": "electronic", "genre": "Leftfield",
       "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/fluid/",
+      "logo_url": "https://api.somafm.com/logos/256/fluid256.png",
+      "logo_source": "SomaFM's channel list (somafm.com/channels.json, largeimage): https://api.somafm.com/logos/256/<channel>256.png. Not fetched from the sandbox: unverified.",
       "description": "Drown in the electronic sound of instrumental hip-hop, future soul and liquid trap.",
       "streams": [
         {"id": "aac-128", "url": "https://ice1.somafm.com/fluid-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
@@ -116,6 +131,8 @@
     {
       "id": "worldwide-fm", "logo_text": "WW", "name": "Worldwide FM", "kind": "world", "genre": "Global sounds",
       "city": "London", "country": "United Kingdom", "homepage": "https://worldwidefm.net/",
+      "logo_url": "https://worldwidefm.net/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "Gilles Peterson's station: global sounds, jazz, soul and dance music from London and around the world.",
       "streams": [
         {"id": "mp3-128", "url": "https://worldwidefm.out.airtime.pro/worldwidefm_a", "codec": "MP3", "bitrate_kbps": 128}
@@ -126,6 +143,8 @@
     {
       "id": "rp-global", "name": "Radio Paradise · Global Mix", "kind": "world", "genre": "World",
       "city": "California", "country": "United States", "homepage": "https://radioparadise.com/",
+      "logo_url": "https://radioparadise.com/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "Radio Paradise's global mix: music from everywhere, with the same human curation as the main mix.",
       "streams": [
         {"id": "flac", "url": "https://stream.radioparadise.com/global-flac", "codec": "FLAC", "bitrate_kbps": 1000, "lossless": true},
@@ -138,6 +157,8 @@
     {
       "id": "somafm-suburbsofgoa", "name": "SomaFM · Suburbs of Goa", "kind": "world", "genre": "Desi-influenced",
       "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/suburbsofgoa/",
+      "logo_url": "https://api.somafm.com/logos/256/suburbsofgoa256.png",
+      "logo_source": "SomaFM's channel list (somafm.com/channels.json, largeimage): https://api.somafm.com/logos/256/<channel>256.png. Not fetched from the sandbox: unverified.",
       "description": "Desi-influenced Asian world beats and beyond.",
       "streams": [
         {"id": "aac-128", "url": "https://ice1.somafm.com/suburbsofgoa-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
@@ -149,6 +170,8 @@
     {
       "id": "somafm-thistle", "name": "SomaFM · ThistleRadio", "kind": "world", "genre": "Celtic",
       "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/thistle/",
+      "logo_url": "https://api.somafm.com/logos/256/thistle256.png",
+      "logo_source": "SomaFM's channel list (somafm.com/channels.json, largeimage): https://api.somafm.com/logos/256/<channel>256.png. Not fetched from the sandbox: unverified.",
       "description": "Exploring music from Celtic roots and branches.",
       "streams": [
         {"id": "aac-128", "url": "https://ice1.somafm.com/thistle-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
@@ -160,6 +183,8 @@
     {
       "id": "kexp", "logo_text": "KX", "name": "KEXP", "kind": "eclectic", "genre": "Eclectic",
       "city": "Seattle", "country": "United States", "homepage": "https://www.kexp.org/",
+      "logo_url": "https://www.kexp.org/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "Listener-powered radio from Seattle, with DJs who choose every song. Publishes every play, and each show's playlist.",
       "streams": [
         {"id": "aac-160", "url": "https://kexp.streamguys1.com/kexp160.aac", "codec": "AAC", "bitrate_kbps": 160},
@@ -172,6 +197,8 @@
     {
       "id": "nts-1", "name": "NTS 1", "kind": "eclectic", "genre": "Eclectic",
       "city": "London", "country": "United Kingdom", "homepage": "https://www.nts.live/",
+      "logo_url": "https://www.nts.live/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "Live radio from London, Los Angeles and beyond: hundreds of residents across every genre. Tracklists are published after shows.",
       "streams": [
         {"id": "mp3-256", "url": "https://stream-relay-geo.ntslive.net/stream", "codec": "MP3", "bitrate_kbps": 256}
@@ -183,6 +210,8 @@
     {
       "id": "nts-2", "name": "NTS 2", "kind": "eclectic", "genre": "Eclectic",
       "city": "London", "country": "United Kingdom", "homepage": "https://www.nts.live/",
+      "logo_url": "https://www.nts.live/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "NTS's second channel, with its own residents and schedule. Tracklists are published after shows.",
       "streams": [
         {"id": "mp3-256", "url": "https://stream-relay-geo.ntslive.net/stream2", "codec": "MP3", "bitrate_kbps": 256}
@@ -205,6 +234,8 @@
     {
       "id": "rp-main", "name": "Radio Paradise · Main Mix", "kind": "eclectic", "genre": "Eclectic",
       "city": "California", "country": "United States", "homepage": "https://radioparadise.com/",
+      "logo_url": "https://radioparadise.com/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "Eclectic, listener-supported radio since 2000, mixed by hand. Offers a lossless FLAC stream.",
       "streams": [
         {"id": "flac", "url": "https://stream.radioparadise.com/flac", "codec": "FLAC", "bitrate_kbps": 1000, "lossless": true},
@@ -217,6 +248,8 @@
     {
       "id": "rp-rock", "name": "Radio Paradise · Rock Mix", "kind": "eclectic", "genre": "Rock",
       "city": "California", "country": "United States", "homepage": "https://radioparadise.com/",
+      "logo_url": "https://radioparadise.com/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "Radio Paradise's rock mix: classic and new, with the main mix's ear for surprises.",
       "streams": [
         {"id": "flac", "url": "https://stream.radioparadise.com/rock-flac", "codec": "FLAC", "bitrate_kbps": 1000, "lossless": true},
@@ -251,6 +284,8 @@
     {
       "id": "somafm-sonicuniverse", "name": "SomaFM · Sonic Universe", "kind": "jazz_soul_funk", "genre": "Jazz",
       "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/sonicuniverse/",
+      "logo_url": "https://api.somafm.com/logos/256/sonicuniverse256.png",
+      "logo_source": "SomaFM's channel list (somafm.com/channels.json, largeimage): https://api.somafm.com/logos/256/<channel>256.png. Not fetched from the sandbox: unverified.",
       "description": "Transcending the world of jazz with eclectic, avant-garde takes on tradition.",
       "streams": [
         {"id": "aac-128", "url": "https://ice1.somafm.com/sonicuniverse-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
@@ -262,6 +297,8 @@
     {
       "id": "somafm-7soul", "name": "SomaFM · Seven Inch Soul", "kind": "jazz_soul_funk", "genre": "Soul",
       "city": "San Francisco", "country": "United States", "homepage": "https://somafm.com/7soul/",
+      "logo_url": "https://api.somafm.com/logos/256/7soul256.png",
+      "logo_source": "SomaFM's channel list (somafm.com/channels.json, largeimage): https://api.somafm.com/logos/256/<channel>256.png. Not fetched from the sandbox: unverified.",
       "description": "Vintage soul tracks from the original 45 RPM vinyl.",
       "streams": [
         {"id": "aac-128", "url": "https://ice1.somafm.com/7soul-128-aac", "codec": "AAC", "bitrate_kbps": 128, "direct": true},
@@ -273,6 +310,8 @@
     {
       "id": "jazz24", "logo_text": "J24", "name": "Jazz24", "kind": "jazz_soul_funk", "genre": "Jazz",
       "city": "Seattle", "country": "United States", "homepage": "https://www.jazz24.org/",
+      "logo_url": "https://www.jazz24.org/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "Jazz around the clock from KNKX in Seattle: the great recordings and today's players. Public radio, listener-supported.",
       "streams": [
         {"id": "aac-256", "url": "https://live.wostreaming.net/direct/ppm-jazz24aac256-ibc1", "codec": "AAC", "bitrate_kbps": 256}
@@ -283,6 +322,8 @@
     {
       "id": "wwoz", "name": "WWOZ", "kind": "jazz_soul_funk", "genre": "Jazz, funk",
       "city": "New Orleans", "country": "United States", "homepage": "https://www.wwoz.org/",
+      "logo_url": "https://www.wwoz.org/apple-touch-icon.png",
+      "logo_source": "The station's own site icon (apple-touch-icon.png at the site root), the usual place for a square logo. Not fetched from the sandbox: unverified; the letters show if it isn't there.",
       "description": "The New Orleans jazz and heritage station: jazz, blues, R&B, funk, gospel, Cajun and zydeco, presented by volunteer DJs.",
       "streams": [
         {"id": "mp3-128", "url": "https://wwoz-sc.streamguys1.com/wwoz-hi.mp3", "codec": "MP3", "bitrate_kbps": 128}

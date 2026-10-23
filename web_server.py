@@ -97,7 +97,13 @@ if not pp_logger.handlers:
 from core.api_validation import parse_strict_bool, parse_strict_id, parse_strict_int
 from core.spotify_client import SpotifyClient, Playlist as SpotifyPlaylist, Track as SpotifyTrack, _is_globally_rate_limited as _spotify_rate_limited, SPOTIFY_OAUTH_SCOPE
 from core.plex_client import PlexClient
-from core.ui_appearance import DEFAULT_ACCENT, is_firefox_user_agent, resolve_worker_orbs_default
+from core.ui_appearance import (
+    DEFAULT_ACCENT,
+    effective_accent,
+    install_accent,
+    is_firefox_user_agent,
+    resolve_worker_orbs_default,
+)
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 from core.jellyfin_client import JellyfinClient
 from core.navidrome_client import NavidromeClient
@@ -411,10 +417,29 @@ def _request_is_firefox() -> bool:
         return False
 
 
+def _viewer_profile_accent():
+    """The accent the profile viewing this page picked for itself, or None.
+
+    Only a profile this request is really signed in as (the session's, after
+    the login and launch-PIN gates get_current_profile_id applies); the
+    picker and the sign-in screen have none and get the install's accent."""
+    try:
+        from flask import has_request_context, session
+        if not has_request_context() or not session.get('profile_id'):
+            return None
+        pid = get_current_profile_id()
+        if not pid or int(pid) != int(session.get('profile_id')):
+            return None
+        return get_database().get_profile_accent(int(pid))
+    except Exception as e:  # noqa: BLE001 - the install's accent is always a fine answer
+        logger.debug("profile accent read failed: %s", e)
+        return None
+
+
 def _initial_appearance_context():
-    preset = config_manager.get('ui_appearance.accent_preset', DEFAULT_ACCENT)
-    custom = config_manager.get('ui_appearance.accent_color', DEFAULT_ACCENT)
-    accent = _valid_hex_color(custom if preset == 'custom' else preset)
+    # the viewing profile's own accent, else the install's (Settings → Appearance;
+    # HANDOFF 35), so the first paint is already the right colour
+    accent = _valid_hex_color(effective_accent(_viewer_profile_accent(), install_accent(config_manager.get)))
     particles_enabled = config_manager.get('ui_appearance.particles_enabled', False) is True
     # Worker orbs: explicit choice wins; unset → OFF on Firefox (the blurred orb canvas
     # is the main remaining Firefox lag source), ON elsewhere. config default None so we

@@ -74,6 +74,14 @@ def _codec(raw: str) -> str:
     return value
 
 
+def _favicon(value: Any) -> str:
+    """The directory's favicon address for a station (fetched and cached by
+    the server through core/internet_radio/logos.py, never by the browser)."""
+    from core.internet_radio.logos import check_source
+    raw = str(value or "").strip()
+    return raw if check_source(raw)[0] else ""
+
+
 def station_from_entry(entry: Dict[str, Any]) -> Optional[Station]:
     uuid = str(entry.get("stationuuid") or "").lower()
     if not _UUID_RE.match(uuid):
@@ -90,7 +98,7 @@ def station_from_entry(entry: Dict[str, Any]) -> Optional[Station]:
         id=f"rb-{uuid}", name=str(entry.get("name") or "Untitled station").strip()[:120] or "Untitled station",
         kind=_kind_for(tags), source="directory", streams=[stream], genre=", ".join(tags[:3]),
         country=str(entry.get("country") or "").strip(), homepage=str(entry.get("homepage") or "").strip(),
-        logo_url="", tags=tags,
+        logo_url=_favicon(entry.get("favicon")), tags=tags,
         note=f"Radio Browser, {int(entry.get('clickcount') or 0)} listens in the directory")
 
 

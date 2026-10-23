@@ -1,14 +1,20 @@
 /**
- * Settings → Appearance, the accent colour (the "Settings Appearance" board,
- * 5f): a radio card per preset with the accent and its light shade side by
- * side, "Custom…" with a contrast check, and a preview strip of what the
- * accent touches.
+ * The accent colour picker (the "Settings Appearance" board, 5f): a radio
+ * card per preset with the accent and its light shade side by side,
+ * "Custom…" with a contrast check, and a preview strip of what the accent
+ * touches.
  *
- * The page's own form keeps what's saved: the hidden #accent-preset (a
- * preset's hex, or "custom") and #accent-custom-color (the custom hex).
- * settings.js loads and saves those two as before; this module draws the
- * cards from them and writes back to them. A change fires "change" on the
- * select, which is what the settings page's autosave listens for.
+ * Each profile picks its own (HANDOFF 35): a choice here is this profile's,
+ * saved with `PUT /api/profiles/me/appearance`
+ * (src/features/settings/profile-accent.ts). Profiles that haven't picked
+ * use the install's accent, which admins set from the same card ("Make …
+ * the default"); that one is still kept in Settings → Appearance's form,
+ * the hidden #accent-preset (a preset's hex, or "custom") and
+ * #accent-custom-color, which settings.js loads and autosaves as before.
+ *
+ * The picker is drawn into Settings → Appearance (#accent-picker, admins)
+ * and into a member's My Account (src/shell/my-accounts.ts), since members
+ * don't have Settings. Both read one store, so they agree.
  *
  * A custom hex is only used, and only saved, when dark text on its light
  * shade reaches 4.5:1. One that doesn't says so and offers the nearest
@@ -19,7 +25,6 @@ import {
   ACCENT_PRESETS,
   CUSTOM_ACCENT,
   DEFAULT_ACCENT,
-  DEFAULT_ACCENT_NAME,
   MIN_CONTRAST,
   accentLight,
   accentLine,
@@ -31,71 +36,33 @@ import {
   normaliseHex,
   storedAccent,
 } from '@/features/settings/accent';
+import {
+  accentStore,
+  appliedAccent,
+  loadProfileAccent,
+  onAccentStore,
+  saveProfileAccent,
+  setInstallAccent,
+} from '@/features/settings/profile-accent';
 
 export const ACCENT_APPLIED_EVENT = 'ss:accent-applied';
 
-const IDS = {
-  select: 'accent-preset',
-  store: 'accent-custom-color',
-  cards: 'accent-preset-cards',
-  custom: 'custom-color-group',
-  hex: 'accent-custom-hex',
-  picker: 'accent-custom-picker',
-  check: 'accent-custom-check',
-  label: 'accent-preview-label',
-  line: 'accent-preview-line',
-  wave: 'accent-preview-wave',
-} as const;
-
 const HEX_HINT = 'Type # and six digits or letters a–f, like #8b5cf6.';
+/** A custom colour that passes is saved once typing pauses this long. */
+const CUSTOM_SAVE_MS = 450;
 
-interface Els {
-  select: HTMLSelectElement;
-  store: HTMLInputElement;
-  cards: HTMLElement;
-  custom: HTMLElement;
-  hex: HTMLInputElement;
-  picker: HTMLInputElement | null;
-  check: HTMLElement;
-  label: HTMLElement | null;
-  line: HTMLElement | null;
-  wave: HTMLElement | null;
+/** Settings → Appearance's form: the install's accent (admins). */
+const FORM = { select: 'accent-preset', store: 'accent-custom-color' } as const;
+
+function formEls(): { select: HTMLSelectElement; store: HTMLInputElement } | null {
+  const select = document.getElementById(FORM.select) as HTMLSelectElement | null;
+  const store = document.getElementById(FORM.store) as HTMLInputElement | null;
+  return select && store ? { select, store } : null;
 }
 
-function els(): Els | null {
-  const get = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
-  const select = get<HTMLSelectElement>(IDS.select);
-  const store = get<HTMLInputElement>(IDS.store);
-  const cards = get<HTMLElement>(IDS.cards);
-  const custom = get<HTMLElement>(IDS.custom);
-  const hex = get<HTMLInputElement>(IDS.hex);
-  const check = get<HTMLElement>(IDS.check);
-  if (!select || !store || !cards || !custom || !hex || !check) return null;
-  return {
-    select,
-    store,
-    cards,
-    custom,
-    hex,
-    check,
-    picker: get<HTMLInputElement>(IDS.picker),
-    label: get<HTMLElement>(IDS.label),
-    line: get<HTMLElement>(IDS.line),
-    wave: get<HTMLElement>(IDS.wave),
-  };
-}
-
-/** The user picked "Custom…" (even before the hex they type passes). */
-let customChosen = false;
-
-function appliedHex(e: Els): string {
-  return storedAccent(e.select.value, e.store.value);
-}
-
-/** "Lilac", or the custom hex. */
-function appliedName(e: Els): string {
-  if (e.select.value === CUSTOM_ACCENT) return normaliseHex(e.store.value) ?? DEFAULT_ACCENT;
-  return findPreset(e.select.value)?.name ?? DEFAULT_ACCENT_NAME;
+/** The accent's name: "Lilac", or the hex. */
+export function accentName(hex: string): string {
+  return findPreset(hex)?.name ?? normaliseHex(hex) ?? DEFAULT_ACCENT;
 }
 
 /** Put an accent on the page: init.js's applier when it's there. */
@@ -109,13 +76,6 @@ function applyAccent(hex: string): void {
   root.setProperty('--accent-light-rgb', hexToRgb(accentLight(hex)).join(', '));
   window.dispatchEvent(new CustomEvent(ACCENT_APPLIED_EVENT, { detail: { hex } }));
 }
-
-/** Tell the settings page something changed, so its autosave runs. */
-function notifyChanged(e: Els): void {
-  e.select.dispatchEvent(new Event('change', { bubbles: true }));
-}
-
-// ── the cards ────────────────────────────────────────────────────────────────
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -161,208 +121,9 @@ function card(value: string, name: string): HTMLButtonElement {
   return button;
 }
 
-function cardButtons(e: Els): HTMLButtonElement[] {
-  return Array.from(e.cards.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
+function toast(message: string, tone: 'error' | 'success' = 'error'): void {
+  window.showToast?.(message, tone);
 }
-
-function buildCards(e: Els): void {
-  if (e.cards.dataset.built === 'true') return;
-  e.cards.dataset.built = 'true';
-  e.cards.replaceChildren(
-    ...ACCENT_PRESETS.map((preset) => card(preset.hex, preset.name)),
-    card(CUSTOM_ACCENT, 'Custom…'),
-  );
-  e.cards.addEventListener('click', (event) => {
-    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="radio"]');
-    if (!button || !e.cards.contains(button)) return;
-    choose(e, button.dataset.value ?? '');
-    button.focus();
-  });
-  // A radio group: the arrows move the choice and the focus together.
-  e.cards.addEventListener('keydown', (event) => {
-    const buttons = cardButtons(e);
-    const at = buttons.indexOf(event.target as HTMLButtonElement);
-    if (at === -1) return;
-    let next = -1;
-    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (at + 1) % buttons.length;
-    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
-      next = (at - 1 + buttons.length) % buttons.length;
-    else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = buttons.length - 1;
-    if (next === -1) return;
-    event.preventDefault();
-    choose(e, buttons[next].dataset.value ?? '');
-    buttons[next].focus();
-  });
-}
-
-function checkedValue(e: Els): string {
-  if (customChosen || e.select.value === CUSTOM_ACCENT) return CUSTOM_ACCENT;
-  return findPreset(e.select.value)?.hex ?? DEFAULT_ACCENT;
-}
-
-function syncCards(e: Els): void {
-  const checked = checkedValue(e);
-  for (const button of cardButtons(e)) {
-    const value = button.dataset.value ?? '';
-    const on = value === checked;
-    button.setAttribute('aria-checked', String(on));
-    button.tabIndex = on ? 0 : -1;
-    const note = button.querySelector<HTMLElement>('.accent-card-note');
-    if (value === CUSTOM_ACCENT) {
-      const inUse = e.select.value === CUSTOM_ACCENT ? normaliseHex(e.store.value) : null;
-      const current = button.querySelector<HTMLElement>('.accent-swatch');
-      if (current && current.dataset.hex !== (inUse ?? '')) current.replaceWith(swatch(inUse));
-      if (note) note.textContent = inUse ?? 'Any hex; checked for contrast';
-      continue;
-    }
-    if (!note) continue;
-    const bits: string[] = [];
-    if (on) bits.push('Selected');
-    if (value === DEFAULT_ACCENT) bits.push(on ? 'the default' : 'The default');
-    note.textContent = bits.join(' · ');
-  }
-}
-
-// ── the custom colour ───────────────────────────────────────────────────────
-
-type CheckState = 'pass' | 'fail' | 'invalid' | 'typing' | 'none';
-
-function line(text: string): HTMLParagraphElement {
-  return el('p', 'accent-check-line', text);
-}
-
-function renderCheck(e: Els, state: CheckState, raw = ''): void {
-  // Same answer as on show: leave it. Leaving the field (blur) re-checks it,
-  // and redrawing then would take "Use … instead" away from under the click.
-  // (the hint while typing is one sentence: not re-announced per keystroke)
-  const said = state === 'typing' || state === 'none' ? '' : raw.trim().toLowerCase();
-  const key = `${state}|${said}|${e.select.value}|${e.store.value}`;
-  if (e.check.dataset.key === key) return;
-  e.check.dataset.key = key;
-  e.check.dataset.state = state;
-  e.hex.setAttribute('aria-invalid', String(state === 'fail' || state === 'invalid'));
-  if (state === 'none') {
-    e.check.replaceChildren();
-    return;
-  }
-  if (state === 'typing') {
-    e.check.replaceChildren(line(HEX_HINT));
-    return;
-  }
-  if (state === 'invalid') {
-    e.check.replaceChildren(line(`“${raw.trim()}” isn't a hex colour. ${HEX_HINT}`));
-    return;
-  }
-  const hex = normaliseHex(raw) ?? DEFAULT_ACCENT;
-  const report = accentReport(hex);
-  if (state === 'pass') {
-    e.check.replaceChildren(
-      line(
-        `Dark text on its light shade, ${report.light}, is ${formatRatio(report.contrast)}, so buttons stay readable.`,
-      ),
-    );
-    return;
-  }
-  const nearest = nearestPreset(hex);
-  const stays =
-    e.select.value === CUSTOM_ACCENT && normaliseHex(e.store.value) === hex
-      ? 'It’s in use now; pick a preset or another hex to change it.'
-      : `Your accent stays ${appliedName(e)}.`;
-  const offer = el('button', 'appearance-btn', `Use ${nearest.name} instead`);
-  offer.type = 'button';
-  offer.addEventListener('click', () => {
-    choose(e, nearest.hex);
-    cardButtons(e)
-      .find((button) => button.dataset.value === nearest.hex)
-      ?.focus();
-  });
-  e.check.replaceChildren(
-    line(
-      `${hex} is too dark for an accent. Dark text on its light shade, ${report.light}, is ${formatRatio(
-        report.contrast,
-      )}, and buttons need ${MIN_CONTRAST}:1. ${stays}`,
-    ),
-    offer,
-  );
-}
-
-/**
- * Check what's in the hex field. A passing colour is used and saved at
- * once (`commit`); `final` is a blur or Enter, when a half-typed value
- * becomes an error rather than a hint.
- */
-function evaluate(e: Els, raw: string, { commit, final }: { commit: boolean; final: boolean }) {
-  const hex = normaliseHex(raw);
-  if (!hex) {
-    renderCheck(e, final && raw.trim() ? 'invalid' : 'typing', raw);
-    return;
-  }
-  const report = accentReport(hex);
-  if (!report.passes) {
-    renderCheck(e, 'fail', hex);
-    syncCards(e);
-    return;
-  }
-  renderCheck(e, 'pass', hex);
-  if (e.picker && e.picker.value !== hex) e.picker.value = hex;
-  if (commit && (e.select.value !== CUSTOM_ACCENT || normaliseHex(e.store.value) !== hex)) {
-    e.store.value = hex;
-    e.select.value = CUSTOM_ACCENT;
-    applyAccent(hex);
-    notifyChanged(e);
-  }
-  syncCards(e);
-  syncPreview(e);
-}
-
-function wireCustom(e: Els): void {
-  if (e.hex.dataset.wired === 'true') return;
-  e.hex.dataset.wired = 'true';
-  e.hex.addEventListener('input', () => evaluate(e, e.hex.value, { commit: true, final: false }));
-  e.hex.addEventListener('blur', () => evaluate(e, e.hex.value, { commit: true, final: true }));
-  e.hex.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    evaluate(e, e.hex.value, { commit: true, final: true });
-  });
-  e.picker?.addEventListener('input', () => {
-    if (!e.picker) return;
-    e.hex.value = e.picker.value;
-    evaluate(e, e.picker.value, { commit: true, final: true });
-  });
-}
-
-// ── choosing ────────────────────────────────────────────────────────────────
-
-function choose(e: Els, value: string): void {
-  if (value === CUSTOM_ACCENT) {
-    customChosen = true;
-    e.custom.hidden = false;
-    // start from the accent in use: picking Custom changes nothing by
-    // itself; the first different hex that passes does
-    const start = appliedHex(e);
-    e.hex.value = start;
-    if (e.picker) e.picker.value = start;
-    evaluate(e, start, { commit: false, final: true });
-    syncCards(e);
-    return;
-  }
-  const preset = findPreset(value);
-  if (!preset) return;
-  customChosen = false;
-  e.custom.hidden = true;
-  renderCheck(e, 'none');
-  if (e.select.value !== preset.hex) {
-    e.select.value = preset.hex;
-    applyAccent(preset.hex);
-    notifyChanged(e);
-  }
-  syncCards(e);
-  syncPreview(e);
-}
-
-// ── the preview strip ───────────────────────────────────────────────────────
 
 /** Bar heights for the played-waveform sample (fixed, like the board's). */
 export function waveHeights(count = 24, played = 10): { height: number; played: boolean }[] {
@@ -378,9 +139,136 @@ export function waveHeights(count = 24, played = 10): { height: number; played: 
   return out;
 }
 
-function syncPreview(e: Els): void {
-  if (e.wave && !e.wave.childElementCount) {
-    e.wave.replaceChildren(
+type CheckState = 'pass' | 'fail' | 'invalid' | 'typing' | 'none';
+
+export interface PickerOptions {
+  /** id prefix, so labels and live regions stay unique ("accent" in Settings) */
+  prefix: string;
+  /** Settings → Appearance: admins also set the install's default here */
+  installDefault?: boolean;
+}
+
+/** One picker drawn into one root. */
+class AccentPicker {
+  readonly root: HTMLElement;
+  readonly opts: PickerOptions;
+  private cards!: HTMLElement;
+  private custom!: HTMLElement;
+  private hex!: HTMLInputElement;
+  private picker!: HTMLInputElement;
+  private check!: HTMLElement;
+  private source!: HTMLElement;
+  private sourceText!: HTMLElement;
+  private reset!: HTMLButtonElement;
+  private defaults: HTMLElement | null = null;
+  private defaultsText: HTMLElement | null = null;
+  private makeDefault: HTMLButtonElement | null = null;
+  private label!: HTMLElement;
+  private line!: HTMLElement;
+  /** "Custom…" is chosen (even before the hex typed passes) */
+  private customChosen = false;
+  private saveTimer: number | null = null;
+
+  constructor(root: HTMLElement, opts: PickerOptions) {
+    this.root = root;
+    this.opts = opts;
+    this.build();
+  }
+
+  // ── building ──────────────────────────────────────────────────────────
+
+  private build(): void {
+    const p = this.opts.prefix;
+    this.root.classList.add('accent-picker');
+    this.root.dataset.built = 'true';
+
+    this.cards = el('div', 'accent-cards');
+    this.cards.id = `${p}-preset-cards`;
+    this.cards.setAttribute('role', 'radiogroup');
+    this.cards.setAttribute('aria-label', 'Accent colour');
+    this.cards.replaceChildren(
+      ...ACCENT_PRESETS.map((preset) => card(preset.hex, preset.name)),
+      card(CUSTOM_ACCENT, 'Custom…'),
+    );
+    this.cards.addEventListener('click', (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="radio"]');
+      if (!button || !this.cards.contains(button)) return;
+      this.choose(button.dataset.value ?? '');
+      button.focus();
+    });
+    // A radio group: the arrows move the choice and the focus together.
+    this.cards.addEventListener('keydown', (event) => {
+      const buttons = this.cardButtons();
+      const at = buttons.indexOf(event.target as HTMLButtonElement);
+      if (at === -1) return;
+      let next = -1;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (at + 1) % buttons.length;
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+        next = (at - 1 + buttons.length) % buttons.length;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = buttons.length - 1;
+      if (next === -1) return;
+      event.preventDefault();
+      this.choose(buttons[next].dataset.value ?? '');
+      buttons[next].focus();
+    });
+
+    this.custom = el('div', 'accent-custom');
+    this.custom.id = `${p}-custom-group`;
+    this.custom.hidden = true;
+    const hexLabel = el('label', 'accent-custom-label', 'Custom colour');
+    hexLabel.htmlFor = `${p}-custom-hex`;
+    const fields = el('div', 'accent-custom-fields');
+    this.hex = el('input', 'accent-custom-hex');
+    Object.assign(this.hex, {
+      type: 'text',
+      id: `${p}-custom-hex`,
+      inputMode: 'text',
+      autocomplete: 'off',
+      spellcheck: false,
+      maxLength: 7,
+      placeholder: DEFAULT_ACCENT,
+    });
+    this.hex.setAttribute('aria-describedby', `${p}-custom-check`);
+    this.picker = el('input', 'accent-custom-picker');
+    this.picker.type = 'color';
+    this.picker.id = `${p}-custom-picker`;
+    this.picker.value = DEFAULT_ACCENT;
+    this.picker.setAttribute('aria-label', 'Pick a colour');
+    fields.append(this.hex, this.picker);
+    this.check = el('div', 'accent-check');
+    this.check.id = `${p}-custom-check`;
+    this.check.setAttribute('aria-live', 'polite');
+    this.custom.append(hexLabel, fields, this.check);
+    this.hex.addEventListener('input', () => this.evaluate(this.hex.value, true, false));
+    this.hex.addEventListener('blur', () => this.evaluate(this.hex.value, true, true));
+    this.hex.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      this.evaluate(this.hex.value, true, true);
+    });
+    this.picker.addEventListener('input', () => {
+      this.hex.value = this.picker.value;
+      this.evaluate(this.picker.value, true, true);
+    });
+
+    this.source = el('div', 'accent-source');
+    this.sourceText = el('p', 'accent-source-text');
+    this.sourceText.id = `${p}-source`;
+    this.reset = el('button', 'appearance-btn');
+    this.reset.type = 'button';
+    this.reset.addEventListener('click', () => void this.save(null));
+    this.source.append(this.sourceText, this.reset);
+
+    const preview = el('div', 'accent-preview');
+    this.label = el('p', 'accent-preview-label');
+    this.label.id = `${p}-preview-label`;
+    const strip = el('div', 'accent-preview-strip');
+    const samples = el('div', 'accent-preview-samples');
+    samples.setAttribute('aria-hidden', 'true');
+    const wave = el('span', 'accent-sample-wave');
+    wave.id = `${p}-preview-wave`;
+    wave.replaceChildren(
       ...waveHeights().map((bar) => {
         const span = document.createElement('span');
         span.style.height = `${bar.height}px`;
@@ -388,62 +276,328 @@ function syncPreview(e: Els): void {
         return span;
       }),
     );
+    samples.append(
+      el('span', 'accent-sample-primary', 'Add to Wanted'),
+      el('span', 'accent-sample-selected', 'Selected row'),
+      el('span', 'accent-sample-link', 'A link'),
+      el('span', 'accent-sample-focus', 'Keyboard focus'),
+      wave,
+    );
+    this.line = el('p', 'accent-preview-line');
+    this.line.id = `${p}-preview-line`;
+    strip.append(samples, this.line);
+    preview.append(this.label, strip);
+
+    const parts: HTMLElement[] = [this.cards, this.custom, this.source];
+    if (this.opts.installDefault) {
+      this.defaults = el('div', 'accent-default');
+      this.defaults.hidden = true;
+      this.defaultsText = el('p', 'accent-default-text');
+      this.defaultsText.id = `${p}-default`;
+      this.makeDefault = el('button', 'appearance-btn');
+      this.makeDefault.type = 'button';
+      this.makeDefault.addEventListener('click', () => this.makeInstallDefault());
+      this.defaults.append(this.defaultsText, this.makeDefault);
+      parts.push(this.defaults);
+    }
+    parts.push(preview);
+    this.root.replaceChildren(...parts);
   }
-  const hex = appliedHex(e);
-  if (e.label) {
-    e.label.textContent =
-      e.select.value === CUSTOM_ACCENT
-        ? 'With your custom colour'
-        : `With ${findPreset(hex)?.name ?? DEFAULT_ACCENT_NAME}`;
+
+  private cardButtons(): HTMLButtonElement[] {
+    return Array.from(this.cards.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
   }
-  if (e.line) e.line.textContent = accentLine(accentReport(hex));
+
+  // ── what's shown ──────────────────────────────────────────────────────
+
+  private checkedValue(): string {
+    if (this.customChosen) return CUSTOM_ACCENT;
+    return findPreset(appliedAccent())?.hex ?? CUSTOM_ACCENT;
+  }
+
+  /** Draw from the store (and keep a half-typed custom colour as it is). */
+  render(): void {
+    const store = accentStore();
+    const applied = appliedAccent();
+    if (!this.customChosen && !findPreset(applied)) this.customChosen = true;
+    const checked = this.checkedValue();
+    for (const button of this.cardButtons()) {
+      const value = button.dataset.value ?? '';
+      const on = value === checked;
+      button.setAttribute('aria-checked', String(on));
+      button.tabIndex = on ? 0 : -1;
+      const note = button.querySelector<HTMLElement>('.accent-card-note');
+      if (value === CUSTOM_ACCENT) {
+        const inUse = findPreset(applied) ? null : applied;
+        const current = button.querySelector<HTMLElement>('.accent-swatch');
+        if (current && current.dataset.hex !== (inUse ?? '')) current.replaceWith(swatch(inUse));
+        if (note) note.textContent = inUse ?? 'Any hex; checked for contrast';
+        continue;
+      }
+      if (!note) continue;
+      const bits: string[] = [];
+      if (on) bits.push('Selected');
+      // "the default" is what profiles without a pick get: the install's
+      if (value === store.install) bits.push(on ? 'the default' : 'The default');
+      note.textContent = bits.join(' · ');
+    }
+
+    this.custom.hidden = !this.customChosen;
+    if (this.customChosen) {
+      // a custom colour in use fills the field; a half-typed one is left alone
+      if (document.activeElement !== this.hex && !findPreset(applied)) {
+        this.hex.value = applied;
+        this.picker.value = applied;
+      }
+      const shown = normaliseHex(this.hex.value);
+      if (shown) this.renderCheck(accentReport(shown).passes ? 'pass' : 'fail', shown);
+    } else {
+      this.renderCheck('none');
+    }
+
+    const installName = accentName(store.install);
+    if (store.mine) {
+      this.sourceText.textContent = `Yours: ${accentName(store.mine)}. Profiles that haven’t picked their own use ${installName}.`;
+      this.reset.textContent = `Use the default, ${installName}`;
+      this.reset.hidden = store.mine === store.install;
+    } else {
+      this.sourceText.textContent = `You’re using this SYNCHRO.S’s default, ${installName}. Pick one above to make it yours.`;
+      this.reset.hidden = true;
+    }
+
+    if (this.defaults && this.defaultsText && this.makeDefault) {
+      this.defaults.hidden = !store.isAdmin;
+      this.defaultsText.textContent = `Default for profiles that haven’t picked: ${installName}.`;
+      this.makeDefault.textContent = `Make ${accentName(applied)} the default`;
+      this.makeDefault.hidden = applied === store.install;
+    }
+
+    this.label.textContent = store.mine
+      ? findPreset(applied)
+        ? `With ${accentName(applied)}, yours`
+        : 'With your custom colour'
+      : `With ${installName}, the default`;
+    this.line.textContent = accentLine(accentReport(applied));
+  }
+
+  // ── the custom colour ─────────────────────────────────────────────────
+
+  private renderCheck(state: CheckState, raw = ''): void {
+    // Same answer as on show: leave it. Leaving the field (blur) re-checks it,
+    // and redrawing then would take "Use … instead" away from under the click.
+    const said = state === 'typing' || state === 'none' ? '' : raw.trim().toLowerCase();
+    const key = `${state}|${said}|${appliedAccent()}`;
+    if (this.check.dataset.key === key) return;
+    this.check.dataset.key = key;
+    this.check.dataset.state = state;
+    this.hex.setAttribute('aria-invalid', String(state === 'fail' || state === 'invalid'));
+    const line = (text: string) => el('p', 'accent-check-line', text);
+    if (state === 'none') {
+      this.check.replaceChildren();
+      return;
+    }
+    if (state === 'typing') {
+      this.check.replaceChildren(line(HEX_HINT));
+      return;
+    }
+    if (state === 'invalid') {
+      this.check.replaceChildren(line(`“${raw.trim()}” isn't a hex colour. ${HEX_HINT}`));
+      return;
+    }
+    const hex = normaliseHex(raw) ?? DEFAULT_ACCENT;
+    const report = accentReport(hex);
+    if (state === 'pass') {
+      this.check.replaceChildren(
+        line(
+          `Dark text on its light shade, ${report.light}, is ${formatRatio(report.contrast)}, so buttons stay readable.`,
+        ),
+      );
+      return;
+    }
+    const nearest = nearestPreset(hex);
+    const stays =
+      appliedAccent() === hex
+        ? 'It’s in use now; pick a preset or another hex to change it.'
+        : `Your accent stays ${accentName(appliedAccent())}.`;
+    const offer = el('button', 'appearance-btn', `Use ${nearest.name} instead`);
+    offer.type = 'button';
+    offer.addEventListener('click', () => {
+      this.choose(nearest.hex);
+      this.cardButtons()
+        .find((button) => button.dataset.value === nearest.hex)
+        ?.focus();
+    });
+    this.check.replaceChildren(
+      line(
+        `${hex} is too dark for an accent. Dark text on its light shade, ${report.light}, is ${formatRatio(
+          report.contrast,
+        )}, and buttons need ${MIN_CONTRAST}:1. ${stays}`,
+      ),
+      offer,
+    );
+  }
+
+  /**
+   * Check what's in the hex field. A passing colour is shown at once and
+   * saved when typing pauses (`commit`); `final` is a blur or Enter, when a
+   * half-typed value becomes an error rather than a hint.
+   */
+  private evaluate(raw: string, commit: boolean, final: boolean): void {
+    const hex = normaliseHex(raw);
+    if (!hex) {
+      this.renderCheck(final && raw.trim() ? 'invalid' : 'typing', raw);
+      return;
+    }
+    const report = accentReport(hex);
+    if (!report.passes) {
+      this.renderCheck('fail', hex);
+      return;
+    }
+    this.renderCheck('pass', hex);
+    if (this.picker.value !== hex) this.picker.value = hex;
+    if (!commit || hex === accentStore().mine) return;
+    applyAccent(hex);
+    if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
+    const run = () => {
+      this.saveTimer = null;
+      void this.save(hex);
+    };
+    if (final) run();
+    else this.saveTimer = window.setTimeout(run, CUSTOM_SAVE_MS);
+  }
+
+  // ── choosing ──────────────────────────────────────────────────────────
+
+  choose(value: string): void {
+    if (value === CUSTOM_ACCENT) {
+      this.customChosen = true;
+      // start from the accent in use: picking Custom changes nothing by
+      // itself; the first different hex that passes does
+      const start = appliedAccent();
+      this.hex.value = start;
+      this.picker.value = start;
+      this.render();
+      this.evaluate(start, false, true);
+      return;
+    }
+    const preset = findPreset(value);
+    if (!preset) return;
+    this.customChosen = false;
+    if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    if (preset.hex === appliedAccent() && accentStore().mine) {
+      this.render();
+      return;
+    }
+    void this.save(preset.hex);
+  }
+
+  /** Save this profile's pick (null follows the default) and paint it. */
+  private async save(hex: string | null): Promise<void> {
+    if (hex === null) this.customChosen = false;
+    // the store changes before the request goes, so the page follows at once
+    const pending = saveProfileAccent(hex);
+    applyAccent(appliedAccent());
+    const result = await pending;
+    if (!result.ok) {
+      applyAccent(appliedAccent());
+      toast(result.error);
+    }
+  }
+
+  /** Admins: the accent this profile uses becomes the install's default. */
+  private makeInstallDefault(): void {
+    const form = formEls();
+    if (!form) return;
+    const hex = appliedAccent();
+    if (findPreset(hex)) {
+      form.select.value = hex;
+    } else {
+      form.store.value = hex;
+      form.select.value = CUSTOM_ACCENT;
+    }
+    setInstallAccent(hex);
+    // the settings page's autosave listens for this
+    form.select.dispatchEvent(new Event('change', { bubbles: true }));
+    toast(
+      `${accentName(hex)} is the default for profiles that haven’t picked their own.`,
+      'success',
+    );
+  }
 }
 
-// ── public ──────────────────────────────────────────────────────────────────
+const pickers = new Set<AccentPicker>();
+let listening = false;
+
+function listen(): void {
+  if (listening) return;
+  listening = true;
+  onAccentStore(() => {
+    for (const picker of pickers) {
+      if (!picker.root.isConnected) pickers.delete(picker);
+      else picker.render();
+    }
+  });
+  window.addEventListener(ACCENT_APPLIED_EVENT, () => {
+    for (const picker of pickers) if (picker.root.isConnected) picker.render();
+  });
+}
 
 /**
- * Bring the cards in line with the form: after settings.js loads the saved
- * values, and whenever an accent is applied from elsewhere (the dashboard's
- * quick swatches).
+ * Draw the picker into `root` (once per root) and fill it from this
+ * profile's pick.
  */
-export function syncAppearanceSettings(): void {
-  const e = els();
-  if (!e) return;
-  buildCards(e);
-  wireCustom(e);
-  const preset = (e.select.value || '').toLowerCase();
-  if (preset !== CUSTOM_ACCENT && !findPreset(preset)) e.select.value = DEFAULT_ACCENT;
-  customChosen = e.select.value === CUSTOM_ACCENT;
-  e.custom.hidden = !customChosen;
-  if (customChosen) {
-    const saved = normaliseHex(e.store.value) ?? DEFAULT_ACCENT;
-    e.hex.value = saved;
-    if (e.picker) e.picker.value = saved;
-    // the saved colour is theirs even if it fails today's check: say so,
-    // don't change it
-    renderCheck(e, accentReport(saved).passes ? 'pass' : 'fail', saved);
-  } else {
-    renderCheck(e, 'none');
+export function mountAccentPicker(root: HTMLElement, opts: PickerOptions): void {
+  listen();
+  for (const picker of pickers) {
+    if (picker.root === root) {
+      picker.render();
+      void loadProfileAccent();
+      return;
+    }
   }
-  syncCards(e);
-  syncPreview(e);
+  const picker = new AccentPicker(root, opts);
+  pickers.add(picker);
+  picker.render();
+  void loadProfileAccent();
 }
 
-let listening = false;
+/** The install's accent from Settings → Appearance's form, when it's on the page. */
+function readInstallFromForm(): void {
+  const form = formEls();
+  if (!form) return;
+  const preset = (form.select.value || '').toLowerCase();
+  if (preset !== CUSTOM_ACCENT && !findPreset(preset)) form.select.value = DEFAULT_ACCENT;
+  setInstallAccent(storedAccent(form.select.value, form.store.value));
+}
+
+/**
+ * Bring Settings → Appearance in line: after settings.js loads the saved
+ * values (the install's accent), and on boot.
+ */
+export function syncAppearanceSettings(): void {
+  const root = document.getElementById('accent-picker');
+  if (!root) return;
+  readInstallFromForm();
+  mountAccentPicker(root, { prefix: 'accent', installDefault: true });
+}
 
 /** Draw the cards (shell boot; the markup is parsed by then). */
 export function initAppearanceSettings(): void {
-  if (!listening) {
-    listening = true;
-    window.addEventListener(ACCENT_APPLIED_EVENT, () => {
-      const e = els();
-      if (e) syncPreview(e);
-    });
+  listen();
+  const root = document.getElementById('accent-picker');
+  if (!root) return;
+  readInstallFromForm();
+  // mounted now, filled once Settings is opened (no fetch for pages that don't show it)
+  if (!root.dataset.built) {
+    const picker = new AccentPicker(root, { prefix: 'accent', installDefault: true });
+    pickers.add(picker);
+    picker.render();
   }
-  syncAppearanceSettings();
 }
 
 /** Tests only. */
 export function _resetAppearanceForTests(): void {
-  customChosen = false;
+  pickers.clear();
+  listening = false;
 }

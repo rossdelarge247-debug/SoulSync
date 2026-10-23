@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  spokenProgressWords,
+  spokenRecentMeta,
   albumLine,
   barCount,
   chapterTicks,
@@ -258,5 +260,32 @@ describe('the record’s Sleep timer and the menu’s Speed (HANDOFF 47)', () =>
     expect(formatSpeedValue(1.5)).toBe('1.5×');
     expect(formatSpeedValue(1.25)).toBe('1.25×');
     expect(formatSpeedValue(Number.NaN)).toBe('1.0×');
+  });
+});
+
+describe('podcast and audiobook progress words (HANDOFF 46)', () => {
+  it('says how much is left, or that it was played', () => {
+    expect(spokenProgressWords({ position_s: 420, duration_s: 1800 })).toBe('23 min left');
+    expect(spokenProgressWords({ position_s: 600, duration_s: 9000 })).toBe('2 h 20 min left');
+    expect(spokenProgressWords({ position_s: 1800, duration_s: 5400 })).toBe('1 h left');
+    expect(spokenProgressWords({ position_s: 120, duration_s: null })).toBe('2 min in');
+    expect(spokenProgressWords({ position_s: 2, duration_s: 1800 })).toBe('');
+    expect(spokenProgressWords({ position_s: 1790, duration_s: 1800, finished: true })).toBe(
+      'Finished',
+    );
+  });
+
+  it('starts Recent’s meta line with the kind', () => {
+    expect(
+      spokenRecentMeta({
+        kind: 'podcast',
+        subtitle: 'Quiet Rooms',
+        position_s: 420,
+        duration_s: 1800,
+      }),
+    ).toBe('Podcast · Quiet Rooms · 23 min left');
+    expect(spokenRecentMeta({ kind: 'audiobook', subtitle: 'Ann Leckie', finished: true })).toBe(
+      'Audiobook · Ann Leckie · Finished',
+    );
   });
 });

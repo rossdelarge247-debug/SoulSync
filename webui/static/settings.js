@@ -3627,7 +3627,7 @@ async function loadSettingsData() {
                 presetSelect.value = 'custom';
                 if (customStore) customStore.value = accentPreset === 'custom' ? accentCustom : accentPreset;
             }
-            applyAccentColor(presetSelect.value === 'custom' ? (customStore ? customStore.value : accentCustom) : presetSelect.value);
+            // the install's default only: the page keeps this profile's own accent
             // the radio cards and the custom check (src/shell/appearance.ts)
             if (typeof window.syncAppearanceSettings === 'function') window.syncAppearanceSettings();
         }

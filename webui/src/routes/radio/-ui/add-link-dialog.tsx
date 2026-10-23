@@ -37,15 +37,19 @@ export function AddLinkDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
   const [kind, setKind] = useState<StationKind | ''>('');
+  const [logo, setLogo] = useState('');
   const [checked, setChecked] = useState<{ url: string; result: LinkCheck } | null>(null);
   const urlId = useId();
   const nameId = useId();
   const kindId = useId();
+  const logoId = useId();
+  const logoHintId = useId();
   useEffect(() => {
     if (!open) {
       setUrl('');
       setName('');
       setKind('');
+      setLogo('');
       setChecked(null);
     }
   }, [open]);
@@ -68,7 +72,7 @@ export function AddLinkDialog({ open, onClose }: { open: boolean; onClose: () =>
       }),
   });
   const add = useMutation({
-    mutationFn: () => addLink(url.trim(), name.trim(), kind as StationKind),
+    mutationFn: () => addLink(url.trim(), name.trim(), kind as StationKind, logo.trim()),
     onSuccess: (link) => {
       window.showToast?.(
         `Added ${link.name}. It’s in everyone’s Favourites as “Your link”.`,
@@ -172,6 +176,25 @@ export function AddLinkDialog({ open, onClose }: { open: boolean; onClose: () =>
                 ))}
               </Select>
             </div>
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel} htmlFor={logoId}>
+              Logo address (optional)
+            </label>
+            <TextInput
+              id={logoId}
+              value={logo}
+              inputMode="url"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="https://station.example.org/logo.png"
+              aria-describedby={logoHintId}
+              onChange={(e) => setLogo(e.target.value)}
+            />
+            <p className={styles.dialogNote} id={logoHintId}>
+              A square PNG, JPEG, GIF, WebP or ICO of up to 512 KB (not SVG). Your server fetches it
+              once and keeps it; until then, and without one, the tile shows the name’s letters.
+            </p>
           </div>
           <p className={styles.dialogNote}>
             Your server relays this stream only while someone is listening, and only audio. Track

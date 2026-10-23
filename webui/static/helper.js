@@ -1870,7 +1870,7 @@ const HELPER_CONTENT = {
     // Appearance
     '#accent-preset-cards': {
         title: 'Accent colour',
-        description: 'One colour for buttons, links, selected rows and focus, for everyone using this SYNCHRO.S. Pick a preset, or Custom for any hex: it is used only when dark text on its lighter shade passes 4.5:1.',
+        description: 'One colour for buttons, links, selected rows and focus. Yours only: each profile picks its own, and profiles that haven\'t use the default an admin sets here. Pick a preset, or Custom for any hex: it is used only when dark text on its lighter shade passes 4.5:1.',
     },
     '#sidebar-visualizer-type': {
         title: 'Sidebar Visualizer',

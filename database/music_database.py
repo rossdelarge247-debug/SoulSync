@@ -1394,6 +1394,7 @@ class MusicDatabase:
             self._add_profile_lastfm_username(cursor)
             self._add_profile_plex_home_user(cursor)
             self._add_profile_controls(cursor)
+            self._add_profile_accent_column(cursor)
             self._add_own_library_columns(cursor)
             # after the column it repairs exists: it used to run before
             # _add_own_library_columns and fail on every fresh install
@@ -1565,6 +1566,8 @@ class MusicDatabase:
             self._add_automation_paused_at_column(cursor)
             self._add_ai_assistant_tables(cursor)
             self._add_internet_radio_tables(cursor)
+            self._add_radio_link_logo_column(cursor)
+            self._add_spoken_word_tables(cursor)
 
             # Library issues — user-reported problems with tracks/albums/artists
             cursor.execute("""
@@ -3482,9 +3485,10 @@ class MusicDatabase:
                 logger.info("Added paused_at column to automations table")
 
     def _add_ai_assistant_tables(self, cursor):
-        """The Automation Assistant's two tables (core/ai/store.py): usage per
-        month for Settings → AI and its monthly cap, and each profile's "Not
-        now" on the Automations list's suggestion card."""
+        """The Automation Assistant's tables (core/ai/store.py): usage per
+        month for Settings → AI and its monthly cap, the same per profile
+        (HANDOFF 39), and each profile's "Not now" on the Automations list's
+        suggestion card."""
         with self._migration_step(cursor, 'ai_assistant_tables', atomic=False):
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS ai_usage (
@@ -3500,6 +3504,20 @@ class MusicDatabase:
                 )
             """)
             cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ai_usage_profiles (
+                    month TEXT NOT NULL,
+                    profile_id INTEGER NOT NULL,
+                    requests INTEGER NOT NULL DEFAULT 0,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_usd REAL NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (month, profile_id)
+                )
+            """)
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS ai_suggestion_dismissals (
                     profile_id INTEGER NOT NULL,
                     suggestion_key TEXT NOT NULL,
@@ -3507,6 +3525,52 @@ class MusicDatabase:
                     PRIMARY KEY (profile_id, suggestion_key)
                 )
             """)
+
+    def _add_radio_link_logo_column(self, cursor):
+        """radio_links.logo_url: the logo address an admin may give a stream
+        link (HANDOFF 55); fetched and cached by the server like the others."""
+        with self._migration_step(cursor, 'radio_link_logo_column', atomic=False):
+            cursor.execute("PRAGMA table_info(radio_links)")
+            cols = {c[1] for c in cursor.fetchall()}
+            if cols and 'logo_url' not in cols:
+                cursor.execute("ALTER TABLE radio_links ADD COLUMN logo_url TEXT")
+
+    def _add_spoken_word_tables(self, cursor):
+        """Podcasts and audiobooks in the player (core/playback/spoken.py,
+        HANDOFF 46): where each profile got to in an episode or a book, and
+        its plays of them. Apart from listening_history, which stays music
+        only for Stats, smart radio, the importers and scrobbling."""
+        with self._migration_step(cursor, 'spoken_word_tables', atomic=False):
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS media_progress (
+                    profile_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    media_id TEXT NOT NULL,
+                    position_s REAL NOT NULL DEFAULT 0,
+                    duration_s REAL,
+                    finished INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (profile_id, kind, media_id)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS media_plays (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    media_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    subtitle TEXT,
+                    art_url TEXT,
+                    src TEXT,
+                    duration_s REAL,
+                    played_at TIMESTAMP NOT NULL
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_plays_profile_played "
+                           "ON media_plays (profile_id, played_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_media_plays_profile_kind_played "
+                           "ON media_plays (profile_id, kind, played_at)")
 
     def _add_internet_radio_tables(self, cursor):
         """Internet radio's tables (core/internet_radio/store.py): favourites per
@@ -6710,6 +6774,43 @@ class MusicDatabase:
         ("session_epoch", "INTEGER DEFAULT 0"),        # bump = every signed-in browser signs out
         ("disabled", "INTEGER DEFAULT 0"),             # turned off: kept, but nobody can open it
     )
+
+    def _add_profile_accent_column(self, cursor):
+        """profiles.accent_color: the accent a profile picked for itself
+        (HANDOFF 35). NULL, which every existing profile gets, means "the
+        install's accent", so nobody's colour changes on upgrade."""
+        with self._migration_step(cursor, 'add_profile_accent_column', atomic=False):
+            cursor.execute("PRAGMA table_info(profiles)")
+            cols = {c[1] for c in cursor.fetchall()}
+            if cols and 'accent_color' not in cols:
+                cursor.execute("ALTER TABLE profiles ADD COLUMN accent_color TEXT DEFAULT NULL")
+
+    def get_profile_accent(self, profile_id: int) -> Optional[str]:
+        """The accent a profile picked ('#rrggbb'), or None for the install's."""
+        try:
+            with self._get_connection() as conn:
+                row = conn.execute("SELECT accent_color FROM profiles WHERE id = ?", (int(profile_id),)).fetchone()
+        except Exception as e:  # noqa: BLE001 - no column yet reads as "no pick"
+            logger.debug(f"profile accent read failed for {profile_id}: {e}")
+            return None
+        value = (row[0] if row else None) or None
+        return value if isinstance(value, str) and re.fullmatch(r'#[0-9a-f]{6}', value) else None
+
+    def set_profile_accent(self, profile_id: int, accent: Optional[str]) -> bool:
+        """Save a profile's own accent (a checked '#rrggbb'), or None to follow
+        the install's. True when the profile exists."""
+        if accent is not None and not re.fullmatch(r'#[0-9a-f]{6}', str(accent)):
+            raise ValueError("accent must be #rrggbb")
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    "UPDATE profiles SET accent_color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (accent, int(profile_id)))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Error saving the accent for profile {profile_id}: {e}")
+            return False
 
     def _add_profile_controls(self, cursor):
         """request quotas, kids content limits and the session epoch

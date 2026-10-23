@@ -16,7 +16,12 @@ GET /api/library/tracks/<id>/details
 GET /api/player/recent?limit=20
     ``{items: [...]}``: the player's own plays (listening history rows the web
     player wrote), newest first, in the caller's listening pile, for the
-    tray's Recent tab. Consecutive repeats of one track show once.
+    tray's Recent tab, with the profile's podcast and audiobook plays among
+    them; each item has a ``kind``. Consecutive repeats of one track show once.
+
+GET/PUT /api/player/progress, POST /api/player/progress/lookup, GET/POST /api/player/plays
+    Podcasts and audiobooks: where the profile got to, and its plays of them
+    (core/playback/spoken.py). Always the session's own profile.
 
 All three need a profile. Tracks are read in the caller's library scope (a
 track in someone else's own library is a 404), files are found through the
@@ -223,6 +228,7 @@ def _recent_rows(db, owner: int, limit: int, hide_explicit: bool) -> List[Dict[s
         duration_ms = r["track_duration"] or r["duration_ms"] or 0
         thumb = r["thumb_url"]
         items.append({
+            "kind": "music",
             "track_id": r["track_id"],
             "title": r["title"],
             "artist": r["artist"],
@@ -239,6 +245,22 @@ def _recent_rows(db, owner: int, limit: int, hide_explicit: bool) -> List[Dict[s
         if len(items) >= limit:
             break
     return items
+
+
+def _spoken_recent(db, pid: int, limit: int) -> List[Dict[str, Any]]:
+    from core.playback import spoken
+
+    try:
+        return spoken.recent_plays(db, pid, spoken.KINDS, limit)
+    except Exception as exc:  # noqa: BLE001 - music's Recent still shows
+        logger.debug("spoken-word recent failed: %s", exc)
+        return []
+
+
+def _merge_recent(music: List[Dict[str, Any]], spoken_items: List[Dict[str, Any]], limit: int):
+    """Newest first across kinds (both stamps are UTC 'YYYY-MM-DD HH:MM:SS')."""
+    merged = sorted(music + spoken_items, key=lambda i: str(i.get("played_at") or ""), reverse=True)
+    return merged[:limit]
 
 
 @bp.route("/api/player/recent", methods=["GET"])
@@ -258,9 +280,118 @@ def get_player_recent():
         db = get_database()
         hide = bool(current_restrictions().get("hide_explicit"))
         items = _recent_rows(db, listening_owner(db, pid), limit, hide)
+        # every kind (HANDOFF 46): episodes and audiobooks are this profile's own
+        items = _merge_recent(items, _spoken_recent(db, int(pid), limit), limit)
     except Exception as exc:  # noqa: BLE001
         logger.error("player recent failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't load what you played recently"}), 500
+    response = jsonify({"success": True, "items": items})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+# ── podcasts and audiobooks (HANDOFF 46) ────────────────────────────────────
+# Where this profile got to in an episode or an audiobook, and its plays of
+# them. The profile is always the session's own: a header, query or body
+# profile id is never read, so nobody reaches another profile's rows.
+
+def _spoken_error(exc):
+    return jsonify({"success": False, "error": str(exc)}), 400
+
+
+@bp.route("/api/player/progress", methods=["GET"])
+def get_spoken_progress():
+    """One item's progress (``?kind=&id=``), for the player starting it."""
+    from core.playback import spoken
+
+    pid = get_current_profile_id()
+    if pid is None:
+        return _profile_required()
+    try:
+        items = spoken.get_progress(get_database(), int(pid), request.args.get("kind"),
+                                    [request.args.get("id") or ""])
+    except spoken.SpokenError as exc:
+        return _spoken_error(exc)
+    response = jsonify({"success": True, "items": items})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.route("/api/player/progress/lookup", methods=["POST"])
+def lookup_spoken_progress():
+    """Progress for a page of items (``{kind, ids: [...]}``, up to 100): a POST
+    because episode ids are often whole addresses, too long for a query."""
+    from core.playback import spoken
+
+    pid = get_current_profile_id()
+    if pid is None:
+        return _profile_required()
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids") if isinstance(body, dict) else None
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"success": False, "error": "Send the ids to look up."}), 400
+    if len(ids) > spoken.MAX_IDS:
+        return jsonify({"success": False, "error": f"Ask for {spoken.MAX_IDS} items or fewer."}), 400
+    try:
+        items = spoken.get_progress(get_database(), int(pid), body.get("kind"), [str(i) for i in ids])
+    except spoken.SpokenError as exc:
+        return _spoken_error(exc)
+    response = jsonify({"success": True, "items": items})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.route("/api/player/progress", methods=["PUT", "POST"])
+def put_spoken_progress():
+    """PUT from the player while it plays; POST is the same, for
+    navigator.sendBeacon when the page is closing."""
+    from core.playback import spoken
+
+    pid = get_current_profile_id()
+    if pid is None:
+        return _profile_required()
+    body = request.get_json(silent=True, force=True)
+    if not isinstance(body, dict):
+        return jsonify({"success": False, "error": "Send the item and its position."}), 400
+    try:
+        progress = spoken.save_progress(get_database(), int(pid), body.get("kind"), body.get("media_id"),
+                                        body.get("position_s"), body.get("duration_s"),
+                                        ended=bool(body.get("ended")))
+    except spoken.SpokenError as exc:
+        return _spoken_error(exc)
+    return jsonify({"success": True, "progress": progress})
+
+
+@bp.route("/api/player/plays", methods=["POST"])
+def log_spoken_play():
+    from core.playback import spoken
+
+    pid = get_current_profile_id()
+    if pid is None:
+        return _profile_required()
+    try:
+        play_id = spoken.log_play(get_database(), int(pid), request.get_json(silent=True) or {})
+    except spoken.SpokenError as exc:
+        return _spoken_error(exc)
+    return jsonify({"success": True, "play_id": play_id})
+
+
+@bp.route("/api/player/plays", methods=["GET"])
+def list_spoken_plays():
+    """Library → Listening history's Podcasts and Audiobooks."""
+    from core.playback import spoken
+
+    pid = get_current_profile_id()
+    if pid is None:
+        return _profile_required()
+    try:
+        limit = int(request.args.get("limit", 50))
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        items = spoken.recent_plays(get_database(), int(pid), [request.args.get("kind")], limit)
+    except spoken.SpokenError as exc:
+        return _spoken_error(exc)
     response = jsonify({"success": True, "items": items})
     response.headers["Cache-Control"] = "no-store"
     return response

@@ -384,6 +384,51 @@ describe('what the tray reads from the server', () => {
     expect($('[data-player-recent-list]').textContent).toContain('Belfast');
   });
 
+  it('Recent shows every kind: an episode plays again from where you left it (HANDOFF 46)', async () => {
+    fetchImpl.mockImplementation(async (url: string) =>
+      url.startsWith('/api/player/recent')
+        ? respond(200, {
+            items: [
+              {
+                kind: 'podcast',
+                media_id: 'guid-12',
+                title: 'Episode 12',
+                subtitle: 'Quiet Rooms',
+                src: 'https://cdn.example/ep12.mp3',
+                duration_s: 1800,
+                position_s: 420,
+                played_at: null,
+              },
+              {
+                kind: 'music',
+                track_id: '7',
+                title: 'Belfast',
+                artist: 'Orbital',
+                played_at: null,
+              },
+            ],
+          })
+        : respond(404, {}),
+    );
+    const engine = Object.assign(fakeEngine(snapshot()), { playMedia: vi.fn(async () => ({})) });
+    boot(engine);
+    window.dispatchEvent(new CustomEvent('ss:player-view', { detail: { view: 'history' } }));
+    await flush();
+    await flush();
+    const rows = document.querySelectorAll('[data-player-recent-list] .ss-player-recent-row');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain('Podcast · Quiet Rooms · 23 min left');
+    expect(rows[1].textContent).toContain('Belfast');
+    rows[0].querySelector<HTMLButtonElement>('.ss-player-recent-play')!.click();
+    expect(engine.playMedia).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'podcast',
+        id: 'guid-12',
+        src: 'https://cdn.example/ep12.mp3',
+      }),
+    );
+  });
+
   it('the Output button stays hidden when the browser has nowhere else to send the sound', () => {
     boot(fakeEngine(snapshot()));
     for (const b of document.querySelectorAll<HTMLElement>('[data-player-output]'))

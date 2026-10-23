@@ -34,7 +34,20 @@ export interface AiSettings {
   key_status: AiKeyStatus;
 }
 
+export interface AiProfileUsage {
+  profile_id: number;
+  name: string;
+  requests: number;
+  estimated_cost_usd: number;
+}
+
 export interface AiUsage {
+  /** per profile (admins only, in GET /api/ai/settings): HANDOFF 39 */
+  profiles?: {
+    month: string;
+    rows: AiProfileUsage[];
+    unattributed: { requests: number; estimated_cost_usd: number } | null;
+  };
   month: string;
   requests: number;
   input_tokens: number;
@@ -292,8 +305,57 @@ export function renderAiSettings(): void {
       `Counted here from the tokens each request used and the provider’s list prices, since ${sinceWords(usage.month)}. Your provider’s own billing page is the final word.`,
     );
   }
+  renderProfileUsage();
   const cap = $<HTMLInputElement>('ai-cap');
   if (cap && document.activeElement !== cap) cap.value = capText(settings.monthly_cap_usd);
+}
+
+/**
+ * The per-profile table under the install's total (HANDOFF 39): only while
+ * Who can use it is everyone. A month that began before per-profile counting
+ * (or holds a deleted profile's requests) gets one more row for the rest, so
+ * the rows add up to the total above.
+ */
+function renderProfileUsage(): void {
+  const box = $('ai-usage-profiles');
+  const body = $('ai-usage-profile-rows');
+  const empty = $('ai-usage-profiles-empty');
+  if (!box || !body) return;
+  const per = usage?.profiles;
+  const show = Boolean(settings && settings.who_can_use === 'everyone' && per);
+  box.hidden = !show;
+  if (!show || !per) {
+    body.replaceChildren();
+    return;
+  }
+  const row = (name: string, requests: number, cost: number, quiet = false) => {
+    const tr = document.createElement('tr');
+    if (quiet) tr.className = 'ai-profile-row--rest';
+    const th = document.createElement('th');
+    th.scope = 'row';
+    th.textContent = name;
+    const req = document.createElement('td');
+    req.textContent = requests.toLocaleString();
+    const usd = document.createElement('td');
+    usd.textContent = costWords(cost);
+    tr.append(th, req, usd);
+    return tr;
+  };
+  const rows = per.rows.map((r) => row(r.name, r.requests, r.estimated_cost_usd));
+  if (per.unattributed) {
+    rows.push(
+      row(
+        'Not counted per profile',
+        per.unattributed.requests,
+        per.unattributed.estimated_cost_usd,
+        true,
+      ),
+    );
+  }
+  body.replaceChildren(...rows);
+  const table = box.querySelector('table');
+  if (table) table.hidden = rows.length === 0;
+  if (empty) empty.hidden = rows.length > 0;
 }
 
 function apply(body: SettingsResponse): void {

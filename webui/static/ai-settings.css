@@ -477,3 +477,55 @@
         flex: 1 1 0;
     }
 }
+
+/* ── Usage by profile (HANDOFF 39) ─────────────────────────────────────────
+   Under the install's total, once everyone may use the Assistant: profile,
+   requests, estimated cost, on hairlines. The cap beside it stays one figure. */
+
+#settings-page #ai-settings .ai-profiles[hidden],
+#settings-page #ai-settings .ai-profile-table[hidden] {
+    display: none;
+}
+
+#settings-page #ai-settings .ai-profiles {
+    padding-top: 16px;
+    border-top: 1px solid var(--ss-hairline);
+}
+
+#settings-page #ai-settings .ai-profile-table {
+    width: 100%;
+    max-width: 560px;
+    border-collapse: collapse;
+    font-size: 15px;
+    line-height: 1.4;
+}
+
+#settings-page #ai-settings .ai-profile-table th,
+#settings-page #ai-settings .ai-profile-table td {
+    padding: 10px 12px 10px 0;
+    border-bottom: 1px solid var(--ss-hairline);
+    text-align: left;
+    font-weight: 400;
+    color: var(--ss-text);
+}
+
+#settings-page #ai-settings .ai-profile-table thead th {
+    padding-top: 0;
+    font-size: 14px;
+    color: var(--ss-text-meta);
+}
+
+#settings-page #ai-settings .ai-profile-table td {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+#settings-page #ai-settings .ai-profile-table tbody th {
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+#settings-page #ai-settings .ai-profile-row--rest th,
+#settings-page #ai-settings .ai-profile-row--rest td {
+    color: var(--ss-text-meta);
+}

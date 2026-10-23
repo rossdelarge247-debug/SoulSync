@@ -9,7 +9,8 @@ id says which:
 - a link an admin added and checked (``link-<n>``), in ``radio_links``.
 
 :func:`public_station` is the shape the page gets (no stream addresses: the
-browser is given an address only by ``POST /api/radio/play``).
+browser is given an address only by ``POST /api/radio/play``; ``logo_url``
+there is our own ``/api/radio/stations/<id>/logo``, never the station's host).
 """
 
 from __future__ import annotations
@@ -106,6 +107,22 @@ def _load_file(path: str) -> Dict[str, Any]:
         return json.load(fh)
 
 
+def builtin_logo(value: Any) -> str:
+    """A built-in pick's logo address: https only (anything else is left out)."""
+    raw = str(value or "").strip()
+    return raw if raw.lower().startswith("https://") and len(raw) <= 2000 and " " not in raw else ""
+
+
+def logo_path(station: Station) -> str:
+    """Where the page loads a station's logo: always our own origin (the
+    server fetches and caches it, core/internet_radio/logos.py), with a tag
+    of the source address so a changed logo isn't the old one. '' for none."""
+    if not station.logo_url:
+        return ""
+    from core.internet_radio.logos import version
+    return f"/api/radio/stations/{station.id}/logo?v={version(station.logo_url)}"
+
+
 def parse_builtin(data: Dict[str, Any]) -> List[Station]:
     """The built-in list, checked: a bad entry is skipped with a log line, never fatal."""
     out: List[Station] = []
@@ -126,7 +143,7 @@ def parse_builtin(data: Dict[str, Any]) -> List[Station]:
                 id=sid, name=str(raw.get("name") or sid), kind=kind, source="built_in", streams=streams,
                 genre=str(raw.get("genre") or ""), city=str(raw.get("city") or ""),
                 country=str(raw.get("country") or ""), homepage=str(raw.get("homepage") or ""),
-                description=str(raw.get("description") or ""), logo_url=str(raw.get("logo_url") or ""),
+                description=str(raw.get("description") or ""), logo_url=builtin_logo(raw.get("logo_url")),
                 logo_text=str(raw.get("logo_text") or "")[:4],
                 now_playing=raw.get("now_playing") or None, tracklists=raw.get("tracklists") or None,
                 note=str(raw.get("source") or "")))
@@ -197,7 +214,7 @@ def public_station(station: Station, *, favourite: bool = False, auto_add: bool 
     return {
         "id": station.id, "name": station.name, "kind": station.kind,
         "kind_label": KIND_LABELS.get(station.kind, ""), "genre": station.genre,
-        "city": station.city, "country": station.country, "logo_url": station.logo_url,
+        "city": station.city, "country": station.country, "logo_url": logo_path(station),
         "logo_text": station.logo_text,
         "homepage": station.homepage, "description": station.description, "source": station.source,
         "favourite": bool(favourite), "auto_add": bool(auto_add),
@@ -222,4 +239,4 @@ def kinds_meta() -> List[Dict[str, str]]:
 
 __all__ = ["Station", "Stream", "KINDS", "KIND_LABELS", "SOURCES", "builtin_stations", "builtin_station",
            "parse_builtin", "make_stream", "ordered_streams", "pick_stream", "quality_label",
-           "public_station", "kinds_meta", "reset_cache"]
+           "public_station", "kinds_meta", "reset_cache", "builtin_logo", "logo_path"]

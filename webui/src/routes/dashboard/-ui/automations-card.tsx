@@ -29,6 +29,7 @@ import {
   accentReport,
   formatRatio,
 } from '@/features/settings/accent';
+import { saveProfileAccent } from '@/features/settings/profile-accent';
 
 import type {
   AutomationApiRow,
@@ -157,12 +158,10 @@ export function QuickSettings() {
   // the colour before a drag on the custom swatch started (dragging applies live)
   const committedAccent = useRef(accent);
 
-  /** Apply instantly via init.js's own applier, then persist to the server
-   *  config (partial POST — the handler merges key-by-key). Without the
-   *  server write, bootstrapServerAppearanceSettings would revert the color
-   *  on the next load. Persist failures (e.g. a non-admin profile — the
-   *  endpoint is admin-only) stay quiet: the color still applies for the
-   *  session, which is honest feedback on its own. */
+  /** Apply instantly via init.js's own applier, then save it as this
+   *  profile's own accent (HANDOFF 35: each profile picks its own; members
+   *  too, since it's their pick, not the install's). A refused save puts the
+   *  colour back and says why. */
   const pickAccent = (hex: string, isCustom: boolean) => {
     // a custom colour has to pass the same check Settings → Appearance makes:
     // dark text on its light shade at 4.5:1, or primary buttons can't be read
@@ -177,18 +176,17 @@ export function QuickSettings() {
       );
       return;
     }
+    const previous = committedAccent.current;
     committedAccent.current = hex;
     setAccent(hex);
     window.applyAccentColor?.(hex);
-    void fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ui_appearance: isCustom
-          ? { accent_preset: 'custom', accent_color: hex }
-          : { accent_preset: hex },
-      }),
-    }).catch(() => undefined);
+    void saveProfileAccent(report.hex).then((result) => {
+      if (result.ok) return;
+      committedAccent.current = previous;
+      window.applyAccentColor?.(previous);
+      setAccent(previous);
+      window.showToast?.(result.error, 'error');
+    });
   };
 
   const [particles, setParticles] = useState(

@@ -86,9 +86,15 @@ def ai_status():
 
 
 def _settings_payload():
-    status = ai_assistant.status(config_manager, get_database(), is_admin=True)
+    database = get_database()
+    status = ai_assistant.status(config_manager, database, is_admin=True)
+    usage = dict(status.get("usage") or {})
+    # per profile, for the table Settings → AI shows once everyone may use it
+    # (HANDOFF 39); admins only, as this whole payload is
+    if usage:
+        usage["profiles"] = store.profile_usage(database, usage.get("month"))
     return {"success": True, "settings": ai_config.public_settings(config_manager),
-            "usage": status.get("usage"), **ai_config.catalogue()}
+            "usage": usage or None, **ai_config.catalogue()}
 
 
 @bp.route("/api/ai/settings", methods=["GET"])

@@ -1904,3 +1904,63 @@
     gap: 6px;
   }
 }
+
+/* Listening history's Kind filter (HANDOFF 46): Music / Podcasts /
+   Audiobooks as OptionButtons, Music first and selected by default. */
+.historyBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.historyKinds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.historyKindsLabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ss-text-meta);
+}
+
+.historyNote {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ss-text-meta);
+}
+
+.historyRetry {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  cursor: pointer;
+}
+
+/* an episode or a book: its title over "show · where you got to", both
+   cut with an ellipsis rather than pushing the time out of the row */
+.historySpokenText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.historySpokenMeta {
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--ss-text-meta);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
