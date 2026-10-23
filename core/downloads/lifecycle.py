@@ -162,6 +162,9 @@ def _publish_atomic_album(batch_id: str, batch: dict, deps=None) -> bool:
         _db_update = make_db_path_updater(db)
 
         result = publish_album_batch(staging_root, transfer_dir, safe_move_file, _db_update)
+        if result.get('published'):
+            from core.slskd_share_rescan import notify_library_import
+            notify_library_import(len(result['published']))
 
         # Remap the consistency roster (staged -> final) so the album-consistency
         # pass later in this block operates on the now-published files.
