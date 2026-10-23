@@ -4,22 +4,11 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Questions 1–28 were answered in Design's session of 22 October, 29–57 in its evening pass, and 58–82 on 23 October (`Start here - Design notes 2026-10-23.dc.html`; the hand-off's "Build order for Dev, 23 October"). Phases 1 and 2 of that order are built (log entries "Dev, phase 1" and "Dev, phase 2" below): 58 (the bar, the strip and Settings → Radio's Scan now services card), 59–63, 65, 66, 67, 69–73, 75, 77–79, 81 and 82 are done and out of this list. What's left is marked with the phase that builds it, plus "later" and Dev's new questions, numbered from 83. Answer on the canvas, naming the board, as before. Phase 4 (the visualisers) is built too ("Dev, phase 4"); its questions are numbered from 100.
+Questions 1–28 were answered in Design's session of 22 October, 29–57 in its evening pass, and 58–82 on 23 October (`Start here - Design notes 2026-10-23.dc.html`; the hand-off's "Build order for Dev, 23 October"). Phases 1 and 2 of that order are built (log entries "Dev, phase 1" and "Dev, phase 2" below): 58 (the bar, the strip and Settings → Radio's Scan now services card), 59–63, 65, 66, 67, 69–73, 75, 77–79, 81 and 82 are done and out of this list. Phase 3 is built too ("Dev, phase 3"): 64, 68, 74, 76 (Ross: no) and 80 are out; its questions start at 90. Phase 4 (the visualisers) is built too ("Dev, phase 4"); its questions are numbered from 100. What's left is "later" and Dev's new questions, numbered from 83. Answer on the canvas, naming the board, as before.
 
 **Later (Ross: not yet)**
 31. The first-run setup flow in the design system.
 33. The video side's Wanted.
-
-**Answered on 23 October, waiting for their phase**
-64. *(Phase 3)* Listening history as its own Library page, drawn (13a, 13b).
-68. *(Phase 3)* "Look for releases you don't have…" in Library → Artists' "…" and the Incomplete empty state, as a stoppable background job.
-74. *(Phase 3)* The Artist page's Remove from library goes through the recycle bin and Library's preview, like Library's.
-76. *(Phase 3, Ross decides)* "Accept any quality" holds the item to an "Any quality" profile (a route and a profile), or the button is renamed "Search by hand for Lantern…".
-80. *(Phase 3)* "You have N albums" on the Follow… dialog's artist rows, if one batch count is cheap.
-
-
-66. *(Phase 2)* A link's logo can be changed afterwards from Settings → Radio's links table ("Change logo…"); built-in stations no.
-82. *(Phase 2)* The phone radio sheet redrawn (11d, 11e).
 
 **From phase 1 of 23 October**
 83. 9d and 10a give L to the Visuals overlay (favourite, Phase 4). In the tray today L is the A–B loop (the shortcuts list says so). Phase 1 makes V and Shift+V overlay-only, as answer 60 says, and leaves L as the A–B loop outside the overlay. When the overlay gets L, should the A–B loop move to another key, or keep L outside the overlay? *(Phase 4 built it the second way for now: inside the overlay L stars the playing MilkDrop preset, outside it L is still the A–B loop, and the shortcuts list says both. Still open.)*
