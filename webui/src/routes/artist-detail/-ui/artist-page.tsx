@@ -28,7 +28,6 @@ import {
   watchlistIdentity,
 } from '../-artist-detail.api';
 import { showsDbRecordButton } from '../-artist-detail.db-record';
-import { deleteArtistRequest, deleteArtistToast } from '../-artist-detail.delete-artist';
 import { peekArtistEdit } from '../-artist-detail.edit-focus';
 import {
   applyMusicBrainzDeclutter,
@@ -76,6 +75,7 @@ import {
 } from '../-artist.helpers';
 import { useAddToWanted, useFollow, usePhone } from '../-artist.hooks';
 import { useReleaseActions } from '../-artist.release-actions';
+import { RemoveFromLibrary } from '../../library/-ui/remove-flow';
 import { whyItFailed } from '../../wanted/-wanted.helpers';
 import { WatchlistArtistConfigModal } from '../../watchlist/-ui/watchlist-artist-config-modal';
 import {
@@ -306,7 +306,8 @@ export function ArtistPage() {
   const tabBase = useId();
   const [dialog, setDialog] = useState<Dialog>(null);
   const [appliedPhoto, setAppliedPhoto] = useState<string | null>(null);
-  const [removing, setRemoving] = useState(false);
+  // the Library's Safe action for this artist's albums (HANDOFF 74)
+  const [removed, setRemoved] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   const go = (patch: Record<string, unknown>, options?: { replace?: boolean }) =>
@@ -531,21 +532,6 @@ export function ArtistPage() {
     if (follow.busy) return;
     if (follow.following) setDialog('unfollow');
     else follow.follow();
-  };
-
-  const removeArtist = async () => {
-    if (!libraryArtistId || removing) return;
-    setRemoving(true);
-    try {
-      const result = await deleteArtistRequest(libraryArtistId);
-      window.showToast?.(deleteArtistToast(artistName, result), 'success');
-      window.updateWatchlistCount?.();
-      setDialog(null);
-      void navigate({ to: '/library' });
-    } catch (error) {
-      window.showToast?.(`Couldn't remove ${artistName}: ${(error as Error).message}`, 'error');
-      setRemoving(false);
-    }
   };
 
   const syncFromServer = async () => {
@@ -1024,23 +1010,20 @@ export function ArtistPage() {
         </p>
       </ConfirmDialog>
 
-      <ConfirmDialog
-        open={dialog === 'remove'}
-        title={`Remove ${artistName} from your library?`}
-        confirmLabel={removing ? 'Removing…' : 'Remove from library'}
-        tone="danger"
-        busy={removing}
-        onCancel={() => setDialog(null)}
-        onConfirm={() => void removeArtist()}
-      >
-        <p className={styles.dialogText}>
-          SYNCHRO.S forgets {artistName} and all of their albums and tracks.
-        </p>
-        <p className={styles.dialogText}>
-          Only the database entries go: not one file on disk is deleted, and a rescan finds them
-          again.
-        </p>
-      </ConfirmDialog>
+      {dialog === 'remove' && libraryArtistId ? (
+        <RemoveFromLibrary
+          body={{ artist_id: libraryArtistId }}
+          artistName={artistName}
+          onDone={() => {
+            setRemoved(true);
+            window.updateWatchlistCount?.();
+          }}
+          onClose={() => {
+            setDialog(null);
+            if (removed) void navigate({ to: '/library' });
+          }}
+        />
+      ) : null}
 
       <MoreFiltersDialog
         open={dialog === 'filters'}

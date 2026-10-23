@@ -21,14 +21,18 @@ interface RemoveItem {
 /**
  * Remove from library (the bar's "…", admins), through the Safe action: a
  * preview of every file, "I checked the list", then the files go to the
- * recycle bin and the albums leave the library.
+ * recycle bin and the albums leave the library. The Artist page's Remove
+ * from library (HANDOFF 74) is the same flow for every album of one artist
+ * (`body.artist_id` and `artistName`); the artist goes once nothing is left.
  */
 export function RemoveFromLibrary({
   body,
+  artistName,
   onClose,
   onDone,
 }: {
-  body: SelectionBody;
+  body: SelectionBody & { artist_id?: string | number };
+  artistName?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -68,6 +72,7 @@ export function RemoveFromLibrary({
       code?: string;
       error?: string;
       albums_removed?: number;
+      artist_removed?: boolean;
       files_moved?: number;
       skipped?: number;
       errors?: unknown[];
@@ -86,7 +91,10 @@ export function RemoveFromLibrary({
     setPhase({
       kind: 'done',
       tone: failed ? 'warning' : 'success',
-      title: `Removed ${plural(result.albums_removed ?? 0, 'album')} from your library`,
+      title:
+        artistName && result.artist_removed
+          ? `Removed ${artistName} from your library`
+          : `Removed ${plural(result.albums_removed ?? 0, 'album')} from your library`,
       body: [
         `${plural(result.files_moved ?? 0, 'file')} went to the recycle bin (Maintenance → Recycle bin restores them).`,
         result.skipped ? `${plural(result.skipped, 'file')} had already gone.` : '',
@@ -106,7 +114,11 @@ export function RemoveFromLibrary({
       open
       onClose={onClose}
       phase={phase}
-      title={`Remove ${plural(albums, 'album')} from your library?`}
+      title={
+        artistName
+          ? `Remove ${artistName} from your library?`
+          : `Remove ${plural(albums, 'album')} from your library?`
+      }
       stats={
         plan
           ? [
@@ -116,7 +128,11 @@ export function RemoveFromLibrary({
             ]
           : []
       }
-      lead="Their files go to the recycle bin and the albums leave your library. Nothing is deleted for good until the recycle bin is emptied."
+      lead={
+        artistName
+          ? `Their ${plural(albums, 'album')} go${albums === 1 ? 'es' : ''} to the recycle bin and leave your library, and so does ${artistName} once nothing of theirs is left. Nothing is deleted for good until the recycle bin is emptied.`
+          : 'Their files go to the recycle bin and the albums leave your library. Nothing is deleted for good until the recycle bin is emptied.'
+      }
       columns={['Album', 'File', 'Size']}
       rows={(plan?.sample ?? []).map((item, index) => ({
         key: `${item.path}-${index}`,

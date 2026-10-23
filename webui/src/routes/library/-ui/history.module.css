@@ -1,0 +1,526 @@
+/*
+ * Library → Listening history, built to "Listening history (Library)" 13a
+ * (1440) and 13b (390): Activity's shape with Library's toolbar. Day groups
+ * under a 12px uppercase head on a hairline; rows `72px 48px 1fr 200px 100px`
+ * at 64px; Play and "…" on hover or focus inside a row. Text is 14px or
+ * larger at 62% white or brighter.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  color: var(--ss-text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--ss-text-tertiary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* the phone's "Stats" (13b); the wide page has "Open Stats" instead */
+.statsLink {
+  display: none;
+  align-items: center;
+  min-height: 44px;
+  color: rgb(var(--ss-accent-light-rgb));
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.headActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.openStats {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  color: var(--ss-text-secondary);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: var(--ss-transition);
+}
+
+.openStats:hover {
+  background: var(--ss-hover-wash);
+  color: var(--ss-text);
+  text-decoration: none;
+}
+
+.statsLink:focus-visible,
+.openStats:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+/* ── Kind and Range ─────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.kindRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rowLabel {
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.kinds,
+.ranges {
+  display: flex;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-control-fill);
+  color: var(--ss-text-secondary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.chip:hover {
+  background: var(--ss-control-fill-hover);
+  color: var(--ss-text);
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--ss-selected-border);
+  background: var(--ss-selected-fill);
+  color: var(--ss-text);
+}
+
+.chip:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.metaLine {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── Day groups and rows ────────────────────────────────────────────── */
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.dayHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  margin: 0;
+  border-bottom: 1px solid var(--ss-hairline);
+}
+
+.dayName {
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dayCount {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 72px 48px minmax(0, 1fr) 200px 100px;
+  gap: 16px;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 64px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ss-hairline);
+  border-radius: var(--ss-radius-control);
+  transition: var(--ss-transition);
+}
+
+.row:hover,
+.row:focus-within {
+  background: var(--ss-surface-card);
+}
+
+/* a track that has left the library: the row at 62%, no Play (13a) */
+.row[data-gone='true'] {
+  opacity: 0.62;
+}
+
+.time {
+  color: var(--ss-text-meta);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.art {
+  display: block;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border-radius: var(--ss-radius-tag);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  overflow: hidden;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta a {
+  color: rgb(var(--ss-accent-light-rgb));
+  text-decoration: none;
+}
+
+.meta a:hover {
+  text-decoration: underline;
+}
+
+.meta a:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* the format of a copy below your quality target, as the queue colours it */
+.below {
+  color: var(--ss-warning);
+}
+
+/* "23 min left" on something half-heard (13b) */
+.progress {
+  color: rgb(var(--ss-accent-light-rgb));
+}
+
+.tagSlot {
+  display: flex;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Play and "…" show on hover or focus inside the row; touch screens keep them */
+@media (hover: hover) {
+  .actions[data-reveal='hover'] {
+    opacity: 0;
+    transition: opacity var(--ss-motion) var(--ss-ease);
+  }
+
+  .row:hover .actions[data-reveal='hover'],
+  .row:focus-within .actions[data-reveal='hover'] {
+    opacity: 1;
+  }
+}
+
+.play,
+.ghostPlay {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ss-radius-control);
+  background: rgb(var(--ss-accent-light-rgb));
+  color: var(--ss-text-on-accent);
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.play:hover {
+  opacity: var(--ss-pressed-opacity);
+}
+
+.ghostPlay {
+  border: 1px solid var(--ss-control-border);
+  background: transparent;
+  color: var(--ss-text-secondary);
+}
+
+.ghostPlay:hover {
+  background: var(--ss-hover-wash);
+  color: var(--ss-text);
+}
+
+.play:focus-visible,
+.ghostPlay:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.more.more {
+  border-color: var(--ss-control-border);
+  background: transparent;
+}
+
+/* ── Loading, empty, footer ─────────────────────────────────────────── */
+
+.skeletonTime {
+  width: 44px;
+  height: 14px;
+}
+
+.skeletonTitle {
+  width: 40%;
+  height: 15px;
+}
+
+.skeletonMeta {
+  width: 60%;
+  height: 14px;
+}
+
+.faded {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px 0;
+}
+
+.empty h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.emptyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+/* ── Phone (13b) ────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .page {
+    gap: 16px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .heading {
+    font-size: 24px;
+  }
+
+  .statsLink {
+    display: inline-flex;
+  }
+
+  .subtitle,
+  .openStats {
+    display: none;
+  }
+
+  /* the filter keeps its place under the title, as Library's phone does */
+  .headActions > * {
+    flex: 1;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .kindRow {
+    margin: 0 -12px;
+    padding: 0 12px 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .kindRow::-webkit-scrollbar {
+    display: none;
+  }
+
+  .rowLabel {
+    display: none;
+  }
+
+  .kinds .chip {
+    padding: 0 14px;
+  }
+
+  .ranges {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ranges .chip {
+    padding: 0 8px;
+  }
+
+  .dayHead {
+    min-height: 36px;
+  }
+
+  .group + .group {
+    margin-top: -12px;
+  }
+
+  .row {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    gap: 12px;
+    padding: 8px 0;
+    border-radius: 0;
+  }
+
+  .row:hover,
+  .row:focus-within {
+    background: none;
+  }
+
+  .art {
+    width: 44px;
+    height: 44px;
+  }
+}

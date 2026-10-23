@@ -95,15 +95,23 @@ function lower(value: string | null | undefined): string {
     .toLowerCase();
 }
 
+/** "You have 6 albums" (HANDOFF 80); nothing at none, since the library may not know that id. */
+export function albumsYouHave(count: number | undefined): string {
+  if (!count) return '';
+  return `You have ${count.toLocaleString()} ${count === 1 ? 'album' : 'albums'}`;
+}
+
 export function artistResults(
   results: ProviderSearchResult[],
   followedNames: Set<string>,
+  /** Albums you have by each result's id (POST /api/library/artists/album-counts). */
+  albumCounts: Record<string, number> = {},
 ): FollowResult[] {
   return results.slice(0, 8).map((result) => ({
     key: `artist:${result.id}`,
     name: result.name,
     meta: result.extra ?? '',
-    have: '',
+    have: albumsYouHave(albumCounts[String(result.id)]),
     image: result.image ?? '',
     round: true,
     initials: initials(result.name),

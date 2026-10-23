@@ -191,6 +191,9 @@ class ReleaseIndex:
         self.target: Dict[str, Any] = {}
         self.built_ms: float = 0.0
         self.built_at: float = 0.0
+        # canonical artists the metadata cache lists any release for: the
+        # ones without are what "Look for releases you don't have" fetches
+        self.listed: set = set()
 
     def add(self, release: Dict[str, Any]) -> None:
         self.releases.append(release)
@@ -438,8 +441,6 @@ def build_index(database, profile_id: int, *, fix_art=None, server: Optional[str
     rank = {s: i for i, s in enumerate(_SOURCE_ORDER)}
     for row in cached_rows:
         atype = _album_type(row["album_type"])
-        if atype not in _GRID_TYPES:
-            continue
         source = (row["source"] or "").lower()
         cid = None
         if row["artist_id"] not in (None, "") and source in _ARTIST_ID_COLUMNS:
@@ -454,6 +455,9 @@ def build_index(database, profile_id: int, *, fix_art=None, server: Optional[str
         else:
             cid = by_name.get(norm_name(row["artist_name"]))
         if cid is None:
+            continue
+        index.listed.add(cid)
+        if atype not in _GRID_TYPES:
             continue
         title = row["name"] or ""
         tkey = norm_title(title)
@@ -907,6 +911,15 @@ def artist_page(index: ReleaseIndex, *, show: Any = "all", genre: Any = "", q: A
 MAX_SELECTION = 500
 
 
+def artists_without_releases(index: ReleaseIndex) -> List[Dict[str, Any]]:
+    """Library artists the metadata cache lists no release for (their
+    discography was never fetched, or came back empty), by name: what
+    "Look for releases you don't have" asks the metadata services about."""
+    out = [a for cid, a in index.artists.items() if cid not in index.listed]
+    out.sort(key=lambda a: a["name"].casefold())
+    return out
+
+
 def resolve_selection(index: ReleaseIndex, body: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[str]]:
     """``release_ids`` plus, optionally, ``filter`` (everything matching it,
     less ``exclude_ids``): what a selection means. ``filter`` takes ``show``,
@@ -969,7 +982,7 @@ def selection_summary(index: ReleaseIndex, releases: List[Dict[str, Any]], *, sa
 
 __all__ = [
     "ALBUM_SHOWS", "ALBUM_SORTS", "ARTIST_SHOWS", "ARTIST_SORTS", "GENRE_SHOWS", "GENRE_SORTS",
-    "MAX_SELECTION", "ReleaseIndex", "addable_missing", "album_page", "artist_page", "build_index", "clear_cache",
+    "MAX_SELECTION", "ReleaseIndex", "addable_missing", "artists_without_releases", "album_page", "artist_page", "build_index", "clear_cache",
     "genre_tiles", "get_index", "norm_name", "norm_title", "parse_genres", "primary_genre",
     "resolve_selection", "selection_summary", "totals", "wantable",
 ]

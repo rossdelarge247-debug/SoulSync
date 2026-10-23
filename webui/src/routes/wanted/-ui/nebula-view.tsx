@@ -343,13 +343,16 @@ function ArtistPanel({
             </Button>
           ) : null}
           {stuck && stuck.tracks[0] ? (
+            // HANDOFF 76 (Ross: no Any-quality profile): named for what it
+            // does, Search by hand, with a file below the target allowed
             <Button
               size="lg"
               variant="ghost"
-              className={styles.wide}
+              className={`${styles.wide} ${styles.twoLine}`}
               onClick={() => handlers.onSearchByHand(stuck.tracks[0])}
             >
-              Accept any quality for {stuck.title}
+              <span>Search by hand for {stuck.title}…</span>
+              <span className={styles.buttonMeta}>pick a file below your target</span>
             </Button>
           ) : null}
           {index && wantable > 0 ? (

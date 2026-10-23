@@ -223,19 +223,54 @@ def log_play(db, profile_id: int, item: Dict[str, Any], *, now: Optional[float] 
 def recent_plays(db, profile_id: int, kinds: Iterable[str] = KINDS, limit: int = 20) -> List[Dict[str, Any]]:
     """This profile's plays of the given kinds, newest first, with where each
     got to."""
+    items = plays_page(db, profile_id, kinds, limit=limit)["items"]
+    for item in items:
+        item.pop("day", None)
+    return items
+
+
+def plays_page(db, profile_id: int, kinds: Iterable[str] = KINDS, *, limit: int = 20, offset: int = 0,
+               since: Optional[str] = None, q: str = "", tz: int = 0, with_total: bool = False) -> Dict[str, Any]:
+    """One page of this profile's plays (Library → Listening history's
+    Podcasts and Audiobooks): ``since`` is a UTC stamp (None for all time),
+    ``q`` filters the title and the show or book, ``tz`` is the browser's
+    offset (minutes, UTC minus local) for each play's ``day``. With
+    ``with_total``, also the total and each touched day's count."""
     kinds = [check_kind(k) for k in kinds]
     limit = max(1, min(PLAYS_MAX, int(limit)))
+    offset = max(0, int(offset or 0))
     if not kinds:
-        return []
+        return {"items": [], "total": 0, "days": {}}
     marks = ",".join("?" for _ in kinds)
+    where = f"p.profile_id = ? AND p.kind IN ({marks})"
+    params: List[Any] = [int(profile_id), *kinds]
+    if since:
+        where += " AND p.played_at >= ?"
+        params.append(since)
+    q = str(q or "").strip()[:200].lower()
+    if q:
+        where += " AND (LOWER(p.title) LIKE ? OR LOWER(COALESCE(p.subtitle, '')) LIKE ?)"
+        params += [f"%{q}%", f"%{q}%"]
+    modifier = f"{-int(tz):+d} minutes"
+    total = None
+    days: Dict[str, int] = {}
     with db._get_connection() as conn:
         rows = conn.execute(
             "SELECT p.id, p.kind, p.media_id, p.title, p.subtitle, p.art_url, p.src, p.duration_s, p.played_at, "  # noqa: S608
-            "g.position_s, g.duration_s AS progress_duration, g.finished "
+            "date(p.played_at, ?) AS day, g.position_s, g.duration_s AS progress_duration, g.finished "
             "FROM media_plays p LEFT JOIN media_progress g ON g.profile_id = p.profile_id "
             "AND g.kind = p.kind AND g.media_id = p.media_id "
-            f"WHERE p.profile_id = ? AND p.kind IN ({marks}) ORDER BY p.played_at DESC, p.id DESC LIMIT ?",
-            (int(profile_id), *kinds, limit)).fetchall()
+            f"WHERE {where} ORDER BY p.played_at DESC, p.id DESC LIMIT ? OFFSET ?",
+            (modifier, *params, limit, offset)).fetchall()
+        if with_total:
+            total = int(conn.execute(f"SELECT COUNT(*) FROM media_plays p WHERE {where}", params).fetchone()[0])  # noqa: S608
+            touched = sorted({r["day"] for r in rows if r["day"]})
+            if touched:
+                day_marks = ",".join("?" for _ in touched)
+                for r in conn.execute(
+                        f"SELECT date(p.played_at, ?) AS day, COUNT(*) FROM media_plays p WHERE {where} "  # noqa: S608
+                        f"GROUP BY day HAVING day IN ({day_marks})", (modifier, *params, *touched)).fetchall():
+                    days[r[0]] = int(r[1])
     out = []
     for r in rows:
         duration = r["progress_duration"] if r["progress_duration"] is not None else r["duration_s"]
@@ -246,9 +281,14 @@ def recent_plays(db, profile_id: int, kinds: Iterable[str] = KINDS, limit: int =
             "played_at": r["played_at"],
             "position_s": round(float(r["position_s"]), 1) if r["position_s"] is not None else None,
             "finished": bool(r["finished"]) if r["finished"] is not None else False,
+            "day": r["day"],
         })
-    return out
+    page: Dict[str, Any] = {"items": out, "days": days}
+    if total is not None:
+        page["total"] = total
+    return page
 
 
 __all__ = ["KINDS", "SpokenError", "check_kind", "check_media_id", "finish_margin", "is_finished", "resume_at",
-           "clean_src", "clean_art", "get_progress", "save_progress", "log_play", "recent_plays", "now_stamp"]
+           "clean_src", "clean_art", "get_progress", "save_progress", "log_play", "recent_plays", "plays_page",
+           "now_stamp"]

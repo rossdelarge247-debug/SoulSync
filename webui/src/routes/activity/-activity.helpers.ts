@@ -332,15 +332,30 @@ export function retryAction(item: ActivityItem): RetryAction | null {
   return null;
 }
 
+/**
+ * Stop, where a running item can be stopped: a library job such as "Looking
+ * for releases you don't have" (HANDOFF 68) names its stop route in
+ * `ref.stop_path`, under /api/library/.
+ */
+export function stopAction(item: ActivityItem): RetryAction | null {
+  if (item.status !== 'running') return null;
+  const path = item.ref?.stop_path;
+  if (typeof path !== 'string' || !/^library\/[a-z0-9/-]+$/.test(path)) return null;
+  return { path, label: 'Stop' };
+}
+
 export type RowAction =
   | { type: 'log' }
   | { type: 'retry'; retry: RetryAction }
+  | { type: 'stop'; stop: RetryAction }
   | { type: 'open'; href: string }
   | null;
 
 /** The one action on the right of a timeline row. */
 export function rowAction(item: ActivityItem): RowAction {
   if (item.has_log) return { type: 'log' };
+  const stop = stopAction(item);
+  if (stop) return { type: 'stop', stop };
   const retry = retryAction(item);
   if (retry) return { type: 'retry', retry };
   if (item.link) return { type: 'open', href: item.link };

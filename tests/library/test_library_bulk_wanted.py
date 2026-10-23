@@ -260,6 +260,35 @@ def test_remove_from_library_previews_then_moves_to_the_recycle_bin(client, db, 
     assert os.listdir(os.path.join(str(client.library), ".deleted"))
 
 
+def test_the_artist_pages_remove_goes_through_the_same_plan(client, db):
+    """HANDOFF 74: every album of the artist, previewed, to the recycle bin;
+    the artist row goes once nothing of theirs is left."""
+    for path in [r["file_path"] for r in _rows(db, "SELECT file_path FROM tracks WHERE artist_id = 1")]:
+        with open(path, "wb") as fh:
+            fh.write(b"x" * 10)
+    _sql(db, "INSERT INTO albums (id, artist_id, title) VALUES (12, 1, 'Empty Row')")
+    preview = client.post("/api/library/albums/remove-preview", json={"artist_id": 1}).get_json()
+    assert preview["success"] and preview["total"] == 5
+    assert preview["meta"]["albums"] == 3 and preview["meta"]["artist_id"] == "1"
+    assert {i["reason"] for i in preview["sample"]} == {"Pale Harbour · Night Ferry", "Pale Harbour · Tidewater"}
+    # nothing moved or forgotten by the preview
+    assert len(_rows(db, "SELECT id FROM albums WHERE artist_id = 1")) == 3
+    done = client.post("/api/library/albums/remove", json={"plan_id": preview["plan_id"]}).get_json()
+    assert done["albums_removed"] == 3 and done["files_moved"] == 5 and done["artist_removed"] is True
+    assert _rows(db, "SELECT id FROM artists WHERE id = 1") == []
+    assert len(_rows(db, "SELECT id FROM artists WHERE id = 2")) == 1
+
+
+def test_the_artist_stays_while_something_of_theirs_is_left(client, db):
+    _sql(db, "INSERT INTO albums (id, artist_id, title) VALUES (30, 2, 'Brine')")
+    _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path) VALUES ('g1', 10, 2, 'Guest', '')")
+    preview = client.post("/api/library/albums/remove-preview", json={"artist_id": 2}).get_json()
+    done = client.post("/api/library/albums/remove", json={"plan_id": preview["plan_id"]}).get_json()
+    # their guest track on Pale Harbour's album keeps them
+    assert done["albums_removed"] == 1 and done["artist_removed"] is False
+    assert len(_rows(db, "SELECT id FROM artists WHERE id = 2")) == 1
+
+
 def test_remove_from_library_is_for_admins(client, db):
     client.who.update(pid=db.create_profile(name="kim"), admin=False)
     assert client.post("/api/library/albums/remove-preview", json={"album_ids": [10]}).status_code == 403
@@ -288,3 +317,31 @@ def test_summary_sample_size(client):
     assert len(body["sample"]) == 2
     body = client.post("/api/library/releases/summary", json={"filter": {"show": "missing"}, "sample": 1}).get_json()
     assert len(body["sample"]) == 1
+
+
+def test_album_counts_for_the_follow_dialog(client, db):
+    """HANDOFF 80: one query for "You have N albums" on a page of artist results."""
+    _sql(db, "INSERT INTO albums (id, artist_id, title) VALUES (13, 1, 'No Files Yet')")
+    body = client.post("/api/library/artists/album-counts",
+                       json={"source": "spotify", "ids": ["sp-ph", "sp-unknown"]}).get_json()
+    assert body == {"success": True, "counts": {"sp-ph": 2}}
+    assert client.post("/api/library/artists/album-counts", json={"source": "deezer", "ids": []}).get_json() == {
+        "success": True, "counts": {}}
+    assert client.post("/api/library/artists/album-counts", json={"source": "lastfm", "ids": ["x"]}).status_code == 400
+    assert client.post("/api/library/artists/album-counts",
+                       json={"source": "spotify", "ids": [str(i) for i in range(51)]}).status_code == 400
+    client.who["pid"] = None
+    assert client.post("/api/library/artists/album-counts", json={"source": "spotify", "ids": ["a"]}).status_code == 401
+
+
+def test_album_counts_use_the_id_index(db):
+    conn = db._get_connection()
+    try:
+        plan = " ".join(str(tuple(r)) for r in conn.execute(
+            "EXPLAIN QUERY PLAN SELECT ar.spotify_artist_id, COUNT(DISTINCT al.id) FROM artists ar "
+            "JOIN albums al ON al.artist_id = ar.id WHERE ar.spotify_artist_id IN ('a', 'b') AND EXISTS ("
+            "SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.file_path IS NOT NULL) "
+            "GROUP BY ar.spotify_artist_id").fetchall())
+    finally:
+        conn.close()
+    assert "idx_artists_spotify_id" in plan and "SCAN ar" not in plan

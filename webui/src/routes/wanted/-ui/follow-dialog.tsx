@@ -207,12 +207,33 @@ export function FollowDialog({
     },
   });
 
+  // HANDOFF 80: "You have N albums" on artist rows, one ask per page of results
+  const artistIds =
+    search.data?.kind === 'artist' ? search.data.artists.slice(0, 8).map((a) => String(a.id)) : [];
+  const albumCounts = useQuery({
+    queryKey: [
+      ...WATCHLIST_QUERY_KEY,
+      'follow-album-counts',
+      profileId,
+      source,
+      artistIds,
+    ] as const,
+    enabled: open && kind === 'artist' && artistIds.length > 0,
+    queryFn: async () => {
+      const body = await readJson<{ success?: boolean; counts?: Record<string, number> }>(
+        apiClient.post('library/artists/album-counts', { json: { source, ids: artistIds } }),
+      );
+      return body.counts ?? {};
+    },
+    staleTime: 60_000,
+  });
+
   const results: FollowResult[] = useMemo(() => {
     const data = search.data;
     if (!data || data.kind !== kind) return [];
     switch (data.kind) {
       case 'artist':
-        return artistResults(data.artists, followedNames);
+        return artistResults(data.artists, followedNames, albumCounts.data);
       case 'label':
         return labelResults(
           data.labels,
@@ -234,7 +255,16 @@ export function FollowDialog({
           debounced,
         );
     }
-  }, [search.data, kind, followedNames, labels.data, podcasts.data, authors.data, debounced]);
+  }, [
+    search.data,
+    kind,
+    followedNames,
+    labels.data,
+    podcasts.data,
+    authors.data,
+    debounced,
+    albumCounts.data,
+  ]);
 
   const choice = results.find((r) => r.key === picked && !r.following) ?? null;
 

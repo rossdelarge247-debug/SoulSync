@@ -79,7 +79,6 @@ import {
 } from '../-stats.helpers';
 import { STATS_TAB_VALUES } from '../-stats.types';
 import { Route } from '../route';
-import { ListeningHistory } from './listening-history';
 import styles from './stats-page.module.css';
 import { YearStory } from './year-story';
 
@@ -452,17 +451,16 @@ export function StatsPage() {
                   <StatsGenreLegend genres={cachedStats?.genres ?? []} />
                 </div>
               </StatsSectionCard>
-              <StatsSectionCard title="Listening history">
-                <ListeningHistory
-                  music={cachedStats?.recent ?? []}
-                  formatPlayedAt={formatRelativePlayedAt}
-                  renderMusic={(tracks) => (
-                    <StatsRecentPlays
-                      tracks={tracks}
-                      onPlay={(track) => playStatsTrack(bridge, track)}
-                    />
-                  )}
+              {/* 13a: a short "Recently played"; the whole history, with
+                  podcasts and audiobooks, is Library → Listening history */}
+              <StatsSectionCard title="Recently played">
+                <StatsRecentPlays
+                  tracks={(cachedStats?.recent ?? []).slice(0, RECENTLY_PLAYED_SHOWN)}
+                  onPlay={(track) => playStatsTrack(bridge, track)}
                 />
+                <a className={styles.historyLink} href="/library?view=history">
+                  All of it in Listening history
+                </a>
               </StatsSectionCard>
             </div>
           </div>
@@ -1300,6 +1298,9 @@ function StatsRankedTracks({
     </div>
   );
 }
+
+/** How many plays the Stats card keeps (13a: "a short Recently played"). */
+const RECENTLY_PLAYED_SHOWN = 8;
 
 function StatsRecentPlays({
   tracks,

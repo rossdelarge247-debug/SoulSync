@@ -16,6 +16,9 @@ export interface ActivityRef {
   plan_id?: string;
   batch_id?: string;
   mirror_run_id?: number;
+  /** A library job's id, and while it runs the route that stops it (under /api/). */
+  job_id?: number;
+  stop_path?: string;
   [key: string]: unknown;
 }
 

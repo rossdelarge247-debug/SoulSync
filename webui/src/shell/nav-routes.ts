@@ -42,6 +42,7 @@ export const NAV_ROWS = [
   // Library
   'artists',
   'albums',
+  'history',
   'import',
   'stats',
   'podcasts',
@@ -77,6 +78,7 @@ export const ROW_GROUP: Partial<Record<NavRowKey, NavGroupKey>> = {
   chat: 'get-music',
   artists: 'library',
   albums: 'library',
+  history: 'library',
   import: 'library',
   stats: 'library',
   podcasts: 'library',
@@ -139,10 +141,16 @@ export function isAlbumView(search: string): boolean {
   return new URLSearchParams(search).get('view') === 'albums';
 }
 
+/** Library → Listening history (13a) is its own row, after Albums. */
+export function isHistoryView(search: string): boolean {
+  return new URLSearchParams(search).get('view') === 'history';
+}
+
 /** The row that lights up for a page, or null when no row owns it. */
 export function navRowFor(pageId: string | null | undefined, search = ''): NavRowKey | null {
   if (!pageId) return null;
-  if (pageId === 'library') return isAlbumView(search) ? 'albums' : 'artists';
+  if (pageId === 'library')
+    return isAlbumView(search) ? 'albums' : isHistoryView(search) ? 'history' : 'artists';
   return PAGE_ROWS[pageId] ?? null;
 }
 

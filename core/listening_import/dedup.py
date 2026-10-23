@@ -48,6 +48,13 @@ def _text(value):
     return str(value or "").strip().casefold()
 
 
+def _player(event):
+    """The media server's player a play was on ("Living room"), trimmed to
+    something a meta line can carry; None when the server didn't say."""
+    name = str(event.get("player_name") or "").strip()
+    return name[:80] or None
+
+
 # a stored play time: utc, "YYYY-MM-DD HH:MM:SS". one clock and one shape, so
 # a play and its last.fm / listenbrainz copy line up, and text range queries
 # on played_at mean what they say
@@ -109,8 +116,9 @@ def insert_import_events(database, events, source, profile_id=SHARED_OWNER):
         ensure_import_events_table(conn)
         # the account column comes with a migration; a table without it just
         # doesn't record who played
-        has_account = any(c[1] == "server_account_id"
-                          for c in conn.execute("PRAGMA table_info(listening_history)").fetchall())
+        lh_cols = {c[1] for c in conn.execute("PRAGMA table_info(listening_history)").fetchall()}
+        has_account = "server_account_id" in lh_cols
+        has_player = "player_name" in lh_cols
         low = min(key[2] for key in incoming) - CROSS_SOURCE_TOLERANCE_SECONDS
         high = max(key[2] for key in incoming) + CROSS_SOURCE_TOLERANCE_SECONDS
         # Clean only this window on connections without foreign-key enforcement.
@@ -176,6 +184,9 @@ def insert_import_events(database, events, source, profile_id=SHARED_OWNER):
                 if has_account:
                     cols += ", server_account_id"
                     values.append(event.get("server_account_id"))
+                if has_player:
+                    cols += ", player_name"
+                    values.append(_player(event))
                 cursor = conn.execute(
                     f"INSERT OR IGNORE INTO listening_history ({cols}) VALUES ({', '.join('?' * len(values))})",
                     values)
@@ -195,6 +206,11 @@ def insert_import_events(database, events, source, profile_id=SHARED_OWNER):
             if has_account and event.get("server_account_id"):
                 conn.execute("UPDATE listening_history SET server_account_id = COALESCE(server_account_id, ?) "
                              "WHERE id = ?", (str(event["server_account_id"]), history_id))
+            # the player it was on, when a server says (a play matched onto
+            # an import learns where it was heard)
+            if has_player and _player(event):
+                conn.execute("UPDATE listening_history SET player_name = COALESCE(player_name, ?) "
+                             "WHERE id = ?", (_player(event), history_id))
             # A later server event can supply the library link missing from an import.
             if event.get("db_track_id") is not None:
                 conn.execute("UPDATE listening_history SET db_track_id = COALESCE(db_track_id, ?) WHERE id = ?",

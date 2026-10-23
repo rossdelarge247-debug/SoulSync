@@ -244,6 +244,28 @@ describe('row actions', () => {
     expect(rowAction(item())).toEqual({ type: 'open', href: '/active-downloads' });
   });
 
+  it('offers Stop on a running library job, only for its own route (HANDOFF 68)', () => {
+    const job = item({
+      kind: 'automation',
+      id: 'library-job:3',
+      status: 'running',
+      link: '/library?show=incomplete',
+      ref: { job_id: 3, stop_path: 'library/missing-releases/stop' },
+    });
+    expect(rowAction(job)).toEqual({
+      type: 'stop',
+      stop: { path: 'library/missing-releases/stop', label: 'Stop' },
+    });
+    expect(rowAction({ ...job, status: 'ok' })).toEqual({
+      type: 'open',
+      href: '/library?show=incomplete',
+    });
+    expect(rowAction({ ...job, ref: { stop_path: 'settings/../wipe' } })).toEqual({
+      type: 'open',
+      href: '/library?show=incomplete',
+    });
+  });
+
   it('offers no retry where the server has none', () => {
     // a failed download batch: no retry route, so it opens Downloads
     expect(
