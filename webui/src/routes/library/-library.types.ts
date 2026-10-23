@@ -14,95 +14,97 @@ function searchString(value: unknown): string | undefined {
   return undefined;
 }
 
-function searchNumber(value: unknown, fallback: number): number {
-  const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
-  return Number.isFinite(n) && n >= 1 ? n : fallback;
+/** Show filters per grid (boards 7a, 7e, 7f). The first is the default. */
+export const ALBUM_SHOWS = ['all', 'library', 'missing', 'below'] as const;
+export const GENRE_SHOWS = ['all', 'gaps'] as const;
+export const ARTIST_SHOWS = ['all', 'following', 'incomplete'] as const;
+export type AlbumShow = (typeof ALBUM_SHOWS)[number];
+export type GenreShow = (typeof GENRE_SHOWS)[number];
+export type ArtistShow = (typeof ARTIST_SHOWS)[number];
+
+/** Sorts per grid; the first is the default. */
+export const ALBUM_SORTS = ['recent', 'artist', 'title', 'year', 'genre'] as const;
+export const GENRE_SORTS = ['albums', 'name'] as const;
+export const ARTIST_SORTS = ['name', 'recent', 'missing'] as const;
+export type AlbumSort = (typeof ALBUM_SORTS)[number];
+export type GenreSort = (typeof GENRE_SORTS)[number];
+export type ArtistSort = (typeof ARTIST_SORTS)[number];
+
+/** "Show 50 more" adds this many (board 7a's footer). */
+export const LIBRARY_PAGE_SIZE = 50;
+
+/** The old grid's sort values, read into the new ones so old links keep their order. */
+const LEGACY_SORTS: Record<string, string> = { year_desc: 'year', year_asc: 'year', '': '' };
+
+function optional(value: unknown): string | undefined {
+  const s = searchString(value);
+  return s === undefined || s === '' ? undefined : s;
 }
 
-/** The four watchlist filter buttons. */
-export const WATCHLIST_FILTERS = ['all', 'watched', 'unwatched', 'ignored'] as const;
-
 /**
- * Page size. Fixed at 75 in libraryPageState and never exposed in the UI, so
- * it is a constant here rather than URL state.
- */
-export const LIBRARY_PAGE_SIZE = 75;
-
-/**
- * All five filters live in the URL.
- *
- * They were module-scoped `libraryPageState` fields in the vanilla page, lost
- * on reload and unshareable. Putting them in the URL only adds state that used
- * to be thrown away — the same call made for the wishlist's q/failing.
+ * Everything the page shows lives in the URL: which grid, the tab, the Show
+ * filter, the genre, the sort and the filter text. Every field is optional and
+ * a default is left out, so /library?view=albums stays that short; values a
+ * grid doesn't know fall back to its default when read (see `pick`), so a
+ * hand-typed or old link never takes the route down.
  */
 export const librarySearchSchema = z.object({
-  /** Free-text search. `search` in the API, `q` in the URL for consistency. */
-  q: z
-    .preprocess((v) => searchString(v) ?? '', z.string())
-    .default('')
-    .catch(''),
-  /**
-   * Alphabet selector; 'all' means no letter filter.
-   *
-   * Lowercased because the buttons carry lowercase values and the active-letter
-   * highlight compares against them — a hand-typed `?letter=A` would otherwise
-   * filter correctly (the backend compares with UPPER on both sides) while
-   * highlighting nothing.
-   */
-  letter: z
-    .preprocess((v) => (searchString(v) ?? 'all').toLowerCase(), z.string())
-    .default('all')
-    .catch('all'),
-  /** 1-based. Anything unparseable or < 1 falls back to page 1. */
-  page: z
-    .preprocess((v) => searchNumber(v, 1), z.number())
-    .default(1)
-    .catch(1),
-  watchlist: z
-    .preprocess((v) => searchString(v) ?? 'all', z.string())
-    .default('all')
-    .catch('all'),
-  /** Metadata source filter; '' means all sources and is NOT sent to the API. */
-  source: z
-    .preprocess((v) => searchString(v) ?? '', z.string())
-    .default('')
-    .catch(''),
-  /**
-   * 'upgradable' keeps artists with a track the quality jobs say could be
-   * better; '' is everyone and is not sent.
-   */
-  quality: z
-    .preprocess((v) => (searchString(v) === 'upgradable' ? 'upgradable' : ''), z.string())
-    .default('')
-    .catch(''),
-  /**
-   * Which grid the page shows. In the URL with the other filters rather than
-   * in localStorage, for the same reason they are: a library you are looking
-   * at should survive a reload and be linkable.
-   */
+  /** Which grid: Artists (its own sidebar row, the default) or Albums. */
   view: z
     .preprocess(
-      (v) => (searchString(v) === 'albums' ? 'albums' : 'artists'),
-      z.enum(['artists', 'albums']),
+      (v) => (searchString(v) === 'albums' ? 'albums' : undefined),
+      z.enum(['albums']).optional(),
     )
-    .default('artists')
-    .catch('artists'),
-  /**
-   * Grid order. '' is the view's natural order (A-Z) and is not sent to the
-   * API; 'year_desc'/'year_asc' are album-view only, 'recent' is offered in
-   * both. Anything else falls back to '' — the backend whitelists too, so a
-   * hand-typed value can never reach the ORDER BY.
-   */
+    .catch(undefined),
+  /** Albums' two tabs (7a, 7e); Albums is the default. */
+  tab: z
+    .preprocess(
+      (v) => (searchString(v) === 'genres' ? 'genres' : undefined),
+      z.enum(['genres']).optional(),
+    )
+    .catch(undefined),
+  show: z.preprocess(optional, z.string().optional()).catch(undefined),
+  /** A genre's key (lower case). */
+  genre: z
+    .preprocess((v) => optional(v)?.trim().toLowerCase() || undefined, z.string().optional())
+    .catch(undefined),
   sort: z
     .preprocess((v) => {
-      const s = searchString(v) ?? '';
-      return s === 'year_desc' || s === 'year_asc' || s === 'recent' ? s : '';
-    }, z.string())
-    .default('')
-    .catch(''),
+      const s = optional(v);
+      return s === undefined ? undefined : (LEGACY_SORTS[s] ?? s) || undefined;
+    }, z.string().optional())
+    .catch(undefined),
+  /** The filter field: title, artist or genre (names, for Artists). */
+  q: z.preprocess(optional, z.string().optional()).catch(undefined),
 });
 
-export type LibrarySearch = z.infer<typeof librarySearchSchema>;
+export type LibrarySearchParams = z.infer<typeof librarySearchSchema>;
+
+/** The URL's search with every default filled in, as the page reads it. */
+export interface LibrarySearch {
+  view: 'artists' | 'albums';
+  tab: 'albums' | 'genres';
+  show: string;
+  genre: string;
+  sort: string;
+  q: string;
+}
+
+export function resolveLibrarySearch(raw: LibrarySearchParams): LibrarySearch {
+  return {
+    view: raw.view ?? 'artists',
+    tab: raw.tab ?? 'albums',
+    show: raw.show ?? '',
+    genre: raw.genre ?? '',
+    sort: raw.sort ?? '',
+    q: raw.q ?? '',
+  };
+}
+
+/** A value from the URL, or the grid's default when it isn't one of its own. */
+export function pick<T extends string>(value: string, allowed: readonly T[]): T {
+  return (allowed as readonly string[]).includes(value) ? (value as T) : allowed[0];
+}
 
 /**
  * One row from /api/library/artists.
@@ -198,4 +200,191 @@ export interface UnmatchedSummary {
   count: number;
   /** Library artist row holding the most of them, for the link. */
   artist_id: string | number | null;
+}
+
+// ── the release index (GET /api/library/releases, genres, artist-index) ──────
+
+export interface WantedState {
+  status: 'searching' | 'not_found';
+  tracks: number;
+}
+
+/** One release: an album you have, or one of your artists' you don't. */
+export interface LibraryRelease {
+  /** "album:12" for yours, "release:spotify:abc" / "wanted:…" for the rest. */
+  id: string;
+  kind: 'library' | 'missing';
+  album_id: string | number | null;
+  title: string;
+  artist_id: string | number | null;
+  artist_name: string;
+  year: number | null;
+  art_url: string | null;
+  genres: string[];
+  album_type: 'album' | 'ep' | 'single' | 'compilation';
+  tracks_total: number | null;
+  tracks_owned: number;
+  below_target: number;
+  format: string | null;
+  state: 'owned' | 'partial' | 'below_target' | 'missing';
+  wanted: WantedState | null;
+  added_at: string | null;
+  source: string | null;
+  source_id: string | null;
+  /** Only when the grid is grouped by genre: the heading it files under. */
+  group?: string;
+}
+
+export interface GenreCount {
+  key: string;
+  name: string;
+  count: number;
+}
+
+export interface LibraryTotals {
+  albums: number;
+  library: number;
+  missing: number;
+  below: number;
+  tracks: number;
+  genres: number;
+  artists: number;
+  following: number;
+  incomplete: number;
+}
+
+export interface QualityTarget {
+  name?: string | null;
+  preset?: string | null;
+  quality_profile_id?: number | null;
+  quality_profile_name?: string | null;
+}
+
+/** What adding a set to Wanted would be. */
+export interface AddSummary {
+  count: number;
+  tracks: number;
+  artists: { id: string | number; name: string }[];
+  sample: LibraryRelease[];
+}
+
+export interface GenreSummary {
+  name: string;
+  albums: number;
+  library: number;
+  missing: number;
+  below: number;
+  wantable: AddSummary;
+  below_album_ids: (string | number)[];
+}
+
+export interface ReleasesResponse {
+  success?: boolean;
+  error?: string;
+  releases: LibraryRelease[];
+  total: number;
+  page: number;
+  limit: number;
+  has_more: boolean;
+  show: AlbumShow;
+  sort: AlbumSort;
+  genre: string;
+  show_counts: Record<AlbumShow, number>;
+  genre_total: number;
+  genres: GenreCount[];
+  totals: LibraryTotals;
+  missing_summary: AddSummary;
+  genre_summary?: GenreSummary;
+  target: QualityTarget;
+}
+
+export interface GenreTile {
+  key: string;
+  name: string;
+  albums: number;
+  library: number;
+  missing: number;
+  wantable: number;
+  below: number;
+  covers: string[];
+}
+
+export interface GenresResponse {
+  success?: boolean;
+  error?: string;
+  genres: GenreTile[];
+  total: number;
+  show_counts: Record<GenreShow, number>;
+  totals: LibraryTotals;
+  target: QualityTarget;
+}
+
+export interface IndexArtist {
+  id: string | number;
+  name: string;
+  image_url: string | null;
+  genres: string[];
+  following: boolean;
+  releases: number;
+  in_library: number;
+  missing: number;
+  wanted: number;
+  /** Missing and not on Wanted: what "Add N missing to Wanted" adds. */
+  wantable: number;
+}
+
+export interface ArtistIndexResponse {
+  success?: boolean;
+  error?: string;
+  artists: IndexArtist[];
+  total: number;
+  page: number;
+  limit: number;
+  has_more: boolean;
+  show: ArtistShow;
+  sort: ArtistSort;
+  genre: string;
+  show_counts: Record<ArtistShow, number>;
+  genre_total: number;
+  genres: GenreCount[];
+  totals: LibraryTotals;
+}
+
+/** A selection as the bulk routes take it (core/library/release_index.resolve_selection). */
+export interface SelectionBody {
+  release_ids?: string[];
+  filter?: {
+    show?: string;
+    genre?: string;
+    genres?: string[];
+    q?: string;
+    artist_ids?: (string | number)[];
+  };
+  exclude_ids?: string[];
+  /** The summary route only: how many to list (the confirm's Show all). */
+  sample?: number;
+}
+
+export interface SelectionSummary extends AddSummary {
+  selected: number;
+  already_have: number;
+  already_wanted: number;
+  types: Record<string, number>;
+  target: QualityTarget;
+  following: (string | number)[];
+}
+
+export interface BulkAddResult {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  added: number;
+  already_wanted: number;
+  already_have: number;
+  failed: number;
+  refused: number;
+  tracks_added: number;
+  asks_first: boolean;
+  followed: { followed: number; already_following: number; no_id: number } | null;
+  results: { id: string; title: string; artist_name: string; outcome: string; message: string }[];
 }

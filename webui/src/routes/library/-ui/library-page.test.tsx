@@ -1,679 +1,654 @@
 import { createMemoryHistory } from '@tanstack/react-router';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
-import type { LibraryArtist } from '../-library.types';
+import type { LibraryRelease } from '../-library.types';
 
 /**
- * Driven through the REAL router and the real manifest, which now hands
- * /library to React.
- *
- * The page cannot render standalone (useProfile reads the root route context),
- * and going through the router also exercises validateSearch, the loader and
- * the URL-driven filter state rather than stubs of them.
+ * Library → Albums, Genres and Artists (7a–7g), through the real router and
+ * the real manifest: the URL drives every filter, so the requests the page
+ * makes are what's checked, with the routes stubbed.
  */
 
-function artist(over: Partial<LibraryArtist> & { id: number }): LibraryArtist {
-  return { name: `Artist ${over.id}`, ...over };
+function release(over: Partial<LibraryRelease> & { id: string; title: string }): LibraryRelease {
+  return {
+    kind: 'library',
+    album_id: over.id.replace('album:', ''),
+    artist_id: '1',
+    artist_name: 'Pale Harbour',
+    year: 2024,
+    art_url: null,
+    genres: ['Ambient'],
+    album_type: 'album',
+    tracks_total: 10,
+    tracks_owned: 10,
+    below_target: 0,
+    format: 'FLAC',
+    state: 'owned',
+    wanted: null,
+    added_at: '2026-01-01',
+    source: null,
+    source_id: null,
+    ...over,
+  };
 }
+
+const RELEASES: LibraryRelease[] = [
+  release({ id: 'album:1', title: 'Night Ferry' }),
+  release({
+    id: 'album:2',
+    title: 'Tidewater',
+    state: 'partial',
+    tracks_total: 12,
+    tracks_owned: 11,
+  }),
+  release({
+    id: 'album:3',
+    title: 'Low Light',
+    state: 'below_target',
+    below_target: 9,
+    format: 'MP3 320',
+  }),
+  release({
+    id: 'release:spotify:x1',
+    title: 'Lantern',
+    kind: 'missing',
+    album_id: null,
+    state: 'missing',
+    tracks_owned: 0,
+    tracks_total: 11,
+    format: null,
+    wanted: { status: 'not_found', tracks: 11 },
+  }),
+  release({
+    id: 'release:spotify:x2',
+    title: 'Weather Systems',
+    kind: 'missing',
+    album_id: null,
+    state: 'missing',
+    artist_id: '2',
+    artist_name: 'Field Recordings Dept.',
+    tracks_owned: 0,
+    tracks_total: 9,
+    format: null,
+    year: 2020,
+  }),
+];
+
+const TOTALS = {
+  albums: 494,
+  library: 410,
+  missing: 61,
+  below: 23,
+  tracks: 4980,
+  genres: 38,
+  artists: 186,
+  following: 18,
+  incomplete: 41,
+};
+
+function releasesBody(url: URL) {
+  const page = Number(url.searchParams.get('page') ?? 1);
+  const genre = url.searchParams.get('genre') ?? '';
+  const body: Record<string, unknown> = {
+    success: true,
+    releases: page === 1 ? RELEASES : [release({ id: 'album:99', title: 'Second Page Album' })],
+    total: 494,
+    page,
+    limit: 50,
+    has_more: page === 1,
+    show: url.searchParams.get('show') ?? 'all',
+    sort: url.searchParams.get('sort') ?? 'recent',
+    genre: genre ? 'Ambient' : '',
+    show_counts: { all: 494, library: 410, missing: 61, below: 23 },
+    genre_total: 494,
+    genres: [
+      { key: 'electronic', name: 'Electronic', count: 212 },
+      { key: 'jazz', name: 'Jazz', count: 96 },
+      { key: 'folk', name: 'Folk', count: 61 },
+      { key: 'ambient', name: 'Ambient', count: 48 },
+      { key: 'soul', name: 'Soul', count: 44 },
+      { key: 'post-rock', name: 'Post-rock', count: 33 },
+      { key: 'classical', name: 'Classical', count: 21 },
+      { key: 'hip-hop', name: 'Hip-hop', count: 19 },
+      { key: 'dub', name: 'Dub', count: 4 },
+    ],
+    totals: TOTALS,
+    missing_summary: { count: 61, tracks: 520, artists: [], sample: [] },
+    target: { name: 'FLAC or better' },
+  };
+  if (genre) {
+    body.genre_summary = {
+      name: 'Ambient',
+      albums: 48,
+      library: 31,
+      missing: 17,
+      below: 4,
+      wantable: { count: 17, tracks: 189, artists: [], sample: [] },
+      below_album_ids: [3],
+    };
+  }
+  return body;
+}
+
+const SUMMARY = {
+  success: true,
+  count: 17,
+  tracks: 189,
+  artists: [
+    { id: '1', name: 'Pale Harbour' },
+    { id: '2', name: 'Field Recordings Dept.' },
+  ],
+  sample: RELEASES.slice(3),
+  selected: 17,
+  already_have: 0,
+  already_wanted: 0,
+  types: { album: 16, ep: 1 },
+  target: { name: 'FLAC or better' },
+  following: ['1'],
+};
+
+const ADD_RESULT = {
+  success: true,
+  added: 15,
+  already_wanted: 2,
+  already_have: 0,
+  failed: 0,
+  refused: 0,
+  tracks_added: 170,
+  asks_first: false,
+  followed: null,
+  results: [],
+};
+
+const ARTISTS = {
+  success: true,
+  artists: [
+    {
+      id: '1',
+      name: 'Pale Harbour',
+      image_url: null,
+      genres: ['Ambient'],
+      following: true,
+      releases: 14,
+      in_library: 9,
+      missing: 5,
+      wanted: 2,
+      wantable: 3,
+    },
+    {
+      id: '2',
+      name: 'Vera Lund',
+      image_url: null,
+      genres: ['Jazz'],
+      following: false,
+      releases: 5,
+      in_library: 4,
+      missing: 1,
+      wanted: 0,
+      wantable: 1,
+    },
+    {
+      id: '3',
+      name: 'Halide',
+      image_url: null,
+      genres: [],
+      following: false,
+      releases: 9,
+      in_library: 9,
+      missing: 0,
+      wanted: 0,
+      wantable: 0,
+    },
+  ],
+  total: 186,
+  page: 1,
+  limit: 50,
+  has_more: true,
+  show: 'all',
+  sort: 'name',
+  genre: '',
+  show_counts: { all: 186, following: 18, incomplete: 41 },
+  genre_total: 186,
+  genres: [{ key: 'electronic', name: 'Electronic', count: 64 }],
+  totals: TOTALS,
+};
+
+const GENRES = {
+  success: true,
+  genres: [
+    {
+      key: 'electronic',
+      name: 'Electronic',
+      albums: 212,
+      library: 180,
+      missing: 32,
+      wantable: 32,
+      below: 11,
+      covers: [],
+    },
+    {
+      key: 'classical',
+      name: 'Classical',
+      albums: 21,
+      library: 21,
+      missing: 0,
+      wantable: 0,
+      below: 0,
+      covers: [],
+    },
+  ],
+  total: 2,
+  show_counts: { all: 38, gaps: 23 },
+  totals: TOTALS,
+  target: { name: 'FLAC or better' },
+};
 
 let requested: string[] = [];
-/** What the stubbed /api/library/artists reports as could-be-better. */
-let upgradableTotal = 0;
-/** Request bodies, captured BEFORE ky consumes them — a Request cannot be
- *  cloned once its body has been read ("TypeError: unusable"). */
-let sent: { url: string; body: unknown }[] = [];
+let posted: { url: string; body: unknown }[] = [];
 
-async function record(input: RequestInfo | URL): Promise<string> {
-  const url = input instanceof Request ? input.url : String(input);
-  requested.push(url);
-  if (input instanceof Request && input.body) {
-    sent.push({ url, body: await input.clone().json() });
-  }
-  return url;
-}
-
-function stubFetch(
-  artists: LibraryArtist[],
-  total = artists.length,
-  pages = 1,
-  /** #1202 banner payload; `fail` makes the request reject. */
-  unmatched: { count: number; artist_id: string | number | null } | 'fail' | null = null,
-) {
+beforeEach(() => {
+  window.SoulSyncWebShellBridge = createShellBridge();
+  window.showLibraryDownloadsSection = vi.fn();
+  window.showToast = vi.fn();
+  window.playTrackList = vi.fn(async () => undefined);
   requested = [];
-  sent = [];
+  posted = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
-      const url = await record(input);
-      if (url.includes('/api/library/unmatched-summary')) {
-        if (unmatched === 'fail') return new Response('nope', { status: 500 });
-        return new Response(
-          JSON.stringify({ success: true, ...(unmatched ?? { count: 0, artist_id: null }) }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        );
+      const url = input instanceof Request ? input.url : String(input);
+      requested.push(url);
+      if (input instanceof Request && input.method === 'POST') {
+        posted.push({ url, body: await input.clone().json() });
       }
-      if (url.includes('/api/watchlist/')) {
-        return new Response(JSON.stringify({ success: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      const body =
-        url.includes('/api/artist/') && url.includes('/top-tracks')
-          ? {
-              success: true,
-              source: 'spotify',
-              tracks: [
-                { id: 'sp-1', name: 'Xtal', artists: [{ name: 'Aphex Twin' }] },
-                { id: 'sp-2', name: 'Tha', artists: [{ name: 'Aphex Twin' }] },
-              ],
-            }
-          : url.includes('/api/library/artists')
-            ? {
-                success: true,
-                artists,
-                upgradable_total: upgradableTotal,
-                pagination: {
-                  page: Number(new URL(url, 'http://x').searchParams.get('page') ?? 1),
-                  limit: 75,
-                  total_count: total,
-                  total_pages: pages,
-                  has_prev: Number(new URL(url, 'http://x').searchParams.get('page') ?? 1) > 1,
-                  has_next: Number(new URL(url, 'http://x').searchParams.get('page') ?? 1) < pages,
-                },
-              }
-            : {};
+      const u = new URL(url, 'http://x');
+      let body: unknown = {};
+      if (u.pathname.endsWith('/api/library/releases')) body = releasesBody(u);
+      else if (u.pathname.endsWith('/api/library/releases/summary')) body = SUMMARY;
+      else if (u.pathname.endsWith('/api/wishlist/bulk')) body = ADD_RESULT;
+      else if (u.pathname.endsWith('/api/library/artist-index')) body = ARTISTS;
+      else if (u.pathname.endsWith('/api/library/genres')) body = GENRES;
+      else if (u.pathname.endsWith('/api/library/artists/follow'))
+        body = { success: true, followed: 1, already_following: 0, no_id: 0 };
+      else if (u.pathname.includes('/api/library/albums/') && u.pathname.endsWith('/tracks'))
+        body = {
+          success: true,
+          tracks: [{ id: 't1', title: 'One', file_path: '/m/1.flac', track_number: 1 }],
+        };
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
     }),
   );
-}
-
-function renderPage(entry = '/library') {
-  const queryClient = createTestQueryClient();
-  const history = createMemoryHistory({ initialEntries: [entry] });
-  const router = createAppRouter({ history, queryClient });
-  return {
-    router,
-    queryClient,
-    ...render(<AppRouterProvider router={router} queryClient={queryClient} />),
-  };
-}
-
-const libraryCalls = () => requested.filter((u) => u.includes('/api/library/artists'));
-const lastQuery = () => new URL(libraryCalls().at(-1)!, 'http://x').searchParams;
-
-beforeEach(() => {
-  window.SoulSyncWebShellBridge = createShellBridge();
-  window.showLibraryDownloadsSection = vi.fn();
-  window._handoffLibrarySearchToEnhancedSearch = vi.fn();
-  window.showToast = vi.fn();
-  window.updateWatchlistCount = vi.fn();
-  window.currentMusicSourceName = 'spotify';
-  stubFetch([artist({ id: 1, name: 'Aphex Twin', track_count: 12 })]);
 });
+
 afterEach(() => {
-  // Unconditional: a test that fails before its inline restore would otherwise
-  // leak fake timers into every later test, and they all hang in waitFor.
-  vi.useRealTimers();
   vi.unstubAllGlobals();
   delete window.SoulSyncWebShellBridge;
   delete window.showLibraryDownloadsSection;
-  delete window.playTrackList;
-  upgradableTotal = 0;
 });
 
-describe('Could be better', () => {
-  it('stays out of the way when nothing could be better', async () => {
+function renderPage(entry = '/library?view=albums') {
+  const queryClient = createTestQueryClient();
+  const history = createMemoryHistory({ initialEntries: [entry] });
+  const router = createAppRouter({ history, queryClient });
+  return { router, ...render(<AppRouterProvider router={router} queryClient={queryClient} />) };
+}
+
+const releaseCalls = () =>
+  requested.filter((u) => new URL(u, 'http://x').pathname.endsWith('/api/library/releases'));
+const lastReleases = () => new URL(releaseCalls().at(-1)!, 'http://x').searchParams;
+
+describe('Albums (7a)', () => {
+  it('shows the counts line, the tabs, Show with counts and the tags only where they matter', async () => {
     renderPage();
-    await screen.findByText('Aphex Twin');
-    expect(screen.queryByText('Could be better')).toBeNull();
-    expect(lastQuery().has('quality')).toBe(false);
+    await screen.findByText('Night Ferry');
+    expect(
+      screen.getByText("494 albums · 4,980 tracks · 38 genres · 61 you don't have yet"),
+    ).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Albums\s*494/ }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(screen.getByRole('tab', { name: /Genres\s*38/ })).toBeTruthy();
+    const show = screen.getByRole('group', { name: 'Show' });
+    expect(within(show).getByRole('button', { name: /In your library\s*410/ })).toBeTruthy();
+    expect(within(show).getByRole('button', { name: /Below target\s*23/ })).toBeTruthy();
+    const tile = (title: string) => screen.getByText(title).closest('li')!;
+    // an album you have whole carries no tag
+    expect(within(tile('Night Ferry')).queryByText(/library|target|found|Wanted/)).toBeNull();
+    expect(within(tile('Night Ferry')).getByText('Pale Harbour · 2024 · FLAC')).toBeTruthy();
+    expect(within(tile('Tidewater')).getByText('11 of 12 found')).toBeTruthy();
+    expect(within(tile('Tidewater')).getByText('Pale Harbour · 2024 · 12 tracks')).toBeTruthy();
+    expect(within(tile('Low Light')).getByText('Below quality target')).toBeTruthy();
+    expect(within(tile('Lantern')).getByText('Wanted · not found')).toBeTruthy();
+    expect(within(tile('Weather Systems')).getByText('Not in your library')).toBeTruthy();
+    // the hover actions: Play for yours, Add to Wanted for one you don't have
+    expect(
+      within(tile('Night Ferry')).getByRole('button', { name: 'Play Night Ferry' }),
+    ).toBeTruthy();
+    expect(
+      within(tile('Weather Systems')).getByRole('button', {
+        name: 'Add Weather Systems to Wanted',
+      }),
+    ).toBeTruthy();
+    expect(within(tile('Lantern')).queryByRole('button', { name: /Add/ })).toBeNull();
+    // it opens the Artist page, at the album when you have it
+    expect(
+      within(tile('Night Ferry')).getByRole('link', { name: 'Night Ferry' }).getAttribute('href'),
+    ).toBe('/artist-detail/library/1?album=1');
   });
 
-  it('shows the count, filters the grid, and badges the card', async () => {
-    upgradableTotal = 7;
-    stubFetch([artist({ id: 1, name: 'Aphex Twin', track_count: 12, upgradable_count: 3 })]);
+  it('the genre chips: the top seven, the rest under "N more", and a pick goes in the URL', async () => {
     const { router } = renderPage();
-    const toggle = await screen.findByText('Could be better');
-    expect(toggle.closest('button')?.textContent).toContain('7');
-    expect(toggle.closest('button')?.getAttribute('aria-pressed')).toBe('false');
-    expect(screen.getByText('3 could be better')).toBeTruthy();
+    await screen.findByText('Night Ferry');
+    const row = screen.getByRole('group', { name: 'Genre' });
+    expect(
+      within(row)
+        .getByRole('button', { name: /All\s*494/ })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(within(row).getByRole('button', { name: /Classical\s*21/ })).toBeTruthy();
+    expect(within(row).queryByRole('button', { name: /^Hip-hop/ })).toBeNull();
+    expect(within(row).getByRole('button', { name: /2 more/ })).toBeTruthy();
+    fireEvent.click(within(row).getByRole('button', { name: /Ambient\s*48/ }));
+    await waitFor(() => expect(lastReleases().get('genre')).toBe('ambient'));
+    expect(router.state.location.search).toMatchObject({ view: 'albums', genre: 'ambient' });
+  });
 
-    fireEvent.click(toggle);
-    await waitFor(() => expect(lastQuery().get('quality')).toBe('upgradable'));
-    expect(router.state.location.search).toMatchObject({ quality: 'upgradable', page: 1 });
+  it('Show and Sort go to the server and combine with the genre', async () => {
+    renderPage('/library?view=albums&genre=ambient');
+    await screen.findByText('Night Ferry');
+    fireEvent.click(screen.getByRole('button', { name: /Missing\s*61/ }));
+    await waitFor(() => expect(lastReleases().get('show')).toBe('missing'));
+    expect(lastReleases().get('genre')).toBe('ambient');
+    fireEvent.change(screen.getByLabelText('Sort'), { target: { value: 'genre' } });
+    await waitFor(() => expect(lastReleases().get('sort')).toBe('genre'));
+  });
+
+  it('the filter field offers "Genre: Ambient" first and picks the chip', async () => {
+    const { router } = renderPage();
+    await screen.findByText('Night Ferry');
+    fireEvent.change(screen.getByLabelText('Filter albums'), { target: { value: 'amb' } });
+    const option = await screen.findByRole('option', { name: /Genre: Ambient/ });
+    fireEvent.click(option);
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ genre: 'ambient' }));
+    expect((screen.getByLabelText('Filter albums') as HTMLInputElement).value).toBe('');
+  });
+
+  it('typed text filters titles, artists and genres after a pause', async () => {
+    renderPage();
+    await screen.findByText('Night Ferry');
+    fireEvent.change(screen.getByLabelText('Filter albums'), { target: { value: 'ferry' } });
+    await waitFor(() => expect(lastReleases().get('q')).toBe('ferry'));
+  });
+
+  it('"Show 50 more" adds the next page and keeps what is there', async () => {
+    renderPage();
+    await screen.findByText('Night Ferry');
+    expect(screen.getByText('5 of 494')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Show 50 more' }));
+    await screen.findByText('Second Page Album');
+    expect(screen.getByText('Night Ferry')).toBeTruthy();
+    expect(lastReleases().get('page')).toBe('2');
+  });
+
+  it("a missing album's Add to Wanted adds it at once, and the toast says how it went", async () => {
+    renderPage();
+    await screen.findByText('Weather Systems');
+    fireEvent.click(screen.getByRole('button', { name: 'Add Weather Systems to Wanted' }));
     await waitFor(() =>
-      expect(
-        screen.getByText('Could be better').closest('button')?.getAttribute('aria-pressed'),
-      ).toBe('true'),
+      expect(posted.some((p) => p.url.endsWith('/api/wishlist/bulk'))).toBe(true),
     );
-  });
-
-  it('keeps the toggle while filtered, even if the count drops to zero', async () => {
-    renderPage('/library?quality=upgradable');
-    await screen.findByText('Aphex Twin');
-    expect(lastQuery().get('quality')).toBe('upgradable');
-    const toggle = screen.getByText('Could be better').closest('button')!;
-    fireEvent.click(toggle);
-    await waitFor(() => expect(lastQuery().has('quality')).toBe(false));
-  });
-
-  it('ignores a made-up quality value in the URL', async () => {
-    renderPage('/library?quality=perfect');
-    await screen.findByText('Aphex Twin');
-    expect(lastQuery().has('quality')).toBe(false);
-  });
-});
-
-describe('LibraryPage rendering', () => {
-  it('renders the artist grid with the vanilla classes', async () => {
-    renderPage();
-    await screen.findByText('Aphex Twin');
-    expect(document.querySelector('.library-artists-grid')).not.toBeNull();
-    expect(document.querySelectorAll('.library-artist-card')).toHaveLength(1);
-    expect(document.querySelector('.library-artist-stat')?.textContent).toBe('12 tracks');
-  });
-
-  it('shows the artist count from pagination, not the page length', async () => {
-    // A 75-per-page library must report its TOTAL, not the 75 on screen.
-    stubFetch([artist({ id: 1 })], 4213, 57);
-    renderPage();
-    await waitFor(() => expect(document.querySelector('.stat-number')?.textContent).toBe('4213'));
-  });
-
-  it('calls the vanilla downloads-bubble renderer on mount', async () => {
-    // It is bound to module state in core.js and cannot move into React.
-    renderPage();
-    await waitFor(() => expect(window.showLibraryDownloadsSection).toHaveBeenCalled());
-    expect(document.querySelector('[data-library-downloads-host]')).not.toBeNull();
-  });
-
-  it('the header Shuffle button hands off to the player global', async () => {
-    // "Shuffle your library" (startLibraryRadio) lives in media-player.js (it owns the queue + radio
-    // mode); the page only provides the entry point.
-    window.startLibraryRadio = vi.fn();
-    renderPage();
-    await screen.findByText('Aphex Twin');
-    fireEvent.click(document.querySelector('.library-radio-btn')!);
-    expect(window.startLibraryRadio).toHaveBeenCalled();
-    delete window.startLibraryRadio;
-  });
-
-  it("plays an artist's ranked top tracks in provider order", async () => {
-    window.playTrackList = vi.fn();
-    renderPage();
-    await screen.findByText('Aphex Twin');
-
-    fireEvent.click(document.querySelector('.library-artist-play-btn')!);
-
-    await waitFor(() => expect(window.playTrackList).toHaveBeenCalledTimes(1));
-    expect(window.playTrackList).toHaveBeenCalledWith(
-      [
-        expect.objectContaining({ title: 'Xtal', artist: 'Aphex Twin' }),
-        expect.objectContaining({ title: 'Tha', artist: 'Aphex Twin' }),
-      ],
-      'Aphex Twin — Top Tracks',
-    );
-  });
-});
-
-describe('LibraryPage filters', () => {
-  it('sends every filter to the API', async () => {
-    renderPage('/library?q=aphex&letter=a&page=2&watchlist=watched&source=spotify');
-    await waitFor(() => expect(libraryCalls().length).toBeGreaterThan(0));
-    const p = lastQuery();
-    expect(p.get('search')).toBe('aphex');
-    expect(p.get('letter')).toBe('a');
-    expect(p.get('page')).toBe('2');
-    expect(p.get('watchlist')).toBe('watched');
-    expect(p.get('source_filter')).toBe('spotify');
-    expect(p.get('limit')).toBe('75');
-  });
-
-  it('omits source_filter when no source is chosen', async () => {
-    // The vanilla loader only set() it when non-empty; sending an empty one
-    // would also fragment the query cache.
-    renderPage('/library');
-    await waitFor(() => expect(libraryCalls().length).toBeGreaterThan(0));
-    expect(lastQuery().has('source_filter')).toBe(false);
-  });
-
-  it('debounces typing for 300ms, then resets to page 1', async () => {
-    vi.useFakeTimers();
-    // Entering on page 7 also proves the TYPING path resets the page — it
-    // navigates itself rather than going through setSearch.
-    const { router } = renderPage('/library?page=7');
-    await vi.advanceTimersByTimeAsync(0);
-    const before = libraryCalls().length;
-    const input = document.querySelector('.library-search-input') as HTMLInputElement;
-
-    fireEvent.change(input, { target: { value: 'a' } });
-    fireEvent.change(input, { target: { value: 'ap' } });
-    fireEvent.change(input, { target: { value: 'aph' } });
-    expect(libraryCalls().length).toBe(before);
-
-    // Still inside the window: a shorter timer would have fired by now, so
-    // this is what pins the 300ms rather than merely "is deferred at all".
-    await vi.advanceTimersByTimeAsync(250);
-    expect(libraryCalls().length).toBe(before);
-
-    await vi.advanceTimersByTimeAsync(100);
-    vi.useRealTimers();
-    await waitFor(() => expect(lastQuery().get('search')).toBe('aph'));
-    expect(router.state.location.search).toMatchObject({ page: 1 });
-  });
-
-  it('resets to page 1 whenever a filter changes', async () => {
-    // Page 7 of the old result set is meaningless against a new one.
-    const { router } = renderPage('/library?page=7');
-    await waitFor(() => expect(libraryCalls().length).toBeGreaterThan(0));
-
-    fireEvent.click(screen.getByText('Watched'));
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ page: 1 }));
-  });
-
-  it('clears the search on Escape', async () => {
-    const { router } = renderPage('/library?q=aphex');
-    // waitFor resolves on the first call that does not THROW, and returning
-    // null does not throw — so the assertion has to live inside it.
-    const input = (await screen.findByLabelText('Filter your library')) as HTMLInputElement;
-    expect(input.value).toBe('aphex');
-
-    fireEvent.keyDown(input, { key: 'Escape' });
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ q: '' }));
-  });
-
-  it('marks the active filter and letter', async () => {
-    renderPage('/library?watchlist=unwatched&letter=c');
+    expect(posted.find((p) => p.url.endsWith('/api/wishlist/bulk'))!.body).toEqual({
+      action: 'add',
+      release_ids: ['release:spotify:x2'],
+      quality: 'target',
+    });
     await waitFor(() =>
-      // Scoped to the watchlist group: the view toggle wears the same chip
-      // classes, and it comes first in the toolbar.
-      expect(
-        document.querySelector('#watchlist-filter .watchlist-filter-btn.active')?.textContent,
-      ).toBe('Unwatched'),
-    );
-    expect(document.querySelector('.alphabet-btn.active')?.textContent).toBe('C');
-  });
-
-  it('offers Watch All Unwatched only while filtered to unwatched', async () => {
-    const { unmount } = renderPage('/library?watchlist=unwatched');
-    await waitFor(() =>
-      expect(document.querySelector('.library-watchlist-all-btn.hidden')).toBeNull(),
-    );
-    unmount();
-
-    renderPage('/library?watchlist=all');
-    await waitFor(() =>
-      expect(document.querySelector('.library-watchlist-all-btn.hidden')).not.toBeNull(),
-    );
-  });
-});
-
-describe('LibraryPage empty state', () => {
-  it('offers the search-online CTA when a query found nothing', async () => {
-    stubFetch([], 0, 0);
-    renderPage('/library?q=nonesuch');
-    await screen.findByText(/isn't in your library/);
-    fireEvent.click(document.querySelector('.library-empty-search-cta')!);
-    expect(window._handoffLibrarySearchToEnhancedSearch).toHaveBeenCalledWith('nonesuch');
-  });
-
-  it('shows the generic empty copy with no query', async () => {
-    stubFetch([], 0, 0);
-    renderPage('/library');
-    await screen.findByText('No artists found');
-    // No CTA to hand off — there is nothing to search for.
-    expect(document.querySelector('.library-empty-search-cta')).toBeNull();
-  });
-});
-
-describe('LibraryPage watchlist from a card', () => {
-  const posted = () => sent.find((c) => c.url.includes('/api/watchlist/'));
-
-  it('adds the artist with the SOURCE-matched id, then flips the badge', async () => {
-    window.currentMusicSourceName = 'spotify';
-    stubFetch([
-      artist({ id: 1, name: 'Aphex Twin', spotify_artist_id: 'sp', itunes_artist_id: 9 }),
-    ]);
-    renderPage();
-    await screen.findByText('Aphex Twin');
-
-    fireEvent.click(document.querySelector('.watch-card-icon')!);
-    await waitFor(() => expect(posted()).toBeDefined());
-
-    expect(posted()!.url).toContain('/api/watchlist/add');
-    expect(posted()!.body).toEqual({ artist_id: 'sp', artist_name: 'Aphex Twin' });
-    await waitFor(() =>
-      expect(document.querySelector('.watch-icon-label')?.textContent).toBe('Watching'),
-    );
-    expect(window.showToast).toHaveBeenCalledWith('Added Aphex Twin to watchlist', 'success');
-    expect(window.updateWatchlistCount).toHaveBeenCalled();
-  });
-
-  it('keeps the pending badge on the card that is actually waiting', async () => {
-    // Two adds in flight at once: the mutation's own `variables` hold only the
-    // latest, so the first card must not lose its "...".
-    let release: (() => void) | undefined;
-    const gate = new Promise<void>((r) => (release = r));
-    requested = [];
-    sent = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = await record(input);
-        if (url.includes('/api/watchlist/')) await gate;
-        const body = url.includes('/api/watchlist/')
-          ? { success: true }
-          : {
-              success: true,
-              artists: [
-                artist({ id: 1, name: 'Aphex Twin', spotify_artist_id: 'sp1' }),
-                artist({ id: 2, name: 'Boards of Canada', spotify_artist_id: 'sp2' }),
-              ],
-              pagination: {
-                page: 1,
-                limit: 75,
-                total_count: 2,
-                total_pages: 1,
-                has_prev: false,
-                has_next: false,
-              },
-            };
-        return new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }),
-    );
-    renderPage();
-    await screen.findByText('Boards of Canada');
-
-    const badges = document.querySelectorAll('.watch-card-icon');
-    fireEvent.click(badges[0]);
-    fireEvent.click(badges[1]);
-
-    await waitFor(() =>
-      expect([...document.querySelectorAll('.watch-icon-label')].map((n) => n.textContent)).toEqual(
-        ['...', '...'],
+      expect(window.showToast).toHaveBeenCalledWith(
+        'Added 15 albums to Wanted · 2 already wanted',
+        'success',
       ),
     );
-    release?.();
   });
 
-  it('prefers the iTunes id when iTunes is the active source', async () => {
-    window.currentMusicSourceName = 'iTunes';
-    stubFetch([
-      artist({ id: 1, name: 'Aphex Twin', spotify_artist_id: 'sp', itunes_artist_id: 9 }),
-    ]);
+  it('Play queues the album you have', async () => {
     renderPage();
-    await screen.findByText('Aphex Twin');
+    await screen.findByText('Night Ferry');
+    fireEvent.click(screen.getByRole('button', { name: 'Play Night Ferry' }));
+    await waitFor(() => expect(window.playTrackList).toHaveBeenCalled());
+  });
+});
 
-    fireEvent.click(document.querySelector('.watch-card-icon')!);
-    await waitFor(() => expect(posted()).toBeDefined());
-    expect(posted()!.body).toMatchObject({ artist_id: '9' });
+describe('the genre line (7b) and the confirm (7d)', () => {
+  it('says what the genre holds and asks before adding the missing ones', async () => {
+    renderPage('/library?view=albums&genre=ambient');
+    await screen.findByText('Night Ferry');
+    expect(screen.getByText(/48 albums · 31 in your library/)).toBeTruthy();
+    expect(screen.getByText("17 you don't have")).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Upgrade the 4 below target' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add the 17 missing to Wanted' }));
+    const dialog = await screen.findByRole('dialog');
+    await within(dialog).findByText('Add 17 albums to Wanted?');
+    expect(within(dialog).getByText('189')).toBeTruthy();
+    expect(within(dialog).getByText('FLAC or better')).toBeTruthy();
+    expect(
+      within(dialog).getByText(/Everything tagged Ambient that isn't in your library\./),
+    ).toBeTruthy();
+    expect(within(dialog).getByText('Weather Systems')).toBeTruthy();
+    expect(within(dialog).getByText('2 of 17')).toBeTruthy();
+    // following is its own promise, off by default; Pale Harbour is followed already
+    expect(within(dialog).getByText(/Also follow Field Recordings Dept\./)).toBeTruthy();
+    const summaryPost = posted.find((p) => p.url.endsWith('/api/library/releases/summary'))!;
+    expect(summaryPost.body).toEqual({ filter: { genre: 'ambient' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 17 to Wanted' }));
+    await waitFor(() =>
+      expect(posted.some((p) => p.url.endsWith('/api/wishlist/bulk'))).toBe(true),
+    );
+    expect(posted.find((p) => p.url.endsWith('/api/wishlist/bulk'))!.body).toEqual({
+      action: 'add',
+      filter: { genre: 'ambient' },
+      quality: 'target',
+      follow_artists: false,
+    });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
-  it('toasts the reason and leaves the badge unwatched when the server refuses', async () => {
-    window.currentMusicSourceName = 'spotify';
-    requested = [];
-    sent = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = await record(input);
-        const body = url.includes('/api/watchlist/')
-          ? { success: false, error: 'already watching' }
-          : {
-              success: true,
-              artists: [artist({ id: 1, name: 'Aphex Twin', spotify_artist_id: 'sp' })],
-              pagination: {
-                page: 1,
-                limit: 75,
-                total_count: 1,
-                total_pages: 1,
-                has_prev: false,
-                has_next: false,
-              },
-            };
-        return new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
+  it('the upgrade line is for admins only', async () => {
+    window.SoulSyncWebShellBridge = createShellBridge({
+      getCurrentProfileContext: vi.fn(() => ({ profileId: 5, isAdmin: false })),
+    });
+    renderPage('/library?view=albums&genre=ambient');
+    await screen.findByText('Night Ferry');
+    expect(screen.queryByRole('button', { name: /Upgrade the/ })).toBeNull();
+  });
+});
+
+describe('selection mode (7c)', () => {
+  it('Select turns squares into toggles and the bar counts them', async () => {
+    renderPage();
+    await screen.findByText('Night Ferry');
+    const select = screen.getByRole('button', { name: 'Select' });
+    expect(select.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(select);
+    expect(screen.getByRole('button', { name: 'Done', pressed: true })).toBeTruthy();
+    const bar = screen.getByRole('toolbar', { name: 'Selected albums' });
+    // nothing picked: the primary is the neutral disabled one, with its reason
+    const add = within(bar).getByRole('button', { name: 'Add to Wanted' });
+    expect(add.getAttribute('aria-disabled')).toBe('true');
+    expect(within(bar).getByText('Click albums to select them')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Select Weather Systems' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Tidewater' }));
+    expect(
+      screen.getByRole('button', { name: 'Select Weather Systems' }).getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(within(bar).getByText('2 albums selected · 21 tracks')).toBeTruthy();
+    fireEvent.click(within(bar).getByRole('button', { name: /Add 2 to Wanted/ }));
+    await screen.findByRole('dialog');
+    await waitFor(() =>
+      expect(posted.find((p) => p.url.endsWith('/api/library/releases/summary'))?.body).toEqual({
+        release_ids: ['release:spotify:x2', 'album:2'],
       }),
     );
-    renderPage();
-    await screen.findByText('Aphex Twin');
-
-    fireEvent.click(document.querySelector('.watch-card-icon')!);
-    await waitFor(() =>
-      expect(window.showToast).toHaveBeenCalledWith('Error: already watching', 'error'),
-    );
-    expect(document.querySelector('.watch-icon-label')?.textContent).toBe('Watch');
-  });
-});
-
-describe('LibraryPage vanilla refresh seam', () => {
-  it('refetches when vanilla announces the list changed', async () => {
-    // "Watch All Unwatched" is a vanilla modal; it used to refresh by calling
-    // loadLibraryArtists(), which no-ops now that React owns the page.
-    renderPage();
-    await screen.findByText('Aphex Twin');
-    const before = libraryCalls().length;
-
-    window.dispatchEvent(new CustomEvent('ss:library-changed'));
-
-    await waitFor(() => expect(libraryCalls().length).toBeGreaterThan(before));
   });
 
-  it('stops listening once the page unmounts', async () => {
-    // Asserted on the registration itself: after unmount the query has no
-    // observers, so a leaked listener would invalidate silently and a
-    // fetch-count check would pass either way.
-    const add = vi.spyOn(window, 'addEventListener');
-    const remove = vi.spyOn(window, 'removeEventListener');
-    const { unmount } = renderPage();
-    await screen.findByText('Aphex Twin');
-
-    const handler = add.mock.calls.find(([type]) => type === 'ss:library-changed')?.[1];
-    expect(handler).toBeDefined();
-
-    unmount();
+  it('"Select all N missing" follows the Show filter; unticking excludes; the selection survives a genre change', async () => {
+    renderPage('/library?view=albums&show=missing');
+    await screen.findByText('Weather Systems');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected albums' });
+    fireEvent.click(within(bar).getByRole('button', { name: 'Select all 61 missing' }));
     expect(
-      remove.mock.calls.some(([type, fn]) => type === 'ss:library-changed' && fn === handler),
-    ).toBe(true);
-    add.mockRestore();
-    remove.mockRestore();
-  });
-});
-
-describe('LibraryPage failure', () => {
-  function stubFailure(body: unknown, status = 200) {
-    requested = [];
-    sent = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL) => {
-        await record(input);
-        return new Response(JSON.stringify(body), {
-          status,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }),
-    );
-  }
-
-  it('toasts the vanilla fixed string when the server reports failure', async () => {
-    // Not the server's reason — vanilla only used that as the thrown message.
-    stubFailure({ success: false, error: 'db locked' });
-    renderPage();
-    await waitFor(() =>
-      expect(window.showToast).toHaveBeenCalledWith('Failed to load artists', 'error'),
-    );
-  });
-
-  it('toasts on a transport failure too', async () => {
-    stubFailure({ error: 'boom' }, 500);
-    renderPage();
-    await waitFor(() =>
-      expect(window.showToast).toHaveBeenCalledWith('Failed to load artists', 'error'),
-    );
-  });
-
-  it('keeps the honest empty copy after a failure, even with a query', async () => {
-    // Vanilla claimed "X isn't in your library" here; the library was never read.
-    stubFailure({ success: false, error: 'db locked' });
-    renderPage('/library?q=aphex');
-    await screen.findByText('No artists found');
-    expect(document.querySelector('.library-empty-search-cta')).toBeNull();
-  });
-
-  it('stops showing the loading spinner after a failure', async () => {
-    stubFailure({ success: false, error: 'db locked' });
-    renderPage();
-    await screen.findByText('No artists found');
-    expect(document.querySelector('.library-loading')).toBeNull();
-  });
-});
-
-describe('LibraryPage pagination', () => {
-  it('hides pagination for a single page', async () => {
-    renderPage();
-    await screen.findByText('Aphex Twin');
-    expect(document.querySelector('.library-pagination')).toBeNull();
-  });
-
-  it('pages forward and back, and disables the ends', async () => {
-    stubFetch([artist({ id: 1 })], 150, 2);
-    const { router } = renderPage('/library');
-    await screen.findByText(/Page 1 of 2/);
+      screen.getByRole('button', { name: 'Select Weather Systems' }).getAttribute('aria-pressed'),
+    ).toBe('true');
+    // a wanted album isn't "missing to add"
     expect(
-      (document.querySelector('#prev-page-btn, .pagination-btn') as HTMLButtonElement).disabled,
-    ).toBe(true);
-
-    fireEvent.click(screen.getByText('Next →'));
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ page: 2 }));
-  });
-});
-
-describe('LibraryPage unmatched-imports banner (#1202)', () => {
-  const banner = () => document.querySelector('.library-unmatched-banner');
-
-  /**
-   * Absence only proves something once the query has actually settled.
-   * Asserting straight after the grid renders passes while the request is
-   * still in flight, which made these pass against a banner with no guard
-   * at all.
-   */
-  const settled = async (queryClient: ReturnType<typeof createTestQueryClient>) => {
-    await waitFor(() =>
-      expect(queryClient.getQueryState(['library', 'unmatched'])?.status).not.toBe('pending'),
-    );
-  };
-
-  it('names the count and links straight at the Unknown Artist row', async () => {
-    stubFetch([artist({ id: 1, name: 'Aphex Twin' })], 1, 1, { count: 7, artist_id: 'u1' });
-    renderPage();
-    await waitFor(() => expect(banner()).not.toBeNull());
-    expect(banner()!.textContent).toContain('7 tracks imported without a match');
-    // the whole point is getting to where re-identify lives
-    expect(document.querySelector('.library-unmatched-btn')?.getAttribute('href')).toBe(
-      '/artist-detail/library/u1',
-    );
-  });
-
-  it('says track, not tracks, for a single one', async () => {
-    stubFetch([artist({ id: 1 })], 1, 1, { count: 1, artist_id: 'u1' });
-    renderPage();
-    await waitFor(() => expect(banner()).not.toBeNull());
-    expect(banner()!.textContent).toContain('1 track imported');
-    expect(banner()!.textContent).not.toContain('1 tracks');
-  });
-
-  it('stays away entirely on a clean library', async () => {
-    stubFetch([artist({ id: 1, name: 'Aphex Twin' })], 1, 1, { count: 0, artist_id: null });
-    const { queryClient } = renderPage();
-    await screen.findByText('Aphex Twin');
-    await settled(queryClient);
-    expect(banner()).toBeNull();
-  });
-
-  it('stays away on a zero count even if a row id comes back with it', async () => {
-    // The backend nulls the id whenever the count is 0, so this combination
-    // should never arrive — but "0 tracks imported without a match" is the
-    // worst thing this banner could say, so the count guard stands on its own.
-    stubFetch([artist({ id: 1, name: 'Aphex Twin' })], 1, 1, { count: 0, artist_id: 'u1' });
-    const { queryClient } = renderPage();
-    await screen.findByText('Aphex Twin');
-    await settled(queryClient);
-    expect(banner()).toBeNull();
-  });
-
-  it('stays away when the count exists but the row id does not', async () => {
-    // Without an id there is nowhere to send them, and a banner that cannot
-    // answer "show me" is worse than no banner.
-    stubFetch([artist({ id: 1, name: 'Aphex Twin' })], 1, 1, { count: 4, artist_id: null });
-    const { queryClient } = renderPage();
-    await screen.findByText('Aphex Twin');
-    await settled(queryClient);
-    expect(banner()).toBeNull();
-  });
-
-  it('stays away when the request fails, and the grid still renders', async () => {
-    stubFetch([artist({ id: 1, name: 'Aphex Twin' })], 1, 1, 'fail');
-    const { queryClient } = renderPage();
-    await screen.findByText('Aphex Twin');
-    await settled(queryClient);
-    expect(banner()).toBeNull();
-  });
-});
-
-describe('Sort', () => {
-  it('offers only the sorts that make sense for artists', async () => {
-    renderPage('/library');
-    await screen.findByText('Aphex Twin');
-
-    const select = screen.getByLabelText('Sort library') as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'recent']);
-  });
-
-  it('sends the chosen sort to the API and keeps it in the URL', async () => {
-    const { router } = renderPage('/library');
-    await screen.findByText('Aphex Twin');
-
-    fireEvent.change(screen.getByLabelText('Sort library'), { target: { value: 'recent' } });
-    await waitFor(() => expect(lastQuery().get('sort')).toBe('recent'));
-    expect(router.state.location.search).toMatchObject({ sort: 'recent', page: 1 });
-  });
-
-  it('leaves the default sort off the wire while keeping it in the URL', async () => {
-    const { router } = renderPage('/library');
-    await screen.findByText('Aphex Twin');
-
-    expect(lastQuery().has('sort')).toBe(false);
-    expect(router.state.location.search).toMatchObject({ sort: '', page: 1 });
-  });
-
-  it('warms the albums grid when the pointer reaches its tab', async () => {
-    renderPage('/library');
-    await screen.findByText('Aphex Twin');
-    const before = requested.filter((u) => u.includes('/api/library/albums')).length;
-
-    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Albums' }));
-    await waitFor(() =>
-      expect(requested.filter((u) => u.includes('/api/library/albums')).length).toBeGreaterThan(
-        before,
+      screen.getByRole('button', { name: 'Select Lantern' }).getAttribute('aria-pressed'),
+    ).toBe('false');
+    expect(within(bar).getByText('61 albums selected · 520 tracks')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Select Weather Systems' }));
+    expect(within(bar).getByText('60 albums selected · 511 tracks')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Jazz\s*96/ }));
+    await waitFor(() => expect(lastReleases().get('genre')).toBe('jazz'));
+    expect(
+      within(screen.getByRole('toolbar', { name: 'Selected albums' })).getByText(
+        /60 albums selected/,
       ),
+    ).toBeTruthy();
+    fireEvent.click(
+      within(screen.getByRole('toolbar', { name: 'Selected albums' })).getByRole('button', {
+        name: /Add 60 to Wanted/,
+      }),
+    );
+    await screen.findByRole('dialog');
+    await waitFor(() =>
+      expect(posted.find((p) => p.url.endsWith('/api/library/releases/summary'))?.body).toEqual({
+        release_ids: [],
+        filter: { show: 'missing', genre: '', q: '' },
+        exclude_ids: ['release:spotify:x2'],
+      }),
+    );
+  });
+
+  it('Escape and Done leave selection mode and clear it', async () => {
+    renderPage();
+    await screen.findByText('Night Ferry');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Night Ferry' }));
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(screen.queryByRole('toolbar', { name: 'Selected albums' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    expect(
+      screen.getByRole('button', { name: 'Select Night Ferry' }).getAttribute('aria-pressed'),
+    ).toBe('false');
+  });
+
+  it('the "…" holds Follow, a different quality and, for admins, Remove from library', async () => {
+    renderPage();
+    await screen.findByText('Night Ferry');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Night Ferry' }));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for the selection' }));
+    expect(await screen.findByRole('menuitem', { name: 'Follow these artists' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Hold to a different quality…' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Remove 1 album from library…' })).toBeTruthy();
+  });
+});
+
+describe('Genres (7e)', () => {
+  it('tiles say what you have and open Albums with the chip picked', async () => {
+    const { router } = renderPage('/library?view=albums&tab=genres');
+    await screen.findByText('Electronic');
+    expect(screen.getByText('212 albums · 180 in your library')).toBeTruthy();
+    expect(screen.getByText("32 you don't have · 11 below quality target")).toBeTruthy();
+    expect(screen.getByText('All of it in your library')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /With gaps\s*23/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add 32 missing to Wanted' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: 'Electronic' }));
+    await waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ view: 'albums', genre: 'electronic' }),
+    );
+    expect(router.state.location.search).not.toHaveProperty('tab');
+  });
+
+  it('Select picks genres: "Add 32 missing across 1 genre"', async () => {
+    renderPage('/library?view=albums&tab=genres');
+    await screen.findByText('Electronic');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Electronic' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected genres' });
+    fireEvent.click(within(bar).getByRole('button', { name: /Add 32 missing across 1 genre/ }));
+    await screen.findByRole('dialog');
+    await waitFor(() =>
+      expect(posted.find((p) => p.url.endsWith('/api/library/releases/summary'))?.body).toEqual({
+        filter: { genres: ['electronic'] },
+      }),
+    );
+  });
+});
+
+describe('Artists (7f)', () => {
+  it('square art, "9 of 14 releases", Following, and the artist page', async () => {
+    renderPage('/library');
+    await screen.findByText('Pale Harbour');
+    expect(
+      screen.getByText("186 artists · 18 you follow · 41 with releases you don't have"),
+    ).toBeTruthy();
+    const tile = screen.getByText('Pale Harbour').closest('li')!;
+    expect(within(tile).getByText('9 of 14 releases')).toBeTruthy();
+    expect(within(tile).getByText('Following')).toBeTruthy();
+    expect(within(tile).getByRole('link', { name: 'Pale Harbour' }).getAttribute('href')).toBe(
+      '/artist-detail/library/1',
+    );
+    expect(screen.getByRole('button', { name: /Following\s*18/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Incomplete\s*41/ })).toBeTruthy();
+    // a complete artist plays instead
+    const halide = screen.getByText('Halide').closest('li')!;
+    expect(within(halide).getByRole('button', { name: "Play Halide's top tracks" })).toBeTruthy();
+  });
+
+  it('hover adds: one missing at once, several through the confirm', async () => {
+    renderPage('/library');
+    await screen.findByText('Vera Lund');
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 missing to Wanted' }));
+    await waitFor(() =>
+      expect(posted.find((p) => p.url.endsWith('/api/wishlist/bulk'))?.body).toEqual({
+        action: 'add',
+        filter: { artist_ids: ['2'] },
+        quality: 'target',
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add 3 missing to Wanted' }));
+    await screen.findByRole('dialog');
+    await waitFor(() =>
+      expect(posted.find((p) => p.url.endsWith('/api/library/releases/summary'))?.body).toEqual({
+        filter: { artist_ids: ['1'] },
+      }),
+    );
+  });
+
+  it('Select picks artists and Follow these artists follows them', async () => {
+    renderPage('/library');
+    await screen.findByText('Vera Lund');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Vera Lund' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Halide' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected artists' });
+    expect(within(bar).getByText('2 artists selected · 1 missing')).toBeTruthy();
+    fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Follow these artists' }));
+    await waitFor(() =>
+      expect(posted.find((p) => p.url.endsWith('/api/library/artists/follow'))?.body).toEqual({
+        artist_ids: ['2', '3'],
+      }),
     );
   });
 });

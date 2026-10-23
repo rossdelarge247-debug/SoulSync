@@ -8,15 +8,9 @@ import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
 /**
- * /library is LIVE — the manifest hands it to React.
- *
- * These were the dormant-route tests; they were written to fail the moment the
- * manifest flipped, and this is that rewrite. The point of the suite is
- * unchanged: the route must not hand the page back to vanilla, validateSearch
- * must survive whatever is in the URL, and the permission gate still applies.
- *
- * Unlike library-page.test.tsx this file does NOT mock the manifest — the flip
- * itself is what it is checking.
+ * /library is React's: the route must not hand the page back to vanilla,
+ * validateSearch must survive whatever is in the URL (old links included), and
+ * the permission gate still applies.
  */
 
 function renderRoute(entries = ['/library']) {
@@ -28,7 +22,49 @@ function renderRoute(entries = ['/library']) {
 
 let requested: string[] = [];
 
-describe('library route (live)', () => {
+const ARTISTS = {
+  success: true,
+  artists: [
+    {
+      id: '1',
+      name: 'Pale Harbour',
+      image_url: null,
+      genres: ['Ambient'],
+      following: true,
+      releases: 14,
+      in_library: 9,
+      missing: 5,
+      wanted: 2,
+      wantable: 3,
+    },
+  ],
+  total: 1,
+  page: 1,
+  limit: 50,
+  has_more: false,
+  show: 'all',
+  sort: 'name',
+  genre: '',
+  show_counts: { all: 1, following: 1, incomplete: 1 },
+  genre_total: 1,
+  genres: [{ key: 'ambient', name: 'Ambient', count: 1 }],
+  totals: {
+    albums: 14,
+    library: 9,
+    missing: 5,
+    below: 0,
+    tracks: 100,
+    genres: 1,
+    artists: 1,
+    following: 1,
+    incomplete: 1,
+  },
+};
+
+const lastQuery = (path: string) =>
+  new URL(requested.filter((u) => u.includes(path)).at(-1)!, 'http://x').searchParams;
+
+describe('library route', () => {
   beforeEach(() => {
     window.SoulSyncWebShellBridge = createShellBridge();
     window.showLibraryDownloadsSection = vi.fn();
@@ -38,20 +74,7 @@ describe('library route (live)', () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = input instanceof Request ? input.url : String(input);
         requested.push(url);
-        const body = url.includes('/api/library/artists')
-          ? {
-              success: true,
-              artists: [{ id: 1, name: 'Aphex Twin' }],
-              pagination: {
-                page: 1,
-                limit: 75,
-                total_count: 1,
-                total_pages: 1,
-                has_prev: false,
-                has_next: false,
-              },
-            }
-          : {};
+        const body = url.includes('/api/library/artist-index') ? ARTISTS : {};
         return new Response(JSON.stringify(body), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -69,40 +92,38 @@ describe('library route (live)', () => {
     expect(getShellRouteByPageId('library')?.kind).toBe('react');
   });
 
-  it('renders the React page instead of handing /library to vanilla', async () => {
+  it('renders the Artists grid instead of handing /library to vanilla', async () => {
     renderRoute();
-    await screen.findByText('Aphex Twin');
-    // The vanilla page must not activate underneath — two live library pages
-    // would fight over #library-artists-grid and the downloads section.
+    await screen.findByText('Pale Harbour');
     expect(window.SoulSyncWebShellBridge!.activateLegacyPath).not.toHaveBeenCalledWith('/library');
   });
 
-  it('loads the artists through the route loader', async () => {
-    renderRoute();
+  it('reads every param from the URL and leaves the defaults out of it', async () => {
+    const { router } = renderRoute(['/library?show=following&genre=Ambient&sort=recent&q=123']);
     await waitFor(() =>
-      expect(requested.filter((u) => u.includes('/api/library/artists'))).not.toEqual([]),
+      expect(requested.some((u) => u.includes('/api/library/artist-index'))).toBe(true),
     );
+    const q = lastQuery('/api/library/artist-index');
+    // an all-digits q arrives as a number from TanStack's parse; it's still text
+    expect([q.get('show'), q.get('genre'), q.get('sort'), q.get('q')]).toEqual([
+      'following',
+      'ambient',
+      'recent',
+      '123',
+    ]);
+    expect(router.state.location.search).not.toHaveProperty('view');
+    expect(router.state.location.search).not.toHaveProperty('tab');
   });
 
-  it('accepts every filter in the URL without throwing the route down', async () => {
-    // An all-digits q arrives as a NUMBER from TanStack's JSON parse, which a
-    // bare z.string() would reject and take the route down with.
-    renderRoute(['/library?q=123&letter=A&page=3&watchlist=unwatched&source=spotify']);
-    await waitFor(() =>
-      expect(requested.filter((u) => u.includes('/api/library/artists'))).not.toEqual([]),
-    );
-    const url = new URL(requested.find((u) => u.includes('/api/library/artists'))!, 'http://x');
-    expect(url.searchParams.get('search')).toBe('123');
-    expect(url.searchParams.get('letter')).toBe('a');
-  });
-
-  it('falls back rather than crashing on a nonsense page number', async () => {
-    renderRoute(['/library?page=notanumber']);
-    await waitFor(() =>
-      expect(requested.filter((u) => u.includes('/api/library/artists'))).not.toEqual([]),
-    );
-    const url = new URL(requested.find((u) => u.includes('/api/library/artists'))!, 'http://x');
-    expect(url.searchParams.get('page')).toBe('1');
+  it('turns old links and nonsense into the defaults rather than an error', async () => {
+    renderRoute([
+      '/library?letter=A&page=notanumber&watchlist=unwatched&source=spotify&show=nope&sort=year_desc',
+    ]);
+    await screen.findByText('Pale Harbour');
+    const q = lastQuery('/api/library/artist-index');
+    expect(q.get('show')).toBe('all');
+    expect(q.get('sort')).toBe('name');
+    expect(q.get('letter')).toBeNull();
   });
 
   it('still respects the page permission gate', async () => {
