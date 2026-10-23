@@ -83,7 +83,7 @@ export function VisualsCredit() {
           <kbd>V</kbd> next{' '}
           {milk ? (
             <>
-              <kbd>L</kbd> favourite
+              <kbd>S</kbd> favourite
             </>
           ) : null}
         </p>
