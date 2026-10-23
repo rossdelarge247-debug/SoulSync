@@ -442,7 +442,7 @@ export function HistoryPage({ search, go }: { search: LibrarySearch; go: Go }) {
                 onClick={() => go({ kind: option.value === 'music' ? undefined : option.value })}
               >
                 {option.label}
-                <CountBadge count={counts.data?.[option.value].all} />
+                <CountBadge count={counts.data?.[option.value][range]} />
               </button>
             ))}
           </div>

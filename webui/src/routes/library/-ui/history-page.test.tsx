@@ -193,10 +193,13 @@ describe('Listening history (13a)', () => {
     const kind = screen.getByRole('group', { name: 'Kind' });
     expect(
       within(kind)
-        .getByRole('button', { name: /Music\s*1,204/ })
+        .getByRole('button', { name: /Music\s*412/ })
         .getAttribute('aria-pressed'),
     ).toBe('true');
-    expect(within(kind).getByRole('button', { name: /Podcasts\s*38/ })).toBeTruthy();
+    // 93: the counts follow the range (7 days here); a kind with 0 stays pressable
+    expect(within(kind).getByRole('button', { name: /Podcasts\s*6/ })).toBeTruthy();
+    const books = within(kind).getByRole('button', { name: /Audiobooks\s*0/ });
+    expect(books.hasAttribute('disabled')).toBe(false);
     const range = screen.getByRole('group', { name: 'Range' });
     expect(within(range).getByRole('button', { name: '7 days' }).getAttribute('aria-pressed')).toBe(
       'true',
@@ -209,6 +212,12 @@ describe('Listening history (13a)', () => {
     const params = lastParams('/api/library/listening-history');
     expect(params.get('range')).toBe('7d');
     expect(params.get('tz')).toBe(String(new Date().getTimezoneOffset()));
+    fireEvent.click(within(range).getByRole('button', { name: 'All time' }));
+    await waitFor(() =>
+      expect(within(kind).getByRole('button', { name: /Music\s*1,204/ })).toBeTruthy(),
+    );
+    expect(within(kind).getByRole('button', { name: /Audiobooks\s*4/ })).toBeTruthy();
+    fireEvent.click(within(range).getByRole('button', { name: '7 days' }));
   });
 
   it('groups by day with the whole day count and draws each row as the board does', async () => {
