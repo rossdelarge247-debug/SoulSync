@@ -135,6 +135,63 @@ export const Switch = forwardRef<HTMLElement, SwitchProps>(function Switch(
   );
 });
 
+/**
+ * The design system's switch control (boards 4d, 10a's Blend): a 104×44
+ * box with the state in words ("On" / "Off") beside the track, one button
+ * with `role="switch"`. Disabled is neutral, with `aria-disabled` so the
+ * reason written beside it stays reachable.
+ */
+export interface LabelledSwitchProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  'onChange' | 'value' | 'type'
+> {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  /** the words for each state; "On" / "Off" by default */
+  onLabel?: ReactNode;
+  offLabel?: ReactNode;
+  className?: string;
+}
+
+export const LabelledSwitch = forwardRef<HTMLButtonElement, LabelledSwitchProps>(
+  function LabelledSwitch(
+    {
+      checked,
+      onCheckedChange,
+      onLabel = 'On',
+      offLabel = 'Off',
+      className,
+      disabled,
+      onClick,
+      ...props
+    },
+    ref,
+  ) {
+    return (
+      <button
+        ref={ref}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-disabled={disabled || undefined}
+        className={clsx(styles.labelledSwitch, className)}
+        data-checked={checked ? 'true' : undefined}
+        onClick={(e) => {
+          onClick?.(e);
+          if (disabled || e.defaultPrevented) return;
+          onCheckedChange(!checked);
+        }}
+        {...props}
+      >
+        <span className={styles.labelledSwitchWord}>{checked ? onLabel : offLabel}</span>
+        <span className={styles.labelledSwitchTrack} aria-hidden="true">
+          <span className={styles.labelledSwitchThumb} />
+        </span>
+      </button>
+    );
+  },
+);
+
 export interface RangeInputProps {
   className?: string;
   disabled?: boolean;

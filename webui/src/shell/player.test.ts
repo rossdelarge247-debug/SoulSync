@@ -652,6 +652,41 @@ describe('the record (HANDOFF 47, board 9d)', () => {
   });
 });
 
+describe('the Visuals row and the visuals’ transport (10a, 10d)', () => {
+  it('with nothing playing the row is disabled-neutral: "Play something first", no F', () => {
+    const openVisuals = vi.fn();
+    window.npV2 = { getSpeed: () => 1, getEq: () => ({ on: false, preset: 'Flat' }), openVisuals };
+    const engine = fakeEngine(snapshot());
+    boot(engine);
+    $('[data-player-more]').click();
+    const row = $('[data-player-menu="visuals"]');
+    expect(row).not.toHaveAttribute('aria-disabled');
+    expect($('[data-player-visuals-state]').hidden).toBe(true);
+    engine.current = snapshot({ track: null });
+    window.dispatchEvent(new CustomEvent('ss:player', { detail: { reason: 'state' } }));
+    expect(row).toHaveAttribute('aria-disabled', 'true');
+    expect($('[data-player-visuals-state]').hidden).toBe(false);
+    expect($('[data-player-visuals-state]').textContent).toBe('Play something first');
+    expect((row.querySelector('kbd') as HTMLElement).hidden).toBe(true);
+    row.click();
+    expect(openVisuals).not.toHaveBeenCalled();
+    delete window.npV2;
+  });
+
+  it('the visuals’ transport has the times, the waveform and a volume that works', () => {
+    const engine = fakeEngine(snapshot({ volume: 40 }));
+    boot(engine);
+    const overlay = $('#np-modal-overlay');
+    expect(overlay.querySelector('[data-player-wave]')).not.toBeNull();
+    expect(overlay.querySelector('[data-player-elapsed]')).not.toBeNull();
+    const vol = overlay.querySelector<HTMLInputElement>('[data-player-volume]')!;
+    expect(vol.value).toBe('40');
+    vol.value = '55';
+    vol.dispatchEvent(new Event('input'));
+    expect(engine.setVolume).toHaveBeenCalledWith(55);
+  });
+});
+
 describe('radio in the bar (HANDOFF 49)', () => {
   it('puts Live beside the station’s name and keeps the meter in the centre', () => {
     boot(

@@ -2031,6 +2031,10 @@ class MusicDatabase:
             with self._migration_step(cursor, "player_audio_columns", atomic=False):
                 from core.playback.audio_details import ensure_track_columns as _ensure_audio_columns
                 _ensure_audio_columns(cursor)
+            # the Visuals overlay (board 10a): MilkDrop favourites per profile
+            with self._migration_step(cursor, "visual_favourites_schema"):
+                from core.visuals.favourites import ensure_schema as _ensure_visual_favourites
+                _ensure_visual_favourites(cursor)
             self._requeue_similar_artists_rematch(cursor)
             self._purge_beatport_positional_matches(cursor)
             self._normalize_genres_to_json(cursor)

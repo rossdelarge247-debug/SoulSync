@@ -973,6 +973,12 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     setHidden(item('report'), !st.reportable);
     const spoken = st.kind === 'podcast' || st.kind === 'audiobook';
     setHidden(item('lyrics'), spoken || st.kind === 'radio');
+    // Visuals with nothing playing: disabled-neutral with its reason (10d)
+    const visualsRow = item('visuals');
+    if (st.track) visualsRow?.removeAttribute('aria-disabled');
+    else setAttr(visualsRow, 'aria-disabled', 'true');
+    setHidden(menu.querySelector('[data-player-visuals-state]'), Boolean(st.track));
+    setHidden(visualsRow?.querySelector('kbd') ?? null, !st.track);
     setText(
       menu.querySelector('[data-player-lyrics-state]'),
       st.lyrics.loading
@@ -1067,7 +1073,11 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     }
     if (!t && sheetOpen) closeSheet(false);
     applyLayout();
-    if (!t) return;
+    if (!t) {
+      // an open menu says Visuals needs something playing (10d)
+      if (menu && !menu.hidden) drawMenu();
+      return;
+    }
 
     const kind = (st.kind ?? 'library') as SourceKind;
     const sv = sourceView(kind);
@@ -1259,7 +1269,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       setAttr(b, 'aria-label', st.muted ? 'Unmute' : 'Mute');
     }
     const vol = st.muted ? 0 : st.volume;
-    for (const input of root!.querySelectorAll<HTMLInputElement>('[data-player-volume]')) {
+    for (const input of all<HTMLInputElement>('[data-player-volume]')) {
       if (doc.activeElement !== input && input.value !== String(vol)) input.value = String(vol);
       input.style.setProperty('--vol', `${vol}%`);
       setAttr(input, 'aria-valuetext', st.muted ? 'Muted' : `${vol}%, ${volumeDb(vol)}`);
@@ -1441,7 +1451,8 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       }
     });
   }
-  for (const input of root.querySelectorAll<HTMLInputElement>('[data-player-volume]')) {
+  // the visuals' transport carries a volume too (10a)
+  for (const input of all<HTMLInputElement>('[data-player-volume]')) {
     on(input, 'input', () => engine.setVolume(Number(input.value)));
   }
   for (const w of waves()) wireWave(w);
@@ -1530,6 +1541,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
           engine.setCrossfade(!snapshot.crossfade);
           break;
         case 'visuals':
+          if (!snapshot.track) break;
           closeMenus(false);
           view.npV2?.openVisuals?.();
           break;

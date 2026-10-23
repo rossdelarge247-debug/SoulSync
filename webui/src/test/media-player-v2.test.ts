@@ -833,93 +833,50 @@ function npv2FakeDocument(els: Record<string, any>): any {
 // Visuals side panel (immersive overlay keeps the show running)
 // ---------------------------------------------------------------------------
 
-describe('visuals side panel', () => {
-  const build = () => {
-    const home = npv2FakeEl('np-tabpanels');
-    const historyPanel = npv2FakeEl('np-v2-history-panel');
-    const sibling = npv2FakeEl('np-v2-details-panel');
-    home.appendChild(historyPanel);
-    home.appendChild(sibling);
-    const els: Record<string, any> = {
-      'np-tabpanels': home,
-      'np-v2-history-panel': historyPanel,
-      'np-v2-details-panel': sibling,
-      'np-v2-sidepanel-body': npv2FakeEl('np-v2-sidepanel-body'),
-      'np-v2-visuals-sidepanel': npv2FakeEl('np-v2-visuals-sidepanel'),
-      'np-v2-sidepanel-title': npv2FakeEl('np-v2-sidepanel-title'),
-      'np-v2-visuals-drawer': npv2FakeEl('np-v2-visuals-drawer'),
-      'np-v2-visuals-panels': npv2FakeEl('np-v2-visuals-panels'),
-      'np-queue-panel': npv2FakeEl('np-queue-panel'),
-      'np-lyrics-panel': npv2FakeEl('np-lyrics-panel'),
-      'np-v2-settings-panel': npv2FakeEl('np-v2-settings-panel'),
-    };
-    els['np-v2-visuals-sidepanel'].classList.add('hidden');
-    const doc = npv2FakeDocument(els);
-    const factory = new Function(
-      'document',
+describe('the visuals panel lives in src/features/visuals', () => {
+  it('the old drawer and its borrowed tray panels are gone', () => {
+    for (const name of [
+      'npv2OpenVisualsPanel',
+      'npv2CloseVisualsPanel',
+      'npv2PlaceVisualsPanel',
+      'npv2ToggleVisualsDrawer',
+      'npv2DrawerOutsideClick',
+    ]) {
+      expect(v2).not.toContain(`function ${name}(`);
+    }
+    const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(html).not.toContain('np-v2-visuals-drawer');
+    expect(html).not.toContain('np-v2-visuals-sidepanel');
+    // the header's Visuals button opens the panel (10a)
+    expect(html).toMatch(/id="np-v2-visuals-panel-btn" aria-expanded="false" aria-pressed="false"/);
+  });
+
+  it('the header arrows step through the family on the stage', () => {
+    const calls: string[] = [];
+    const run = new Function(
+      'bridge',
+      'calls',
       [
-        extractConst('NPV2', v2),
-        extractConst('NPV2_SIDE_PANELS', v2),
-        extractConst('NPV2_TABS', v2),
-        'let npv2SidePanelHome = null;',
-        'let npv2SidePanelTab = null;',
-        'function npv2RenderHistory() {}',
-        'function npv2RenderDetails() {}',
-        'function npv2VisualsModeOn() { return true; }',
-        'function npv2VisualsClearIdle() {}',
-        extractFunction('npv2OpenVisualsPanel', v2),
-        extractFunction('npv2CloseVisualsPanel', v2),
-        extractFunction('npv2SidePanelOpen', v2),
-        extractFunction('npv2ToggleVisualsDrawer', v2),
-        extractFunction('npv2SelectTab', v2),
-        extractFunction('npv2VisualsWakeUI', v2),
-        'return { npv2OpenVisualsPanel, npv2CloseVisualsPanel, npv2SidePanelOpen, NPV2 };',
+        'function npv2Bridge() { return bridge; }',
+        "function npv2PrevTheme() { calls.push('prev theme'); }",
+        "function npv2CycleTheme() { calls.push('next theme'); }",
+        extractFunction('npv2VisualsStep', v2),
+        'return npv2VisualsStep;',
       ].join('\n'),
     );
-    return { api: factory(doc) as any, els, home, historyPanel, sibling };
-  };
-
-  it('opens the history panel into the side overlay', () => {
-    const { api, els, historyPanel } = build();
-    api.npv2OpenVisualsPanel('history');
-    expect(api.npv2SidePanelOpen()).toBe(true);
-    expect(historyPanel.parentNode).toBe(els['np-v2-sidepanel-body']);
-    expect(historyPanel.classList.contains('hidden')).toBe(false);
-    expect(els['np-v2-visuals-sidepanel'].classList.contains('hidden')).toBe(false);
-    expect(els['np-v2-sidepanel-title'].textContent).toBe('Recent');
-    expect(api.NPV2.tab).toBe('history');
+    const viaBridge = run({ step: (d: number) => calls.push(`bridge ${d}`) }, calls) as (
+      d: number,
+    ) => void;
+    viaBridge(1);
+    viaBridge(-1);
+    const without = run(null, calls) as (d: number) => void;
+    without(1);
+    without(-1);
+    expect(calls).toEqual(['bridge 1', 'bridge -1', 'next theme', 'prev theme']);
   });
 
-  it('toggling the same tab closes the panel', () => {
-    const { api } = build();
-    api.npv2OpenVisualsPanel('history');
-    api.npv2OpenVisualsPanel('history');
-    expect(api.npv2SidePanelOpen()).toBe(false);
-  });
-
-  it('closing restores the node to its original home and spot', () => {
-    const { api, els, home, historyPanel, sibling } = build();
-    api.npv2OpenVisualsPanel('history');
-    api.npv2CloseVisualsPanel();
-    expect(api.npv2SidePanelOpen()).toBe(false);
-    expect(historyPanel.parentNode).toBe(home);
-    expect(home.children[0]).toBe(historyPanel);
-    expect(home.children[1]).toBe(sibling);
-    expect(els['np-v2-visuals-sidepanel'].classList.contains('hidden')).toBe(true);
-  });
-
-  it('switching tabs moves the panel without a close round-trip', () => {
-    const { api, els, historyPanel } = build();
-    api.npv2OpenVisualsPanel('queue');
-    api.npv2OpenVisualsPanel('history');
-    expect(historyPanel.parentNode).toBe(els['np-v2-sidepanel-body']);
-    expect(els['np-v2-sidepanel-title'].textContent).toBe('Recent');
-  });
-
-  it('ignores unknown tabs', () => {
-    const { api } = build();
-    api.npv2OpenVisualsPanel('nope');
-    expect(api.npv2SidePanelOpen()).toBe(false);
+  it('the chrome stays up while the panel is open', () => {
+    expect(extractFunction('npv2VisualsWakeUI', v2)).toContain('bridge.panelOpen()');
   });
 });
 
@@ -1117,16 +1074,15 @@ describe('immersive mode toggle', () => {
         'function npv2VizStart() {}',
         'function npv2VisualsWakeUI() {}',
         'function npv2VisualsClearIdle() {}',
-        'function npv2CloseVisualsPanel() {}',
+        'function npv2Bridge() { return document._bridge || null; }',
         'let npv2VisualsOpener = null;',
         extractFunction('npv2ModalOpen', v2),
         extractFunction('npv2VisualsModeOn', v2),
         extractFunction('npv2SetVisualsMode', v2),
-        extractFunction('npv2ToggleVisualsDrawer', v2),
-        'return { NPV2, npv2VisualsModeOn, npv2SetVisualsMode, npv2ToggleVisualsDrawer };',
+        'return { NPV2, npv2VisualsModeOn, npv2SetVisualsMode };',
       ].join('\n'),
     );
-    return { api: factory(doc) as any, els, modal, overlay, exit, expand, drawer, panels };
+    return { api: factory(doc) as any, els, modal, overlay, exit, expand, drawer, panels, doc };
   };
 
   it('entering syncs the expand button to the pressed state', () => {
@@ -1174,93 +1130,13 @@ describe('immersive mode toggle', () => {
     expect(api.npv2VisualsModeOn()).toBe(false);
   });
 
-  it('exiting also closes the immersive drawer', () => {
-    const { api, drawer } = build();
-    api.npv2ToggleVisualsDrawer(true);
-    expect(drawer.classList.contains('hidden')).toBe(false);
+  it('exiting also closes the visuals panel', () => {
+    const { api, doc } = build();
+    let open = true;
+    doc._bridge = { panelOpen: () => open, closePanel: () => (open = false) };
     api.npv2SetVisualsMode(true);
     api.npv2SetVisualsMode(false);
-    expect(drawer.classList.contains('hidden')).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Drawer outside click: clicks inside the modal but outside the drawer close it
-// ---------------------------------------------------------------------------
-
-describe('drawer outside click', () => {
-  const build = () => {
-    const drawer = npv2FakeEl('np-v2-visuals-drawer');
-    const panels = npv2FakeEl('np-v2-visuals-panels');
-    const inner = npv2FakeEl('np-v2-drawer-inner');
-    const hamburgerIcon = npv2FakeEl('np-v2-panels-icon');
-    const elsewhere = npv2FakeEl('np-v2-bg');
-    drawer.appendChild(inner);
-    panels.appendChild(hamburgerIcon);
-    drawer.classList.add('hidden');
-    // parentNode-chain contains(), like the DOM
-    for (const root of [drawer, panels]) {
-      root.contains = (node: any) => {
-        let n = node;
-        while (n) {
-          if (n === root) return true;
-          n = n.parentNode;
-        }
-        return false;
-      };
-    }
-    const els: Record<string, any> = {
-      'np-v2-visuals-drawer': drawer,
-      'np-v2-visuals-panels': panels,
-    };
-    const doc = npv2FakeDocument(els);
-    const factory = new Function(
-      'document',
-      [
-        extractFunction('npv2ToggleVisualsDrawer', v2),
-        extractFunction('npv2DrawerOutsideClick', v2),
-        'return { npv2ToggleVisualsDrawer, npv2DrawerOutsideClick };',
-      ].join('\n'),
-    );
-    return { api: factory(doc) as any, drawer, panels, inner, hamburgerIcon, elsewhere };
-  };
-
-  it('opens and closes via the toggle', () => {
-    const { api, drawer, panels } = build();
-    api.npv2ToggleVisualsDrawer(true);
-    expect(drawer.classList.contains('hidden')).toBe(false);
-    expect(panels.classList.contains('active')).toBe(true);
-    api.npv2ToggleVisualsDrawer(false);
-    expect(drawer.classList.contains('hidden')).toBe(true);
-    expect(panels.classList.contains('active')).toBe(false);
-  });
-
-  it('a click inside the drawer keeps it open', () => {
-    const { api, drawer, inner } = build();
-    api.npv2ToggleVisualsDrawer(true);
-    api.npv2DrawerOutsideClick({ target: inner });
-    expect(drawer.classList.contains('hidden')).toBe(false);
-  });
-
-  it('a click on the hamburger keeps it open (it toggles itself)', () => {
-    const { api, drawer, hamburgerIcon } = build();
-    api.npv2ToggleVisualsDrawer(true);
-    api.npv2DrawerOutsideClick({ target: hamburgerIcon });
-    expect(drawer.classList.contains('hidden')).toBe(false);
-  });
-
-  it('a click elsewhere inside the modal closes it', () => {
-    const { api, drawer, panels, elsewhere } = build();
-    api.npv2ToggleVisualsDrawer(true);
-    api.npv2DrawerOutsideClick({ target: elsewhere });
-    expect(drawer.classList.contains('hidden')).toBe(true);
-    expect(panels.classList.contains('active')).toBe(false);
-  });
-
-  it('does nothing when the drawer is already closed', () => {
-    const { api, drawer } = build();
-    expect(() => api.npv2DrawerOutsideClick({ target: drawer })).not.toThrow();
-    expect(drawer.classList.contains('hidden')).toBe(true);
+    expect(open).toBe(false);
   });
 });
 
@@ -1492,6 +1368,7 @@ describe('the frame loop owns no beat logic of its own', () => {
         'function npv2DrawTrail() {}',
         'function npv2KeepTrail() {}',
         'function npv2ModalOpen() { return true; }',
+        'function npv2PaintsStage() { return true; }',
         'function npv2SizeCanvas() { return true; }',
         'function npv2AutocycleSeconds() { return 0; }',
         'function npv2CycleTheme() {}',
@@ -2010,10 +1887,11 @@ describe('the visuals canvas follows the picked visual', () => {
         'function npv2VizStart() {}',
         'function npv2VisualsWakeUI() {}',
         'function npv2VisualsClearIdle() {}',
-        'function npv2CloseVisualsPanel() {}',
-        'function npv2ToggleVisualsDrawer() {}',
+        'function npv2Bridge() { return null; }',
         'let npv2VisualsOpener = null;',
         extractFunction('npv2ThemeList', v2),
+        extractFunction('npv2VisualsEngine', v2),
+        extractFunction('npv2PaintsStage', v2),
         extractFunction('npv2ThemeIds', v2),
         extractFunction('npv2ModalOpen', v2),
         extractFunction('npv2SyncBgCanvas', v2),
@@ -2075,104 +1953,6 @@ describe('the visuals canvas follows the picked visual', () => {
 // reachable; and Off's tooltip says what Off shows now (no glow any more).
 // ---------------------------------------------------------------------------
 
-describe('the Visuals panel leaves the header reachable', () => {
-  const css = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
-  const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
-
-  const rule = (selector: string, source = css) => {
-    const at = source.indexOf(`${selector} {`);
-    expect(at).toBeGreaterThanOrEqual(0);
-    return source.slice(at, source.indexOf('}', at) + 1);
-  };
-
-  const build = () => {
-    document.body.innerHTML = `
-      <div class="np-modal">
-        <div id="np-v2-visuals-header">
-          <div id="np-v2-visuals-theme-switch">
-            <button id="np-v2-visuals-theme-prev">‹</button><button id="np-v2-visuals-theme-next">›</button>
-          </div>
-        </div>
-        <div id="np-v2-visuals-drawer" class="hidden"><button data-tab="queue"></button></div>
-        <div id="np-v2-visuals-sidepanel" class="hidden">
-          <span id="np-v2-sidepanel-title"></span><div id="np-v2-sidepanel-body"></div>
-        </div>
-        <div id="np-queue-panel" class="hidden"></div>
-      </div>`;
-    const header = document.getElementById('np-v2-visuals-header') as HTMLElement;
-    header.getBoundingClientRect = () =>
-      ({ top: 16, bottom: 60, left: 24, right: 1364 }) as DOMRect;
-    const modal = document.querySelector('.np-modal') as HTMLElement;
-    modal.getBoundingClientRect = () => ({ top: 0, bottom: 900, left: 0, right: 1440 }) as DOMRect;
-    const run = new Function(
-      [
-        "const NPV2_SIDE_PANELS = { queue: 'np-queue-panel' };",
-        'let npv2SidePanelHome = null;',
-        'let npv2SidePanelTab = null;',
-        'function npv2SelectTab() {}',
-        'function npv2VisualsWakeUI() {}',
-        extractFunction('npv2OpenVisualsPanel', v2),
-        extractFunction('npv2CloseVisualsPanel', v2),
-        extractFunction('npv2PlaceVisualsPanel', v2),
-        extractFunction('npv2ToggleVisualsDrawer', v2),
-        'return { npv2OpenVisualsPanel, npv2CloseVisualsPanel };',
-      ].join('\n'),
-    );
-    return run() as any;
-  };
-
-  afterEach(() => {
-    document.body.innerHTML = '';
-  });
-
-  it('the panel starts under the header, not at the top of the overlay', () => {
-    const panel = rule('#np-v2-visuals-sidepanel');
-    expect(panel).toMatch(/top: var\(--npv2-panel-top, 76px\);/);
-    expect(panel).not.toMatch(/top: 0;/);
-    // the header (and its arrows) sit at 16px with 44px controls: 76px clears them
-    expect(rule('#np-v2-visuals-header')).toMatch(/top: 16px;/);
-    expect(css).toMatch(/\.np-v2-visuals-arrow,[^{]*\{[^}]*min-height: 44px;/);
-    // phones stack the header, so the fallback is lower there
-    expect(css).toMatch(/#np-v2-visuals-sidepanel \{ top: var\(--npv2-panel-top, 152px\); \}/);
-    // the look is otherwise the same: the 400px note-ground column on the right
-    expect(panel).toMatch(/width: min\(400px, 100vw\);/);
-    expect(panel).toMatch(/background: var\(--ss-ground-note\);/);
-    expect(html).toContain('id="np-v2-visuals-theme-prev"');
-  });
-
-  it('opening a panel measures the header and places the panel below it', () => {
-    const api = build();
-    api.npv2OpenVisualsPanel('queue');
-    const panel = document.getElementById('np-v2-visuals-sidepanel') as HTMLElement;
-    expect(panel.classList.contains('hidden')).toBe(false);
-    expect(panel.style.getPropertyValue('--npv2-panel-top')).toBe('76px');
-    // the arrows stay where they were, outside the panel
-    expect(panel.contains(document.getElementById('np-v2-visuals-theme-prev'))).toBe(false);
-    expect(panel.contains(document.getElementById('np-v2-visuals-theme-next'))).toBe(false);
-    api.npv2CloseVisualsPanel();
-    expect(panel.classList.contains('hidden')).toBe(true);
-  });
-
-  it('a taller (wrapped) header pushes the panel further down', () => {
-    const api = build();
-    const header = document.getElementById('np-v2-visuals-header') as HTMLElement;
-    header.getBoundingClientRect = () =>
-      ({ top: 16, bottom: 140, left: 24, right: 318 }) as DOMRect;
-    api.npv2OpenVisualsPanel('queue');
-    const panel = document.getElementById('np-v2-visuals-sidepanel') as HTMLElement;
-    expect(panel.style.getPropertyValue('--npv2-panel-top')).toBe('156px');
-  });
-
-  it('without layout (nothing measured) the CSS fallback stands', () => {
-    const api = build();
-    const header = document.getElementById('np-v2-visuals-header') as HTMLElement;
-    header.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0 }) as DOMRect;
-    api.npv2OpenVisualsPanel('queue');
-    const panel = document.getElementById('np-v2-visuals-sidepanel') as HTMLElement;
-    expect(panel.style.getPropertyValue('--npv2-panel-top')).toBe('');
-  });
-});
-
 describe('the Off visual says what it shows', () => {
   const { npv2ThemeList } = v2Harness(['npv2ThemeList']);
 
@@ -2185,7 +1965,7 @@ describe('the Off visual says what it shows', () => {
 
   it('Off really hides the canvas (so the overlay is black under the track and the controls)', () => {
     expect(extractFunction('npv2SyncBgCanvas', v2)).toContain(
-      "NPV2.theme !== 'none' ? '' : 'none'",
+      "NPV2.theme !== 'none' && npv2PaintsStage() ? '' : 'none'",
     );
     const css = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
     expect(css).toMatch(/#np-modal-overlay \{[^}]*background: #000;/);
@@ -2193,13 +1973,18 @@ describe('the Off visual says what it shows', () => {
 });
 
 describe('the Visuals keys (HANDOFF 60)', () => {
-  function keys(overlayOpen: boolean, trayOpen: boolean) {
+  function keys(
+    overlayOpen: boolean,
+    trayOpen: boolean,
+    opts: { bridge?: boolean; panel?: boolean; track?: boolean } = {},
+  ) {
     const calls: string[] = [];
+    let panel = Boolean(opts.panel);
     const factory = new Function(
       'stubs',
       `const { npv2ModalOpen, npv2PlayerFocused, npv2CycleTheme, npv2PrevTheme, npv2SetVisualsMode,
-        npv2AbToggle, npv2ToggleShortcuts, npv2CycleSpeed, npv2SidePanelOpen, npv2CloseVisualsPanel,
-        npv2ToggleVisualsDrawer, npv2VisualsModeOn } = stubs;
+        npv2AbToggle, npv2ToggleShortcuts, npv2CycleSpeed, npv2VisualsModeOn, npv2VisualsWakeUI,
+        npv2Bridge, npv2CurrentTrack } = stubs;
       ${extractFunction('npv2HandleKeys', v2)}
       return { npv2HandleKeys };`,
     );
@@ -2215,10 +2000,20 @@ describe('the Visuals keys (HANDOFF 60)', () => {
       npv2AbToggle: stub('a-b loop'),
       npv2ToggleShortcuts: stub('shortcuts'),
       npv2CycleSpeed: stub('speed'),
-      npv2SidePanelOpen: () => false,
-      npv2CloseVisualsPanel: stub('close panel'),
-      npv2ToggleVisualsDrawer: stub('drawer'),
       npv2VisualsModeOn: () => overlayOpen,
+      npv2VisualsWakeUI: () => undefined,
+      npv2CurrentTrack: () => (opts.track === false ? null : { title: 'Static Bloom' }),
+      npv2Bridge: () =>
+        opts.bridge
+          ? {
+              key: (a: string) => calls.push(`bridge ${a}`),
+              panelOpen: () => panel,
+              closePanel: () => {
+                panel = false;
+                calls.push('close panel');
+              },
+            }
+          : null,
     }) as { npv2HandleKeys: (e: KeyboardEvent) => void };
     const press = (key: string, shiftKey = false) => {
       const e = new KeyboardEvent('keydown', { key, shiftKey, cancelable: true });
@@ -2253,6 +2048,41 @@ describe('the Visuals keys (HANDOFF 60)', () => {
     expect(html).toMatch(
       /data-player-menu="visuals" aria-keyshortcuts="F">Visuals <kbd[^>]*>F<\/kbd>/,
     );
-    expect(html).toContain('V and Shift V only in the visuals');
+    expect(html).toContain('In the visuals, V, Shift V, R and L work on the visuals.');
+  });
+
+  it('inside the overlay V, Shift+V, R and L go to the visuals (10a; question 83)', () => {
+    const { calls, press } = keys(true, false, { bridge: true });
+    press('v');
+    press('V', true);
+    press('r');
+    press('l');
+    expect(calls).toEqual(['bridge next', 'bridge previous', 'bridge random', 'bridge favourite']);
+  });
+
+  it('outside the overlay L stays the A–B loop and R does nothing', () => {
+    const { calls, press } = keys(false, true, { bridge: true });
+    press('l');
+    expect(press('r')).toBe(false);
+    expect(calls).toEqual(['a-b loop']);
+  });
+
+  it('Esc closes the panel first, then the visuals', () => {
+    const { calls, press } = keys(true, false, { bridge: true, panel: true });
+    press('Escape');
+    press('Escape');
+    expect(calls).toEqual(['close panel', 'close visuals']);
+  });
+
+  it('F with nothing playing leaves the visuals closed', () => {
+    const { calls, press } = keys(false, true, { track: false });
+    press('f');
+    expect(calls).toEqual([]);
+  });
+
+  it('the stage is only painted here for the SYNCHRO.S family', () => {
+    expect(extractFunction('npv2VizFrame', v2)).toContain('if (!npv2PaintsStage()) return;');
+    const css = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
+    expect(css).toContain("#np-modal-overlay[data-visuals-engine='milkdrop'] #ss-visuals-milkdrop");
   });
 });

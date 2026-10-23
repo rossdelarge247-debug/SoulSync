@@ -23922,6 +23922,14 @@ _cfg_player(get_database_=get_database,
             image_url_=fix_artist_image_url)
 app.register_blueprint(_bp_player())
 
+# The Visuals overlay (api/visuals.py): MilkDrop's preset index (the build's
+# copy of butterchurn-presets plus the admin's own folder), one preset by key,
+# and favourites per profile.
+from api.visuals import configure as _cfg_visuals, create_blueprint as _bp_visuals
+_cfg_visuals(get_database_=get_database, config_manager_=config_manager,
+             static_dir_=app.static_folder, docker_resolve_path_=docker_resolve_path)
+app.register_blueprint(_bp_visuals())
+
 # First-run setup flow: discovery, folder checks, save-free connection probes.
 from api.onboarding import configure as _configure_onboarding_api, create_blueprint as _create_onboarding_blueprint
 _configure_onboarding_api(config_manager_=config_manager, get_database_=get_database,
