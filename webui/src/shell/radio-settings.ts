@@ -9,11 +9,16 @@
  * - Auto-add: the daily limit per station, and the stations with it on.
  * - Streams: the relay rule, prefer lossless, how long Heard is kept.
  * - Your stream links: name and address, quality or a warning, who added it,
- *   Check and Remove.
- * - Scan now services: AcoustID, AudD and ACRCloud in the order a scan asks
- *   them, whether each is ready, this month's requests, a Test each, and the
- *   paid services' keys (write-only: the page is told only whether each is
- *   set) with Remove.
+ *   Check, and a "…" with Change logo… (HANDOFF 66: the address under the
+ *   row, checked and fetched like adding a link) and Remove.
+ * - Scan now services (board 11c, HANDOFF 58): AcoustID, AudD and ACRCloud
+ *   in the order a scan asks them, as numbered rows: the name over one line
+ *   of what it needs ("Token set, 14 March 2026 · Replace the token…"), a
+ *   StatusTag (Ready / Not set up / Refused / No requests left), this
+ *   month's requests and finds, Test and (paid) Remove. An unset service
+ *   opens its fields under its row with "Save and test", the card's one
+ *   primary. Keys are write-only: the page is told only whether each is set
+ *   and when it was saved. Members see the rows and tags, nothing else.
  *
  * Each control saves as soon as it changes (PUT /api/radio/settings). The tab
  * shows while the Internet radio module is on; the routes are admins only.
@@ -43,12 +48,15 @@ export interface RadioSettingsBody {
       acrcloud_ready: boolean;
     };
   };
+  /** false for a member: the answer is Scan now's rows and tags only (11c) */
+  is_admin?: boolean;
   scan?: {
     order: ScanServiceId[];
     labels: Record<ScanServiceId, string>;
-    ready: Record<ScanServiceId, boolean>;
-    usage: Record<ScanServiceId, { requests: number; found: number }>;
-    month: string;
+    ready?: Record<ScanServiceId, boolean>;
+    usage?: Record<ScanServiceId, { requests: number; found: number }>;
+    services?: Partial<Record<ScanServiceId, { state: ScanServiceState; set_at?: number | null }>>;
+    month?: string;
   };
   status?: {
     fpcalc: { found: boolean; detail: string };
@@ -66,6 +74,8 @@ export interface RadioSettingsBody {
     check_error: string | null;
     added_by: string | null;
     added_at: number | null;
+    /** the logo address an admin gave, or null (HANDOFF 55, 66) */
+    logo_url?: string | null;
   }[];
 }
 
@@ -74,6 +84,10 @@ export type ScanServiceId = 'acoustid' | 'audd' | 'acrcloud';
 const TAB_ID = 'stg-tab-radio';
 let body: RadioSettingsBody | null = null;
 let bound = false;
+/** The link whose "Change logo…" panel is open under its row (HANDOFF 66). */
+let logoOpen: number | null = null;
+let logoError: string | null = null;
+let logoBusy = false;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T | null;
@@ -130,121 +144,341 @@ export function autoStationsLine(auto: RadioSettingsBody['auto_add']): string {
   return `${names.join(', ')} · ${auto.added_this_week} added this week`;
 }
 
-/** "3 requests in October · 1 found", or "None in October". */
+// ── Scan now services (board 11c, HANDOFF 58) ───────────────────────────
+
+export type ScanServiceState = 'ready' | 'not_set_up' | 'refused' | 'no_requests_left';
+
+const SCAN_ORDER: ScanServiceId[] = ['acoustid', 'audd', 'acrcloud'];
+const SCAN_LABELS: Record<ScanServiceId, string> = {
+  acoustid: 'AcoustID',
+  audd: 'AudD',
+  acrcloud: 'ACRCloud',
+};
+const PAID: readonly ScanServiceId[] = ['audd', 'acrcloud'];
+
+/** The service whose fields are open under its row (one at a time: the card has one primary). */
+let openFields: ScanServiceId | null = null;
+/** An admin opened them (Replace…, Set up…); else they follow the first unset service. */
+let fieldsChosen = false;
+
+function admin(): boolean {
+  return body?.is_admin !== false;
+}
+
+/** The StatusTag's word and tone for a service's state. */
+export function serviceTag(state: ScanServiceState): {
+  label: string;
+  tone: 'success' | 'neutral' | 'danger' | 'warning';
+} {
+  switch (state) {
+    case 'ready':
+      return { label: 'Ready', tone: 'success' };
+    case 'refused':
+      return { label: 'Refused', tone: 'danger' };
+    case 'no_requests_left':
+      return { label: 'No requests left', tone: 'warning' };
+    default:
+      return { label: 'Not set up', tone: 'neutral' };
+  }
+}
+
+/** The service's state: the server's, or worked out from "ready" on an older answer. */
+export function serviceState(id: ScanServiceId, data: RadioSettingsBody): ScanServiceState {
+  const known = data.scan?.services?.[id]?.state;
+  if (known) return known;
+  return data.scan?.ready?.[id] ? 'ready' : 'not_set_up';
+}
+
+/** Whether a paid service's keys are all saved (an unset one opens its fields). */
+export function serviceSaved(id: ScanServiceId, data: RadioSettingsBody): boolean {
+  const svc = data.settings?.scan_services;
+  if (id === 'audd') return Boolean(svc?.audd_api_token.set);
+  if (id === 'acrcloud')
+    return Boolean(
+      svc?.acrcloud_host.set && svc.acrcloud_access_key.set && svc.acrcloud_access_secret.set,
+    );
+  return Boolean(data.settings?.acoustid_api_key.set);
+}
+
+/** "14 March 2026". */
+export function setOnWords(unix: number | null | undefined): string {
+  if (!unix) return '';
+  const d = new Date(unix * 1000);
+  const month = d.toLocaleDateString('en-GB', { month: 'long' });
+  return `${d.getDate()} ${month} ${d.getFullYear()}`;
+}
+
+/**
+ * The one line of what a service needs, under its name: "Token set, 14 March
+ * 2026" with "Replace the token…" once a key is saved; what to get otherwise.
+ * Members get what kind of service it is, nothing about keys.
+ */
+export function serviceNeeds(
+  id: ScanServiceId,
+  data: RadioSettingsBody,
+  isAdmin = true,
+): { text: string; replace: string | null } {
+  if (id === 'acoustid') {
+    const head = 'Free · a fingerprint';
+    if (!isAdmin) return { text: head, replace: null };
+    if (!data.settings?.acoustid_api_key.set)
+      return {
+        text: `${head} · add the AcoustID key in Track identification above`,
+        replace: null,
+      };
+    if (data.status && !data.status.fpcalc.found)
+      return { text: `${head} · needs fpcalc on the server (Setup check says how)`, replace: null };
+    if (serviceState(id, data) === 'refused')
+      return {
+        text: `${head} · AcoustID refused the key in Track identification above`,
+        replace: null,
+      };
+    return {
+      text: `${head} · uses the AcoustID key from Track identification above`,
+      replace: null,
+    };
+  }
+  if (!isAdmin) return { text: 'Paid · an account with a monthly allowance', replace: null };
+  const when = setOnWords(data.scan?.services?.[id]?.set_at);
+  if (id === 'audd') {
+    return serviceSaved(id, data)
+      ? { text: when ? `Token set, ${when}` : 'Token set', replace: 'Replace the token…' }
+      : { text: 'An API token from your AudD dashboard (audd.io)', replace: null };
+  }
+  return serviceSaved(id, data)
+    ? { text: when ? `Keys set, ${when}` : 'Keys set', replace: 'Replace the keys…' }
+    : {
+        text: 'A project’s host, access key and secret, from the ACRCloud console',
+        replace: null,
+      };
+}
+
+/** "41 requests in October · 29 found the track"; "Not asked" before a service is set up. */
 export function usageLine(
   usage: { requests: number; found: number } | undefined,
   month: string | undefined,
+  setUp = true,
 ): string {
   const n = usage?.requests ?? 0;
   const when = month ? ` in ${month}` : ' this month';
-  if (!n) return `No requests${when}`;
-  return `${n} request${n === 1 ? '' : 's'}${when} · ${usage?.found ?? 0} found`;
+  if (!n) return setUp ? `Not asked${when}` : 'Not asked';
+  return `${n} request${n === 1 ? '' : 's'}${when} · ${usage?.found ?? 0} found the track`;
 }
 
-/** The words under a service's name: what it costs and whether it's ready. */
-export function serviceLine(
-  id: ScanServiceId,
+/** Which paid service's fields are open: the one an admin chose, else the first unset one. */
+export function fieldsFor(
   data: RadioSettingsBody,
-): { text: string; tone: 'success' | 'warning' | 'neutral' | 'danger' } {
-  const ready = Boolean(data.scan?.ready[id]);
-  if (id === 'acoustid') {
-    if (data.status?.acoustid.state === 'refused')
-      return { text: 'Free · AcoustID refused the key', tone: 'danger' };
-    if (!data.settings?.acoustid_api_key.set)
-      return { text: 'Free · add the AcoustID key above', tone: 'neutral' };
-    if (!data.status?.fpcalc.found)
-      return { text: 'Free · fpcalc isn’t installed', tone: 'warning' };
-    return { text: 'Free · ready', tone: 'success' };
-  }
+  chosen: ScanServiceId | null,
+): ScanServiceId | null {
+  if (data.is_admin === false) return null;
+  if (chosen) return chosen;
+  return PAID.find((id) => !serviceSaved(id, data)) ?? null;
+}
+
+interface FieldSpec {
+  key: string;
+  label: string;
+  type: 'text' | 'password';
+  placeholder: string;
+  saved: boolean;
+}
+
+function fieldSpecs(id: ScanServiceId, data: RadioSettingsBody): FieldSpec[] {
   const svc = data.settings?.scan_services;
-  if (id === 'acrcloud' && !ready && svc && (svc.acrcloud_host.set || svc.acrcloud_access_key.set))
-    return { text: 'Paid · needs its host, access key and access secret', tone: 'warning' };
-  return ready
-    ? { text: 'Paid · ready · only when someone presses Scan now', tone: 'success' }
-    : { text: 'Paid · not set up', tone: 'neutral' };
+  if (id === 'audd')
+    return [
+      {
+        key: 'audd_api_token',
+        label: 'API token',
+        type: 'password',
+        placeholder: '',
+        saved: Boolean(svc?.audd_api_token.set),
+      },
+    ];
+  return [
+    {
+      key: 'acrcloud_host',
+      label: 'Host',
+      type: 'text',
+      placeholder: 'identify-eu-west-1.acrcloud.com',
+      saved: Boolean(svc?.acrcloud_host.set),
+    },
+    {
+      key: 'acrcloud_access_key',
+      label: 'Access key',
+      type: 'text',
+      placeholder: '',
+      saved: Boolean(svc?.acrcloud_access_key.set),
+    },
+    {
+      key: 'acrcloud_access_secret',
+      label: 'Access secret',
+      type: 'password',
+      placeholder: '',
+      saved: Boolean(svc?.acrcloud_access_secret.set),
+    },
+  ];
+}
+
+function fieldsPanel(id: ScanServiceId, data: RadioSettingsBody): HTMLElement {
+  const panel = document.createElement('div');
+  panel.className = 'radio-scan-fields';
+  panel.id = `radio-scan-fields-${id}`;
+  panel.dataset.fields = id;
+  const specs = fieldSpecs(id, data);
+  panel.style.setProperty('--radio-scan-fields', String(specs.length));
+  for (const spec of specs) {
+    const label = document.createElement('label');
+    label.className = 'radio-scan-field';
+    const word = document.createElement('span');
+    word.className = 'radio-scan-field-label';
+    word.textContent = spec.label;
+    const input = document.createElement('input');
+    input.className = 'radio-input';
+    input.type = spec.type;
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.dataset.radioScanField = spec.key;
+    // a saved key is never shown, nor sent back: the field says it's there
+    input.placeholder = spec.saved ? 'Saved (hidden)' : spec.placeholder;
+    if (spec.type === 'password' || spec.key.endsWith('_key'))
+      input.classList.add('radio-key-input');
+    label.append(word, input);
+    panel.append(label);
+  }
+  const actions = document.createElement('div');
+  actions.className = 'radio-scan-field-actions';
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'radio-button radio-button--primary';
+  save.textContent = 'Save and test';
+  save.dataset.radioScanSave = id;
+  actions.append(save);
+  if (serviceSaved(id, data)) {
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'radio-button radio-button--ghost';
+    cancel.textContent = 'Cancel';
+    cancel.dataset.radioScanCancel = id;
+    actions.append(cancel);
+  }
+  panel.append(actions);
+  const help = document.createElement('p');
+  help.className = 'radio-help radio-scan-fields-help';
+  if (id === 'audd') {
+    help.textContent = 'Saved encrypted and never shown again. Paid by the request.';
+  } else {
+    help.append('Saved encrypted and never shown again. The host has to be one of ACRCloud’s (');
+    const code = document.createElement('span');
+    code.className = 'radio-mono';
+    code.textContent = '…acrcloud.com';
+    help.append(code, ').');
+  }
+  panel.append(help);
+  return panel;
+}
+
+function button(text: string, cls: string, data: Record<string, string>): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = cls;
+  b.textContent = text;
+  for (const [k, v] of Object.entries(data)) b.dataset[k] = v;
+  return b;
 }
 
 function renderScan(): void {
   const list = $('radio-scan-services');
   if (!list || !body) return;
+  const isAdmin = admin();
   list.replaceChildren();
   const scan = body.scan;
-  const order: ScanServiceId[] = scan?.order ?? ['acoustid', 'audd', 'acrcloud'];
-  const labels: Record<ScanServiceId, string> = scan?.labels ?? {
-    acoustid: 'AcoustID',
-    audd: 'AudD',
-    acrcloud: 'ACRCloud',
-  };
+  const order: ScanServiceId[] = scan?.order ?? SCAN_ORDER;
+  const labels: Record<ScanServiceId, string> = scan?.labels ?? SCAN_LABELS;
+  const open = fieldsFor(body, fieldsChosen ? openFields : null);
+  openFields = open;
   order.forEach((id, i) => {
     const li = document.createElement('li');
-    li.className = 'radio-scan-row';
+    li.className = 'radio-scan-item';
     li.dataset.service = id;
+    const row = document.createElement('div');
+    row.className = 'radio-scan-row';
     const step = document.createElement('span');
     step.className = 'radio-scan-step';
     step.textContent = String(i + 1);
     step.setAttribute('aria-hidden', 'true');
-    const text = document.createElement('div');
-    text.className = 'radio-scan-text';
     const name = document.createElement('span');
     name.className = 'radio-scan-name';
     name.textContent = labels[id];
-    const line = serviceLine(id, body!);
-    const meta = document.createElement('span');
-    meta.className = 'radio-status';
-    meta.dataset.tone = line.tone;
-    meta.textContent = line.text;
-    text.append(name, meta);
-    const usage = document.createElement('span');
-    usage.className = 'radio-scan-usage';
-    usage.textContent = usageLine(scan?.usage[id], scan?.month);
-    const test = document.createElement('button');
-    test.type = 'button';
-    test.className = 'radio-button radio-button--ghost';
-    test.textContent = 'Test';
-    test.dataset.radioScanTest = id;
-    const configured =
-      id === 'acoustid'
-        ? Boolean(body!.settings?.acoustid_api_key.set)
-        : id === 'audd'
-          ? Boolean(body!.settings?.scan_services?.audd_api_token.set)
-          : Boolean(scan?.ready.acrcloud);
-    test.hidden = !configured; // nothing to test until its keys are saved
-    test.setAttribute(
-      'aria-label',
-      id === 'acoustid'
-        ? `Test ${labels[id]}: a free check of the key`
-        : `Test ${labels[id]}: uses one request`,
-    );
-    test.title = id === 'acoustid' ? 'A free check of the key' : 'A test uses one request';
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'radio-button radio-button--ghost';
-    remove.textContent = 'Remove';
-    remove.dataset.radioScanRemove = id;
-    remove.setAttribute('aria-label', `Remove ${labels[id]}’s keys`);
-    const svc = body!.settings?.scan_services;
-    remove.hidden =
-      id === 'acoustid' ||
-      !(id === 'audd'
-        ? svc?.audd_api_token.set
-        : svc?.acrcloud_host.set ||
-          svc?.acrcloud_access_key.set ||
-          svc?.acrcloud_access_secret.set);
-    li.append(step, text, usage, test, remove);
+    const needs = serviceNeeds(id, body!, isAdmin);
+    const line = document.createElement('span');
+    line.className = 'radio-scan-needs';
+    line.textContent = needs.text;
+    if (needs.replace) {
+      line.append(' · ');
+      const replace = button(needs.replace, 'radio-scan-replace', { radioScanReplace: id });
+      replace.setAttribute('aria-expanded', open === id ? 'true' : 'false');
+      replace.setAttribute('aria-controls', `radio-scan-fields-${id}`);
+      line.append(replace);
+    }
+    const state = serviceState(id, body!);
+    const tagView = serviceTag(state);
+    const tag = document.createElement('span');
+    tag.className = 'radio-tag';
+    tag.dataset.tone = tagView.tone;
+    tag.textContent = tagView.label;
+    row.append(step, name, line, tag);
+    if (isAdmin) {
+      const usage = document.createElement('span');
+      usage.className = 'radio-scan-usage';
+      const setUp = id === 'acoustid' ? state !== 'not_set_up' : serviceSaved(id, body!);
+      usage.textContent = usageLine(scan?.usage?.[id], scan?.month, setUp);
+      if (!scan?.usage?.[id]?.requests) usage.dataset.quiet = 'true';
+      const actions = document.createElement('div');
+      actions.className = 'radio-scan-actions';
+      // nothing to test until its keys are saved
+      if (serviceSaved(id, body!)) {
+        const test = button('Test', 'radio-button', { radioScanTest: id });
+        test.setAttribute(
+          'aria-label',
+          id === 'acoustid'
+            ? `Test ${labels[id]}: a free check of the key`
+            : `Test ${labels[id]}: uses one request`,
+        );
+        actions.append(test);
+        if (PAID.includes(id)) {
+          const remove = button('Remove', 'radio-button radio-button--outline', {
+            radioScanRemove: id,
+          });
+          remove.setAttribute('aria-label', `Remove ${labels[id]}’s keys`);
+          actions.append(remove);
+        } else {
+          const gap = document.createElement('span');
+          gap.className = 'radio-scan-gap';
+          gap.setAttribute('aria-hidden', 'true');
+          actions.append(gap);
+        }
+      } else if (PAID.includes(id) && open !== id) {
+        // another unset service: its fields open on a press (one primary at a time)
+        const setup = button('Set up…', 'radio-button radio-button--outline', {
+          radioScanSetup: id,
+        });
+        setup.setAttribute('aria-label', `Set up ${labels[id]}`);
+        setup.setAttribute('aria-expanded', 'false');
+        setup.setAttribute('aria-controls', `radio-scan-fields-${id}`);
+        actions.append(setup);
+      }
+      row.append(usage, actions);
+    }
+    li.append(row);
+    if (open === id) {
+      li.dataset.open = 'true';
+      li.append(fieldsPanel(id, body!));
+    }
     list.append(li);
   });
-  const svc = body.settings?.scan_services;
-  const placeholder = (id: string, set: boolean | undefined, empty: string) => {
-    const input = $<HTMLInputElement>(id);
-    if (input && document.activeElement !== input) {
-      input.value = '';
-      input.placeholder = set ? 'Saved (hidden)' : empty;
-    }
-  };
-  placeholder('radio-audd-token', svc?.audd_api_token.set, 'Not set');
-  placeholder('radio-acr-host', svc?.acrcloud_host.set, 'identify-eu-west-1.acrcloud.com');
-  placeholder('radio-acr-key', svc?.acrcloud_access_key.set, 'Not set');
-  placeholder('radio-acr-secret', svc?.acrcloud_access_secret.set, 'Not set');
+  const foot = $('radio-scan-foot');
+  if (foot) foot.hidden = !isAdmin;
 }
 
 function setScanStatus(text: string, tone: 'success' | 'danger' | 'neutral' = 'neutral'): void {
@@ -254,13 +488,10 @@ function setScanStatus(text: string, tone: 'success' | 'danger' | 'neutral' = 'n
   el.dataset.tone = tone;
 }
 
-async function testService(id: ScanServiceId): Promise<void> {
-  const label = body?.scan?.labels[id] ?? id;
-  setScanStatus(
-    id === 'acoustid'
-      ? `Testing ${label}…`
-      : `Testing ${label}… A test uses one request of its allowance.`,
-  );
+async function testService(id: ScanServiceId, saved = false): Promise<void> {
+  const label = body?.scan?.labels?.[id] ?? SCAN_LABELS[id];
+  const prefix = saved ? 'Saved. ' : '';
+  setScanStatus(`${prefix}Testing ${label}…`);
   try {
     const res = await fetch(appURL('/api/radio/scan/test'), {
       method: 'POST',
@@ -272,22 +503,61 @@ async function testService(id: ScanServiceId): Promise<void> {
       ok?: boolean;
       message?: string;
       usage?: Record<ScanServiceId, { requests: number; found: number }>;
+      services?: NonNullable<RadioSettingsBody['scan']>['services'];
     };
     if (!res.ok) {
       setScanStatus(data.message || 'The test couldn’t run.', 'danger');
       return;
     }
-    if (data.usage && body?.scan) {
-      body.scan.usage = data.usage;
+    if (body?.scan) {
+      if (data.usage) body.scan.usage = data.usage;
+      if (data.services) body.scan.services = data.services;
       renderScan();
     }
     setScanStatus(
-      data.message || (data.ok ? `${label} answered.` : `${label} didn’t accept it.`),
+      prefix + (data.message || (data.ok ? `${label} answered.` : `${label} didn’t accept it.`)),
       data.ok ? 'success' : 'danger',
     );
   } catch {
     setScanStatus('SYNCHRO.S didn’t answer. Try again in a moment.', 'danger');
   }
+}
+
+/** Save and test: the open fields' values (empty ones leave a saved key alone), then a Test. */
+async function saveService(id: ScanServiceId): Promise<void> {
+  const panel = document.querySelector<HTMLElement>(`[data-fields="${id}"]`);
+  if (!panel || !body) return;
+  const patch: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const spec of fieldSpecs(id, body)) {
+    const input = panel.querySelector<HTMLInputElement>(`[data-radio-scan-field="${spec.key}"]`);
+    const value = input?.value.trim() ?? '';
+    if (value) patch[spec.key] = value;
+    else if (!spec.saved) missing.push(spec.label.toLowerCase());
+  }
+  if (!Object.keys(patch).length || missing.length) {
+    setScanStatus(
+      id === 'audd'
+        ? 'Paste the AudD token first.'
+        : `Fill in the ${missing.length ? missing.join(', ') : 'host, access key and access secret'} first.`,
+    );
+    panel.querySelector<HTMLInputElement>('input')?.focus();
+    return;
+  }
+  const ok = await save(patch, 'Saved.', setScanStatus);
+  if (!ok) return;
+  fieldsChosen = false;
+  openFields = null;
+  renderScan();
+  await testService(id, true);
+  document.querySelector<HTMLElement>(`[data-service="${id}"] [data-radio-scan-test]`)?.focus();
+}
+
+function openServiceFields(id: ScanServiceId | null): void {
+  openFields = id;
+  fieldsChosen = id !== null;
+  renderScan();
+  if (id) document.querySelector<HTMLInputElement>(`[data-fields="${id}"] input`)?.focus();
 }
 
 // ── reading and writing ─────────────────────────────────────────────────
@@ -308,6 +578,13 @@ function setStatus(text: string, tone: 'success' | 'danger' | 'neutral' = 'neutr
 }
 
 function render(): void {
+  // members read Scan now's rows and tags; the other cards are admins' settings
+  const isAdmin = admin();
+  for (const card of document.querySelectorAll<HTMLElement>(
+    '#radio-settings > .radio-card:not(.radio-scan-card)',
+  ))
+    card.hidden = !isAdmin;
+  renderScan();
   const s = body?.settings;
   if (!s) return;
   const sw = $('radio-identification');
@@ -338,7 +615,6 @@ function render(): void {
   const keep = $<HTMLSelectElement>('radio-keep');
   if (keep) keep.value = String(s.keep_heard_days);
   renderLinks();
-  renderScan();
 }
 
 function renderLinks(): void {
@@ -394,14 +670,209 @@ function renderLinks(): void {
     check.textContent = 'Check';
     check.dataset.radioLinkCheck = String(link.id);
     check.setAttribute('aria-label', `Check ${link.name}`);
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'radio-button radio-button--ghost';
-    remove.textContent = 'Remove';
-    remove.dataset.radioLinkRemove = String(link.id);
-    remove.setAttribute('aria-label', `Remove ${link.name}`);
-    li.append(text, quality, who, check, remove);
+    li.append(text, quality, who, check, rowMenu(link));
     list.append(li);
+    if (logoOpen === link.id) list.append(logoPanel(link));
+  }
+}
+
+type RadioLink = NonNullable<RadioSettingsBody['links']>[number];
+
+/** The row's "…": Change logo… (HANDOFF 66) and Remove. */
+function rowMenu(link: RadioLink): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'radio-menu-wrap';
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'radio-button radio-button--ghost radio-more';
+  more.dataset.radioLinkMore = String(link.id);
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-expanded', 'false');
+  more.setAttribute('aria-label', `More for ${link.name}`);
+  more.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+  const menu = document.createElement('div');
+  menu.className = 'radio-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', link.name);
+  menu.hidden = true;
+  const item = (label: string, attr: string) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'radio-menu-item';
+    b.setAttribute('role', 'menuitem');
+    b.tabIndex = -1;
+    b.textContent = label;
+    b.setAttribute(attr, String(link.id));
+    return b;
+  };
+  menu.append(
+    item('Change logo…', 'data-radio-link-logo'),
+    item('Remove', 'data-radio-link-remove'),
+  );
+  wrap.append(more, menu);
+  return wrap;
+}
+
+function closeMenus(focusButton = false): void {
+  for (const menu of document.querySelectorAll<HTMLElement>('#radio-links .radio-menu')) {
+    if (menu.hidden) continue;
+    menu.hidden = true;
+    const more = menu.previousElementSibling as HTMLElement | null;
+    more?.setAttribute('aria-expanded', 'false');
+    if (focusButton) more?.focus();
+  }
+}
+
+function openMenu(more: HTMLElement): void {
+  closeMenus();
+  const menu = more.nextElementSibling as HTMLElement | null;
+  if (!menu) return;
+  menu.hidden = false;
+  more.setAttribute('aria-expanded', 'true');
+  menu.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+}
+
+/** "Change logo…" under the row: the address, checked and fetched like adding a link. */
+function logoPanel(link: RadioLink): HTMLElement {
+  const li = document.createElement('li');
+  li.className = 'radio-logo-panel';
+  li.dataset.radioLogoPanel = String(link.id);
+  const preview = document.createElement('span');
+  preview.className = 'radio-logo-preview';
+  preview.setAttribute('aria-hidden', 'true');
+  preview.textContent = linkLetters(link.name);
+  if (link.logo_url) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = appURL(`/api/radio/stations/link-${link.id}/logo`);
+    img.onload = () => img.classList.add('is-loaded');
+    img.onerror = () => img.remove();
+    preview.append(img);
+  }
+  const field = document.createElement('div');
+  field.className = 'radio-field';
+  const label = document.createElement('label');
+  label.className = 'radio-label';
+  label.htmlFor = `radio-logo-${link.id}`;
+  label.textContent = `Logo for ${link.name}`;
+  const row = document.createElement('div');
+  row.className = 'radio-key-row';
+  const input = document.createElement('input');
+  input.id = `radio-logo-${link.id}`;
+  input.className = 'radio-input';
+  input.type = 'url';
+  input.inputMode = 'url';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.placeholder = 'https://…/logo.png';
+  input.value = link.logo_url ?? '';
+  input.dataset.radioLogoInput = String(link.id);
+  input.setAttribute('aria-describedby', `radio-logo-help-${link.id}`);
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'radio-button radio-button--primary';
+  saveBtn.textContent = logoBusy ? 'Checking…' : 'Save logo';
+  saveBtn.dataset.radioLogoSave = String(link.id);
+  if (logoBusy) saveBtn.setAttribute('aria-disabled', 'true');
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'radio-button radio-button--ghost';
+  cancel.textContent = 'Cancel';
+  cancel.dataset.radioLogoCancel = String(link.id);
+  row.append(input, saveBtn, cancel);
+  const help = document.createElement('p');
+  help.className = 'radio-help';
+  help.id = `radio-logo-help-${link.id}`;
+  help.textContent = link.logo_url
+    ? 'A PNG, JPEG, GIF, WebP or ICO image up to 512 KB. SYNCHRO.S fetches it once and keeps it. Empty the field to show the letters instead.'
+    : 'A PNG, JPEG, GIF, WebP or ICO image up to 512 KB. SYNCHRO.S fetches it once and keeps it. Until then the station shows its letters.';
+  field.append(label, row, help);
+  if (logoError) {
+    const err = document.createElement('p');
+    err.className = 'radio-save-status';
+    err.dataset.tone = 'danger';
+    err.setAttribute('role', 'alert');
+    err.textContent = logoError;
+    field.append(err);
+  }
+  li.append(preview, field);
+  return li;
+}
+
+function linkLetters(name: string): string {
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
+  return words
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
+}
+
+function openLogo(id: number | null): void {
+  logoOpen = id;
+  logoError = null;
+  renderLinks();
+  if (id !== null) document.getElementById(`radio-logo-${id}`)?.focus();
+}
+
+function setLinksStatus(text: string, tone: 'success' | 'danger' | 'neutral' = 'neutral'): void {
+  const el = $('radio-links-status');
+  if (!el) return;
+  el.textContent = text;
+  el.dataset.tone = tone;
+}
+
+/** PUT /api/radio/links/<id> {logo_url}: the same check and fetch as adding a link. */
+async function saveLogo(id: number): Promise<void> {
+  if (logoBusy) return;
+  const input = document.getElementById(`radio-logo-${id}`) as HTMLInputElement | null;
+  const value = input?.value.trim() ?? '';
+  const name = body?.links?.find((l) => l.id === id)?.name ?? 'the station';
+  logoBusy = true;
+  logoError = null;
+  renderLinks();
+  const keep = document.getElementById(`radio-logo-${id}`) as HTMLInputElement | null;
+  if (keep) keep.value = value;
+  try {
+    const res = await fetch(appURL(`/api/radio/links/${id}`), {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logo_url: value }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      message?: string;
+      link?: RadioLink;
+    };
+    logoBusy = false;
+    if (!res.ok) {
+      logoError = data.message || 'That logo couldn’t be used. Nothing was changed.';
+      renderLinks();
+      const again = document.getElementById(`radio-logo-${id}`) as HTMLInputElement | null;
+      if (again) {
+        again.value = value;
+        again.focus();
+      }
+      return;
+    }
+    if (data.link && body?.links) {
+      body.links = body.links.map((l) => (l.id === id ? { ...l, ...data.link } : l));
+    }
+    logoOpen = null;
+    renderLinks();
+    setLinksStatus(
+      value
+        ? `Logo changed. ${name} shows it in everyone’s Favourites.`
+        : `${name} shows its letters again.`,
+      'success',
+    );
+    document.querySelector<HTMLElement>(`[data-radio-link-more="${id}"]`)?.focus();
+  } catch {
+    logoBusy = false;
+    logoError = 'SYNCHRO.S didn’t answer, so nothing was changed.';
+    renderLinks();
   }
 }
 
@@ -533,68 +1004,115 @@ function bind(): void {
     const days = Number((event.target as HTMLSelectElement).value);
     void save({ keep_heard_days: days }, `Saved. Heard on radio keeps ${days} days.`);
   });
-  const audd = $<HTMLInputElement>('radio-audd-token');
-  const saveAudd = () => {
-    const value = audd?.value.trim() ?? '';
-    if (!value) {
-      setScanStatus('Paste the AudD token first.');
-      return;
-    }
-    void save(
-      { audd_api_token: value },
-      'Saved. Test it to check AudD accepts it.',
-      setScanStatus,
-    ).then((ok) => {
-      if (ok && audd) audd.value = '';
-    });
-  };
-  $('radio-audd-save')?.addEventListener('click', saveAudd);
-  audd?.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      saveAudd();
-    }
-  });
-  $('radio-acr-save')?.addEventListener('click', () => {
-    const patch: Record<string, string> = {};
-    const fields: [string, string][] = [
-      ['radio-acr-host', 'acrcloud_host'],
-      ['radio-acr-key', 'acrcloud_access_key'],
-      ['radio-acr-secret', 'acrcloud_access_secret'],
-    ];
-    for (const [id, key] of fields) {
-      const value = $<HTMLInputElement>(id)?.value.trim();
-      if (value) patch[key] = value;
-    }
-    if (!Object.keys(patch).length) {
-      setScanStatus('Fill in the host, access key and access secret first.');
-      return;
-    }
-    void save(patch, 'Saved. Test it to check ACRCloud accepts it.', setScanStatus).then((ok) => {
-      if (ok) for (const [id] of fields) $<HTMLInputElement>(id)!.value = '';
-    });
-  });
   $('radio-scan-services')?.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
-    const test = target.closest<HTMLButtonElement>('[data-radio-scan-test]');
-    if (test && !test.hidden) void testService(test.dataset.radioScanTest as ScanServiceId);
-    const remove = target.closest<HTMLElement>('[data-radio-scan-remove]');
+    const pick = (attr: string) =>
+      target.closest<HTMLElement>(`[${attr}]`)?.getAttribute(attr) as ScanServiceId | undefined;
+    const test = pick('data-radio-scan-test');
+    if (test) {
+      void testService(test);
+      return;
+    }
+    const saveId = pick('data-radio-scan-save');
+    if (saveId) {
+      void saveService(saveId);
+      return;
+    }
+    const replace = pick('data-radio-scan-replace') ?? pick('data-radio-scan-setup');
+    if (replace) {
+      openServiceFields(openFields === replace && fieldsChosen ? null : replace);
+      return;
+    }
+    const cancel = pick('data-radio-scan-cancel');
+    if (cancel) {
+      openServiceFields(null);
+      document
+        .querySelector<HTMLElement>(`[data-service="${cancel}"] [data-radio-scan-replace]`)
+        ?.focus();
+      return;
+    }
+    const remove = pick('data-radio-scan-remove');
     if (remove) {
-      const id = remove.dataset.radioScanRemove as ScanServiceId;
-      const label = body?.scan?.labels[id] ?? id;
+      const label = body?.scan?.labels?.[remove] ?? SCAN_LABELS[remove];
       void save(
-        { remove: [id] },
+        { remove: [remove] },
         `Removed. Scan now won’t ask ${label} until its keys are added again.`,
         setScanStatus,
       );
+    }
+  });
+  $('radio-scan-services')?.addEventListener('keydown', (event) => {
+    const target = event.target as HTMLElement;
+    const field = target.closest<HTMLElement>('[data-fields]');
+    if (event.key === 'Enter' && field && target.tagName === 'INPUT') {
+      event.preventDefault();
+      void saveService(field.dataset.fields as ScanServiceId);
     }
   });
   $('radio-links')?.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
     const check = target.closest<HTMLElement>('[data-radio-link-check]');
     if (check) void linkAction(check.dataset.radioLinkCheck!, 'check');
+    const more = target.closest<HTMLElement>('[data-radio-link-more]');
+    if (more) {
+      if (more.getAttribute('aria-expanded') === 'true') closeMenus(true);
+      else openMenu(more);
+      return;
+    }
     const remove = target.closest<HTMLElement>('[data-radio-link-remove]');
-    if (remove) void linkAction(remove.dataset.radioLinkRemove!, 'remove');
+    if (remove) {
+      closeMenus();
+      void linkAction(remove.dataset.radioLinkRemove!, 'remove');
+    }
+    const logo = target.closest<HTMLElement>('[data-radio-link-logo]');
+    if (logo) {
+      closeMenus();
+      openLogo(Number(logo.dataset.radioLinkLogo));
+    }
+    const saveLogoBtn = target.closest<HTMLElement>('[data-radio-logo-save]');
+    if (saveLogoBtn) void saveLogo(Number(saveLogoBtn.dataset.radioLogoSave));
+    const cancel = target.closest<HTMLElement>('[data-radio-logo-cancel]');
+    if (cancel) {
+      const id = cancel.dataset.radioLogoCancel;
+      openLogo(null);
+      document.querySelector<HTMLElement>(`[data-radio-link-more="${id}"]`)?.focus();
+    }
+  });
+  $('radio-links')?.addEventListener('keydown', (event) => {
+    const target = event.target as HTMLElement;
+    if (target.matches('[data-radio-logo-input]') && event.key === 'Enter') {
+      event.preventDefault();
+      void saveLogo(Number(target.dataset.radioLogoInput));
+      return;
+    }
+    if (target.matches('[data-radio-logo-input]') && event.key === 'Escape') {
+      event.preventDefault();
+      const id = target.dataset.radioLogoInput;
+      openLogo(null);
+      document.querySelector<HTMLElement>(`[data-radio-link-more="${id}"]`)?.focus();
+      return;
+    }
+    const menu = target.closest<HTMLElement>('.radio-menu');
+    if (!menu) return;
+    const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    const at = items.indexOf(target);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeMenus(true);
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      items[(at + step + items.length) % items.length]?.focus();
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      items[event.key === 'Home' ? 0 : items.length - 1]?.focus();
+    } else if (event.key === 'Tab') {
+      closeMenus();
+    }
+  });
+  document.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement | null;
+    if (!target?.closest('#radio-links .radio-menu-wrap')) closeMenus();
   });
   // links into React pages stay in the app
   for (const id of ['radio-run-setup', 'radio-auto-activity', 'radio-add-link']) {
@@ -636,4 +1154,9 @@ export function initRadioSettings(): void {
 export function _resetRadioSettingsForTests(): void {
   body = null;
   bound = false;
+  openFields = null;
+  fieldsChosen = false;
+  logoOpen = null;
+  logoError = null;
+  logoBusy = false;
 }

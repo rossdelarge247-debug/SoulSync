@@ -444,7 +444,11 @@ def test_members_can_scan_but_not_test_or_see_settings(client, scanner, net, con
     r = client.post("/api/radio/scan", json={"session_id": play(client)})
     assert r.status_code == 202
     assert client.post("/api/radio/scan/test", json={"service": "audd"}).status_code == 403
-    assert client.get("/api/radio/settings").status_code == 403
+    assert client.put("/api/radio/settings", json={"daily_limit": 9}).status_code == 403
+    # members read Scan now's rows and tags (11c), and nothing else
+    body = client.get("/api/radio/settings").get_json()
+    assert body["is_admin"] is False and set(body) == {"success", "is_admin", "scan"}
+    assert body["scan"]["services"]["audd"] == {"state": "ready"}
     scan_id = r.get_json()["scan_id"]
     who["pid"] = 3
     assert client.get(f"/api/radio/scan/{scan_id}").status_code == 404  # someone else's
@@ -664,3 +668,84 @@ def test_service_tests(net, config):
     assert out["ok"] is False and out["state"] == "bad_key"
     config.clear_secret("radio.audd_api_token")
     assert check_service(config, "audd")["state"] == "missing"
+
+
+# ── Settings → Radio's "Scan now services" card (11c) ────────────────────────
+
+def test_saving_a_key_records_its_date_and_removing_forgets_it(client, config, db, monkeypatch):
+    monkeypatch.setattr(store, "time", type("T", (), {"time": staticmethod(lambda: 1_773_446_400)}))
+    body = client.put("/api/radio/settings", json={"audd_api_token": AUDD}).get_json()
+    svc = body["scan"]["services"]
+    assert svc["audd"] == {"state": "ready", "set_at": 1_773_446_400}
+    assert svc["acrcloud"] == {"state": "not_set_up", "set_at": None}
+    # one of ACRCloud's three is a save too
+    client.put("/api/radio/settings", json={"acrcloud_host": HOST, "acrcloud_access_key": ACR_KEY,
+                                            "acrcloud_access_secret": ACR_SECRET})
+    assert store.scan_key_states(db)["acrcloud"]["set_at"] == 1_773_446_400
+    # an empty field isn't a save; other settings aren't either
+    client.put("/api/radio/settings", json={"audd_api_token": "", "daily_limit": 12})
+    assert set(store.scan_key_states(db)) == {"audd", "acrcloud"}
+    body = client.put("/api/radio/settings", json={"remove": ["audd"]}).get_json()
+    assert "audd" not in store.scan_key_states(db)
+    assert body["scan"]["services"]["audd"] == {"state": "not_set_up", "set_at": None}
+
+
+def test_a_refused_key_and_no_requests_left_show_until_the_service_answers_again(client, config, db, net):
+    keys(config)
+    net.answers = {f"https://{HOST}": {"status": {"code": 3001}}, scan_providers.AUDD_URL: AUDD_NONE}
+    out = client.post("/api/radio/scan/test", json={"service": "acrcloud"}).get_json()
+    assert out["state"] == "bad_key" and out["services"]["acrcloud"]["state"] == "refused"
+    net.answers[f"https://{HOST}"] = {"status": {"code": 3003}}
+    client.post("/api/radio/scan/test", json={"service": "acrcloud"})
+    assert client.get("/api/radio/settings").get_json()["scan"]["services"]["acrcloud"]["state"] == "no_requests_left"
+    # last month's "no requests left" has reset
+    with db._get_connection() as conn:
+        conn.execute("UPDATE radio_scan_keys SET state_at = state_at - 40 * 86400 WHERE provider = 'acrcloud'")
+        conn.commit()
+    assert client.get("/api/radio/settings").get_json()["scan"]["services"]["acrcloud"]["state"] == "ready"
+    # a new key starts clean
+    client.put("/api/radio/settings", json={"acrcloud_access_key": ACR_KEY})
+    assert store.scan_key_states(db)["acrcloud"]["state"] is None
+    # an answer (no match is an answer) is ready again
+    client.post("/api/radio/scan/test", json={"service": "audd"})
+    assert store.scan_key_states(db)["audd"]["state"] == "ok"
+
+
+def test_a_scan_records_what_each_service_said_of_its_key(client, scanner, net, config, db, monkeypatch):
+    monkeypatch.setattr(radio_api.setup_rows, "find_fpcalc", lambda: "/bin/fpcalc")
+    keys(config, acr=False)
+    net.answers = {scan_providers.ACOUSTID_URL: {"status": "error", "error": {"code": 4, "message": "invalid API key"}},
+                   scan_providers.AUDD_URL: {"status": "error", "error": {"error_code": 901, "error_message": "x"}}}
+    client.post("/api/radio/scan", json={"session_id": play(client)})
+    known = store.scan_key_states(db)
+    assert known["acoustid"]["state"] == "bad_key"
+    assert known["audd"]["state"] == "out_of_credit"
+    svc = client.get("/api/radio/settings").get_json()["scan"]["services"]
+    assert svc["acoustid"]["state"] == "refused" and svc["audd"]["state"] == "no_requests_left"
+    # offline isn't about the key
+    from core.internet_radio.scan import key_state
+    assert key_state(scan_providers.ProviderResult(provider="audd", status="error", error="offline")) is None
+    assert key_state(scan_providers.ProviderResult(provider="audd", status="no_match")) == "ok"
+
+
+def test_the_month_counts_requests_and_finds_per_service(client, scanner, net, config, db):
+    keys(config, acr=False)
+    net.answers = {scan_providers.ACOUSTID_URL: ACOUSTID_NONE, scan_providers.AUDD_URL: AUDD_HIT}
+    client.post("/api/radio/scan", json={"session_id": play(client)})
+    usage = client.get("/api/radio/settings").get_json()["scan"]["usage"]
+    assert usage["acoustid"] == {"requests": 1, "found": 0}
+    assert usage["audd"] == {"requests": 1, "found": 1}
+
+
+def test_the_card_never_carries_a_key(client, config, db, net, caplog):
+    keys(config)
+    net.answers = {scan_providers.AUDD_URL: AUDD_NONE}
+    client.put("/api/radio/settings", json={"audd_api_token": AUDD})
+    texts = [json.dumps(client.get("/api/radio/settings").get_json()),
+             json.dumps(client.post("/api/radio/scan/test", json={"service": "audd"}).get_json()),
+             caplog.text]
+    with db._get_connection() as conn:
+        texts.append(json.dumps([tuple(r) for r in conn.execute("SELECT * FROM radio_scan_keys").fetchall()]))
+    for text in texts:
+        for secret in (AUDD, ACR_KEY, ACR_SECRET, ACOUSTID):
+            assert secret not in text

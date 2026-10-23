@@ -13,6 +13,9 @@
 - ``radio_shows``: shows seen on a station's feed, and tracklists fetched.
 - ``radio_scan_usage``: Scan now's requests to each identification service
   (and how many found the track), per local month.
+- ``radio_scan_keys``: when each service's key was saved through Settings →
+  Radio, and what the service last said of it (``ok``, ``bad_key`` or
+  ``out_of_credit``). Never the key.
 
 Times are unix seconds.
 """
@@ -155,6 +158,13 @@ def record_link_check(db, link_id: int, *, ok: bool, error: Optional[str], codec
             conn.execute("UPDATE radio_links SET check_ok = 0, checked_at = ?, check_error = ? WHERE id = ?",
                          (_now(), (error or "")[:300], int(link_id)))
         conn.commit()
+
+
+def set_link_logo(db, link_id: int, logo_url: Optional[str]) -> bool:
+    with db._get_connection() as conn:
+        cur = conn.execute("UPDATE radio_links SET logo_url = ? WHERE id = ?", (logo_url or None, int(link_id)))
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def remove_link(db, link_id: int) -> bool:
@@ -464,3 +474,42 @@ def scan_usage(db, now: Optional[float] = None) -> Dict[str, Dict[str, int]]:
         rows = conn.execute("SELECT provider, requests, found FROM radio_scan_usage WHERE month = ?",
                             (month_key(now),)).fetchall()
     return {r[0]: {"requests": int(r[1]), "found": int(r[2])} for r in rows}
+
+
+# ── Scan now's keys: when each was saved, what its service last said ─────────
+
+SCAN_KEY_STATES = ("ok", "bad_key", "out_of_credit")
+
+
+def record_scan_key_saved(db, provider: str, now: Optional[float] = None) -> None:
+    """A key was saved: its date, and nothing known about it yet."""
+    with db._get_connection() as conn:
+        conn.execute("INSERT INTO radio_scan_keys (provider, set_at, state, state_at) VALUES (?, ?, NULL, NULL) "
+                     "ON CONFLICT(provider) DO UPDATE SET set_at = excluded.set_at, state = NULL, state_at = NULL",
+                     (provider, int(now if now is not None else time.time())))
+        conn.commit()
+
+
+def forget_scan_key(db, provider: str) -> None:
+    with db._get_connection() as conn:
+        conn.execute("DELETE FROM radio_scan_keys WHERE provider = ?", (provider,))
+        conn.commit()
+
+
+def record_scan_key_answer(db, provider: str, state: str, now: Optional[float] = None) -> None:
+    """What a service said of its key, from a scan or a Test: ``ok`` (it answered,
+    match or not), ``bad_key`` or ``out_of_credit``. Anything else isn't about the key."""
+    if state not in SCAN_KEY_STATES:
+        return
+    with db._get_connection() as conn:
+        conn.execute("INSERT INTO radio_scan_keys (provider, set_at, state, state_at) VALUES (?, NULL, ?, ?) "
+                     "ON CONFLICT(provider) DO UPDATE SET state = excluded.state, state_at = excluded.state_at",
+                     (provider, state, int(now if now is not None else time.time())))
+        conn.commit()
+
+
+def scan_key_states(db) -> Dict[str, Dict[str, Any]]:
+    """``{provider: {set_at, state, state_at}}``."""
+    with db._get_connection() as conn:
+        rows = conn.execute("SELECT provider, set_at, state, state_at FROM radio_scan_keys").fetchall()
+    return {r[0]: {"set_at": r[1], "state": r[2], "state_at": r[3]} for r in rows}

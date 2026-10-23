@@ -13,6 +13,8 @@
 
 import type { NowPlaying, RadioSessionState, ScanResult, ScanService } from './radio.types';
 
+import { agoWords, nowLines, secondsSince, sourcePhrase } from './radio.format';
+
 export const SCAN_LABEL = 'Scan now';
 export const SCAN_AGAIN = 'Scan again';
 
@@ -352,4 +354,72 @@ export function scanAnswer(scan: ScanResult | null | undefined): NowPlaying | nu
     playing: true,
     heard_id: scan.heard_id,
   };
+}
+
+/**
+ * The phone sheet's Now playing row (11d, 11e; HANDOFF 82): the label says
+ * who named it ("Now playing · found by AudD", "Now playing · from the
+ * station"), then the title and the line ("Marrow Field · Glasshouse EP ·
+ * Scan now · 20 s ago"). A scan's answer is what Now playing shows while it
+ * lasts.
+ */
+export function sheetNowPlaying(st: Pick<RadioSessionState, 'nowPlaying' | 'scan' | 'skew'>): {
+  label: string;
+  title: string;
+  line: string;
+  art: string | null;
+  identified: boolean;
+} {
+  const answer = scanAnswer(st.scan);
+  const np = answer ?? st.nowPlaying;
+  if (np?.state === 'identified' && np.track) {
+    const scanned = Boolean(np.source && np.source.startsWith('scan_'));
+    const by = scanned
+      ? `found by ${st.scan?.source_label ?? 'Scan now'}`
+      : sourcePhrase(np.source);
+    return {
+      label: ['Now playing', by].filter(Boolean).join(' · '),
+      title: np.track.title,
+      line: [
+        np.track.artist,
+        np.track.release,
+        scanned ? 'Scan now' : '',
+        agoWords(secondsSince(np, st.skew)),
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      art: np.track.art_url ?? null,
+      identified: true,
+    };
+  }
+  const lines = nowLines(np, st.skew);
+  return {
+    label: 'Now playing',
+    title: lines.title,
+    line: np?.reason || lines.line,
+    art: null,
+    identified: false,
+  };
+}
+
+/**
+ * The words under the sheet's Scan now (11d): while capturing, the seconds
+ * and who will be asked ("Capturing 10 seconds · 6 s left · then AcoustID,
+ * then AudD"); while identifying, who's being asked; not found and failed in
+ * one line (failed in the danger colour); nothing once it found the track,
+ * since the answer is Now playing.
+ */
+export function sheetScanWords(
+  panel: ScanPanel | null,
+  services: readonly ScanService[] = [],
+): { text: string; danger: boolean } | null {
+  if (!panel || panel.state === 'identified') return null;
+  if (panel.state === 'listening') {
+    const then = services.length
+      ? ` · then ${services.map((s) => SERVICE_LABELS[s] ?? s).join(', then ')}`
+      : '';
+    return { text: `${panel.title}${then}`, danger: false };
+  }
+  if (panel.state === 'identifying') return { text: panel.line, danger: false };
+  return { text: [panel.title, panel.line].filter(Boolean).join(' · '), danger: panel.danger };
 }

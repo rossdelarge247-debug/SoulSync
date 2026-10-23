@@ -395,6 +395,8 @@ class ScanManager:
             try:
                 if result.status != "error" or result.error not in ("offline",):
                     store.bump_scan_usage(db, service, found=result.matched)
+                # what the service said of its key, for Settings → Radio's tag
+                store.record_scan_key_answer(db, service, key_state(result))
             except Exception as exc:  # noqa: BLE001 - usage is a count, not a reason to fail
                 logger.debug("scan usage not counted: %s", exc)
             if result.matched:
@@ -439,6 +441,17 @@ class ScanManager:
                      on_wanted=lib["on_wanted"])
 
 
+def key_state(result: providers.ProviderResult) -> Optional[str]:
+    """What an answer says about the service's key: ``ok`` when it answered
+    (a match or not), ``bad_key`` or ``out_of_credit``; None for anything else
+    (offline, too many requests, a clip it couldn't read)."""
+    if result.status != "error":
+        return "ok"
+    if result.error in ("bad_key", "out_of_credit"):
+        return result.error
+    return None
+
+
 def check_service(config, service: str, *, fpcalc: Optional[str] = None) -> Dict[str, Any]:
     """Settings → Radio's Test: ``{ok, state, message, spends}``."""
     if service == "acoustid":
@@ -467,6 +480,6 @@ def check_service(config, service: str, *, fpcalc: Optional[str] = None) -> Dict
     return {"ok": True, "state": "ok", "message": result.message, "spends": spends}
 
 
-__all__ = ["ScanManager", "ScanDeps", "Scan", "ScanRefused", "available_services", "check_service",
+__all__ = ["ScanManager", "ScanDeps", "Scan", "ScanRefused", "available_services", "check_service", "key_state",
            "NOT_FOUND_WORDS", "NO_SERVICE_WORDS", "MAX_RUNNING", "PER_PROFILE_PER_MINUTE", "CAPTURE_MAX_BYTES",
            "CAPTURE_MAX_SECONDS"]

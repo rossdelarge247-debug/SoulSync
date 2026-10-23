@@ -165,3 +165,125 @@ describe('what a relay costs (HANDOFF 54)', () => {
     expect(select.parentElement!.contains(help)).toBe(true);
   });
 });
+
+describe('Change logo… in the links table (HANDOFF 66)', () => {
+  const calls: { url: string; method: string; body: unknown }[] = [];
+  let refuse = false;
+  beforeEach(() => {
+    markup();
+    document
+      .getElementById('radio-links')!
+      .insertAdjacentHTML('afterend', '<p id="radio-links-status"></p>');
+    _resetRadioSettingsForTests();
+    calls.length = 0;
+    refuse = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const payload = init?.body ? JSON.parse(String(init.body)) : null;
+        calls.push({ url, method: init?.method ?? 'GET', body: payload });
+        if (init?.method === 'PUT' && url.includes('/api/radio/links/')) {
+          if (refuse)
+            return new Response(
+              JSON.stringify({
+                success: false,
+                error: 'logo_failed',
+                message: 'SVG logos can’t be used: PNG, JPEG, GIF, WebP or ICO only.',
+              }),
+              { status: 400 },
+            );
+          return new Response(
+            JSON.stringify({
+              success: true,
+              link: { ...BODY.links![0], logo_url: payload.logo_url || null },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify(BODY), { status: 200 });
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.innerHTML = '';
+  });
+
+  it('puts Change logo… and Remove in the row’s "…" menu, keyboard and all', async () => {
+    await loadRadioSettings();
+    const more = document.querySelector<HTMLElement>('[data-radio-link-more="1"]')!;
+    expect(more.getAttribute('aria-haspopup')).toBe('menu');
+    expect(more.getAttribute('aria-label')).toBe('More for Lowlands <b>Radio</b>');
+    more.click();
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    const menu = more.nextElementSibling as HTMLElement;
+    expect(menu.hidden).toBe(false);
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map((i) => i.textContent)).toEqual([
+      'Change logo…',
+      'Remove',
+    ]);
+    expect(document.activeElement!.textContent).toBe('Change logo…');
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+    );
+    expect(document.activeElement!.textContent).toBe('Remove');
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    expect(menu.hidden).toBe(true);
+    expect(document.activeElement).toBe(more);
+    // the station's name stays text
+    expect(document.querySelector('#radio-links b')).toBeNull();
+  });
+
+  it('Change logo… sends the address through PUT /api/radio/links/<id> and says so', async () => {
+    await loadRadioSettings();
+    document.querySelector<HTMLElement>('[data-radio-link-more="1"]')!.click();
+    document.querySelector<HTMLElement>('[data-radio-link-logo="1"]')!.click();
+    const input = document.getElementById('radio-logo-1') as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe('');
+    input.value = 'https://lowlands.example.org/logo.png';
+    document.querySelector<HTMLElement>('[data-radio-logo-save="1"]')!.click();
+    await vi.waitFor(() =>
+      expect(document.getElementById('radio-links-status')!.textContent).toBe(
+        'Logo changed. Lowlands <b>Radio</b> shows it in everyone’s Favourites.',
+      ),
+    );
+    const put = calls.find((c) => c.method === 'PUT')!;
+    expect(put.url).toMatch(/\/api\/radio\/links\/1$/);
+    expect(put.body).toEqual({ logo_url: 'https://lowlands.example.org/logo.png' });
+    expect(document.querySelector('[data-radio-logo-panel]')).toBeNull();
+    // opened again, the field holds the address and the preview asks our own logo route
+    document.querySelector<HTMLElement>('[data-radio-link-more="1"]')!.click();
+    document.querySelector<HTMLElement>('[data-radio-link-logo="1"]')!.click();
+    expect((document.getElementById('radio-logo-1') as HTMLInputElement).value).toBe(
+      'https://lowlands.example.org/logo.png',
+    );
+    expect(
+      document.querySelector<HTMLImageElement>('.radio-logo-preview img')!.getAttribute('src'),
+    ).toMatch(/\/api\/radio\/stations\/link-1\/logo$/);
+  });
+
+  it('a refused logo stays in the panel, in words, with the address kept', async () => {
+    refuse = true;
+    await loadRadioSettings();
+    document.querySelector<HTMLElement>('[data-radio-link-more="1"]')!.click();
+    document.querySelector<HTMLElement>('[data-radio-link-logo="1"]')!.click();
+    const input = document.getElementById('radio-logo-1') as HTMLInputElement;
+    input.value = 'https://lowlands.example.org/logo.svg';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-radio-logo-panel] [role="alert"]')!.textContent).toBe(
+        'SVG logos can’t be used: PNG, JPEG, GIF, WebP or ICO only.',
+      ),
+    );
+    expect((document.getElementById('radio-logo-1') as HTMLInputElement).value).toBe(
+      'https://lowlands.example.org/logo.svg',
+    );
+    // Cancel closes it and gives the focus back to the "…"
+    document.querySelector<HTMLElement>('[data-radio-logo-cancel="1"]')!.click();
+    expect(document.querySelector('[data-radio-logo-panel]')).toBeNull();
+    expect(document.activeElement).toBe(document.querySelector('[data-radio-link-more="1"]'));
+  });
+});

@@ -298,7 +298,7 @@ def test_directory_down_says_so(client):
     ("post", "/api/radio/links/check", {"url": "https://x.example.com/s"}),
     ("post", "/api/radio/links", {"url": "https://x.example.com/s", "name": "X", "kind": "world"}),
     ("delete", "/api/radio/links/1", None),
-    ("get", "/api/radio/settings", None),
+    ("put", "/api/radio/links/1", {"logo_url": ""}),
     ("put", "/api/radio/settings", {"daily_limit": 10}),
 ])
 def test_members_cant_manage_links_or_settings(client, who, method, path, body):

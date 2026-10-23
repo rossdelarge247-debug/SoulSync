@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import type { RadioSessionState, ScanResult } from './radio.types';
 
-import { scanAnswer, scanButton, scanPanel, scanWaitSeconds, serviceList } from './radio.scan';
+import {
+  scanAnswer,
+  scanButton,
+  scanPanel,
+  scanWaitSeconds,
+  serviceList,
+  sheetNowPlaying,
+  sheetScanWords,
+} from './radio.scan';
 
 function scan(over: Partial<ScanResult> = {}): ScanResult {
   return {
@@ -244,5 +252,52 @@ describe('the scan in the track’s place (11a, 11b)', () => {
   it('lists services the way the sentences say them', () => {
     expect(serviceList(['acoustid'])).toBe('AcoustID');
     expect(serviceList(['acoustid', 'audd', 'acrcloud'])).toBe('AcoustID, AudD and ACRCloud');
+  });
+});
+
+describe('the phone sheet’s words (11d, 11e)', () => {
+  it('labels Now playing with who named it', () => {
+    const now = 1_000_000;
+    const np = {
+      station_id: 'nts-1',
+      state: 'identified' as const,
+      track: { artist: 'Pale Harbour', title: 'Harbour Light', release: 'Lantern', art_url: null },
+      source: 'station_feed' as const,
+      identified_at: now - 40,
+      started_at: null,
+      reason: null,
+      library: null,
+      on_wanted: false,
+      previous_title: null,
+      now,
+      playing: true,
+      heard_id: 3,
+    };
+    const skew = Date.now() / 1000 - now;
+    expect(sheetNowPlaying({ nowPlaying: np, scan: null, skew })).toMatchObject({
+      label: 'Now playing · from the station',
+      title: 'Harbour Light',
+      line: 'Pale Harbour · Lantern · 40 s ago',
+      identified: true,
+    });
+    expect(
+      sheetNowPlaying({
+        nowPlaying: { ...np, state: 'not_identified', track: null },
+        scan: null,
+        skew,
+      }),
+    ).toMatchObject({ label: 'Now playing', title: 'Not identified', identified: false });
+  });
+
+  it('words a running, failed and finished scan', () => {
+    const listening = scanPanel(null, null, true);
+    expect(sheetScanWords(listening, ['acoustid', 'audd', 'acrcloud'])!.text).toBe(
+      'Capturing 10 seconds · 10 s left · then AcoustID, then AudD, then ACRCloud',
+    );
+    expect(sheetScanWords(scanPanel(null, 'Two scans are already running.'))).toEqual({
+      text: 'Scan didn’t work · Two scans are already running.',
+      danger: true,
+    });
+    expect(sheetScanWords(null)).toBeNull();
   });
 });

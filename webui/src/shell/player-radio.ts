@@ -7,10 +7,17 @@
  *   the primary Add to Wanted or the In your library tag; then Station and
  *   Stop on the right (index.html; static/player.css hides Up next, Expand
  *   and Pause for radio).
- * - The phone's mini bar: Add (or the tag) and Stop; it opens the sheet with
- *   the station's card, Add, the auto-add switch, volume and Stop, and a link
- *   to today's Heard list (4j). Switching auto-add on swaps the switch row
- *   for the confirm with the three numbers, in the sheet (9c); off is at once.
+ * - The phone's mini bar: Add (or the tag) and Stop; it opens the sheet
+ *   (11d, 11e; HANDOFF 82): 9c's head (the 56px logo, the name, Live, "kind ·
+ *   city · quality", a 44px Close), Now playing as a 56px row with its label
+ *   ("Now playing · found by AudD") and source line, Add to Wanted full width
+ *   (disabled-neutral with "Nothing identified to add yet." until something
+ *   is), Scan now full width under it (in a 4% card with the bar and the
+ *   words while it runs; its answer becomes Now playing; "Scan again"
+ *   after), the auto-add switch row, volume and Stop, and two link rows:
+ *   Heard on <station> today · N and Station page. Switching auto-add on
+ *   swaps the switch row for the confirm with the three numbers (9c); off is
+ *   at once.
  * - The level meter, drawn from the player's analyser while radio plays.
  * - Scan now (11a, HANDOFF 58): the quiet 132px control after the one
  *   action (icon-only under 1180px), and full width in the sheet. While it
@@ -34,14 +41,15 @@ import type {
   StationResponse,
 } from '@/features/radio/radio.types';
 
+import { logoText, nowLines, playerAction } from '@/features/radio/radio.format';
 import {
-  agoWords,
-  nowLines,
-  playerAction,
-  secondsSince,
-  sourceWords,
-} from '@/features/radio/radio.format';
-import { scanAnswer, scanButton, scanPanel, type ScanPanel } from '@/features/radio/radio.scan';
+  scanAnswer,
+  scanButton,
+  scanPanel,
+  sheetNowPlaying,
+  sheetScanWords,
+  type ScanPanel,
+} from '@/features/radio/radio.scan';
 import { RADIO_EVENT } from '@/features/radio/radio.types';
 import { appURL } from '@/platform/url-base';
 
@@ -52,6 +60,10 @@ const SVG_NOTE =
 const SVG_SCAN =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"/></svg>';
 const SPINNER = '<span class="ss-player-radio-spinner" aria-hidden="true"></span>';
+const SVG_CLOSE =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+const SVG_VOLUME =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7"/></svg>';
 const SVG_CHEVRON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
@@ -109,6 +121,21 @@ export function radioMiniLines(
 
 export function stationHref(stationId: string): `/${string}` {
   return `/radio/station/${encodeURIComponent(stationId)}`;
+}
+
+/** The sheet head's line (9c): "Eclectic · London · AAC 256"; a link says "Your link". */
+export function sheetStationLine(st: RadioSessionState | null): string {
+  const station = st?.station;
+  if (!station) return '';
+  const kind = station.source === 'your_link' ? 'Your link' : station.genre || station.kind_label;
+  const place = station.city || station.country;
+  const q = st?.stream ?? station.quality;
+  const quality = q
+    ? q.lossless
+      ? q.codec || 'FLAC'
+      : [q.codec, q.bitrate_kbps || ''].filter(Boolean).join(' ')
+    : '';
+  return [kind, place, quality].filter(Boolean).join(' · ');
 }
 
 function go(win: Window, href: `/${string}`): void {
@@ -249,6 +276,7 @@ export function bootRadioChrome(
     'playerRadioAuto',
     'playerRadioAutoConfirm',
     'playerRadioAutoCancel',
+    'playerRadioClose',
   ] as const;
   function focusKey(container: HTMLElement): string | null {
     const active = doc.activeElement as HTMLElement | null;
@@ -371,7 +399,7 @@ export function bootRadioChrome(
     }
   }
 
-  /** The auto-add switch row (4j). */
+  /** The auto-add switch row (4j, 11d). */
   function autoRow(stationName: string, on: boolean): HTMLElement {
     const auto = el(doc, 'div', 'ss-player-radio-auto');
     const sw = el(doc, 'button', 'ss-player-radio-switch');
@@ -379,9 +407,10 @@ export function bootRadioChrome(
     sw.setAttribute('role', 'switch');
     sw.setAttribute('aria-checked', on ? 'true' : 'false');
     sw.dataset.playerRadioAuto = on ? 'on' : 'off';
+    // the word first, the track right (11d)
     sw.append(
-      el(doc, 'span', 'ss-player-radio-switch-track'),
       el(doc, 'span', 'ss-player-radio-switch-text', on ? 'On' : 'Off'),
+      el(doc, 'span', 'ss-player-radio-switch-track'),
     );
     const autoText = el(doc, 'div', 'ss-player-radio-auto-text');
     autoText.append(
@@ -515,162 +544,257 @@ export function bootRadioChrome(
     }
   }
 
-  function drawPanel(): void {
-    const panel = root.querySelector<HTMLElement>('[data-player-radio-panel]');
-    const st = radio()?.state();
-    if (!panel) return;
-    const keep = focusKey(panel);
-    panel.replaceChildren();
-    if (!st?.station) return;
-    const station = st.station;
-    const np = st.nowPlaying;
-    const lines = nowLines(np, st.skew);
-
+  /** The sheet head (9c): the 56px logo, the name, Live, "kind · city · quality", Close. */
+  function headNode(st: RadioSessionState): HTMLElement {
+    const station = st.station!;
     const head = el(doc, 'div', 'ss-player-radio-head');
-    const name = el(doc, 'span', 'ss-player-radio-name', station.name);
-    const live = el(doc, 'span', 'ss-player-live-tag');
-    live.append(el(doc, 'span', 'ss-player-live-dot'), doc.createTextNode('Live'));
-    const page = el(doc, 'a', 'ss-player-link', 'Station page') as HTMLAnchorElement;
-    page.href = appURL(stationHref(station.id));
-    page.dataset.playerRadioGo = stationHref(station.id);
-    head.append(name, live, page);
-
-    const art = el(doc, 'span', 'ss-player-radio-art');
-    if (np?.track?.art_url) {
+    const logo = el(doc, 'span', 'ss-player-radio-logo', logoText(station.name, station.logo_text));
+    logo.setAttribute('aria-hidden', 'true');
+    if (station.logo_url) {
       const img = el(doc, 'img');
       img.alt = '';
-      img.src = np.track.art_url;
+      img.onload = () => img.classList.add('is-loaded');
       img.onerror = () => img.remove();
+      img.src = station.logo_url.startsWith('/') ? appURL(station.logo_url as `/${string}`) : '';
+      if (img.src) logo.append(img);
+    }
+    const text = el(doc, 'div', 'ss-player-radio-head-text');
+    const top = el(doc, 'div', 'ss-player-radio-head-top');
+    const name = el(doc, 'a', 'ss-player-radio-name', station.name) as HTMLAnchorElement;
+    name.href = appURL(stationHref(station.id));
+    name.dataset.playerRadioGo = stationHref(station.id);
+    const live = el(doc, 'span', 'ss-player-live-tag');
+    live.append(el(doc, 'span', 'ss-player-live-dot'), doc.createTextNode('Live'));
+    top.append(name, live);
+    text.append(top, el(doc, 'span', 'ss-player-radio-head-meta', sheetStationLine(st)));
+    const close = el(doc, 'button', 'ss-player-radio-close');
+    close.type = 'button';
+    close.dataset.playerRadioClose = '';
+    close.setAttribute('aria-label', 'Close');
+    close.innerHTML = SVG_CLOSE;
+    head.append(logo, text, close);
+    return head;
+  }
+
+  /** Now playing as a 56px row (11d, 11e): the label, the title, the source line. */
+  function nowRow(st: RadioSessionState): HTMLElement {
+    const view = sheetNowPlaying(st);
+    const row = el(doc, 'div', 'ss-player-radio-nowrow');
+    // a live region: "Listening…", the name that follows and a scan's answer are announced
+    row.setAttribute('role', 'status');
+    row.setAttribute('aria-live', 'polite');
+    const art = el(doc, 'span', 'ss-player-radio-art');
+    art.setAttribute('aria-hidden', 'true');
+    if (view.art) {
+      const img = el(doc, 'img');
+      img.alt = '';
+      img.src = view.art;
+      img.onerror = () => {
+        img.remove();
+        art.innerHTML = SVG_NOTE;
+      };
       art.append(img);
     } else {
       art.innerHTML = SVG_NOTE;
     }
+    const text = el(doc, 'div', 'ss-player-radio-nowtext');
+    text.append(
+      el(doc, 'span', 'ss-player-radio-label', view.label),
+      el(doc, 'span', 'ss-player-radio-title', view.title),
+      el(doc, 'span', 'ss-player-radio-source', view.line),
+    );
+    row.append(art, text);
+    return row;
+  }
 
-    const label = el(doc, 'p', 'ss-player-label', 'Now playing');
-    const title = el(doc, 'p', 'ss-player-radio-title', lines.title);
-    const card = el(doc, 'div', 'ss-player-radio-card');
-    card.append(label, title);
-    if (np?.state === 'identified' && np.track) {
-      card.append(
-        el(
-          doc,
-          'p',
-          'ss-player-radio-line',
-          [np.track.artist, np.track.release].filter(Boolean).join(' · '),
-        ),
-      );
-      const src = [
-        sourceWords(np.source),
-        agoWords(secondsSince(np, st.skew)),
-        st.stream?.label.replace(' (best offered)', ''),
-      ]
-        .filter(Boolean)
-        .join(' · ');
-      card.append(el(doc, 'p', 'ss-player-radio-source', src));
-    } else {
-      card.append(el(doc, 'p', 'ss-player-radio-source', np?.reason || lines.line));
+  /** Add to Wanted, full width (the tag instead once it's yours); disabled with its reason. */
+  function addNode(st: RadioSessionState, panelView: ScanPanel | null): HTMLElement {
+    const box = el(doc, 'div', 'ss-player-radio-addbox');
+    const wide = (label: string, attr: string, disabled: boolean, reason: string | null) => {
+      const b = el(doc, 'button', 'ss-player-radio-add ss-player-radio-add--wide', label);
+      b.type = 'button';
+      b.setAttribute(attr, '');
+      if (disabled) b.setAttribute('aria-disabled', 'true');
+      box.append(b);
+      if (reason) {
+        const why = el(doc, 'p', 'ss-player-radio-reason', reason);
+        why.id = 'ss-player-radio-add-why';
+        b.setAttribute('aria-describedby', why.id);
+        box.append(why);
+      }
+      return b;
+    };
+    const tag = (label: string, tone: string) => {
+      const t = el(doc, 'span', 'ss-player-tag ss-player-radio-tag', label);
+      t.dataset.tone = tone;
+      box.append(t);
+    };
+    if (panelView?.state === 'identified' && panelView.action) {
+      const action = panelView.action;
+      if (action === 'in_library') tag('In your library', 'success');
+      else if (action === 'on_wanted') tag('On Wanted', 'info');
+      else {
+        const b = wide(
+          action === 'below_target' ? 'Upgrade via Wanted' : 'Add to Wanted',
+          'data-player-radio-scan-add',
+          action === 'adding_disabled' || st.adding,
+          action === 'adding_disabled' ? 'It can be added once it’s in Heard on radio.' : null,
+        );
+        b.setAttribute('aria-label', `${b.textContent}: ${panelView.title}, ${panelView.line}`);
+      }
+      return box;
     }
-    // a live region: "Listening…" and the name that follows are announced
-    card.setAttribute('aria-live', 'polite');
-
-    const actions = el(doc, 'div', 'ss-player-radio-actions');
+    const np = st.nowPlaying;
     const kind = playerAction(np);
-    if (kind === 'add' || kind === 'adding_disabled') {
-      const b = el(doc, 'button', 'ss-player-radio-add ss-player-radio-add--wide', 'Add to Wanted');
-      b.type = 'button';
-      b.dataset.playerRadioAdd = '';
-      if (kind === 'adding_disabled' || st.adding) b.setAttribute('aria-disabled', 'true');
-      actions.append(b);
-    } else if (kind === 'in_library') {
-      const tag = el(doc, 'span', 'ss-player-tag ss-player-radio-tag', 'In your library');
-      tag.dataset.tone = 'success';
-      actions.append(tag);
-    } else if (kind === 'on_wanted') {
-      const tag = el(doc, 'span', 'ss-player-tag ss-player-radio-tag', 'On Wanted');
-      tag.dataset.tone = 'info';
-      actions.append(tag);
+    if (kind === 'in_library') tag('In your library', 'success');
+    else if (kind === 'on_wanted') tag('On Wanted', 'info');
+    else if (kind === 'add' || kind === 'adding_disabled') {
+      const b = wide(
+        'Add to Wanted',
+        'data-player-radio-add',
+        kind === 'adding_disabled' || st.adding,
+        kind === 'adding_disabled' ? 'It can be added once it’s in Heard on radio.' : null,
+      );
+      if (np?.track)
+        b.setAttribute('aria-label', `Add ${np.track.title} by ${np.track.artist} to Wanted`);
     } else {
-      const b = el(doc, 'button', 'ss-player-radio-add ss-player-radio-add--wide', 'Add to Wanted');
-      b.type = 'button';
-      b.setAttribute('aria-disabled', 'true');
-      b.title = 'Once it’s identified';
-      actions.append(b);
+      // nothing identified: disabled-neutral, with the reason under it (11d)
+      wide('Add to Wanted', 'data-player-radio-add', true, 'Nothing identified to add yet.');
     }
+    return box;
+  }
 
-    const scan = el(doc, 'div', 'ss-player-radio-scanbox');
+  /** Scan now, full width under Add (11d): in a 4% card with the bar and the words while it runs. */
+  function scanNode(st: RadioSessionState, panelView: ScanPanel | null): HTMLElement {
+    const services = st.nowPlaying?.scan?.services ?? [];
+    const running = panelView?.state === 'listening' || panelView?.state === 'identifying';
+    const box = el(doc, 'div', running ? 'ss-player-radio-scancard' : 'ss-player-radio-scanbox');
+    if (running) box.dataset.state = panelView!.state;
+    box.append(scanButtonNode(st, true));
+    if (running && panelView!.progress != null) {
+      const bar = el(doc, 'span', 'ss-player-radio-scan-progress');
+      bar.setAttribute('aria-hidden', 'true');
+      const fill = el(doc, 'span');
+      fill.style.width = `${Math.round(panelView!.progress * 100)}%`;
+      bar.append(fill);
+      box.append(bar);
+    }
+    const words = sheetScanWords(panelView, services);
+    if (words) {
+      const p = el(doc, 'p', 'ss-player-radio-scanwords', words.text);
+      if (words.danger) p.dataset.tone = 'danger';
+      box.append(p);
+    } else if (!panelView) {
+      const view = scanButton(st);
+      if (view.disabled && view.reason)
+        box.append(el(doc, 'p', 'ss-player-radio-reason', view.reason));
+    }
+    return box;
+  }
+
+  /** Volume and Stop (11d): kept across redraws so a drag isn't cut short by a poll. */
+  function controlsNode(): HTMLElement {
+    const row = el(doc, 'div', 'ss-player-radio-controls');
+    row.dataset.radioSheet = 'controls';
+    const icon = el(doc, 'span', 'ss-player-radio-volicon');
+    icon.innerHTML = SVG_VOLUME;
+    const deck = root.querySelector<HTMLInputElement>('.ss-player-volume--deck');
+    const vol = el(doc, 'input', 'ss-player-volume ss-player-radio-volume') as HTMLInputElement;
+    vol.type = 'range';
+    vol.min = '0';
+    vol.max = '100';
+    vol.step = '1';
+    vol.value = deck?.value ?? '70';
+    vol.style.setProperty('--vol', `${vol.value}%`);
+    vol.setAttribute('aria-label', 'Volume');
+    // the player keeps every [data-player-volume] in step; a change goes through the deck's own
+    vol.dataset.playerVolume = '';
+    vol.dataset.playerRadioVolume = '';
+    const stop = el(doc, 'button', 'ss-player-radio-stop ss-player-radio-stop--sheet');
+    stop.type = 'button';
+    stop.dataset.playerRadioStop = '';
+    stop.innerHTML = SVG_STOP;
+    stop.append(el(doc, 'span', '', 'Stop'));
+    row.append(icon, vol, stop);
+    return row;
+  }
+
+  /** The two link rows: Heard on <station> today · N, and the Station page. */
+  function linksNode(st: RadioSessionState): HTMLElement {
+    const station = st.station!;
+    const links = el(doc, 'div', 'ss-player-radio-links');
+    const row = (text: string, href: `/${string}`, extra: string) => {
+      const a = el(doc, 'a', `ss-player-radio-heard ${extra}`) as HTMLAnchorElement;
+      a.href = appURL(href);
+      a.dataset.playerRadioGo = href;
+      a.append(el(doc, 'span', '', text));
+      const chev = el(doc, 'span', 'ss-player-radio-chevron');
+      chev.innerHTML = SVG_CHEVRON;
+      a.append(chev);
+      links.append(a);
+    };
+    const count = stationInfo?.data?.heard_today.identified;
+    row(
+      `Heard on ${station.name} today${count != null ? ` · ${count}` : ''}`,
+      `${stationHref(station.id)}#heard` as `/${string}`,
+      'ss-player-radio-link--heard',
+    );
+    row('Station page', stationHref(station.id), 'ss-player-radio-link--page');
+    return links;
+  }
+
+  let headKey = '';
+  function drawPanel(): void {
+    const panel = root.querySelector<HTMLElement>('[data-player-radio-panel]');
+    const st = radio()?.state();
+    if (!panel) return;
+    if (!st?.station) {
+      panel.replaceChildren();
+      headKey = '';
+      return;
+    }
+    const keep = focusKey(panel);
+    const station = st.station;
+    // four parts: the head (redrawn when the station changes), the body, the
+    // controls (kept, so the volume can be dragged while a scan polls) and the links
+    const part = (name: string) => {
+      let node = panel.querySelector<HTMLElement>(`:scope > [data-radio-sheet="${name}"]`);
+      if (!node) {
+        node = name === 'controls' ? controlsNode() : el(doc, 'div', `ss-player-radio-${name}`);
+        node.dataset.radioSheet = name;
+      }
+      return node;
+    };
+    const head = part('headbox');
+    const body = part('body');
+    const controls = part('controls');
+    const links = part('linkbox');
+    if (panel.children.length !== 4 || panel.children[2] !== controls) {
+      panel.replaceChildren(head, body, controls, links);
+      headKey = '';
+    }
+    const key = [station.id, station.name, station.logo_url, sheetStationLine(st)].join('|');
+    if (key !== headKey) {
+      head.replaceChildren(headNode(st));
+      headKey = key;
+    }
+    const stop = controls.querySelector<HTMLElement>('[data-player-radio-stop]');
+    stop?.setAttribute('aria-label', `Stop ${station.name}`);
+
     const panelView = scanPanel(
       st.scan,
       st.scanError,
       st.scanStarting,
       st.nowPlaying?.scan?.services ?? [],
     );
-    if (panelView) {
-      const result = el(doc, 'div', 'ss-player-radio-scanresult');
-      result.dataset.state = panelView.state;
-      result.append(
-        el(doc, 'p', 'ss-player-label', 'Scan now'),
-        el(doc, 'p', 'ss-player-radio-scan-title', panelView.title),
-      );
-      if (panelView.line) result.append(el(doc, 'p', 'ss-player-radio-line', panelView.line));
-      // the source phrase starts this line, so it takes a capital
-      if (panelView.note) {
-        const note = panelView.note[0].toUpperCase() + panelView.note.slice(1);
-        result.append(el(doc, 'p', 'ss-player-radio-source', note));
-      }
-      if (panelView.progress != null) {
-        const bar = el(doc, 'span', 'ss-player-radio-scan-progress');
-        const fill = el(doc, 'span');
-        fill.style.width = `${Math.round(panelView.progress * 100)}%`;
-        bar.append(fill);
-        bar.setAttribute('aria-hidden', 'true');
-        result.append(bar);
-      }
-      // no Done (HANDOFF 58): the answer stays until the station names the next track
-      const act = panelView.state === 'identified' ? scanActionNode(panelView, false, st) : null;
-      if (act) {
-        const row = el(doc, 'div', 'ss-player-radio-scan-row');
-        row.append(act);
-        result.append(row);
-      }
-      scan.append(result);
-    }
-    scan.append(scanButtonNode(st, true));
-    const scanReason = scanButton(st);
-    if (!panelView && scanReason.disabled && scanReason.reason) {
-      scan.append(el(doc, 'p', 'ss-player-radio-source', scanReason.reason));
-    }
-
     if (autoConfirm && autoConfirm.stationId !== station.id) autoConfirm = null;
     const on =
       autoSet?.stationId === station.id
         ? autoSet.on
         : Boolean(stationInfo?.data?.station.auto_add ?? station.auto_add);
     const auto = autoConfirm ? confirmCard(station.name, autoConfirm) : autoRow(station.name, on);
-
-    const heard = el(doc, 'a', 'ss-player-radio-heard') as HTMLAnchorElement;
-    const count = stationInfo?.data?.heard_today.identified;
-    heard.href = appURL(`${stationHref(station.id)}#heard`);
-    heard.dataset.playerRadioGo = `${stationHref(station.id)}#heard`;
-    heard.append(
-      el(doc, 'span', '', `Heard on ${station.name} today${count != null ? ` · ${count}` : ''}`),
-    );
-    const chev = el(doc, 'span', 'ss-player-radio-chevron');
-    chev.innerHTML = SVG_CHEVRON;
-    heard.append(chev);
-
-    const stop = el(
-      doc,
-      'button',
-      'ss-player-btn ss-player-radio-stop ss-player-radio-stop--sheet',
-    );
-    stop.type = 'button';
-    stop.dataset.playerRadioStop = '';
-    stop.setAttribute('aria-label', `Stop ${station.name}`);
-    stop.innerHTML = SVG_STOP;
-    const controls = el(doc, 'div', 'ss-player-radio-controls');
-    controls.append(stop);
-
-    panel.append(head, art, card, actions, scan, auto, controls, heard);
+    body.replaceChildren(nowRow(st), addNode(st, panelView), scanNode(st, panelView), auto);
+    links.replaceChildren(linksNode(st));
     restoreFocus(panel, keep);
   }
 
@@ -760,6 +884,11 @@ export function bootRadioChrome(
           'Added to Wanted.',
           'success',
         );
+      return;
+    }
+    if (target?.closest('[data-player-radio-close]')) {
+      event.preventDefault();
+      root.querySelector<HTMLElement>('[data-player-sheet-close]')?.click();
       return;
     }
     if (target?.closest('[data-player-radio-stop]')) {
@@ -854,13 +983,25 @@ export function bootRadioChrome(
     const st = radio()?.state();
     if (st?.station) go(win, stationHref(st.station.id));
   };
+  // the sheet's volume goes through the deck's slider, which the player listens to
+  const onInput = (event: Event) => {
+    const input = event.target as HTMLInputElement | null;
+    if (!input?.matches?.('[data-player-radio-volume]')) return;
+    input.style.setProperty('--vol', `${input.value}%`);
+    const deck = root.querySelector<HTMLInputElement>('.ss-player-volume--deck');
+    if (!deck || deck === input) return;
+    deck.value = input.value;
+    deck.dispatchEvent(new Event('input', { bubbles: true }));
+  };
   root.addEventListener('click', onClick);
   root.addEventListener('click', onToggle, true);
+  root.addEventListener('input', onInput);
   win.addEventListener(RADIO_EVENT, draw);
   win.addEventListener('ss:player', draw);
   cleanups.push(
     () => root.removeEventListener('click', onClick),
     () => root.removeEventListener('click', onToggle, true),
+    () => root.removeEventListener('input', onInput),
     () => win.removeEventListener(RADIO_EVENT, draw),
     () => win.removeEventListener('ss:player', draw),
   );

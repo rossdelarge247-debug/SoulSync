@@ -151,11 +151,13 @@ def test_single_worker_thread_and_real_fire():
         client_factory=lambda: client, enabled=lambda: True, activity=None,
         quiet_seconds=0.05, ceiling_seconds=0.2, start_worker=True,
     )
-    before = {t.name for t in threading.enumerate()}
+    # another test in the same run may have left the app's own rescanner running;
+    # count only the worker this one starts
+    before = set(threading.enumerate())
     try:
         for _ in range(30):
             r.notify_import()
-        workers = [t for t in threading.enumerate() if t.name == "SlskdShareRescan"]
+        workers = [t for t in threading.enumerate() if t.name == "SlskdShareRescan" and t not in before]
         assert len(workers) == 1
         deadline = time.monotonic() + 2
         while client.puts() < 1 and time.monotonic() < deadline:
@@ -165,7 +167,8 @@ def test_single_worker_thread_and_real_fire():
         assert client.puts() == 1
     finally:
         r.stop()
-    assert "SlskdShareRescan" not in before
+    workers[0].join(timeout=2)
+    assert not workers[0].is_alive()
 
 
 def test_notify_is_cheap_and_never_touches_slskd():
