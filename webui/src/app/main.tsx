@@ -8,6 +8,7 @@ import { mountLossyDeleteOriginalHost } from '@/features/safe-action/lossy-delet
 import { mountPermanentDeleteHost } from '@/features/safe-action/permanent-delete-flow';
 import { mountVideoRepairFixHost } from '@/features/safe-action/video-repair-fix-flow';
 import { mountLibraryDiscographySourceSelector } from '@/features/settings/library-discography-source';
+import { mountSpotifyPausedHost } from '@/features/spotify-pause/spotify-paused-host';
 import { bindWindowWebRouter } from '@/platform/shell/bridge';
 import { ROUTER_ROOT_ID } from '@/platform/shell/route-controllers';
 // Route components are code-split, so a route module's top-level code only runs
@@ -73,4 +74,5 @@ mountAddToPlaylistHost();
 mountPermanentDeleteHost();
 mountVideoRepairFixHost();
 mountLossyDeleteOriginalHost();
+mountSpotifyPausedHost();
 void bootstrapApp();

@@ -7604,7 +7604,9 @@ function handleSpotifyRateLimit(rateLimitInfo) {
     if (!_spotifyRateLimitShown) {
         _spotifyRateLimitShown = true;
         _spotifyInCooldown = false;
-        showRateLimitModal(rateLimitInfo);
+        // No modal of its own any more (board 12b): Home's Notice and the
+        // Connections card say it, and "Spotify is paused" opens only when
+        // something a person asked for needs Spotify (spotifyGate).
         // Refresh discover page if user is on it — data source switched to iTunes
         if (currentPage === 'discover') {
             console.log('Spotify rate limited — refreshing discover page with iTunes data');

@@ -1,0 +1,116 @@
+/* "Spotify is paused" (board 12b): 680 on #17171c, 16px radius. */
+.dialog.dialog {
+  width: min(680px, 100%);
+  border-radius: var(--ss-radius-dialog);
+  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--ss-ground-dialog);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
+}
+
+.dialog [data-slot='dialog-header'] {
+  padding: 24px 24px 0;
+  border-bottom: 0;
+}
+
+.dialog [data-slot='dialog-header'] h2 {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.dialog [data-slot='dialog-close'] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ss-text-secondary);
+  font-size: 22px;
+}
+
+.dialog [data-slot='dialog-close']:hover {
+  background: var(--ss-hover-wash);
+}
+
+.dialog [data-slot='dialog-body'] {
+  gap: 16px;
+  padding: 20px 24px 24px;
+}
+
+.dialog [data-slot='dialog-footer'] {
+  flex-wrap: nowrap;
+  gap: 12px;
+  padding: 16px 24px 24px;
+  border-top-color: var(--ss-hairline);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-surface-card);
+}
+
+.tileLabel {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+.big {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.what {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.sentence {
+  margin: 0;
+  color: var(--ss-text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.note {
+  flex: 1;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .dialog [data-slot='dialog-header'] {
+    padding: 18px 18px 0;
+  }
+
+  .dialog [data-slot='dialog-body'] {
+    padding: 16px 18px 18px;
+  }
+
+  .tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dialog [data-slot='dialog-footer'] {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px 18px 18px;
+  }
+
+  .dialog [data-slot='dialog-footer'] > button {
+    width: 100%;
+  }
+}

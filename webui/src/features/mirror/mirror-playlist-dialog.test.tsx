@@ -172,6 +172,47 @@ describe('Mirror a playlist: choosing', () => {
     expect(primary('Mirror "Coastal evenings"')).not.toHaveAttribute('aria-disabled', 'true');
   });
 
+  it('while Spotify is paused, asks first (12b) and reads the playlist only after', async () => {
+    routes();
+    let reads = 0;
+    let paused = true;
+    server.use(
+      http.get('/status', () =>
+        HttpResponse.json({
+          spotify: paused
+            ? {
+                rate_limited: true,
+                rate_limit: { remaining_seconds: 600, retry_after: 720, source: 'spotify' },
+              }
+            : { rate_limited: false },
+        }),
+      ),
+      http.get('/api/spotify/playlist/:id', () => {
+        reads += 1;
+        return HttpResponse.json({ name: 'Coastal evenings', owner: 'Ross', tracks: [] });
+      }),
+    );
+    renderDialog();
+    await screen.findByText('Coastal evenings', undefined, SLOW);
+    fireEvent.click(within(screen.getAllByTestId('mirror-row')[0]).getByRole('radio'));
+    const pause = await screen.findByRole('dialog', { name: 'Spotify is paused' }, SLOW);
+    expect(pause.textContent).toContain(
+      'Mirroring “Coastal evenings” needs Spotify’s playlist, so it waits. Nothing is lost',
+    );
+    expect(reads).toBe(0);
+    // Wait for it: the pause ends (the status push says so) and the playlist is read
+    paused = false;
+    fireEvent.click(within(pause).getByRole('button', { name: 'Wait for it' }));
+    await act(async () => {});
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('ss:service-status', { detail: { spotify: { rate_limited: false } } }),
+      );
+    });
+    await waitFor(() => expect(reads).toBe(1));
+    expect(screen.queryByRole('dialog', { name: 'Spotify is paused' })).toBeNull();
+  });
+
   it('says nothing goes to Wanted when Keep it in sync is off', async () => {
     routes();
     renderDialog();
