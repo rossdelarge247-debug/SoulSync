@@ -117,6 +117,7 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **Profile scope:** a member's export of track ids, a playlist or Mixes well with only reaches tracks in their own library scope; another profile's playlist reads as missing; a profile on its own library sees only its tracks.
   - **Looking paths up on disk is bounded:** an export of 1,000 tracks whose stored paths are a media server's looks up at most 50 of them (or for 5 s; the rest are left out as `lookup_limit`), a miss isn't looked up again for 5 minutes, nothing is looked up when nothing could place the result, and a preview through the route asks the resolver at most the budget.
   - **A folder swapped after the check:** the export folder replaced by a link that leads outside, or by another folder, between the check and the write is refused; nothing is written outside or into the other folder.
+  - **Asking whether a name is taken only looks:** the preview's `folder.exists_at` (234) checks and opens the export folder as the save does and `lstat`s the name in it: a link at the name counts as taken without its target being looked at, an unsafe name or a folder outside answers nothing, and nothing in the folder changes.
   - **Orphaned temporary files and the no-link path:** temporary export files older than an hour are swept (a fresh one and files that aren't ours stay), and on a file system without hard links a failure leaves neither the claim nor the temporary file.
 
 When you write a test for a new way a change could lose data, tag it `gauntlet` too.

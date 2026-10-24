@@ -296,6 +296,33 @@ def test_an_existing_file_is_never_overwritten_without_asking(folders):
     assert not [n for n in os.listdir(folders["exports"]) if n.startswith(".synchros-traktor-")]
 
 
+@pytest.mark.gauntlet
+def test_existing_export_only_looks(folders):
+    """234: when a name is already taken in the export folder, and since when;
+    read only, never through a link, never outside the folder."""
+    roots = folders["roots"]
+    exports = folders["exports"]
+    assert traktor.existing_export(str(exports), "Sunday Set.nml", roots=roots) is None
+    target = exports / "Sunday Set.nml"
+    target.write_bytes(b"Ross's own file")
+    os.utime(target, (1_761_130_000, 1_761_130_000))
+    assert traktor.existing_export(str(exports), "Sunday Set.nml", roots=roots) == 1_761_130_000
+    assert target.read_bytes() == b"Ross's own file"
+    # a link at the name counts as taken; its target isn't looked at
+    secret = folders["outside"] / "secret.txt"
+    secret.write_bytes(b"keep")
+    os.utime(secret, (1_000, 1_000))
+    (exports / "Linked.nml").symlink_to(secret)
+    at = traktor.existing_export(str(exports), "Linked.nml", roots=roots)
+    assert at is not None and at != 1_000
+    # unsafe names and folders outside answer nothing
+    (folders["outside"] / "x.nml").write_bytes(b"x")
+    assert traktor.existing_export(str(exports), "../../outside/x.nml", roots=roots) is None
+    assert traktor.existing_export(str(folders["outside"]), "x.nml", roots=roots) is None
+    assert traktor.existing_export(None, "x.nml", roots=roots) is None
+    assert sorted(os.listdir(exports)) == ["Linked.nml", "Sunday Set.nml"]
+
+
 def test_without_hard_links_the_exclusive_create_still_refuses(folders, monkeypatch):
     import errno
 
@@ -560,8 +587,13 @@ def test_save_into_the_export_folder(client):
     saved = client.exports / "Sunday Set.nml"
     first = saved.read_bytes()
     assert ET.fromstring(first).find("COLLECTION").get("ENTRIES") == "1"
+    # 234: the preview says the name is taken, and since when
+    taken = _export(client, action="preview", source="tracks", track_ids=["1"], name="Sunday Set").get_json()
+    assert taken["folder"]["exists_at"] == pytest.approx(saved.stat().st_mtime)
+    assert body["folder"]["exists_at"] is None
     again = _export(client, action="save", source="tracks", track_ids=["1", "2"], name="Sunday Set")
     assert again.status_code == 409 and again.get_json()["exists"] is True
+    assert again.get_json()["exists_at"] == pytest.approx(saved.stat().st_mtime)
     assert saved.read_bytes() == first
     replaced = _export(client, action="save", source="tracks", track_ids=["1", "2"], name="Sunday Set",
                        overwrite=True)
@@ -569,6 +601,8 @@ def test_save_into_the_export_folder(client):
     assert ET.fromstring(saved.read_bytes()).find("COLLECTION").get("ENTRIES") == "2"
     # members download; only admins write into the folder
     client.state["admin"] = False
+    member = _export(client, action="preview", source="tracks", track_ids=["1"], name="Sunday Set").get_json()
+    assert member["folder"]["can_save"] is False and member["folder"]["exists_at"] is None
     assert _export(client, action="preview", source="tracks", track_ids=["1"]).get_json()["folder"]["can_save"] is False
     assert _export(client, action="save", source="tracks", track_ids=["1"], name="Other").status_code == 403
     assert not (client.exports / "Other.nml").exists()
@@ -761,7 +795,7 @@ def test_members_see_whether_things_are_set_not_where(client):
     assert member["can_edit"] is False
     preview = _export(client, action="preview", source="tracks", track_ids=["1"]).get_json()
     assert "mac_path" not in preview and "library_folder" not in preview
-    assert preview["folder"] == {"state": "ok", "shown": None, "can_save": False}
+    assert preview["folder"] == {"state": "ok", "shown": None, "can_save": False, "exists_at": None}
     # their own track's path, as the Mac sees it, stays
     assert preview["example_path"] == "/Volumes/Music HD/SoulSync/Transfer/Tidewater/01 Night Ferry.flac"
 
