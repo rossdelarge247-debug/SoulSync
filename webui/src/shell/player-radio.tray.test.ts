@@ -412,7 +412,10 @@ describe('the list: Heard today / Recent stations', () => {
   });
 
   it('counts identified tracks and folds the rest into one line at the end (143)', async () => {
-    const orig = fetchImpl.getMockImplementation()!;
+    const orig = fetchImpl.getMockImplementation() as (
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
     const t = Math.floor(Date.now() / 1000);
     const unnamed = (id: number): HeardItem => ({
       ...heardItems()[0]!,

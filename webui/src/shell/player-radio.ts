@@ -20,7 +20,8 @@
  *   at once.
  * - The level meter, drawn from the player's analyser while radio plays.
  * - Scan now (11a, HANDOFF 58): the quiet 132px control after the one
- *   action (icon-only under 1180px), and full width in the sheet. While it
+ *   action (icon-only by room, 148: when the track block would get under
+ *   240px), and full width in the sheet. While it
  *   runs the scan takes the track's place in the bar (title: "Capturing 10
  *   seconds · 6 s left" over a 220px progress bar, then "Identifying…" over
  *   the service being asked) and the action slot empties. After, the answer
@@ -90,7 +91,14 @@ import {
 import { RADIO_EVENT } from '@/features/radio/radio.types';
 import { appURL } from '@/platform/url-base';
 
-import { formatClock, meterBarCount, meterBarWidth, meterBin, pathLabel } from './player-state';
+import {
+  formatClock,
+  meterBarCount,
+  meterBarWidth,
+  meterBin,
+  pathLabel,
+  scanIconOnly,
+} from './player-state';
 
 const SVG_STOP =
   '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
@@ -459,6 +467,7 @@ export function bootRadioChrome(
       slot.hidden = false;
       restoreFocus(slot, keep);
     }
+    fitScan();
     const mini = root.querySelector<HTMLElement>('[data-player-mini-slot]');
     if (mini) {
       mini.replaceChildren();
@@ -933,6 +942,44 @@ export function bootRadioChrome(
         })
       : null;
   for (const meter of root.querySelectorAll('[data-player-meter]')) resize?.observe(meter);
+
+  // ── the bar's room (148) ───────────────────────────────────────────────
+  // Scan now keeps its word only while the track block can still have 240px
+  // with the meter at its least; measured, not by breakpoint
+  function fitScan(): void {
+    for (const slot of root.querySelectorAll<HTMLElement>(
+      '.ss-player-bar [data-player-action-slot]',
+    )) {
+      const centre = slot.parentElement;
+      if (!centre || slot.hidden) continue;
+      const view = doc.defaultView;
+      const width = (n: Element) => n.getBoundingClientRect().width;
+      const shown = (n: Element) => view?.getComputedStyle(n).display !== 'none';
+      const gap = (n: Element) => parseFloat(view?.getComputedStyle(n).columnGap || '') || 0;
+      const meter = centre.querySelector<HTMLElement>('[data-player-meter]');
+      const kids = [...centre.children].filter(shown);
+      let fixed = Math.max(0, kids.length - 1) * gap(centre);
+      for (const k of kids) if (k !== meter && k !== slot) fixed += width(k);
+      const inSlot = [...slot.children].filter(shown);
+      fixed += Math.max(0, inSlot.length - 1) * gap(slot);
+      for (const k of inSlot)
+        if (
+          !k.classList.contains('ss-player-radio-now') &&
+          !k.classList.contains('ss-player-radio-scan')
+        )
+          fixed += width(k);
+      const meterMin = meter ? parseFloat(view?.getComputedStyle(meter).minWidth || '') || 0 : 0;
+      const compact = scanIconOnly(width(centre), fixed, meterMin);
+      if ((slot.dataset.scanCompact === 'true') !== compact) {
+        if (compact) slot.dataset.scanCompact = 'true';
+        else delete slot.dataset.scanCompact;
+      }
+    }
+  }
+  const roomWatch =
+    typeof ResizeObserver === 'function' ? new ResizeObserver(() => fitScan()) : null;
+  for (const centre of root.querySelectorAll('.ss-player-bar .ss-player-centre'))
+    roomWatch?.observe(centre);
 
   function ensureBars(meter: HTMLElement, n: number, width: number): HTMLElement[] {
     if (meter.childElementCount !== n) {
@@ -1693,6 +1740,7 @@ export function bootRadioChrome(
     () => audioEl?.removeEventListener('timeupdate', drawListened),
     () => layout?.disconnect(),
     () => resize?.disconnect(),
+    () => roomWatch?.disconnect(),
     () => root.removeEventListener('input', onInput),
     () => win.removeEventListener(RADIO_EVENT, draw),
     () => win.removeEventListener('ss:player', draw),

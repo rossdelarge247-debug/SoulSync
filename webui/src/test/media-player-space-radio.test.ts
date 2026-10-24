@@ -35,11 +35,11 @@ beforeEach(() => {
   document.body.innerHTML = '<div id="page"></div>';
   toggle = vi.fn();
   stop = vi.fn(async () => undefined);
-  (window as Window & { SoulSyncRadio?: unknown }).SoulSyncRadio = { stop };
+  (window as unknown as { SoulSyncRadio?: unknown }).SoulSyncRadio = { stop };
 });
 
 afterEach(() => {
-  delete (window as Window & { SoulSyncRadio?: unknown }).SoulSyncRadio;
+  delete (window as unknown as { SoulSyncRadio?: unknown }).SoulSyncRadio;
 });
 
 it('stops a station', () => {

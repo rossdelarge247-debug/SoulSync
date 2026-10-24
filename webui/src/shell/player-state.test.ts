@@ -332,3 +332,18 @@ describe('the radio meter fills its width (Ross, 2026-10-23)', () => {
     expect(meterBin(10, 20, 57)).toBeLessThan(57 / 2);
   });
 });
+
+describe('Scan now goes icon-only by room (148)', () => {
+  it('keeps its word while the track block can have 240px beside the least meter', async () => {
+    const { scanIconOnly } = await import('./player-state');
+    // a narrow centre: 600 less the action and gaps (150), the meter (120) and Scan now (132)
+    expect(scanIconOnly(600, 150, 120)).toBe(true);
+    // 1920: plenty of room
+    expect(scanIconOnly(1180, 150, 120)).toBe(false);
+    // exactly 240 left keeps the word; a pixel less doesn't
+    expect(scanIconOnly(150 + 120 + 132 + 240, 150, 120)).toBe(false);
+    expect(scanIconOnly(150 + 120 + 132 + 239, 150, 120)).toBe(true);
+    // not laid out yet: leave it as it is
+    expect(scanIconOnly(0, 150, 120)).toBe(false);
+  });
+});

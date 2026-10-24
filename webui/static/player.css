@@ -1534,11 +1534,11 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     background: rgb(var(--ss-accent-light-rgb));
     transition: width 0.9s linear;
 }
-@media (max-width: 1180px) {
-    /* the bar's centre is narrow: the scan control keeps its icon only */
-    .ss-player-bar .ss-player-radio-scan > span:not(.ss-player-radio-spinner) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-    .ss-player-bar .ss-player-radio-scan { min-width: 44px; padding: 0 12px; }
-}
+/* 148: by room, not by breakpoint: the scan control keeps its icon only (its
+   name kept for a screen reader) when the track block would otherwise get
+   under 240px (player-radio.ts fitScan sets data-scan-compact) */
+.ss-player-bar [data-scan-compact='true'] .ss-player-radio-scan > span:not(.ss-player-radio-spinner) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ss-player-bar [data-scan-compact='true'] .ss-player-radio-scan { min-width: 44px; padding: 0 12px; }
 .ss-player-text-link {
     display: inline-flex;
     align-items: center;
