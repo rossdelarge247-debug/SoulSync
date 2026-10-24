@@ -1,76 +1,286 @@
 /*
- * The library's DJ data (BACKLOG "DJ area", stage 1; no board yet): the
- * track rows' "124 BPM · 8A", Library → Tracks' BPM and key filters, and the
- * "Mixes well with…" dialog on the library's 680 dialog frame. Tokens only;
- * text 14px or larger at 62% white or brighter.
+ * The library's DJ data (BACKLOG "DJ area", stage 1; boards 17a–17e): keys
+ * in the Camelot wheel's colours, energy as a number with a ten-step bar,
+ * the wheel, and "Mixes well with" as a panel docked at the right (a sheet
+ * on a phone). Tokens only; text 14px or larger at 62% white or brighter.
+ *
+ * Key colours (hand-off "Added 2026-10-24", HANDOFF 151): a key n takes the
+ * hue h = (n − 8) × 30° (`--dj-key-h`, set by KeyChip); a chip fills with
+ * oklch(0.7 0.12 h / 0.16) and writes in oklch(0.86 0.1 h); A and B share a
+ * hue; an uncertain key keeps no colour.
  */
 
-/* ── a row's BPM and key ─────────────────────────────────────────────── */
+/* ── a row's BPM and key (DjMeta) ────────────────────────────────────── */
 
 .meta {
   font-variant-numeric: tabular-nums;
 }
 
-.bpm,
-.key {
+.bpm {
   white-space: nowrap;
 }
 
-.key {
+/* ── keys ────────────────────────────────────────────────────────────── */
+
+/* where key is a column, a select or the panel: the chip */
+.keyChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--ss-radius-tag);
+  background: oklch(0.7 0.12 var(--dj-key-h, 0) / 0.16);
+  color: oklch(0.86 0.1 var(--dj-key-h, 0));
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
   text-decoration: none;
+  white-space: nowrap;
   cursor: help;
 }
 
-/* analysis wasn't sure: the "?" says so, the title says it in words */
-.key[data-uncertain='true'] {
+/* in a meta line elsewhere (17e): the text takes the hue, no fill */
+.keyText {
+  color: oklch(0.86 0.1 var(--dj-key-h, 0));
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* "8B?": analysis wasn't sure, so no colour; the title says it in words */
+.keyChip[data-uncertain='true'] {
+  background: transparent;
   color: var(--ss-text-meta);
 }
 
-/* ── "Mixes well with…" ──────────────────────────────────────────────── */
-
-.dialog.dialog {
-  width: min(680px, calc(100vw - 24px));
-  max-height: min(760px, calc(100vh - 48px));
-  border-radius: var(--ss-radius-dialog);
-  border-color: rgba(255, 255, 255, 0.1);
-  background: var(--ss-ground-dialog);
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
+.keyText[data-uncertain='true'] {
+  color: var(--ss-text-meta);
+  font-weight: inherit;
 }
 
-.dialog [data-slot='dialog-header'] {
-  padding: 24px 24px 0;
-  border-bottom: 0;
+/* ── energy (Tracks only) ────────────────────────────────────────────── */
+
+.energy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.dialog [data-slot='dialog-header'] h2 {
-  font-size: 22px;
+.energyNumber {
+  width: 18px;
+  color: var(--ss-text);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.energyBar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.energyBar > span {
+  width: 4px;
+  height: 12px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.energyBar > span[data-lit='true'] {
+  background: var(--ss-text-secondary);
+}
+
+.energyNone {
+  color: var(--ss-text-meta);
+}
+
+/* ── the Camelot wheel ───────────────────────────────────────────────── */
+
+.wheel {
+  display: block;
+  flex: none;
+}
+
+.wheel text {
+  font-family: inherit;
+  pointer-events: none;
+}
+
+.wheelPick {
+  cursor: pointer;
+  outline: none;
+}
+
+.wheelPick:hover path {
+  filter: brightness(1.15);
+}
+
+.wheelPick:focus-visible path {
+  stroke: rgb(var(--ss-accent-light-rgb));
+  stroke-width: 2;
+}
+
+/* ── "Mixes well with": the docked panel (17a) ───────────────────────── */
+
+.panel {
+  position: fixed;
+  z-index: 60;
+  /* top and bottom: the shell's top bar and player heights (inline, from
+     static/shell.css and static/player.css) */
+  top: 64px;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 400px;
+  padding: 20px;
+  overflow: hidden;
+  border-left: 1px solid var(--ss-hairline);
+  background: var(--ss-ground-sidebar);
+  color: var(--ss-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* narrower than 1100px it lies over the page instead of taking room */
+:global(html[data-mixes-panel='over']) .panel {
+  box-shadow: -24px 0 60px rgba(0, 0, 0, 0.45);
+}
+
+/* the page column makes room while it's docked (HANDOFF 164); style.css's
+   960px floor for the page would push the page under the panel */
+:global(html[data-mixes-panel='docked'] .ss-main > .main-content) {
+  min-width: 0;
+  margin-right: 400px;
+}
+
+/* the floating buttons and toasts ride beside it, not under it */
+:global(html[data-mixes-panel] :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn)) {
+  right: 424px !important;
+}
+
+:global(html[data-mixes-panel] .toast-container) {
+  right: 424px !important;
+}
+
+.panelHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.panelHeadText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.panelLabel {
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.panelTitle {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 18px;
   font-weight: 600;
   line-height: 1.3;
 }
 
-.dialog [data-slot='dialog-close'] {
-  border-color: transparent;
+.panelTitle:focus {
+  outline: none;
+}
+
+.panelTitle:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.panelMeta {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.closeButton,
+.mixButton {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ss-radius-control);
   background: transparent;
   color: var(--ss-text-secondary);
-  font-size: 22px;
+  cursor: pointer;
+  transition: var(--ss-transition);
 }
 
-.dialog [data-slot='dialog-close']:hover {
+.closeButton:hover,
+.mixButton:hover {
   background: var(--ss-hover-wash);
+  color: var(--ss-text);
 }
 
-.dialog [data-slot='dialog-body'] {
-  padding: 16px 24px 8px;
+.closeButton:active,
+.mixButton:active {
+  opacity: var(--ss-pressed-opacity);
+}
+
+.closeButton:focus-visible,
+.mixButton:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.wheelRow {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.rule {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.followRow,
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  min-height: 44px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.panelBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
   overflow-y: auto;
 }
 
-.dialog [data-slot='dialog-footer'] {
-  gap: 12px;
-  padding: 16px 24px 24px;
-  border-top-color: var(--ss-hairline);
-}
-
-.matches {
+.mixList {
   display: flex;
   flex-direction: column;
   margin: 0;
@@ -78,44 +288,39 @@
   list-style: none;
 }
 
-.match {
+.mixRow {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
-  gap: 16px;
+  grid-template-columns: 40px minmax(0, 1fr) 44px 44px;
+  gap: 8px;
   align-items: center;
-  min-height: 72px;
-  padding: 8px 0;
+  min-height: 64px;
   border-bottom: 1px solid var(--ss-hairline);
 }
 
-.match:last-child {
-  border-bottom: 0;
-}
-
-.art {
+.mixArt {
   display: block;
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   overflow: hidden;
   border-radius: var(--ss-radius-tag);
   background: rgba(255, 255, 255, 0.1);
 }
 
-.art img {
+.mixArt img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.matchText {
+.mixText {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
-.matchTitle {
+.mixTitle {
   overflow: hidden;
   font-size: 15px;
   font-weight: 500;
@@ -123,8 +328,34 @@
   white-space: nowrap;
 }
 
-.matchMeta,
-.relation {
+.mixMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.mixChip.mixChip {
+  flex: none;
+  padding: 0 5px;
+}
+
+.mixBpm {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.mixHow {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ss-text-tertiary);
+  text-overflow: ellipsis;
+}
+
+.mixMeta {
   overflow: hidden;
   color: var(--ss-text-meta);
   font-size: 14px;
@@ -132,71 +363,126 @@
   white-space: nowrap;
 }
 
-.relation {
-  color: var(--ss-text-tertiary);
-}
-
-.matchActions {
+.mixFoot {
   display: flex;
+  flex: none;
+  flex-direction: column;
   gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ss-hairline);
 }
 
-.iconButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid var(--ss-control-border);
-  border-radius: var(--ss-radius-control);
-  background: var(--ss-control-fill);
-  color: var(--ss-text-secondary);
-  cursor: pointer;
-  transition: var(--ss-transition);
+.mixCount {
+  color: var(--ss-text-meta);
+  font-size: 14px;
 }
 
-.iconButton:hover {
-  background: var(--ss-control-fill-hover);
-  color: var(--ss-text);
+.makeButton.makeButton {
+  width: 100%;
 }
 
-.iconButton:active {
-  opacity: var(--ss-pressed-opacity);
+.makeButtonTall.makeButtonTall {
+  min-height: 48px;
 }
 
-.iconButton:focus-visible {
-  outline: var(--ss-focus-ring);
-  outline-offset: var(--ss-focus-offset);
+.stateBox {
+  padding: 4px 0 12px;
 }
 
-.emptyLine {
-  margin: 0 0 16px;
+.stateLine {
+  margin: 0 0 12px;
   color: var(--ss-text-secondary);
   font-size: 15px;
   line-height: 1.5;
 }
 
-@media (max-width: 640px) {
-  .dialog [data-slot='dialog-header'] {
-    padding: 18px 18px 0;
-  }
+.inlineLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  cursor: pointer;
+}
 
-  .dialog [data-slot='dialog-body'] {
-    padding: 12px 18px 4px;
-  }
+.inlineLink:hover {
+  text-decoration: underline;
+}
 
-  .dialog [data-slot='dialog-footer'] {
-    padding: 16px 18px 18px;
-  }
+.inlineLink:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
 
-  .match {
-    grid-template-columns: 44px minmax(0, 1fr) auto;
-    gap: 12px;
-  }
+.inlineLink:disabled {
+  color: var(--ss-text-meta);
+  cursor: default;
+}
 
-  .art {
-    width: 44px;
-    height: 44px;
-  }
+/* ── the phone's sheet (17d) ─────────────────────────────────────────── */
+
+.sheetViewport {
+  position: fixed;
+  inset: 0;
+  z-index: 11000;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.sheet {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  height: calc(100% - 96px);
+  padding: 8px 12px calc(20px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--ss-radius-card) var(--ss-radius-card) 0 0;
+  background: var(--ss-ground-note);
+  color: var(--ss-text);
+}
+
+.grabber {
+  flex: none;
+  align-self: center;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.sheetTitle.sheetTitle {
+  font-size: 17px;
+}
+
+.sheet .mixRow {
+  grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+}
+
+.sheet .mixArt {
+  width: 44px;
+  height: 44px;
+}
+
+.sheet .mixButton {
+  border: 1px solid var(--ss-control-border);
+}
+
+.sheet .mixFoot {
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ── Make a playlist from these (17b) ────────────────────────────────── */
+
+.makeDialog.makeDialog {
+  width: min(480px, calc(100vw - 24px));
+}
+
+.makeForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }

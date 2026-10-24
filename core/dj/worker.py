@@ -419,6 +419,9 @@ class DjAnalysisJob:
         self._state: Optional[Dict[str, Any]] = None
         #: a person pressed Stop: automatic sweeps wait for a restart or a Start
         self.held = False
+        #: tracks a person asked for now ("analyse it now"), taken before the queue
+        self._priority: List[str] = []
+        self._queued: set = set()
 
     # -- reading --
 
@@ -455,10 +458,48 @@ class DjAnalysisJob:
 
     # -- starting and stopping --
 
+    def prioritise(self, track_id: str) -> bool:
+        """"Analyse it now" while a sweep runs: the track goes next. False
+        when no sweep runs (start one with ``first`` instead)."""
+        track_id = str(track_id)
+        with self._lock:
+            if not self._state or self._state.get("status") != "running":
+                return False
+            if track_id not in self._priority:
+                self._priority.append(track_id)
+                if track_id not in self._queued:
+                    self._queued.add(track_id)
+                    self._state["total"] = int(self._state.get("total") or 0) + 1
+            return True
+
+    def _take_priority(self) -> Optional[str]:
+        with self._lock:
+            return self._priority.pop(0) if self._priority else None
+
+    def _ordered(self, ids: List[str]):
+        """The sweep's tracks, with any asked-for track taken first, once each."""
+        seen: set = set()
+        index = 0
+        while True:
+            first = self._take_priority()
+            if first is not None:
+                if first not in seen:
+                    seen.add(first)
+                    yield first
+                continue
+            if index >= len(ids):
+                return
+            track_id = ids[index]
+            index += 1
+            if track_id not in seen:
+                seen.add(track_id)
+                yield track_id
+
     def start(self, database, profile_id: int = 1, *, manual: bool = True,
-              background: bool = True) -> Optional[Dict[str, Any]]:
-        """Start a sweep over every track that needs DJ data. None when
-        there's nothing to do (no row is written then)."""
+              background: bool = True, first: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Start a sweep over every track that needs DJ data (``first``, a
+        track a person asked for, goes first). None when there's nothing to
+        do (no row is written then)."""
         from core.dj import store
 
         with self._lock:
@@ -469,8 +510,13 @@ class DjAnalysisJob:
             retry = time.time() - (0 if manual else UNREACHABLE_RETRY_SECONDS)
             ids = store.pending_ids(database, analyzer_version(), retry_unreachable_before=retry)
             store.fail_leftover_analyzing(database)
+            if first is not None and str(first) in ids:
+                ids.remove(str(first))
+                ids.insert(0, str(first))
             if not ids:
                 return None
+            self._priority = []
+            self._queued = set(ids)
             self._stop.clear()
             started = _now()
             with closing(database._get_connection()) as conn:
@@ -563,7 +609,7 @@ class DjAnalysisJob:
         status, note = "done", None
         errors_in_a_row = 0
         try:
-            for track_id in ids:
+            for track_id in self._ordered(ids):
                 if self._stop.is_set() or not self._settings().get("analyze", True):
                     status = "stopped"
                     break

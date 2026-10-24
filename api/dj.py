@@ -6,7 +6,9 @@ GET  /api/library/dj/status
     sweep or the last one, and whether this profile may start or stop it.
 POST /api/library/dj/start  (admins)
     Start a sweep now (also lifts a Stop's hold on the automatic sweeps).
-    202 with the sweep; 409 when one runs or every track is done.
+    202 with the sweep; 409 when one runs or every track is done. With
+    ``{track_id}`` ("analyse it now", 17b) that track goes first, or next
+    when a sweep already runs (202 then too, ``queued: true``).
 POST /api/library/dj/stop   (admins)
     Stop the sweep; automatic sweeps wait for a restart or a Start.
 POST /api/library/dj/tracks
@@ -16,10 +18,12 @@ GET  /api/library/dj/browse
     Library → Tracks: tracks with a file, ``bpm_min``, ``bpm_max``, ``key``
     (a Camelot code or any key spelling; ``8A:mix`` adds the keys that mix
     with it), ``q``, ``sort`` (bpm | key | energy | title | artist | recent),
-    ``page``, ``limit`` (50, at most 200).
+    ``page``, ``limit`` (50, at most 200). ``keys`` in the answer is what the
+    key filter covered, in the count line's order ("8A, 7A, 9A or 8B").
 GET  /api/library/dj/mixes/<track_id>
     "Mixes well with…": the same key, ±1 on the Camelot wheel or the relative
-    major/minor, at a BPM within ±6% (half and double time count).
+    major/minor, at a BPM within ±6% (half and double time count);
+    ``within`` (percent, 1–12) widens or narrows the tempo window.
 
 Every route needs a profile and reads the caller's library scope, like the
 other library routes.
@@ -103,9 +107,16 @@ def dj_start():
     from core.dj import worker
 
     database = get_database()
+    body = request.get_json(silent=True) or {}
+    first = body.get("track_id") if isinstance(body, dict) else None
+    first = str(first)[:128] if isinstance(first, (str, int)) and str(first) else None
+    if first is not None and worker.JOB.prioritise(first):
+        return _no_store({"success": True, "queued": True, "job": worker.public_state(database)}, 202)
     try:
-        state = worker.JOB.start(database, get_current_profile_id() or 1, manual=True)
+        state = worker.JOB.start(database, get_current_profile_id() or 1, manual=True, first=first)
     except worker.JobRunning as exc:
+        if first is not None and worker.JOB.prioritise(first):
+            return _no_store({"success": True, "queued": True, "job": worker.public_state(database)}, 202)
         return jsonify({"success": False, "error": str(exc)}), 409
     if state is None:
         return jsonify({"success": False, "error": "Every track already has its BPM, key and energy."}), 409
@@ -170,8 +181,10 @@ def dj_mixes(track_id: str):
     from core.dj import store
 
     try:
+        within = _float("within")
+        tolerance = within / 100 if within is not None else store.BPM_TOLERANCE
         result = store.mixes_with(get_database(), str(track_id)[:128], limit=_int("limit", 50),
-                                  fix_art=fix_art_url)
+                                  fix_art=fix_art_url, tolerance=tolerance)
     except Exception as exc:  # noqa: BLE001
         logger.error("Mixes well with failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500

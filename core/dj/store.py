@@ -21,7 +21,7 @@ import time
 from contextlib import closing
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from core.dj.camelot import bpm_relation, bpm_windows, compatible_keys, fold_bpm, parse_key
+from core.dj.camelot import BPM_TOLERANCE, bpm_relation, bpm_windows, compatible_keys, fold_bpm, parse_key
 from utils.logging_config import get_logger
 
 logger = get_logger("dj.store")
@@ -297,8 +297,9 @@ def browse(database, *, bpm_min=None, bpm_max=None, key: str = "", q: str = "", 
     key = (key or "").strip()
     with_mix = key.endswith(":mix")
     code = parse_key(key[:-4] if with_mix else key)
+    keys: List[str] = []
     if code:
-        keys = list(compatible_keys(code["camelot"])) if with_mix else [code["camelot"]]
+        keys = mix_keys(code["camelot"]) if with_mix else [code["camelot"]]
         clauses.append(f"d.musical_key IN ({','.join('?' * len(keys))})")
         values.extend(keys)
     if q:
@@ -325,7 +326,19 @@ def browse(database, *, bpm_min=None, bpm_max=None, key: str = "", q: str = "", 
         rows = conn.execute(f"{_track_select()} WHERE {' AND '.join(clauses)} ORDER BY {order} LIMIT ? OFFSET ?",
                             values + [limit, (page - 1) * limit]).fetchall()
     return {"tracks": [_shape_track(r, fix_art) for r in rows], "total": total, "page": page, "limit": limit,
-            "has_more": page * limit < total, "sort": sort}
+            "has_more": page * limit < total, "sort": sort, "keys": keys}
+
+
+#: the order the count line names the keys in: the key, then −1 and +1 on
+#: the wheel, then the relative major or minor ("8A, 7A, 9A or 8B")
+_MIX_ORDER = {"same": 0, "down": 1, "up": 2, "relative": 3}
+
+
+def mix_keys(code: str) -> List[str]:
+    """The Camelot codes a key filter with "and keys that mix" covers, in the
+    order Tracks' count line names them."""
+    found = compatible_keys(code)
+    return sorted(found, key=lambda k: _MIX_ORDER[found[k]])
 
 
 #: how each harmonic relation ranks in "Mixes well with…": the same key first
@@ -333,23 +346,31 @@ _KEY_RANK = {"same": 0, "relative": 1, "up": 2, "down": 2}
 _BPM_RANK = {"same": 0, "half": 1, "double": 1}
 
 
-def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None) -> Dict[str, Any]:
+#: how far "Widen" may take the tempo window, as a fraction
+MAX_TOLERANCE = 0.12
+
+
+def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None,
+               tolerance: float = BPM_TOLERANCE) -> Dict[str, Any]:
     """Tracks that mix well with one: the same key, ±1 on the Camelot wheel or
-    the relative major/minor, at a BPM within ±6% (half and double time
-    count). Ranked by key (same, then relative, then neighbours), then
-    tempo (same before half/double), then the closest BPM."""
+    the relative major/minor, at a BPM within ±6% (``tolerance``; half and
+    double time count). Ranked by key (same, then relative, then
+    neighbours), then tempo (same before half/double), then the closest
+    BPM."""
+    tolerance = min(MAX_TOLERANCE, max(0.01, float(tolerance)))
+    within = round(tolerance * 100)
     where, params = _scope(database)
     with closing(database._get_connection()) as conn:
         seed_row = conn.execute(f"{_track_select()} WHERE t.id = ? AND {where}",
                                 [str(track_id)] + list(params)).fetchone()
         if seed_row is None:
-            return {"track": None, "matches": [], "reason": "unknown"}
+            return {"track": None, "matches": [], "reason": "unknown", "within": within}
         seed = _shape_track(seed_row, fix_art)
         dj = seed["dj"] or {}
         if not dj.get("bpm") or not dj.get("key"):
-            return {"track": seed, "matches": [], "reason": "not_analyzed"}
+            return {"track": seed, "matches": [], "total": 0, "reason": "not_analyzed", "within": within}
         keys = compatible_keys(dj["key"])
-        windows = bpm_windows(dj["bpm"])
+        windows = bpm_windows(dj["bpm"], tolerance)
         bpm_sql = " OR ".join(f"({_BPM_SQL} BETWEEN ? AND ?)" for _ in windows)
         values = list(params) + list(keys) + [v for w in windows for v in w] + [str(track_id)]
         rows = conn.execute(
@@ -360,7 +381,7 @@ def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None) -> Dic
     for row in rows:
         shaped = _shape_track(row, fix_art)
         other = shaped["dj"] or {}
-        relation = bpm_relation(dj["bpm"], other.get("bpm"))
+        relation = bpm_relation(dj["bpm"], other.get("bpm"), tolerance)
         key_rel = keys.get(other.get("key") or "")
         if relation is None or key_rel is None:
             continue
@@ -371,8 +392,8 @@ def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None) -> Dic
     matches.sort(key=lambda m: (_KEY_RANK[m["key_relation"]], _BPM_RANK[m["bpm_relation"]],
                                 abs(m["bpm_diff_pct"]), m["title"].lower()))
     return {"track": seed, "matches": matches[:max(1, min(200, int(limit)))], "total": len(matches),
-            "reason": None if matches else "none"}
+            "reason": None if matches else "none", "within": within}
 
 
 __all__ = ["KEY_CONFIDENT", "SORTS", "browse", "counts", "decide", "fail_leftover_analyzing", "get", "lookup",
-           "mark", "mixes_with", "pending_ids", "public", "requeue", "save", "track_row"]
+           "mark", "mix_keys", "mixes_with", "pending_ids", "public", "requeue", "save", "track_row"]

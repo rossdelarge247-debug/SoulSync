@@ -5,7 +5,7 @@ import { Button } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 import { DjMeta } from '@/features/dj/dj-meta';
 import { useDjInfo, type DjInfo } from '@/features/dj/dj.api';
-import { useMixesWith, type MixesSeed } from '@/features/dj/mixes-dialog';
+import { openMixes, type MixesSeed } from '@/features/dj/mixes-store';
 import { awayWords } from '@/features/drives/drives.format';
 import { playInAppPlayer } from '@/features/playback/app-player';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
@@ -455,7 +455,6 @@ export function HistoryPage({
   const djInfo = useDjInfo(
     kind === 'music' ? items.map((p) => (p.kind === 'music' ? p.track_id : null)) : [],
   );
-  const mixes = useMixesWith();
 
   return (
     <div className={styles.page}>
@@ -581,7 +580,7 @@ export function HistoryPage({
                       phone={phone}
                       first={play === items[0]}
                       dj={play.track_id ? djInfo[String(play.track_id)] : undefined}
-                      onMixes={mixes.open}
+                      onMixes={openMixes}
                       away={away}
                     />
                   ) : (
@@ -637,7 +636,6 @@ export function HistoryPage({
           ) : null}
         </div>
       ) : null}
-      {mixes.dialog}
     </div>
   );
 }

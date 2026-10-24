@@ -166,7 +166,8 @@
   box-sizing: border-box;
   margin: 0;
   border: 2px solid var(--ss-input-border);
-  border-radius: var(--radius-xs);
+  /* 6px, as every board draws it (17a, 14a, 21a); was 4px */
+  border-radius: var(--ss-radius-tag);
   background: transparent;
   color: var(--ss-text-on-accent);
   cursor: pointer;

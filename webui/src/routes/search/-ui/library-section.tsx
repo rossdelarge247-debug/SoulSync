@@ -16,6 +16,7 @@ import { Button } from '@/components/form';
 import { LoadingState, Notice, SkeletonList, StatusTag } from '@/components/primitives';
 import { DjMeta } from '@/features/dj/dj-meta';
 import { useDjInfo } from '@/features/dj/dj.api';
+import { openMixes } from '@/features/dj/mixes-store';
 import { AppLink } from '@/routes/activity/-ui/app-link';
 import { albumQueueTrack } from '@/routes/library/-library.helpers';
 
@@ -338,6 +339,17 @@ export function LibrarySection({
                       }
                     >
                       Play
+                    </Button>
+                  ) : null}
+                  {track.file_path ? (
+                    // 152: "Mixes well with" opens the shell's docked panel
+                    <Button
+                      size="lg"
+                      variant="ghost"
+                      aria-label={`Mixes well with ${track.title}`}
+                      onClick={() => openMixes({ id: String(track.id), title: track.title })}
+                    >
+                      Mixes well with…
                     </Button>
                   ) : null}
                 </div>

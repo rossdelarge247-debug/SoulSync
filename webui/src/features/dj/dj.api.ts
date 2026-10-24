@@ -60,6 +60,8 @@ export interface DjMixesResponse {
   matches: DjMatch[];
   total?: number;
   reason: 'not_analyzed' | 'none' | null;
+  /** the tempo window used, in percent (6 unless widened) */
+  within?: number;
 }
 
 export interface DjBrowseResponse {
@@ -71,6 +73,8 @@ export interface DjBrowseResponse {
   limit: number;
   has_more: boolean;
   sort: string;
+  /** what the key filter covered, in the count line's order ("8A, 7A, 9A or 8B") */
+  keys?: string[];
 }
 
 export interface DjJob {
@@ -183,19 +187,31 @@ export function djBrowseInfiniteQueryOptions(profileId: number, query: DjBrowseQ
   });
 }
 
-export function djMixesQueryOptions(trackId: string) {
+/** "Mixes well with" for one track; `within` widens the tempo window (percent). */
+export function djMixesQueryOptions(trackId: string, within = 6) {
   return queryOptions({
-    queryKey: [...DJ_QUERY_KEY, 'mixes', trackId] as const,
+    queryKey: [...DJ_QUERY_KEY, 'mixes', trackId, within] as const,
     queryFn: () =>
       readOk(
-        readJson<DjMixesResponse>(apiClient.get(`library/dj/mixes/${encodeURIComponent(trackId)}`)),
+        readJson<DjMixesResponse>(
+          apiClient.get(`library/dj/mixes/${encodeURIComponent(trackId)}`, {
+            searchParams: within === 6 ? {} : { within },
+          }),
+        ),
       ),
   });
 }
 
-/** Start (or Stop) the analysis; throws with the server's sentence. */
-export async function postDjJob(action: 'start' | 'stop'): Promise<void> {
-  const response = await apiClient.post(`library/dj/${action}`, { throwHttpErrors: false });
+/**
+ * Start (or Stop) the analysis; throws with the server's sentence. Start
+ * with a track ("analyse it now", 17b) puts it first, or next when a sweep
+ * already runs.
+ */
+export async function postDjJob(action: 'start' | 'stop', trackId?: string): Promise<void> {
+  const response = await apiClient.post(`library/dj/${action}`, {
+    throwHttpErrors: false,
+    ...(trackId ? { json: { track_id: trackId } } : {}),
+  });
   const payload = (await response.json().catch(() => ({}))) as {
     success?: boolean;
     error?: string;

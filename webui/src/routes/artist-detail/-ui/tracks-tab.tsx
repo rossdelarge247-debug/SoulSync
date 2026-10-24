@@ -5,7 +5,7 @@ import { Button } from '@/components/form';
 import { EmptyState, LoadingState, Notice, SkeletonList } from '@/components/primitives';
 import { DjMeta } from '@/features/dj/dj-meta';
 import { useDjInfo } from '@/features/dj/dj.api';
-import { useMixesWith } from '@/features/dj/mixes-dialog';
+import { openMixes } from '@/features/dj/mixes-store';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { getShellBridge } from '@/platform/shell/bridge';
 import { profileAsksFirst } from '@/platform/shell/download-rights';
@@ -273,7 +273,6 @@ function LibraryTracks({
     getShellBridge()?.playLibraryTrack(track as never, text(album.title), artistName);
   // BPM and key under each title (the library's DJ data), and "Mixes well with…"
   const djInfo = useDjInfo(groups.flatMap((g) => g.tracks.map((t) => text(t.id))));
-  const mixes = useMixesWith();
 
   return (
     <>
@@ -341,7 +340,7 @@ function LibraryTracks({
                         {
                           key: 'mixes',
                           label: 'Mixes well with…',
-                          onSelect: () => mixes.open({ id: text(track.id), title }),
+                          onSelect: () => openMixes({ id: text(track.id), title }),
                         },
                         {
                           key: 'queue',
@@ -376,7 +375,6 @@ function LibraryTracks({
           </Button>
         </div>
       ) : null}
-      {mixes.dialog}
     </>
   );
 }

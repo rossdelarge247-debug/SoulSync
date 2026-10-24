@@ -230,3 +230,57 @@ def test_activity_says_a_restart_stopped_it(db, monkeypatch):
     out = feed.build_feed(db, feed.Viewer(profile_id=1, is_admin=True), live_batches={}, running_automations={})
     [item] = [i for i in out["items"] if i["title"].startswith("Stopped working out")]
     assert item["detail"] == "Stopped after 20 of 50 tracks when SYNCHRO.S restarted"
+
+
+# ── Phase B2 (17a, 17b): the count line's keys, Widen, "analyse it now" ─────
+
+def test_browse_says_which_keys_the_filter_covered(client):
+    # the count line names them: the key, −1, +1, then the relative ("8A, 7A, 9A or 8B")
+    assert client.get("/api/library/dj/browse?key=8A:mix").get_json()["keys"] == ["8A", "7A", "9A", "8B"]
+    assert client.get("/api/library/dj/browse?key=1B:mix").get_json()["keys"] == ["1B", "12B", "2B", "1A"]
+    assert client.get("/api/library/dj/browse?key=Am").get_json()["keys"] == ["8A"]
+    assert client.get("/api/library/dj/browse").get_json()["keys"] == []
+    assert client.get("/api/library/dj/browse?key=nonsense").get_json()["keys"] == []
+
+
+def test_mixes_well_with_widens_and_narrows_the_tempo(client):
+    assert client.get("/api/library/dj/mixes/1").get_json()["within"] == 6
+    body = client.get("/api/library/dj/mixes/1?within=1").get_json()
+    assert body["within"] == 1
+    assert [m["title"] for m in body["matches"]] == ["Half time", "Up one"]
+    # at most 12%: "Too fast" (140 against 124, 12.9% off) stays out
+    body = client.get("/api/library/dj/mixes/1?within=99").get_json()
+    assert body["within"] == 12 and "Too fast" not in [m["title"] for m in body["matches"]]
+    assert client.get("/api/library/dj/mixes/9?within=10").get_json()["reason"] == "not_analyzed"
+
+
+def test_analyse_it_now_starts_with_that_track(client, db, monkeypatch):
+    _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path) VALUES ('11', '10', '1', 'Later', '/m/11.flac')")
+    order = []
+
+    def process(d, t, **kw):
+        order.append(t)
+        store.save(d, t, {"status": "done", "dj_analyzer_version": worker.analyzer_version()})
+        return "done"
+
+    job = worker.DjAnalysisJob(busy=lambda d: None, away=lambda: False, sleep_floor=0, rest_factor=0,
+                               process=process,
+                               settings=lambda: {"analyze": True, "write_tags": False, "overwrite_tags": False})
+    monkeypatch.setattr(worker, "JOB", job)
+    res = client.post("/api/library/dj/start", json={"track_id": "11"})
+    assert res.status_code == 202
+    job.join(5)
+    assert order == ["11", "9"]
+    client.state["admin"] = False
+    assert client.post("/api/library/dj/start", json={"track_id": "11"}).status_code == 403
+
+
+def test_a_track_asked_for_while_a_sweep_runs_goes_next():
+    job = worker.DjAnalysisJob(busy=lambda d: None, away=lambda: False)
+    assert job.prioritise("c") is False  # nothing runs: start with first= instead
+    job._state = {"status": "running", "total": 3}
+    job._queued = {"a", "b", "c"}
+    assert job.prioritise("c") is True and job.prioritise("c") is True
+    assert job._state["total"] == 3  # already in the sweep: counted once
+    assert job.prioritise("z") is True and job._state["total"] == 4
+    assert list(job._ordered(["a", "b", "c"])) == ["c", "z", "a", "b"]

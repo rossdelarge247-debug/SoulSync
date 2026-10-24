@@ -1,21 +1,48 @@
 /*
- * Library → Tracks (BACKLOG "DJ area", stage 1; no board yet): Listening
- * history's header, list and footer (history.module.css), with a BPM range,
- * a key and a sort in the toolbar, and BPM, Key and Energy as columns:
- * rows `48px 1fr 72px 64px 72px 100px` at 64px. Text 14px or larger at 62%
- * white or brighter; the numbers are tabular.
+ * Library → Tracks (boards 17a at 1440 and 17c at 390; HANDOFF 150–153):
+ * Listening history's header, list and footer (history.module.css), the
+ * analysis line, a toolbar (BPM From–To, Key with its chip, "And keys that
+ * mix", Sort), the count line, then rows `48px 1fr 64px 64px 96px 92px` at
+ * 64px with the key chip and energy as a number with a ten-step bar. Text
+ * 14px or larger at 62% white or brighter; the numbers are tabular.
  */
+
+/* 17a's main column sets its parts 16px apart */
+.page.page {
+  gap: 16px;
+}
+
+.headText.headText {
+  flex: 1 1 260px;
+  gap: 4px;
+}
+
+/* 17a: the filter stays beside the title; the sentence wraps instead */
+@media (min-width: 641px) {
+  .header.header {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+  }
+}
+
+/* the 280px filter field */
+.filter > * {
+  width: 280px;
+}
+
+/* ── the analysis line (153) ─────────────────────────────────────────── */
 
 .analysis {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-height: 44px;
-  margin-top: -8px;
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
 }
 
-/* 153: the analysis's 120px bar, then its words, then Stop or Start now */
+/* the analysis's 120px bar, then its words, then Stop or Start now */
 .analysisBar {
   flex: none;
   width: 120px;
@@ -37,11 +64,44 @@
   min-width: 0;
 }
 
+/* Stop / Start now: accent-light words, a 44px target */
+.textButton {
+  flex: none;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--ss-radius-control);
+  background: transparent;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.textButton:hover {
+  background: var(--ss-hover-wash);
+}
+
+.textButton:focus-visible,
+.linkButton:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.textButton:disabled {
+  color: var(--ss-text-meta);
+  cursor: default;
+}
+
+/* ── the toolbar ─────────────────────────────────────────────────────── */
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 16px 24px;
+  gap: 8px;
 }
 
 .bpmRange,
@@ -51,17 +111,14 @@
   gap: 8px;
 }
 
+/* 17a puts 16px between the BPM pair and Key */
 .keyGroup {
-  gap: 12px;
-}
-
-.keyGroup select {
-  min-width: 140px;
+  margin-left: 8px;
 }
 
 .bpmInput.bpmInput {
   box-sizing: border-box;
-  width: 88px;
+  width: 72px;
   min-height: 44px;
   font-variant-numeric: tabular-nums;
 }
@@ -70,9 +127,99 @@
   color: var(--ss-text-meta);
 }
 
+/* a select drawn as a button: what's picked shows, the select lies over it */
+.pick {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  border-radius: var(--ss-radius-control);
+}
+
+.pickShown {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--ss-input-border);
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-input-fill);
+  color: var(--ss-text);
+  font-size: 15px;
+  white-space: nowrap;
+  transition: var(--ss-transition);
+}
+
+.pick[data-variant='ghost'] .pickShown {
+  padding: 0 12px;
+  border-color: var(--ss-control-border);
+  background: transparent;
+  color: var(--ss-text-secondary);
+  font-weight: 500;
+}
+
+.pick:hover .pickShown {
+  border-color: var(--ss-input-border-hover);
+}
+
+.pick[data-variant='ghost']:hover .pickShown {
+  border-color: var(--ss-control-border);
+  background: var(--ss-hover-wash);
+}
+
+.pick:has(.pickSelect:focus-visible) {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.pickSelect {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  font-size: 15px;
+  cursor: pointer;
+  color-scheme: dark;
+}
+
+/* "Any key" sits where the chip would */
+.keyPick .pickShown > span:first-child:not(abbr) {
+  padding-left: 4px;
+}
+
+.mixChip.mixChip {
+  padding: 0 14px;
+}
+
 .sort {
   margin-left: auto;
 }
+
+/* ── the count line (HANDOFF 168) ────────────────────────────────────── */
+
+.countLine {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  cursor: pointer;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}
+
+/* ── the rows ────────────────────────────────────────────────────────── */
 
 .srOnly {
   position: absolute;
@@ -83,22 +230,34 @@
   white-space: nowrap;
 }
 
+.listWrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .head,
 .row {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 72px 64px 72px 100px;
-  gap: 16px;
+  grid-template-columns: 48px minmax(0, 1fr) 64px 64px 96px 92px;
+  gap: 12px;
   align-items: center;
 }
 
 .head {
-  padding: 0 12px 8px;
+  min-height: 36px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--ss-hairline);
   color: var(--ss-text-meta);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.headBpm,
+.bpm {
+  text-align: right;
 }
 
 .row {
@@ -115,9 +274,29 @@
   background: var(--ss-surface-card);
 }
 
-.num {
-  color: var(--ss-text-secondary);
+/* what the player has loaded (17a's first row) */
+.row[data-playing='true'] {
+  background: rgba(var(--ss-accent-rgb), 0.1);
+}
+
+.text {
+  gap: 2px;
+}
+
+.bpm {
+  color: var(--ss-text);
   font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.keyCell,
+.energyCell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.tabular {
   font-variant-numeric: tabular-nums;
 }
 
@@ -125,19 +304,16 @@
   color: var(--ss-text-meta);
 }
 
-.key {
-  text-decoration: none;
-  cursor: help;
-}
-
-.key[data-uncertain='true'] {
-  color: var(--ss-text-meta);
-}
-
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 4px;
+}
+
+/* 17a's "…" beside Play: no border */
+.more.more {
+  border-color: transparent;
+  background: transparent;
 }
 
 @media (hover: hover) {
@@ -152,9 +328,24 @@
   }
 }
 
+/* ── the phone (17c) ─────────────────────────────────────────────────── */
+
 @media (max-width: 640px) {
+  .page.page {
+    gap: 12px;
+  }
+
+  /* the top bar names the page; the filter field stays */
+  .headText.headText {
+    display: none;
+  }
+
+  .filter > * {
+    width: 100%;
+  }
+
   .analysis {
-    margin-top: 0;
+    min-height: 0;
   }
 
   /* nowrap: a wrapping column would stretch each row to the widest one */
@@ -165,36 +356,48 @@
     gap: 12px;
   }
 
-  .bpmRange,
-  .keyGroup {
+  .bpmRange {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
     min-width: 0;
+  }
+
+  .bpmRange .dash {
+    display: none;
+  }
+
+  /* history.module.css hides its row labels on a phone; 17c keeps BPM */
+  .label.label {
+    display: inline;
+  }
+
+  .keyLabel.keyLabel {
+    display: none;
   }
 
   .keyGroup {
     flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .keyGroup select {
-    flex: 1 1 140px;
-    width: auto;
     min-width: 0;
-  }
-
-  .bpmInput.bpmInput {
-    flex: 1 1 0;
-    width: auto;
-    min-width: 0;
-  }
-
-  /* the Albums grid hides its Sort on a phone; Tracks keeps it */
-  .sort.sort {
-    display: flex;
     margin-left: 0;
   }
 
-  .sort select {
+  .bpmInput.bpmInput {
+    width: auto;
+    min-width: 0;
+  }
+
+  .sort {
+    margin-left: 0;
+  }
+
+  .sort .pickShown {
     flex: 1;
+    justify-content: space-between;
+  }
+
+  .sort.sort {
+    display: flex;
   }
 
   .row {
@@ -207,6 +410,14 @@
   .row:hover,
   .row:focus-within {
     background: none;
+  }
+
+  .row[data-playing='true'] {
+    background: rgba(var(--ss-accent-rgb), 0.1);
+  }
+
+  .text.text {
+    padding-left: 4px;
   }
 
   .actions {
