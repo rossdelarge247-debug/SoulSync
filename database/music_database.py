@@ -820,6 +820,7 @@ class MusicDatabase:
                 ("sample_analysis", "key_name", "TEXT"),
                 ("sample_analysis", "key_confidence", "REAL"),
                 ("sample_analysis", "source_sig", "TEXT"),
+                ("sample_analysis", "energy", "REAL"),
                 ("sample_stems", "source_sig", "TEXT"),
                 ("sample_stash", "normalize", "TEXT"),
                 ("sample_stash", "fade_ms", "REAL"),
@@ -831,6 +832,10 @@ class MusicDatabase:
                     cursor.execute(f"ALTER TABLE {_table} ADD COLUMN {_col} {_type}")
 
             self._migrate_sample_analysis_text_ids(cursor)
+
+            # the library's DJ data: BPM, key (Camelot) and energy per track,
+            # with where each came from (core/dj/store.py)
+            self._add_track_dj_table(cursor)
 
             # Per-user curation signals read back off the media server —
             # what people deliberately CHOSE about a track (favourited,
@@ -2154,6 +2159,7 @@ class MusicDatabase:
         'sample_analysis_v1':        ('table', 'sample_analysis'),
         'sample_stash_v1':            ('table', 'sample_stash'),
         'sample_stems_v1':            ('table', 'sample_stems'),
+        'track_dj_v1':               ('table', 'track_dj'),
         'similar_artists_rematch':  ('table', '_similar_artists_rematch_applied'),
         'beatport_positional_purged': ('table', '_beatport_positional_purged'),
     }
@@ -3788,13 +3794,58 @@ class MusicDatabase:
                     analyzer_version INTEGER DEFAULT 1,
                     key_name TEXT,
                     key_confidence REAL,
-                    source_sig TEXT
+                    source_sig TEXT,
+                    energy REAL
                 )
             """)
             self._copy_rows_for_rebuild(cursor, "sample_analysis", "sample_analysis_text",
                                         expressions={"track_id": "CAST(track_id AS TEXT)"})
             self._replace_table(cursor, "sample_analysis", "sample_analysis_text")
             logger.info("sample_analysis now keyed by text track ids")
+
+    # track_dj's columns past its key, in order. a table an earlier build of
+    # this step left short gets the missing ones added (each checked on every
+    # start), so the step never has to rebuild it.
+    _TRACK_DJ_COLUMNS = (
+        ('bpm', 'REAL'),
+        ('bpm_source', 'TEXT'),            # tag | enrichment | analysis
+        ('musical_key', 'TEXT'),           # Camelot, e.g. 8A
+        ('key_name', 'TEXT'),              # the tag form, e.g. Am
+        ('key_source', 'TEXT'),            # tag | analysis
+        ('key_confidence', 'REAL'),        # 0-1, analysis only
+        ('energy', 'INTEGER'),             # 1-10
+        ('energy_source', 'TEXT'),         # analysis
+        ('analyzed_bpm', 'REAL'),          # what analysis heard, kept beside a tag's value
+        ('analyzed_key', 'TEXT'),
+        ('dj_analyzed_at', 'REAL'),
+        ('dj_analyzer_version', 'INTEGER'),
+        ('source_sig', 'TEXT'),            # size:mtime of the file analysed
+        ('status', 'TEXT'),                # done | error | unreachable
+        ('error', 'TEXT'),
+        ('tags_written', 'TEXT'),          # e.g. "bpm,key"
+        ('tags_written_at', 'REAL'),
+    )
+
+    def _add_track_dj_table(self, cursor):
+        """The DJ data table (one row per library track, keyed like
+        sample_analysis by the text track id) and its indexes. Only adds, so
+        what it managed before a failure stays (atomic=False); a failure is
+        an ERROR naming the step, in schema_health, and the step runs again
+        on the next start."""
+        with self._migration_step(cursor, 'add_track_dj', atomic=False):
+            columns = ",\n".join(f"    {name} {kind}" for name, kind in self._TRACK_DJ_COLUMNS)
+            cursor.execute(f"CREATE TABLE IF NOT EXISTS track_dj (\n    track_id TEXT PRIMARY KEY,\n{columns}\n)")
+            cursor.execute("PRAGMA table_info(track_dj)")
+            have = {row[1] for row in cursor.fetchall()}
+            for name, kind in self._TRACK_DJ_COLUMNS:
+                if name not in have:
+                    with self._migration_step(cursor, f"add track_dj.{name}"):
+                        cursor.execute(f"ALTER TABLE track_dj ADD COLUMN {name} {kind}")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_dj_bpm ON track_dj (bpm)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_dj_key ON track_dj (musical_key)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_dj_version ON track_dj (dj_analyzer_version)")
+            if self._migration_step_ok():
+                self._record_migration(cursor, 'track_dj_v1')
 
     def _migrate_id_columns_to_text(self, cursor):
         """Migrate ID columns from INTEGER to TEXT to support both Plex (int) and Jellyfin (GUID) IDs"""

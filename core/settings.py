@@ -973,6 +973,14 @@ class ConfigManager:
                 # the Music Library to Staging; more needs an explicit
                 # confirmation on a preview.
                 "deep_scan_max_move_percent": 25,
+                # DJ data (core/dj/worker.py): work out BPM, key and energy for
+                # every track in the background; write BPM and key into the
+                # files' tags (only where a file has none, unless
+                # dj_overwrite_tags) so Traktor, Rekordbox, Serato and Mixxx
+                # read them.
+                "dj_analysis": True,
+                "dj_write_tags": False,
+                "dj_overwrite_tags": False,
             },
             "file_organization": {
                 "enabled": True,

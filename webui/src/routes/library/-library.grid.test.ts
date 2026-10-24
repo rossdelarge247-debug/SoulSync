@@ -166,8 +166,16 @@ describe('the URL', () => {
       genre: 'ambient',
       sort: 'year',
       q: '',
+      bpm: '',
+      key: '',
     });
     expect(librarySearchSchema.parse({ view: 'nope', tab: 'x', q: 123 })).toEqual({ q: '123' });
+    // Tracks (the DJ data): the BPM range and the key ride along as text
+    expect(librarySearchSchema.parse({ view: 'tracks', bpm: '120-128', key: '8A:mix' })).toEqual({
+      view: 'tracks',
+      bpm: '120-128',
+      key: '8A:mix',
+    });
     // Listening history (13a): its kind and range, unknown values dropped
     expect(librarySearchSchema.parse({ view: 'history', kind: 'podcast', range: '30d' })).toEqual({
       view: 'history',

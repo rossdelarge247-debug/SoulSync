@@ -1,0 +1,193 @@
+/*
+ * Library → Tracks (BACKLOG "DJ area", stage 1; no board yet): Listening
+ * history's header, list and footer (history.module.css), with a BPM range,
+ * a key and a sort in the toolbar, and BPM, Key and Energy as columns:
+ * rows `48px 1fr 72px 64px 72px 100px` at 64px. Text 14px or larger at 62%
+ * white or brighter; the numbers are tabular.
+ */
+
+.analysis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  margin-top: -8px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+}
+
+.bpmRange,
+.keyGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.keyGroup {
+  gap: 12px;
+}
+
+.keyGroup select {
+  min-width: 140px;
+}
+
+.bpmInput.bpmInput {
+  box-sizing: border-box;
+  width: 88px;
+  min-height: 44px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash {
+  color: var(--ss-text-meta);
+}
+
+.sort {
+  margin-left: auto;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.head,
+.row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 72px 64px 72px 100px;
+  gap: 16px;
+  align-items: center;
+}
+
+.head {
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--ss-hairline);
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.row {
+  box-sizing: border-box;
+  min-height: 64px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ss-hairline);
+  border-radius: var(--ss-radius-control);
+  transition: var(--ss-transition);
+}
+
+.row:hover,
+.row:focus-within {
+  background: var(--ss-surface-card);
+}
+
+.num {
+  color: var(--ss-text-secondary);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.none {
+  color: var(--ss-text-meta);
+}
+
+.key {
+  text-decoration: none;
+  cursor: help;
+}
+
+.key[data-uncertain='true'] {
+  color: var(--ss-text-meta);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (hover: hover) {
+  .actions {
+    opacity: 0;
+    transition: opacity var(--ss-motion) var(--ss-ease);
+  }
+
+  .row:hover .actions,
+  .row:focus-within .actions {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .analysis {
+    margin-top: 0;
+  }
+
+  /* nowrap: a wrapping column would stretch each row to the widest one */
+  .toolbar {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .bpmRange,
+  .keyGroup {
+    min-width: 0;
+  }
+
+  .keyGroup {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .keyGroup select {
+    flex: 1 1 140px;
+    width: auto;
+    min-width: 0;
+  }
+
+  .bpmInput.bpmInput {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+
+  /* the Albums grid hides its Sort on a phone; Tracks keeps it */
+  .sort.sort {
+    display: flex;
+    margin-left: 0;
+  }
+
+  .sort select {
+    flex: 1;
+  }
+
+  .row {
+    grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+    gap: 8px;
+    padding: 8px 0;
+    border-radius: 0;
+  }
+
+  .row:hover,
+  .row:focus-within {
+    background: none;
+  }
+
+  .actions {
+    display: contents;
+  }
+}

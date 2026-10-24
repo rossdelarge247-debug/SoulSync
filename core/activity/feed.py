@@ -13,9 +13,9 @@ import          library_history imports (media server scans,    shared
                 Staging), folded; auto_import_history rows      Import page
 automation      automation_run_history + live runs              profile (+
                                                                 system rows)
-library         library_jobs: Look for releases you don't have  admins, or
-                and Move your music to another drive, with      who started
-                their live runs (HANDOFF 90: "Library jobs")    it
+library         library_jobs: Look for releases you don't have, admins, or
+                Move your music to another drive and the DJ      who started
+                analysis, with their live runs (HANDOFF 90)      it
 sync            playlist_pipeline_run_history (mirror runs);    profile
                 playlist sync_history rows
 safety          action_plan_events (preview expired/confirmed)  admin, or
@@ -976,6 +976,74 @@ def _job_visible(ctx: _Ctx, profile_id) -> bool:
         return ctx.viewer.is_admin
 
 
+# the library's DJ analysis (core/dj/worker.py), a library job of its own
+_DJ_TITLES = {
+    "running": "Working out BPM, key and energy",
+    "done": "Worked out BPM, key and energy",
+    "stopped": "Stopped working out BPM, key and energy",
+    "failed": "Couldn't work out BPM, key and energy",
+}
+_DJ_LINK = "/library?view=tracks"
+_DJ_STOP = "library/dj/stop"
+_DJ_WAITING = {
+    "download": "waiting while a download runs",
+    "import": "waiting while an import runs",
+    "drive_away": "waiting for your library's drive",
+    "drive_move": "waiting while your music moves to another drive",
+    "tag_write": "waiting while tags are written",
+}
+
+
+def _live_dj_job() -> Optional[Dict[str, Any]]:
+    try:
+        from core.dj.worker import JOB as DJ_JOB
+        return DJ_JOB.live()
+    except Exception:  # noqa: BLE001 - no DJ module: nothing running
+        return None
+
+
+def _many(n: int, word: str) -> str:
+    """plural() with thousands separators: "4,980 tracks"."""
+    return f"{n:,} {word if n == 1 else word + 's'}"
+
+
+def _dj_job_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
+    """A DJ analysis sweep: progress and Stop while it runs, then what it did.
+    Its row keeps files tagged in found_releases and files that weren't
+    there in found_artists (core/dj/worker.py)."""
+    live = _live_dj_job()
+    if live is not None and int(live.get("id") or 0) != int(row["id"]):
+        live = None
+    total = int((live or row).get("total") or 0)
+    done = int((live or row).get("done") or 0)
+    failed = int((live or row).get("failed") or 0)
+    tagged = int((live.get("tags_written") if live else row.get("found_releases")) or 0)
+    away = int((live.get("unreachable") if live else row.get("found_artists")) or 0)
+    ref: Dict[str, Any] = {"job_id": int(row["id"])}
+    extras = (f"{_many(failed, 'track')} couldn't be analysed" if failed else "",
+              f"{_many(away, 'file')} weren't there" if away else "",
+              f"BPM and key written into {_many(tagged, 'file')}" if tagged else "")
+    if live is not None:
+        detail = _sentence(_many(total, "track"), f"{done:,} done", _DJ_WAITING.get(live.get("waiting") or "", ""))
+        ref["stop_path"] = _DJ_STOP
+        return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=int(row["started_at"] or 0),
+                     kind="library", status="running", title=_DJ_TITLES["running"], detail=detail,
+                     link=_DJ_LINK, ref=ref)
+    status = row.get("status") or "done"
+    if status == "running":
+        status = "stopped"  # its thread is gone: a restart cut it off
+    if status == "done":
+        detail, tone = _sentence(_many(total, "track"), *extras), ("warning" if failed else "ok")
+    elif status == "stopped":
+        why = " when SYNCHRO.S restarted" if row.get("note") == "restart" else ""
+        detail, tone = _sentence(f"Stopped after {done:,} of {_many(total, 'track')}{why}", *extras), "warning"
+    else:
+        detail, tone = _sentence(f"{done:,} of {_many(total, 'track')} done", str(row.get("note") or "")), "error"
+    t = int(row.get("finished_at") or row.get("started_at") or 0)
+    return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=t, kind="library",
+                 status=tone, title=_DJ_TITLES.get(status, _DJ_TITLES["done"]), detail=detail, link=_DJ_LINK, ref=ref)
+
+
 def _drive_move_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
     """A drive move's row: its own words, the flow as the link, Stop while it runs.
     Sizes are the move's own (decimal GB, as the computer's Finder says them)."""
@@ -1037,6 +1105,8 @@ def _drive_move_running() -> bool:
 def _library_job_item(ctx: _Ctx, row: Dict[str, Any], live: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if row.get("kind") == "drive_move":
         return _drive_move_item(ctx, row)
+    if row.get("kind") == "dj_analysis":
+        return _dj_job_item(ctx, row)
     total = int(row.get("total") or 0)
     if live is not None:
         done = int(live.get("done") or 0)
@@ -1092,7 +1162,8 @@ def _library_job_items(ctx: _Ctx, cursor, limit: int) -> List[Dict[str, Any]]:
         row = dict(r)
         if not _job_visible(ctx, row.get("profile_id")):
             continue
-        is_live = live is not None and row.get("kind") != "drive_move" and int(live.get("id") or 0) == int(row["id"])
+        is_live = (live is not None and row.get("kind") not in ("drive_move", "dj_analysis")
+                   and int(live.get("id") or 0) == int(row["id"]))
         item = _library_job_item(ctx, row, live if is_live else None)
         if _before_cursor(item["_key"], cursor):
             out.append(item)
@@ -1289,6 +1360,9 @@ def _running_count(ctx: _Ctx) -> int:
     if live_job is not None and _job_visible(ctx, live_job.get("profile_id")):
         n += 1
     if ctx.viewer.is_admin and _drive_move_running():
+        n += 1
+    dj_job = _live_dj_job()
+    if dj_job is not None and _job_visible(ctx, dj_job.get("profile_id")):
         n += 1
     if ctx.viewer.can_see_imports:
         n += ctx.conn.execute(

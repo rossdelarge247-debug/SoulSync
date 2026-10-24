@@ -368,6 +368,10 @@
                             <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
                             <span class="nav-text ss-label">Albums</span>
                         </a>
+                        <a class="nav-button ss-item" data-nav-row="tracks" data-page="library" href="/library?view=tracks" data-nav-query>
+                            <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                            <span class="nav-text ss-label">Tracks</span>
+                        </a>
                         <a class="nav-button ss-item" data-nav-row="history" data-page="library" href="/library?view=history" data-nav-query>
                             <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                             <span class="nav-text ss-label">Listening history</span>
@@ -7438,6 +7442,39 @@
                                                     of guessing by name. An existing <em>artist.nfo</em> with a
                                                     different ID is never overwritten. To backfill folders you
                                                     already have, run the <em>Artist NFO Backfill</em> repair job.
+                                                </div>
+                                            </div>
+                                            <div class="settings-group" data-stg="library" id="dj-settings-group">
+                                                <h3>BPM, key and energy</h3>
+                                                <label class="toggle-row">
+                                                    <input type="checkbox" id="dj-analysis">
+                                                    <span>Work out BPM, key and energy</span>
+                                                </label>
+                                                <div class="help-text" style="margin-top: 6px;">
+                                                    SYNCHRO.S listens to every track in your library, one at a
+                                                    time in the background, and works out its tempo, its key
+                                                    (shown in Camelot notation, like 8A) and an energy level
+                                                    from 1 to 10. It goes gently: it pauses while a download or
+                                                    an import is running, and Activity shows how far it has got,
+                                                    with Stop. A BPM or key already in a file's tags, or from
+                                                    your metadata source, is kept.
+                                                </div>
+                                                <label class="toggle-row" style="margin-top: 10px;">
+                                                    <input type="checkbox" id="dj-write-tags">
+                                                    <span>Write BPM and key into the files' tags</span>
+                                                </label>
+                                                <div class="help-text" style="margin-top: 6px;">
+                                                    So Traktor, Rekordbox, Serato and Mixxx read them. Only
+                                                    files that have no BPM or key get one; a value already in a
+                                                    file stays. A key SYNCHRO.S isn't sure of is never written.
+                                                </div>
+                                                <label class="toggle-row" style="margin-top: 10px;">
+                                                    <input type="checkbox" id="dj-overwrite-tags">
+                                                    <span>Also replace a BPM or key already in a file</span>
+                                                </label>
+                                                <div class="help-text" style="margin-top: 6px;">
+                                                    Off unless you want SYNCHRO.S's own values everywhere,
+                                                    including over what another app wrote.
                                                 </div>
                                             </div>
 

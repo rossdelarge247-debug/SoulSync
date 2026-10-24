@@ -772,6 +772,12 @@
   display: none;
 }
 
+/* the track's BPM and key under its title (the library's DJ data); the
+   phone's meta line carries them instead */
+.rowMetaWide {
+  display: block;
+}
+
 .rowAside {
   color: var(--ss-text-meta);
   font-size: 14px;
@@ -1203,6 +1209,10 @@ a.similarCard:focus-visible {
 
   .rowMetaPhone {
     display: block;
+  }
+
+  .rowMetaWide {
+    display: none;
   }
 
   .similarGrid {

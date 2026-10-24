@@ -146,16 +146,33 @@ def is_vorbis_like(audio_file: Any, symbols: Any) -> bool:
     return bool(vorbis_classes) and isinstance(audio_file, vorbis_classes) or is_ogg_opus(audio_file)
 
 
-def _raw_audio_save(audio_file: Any, symbols: Any, target: Any = None) -> None:
+def _raw_audio_save(audio_file: Any, symbols: Any, target: Any = None, *, preserve_layout: bool = False) -> None:
     """The plain mutagen save with the format-specific kwargs. ``target`` None →
     save in place (the exact call used before #819, byte-for-byte unchanged); a
-    path → save into that file (the atomic temp copy)."""
+    path → save into that file (the atomic temp copy).
+
+    ``preserve_layout`` keeps the file's tag layout instead of normalising it:
+    an existing ID3v1 tag stays (``v1=1``), ID3v2 keeps its version (2.3 stays
+    2.3), and a FLAC keeps any ID3 block. The default (normalise: v1 dropped,
+    v2.4, FLAC's ID3 removed) is unchanged for every other caller."""
     if isinstance(audio_file.tags, symbols.ID3):
-        audio_file.save(v1=0, v2_version=4) if target is None else audio_file.save(target, v1=0, v2_version=4)
+        if preserve_layout:
+            version = getattr(audio_file.tags, "version", (2, 4, 0))
+            kwargs = {"v1": 1, "v2_version": 3 if tuple(version)[:2] == (2, 3) else 4}
+        else:
+            kwargs = {"v1": 0, "v2_version": 4}
+        audio_file.save(**kwargs) if target is None else audio_file.save(target, **kwargs)
     elif isinstance(audio_file, symbols.FLAC):
-        audio_file.save(deleteid3=True) if target is None else audio_file.save(target, deleteid3=True)
+        deleteid3 = not preserve_layout
+        audio_file.save(deleteid3=deleteid3) if target is None else audio_file.save(target, deleteid3=deleteid3)
     else:
         audio_file.save() if target is None else audio_file.save(target)
+
+
+def _layout_kwargs(preserve_layout: bool) -> dict:
+    # only passed when asked for, so a stand-in for _raw_audio_save with the
+    # old signature still works for every other caller
+    return {"preserve_layout": True} if preserve_layout else {}
 
 
 class _AudioIntegrityError(Exception):
@@ -275,7 +292,8 @@ def _is_tag_write_error(exc: Exception) -> bool:
     return "too long to write" in str(exc).lower()
 
 
-def save_audio_file(audio_file: Any, symbols: Any) -> bool:
+def save_audio_file(audio_file: Any, symbols: Any, *, allow_inplace_fallback: bool = True,
+                    preserve_layout: bool = False) -> bool:
     """Persist mutagen tag changes ATOMICALLY and only if the audio survives it
     (#819 + #1000). Returns True if the file was written, False if the write was
     aborted because it would have damaged the audio (original left untouched).
@@ -292,6 +310,10 @@ def save_audio_file(audio_file: Any, symbols: Any) -> bool:
       * The atomic path can't *run* (no filename, copy fails, a format mutagen
         can't save-to-path) → fall back to the plain in-place save, exactly as
         before, so nothing regresses.
+      * ``allow_inplace_fallback=False`` (unattended writers such as the DJ
+        analysis): when the atomic path can't run, nothing is written and the
+        call returns False, so a full disk never leads to an in-place rewrite.
+      * ``preserve_layout`` keeps the file's tag layout (see _raw_audio_save).
       * The atomic path ran but the temp's AUDIO differs from the original → the
         write itself is corrupting. Do NOT retry in place (same writer + same
         filesystem would corrupt the real file too). Abort: drop the temp, leave
@@ -303,7 +325,9 @@ def save_audio_file(audio_file: Any, symbols: Any) -> bool:
     except TypeError:
         path = None
     if not path or not os.path.isfile(path):
-        _raw_audio_save(audio_file, symbols)
+        if not allow_inplace_fallback:
+            return False
+        _raw_audio_save(audio_file, symbols, **_layout_kwargs(preserve_layout))
         return True
 
     # dd28-31: a FIXED temp name is only safe if writers to one file are
@@ -314,7 +338,7 @@ def save_audio_file(audio_file: Any, symbols: Any) -> bool:
     tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex[:8]}.sstmp"
     try:
         shutil.copy2(path, tmp)               # snapshot original (audio + tags)
-        _raw_audio_save(audio_file, symbols, target=tmp)  # write new tags into the copy
+        _raw_audio_save(audio_file, symbols, target=tmp, **_layout_kwargs(preserve_layout))  # tags into the copy
 
         check = symbols.File(tmp)             # 1) still a parseable audio file?
         if check is None:
@@ -372,9 +396,13 @@ def save_audio_file(audio_file: Any, symbols: Any) -> bool:
         # Anything else (copy, permission, replace, unsupported edge) means the
         # atomic path couldn't RUN. Fall back to the plain in-place save so
         # those behave exactly as before #819.
+        if not allow_inplace_fallback:
+            logger.warning("[Atomic Save] atomic path failed (%s) — %s left untouched, tags NOT written "
+                           "(no in-place fallback for this caller)", atomic_err, os.path.basename(path))
+            return False
         logger.warning("[Atomic Save] atomic path failed (%s) — in-place fallback for %s",
                        atomic_err, os.path.basename(path))
-        _raw_audio_save(audio_file, symbols)
+        _raw_audio_save(audio_file, symbols, **_layout_kwargs(preserve_layout))
         return True
 
 

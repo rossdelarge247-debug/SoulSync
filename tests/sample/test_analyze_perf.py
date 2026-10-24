@@ -58,6 +58,12 @@ def test_analyze_downsamples_and_shares_envelope(tmp_path, monkeypatch):
     monkeypatch.setattr(
         sample_analyze, "_load_librosa", lambda: _fake_librosa(calls)
     )
+    # without ffmpeg the file is read at its own rate and librosa resamples
+    # (with ffmpeg the decode itself arrives at 22050: the next test)
+    def _no_ffmpeg():
+        raise RuntimeError("no ffmpeg")
+
+    monkeypatch.setattr(sample_analyze, "ffmpeg_bin", _no_ffmpeg)
     result = sample_analyze.analyze_track(str(wav))
 
     assert calls["resample"] == (44100, 22050), calls.get("resample")
@@ -70,6 +76,22 @@ def test_analyze_downsamples_and_shares_envelope(tmp_path, monkeypatch):
     assert beat_kw["sr"] == 22050
     assert result["bpm"] == 100.0
     assert result["analyzer_version"] == sample_analyze.ANALYZER_VERSION
+
+
+def test_analyze_decodes_straight_to_22050_with_ffmpeg(tmp_path, monkeypatch):
+    """ffmpeg resamples while it reads, so a 44.1 kHz (or 96 kHz) file is
+    never held in memory at its own rate and librosa has nothing to resample."""
+    import shutil
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("needs ffmpeg")
+    wav = tmp_path / "tone.wav"
+    _tone_wav(wav)
+    calls = {}
+    monkeypatch.setattr(sample_analyze, "_load_librosa", lambda: _fake_librosa(calls))
+    sample_analyze.analyze_track(str(wav))
+    assert "resample" not in calls
+    assert calls["envelope"][2] == 22050
 
 
 def test_analyze_skips_resample_when_already_22050(tmp_path, monkeypatch):

@@ -23965,6 +23965,11 @@ def _drives_busy():
             out.append('a reorganize')
     except Exception as _busy_err:  # noqa: BLE001
         logger.debug("reorganize status for the drive move: %s", _busy_err)
+    try:
+        from core.dj.worker import JOB as _dj_job
+        out.extend(_dj_job.busy_words())
+    except Exception as _busy_err:  # noqa: BLE001
+        logger.debug("DJ analysis status for the drive move: %s", _busy_err)
     return out
 
 
@@ -23972,12 +23977,22 @@ def _drives_pause_workers():
     worker = _get_auto_import_worker()
     if worker is not None:
         worker.pause()
+    try:
+        from core.dj.worker import JOB as _dj_job
+        _dj_job.pause_for_move()
+    except Exception as _pause_err:  # noqa: BLE001
+        logger.debug("DJ analysis pause for the drive move: %s", _pause_err)
 
 
 def _drives_resume_workers():
     worker = _get_auto_import_worker()
     if worker is not None and getattr(worker, 'paused', False):
         worker.resume()
+    try:
+        from core.dj.worker import JOB as _dj_job
+        _dj_job.resume_after_move()
+    except Exception as _resume_err:  # noqa: BLE001
+        logger.debug("DJ analysis resume after the drive move: %s", _resume_err)
 
 
 def _drives_after_switch():
@@ -24009,6 +24024,13 @@ _cfg_drives(
     slskd_configured_=lambda: bool(config_manager.get('soulseek.slskd_url', '')),
 )
 app.register_blueprint(_bp_drives())
+
+# The library's DJ data (api/dj.py): BPM, key (Camelot) and energy per track,
+# Library → Tracks and "Mixes well with…". The analysis runs in the background
+# (core/dj/worker.py, started below with the runtime services).
+from api.dj import configure as _cfg_dj, create_blueprint as _bp_dj
+_cfg_dj(get_database_=get_database, fix_art_url_=lambda url: fix_artist_image_url(url))
+app.register_blueprint(_bp_dj())
 
 # The player's reads (api/player.py): waveform peaks, the readout's audio
 # details and Recent. Files are found through Sample Studio's resolver, which
@@ -25718,6 +25740,23 @@ def _start_drive_watch():
             _drives_api.JOB.recover_after_restart()
     except Exception as _dw_err:
         logger.warning(f"could not start the drive watch: {_dw_err}")
+
+@_deferred_start("DJ analysis")
+def _start_dj_analysis():
+    # BPM, key and energy for the whole library, one track at a time at low
+    # priority; the first sweep waits two minutes after boot (core/dj/worker.py)
+    try:
+        from core.dj.worker import register_busy as _dj_busy, start_scheduler as _dj_start
+
+        def _write_tags_batch_running():
+            # the library's Write Tags batch writes the same files: wait for it
+            with _write_tags_batch_lock:
+                return 'tag_write' if _write_tags_batch_state.get('status') == 'running' else None
+
+        _dj_busy(_write_tags_batch_running)
+        _dj_start(get_database)
+    except Exception as _dj_err:
+        logger.warning(f"could not start the DJ analysis: {_dj_err}")
 
 
 # Direct execution: python web_server.py (dev/Windows fallback)

@@ -13,7 +13,7 @@ import io
 import os
 import shutil
 import subprocess
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from utils.logging_config import get_logger
 
@@ -22,7 +22,8 @@ logger = get_logger("sample.analyze")
 # Bump when the analysis algorithm changes; the worker skips tracks already
 # analyzed at the current version.
 # v3: adds the musical key.
-ANALYZER_VERSION = 3
+# v4: adds energy (core/sample/energy.py), for the library's DJ data.
+ANALYZER_VERSION = 4
 
 # Analysis runs at 22050 Hz (librosa's canonical rate): ~4x fewer samples
 # through the STFT than 44.1k source audio, with no measurable BPM loss
@@ -77,7 +78,8 @@ def ffmpeg_bin() -> str:
     raise RuntimeError("ffmpeg isn't installed, so mp3/m4a/opus files can't be decoded")
 
 
-def _decode_via_ffmpeg(file_path: str, target_sr: int = 44100) -> Tuple[Any, int]:
+def _decode_via_ffmpeg(file_path: str, target_sr: int = 44100,
+                       max_seconds: Optional[float] = None) -> Tuple[Any, int]:
     """Decode any format ffmpeg understands to mono float32 via a wav pipe.
 
     The timeout is load-bearing: the analysis worker is a single FIFO thread,
@@ -87,7 +89,9 @@ def _decode_via_ffmpeg(file_path: str, target_sr: int = 44100) -> Tuple[Any, int
     sf = _load_soundfile()
     try:
         proc = subprocess.run(
-            [ffmpeg_bin(), "-v", "error", "-i", file_path, "-ac", "1", "-ar", str(target_sr), "-f", "wav", "-"],
+            [ffmpeg_bin(), "-v", "error", "-i", file_path,
+             *(["-t", f"{float(max_seconds):g}"] if max_seconds else []),
+             "-ac", "1", "-ar", str(target_sr), "-f", "wav", "-"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
@@ -101,32 +105,46 @@ def _decode_via_ffmpeg(file_path: str, target_sr: int = 44100) -> Tuple[Any, int
     return data, sr
 
 
-def decode_mono(file_path: str) -> Tuple[Any, int]:
+def decode_mono(file_path: str, max_seconds: Optional[float] = None) -> Tuple[Any, int]:
     """Decode an audio file to mono float32.
 
     soundfile handles WAV/FLAC/AIFF; anything else (or any soundfile failure)
     falls back to ffmpeg, which is already a SoulSync dependency.
+    ``max_seconds`` reads only the start of the file.
     """
     if not os.path.isfile(file_path):
         raise FileNotFoundError(f"audio file not found: {file_path}")
     sf = _load_soundfile()
     ext = os.path.splitext(file_path)[1].lower()
     if ext in _LOSSY_EXTS:
-        return _decode_via_ffmpeg(file_path)
+        return _decode_via_ffmpeg(file_path, max_seconds=max_seconds)
     try:
-        data, sr = sf.read(file_path, dtype="float32", always_2d=True)
+        frames = -1
+        if max_seconds:
+            frames = int(float(max_seconds) * sf.info(file_path).samplerate)
+        data, sr = sf.read(file_path, dtype="float32", always_2d=True, frames=frames)
     except Exception:
         logger.info("soundfile could not read %s — falling back to ffmpeg", file_path)
-        return _decode_via_ffmpeg(file_path)
+        return _decode_via_ffmpeg(file_path, max_seconds=max_seconds)
     mono = data.mean(axis=1).astype("float32")
     return mono, sr
 
 
-def analyze_track(file_path: str) -> Dict[str, Any]:
-    """Full analysis for one track: BPM, onset times, duration.
+def analyze_track(file_path: str, max_seconds: Optional[float] = None) -> Dict[str, Any]:
+    """Full analysis for one track: BPM, onset times, duration, key, energy.
 
     Returns {"bpm": float, "onsets": [seconds...], "duration_s": float,
-             "key": {"name", "confidence"} | None, "analyzer_version": int}.
+             "key": {"name", "confidence"} | None, "energy": 1-10 | None,
+             "truncated": bool, "analyzer_version": int}.
+
+    The audio is decoded straight to mono at the analysis rate (ffmpeg
+    resamples as it reads), so memory is about 88 KB a second of audio
+    whatever the source format: a 24/96 album track or a long mix no longer
+    sits in memory at its own rate. ``max_seconds`` decodes only the start
+    (the library's DJ job uses the first 10 minutes); ``truncated`` then says
+    the result covers part of the file, and ``duration_s`` and the onsets
+    only that part. Sample Studio's own analysis passes no limit, so a track
+    opened there is analysed whole.
 
     Performance: the audio is downsampled to 22050 Hz once, and the onset
     envelope is computed ONCE and shared with beat tracking (beat_track's
@@ -136,8 +154,9 @@ def analyze_track(file_path: str) -> Dict[str, Any]:
     librosa = _load_librosa()
     import numpy as np
 
-    mono, sr = decode_mono(file_path)
+    mono, sr = decode_mono_at(file_path, _ANALYSIS_SR, max_seconds=max_seconds)
     duration_s = float(len(mono) / sr)
+    truncated = bool(max_seconds) and duration_s >= float(max_seconds) - 0.05
 
     y = (
         librosa.resample(mono, orig_sr=sr, target_sr=_ANALYSIS_SR)
@@ -156,6 +175,7 @@ def analyze_track(file_path: str) -> Dict[str, Any]:
     )
     bpm = round(float(np.atleast_1d(tempo_raw)[0]), 1)
 
+    from .energy import detect_energy
     from .key import detect_key
 
     return {
@@ -163,6 +183,8 @@ def analyze_track(file_path: str) -> Dict[str, Any]:
         "onsets": onsets,
         "duration_s": round(duration_s, 3),
         "key": detect_key(y, _ANALYSIS_SR),
+        "energy": detect_energy(y, _ANALYSIS_SR, len(onsets)),
+        "truncated": truncated,
         "analyzer_version": ANALYZER_VERSION,
     }
 
@@ -187,7 +209,7 @@ def warm_dsp() -> None:
         logger.debug("DSP warmup skipped", exc_info=True)
 
 
-def decode_mono_at(file_path: str, sample_rate: int) -> Tuple[Any, int]:
+def decode_mono_at(file_path: str, sample_rate: int, max_seconds: Optional[float] = None) -> Tuple[Any, int]:
     """Decode to mono float32 at ``sample_rate``, streamed through ffmpeg.
 
     ffmpeg downmixes and resamples as it reads, so only the low-rate result is
@@ -200,8 +222,8 @@ def decode_mono_at(file_path: str, sample_rate: int) -> Tuple[Any, int]:
     try:
         ffmpeg_bin()
     except RuntimeError:
-        return decode_mono(file_path)
-    return _decode_via_ffmpeg(file_path, target_sr=int(sample_rate))
+        return decode_mono(file_path, max_seconds=max_seconds)
+    return _decode_via_ffmpeg(file_path, target_sr=int(sample_rate), max_seconds=max_seconds)
 
 
 def compute_peaks(file_path: str, buckets: int = 1500, sample_rate: int | None = None) -> Dict[str, Any]:

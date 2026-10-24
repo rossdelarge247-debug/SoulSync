@@ -62,6 +62,8 @@ EXPECTED_DEFERRED_STARTS = [
     "slskd share check",
     # the drive watch: marker files and "isn't connected" (core/drives/markers.py)
     "drive watch",
+    # the library's BPM, key and energy, in the background (core/dj/worker.py)
+    "DJ analysis",
 ]
 
 # Start name -> the web_server global holding the worker it starts.

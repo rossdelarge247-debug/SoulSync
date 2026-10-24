@@ -708,6 +708,47 @@ Built on `ux/oct23-3`. Code: `core/playback/history.py`, `core/playback/spoken.p
 
 **Podcasts and Audiobooks:** `GET /api/player/plays` with a `range` (above, under "The player").
 
+### DJ data: BPM, key and energy (`/api/library/dj/*`; BACKLOG "DJ area", stage 1)
+
+Built on `feat/dj-stage1`. Code: `core/dj/` (`camelot.py` keys and mixing, `store.py` the `track_dj` table and the queries, `tags.py` the file tags, `worker.py` the background analysis), `core/sample/energy.py`, the routes in `api/dj.py`; the page is `src/routes/library/-ui/tracks-page.tsx` (`/library?view=tracks`), the shared pieces `src/features/dj/`. Every route needs a profile (401 `profile_required`) and reads the caller's library scope (active media server, own library), like the other library routes.
+
+**One track's DJ data** (`dj`), or `null` when nothing is known yet:
+
+```json
+{"bpm": 124.0, "bpm_source": "tag", "key": "8A", "key_name": "Am", "key_long": "A minor",
+ "key_source": "analysis", "key_confidence": 0.82, "key_uncertain": false, "energy": 7, "analyzed": true,
+ "skipped": null}
+```
+
+- `bpm_source`: `tag` (the file's own TBPM / BPM / tmpo), `enrichment` (the BPM the metadata source gave at import, `tracks.bpm`), or `analysis`. A track analysis hasn't reached yet still shows the enrichment BPM.
+- `key` is Camelot (1–12, A minor, B major); `key_name` the short musical form the tags use; `key_long` the name for the title. `key_source`: `tag` or `analysis`. `key_uncertain` is analysis under 0.5 confidence (shown with "?").
+- `energy` 1–10 (analysis only): the RMS level of the loudest half of the track (−30 dBFS → 0, −8 dBFS → 1) weighted 0.6, onset density (0 → 0, 8 a second → 1) weighted 0.4, `1 + round(9 × score)`.
+
+**`POST /api/library/dj/tracks`** `{track_ids: [...]}` (up to 500; more is 400) → `{tracks: {<id>: dj}}`: the track rows' BPM and key on Listening history, the Artist page's Tracks tab and Search. Unknown ids and tracks with nothing known are left out.
+
+**`GET /api/library/dj/browse`** (Library → Tracks). Params `bpm_min`, `bpm_max` (swapped when backwards; unreadable ones ignored), `key` (a Camelot code or any key spelling: "8A", "Am", "A minor", Open Key "1m"; `8A:mix` adds the keys that mix with it), `q` (title, artist or album), `sort` (`bpm` default, `key` wheel order, `energy` highest first, `title`, `artist`, `recent`), `page`, `limit` (50, at most 200). Tracks without the sort's value go last.
+
+```json
+{"success": true, "tracks": [{"id": "981", "title": "Static Bloom", "artist_name": "Saltmarsh", "album_title": "Lantern",
+  "artist_id": "42", "album_id": "811", "duration_ms": 276000, "file_path": "…", "bitrate": 900,
+  "image_url": "/api/image?…", "dj": {"bpm": 124.0, "key": "8A", "…": "…"}}],
+ "total": 4980, "page": 1, "limit": 50, "has_more": true, "sort": "bpm", "bpm_min": 120, "bpm_max": 128, "key": "8A:mix"}
+```
+
+**`GET /api/library/dj/mixes/<track_id>`** ("Mixes well with…") → `{track, matches, total, reason}`. A match is in the same key (`key_relation: "same"`), ±1 on the wheel (`up`, `down`) or the relative major/minor (`relative`), at a BPM within ±6% of the track's, straight or at half or double time (`bpm_relation: "same" | "half" | "double"`, `bpm_diff_pct` signed, after halving or doubling). Ranked: same key, relative, neighbours; then straight tempo before half/double; then the closest BPM. Up to `limit` (50, at most 200). `reason` is `not_analyzed` when the track has no BPM or key yet, `none` when nothing matches, else `null`. 404 for a track outside the library.
+
+**`GET /api/library/dj/status`** → `{settings: {analyze, write_tags, overwrite_tags}, counts: {tracks, analyzed, failed, unreachable, pending}, job, held, analyzer_version, can_start, can_stop}`. `job` is the running sweep `{id, status: "running", total, done, failed, unreachable, tags_written, started_at, waiting: null | "download" | "import" | "drive_away", current, recent}`, else the last one (`status` `done | stopped | failed`, `finished_at`, `note`: `restart` for one a restart cut off, or the failure's words). `held` is true after a person pressed Stop: automatic sweeps wait for a restart or a Start.
+
+**`POST /api/library/dj/start`** (admins) → 202 `{job}`; 409 when one runs or every track is done. **`POST /api/library/dj/stop`** (admins) → `{success: true}`; 409 when nothing runs.
+
+**The analysis** (`core/dj/worker.py`): one sweep at a time, one track at a time, through Sample Studio's `analyze_track` (`ANALYZER_VERSION` 4) and its `sample_analysis` row both ways. Its thread runs at nice 10 (Linux), rests at least as long as each track took (≥ 0.5 s), waits while a download batch or an auto-import runs and while the library's drive is away (`core.drives.markers.library_away`). The first sweep starts two minutes after boot, then every 30 minutes for new tracks; a sweep only gets a row when it has work. Resumable: each finished track is a `track_dj` row at `dj_analyzer_version`; a new analyzer version redoes the library. A file that isn't there is `unreachable` (asked again a day later, or on Start), not failed; 25 failures in a row, or librosa missing, end the sweep as failed. Tracks over 30 minutes or 400 MB are `skipped` ("too long to analyse": `dj.skipped`, `counts.skipped`); of the rest only the first 10 minutes are decoded. A provisional `analyzing` row precedes each decode; one left by a crash becomes an error at the next start. The sweep also waits for a drive move (`waiting: "drive_move"`, and the move pauses it) and for the Write Tags batch (`waiting: "tag_write"`). Settings: `library.dj_analysis` (on), `library.dj_write_tags` (off), `library.dj_overwrite_tags` (off).
+
+**Activity:** each sweep is a `library_jobs` row (`kind: "dj_analysis"`; `found_releases` carries files tagged, `found_artists` files that weren't there), shown under `kind: library` (Activity's Library jobs filter) with id `library-job:<run>`. Running: "Working out BPM, key and energy", "4,980 tracks · 1,240 done · waiting while a download runs", `ref.stop_path: "library/dj/stop"`. Then "Worked out BPM, key and energy" (`ok`, `warning` with failures) "4,980 tracks · 3 tracks couldn't be analysed · 7 files weren't there · BPM and key written into 1,200 files"; "Stopped working out …" ("Stopped after 1,240 of 4,980 tracks", "… when SYNCHRO.S restarted"); "Couldn't work out …" (`error`). All link to `/library?view=tracks`. Admins see every sweep (automatic ones run as the admin profile); a member only one they started.
+
+**File tags** (`library.dj_write_tags`): ID3 `TBPM` (whole number) and `TKEY` ("Am", "F#", "Ebm"); FLAC / Ogg / Opus `BPM` and `INITIALKEY`; MP4 `tmpo` and `----:com.apple.iTunes:initialkey`. Only where the file has no such frame or field, even an unreadable one (with `dj_overwrite_tags`, where the value differs, then with analysis's values); a BPM only between 20 and 400; a key under 0.5 confidence is never written; only into the library's own file (the stored path, or inside the configured library folders), and only if the file is unchanged since it was analysed. Under the per-file lock, through `core.metadata.common.save_audio_file(allow_inplace_fallback=False, preserve_layout=True)` (temp copy, audio checked, atomic replace; never an in-place rewrite; ID3v1 and the ID3v2 version kept); the stored file signatures (`track_dj.source_sig`, `sample_analysis.source_sig`) follow the new size and mtime so nothing re-analyses, and the slskd share rescan is noted (`notify_library_import`, debounced).
+
+**Storage:** the new table `track_dj` (`track_id` TEXT key; `bpm`, `bpm_source`, `musical_key`, `key_name`, `key_source`, `key_confidence`, `energy`, `energy_source`, `analyzed_bpm`, `analyzed_key`, `dj_analyzed_at`, `dj_analyzer_version`, `source_sig`, `status`, `error`, `tags_written`, `tags_written_at`; indexes on `bpm`, `musical_key`, `dj_analyzer_version`), added by `_add_track_dj_table` (ledger `track_dj_v1`), and `sample_analysis.energy`.
+
 ### Spotify pause (rate limits): the `spotify` slice of `/status`, `POST /api/spotify/rate-limit/clear`
 
 When Spotify answers "too many requests", SYNCHRO.S stops calling it for a while. The `spotify` slice of every `/status` frame (the `ss:service-status` event) says so:

@@ -113,6 +113,7 @@ def get_analysis(track_id: str) -> Optional[Dict[str, Any]]:
         "analyzed_at": row["analyzed_at"],
         "analyzer_version": row["analyzer_version"],
         "key": key,
+        "energy": (int(row["energy"]) if "energy" in keys and row["energy"] is not None else None),
         "source_sig": row["source_sig"] if "source_sig" in keys else None,
     }
 
@@ -142,8 +143,8 @@ def save_analysis(track_id: str, result: Dict[str, Any], source_sig: Optional[st
         conn.execute(
             """INSERT INTO sample_analysis
                    (track_id, bpm, onsets_json, duration_s, analyzed_at, analyzer_version,
-                    key_name, key_confidence, source_sig)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    key_name, key_confidence, source_sig, energy)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(track_id) DO UPDATE SET
                    bpm = excluded.bpm,
                    onsets_json = excluded.onsets_json,
@@ -152,7 +153,8 @@ def save_analysis(track_id: str, result: Dict[str, Any], source_sig: Optional[st
                    analyzer_version = excluded.analyzer_version,
                    key_name = excluded.key_name,
                    key_confidence = excluded.key_confidence,
-                   source_sig = excluded.source_sig""",
+                   source_sig = excluded.source_sig,
+                   energy = excluded.energy""",
             (
                 track_key(track_id),
                 float(result.get("bpm") or 0),
@@ -163,8 +165,30 @@ def save_analysis(track_id: str, result: Dict[str, Any], source_sig: Optional[st
                 key.get("name"),
                 float(key["confidence"]) if key.get("confidence") is not None else None,
                 source_sig,
+                (int(result["energy"]) if result.get("energy") is not None else None),
             ),
         )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_source_sig(track_id: str, source_sig: Optional[str], old_sig: Optional[str] = None) -> None:
+    """Record a new signature for a file whose audio didn't change (only its
+    tags did: the DJ worker's BPM and key write), so the analysis and the
+    separated stems stay current. With ``old_sig``, only rows made from the
+    file as it was just before that write move on; anything older stays
+    stale."""
+    db = get_database()
+    conn = db._get_connection()
+    try:
+        for table in ("sample_analysis", "sample_stems"):
+            if old_sig is None:
+                conn.execute(f"UPDATE {table} SET source_sig = ? WHERE track_id = ?",
+                             (source_sig, track_key(track_id)))
+            else:
+                conn.execute(f"UPDATE {table} SET source_sig = ? WHERE track_id = ? AND source_sig = ?",
+                             (source_sig, track_key(track_id), old_sig))
         conn.commit()
     finally:
         conn.close()
