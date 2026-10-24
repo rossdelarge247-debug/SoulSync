@@ -13,7 +13,7 @@ import { Notice } from '@/components/primitives';
 
 import type { Failure, Move, MovePayload, MoveFolder } from './drives.api';
 
-import { drivesApi } from './drives.api';
+import { drivesApi, DrivesError, type SlskdSignIn } from './drives.api';
 import { count, durationWords, sizeOf, sizeWords, speedWords } from './drives.format';
 import { FlowShell, Tick } from './move-shell';
 import styles from './move.module.css';
@@ -515,8 +515,24 @@ export function FailureView({ move, act, close, busy, error }: RunProps) {
   const source = plan?.source_label ?? f.source_label ?? 'the old drive';
   const autos = plan?.automations.length ?? 0;
   const restarted = `downloads, imports${autos ? ` and the ${count(autos, 'automation')}` : ''} have started again.`;
+  const [askSignIn, setAskSignIn] = useState(false);
+  const [user, setUser] = useState('');
+  const [password, setPassword] = useState('');
   const deleteCopy = () => act(() => drivesApi.stop(move.id));
-  const carryOn = () => act(() => drivesApi.resume(move.id));
+  // the slskd session goes with a failure: when Downloads moves, carrying on
+  // (which ends with the switch) asks for slskd's sign-in again
+  const withSignIn = (run: (s?: SlskdSignIn) => Promise<MovePayload>) =>
+    act(async () => {
+      try {
+        const next = await run(askSignIn && user ? { username: user, password } : undefined);
+        setPassword('');
+        return next;
+      } catch (e) {
+        if (e instanceof DrivesError && e.code === 'slskd_sign_in') setAskSignIn(true);
+        throw e;
+      }
+    });
+  const carryOn = () => withSignIn((si) => drivesApi.resume(move.id, si));
   let primary: { label: string; run: () => Promise<boolean> } | null = null;
   let secondary: { label: string; run: () => Promise<boolean> } | null = {
     label: 'Delete the half-made copy',
@@ -533,12 +549,15 @@ export function FailureView({ move, act, close, busy, error }: RunProps) {
     primary = { label: 'Carry on', run: carryOn };
     note = `Free some space on ${target} first; carry on keeps what's copied.`;
   } else if (f.kind === 'mismatch') {
-    primary = { label: 'Copy them again', run: () => act(() => drivesApi.recopy(move.id)) };
+    primary = {
+      label: 'Copy them again',
+      run: () => withSignIn((si) => drivesApi.recopy(move.id, si)),
+    };
     note = 'Then the check runs again for those files.';
   } else if (f.kind === 'unreadable') {
     primary = {
       label: 'Carry on without them',
-      run: () => act(() => drivesApi.skipUnreadable(move.id)),
+      run: () => withSignIn((si) => drivesApi.skipUnreadable(move.id, si)),
     };
     secondary = { label: 'Stop and undo', run: deleteCopy };
     note = 'They stay where they are, and Library flags them.';
@@ -610,6 +629,31 @@ export function FailureView({ move, act, close, busy, error }: RunProps) {
               ) : null}
             </span>
             {note ? <p className={`${styles.note} ${styles.failureNote}`}>{note}</p> : null}
+            {askSignIn ? (
+              <div className={styles.signIn}>
+                <p className={styles.rowDetail}>
+                  slskd restarts at the switch to download into the new folder; sign in to slskd
+                  once.
+                </p>
+                <input
+                  className={styles.input}
+                  aria-label="slskd user name"
+                  placeholder="slskd user name"
+                  autoComplete="username"
+                  value={user}
+                  onChange={(e) => setUser(e.target.value)}
+                />
+                <input
+                  className={styles.input}
+                  aria-label="slskd password"
+                  placeholder="Password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+            ) : null}
           </>
         }
       >

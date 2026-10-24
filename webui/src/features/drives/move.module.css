@@ -763,6 +763,19 @@
   color: var(--ss-text-tertiary);
 }
 
+.signIn {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 8px;
+}
+
+.signIn .input {
+  flex: 1 1 180px;
+}
+
 /* Check's slskd row (19a): two option cards, the sign-in inside the picked one */
 .optionCard {
   display: flex;

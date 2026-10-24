@@ -143,6 +143,11 @@ export interface Choice {
   downloads_left?: boolean;
 }
 
+export interface SlskdSignIn {
+  username: string;
+  password: string;
+}
+
 export interface CheckRow {
   key: string;
   title: string;
@@ -378,10 +383,13 @@ export const drivesApi = {
   start: (id: number, checksum: boolean) =>
     call<MovePayload>('POST', `/api/drives/move/${id}/start`, { checksum }),
   stop: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/stop`),
-  resume: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/resume`),
-  recopy: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/recopy`),
-  skipUnreadable: (id: number) =>
-    call<MovePayload>('POST', `/api/drives/move/${id}/skip-unreadable`),
+  /** carrying on after a failure: slskd's sign-in again when Downloads moves */
+  resume: (id: number, signIn?: SlskdSignIn) =>
+    call<MovePayload>('POST', `/api/drives/move/${id}/resume`, signIn ?? {}),
+  recopy: (id: number, signIn?: SlskdSignIn) =>
+    call<MovePayload>('POST', `/api/drives/move/${id}/recopy`, signIn ?? {}),
+  skipUnreadable: (id: number, signIn?: SlskdSignIn) =>
+    call<MovePayload>('POST', `/api/drives/move/${id}/skip-unreadable`, signIn ?? {}),
   removePreview: (id: number) =>
     call<RemovePreview>('POST', `/api/drives/move/${id}/remove-preview`),
   remove: (id: number, planId: string) =>
