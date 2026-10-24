@@ -24,8 +24,8 @@ the container, so:
 * it is read without following a link, from a regular file of at most
   ``HINTS_MAX_BYTES``, and must match the schema exactly (``parse_hints``);
 * a folder's entry is trusted only while its key equals the id of the marker
-  at that folder (``markers.marker_id``) **and** the folder is at or under the
-  mount target the helper read (``target``): a folder SYNCHRO.S marked
+  at that folder (``markers.marker_id``) **and** the folder is exactly the
+  one the helper named inside SYNCHRO.S (``target``): a folder SYNCHRO.S marked
   afresh, a copy of a folder that kept its marker (Finder, rsync, Time
   Machine), or a mount the compose file has since moved names nothing;
 * each entry passes the same check the helper applies when it writes
@@ -164,12 +164,33 @@ def hints_file() -> str:
     return os.path.join(folder, HINTS_NAME)
 
 
+_UNREADABLE_SAID = False
+
+
+def _say_unreadable(path: str) -> None:
+    """Once: the file is there but SYNCHRO.S can't open it (written by
+    another user, 0600), rather than showing container paths without a word."""
+    global _UNREADABLE_SAID
+    if _UNREADABLE_SAID:
+        return
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return
+    if _stat.S_ISREG(st.st_mode) and not os.access(path, os.R_OK):
+        _UNREADABLE_SAID = True
+        logger.warning("[Drives] SYNCHRO.S can't read %s (owned by user %s, mode %o), so it shows container "
+                       "paths. Run the drives helper again with --names as the user SYNCHRO.S runs as, or let "
+                       "that user read the file.", path, st.st_uid, st.st_mode & 0o777)
+
+
 def read_hints(path: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     """Every well-formed entry in the hints file, by marker id; {} when the
     file is missing, a link, too big or not exactly the schema."""
     path = path or hints_file()
     raw = _read_small(path, HINTS_MAX_BYTES)
     if raw is None:
+        _say_unreadable(path)
         return {}
     parsed = parse_hints(raw)
     if parsed is None:
@@ -178,15 +199,16 @@ def read_hints(path: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     return parsed
 
 
-def _at_or_under(path: str, root: str) -> bool:
-    path, root = os.path.normpath(path), os.path.normpath(root)
-    return path == root or path.startswith(root.rstrip("/") + "/")
+def _same_folder(path: str, target: str) -> bool:
+    """The helper writes the exact folder as the target, so only that folder
+    counts (a copy inside the same mount doesn't)."""
+    return os.path.normpath(path) == os.path.normpath(target)
 
 
 def read_hint(folder: str, hints: Optional[Dict[str, Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
     """The entry for ``folder``: the one keyed by the id of the marker at
-    ``folder`` right now, and only while ``folder`` is at or under the mount
-    target it was written for; None otherwise (no marker, no id, no entry, a
+    ``folder`` right now, and only while ``folder`` is exactly the folder it
+    was written for (its ``target``); None otherwise (no marker, no id, no entry, a
     copy elsewhere that kept the marker, a mount since moved)."""
     if not isinstance(folder, str) or not folder.startswith("/"):
         return None
@@ -194,7 +216,7 @@ def read_hint(folder: str, hints: Optional[Dict[str, Dict[str, Any]]] = None) ->
     if current is None:
         return None
     entry = (read_hints() if hints is None else hints).get(current)
-    if not entry or not _at_or_under(folder, entry["target"]):
+    if not entry or not _same_folder(folder, entry["target"]):
         return None
     return {**entry, "marker_id": current}
 

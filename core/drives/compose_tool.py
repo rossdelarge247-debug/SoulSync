@@ -845,12 +845,41 @@ def remove_stale_temp(config: str) -> int:
     return gone
 
 
+def settings_owner(config: str) -> Optional[Tuple[int, int]]:
+    """Who owns SYNCHRO.S's settings (config.json when it's there, else the
+    folder): SYNCHRO.S runs as that user (PUID), so it must be able to read
+    the hints file."""
+    for path in (os.path.join(config, "config.json"), config):
+        try:
+            st = os.lstat(path)
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode):
+            return st.st_uid, st.st_gid
+    return None
+
+
+def hints_file_access(config: str) -> Tuple[Optional[Tuple[int, int]], int]:
+    """(owner to set, mode) for host-paths.json in ``config``. Run as root
+    (``sudo sh drives-helper.sh``), the file is given to the settings' owner;
+    then, or when this user already is that owner, 0640 (SYNCHRO.S reads it
+    as its owner); otherwise 0644, so SYNCHRO.S running as another user can
+    still read it (config.json is no tighter)."""
+    want = settings_owner(config)
+    euid = os.geteuid() if hasattr(os, "geteuid") else None
+    if want is not None and euid == 0:
+        return want, 0o640
+    if want is not None and euid == want[0]:
+        return None, 0o640
+    return None, 0o644
+
+
 def write_hints_file(path: str, entries: Dict[str, Dict[str, object]]) -> None:
-    """``path`` (host-paths.json), atomically and readable by its owner only
-    (0600): a new, uniquely named file (``mkstemp`` opens it with O_EXCL, so a
-    link planted at the name is never followed), then renamed over the old
-    one (a rename replaces a link rather than writing through it). A failed
-    write deletes its temporary file."""
+    """``path`` (host-paths.json), atomically: a new, uniquely named file
+    (``mkstemp`` opens it with O_EXCL, so a link planted at the name is never
+    followed), then renamed over the old one (a rename replaces a link rather
+    than writing through it), owned and moded so SYNCHRO.S can read it
+    (``hints_file_access``). A failed write deletes its temporary file."""
     st = None
     try:
         st = os.lstat(path)
@@ -860,8 +889,9 @@ def write_hints_file(path: str, entries: Dict[str, Dict[str, object]]) -> None:
         raise OSError(f"{HINTS_NAME} is a folder")
     newest = sorted(entries.items(), key=lambda kv: -int(kv[1].get("written_at") or 0))[:HINTS_MAX_FOLDERS]
     body = {"v": HINT_VERSION, "folders": dict(newest)}
-    _write_atomic(path, (json.dumps(body, ensure_ascii=False, indent=1) + "\n").encode("utf-8"), mode=0o600,
-                  prefix=HINTS_NAME + ".")
+    owner, mode = hints_file_access(os.path.dirname(path) or ".")
+    _write_atomic(path, (json.dumps(body, ensure_ascii=False, indent=1) + "\n").encode("utf-8"), mode=mode,
+                  prefix=HINTS_NAME + ".", owner=owner)
 
 
 def remove_legacy_hint(folder: str) -> bool:
@@ -1031,9 +1061,11 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _write_atomic(path: str, data: bytes, mode: Optional[int] = None, prefix: str = ".drives-") -> None:
+def _write_atomic(path: str, data: bytes, mode: Optional[int] = None, prefix: str = ".drives-",
+                  owner: Optional[Tuple[int, int]] = None) -> None:
     """Write ``path`` through a new, uniquely named file (never through a
-    link) renamed over it."""
+    link) renamed over it; ``owner`` (uid, gid) is set on the new file
+    before the rename (the helper run as root)."""
     if mode is None:
         try:
             mode = os.stat(path).st_mode & 0o7777
@@ -1045,6 +1077,8 @@ def _write_atomic(path: str, data: bytes, mode: Optional[int] = None, prefix: st
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
+            if owner is not None:
+                os.fchown(f.fileno(), owner[0], owner[1])
         if mode is not None:
             os.chmod(tmp, mode)
         os.replace(tmp, path)

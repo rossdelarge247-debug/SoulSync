@@ -211,12 +211,25 @@ def test_a_copy_that_kept_its_marker_never_takes_the_originals_name(marked, tmp_
     monkeypatch.setattr(markers, "folder_paths", lambda config=None: {"library": str(clone)})
     monkeypatch.setattr(HP, "current_platform", lambda config=None: "mac")
     assert HP.to_host(str(clone / "Saltmarsh" / "01 Tide.flac")) is None
-    # a folder inside the mount target is still its own
+    # a folder one level down that the helper named is its own
     inner = marked / "Library"
     inner.mkdir()
     markers.write_marker(str(inner), "library")
-    _write_hints({markers.marker_id(str(inner)): _entry(target=str(marked), host_path="/Users/ross/SoulSync/music/Library")})
+    _write_hints({markers.marker_id(str(inner)): _entry(target=str(inner), host_path="/Users/ross/SoulSync/music/Library")})
     assert HP.read_hint(str(inner))["host_path"] == "/Users/ross/SoulSync/music/Library"
+
+
+@pytest.mark.gauntlet
+def test_a_copy_inside_the_same_mount_names_nothing(marked):
+    """The helper writes the exact folder as the target, so a copy under it
+    (/app/Transfer/backup, marker and all) isn't taken for it."""
+    import shutil
+    _name(marked)
+    copy = marked / "backup"
+    shutil.copytree(marked, copy, ignore=shutil.ignore_patterns("backup"))
+    assert markers.marker_id(str(copy)) == markers.marker_id(str(marked))
+    assert HP.read_hint(str(copy)) is None and HP.folder_host(str(copy), "mac") is None
+    assert HP.read_hint(str(marked)) is not None
 
 
 @pytest.mark.gauntlet
@@ -369,8 +382,8 @@ def test_the_helper_names_rosss_three_folders_in_the_settings_folder(soulsync):
                                 "target": target, "written_at": 1761300000}
         for name, target in (("music", "/app/Transfer"), ("downloads", "/app/downloads"),
                              ("staging", "/app/Staging"))}}
-    # readable by its owner only: it names the computer's folders
-    assert oct(os.stat(soulsync["file"]).st_mode & 0o777) == "0o600"
+    # readable by the settings' owner (who SYNCHRO.S runs as) and its group, not the world
+    assert oct(os.stat(soulsync["file"]).st_mode & 0o777) == "0o640"
     # and SYNCHRO.S accepts what the helper wrote (inside, at /app/Transfer…)
     assert _trusted(soulsync) == {"/app/Transfer": str(home / "music"), "/app/downloads": str(home / "downloads"),
                                   "/app/Staging": str(home / "staging")}
@@ -558,6 +571,52 @@ def test_the_override_file_is_read_too(soulsync):
     hints = HP.parse_hints(soulsync["file"].read_bytes())
     assert hints[markers.marker_id(str(home / "music2"))]["target"] == "/app/Transfer"
     assert soulsync["ids"]["music"] not in hints
+
+
+@pytest.mark.gauntlet
+def test_run_as_root_the_file_goes_to_the_settings_owner(soulsync, monkeypatch):
+    """sudo sh drives-helper.sh would leave a root-owned file SYNCHRO.S (PUID)
+    couldn't open: the helper gives it to whoever owns the settings."""
+    chowned = []
+    monkeypatch.setattr(C.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(C.os, "fchown", lambda fd, uid, gid: chowned.append((uid, gid)))
+    monkeypatch.setattr(C, "settings_owner", lambda config: (1000, 1000))
+    out = C.write_host_hints((soulsync["home"] / "docker-compose.yml").read_text(), str(soulsync["home"]), "mac")
+    assert all(r["ok"] for r in out)
+    assert chowned == [(1000, 1000)]
+    assert oct(os.stat(soulsync["file"]).st_mode & 0o777) == "0o640"
+
+
+@pytest.mark.parametrize("euid,owner,expect", [
+    (1000, (1000, 1000), (None, 0o640)),   # the settings' owner: owner and group read it
+    (1001, (1000, 1000), (None, 0o644)),   # someone else: SYNCHRO.S (1000) must still read it
+    (0, (1000, 20), ((1000, 20), 0o640)),  # root: handed to the owner
+    (1000, None, (None, 0o644)),           # owner unknown: readable, as config.json is
+])
+def test_the_files_owner_and_mode(monkeypatch, tmp_path, euid, owner, expect):
+    monkeypatch.setattr(C.os, "geteuid", lambda: euid)
+    monkeypatch.setattr(C, "settings_owner", lambda config: owner)
+    assert C.hints_file_access(str(tmp_path)) == expect
+
+
+def test_the_settings_owner_is_config_jsons_else_the_folders(tmp_path):
+    (tmp_path / "config.json").write_text("{}")
+    st = os.stat(tmp_path / "config.json")
+    assert C.settings_owner(str(tmp_path)) == (st.st_uid, st.st_gid)
+    os.unlink(tmp_path / "config.json")
+    st = os.stat(tmp_path)
+    assert C.settings_owner(str(tmp_path)) == (st.st_uid, st.st_gid)
+
+
+def test_a_file_synchros_cant_open_is_said_once_in_the_log(marked, monkeypatch):
+    said = []
+    _name(marked)
+    monkeypatch.setattr(HP, "_UNREADABLE_SAID", False)
+    monkeypatch.setattr(HP, "_read_small", lambda path, cap: None)  # EACCES
+    monkeypatch.setattr(HP.os, "access", lambda path, mode: False)
+    monkeypatch.setattr(HP.logger, "warning", lambda msg, *a: said.append(msg % a))
+    assert HP.read_hints() == {} and HP.read_hints() == {}
+    assert len(said) == 1 and HP.hints_file() in said[0] and "can't read" in said[0]
 
 
 def test_a_failed_write_leaves_no_temporary_file(soulsync, monkeypatch):
