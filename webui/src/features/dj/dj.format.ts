@@ -17,14 +17,17 @@ const SOURCE_WORDS: Record<string, string> = {
   analysis: 'worked out by SYNCHRO.S',
 };
 
-/** The key's title: "A minor (Am), worked out by SYNCHRO.S, key uncertain". */
+/**
+ * The key's title: "A minor (Am), from the file's tag"; an uncertain one
+ * reads "Maybe F major (F), key uncertain" (17e).
+ */
 export function keyTitle(
   dj: Pick<DjInfo, 'key_long' | 'key_name' | 'key_source' | 'key_uncertain'>,
 ): string {
   if (!dj.key_long) return '';
+  if (dj.key_uncertain) return `Maybe ${dj.key_long} (${dj.key_name}), key uncertain`;
   const parts = [`${dj.key_long} (${dj.key_name})`];
   if (dj.key_source && SOURCE_WORDS[dj.key_source]) parts.push(SOURCE_WORDS[dj.key_source]);
-  if (dj.key_uncertain) parts.push('key uncertain');
   return parts.join(', ');
 }
 
@@ -165,4 +168,40 @@ export function analysisLine(status: AnalysisStatus): string {
   if (!status.settings.analyze) return `${done} · working them out is off in Settings → Library`;
   if (status.held) return `${done} · stopped until you start it again`;
   return `${done} · the rest are worked out in the background`;
+}
+
+/**
+ * Tracks' count line under the toolbar (17a, HANDOFF 168): "38 tracks at
+ * 120–128 BPM in 8A, 7A, 9A or 8B". `keys` is what the server says the key
+ * filter covered (`/browse`'s `keys`), in its order.
+ */
+export function filterCountLine({
+  total,
+  bpmMin,
+  bpmMax,
+  keys,
+  q,
+}: {
+  total: number;
+  bpmMin: number | null;
+  bpmMax: number | null;
+  keys: readonly string[];
+  q: string;
+}): string {
+  const parts = [`${total.toLocaleString()} ${total === 1 ? 'track' : 'tracks'}`];
+  if (q.trim()) parts.push(`matching “${q.trim()}”`);
+  if (bpmMin !== null && bpmMax !== null) {
+    parts.push(
+      bpmMin === bpmMax
+        ? `at ${bpmNumber(bpmMin)} BPM`
+        : `at ${bpmNumber(bpmMin)}–${bpmNumber(bpmMax)} BPM`,
+    );
+  } else if (bpmMin !== null) parts.push(`at ${bpmNumber(bpmMin)} BPM or more`);
+  else if (bpmMax !== null) parts.push(`at up to ${bpmNumber(bpmMax)} BPM`);
+  if (keys.length) {
+    const list =
+      keys.length === 1 ? keys[0] : `${keys.slice(0, -1).join(', ')} or ${keys[keys.length - 1]}`;
+    parts.push(`in ${list}`);
+  }
+  return parts.join(' ');
 }

@@ -36,7 +36,7 @@ describe('the DJ data in words', () => {
         key_source: 'analysis',
         key_uncertain: true,
       }),
-    ).toBe('F♯ major (F#), worked out by SYNCHRO.S, key uncertain');
+    ).toBe('Maybe F♯ major (F#), key uncertain');
     expect(
       keyTitle({ key_long: null, key_name: null, key_source: null, key_uncertain: false }),
     ).toBe('');
