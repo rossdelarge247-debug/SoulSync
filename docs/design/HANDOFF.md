@@ -52,6 +52,12 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 
 ## Log
 
+### 2026-10-24: Dev, the gauntlet for risky changes
+
+Built on `ci/gauntlet` from `integration`. A new CI lane, the gauntlet (`.github/workflows/gauntlet.yml`), that only risky changes go through, on top of the normal checks. A change is risky when it touches a file listed in `.github/gauntlet-paths.txt`: code that deletes or moves files, the database schema and migrations, setup editing, auth, sessions, profiles and admin gating, outbound HTTP, or CI itself. The gauntlet runs Bandit and Semgrep against committed baselines (only new findings on changed lines fail), the upgrade and migration tests on their own, and the disaster-scenario tests tagged `@pytest.mark.gauntlet` (the drive move's same-folder, crash-during-switch, edited-during-copy and unplugged cases, the kids guard's ordering, the migration failures). A PR labelled `gauntlet`, or a run started by hand, goes through it whatever it touches. No app code changed.
+
+`docs/GAUNTLET.md` says what it runs, how to read its results and how to regenerate the baselines, and lists what the lead commits to for gauntlet work: an independent review for data loss and security holes, findings fixed or answered in the HANDOFF entry before merge, a green gauntlet run before the change goes into Ross's private build, and zip notes saying the change went through the gauntlet.
+
 ### 2026-10-23: Dev, radio in the expanded player and the Visuals (Ross's ask)
 
 Built on `ux/radio-tray` from `integration` (5ea8dc4b), at Ross's request: the radio player now matches the music player. **This reverses 4a's "radio has no tray on a desktop: its page is the station's"** (and `player.ts`'s special case that forced `data-player="bar"` while radio played): the bar expands into 6a's 360px tray while a station plays, with the same toggle, state, Collapse and Escape as music, filled with radio's content, and the Visuals overlay is in reach from it. No board exists, so it follows 6a and the radio boards; Design is asked to draw it as a check (question 140). In the same branch, Ross's add-on from his screenshot of the collapsed radio bar at about 2000px (a big empty middle, a small meter and the track squeezed at the right): **the bar's centre is fluid**, and **a station's logo never shows the broken-image glyph**. No routes changed. The patterns are in `DESIGN-SYSTEM.md` ("Radio in the player", "The tray in radio mode", "The "…" menu while a station plays", the Visuals overlay's radio header).
