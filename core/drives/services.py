@@ -40,6 +40,11 @@ logger = get_logger("drives.services")
 SLSKD_CONFIG_DIR_ENV = "SOULSYNC_SLSKD_CONFIG_DIR"
 SLSKD_CONFIG_DIR = "/slskd-config"
 APPLEDOUBLE_FILTER = r"/\._[^/]*$"
+#: SYNCHRO.S's own files in a shared folder (the folder marker, the move's
+#: note, an older build's host hint) are never shared on Soulseek. slskd
+#: matches a filter against each file's full path, so it is anchored on the
+#: last "/" as the "._" filter is (a bare ``^\.synchros-`` would never match).
+SYNCHROS_FILTER = r"/\.synchros-[^/]*$"
 TIMEOUT = 15
 
 
@@ -270,6 +275,12 @@ def plan_slskd_config(text: str, *, share_old: Optional[str], share_new: Optiona
         if APPLEDOUBLE_FILTER not in filters:
             out = yaml_blocks.set_seq(out, ["shares", "filters"], filters + [APPLEDOUBLE_FILTER])
             changed.append("filters")
+    # every edit also keeps SYNCHRO.S's own files out of what slskd shares;
+    # it stays on a switch back (it only ever hides SYNCHRO.S's files)
+    filters = yaml_blocks.get_seq(out, ["shares", "filters"])
+    if SYNCHROS_FILTER not in filters:
+        out = yaml_blocks.set_seq(out, ["shares", "filters"], filters + [SYNCHROS_FILTER])
+        changed.append("synchros_filter")
     if downloads_new:
         out = yaml_blocks.set_scalar(out, ["directories", "downloads"], downloads_new)
         changed.append("downloads")
@@ -537,7 +548,7 @@ def old_location(locations: List[str], sample_paths: List[str]) -> Optional[str]
     return best if hits else None
 
 
-__all__ = ["APPLEDOUBLE_FILTER", "JellyfinServer", "MediaServer", "NavidromeServer", "PlexServer", "RestartRefused",
+__all__ = ["APPLEDOUBLE_FILTER", "SYNCHROS_FILTER", "JellyfinServer", "MediaServer", "NavidromeServer", "PlexServer", "RestartRefused",
            "ServiceRefused",
            "Slskd", "library_share_in", "media_server", "old_location", "plan_slskd_config",
            "reverse_slskd_config"]

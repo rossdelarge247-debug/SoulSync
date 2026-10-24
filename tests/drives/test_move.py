@@ -1009,6 +1009,29 @@ def test_jellyfin_errors_are_refusals():
         jf.remove_location("/x")
 
 
+@pytest.mark.gauntlet
+def test_slskd_never_shares_synchros_own_files_once_it_edits_slskd_yml(job):
+    """The marker (and the move's note) sit in folders slskd shares: every
+    slskd.yml edit adds a filter for SYNCHRO.S's own files, once, and a
+    switch back keeps it."""
+    import re
+    import yaml
+    from core.drives.services import SYNCHROS_FILTER
+    j = job["job"]
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    filters = (yaml.safe_load(job["slskd"].read_config()).get("shares") or {}).get("filters") or []
+    assert filters.count(SYNCHROS_FILTER) == 1
+    pattern = re.compile(SYNCHROS_FILTER)
+    for name in (markers.MARKER_NAME, M.MOVE_MARK, ".synchros-host.json"):
+        assert pattern.search(f"/Volumes/Music HD/SYNCHRO.S/Library/{name}")
+    for name in ("Saltmarsh/Lantern/01 Tide.flac", "a.synchros-x.flac", ".synchros/inside.flac"):
+        assert not pattern.search(f"/Volumes/Music HD/SYNCHRO.S/Library/{name}")
+    j.switch_back(move_id, username="slskd", password="pw")
+    filters = (yaml.safe_load(job["slskd"].read_config()).get("shares") or {}).get("filters") or []
+    assert filters.count(SYNCHROS_FILTER) == 1
+
+
 # ── switch back: slskd.yml and secrets ───────────────────────────────────────
 
 def test_switch_back_keeps_later_slskd_edits_and_never_shows_the_old_file(job):

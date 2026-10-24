@@ -201,11 +201,11 @@ def test_slskd_shares_downloads_and_filter_are_set_keeping_comments():
     out = change["text"]
     data = yaml.safe_load(out)
     assert data["shares"]["directories"] == ["/Volumes/Music HD/SYNCHRO.S/Library"]
-    assert data["shares"]["filters"] == ["\\.ini$", "/\\._[^/]*$"]
+    assert data["shares"]["filters"] == ["\\.ini$", "/\\._[^/]*$", "/\\.synchros-[^/]*$"]
     assert data["directories"] == {"incomplete": "/app/incomplete", "downloads": "/Volumes/Music HD/SYNCHRO.S/Downloads"}
     assert data["soulseek"] == {"username": "ross"}
     assert "# where partial files go" in out and out.startswith("# debug: false")
-    assert change["changed"] == ["shares", "filters", "downloads"]
+    assert change["changed"] == ["shares", "filters", "synchros_filter", "downloads"]
 
 
 def test_slskd_yml_without_shares_gains_them():
@@ -213,7 +213,8 @@ def test_slskd_yml_without_shares_gains_them():
     out = plan_slskd_config("# all commented out\n# shares:\n#   directories: []\n", share_old="/music",
                             share_new="/Volumes/X/Library", current_shares=["/music"], downloads_new=None,
                             skip_appledouble=False)["text"]
-    assert yaml.safe_load(out) == {"shares": {"directories": ["/Volumes/X/Library"]}}
+    assert yaml.safe_load(out) == {"shares": {"directories": ["/Volumes/X/Library"],
+                                              "filters": ["/\\.synchros-[^/]*$"]}}
     assert out.startswith("# all commented out")
 
 
