@@ -117,6 +117,7 @@ const MIXES = {
 };
 
 let requested: { url: string; method: string }[] = [];
+let exported: unknown[] = [];
 let driveAway = false;
 
 const DRIVE = {
@@ -144,6 +145,7 @@ beforeEach(() => {
   window.showToast = vi.fn();
   window.playNext = vi.fn();
   requested = [];
+  exported = [];
   driveAway = false;
   resetDriveStatus();
   vi.stubGlobal(
@@ -157,7 +159,25 @@ beforeEach(() => {
       if (u.pathname.endsWith('/api/library/dj/browse')) body = BROWSE;
       else if (u.pathname.endsWith('/api/library/dj/status')) body = STATUS;
       else if (u.pathname.endsWith('/api/library/dj/mixes/1')) body = MIXES;
-      else if (u.pathname.endsWith('/api/drives/status'))
+      else if (u.pathname.endsWith('/api/library/dj/traktor/export')) {
+        const raw = input instanceof Request ? await input.text() : (init?.body as string);
+        const sent: unknown = JSON.parse(raw);
+        exported.push(sent);
+        body = {
+          success: true,
+          name: 'SYNCHRO.S tracks',
+          filename: 'SYNCHRO.S tracks.nml',
+          counts: { tracks: 2, found: 2, left_out: 0 },
+          example_path: '/Users/ross/SoulSync/music/Saltmarsh/Lantern/01.flac',
+          mac_path: '/Users/ross/SoulSync/music',
+          library_folder: '/app/Transfer',
+          left_out: [],
+          reasons: {},
+          keys: 2,
+          can_edit: true,
+          folder: { state: 'unset', shown: null, can_save: false },
+        };
+      } else if (u.pathname.endsWith('/api/drives/status'))
         body = driveAway ? DRIVE : { ...DRIVE, library_away: false, away: [] };
       return new Response(JSON.stringify(body), {
         status: 200,
@@ -316,5 +336,31 @@ describe('Library → Tracks', () => {
       'Open artist',
       'Open album',
     ]);
+  });
+
+  it('selects tracks and exports them to Traktor from the selection bar (21a)', async () => {
+    renderPage();
+    await screen.findByText('Static Bloom');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected tracks' });
+    expect(within(bar).getByText('0 tracks selected')).toBeTruthy();
+    const exportButton = within(bar).getByRole('button', { name: 'Export to Traktor…' });
+    expect(exportButton).toHaveAttribute('aria-disabled', 'true');
+    expect(exportButton.getAttribute('data-variant')).toBe('secondary');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Night Ferry' }));
+    expect(within(bar).getByText('2 tracks selected')).toBeTruthy();
+    expect(screen.getByText('Static Bloom').closest('li')!.dataset.selected).toBe('true');
+    fireEvent.click(within(bar).getByRole('button', { name: 'Export to Traktor…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Export 2 tracks to Traktor?' });
+    await within(dialog).findByRole('button', { name: 'Export 2 tracks' });
+    expect(exported[0]).toEqual({ action: 'preview', source: 'tracks', track_ids: ['1', '2'] });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    fireEvent.click(within(bar).getByRole('button', { name: 'Select all 4 shown' }));
+    expect(within(bar).getByText('4 tracks selected')).toBeTruthy();
+    fireEvent.click(within(bar).getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('toolbar', { name: 'Selected tracks' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Select Static Bloom' })).toBeNull();
   });
 });

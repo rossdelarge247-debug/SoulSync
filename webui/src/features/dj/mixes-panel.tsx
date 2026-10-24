@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/form/form';
 import { LoadingState, Notice } from '@/components/primitives';
 
 import type { DjMatch, DjMixesResponse, DjTrack } from './dj.api';
+import type { TraktorSource } from './traktor.api';
 
 import { CamelotWheel } from './camelot-wheel';
 import { addTrackToPlaylist, playTrackNext } from './dj-actions';
@@ -27,6 +28,7 @@ import {
   type MixesSeed,
 } from './mixes-store';
 import { watchPlayingTrack } from './playing-track';
+import { TraktorExportDialog } from './traktor-export-dialog';
 
 /** The panel docks beside the page from here up; under it, it lies over the page. */
 export const DOCK_QUERY = '(min-width: 1100px)';
@@ -387,28 +389,39 @@ function useMixesQuery(seed: MixesSeed, within: number, waiting: boolean) {
   });
 }
 
+/** The panel's set for "Export to Traktor…": the seed and what mixes with it. */
+function traktorFrom(trackId: string, within: number): TraktorSource {
+  return within === 6
+    ? { source: 'mixes', track_id: trackId }
+    : { source: 'mixes', track_id: trackId, within };
+}
+
 function Foot({
   data,
   tall,
   onMake,
+  onExport,
 }: {
   data: DjMixesResponse | undefined;
   tall?: boolean;
   onMake: () => void;
+  onExport: () => void;
 }) {
   if (!data?.matches.length) return null;
   const total = data.total ?? data.matches.length;
+  const button = tall ? `${styles.makeButton} ${styles.makeButtonTall}` : styles.makeButton;
+  // 21a: the count, then "Make a playlist…" and "Export to Traktor…" side by side
   return (
     <div className={styles.mixFoot}>
       {tall ? null : <span className={styles.mixCount}>{countWords(total)}</span>}
-      <Button
-        size="lg"
-        variant="secondary"
-        className={tall ? `${styles.makeButton} ${styles.makeButtonTall}` : styles.makeButton}
-        onClick={onMake}
-      >
-        Make a playlist from these…
-      </Button>
+      <div className={styles.footButtons}>
+        <Button size="lg" variant="secondary" className={button} onClick={onMake}>
+          Make a playlist…
+        </Button>
+        <Button size="lg" variant="secondary" className={button} onClick={onExport}>
+          Export to Traktor…
+        </Button>
+      </div>
     </div>
   );
 }
@@ -438,6 +451,7 @@ export function MixesPanel({
 }) {
   const [waiting, setWaiting] = useState(false);
   const [making, setMaking] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const query = useMixesQuery(seed, within, waiting);
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => setWaiting(false), [seed.id]);
@@ -485,12 +499,18 @@ export function MixesPanel({
       <div className={styles.panelBody}>
         <MixesBody query={query} phone={false} within={within} onQueued={() => setWaiting(true)} />
       </div>
-      <Foot data={query.data} onMake={() => setMaking(true)} />
+      <Foot data={query.data} onMake={() => setMaking(true)} onExport={() => setExporting(true)} />
       {making && query.data ? (
         <MakePlaylistDialog
           seed={query.data.track}
           matches={query.data.matches}
           onClose={() => setMaking(false)}
+        />
+      ) : null}
+      {exporting ? (
+        <TraktorExportDialog
+          from={traktorFrom(seed.id, within)}
+          onClose={() => setExporting(false)}
         />
       ) : null}
     </aside>
@@ -515,6 +535,7 @@ export function MixesSheet({
 }) {
   const [waiting, setWaiting] = useState(false);
   const [making, setMaking] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const query = useMixesQuery(seed, within, waiting);
   const track = query.data?.track ?? null;
   const title = track?.title || seed.title;
@@ -522,7 +543,7 @@ export function MixesSheet({
   return (
     <>
       <DialogFrame
-        open={!making}
+        open={!making && !exporting}
         onOpenChange={(open) => (open ? null : onClose())}
         aria-label={`Mixes well with ${title}`}
         viewportClassName={styles.sheetViewport}
@@ -560,13 +581,24 @@ export function MixesSheet({
         <div className={`${styles.panelBody} ${styles.sheetBody}`}>
           <MixesBody query={query} phone within={within} onQueued={() => setWaiting(true)} />
         </div>
-        <Foot data={query.data} tall onMake={() => setMaking(true)} />
+        <Foot
+          data={query.data}
+          tall
+          onMake={() => setMaking(true)}
+          onExport={() => setExporting(true)}
+        />
       </DialogFrame>
       {making && query.data ? (
         <MakePlaylistDialog
           seed={query.data.track}
           matches={query.data.matches}
           onClose={() => setMaking(false)}
+        />
+      ) : null}
+      {exporting ? (
+        <TraktorExportDialog
+          from={traktorFrom(seed.id, within)}
+          onClose={() => setExporting(false)}
         />
       ) : null}
     </>

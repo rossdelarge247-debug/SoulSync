@@ -21,6 +21,7 @@ export function SelectionBar({
   menu,
   onDone,
   barLabel,
+  primaryVariant = 'primary',
 }: {
   /** "6 albums selected · 49 tracks" */
   label: string;
@@ -36,6 +37,8 @@ export function SelectionBar({
   menu: MenuEntry[];
   onDone: () => void;
   barLabel: string;
+  /** 21a draws Tracks' "Export to Traktor…" as a secondary */
+  primaryVariant?: 'primary' | 'secondary';
 }) {
   return (
     <div className={styles.barDock} data-selection-bar="">
@@ -57,7 +60,7 @@ export function SelectionBar({
         <span className={styles.barActions}>
           <Button
             size="lg"
-            variant="primary"
+            variant={primaryVariant}
             disabled={count === 0}
             disabledReason={count === 0 ? emptyReason : undefined}
             onClick={onPrimary}

@@ -759,6 +759,46 @@ Built on `feat/dj-stage1`. Code: `core/dj/` (`camelot.py` keys and mixing, `stor
 
 **Storage:** the new table `track_dj` (`track_id` TEXT key; `bpm`, `bpm_source`, `musical_key`, `key_name`, `key_source`, `key_confidence`, `energy`, `energy_source`, `analyzed_bpm`, `analyzed_key`, `dj_analyzed_at`, `dj_analyzer_version`, `source_sig`, `status`, `error`, `tags_written`, `tags_written_at`; indexes on `bpm`, `musical_key`, `dj_analyzer_version`), added by `_add_track_dj_table` (ledger `track_dj_v1`), and `sample_analysis.energy`.
 
+### Export to Traktor (`/api/library/dj/traktor/*`; BACKLOG "DJ area", stage 2a; boards 21a, 21b)
+
+Built on `feat/dj-traktor-export`. Code: `core/dj/traktor.py` (the `.nml` writer, Mac paths, the export folder), the routes in `api/dj.py`; the web pieces in `src/features/dj/` (`traktor.api.ts`, `traktor.format.ts`, `traktor-export-dialog.tsx`, `traktor-card.tsx`). Both files are on `.github/gauntlet-paths.txt`. Every route needs a profile (401 `profile_required`).
+
+**`POST /api/library/dj/traktor/export`** (any profile; JSON body at most 64 KB, else 413, a chunked body included: at most 64 KB + 1 byte is ever read)
+
+```json
+{"action": "preview", "source": "playlist", "playlist_id": 4}
+{"action": "download", "source": "tracks", "track_ids": ["981", "982"], "name": "optional"}
+{"action": "save", "source": "mixes", "track_id": "981", "within": 6, "overwrite": false}
+```
+
+- `action`: `preview` (default) | `download` | `save`; anything else 400. `source`: `playlist` (`playlist_id`, a positive integer; a playlist that isn't the caller's reads as 404, admins read any, as the mirrored-playlist routes do), `tracks` (`track_ids`, a non-empty list of at most 1,000, else 400; unknown ids, and ids outside the caller's library, are left out as `not_in_library`), `mixes` (`track_id`, `within` 1–12: the seed and up to 200 tracks that mix with it, in the panel's order; 404 for a track outside the library). Any other source 400.
+- Library tracks are read through the DJ store's `_scope` (the active media server and the caller's own or the shared library); a playlist's rows are matched by title and artist (case-insensitive) to tracks with a file in that scope, the first 1,000 rows (the rest `too_many`).
+- **`preview`** →
+
+```json
+{"success": true, "name": "Sunday Set", "filename": "Sunday Set.nml",
+ "counts": {"tracks": 24, "found": 23, "left_out": 1},
+ "example_path": "/Volumes/Music HD/SoulSync/Transfer/Tidewater/Night Ferry EP/01 Night Ferry.flac",
+ "mac_path": "/Volumes/Music HD/SoulSync/Transfer", "library_folder": "/app/Transfer",
+ "left_out": [{"title": "Copper Sky", "artist": "Tidewater", "reason": "not_in_library", "words": "isn't a file in your library"}],
+ "reasons": {"not_in_library": 1}, "keys": 20, "can_edit": true,
+ "folder": {"state": "unset", "shown": null, "can_save": false}}
+```
+
+  `left_out` lists at most 50; `reasons` counts them all: `not_in_library`, `no_mac_path` (neither the drive helper nor the card knows the Mac's name), `outside` (the file isn't under the library folder the Mac path names), `bad_path` (a folder or file name starting with a colon, which Traktor's notation can't spell), `too_many`, `lookup_limit` (the export had already looked up its 50 stored paths on disk, or spent 5 s doing so; see Mac paths). `keys` is how many keys go in the file. `folder.can_save` is true for an admin whose export folder is usable now; `folder.shown` is the folder by the Mac's name when it maps, else the container path. **`mac_path`, `library_folder` and `folder.shown` go to admins only**: a member's preview has `example_path` (their own first track as the Mac sees it), `folder.state`, `folder.shown: null` and `folder.can_save: false`. A tracks selection without a `name` is called "SYNCHRO.S tracks YYYY-MM-DD"; Mixes is "Mixes with <title>".
+- **`download`** → 200 `application/octet-stream`, `Content-Disposition: attachment; filename="<ASCII>"; filename*=UTF-8''<percent-encoded>`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`. The name has no folders, control, Unicode format (`Cf`: the right-to-left override, zero-width characters) or reserved characters, or leading dots, at most 80 characters before `.nml`, and is never Traktor's own `collection.nml` (it becomes `collection (playlist).nml`). 409 when nothing can go in.
+- **`save`** (admins; 403 for members, who download) → `{saved: true, filename, folder, counts}`. 409 `{exists: true, filename}` when the file is already there and `overwrite` isn't `true`; 409 `{folder_state}` when the export folder isn't usable now; 500 when the write fails (nothing is left behind).
+
+**`GET /api/library/dj/traktor/settings`** → admins: `{mac_path, mac_path_from_helper, library_folder, export_folder, export_folder_state, export_folder_on_mac, collection, can_edit: true}`; members: `{mac_path_set, mac_path_from_helper_set, export_folder_state, collection, can_edit: false}` (whether things are set, not where). `export_folder_state`: `ok`, `unset`, `invalid`, `outside`, `missing`, `not_writable`. `collection` is the words for where Traktor keeps `collection.nml` (stage 2b reads it).
+
+**`PUT /api/library/dj/traktor/settings`** (admins) `{mac_path?, export_folder?}`; an empty string clears one. 400 `{field, error}` for a Mac path that isn't an absolute POSIX path (no `..`, `~`, backslash or control characters, at most 500), or an export folder that isn't a writable directory inside a configured folder once links are followed (the library `soulseek.transfer_path`, `soulseek.download_path`, `library.music_paths`). Stored as `library.traktor_mac_path` and `library.traktor_export_folder` through `config_manager.set` (the Settings page's own save writes leaves, so it never clears them).
+
+**The `.nml` file** (Traktor Pro 3's NML, `VERSION="19"`): `HEAD COMPANY="www.native-instruments.com" PROGRAM="Traktor"`, `MUSICFOLDERS`, a `COLLECTION ENTRIES` with each track once (`ENTRY TITLE ARTIST` > `LOCATION VOLUME DIR FILE`, `ALBUM TITLE`, `INFO BITRATE PLAYTIME PLAYTIME_FLOAT KEY`, `TEMPO BPM`, `MUSICAL_KEY VALUE`), then `PLAYLISTS` > `NODE TYPE="FOLDER" NAME="$ROOT"` > `SUBNODES COUNT="1"` > `NODE TYPE="PLAYLIST" NAME` > `PLAYLIST ENTRIES TYPE="LIST" UUID` > `ENTRY` > `PRIMARYKEY TYPE="TRACK" KEY`, in order (a track twice is listed twice). `DIR` writes each `/` as `/:` and ends `/:`; `KEY` is `VOLUME + DIR + FILE`. `/Volumes/<name>/…` is `VOLUME="<name>"`; anything else is on `VOLUME="Macintosh HD"` with the whole path as `DIR`. `MUSICAL_KEY VALUE` is 0–23 (0 C … 11 B major, 12 Cm … 23 Bm), and `INFO KEY` the Open Key text, both only for a key from the file's tag or analysis at 0.5 confidence or more; `TEMPO BPM` for 20–400 BPM. Never `CUE_V2` (cue points, grids), ratings or `LOCK`. Built with ElementTree, so every attribute is escaped; characters XML 1.0 can't hold are dropped first.
+
+**Mac paths:** the drive helper's `core.drives.host_paths.to_host(container_path)` first, once it lands (`traktor._load_to_host`); then the card's Mac path for the library folder (`/app/Transfer/<rest>` → `<mac_path>/<rest>`); a stored path that is a media server's is resolved to its file (`core.sample.worker.resolve_track_file`) and tried again; a path already under `/Volumes/` or `/Users/` is used as it is (a `/Volumes:/Volumes` mount, HANDOFF 160). Looking a stored path up on disk can ask the media server where its music lives, so it's bounded: it's skipped when nothing could place the result (no Mac path, no helper map, and no `/Volumes` or `/Users` in the container); one export looks up at most 50 paths or for at most 5 s (`RESOLVE_BUDGET`, `RESOLVE_SECONDS`), the rest are `lookup_limit`; a path that resolved to nothing isn't looked up again for 5 minutes (at most 5,000 remembered).
+
+**The export folder** (`save`): checked again at the write (inside a configured, existing folder once every link is followed; a writable directory; its device and inode noted), the file name re-checked, then the folder is opened once (`O_DIRECTORY | O_NOFOLLOW`) and `fstat`ed to confirm it's the folder checked (and, where `/proc/self/fd` says, still inside a configured folder). Every later step is relative to that open folder (`dir_fd`): temporary files `.synchros-traktor-*.tmp` older than an hour are swept; the file is written to a new `.synchros-traktor-<random>.tmp` (`O_CREAT | O_EXCL | O_NOFOLLOW`), given `0644` less the umask, `fsync`ed, and hard-linked into place, which refuses an existing name or link; with `overwrite` it's renamed over the file (a link at the name is replaced, never followed; a folder at the name is refused). On a file system without hard links the name is claimed with an exclusive create and the written file renamed over the claim: **not atomic** (for that moment the name holds an empty file), and the claim is removed if anything fails. The temporary file never outlives the call.
+
 ### Spotify pause (rate limits): the `spotify` slice of `/status`, `POST /api/spotify/rate-limit/clear`
 
 When Spotify answers "too many requests", SYNCHRO.S stops calling it for a while. The `spotify` slice of every `/status` frame (the `ss:service-status` event) says so:

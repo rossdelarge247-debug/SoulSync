@@ -30,6 +30,12 @@
   width: 280px;
 }
 
+/* 21a: Select / Done keeps its own width beside the 280px filter */
+.filter > .selectToggle {
+  flex: none;
+  width: auto;
+}
+
 /* ── the analysis line (153) ─────────────────────────────────────────── */
 
 .analysis {
@@ -274,6 +280,19 @@
   background: var(--ss-surface-card);
 }
 
+/* selection mode (21a): the checkbox in the art's 48px cell */
+.check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+}
+
+.row[data-selected='true'] {
+  background: var(--ss-selected-fill);
+}
+
 /* what the player has loaded (17a's first row) */
 .row[data-playing='true'] {
   background: rgba(var(--ss-accent-rgb), 0.1);
@@ -342,6 +361,22 @@
 
   .filter > * {
     width: 100%;
+  }
+
+  /* with Select beside it, the field takes what's left */
+  .filter {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .filter > :not(.selectToggle) {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+
+  .filter input {
+    min-width: 0;
   }
 
   .analysis {

@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Button, TextInput } from '@/components/form';
+import { Checkbox } from '@/components/form/form';
 import { Notice, Skeleton } from '@/components/primitives';
 import { addTrackToPlaylist, playTrackNext } from '@/features/dj/dj-actions';
 import {
@@ -29,6 +30,7 @@ import { KeyChip } from '@/features/dj/key-chip';
 import { keyLongName } from '@/features/dj/key-colour';
 import { openMixes } from '@/features/dj/mixes-store';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
+import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { awayWords } from '@/features/drives/drives.format';
 import { useProfile } from '@/platform/shell/route-controllers';
 
@@ -38,7 +40,9 @@ import type { Go } from './albums-page';
 import { TRACK_SORTS, pick, type TrackSort } from '../-library.types';
 import { ActionSheet, type SheetAction } from './action-sheet';
 import hs from './history.module.css';
+import ls from './library.module.css';
 import { ChevronDown, FilterField, MoreIcon, MoreMenu, PlayIcon, plural } from './parts';
+import { SelectionBar } from './selection-bar';
 import styles from './tracks.module.css';
 
 const SORT_LABELS: Record<TrackSort, string> = {
@@ -125,9 +129,16 @@ function TrackRow({
   phone,
   playing,
   away,
+  selecting = false,
+  checked = false,
+  onToggle,
 }: {
   track: DjTrack;
   phone: boolean;
+  /** selection mode (21a): a checkbox takes the art's place */
+  selecting?: boolean;
+  checked?: boolean;
+  onToggle?: () => void;
   /** what the player has loaded: the row takes a 10% accent wash (17a) */
   playing: boolean;
   /** While the library's drive is away (123): Play is disabled-neutral and
@@ -163,12 +174,23 @@ function TrackRow({
       className={styles.row}
       data-track-row={track.id}
       data-playing={playing ? 'true' : undefined}
+      data-selected={selecting && checked ? 'true' : undefined}
     >
-      <span className={hs.art} aria-hidden="true">
-        {track.image_url && !failed ? (
-          <img src={track.image_url} alt="" loading="lazy" onError={() => setFailed(true)} />
-        ) : null}
-      </span>
+      {selecting ? (
+        <span className={styles.check}>
+          <Checkbox
+            checked={checked}
+            aria-label={`Select ${track.title}`}
+            onCheckedChange={() => onToggle?.()}
+          />
+        </span>
+      ) : (
+        <span className={hs.art} aria-hidden="true">
+          {track.image_url && !failed ? (
+            <img src={track.image_url} alt="" loading="lazy" onError={() => setFailed(true)} />
+          ) : null}
+        </span>
+      )}
       <div className={`${hs.text} ${styles.text}`}>
         <span className={hs.title}>{track.title}</span>
         {phone ? (
@@ -443,6 +465,26 @@ export function TracksPage({
   const q = search.q.trim();
   const keyId = useId();
   const sortId = useId();
+  // selection (21a): pick tracks for "Export to Traktor…"
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked([]);
+  };
+  const toggle = (id: string) =>
+    setPicked((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  useEffect(() => {
+    if (!selecting) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || document.querySelector('[role="dialog"]')) return;
+      setSelecting(false);
+      setPicked([]);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selecting]);
 
   const status = useQuery({ ...djStatusQueryOptions(), retry: false });
   const query = useInfiniteQuery(
@@ -526,6 +568,16 @@ export function TracksPage({
             phonePlaceholder="Title or artist"
             label="Filter your tracks"
           />
+          {tracks.length ? (
+            <button
+              type="button"
+              className={`${ls.selectToggle} ${styles.selectToggle}`}
+              aria-pressed={selecting}
+              onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
+            >
+              {selecting ? 'Done' : 'Select'}
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -653,6 +705,9 @@ export function TracksPage({
                 phone={phone}
                 playing={track.id === playingId}
                 away={away}
+                selecting={selecting}
+                checked={selecting && picked.includes(track.id)}
+                onToggle={() => toggle(track.id)}
               />
             ))}
           </ul>
@@ -692,6 +747,42 @@ export function TracksPage({
             </Button>
           ) : null}
         </div>
+      ) : null}
+      {selecting ? (
+        <SelectionBar
+          barLabel="Selected tracks"
+          label={`${plural(picked.length, 'track')} selected`}
+          shortLabel={plural(picked.length, 'track')}
+          count={picked.length}
+          primaryLabel="Export to Traktor…"
+          idleLabel="Export to Traktor…"
+          primaryVariant="secondary"
+          emptyReason="Tick tracks to select them"
+          selectAll={
+            picked.length < tracks.length
+              ? {
+                  label: `Select all ${tracks.length.toLocaleString()} shown`,
+                  onClick: () => setPicked(tracks.map((t) => t.id)),
+                }
+              : null
+          }
+          onPrimary={() => setExporting(true)}
+          menu={[
+            {
+              key: 'clear',
+              label: 'Clear the selection',
+              disabled: !picked.length,
+              onSelect: () => setPicked([]),
+            },
+          ]}
+          onDone={stopSelecting}
+        />
+      ) : null}
+      {exporting && picked.length ? (
+        <TraktorExportDialog
+          from={{ source: 'tracks', track_ids: picked }}
+          onClose={() => setExporting(false)}
+        />
       ) : null}
     </div>
   );
