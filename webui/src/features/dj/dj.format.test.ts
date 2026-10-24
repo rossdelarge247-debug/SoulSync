@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CAMELOT_KEYS,
   analysisLine,
+  analysisProgress,
   bpmNumber,
   bpmRelationWords,
   bpmTitle,
@@ -75,18 +76,60 @@ describe('the DJ data in words', () => {
     expect(formatBpmRange(null, null)).toBe('');
   });
 
-  it('says how far the analysis has got', () => {
+  it('says how far the analysis has got (153)', () => {
     const base = { settings: { analyze: true }, held: false };
+    const running = { status: 'running', total: 412, done: 12, recent: true };
     expect(
       analysisLine({
         ...base,
-        counts: { tracks: 4980, analyzed: 1240, pending: 3740 },
-        job: { status: 'running', total: 3740, done: 12, waiting: 'download' },
+        counts: { tracks: 3740, analyzed: 3328, pending: 412 },
+        job: { ...running, waiting: 'download' },
       }),
-    ).toBe('Working out BPM, key and energy: 12 of 3,740, waiting while a download runs');
+    ).toBe('BPM, key and energy: 3,328 of 3,740 tracks done · waiting while a download runs');
     expect(
-      analysisLine({ ...base, counts: { tracks: 4980, analyzed: 4980, pending: 0 }, job: null }),
-    ).toBe('BPM, key and energy for all 4,980 tracks');
+      analysisLine({
+        ...base,
+        counts: { tracks: 3740, analyzed: 3328, pending: 412 },
+        job: { ...running, waiting: null },
+      }),
+    ).toBe('BPM, key and energy: 3,328 of 3,740 tracks done');
+    expect(
+      analysisProgress({
+        ...base,
+        counts: { tracks: 3740, analyzed: 3300, pending: 412 },
+        job: running,
+      }),
+    ).toEqual({ done: 3328, total: 3740 });
+    // finished: said for a day, then nothing; no bar
+    const finished = { status: 'done', total: 412, done: 412, recent: true };
+    expect(
+      analysisLine({
+        ...base,
+        counts: { tracks: 3740, analyzed: 3740, pending: 0 },
+        job: finished,
+      }),
+    ).toBe('All 3,740 tracks have BPM, key and energy');
+    expect(
+      analysisProgress({
+        ...base,
+        counts: { tracks: 3740, analyzed: 3740, pending: 0 },
+        job: finished,
+      }),
+    ).toBeNull();
+    expect(
+      analysisLine({
+        ...base,
+        counts: { tracks: 3740, analyzed: 3740, pending: 0 },
+        job: { ...finished, recent: false },
+      }),
+    ).toBe('');
+    expect(
+      analysisLine({
+        ...base,
+        counts: { tracks: 3740, analyzed: 3736, pending: 0 },
+        job: finished,
+      }),
+    ).toBe("3,736 of 3,740 tracks have BPM, key and energy · 4 couldn't be analysed");
     expect(
       analysisLine({
         ...base,
@@ -94,7 +137,7 @@ describe('the DJ data in words', () => {
         counts: { tracks: 10, analyzed: 4, pending: 6 },
         job: null,
       }),
-    ).toBe('BPM, key and energy for 4 of 10 tracks. Stopped until you start it again.');
+    ).toBe('BPM, key and energy: 4 of 10 tracks done · stopped until you start it again');
     expect(
       analysisLine({
         settings: { analyze: false },
@@ -103,8 +146,11 @@ describe('the DJ data in words', () => {
         job: null,
       }),
     ).toBe(
-      'BPM, key and energy for 4 of 10 tracks. Working them out is off in Settings → Library.',
+      'BPM, key and energy: 4 of 10 tracks done · working them out is off in Settings → Library',
     );
+    expect(
+      analysisLine({ ...base, counts: { tracks: 10, analyzed: 4, pending: 6 }, job: null }),
+    ).toBe('BPM, key and energy: 4 of 10 tracks done · the rest are worked out in the background');
     expect(
       analysisLine({ ...base, counts: { tracks: 0, analyzed: 0, pending: 0 }, job: null }),
     ).toBe('');
