@@ -131,7 +131,8 @@ export function RadioCard() {
       <p className={styles.stateTitle}>Visuals can’t follow this station</p>
       <p className={styles.stateBody}>
         {s.radioDirect.station} plays straight from its own server, which doesn’t let the browser
-        read the sound. Played through SYNCHRO.S instead, it can.
+        read the sound. Played through SYNCHRO.S instead, it can. The stream restarts: a second or
+        two of silence.
       </p>
       <div className={styles.stateActions}>
         <Button
@@ -150,7 +151,6 @@ export function RadioCard() {
         >
           Play through SYNCHRO.S
         </Button>
-        <span className={styles.stateNote}>restarts the stream</span>
       </div>
     </div>
   );
