@@ -164,7 +164,7 @@ function snapshot(): PlayerSnapshot {
     muted: false,
     sleep: 0,
     sleepEndsAt: 0,
-    sleepSteps: [0, 15, 'track'],
+    sleepSteps: [0, 15, 30, 45, 60, 90, 120, 'track'],
     lyrics: { synced: false, lines: 0, loading: false, status: '' },
     reportable: false,
     playlistTrack: null,
@@ -212,6 +212,7 @@ let api: RadioSessionApi & {
 };
 let fetchImpl: ReturnType<typeof vi.fn>;
 let st: RadioSessionState;
+let eng: ReturnType<typeof engine>;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const tray = <T extends HTMLElement = HTMLElement>(sel: string) =>
@@ -234,8 +235,9 @@ function boot() {
   };
   win.SoulSyncRadio = api;
   // the engine sets the player's data-source; the radio chrome reads it
+  eng = engine();
   player = bootPlayer({
-    engine: engine() as unknown as PlayerEngine,
+    engine: eng as unknown as PlayerEngine,
     fetchImpl: fetchImpl as never,
   });
   radioChrome = bootRadioChrome({
@@ -248,6 +250,10 @@ function boot() {
 beforeEach(() => {
   mountMarkup();
   localStorage.clear();
+  // the signed-in profile, as the shell's bridge says (Stations' browser copy is per profile)
+  (window as unknown as Record<string, unknown>).SoulSyncWebShellBridge = {
+    getCurrentProfileContext: () => ({ profileId: 1, isAdmin: true }),
+  };
   st = radioState();
   window.showToast = vi.fn();
   fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
@@ -362,7 +368,8 @@ describe('the tray in radio mode', () => {
     expect(tray('[data-player-radio-stop]')).toBeTruthy();
     const select = tray<HTMLSelectElement>('[data-player-rtray-streams]');
     expect(select.hidden).toBe(false);
-    expect([...select.options].map((o) => o.textContent)).toEqual(['AAC 256 kbps', 'MP3 128 kbps']);
+    // 16a: the one playing in the readout's short words, the rest as their quality
+    expect([...select.options].map((o) => o.textContent)).toEqual(['AAC 256 · relayed', 'MP3 128']);
     select.value = 'm';
     select.dispatchEvent(new Event('change', { bubbles: true }));
     expect(api.play).toHaveBeenCalledWith('nts-1', expect.objectContaining({ streamId: 'm' }));
@@ -469,7 +476,7 @@ describe('the list: Heard today / Recent stations', () => {
 
   it('switches to Recent stations (the arrow keys too) and plays one from it', async () => {
     localStorage.setItem(
-      RECENT_STATIONS_KEY,
+      `${RECENT_STATIONS_KEY}:1`,
       JSON.stringify([
         { id: 'fip-jazz', name: 'FIP Jazz', logo_url: '', genre: 'Jazz', city: 'Paris' },
         { id: 'nts-1', name: 'NTS 1', logo_url: '', genre: 'Eclectic', city: 'London' },
@@ -681,5 +688,273 @@ describe('the meter fills its width', () => {
       raf.mockRestore();
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('phase B1: the tray as drawn (16a–16e)', () => {
+  it('names the second tab "Stations" beside 6a’s labelled Collapse (141)', () => {
+    boot();
+    player!.expand();
+    expect(tray('[data-player-rtray-tab="recent"]').textContent).toBe('Stations');
+    const collapse = tray('.ss-player-collapse');
+    const music = $('#ss-player-tray > .ss-player-list .ss-player-collapse');
+    // the music list's button: the word, then the chevron; no title standing in for it
+    expect(collapse.textContent!.trim()).toBe('Collapse');
+    expect(collapse.className).toBe(music.className);
+    expect(collapse.hasAttribute('title')).toBe(false);
+    expect(collapse.querySelector('svg')).toBeTruthy();
+  });
+
+  it('says the station’s kind and quality under its name in the bar (16d)', () => {
+    boot();
+    window.dispatchEvent(new CustomEvent('ss:player', { detail: { reason: 'track' } }));
+    expect($('.ss-player-bar [data-player-meta]').textContent).toBe('Eclectic · AAC 256');
+  });
+
+  it('puts the action, the Sleep timer and "…" in the record’s row (147)', () => {
+    boot();
+    player!.expand();
+    radioChrome!.draw();
+    const row = tray('.ss-player-rtray-controls');
+    const kids = [...row.children].map((c) =>
+      (c as HTMLElement).dataset.playerRtrayAction !== undefined
+        ? 'action'
+        : (c as HTMLElement).dataset.playerSleep !== undefined
+          ? 'sleep'
+          : (c as HTMLElement).dataset.playerMore !== undefined
+            ? 'more'
+            : c.className,
+    );
+    expect(kids).toEqual(['action', 'sleep', 'more']);
+    expect(row.querySelector('[data-player-sleep]')!.getAttribute('aria-label')).toBe(
+      'Sleep timer, off',
+    );
+  });
+
+  it('offers a station Off and 15 to 60 minutes, and sets one', () => {
+    boot();
+    player!.expand();
+    tray('[data-player-sleep]').click();
+    const menu = $('#ss-player-sleep-menu');
+    expect(menu.hidden).toBe(false);
+    const labels = [...menu.querySelectorAll('[role="menuitemradio"], [role="radio"]')].map((b) =>
+      b.textContent!.trim(),
+    );
+    expect(labels).toEqual(['Off', '15 minutes', '30 minutes', '45 minutes', '1 hour']);
+    expect(menu.textContent).not.toContain('end of this track');
+    const thirty = [
+      ...menu.querySelectorAll<HTMLElement>('[role="menuitemradio"], [role="radio"]'),
+    ].find((b) => b.textContent!.includes('30'))!;
+    thirty.click();
+    expect(eng.setSleep).toHaveBeenCalledWith(30);
+  });
+
+  it('says the ready sentence under the row, and the scan’s card in its place (144)', async () => {
+    st = radioState();
+    st.nowPlaying!.scan = {
+      available: true,
+      reason: null,
+      services: ['acoustid', 'audd'],
+    } as never;
+    boot();
+    player!.expand();
+    radioChrome!.draw();
+    const words = tray('[data-player-rtray-scanwords]');
+    expect(words.hidden).toBe(false);
+    expect(words.dataset.kind).toBe('line');
+    expect(words.textContent).toBe(
+      'Not the track you hear? Scan now listens for 10 seconds and asks AcoustID, then AudD.',
+    );
+    st = { ...st, scanError: 'AudD refused the key · an admin can fix it in Settings → Radio' };
+    radioChrome!.draw();
+    expect(words.dataset.kind).toBe('card');
+    expect(words.querySelector('.ss-player-rtray-scantitle')!.textContent).toBe('Scan didn’t work');
+    const line = words.querySelector<HTMLElement>('.ss-player-rtray-scanline')!;
+    expect(line.dataset.tone).toBe('danger');
+    expect(words.textContent).not.toContain('Not the track you hear?');
+  });
+
+  it('heads the "…" menu "More for this station", with Show stepping aside (16b)', () => {
+    boot();
+    player!.expand();
+    tray('[data-player-more]').click();
+    const menu = $('#ss-player-menu');
+    expect(menu.querySelector('[data-player-menu-head]')!.textContent).toBe(
+      'More for this station',
+    );
+    expect(menu.querySelector<HTMLElement>('[data-player-menu-show]')!.hidden).toBe(true);
+  });
+
+  it('says "Your link" alone on a link’s row', async () => {
+    localStorage.setItem(
+      `${RECENT_STATIONS_KEY}:1`,
+      JSON.stringify([
+        { id: 'link-1', name: 'Lowlands Radio', source: 'your_link', added_by: 'ross' },
+      ]),
+    );
+    boot();
+    player!.expand();
+    await flush();
+    tray('[data-player-rtray-tab="recent"]').click();
+    const rows = [
+      ...document.querySelectorAll('[data-player-radio-tray] .ss-player-rtray-row-station'),
+    ];
+    const link = rows.find((r) => r.textContent!.includes('Lowlands Radio'))!;
+    expect(link.querySelector('.ss-player-rtray-meta')!.textContent).toBe('Your link');
+  });
+});
+
+describe('Stations from the server, per profile (142, 163)', () => {
+  const kexp = {
+    ...station({ id: 'kexp', name: 'KEXP', city: 'Seattle', logo_url: '' }),
+    played_at: 1_700_000_500,
+  };
+
+  function withRecent(stations: unknown[], posted: string[] = []) {
+    const orig = fetchImpl.getMockImplementation() as (
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    fetchImpl.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.includes('/api/radio/recent') && init?.method === 'POST') {
+        posted.push(init.body as string);
+        return respond(200, { success: true, station_id: 'nts-1' });
+      }
+      if (url.includes('/api/radio/recent')) return respond(200, { success: true, stations });
+      return orig(url, init);
+    });
+    return posted;
+  }
+
+  it('paints this browser’s list first, then merges the server’s and keeps it', async () => {
+    localStorage.setItem(
+      `${RECENT_STATIONS_KEY}:1`,
+      JSON.stringify([{ id: 'fip-jazz', name: 'FIP Jazz', played_at: 1_700_000_100 }]),
+    );
+    withRecent([kexp]);
+    boot();
+    player!.expand();
+    await flush();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining('/api/radio/recent'),
+      expect.anything(),
+    );
+    tray('[data-player-rtray-tab="recent"]').click();
+    const names = [
+      ...document.querySelectorAll('[data-player-radio-tray] .ss-player-rtray-row-station'),
+    ].map((r) => r.querySelector('.ss-player-rtray-title')!.textContent);
+    // NTS 1 is playing (just now), KEXP from the server, FIP Jazz from this browser
+    expect(names).toEqual(['NTS 1', 'KEXP', 'FIP Jazz']);
+    const kept = JSON.parse(localStorage.getItem(`${RECENT_STATIONS_KEY}:1`)!) as { id: string }[];
+    expect(kept.map((s) => s.id)).toEqual(['nts-1', 'kexp', 'fip-jazz']);
+  });
+
+  it('keeps this browser’s list when the server doesn’t answer', async () => {
+    localStorage.setItem(
+      `${RECENT_STATIONS_KEY}:1`,
+      JSON.stringify([{ id: 'fip-jazz', name: 'FIP Jazz' }]),
+    );
+    boot();
+    player!.expand();
+    await flush();
+    tray('[data-player-rtray-tab="recent"]').click();
+    expect(
+      document.querySelectorAll('[data-player-radio-tray] .ss-player-rtray-row-station'),
+    ).toHaveLength(2);
+  });
+
+  it('counts the station once it has played 30 s, once per session', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const posted = withRecent([]);
+      boot();
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(posted).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(posted).toEqual([JSON.stringify({ session_id: 's1' })]);
+      radioChrome!.draw();
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(posted).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('doesn’t count a station stopped before 30 s', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const posted = withRecent([]);
+      boot();
+      await vi.advanceTimersByTimeAsync(10_000);
+      st = { ...st, status: 'idle', sessionId: null } as RadioSessionState;
+      window.dispatchEvent(new CustomEvent('ss:player', { detail: { reason: 'state' } }));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(posted).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('Stations in this browser are kept per profile (review)', () => {
+  type Bridge = { getCurrentProfileContext: () => { profileId: number } | null };
+  let pid = 1;
+  const kexp = { ...station({ id: 'kexp', name: 'KEXP', logo_url: '' }), played_at: 1_700_000_500 };
+  const fip = {
+    ...station({ id: 'fip-jazz', name: 'FIP Jazz', logo_url: '' }),
+    played_at: 1_700_000_400,
+  };
+
+  beforeEach(() => {
+    pid = 1;
+    (window as unknown as Record<string, Bridge>).SoulSyncWebShellBridge = {
+      getCurrentProfileContext: () => ({ profileId: pid }),
+    };
+    const orig = fetchImpl.getMockImplementation() as (
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    fetchImpl.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.includes('/api/radio/recent')
+        ? respond(200, { success: true, stations: pid === 1 ? [kexp] : [fip] })
+        : orig(url, init),
+    );
+  });
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).SoulSyncWebShellBridge;
+  });
+
+  const names = () =>
+    [...document.querySelectorAll('[data-player-radio-tray] .ss-player-rtray-row-station')].map(
+      (r) => r.querySelector('.ss-player-rtray-title')!.textContent,
+    );
+
+  it('keeps each profile’s copy under its own key, and drops the old shared one', async () => {
+    localStorage.setItem(
+      RECENT_STATIONS_KEY,
+      JSON.stringify([{ id: 'x', name: 'Someone else’s' }]),
+    );
+    boot();
+    player!.expand();
+    await flush();
+    expect(localStorage.getItem(RECENT_STATIONS_KEY)).toBeNull();
+    const kept = JSON.parse(localStorage.getItem(`${RECENT_STATIONS_KEY}:1`)!) as { id: string }[];
+    expect(kept.map((s) => s.id)).toEqual(['nts-1', 'kexp']);
+    tray('[data-player-rtray-tab="recent"]').click();
+    expect(names()).not.toContain('Someone else’s');
+  });
+
+  it('a profile switch reads the other profile’s list, and never shows the first one’s', async () => {
+    boot();
+    player!.expand();
+    await flush();
+    tray('[data-player-rtray-tab="recent"]').click();
+    expect(names()).toContain('KEXP');
+    pid = 2;
+    window.dispatchEvent(new CustomEvent('ss:webui-profile-context-changed'));
+    await flush();
+    expect(names()).toContain('FIP Jazz');
+    expect(names()).not.toContain('KEXP');
+    expect(localStorage.getItem(`${RECENT_STATIONS_KEY}:2`)).not.toContain('kexp');
   });
 });

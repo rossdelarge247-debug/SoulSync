@@ -43,6 +43,13 @@
  *   while it runs, volume and output. The list: Heard today (N) / Recent
  *   stations, the auto-add switch row (9c's confirm swaps in), and "All of
  *   it on NTS 1’s page".
+ * - Phase B1 (boards 16a–16e, HANDOFF 141, 142, 144, 147): the second tab
+ *   is "Stations" beside 6a's labelled Collapse; the record's row is the
+ *   action, the Sleep timer's moon (player.ts wires it; 15–60 min, no "End
+ *   of track") and a borderless "…"; under the deck's row, the ready
+ *   sentence or the scan's card in its place; Stations is the profile's
+ *   list from the server (GET /api/radio/recent, counted once a station has
+ *   played 30 s: POST /api/radio/recent), merged over this browser's copy.
  * - The meter's bars are counted from its width (ResizeObserver), in the bar
  *   and the deck, so it fills the room it has (Ross, 2026-10-23).
  * - The Visuals overlay's header names the identified track and the station.
@@ -60,7 +67,6 @@ import type { HeardItem, HeardResponse } from '@/features/radio/radio.types';
 
 import {
   agoWords,
-  cardSubline,
   heardFold,
   heardRowView,
   heardToday,
@@ -69,12 +75,20 @@ import {
   playerAction,
   secondsSince,
   stationPossessive,
+  stationRowLine,
+  streamChoice,
   streamReadout,
 } from '@/features/radio/radio.format';
 import {
+  dropSharedRecent,
+  keepRecentStations,
+  mergeRecent,
   readRecentStations,
+  RECENT_AFTER_MS,
   recentAsStation,
+  recentStationsKey,
   rememberStation,
+  serverRecent,
   type RecentStation,
 } from '@/features/radio/radio.recent';
 import {
@@ -83,6 +97,7 @@ import {
   scanAnswer,
   scanButton,
   scanPanel,
+  scanReadySentence,
   scanTrouble,
   sheetNowPlaying,
   sheetScanWords,
@@ -241,6 +256,20 @@ export function sheetStationLine(st: RadioSessionState | null): string {
       : [q.codec, q.bitrate_kbps || ''].filter(Boolean).join(' ')
     : '';
   return [kind, place, quality].filter(Boolean).join(' · ');
+}
+
+/** The bar's line under the station's name (16d): "Eclectic · AAC 256", no place. */
+export function barStationLine(st: RadioSessionState | null): string {
+  const station = st?.station;
+  if (!station) return '';
+  const kind = station.source === 'your_link' ? 'Your link' : station.genre || station.kind_label;
+  const q = st?.stream ?? station.quality;
+  const quality = q
+    ? q.lossless
+      ? q.codec || 'FLAC'
+      : [q.codec, q.bitrate_kbps || ''].filter(Boolean).join(' ')
+    : '';
+  return [kind, quality].filter(Boolean).join(' · ');
 }
 
 function go(win: Window, href: `/${string}`): void {
@@ -1055,6 +1084,20 @@ export function bootRadioChrome(
       return null;
     }
   })();
+  // this browser's copy of Stations is the profile's own (review of B1): the
+  // key names the profile, and the copy kept before that, shared by every
+  // profile on the browser, is dropped
+  const recentStore = (): string | null =>
+    recentStationsKey(
+      (
+        win as Window & {
+          SoulSyncWebShellBridge?: {
+            getCurrentProfileContext?: () => { profileId?: number | null } | null;
+          };
+        }
+      ).SoulSyncWebShellBridge?.getCurrentProfileContext?.()?.profileId ?? null,
+    );
+  dropSharedRecent(storage);
   let trayTab: 'heard' | 'recent' = 'heard';
   let heard: {
     stationId: string;
@@ -1244,7 +1287,7 @@ export function bootRadioChrome(
     const text = el(doc, 'span', 'ss-player-rtray-text');
     text.append(
       el(doc, 'span', 'ss-player-rtray-title', s.name),
-      el(doc, 'span', 'ss-player-rtray-meta', cardSubline(recentAsStation(s))),
+      el(doc, 'span', 'ss-player-rtray-meta', stationRowLine(recentAsStation(s))),
     );
     row.append(logo, text);
     if (current) {
@@ -1266,8 +1309,12 @@ export function bootRadioChrome(
     const list = inTray('[data-player-rtray-recent-list]');
     const status = inTray('[data-player-rtray-recent-status]');
     if (!list || !status) return;
-    const items = readRecentStations(storage);
-    const key = JSON.stringify([st.station?.id, items.map((s) => [s.id, s.name, s.logo_url])]);
+    const items = readRecentStations(storage, recentStore());
+    const key = JSON.stringify([
+      recentStore(),
+      st.station?.id,
+      items.map((s) => [s.id, s.name, s.logo_url, s.source, s.added_by]),
+    ]);
     if (key === recentKey) return;
     recentKey = key;
     const focused = doc.activeElement as HTMLElement | null;
@@ -1275,13 +1322,81 @@ export function bootRadioChrome(
     if (!items.length) {
       list.replaceChildren();
       status.textContent =
-        'Stations you play in this browser show here, newest first, so you can go back to one.';
+        'Stations you play show here, newest first, on every device you use, so you can go back to one.';
       status.hidden = false;
       return;
     }
     status.hidden = true;
     list.replaceChildren(...items.map((s) => stationRow(s, s.id === st.station?.id)));
     if (keepId) list.querySelector<HTMLElement>(`[data-player-rtray-play="${keepId}"]`)?.focus();
+  }
+
+  // ── Stations on the server, per profile (HANDOFF 142, 163) ─────────────
+  // this browser's copy is the first paint; the server's list is read when
+  // the tray opens (at most once a minute) and after a station is counted,
+  // then merged over it and kept as the next first paint
+  let recentAt = 0;
+  let recentLoading = false;
+  let recentProfile = recentStore();
+  let recentTimer: ReturnType<typeof setTimeout> | null = null;
+  let recentFor = '';
+  const recentSent = new Set<string>();
+
+  async function loadRecent(): Promise<void> {
+    if (recentLoading) return;
+    recentLoading = true;
+    recentAt = Date.now();
+    const key = recentStore();
+    try {
+      const res = await fetcher(appURL('/api/radio/recent'), { credentials: 'same-origin' });
+      const body = (await res.json().catch(() => ({}))) as { stations?: unknown };
+      // an answer for the profile that asked only: a switch since then reads again
+      if (res.ok && Array.isArray(body.stations) && key === recentStore()) {
+        keepRecentStations(
+          storage,
+          key,
+          mergeRecent(readRecentStations(storage, key), serverRecent(body.stations)),
+        );
+        recentKey = '';
+        const st = radio()?.state();
+        if (st?.station) drawRecent(st);
+      }
+    } catch {
+      // the browser's own list stays
+    } finally {
+      recentLoading = false;
+    }
+  }
+
+  /** After 30 s of play the station counts for this profile, once per session. */
+  function scheduleRecent(st: RadioSessionState): void {
+    const sid = st.status === 'playing' && st.sessionId ? st.sessionId : '';
+    if (sid === recentFor) return;
+    if (recentTimer) clearTimeout(recentTimer);
+    recentTimer = null;
+    recentFor = sid;
+    if (!sid || recentSent.has(sid)) return;
+    recentTimer = setTimeout(() => {
+      recentTimer = null;
+      void sendRecent(sid);
+    }, RECENT_AFTER_MS);
+  }
+
+  async function sendRecent(sid: string): Promise<void> {
+    const now = radio()?.state();
+    if (now?.sessionId !== sid || now.status !== 'playing') return;
+    recentSent.add(sid);
+    try {
+      const res = await fetcher(appURL('/api/radio/recent'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sid }),
+      });
+      if (res.ok) await loadRecent();
+    } catch {
+      // counted next time it plays
+    }
   }
 
   function setAttr(node: Element | null, name: string, value: string): void {
@@ -1388,6 +1503,12 @@ export function bootRadioChrome(
         b.setAttribute('aria-label', 'Add to Wanted. Nothing identified to add yet.');
         action = b;
       }
+      // with the Sleep timer running beside it the row is short: "Add" stays,
+      // " to Wanted" steps aside (CSS), its full name kept for a screen reader
+      if (action.textContent === 'Add to Wanted') {
+        if (!action.hasAttribute('aria-label')) action.setAttribute('aria-label', 'Add to Wanted');
+        action.replaceChildren('Add', el(doc, 'span', 'ss-player-rtray-addmore', ' to Wanted'));
+      }
       actionBox.replaceChildren(action);
       restoreFocus(actionBox, keep);
     }
@@ -1396,19 +1517,25 @@ export function bootRadioChrome(
     const select = inTray<HTMLSelectElement>('[data-player-rtray-streams]');
     if (select) {
       const streams = station.streams ?? [];
-      const key = JSON.stringify([station.id, streams.map((x) => [x.id, x.label])]);
+      const cur = st.stream?.id ?? '';
+      // 16a: "AAC 256 · relayed" for the one playing, "MP3 128" for the rest
+      const key = JSON.stringify([station.id, cur, st.mode, streams.map((x) => [x.id, x.label])]);
       if (key !== streamsKey) {
         streamsKey = key;
         select.replaceChildren(
           ...streams.map((x) => {
-            const o = el(doc, 'option', '', x.label) as HTMLOptionElement;
+            const o = el(
+              doc,
+              'option',
+              '',
+              streamChoice(x, x.id === cur ? st.mode : null),
+            ) as HTMLOptionElement;
             o.value = x.id;
             return o;
           }),
         );
       }
       setHidden(select, streams.length < 2);
-      const cur = st.stream?.id ?? '';
       if (doc.activeElement !== select && cur && select.value !== cur) select.value = cur;
     }
     const scanBox = inTray('[data-player-rtray-scan]');
@@ -1421,26 +1548,33 @@ export function bootRadioChrome(
     }
     const words = inTray('[data-player-rtray-scanwords]');
     if (words) {
-      const running = panelView?.state === 'listening' || panelView?.state === 'identifying';
+      // one thing under the row (16a, 16c; 144): the scan's card while it runs
+      // and after it found nothing or failed, else the ready sentence
       const parts: HTMLElement[] = [];
-      if (running && panelView!.progress != null) {
-        const bar = el(doc, 'span', 'ss-player-radio-scan-progress');
-        bar.setAttribute('aria-hidden', 'true');
-        const fill = el(doc, 'span');
-        fill.style.width = `${Math.round(panelView!.progress * 100)}%`;
-        bar.append(fill);
-        parts.push(bar);
-      }
-      const said = sheetScanWords(panelView, services);
-      if (said) {
-        const p = el(doc, 'p', '', said.text);
-        if (said.danger) p.dataset.tone = 'danger';
-        parts.push(p);
+      let kind: 'card' | 'line' = 'line';
+      if (panelView && panelView.state !== 'identified') {
+        kind = 'card';
+        parts.push(el(doc, 'p', 'ss-player-rtray-scantitle', panelView.title));
+        if (panelView.progress != null) {
+          const bar = el(doc, 'span', 'ss-player-radio-scan-progress');
+          bar.setAttribute('aria-hidden', 'true');
+          const fill = el(doc, 'span');
+          fill.style.width = `${Math.round(panelView.progress * 100)}%`;
+          bar.append(fill);
+          parts.push(bar);
+        } else if (panelView.line) {
+          const p = el(doc, 'p', 'ss-player-rtray-scanline', panelView.line);
+          if (panelView.danger) p.dataset.tone = 'danger';
+          parts.push(p);
+        }
       } else if (!panelView) {
         const sb = scanButton(st);
         const trouble = sb.disabled ? null : scanTrouble(st.nowPlaying?.scan);
         if (trouble) parts.push(el(doc, 'p', '', trouble.sheet));
+        else if (!sb.disabled && services.length)
+          parts.push(el(doc, 'p', '', scanReadySentence(services)));
       }
+      if (words.dataset.kind !== kind) words.dataset.kind = kind;
       words.replaceChildren(...parts);
       setHidden(words, !parts.length);
     }
@@ -1505,10 +1639,12 @@ export function bootRadioChrome(
     if (st.station && stationInfo?.id !== st.station.id) void loadStation(st.station.id);
     if (st.station && st.status === 'playing' && rememberedId !== st.station.id) {
       rememberedId = st.station.id;
-      rememberStation(storage, st.station);
+      rememberStation(storage, recentStore(), st.station);
       recentKey = '';
       drawRecent(st);
     }
+    scheduleRecent(st);
+    if (trayOpen() && !recentLoading && Date.now() - recentAt > 60_000) void loadRecent();
     // Heard today: read when the tray opens or the station changes, and again
     // when the station names a new track (at most every 15 s)
     if (st.station && trayOpen()) {
@@ -1559,7 +1695,9 @@ export function bootRadioChrome(
     const playBtn = target?.closest<HTMLElement>('[data-player-rtray-play]');
     if (playBtn) {
       event.preventDefault();
-      const s = readRecentStations(storage).find((x) => x.id === playBtn.dataset.playerRtrayPlay);
+      const s = readRecentStations(storage, recentStore()).find(
+        (x) => x.id === playBtn.dataset.playerRtrayPlay,
+      );
       if (s) await radio()?.play(s.id, { station: recentAsStation(s) });
       return;
     }
@@ -1687,7 +1825,7 @@ export function bootRadioChrome(
       }
     }
   };
-  // the tabs: the arrow keys move between Heard today and Recent stations
+  // the tabs: the arrow keys move between Heard today and Stations
   const onKey = (event: Event) => {
     const ev = event as KeyboardEvent;
     const tab = (ev.target as Element | null)?.closest?.('[data-player-rtray-tab]');
@@ -1733,6 +1871,19 @@ export function bootRadioChrome(
   layout?.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-player'] });
   win.addEventListener(RADIO_EVENT, draw);
   win.addEventListener('ss:player', draw);
+  // a profile switch: that profile's own copy first, then its server list
+  const onProfile = () => {
+    const key = recentStore();
+    if (key === recentProfile) return;
+    recentProfile = key;
+    recentKey = '';
+    recentAt = 0;
+    recentLoading = false;
+    const st = radio()?.state();
+    if (st?.station) drawRecent(st);
+    if (trayOpen()) void loadRecent();
+  };
+  win.addEventListener('ss:webui-profile-context-changed', onProfile);
   cleanups.push(
     () => root.removeEventListener('click', onClick),
     () => root.removeEventListener('keydown', onKey),
@@ -1744,6 +1895,7 @@ export function bootRadioChrome(
     () => root.removeEventListener('input', onInput),
     () => win.removeEventListener(RADIO_EVENT, draw),
     () => win.removeEventListener('ss:player', draw),
+    () => win.removeEventListener('ss:webui-profile-context-changed', onProfile),
   );
   selectTab('heard');
   draw();
@@ -1753,6 +1905,7 @@ export function bootRadioChrome(
       cleanups.forEach((fn) => fn());
       if (meterFrame) win.cancelAnimationFrame(meterFrame);
       if (tick) clearInterval(tick);
+      if (recentTimer) clearTimeout(recentTimer);
     },
   };
 }

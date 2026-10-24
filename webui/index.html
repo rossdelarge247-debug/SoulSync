@@ -12803,8 +12803,8 @@
                  three columns filled with the station: the record (the logo,
                  Now playing, the readout, Add or the tag, "…"), the deck (the
                  level meter, Live and the time listened, Stop, the stream,
-                 Scan now, volume, output) and the list (Heard today / Recent
-                 stations, auto-add, the station's page). src/shell/player-radio.ts
+                 Scan now, volume, output) and the list (Heard today /
+                 Stations, auto-add, the station's page). Board 16a. src/shell/player-radio.ts
                  fills it; the sheet's card above stays the phone's. -->
             <div class="ss-player-radio-tray" data-player-radio-tray>
                 <div class="ss-player-record ss-player-rtray-record">
@@ -12821,14 +12821,18 @@
                             <p class="ss-player-record-line" data-player-rtray-line></p>
                         </div>
                     </div>
-                    <dl class="ss-player-readout">
+                    <dl class="ss-player-readout ss-player-readout--plain">
                         <div><dt>Stream</dt><dd data-player-rtray-stream>—</dd></div>
                         <div><dt>Path</dt><dd data-player-rtray-path>—</dd></div>
                     </dl>
-                    <div class="ss-player-record-controls">
+                    <!-- 16a: the action fills the row, then the Sleep timer (147) and "…" -->
+                    <div class="ss-player-record-controls ss-player-rtray-controls">
                         <span class="ss-player-rtray-action" data-player-rtray-action></span>
-                        <span class="ss-player-spacer"></span>
-                        <button type="button" class="ss-player-btn ss-player-btn--outline ss-player-more" data-player-more aria-haspopup="true" aria-expanded="false" aria-controls="ss-player-menu" aria-label="More">
+                        <button type="button" class="ss-player-btn ss-player-btn--outline ss-player-sleep" data-player-sleep aria-haspopup="true" aria-expanded="false" aria-controls="ss-player-sleep-menu" aria-pressed="false" aria-label="Sleep timer" title="Sleep timer">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+                            <span class="ss-player-sleep-left" data-player-sleep-left hidden></span>
+                        </button>
+                        <button type="button" class="ss-player-btn ss-player-more ss-player-rtray-more" data-player-more aria-haspopup="true" aria-expanded="false" aria-controls="ss-player-menu" aria-label="More">
                             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
                         </button>
                     </div>
@@ -12870,10 +12874,11 @@
                     <div class="ss-player-list-head">
                         <div class="ss-player-tabs" role="tablist" aria-label="Lists">
                             <button type="button" role="tab" class="ss-player-option" id="ss-player-rtab-heard" data-player-rtray-tab="heard" aria-controls="ss-player-rpanel-heard" aria-selected="true">Heard today <span class="ss-player-count" data-player-rtray-heard-count>0</span></button>
-                            <button type="button" role="tab" class="ss-player-option" id="ss-player-rtab-recent" data-player-rtray-tab="recent" aria-controls="ss-player-rpanel-recent" aria-selected="false" tabindex="-1">Recent stations</button>
+                            <button type="button" role="tab" class="ss-player-option" id="ss-player-rtab-recent" data-player-rtray-tab="recent" aria-controls="ss-player-rpanel-recent" aria-selected="false" tabindex="-1">Stations</button>
                         </div>
                         <span class="ss-player-spacer"></span>
-                        <button type="button" class="ss-player-ghost ss-player-collapse" data-player-toggle aria-expanded="true" aria-controls="ss-player-tray" title="Collapse"><span class="ss-player-collapse-word">Collapse</span>
+                        <!-- 141: 6a's labelled Collapse, as the music list has it -->
+                        <button type="button" class="ss-player-ghost ss-player-collapse" data-player-toggle aria-expanded="true" aria-controls="ss-player-tray">Collapse
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
                         </button>
                     </div>
@@ -12898,14 +12903,14 @@
              meta on the right; keys as kbd. Add to playlist and Sleep timer are the
              record's own buttons now. -->
         <div class="ss-player-menu" id="ss-player-menu" role="group" aria-label="More for this track" hidden>
-            <p class="ss-player-menu-label">Playback</p>
+            <p class="ss-player-menu-label" data-player-menu-head>Playback</p>
             <button type="button" class="ss-player-menu-item" data-player-menu="crossfade" aria-pressed="false" data-player-menu-music>Crossfade <span class="ss-player-menu-state" data-player-crossfade-state>Off</span></button>
             <button type="button" class="ss-player-menu-item" data-player-menu="speed" aria-expanded="false" aria-controls="ss-player-speed-list" data-player-menu-music>Speed <span class="ss-player-menu-state" data-player-speed-state>1.0×</span></button>
             <div class="ss-player-choices" id="ss-player-speed-list" role="radiogroup" aria-label="Speed" hidden></div>
             <button type="button" class="ss-player-menu-item" id="np-v2-eq-btn" aria-pressed="false">Equalizer <span class="ss-player-menu-state" data-player-eq-state>Off</span></button>
             <button type="button" class="ss-player-menu-item" id="np-v2-ab-btn" aria-pressed="false" data-player-menu-music>A–B loop <span class="ss-player-menu-state np-v2-ab-state">Off</span></button>
             <button type="button" class="ss-player-menu-item" id="np-radio-btn" aria-pressed="false" data-player-menu-music>Add similar tracks when the queue ends <span class="ss-player-menu-state" data-player-radio-state>Off</span></button>
-            <p class="ss-player-menu-label ss-player-menu-label--rule">Show</p>
+            <p class="ss-player-menu-label ss-player-menu-label--rule" data-player-menu-show>Show</p>
             <button type="button" class="ss-player-menu-item" data-player-menu="lyrics">Lyrics <span class="ss-player-menu-state" data-player-lyrics-state></span></button>
             <button type="button" class="ss-player-menu-item" data-player-menu="details">Track details</button>
             <button type="button" class="ss-player-menu-item" data-player-menu="visuals" aria-keyshortcuts="F">Visuals <kbd class="ss-player-menu-kbd">F</kbd><span class="ss-player-menu-state" data-player-visuals-state hidden>Play something first</span></button>

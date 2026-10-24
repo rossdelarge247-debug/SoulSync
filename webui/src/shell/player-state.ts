@@ -417,6 +417,18 @@ export function sleepChoiceLabel(value: number | 'track'): string {
 }
 
 /**
+ * The timer's choices for what's playing (147, 16b): a station gets Off and
+ * 15 to 60 minutes; "End of track" and the hours are music's.
+ */
+export function sleepStepsFor(
+  kind: string | null | undefined,
+  steps: readonly (number | 'track')[],
+): (number | 'track')[] {
+  if (kind !== 'radio') return [...steps];
+  return steps.filter((v) => v !== 'track' && v <= 60);
+}
+
+/**
  * The record's Sleep timer button (HANDOFF 47): the time left beside the icon
  * while it runs ("23 min", "End of track"), nothing while it's off.
  */

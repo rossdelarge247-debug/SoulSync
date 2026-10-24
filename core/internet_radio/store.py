@@ -15,6 +15,10 @@
   (and how many found the track), per local month. Automatic AudD's daily
   count shares it: rows with ``provider`` ``audd_auto`` and a local day
   (``2026-10-23``) in ``month``, so they never mix with a month's counts.
+- ``radio_recent``: the stations each profile played last (the expanded
+  player's Stations tab), at most ``RECENT_KEEP`` per profile, written once a
+  station has played for ``RECENT_AFTER_SECONDS``. A directory station keeps
+  a snapshot of itself, as on ``radio_favourites``.
 - ``radio_scan_keys``: when each service's key was saved through Settings →
   Radio, and what the service last said of it (``ok``, ``bad_key`` or
   ``out_of_credit``). Never the key.
@@ -112,6 +116,39 @@ def station_snapshot(db, station_id: str) -> Optional[Dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
+# ── recent stations ──────────────────────────────────────────────────────────
+
+RECENT_KEEP = 20            # rows kept per profile
+RECENT_AFTER_SECONDS = 30   # a station counts as played once it has played this long
+
+
+def record_recent(db, profile_id: int, station_id: str, snapshot: Optional[Dict[str, Any]] = None,
+                  played_at: Optional[int] = None) -> None:
+    """The station goes to the front of this profile's list (once), and the
+    list keeps its newest ``RECENT_KEEP``."""
+    pid = int(profile_id)
+    with db._get_connection() as conn:
+        conn.execute("INSERT INTO radio_recent (profile_id, station_id, station_json, played_at) "
+                     "VALUES (?, ?, ?, ?) ON CONFLICT(profile_id, station_id) DO UPDATE SET "
+                     "played_at = excluded.played_at, "
+                     "station_json = COALESCE(excluded.station_json, radio_recent.station_json)",
+                     (pid, station_id, json.dumps(snapshot) if snapshot else None,
+                      int(played_at if played_at is not None else _now())))
+        conn.execute("DELETE FROM radio_recent WHERE profile_id = ? AND station_id NOT IN ("
+                     "SELECT station_id FROM radio_recent WHERE profile_id = ? "
+                     "ORDER BY played_at DESC, station_id LIMIT ?)", (pid, pid, RECENT_KEEP))
+        conn.commit()
+
+
+def recent_rows(db, profile_id: int, limit: int = RECENT_KEEP) -> List[Dict[str, Any]]:
+    """This profile's stations, newest first."""
+    with db._get_connection() as conn:
+        rows = conn.execute("SELECT station_id, station_json, played_at FROM radio_recent WHERE profile_id = ? "
+                            "ORDER BY played_at DESC, station_id LIMIT ?",
+                            (int(profile_id), max(1, min(int(limit), RECENT_KEEP)))).fetchall()
+    return [{"station_id": r[0], "station_json": r[1], "played_at": int(r[2])} for r in rows]
+
+
 # ── your links ───────────────────────────────────────────────────────────────
 
 _LINK_COLS = ("id, name, url, kind, codec, bitrate_kbps, sends_titles, allows_direct, check_ok, checked_at, "
@@ -174,6 +211,7 @@ def remove_link(db, link_id: int) -> bool:
         cur = conn.execute("DELETE FROM radio_links WHERE id = ?", (int(link_id),))
         sid = f"link-{int(link_id)}"
         conn.execute("DELETE FROM radio_favourites WHERE station_id = ?", (sid,))
+        conn.execute("DELETE FROM radio_recent WHERE station_id = ?", (sid,))
         conn.execute("UPDATE radio_auto_add SET enabled = 0 WHERE station_id = ?", (sid,))
         conn.commit()
         return cur.rowcount > 0

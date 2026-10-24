@@ -437,6 +437,11 @@ export function askWords(services: readonly ScanService[]): string {
     : 'the identification services';
 }
 
+/** The tray's ready sentence under Scan now (15b, 16a; HANDOFF 130). */
+export function scanReadySentence(services: readonly ScanService[]): string {
+  return `Not the track you hear? Scan now listens for 10 seconds and asks ${askWords(services)}.`;
+}
+
 /** What each service calls its key. */
 const KEY_WORDS: Record<ScanService, string> = {
   acoustid: 'its key',

@@ -76,7 +76,7 @@ function setup(results: string[] = ['played']) {
     engine: () => engine,
     win: window,
   });
-  return { session, calls, plays, engine };
+  return { session, calls, plays, engine, fetchImpl };
 }
 
 describe('the radio session', () => {
@@ -136,6 +136,23 @@ describe('the radio session', () => {
     expect(session.state().status).toBe('idle');
     expect(calls.at(-1)).toMatchObject({ body: { session_id: 's-direct' } });
     expect(engine.stop).toHaveBeenCalled();
+    session.dispose();
+  });
+
+  it('stops the player before the server answers, so a hung server can’t keep it playing', async () => {
+    const { session, engine, fetchImpl } = setup();
+    await session.play('somafm-dronezone');
+    const orig = fetchImpl.getMockImplementation()!;
+    fetchImpl.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) =>
+      (input instanceof Request ? input.url : input.toString()).endsWith('/api/radio/stop')
+        ? new Promise<Response>(() => {})
+        : orig(input, init),
+    );
+    void session.stop();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(engine.stop).toHaveBeenCalled();
+    expect(session.state().status).toBe('idle');
     session.dispose();
   });
 

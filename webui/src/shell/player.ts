@@ -39,7 +39,7 @@ import {
   type OutputSupport,
 } from './player-output';
 import { bootQueueQuality } from './player-queue-quality';
-import { radioMiniLines } from './player-radio';
+import { barStationLine, radioMiniLines } from './player-radio';
 import {
   albumLine,
   barCount,
@@ -62,6 +62,7 @@ import {
   sleepButtonLabel,
   sleepButtonText,
   sleepChoiceLabel,
+  sleepStepsFor,
   sourceLabel,
   sourceView,
   spokenRecentMeta,
@@ -1007,6 +1008,13 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     setHidden(item('details'), radio);
     for (const row of menu.querySelectorAll('[data-player-menu-music]')) setHidden(row, radio);
     setAttr(menu, 'aria-label', radio ? 'More for this station' : 'More for this track');
+    // 16b: for a station the menu has one heading, "More for this station", over
+    // Equalizer, Visuals and Keyboard shortcuts; "Show" steps aside
+    setText(
+      menu.querySelector('[data-player-menu-head]'),
+      radio ? 'More for this station' : 'Playback',
+    );
+    setHidden(menu.querySelector('[data-player-menu-show]'), radio);
     // Visuals with nothing playing: disabled-neutral with its reason (10d)
     const visualsRow = item('visuals');
     if (st.track) visualsRow?.removeAttribute('aria-disabled');
@@ -1043,6 +1051,8 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       root!.querySelector('[data-player-record="playlist"]'),
       !st.playlistTrack || typeof view.openAddToPlaylist !== 'function',
     );
+    // a station has no end of track (147): that choice doesn't carry over to one
+    if (st.kind === 'radio' && st.sleep === 'track') engine!.setSleep(0);
     const now = Date.now();
     const running = st.sleep === 'track' || Boolean(st.sleep);
     for (const b of root!.querySelectorAll<HTMLElement>('[data-player-sleep]')) {
@@ -1058,7 +1068,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     const st = snapshot;
     fillChoices(
       box,
-      st.sleepSteps.map((v) => ({
+      sleepStepsFor(st.kind, st.sleepSteps).map((v) => ({
         value: String(v),
         label: sleepChoiceLabel(v),
         checked: v === st.sleep,
@@ -1130,7 +1140,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       loadingWords && !/^\d+%$/.test(loadingWords)
         ? loadingWords
         : kind === 'radio'
-          ? artist
+          ? barStationLine(view.SoulSyncRadio?.state() ?? null) || artist
           : [
               artist,
               ro.short && kind !== 'podcast' && kind !== 'audiobook'
@@ -1530,12 +1540,15 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     closeMenus(false);
     openPlaylist(e.currentTarget as HTMLElement);
   });
-  on(root.querySelector('[data-player-sleep]'), 'click', (e) => {
-    if (!sleepMenu) return;
-    fillSleep(sleepMenu);
-    openMenu(sleepMenu, e.currentTarget as HTMLElement);
-    sleepMenu.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
-  });
+  // the record's moon, and radio's (147): the same timer and choices, less
+  // "End of track" and the hours for a station
+  for (const b of root.querySelectorAll<HTMLElement>('[data-player-sleep]'))
+    on(b, 'click', (e) => {
+      if (!sleepMenu) return;
+      fillSleep(sleepMenu);
+      openMenu(sleepMenu, e.currentTarget as HTMLElement);
+      sleepMenu.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+    });
   const sleepTick = view.setInterval(() => drawRecordControls(), 15000);
   cleanups.push(() => view.clearInterval(sleepTick));
   for (const more of root.querySelectorAll<HTMLElement>('[data-player-more]'))
