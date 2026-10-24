@@ -72,9 +72,13 @@ import {
   streamReadout,
 } from '@/features/radio/radio.format';
 import {
+  keepRecentStations,
+  mergeRecent,
   readRecentStations,
+  RECENT_AFTER_MS,
   recentAsStation,
   rememberStation,
+  serverRecent,
   type RecentStation,
 } from '@/features/radio/radio.recent';
 import {
@@ -1267,7 +1271,10 @@ export function bootRadioChrome(
     const status = inTray('[data-player-rtray-recent-status]');
     if (!list || !status) return;
     const items = readRecentStations(storage);
-    const key = JSON.stringify([st.station?.id, items.map((s) => [s.id, s.name, s.logo_url])]);
+    const key = JSON.stringify([
+      st.station?.id,
+      items.map((s) => [s.id, s.name, s.logo_url, s.source, s.added_by]),
+    ]);
     if (key === recentKey) return;
     recentKey = key;
     const focused = doc.activeElement as HTMLElement | null;
@@ -1275,13 +1282,77 @@ export function bootRadioChrome(
     if (!items.length) {
       list.replaceChildren();
       status.textContent =
-        'Stations you play in this browser show here, newest first, so you can go back to one.';
+        'Stations you play show here, newest first, on every device you use, so you can go back to one.';
       status.hidden = false;
       return;
     }
     status.hidden = true;
     list.replaceChildren(...items.map((s) => stationRow(s, s.id === st.station?.id)));
     if (keepId) list.querySelector<HTMLElement>(`[data-player-rtray-play="${keepId}"]`)?.focus();
+  }
+
+  // ── Stations on the server, per profile (HANDOFF 142, 163) ─────────────
+  // this browser's copy is the first paint; the server's list is read when
+  // the tray opens (at most once a minute) and after a station is counted,
+  // then merged over it and kept as the next first paint
+  let recentAt = 0;
+  let recentLoading = false;
+  let recentTimer: ReturnType<typeof setTimeout> | null = null;
+  let recentFor = '';
+  const recentSent = new Set<string>();
+
+  async function loadRecent(): Promise<void> {
+    if (recentLoading) return;
+    recentLoading = true;
+    recentAt = Date.now();
+    try {
+      const res = await fetcher(appURL('/api/radio/recent'), { credentials: 'same-origin' });
+      const body = (await res.json().catch(() => ({}))) as { stations?: unknown };
+      if (res.ok && Array.isArray(body.stations)) {
+        keepRecentStations(
+          storage,
+          mergeRecent(readRecentStations(storage), serverRecent(body.stations)),
+        );
+        recentKey = '';
+        const st = radio()?.state();
+        if (st?.station) drawRecent(st);
+      }
+    } catch {
+      // the browser's own list stays
+    } finally {
+      recentLoading = false;
+    }
+  }
+
+  /** After 30 s of play the station counts for this profile, once per session. */
+  function scheduleRecent(st: RadioSessionState): void {
+    const sid = st.status === 'playing' && st.sessionId ? st.sessionId : '';
+    if (sid === recentFor) return;
+    if (recentTimer) clearTimeout(recentTimer);
+    recentTimer = null;
+    recentFor = sid;
+    if (!sid || recentSent.has(sid)) return;
+    recentTimer = setTimeout(() => {
+      recentTimer = null;
+      void sendRecent(sid);
+    }, RECENT_AFTER_MS);
+  }
+
+  async function sendRecent(sid: string): Promise<void> {
+    const now = radio()?.state();
+    if (now?.sessionId !== sid || now.status !== 'playing') return;
+    recentSent.add(sid);
+    try {
+      const res = await fetcher(appURL('/api/radio/recent'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sid }),
+      });
+      if (res.ok) await loadRecent();
+    } catch {
+      // counted next time it plays
+    }
   }
 
   function setAttr(node: Element | null, name: string, value: string): void {
@@ -1509,6 +1580,8 @@ export function bootRadioChrome(
       recentKey = '';
       drawRecent(st);
     }
+    scheduleRecent(st);
+    if (trayOpen() && !recentLoading && Date.now() - recentAt > 60_000) void loadRecent();
     // Heard today: read when the tray opens or the station changes, and again
     // when the station names a new track (at most every 15 s)
     if (st.station && trayOpen()) {
@@ -1753,6 +1826,7 @@ export function bootRadioChrome(
       cleanups.forEach((fn) => fn());
       if (meterFrame) win.cancelAnimationFrame(meterFrame);
       if (tick) clearInterval(tick);
+      if (recentTimer) clearTimeout(recentTimer);
     },
   };
 }

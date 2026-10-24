@@ -1,17 +1,21 @@
 /**
- * The stations played in this browser, newest first (the expanded player's
- * "Recent stations", HANDOFF 2026-10-23 radio tray). Kept per browser like the
- * player's expanded state: there is no server list of played stations, and
- * Heard on radio only has the stations something was identified on.
+ * The stations a profile played last, newest first (the expanded player's
+ * Stations tab; HANDOFF 142, 163). The server keeps the profile's list
+ * (`GET /api/radio/recent`, written once a station has played for 30 s, so a
+ * skim doesn't count); this browser keeps its own copy under the same key as
+ * before, which is the first paint and the fallback, and is merged with the
+ * server's when it answers.
  *
  * Only what a row draws and what `play()` needs is kept: the id, the name,
- * the letters, our own logo route, and the card's line.
+ * the letters, our own logo route, the card's line, and when it was played.
  */
 
 import type { Station } from './radio.types';
 
 export const RECENT_STATIONS_KEY = 'ssRadioRecentStations';
 export const RECENT_STATIONS_MAX = 8;
+/** A station counts on the server once it has played this long (the server checks too). */
+export const RECENT_AFTER_MS = 30_000;
 
 export type RecentStation = Pick<
   Station,
@@ -25,7 +29,10 @@ export type RecentStation = Pick<
   | 'country'
   | 'source'
   | 'added_by'
->;
+> & {
+  /** Unix seconds it was last played, when known (older copies have none). */
+  played_at?: number;
+};
 
 type Store = Pick<Storage, 'getItem' | 'setItem'> | null | undefined;
 
@@ -47,6 +54,9 @@ function clean(raw: unknown): RecentStation | null {
       ? text('source')
       : 'built_in') as Station['source'],
     added_by: text('added_by') || null,
+    ...(typeof r.played_at === 'number' && Number.isFinite(r.played_at)
+      ? { played_at: r.played_at }
+      : {}),
   };
 }
 
@@ -71,17 +81,68 @@ export function readRecentStations(store: Store): RecentStation[] {
   }
 }
 
-/** Put a station at the front (once), keep the newest eight; returns the new list. */
-export function rememberStation(store: Store, station: Station | RecentStation): RecentStation[] {
-  const entry = clean(station);
-  const list = readRecentStations(store);
-  if (!entry) return list;
-  const next = [entry, ...list.filter((s) => s.id !== entry.id)].slice(0, RECENT_STATIONS_MAX);
+function save(store: Store, list: RecentStation[]): void {
   try {
-    store?.setItem(RECENT_STATIONS_KEY, JSON.stringify(next));
+    store?.setItem(RECENT_STATIONS_KEY, JSON.stringify(list));
   } catch {
     // a private window: the list lives for this page only
   }
+}
+
+/** Put a station at the front (once), keep the newest eight; returns the new list. */
+export function rememberStation(
+  store: Store,
+  station: Station | RecentStation,
+  now = Date.now(),
+): RecentStation[] {
+  const entry = clean(station);
+  const list = readRecentStations(store);
+  if (!entry) return list;
+  entry.played_at = Math.floor(now / 1000);
+  const next = [entry, ...list.filter((s) => s.id !== entry.id)].slice(0, RECENT_STATIONS_MAX);
+  save(store, next);
+  return next;
+}
+
+/** The server's answer (`GET /api/radio/recent`'s `stations`) as kept rows; anything malformed is skipped. */
+export function serverRecent(raw: unknown): RecentStation[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(clean).filter((s): s is RecentStation => s !== null);
+}
+
+/**
+ * This browser's list and the server's as one, newest first: a station on
+ * both takes the later play and the server's words (they're fresher); a
+ * station only this browser has (played under 30 s, or before the server
+ * kept a list) stays, by its own time; a row with no time goes after the
+ * timed ones, in its old order. The newest eight.
+ */
+export function mergeRecent(local: RecentStation[], server: RecentStation[]): RecentStation[] {
+  const byId = new Map<string, { s: RecentStation; at: number; order: number }>();
+  const add = (s: RecentStation, order: number, prefer: boolean) => {
+    const at = s.played_at ?? -1;
+    const had = byId.get(s.id);
+    if (!had) return void byId.set(s.id, { s, at, order });
+    const words = prefer ? s : had.s;
+    const best = Math.max(had.at, at);
+    byId.set(s.id, {
+      s: { ...words, ...(best >= 0 ? { played_at: best } : {}) },
+      at: best,
+      order: Math.min(had.order, order),
+    });
+  };
+  local.forEach((s, i) => add(s, i, false));
+  server.forEach((s, i) => add(s, local.length + i, true));
+  return [...byId.values()]
+    .sort((a, b) => b.at - a.at || a.order - b.order)
+    .map((x) => x.s)
+    .slice(0, RECENT_STATIONS_MAX);
+}
+
+/** Keep the merged list as this browser's first paint; returns it. */
+export function keepRecentStations(store: Store, list: RecentStation[]): RecentStation[] {
+  const next = list.slice(0, RECENT_STATIONS_MAX);
+  save(store, next);
   return next;
 }
 

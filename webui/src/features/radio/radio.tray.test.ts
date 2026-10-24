@@ -224,6 +224,7 @@ describe('Recent stations (kept in this browser)', () => {
       'kind_label',
       'logo_url',
       'name',
+      'played_at',
       'source',
     ]);
     expect(recentAsStation(readRecentStations(store)[0]!)).toMatchObject({
