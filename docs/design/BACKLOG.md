@@ -12,7 +12,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Classic Winamp visualisers (MilkDrop, AVS, bars and scope) | Built (AVS: later spike) | [below](#classic-winamp-visualisers-milkdrop-avs-bars-and-scope) |
 | Move your music folders to another drive | Built | [below](#move-your-music-folders-to-another-drive) |
 | AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
-| DJ area: BPM, key and mixing (Traktor Pro 3) | Exploring (stage 1: Building) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
+| DJ area: BPM, key and mixing (Traktor Pro 3) | Exploring (stage 1: Building; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
 
 ---
 
@@ -337,7 +337,7 @@ Automatic AudD (built on `feat/audd-auto`) asks AudD only when a watched station
 
 ## DJ area: BPM, key and mixing (Traktor Pro 3)
 
-**Status:** Exploring · raised by Ross, 2026-10-23 · **stage 1 is Building** on `feat/dj-stage1` (`HANDOFF.md`, "Dev, DJ stage 1"; routes in `CONTRACTS.md`, "DJ data"). Stages 2 and 3 are still being shaped.
+**Status:** Exploring · raised by Ross, 2026-10-23 · **stage 1 is Building** on `feat/dj-stage1` (`HANDOFF.md`, "Dev, DJ stage 1"; routes in `CONTRACTS.md`, "DJ data"). **Stage 2a (Export to Traktor) is Built** on `feat/dj-traktor-export` from boards 21a and 21b (`HANDOFF.md`, "Dev, DJ stage 2a (Export to Traktor)"; routes in `CONTRACTS.md`, "Export to Traktor"); it needs a check in Traktor Pro 3 on Ross's Mac before it's called done. Stages 2b, 2c and 3 follow Design's Phase D order (direction approved by Ross, 24 October).
 
 ### The problem
 
@@ -351,7 +351,7 @@ Ross DJs with **Traktor Pro 3** on a Mac. His music lives in SYNCHRO.S, but noth
    - Library filters and sorting by BPM range and key.
    - A **"Mixes well with…"** list per track: the same key, a neighbouring key on the Camelot wheel (±1) or the relative major/minor, at a similar BPM (±6%, half and double time allowed).
 2. **Stage 2 (later): Traktor Pro 3 integration,** in this order:
-   - **(a) Export** playlists, "Mixes well with" sets and recent additions as Traktor `.nml` playlist files, for Traktor's Import Playlist. The paths in the file must be the ones **the Mac sees** (for example `/Volumes/Music/…` or `/Users/ross/Music/…`), not the container's (`/app/Transfer/…`), so the export needs a container-to-Mac path mapping (the drive move's work on host paths may give it).
+   - **(a) Export** (Built, 24 October: "Export to Traktor…" on a playlist's "…", Tracks' selection bar and the Mixes panel's foot; Settings → Library → Traktor Pro 3) playlists, "Mixes well with" sets and recent additions as Traktor `.nml` playlist files, for Traktor's Import Playlist. The paths in the file must be the ones **the Mac sees** (for example `/Volumes/Music/…` or `/Users/ross/Music/…`), not the container's (`/app/Transfer/…`), so the export needs a container-to-Mac path mapping (the drive move's work on host paths may give it).
    - **(b) Read `collection.nml`** (Traktor's own library file) **read-only**, to bring in cue points, beat grids, ratings, play counts and Traktor's own BPM and key.
    - **(c) Maybe two-way sync later,** only while Traktor is closed (it rewrites `collection.nml` on quit and would overwrite a change), with a backup of the file on every write.
 3. **Stage 3 (Design exploration): a DJ area in the browser:** two decks with waveforms, sync, a crossfader, EQ and cues, plus a harmonic "next track" helper, all on Web Audio.
