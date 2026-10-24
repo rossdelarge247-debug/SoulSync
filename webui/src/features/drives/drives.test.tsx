@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DriveStatus, Move, MovePayload } from './drives.api';
@@ -15,7 +15,14 @@ import {
 } from './docker-step';
 import { awayRole, DriveAwayNotice } from './drive-away-notice';
 import { resetDriveStatus } from './drive-status';
-import { durationWords, lastSeenLine, seenWords, sizeOf, sizeWords } from './drives.format';
+import {
+  durationWords,
+  lastSeenLine,
+  oldCopiesPlace,
+  seenWords,
+  sizeOf,
+  sizeWords,
+} from './drives.format';
 import { ChangeFolderDialog, FoldersCard, mountFoldersCard, musicBytesOn } from './folders-card';
 import { draftView, MoveFlow, useMoveFlow } from './move-flow';
 import { CopyStep, DoneStep, FailureView, failureTitle, SwitchStep } from './move-run';
@@ -398,6 +405,73 @@ describe('the running flow', () => {
     );
   });
 
+  it('done names the old folder, the Mac’s path in mono where known (214)', () => {
+    const folder = {
+      role: 'library' as const,
+      label: 'Library',
+      source: '/app/Transfer',
+      dest: '/media/music-hd/Library',
+      files: 1,
+      bytes: 1,
+      copied_files: 1,
+      copied_bytes: 1,
+      verified: 1,
+    };
+    const named = move({
+      status: 'switched',
+      plan: PLAN,
+      folders: [
+        {
+          ...folder,
+          source_host_path: '/Users/ross/SoulSync/music',
+          source_volume: 'Macintosh HD',
+        },
+      ],
+    });
+    const { unmount } = render(<DoneStep {...runProps(named)} />);
+    const head = screen.getByRole('heading', { level: 3 });
+    expect(head.textContent).toBe(
+      'The old copies are still on Macintosh HD, in /Users/ross/SoulSync/music',
+    );
+    expect(within(head).getByText('/Users/ross/SoulSync/music').tagName).toBe('CODE');
+    unmount();
+    // without the Mac's names, the container's path
+    render(<DoneStep {...runProps(move({ status: 'switched', plan: PLAN, folders: [folder] }))} />);
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toBe(
+      'The old copies are still on Macintosh HD, in /app/Transfer',
+    );
+  });
+
+  it('done lists each old folder under the head when several moved (214)', () => {
+    const base = {
+      label: 'x',
+      files: 1,
+      bytes: 1,
+      copied_files: 1,
+      copied_bytes: 1,
+      verified: 1,
+    };
+    render(
+      <DoneStep
+        {...runProps(
+          move({
+            status: 'switched',
+            plan: PLAN,
+            folders: [
+              { ...base, role: 'library', source: '/app/Transfer' },
+              { ...base, role: 'downloads', source: '/app/downloads' },
+            ],
+          }),
+        )}
+      />,
+    );
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toBe(
+      'The old copies are still on Macintosh HD',
+    );
+    expect(screen.getByText('/app/Transfer').tagName).toBe('CODE');
+    expect(screen.getByText('/app/downloads').tagName).toBe('CODE');
+  });
+
   it('done lists the checks and offers removal and switching back (14i)', async () => {
     const m = move({
       status: 'switched',
@@ -438,7 +512,10 @@ describe('the running flow', () => {
     render(<DoneStep {...props} />);
     expect(screen.getByText('Your music now lives on Music HD')).toBeInTheDocument();
     expect(screen.getByText('Library: 3,627 of 3,627 files found')).toBeInTheDocument();
-    expect(screen.getByText('The old copies are still on Macintosh HD')).toBeInTheDocument();
+    // no folders known: the drive alone
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toBe(
+      'The old copies are still on Macintosh HD',
+    );
     fireEvent.click(screen.getByRole('button', { name: /Switch back/ }));
     expect(
       screen.getByText(/Anything added or changed on Music HD since is copied back first/),
@@ -1188,6 +1265,33 @@ describe('carrying on after a failure when Downloads moves', () => {
     expect(sent[1]).toEqual({
       url: '/api/drives/move/1/resume',
       body: { username: 'slskd', password: 'pw' },
+    });
+  });
+});
+
+describe('oldCopiesPlace (214)', () => {
+  it('prefers the computer’s names, falls back to the container’s, once each', () => {
+    expect(
+      oldCopiesPlace(
+        [
+          {
+            source: '/app/Transfer',
+            source_host_path: '/Users/ross/SoulSync/music',
+            source_volume: 'Macintosh HD',
+          },
+          { source: '/app/Transfer' },
+          { source: '/app/downloads', source_host_path: null },
+        ],
+        'the old drive',
+      ),
+    ).toEqual({
+      drive: 'Macintosh HD',
+      paths: ['/Users/ross/SoulSync/music', '/app/Transfer', '/app/downloads'],
+    });
+    expect(oldCopiesPlace([], 'Macintosh HD')).toEqual({ drive: 'Macintosh HD', paths: [] });
+    expect(oldCopiesPlace([{ source: '/app/Transfer' }], 'Disk')).toEqual({
+      drive: 'Disk',
+      paths: ['/app/Transfer'],
     });
   });
 });

@@ -14,7 +14,14 @@ import { Notice } from '@/components/primitives';
 import type { Failure, Move, MovePayload, MoveFolder } from './drives.api';
 
 import { drivesApi, DrivesError, type SlskdSignIn } from './drives.api';
-import { count, durationWords, sizeOf, sizeWords, speedWords } from './drives.format';
+import {
+  count,
+  durationWords,
+  oldCopiesPlace,
+  sizeOf,
+  sizeWords,
+  speedWords,
+} from './drives.format';
 import { FlowShell, Tick } from './move-shell';
 import styles from './move.module.css';
 import { RemoveOldCopies } from './remove-old-copies';
@@ -342,6 +349,8 @@ export function DoneStep({ move, act, done, busy, error }: RunProps) {
     );
   const checks = move.result.checks ?? [];
   const removed = move.status === 'removed' ? move.result.removed : null;
+  // 214: name the old folder, as the computer knows it where SYNCHRO.S does
+  const old = oldCopiesPlace(move.folders, source);
   return (
     <FlowShell
       step={null}
@@ -398,7 +407,23 @@ export function DoneStep({ move, act, done, busy, error }: RunProps) {
         </Notice>
       ) : (
         <div className={styles.listBox} style={{ padding: '20px 24px' }}>
-          <h3 style={{ fontSize: 18 }}>The old copies are still on {source}</h3>
+          <h3 style={{ fontSize: 18 }}>
+            The old copies are still on {old.drive}
+            {old.paths.length === 1 ? (
+              <>
+                , in <code className={styles.mono}>{old.paths[0]}</code>
+              </>
+            ) : null}
+          </h3>
+          {old.paths.length > 1 ? (
+            <ul className={styles.oldPlaces}>
+              {old.paths.map((p) => (
+                <li key={p}>
+                  <code className={styles.mono}>{p}</code>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <p style={{ margin: '0 0 16px', color: 'var(--ss-text-secondary)', maxWidth: '68ch' }}>
             <span className={styles.wide}>
               {sizeWords(plan?.total_bytes)}, untouched. Keep them until you’ve played a few albums
