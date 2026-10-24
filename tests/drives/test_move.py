@@ -617,6 +617,41 @@ def test_remove_the_old_copies_deletes_exactly_the_checked_files(job):
 
 
 @pytest.mark.gauntlet
+@pytest.mark.parametrize("trusted", [True, False])
+def test_a_host_hint_never_changes_what_remove_deletes(job, trusted):
+    """The drives helper's hint names the old folder on the computer (125).
+    Trusted or forged, it only changes the words: Remove deletes exactly the
+    checked files at their container paths, never anything at the hint's
+    path, and never the hint or the marker."""
+    from core.drives import host_paths
+    j = job["job"]
+    lib = job["roots"]["library"]
+    decoy = job["tmp"] / "host" / "music"
+    for rel in job["files"]["library"]:
+        write(os.path.join(str(decoy), rel), b"decoy")
+    markers.write_marker(lib, "library")
+    with open(os.path.join(lib, host_paths.HINT_NAME), "w") as f:
+        json.dump({"v": 1, "host_path": str(decoy), "volume": "Macintosh HD", "os": "mac",
+                   "marker_id": markers.marker_id(lib) if trusted else "0" * 32, "written_at": 1}, f)
+    host_paths.forget()
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    plans = PlanStore()
+    preview = j.remove_preview(move_id, plans)
+    assert preview["roots"]["library"]["host_path"] == (str(decoy) if trusted else None)
+    items = plans.peek(preview["plan_id"], M.REMOVE_TOOL).items
+    expected = {os.path.join(job["roots"][role], rel) for role, rels in job["files"].items() for rel in rels}
+    assert {i["path"] for i in items} == expected
+    out = j.remove_confirm(move_id, preview["plan_id"], plans)
+    assert out["deleted"] == 7 and out["skipped"] == 0
+    for rel in job["files"]["library"]:
+        with open(os.path.join(str(decoy), rel), "rb") as f:
+            assert f.read() == b"decoy"
+    assert os.path.isfile(os.path.join(lib, host_paths.HINT_NAME))
+    assert os.path.isfile(os.path.join(lib, markers.MARKER_NAME))
+
+
+@pytest.mark.gauntlet
 def test_a_copy_that_went_missing_keeps_its_old_file(job):
     j = job["job"]
     move_id = _ready(job)

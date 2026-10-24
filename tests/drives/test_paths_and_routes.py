@@ -255,6 +255,82 @@ def test_the_move_through_the_routes(routes):
     assert done["deleted"] == 6
 
 
+# ── the computer's own names (125, 160) ─────────────────────────────────────
+
+def _name(folder, role, host, *, marker_id=None):
+    import json
+    from core.drives import host_paths
+    markers.write_marker(folder, role)
+    with open(os.path.join(folder, host_paths.HINT_NAME), "w") as f:
+        json.dump({"v": 1, "host_path": host, "volume": "Macintosh HD", "os": "mac",
+                   "marker_id": marker_id or markers.marker_id(folder), "written_at": 1761300000}, f)
+    host_paths.forget()
+
+
+def test_admins_read_the_computers_names_and_members_dont(routes):
+    c = routes["client"]
+    _name(routes["roots"]["library"], "library", "/Users/ross/SoulSync/music")
+    _name(routes["roots"]["downloads"], "downloads", "/Users/ross/forged", marker_id="0" * 32)
+    body = c.post("/api/drives/status/check", json={}).get_json()
+    lib, dl = body["folders"]["library"], body["folders"]["downloads"]
+    assert (lib["host_path"], lib["volume"], lib["host_source"]) == ("/Users/ross/SoulSync/music",
+                                                                     "Macintosh HD", "hint")
+    assert lib["path"] == routes["roots"]["library"]
+    assert (dl["host_path"], dl["volume"], dl["host_source"]) == (None, None, None)
+    rows = c.get("/api/drives/folders").get_json()
+    assert rows["folders"][0]["host_path"] == "/Users/ross/SoulSync/music"
+    assert rows["folders"][1]["host_path"] is None and rows["compose_folder"] == "~/SoulSync"
+    routes["state"]["admin"] = False
+    member = c.get("/api/drives/status").get_json()["folders"]["library"]
+    assert not {"path", "host_path", "volume", "host_source"} & set(member)
+
+
+def test_the_names_command(routes):
+    c = routes["client"]
+    made = c.post("/api/drives/docker/command", json={"folder": "~/SoulSync", "names": True}).get_json()
+    assert made["names"] is True and made["command"].endswith("&& sh drives-helper.sh --names")
+    plain = c.post("/api/drives/docker/command", json={"folder": "~/SoulSync"}).get_json()
+    assert plain["names"] is False and plain["command"].endswith("&& sh drives-helper.sh")
+    routes["config"].set("drives.platform", "windows")
+    assert c.post("/api/drives/docker/command", json={"names": True}).status_code == 400
+
+
+def test_the_remove_list_heads_with_the_computers_folder(routes):
+    import api.drives as drives_api
+    c = routes["client"]
+    lib = routes["roots"]["library"]
+    _name(lib, "library", "/Users/ross/SoulSync/music")
+    move_id = c.post("/api/drives/move", json={}).get_json()["move"]["id"]
+    target = str(routes["drive"] / "SYNCHRO.S")
+    c.put(f"/api/drives/move/{move_id}/choice", json={"target": target, "roles": {
+        "library": True, "downloads": False, "staging": True}})
+    c.post(f"/api/drives/move/{move_id}/check", json={})
+    drives_api.JOB.join_check(30)
+    c.post(f"/api/drives/move/{move_id}/plan", json={})
+    c.post(f"/api/drives/move/{move_id}/start", json={})
+    drives_api.JOB.join(30)
+    after = c.get("/api/drives/move").get_json()["move"]
+    assert after["status"] == "switched"
+    folder = next(f for f in after["folders"] if f["role"] == "library")
+    assert folder["source_host_path"] == "/Users/ross/SoulSync/music" and folder["source_volume"] == "Macintosh HD"
+    assert folder["source"] == lib and folder["dest_host_path"] is None  # SOULSYNC_DRIVES_ROOTS is set here
+    # the hint wasn't copied to the new place
+    from core.drives import host_paths
+    assert not os.path.exists(os.path.join(target, "Library", host_paths.HINT_NAME))
+    preview = c.post(f"/api/drives/move/{move_id}/remove-preview", json={}).get_json()
+    root = preview["roots"]["library"]
+    assert (root["path"], root["host_path"], root["volume"], root["host_source"]) == (
+        lib, "/Users/ross/SoulSync/music", "Macintosh HD", "hint")
+    assert preview["roots"]["staging"]["host_path"] is None
+    for item in preview["sample"]:
+        # what's deleted stays the container's path; rel is for the list's rows
+        assert item["path"] == os.path.join(preview["roots"][item["role"]]["path"], item["rel"])
+    listing = c.get(f"/api/drives/plan-list/{preview['plan_id']}").data.decode()
+    lines = listing.splitlines()
+    assert any(line.startswith("/Users/ross/SoulSync/music/Saltmarsh/Lantern/01 Tide.flac\t") for line in lines)
+    assert any(line.startswith(routes["roots"]["staging"] + "/Album X/") for line in lines)
+
+
 def test_a_refusal_is_a_sentence_not_a_crash(routes):
     c = routes["client"]
     move_id = c.post("/api/drives/move", json={}).get_json()["move"]["id"]

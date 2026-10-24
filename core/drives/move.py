@@ -34,7 +34,7 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
-from core.drives import disks, holds
+from core.drives import disks, holds, host_paths
 from core.drives.markers import LABELS, MARKER_NAME, ROLES, SETTING_KEYS, write_marker
 from core.drives.paths import PathRefused, protected_folders, safe_join, validate_target, within
 from utils.logging_config import get_logger
@@ -45,7 +45,9 @@ KIND = "drive_move"
 REMOVE_TOOL = "drive_move_remove_old"
 FOLDER_NAMES = {"library": "Library", "downloads": "Downloads", "staging": "Staging"}
 MOVE_MARK = ".synchros-move.json"
-SKIP_NAMES = (MARKER_NAME, MOVE_MARK)
+#: never copied, counted, listed for removal or deleted by a move: SYNCHRO.S's
+#: marker, the move's note, and the drives helper's host hint (display only)
+SKIP_NAMES = (MARKER_NAME, MOVE_MARK, host_paths.HINT_NAME)
 APPLEDOUBLE_PREFIX = "._"
 REMIND_SECONDS = 7 * 86400
 #: the write test in Check; tests make it small
@@ -1867,8 +1869,22 @@ class MoveJob:
         stored = plans.create(REMOVE_TOOL, items, meta={"move_id": move_id, "source_label": plan["source_label"],
                                                         "target_label": plan["target_label"]})
         summary = stored.summary()
-        summary["sample"] = [{k: i[k] for k in ("path", "size", "action", "reason")} for i in summary["sample"]]
+        summary["sample"] = [{k: i[k] for k in ("path", "size", "action", "reason", "role", "rel")}
+                             for i in summary["sample"]]
+        summary["roots"] = self.host_roots(plan)
         return summary
+
+    def host_roots(self, plan: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Each old folder of ``plan`` as the list heads it (125): its
+        container path, and its name on the computer when SYNCHRO.S knows it
+        (``host_paths``). Display text only; the plan's items, and so what
+        Remove deletes, never come from it."""
+        platform = self.platform()
+        out = {}
+        for role, src in (plan.get("sources") or {}).items():
+            out[role] = {"role": role, "label": LABELS.get(role, role), "path": src,
+                         "drive": plan.get("source_label"), **host_paths.public_fields(src, platform)}
+        return out
 
     def remove_confirm(self, move_id: int, plan_id: str, plans: Any) -> Dict[str, Any]:
         move = self._require(move_id, ("switched",))
@@ -2287,13 +2303,30 @@ def public(job: MoveJob, move: Optional[Dict[str, Any]], *, admin: bool) -> Opti
     counts = job.store.counts(move["id"]) if move["status"] not in ("draft",) else {}
     plan = move.get("plan") or {}
     folders = []
+    platform = job.platform() if admin else ""
     for role in plan.get("order") or []:
         c = counts.get(role) or {}
-        folders.append({"role": role, "label": LABELS[role], "source": plan["sources"][role],
-                        "dest": plan["dests"][role], "files": c.get("files", 0), "bytes": c.get("bytes", 0),
-                        "copied_files": c.get("copied_files", 0), "copied_bytes": c.get("copied_bytes", 0),
-                        "verified": c.get("verified", 0)})
+        row = {"role": role, "label": LABELS[role], "source": plan["sources"][role],
+               "dest": plan["dests"][role], "files": c.get("files", 0), "bytes": c.get("bytes", 0),
+               "copied_files": c.get("copied_files", 0), "copied_bytes": c.get("copied_bytes", 0),
+               "verified": c.get("verified", 0)}
+        if admin:
+            # the computer's names for both ends (display only; host_paths)
+            src = host_paths.public_fields(plan["sources"][role], platform)
+            dst = host_paths.public_fields(plan["dests"][role], platform)
+            row.update(source_host_path=src["host_path"], source_volume=src["volume"],
+                       dest_host_path=dst["host_path"], dest_volume=dst["volume"])
+        folders.append(row)
     out["folders"] = folders
+    if admin and out["result"].get("checks"):
+        dests = {v: k for k, v in (plan.get("dests") or {}).items()}
+        checks = []
+        for c in out["result"]["checks"]:
+            c = dict(c)
+            if c.get("mono") and c.get("detail") in dests:
+                c["detail_host"] = host_paths.public_fields(c["detail"], platform)["host_path"]
+            checks.append(c)
+        out["result"]["checks"] = checks
     total = sum(f["bytes"] for f in folders)
     copied = progress.get("copied_bytes")
     if copied is None:
