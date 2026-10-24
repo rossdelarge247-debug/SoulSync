@@ -361,15 +361,17 @@ export function DockerStep({
         </div>
       ) : null}
 
-      <p className={styles.tintBox} data-tone="success" hidden={plat === 'windows' && showSteps}>
-        <span className={styles.dot} aria-hidden="true" />
-        <span>
-          <strong>Your music isn’t touched by this.</strong>{' '}
-          {phone
-            ? 'The helper keeps a copy of the set-up file, and one command puts it back.'
-            : 'Nothing moves until SYNCHRO.S can see the drive and you’ve seen the plan. The helper keeps a copy of your set-up file before it changes a line, and one command puts it back.'}
-        </span>
-      </p>
+      {plat === 'windows' && showSteps ? null : (
+        <p className={styles.tintBox} data-tone="success">
+          <span className={styles.dot} aria-hidden="true" />
+          <span>
+            <strong>Your music isn’t touched by this.</strong>{' '}
+            {phone
+              ? 'The helper keeps a copy of the set-up file, and one command puts it back.'
+              : 'Nothing moves until SYNCHRO.S can see the drive and you’ve seen the plan. The helper keeps a copy of your set-up file before it changes a line, and one command puts it back.'}
+          </span>
+        </p>
+      )}
 
       {phone && !showSteps ? (
         <button

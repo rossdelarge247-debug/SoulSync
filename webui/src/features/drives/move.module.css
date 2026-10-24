@@ -876,6 +876,12 @@
   margin-left: auto;
 }
 
+/* a disabled action's reason reads before it, as the boards draw it (19a) */
+.footEnd > [data-slot='disabled-reason'] {
+  order: -1;
+  text-align: right;
+}
+
 .confirmInPlace {
   display: flex;
   flex-wrap: wrap;
@@ -1186,6 +1192,15 @@
 
   .optionFields {
     grid-template-columns: 1fr;
+  }
+
+  /* 19b's lines and command: the code takes the width, Copy goes under it */
+  .commandBox {
+    flex-wrap: wrap;
+  }
+
+  .commandBox > .commandText {
+    flex-basis: 100%;
   }
 
   .tiles {
