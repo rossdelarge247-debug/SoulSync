@@ -4,18 +4,78 @@
  * Deleted for good; the list; "I checked the list"; then the danger button
  * "Delete N files". The recycle bin would keep the space on the same disk,
  * so this one says plainly that it can't be undone.
+ *
+ * The list heads with the old folder as the computer names it ("On
+ * Macintosh HD, in /Users/ross/SoulSync/music"; 19c, 125) and its rows are
+ * relative to it; a list over several folders has a head per folder. Without
+ * the computer's names it heads with the container's path and offers the
+ * helper's `--names` in one line. The names are only words: what's deleted
+ * is the preview's own list.
  */
 
 import { useEffect, useState } from 'react';
 
 import type { SafeActionPhase } from '@/features/safe-action/safe-action-dialog';
+import type { SafeActionRow } from '@/features/safe-action/safe-action-dialog';
 
-import { SafeActionDialog } from '@/features/safe-action/safe-action-dialog';
+import { ListHead, SafeActionDialog } from '@/features/safe-action/safe-action-dialog';
 
-import type { Move, MovePayload, RemovePreview } from './drives.api';
+import type { Move, MovePayload, RemovePreview, RemoveRoot, Role } from './drives.api';
 
 import { drivesApi, DrivesError, planListURL } from './drives.api';
-import { count, sizeWords } from './drives.format';
+import { count, relativeTo, shownPath, sizeWords, wantsNames } from './drives.format';
+import { HostNamesLine } from './host-names';
+
+/** The head's words for one old folder: "On Macintosh HD, in" and the path. */
+export function rootHead(root: RemoveRoot, fallbackDrive: string): { label: string; path: string } {
+  const drive = (root.host_path && root.volume) || root.drive || fallbackDrive;
+  return { label: `On ${drive}, in`, path: shownPath(root) };
+}
+
+/** The sample as the list shows it: rows relative to their old folder,
+ *  grouped by folder in the preview's order, with a head row per folder
+ *  when there's more than one. */
+export function removeRows(
+  preview: Pick<RemovePreview, 'sample' | 'roots'>,
+  fallbackDrive: string,
+): { head: { label: string; path: string } | null; rows: SafeActionRow[] } {
+  const roots = preview.roots ?? {};
+  const groups: Array<{ role: Role | null; items: RemovePreview['sample'] }> = [];
+  for (const item of preview.sample) {
+    const role = item.role && roots[item.role] ? item.role : null;
+    const last = groups[groups.length - 1];
+    if (last && last.role === role) last.items.push(item);
+    else groups.push({ role, items: [item] });
+  }
+  const roles = new Set(groups.map((g) => g.role));
+  const single = roles.size === 1 && !roles.has(null);
+  const cells = (item: RemovePreview['sample'][number], role: Role | null) => {
+    const rel = role ? (item.rel ?? relativeTo(item.path, roots[role]?.path)) : item.path;
+    return [<code key="p">{rel}</code>, sizeWords(item.size)];
+  };
+  if (single) {
+    const role = groups[0].role as Role;
+    return {
+      head: rootHead(roots[role] as RemoveRoot, fallbackDrive),
+      rows: groups.flatMap((g) =>
+        g.items.map((item) => ({ key: item.path, cells: cells(item, role) })),
+      ),
+    };
+  }
+  const rows: SafeActionRow[] = [];
+  groups.forEach((g, i) => {
+    if (g.role) {
+      const head = rootHead(roots[g.role] as RemoveRoot, fallbackDrive);
+      rows.push({
+        key: `head-${g.role}-${i}`,
+        cells: [],
+        heading: <ListHead label={head.label} path={head.path} />,
+      });
+    }
+    for (const item of g.items) rows.push({ key: item.path, cells: cells(item, g.role) });
+  });
+  return { head: null, rows };
+}
 
 export function RemoveOldCopies({
   move,
@@ -76,6 +136,8 @@ export function RemoveOldCopies({
   };
 
   const total = preview?.total ?? 0;
+  const list = preview ? removeRows(preview, source) : null;
+  const shownRoots = Object.values(preview?.roots ?? {}) as RemoveRoot[];
   return (
     <SafeActionDialog
       open
@@ -104,11 +166,18 @@ export function RemoveOldCopies({
         onChange: setTicked,
         label: 'I checked the list',
       }}
-      columns={['File on ' + source, 'Size']}
-      rows={(preview?.sample ?? []).map((item) => ({
-        key: item.path,
-        cells: [<code key="p">{item.path}</code>, sizeWords(item.size)],
-      }))}
+      columns={
+        list?.head || list?.rows.some((r) => r.heading)
+          ? ['File', 'Size']
+          : ['File on ' + source, 'Size']
+      }
+      rows={list?.rows ?? []}
+      listHead={list?.head ? <ListHead label={list.head.label} path={list.head.path} /> : undefined}
+      listNote={
+        preview && shownRoots.length && wantsNames(shownRoots, preview.platform) ? (
+          <HostNamesLine platform={preview.platform} />
+        ) : undefined
+      }
       shownLabel={
         preview
           ? `${Math.min(preview.sample.length, total).toLocaleString('en-GB')} of ${count(total, 'file')} shown`

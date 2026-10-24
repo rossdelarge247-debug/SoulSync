@@ -90,6 +90,9 @@ export interface SafeActionStat {
 export interface SafeActionRow {
   key: string;
   cells: ReactNode[];
+  /** A group's head across every column (the folder its rows are relative
+   *  to), in place of cells. */
+  heading?: ReactNode;
 }
 
 export type SafeActionPhase =
@@ -125,6 +128,11 @@ export interface SafeActionDialogProps {
   notice?: { tone?: 'neutral' | 'warning' | 'danger'; content: ReactNode };
   columns?: string[];
   rows?: SafeActionRow[];
+  /** What the list's rows are relative to, above it ("On Macintosh HD, in
+   *  /Users/ross/SoulSync/music"; 19c). */
+  listHead?: ReactNode;
+  /** One line under the list (a way to show better names, say). */
+  listNote?: ReactNode;
   /** "50 of 214 files shown". */
   shownLabel?: ReactNode;
   fullList?: { label: string; onClick: () => void; busy?: boolean };
@@ -148,6 +156,17 @@ export interface SafeActionDialogProps {
   /** An alternative that acts on nothing destructive ("Scan without moving"). */
   secondary?: { label: string; onClick: () => void };
   onPreviewAgain?: () => void;
+}
+
+/** A list's head (19c): "On Macintosh HD, in" as an overline, then the
+ *  folder in mono. Inside a group's heading row, or as `listHead`. */
+export function ListHead({ label, path }: { label: ReactNode; path: ReactNode }) {
+  return (
+    <span className={styles.listHeadInner}>
+      <span className={styles.listHeadLabel}>{label}</span>
+      <span className={styles.listHeadPath}>{path}</span>
+    </span>
+  );
 }
 
 /** The expiry line's marker: a small ring, as on the board. */
@@ -274,6 +293,8 @@ function ReviewBody({
   notice,
   columns,
   rows,
+  listHead,
+  listNote,
   shownLabel,
   fullList,
   createdAt,
@@ -292,6 +313,9 @@ function ReviewBody({
         </p>
       ) : null}
       {guard ? <GuardBox {...guard} /> : null}
+      {rows?.length && columns?.length && listHead ? (
+        <div className={styles.listHead}>{listHead}</div>
+      ) : null}
       {rows?.length && columns?.length ? (
         <div className={styles.sample}>
           <div className={styles.sampleScroll}>
@@ -306,13 +330,21 @@ function ReviewBody({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={row.key}>
-                    {row.cells.map((cell, index) => (
-                      <td key={columns[index] ?? index}>{cell}</td>
-                    ))}
-                  </tr>
-                ))}
+                {rows.map((row) =>
+                  row.heading ? (
+                    <tr key={row.key} className={styles.groupRow}>
+                      <th scope="colgroup" colSpan={columns.length}>
+                        {row.heading}
+                      </th>
+                    </tr>
+                  ) : (
+                    <tr key={row.key}>
+                      {row.cells.map((cell, index) => (
+                        <td key={columns[index] ?? index}>{cell}</td>
+                      ))}
+                    </tr>
+                  ),
+                )}
               </tbody>
             </table>
           </div>
@@ -332,6 +364,9 @@ function ReviewBody({
             </div>
           ) : null}
         </div>
+      ) : null}
+      {rows?.length && columns?.length && listNote ? (
+        <div className={styles.listNote}>{listNote}</div>
       ) : null}
       {windowText ? (
         <p className={styles.window}>

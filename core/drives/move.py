@@ -1872,6 +1872,7 @@ class MoveJob:
         summary["sample"] = [{k: i[k] for k in ("path", "size", "action", "reason", "role", "rel")}
                              for i in summary["sample"]]
         summary["roots"] = self.host_roots(plan)
+        summary["platform"] = self.platform()
         return summary
 
     def host_roots(self, plan: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
