@@ -194,6 +194,8 @@
 }
 
 .sample {
+  /* the body scrolls; the list keeps its height (on a phone it was squeezed to its head) */
+  flex-shrink: 0;
   overflow: hidden;
   border-radius: var(--ss-radius-card);
   border: 1px solid var(--white-a10);
@@ -252,6 +254,7 @@
 /* What the list's rows are relative to (19c): an overline, then the folder
    in mono. Also a group's head inside the table. */
 .listHead {
+  flex-shrink: 0;
   margin: 0 0 -4px;
   min-width: 0;
 }
@@ -294,6 +297,7 @@
 }
 
 .listNote {
+  flex-shrink: 0;
   font-size: 13px;
   line-height: 18px;
   color: var(--ss-text-meta);
