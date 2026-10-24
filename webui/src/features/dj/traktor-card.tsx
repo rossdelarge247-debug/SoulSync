@@ -25,8 +25,9 @@ import { folderLine } from './traktor.format';
 import styles from './traktor.module.css';
 
 function MacTag({ data }: { data: TraktorSettings }) {
-  if (data.mac_path_from_helper) return <StatusTag tone="success">Checked</StatusTag>;
-  if (data.mac_path) return <StatusTag tone="neutral">Typed in</StatusTag>;
+  if (data.mac_path_from_helper || data.mac_path_from_helper_set)
+    return <StatusTag tone="success">Checked</StatusTag>;
+  if (data.mac_path || data.mac_path_set) return <StatusTag tone="neutral">Typed in</StatusTag>;
   return <StatusTag tone="warning">Not set</StatusTag>;
 }
 
@@ -86,7 +87,6 @@ export function TraktorCard({ load = true }: { load?: boolean }) {
     data !== null &&
     (mac.trim() !== (data.mac_path || data.mac_path_from_helper || '') ||
       folder.trim() !== (data.export_folder || ''));
-  const lib = data?.library_folder || '/app/Transfer';
   const folderState = data?.export_folder_state ?? 'unset';
 
   return (
@@ -112,8 +112,15 @@ export function TraktorCard({ load = true }: { load?: boolean }) {
             Your music on the Mac
           </label>
           <span className={styles.rowLine}>
-            Where the Mac keeps what SYNCHRO.S calls <span className={styles.mono}>{lib}</span>.{' '}
-            {data?.mac_path_from_helper
+            {data?.library_folder ? (
+              <>
+                Where the Mac keeps what SYNCHRO.S calls{' '}
+                <span className={styles.mono}>{data.library_folder}</span>.{' '}
+              </>
+            ) : (
+              'Where the Mac keeps your library folder. '
+            )}
+            {data?.mac_path_from_helper || data?.mac_path_from_helper_set
               ? 'Filled in by the drive helper.'
               : 'Type it as the Mac names it, like /Volumes/Music HD/SoulSync/Transfer.'}
           </span>
@@ -139,7 +146,7 @@ export function TraktorCard({ load = true }: { load?: boolean }) {
           </span>
         ) : (
           <span className={`${styles.value} ${mac ? styles.mono : styles.valueQuiet}`}>
-            {mac || 'Not set yet'}
+            {mac || (data?.mac_path_set ? 'Set by an admin' : 'Not set yet')}
           </span>
         )}
         <span className={styles.rowEnd}>{data ? <MacTag data={data} /> : null}</span>
@@ -180,7 +187,8 @@ export function TraktorCard({ load = true }: { load?: boolean }) {
           </span>
         ) : (
           <span className={`${styles.value} ${folder ? styles.mono : styles.valueQuiet}`}>
-            {folder || 'Downloads, through the browser'}
+            {folder ||
+              (folderState === 'unset' ? 'Downloads, through the browser' : 'Set by an admin')}
           </span>
         )}
         <span className={styles.rowEnd}>

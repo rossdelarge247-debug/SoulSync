@@ -16,19 +16,28 @@ function names(titles: string[], total: number): string {
   return `${shown.join(', ')} and ${rest.toLocaleString()} more`;
 }
 
-const ONE: Record<Exclude<LeftOutReason, 'no_mac_path' | 'too_many'>, string> = {
+type Named = Exclude<LeftOutReason, 'no_mac_path' | 'too_many' | 'lookup_limit'>;
+
+const ONE: Record<Named, string> = {
   not_in_library: "isn't a file in your library",
   outside: "is in a folder the Mac path doesn't cover",
   bad_path: "has a path Traktor can't read",
 };
 
-const MANY: Record<Exclude<LeftOutReason, 'no_mac_path' | 'too_many'>, string> = {
+const MANY: Record<Named, string> = {
   not_in_library: "aren't files in your library",
   outside: "are in folders the Mac path doesn't cover",
   bad_path: "have paths Traktor can't read",
 };
 
-const ORDER: LeftOutReason[] = ['no_mac_path', 'not_in_library', 'outside', 'bad_path', 'too_many'];
+const ORDER: LeftOutReason[] = [
+  'no_mac_path',
+  'not_in_library',
+  'outside',
+  'bad_path',
+  'lookup_limit',
+  'too_many',
+];
 
 /**
  * One sentence per reason anything was left out, in a fixed order: "“Copper
@@ -48,6 +57,12 @@ export function leftOutLines(
         admin
           ? "SYNCHRO.S doesn't know where your music is on the Mac yet. Set it in Settings → Library → Traktor Pro 3."
           : "SYNCHRO.S doesn't know where your music is on the Mac yet. An admin sets it in Settings → Library → Traktor Pro 3.",
+      );
+      continue;
+    }
+    if (reason === 'lookup_limit') {
+      lines.push(
+        `${count.toLocaleString()} ${count === 1 ? "track wasn't" : "tracks weren't"} looked for on disk: too many to look up in one export. Export them in smaller sets.`,
       );
       continue;
     }

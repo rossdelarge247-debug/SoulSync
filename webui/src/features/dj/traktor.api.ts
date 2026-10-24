@@ -11,7 +11,13 @@ export type TraktorSource =
   | { source: 'tracks'; track_ids: string[] }
   | { source: 'mixes'; track_id: string; within?: number };
 
-export type LeftOutReason = 'not_in_library' | 'no_mac_path' | 'outside' | 'bad_path' | 'too_many';
+export type LeftOutReason =
+  | 'not_in_library'
+  | 'no_mac_path'
+  | 'outside'
+  | 'bad_path'
+  | 'too_many'
+  | 'lookup_limit';
 
 export interface TraktorLeftOut {
   title: string;
@@ -30,8 +36,10 @@ export interface TraktorPreview {
   /** the first track's path as the Mac sees it */
   example_path: string | null;
   /** the Mac's name for the library folder, when known */
-  mac_path: string | null;
-  library_folder: string;
+  /** admins only: the Mac's name for the library folder, when known */
+  mac_path?: string | null;
+  /** admins only */
+  library_folder?: string;
   left_out: TraktorLeftOut[];
   reasons: Partial<Record<LeftOutReason, number>>;
   /** tracks whose key goes in the file */
@@ -43,12 +51,15 @@ export interface TraktorPreview {
 
 export interface TraktorSettings {
   success: true;
-  mac_path: string;
-  mac_path_from_helper: string | null;
-  library_folder: string;
-  export_folder: string;
+  /** the folder fields go to admins only; members get the two `_set` flags */
+  mac_path?: string;
+  mac_path_from_helper?: string | null;
+  library_folder?: string;
+  export_folder?: string;
   export_folder_state: FolderState;
-  export_folder_on_mac: string | null;
+  export_folder_on_mac?: string | null;
+  mac_path_set?: boolean;
+  mac_path_from_helper_set?: boolean;
   collection: string;
   can_edit: boolean;
 }

@@ -81,6 +81,9 @@ describe('the words', () => {
       "5 tracks are in folders the Mac path doesn't cover: “A”, “B” and 3 more.",
       '2 tracks are past the 1,000 one export takes.',
     ]);
+    expect(leftOutLines({ left_out: [], reasons: { lookup_limit: 2 } }, true)).toEqual([
+      "2 tracks weren't looked for on disk: too many to look up in one export. Export them in smaller sets.",
+    ]);
     expect(leftOutLines({ left_out: [], reasons: { no_mac_path: 3 } }, false)[0]).toContain(
       'An admin sets it in Settings → Library → Traktor Pro 3.',
     );
@@ -285,17 +288,21 @@ describe('Settings → Library → Traktor Pro 3 (21b)', () => {
     server.use(
       http.get('/api/library/dj/traktor/settings', () =>
         HttpResponse.json({
-          ...SETTINGS,
+          success: true,
+          export_folder_state: 'unset',
+          collection: SETTINGS.collection,
           can_edit: false,
-          mac_path: '/Volumes/Music HD/SoulSync/Transfer',
-          mac_path_from_helper: '/Volumes/Music HD/SoulSync/Transfer',
+          // a member is told whether it's set, not where (the review's finding 5)
+          mac_path_set: true,
+          mac_path_from_helper_set: true,
         }),
       ),
     );
     render(<TraktorCard />);
     const card = await screen.findByRole('region', { name: 'Traktor Pro 3' });
     await within(card).findByText('Checked');
-    expect(within(card).getByText('/Volumes/Music HD/SoulSync/Transfer')).toBeTruthy();
+    expect(within(card).getByText('Set by an admin')).toBeTruthy();
+    expect(card.textContent).not.toContain('/app/Transfer');
     expect(within(card).queryByRole('textbox')).toBeNull();
     expect(within(card).queryByRole('button', { name: 'Save' })).toBeNull();
     expect(card.textContent).toContain('Filled in by the drive helper.');
