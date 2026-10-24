@@ -105,6 +105,17 @@ def test_the_drive_helpers_map_comes_first_and_the_resolver_second():
                                  resolve=lambda p: "/app/Transfer/x/y.flac" if p == "/plex/x/y.flac" else None)
     assert resolving.mac_path_for("/plex/x/y.flac")[0] == "/Volumes/Music HD/T/x/y.flac"
     assert resolving.mac_path_for("/plex/z.flac") == (None, "outside")
+    # the helper's names alone, with no Mac path set: a track they don't
+    # place still asks for the setting rather than saying it's outside
+    helper_only = traktor.MacPaths("/app/Transfer", None, to_host=host.get)
+    assert helper_only.mac_path_for("/app/Transfer/a.flac")[0] == "/Users/ross/SoulSync/music/a.flac"
+    assert helper_only.mac_path_for("/app/Transfer/b.flac") == (None, "no_mac_path")
+
+
+def test_the_export_uses_the_drive_helpers_names():
+    from core.drives import host_paths
+
+    assert traktor._load_to_host() is host_paths.to_host
 
 
 def test_file_names_are_safe():

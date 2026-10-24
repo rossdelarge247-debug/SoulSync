@@ -62,9 +62,8 @@ Mac paths
 =========
 
 Traktor needs the path the Mac sees, not the container's. ``mac_path_for``
-asks the drive helper's host map first (``core.drives.host_paths.to_host``
-once it lands; swapping to it is the one import in ``_load_to_host``), then
-the Traktor card's "Your music on the Mac" setting, which names where the
+asks the drive helper's host map first (``core.drives.host_paths.to_host``,
+the names ``drives-helper.sh --names`` records), then the Traktor card's "Your music on the Mac" setting, which names where the
 library folder (``soulseek.transfer_path``, ``/app/Transfer``) is on the
 Mac. A track neither can place is left out, with the reason.
 """
@@ -191,12 +190,9 @@ def ascii_filename(name: str) -> str:
 # ── Mac paths ─────────────────────────────────────────────────────────────────
 
 def _load_to_host() -> Optional[Callable[[str], Optional[str]]]:
-    """The drive helper's map from a container path to the Mac's
-    (``feat/host-paths``). Until it lands this is None and the setting is used."""
-    try:
-        from core.drives.host_paths import to_host  # type: ignore[import-not-found]
-    except Exception:  # noqa: BLE001 - not there yet: the card's setting stands alone
-        return None
+    """The drive helper's map from a container path to the Mac's; where it
+    knows nothing (None), the card's setting is used."""
+    from core.drives.host_paths import to_host
     return to_host
 
 
@@ -346,7 +342,8 @@ class MacPaths:
                 found = self._place(_norm(on_disk))
                 if found:
                     return found, None
-        if not self.mac_root and self.to_host is None:
+        if not self.mac_root:
+            # neither the helper's names nor the card's setting place it
             return None, "no_mac_path"
         return None, "outside"
 
