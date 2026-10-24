@@ -272,6 +272,13 @@ class RadioHub:
             sess.last_seen = self._now()
             return True
 
+    def played_seconds(self, session_id: str, profile_id: int) -> Optional[float]:
+        """How long this profile's session has been on, or None when it isn't
+        theirs or has ended (Recent stations counts a station after 30 s)."""
+        with self._lock:
+            sess = self.get_session(session_id, profile_id)
+            return None if sess is None else max(0.0, self._now() - sess.created_at)
+
     def _end(self, sess: Session) -> None:
         sess.ended = True
         sess.stop.set()

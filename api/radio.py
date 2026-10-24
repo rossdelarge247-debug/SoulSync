@@ -10,6 +10,8 @@ GET    /api/radio/directory                       Radio Browser search (?q=&code
 GET    /api/radio/directory/countries
 POST   /api/radio/play                            {station_id, stream_id?, force_relay?} -> {play_url, mode, session_id}
 POST   /api/radio/stop                            {session_id}
+GET    /api/radio/recent                          the stations this profile played last, newest first
+POST   /api/radio/recent                          {session_id}: count the playing station, after 30 s
 GET    /api/radio/relay/<session_id>              the audio, when relayed
 GET    /api/radio/now-playing                     ?station_id=&session_id=
 GET    /api/radio/heard                           ?station_id=&days=&missing=1
@@ -443,6 +445,67 @@ def stop():
     body = request.get_json(silent=True) or {}
     ended = hub.end_session(str(body.get("session_id") or ""), pid)
     return jsonify({"success": True, "stopped": ended})
+
+
+# ── recent stations (HANDOFF 142, 163) ───────────────────────────────────────
+
+def _recent_station(row: Dict[str, Any]) -> Optional[st.Station]:
+    """A kept row as a station, without asking the directory: a built-in pick,
+    an admin's link that still exists, or a directory station's snapshot."""
+    sid = row["station_id"]
+    if sid.startswith("link-"):
+        try:
+            link = store.get_link(_db(), int(sid[5:]))
+        except (ValueError, TypeError):
+            return None
+        return link_station(link) if link else None
+    if sid.startswith("rb-"):
+        try:
+            return _from_snapshot(json.loads(row["station_json"])) if row.get("station_json") else None
+        except (ValueError, TypeError):
+            return None
+    return st.builtin_station(sid)
+
+
+@bp.route("/api/radio/recent", methods=["GET"])
+def recent_stations():
+    """This profile's stations, newest first: only its own rows, and only
+    stations that still resolve (a removed link or a dropped pick goes)."""
+    pid = _pid()
+    if pid is None:
+        return _need_profile()
+    favs = set(store.favourite_ids(_db(), pid))
+    items = []
+    for row in store.recent_rows(_db(), pid):
+        station = _recent_station(row)
+        if station is not None:
+            items.append({**_public(station, pid, favs), "played_at": row["played_at"]})
+    return jsonify({"success": True, "stations": items, "keep": store.RECENT_KEEP,
+                    "after_seconds": store.RECENT_AFTER_SECONDS})
+
+
+@bp.route("/api/radio/recent", methods=["POST"])
+def recent_played():
+    """The page says its station has played for 30 s. The server counts it
+    only for this profile's own session, still on and at least that old, so
+    nothing but a station really played reaches the list."""
+    pid = _pid()
+    if pid is None:
+        return _need_profile()
+    body = request.get_json(silent=True) or {}
+    sid = str(body.get("session_id") or "")
+    played = hub.played_seconds(sid, pid)
+    sess = hub.get_session(sid, pid) if played is not None else None
+    if sess is None:
+        return _err(404, "no_session", "That listening session has ended.")
+    if played < store.RECENT_AFTER_SECONDS:
+        return _err(409, "too_soon", "A station counts once it has played for 30 seconds.")
+    mon = hub.monitor(sess.station_id)
+    station = mon.station if mon is not None else resolve_station(sess.station_id)
+    if station is None:
+        return _err(404, "not_found", "That station isn't in the list, the directory or your links.")
+    store.record_recent(_db(), pid, station.id, _snapshot(station) if station.source == "directory" else None)
+    return jsonify({"success": True, "station_id": station.id})
 
 
 @bp.route("/api/radio/relay/<session_id>", methods=["GET"])

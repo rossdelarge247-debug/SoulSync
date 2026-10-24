@@ -17,7 +17,7 @@ from core.internet_radio.hub import hub
 from core.settings import ConfigManager
 
 RADIO_TABLES = ("radio_favourites", "radio_links", "radio_heard", "radio_auto_add", "radio_auto_added",
-                "radio_activity", "radio_shows", "radio_scan_usage", "radio_scan_keys")
+                "radio_activity", "radio_shows", "radio_scan_usage", "radio_scan_keys", "radio_recent")
 
 
 @pytest.fixture(scope="module")
