@@ -1572,6 +1572,7 @@ class MusicDatabase:
             self._add_ai_assistant_tables(cursor)
             self._add_internet_radio_tables(cursor)
             self._add_radio_link_logo_column(cursor)
+            self._add_radio_recent_table(cursor)
             self._add_spoken_word_tables(cursor)
 
             # Library issues — user-reported problems with tracks/albums/artists
@@ -2160,6 +2161,7 @@ class MusicDatabase:
         'sample_stash_v1':            ('table', 'sample_stash'),
         'sample_stems_v1':            ('table', 'sample_stems'),
         'track_dj_v1':               ('table', 'track_dj'),
+        'radio_recent_v1':           ('table', 'radio_recent'),
         'similar_artists_rematch':  ('table', '_similar_artists_rematch_applied'),
         'beatport_positional_purged': ('table', '_beatport_positional_purged'),
     }
@@ -3707,6 +3709,30 @@ class MusicDatabase:
                     state_at INTEGER
                 )
             """)
+
+    def _add_radio_recent_table(self, cursor):
+        """The stations each profile played last (HANDOFF 142, 163; the
+        expanded player's Stations tab): one row per profile and station,
+        ``played_at`` the last time it had played for 30 s, at most
+        ``core.internet_radio.store.RECENT_KEEP`` per profile (trimmed on
+        write). ``station_json`` is a directory station's snapshot, as on
+        ``radio_favourites``, so the list draws without asking the directory.
+        Only adds, so it runs with atomic=False; a failure is an ERROR naming
+        the step, in schema_health, and the step runs again on the next start."""
+        with self._migration_step(cursor, 'add_radio_recent', atomic=False):
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS radio_recent (
+                    profile_id INTEGER NOT NULL,
+                    station_id TEXT NOT NULL,
+                    station_json TEXT,
+                    played_at INTEGER NOT NULL,
+                    PRIMARY KEY (profile_id, station_id)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_radio_recent_profile "
+                           "ON radio_recent (profile_id, played_at)")
+            if self._migration_step_ok():
+                self._record_migration(cursor, 'radio_recent_v1')
 
     def _add_automation_then_actions_column(self, cursor):
         """Add then_actions column to automations table and migrate existing notify data."""
