@@ -95,7 +95,8 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **Left where it is:** Downloads left on the computer from Check's slskd row is never copied, repointed or restarted for.
   - **A folder that stays, inside one that moves:** Downloads or Staging nested in the Library and left out is refused with a Check stop row, never listed by Start's walk, and never deleted by Remove.
   - **A choice during Start:** a choice written while Start lists the files stops the start with nothing copied, and a choice sent while a move runs waits for it and is refused; nothing is left stuck in `copying` without a plan.
-  - **slskd's session only while it's needed:** a sign-in that lands after Downloads left the move isn't kept, and a failed move forgets its session.
+  - **slskd's session only while it's needed:** a sign-in that lands after Downloads left the move isn't kept, and a failed move forgets its session; a carry-on refused because the drive is away never signs in.
+  - **The same folder by another path:** a folder that stays is recognised inside a moving one even when it's reached through another path to it on disk.
 - **The kids guard's ordering:** `tests/test_content_guard_music.py`, and `test_a_clean_only_profile_is_refused_explicit_tracks` in `tests/playback/test_player_api.py`. The step runs them in one process, the playback test first, which is the order that once let an explicit track through.
 - **Migration failures** (`tests/database/test_schema_migration_steps.py`): a failed part of a step leaves its marker unwritten and retries, and a step that stops part way is rolled back whole. A failed marker write keeps the step's work. A rebuild that hits a real conflict keeps the old table. A real failure rolls back and flags its parent. A non-atomic step keeps what it did before the failure.
 
