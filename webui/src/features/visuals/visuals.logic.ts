@@ -88,13 +88,15 @@ export function listSummary(list: readonly PresetEntry[], show: ShowFilter): str
 
 /**
  * The count line under Show (18a): "395 from the curated packs and 12 of
- * yours · A–Z" while All lists everything; otherwise what's listed, the
- * order and the authors.
+ * yours · A–Z" while All lists everything, "12 of yours · A–Z" on Yours;
+ * otherwise what's listed, the order and the authors.
  */
 export function browserSummary(
   list: readonly PresetEntry[],
   f: { show: ShowFilter; query: string; author: string; everyPreset: boolean },
 ): string {
+  if (f.show === 'yours' && !f.query.trim() && !f.author)
+    return list.length ? `${list.length.toLocaleString('en-GB')} of yours · A–Z` : 'None of yours';
   if (f.show !== 'all' || f.query.trim() || f.author) return listSummary(list, f.show);
   const own = list.filter((p) => p.source === 'own').length;
   const bundled = list.length - own;

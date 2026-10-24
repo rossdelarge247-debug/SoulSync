@@ -384,6 +384,8 @@ describe('MilkDrop’s curated list and your own presets (18a, 18b)', () => {
     expect(browserSummary(LISTED, { ...f, everyPreset: true })).toBe(
       '2 from every pack and 1 of yours · A–Z',
     );
+    expect(browserSummary(LISTED.slice(1, 2), { ...f, show: 'yours' })).toBe('1 of yours · A–Z');
+    expect(browserSummary([], { ...f, show: 'yours' })).toBe('None of yours');
     expect(browserSummary(LISTED.slice(0, 1), { ...f, query: 'angel' })).toBe(
       '1 preset · A–Z · 1 author',
     );

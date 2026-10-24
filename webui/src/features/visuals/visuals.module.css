@@ -405,9 +405,12 @@
   background: none;
   color: rgb(var(--ss-accent-light-rgb));
   font: inherit;
-  text-decoration: underline;
+  text-decoration: none;
   text-underline-offset: 2px;
   cursor: pointer;
+  &:hover {
+    text-decoration: underline;
+  }
   &:focus-visible {
     outline: var(--ss-focus-ring);
     outline-offset: var(--ss-focus-offset);
