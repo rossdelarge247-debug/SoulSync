@@ -92,6 +92,10 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **Edited during the copy:** a stale file at the new place is copied again. Remove skips an old file edited since its copy, even at the same size. Verify finds an old file edited after its copy. Switch back brings home files changed at the new place.
   - **Unplugged:** the drive going away fails cleanly and Carry on finishes.
   - **Deletes only what it should:** Stop and undo deletes only the half-made copy, Remove deletes exactly the checked files, and a copy that went missing keeps its old file.
+  - **Left where it is:** Downloads left on the computer from Check's slskd row is never copied, repointed or restarted for.
+  - **A folder that stays, inside one that moves:** Downloads or Staging nested in the Library and left out is refused with a Check stop row, never listed by Start's walk, and never deleted by Remove.
+  - **A choice during Start:** a choice written while Start lists the files stops the start with nothing copied, and a choice sent while a move runs waits for it and is refused; nothing is left stuck in `copying` without a plan.
+  - **slskd's session only while it's needed:** a sign-in that lands after Downloads left the move isn't kept, and a failed move forgets its session.
 - **The kids guard's ordering:** `tests/test_content_guard_music.py`, and `test_a_clean_only_profile_is_refused_explicit_tracks` in `tests/playback/test_player_api.py`. The step runs them in one process, the playback test first, which is the order that once let an explicit track through.
 - **Migration failures** (`tests/database/test_schema_migration_steps.py`): a failed part of a step leaves its marker unwritten and retries, and a step that stops part way is rolled back whole. A failed marker write keeps the step's work. A rebuild that hits a real conflict keeps the old table. A real failure rolls back and flags its parent. A non-atomic step keeps what it did before the failure.
 

@@ -353,3 +353,65 @@ def test_library_jobs_have_their_own_filter_with_the_move_and_its_stop(install, 
     member = feed.build_feed(db, feed.Viewer(profile_id=5, is_admin=False), kind="library", live_batches={},
                              running_automations={})
     assert member["items"] == []
+
+
+class _Slskd:
+    """slskd as the routes see it: set up, its settings file reachable."""
+
+    def __init__(self, folder):
+        self.folder = folder
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "slskd.yml"), "w") as f:
+            f.write("soulseek:\n  username: ross\n")
+
+    def configured(self):
+        return True
+
+    def can_edit(self):
+        return True
+
+    def read_config(self):
+        with open(os.path.join(self.folder, "slskd.yml")) as f:
+            return f.read()
+
+    def shared_directories(self):
+        return ["/music"]
+
+    def sign_in(self, username, password):
+        from core.drives.services import ServiceRefused
+        if password != "right-password":
+            raise ServiceRefused("slskd didn't accept that user name and password.")
+        return "session-from-slskd"
+
+
+def test_slskds_choice_through_the_routes_never_returns_the_secret(routes, tmp_path):
+    import api.drives as drives_api
+    slskd = _Slskd(str(tmp_path / "slskd-config"))
+    drives_api.configure(get_database_=lambda: routes["db"], config_manager_=routes["config"],
+                         media_label_=lambda: "Plex", slskd_configured_=lambda: True, slskd_=lambda: slskd)
+    c = routes["client"]
+    move_id = c.post("/api/drives/move", json={}).get_json()["move"]["id"]
+    c.put(f"/api/drives/move/{move_id}/choice", json={"target": str(routes["drive"] / "SYNCHRO.S")})
+    c.post(f"/api/drives/move/{move_id}/check", json={})
+    drives_api.JOB.join_check(30)
+    row = next(r for r in c.get("/api/drives/move").get_json()["move"]["checks"]["rows"] if r["key"] == "slskd")
+    assert row["tag"] == "Needs your choice" and row["sign_in"]
+    # a refused sign-in is an answer for the Password field, and keeps nothing
+    refused = c.post(f"/api/drives/move/{move_id}/slskd-session",
+                     json={"username": "slskd", "password": "wrong-password"})
+    assert refused.status_code == 400 and refused.get_json()["code"] == "slskd_refused"
+    assert b"wrong-password" not in refused.data
+    ok = c.post(f"/api/drives/move/{move_id}/slskd-session",
+                json={"username": "slskd", "password": "right-password"})
+    assert ok.status_code == 200
+    drives_api.JOB.join_check(30)
+    body = c.get("/api/drives/move")
+    assert b"right-password" not in ok.data + body.data
+    assert b"session-from-slskd" not in ok.data + body.data
+    move = body.get_json()["move"]
+    assert move["has_slskd_session"] is True
+    row = next(r for r in move["checks"]["rows"] if r["key"] == "slskd")
+    assert row["tag"] == "Signed in as slskd"
+    # leaving Downloads on the computer forgets the session
+    left = c.put(f"/api/drives/move/{move_id}/choice", json={"downloads_left": True}).get_json()["move"]
+    assert left["has_slskd_session"] is False and left["choice"]["roles"]["downloads"] is False

@@ -16,6 +16,14 @@ A preset's name is "Author - Title": the author is what comes before the first
 " - " (leading underscores and the like dropped: MilkDrop packs used them to
 sort), the title the rest. A name without " - " has no author.
 
+The build marks each bundled preset ``curated`` when it's in one of the
+packs the package curates (main, Extra, Extra 2, MD1; 395 presets). The index
+lists those and your own by default (``set="curated"``); ``set="all"`` adds
+the rest. A build from before the mark counts every bundled preset as
+curated. In the curated set, presets the person kept (their favourites, and
+the keys the browser names from Recent) come back separately as ``kept`` so
+Favourites and Recent keep what's in them (HANDOFF 101).
+
 Keys are opaque: ``md-`` + 16 hex for a bundled preset (made by the build
 from its name), ``own-`` + 16 hex for one of yours (from its path inside the
 folder). A request names a key, never a path; an own preset's key is looked up
@@ -37,6 +45,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 FAMILY_MILKDROP = "milkdrop"
 FAMILIES = (FAMILY_MILKDROP,)
 
+SET_CURATED = "curated"
+SET_ALL = "all"
+SETS = (SET_CURATED, SET_ALL)
+
 BUNDLED_KEY_RE = re.compile(r"^md-[0-9a-f]{16}$")
 OWN_KEY_RE = re.compile(r"^own-[0-9a-f]{16}$")
 
@@ -48,6 +60,10 @@ OWN_MAX_FILES = 5000
 OWN_MAX_DEPTH = 3
 # a listing is reused for this long, so typing in the search doesn't walk the disk
 OWN_CACHE_SECONDS = 30.0
+# a fresh walk (an unknown key asks for one) at most this often per folder
+OWN_FRESH_SECONDS = 5.0
+# how many folder entries one walk looks at, whatever they are, before it stops
+OWN_MAX_SCAN = 50000
 
 _LEADING_JUNK = re.compile(r"^[\s_!.\-]+")
 
@@ -80,9 +96,10 @@ def own_key(relpath: str) -> str:
     return "own-" + hashlib.sha1(rel.encode("utf-8")).hexdigest()[:16]
 
 
-def _entry(key: str, full_name: str, size: int, source: str) -> Dict[str, Any]:
+def _entry(key: str, full_name: str, size: int, source: str,
+           curated: Optional[bool] = None) -> Dict[str, Any]:
     author, title = split_name(full_name)
-    return {
+    out = {
         "key": key,
         "name": title,
         "author": author,
@@ -90,6 +107,9 @@ def _entry(key: str, full_name: str, size: int, source: str) -> Dict[str, Any]:
         "size": int(size),
         "source": source,
     }
+    if curated is not None:
+        out["curated"] = bool(curated)
+    return out
 
 
 # ── bundled ─────────────────────────────────────────────────────────────────
@@ -126,7 +146,9 @@ def bundled_entries(static_dir: str) -> List[Dict[str, Any]]:
             if not isinstance(key, str) or not BUNDLED_KEY_RE.match(key) or not isinstance(name, str):
                 continue
             size = item.get("size") if isinstance(item.get("size"), int) else 0
-            entries.append(_entry(key, name, size, "bundled"))
+            # an index built before the mark: every preset counts as curated
+            curated = item.get("curated") if isinstance(item.get("curated"), bool) else True
+            entries.append(_entry(key, name, size, "bundled", curated))
         _bundled_cache.update(path=index_path, mtime=mtime, entries=entries)
         return entries
 
@@ -150,12 +172,28 @@ class OwnListing:
     relative path map that reading one goes through."""
 
     def __init__(self, folder: str, entries: List[Dict[str, Any]], paths: Dict[str, str],
-                 problem: Optional[str], truncated: bool):
+                 problem: Optional[str], truncated: bool, too_big: int = 0,
+                 read_at: Optional[float] = None):
         self.folder = folder
         self.entries = entries
         self.paths = paths
         self.problem = problem
         self.truncated = truncated
+        #: .milk files left out for being over OWN_MAX_BYTES (the settings line says so)
+        self.too_big = too_big
+        #: when the folder was read (seconds since the epoch), for "read 2 minutes ago"
+        self.read_at = time.time() if read_at is None else read_at
+
+    def summary(self) -> Dict[str, Any]:
+        """What the panel and Player settings say about the folder."""
+        return {
+            "configured": bool(self.folder),
+            "count": len(self.entries),
+            "problem": self.problem,
+            "truncated": self.truncated,
+            "too_big": self.too_big,
+            "read_at": int(self.read_at) if self.folder else None,
+        }
 
 
 def _contained(root_real: str, path: str) -> Optional[str]:
@@ -184,19 +222,34 @@ def _walk_own(folder: str) -> OwnListing:
     entries: List[Dict[str, Any]] = []
     paths: Dict[str, str] = {}
     truncated = False
+    too_big = 0
+    scanned = 0
     stack: List[Tuple[str, int]] = [(root_real, 0)]
     try:
         while stack:
             current, depth = stack.pop()
             try:
                 with os.scandir(current) as it:
-                    items = sorted(it, key=lambda e: e.name)
+                    items = []
+                    for entry in it:
+                        scanned += 1
+                        if scanned > OWN_MAX_SCAN:
+                            truncated = True
+                            break
+                        items.append(entry)
+                items.sort(key=lambda e: e.name)
             except OSError:
                 if current == root_real:
                     return OwnListing(folder, [], {}, "unreadable", False)
                 continue
             for item in items:
                 if item.name.startswith("."):
+                    continue
+                try:
+                    # the name first: only folders and .milk files are resolved
+                    if not item.name.lower().endswith(".milk") and not item.is_dir():
+                        continue
+                except OSError:
                     continue
                 real = _contained(root_real, item.path)
                 if real is None:
@@ -211,7 +264,10 @@ def _walk_own(folder: str) -> OwnListing:
                     size = os.stat(real).st_size
                 except OSError:
                     continue
-                if size <= 0 or size > OWN_MAX_BYTES:
+                if size > OWN_MAX_BYTES:
+                    too_big += 1
+                    continue
+                if size <= 0:
                     continue
                 rel = os.path.relpath(real, root_real).replace(os.sep, "/")
                 key = own_key(rel)
@@ -224,27 +280,53 @@ def _walk_own(folder: str) -> OwnListing:
                 stem = os.path.splitext(os.path.basename(rel))[0]
                 paths[key] = rel
                 entries.append(_entry(key, stem, size, "own"))
+            if scanned > OWN_MAX_SCAN:
+                stack.clear()
     except OSError:
-        return OwnListing(folder, entries, paths, "unreadable", truncated)
-    return OwnListing(folder, entries, paths, None, truncated)
+        return OwnListing(folder, entries, paths, "unreadable", truncated, too_big)
+    return OwnListing(folder, entries, paths, None, truncated, too_big)
+
+
+_own_walks: Dict[str, threading.Event] = {}
 
 
 def own_listing(folder: Optional[str], *, fresh: bool = False,
                 now: Optional[float] = None) -> OwnListing:
+    """The folder's listing, reused for 30 s. ``fresh`` walks again, but at
+    most once every 5 s per folder; callers that arrive while a walk runs
+    wait for it and share its answer."""
     folder = str(folder or "").strip()
-    t = time.monotonic() if now is None else now
-    with _own_lock:
-        cached = _own_cache["listing"]
-        if (not fresh and cached is not None and _own_cache["folder"] == folder
-                and t - _own_cache["at"] < OWN_CACHE_SECONDS):
-            return cached
-    listing = _walk_own(folder)
-    with _own_lock:
-        _own_cache.update(folder=folder, at=t, listing=listing)
-    return listing
+    while True:
+        t = time.monotonic() if now is None else now
+        with _own_lock:
+            cached = _own_cache["listing"]
+            if cached is not None and _own_cache["folder"] == folder:
+                age = t - _own_cache["at"]
+                if age < (OWN_FRESH_SECONDS if fresh else OWN_CACHE_SECONDS):
+                    return cached
+            running = _own_walks.get(folder)
+            if running is None:
+                done = threading.Event()
+                _own_walks[folder] = done
+                break
+        running.wait(60)
+        with _own_lock:
+            cached = _own_cache["listing"]
+            if cached is not None and _own_cache["folder"] == folder:
+                return cached
+    try:
+        listing = _walk_own(folder)
+        with _own_lock:
+            _own_cache.update(folder=folder, at=time.monotonic() if now is None else now, listing=listing)
+        return listing
+    finally:
+        with _own_lock:
+            _own_walks.pop(folder, None)
+        done.set()
 
 
 def clear_caches() -> None:
+    """Forget the listings (a new folder was saved)."""
     with _own_lock:
         _own_cache.update(folder=None, at=0.0, listing=None)
     with _bundled_lock:
@@ -316,10 +398,19 @@ def authors_of(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def build_index(static_dir: str, own_folder: Optional[str], *, q: str = "",
-                author: str = "") -> Dict[str, Any]:
+                author: str = "", set_name: str = SET_CURATED,
+                keep: Iterable[str] = ()) -> Dict[str, Any]:
+    """The list MilkDrop's browser shows. ``set_name`` "curated" lists the
+    curated packs and your own; "all" every preset. ``keep`` names presets
+    to hand back in ``kept`` when the set leaves them out (favourites and
+    Recent), so the browser can still name and play them."""
+    if set_name not in SETS:
+        raise ValueError(f"unknown set: {set_name!r}")
     bundled = bundled_entries(static_dir)
     own = own_listing(own_folder)
-    every = sorted(list(bundled) + list(own.entries), key=_sort_key)
+    curated = [e for e in bundled if e.get("curated", True)]
+    listed_bundled = bundled if set_name == SET_ALL else curated
+    every = sorted(list(listed_bundled) + list(own.entries), key=_sort_key)
     terms = [t for t in str(q or "").casefold().split() if t]
     wanted_author = author_key(str(author or "").strip()) if author else ""
     presets = [
@@ -327,24 +418,29 @@ def build_index(static_dir: str, own_folder: Optional[str], *, q: str = "",
         if (not terms or matches(e, terms))
         and (not wanted_author or author_key(e.get("author")) == wanted_author)
     ]
+    kept: List[Dict[str, Any]] = []
+    if set_name == SET_CURATED:
+        wanted = {k for k in keep if isinstance(k, str) and BUNDLED_KEY_RE.match(k)}
+        if wanted:
+            kept = sorted((e for e in bundled if e["key"] in wanted and not e.get("curated", True)),
+                          key=_sort_key)
     return {
         "family": FAMILY_MILKDROP,
+        "set": set_name,
         "total": len(every),
         "count": len(presets),
         "presets": presets,
+        "kept": kept,
         "authors": authors_of(every),
-        "own": {
-            "configured": bool(str(own_folder or "").strip()),
-            "count": len(own.entries),
-            "problem": own.problem,
-            "truncated": own.truncated,
-        },
+        "own": {**own.summary(), "configured": bool(str(own_folder or "").strip())},
         "bundled": len(bundled),
+        "curated": len(curated),
+        "uncurated": len(bundled) - len(curated),
     }
 
 
 __all__ = [
-    "FAMILIES", "FAMILY_MILKDROP", "OWN_MAX_BYTES", "OWN_MAX_FILES",
+    "FAMILIES", "FAMILY_MILKDROP", "OWN_MAX_BYTES", "OWN_MAX_FILES", "SETS", "SET_ALL", "SET_CURATED",
     "author_key", "authors_of", "build_index", "bundled_entries", "bundled_file",
     "bundled_key", "clear_caches", "matches", "own_key", "own_listing", "read_own",
     "split_name",

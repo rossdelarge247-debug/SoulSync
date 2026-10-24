@@ -157,6 +157,15 @@ export function RadioCard() {
 }
 
 /** Reduce motion (10d): the overlay opens still, with the art. */
+/** Close the overlay and open the tray's Player settings (its MilkDrop group). */
+export function openPlayerSettings(): void {
+  const w = window as Window & { npV2?: { closeVisuals?: () => void } };
+  w.npV2?.closeVisuals?.();
+  setTimeout(() => {
+    document.querySelector<HTMLElement>('[data-player-menu="settings"]')?.click();
+  }, 50);
+}
+
 export function StillCard({ art }: { art: string | null }) {
   const s = useVisuals();
   const c = useVisualsController();
@@ -178,17 +187,7 @@ export function StillCard({ art }: { art: string | null }) {
         <Button variant="secondary" size="lg" onClick={() => c.playVisualsThisTime()}>
           Play visuals this time
         </Button>
-        <button
-          type="button"
-          className={styles.linkButton}
-          onClick={() => {
-            const w = window as Window & { npV2?: { closeVisuals?: () => void } };
-            w.npV2?.closeVisuals?.();
-            setTimeout(() => {
-              document.querySelector<HTMLElement>('[data-player-menu="settings"]')?.click();
-            }, 50);
-          }}
-        >
+        <button type="button" className={styles.linkButton} onClick={openPlayerSettings}>
           Player settings
         </button>
       </div>

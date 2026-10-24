@@ -3,14 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DriveStatus, Move, MovePayload } from './drives.api';
 
-import { CheckAgainAnswer, HelperSteps, linesSnippet } from './docker-step';
+import {
+  CheckAgainAnswer,
+  HelperSteps,
+  cleanWindowsFolder,
+  linesSnippet,
+  windowsComposeLines,
+  windowsFolder,
+  windowsRestartCommand,
+  WindowsSteps,
+} from './docker-step';
 import { awayRole, DriveAwayNotice } from './drive-away-notice';
 import { resetDriveStatus } from './drive-status';
 import { durationWords, lastSeenLine, seenWords, sizeOf, sizeWords } from './drives.format';
 import { ChangeFolderDialog, FoldersCard, mountFoldersCard, musicBytesOn } from './folders-card';
 import { draftView, MoveFlow, useMoveFlow } from './move-flow';
 import { CopyStep, DoneStep, FailureView, failureTitle, SwitchStep } from './move-run';
-import { destinations, driveFor } from './move-steps';
+import { CheckStep, destinations, driveFor } from './move-steps';
 
 const GB = 1e9;
 
@@ -867,5 +876,316 @@ describe('the Folders card (14a)', () => {
       ).hidden,
     ).toBe(false);
     expect(mountFoldersCard()).toBe(false);
+  });
+});
+
+describe('Check’s slskd row (19a)', () => {
+  const SLSKD_ROW = {
+    key: 'slskd',
+    title: 'slskd downloads to the new place',
+    tone: 'warning' as const,
+    tag: 'Needs your choice',
+    needs_choice: true,
+    sign_in: true,
+    slskd_choice: 'move' as const,
+    signed_in: false,
+    home_label: 'Macintosh HD',
+    target_label: 'Music HD',
+    detail:
+      'To download into Music HD, slskd has to restart, and it only lets a signed-in admin do that. SYNCHRO.S signs in once, keeps only what slskd hands back, and forgets it when the move is done.',
+  };
+  const checked = (rows: object[], ok = false) =>
+    move({
+      checks: {
+        rows: [
+          {
+            key: 'space',
+            title: 'Room for everything',
+            tone: 'success',
+            tag: 'Fine',
+            detail: '93.2 GB to copy · 1.71 TB free on Music HD',
+          },
+          ...(rows as Move['checks'] extends infer C
+            ? C extends { rows: infer R }
+              ? R
+              : never
+            : never),
+        ],
+        at: 0,
+        speed: null,
+        format: null,
+        need: 0,
+        ok,
+        summary: 'One check passed and one needs your say.',
+        dests: {},
+      },
+    });
+
+  function renderCheck(m: Move, respond: (url: string, init?: RequestInit) => Response) {
+    const sent: Array<{ url: string; method: string; body: unknown }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.startsWith('/api/drives/move/'))
+          sent.push({
+            url,
+            method: init?.method ?? 'GET',
+            body: init?.body ? JSON.parse(init.body as string) : null,
+          });
+        // only the move's routes answer here (a card from another test may still ask)
+        if (!url.startsWith('/api/drives/move/'))
+          return new Response(JSON.stringify({ success: false }), { status: 404 });
+        return respond(url, init);
+      }),
+    );
+    const errors: string[] = [];
+    const act = async (fn: () => Promise<MovePayload>) => {
+      try {
+        await fn();
+        return true;
+      } catch (e) {
+        errors.push((e as Error).message);
+        return false;
+      }
+    };
+    const payload: MovePayload = { success: true, move: m, boot_id: 'b', running: false };
+    render(
+      <CheckStep
+        payload={payload}
+        move={m}
+        busy={false}
+        error={null}
+        act={act}
+        go={vi.fn()}
+        leave={vi.fn()}
+      />,
+    );
+    return { sent, errors };
+  }
+
+  const ok = (m: Move) =>
+    new Response(JSON.stringify({ success: true, move: m, boot_id: 'b', running: false }));
+
+  it('asks for the choice: the sign-in inside "Move Downloads too", the default', () => {
+    const m = checked([SLSKD_ROW]);
+    renderCheck(m, () => ok(m));
+    expect(screen.getByText('Needs your choice')).toBeInTheDocument();
+    expect(screen.getByText(SLSKD_ROW.detail)).toBeInTheDocument();
+    const radios = screen.getAllByRole('radio');
+    expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+    expect(radios[0]).toHaveTextContent('Move Downloads too: sign in to slskd');
+    expect(radios[0]).toHaveTextContent(
+      'What you chose. slskd’s own user name and password, as on its web page.',
+    );
+    expect(radios[1]).toHaveTextContent('Leave Downloads on Macintosh HD');
+    expect(radios[1]).toHaveTextContent(
+      'No sign-in. slskd keeps downloading there; imports then copy across to Music HD instead of moving, a little slower. You can move Downloads later.',
+    );
+    expect(screen.getByLabelText('User name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'password');
+    expect(screen.getByRole('button', { name: 'See the plan' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(
+      screen.getByText('Sign in to slskd, or leave Downloads where it is, to see the plan.'),
+    ).toBeInTheDocument();
+  });
+
+  it('signs in once; a refused sign-in is said under Password, not at the top', async () => {
+    const m = checked([SLSKD_ROW]);
+    let accept = false;
+    const { sent, errors } = renderCheck(m, (url) =>
+      url.endsWith('/slskd-session') && !accept
+        ? new Response(
+            JSON.stringify({
+              success: false,
+              error: 'slskd didn’t accept that user name and password.',
+              code: 'slskd_refused',
+            }),
+            { status: 400 },
+          )
+        : ok(m),
+    );
+    fireEvent.change(screen.getByLabelText('User name'), { target: { value: 'slskd' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong' } });
+    expect(screen.getByText('Then this row reads “Signed in as slskd”.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in to slskd' }));
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'slskd didn’t accept that user name and password.',
+      ),
+    );
+    expect(screen.getByLabelText('Password')).toHaveAttribute('aria-invalid', 'true');
+    expect(errors).toEqual([]);
+    expect(sent[0]).toEqual({
+      url: '/api/drives/move/1/slskd-session',
+      method: 'POST',
+      body: { username: 'slskd', password: 'wrong' },
+    });
+    accept = true;
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'right' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in to slskd' }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    // the password isn't kept in the page once it's sent
+    await waitFor(() => expect(screen.getByLabelText('Password')).toHaveValue(''));
+  });
+
+  it('"Leave Downloads on Macintosh HD" takes Downloads out of this move and checks again', async () => {
+    const m = checked([SLSKD_ROW]);
+    const { sent } = renderCheck(m, () => ok(m));
+    fireEvent.click(screen.getByRole('radio', { name: /Leave Downloads on Macintosh HD/ }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[0]).toEqual({
+      url: '/api/drives/move/1/choice',
+      method: 'PUT',
+      body: { downloads_left: true },
+    });
+    expect(sent[1]!.url).toBe('/api/drives/move/1/check');
+  });
+
+  it('once settled, the row says so and See the plan is there', () => {
+    const m = checked(
+      [
+        {
+          ...SLSKD_ROW,
+          tone: 'success',
+          tag: 'Signed in as slskd',
+          needs_choice: false,
+          signed_in: true,
+          detail: 'SYNCHRO.S restarts slskd once at the switch, then forgets the sign-in.',
+        },
+      ],
+      true,
+    );
+    renderCheck(m, () => ok(m));
+    expect(screen.getByText('Signed in as slskd')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Password')).toBeNull();
+    expect(screen.getByRole('button', { name: 'See the plan' })).toBeEnabled();
+  });
+});
+
+describe('the Docker step on Windows (19b)', () => {
+  it('says the install folder, the lines and the command as Windows writes them', () => {
+    expect(windowsFolder('~/SoulSync')).toBe('C:\\SoulSync');
+    expect(windowsFolder('D:\\Apps\\SoulSync')).toBe('D:\\Apps\\SoulSync');
+    expect(windowsRestartCommand('')).toBe(
+      "Set-Location -LiteralPath 'C:\\SoulSync'; if ($?) { docker compose up -d }",
+    );
+    expect(windowsComposeLines('e', './slskd:/slskd-config')).toEqual([
+      { text: '  soulsync:', added: false },
+      { text: '    volumes:', added: false },
+      { text: '      - ./music:/app/Transfer', added: false },
+      { text: '      - E:\\:/drives/e', added: true },
+      { text: '      - ./slskd:/slskd-config', added: true },
+      { text: '  slskd:', added: false },
+      { text: '    volumes:', added: false },
+      { text: '      - E:\\:/drives/e', added: true },
+    ]);
+  });
+
+  it('quotes the folder, so spaces and (x86) work and nothing in it is run', () => {
+    expect(windowsRestartCommand('C:\\Program Files (x86)\\SoulSync')).toBe(
+      "Set-Location -LiteralPath 'C:\\Program Files (x86)\\SoulSync'; if ($?) { docker compose up -d }",
+    );
+    // quotes, $…, backticks and ; can't be typed into the folder
+    expect(cleanWindowsFolder("C:\\Soul'Sync$(rm)`x;y")).toBe('C:\\SoulSync(rm)xy');
+    expect(windowsRestartCommand("C:\\Soul'Sync$(Get-Process)")).toBe(
+      "Set-Location -LiteralPath 'C:\\SoulSync(Get-Process)'; if ($?) { docker compose up -d }",
+    );
+    render(
+      <WindowsSteps folder="" slskdLine="./slskd:/slskd-config" copied={null} onCopy={vi.fn()} />,
+    );
+    const field = screen.getByLabelText('The folder SYNCHRO.S was installed in');
+    fireEvent.change(field, { target: { value: 'D:\\My $Music`' } });
+    expect(field).toHaveValue('D:\\My Music');
+  });
+
+  it('three steps by hand: copy the file, add the lines in Notepad, restart from PowerShell', () => {
+    const onCopy = vi.fn();
+    render(
+      <WindowsSteps
+        folder="~/SoulSync"
+        slskdLine="./slskd:/slskd-config"
+        copied={null}
+        onCopy={onCopy}
+      />,
+    );
+    expect(screen.getByText('Keep a copy of your set-up file')).toBeInTheDocument();
+    expect(screen.getByText('Add the lines in Notepad')).toBeInTheDocument();
+    expect(screen.getByText('Restart SYNCHRO.S from PowerShell')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Set-Location -LiteralPath 'C:\\SoulSync'; if ($?) { docker compose up -d }",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'The drive’s letter' }), {
+      target: { value: 'F' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the line' }));
+    expect(onCopy).toHaveBeenCalledWith('line', '      - F:\\:/drives/f');
+    fireEvent.change(screen.getByLabelText('The folder SYNCHRO.S was installed in'), {
+      target: { value: 'D:\\SoulSync' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(onCopy).toHaveBeenLastCalledWith(
+      'restart',
+      "Set-Location -LiteralPath 'D:\\SoulSync'; if ($?) { docker compose up -d }",
+    );
+    expect(
+      screen.getByText(/Put the copy from step 1 back and run step 3 again/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('carrying on after a failure when Downloads moves', () => {
+  it('asks for slskd’s sign-in when the server says so, then sends it', async () => {
+    const m = move({
+      status: 'failed',
+      plan: PLAN,
+      failure: { kind: 'drive_away', words: 'Music HD disconnected.', at: 0, matching_files: 10 },
+    });
+    const sent: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? JSON.parse(init.body as string) : null;
+        sent.push({ url, body });
+        if (!body?.username)
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'slskd has to restart… Sign in to slskd to carry on.',
+              code: 'slskd_sign_in',
+            }),
+            { status: 409 },
+          );
+        return new Response(
+          JSON.stringify({ success: true, move: m, boot_id: 'b', running: true }),
+        );
+      }),
+    );
+    const props = {
+      ...runProps(m),
+      act: async (fn: () => Promise<MovePayload>) => {
+        try {
+          await fn();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    };
+    render(<FailureView {...props} />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Plug it in and carry on' })[0]!);
+    await waitFor(() => expect(screen.getByLabelText('slskd user name')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('slskd user name'), { target: { value: 'slskd' } });
+    fireEvent.change(screen.getByLabelText('slskd password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Plug it in and carry on' })[0]!);
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({
+      url: '/api/drives/move/1/resume',
+      body: { username: 'slskd', password: 'pw' },
+    });
   });
 });

@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import type { PresetEntry } from './visuals.types';
 
 import {
+  agoWords,
   autocycleChoices,
   autocycleSeconds,
   autocycleWords,
+  browserSummary,
   byLine,
   creditLine,
   filterPresets,
@@ -18,12 +20,14 @@ import {
   normaliseAutocycle,
   normaliseQuality,
   overlayKey,
+  ownFolderLine,
   pushRecent,
   qualityPixelRatio,
   randomKey,
   RECENT_MAX,
   stepKey,
   stillReason,
+  withKept,
 } from './visuals.logic';
 
 const p = (key: string, name: string, author: string | null, size = 2000): PresetEntry => ({
@@ -52,7 +56,12 @@ describe('the list (10a)', () => {
   });
 
   it('All is A–Z as given; Favourites keep that order; Recent is newest first', () => {
-    const base = { query: '', author: '', favourites: new Set(['h', 'a']), recent: ['s', 'a'] };
+    const base = {
+      query: '',
+      author: '',
+      favourites: new Set(['h', 'a']),
+      recent: ['s', 'a'],
+    };
     expect(filterPresets(ALL, { ...base, show: 'all' }).map((x) => x.key)).toEqual([
       'a',
       'd',
@@ -68,7 +77,11 @@ describe('the list (10a)', () => {
   });
 
   it('the author filter ignores case and combines with the search', () => {
-    const base = { show: 'all' as const, favourites: new Set<string>(), recent: [] };
+    const base = {
+      show: 'all' as const,
+      favourites: new Set<string>(),
+      recent: [],
+    };
     expect(filterPresets(ALL, { ...base, query: '', author: 'FLUX' }).map((x) => x.key)).toEqual([
       'h',
       's',
@@ -269,15 +282,33 @@ describe('the overlay keys (10a; HANDOFF 83)', () => {
 
 describe('the states (10d)', () => {
   it('Reduce motion opens the overlay still, unless played this time', () => {
-    expect(stillReason({ systemReduce: true, settingReduce: false, playAnyway: false })).toBe(
-      'system',
-    );
-    expect(stillReason({ systemReduce: false, settingReduce: true, playAnyway: false })).toBe(
-      'setting',
-    );
-    expect(stillReason({ systemReduce: true, settingReduce: true, playAnyway: true })).toBeNull();
     expect(
-      stillReason({ systemReduce: false, settingReduce: false, playAnyway: false }),
+      stillReason({
+        systemReduce: true,
+        settingReduce: false,
+        playAnyway: false,
+      }),
+    ).toBe('system');
+    expect(
+      stillReason({
+        systemReduce: false,
+        settingReduce: true,
+        playAnyway: false,
+      }),
+    ).toBe('setting');
+    expect(
+      stillReason({
+        systemReduce: true,
+        settingReduce: true,
+        playAnyway: true,
+      }),
+    ).toBeNull();
+    expect(
+      stillReason({
+        systemReduce: false,
+        settingReduce: false,
+        playAnyway: false,
+      }),
     ).toBeNull();
   });
 
@@ -286,5 +317,124 @@ describe('the states (10d)', () => {
     const sound = new Uint8Array(64).fill(128);
     sound[10] = 200;
     expect(isSilent(sound)).toBe(false);
+  });
+});
+
+describe('MilkDrop’s curated list and your own presets (18a, 18b)', () => {
+  const own = (key: string, name: string): PresetEntry => ({
+    ...p(key, name, 'ross'),
+    source: 'own',
+  });
+  const LISTED = [
+    p('a', 'Angel Rails', 'Hapax'),
+    own('o', 'Kelp Forest'),
+    p('h', 'Hive Logic', 'Flux'),
+  ];
+  const KEPT = [p('z', 'Bad Words', 'Anon')];
+  const base = {
+    query: '',
+    author: '',
+    favourites: new Set<string>(),
+    recent: [] as string[],
+  };
+
+  it('Favourites and Recent keep a preset the curated set leaves out; All doesn’t list it', () => {
+    expect(filterPresets(LISTED, { ...base, show: 'all', kept: KEPT }).map((x) => x.key)).toEqual([
+      'a',
+      'o',
+      'h',
+    ]);
+    expect(
+      filterPresets(LISTED, {
+        ...base,
+        show: 'favourites',
+        favourites: new Set(['z', 'h']),
+        kept: KEPT,
+      }).map((x) => x.key),
+    ).toEqual(['z', 'h']);
+    expect(
+      filterPresets(LISTED, {
+        ...base,
+        show: 'recent',
+        recent: ['z', 'a'],
+        kept: KEPT,
+      }).map((x) => x.key),
+    ).toEqual(['z', 'a']);
+    expect(withKept(LISTED, [LISTED[0]!])).toHaveLength(3);
+  });
+
+  it('Yours lists only your own', () => {
+    expect(filterPresets(LISTED, { ...base, show: 'yours' }).map((x) => x.key)).toEqual(['o']);
+  });
+
+  it('the count line says where the list comes from while All lists everything', () => {
+    const f = {
+      show: 'all' as const,
+      query: '',
+      author: '',
+      everyPreset: false,
+    };
+    expect(browserSummary(LISTED, f)).toBe('2 from the curated packs and 1 of yours · A–Z');
+    expect(
+      browserSummary(
+        LISTED.filter((x) => x.source !== 'own'),
+        f,
+      ),
+    ).toBe('2 from the curated packs · A–Z');
+    expect(browserSummary(LISTED, { ...f, everyPreset: true })).toBe(
+      '2 from every pack and 1 of yours · A–Z',
+    );
+    expect(browserSummary(LISTED.slice(1, 2), { ...f, show: 'yours' })).toBe('1 of yours · A–Z');
+    expect(browserSummary([], { ...f, show: 'yours' })).toBe('None of yours');
+    expect(browserSummary(LISTED.slice(0, 1), { ...f, query: 'angel' })).toBe(
+      '1 preset · A–Z · 1 author',
+    );
+  });
+
+  it('the own-presets line: read, empty (warning), unreadable (danger), in words', () => {
+    const now = 1_000_000;
+    expect(ownFolderLine(null, '/config/milkdrop')).toBeNull();
+    expect(ownFolderLine({ configured: false, count: 0, problem: null }, '')?.tone).toBeNull();
+    expect(
+      ownFolderLine(
+        {
+          configured: true,
+          count: 12,
+          problem: null,
+          too_big: 1,
+          read_at: now - 130,
+        },
+        '/config/milkdrop',
+        now,
+      ),
+    ).toEqual({
+      tone: 'success',
+      words: '12 presets, read 2 minutes ago. 1 is too big (over 512 KB) and was left out.',
+    });
+    expect(
+      ownFolderLine({ configured: true, count: 0, problem: null }, '/config/milkdrop'),
+    ).toEqual({
+      tone: 'warning',
+      words:
+        'The folder has no .milk files yet. Put them in it; SYNCHRO.S reads it again when MilkDrop next opens.',
+    });
+    expect(
+      ownFolderLine({ configured: true, count: 0, problem: 'missing' }, '/config/milkdrop'),
+    ).toEqual({
+      tone: 'danger',
+      words:
+        'SYNCHRO.S can’t open /config/milkdrop: it isn’t there inside the container. Check the folder is in your set-up’s volumes.',
+    });
+    expect(
+      ownFolderLine({ configured: true, count: 0, problem: 'unreadable' }, '/config/milkdrop')
+        ?.tone,
+    ).toBe('danger');
+  });
+
+  it('says how long ago in words', () => {
+    expect(agoWords(5)).toBe('just now');
+    expect(agoWords(60)).toBe('1 minute ago');
+    expect(agoWords(7300)).toBe('2 hours ago');
+    expect(agoWords(3 * 86400)).toBe('3 days ago');
   });
 });

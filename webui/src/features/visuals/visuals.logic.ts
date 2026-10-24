@@ -4,7 +4,15 @@
  * credit's words, and which key does what. No DOM; unit tested.
  */
 
-import type { Autocycle, Family, Moved, PresetEntry, Quality, ShowFilter } from './visuals.types';
+import type {
+  Autocycle,
+  Family,
+  Moved,
+  OwnFolderState,
+  PresetEntry,
+  Quality,
+  ShowFilter,
+} from './visuals.types';
 
 import { FAMILY_NAMES, QUALITIES } from './visuals.types';
 
@@ -30,19 +38,37 @@ export interface ListFilter {
   author: string;
   favourites: ReadonlySet<string>;
   recent: readonly string[];
+  /** presets the curated set leaves out but Favourites and Recent keep (101) */
+  kept?: readonly PresetEntry[];
+}
+
+/** The listed presets and the kept ones, A–Z, each once. */
+export function withKept(
+  all: readonly PresetEntry[],
+  kept: readonly PresetEntry[] = [],
+): PresetEntry[] {
+  if (!kept.length) return all.slice();
+  const seen = new Set(all.map((p) => p.key));
+  const extra = kept.filter((p) => !seen.has(p.key));
+  return [...all, ...extra].sort((a, b) =>
+    a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
+  );
 }
 
 /**
- * What the browser lists: All A–Z, Favourites A–Z, or Recent newest first;
- * then the author and the search.
+ * What the browser lists: All A–Z, Favourites A–Z, Recent newest first, or
+ * Yours A–Z; then the author and the search. Favourites and Recent keep a
+ * preset the curated set leaves out.
  */
 export function filterPresets(all: readonly PresetEntry[], f: ListFilter): PresetEntry[] {
   let base: PresetEntry[];
   if (f.show === 'recent') {
-    const byKey = new Map(all.map((p) => [p.key, p]));
+    const byKey = new Map(withKept(all, f.kept).map((p) => [p.key, p]));
     base = f.recent.map((k) => byKey.get(k)).filter((p): p is PresetEntry => Boolean(p));
   } else if (f.show === 'favourites') {
-    base = all.filter((p) => f.favourites.has(p.key));
+    base = withKept(all, f.kept).filter((p) => f.favourites.has(p.key));
+  } else if (f.show === 'yours') {
+    base = all.filter((p) => p.source === 'own');
   } else {
     base = all.slice();
   }
@@ -58,6 +84,86 @@ export function listSummary(list: readonly PresetEntry[], show: ShowFilter): str
   const n = list.length;
   const order = show === 'recent' ? 'newest first' : 'A–Z';
   return `${n.toLocaleString('en-GB')} ${n === 1 ? 'preset' : 'presets'} · ${order} · ${authors.toLocaleString('en-GB')} ${authors === 1 ? 'author' : 'authors'}`;
+}
+
+/**
+ * The count line under Show (18a): "395 from the curated packs and 12 of
+ * yours · A–Z" while All lists everything, "12 of yours · A–Z" on Yours;
+ * otherwise what's listed, the order and the authors.
+ */
+export function browserSummary(
+  list: readonly PresetEntry[],
+  f: { show: ShowFilter; query: string; author: string; everyPreset: boolean },
+): string {
+  if (f.show === 'yours' && !f.query.trim() && !f.author)
+    return list.length ? `${list.length.toLocaleString('en-GB')} of yours · A–Z` : 'None of yours';
+  if (f.show !== 'all' || f.query.trim() || f.author) return listSummary(list, f.show);
+  const own = list.filter((p) => p.source === 'own').length;
+  const bundled = list.length - own;
+  const n = (x: number) => x.toLocaleString('en-GB');
+  const packs = f.everyPreset
+    ? `${n(bundled)} from every pack`
+    : `${n(bundled)} from the curated packs`;
+  return `${packs}${own ? ` and ${n(own)} of yours` : ''} · A–Z`;
+}
+
+/** "just now" / "2 minutes ago" / "3 hours ago" / "2 days ago" */
+export function agoWords(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 60) return 'just now';
+  const unit = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'} ago`;
+  if (s < 3600) return unit(Math.floor(s / 60), 'minute');
+  if (s < 86400) return unit(Math.floor(s / 3600), 'hour');
+  return unit(Math.floor(s / 86400), 'day');
+}
+
+/**
+ * Player settings → MilkDrop → Your own presets: the line under the folder
+ * (18b). Read (success), empty (warning) or unreadable (danger), always in
+ * words; no tone before a folder is set.
+ */
+export function ownFolderLine(
+  own: OwnFolderState | null | undefined,
+  folder: string,
+  nowSeconds: number = Date.now() / 1000,
+): { tone: 'success' | 'warning' | 'danger' | null; words: string } | null {
+  if (!own) return null;
+  const where = folder.trim() || 'the folder';
+  if (!own.configured)
+    return {
+      tone: null,
+      words: 'None yet. Point this at a folder of .milk files; each is converted when it’s picked.',
+    };
+  if (own.problem === 'missing')
+    return {
+      tone: 'danger',
+      words: `SYNCHRO.S can’t open ${where}: it isn’t there inside the container. Check the folder is in your set-up’s volumes.`,
+    };
+  if (own.problem)
+    return {
+      tone: 'danger',
+      words: `SYNCHRO.S can’t open ${where}: it isn’t allowed to read it. Check who owns the folder and that it can be read.`,
+    };
+  const big = own.too_big ?? 0;
+  const bigWords = big
+    ? ` ${big.toLocaleString('en-GB')} ${big === 1 ? 'is' : 'are'} too big (over 512 KB) and ${big === 1 ? 'was' : 'were'} left out.`
+    : '';
+  if (!own.count)
+    return {
+      tone: 'warning',
+      words: `The folder has no .milk files yet. Put them in it; SYNCHRO.S reads it again when MilkDrop next opens.${bigWords}`,
+    };
+  const read =
+    typeof own.read_at === 'number' && own.read_at > 0
+      ? `, read ${agoWords(nowSeconds - own.read_at)}`
+      : '';
+  const capped = own.truncated
+    ? ` Only the first ${own.count.toLocaleString('en-GB')} are listed.`
+    : '';
+  return {
+    tone: 'success',
+    words: `${own.count.toLocaleString('en-GB')} ${own.count === 1 ? 'preset' : 'presets'}${read}.${bigWords}${capped}`,
+  };
 }
 
 /** The newest first, each once, at most RECENT_MAX. */
@@ -118,7 +224,10 @@ export const AUTOCYCLE_CHOICES: readonly { value: Autocycle; label: string }[] =
   { value: 'track', label: 'On track change' },
 ];
 
-const AUTOCYCLE_EXTRA: Record<string, string> = { '60': 'Every minute', '300': 'Every 5 min' };
+const AUTOCYCLE_EXTRA: Record<string, string> = {
+  '60': 'Every minute',
+  '300': 'Every 5 min',
+};
 
 export function normaliseAutocycle(v: unknown): Autocycle {
   return v === '30' || v === '60' || v === '120' || v === '300' || v === 'track' ? v : 'off';

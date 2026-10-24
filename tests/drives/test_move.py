@@ -234,14 +234,81 @@ def test_downloads_moving_needs_slskds_sign_in_once(job):
     j = job["job"]
     move = j.draft(1)
     j.set_choice(move["id"], {"target": _target(job)})
-    row = next(r for r in j.check(move["id"])["checks"]["rows"] if r["key"] == "slskd")
-    assert row["sign_in"] and row["tone"] == "danger"
-    with pytest.raises(M.MoveError, match="didn't accept"):
+    checks = j.check(move["id"])["checks"]
+    row = next(r for r in checks["rows"] if r["key"] == "slskd")
+    # 19a: a choice, not a stop: sign in and move Downloads too, or leave it
+    assert row["sign_in"] and row["tone"] == "warning" and row["tag"] == "Needs your choice"
+    assert row["needs_choice"] and not row.get("stop") and row["slskd_choice"] == "move"
+    assert row["home_label"] == "Macintosh HD" and row["target_label"] == "Music HD"
+    assert row["detail"].startswith("To download into Music HD, slskd has to restart")
+    assert checks["ok"] is False
+    with pytest.raises(M.MoveError, match="See|Something"):
+        j.plan(move["id"])
+    with pytest.raises(M.MoveError, match="didn't accept") as refused:
         j.slskd_sign_in(move["id"], "slskd", "wrong")
+    assert refused.value.code == "slskd_refused" and refused.value.status == 400
     after = j.slskd_sign_in(move["id"], "slskd", "pw")
-    assert next(r for r in after["checks"]["rows"] if r["key"] == "slskd")["tone"] == "success"
+    row = next(r for r in after["checks"]["rows"] if r["key"] == "slskd")
+    assert row["tone"] == "success" and row["tag"] == "Signed in as slskd" and row["signed_in"]
+    assert after["checks"]["ok"] is True
     # only the session, encrypted, is kept; never the password
     assert j.store.row(move["id"])["secret"] == "enc:jwt-token"
+    assert "pw" not in json.dumps(M.public(j, j.store.row(move["id"]), admin=True))
+    assert "jwt-token" not in json.dumps(M.public(j, j.store.row(move["id"]), admin=True))
+
+
+def test_leaving_downloads_on_the_computer_takes_it_out_and_forgets_the_session(job):
+    j = job["job"]
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job)})
+    j.slskd_sign_in(move["id"], "slskd", "pw")
+    left = j.set_choice(move["id"], {"downloads_left": True})
+    assert left["choice"]["roles"] == {"library": True, "downloads": False, "staging": True}
+    assert left["choice"]["downloads_left"] is True
+    # the session was only for moving Downloads; the old checks are gone
+    assert left["secret"] is None and left["checks"] is None
+    checks = j.check(move["id"])["checks"]
+    row = next(r for r in checks["rows"] if r["key"] == "slskd")
+    assert row["slskd_choice"] == "leave" and row["tone"] == "success" and not row.get("sign_in")
+    assert row["detail"].startswith("Downloads stays on Macintosh HD.")
+    assert checks["ok"] is True and "downloads" not in checks["dests"]
+    # "Move Downloads too" puts it back and asks for the sign-in again
+    back = j.set_choice(move["id"], {"downloads_left": False})
+    assert back["choice"]["roles"]["downloads"] is True and back["choice"]["downloads_left"] is False
+    row = next(r for r in j.check(move["id"])["checks"]["rows"] if r["key"] == "slskd")
+    assert row["needs_choice"] and row["slskd_choice"] == "move"
+
+
+def test_ticking_folders_on_choose_forgets_the_check_rows_choice(job):
+    j = job["job"]
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job)})
+    j.set_choice(move["id"], {"downloads_left": True})
+    chosen = j.set_choice(move["id"], {"roles": {"library": True, "downloads": False, "staging": True}})
+    assert chosen["choice"]["downloads_left"] is False
+    # Downloads left out on Choose: no slskd row to answer
+    assert not [r for r in j.check(move["id"])["checks"]["rows"] if r["key"] == "slskd"]
+
+
+@pytest.mark.gauntlet
+def test_leaving_downloads_never_touches_it_or_slskds_download_folder(job):
+    j = job["job"]
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job)})
+    j.set_choice(move["id"], {"downloads_left": True})
+    assert j.check(move["id"])["checks"]["ok"] is True
+    j.plan(move["id"])
+    j.start(move["id"], background=False)
+    moved = j.store.row(move["id"])
+    assert moved["status"] == "switched", moved["failure"]
+    assert "downloads" not in moved["plan"]["dests"]
+    # Downloads stays where it was, every file in it, and slskd isn't restarted
+    for rel in job["files"]["downloads"]:
+        assert os.path.isfile(os.path.join(job["roots"]["downloads"], rel))
+    assert not os.path.exists(os.path.join(_target(job), "Downloads"))
+    assert _stored_config(job)["soulseek"]["download_path"] == job["roots"]["downloads"]
+    assert job["slskd"].restarts == []
+    assert "Downloads" not in job["slskd"].read_config()
 
 
 def test_media_server_that_cant_see_the_drive_is_a_warning(job):
@@ -379,7 +446,7 @@ def test_checksum_finds_a_damaged_copy_and_copy_them_again_fixes_it(job, monkeyp
     assert job["config"].get("soulseek.transfer_path") == job["roots"]["library"]
     assert M.promise(move, "Macintosh HD")["words"] == "Nothing switched · your music is on Macintosh HD"
     monkeypatch.setattr(M, "copy_file", real_copy)
-    j.recopy(move_id, background=False)
+    j.recopy(move_id, background=False, username="slskd", password="pw")
     assert j.store.row(move_id)["status"] == "switched"
 
 
@@ -403,7 +470,7 @@ def test_the_drive_going_away_fails_and_carry_on_finishes(job, monkeypatch):
     assert "Music HD disconnected" in move["failure"]["words"]
     assert holds.held_by() is None and job["calls"]["resume"] == 1
     monkeypatch.setattr(M, "copy_file", real_copy)
-    j.resume(move_id, background=False)
+    j.resume(move_id, background=False, username="slskd", password="pw")
     assert j.store.row(move_id)["status"] == "switched"
 
 
@@ -421,7 +488,7 @@ def test_an_unreadable_old_file_can_be_left_where_it_is(job, monkeypatch):
     j.start(move_id, background=False)
     move = j.store.row(move_id)
     assert move["failure"]["kind"] == "unreadable" and move["failure"]["count"] == 1
-    j.skip_unreadable(move_id, background=False)
+    j.skip_unreadable(move_id, background=False, username="slskd", password="pw")
     move = j.store.row(move_id)
     assert move["status"] == "switched"
     # the left-out file is never offered for deletion
@@ -479,7 +546,12 @@ def test_a_refused_service_switches_everything_back(job):
     assert os.path.isfile(os.path.join(_target(job), "Library", "cover.jpg"))
     # try the switch again once the service takes it
     job["media"].refuse = False
-    j.resume(move_id, background=False)
+    # the slskd session went with the failure: carrying on asks for it again
+    assert j.store.row(move_id)["secret"] is None
+    with pytest.raises(M.MoveError) as asked:
+        j.resume(move_id, background=False)
+    assert asked.value.code == "slskd_sign_in"
+    j.resume(move_id, background=False, username="slskd", password="pw")
     assert j.store.row(move_id)["status"] == "switched"
 
 
@@ -508,6 +580,8 @@ def test_a_restart_mid_copy_reads_as_stopped_and_can_carry_on(job):
     assert move["failure"]["words"] == "Stopped after 2.0 KB when SYNCHRO.S restarted."
     # the manifest wasn't made yet in this test: carrying on needs the start's manifest
     j.store.update(move_id, status="draft", failure=None)
+    j.slskd_sign_in(move_id, "slskd", "pw")
+    j.plan(move_id)
     j.start(move_id, background=False)
     assert j.store.row(move_id)["status"] == "switched"
 
@@ -998,3 +1072,186 @@ def test_the_move_mark_is_never_written_through_a_link(job, monkeypatch, tmp_pat
     monkeypatch.setattr(os.path, "lexists", lambda p: False if str(p).endswith(M.MOVE_MARK) else real(p))
     job["job"]._mark_target({"id": 1, "plan": {"dests": {"library": os.path.join(_target(job), "Library")}}})
     assert outside.read_text() == "keep"
+
+
+# ── a folder that stays inside one that moves (review, 24 October) ───────────
+
+CONFIG_KEYS = {"downloads": "soulseek.download_path", "staging": "import.staging_path"}
+
+
+def _nest(job, role):
+    """Put ``role``'s folder inside the Library folder, with a file in it."""
+    inner = os.path.join(job["roots"]["library"], role.capitalize())
+    write(os.path.join(inner, "live", "in-use.flac"), b"live" * 100)
+    job["config"].set(CONFIG_KEYS[role], inner)
+    return inner
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("role", ["downloads", "staging"])
+def test_a_staying_folder_inside_a_moving_one_is_refused_with_a_row(job, role):
+    j = job["job"]
+    _nest(job, role)
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job), "roles": {r: r != role for r in markers.ROLES}})
+    with pytest.raises(M.MoveError) as refused:
+        j.check(move["id"])
+    assert refused.value.status == 400 and refused.value.code == "nested_folder"
+    assert f"Move {M.LABELS[role]} too, or move it out of the Library folder first." in str(refused.value)
+    rows = j.store.row(move["id"])["checks"]["rows"]
+    assert rows[0]["key"] == "nested" and rows[0]["stop"] is True
+    with pytest.raises(M.MoveError):
+        j.validated_destinations(j.store.row(move["id"])["choice"])
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("role", ["downloads", "staging"])
+def test_a_staying_folder_inside_a_moving_one_is_never_copied_or_removed(job, role, monkeypatch):
+    """The second and third guards: even if the refusal were missed, Start's
+    walk leaves the staying folder out and Remove never deletes in it."""
+    j = job["job"]
+    inner = _nest(job, role)
+    monkeypatch.setattr(M.MoveJob, "nested_staying", staticmethod(lambda dests, sources: []), raising=False)
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job), "roles": {r: r != role for r in markers.ROLES}})
+    if "downloads" != role:
+        j.slskd_sign_in(move["id"], "slskd", "pw")
+    assert j.check(move["id"])["checks"]["ok"], j.store.row(move["id"])["checks"]["rows"]
+    j.plan(move["id"])
+    j.start(move["id"], background=False)
+    assert j.store.row(move["id"])["status"] == "switched"
+    listed = [r["rel"] for r in j.store.files(move["id"])]
+    assert listed and not any(rel.startswith(os.path.basename(inner) + "/") for rel in listed)
+    from core.library.action_plans import PlanStore
+    plans = PlanStore()
+    preview = j.remove_preview(move["id"], plans)
+    j.remove_confirm(move["id"], preview["plan_id"], plans)
+    # the folder SYNCHRO.S still uses, and the file in it, are where they were
+    assert os.path.isfile(os.path.join(inner, "live", "in-use.flac"))
+    assert job["config"].get(CONFIG_KEYS[role]) == inner
+
+
+def test_remove_skips_files_inside_a_folder_still_in_use(job):
+    """Remove's own guard, on a manifest that (wrongly) lists them."""
+    j = job["job"]
+    move_id = _ready(job, roles=["library", "staging"])
+    j.start(move_id, background=False)
+    move = j.store.row(move_id)
+    inner = os.path.join(job["roots"]["library"], "Downloads")
+    write(os.path.join(inner, "late.flac"), b"z" * 50)
+    copy = os.path.join(move["plan"]["dests"]["library"], "Downloads", "late.flac")
+    write(copy, b"z" * 50)
+    st = os.stat(os.path.join(inner, "late.flac"))
+    j.store.add_files(move_id, "library", [("Downloads/late.flac", st.st_size, st.st_mtime, st.st_mtime_ns)])
+    j.store.mark(move_id, [("library", "Downloads/late.flac", {"copied": 1, "verified": 1})])
+    job["config"].set("soulseek.download_path", inner)
+    from core.library.action_plans import PlanStore
+    plans = PlanStore()
+    preview = j.remove_preview(move_id, plans)
+    done = j.remove_confirm(move_id, preview["plan_id"], plans)
+    assert os.path.isfile(os.path.join(inner, "late.flac")) and done["skipped"] >= 1
+
+
+# ── a choice changed while Start lists the files ─────────────────────────────
+
+@pytest.mark.gauntlet
+def test_a_choice_written_during_starts_walk_stops_the_start_cleanly(job, monkeypatch):
+    j = job["job"]
+    move_id = _ready(job)
+    real_walk = M.disks.walk_files
+    done = {"once": False}
+
+    def walk(root, skip=()):
+        if not done["once"]:
+            done["once"] = True
+            # another worker (or a second process) changes the choice meanwhile
+            j.store.update(move_id, choice={**j.store.row(move_id)["choice"], "checksum": True}, plan=None)
+        yield from real_walk(root, skip=skip)
+
+    monkeypatch.setattr(M.disks, "walk_files", walk)
+    with pytest.raises(M.MoveError, match="changed while SYNCHRO.S listed the files"):
+        j.start(move_id, background=False)
+    move = j.store.row(move_id)
+    assert move["status"] == "draft" and j.store.files(move_id) == []
+    assert not os.path.exists(os.path.join(_target(job), "Library"))
+
+
+@pytest.mark.gauntlet
+def test_a_choice_sent_while_start_runs_waits_and_is_refused(job, monkeypatch):
+    j = job["job"]
+    move_id = _ready(job)
+    real_walk = M.disks.walk_files
+    result = {}
+
+    def change():
+        try:
+            j.set_choice(move_id, {"checksum": True})
+            result["ok"] = True
+        except M.MoveError as exc:
+            result["error"] = str(exc)
+
+    t = threading.Thread(target=change)
+
+    def walk(root, skip=()):
+        if not t.is_alive() and "started" not in result:
+            result["started"] = True
+            t.start()
+        yield from real_walk(root, skip=skip)
+
+    monkeypatch.setattr(M.disks, "walk_files", walk)
+    j.start(move_id, background=False)
+    t.join(10)
+    move = j.store.row(move_id)
+    assert move["status"] == "switched" and move["plan"]
+    assert "moved on" in result.get("error", "")
+
+
+def test_a_conditional_write_refuses_a_move_that_left_draft(job):
+    j = job["job"]
+    move = j.draft(1)
+    j.store.update(move["id"], status="copying")
+    assert j.store.update(move["id"], expect_status="draft", choice={}) == 0
+    assert j.store.row(move["id"])["choice"]["roles"]
+
+
+def test_a_failed_move_without_a_plan_can_be_closed_and_not_resumed(job):
+    j = job["job"]
+    move = j.draft(1)
+    j.store.update(move["id"], status="failed", failure={"kind": "error", "words": "x"})
+    with pytest.raises(M.MoveError) as refused:
+        j.resume(move["id"], background=False)
+    assert refused.value.code == "no_plan"
+    assert j.leave(move["id"])["status"] == "stopped"
+    assert j.store.current() is None or j.store.current()["id"] != move["id"]
+
+
+# ── slskd's session only while Downloads moves ───────────────────────────────
+
+@pytest.mark.gauntlet
+def test_a_sign_in_that_lands_after_downloads_left_isnt_kept(job):
+    j = job["job"]
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job)})
+    real = job["slskd"].sign_in
+
+    def slow_sign_in(username, password):
+        # Downloads is left out while slskd answers
+        j.set_choice(move["id"], {"downloads_left": True})
+        return real(username, password)
+
+    job["slskd"].sign_in = slow_sign_in
+    with pytest.raises(M.MoveError) as refused:
+        j.slskd_sign_in(move["id"], "slskd", "pw")
+    assert refused.value.status == 409 and refused.value.code == "slskd_not_needed"
+    assert j.store.row(move["id"])["secret"] is None
+
+
+@pytest.mark.gauntlet
+def test_a_failed_move_forgets_slskds_session(job):
+    job["media"].refuse = True
+    j = job["job"]
+    move_id = _ready(job)
+    assert j.store.row(move_id)["secret"]
+    j.start(move_id, background=False)
+    move = j.store.row(move_id)
+    assert move["status"] == "failed" and move["secret"] is None

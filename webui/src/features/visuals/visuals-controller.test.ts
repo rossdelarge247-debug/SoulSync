@@ -39,7 +39,14 @@ interface Harness {
   npv2: Record<string, unknown>;
 }
 
-function harness(opts: { webgl2?: boolean; reduce?: boolean; radio?: boolean } = {}): Harness {
+function harness(
+  opts: {
+    webgl2?: boolean;
+    reduce?: boolean;
+    radio?: boolean;
+    index?: (url: string) => Record<string, unknown>;
+  } = {},
+): Harness {
   const calls: string[] = [];
   const loads: { preset: unknown; blend: number }[] = [];
   const fail = new Set<string>();
@@ -60,13 +67,17 @@ function harness(opts: { webgl2?: boolean; reduce?: boolean; radio?: boolean } =
           presets: PRESETS,
           authors: [],
           own: { configured: true, count: 1, problem: null },
+          ...(opts.index ? opts.index(url) : {}),
         }),
         { status: 200 },
       );
     if (url.startsWith('/api/visuals/favourites?'))
       return new Response(JSON.stringify({ success: true, keys: ['md-0000000000000003'] }));
     if (url.startsWith('/api/visuals/favourites/')) {
-      if (favFails.on) return new Response(JSON.stringify({ success: false }), { status: 500 });
+      if (favFails.on)
+        return new Response(JSON.stringify({ success: false }), {
+          status: 500,
+        });
       return new Response(JSON.stringify({ success: true, favourite: init?.method === 'PUT' }));
     }
     const m = /\/api\/visuals\/presets\/(.+)$/.exec(url);
@@ -74,7 +85,9 @@ function harness(opts: { webgl2?: boolean; reduce?: boolean; radio?: boolean } =
       const key = decodeURIComponent(m[1]!);
       if (fail.has(key)) return new Response('{}', { status: 404 });
       if (key.startsWith('own-'))
-        return new Response('[preset00]\nzoom=1', { headers: { 'X-Preset-Format': 'milk' } });
+        return new Response('[preset00]\nzoom=1', {
+          headers: { 'X-Preset-Format': 'milk' },
+        });
       return new Response(JSON.stringify({ name: key, baseVals: {}, shapes: [], waves: [] }));
     }
     return new Response('{}', { status: 404 });
@@ -227,7 +240,10 @@ describe('the families and the index', () => {
     expect(s.presetKey).toBe(PRESETS[0]!.key);
     expect(h.loads).toHaveLength(1);
     expect([...s.favourites]).toEqual(['md-0000000000000003']);
-    expect(s.header).toEqual({ name: 'Angel Rails', meta: 'by Hapax · MilkDrop' });
+    expect(s.header).toEqual({
+      name: 'Angel Rails',
+      meta: 'by Hapax · MilkDrop',
+    });
     expect(s.credit?.line).toBe('by Hapax · MilkDrop · 1 of 4 · where you left it');
     h.c.dispose();
   });
@@ -529,6 +545,79 @@ describe('the credit’s key hints', () => {
     }
     expect(hints).toEqual([true, true, true, false, false]);
     expect(localStorage.getItem('soulsync-visuals-hints')).toBe('3');
+    h.c.dispose();
+  });
+});
+
+describe('the curated list and Every preset (101)', () => {
+  const KEPT = entry('md-00000000000000ff', 'Uncurated', 'Anon');
+
+  it('asks for the curated set with Recent’s keys; kept presets can be named and played', async () => {
+    localStorage.setItem(
+      'soulsync-visuals-recent',
+      JSON.stringify([KEPT.key, 'own-000000000000000a']),
+    );
+    const h = harness({
+      index: () => ({ set: 'curated', kept: [KEPT], uncurated: 9 }),
+    });
+    h.c.setOpen(true);
+    h.c.setFamily('milkdrop');
+    await flush();
+    expect(h.calls).toContain(
+      `GET /api/visuals/presets?family=milkdrop&set=curated&keep=${KEPT.key}`,
+    );
+    const s = h.c.snapshot();
+    expect(s.index.uncurated).toBe(9);
+    expect(s.index.presets.some((p) => p.key === KEPT.key)).toBe(false);
+    expect(h.c.entry(KEPT.key)?.name).toBe('Uncurated');
+    h.c.setShow('recent');
+    // opening MilkDrop played the first preset, newest first
+    expect(
+      h.c
+        .snapshot()
+        .list.map((p) => p.key)
+        .slice(-2),
+    ).toEqual([KEPT.key, 'own-000000000000000a']);
+    h.c.dispose();
+  });
+
+  it('Every preset asks for every preset, is remembered in this browser, and turns back off', async () => {
+    const h = harness({
+      index: (url) => ({
+        set: url.includes('set=all') ? 'all' : 'curated',
+        uncurated: 2,
+      }),
+    });
+    h.c.setOpen(true);
+    h.c.setFamily('milkdrop');
+    await flush();
+    h.c.setEveryPreset(true);
+    await flush();
+    expect(h.calls).toContain('GET /api/visuals/presets?family=milkdrop&set=all');
+    expect(h.c.snapshot().everyPreset).toBe(true);
+    expect(h.c.snapshot().index.set).toBe('all');
+    expect(localStorage.getItem('soulsync-visuals-every-preset')).toBe('1');
+    h.c.dispose();
+    const again = harness({
+      index: (url) => ({ set: url.includes('set=all') ? 'all' : 'curated' }),
+    });
+    expect(again.c.snapshot().everyPreset).toBe(true);
+    again.c.setEveryPreset(false);
+    expect(localStorage.getItem('soulsync-visuals-every-preset')).toBeNull();
+    again.c.dispose();
+  });
+
+  it('a switch while the list is on its way asks again for the right set', async () => {
+    const h = harness({
+      index: (url) => ({ set: url.includes('set=all') ? 'all' : 'curated' }),
+    });
+    h.c.setOpen(true);
+    h.c.setFamily('milkdrop');
+    h.c.setEveryPreset(true);
+    await flush();
+    await flush();
+    expect(h.c.snapshot().index.set).toBe('all');
+    expect(h.c.snapshot().index.status).toBe('ready');
     h.c.dispose();
   });
 });

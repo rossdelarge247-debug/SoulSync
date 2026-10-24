@@ -139,6 +139,13 @@ export interface Choice {
   per_role: Partial<Record<Role, string>>;
   exfat: 'carry_on' | 'erase' | null;
   checksum: boolean;
+  /** Check's slskd row: Downloads stays where it is, out of this move (19a) */
+  downloads_left?: boolean;
+}
+
+export interface SlskdSignIn {
+  username: string;
+  password: string;
 }
 
 export interface CheckRow {
@@ -151,6 +158,12 @@ export interface CheckRow {
   needs_choice?: boolean;
   choice?: string | null;
   sign_in?: boolean;
+  /** slskd's row (19a): which option card is picked */
+  slskd_choice?: 'move' | 'leave';
+  signed_in?: boolean;
+  /** where Downloads is now ("Macintosh HD") and where the move goes ("Music HD") */
+  home_label?: string;
+  target_label?: string;
 }
 
 export interface Checks {
@@ -370,10 +383,13 @@ export const drivesApi = {
   start: (id: number, checksum: boolean) =>
     call<MovePayload>('POST', `/api/drives/move/${id}/start`, { checksum }),
   stop: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/stop`),
-  resume: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/resume`),
-  recopy: (id: number) => call<MovePayload>('POST', `/api/drives/move/${id}/recopy`),
-  skipUnreadable: (id: number) =>
-    call<MovePayload>('POST', `/api/drives/move/${id}/skip-unreadable`),
+  /** carrying on after a failure: slskd's sign-in again when Downloads moves */
+  resume: (id: number, signIn?: SlskdSignIn) =>
+    call<MovePayload>('POST', `/api/drives/move/${id}/resume`, signIn ?? {}),
+  recopy: (id: number, signIn?: SlskdSignIn) =>
+    call<MovePayload>('POST', `/api/drives/move/${id}/recopy`, signIn ?? {}),
+  skipUnreadable: (id: number, signIn?: SlskdSignIn) =>
+    call<MovePayload>('POST', `/api/drives/move/${id}/skip-unreadable`, signIn ?? {}),
   removePreview: (id: number) =>
     call<RemovePreview>('POST', `/api/drives/move/${id}/remove-preview`),
   remove: (id: number, planId: string) =>

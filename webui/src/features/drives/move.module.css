@@ -776,6 +776,84 @@
   flex: 1 1 180px;
 }
 
+/* Check's slskd row (19a): two option cards, the sign-in inside the picked one */
+.optionCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  transition: var(--ss-transition);
+}
+
+.optionCard:hover:not([data-selected='true']) {
+  background: var(--ss-hover-wash);
+}
+
+.optionCard[data-selected='true'] {
+  background: var(--ss-selected-fill);
+  border-color: var(--ss-selected-border);
+}
+
+.optionHead {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ss-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.optionHead:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+  border-radius: 6px;
+}
+
+.optionHead .choiceText {
+  line-height: 1.5;
+}
+
+.optionForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+
+.optionFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.optionField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.optionLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ss-text-secondary);
+}
+
+.optionActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
 .rowDetail {
   grid-column: 1 / -1;
   margin: -8px 0 4px;
@@ -809,6 +887,12 @@
   align-items: center;
   gap: 12px;
   margin-left: auto;
+}
+
+/* a disabled action's reason reads before it, as the boards draw it (19a) */
+.footEnd > [data-slot='disabled-reason'] {
+  order: -1;
+  text-align: right;
 }
 
 .confirmInPlace {
@@ -987,6 +1071,17 @@
   color: var(--ss-success);
 }
 
+/* 19b: the drive letter's select reads into the sentence after it */
+.letterRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.letterRow .note {
+  flex: 1;
+}
+
 .checkAgain {
   display: flex;
   flex-direction: column;
@@ -1106,6 +1201,19 @@
   .choices,
   .tiles {
     grid-template-columns: 1fr;
+  }
+
+  .optionFields {
+    grid-template-columns: 1fr;
+  }
+
+  /* 19b's lines and command: the code takes the width, Copy goes under it */
+  .commandBox {
+    flex-wrap: wrap;
+  }
+
+  .commandBox > .commandText {
+    flex-basis: 100%;
   }
 
   .tiles {

@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { buildPresetIndex, presetKey } from '../../scripts/milkdrop-presets.mjs';
+import {
+  buildPresetIndex,
+  curatedName,
+  presetKey,
+  readCuratedNames,
+} from '../../scripts/milkdrop-presets.mjs';
 
 /**
  * The build copies MilkDrop's presets out of the installed butterchurn-presets
@@ -36,6 +41,37 @@ describe('the MilkDrop preset copy (scripts/milkdrop-presets.mjs)', () => {
     expect(eggs.size).toBe(23);
     expect(JSON.parse(readFileSync(join(out, 'index.json'), 'utf8')).count).toBe(2);
     expect(readdirSync(out).sort()).toHaveLength(3);
+  });
+
+  it('marks the presets in the curated packs (101); without the packs, every one counts', () => {
+    const root = mkdtempSync(join(tmpdir(), 'md-curated-'));
+    const src = join(root, 'converted');
+    mkdirSync(src);
+    writeFileSync(join(src, 'Geiss - Eggs.json'), '{}');
+    writeFileSync(join(src, 'Anon - crude.json'), '{}');
+    const index = buildPresetIndex({
+      srcDir: src,
+      outDir: join(root, 'out'),
+      curated: new Set([curatedName('Geiss - Eggs.milk')]),
+    });
+    expect(index.curated).toBe(1);
+    expect(Object.fromEntries(index.presets.map((p) => [p.name, p.curated]))).toEqual({
+      'Anon - crude': false,
+      'Geiss - Eggs': true,
+    });
+    const all = buildPresetIndex({ srcDir: src, outDir: join(root, 'out2') });
+    expect(all.curated).toBe(2);
+    expect(readCuratedNames(join(root, 'no-such-meta.js'))).toBeNull();
+  });
+
+  it('reads the curated packs from the installed package: 395 presets', () => {
+    const names = readCuratedNames(
+      resolve(
+        process.cwd(),
+        'node_modules/butterchurn-presets/lib/butterchurnPresetPackMeta.min.js',
+      ),
+    );
+    expect(names?.size).toBe(395);
   });
 
   it('runs as the last step of the build, from npm’s copy', () => {

@@ -460,22 +460,32 @@ def post_stop(move_id: Optional[int] = None):
     return _act(lambda: _job().stop(move_id))
 
 
+def _carry_on_sign_in():
+    """slskd's sign-in for carrying on after a failure, when Downloads moves
+    (the session was forgotten at the failure)."""
+    body = request.get_json(silent=True) or {}
+    return str(body.get("username") or "")[:200] or None, str(body.get("password") or "")[:500]
+
+
 @bp.route("/api/drives/move/<int:move_id>/resume", methods=["POST"])
 @admin_only
 def post_resume(move_id: int):
-    return _act(lambda: _job().resume(move_id))
+    user, password = _carry_on_sign_in()
+    return _act(lambda: _job().resume(move_id, username=user, password=password))
 
 
 @bp.route("/api/drives/move/<int:move_id>/recopy", methods=["POST"])
 @admin_only
 def post_recopy(move_id: int):
-    return _act(lambda: _job().recopy(move_id))
+    user, password = _carry_on_sign_in()
+    return _act(lambda: _job().recopy(move_id, username=user, password=password))
 
 
 @bp.route("/api/drives/move/<int:move_id>/skip-unreadable", methods=["POST"])
 @admin_only
 def post_skip_unreadable(move_id: int):
-    return _act(lambda: _job().skip_unreadable(move_id))
+    user, password = _carry_on_sign_in()
+    return _act(lambda: _job().skip_unreadable(move_id, username=user, password=password))
 
 
 @bp.route("/api/drives/move/<int:move_id>/remove-preview", methods=["POST"])

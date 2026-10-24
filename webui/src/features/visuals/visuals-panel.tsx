@@ -3,7 +3,8 @@
  * a 520px drawer on the right, inset 16px under the header and above the
  * transport, `#141416`, 14px radius. Title and close, the family row of
  * OptionButtons (SYNCHRO.S / MilkDrop / Classic; AVS isn't built), one
- * family's content, and the foot: Auto-cycle, Blend and Quality. On a phone
+ * family's content, and the foot: MilkDrop's "Every preset" (18a), Auto-cycle,
+ * Blend and Quality. On a phone
  * it's a 560px sheet with a grabber; the family and Show rows scroll
  * sideways and Author and Blend live in Player settings.
  */
@@ -105,7 +106,8 @@ function SynchrosGrid() {
   return (
     <div className={styles.synchros}>
       <p className={styles.familyNote}>
-        {s.themes.length} visuals · drawn by SYNCHRO.S{ac ? ` · auto-cycle ${ac}` : ''}
+        {s.themes.length} visuals · drawn by SYNCHRO.S
+        {ac ? ` · auto-cycle ${ac}` : ''}
       </p>
       <div className={styles.tiles} role="group" aria-label="SYNCHRO.S visuals">
         {s.themes.map((t) => (
@@ -248,8 +250,25 @@ function PanelFoot({ family }: { family: Family }) {
   const c = useVisualsController();
   if (family === 'milkdrop' && (!s.webgl2 || s.engineError)) return null;
   const classic = family === 'classic';
+  const more = s.index.uncurated ?? 0;
+  const everyRow =
+    family === 'milkdrop' && s.index.status === 'ready' && (more > 0 || s.everyPreset);
   return (
     <div className={styles.foot}>
+      {everyRow ? (
+        <FootRow
+          id="ss-visuals-every"
+          label="Every preset"
+          meta={`Adds ${more.toLocaleString('en-GB')} more, uncurated: some names are crude, some won’t load.`}
+        >
+          <LabelledSwitch
+            aria-labelledby="ss-visuals-every"
+            aria-describedby="ss-visuals-every-meta"
+            checked={s.everyPreset}
+            onCheckedChange={(v) => c.setEveryPreset(v)}
+          />
+        </FootRow>
+      ) : null}
       <FootRow
         id="ss-visuals-autocycle"
         label="Auto-cycle"

@@ -39,7 +39,9 @@ class _Db:
         return sqlite3.connect(self.path)
 
 
-def _bundle(static_dir, names):
+def _bundle(static_dir, names, uncurated=None):
+    """The build's copy. ``uncurated`` names the presets outside the curated
+    packs; None writes an index from before the mark."""
     out = os.path.join(static_dir, "dist", "visuals", "milkdrop")
     os.makedirs(out, exist_ok=True)
     presets = []
@@ -48,7 +50,10 @@ def _bundle(static_dir, names):
         body = json.dumps({"baseVals": {"zoom": 1}, "shapes": [], "waves": [], "name": name})
         with open(os.path.join(out, key + ".json"), "w", encoding="utf-8") as fh:
             fh.write(body)
-        presets.append({"key": key, "name": name, "size": len(body)})
+        entry = {"key": key, "name": name, "size": len(body)}
+        if uncurated is not None:
+            entry["curated"] = name not in uncurated
+        presets.append(entry)
     with open(os.path.join(out, "index.json"), "w", encoding="utf-8") as fh:
         json.dump({"source": "butterchurn-presets", "count": len(presets), "presets": presets}, fh)
 
@@ -142,7 +147,11 @@ def test_the_index_lists_bundled_presets_a_to_z_with_authors(world):
     # case-folded together, the capitalised spelling shown on a tie
     assert authors["flexi"]["count"] == 2 and authors["flexi"]["name"] == "Flexi"
     assert authors["geiss"]["count"] == 2
-    assert body["own"] == {"configured": False, "count": 0, "problem": None, "truncated": False}
+    assert body["own"] == {"configured": False, "count": 0, "problem": None, "truncated": False,
+                           "too_big": 0, "read_at": None}
+    # an index built before the curated mark counts every preset as curated
+    assert body["set"] == "curated" and body["curated"] == 6 and body["uncurated"] == 0
+    assert body["kept"] == []
 
 
 def test_search_matches_names_and_authors_and_the_author_filter(world):
@@ -179,6 +188,66 @@ def test_your_own_presets_join_the_list(world):
     assert all(p["name"] not in ("Too Big", "Link", "notes") for p in body["presets"])
     assert body["own"]["configured"] is True and body["own"]["count"] == 2
     assert body["total"] == 8
+
+
+# ── the curated set (HANDOFF 101) ───────────────────────────────────────────
+
+@pytest.fixture
+def curated_world(world):
+    P.clear_caches()
+    _bundle(str(world["static"]), [
+        "Geiss - Eggs",
+        "Rovastar - Altars of Madness",
+        "_Geiss - Feedback",
+        "flexi - mindblob",
+        "Flexi - reality tunnel",
+        "11",
+    ], uncurated={"flexi - mindblob", "11"})
+    world["config"].data["visuals.own_presets_dir"] = str(world["own"])
+    return world
+
+
+def test_the_curated_packs_and_your_own_are_listed_by_default(curated_world):
+    body = curated_world["client"].get("/api/visuals/presets").get_json()
+    assert body["set"] == "curated"
+    bundled = [p for p in body["presets"] if p["source"] == "bundled"]
+    assert sorted(p["name"] for p in bundled) == ["Altars of Madness", "Eggs", "Feedback", "reality tunnel"]
+    assert all(p["curated"] is True for p in bundled)
+    assert len([p for p in body["presets"] if p["source"] == "own"]) == 2
+    assert body["total"] == body["count"] == 6
+    assert body["bundled"] == 6 and body["curated"] == 4 and body["uncurated"] == 2
+    # authors follow what's listed
+    assert {a["key"]: a["count"] for a in body["authors"]}["flexi"] == 1
+
+
+def test_every_preset_adds_the_rest(curated_world):
+    c = curated_world["client"]
+    body = c.get("/api/visuals/presets?set=all").get_json()
+    assert body["set"] == "all" and body["total"] == 8 and body["kept"] == []
+    assert next(p for p in body["presets"] if p["name"] == "mindblob")["curated"] is False
+    assert c.get("/api/visuals/presets?set=curated").get_json()["total"] == 6
+
+
+def test_an_unknown_set_is_refused(curated_world):
+    r = curated_world["client"].get("/api/visuals/presets?set=everything")
+    assert r.status_code == 400 and r.get_json()["error"] == "bad_set"
+
+
+def test_favourites_and_recent_keep_presets_the_curated_set_leaves_out(curated_world):
+    c = curated_world["client"]
+    blob = P.bundled_key("flexi - mindblob")
+    eleven = P.bundled_key("11")
+    c.put(f"/api/visuals/favourites/milkdrop/{blob}")
+    body = c.get("/api/visuals/presets").get_json()
+    assert [p["key"] for p in body["kept"]] == [blob]
+    assert blob not in {p["key"] for p in body["presets"]}
+    # Recent's keys, named by the browser; junk and curated keys are ignored
+    eggs = P.bundled_key("Geiss - Eggs")
+    body = c.get(f"/api/visuals/presets?keep={eleven},{eggs},../etc,own-0000000000000000").get_json()
+    assert sorted(p["key"] for p in body["kept"]) == sorted([blob, eleven])
+    # another profile's stars aren't this one's
+    curated_world["state"]["profile"] = 2
+    assert c.get("/api/visuals/presets").get_json()["kept"] == []
 
 
 def test_a_missing_folder_says_so(world):
@@ -257,6 +326,30 @@ def test_a_file_swapped_for_a_link_after_listing_is_refused(world):
     assert P.read_own(folder, key) is None
 
 
+def test_the_listing_counts_what_was_too_big_and_when_it_read(world):
+    listing = P.own_listing(str(world["own"]), fresh=True)
+    assert listing.too_big == 1
+    summary = listing.summary()
+    assert summary["count"] == 2 and summary["too_big"] == 1 and summary["problem"] is None
+    assert isinstance(summary["read_at"], int) and summary["read_at"] > 0
+
+
+def test_an_empty_or_unreadable_folder_says_which(world, tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert P.own_listing(str(empty), fresh=True).summary()["count"] == 0
+    assert P.own_listing(str(empty), fresh=True).problem is None
+    assert P.own_listing(str(tmp_path / "gone"), fresh=True).problem == "missing"
+    if os.geteuid() != 0:  # root reads anything
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        os.chmod(locked, 0)
+        try:
+            assert P.own_listing(str(locked), fresh=True).problem == "unreadable"
+        finally:
+            os.chmod(locked, 0o755)
+
+
 def test_the_own_listing_is_capped(world, monkeypatch):
     monkeypatch.setattr(P, "OWN_MAX_FILES", 1)
     listing = P.own_listing(str(world["own"]), fresh=True)
@@ -321,6 +414,8 @@ def test_admins_choose_the_folder_and_members_only_see_the_count(world):
     r = c.put("/api/visuals/settings", json={"own_presets_dir": str(world["own"])})
     assert r.status_code == 200
     assert r.get_json()["own"]["count"] == 2
+    # the settings line says what it read and what it left out (18b)
+    assert r.get_json()["own"]["too_big"] == 1 and r.get_json()["own"]["read_at"]
     assert world["config"].data["visuals.own_presets_dir"] == str(world["own"])
     world["state"]["admin"] = False
     member = c.get("/api/visuals/settings").get_json()
@@ -344,3 +439,57 @@ def test_an_empty_folder_turns_your_own_presets_off(world):
     r = c.put("/api/visuals/settings", json={"own_presets_dir": ""})
     assert r.status_code == 200 and r.get_json()["own"]["configured"] is False
     assert c.put("/api/visuals/settings", json={}).status_code == 400
+
+
+# ── the walk stays cheap (review, 24 October) ───────────────────────────────
+
+def test_unknown_own_keys_dont_walk_the_folder_each_time(world, monkeypatch):
+    calls = []
+    real = P._walk_own
+    monkeypatch.setattr(P, "_walk_own", lambda folder: calls.append(folder) or real(folder))
+    world["config"].data["visuals.own_presets_dir"] = str(world["own"])
+    c = world["client"]
+    for i in range(20):
+        assert c.get(f"/api/visuals/presets/own-{i:016x}").status_code == 404
+    # one walk, then at most one fresh one every 5 s, however many keys are asked for
+    assert len(calls) <= 2
+
+
+def test_callers_at_the_same_time_share_one_walk(world, monkeypatch):
+    import threading
+    import time as _time
+    calls = []
+    real = P._walk_own
+
+    def slow(folder):
+        calls.append(folder)
+        _time.sleep(0.3)
+        return real(folder)
+
+    monkeypatch.setattr(P, "_walk_own", slow)
+    out = []
+    threads = [threading.Thread(target=lambda: out.append(P.own_listing(str(world["own"]), fresh=True)))
+               for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert len(calls) == 1 and len(out) == 6 and all(o is out[0] for o in out)
+
+
+def test_the_walk_stops_after_so_many_entries_and_resolves_only_milk_files(world, monkeypatch, tmp_path):
+    big = tmp_path / "big"
+    big.mkdir()
+    for i in range(30):
+        (big / f"note-{i:02d}.txt").write_text("x", encoding="utf-8")
+    (big / "zz - Late.milk").write_text(MILK, encoding="utf-8")
+    resolved = []
+    real = P._contained
+    monkeypatch.setattr(P, "_contained", lambda root, path: resolved.append(path) or real(root, path))
+    listing = P.own_listing(str(big), fresh=True)
+    assert [e["name"] for e in listing.entries] == ["Late"]
+    assert all(p.endswith(".milk") for p in resolved)
+    P.clear_caches()
+    monkeypatch.setattr(P, "OWN_MAX_SCAN", 10)
+    capped = P.own_listing(str(big), fresh=True)
+    assert capped.truncated is True
