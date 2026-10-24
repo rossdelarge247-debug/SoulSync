@@ -394,6 +394,7 @@ def traktor_export():
             "library_folder": state["library_folder"],
             "left_out": planned["left_out"][:50], "reasons": reasons,
             "keys": sum(1 for e in entries if traktor.confident_key(e["track"].get("dj"))),
+            "can_edit": admin,
             "folder": {"state": state["export_folder_state"],
                        "shown": state["export_folder_on_mac"] or state["export_folder"] or None,
                        "can_save": admin and state["export_folder_state"] == "ok"},

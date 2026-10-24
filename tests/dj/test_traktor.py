@@ -397,6 +397,7 @@ def test_preview_then_download(client):
     assert body["reasons"] == {"outside": 1, "not_in_library": 1}
     assert body["keys"] == 2 and body["filename"] == time.strftime("SYNCHRO.S tracks %Y-%m-%d.nml")
     assert body["folder"]["state"] == "unset" and body["folder"]["can_save"] is False
+    assert body["can_edit"] is True
 
     res = _export(client, action="download", source="tracks", track_ids=["1", "2", "3"], name="Sunday Set")
     assert res.status_code == 200
