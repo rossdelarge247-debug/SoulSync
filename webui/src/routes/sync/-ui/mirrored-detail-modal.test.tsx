@@ -5,8 +5,10 @@
  * -sync.mirrored.test.ts.
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+
+import { HttpResponse, http, server } from '@/test/msw';
 
 import { descriptionLink, MirroredDetailModal, placeCoverMenu } from './mirrored-detail-modal';
 
@@ -441,5 +443,39 @@ describe('the made-over hero', () => {
     openMore();
     openMore();
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+});
+
+describe('MirroredDetailModal — Export to Traktor… (21a)', () => {
+  it('sits before the hairline and Delete, and opens the shared confirm', async () => {
+    const asked: unknown[] = [];
+    server.use(
+      http.post('/api/library/dj/traktor/export', async ({ request }) => {
+        asked.push(await request.json());
+        return HttpResponse.json({
+          success: true,
+          name: 'Late night',
+          filename: 'Late night.nml',
+          counts: { tracks: 3, found: 2, left_out: 1 },
+          example_path: '/Users/ross/SoulSync/music/A/One.flac',
+          mac_path: '/Users/ross/SoulSync/music',
+          library_folder: '/app/Transfer',
+          left_out: [{ title: 'Three', artist: 'C', reason: 'not_in_library', words: '' }],
+          reasons: { not_in_library: 1 },
+          keys: 2,
+          can_edit: true,
+          folder: { state: 'unset', shown: null, can_save: false },
+        });
+      }),
+    );
+    renderModal({ name: 'Late night', source: 'soulsync', tracks: [] });
+    openMore();
+    const labels = screen.getAllByRole('menuitem').map((m) => m.textContent);
+    expect(labels.slice(-2)).toEqual(['Export to Traktor…', 'Delete playlist']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Export to Traktor…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Export “Late night” to Traktor?' });
+    await within(dialog).findByRole('button', { name: 'Export 2 tracks' });
+    expect(asked[0]).toEqual({ action: 'preview', source: 'playlist', playlist_id: 3 });
+    expect(dialog.textContent).toContain("Left out: “Three” isn't a file in your library.");
   });
 });

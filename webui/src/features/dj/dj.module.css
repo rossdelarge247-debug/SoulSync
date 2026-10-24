@@ -378,7 +378,15 @@
 }
 
 .makeButton.makeButton {
+  flex: 1;
   width: 100%;
+  min-width: 0;
+}
+
+/* 21a: "Make a playlist…" and "Export to Traktor…" share the foot's row */
+.footButtons {
+  display: flex;
+  gap: 8px;
 }
 
 .makeButtonTall.makeButtonTall {

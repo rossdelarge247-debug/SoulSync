@@ -274,6 +274,19 @@
   background: var(--ss-surface-card);
 }
 
+/* selection mode (21a): the checkbox in the art's 48px cell */
+.check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+}
+
+.row[data-selected='true'] {
+  background: var(--ss-selected-fill);
+}
+
 /* what the player has loaded (17a's first row) */
 .row[data-playing='true'] {
   background: rgba(var(--ss-accent-rgb), 0.1);

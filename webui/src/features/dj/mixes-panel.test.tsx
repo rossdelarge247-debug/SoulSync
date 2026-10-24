@@ -251,7 +251,7 @@ describe('Mixes well with, docked at the right', () => {
     fireEvent.click(within(row).getByRole('button', { name: 'Play Harbour Light next' }));
     expect(window.playNext).toHaveBeenCalledWith(expect.objectContaining({ id: '2' }));
     expect(within(aside).getByText('2 tracks mix with it')).toBeTruthy();
-    expect(within(aside).getByRole('button', { name: 'Make a playlist from these…' })).toBeTruthy();
+    expect(within(aside).getByRole('button', { name: 'Make a playlist…' })).toBeTruthy();
     // the page column makes room (narrower than 1100px it lies over the page)
     expect(document.documentElement.dataset.mixesPanel).toBe('over');
   });
@@ -342,7 +342,7 @@ describe('Make a playlist from these…', () => {
     act(() => openMixes({ id: '1', title: 'Night Ferry' }));
     const aside = await panel();
     await within(aside).findByText('Harbour Light');
-    fireEvent.click(within(aside).getByRole('button', { name: 'Make a playlist from these…' }));
+    fireEvent.click(within(aside).getByRole('button', { name: 'Make a playlist…' }));
     const dialog = await screen.findByRole('dialog', { name: 'Make a playlist from these' });
     expect((within(dialog).getByLabelText('Name') as HTMLInputElement).value).toBe(
       'Mixes with Night Ferry',
@@ -378,6 +378,41 @@ describe('Make a playlist from these…', () => {
   });
 });
 
+describe('Export to Traktor… (21a)', () => {
+  it("sits beside Make a playlist… in the foot and exports the seed's mixes", async () => {
+    const asked: unknown[] = [];
+    server.use(
+      http.post('/api/library/dj/traktor/export', async ({ request }) => {
+        asked.push(await request.json());
+        return HttpResponse.json({
+          success: true,
+          name: 'Mixes with Night Ferry',
+          filename: 'Mixes with Night Ferry.nml',
+          counts: { tracks: 3, found: 3, left_out: 0 },
+          example_path: '/Volumes/Music HD/SoulSync/Transfer/Tidewater/01 Night Ferry.flac',
+          mac_path: '/Volumes/Music HD/SoulSync/Transfer',
+          library_folder: '/app/Transfer',
+          left_out: [],
+          reasons: {},
+          keys: 3,
+          can_edit: true,
+          folder: { state: 'unset', shown: null, can_save: false },
+        });
+      }),
+    );
+    renderShell();
+    act(() => openMixes({ id: '1', title: 'Night Ferry' }));
+    const aside = await panel();
+    await within(aside).findByText('Harbour Light');
+    fireEvent.click(within(aside).getByRole('button', { name: 'Export to Traktor…' }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Export “Mixes with Night Ferry” to Traktor?',
+    });
+    await within(dialog).findByRole('button', { name: 'Export 3 tracks' });
+    expect(asked[0]).toEqual({ action: 'preview', source: 'mixes', track_id: '1' });
+  });
+});
+
 describe("the panel's states (17b)", () => {
   it('says a track isn’t analysed yet, and an admin can analyse it now', async () => {
     renderShell();
@@ -390,7 +425,7 @@ describe("the panel's states (17b)", () => {
     fireEvent.click(within(aside).getByRole('button', { name: 'analyse it now' }));
     await within(aside).findByText(/Working it out now…/);
     expect(started).toEqual([{ track_id: '3' }]);
-    expect(within(aside).queryByRole('button', { name: 'Make a playlist from these…' })).toBeNull();
+    expect(within(aside).queryByRole('button', { name: 'Make a playlist…' })).toBeNull();
   });
 
   it('says an uncertain key may not mix, outlines it, and widens to 10% when nothing matches', async () => {
@@ -430,7 +465,7 @@ describe('on a phone (17d)', () => {
     await within(sheet).findByText('Harbour Light');
     expect(within(sheet).queryByRole('group', { name: /Camelot wheel/ })).toBeNull();
     expect(within(sheet).getByText(/Same key · −1\.6%/)).toBeTruthy();
-    expect(within(sheet).getByRole('button', { name: 'Make a playlist from these…' })).toBeTruthy();
+    expect(within(sheet).getByRole('button', { name: 'Make a playlist…' })).toBeTruthy();
     expect(screen.queryByRole('complementary')).toBeNull();
     expect(document.documentElement.dataset.mixesPanel).toBeUndefined();
     fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));

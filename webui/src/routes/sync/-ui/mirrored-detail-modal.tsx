@@ -31,6 +31,7 @@ import {
   trackStatusSegments,
 } from '../-sync.mirrored';
 import { skippedNoteText } from '../-sync.modal-core';
+import { TraktorExportDialog } from '../../../features/dj/traktor-export-dialog';
 import { AddSongsPanel } from '../../../features/playlists/add-songs-panel';
 import { AddToPlaylistButton } from '../../../features/playlists/add-to-playlist';
 import { playPlaylist, type PlaylistPlayMode } from '../../../features/playlists/play-playlist';
@@ -451,6 +452,8 @@ export function MirroredDetailModal({
     }
   };
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
+  // "Export to Traktor…" (21a): the shared confirm, over this modal
+  const [traktor, setTraktor] = useState(false);
   const sourceLink = own ? null : descriptionLink(data.description);
   // cover + description state. meta edits refetch through onRefresh, so the
   // modal always shows what's saved, same as the track edits below.
@@ -961,6 +964,8 @@ export function MirroredDetailModal({
                           ]
                         : []),
                       ...(!own ? [{ label: 'Edit source link', onSelect: onEditSource }] : []),
+                      // 21a: before the hairline and Delete
+                      { label: 'Export to Traktor…', onSelect: () => setTraktor(true) },
                       {
                         label: own ? 'Delete playlist' : 'Delete mirror',
                         danger: true,
@@ -1067,6 +1072,13 @@ export function MirroredDetailModal({
           )}
         </div>
       </div>
+      {traktor ? (
+        <TraktorExportDialog
+          from={{ source: 'playlist', playlist_id: playlistId }}
+          name={data.display_name || data.name || null}
+          onClose={() => setTraktor(false)}
+        />
+      ) : null}
     </div>
   );
 }
