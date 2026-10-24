@@ -258,12 +258,19 @@ def test_the_move_through_the_routes(routes):
 # ── the computer's own names (125, 160) ─────────────────────────────────────
 
 def _name(folder, role, host, *, marker_id=None):
+    """The helper's entry for ``folder`` in the hints file (SYNCHRO.S's settings folder)."""
     import json
     from core.drives import host_paths
     markers.write_marker(folder, role)
-    with open(os.path.join(folder, host_paths.HINT_NAME), "w") as f:
-        json.dump({"v": 1, "host_path": host, "volume": "Macintosh HD", "os": "mac",
-                   "marker_id": marker_id or markers.marker_id(folder), "written_at": 1761300000}, f)
+    path = host_paths.hints_file()
+    data = {"v": 1, "folders": {}}
+    if os.path.exists(path):
+        with open(path) as f:
+            data = json.load(f)
+    data["folders"][marker_id or markers.marker_id(folder)] = {
+        "host_path": host, "volume": "Macintosh HD", "os": "mac", "written_at": 1761300000}
+    with open(path, "w") as f:
+        json.dump(data, f)
     host_paths.forget()
 
 
@@ -314,9 +321,9 @@ def test_the_remove_list_heads_with_the_computers_folder(routes):
     folder = next(f for f in after["folders"] if f["role"] == "library")
     assert folder["source_host_path"] == "/Users/ross/SoulSync/music" and folder["source_volume"] == "Macintosh HD"
     assert folder["source"] == lib and folder["dest_host_path"] is None  # SOULSYNC_DRIVES_ROOTS is set here
-    # the hint wasn't copied to the new place
+    # nothing about the computer was written into the music folders
     from core.drives import host_paths
-    assert not os.path.exists(os.path.join(target, "Library", host_paths.HINT_NAME))
+    assert not os.path.exists(os.path.join(lib, host_paths.LEGACY_HINT_NAME))
     preview = c.post(f"/api/drives/move/{move_id}/remove-preview", json={}).get_json()
     root = preview["roots"]["library"]
     assert (root["path"], root["host_path"], root["volume"], root["host_source"]) == (

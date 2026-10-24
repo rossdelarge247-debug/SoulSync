@@ -3,21 +3,28 @@
 Inside Docker, SYNCHRO.S sees its music folders at container paths
 (``/app/Transfer``), which mean nothing in Finder. The drives helper runs on
 the computer itself, reads each mount's two sides from the set-up file
-(``./music:/app/Transfer``) and writes a small **host hint** beside the
-folder's marker::
+(``./music:/app/Transfer``) and writes **one hints file into SYNCHRO.S's own
+settings folder** (``./config``, mounted at ``/app/config``), keyed by each
+music folder's marker id::
 
-    <folder>/.synchros-host.json
-    {"v": 1, "host_path": "/Users/ross/SoulSync/music", "volume": "Macintosh HD",
-     "os": "mac", "marker_id": "<the folder's marker id>", "written_at": 1761300000}
+    /app/config/host-paths.json
+    {"v": 1, "folders": {"<marker id>": {"host_path": "/Users/ross/SoulSync/music",
+                                          "volume": "Macintosh HD", "os": "mac",
+                                          "written_at": 1761300000}}}
 
-The hint is **display text only**. It is untrusted data written from outside
+Nothing is written into the music folders: slskd shares the library's root,
+and the computer's paths (the Mac's user folder) must not be shared with
+Soulseek. An older build's ``.synchros-host.json`` inside a music folder
+(``LEGACY_HINT_NAME``) is never read; the helper deletes it.
+
+The file is **display text only**. It is untrusted data written from outside
 the container, so:
 
 * it is read without following a link, from a regular file of at most
-  ``HINT_MAX_BYTES``, and must match the schema exactly (``read_hint``);
-* it is trusted only while ``marker_id`` equals the id of the marker at the
-  same folder (``markers.marker_id``): a folder SYNCHRO.S marked afresh, or a
-  hint copied from elsewhere, is ignored;
+  ``HINTS_MAX_BYTES``, and must match the schema exactly (``parse_hints``);
+* a folder's entry is trusted only while its key equals the id of the marker
+  at that folder (``markers.marker_id``): a folder SYNCHRO.S marked afresh,
+  or an entry for another folder, names nothing;
 * nothing here, and nothing that calls it, uses a host path to open, list,
   write or delete a file. The routes and the page escape it like any text.
 
@@ -47,13 +54,19 @@ from utils.logging_config import get_logger
 
 logger = get_logger("drives.host_paths")
 
-HINT_NAME = ".synchros-host.json"
+HINTS_NAME = "host-paths.json"
+#: overrides where the hints file is read (tests, unusual set-ups)
+HINTS_FILE_ENV = "SOULSYNC_HOST_PATHS_FILE"
+#: what an older build wrote inside each music folder: never read, the helper deletes it
+LEGACY_HINT_NAME = ".synchros-host.json"
 HINT_VERSION = 1
-#: a hint is under 300 bytes; anything bigger isn't one the helper wrote
-HINT_MAX_BYTES = 4096
-HINT_KEYS = frozenset({"v", "host_path", "volume", "os", "marker_id", "written_at"})
+HINTS_MAX_FOLDERS = 64
+#: 64 entries of at most ~1.4 KB each
+HINTS_MAX_BYTES = 96 * 1024
+HINTS_KEYS = frozenset({"v", "folders"})
+ENTRY_KEYS = frozenset({"host_path", "volume", "os", "written_at"})
 HINT_OS = ("mac", "linux")
-#: how long a folder's hint is remembered before it's read again
+#: how long the file and each folder's answer are remembered before reading again
 CACHE_SECONDS = 5.0
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
@@ -61,7 +74,7 @@ _MAX_PATH = 1024
 _MAX_VOLUME = 255
 
 
-# ── the hint ──────────────────────────────────────────────────────────────────
+# ── the hints file ────────────────────────────────────────────────────────────
 
 def _clean_host_path(value: Any) -> Optional[str]:
     """A plain absolute POSIX path, normalised, or None."""
@@ -72,8 +85,7 @@ def _clean_host_path(value: Any) -> Optional[str]:
     parts = value.split("/")
     if any(p in (".", "..") for p in parts):
         return None
-    clean = "/" + "/".join(p for p in parts if p)
-    return clean
+    return "/" + "/".join(p for p in parts if p)
 
 
 def _clean_volume(value: Any) -> Optional[str]:
@@ -85,45 +97,58 @@ def _clean_volume(value: Any) -> Optional[str]:
     return text
 
 
-def parse_hint(raw: bytes) -> Optional[Dict[str, Any]]:
-    """The hint's fields when ``raw`` is exactly the schema, else None."""
-    if not isinstance(raw, (bytes, bytearray)) or len(raw) > HINT_MAX_BYTES:
+def parse_entry(data: Any) -> Optional[Dict[str, Any]]:
+    """One folder's entry when it is exactly the schema, else None."""
+    if not isinstance(data, dict) or set(data) != ENTRY_KEYS:
+        return None
+    host_path = _clean_host_path(data["host_path"])
+    volume = _clean_volume(data["volume"])
+    written_at = data["written_at"]
+    if host_path is None or volume is None or data["os"] not in HINT_OS:
+        return None
+    if type(written_at) is not int or written_at <= 0:
+        return None
+    return {"host_path": host_path, "volume": volume, "os": data["os"], "written_at": written_at}
+
+
+def parse_hints(raw: bytes) -> Optional[Dict[str, Dict[str, Any]]]:
+    """``{marker_id: entry}`` when ``raw`` is exactly the schema, else None
+    (one bad entry refuses the whole file)."""
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) > HINTS_MAX_BYTES:
         return None
     try:
         data = json.loads(bytes(raw).decode("utf-8"))
     except (UnicodeDecodeError, ValueError, RecursionError):
         return None
-    if not isinstance(data, dict) or set(data) != HINT_KEYS:
+    if not isinstance(data, dict) or set(data) != HINTS_KEYS:
         return None
     if type(data["v"]) is not int or data["v"] != HINT_VERSION:
         return None
-    host_path = _clean_host_path(data["host_path"])
-    volume = _clean_volume(data["volume"])
-    marker_id = data["marker_id"]
-    written_at = data["written_at"]
-    if host_path is None or volume is None or data["os"] not in HINT_OS:
+    folders = data["folders"]
+    if not isinstance(folders, dict) or len(folders) > HINTS_MAX_FOLDERS:
         return None
-    if not isinstance(marker_id, str) or not markers.MARKER_ID.match(marker_id):
-        return None
-    if type(written_at) is not int or written_at <= 0:
-        return None
-    return {"host_path": host_path, "volume": volume, "os": data["os"], "marker_id": marker_id,
-            "written_at": written_at}
+    out = {}
+    for key, value in folders.items():
+        entry = parse_entry(value)
+        if not isinstance(key, str) or not markers.MARKER_ID.match(key) or entry is None:
+            return None
+        out[key] = entry
+    return out
 
 
-def _read_small(path: str) -> Tuple[Optional[bytes], Optional[Tuple[int, int, int]]]:
-    """A regular file's bytes (at most ``HINT_MAX_BYTES``) and its identity,
-    read without following a link; (None, None) otherwise."""
+def _read_small(path: str, cap: int) -> Optional[bytes]:
+    """A regular file's bytes (at most ``cap``), read without following a
+    link; None otherwise."""
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     except OSError:
-        return None, None
+        return None
     try:
         st = os.fstat(fd)
-        if not _stat.S_ISREG(st.st_mode) or st.st_size > HINT_MAX_BYTES:
-            return None, None
+        if not _stat.S_ISREG(st.st_mode) or st.st_size > cap:
+            return None
         chunks = []
-        left = HINT_MAX_BYTES + 1
+        left = cap + 1
         while left > 0:
             chunk = os.read(fd, left)
             if not chunk:
@@ -131,43 +156,60 @@ def _read_small(path: str) -> Tuple[Optional[bytes], Optional[Tuple[int, int, in
             chunks.append(chunk)
             left -= len(chunk)
         raw = b"".join(chunks)
-        if len(raw) > HINT_MAX_BYTES:
-            return None, None
-        return raw, (st.st_ino, st.st_size, st.st_mtime_ns)
+        return None if len(raw) > cap else raw
     except OSError:
-        return None, None
+        return None
     finally:
         os.close(fd)
 
 
-def read_hint(folder: str) -> Optional[Dict[str, Any]]:
-    """The helper's hint at ``folder`` when it's well formed **and** its
-    ``marker_id`` matches the folder's marker; else None. Reads two small
-    files and nothing else."""
+def hints_file() -> str:
+    """Where the helper's hints live: SYNCHRO.S's own settings folder."""
+    env = os.environ.get(HINTS_FILE_ENV, "").strip()
+    if env:
+        return env
+    try:
+        from core.settings import config_manager
+        return str(config_manager.config_path.parent / HINTS_NAME)
+    except Exception:  # noqa: BLE001
+        return os.path.join("/app/config", HINTS_NAME)
+
+
+def read_hints(path: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+    """Every well-formed entry in the hints file, by marker id; {} when the
+    file is missing, a link, too big or not exactly the schema."""
+    path = path or hints_file()
+    raw = _read_small(path, HINTS_MAX_BYTES)
+    if raw is None:
+        return {}
+    parsed = parse_hints(raw)
+    if parsed is None:
+        logger.debug("ignored a malformed host hints file at %s", path)
+        return {}
+    return parsed
+
+
+def read_hint(folder: str, hints: Optional[Dict[str, Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
+    """The entry for ``folder``: the one keyed by the id of the marker at
+    ``folder`` right now, or None (no marker, no id, no entry)."""
     if not isinstance(folder, str) or not folder.startswith("/"):
         return None
-    raw, _ident = _read_small(os.path.join(folder, HINT_NAME))
-    if raw is None:
-        return None
-    hint = parse_hint(raw)
-    if hint is None:
-        logger.debug("ignored a malformed host hint in %s", folder)
-        return None
     current = markers.marker_id(folder)
-    if current is None or current != hint["marker_id"]:
-        logger.debug("ignored a host hint in %s: it was written for another marker", folder)
+    if current is None:
         return None
-    return hint
+    entry = (read_hints() if hints is None else hints).get(current)
+    return {**entry, "marker_id": current} if entry else None
 
 
 class _Cache:
-    """Each folder's trusted hint for a few seconds, so a status poll or a
-    long export reads the two files once, not once per track."""
+    """The file and each folder's answer for a few seconds, so a status poll
+    or a long export reads them once, not once per track."""
 
     def __init__(self, ttl: float = CACHE_SECONDS, clock: Callable[[], float] = time.monotonic) -> None:
         self.ttl = ttl
         self._clock = clock
         self._lock = threading.Lock()
+        self._file: Optional[Tuple[float, Dict[str, Dict[str, Any]]]] = None
         self._hits: Dict[str, Tuple[float, Optional[Dict[str, Any]]]] = {}
 
     def get(self, folder: str) -> Optional[Dict[str, Any]]:
@@ -176,8 +218,12 @@ class _Cache:
             hit = self._hits.get(folder)
             if hit and now - hit[0] < self.ttl:
                 return hit[1]
-        value = read_hint(folder)
+            cached = self._file if self._file and now - self._file[0] < self.ttl else None
+        hints = cached[1] if cached else read_hints()
+        value = read_hint(folder, hints)
         with self._lock:
+            if cached is None:
+                self._file = (now, hints)
             if len(self._hits) > 256:
                 self._hits.clear()
             self._hits[folder] = (now, value)
@@ -185,6 +231,7 @@ class _Cache:
 
     def forget(self) -> None:
         with self._lock:
+            self._file = None
             self._hits.clear()
 
 
@@ -316,5 +363,5 @@ def to_host(container_path: str) -> str | None:
     return found["host_path"] if found else None
 
 
-__all__ = ["HINT_KEYS", "HINT_MAX_BYTES", "HINT_NAME", "HINT_VERSION", "folder_host", "forget", "parse_hint",
-           "public_fields", "read_hint", "to_host"]
+__all__ = ["HINTS_FILE_ENV", "HINTS_MAX_BYTES", "HINTS_NAME", "HINT_VERSION", "LEGACY_HINT_NAME", "folder_host",
+           "forget", "hints_file", "parse_hints", "public_fields", "read_hint", "read_hints", "to_host"]

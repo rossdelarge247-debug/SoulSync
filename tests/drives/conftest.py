@@ -9,9 +9,14 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _restore_drives_wiring(monkeypatch):
+def _restore_drives_wiring(monkeypatch, tmp_path):
     import api.drives as drives_api
-    from core.drives import helper, holds, markers
+    from core.drives import helper, holds, host_paths, markers
+
+    # the helper's hints file, in a settings folder of the test's own
+    (tmp_path / "synchros-config").mkdir()
+    monkeypatch.setenv(host_paths.HINTS_FILE_ENV, str(tmp_path / "synchros-config" / host_paths.HINTS_NAME))
+    host_paths.forget()
 
     saved_watch = markers.set_watch(None)
     saved_job = drives_api.JOB
@@ -29,6 +34,7 @@ def _restore_drives_wiring(monkeypatch):
     helper.TOKENS = saved_tokens
     holds._HOLD.clear()
     holds._HOLD.update(saved_hold)
+    host_paths.forget()
 
 
 # ── a small install on disk: the app's folders, a drive, a library database ──

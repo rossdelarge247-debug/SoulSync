@@ -46,8 +46,8 @@ REMOVE_TOOL = "drive_move_remove_old"
 FOLDER_NAMES = {"library": "Library", "downloads": "Downloads", "staging": "Staging"}
 MOVE_MARK = ".synchros-move.json"
 #: never copied, counted, listed for removal or deleted by a move: SYNCHRO.S's
-#: marker, the move's note, and the drives helper's host hint (display only)
-SKIP_NAMES = (MARKER_NAME, MOVE_MARK, host_paths.HINT_NAME)
+#: marker, the move's note, and an older build's host hint (never read now)
+SKIP_NAMES = (MARKER_NAME, MOVE_MARK, host_paths.LEGACY_HINT_NAME)
 APPLEDOUBLE_PREFIX = "._"
 REMIND_SECONDS = 7 * 86400
 #: the write test in Check; tests make it small
