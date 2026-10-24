@@ -16,6 +16,8 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Famous mixes and AI set suggestions | Ready for Design | [below](#famous-mixes-and-ai-set-suggestions) |
 | Lyrics centre stage, timed to the words | Ready for Design (step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
 | Star tracks and mix sets | Ready for Design | [below](#star-tracks-and-mix-sets) |
+| Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
+| Auto-mix: beat-matched transitions in Up next | Ready for Design (built with DJ stage 3's decks) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
 
 ---
 
@@ -656,3 +658,144 @@ The expanded player gets a **Mix** tab beside Lyrics and Details. On a phone it'
   - stars stay in SYNCHRO.S, not synced to Plex or Jellyfin;
   - stars and mix sets are per profile;
   - a plain star, not a 1–5 rating.
+
+---
+
+## Versions and remixes beside Up next
+
+**Status:** Ready for Design · raised by Ross, 2026-10-24 · direction approved by Ross the same day.
+
+### What Ross wants
+
+Beside Up next, show the other versions of a track that exist: remixes, extended, dub, radio edit, VIP, live. Show which of them are owned and which aren't, and make swapping and fetching easy.
+
+### Where the data comes from
+
+1. **The library itself first.** Owned versions are grouped by artist plus a normalised title, with the version words ("Original Mix", "Extended Mix", "Radio Edit", "VIP", "Dub", "Remix", "Live") parsed out, and MusicBrainz ids where present.
+2. **MusicBrainz (the backbone):** its recording relationships (remix of, edit of, live version of, remixer). It's free and open, and already used.
+3. **Discogs:** "Remix by" credits and releases with several versions, strong on vinyl and dance. A free token goes in Settings → Connections.
+4. **Beatport:** SYNCHRO.S already reads Beatport's public pages (`core/beatport/`, inherited from upstream) for charts and BPM. It's the best catalogue for mix versions, so it's worth using, but there's no public API: the pages can change, and reading them isn't plainly within Beatport's terms. **Treat it as a bonus source; nothing depends on it.**
+5. **Deezer and Tidal search** (already connected) fill the gaps.
+
+Results are cached per track, then refreshed in the background.
+
+### What's shown
+
+A **Versions** panel beside Up next (and in a track's "…" → Versions), for example "You own 2: Original, Extended · 5 more known".
+
+Each version shows:
+- its name;
+- the remixer;
+- its length;
+- BPM and key where known;
+- its source.
+
+Actions:
+- **Swap in**, for an owned version: replaces the queued or set entry.
+- **Play**, for an owned version.
+- **Add to Wanted**, for one that isn't owned.
+
+**"Prefer extended mixes"** (Settings → Library, DJ): when queuing or adding to a mix set, the extended version is used if it's owned.
+
+### What Design needs to draw
+
+- The Versions panel beside Up next at 1440, and on a phone as a sheet.
+- The "…" → Versions entry.
+- The swap-in confirmation.
+- States:
+  - none known;
+  - looking it up;
+  - a source unreachable;
+  - only owned versions;
+  - versions found that aren't owned.
+
+### Questions for Design
+
+1. Is Versions a tab beside Up next, or a small badge on each queued track ("3 versions") that opens it?
+2. How is the source shown? Quietly per row, or not at all?
+
+### Settled with Ross
+
+- 24 October: yes. Beatport may be used, as a bonus source only.
+
+---
+
+## Auto-mix: beat-matched transitions in Up next
+
+**Status:** Ready for Design · raised by Ross, 2026-10-24 · direction approved by Ross the same day. **Built with DJ stage 3's decks**, which use the same engine: two decks with EQ and effects on Web Audio. Auto-mix is that engine driven automatically, so the decks come first and auto-mix sits on top. Mix sets then play as a continuous mix.
+
+### What Ross wants
+
+In Up next, mix into the next track instead of just crossfading:
+- on command ("Mix now");
+- or automatically;
+- in a chosen style: long, short, aggressive and so on.
+
+### How it works (proven: Apple Music's AutoMix, djay's Automix and Mixxx's Auto DJ do versions of it; signal processing, not AI)
+
+**Analysis, server side.** This extends DJ stage 1's analysis and is stored with BPM, key and energy:
+- the beat grid and downbeats;
+- phrase boundaries (8, 16 and 32 bars);
+- sections (intro, outro, breakdown, drop) from structure analysis;
+- the "mixable" intro and outro regions;
+- loudness (ReplayGain is already there).
+
+Dev picks the libraries after checking their licences: some beat and structure models are for non-commercial use only, and some analysis libraries are AGPL.
+
+**Playback, in the browser:**
+- two decks on Web Audio;
+- the incoming track's tempo matched with a time-stretch library (SoundTouch for the web; licence to check), or with a plain speed change when the gap is under about 3%;
+- downbeats phase-aligned;
+- EQ, filter and echo automated on the bar with scheduled `AudioParam` changes.
+
+**Styles:**
+- **Long blend:** 32 bars, gradual EQ handover.
+- **Short blend:** 8 bars.
+- **Bass swap.**
+- **Cut**, on the one.
+- **Echo out**: the safe choice for key clashes and big tempo gaps.
+- **Filter sweep.**
+- **Drop swap**: the incoming drop over the outgoing breakdown.
+
+**Auto** picks a style for each pair:
+- compatible key and close BPM: a long blend;
+- a key clash: a short cut or echo out;
+- a big tempo gap: echo out.
+
+### In Up next
+
+- **A transition chip between each pair** ("Blend · 32 bars"). Tap it to change the style or length.
+- **Mix now:** "Mixing into the next track in 6 bars…", starting on the next phrase, with Cancel.
+- **The setting** (player settings): **Off / Smart crossfade / DJ mix.**
+- **Fallback:** a pair that can't be beat-matched crossfades plainly, and says so ("Couldn't beat-match: crossfading").
+- **In a mix set,** each transition's style is saved with the set.
+
+### Honest limits (for the design to reflect)
+
+- **Excellent on 4/4 electronic music** with clean intros and outros.
+- **Weak on:**
+  - live drums, tempo drift and rubato;
+  - BPM gaps over about 8%;
+  - big genre jumps.
+- **Phones:** browsers can suspend Web Audio when the screen locks, especially on iPhone. Best on a computer or with the screen on; to be tested before it's promised.
+
+### What Design needs to draw
+
+- The transition chips in Up next, at 1440 and on a phone.
+- The style picker.
+- Mix now, counting down and while mixing: both tracks' progress and a small view of the handover.
+- The setting.
+- The fallback notice.
+- A track that's still being analysed (its chip waits).
+- Transitions in a mix set's page.
+- How auto-mix sits with DJ stage 3's decks: watching the decks while auto-mix drives them.
+
+### Questions for Design
+
+1. Should the chips always show in Up next, or only when DJ mix is on?
+2. While mixing, does the player show both tracks (two mini decks) or keep a single now-playing with a handover bar?
+3. How does a person take over mid-mix (grab the crossfader on the decks)?
+
+### Settled with Ross
+
+- 24 October: yes to both the transitions and the styles, built with the DJ stage 3 decks.
