@@ -30,7 +30,7 @@ from __future__ import annotations
 import os
 import tempfile
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.drives import compose_tool as yaml_blocks
 from utils.logging_config import get_logger
@@ -44,6 +44,8 @@ APPLEDOUBLE_FILTER = r"/\._[^/]*$"
 #: note, an older build's host hint) are never shared on Soulseek. slskd
 #: matches a filter against each file's full path, so it is anchored on the
 #: last "/" as the "._" filter is (a bare ``^\.synchros-`` would never match).
+#: Belt and braces: slskd's scanner skips hidden files, and dot-files are
+#: hidden on Linux, so neither these nor "._" files are shared without it.
 SYNCHROS_FILTER = r"/\.synchros-[^/]*$"
 TIMEOUT = 15
 
@@ -133,6 +135,19 @@ class Slskd:
         except Exception as exc:  # noqa: BLE001
             logger.debug("slskd options unreadable: %s", exc)
             return None
+
+    def share_filters(self) -> Optional[List[str]]:
+        """The share filters slskd uses now (defaults, environment, slskd.yml
+        and command line merged), or None when it can't be read."""
+        opts = self.options()
+        if not isinstance(opts, dict) or not isinstance(opts.get("shares"), dict):
+            return None
+        filters = opts["shares"].get("filters")
+        if filters is None:
+            return []
+        if not isinstance(filters, list) or not all(isinstance(f, str) for f in filters):
+            return None
+        return list(filters)
 
     def shared_directories(self) -> List[str]:
         opts = self.options() or {}
@@ -254,12 +269,40 @@ class Slskd:
             raise ServiceRefused(f"SYNCHRO.S couldn't write slskd.yml ({exc.strerror or exc}).") from None
 
 
+def merge_filters(yaml_filters: Optional[List[str]], effective: Optional[List[str]],
+                  wanted: List[str]) -> Tuple[Optional[List[str]], Optional[str]]:
+    """The ``shares.filters`` list to write so slskd ends up using every
+    filter it uses now plus ``wanted``, or (None, why) when that can't be done
+    safely. slskd merges list settings by position across its defaults, the
+    environment, slskd.yml and the command line, so the list written is the
+    whole effective list plus what's missing: never shorter, never reordered.
+    Only while slskd.yml's own list is a prefix of the effective one (so
+    nothing above slskd.yml overrides it) is that safe."""
+    if effective is None:
+        return None, "SYNCHRO.S couldn't read the share filters slskd uses"
+    if yaml_filters is None:
+        return None, "slskd.yml's share filters are written in a form SYNCHRO.S doesn't edit"
+    if len(set(effective)) != len(effective) or len(set(yaml_filters)) != len(yaml_filters):
+        return None, "slskd's share filters list one filter twice"
+    if effective[:len(yaml_filters)] != yaml_filters:
+        return None, "the share filters in slskd.yml aren't the ones slskd uses (something else overrides them)"
+    missing = [f for f in wanted if f not in effective]
+    if not missing:
+        return list(effective), None
+    return list(effective) + missing, None
+
+
 def plan_slskd_config(text: str, *, share_old: Optional[str], share_new: Optional[str],
                       current_shares: List[str], downloads_new: Optional[str],
-                      skip_appledouble: bool) -> Dict[str, Any]:
+                      skip_appledouble: bool, current_filters: Optional[List[str]] = None) -> Dict[str, Any]:
     """The new slskd.yml text and what changed. ``current_shares`` is what
     slskd shares now (its API); ``share_old`` is the folder in it that is the
-    library (slskd's own path for it), replaced by ``share_new``."""
+    library (slskd's own path for it), replaced by ``share_new``.
+    ``current_filters`` is slskd's effective share filters (its API): the
+    filters SYNCHRO.S adds (``SYNCHROS_FILTER``, and ``APPLEDOUBLE_FILTER``
+    for exFAT) are written as the whole effective list plus what's missing,
+    or left out with ``filters_note`` saying why (``merge_filters``); a
+    filter that can't be added never stops the rest of the edit."""
     out = text
     changed: List[str] = []
     if share_new:
@@ -270,21 +313,26 @@ def plan_slskd_config(text: str, *, share_old: Optional[str], share_new: Optiona
             dirs = [share_new] + [d for d in dirs if d != share_old]
         out = yaml_blocks.set_seq(out, ["shares", "directories"], dirs)
         changed.append("shares")
-    if skip_appledouble:
-        filters = yaml_blocks.get_seq(out, ["shares", "filters"])
-        if APPLEDOUBLE_FILTER not in filters:
-            out = yaml_blocks.set_seq(out, ["shares", "filters"], filters + [APPLEDOUBLE_FILTER])
-            changed.append("filters")
-    # every edit also keeps SYNCHRO.S's own files out of what slskd shares;
-    # it stays on a switch back (it only ever hides SYNCHRO.S's files)
-    filters = yaml_blocks.get_seq(out, ["shares", "filters"])
-    if SYNCHROS_FILTER not in filters:
-        out = yaml_blocks.set_seq(out, ["shares", "filters"], filters + [SYNCHROS_FILTER])
-        changed.append("synchros_filter")
+    wanted = ([APPLEDOUBLE_FILTER] if skip_appledouble else []) + [SYNCHROS_FILTER]
+    try:
+        yaml_filters: Optional[List[str]] = yaml_blocks.get_seq(out, ["shares", "filters"])
+    except yaml_blocks.Unsupported:
+        yaml_filters = None
+    merged, note = merge_filters(yaml_filters, current_filters, wanted)
+    if merged is not None and merged != list(current_filters or []):
+        try:
+            out = yaml_blocks.set_seq(out, ["shares", "filters"], merged)
+            added = [f for f in wanted if f not in (current_filters or [])]
+            if APPLEDOUBLE_FILTER in added:
+                changed.append("filters")
+            if SYNCHROS_FILTER in added:
+                changed.append("synchros_filter")
+        except yaml_blocks.Unsupported:
+            note = "slskd.yml's share filters are written in a form SYNCHRO.S doesn't edit"
     if downloads_new:
         out = yaml_blocks.set_scalar(out, ["directories", "downloads"], downloads_new)
         changed.append("downloads")
-    return {"text": out, "changed": changed}
+    return {"text": out, "changed": changed, "filters_note": note}
 
 
 def reverse_slskd_config(text: str, *, share_now: Optional[str], share_before: Optional[str],
@@ -307,7 +355,10 @@ def reverse_slskd_config(text: str, *, share_now: Optional[str], share_before: O
         elif share_before and share_before not in dirs and yaml_blocks.get_seq(out, ["shares", "directories"]):
             out = yaml_blocks.set_seq(out, ["shares", "directories"], [share_before] + dirs)
     if drop_filter:
-        filters = yaml_blocks.get_seq(out, ["shares", "filters"])
+        try:
+            filters = yaml_blocks.get_seq(out, ["shares", "filters"])
+        except yaml_blocks.Unsupported:
+            filters = []
         if APPLEDOUBLE_FILTER in filters:
             out = yaml_blocks.set_seq(out, ["shares", "filters"], [f for f in filters if f != APPLEDOUBLE_FILTER])
     if restore_downloads:

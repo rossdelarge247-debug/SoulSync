@@ -32,6 +32,8 @@ class FakeSlskd:
         self.restarts = []
         self.rescans = 0
         self.dirs = ["/music"]
+        #: slskd's effective share filters (None: its API can't be read)
+        self.filters = []
         os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, "slskd.yml"), "w") as f:
             f.write("# slskd's own settings\nsoulseek:\n  username: ross  # mine\n")
@@ -52,6 +54,9 @@ class FakeSlskd:
 
     def shared_directories(self):
         return list(self.dirs)
+
+    def share_filters(self):
+        return None if self.filters is None else list(self.filters)
 
     def sign_in(self, username, password):
         if password != "pw":
@@ -1030,6 +1035,35 @@ def test_slskd_never_shares_synchros_own_files_once_it_edits_slskd_yml(job):
     j.switch_back(move_id, username="slskd", password="pw")
     filters = (yaml.safe_load(job["slskd"].read_config()).get("shares") or {}).get("filters") or []
     assert filters.count(SYNCHROS_FILTER) == 1
+
+
+@pytest.mark.gauntlet
+def test_the_users_own_slskd_filters_are_never_dropped_by_the_switch(job):
+    """slskd merges list settings by position across the environment and
+    slskd.yml: filters it takes from SLSKD_SHARE_FILTER stay in force when
+    SYNCHRO.S writes slskd.yml's list (the whole effective list plus its own)."""
+    import yaml
+    from core.drives.services import SYNCHROS_FILTER
+    job["slskd"].filters = ["\\.ini$", "secret/"]  # from the environment; slskd.yml has none
+    j = job["job"]
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    filters = yaml.safe_load(job["slskd"].read_config())["shares"]["filters"]
+    assert filters == ["\\.ini$", "secret/", SYNCHROS_FILTER]
+
+
+@pytest.mark.gauntlet
+def test_with_slskds_filters_unreadable_none_are_added_and_check_says_so(job):
+    import yaml
+    job["slskd"].filters = None
+    j = job["job"]
+    move_id = _ready(job)
+    rows = {r["key"]: r for r in j.store.row(move_id)["checks"]["rows"]}
+    assert rows["slskd_filters"]["tag"] == "Left as they are"
+    assert "couldn't read the share filters slskd uses" in rows["slskd_filters"]["detail"]
+    j.start(move_id, background=False)
+    assert j.store.row(move_id)["status"] == "switched"
+    assert "filters" not in ((yaml.safe_load(job["slskd"].read_config()) or {}).get("shares") or {})
 
 
 # ── switch back: slskd.yml and secrets ───────────────────────────────────────

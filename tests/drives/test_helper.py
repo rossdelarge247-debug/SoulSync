@@ -197,7 +197,7 @@ def test_slskd_shares_downloads_and_filter_are_set_keeping_comments():
     from core.drives.services import plan_slskd_config
     change = plan_slskd_config(SLSKD_YML, share_old="/music", share_new="/Volumes/Music HD/SYNCHRO.S/Library",
                                current_shares=["/music"], downloads_new="/Volumes/Music HD/SYNCHRO.S/Downloads",
-                               skip_appledouble=True)
+                               skip_appledouble=True, current_filters=["\\.ini$"])
     out = change["text"]
     data = yaml.safe_load(out)
     assert data["shares"]["directories"] == ["/Volumes/Music HD/SYNCHRO.S/Library"]
@@ -212,10 +212,84 @@ def test_slskd_yml_without_shares_gains_them():
     from core.drives.services import plan_slskd_config
     out = plan_slskd_config("# all commented out\n# shares:\n#   directories: []\n", share_old="/music",
                             share_new="/Volumes/X/Library", current_shares=["/music"], downloads_new=None,
-                            skip_appledouble=False)["text"]
+                            skip_appledouble=False, current_filters=[])["text"]
     assert yaml.safe_load(out) == {"shares": {"directories": ["/Volumes/X/Library"],
                                               "filters": ["/\\.synchros-[^/]*$"]}}
     assert out.startswith("# all commented out")
+
+
+SYNC_F = "/\\.synchros-[^/]*$"
+DOT_F = "/\\._[^/]*$"
+
+
+def _filters(text, *, current, exfat=False):
+    from core.drives.services import plan_slskd_config
+    return plan_slskd_config(text, share_old="/music", share_new="/Volumes/X/Library", current_shares=["/music"],
+                             downloads_new=None, skip_appledouble=exfat, current_filters=current)
+
+
+@pytest.mark.gauntlet
+def test_filters_from_the_environment_are_kept_when_slskd_yml_has_none():
+    """slskd merges lists by position: writing only [ours] would replace the
+    first filter it takes from SLSKD_SHARE_FILTER. The whole effective list
+    is written, then ours."""
+    change = _filters("shares:\n  directories:\n    - /music\n", current=["a", "b"], exfat=True)
+    assert yaml.safe_load(change["text"])["shares"]["filters"] == ["a", "b", DOT_F, SYNC_F]
+    assert change["filters_note"] is None and {"filters", "synchros_filter"} <= set(change["changed"])
+
+
+@pytest.mark.gauntlet
+def test_filters_in_the_environment_and_slskd_yml_overlap_without_shrinking_or_reordering():
+    text = "shares:\n  filters:\n    - a  # mine\n"
+    change = _filters(text, current=["a", "b"])
+    assert yaml.safe_load(change["text"])["shares"]["filters"] == ["a", "b", SYNC_F]
+    assert "# mine" in change["text"]
+    # already there: nothing to write
+    same = _filters("shares:\n  filters:\n    - a\n    - " + SYNC_F + "\n", current=["a", SYNC_F])
+    assert "synchros_filter" not in same["changed"] and same["filters_note"] is None
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("current,yaml_list,why", [
+    (None, [], "couldn't read the share filters slskd uses"),
+    (["c", "b"], ["a"], "aren't the ones slskd uses"),
+    (["a", "a"], [], "one filter twice"),
+])
+def test_filters_left_alone_when_they_cant_be_merged_safely(current, yaml_list, why):
+    text = "shares:\n  directories:\n    - /music\n" + (
+        "  filters:\n" + "".join(f"    - {f}\n" for f in yaml_list) if yaml_list else "")
+    change = _filters(text, current=current, exfat=True)
+    assert why in change["filters_note"]
+    assert (yaml.safe_load(change["text"])["shares"].get("filters") or []) == yaml_list
+    assert "shares" in change["changed"]  # the rest of the edit still happens
+
+
+def test_a_one_line_filters_list_leaves_the_filter_out_but_not_the_edit():
+    change = _filters("shares:\n  directories:\n    - /music\n  filters: []\n", current=[])
+    assert "form SYNCHRO.S doesn't edit" in change["filters_note"]
+    assert yaml.safe_load(change["text"])["shares"] == {"directories": ["/Volumes/X/Library"], "filters": []}
+
+
+def test_slskds_effective_filters_come_from_its_options():
+    from core.drives.services import Slskd
+
+    class Client:
+        base_url = "http://slskd:5030"
+        api_key = "k"
+
+    class Http:
+        def __init__(self, status, body):
+            self.status, self.body = status, body
+
+        def get(self, url, headers=None, timeout=None):
+            assert url == "http://slskd:5030/api/v0/options" and headers["X-API-Key"] == "k"
+            body, status = self.body, self.status
+            return type("R", (), {"status_code": status, "json": lambda self: body})()
+
+    assert Slskd(Client(), http=Http(200, {"shares": {"filters": ["a"]}})).share_filters() == ["a"]
+    assert Slskd(Client(), http=Http(200, {"shares": {}})).share_filters() == []
+    assert Slskd(Client(), http=Http(401, {})).share_filters() is None
+    assert Slskd(Client(), http=Http(200, {"shares": {"filters": "a"}})).share_filters() is None
 
 
 def test_scalars_keep_their_comment_and_new_keys_land_in_their_block():

@@ -909,8 +909,14 @@ class MoveJob:
                                        "After the switch, set it to the new Library folder; SYNCHRO.S says how."})
         slskd = self._slskd()
         if slskd is not None and slskd.configured():
-            unsupported = self._slskd_unsupported(slskd, dests, choice) \
-                if ("library" in dests or "downloads" in dests) and slskd.can_edit() else None
+            unsupported, filters_note = self._slskd_unsupported(slskd, dests, choice) \
+                if ("library" in dests or "downloads" in dests) and slskd.can_edit() else (None, None)
+            if filters_note and not unsupported:
+                rows.append({"key": "slskd_filters", "title": "slskd's share filters", "tone": "success",
+                             "tag": "Left as they are",
+                             "detail": f"SYNCHRO.S didn't add its filters to slskd.yml: {filters_note}. Nothing "
+                                       "changes for you: slskd doesn't share hidden files, which SYNCHRO.S's own "
+                                       "files and the “._” files are."})
             if unsupported:
                 stop = "downloads" in dests
                 rows.append({"key": "slskd", "title": "slskd's settings", "tone": "danger" if stop else "warning",
@@ -961,23 +967,25 @@ class MoveJob:
                 "slskd_choice": "move", "signed_in": True,
                 "detail": "SYNCHRO.S restarts slskd once at the switch, then forgets the sign-in."}
 
-    def _slskd_unsupported(self, slskd: Any, dests: Dict[str, str], choice: Dict[str, Any]) -> Optional[str]:
+    def _slskd_unsupported(self, slskd: Any, dests: Dict[str, str],
+                           choice: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """Why the switch couldn't edit slskd.yml, from a dry run of the same
-        edit, or None when it can."""
+        edit, or None when it can; and why it would leave the share filters
+        out, or None."""
         from core.drives.services import ServiceRefused, library_share_in, plan_slskd_config
         try:
             text = slskd.read_config()
             current = slskd.shared_directories()
             hint = self.config().get("drives.slskd_library_share", "") or None
-            plan_slskd_config(text, share_old=library_share_in(current, hint) if "library" in dests else None,
-                              share_new=dests.get("library"), current_shares=current,
-                              downloads_new=dests.get("downloads"),
-                              skip_appledouble=choice.get("exfat") == "carry_on")
+            change = plan_slskd_config(
+                text, share_old=library_share_in(current, hint) if "library" in dests else None,
+                share_new=dests.get("library"), current_shares=current, downloads_new=dests.get("downloads"),
+                skip_appledouble=choice.get("exfat") == "carry_on", current_filters=_share_filters(slskd))
         except ServiceRefused as exc:
-            return str(exc).rstrip(".")
+            return str(exc).rstrip("."), None
         except (ValueError, OSError) as exc:  # compose_tool.Unsupported and UnicodeDecodeError are ValueErrors
-            return str(exc).rstrip(".") or type(exc).__name__
-        return None
+            return str(exc).rstrip(".") or type(exc).__name__, None
+        return None, change.get("filters_note")
 
     def slskd_sign_in(self, move_id: int, username: str, password: str, *, background: bool = False) -> Dict[str, Any]:
         move = self._require(move_id, ("draft",))
@@ -1518,9 +1526,10 @@ class MoveJob:
                 old_share = library_share_in(current, hint) if "library" in new else None
                 change = plan_slskd_config(
                     text_before, share_old=old_share, share_new=new.get("library"), current_shares=current,
-                    downloads_new=new.get("downloads"), skip_appledouble=move["choice"].get("exfat") == "carry_on")
+                    downloads_new=new.get("downloads"), skip_appledouble=move["choice"].get("exfat") == "carry_on",
+                    current_filters=_share_filters(slskd))
                 return change["text"], {
-                    "before_share": old_share, "changed": change["changed"],
+                    "before_share": old_share, "changed": change["changed"], "filters_note": change["filters_note"],
                     "downloads_before": yaml_blocks.get_scalar(text_before, ["directories", "downloads"]),
                     "filter_added": "filters" in change["changed"],
                     # kept only for a person to recover by hand, encrypted, never sent out
@@ -2256,6 +2265,16 @@ def rewrite_paths(conn, old_root: str, new_root: str) -> int:
         cur = conn.execute(f"UPDATE {table} SET {column} = ? WHERE {column} = ?", (new_root, old_root))
         changed += cur.rowcount or 0
     return changed
+
+
+def _share_filters(slskd: Any) -> Optional[List[str]]:
+    """slskd's effective share filters, or None (unknown: none are added)."""
+    fn = getattr(slskd, "share_filters", None)
+    try:
+        return fn() if fn else None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("slskd's share filters unreadable: %s", exc)
+        return None
 
 
 # ── for the routes ────────────────────────────────────────────────────────────
