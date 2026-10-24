@@ -1255,3 +1255,53 @@ def test_a_failed_move_forgets_slskds_session(job):
     j.start(move_id, background=False)
     move = j.store.row(move_id)
     assert move["status"] == "failed" and move["secret"] is None
+
+
+# ── re-review (24 October) ───────────────────────────────────────────────────
+
+@pytest.mark.gauntlet
+def test_a_carry_on_refused_for_the_drive_never_signs_in_or_keeps_a_session(job):
+    job["media"].refuse = True
+    j = job["job"]
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    assert j.store.row(move_id)["status"] == "failed"
+    calls = []
+    real = job["slskd"].sign_in
+    job["slskd"].sign_in = lambda u, p: calls.append(u) or real(u, p)
+    away = str(job["drive"]) + "-away"
+    os.rename(job["drive"], away)
+    try:
+        for carry_on in (j.resume, j.recopy, j.skip_unreadable):
+            with pytest.raises(M.MoveError):
+                carry_on(move_id, background=False, username="slskd", password="pw")
+    finally:
+        os.rename(away, job["drive"])
+    assert calls == [] and j.store.row(move_id)["secret"] is None
+
+
+def test_leaving_a_draft_that_moved_on_meanwhile_is_refused(job, monkeypatch):
+    j = job["job"]
+    move = j.draft(1)
+    stale = j.store.row(move["id"])
+    j.store.update(move["id"], status="copying")
+    monkeypatch.setattr(j.store, "row", lambda move_id: stale)
+    with pytest.raises(M.MoveError, match="moved on"):
+        j.leave(move["id"])
+    monkeypatch.undo()
+    assert j.store.row(move["id"])["status"] == "copying"
+
+
+@pytest.mark.gauntlet
+def test_a_staying_folder_is_found_through_another_path_to_it(tmp_path):
+    """A bind mount shows one folder at two paths; a link stands in for it here."""
+    lib = tmp_path / "Library"
+    inner = lib / "Downloads"
+    inner.mkdir(parents=True)
+    write(str(inner / "a.flac"))
+    alias = tmp_path / "seen-elsewhere"
+    os.symlink(lib, alias)
+    if hasattr(M, "_ids_up"):
+        M._ids_up.cache_clear()
+    assert M._inside_any(str(alias / "Downloads" / "a.flac"), [str(inner)])
+    assert not M._inside_any(str(alias / "other.flac"), [str(inner)])

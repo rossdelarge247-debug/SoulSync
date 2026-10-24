@@ -22,6 +22,7 @@ or delete the half-made copy) and ``stopped`` (stopped and undone) end a try.
 from __future__ import annotations
 
 import errno
+import functools
 import hashlib
 import json
 import os
@@ -31,7 +32,7 @@ import threading
 import time
 from contextlib import closing
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 from core.drives import disks, holds
 from core.drives.markers import LABELS, MARKER_NAME, ROLES, SETTING_KEYS, write_marker
@@ -234,14 +235,32 @@ def overlaps(a: str, b: str) -> bool:
 PROBE_PREFIX = ".synchros-probe-"
 
 
+@functools.lru_cache(maxsize=8192)
+def _ids_up(folder: str) -> FrozenSet[Tuple[int, int]]:
+    """(device, inode) of ``folder`` and every existing folder above it,
+    cached per folder: a walk asks once per folder, not once per file."""
+    return frozenset((st.st_dev, st.st_ino) for st in _stats_up(folder))
+
+
 def _inside_any(path: str, roots: Iterable[str]) -> bool:
-    """Whether ``path`` is one of ``roots`` or under one, by its spelling and
-    by the roots' resolved paths (links in a root's own path count)."""
+    """Whether ``path`` is one of ``roots`` or under one: by its spelling, by
+    the roots' resolved paths (links in a root's own path count), and by
+    what's on disk (a bind mount shows one folder at two paths)."""
     p = os.path.normpath(path)
+    roots = list(roots)
     for root in roots:
         for r in {os.path.normpath(root), os.path.realpath(root)}:
             if p == r or p.startswith(r.rstrip("/") + "/"):
                 return True
+    ids = None
+    for root in roots:
+        st = _stat_of(root)
+        if st is None:
+            continue
+        if ids is None:
+            ids = _ids_up(os.path.dirname(p) or p)
+        if (st.st_dev, st.st_ino) in ids:
+            return True
     return False
 
 
@@ -1073,6 +1092,7 @@ class MoveJob:
             # a folder that stays is never listed, even if it sits inside one that moves
             # (validated_destinations refuses that; this is the second guard)
             staying = [sources[r] for r in ROLES if r not in dests and sources.get(r)]
+            _ids_up.cache_clear()
             for role in plan["order"]:
                 skip = SKIP_NAMES
                 root = plan["sources"][role]
@@ -1707,6 +1727,12 @@ class MoveJob:
                             code="no_plan")
         return plan
 
+    def _drive_to_carry_on(self, plan: Dict[str, Any]) -> None:
+        for dest in plan["dests"].values():
+            drive = disks.drive_root_of(dest, self.platform())
+            if drive and not os.path.isdir(drive):
+                raise MoveError(f"SYNCHRO.S still can't see {plan['target_label']}. Plug it in, then carry on.")
+
     def _session_to_carry_on(self, move: Dict[str, Any], username: Optional[str], password: Optional[str]) -> None:
         """Carrying on ends with the switch, and when Downloads moves slskd has
         to restart then: its session was forgotten at the failure, so it's
@@ -1738,11 +1764,9 @@ class MoveJob:
             move = self._require(move_id, ("failed",))
             failure = move.get("failure") or {}
             plan = self._plan_to_carry_on(move)
+            self._drive_to_carry_on(plan)
+            # only once everything else says yes: a refused carry-on never keeps a session
             self._session_to_carry_on(move, username, password)
-            for dest in plan["dests"].values():
-                drive = disks.drive_root_of(dest, self.platform())
-                if drive and not os.path.isdir(drive):
-                    raise MoveError(f"SYNCHRO.S still can't see {plan['target_label']}. Plug it in, then carry on.")
             if failure.get("kind") in ("refused", "stuck"):
                 self.store.update(move_id, status="verifying", failure=None)
                 self.store.job_row(move, "running", note="switching")
@@ -1766,6 +1790,7 @@ class MoveJob:
             if (move.get("failure") or {}).get("kind") != "mismatch":
                 raise MoveError("There's nothing to copy again.")
             plan = self._plan_to_carry_on(move)
+            self._drive_to_carry_on(plan)
             self._session_to_carry_on(move, username, password)
             for row in self.store.files(move_id, where="problem IS NOT NULL AND problem != 'unreadable'"):
                 src = safe_join(plan["sources"][row["role"]], row["rel"])
@@ -1795,7 +1820,7 @@ class MoveJob:
             move = self._require(move_id, ("failed",))
             if (move.get("failure") or {}).get("kind") != "unreadable":
                 raise MoveError("There's nothing to leave out.")
-            self._plan_to_carry_on(move)
+            self._drive_to_carry_on(self._plan_to_carry_on(move))
             self._session_to_carry_on(move, username, password)
             with closing(self.store.conn()) as conn:
                 conn.execute("UPDATE drive_move_files SET excluded = 1 WHERE move_id = ? AND problem = 'unreadable'",
@@ -1858,6 +1883,7 @@ class MoveJob:
         except Exception as exc:  # noqa: BLE001 - unknown: delete nothing
             raise MoveError("SYNCHRO.S couldn't read its folder settings, so nothing was deleted.") from exc
         live = [p for r, p in now.items() if p and r not in plan["dests"]]
+        _ids_up.cache_clear()
         deleted, freed, skipped = 0, 0, 0
         marks: List[Tuple[str, str, Dict[str, Any]]] = []
         for item in stored.items:
@@ -1985,7 +2011,10 @@ class MoveJob:
         if move is None:
             raise MoveError("That move isn't there.", 404)
         if move["status"] == "draft":
-            self.store.update(move_id, status="stopped", finished_at=_now(), secret=None)
+            with self._lock:
+                if not self.store.update(move_id, expect_status="draft", status="stopped", finished_at=_now(),
+                                         secret=None):
+                    raise MoveError("The move has moved on; reload to see where it is.")
             self._slskd_user.pop(move_id, None)
         elif move["status"] == "failed":
             # closing a failed move is Stop and undo: only its half-made copy goes,
