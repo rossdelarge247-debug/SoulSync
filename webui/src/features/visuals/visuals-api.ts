@@ -7,7 +7,7 @@
 
 import { appURL } from '@/platform/url-base';
 
-import type { PresetIndex } from './visuals.types';
+import type { OwnFolderState, PresetIndex, PresetSet } from './visuals.types';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -27,16 +27,37 @@ async function json<T>(
   res: Response,
 ): Promise<T & { success?: boolean; message?: string; error?: string }> {
   try {
-    return (await res.json()) as T & { success?: boolean; message?: string; error?: string };
+    return (await res.json()) as T & {
+      success?: boolean;
+      message?: string;
+      error?: string;
+    };
   } catch {
     return {} as T & { success?: boolean };
   }
 }
 
-export async function fetchIndex(f: FetchLike = defaultFetch): Promise<PresetIndex> {
+/**
+ * MilkDrop's list: the curated packs and your own, or every preset (101).
+ * `keep` names Recent's presets, so the curated set still hands them back
+ * (in `kept`) when it leaves them out; the server adds the favourites.
+ */
+export async function fetchIndex(
+  opts: { set?: PresetSet; keep?: readonly string[] } = {},
+  f: FetchLike = defaultFetch,
+): Promise<PresetIndex> {
+  const set = opts.set ?? 'curated';
+  // only the curated set leaves presets out
+  const keep =
+    set === 'curated'
+      ? (opts.keep ?? []).filter((k) => /^md-[0-9a-f]{16}$/.test(k)).slice(0, 50)
+      : [];
+  const query = `family=milkdrop&set=${set}${keep.length ? `&keep=${keep.join(',')}` : ''}`;
   let res: Response;
   try {
-    res = await f(appURL('/api/visuals/presets?family=milkdrop'), { credentials: 'same-origin' });
+    res = await f(appURL(`/api/visuals/presets?${query}`), {
+      credentials: 'same-origin',
+    });
   } catch {
     throw new VisualsApiError('offline', 'SYNCHRO.S didn’t answer. Try again.');
   }
@@ -48,7 +69,7 @@ export async function fetchIndex(f: FetchLike = defaultFetch): Promise<PresetInd
       res.status,
     );
   }
-  return body;
+  return { ...body, kept: Array.isArray(body.kept) ? body.kept : [] };
 }
 
 /** A preset: Butterchurn JSON, or one of your own as .milk text to convert. */
@@ -139,13 +160,15 @@ export async function setFavourite(
 
 export interface VisualsSettings {
   admin: boolean;
-  own: { configured: boolean; count: number; problem: string | null };
+  own: OwnFolderState;
   own_presets_dir?: string;
 }
 
 export async function fetchSettings(f: FetchLike = defaultFetch): Promise<VisualsSettings | null> {
   try {
-    const res = await f(appURL('/api/visuals/settings'), { credentials: 'same-origin' });
+    const res = await f(appURL('/api/visuals/settings'), {
+      credentials: 'same-origin',
+    });
     if (!res.ok) return null;
     return await json<VisualsSettings>(res);
   } catch {

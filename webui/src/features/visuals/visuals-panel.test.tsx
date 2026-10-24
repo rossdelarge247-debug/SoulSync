@@ -24,7 +24,15 @@ const PRESETS = [
   entry('md-0000000000000003', 'Hive Logic', 'Flux'),
 ];
 
-function setup(opts: { webgl2?: boolean; reduce?: boolean; phone?: boolean } = {}) {
+function setup(
+  opts: {
+    webgl2?: boolean;
+    reduce?: boolean;
+    phone?: boolean;
+    /** fields the index answers with on top of the default */
+    index?: (url: string) => Record<string, unknown>;
+  } = {},
+) {
   document.body.innerHTML =
     '<div id="np-modal-overlay" class="hidden"><div class="np-modal"></div></div>';
   const overlay = document.getElementById('np-modal-overlay')!;
@@ -41,6 +49,7 @@ function setup(opts: { webgl2?: boolean; reduce?: boolean; phone?: boolean } = {
           total: 3,
           count: 3,
           own: { configured: false, count: 0, problem: null },
+          ...(opts.index ? opts.index(url) : {}),
         }),
       );
     if (url.startsWith('/api/visuals/favourites?'))
@@ -169,7 +178,9 @@ describe('the panel (10a)', () => {
     expect(screen.getByPlaceholderText('Search 3 presets')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Favourites 1/ })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Author' })).toBeInTheDocument();
-    expect(screen.getByText('3 presets · A–Z · 3 authors')).toBeInTheDocument();
+    expect(screen.getByText('3 from the curated packs · A–Z')).toBeInTheDocument();
+    // no folder set: Yours isn't shown at all (18b)
+    expect(screen.queryByRole('button', { name: /^Yours/ })).toBeNull();
     const rows = within(screen.getByRole('list', { name: 'Presets' })).getAllByRole('listitem');
     const real = rows.filter((r) => r.textContent);
     expect(real).toHaveLength(3);
@@ -177,12 +188,104 @@ describe('the panel (10a)', () => {
     expect(real[0]).toHaveTextContent('by Hapax · 2.1 MB');
     expect(real[0]).toHaveTextContent('Playing');
     expect(
-      within(real[1]!).getByRole('button', { name: 'Remove Diffusion Field from favourites' }),
+      within(real[1]!).getByRole('button', {
+        name: 'Remove Diffusion Field from favourites',
+      }),
     ).toHaveAttribute('aria-pressed', 'true');
     fireEvent.change(screen.getByPlaceholderText('Search 3 presets'), {
       target: { value: 'flux' },
     });
     expect(screen.getByText('1 preset · A–Z · 1 author')).toBeInTheDocument();
+    c.dispose();
+  });
+
+  it('18a: the curated list by default; Every preset in the foot adds the rest, remembered here', async () => {
+    const OWN = {
+      ...PRESETS[0]!,
+      key: 'own-000000000000000a',
+      name: 'Kelp Forest',
+      source: 'own',
+    };
+    const { c, fetchImpl } = setup({
+      index: (url) =>
+        url.includes('set=all')
+          ? {
+              set: 'all',
+              presets: [
+                ...PRESETS,
+                { ...PRESETS[0]!, key: 'md-00000000000000ff', name: 'Zzz' },
+                OWN,
+              ],
+              total: 5,
+              uncurated: 1,
+              own: { configured: true, count: 1, problem: null },
+            }
+          : {
+              set: 'curated',
+              presets: [...PRESETS, OWN],
+              total: 4,
+              uncurated: 1,
+              own: { configured: true, count: 1, problem: null },
+            },
+    });
+    act(() => {
+      c.setFamily('milkdrop');
+      c.setOpen(true);
+      c.togglePanel(true);
+    });
+    await settle();
+    const urls = () => fetchImpl.mock.calls.map((x) => String(x[0]));
+    expect(urls().filter((u) => u.startsWith('/api/visuals/presets?'))).toEqual([
+      '/api/visuals/presets?family=milkdrop&set=curated',
+    ]);
+    expect(screen.getByPlaceholderText('Search 4 presets')).toBeInTheDocument();
+    expect(screen.getByText('3 from the curated packs and 1 of yours · A–Z')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Yours 1' })).toBeInTheDocument();
+    expect(
+      screen.getByText('Adds 1 more, uncurated: some names are crude, some won’t load.'),
+    ).toBeInTheDocument();
+    const every = screen.getByRole('switch', { name: 'Every preset' });
+    expect(every).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(every);
+    await settle();
+    expect(urls()).toContain('/api/visuals/presets?family=milkdrop&set=all');
+    expect(screen.getByRole('switch', { name: 'Every preset' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByText('4 from every pack and 1 of yours · A–Z')).toBeInTheDocument();
+    expect(localStorage.getItem('soulsync-visuals-every-preset')).toBe('1');
+    fireEvent.click(screen.getByRole('button', { name: 'Yours 1' }));
+    const rows = within(screen.getByRole('list', { name: 'Presets' }))
+      .getAllByRole('listitem')
+      .filter((r) => r.textContent);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent('Kelp Forest');
+    c.dispose();
+  });
+
+  it('18b: Yours with an empty or unreadable folder says so and points at Player settings', async () => {
+    let problem: string | null = null;
+    const { c } = setup({
+      index: () => ({ own: { configured: true, count: 0, problem } }),
+    });
+    act(() => {
+      c.setFamily('milkdrop');
+      c.setOpen(true);
+      c.togglePanel(true);
+    });
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Yours 0' }));
+    expect(screen.getByText('None of yours yet')).toBeInTheDocument();
+    expect(
+      screen.getByText(/The folder for your own presets is empty\. An admin adds \.milk files/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Player settings' })).toBeInTheDocument();
+    problem = 'missing';
+    act(() => c.reloadIndex());
+    await settle();
+    expect(screen.getByText('None of yours to show')).toBeInTheDocument();
+    expect(screen.getByText(/can’t open the folder for your own presets/)).toBeInTheDocument();
     c.dispose();
   });
 
@@ -314,7 +417,11 @@ describe('the stage cards (10c, 10d)', () => {
     await settle();
     act(() => {
       (c as unknown as { set: (p: object) => void }).set({
-        failure: { key: 'md-0000000000000003', name: 'Hive Logic', backName: 'Angel Rails' },
+        failure: {
+          key: 'md-0000000000000003',
+          name: 'Hive Logic',
+          backName: 'Angel Rails',
+        },
       });
     });
     const card = screen.getByRole('alert');
@@ -341,7 +448,9 @@ describe('the stage cards (10c, 10d)', () => {
     const { c } = setup();
     act(() => {
       c.setOpen(true);
-      (c as unknown as { set: (p: object) => void }).set({ radioDirect: { station: 'NTS 1' } });
+      (c as unknown as { set: (p: object) => void }).set({
+        radioDirect: { station: 'NTS 1' },
+      });
     });
     expect(screen.getByText('Visuals can’t follow this station')).toBeInTheDocument();
     expect(screen.getByText(/NTS 1 plays straight from its own server/)).toBeInTheDocument();

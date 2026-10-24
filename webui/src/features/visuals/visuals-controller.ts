@@ -21,8 +21,10 @@ import type {
   Family,
   Moved,
   NpV2,
+  OwnFolderState,
   PresetAuthor,
   PresetEntry,
+  PresetSet,
   Quality,
   ScopeDraw,
   ShowFilter,
@@ -72,6 +74,7 @@ import {
   randomKey,
   stepKey,
   stillReason,
+  withKept,
 } from './visuals.logic';
 import { FAMILY_NAMES, QUALITY_NAMES } from './visuals.types';
 
@@ -111,7 +114,17 @@ export interface VisualsSnapshot {
     presets: PresetEntry[];
     authors: PresetAuthor[];
     error: string | null;
+    /** favourites and Recent's presets the curated set leaves out (101) */
+    kept?: PresetEntry[];
+    /** which set the list is */
+    set?: PresetSet;
+    /** the bundled presets outside the curated packs */
+    uncurated?: number;
+    /** the admin's own-presets folder, for Show → Yours (18a, 18b) */
+    own?: OwnFolderState;
   };
+  /** "Every preset": list the uncurated presets too (101); per browser */
+  everyPreset: boolean;
   favourites: ReadonlySet<string>;
   recent: string[];
   query: string;
@@ -242,6 +255,7 @@ export class VisualsController {
       phone: Boolean(this.phoneQuery?.matches),
       radioDirect: null,
       index: { status: 'idle', presets: [], authors: [], error: null },
+      everyPreset: prefs.everyPreset,
       favourites: new Set(),
       recent: prefs.recent,
       query: '',
@@ -294,6 +308,7 @@ export class VisualsController {
         author: next.author,
         favourites: next.favourites,
         recent: next.recent,
+        kept: next.index.kept,
       });
     }
     next.header = this.headerFor(next);
@@ -362,7 +377,12 @@ export class VisualsController {
       this.cycleTimer = null;
       this.radioTimer = null;
       this.clearPreview();
-      this.set({ open: false, panelOpen: false, credit: null, radioDirect: null });
+      this.set({
+        open: false,
+        panelOpen: false,
+        credit: null,
+        radioDirect: null,
+      });
       return;
     }
     const v2 = this.npv2();
@@ -422,17 +442,45 @@ export class VisualsController {
   async ensureIndex(): Promise<void> {
     if (this.s.index.status === 'loading' || this.s.index.status === 'ready') return;
     this.set({ index: { ...this.s.index, status: 'loading', error: null } });
+    const set: PresetSet = this.s.everyPreset ? 'all' : 'curated';
     const [index, favourites] = await Promise.all([
-      fetchIndex(this.f).catch((e: Error) => e),
+      fetchIndex({ set, keep: this.s.recent }, this.f).catch((e: Error) => e),
       fetchFavourites(this.f),
     ]);
     if (index instanceof Error) {
-      this.set({ index: { status: 'error', presets: [], authors: [], error: index.message } });
+      this.set({
+        index: {
+          status: 'error',
+          presets: [],
+          authors: [],
+          error: index.message,
+        },
+      });
       return;
     }
+    // "Every preset" changed while this list was on its way: ask again
+    if ((index.set ?? set) !== (this.s.everyPreset ? 'all' : 'curated')) {
+      this.set({
+        index: { status: 'idle', presets: [], authors: [], error: null },
+      });
+      void this.ensureIndex();
+      return;
+    }
+    const own = index.own;
     this.set({
-      index: { status: 'ready', presets: index.presets, authors: index.authors, error: null },
+      index: {
+        status: 'ready',
+        presets: index.presets,
+        authors: index.authors,
+        error: null,
+        kept: index.kept ?? [],
+        set: index.set ?? set,
+        uncurated: index.uncurated ?? 0,
+        own,
+      },
       favourites: new Set(favourites),
+      // Yours goes when the folder does
+      show: this.s.show === 'yours' && !own?.configured ? 'all' : this.s.show,
     });
     this.ensureMilkdropPreset();
   }
@@ -452,8 +500,20 @@ export class VisualsController {
 
   /** After the own-presets folder changes: ask for the list again. */
   reloadIndex(): void {
-    this.set({ index: { status: 'idle', presets: [], authors: [], error: null } });
+    this.set({
+      index: { status: 'idle', presets: [], authors: [], error: null },
+    });
     void this.ensureIndex();
+  }
+
+  /** "Every preset" in the panel's foot (101): the other presets join the list. */
+  setEveryPreset(on: boolean): void {
+    if (on === this.s.everyPreset) return;
+    savePrefs({ everyPreset: on });
+    const wasLoading = this.s.index.status === 'loading';
+    this.set({ everyPreset: on });
+    // a list on its way is checked against the switch when it lands
+    if (!wasLoading) this.reloadIndex();
   }
 
   setQuery(query: string): void {
@@ -470,7 +530,11 @@ export class VisualsController {
 
   entry(key: string | null): PresetEntry | null {
     if (!key) return null;
-    return this.s.index.presets.find((p) => p.key === key) ?? null;
+    return (
+      this.s.index.presets.find((p) => p.key === key) ??
+      this.s.index.kept?.find((p) => p.key === key) ??
+      null
+    );
   }
 
   /** Where a preset sits in the A–Z list (1-based), for the credit's "n of N". */
@@ -625,7 +689,13 @@ export class VisualsController {
       this.guard.reset();
       this.guardFrom = null;
       this.lastChange = this.now();
-      this.set({ presetKey: key, loadingKey: null, recent, failed, failure: null });
+      this.set({
+        presetKey: key,
+        loadingKey: null,
+        recent,
+        failed,
+        failure: null,
+      });
       if (!opts.quiet) this.showCredit(moved);
     }
     return true;
@@ -728,7 +798,10 @@ export class VisualsController {
     this.guardFrom = null;
     // a person's choice: the guard leaves this preset alone
     this.guard.disarm();
-    this.set({ quality: q, credit: this.s.credit?.guard ? null : this.s.credit });
+    this.set({
+      quality: q,
+      credit: this.s.credit?.guard ? null : this.s.credit,
+    });
     this.resize();
   }
 
@@ -752,7 +825,10 @@ export class VisualsController {
     const radio = (
       this.win as Window & {
         SoulSyncRadio?: {
-          state(): { station: { id: string } | null; stream?: { id?: string } | null };
+          state(): {
+            station: { id: string } | null;
+            stream?: { id?: string } | null;
+          };
           play(id: string, o?: Record<string, unknown>): Promise<void>;
         };
       }
@@ -773,7 +849,11 @@ export class VisualsController {
     const radio = (
       this.win as Window & {
         SoulSyncRadio?: {
-          state(): { status: string; mode: string | null; station: { name: string } | null };
+          state(): {
+            status: string;
+            mode: string | null;
+            station: { name: string } | null;
+          };
         };
       }
     ).SoulSyncRadio;
@@ -867,7 +947,14 @@ export class VisualsController {
     const loading = Boolean(opts.loading);
     const line = loading
       ? `${author ? `by ${author}` : 'author unknown'} · fetched once, then kept`
-      : creditLine({ author, family: s.family, position, total, moved, autocycle: s.autocycle });
+      : creditLine({
+          author,
+          family: s.family,
+          position,
+          total,
+          moved,
+          autocycle: s.autocycle,
+        });
     const hints = !loading && this.hintsShown < HINT_TIMES && moved !== 'opened';
     if (hints) {
       this.hintsShown += 1;
@@ -892,9 +979,16 @@ export class VisualsController {
 
   private headerFor(s: VisualsSnapshot): { name: string; meta: string } {
     if (s.family === 'milkdrop') {
-      const e = s.index.presets.find((p) => p.key === s.presetKey);
-      if (!e) return { name: 'MilkDrop', meta: s.webgl2 ? 'Loading presets…' : 'Needs WebGL 2' };
-      return { name: e.name, meta: `${e.author ? `by ${e.author}` : 'author unknown'} · MilkDrop` };
+      const e = withKept(s.index.presets, s.index.kept).find((p) => p.key === s.presetKey);
+      if (!e)
+        return {
+          name: 'MilkDrop',
+          meta: s.webgl2 ? 'Loading presets…' : 'Needs WebGL 2',
+        };
+      return {
+        name: e.name,
+        meta: `${e.author ? `by ${e.author}` : 'author unknown'} · MilkDrop`,
+      };
     }
     if (s.family === 'classic')
       return {
@@ -902,7 +996,10 @@ export class VisualsController {
         meta: 'Classic · drawn by SYNCHRO.S',
       };
     const t = s.themes.find((x) => x.id === s.theme);
-    return { name: t?.name ?? 'Visuals', meta: `${FAMILY_NAMES.synchros} · drawn by SYNCHRO.S` };
+    return {
+      name: t?.name ?? 'Visuals',
+      meta: `${FAMILY_NAMES.synchros} · drawn by SYNCHRO.S`,
+    };
   }
 
   // ── the stage ──────────────────────────────────────────────────────────────
@@ -1077,8 +1174,16 @@ export class VisualsController {
   // ── for the tests and the screenshots ──────────────────────────────────────
 
   /** @internal */
-  debugState(): { guardArmed: boolean; engineKey: string | null; hintsShown: number } {
-    return { guardArmed: this.guard.armed, engineKey: this.engineKey, hintsShown: this.hintsShown };
+  debugState(): {
+    guardArmed: boolean;
+    engineKey: string | null;
+    hintsShown: number;
+  } {
+    return {
+      guardArmed: this.guard.armed,
+      engineKey: this.engineKey,
+      hintsShown: this.hintsShown,
+    };
   }
 
   /** @internal feed the guard a frame (tests) */

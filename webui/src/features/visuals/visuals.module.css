@@ -378,6 +378,43 @@
   font-weight: 600;
 }
 
+/* Show → Yours with an empty or unreadable folder (18b): a quiet card */
+.empty[data-show='yours'] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 16px;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-surface-card);
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
+  & .emptyTitle {
+    margin: 0 !important;
+    font-size: 15px;
+    font-weight: 500;
+  }
+}
+
+/* a link inside running text (Player settings) */
+.inlineLink {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  &:focus-visible {
+    outline: var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+    border-radius: 2px;
+  }
+}
+
 /* ── SYNCHRO.S's tiles (10d) ───────────────────────────────────────────── */
 
 .tiles {
@@ -792,12 +829,14 @@
 .ownLabel {
   display: flex;
   flex-direction: column;
+  gap: 4px;
   font-size: 15px;
   font-weight: 500;
   & small {
-    color: var(--ss-text-meta);
+    color: var(--ss-text-tertiary);
     font-size: 14px;
     font-weight: 400;
+    line-height: 1.5;
   }
 }
 
@@ -835,6 +874,37 @@
   margin: 0;
   color: var(--ss-danger);
   font-size: 14px;
+}
+
+/* the line under the folder (18b): read, empty or unreadable, in words */
+.ownLine {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ownDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--ss-neutral);
+}
+
+.ownLine[data-tone='success'] .ownDot {
+  background: var(--ss-success);
+}
+
+.ownLine[data-tone='warning'] .ownDot {
+  background: var(--ss-warning);
+}
+
+.ownLine[data-tone='danger'] .ownDot {
+  background: var(--ss-danger);
 }
 
 @media (max-width: 768px) {

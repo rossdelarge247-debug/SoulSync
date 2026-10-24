@@ -1,7 +1,7 @@
 /**
  * What the Visuals remember per browser (HANDOFF "Visuals, what's remembered
- * where"): the family, MilkDrop's preset, Recent, Quality, Blend, Classic's
- * settings and how often the key hints have shown. Auto-cycle is the
+ * where"): the family, MilkDrop's preset, Recent, Quality, Blend, "Every
+ * preset", Classic's settings and how often the key hints have shown. Auto-cycle is the
  * SYNCHRO.S visuals' own key, shared. Favourites are per profile, on the
  * server. "Play visuals this time" lasts the session.
  *
@@ -25,6 +25,8 @@ export interface VisualsPrefs {
   recent: string[];
   quality: Quality;
   blend: boolean;
+  /** MilkDrop lists every preset, not only the curated packs (101) */
+  everyPreset: boolean;
   classicMode: ClassicMode;
   classicPeaks: boolean;
   scopeDraw: ScopeDraw;
@@ -37,6 +39,7 @@ export const DEFAULT_PREFS: VisualsPrefs = {
   recent: [],
   quality: 'full',
   blend: true,
+  everyPreset: false,
   classicMode: 'bars',
   classicPeaks: true,
   scopeDraw: 'lines',
@@ -98,6 +101,7 @@ export function loadPrefs(): VisualsPrefs {
     recent,
     quality: normaliseQuality(get('quality')),
     blend: get('blend') !== '0',
+    everyPreset: get('every-preset') === '1',
     classicMode: mode === 'scope' ? 'scope' : 'bars',
     classicPeaks: get('classic-peaks') !== '0',
     scopeDraw: draw === 'dots' || draw === 'solid' ? draw : 'lines',
@@ -113,6 +117,7 @@ export function savePrefs(p: Partial<VisualsPrefs>): void {
   if (p.recent !== undefined) set('recent', JSON.stringify(p.recent.slice(0, RECENT_MAX)));
   if (p.quality !== undefined) set('quality', p.quality);
   if (p.blend !== undefined) set('blend', p.blend ? '1' : '0');
+  if (p.everyPreset !== undefined) set('every-preset', p.everyPreset ? '1' : null);
   if (p.classicMode !== undefined) set('classic-mode', p.classicMode);
   if (p.classicPeaks !== undefined) set('classic-peaks', p.classicPeaks ? '1' : '0');
   if (p.scopeDraw !== undefined) set('scope-draw', p.scopeDraw);

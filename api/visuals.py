@@ -1,12 +1,17 @@
 """The Visuals overlay's routes (board 10a; docs/design/CONTRACTS.md, "Visuals").
 
-GET /api/visuals/presets?family=milkdrop&q=&author=
-    MilkDrop's index: ``{family, total, count, presets: [{key, name, author,
-    full_name, size, source}], authors: [{name, key, count}], own: {...}}``,
-    A–Z by name. Bundled presets come from the build's copy of
-    ``butterchurn-presets``; ``source: "own"`` ones from the admin's folder
-    (core/visuals/presets.py). The browser asks once, when the MilkDrop family
-    is first opened, and filters as you type; ``q`` and ``author`` filter here
+GET /api/visuals/presets?family=milkdrop&set=curated|all&keep=&q=&author=
+    MilkDrop's index: ``{family, set, total, count, presets: [{key, name,
+    author, full_name, size, source, curated}], kept: [...], authors: [{name,
+    key, count}], own: {...}, bundled, curated, uncurated}``, A–Z by name.
+    Bundled presets come from the build's copy of ``butterchurn-presets``;
+    ``source: "own"`` ones from the admin's folder (core/visuals/presets.py).
+    ``set`` is ``curated`` by default: the curated packs and your own (HANDOFF
+    101); ``all`` adds every other bundled preset ("Every preset"). In the
+    curated set, the profile's favourites and the presets ``keep`` names
+    (comma-separated keys, Recent's) that the set leaves out come back in
+    ``kept``. The browser asks once, when the MilkDrop family is first opened,
+    and again when "Every preset" changes; ``q`` and ``author`` filter here
     too, for anything else that asks.
 
 GET /api/visuals/presets/<key>
@@ -21,8 +26,8 @@ DELETE /api/visuals/favourites/<family>/<key>
     ``{success, favourite}`` after a change).
 
 GET /api/visuals/settings · PUT /api/visuals/settings (admins)
-    Where your own presets live: ``{own: {configured, count, problem},
-    own_presets_dir}`` (the folder only for admins); PUT
+    Where your own presets live: ``{own: {configured, count, problem,
+    truncated, too_big, read_at}, own_presets_dir}`` (the folder only for admins); PUT
     ``{own_presets_dir: "/music/milkdrop"}`` (or ``""`` for none) after the
     folder is checked.
 
@@ -48,6 +53,8 @@ bp = Blueprint("visuals", __name__)
 CONFIG_KEY = "visuals.own_presets_dir"
 # a preset is fetched once and kept: the key names its content until the next build
 PRESET_MAX_AGE = 7 * 24 * 3600
+# how many keys ``keep`` may name (Recent holds 20)
+KEEP_MAX = 50
 
 get_database: Optional[Callable[[], Any]] = None
 _config_manager: Any = None
@@ -99,16 +106,43 @@ def list_presets():
         return _profile_required()
     if _family_arg(request.args.get("family")) is None:
         return _bad_family()
+    set_name = str(request.args.get("set") or P.SET_CURATED).strip().lower()
+    if set_name not in P.SETS:
+        return jsonify({"success": False, "error": "bad_set",
+                        "message": "Ask for the curated presets or all of them."}), 400
     q = str(request.args.get("q") or "")[:200]
     author = str(request.args.get("author") or "")[:200]
+    keep: list = []
+    if set_name == P.SET_CURATED:
+        keep = [k for k in str(request.args.get("keep") or "")[:2000].split(",")
+                if P.BUNDLED_KEY_RE.match(k.strip())][:KEEP_MAX]
+        keep.extend(_favourite_keys())
     try:
-        body = P.build_index(_static_dir or "", _configured_folder(), q=q, author=author)
+        body = P.build_index(_static_dir or "", _configured_folder(), q=q, author=author,
+                             set_name=set_name, keep=keep)
     except Exception as exc:  # noqa: BLE001
         logger.error("visuals preset index failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "index_failed",
                         "message": "The preset list couldn't be read. Try again."}), 500
     body["success"] = True
     return jsonify(body)
+
+
+def _favourite_keys() -> list:
+    """The signed-in profile's MilkDrop stars, for ``kept`` (none if unreadable)."""
+    pid = get_current_profile_id()
+    if pid is None or get_database is None:
+        return []
+    try:
+        conn = get_database()._get_connection()
+    except Exception:  # noqa: BLE001 - the list still answers
+        return []
+    try:
+        return list(fav.list_keys(conn, pid, P.FAMILY_MILKDROP))
+    except Exception:  # noqa: BLE001
+        return []
+    finally:
+        conn.close()
 
 
 @bp.route("/api/visuals/presets/<key>", methods=["GET"])
@@ -185,12 +219,7 @@ def _settings_body() -> dict:
     body = {
         "success": True,
         "admin": is_admin_request(),
-        "own": {
-            "configured": bool(folder),
-            "count": len(listing.entries),
-            "problem": listing.problem,
-            "truncated": listing.truncated,
-        },
+        "own": {**listing.summary(), "configured": bool(folder)},
     }
     if body["admin"]:
         try:
@@ -247,4 +276,4 @@ def create_blueprint():
     return bp
 
 
-__all__ = ["CONFIG_KEY", "bp", "configure", "create_blueprint"]
+__all__ = ["CONFIG_KEY", "KEEP_MAX", "bp", "configure", "create_blueprint"]

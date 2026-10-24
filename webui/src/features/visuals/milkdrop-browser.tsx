@@ -1,7 +1,9 @@
 /**
- * MilkDrop's browser in the Visuals panel (10a; the phone sheet 10e): search
- * over names and authors, Show All / Favourites / Recent, the Author select,
- * the count line with Random preset, and the rows. Resting on (or focusing)
+ * MilkDrop's browser in the Visuals panel (10a, 18a; the phone sheet 10e):
+ * search over names and authors, Show All / Favourites / Recent / Yours, the
+ * Author select, the count line with Random preset, and the rows. The list is
+ * the curated packs and your own unless "Every preset" is on (the panel's
+ * foot); Yours shows once an admin has set an own-presets folder. Resting on (or focusing)
  * a row for 400 ms previews it on the stage; leaving goes back after a
  * second; Enter or a click keeps it. No thumbnails: the stage is the preview.
  */
@@ -14,7 +16,8 @@ import { LoadingState, Notice, SkeletonList, StatusTag } from '@/components/prim
 import type { PresetEntry } from './visuals.types';
 
 import { useVisuals, useVisualsController } from './use-visuals';
-import { byLine, formatSize, listSummary } from './visuals.logic';
+import { openPlayerSettings } from './visuals-stage-cards';
+import { browserSummary, byLine, formatSize, withKept } from './visuals.logic';
 import styles from './visuals.module.css';
 
 const ROW_H = 56;
@@ -105,8 +108,11 @@ function Browser() {
   const s = useVisuals();
   const c = useVisualsController();
   const total = s.index.presets.length;
-  const favCount = s.index.presets.filter((p) => s.favourites.has(p.key)).length;
-  const recentCount = s.recent.filter((k) => s.index.presets.some((p) => p.key === k)).length;
+  const known = withKept(s.index.presets, s.index.kept);
+  const favCount = known.filter((p) => s.favourites.has(p.key)).length;
+  const recentCount = s.recent.filter((k) => known.some((p) => p.key === k)).length;
+  const own = s.index.own;
+  const yoursCount = s.index.presets.filter((p) => p.source === 'own').length;
 
   return (
     <div className={styles.browser}>
@@ -132,6 +138,11 @@ function Browser() {
         <OptionButton selected={s.show === 'recent'} onClick={() => c.setShow('recent')}>
           Recent <span className={styles.count}>{recentCount}</span>
         </OptionButton>
+        {own?.configured ? (
+          <OptionButton selected={s.show === 'yours'} onClick={() => c.setShow('yours')}>
+            Yours <span className={styles.count}>{yoursCount}</span>
+          </OptionButton>
+        ) : null}
       </div>
       {s.phone ? null : (
         <div className={styles.authorRow}>
@@ -152,7 +163,14 @@ function Browser() {
         </div>
       )}
       <div className={styles.summary}>
-        <span>{listSummary(s.list, s.show)}</span>
+        <span>
+          {browserSummary(s.list, {
+            show: s.show,
+            query: s.query,
+            author: s.author,
+            everyPreset: s.everyPreset,
+          })}
+        </span>
         <button type="button" className={styles.linkButton} onClick={() => c.random()}>
           Random preset
         </button>
@@ -162,7 +180,25 @@ function Browser() {
   );
 }
 
-function emptyWords(show: string, query: string): { title: string; body: string } {
+function emptyWords(
+  show: string,
+  query: string,
+  problem: string | null | undefined,
+): { title: string; body: string; settings?: boolean } {
+  if (show === 'yours' && !query) {
+    // 18b: the folder is empty, or SYNCHRO.S can't open it
+    return problem
+      ? {
+          title: 'None of yours to show',
+          body: 'SYNCHRO.S can’t open the folder for your own presets. An admin checks it in',
+          settings: true,
+        }
+      : {
+          title: 'None of yours yet',
+          body: 'The folder for your own presets is empty. An admin adds .milk files to it;',
+          settings: true,
+        };
+  }
   if (query)
     return {
       title: `Nothing matches “${query}”`,
@@ -174,8 +210,14 @@ function emptyWords(show: string, query: string): { title: string; body: string 
       body: 'Star a preset in the list, or press L while it plays.',
     };
   if (show === 'recent')
-    return { title: 'Nothing played yet', body: 'Presets you play show here, newest first.' };
-  return { title: 'No presets here', body: 'An admin can add your own in Player settings.' };
+    return {
+      title: 'Nothing played yet',
+      body: 'Presets you play show here, newest first.',
+    };
+  return {
+    title: 'No presets here',
+    body: 'An admin can add your own in Player settings.',
+  };
 }
 
 function PresetRows() {
@@ -209,11 +251,21 @@ function PresetRows() {
   }, [s.list]);
 
   if (!s.list.length) {
-    const w = emptyWords(s.show, s.query);
+    const w = emptyWords(s.show, s.query, s.index.own?.problem);
     return (
-      <div className={styles.empty}>
+      <div className={styles.empty} data-show={s.show}>
         <p className={styles.emptyTitle}>{w.title}</p>
-        <p>{w.body}</p>
+        {w.settings ? (
+          <p>
+            {w.body}{' '}
+            <button type="button" className={styles.inlineLink} onClick={openPlayerSettings}>
+              Player settings
+            </button>
+            {s.index.own?.problem ? '.' : ' says where.'}
+          </p>
+        ) : (
+          <p>{w.body}</p>
+        )}
       </div>
     );
   }

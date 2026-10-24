@@ -21,6 +21,7 @@ import { fetchSettings, saveOwnFolder, type VisualsSettings } from './visuals-ap
 import { VisualsController } from './visuals-controller';
 import { PANEL_ID, VisualsPanel } from './visuals-panel';
 import { FailureCard, RadioCard, StillCard, VisualsCredit } from './visuals-stage-cards';
+import { ownFolderLine } from './visuals.logic';
 import styles from './visuals.module.css';
 
 export interface SoulSyncVisualsBridge {
@@ -42,7 +43,9 @@ declare global {
 
 function trackArt(): string | null {
   const w = window as Window & {
-    SoulSyncPlayer?: { state?: () => { track?: { image_url?: string | null } | null } };
+    SoulSyncPlayer?: {
+      state?: () => { track?: { image_url?: string | null } | null };
+    };
   };
   try {
     return w.SoulSyncPlayer?.state?.()?.track?.image_url || null;
@@ -94,7 +97,8 @@ function OverlayPieces() {
 }
 
 /** Player settings → Visuals: MilkDrop's Blend (and Author on a phone), and
- *  for admins, the folder of your own presets. */
+ *  for admins, the folder of your own presets with the line that says what
+ *  it read, or what's wrong (18b). */
 function PlayerSettingsGroup() {
   const s = useVisuals();
   const c = useVisualsController();
@@ -116,22 +120,14 @@ function PlayerSettingsGroup() {
   useEffect(() => {
     if (s.phone) void c.ensureIndex();
   }, [s.phone, c]);
-  const own = settings?.own;
-  const ownLine = !own
-    ? ''
-    : own.problem === 'missing'
-      ? 'SYNCHRO.S can’t find that folder.'
-      : own.problem === 'unreadable'
-        ? 'SYNCHRO.S can’t read that folder.'
-        : own.configured
-          ? `${own.count.toLocaleString('en-GB')} ${own.count === 1 ? 'preset' : 'presets'} from the folder, named from their files ("Author - Title.milk").`
-          : 'None yet. Point this at a folder of .milk files; each is converted when it’s picked.';
+  const ownLine = ownFolderLine(settings?.own, settings?.own_presets_dir ?? '');
   return (
     <div className={styles.settingsGroup}>
       <p className="ss-player-section">MilkDrop</p>
       <div className="ss-player-setting">
         <span id="ss-visuals-set-blend">
-          Blend between presets<small>A 2-second crossfade; off, they cut.</small>
+          Blend between presets
+          <small>A 2-second crossfade; off, they cut.</small>
         </span>
         <LabelledSwitch
           aria-labelledby="ss-visuals-set-blend"
@@ -161,7 +157,11 @@ function PlayerSettingsGroup() {
       {settings?.admin ? (
         <div className={styles.ownFolder}>
           <label className={styles.ownLabel} htmlFor="ss-visuals-own-dir">
-            Your own presets<small>{ownLine}</small>
+            Your own presets
+            <small>
+              A folder of .milk files on the server. They join MilkDrop’s list for everyone on this
+              SYNCHRO.S, under Yours.
+            </small>
           </label>
           <div className={styles.ownRow}>
             <input
@@ -170,7 +170,7 @@ function PlayerSettingsGroup() {
               value={folder}
               placeholder="/music/milkdrop"
               aria-invalid={error ? true : undefined}
-              aria-describedby={error ? 'ss-visuals-own-error' : undefined}
+              aria-describedby={error ? 'ss-visuals-own-error' : 'ss-visuals-own-line'}
               onChange={(e) => {
                 setFolder(e.target.value);
                 setError(null);
@@ -201,6 +201,17 @@ function PlayerSettingsGroup() {
           {error ? (
             <p id="ss-visuals-own-error" className={styles.ownError}>
               {error}
+            </p>
+          ) : null}
+          {ownLine ? (
+            <p
+              id="ss-visuals-own-line"
+              className={styles.ownLine}
+              data-tone={ownLine.tone ?? undefined}
+              role="status"
+            >
+              {ownLine.tone ? <span className={styles.ownDot} aria-hidden="true" /> : null}
+              <span>{ownLine.words}</span>
             </p>
           ) : null}
         </div>
@@ -274,7 +285,10 @@ export function mountVisualsHost(win: Window = window): VisualsController | null
   panelBtn?.addEventListener('click', () => controller.togglePanel());
 
   const sync = () => controller.setOpen(!overlay.classList.contains('hidden'));
-  new MutationObserver(sync).observe(overlay, { attributes: true, attributeFilter: ['class'] });
+  new MutationObserver(sync).observe(overlay, {
+    attributes: true,
+    attributeFilter: ['class'],
+  });
   sync();
 
   createRoot(host).render(<Root controller={controller} />);

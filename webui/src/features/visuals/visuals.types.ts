@@ -33,7 +33,11 @@ export type Autocycle = 'off' | '30' | '60' | '120' | '300' | 'track';
 export type ClassicMode = 'bars' | 'scope';
 export type ScopeDraw = 'lines' | 'dots' | 'solid';
 
-export type ShowFilter = 'all' | 'favourites' | 'recent';
+/** Show: All, Favourites, Recent, and Yours once an own-presets folder is set (18a). */
+export type ShowFilter = 'all' | 'favourites' | 'recent' | 'yours';
+
+/** Which bundled presets MilkDrop lists: the curated packs, or every preset (101). */
+export type PresetSet = 'curated' | 'all';
 
 /** What moved the visual, for the credit's last words (10c). */
 export type Moved =
@@ -55,6 +59,8 @@ export interface PresetEntry {
   full_name: string;
   size: number;
   source: 'bundled' | 'own';
+  /** a bundled preset in one of the curated packs */
+  curated?: boolean;
 }
 
 export interface PresetAuthor {
@@ -63,13 +69,33 @@ export interface PresetAuthor {
   count: number;
 }
 
+/** What the server says about the admin's own-presets folder (18b). */
+export interface OwnFolderState {
+  configured: boolean;
+  count: number;
+  /** "missing" (not there inside the container) or "unreadable" */
+  problem: string | null;
+  truncated?: boolean;
+  /** .milk files left out for being over 512 KB */
+  too_big?: number;
+  /** when the folder was read, seconds since the epoch */
+  read_at?: number | null;
+}
+
 export interface PresetIndex {
   family: 'milkdrop';
+  set?: PresetSet;
   total: number;
   count: number;
   presets: PresetEntry[];
+  /** favourites and Recent's presets the curated set leaves out */
+  kept?: PresetEntry[];
   authors: PresetAuthor[];
-  own: { configured: boolean; count: number; problem: string | null; truncated?: boolean };
+  own: OwnFolderState;
+  bundled?: number;
+  curated?: number;
+  /** the bundled presets outside the curated packs ("Every preset" adds them) */
+  uncurated?: number;
 }
 
 export interface SynchrosTheme {
