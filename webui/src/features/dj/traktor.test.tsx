@@ -369,7 +369,13 @@ describe('Settings → Library → Traktor Pro 3 (21b)', () => {
     render(<TraktorCard />);
     const card = await screen.findByRole('region', { name: 'Traktor Pro 3' });
     await within(card).findByText('Not set');
-    expect(card.textContent).toContain('Where the Mac keeps what SYNCHRO.S calls /app/Transfer.');
+    // 230 (23c): the hint says where to find it
+    expect(card.textContent).toContain(
+      'The left side of ./music:/app/Transfer in your compose file.',
+    );
+    expect(within(card).getByLabelText('Your music on the Mac')).toHaveAccessibleDescription(
+      'The left side of ./music:/app/Transfer in your compose file.',
+    );
     expect(card.textContent).toContain(
       'collection.nml in Documents/Native Instruments/Traktor 3.x',
     );
