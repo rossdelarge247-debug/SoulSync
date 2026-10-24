@@ -1,0 +1,100 @@
+# Risky paths: a change to any file matching one of these globs goes through
+# the gauntlet (.github/workflows/gauntlet.yml, explained in docs/GAUNTLET.md).
+#
+# One glob per line, relative to the repo root. `*` matches within one folder,
+# `**` matches any number of folders. Blank lines and `#` comments are ignored.
+# A `## ` line starts an area; the gauntlet's summary names the area each
+# changed file falls in. Keep the list grounded in code that can lose files,
+# break data or open a hole, not in whole packages for convenience.
+
+## Deletes or moves files
+# Moving the music to another drive: copy, check, switch, remove the old copies
+core/drives/**
+api/drives.py
+# The repair worker and its jobs (retag, rename, convert, delete fakes)
+core/repair_worker.py
+core/repair_jobs/**
+api/repair.py
+# Cleanup and purge automations
+core/automation/handlers/download_cleanup.py
+core/automation/handlers/library_cleanup.py
+core/automation/handlers/duplicate_cleaner.py
+core/automation/handlers/maintenance.py
+core/automation/handlers/audiobook_purge_recycle.py
+core/automation/handlers/video_purge_recycle.py
+core/automation/handlers/video_clean_youtube.py
+core/automation/handlers/run_script.py
+# Library remove, cleanup, duplicates and the recycle bin
+api/library_index.py
+api/deleted_files.py
+core/library/action_plans.py
+core/library/cleanup.py
+core/library/deleted_quarantine.py
+core/library/duplicate_cleaner.py
+core/library/expired_cleanup.py
+core/library/residual_files.py
+core/audiobook_recycle.py
+core/video/recycle.py
+# Library reorganize
+core/library_reorganize.py
+core/reorganize_runner.py
+core/reorganize_queue.py
+# The import pipeline's file moves, quarantine and replace
+core/imports/file_ops.py
+core/imports/pipeline.py
+core/imports/quarantine.py
+core/imports/quarantine_library.py
+core/imports/quality_replace.py
+core/imports/reassign_album.py
+core/imports/reassign_service.py
+core/imports/rematch_hints.py
+core/imports/routes.py
+core/imports/staging.py
+core/auto_import_worker.py
+# Publishing finished downloads into the library
+core/downloads/atomic_album_publish.py
+core/downloads/atomic_manifest.py
+core/downloads/atomic_recovery.py
+core/downloads/cleanup.py
+core/downloads/lifecycle.py
+core/downloads/release_import.py
+core/downloads/staging.py
+
+## Database migrations and schema
+database/**
+core/quality/schema.py
+core/automation/migrate_repair_jobs.py
+api/database_admin.py
+
+## Setup editing
+# The pasted compose helper and slskd's config writes live in core/drives/**
+# (compose_tool.py, services.py) above; settings writes and the setup check:
+core/settings.py
+core/setup_check.py
+api/settings.py
+api/onboarding.py
+
+## Auth, sessions, profiles and admin gating
+core/security/**
+core/profile_context.py
+core/permissions.py
+core/credentials/**
+core/socketio_cors.py
+api/auth.py
+api/login.py
+api/profiles.py
+api/profile_admin.py
+api/user_profiles.py
+api/key_store.py
+api/content_guard.py
+# The monolith: the login and launch gates, @admin_only routes, deletes
+web_server.py
+
+## Outbound HTTP
+# core/security/** above holds the outbound guard (outbound.py)
+core/*_client.py
+core/torrent_clients/**
+core/usenet_clients/**
+
+## CI and the gauntlet itself
+.github/**

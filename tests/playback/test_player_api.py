@@ -217,6 +217,7 @@ def test_recent_limit_is_clamped(client):
     assert client.get("/api/player/recent?limit=-5").status_code == 200
 
 
+@pytest.mark.gauntlet
 def test_a_clean_only_profile_is_refused_explicit_tracks(client):
     client.state["hide_explicit"] = True
     try:

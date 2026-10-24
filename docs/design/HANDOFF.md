@@ -60,6 +60,12 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 
 ## Log
 
+### 2026-10-24: Dev, the gauntlet for risky changes
+
+Built on `ci/gauntlet` from `integration`. A new CI lane, the gauntlet (`.github/workflows/gauntlet.yml`), that only risky changes go through, on top of the normal checks. A change is risky when it touches a file listed in `.github/gauntlet-paths.txt`: code that deletes or moves files, the database schema and migrations, setup editing, auth, sessions, profiles and admin gating, outbound HTTP, or CI itself. The gauntlet runs Bandit and Semgrep against committed baselines (only new findings on changed lines fail), the upgrade and migration tests on their own, and the disaster-scenario tests tagged `@pytest.mark.gauntlet` (the drive move's same-folder, crash-during-switch, edited-during-copy and unplugged cases, the kids guard's ordering, the migration failures). A PR labelled `gauntlet`, or a run started by hand, goes through it whatever it touches. No app code changed.
+
+`docs/GAUNTLET.md` says what it runs, how to read its results and how to regenerate the baselines, and lists what the lead commits to for gauntlet work: an independent review for data loss and security holes, findings fixed or answered in the HANDOFF entry before merge, a green gauntlet run before the change goes into Ross's private build, and zip notes saying the change went through the gauntlet.
+
 ### 2026-10-23: Dev, DJ stage 1 (BPM, key, energy, tags, Mixes well with)
 
 Built on `feat/dj-stage1` from `integration` (5ea8dc4b), from Ross's plan for DJ features (BACKLOG, "DJ area: BPM, key and mixing (Traktor Pro 3)", new, Exploring; stage 1 Building). No boards: everything visible follows existing patterns and is listed for Design (150–154). Routes added: `/api/library/dj/status`, `start`, `stop`, `tracks`, `browse` and `mixes/<track_id>` (`CONTRACTS.md`, "DJ data"). Patterns: `DESIGN-SYSTEM.md` ("DJ data on a track row", "Library → Tracks", "Mixes well with…").

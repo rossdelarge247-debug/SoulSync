@@ -19,6 +19,9 @@ os.environ['SOULSYNC_TEST_DB_READY'] = '1'
 
 web_server = pytest.importorskip('web_server')
 
+# the kids guard's ordering (see tests/playback/conftest.py): part of the gauntlet
+pytestmark = pytest.mark.gauntlet
+
 
 def _client_as(pid):
     c = web_server.app.test_client()

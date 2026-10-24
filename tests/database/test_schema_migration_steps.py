@@ -141,6 +141,7 @@ def test_reinit_of_an_initialised_db_changes_nothing(tmp_path: Path, db_log) -> 
 # ── a failing step is rolled back, reported, and retried ─────────────────────
 
 
+@pytest.mark.gauntlet
 def test_failed_part_of_a_step_leaves_its_marker_unwritten_and_retries(
         tmp_path: Path, db_log, monkeypatch) -> None:
     """_add_profile_support rebuilds four tables, then writes
@@ -181,6 +182,7 @@ def test_failed_part_of_a_step_leaves_its_marker_unwritten_and_retries(
     assert _metadata(db_path, MusicDatabase._SCHEMA_FAILURES_KEY) is None
 
 
+@pytest.mark.gauntlet
 def test_a_step_that_stops_part_way_is_rolled_back_whole(tmp_path: Path, db_log, monkeypatch) -> None:
     """_add_profile_listenbrainz_support adds three profile columns, then
     rebuilds listenbrainz_playlists. A failure in the rebuild undoes the
@@ -205,6 +207,7 @@ def test_a_step_that_stops_part_way_is_rolled_back_whole(tmp_path: Path, db_log,
     assert "UNIQUE(playlist_mbid, profile_id)" in _table_sql(db_path, "listenbrainz_playlists")
 
 
+@pytest.mark.gauntlet
 def test_a_failed_marker_write_keeps_the_steps_work_and_retries(tmp_path: Path, db_log) -> None:
     """_add_profile_support creates profiles, then writes profiles_migration_v1.
     The marker write failing used to roll the profiles table back with it, and
@@ -300,6 +303,7 @@ def _seed_old_watchlist(db_path: Path, rows) -> None:
         conn.close()
 
 
+@pytest.mark.gauntlet
 def test_a_rebuild_that_hits_a_real_conflict_keeps_the_old_table_and_retries(tmp_path: Path, db_log) -> None:
     """The profile rebuild adds UNIQUE(profile_id, itunes_artist_id). Two
     watchlist rows sharing an iTunes id can't satisfy it. That used to log,
@@ -342,6 +346,7 @@ def _bare_db():
     return db
 
 
+@pytest.mark.gauntlet
 def test_migration_step_rolls_back_a_real_failure_and_flags_its_parent(tmp_path: Path, db_log) -> None:
     db = _bare_db()
     conn = sqlite3.connect(str(tmp_path / "steps.db"))
@@ -366,6 +371,7 @@ def test_migration_step_rolls_back_a_real_failure_and_flags_its_parent(tmp_path:
     conn.close()
 
 
+@pytest.mark.gauntlet
 def test_a_non_atomic_step_keeps_what_it_did_before_a_failure(tmp_path: Path, db_log) -> None:
     db = _bare_db()
     conn = sqlite3.connect(str(tmp_path / "steps.db"))
