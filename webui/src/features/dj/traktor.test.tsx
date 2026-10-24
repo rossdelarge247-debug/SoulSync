@@ -302,6 +302,12 @@ describe('Settings → Library → Traktor Pro 3 (21b)', () => {
   });
 
   it('mounts after BPM, key and energy in the legacy page', () => {
+    // the card waits until it's on screen: nothing is asked here
+    class NeverSeen {
+      observe() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('IntersectionObserver', NeverSeen);
     document.body.innerHTML =
       '<div id="panel"><div id="dj-settings-group"></div><div id="after"></div></div>';
     expect(mountTraktorCard()).toBe(true);
@@ -309,5 +315,6 @@ describe('Settings → Library → Traktor Pro 3 (21b)', () => {
     expect(host?.previousElementSibling?.id).toBe('dj-settings-group');
     expect(mountTraktorCard()).toBe(false);
     document.body.innerHTML = '';
+    vi.unstubAllGlobals();
   });
 });

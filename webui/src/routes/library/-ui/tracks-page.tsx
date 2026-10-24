@@ -571,7 +571,7 @@ export function TracksPage({
           {tracks.length ? (
             <button
               type="button"
-              className={ls.selectToggle}
+              className={`${ls.selectToggle} ${styles.selectToggle}`}
               aria-pressed={selecting}
               onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
             >

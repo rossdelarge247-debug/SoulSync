@@ -30,6 +30,12 @@
   width: 280px;
 }
 
+/* 21a: Select / Done keeps its own width beside the 280px filter */
+.filter > .selectToggle {
+  flex: none;
+  width: auto;
+}
+
 /* ── the analysis line (153) ─────────────────────────────────────────── */
 
 .analysis {
@@ -355,6 +361,22 @@
 
   .filter > * {
     width: 100%;
+  }
+
+  /* with Select beside it, the field takes what's left */
+  .filter {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .filter > :not(.selectToggle) {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+
+  .filter input {
+    min-width: 0;
   }
 
   .analysis {

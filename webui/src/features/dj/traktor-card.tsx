@@ -52,9 +52,13 @@ export function TraktorCard({ load = true }: { load?: boolean }) {
 
   useEffect(() => {
     if (!load) return;
+    let live = true;
     getTraktorSettings()
-      .then(take)
-      .catch(() => setFailed(true));
+      .then((next) => live && take(next))
+      .catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+    };
   }, [load, take]);
 
   const save = async () => {

@@ -116,8 +116,12 @@
 }
 
 .link {
+  display: inline;
   min-height: 0;
+  height: auto;
   padding: 0;
+  line-height: inherit;
+  vertical-align: baseline;
   border: 0;
   background: none;
   color: rgb(var(--ss-accent-light-rgb));
@@ -238,7 +242,8 @@
 
 .row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 420px auto;
+  /* the tag column is fixed so every row's field lines up */
+  grid-template-columns: minmax(0, 1fr) 420px 128px;
   gap: 16px;
   align-items: center;
   min-height: 72px;
@@ -339,6 +344,10 @@
 
   .rowEnd {
     justify-content: flex-start;
+  }
+
+  .rowEnd:empty {
+    display: none;
   }
 
   .cardHead {
