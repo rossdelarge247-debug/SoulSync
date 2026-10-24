@@ -42,7 +42,7 @@ When nothing risky changed, the first job says so in its summary ("Nothing risky
 | **Upgrade, migration and disaster-scenario tests** | Step 1: `tests/database` (including the upgrade-from-old-releases tests) and the migration tests outside it. Step 2: `pytest -m gauntlet`, the disaster-scenario tests, in one process. | Any of those tests fails. The second step runs even if the first fails, so both results show. |
 | **Gauntlet summary** | One Markdown summary: what triggered the run, which risky files changed, each check's result. | Any check above failed. Use this job as the single required check if one is ever wanted. |
 
-The full test suite isn't repeated here, since sanity-check already runs it. The gauntlet aims to finish in about 10 minutes.
+The full test suite isn't repeated here, since sanity-check already runs it. Nor are the web UI's checks: no risky path is under `webui/`, so the gauntlet installs no npm packages. The gauntlet aims to finish in about 10 minutes.
 
 ### Baselines: only new findings fail
 
