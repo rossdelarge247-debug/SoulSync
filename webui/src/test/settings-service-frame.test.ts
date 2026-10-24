@@ -291,3 +291,32 @@ describe('the page wiring', () => {
     expect(checked).toBeGreaterThanOrEqual(12);
   });
 });
+
+describe('Qobuz in the Connections modal (224)', () => {
+  const STYLE = readFileSync(resolve(process.cwd(), 'static/style.css'), 'utf8');
+  const rule = STYLE.split('\n').find((l) => l.includes('#qobuz-connection-logged-in'));
+
+  it('hides its own Connected line in the modal, where the head says it', () => {
+    expect(rule).toBe(
+      '#settings-page #service-config-modal #qobuz-connection-logged-in { display: none !important; }',
+    );
+    // the line the rule hides is the Connections form's, inside the frame
+    expect(INDEX).toMatch(
+      /<div id="qobuz-connection-logged-in"[\s\S]*?id="qobuz-connection-user-info"/,
+    );
+    document.body.innerHTML = `<style>${rule}</style>
+      <div id="settings-page">
+        <div id="service-config-modal"><div id="qobuz-connection-logged-in" style="display: flex">Connected: Ross (Studio)</div></div>
+        <div id="qobuz-auth-logged-in" style="display: flex">Connected: Ross (Studio)</div>
+      </div>`;
+    const inModal = document.getElementById('qobuz-connection-logged-in')!;
+    expect(getComputedStyle(inModal).display).toBe('none');
+  });
+
+  it('keeps it in the Sources tab', () => {
+    document.body.innerHTML = `<style>${rule}</style>
+      <div id="settings-page"><div id="qobuz-auth-logged-in" style="display: flex">Connected: Ross (Studio)</div></div>`;
+    expect(getComputedStyle(document.getElementById('qobuz-auth-logged-in')!).display).toBe('flex');
+    expect(STYLE).not.toMatch(/#qobuz-auth-logged-in\s*\{[^}]*display:\s*none/);
+  });
+});
