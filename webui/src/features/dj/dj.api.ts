@@ -26,6 +26,8 @@ export interface DjInfo {
   /** 1–10. */
   energy: number | null;
   analyzed: boolean;
+  /** Why analysis left it out ("too long to analyse"), else null. */
+  skipped?: string | null;
 }
 
 export interface DjTrack {
@@ -81,7 +83,7 @@ export interface DjJob {
   tags_written: number;
   started_at: number;
   finished_at?: number | null;
-  waiting?: 'download' | 'import' | 'drive_away' | null;
+  waiting?: 'download' | 'import' | 'drive_away' | 'drive_move' | 'tag_write' | null;
   note?: string | null;
   recent: boolean;
 }

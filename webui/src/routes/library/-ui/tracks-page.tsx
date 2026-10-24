@@ -56,6 +56,11 @@ function usePhone(): boolean {
   return phone;
 }
 
+/** "too long to analyse" -> "Too long to analyse", for the meta line. */
+function sentenceCase(words: string): string {
+  return words ? words[0].toUpperCase() + words.slice(1) : words;
+}
+
 function artistHref(track: DjTrack): string | null {
   return track.artist_id === null || track.artist_id === ''
     ? null
@@ -82,6 +87,7 @@ function TrackRow({
   const djPhone = [
     dj?.bpm ? `${bpmNumber(dj.bpm)} BPM` : '',
     dj?.key ? `${dj.key}${dj.key_uncertain ? '?' : ''}` : '',
+    dj?.skipped ? sentenceCase(dj.skipped) : '',
   ].filter(Boolean);
   return (
     <li ref={rowRef} className={styles.row} data-track-row={track.id}>
@@ -105,6 +111,7 @@ function TrackRow({
           ) : track.album_title ? (
             <> · {album ? <a href={album}>{track.album_title}</a> : track.album_title}</>
           ) : null}
+          {!phone && dj?.skipped ? <> · {sentenceCase(dj.skipped)}</> : null}
         </span>
       </div>
       {phone ? null : (

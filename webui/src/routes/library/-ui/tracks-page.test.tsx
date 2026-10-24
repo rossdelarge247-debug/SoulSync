@@ -51,8 +51,21 @@ const BROWSE = {
     track('1', 'Static Bloom', dj(124, '8A', 'Am', 'A minor', 7)),
     track('2', 'Night Ferry', dj(126, '9A', 'Em', 'E minor', 6)),
     track('3', 'Not yet', null),
+    track('4', 'Two-hour mix', {
+      bpm: null,
+      bpm_source: null,
+      key: null,
+      key_name: null,
+      key_long: null,
+      key_source: null,
+      key_confidence: null,
+      key_uncertain: false,
+      energy: null,
+      analyzed: false,
+      skipped: 'too long to analyse',
+    } as unknown as ReturnType<typeof dj>),
   ],
-  total: 3,
+  total: 4,
   page: 1,
   limit: 50,
   has_more: false,
@@ -184,7 +197,10 @@ describe('Library → Tracks', () => {
     const unknown = screen.getByText('Not yet').closest('li')!;
     expect(within(unknown).getAllByText('–')).toHaveLength(3);
     expect(browseParams().get('sort')).toBe('bpm');
-    expect(screen.getByText('3 of 3 tracks')).toBeTruthy();
+    expect(screen.getByText('4 of 4 tracks')).toBeTruthy();
+    // a track left out says why
+    const long = screen.getByText('Two-hour mix').closest('li')!;
+    expect(within(long).getByText(/Too long to analyse/)).toBeTruthy();
   });
 
   it("sends the URL's BPM range and key", async () => {

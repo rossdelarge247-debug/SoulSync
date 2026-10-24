@@ -128,7 +128,11 @@ export function analysisLine(status: {
           ? ', waiting while an import runs'
           : job.waiting === 'drive_away'
             ? ", waiting for your library's drive"
-            : '';
+            : job.waiting === 'drive_move'
+              ? ', waiting while your music moves to another drive'
+              : job.waiting === 'tag_write'
+                ? ', waiting while tags are written'
+                : '';
     return `Working out BPM, key and energy: ${n(job.done)} of ${n(job.total)}${waiting}`;
   }
   if (!counts.tracks) return '';
