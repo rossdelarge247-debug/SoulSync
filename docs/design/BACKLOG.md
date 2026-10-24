@@ -18,6 +18,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Star tracks and mix sets | Ready for Design | [below](#star-tracks-and-mix-sets) |
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
 | Auto-mix: beat-matched transitions in Up next | Ready for Design (built with DJ stage 3's decks) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
+| Data visualiser: the decoded audio as numbers and bits | Ready for Design | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
 
 ---
 
@@ -799,3 +800,62 @@ Dev picks the libraries after checking their licences: some beat and structure m
 ### Settled with Ross
 
 - 24 October: yes to both the transitions and the styles, built with the DJ stage 3 decks.
+
+---
+
+## Data visualiser: the decoded audio as numbers and bits
+
+**Status:** Ready for Design · raised by Ross, 2026-10-24 · direction approved by Ross the same day.
+
+### What Ross wants
+
+Beside or under the track's spectrum (EQ) in the player, a view of the data that becomes the sound.
+
+### What's real (Dev checked)
+
+- The browser decodes the file (FLAC, MP3 and so on) into samples: 44,100 or more per second per channel, each between −1 and +1. That stream is what reaches the speakers.
+- The visualisers already tap it through Web Audio's `AnalyserNode`, which hands over a block of the latest samples (up to 32,768) about 60 times a second: a true slice of the real data each frame, not every sample.
+- **Step 1 shows exactly that.** It's cheap: the same tap the spectrum uses.
+- **Later, maybe:** the compressed file's own bytes (frame headers and blocks). The browser decodes internally, so this needs a separate fetch of the file lined up with the play position by byte offset. It's approximate, so it would be an extra only if step 1 lands well.
+
+### What it shows (step 1)
+
+- **Sample columns:**
+  - live left and right values, scrolling in mono;
+  - hex (`0x3A7F`) or decimal;
+  - silence reads `0x0000`.
+- **Bits:**
+  - each sample as a row of 16 or 24 lit or unlit bits, showing the bit depth at work (the high bits light only on peaks);
+  - a 24-bit file shows 24, a 16-bit file 16.
+- **Readout:**
+  - format, sample rate, bit depth, channels;
+  - bitrate decoded and bitrate on disk;
+  - a live count of samples played.
+
+  The format details come from the library's own data for the file.
+- **As a layer:** the numbers fill the background, and the spectrum or scope draws over them. It also works as a visualiser mode of its own ("Data").
+- **Radio and lossy streams:** the same, with the stream's format in the readout.
+
+### Constraints
+
+- Cheap on a laptop: text rendered on a canvas, not thousands of DOM nodes, and the frame rate dropped when the tab is hidden.
+- Respect reduced-motion: freeze to a slow refresh.
+
+### What Design needs to draw
+
+- The Data mode at 1440, full screen and on a phone.
+- The layer under the spectrum, and under the scope.
+- Hex vs decimal.
+- The bits view.
+- The readout.
+- How it looks in silence, in a loud passage, and for a mono file.
+
+### Questions for Design
+
+1. Is Data a mode of its own, a layer switch on the spectrum and scope, or both?
+2. How much of the screen do the numbers take before it stops being readable and becomes texture? Is texture the point?
+3. Should the accent colour or a terminal green carry it?
+
+### Settled with Ross
+
+- 24 October: yes to step 1, as a mode and a layer; the file-bytes view only later, if wanted.
