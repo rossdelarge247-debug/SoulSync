@@ -131,3 +131,15 @@ def test_recent_rows_limit_is_clamped(db, limit):
     for i in range(3):
         store.record_recent(db, 1, f"s{i}", played_at=i)
     assert 1 <= len(store.recent_rows(db, 1, limit)) <= 3
+
+
+def test_a_link_removed_while_it_plays_isnt_written_back(client, db):
+    link_id = store.add_link(db, name="Lowlands Radio", url="https://stream.example.org/live.mp3",
+                             kind="electronic", codec="MP3", bitrate_kbps=320, sends_titles=True,
+                             allows_direct=False, added_by="ross")
+    sid = _play(client, f"link-{link_id}")
+    _age(sid)
+    store.remove_link(db, link_id)
+    r = client.post("/api/radio/recent", json={"session_id": sid})
+    assert r.status_code == 404 and r.get_json()["error"] == "not_found"
+    assert store.recent_rows(db, 1) == []

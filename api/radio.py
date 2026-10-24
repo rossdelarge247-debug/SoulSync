@@ -500,8 +500,13 @@ def recent_played():
         return _err(404, "no_session", "That listening session has ended.")
     if played < store.RECENT_AFTER_SECONDS:
         return _err(409, "too_soon", "A station counts once it has played for 30 seconds.")
+    # a link is looked up again (it may have been removed while it played);
+    # other stations come from the hub's copy, so a directory one isn't asked again
     mon = hub.monitor(sess.station_id)
-    station = mon.station if mon is not None else resolve_station(sess.station_id)
+    if sess.station_id.startswith("link-") or mon is None:
+        station = resolve_station(sess.station_id)
+    else:
+        station = mon.station
     if station is None:
         return _err(404, "not_found", "That station isn't in the list, the directory or your links.")
     store.record_recent(_db(), pid, station.id, _snapshot(station) if station.source == "directory" else None)
