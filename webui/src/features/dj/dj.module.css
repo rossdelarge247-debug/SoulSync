@@ -150,8 +150,10 @@
   box-shadow: -24px 0 60px rgba(0, 0, 0, 0.45);
 }
 
-/* the page column makes room while it's docked (HANDOFF 164) */
+/* the page column makes room while it's docked (HANDOFF 164); style.css's
+   960px floor for the page would push the page under the panel */
 :global(html[data-mixes-panel='docked'] .ss-main > .main-content) {
+  min-width: 0;
   margin-right: 400px;
 }
 

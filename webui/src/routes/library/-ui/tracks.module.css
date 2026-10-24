@@ -13,7 +13,16 @@
 }
 
 .headText.headText {
+  flex: 1 1 260px;
   gap: 4px;
+}
+
+/* 17a: the filter stays beside the title; the sentence wraps instead */
+@media (min-width: 641px) {
+  .header.header {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+  }
 }
 
 /* the 280px filter field */
