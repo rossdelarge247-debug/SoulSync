@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
+import { resetMixesForTests } from '@/features/dj/mixes-store';
 import { resetDriveStatus } from '@/features/drives/drive-status';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
@@ -11,7 +12,7 @@ import { createShellBridge } from '@/test/shell-bridge';
  * Library → Tracks (the DJ data, BACKLOG "DJ area" stage 1) through the real
  * router: the URL's BPM range, key and sort drive the browse request, rows
  * show BPM, key and energy, the analysis line offers Stop, and "Mixes well
- * with…" opens the dialog with Play next and Add to playlist.
+ * with…" opens the shell's docked panel with Play next and Add to playlist.
  */
 
 function dj(bpm: number, key: string, name: string, long: string, energy: number) {
@@ -70,6 +71,7 @@ const BROWSE = {
   limit: 50,
   has_more: false,
   sort: 'bpm',
+  keys: ['8A', '7A', '9A', '8B'],
 };
 
 const STATUS = {
@@ -166,6 +168,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetMixesForTests();
   vi.unstubAllGlobals();
   delete window.SoulSyncWebShellBridge;
   delete window.showLibraryDownloadsSection;
@@ -241,18 +244,20 @@ describe('Library → Tracks', () => {
     );
   });
 
-  it('opens Mixes well with… from the "…" menu', async () => {
+  it('opens Mixes well with… from the "…" menu as the docked panel', async () => {
     renderPage();
     await screen.findByText('Static Bloom');
     fireEvent.click(screen.getByRole('button', { name: 'More for Static Bloom' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Mixes well with…' }));
-    const dialog = await screen.findByRole('dialog', { name: /Mixes well with “Static Bloom”/ });
-    await within(dialog).findByText('Low Tide');
-    expect(within(dialog).getByText('+1 on the wheel · +1.6%')).toBeTruthy();
-    expect(within(dialog).getByText('Same key · half time')).toBeTruthy();
-    expect(within(dialog).getByText(/8A \(A minor\) at 124 BPM/)).toBeTruthy();
-    expect(within(dialog).getByText('2 tracks in your library')).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Play Low Tide next' }));
+    const aside = await screen.findByRole('complementary', {
+      name: 'Mixes well with Static Bloom',
+    });
+    await within(aside).findByText('Low Tide');
+    expect(within(aside).getByText('+1 on the wheel · +1.6%')).toBeTruthy();
+    expect(within(aside).getByText('Same key · half time')).toBeTruthy();
+    expect(within(aside).getByText('Saltmarsh · 124 BPM · A minor')).toBeTruthy();
+    expect(within(aside).getByText('2 tracks mix with it')).toBeTruthy();
+    fireEvent.click(within(aside).getByRole('button', { name: 'Play Low Tide next' }));
     expect(window.playNext).toHaveBeenCalledWith(
       expect.objectContaining({
         id: '5',
@@ -261,7 +266,26 @@ describe('Library → Tracks', () => {
         duration: 276,
       }),
     );
-    expect(within(dialog).getByRole('button', { name: 'Add Low Tide to a playlist' })).toBeTruthy();
+    expect(within(aside).getByRole('button', { name: 'Add Low Tide to a playlist' })).toBeTruthy();
+  });
+
+  it('draws keys as chips in their hue and energy as a ten-step bar (17a)', async () => {
+    renderPage();
+    const row = (await screen.findByText('Static Bloom')).closest('li')!;
+    const key = within(row).getByText('8A');
+    expect(key.getAttribute('data-key-hue')).toBe('0');
+    expect(key.className).toMatch(/keyChip/);
+    expect(row.querySelectorAll('[data-lit="true"]')).toHaveLength(7);
+    const next = screen.getByText('Night Ferry').closest('li')!;
+    expect(within(next).getByText('9A').getAttribute('data-key-hue')).toBe('30');
+  });
+
+  it('says what the filter covers, with Clear filters (HANDOFF 168)', async () => {
+    const { router } = renderPage('/library?view=tracks&bpm=120-128&key=8A:mix');
+    await screen.findByText('Static Bloom');
+    await screen.findByText(/^4 tracks at 120–128 BPM in 8A, 7A, 9A or 8B/);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    await waitFor(() => expect(router.state.location.search).not.toHaveProperty('key'));
   });
 
   it("keeps the list when the library's drive is away, with the Notice above it", async () => {
