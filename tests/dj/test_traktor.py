@@ -295,9 +295,19 @@ def test_without_hard_links_the_exclusive_create_still_refuses(folders, monkeypa
     roots = folders["roots"]
     traktor.save_to_folder(str(folders["exports"]), "A.nml", b"one", roots=roots)
     assert (folders["exports"] / "A.nml").read_bytes() == b"one"
-    with pytest.raises(FileExistsError):
-        traktor._link_new(str(folders["exports"] / "A.nml"), str(folders["exports"] / "A.nml"), b"two")
+    # the claim refuses a name that's taken, and the written file stays a temporary
+    dfd = os.open(folders["exports"], os.O_RDONLY)
+    try:
+        tmp, fd = traktor._new_temp(dfd)
+        os.write(fd, b"two")
+        os.close(fd)
+        with pytest.raises(FileExistsError):
+            traktor._place_new(dfd, tmp, "A.nml")
+        os.unlink(tmp, dir_fd=dfd)
+    finally:
+        os.close(dfd)
     assert (folders["exports"] / "A.nml").read_bytes() == b"one"
+    assert sorted(os.listdir(folders["exports"])) == ["A.nml"]
 
 
 # ── the routes ───────────────────────────────────────────────────────────────
@@ -564,3 +574,211 @@ def test_a_stored_export_folder_that_now_escapes_is_refused(client, tmp_path):
     res = _export(client, action="save", source="tracks", track_ids=["1"], name="Sunday Set")
     assert res.status_code == 409 and res.get_json()["folder_state"] == "outside"
     assert os.listdir(outside) == []
+
+
+# ── the independent review's findings (gauntlet review of 32fa2c75) ───────────
+
+def _offroot(n, prefix="/plex"):
+    return [(_track(str(i), f"T{i}", path=f"{prefix}/{i}.flac"), f"T{i}", "A") for i in range(n)]
+
+
+@pytest.mark.gauntlet
+def test_looking_paths_up_on_disk_is_bounded_per_export():
+    traktor.clear_resolve_misses()
+    calls = []
+
+    def resolve(p):
+        calls.append(p)
+        return None
+
+    paths = traktor.MacPaths("/app/Transfer", "/Volumes/Music HD/T", resolve=resolve, resolve_budget=50)
+    planned = traktor.plan(_offroot(1000), paths)
+    assert len(calls) == 50
+    reasons = {}
+    for left in planned["left_out"]:
+        reasons[left["reason"]] = reasons.get(left["reason"], 0) + 1
+    assert reasons == {"outside": 50, "lookup_limit": 950}
+    assert traktor.REASON_WORDS["lookup_limit"].startswith("wasn't looked for on disk")
+    # a miss is remembered: the same paths again don't ask again
+    again = traktor.MacPaths("/app/Transfer", "/Volumes/Music HD/T", resolve=resolve, resolve_budget=50)
+    traktor.plan(_offroot(50), again)
+    assert len(calls) == 50
+    traktor.clear_resolve_misses()
+
+
+@pytest.mark.gauntlet
+def test_the_lookups_stop_after_their_time_too():
+    traktor.clear_resolve_misses()
+    now = [0.0]
+    calls = []
+
+    def resolve(p):
+        calls.append(p)
+        now[0] += 1.0  # each lookup takes a second
+        return None
+
+    paths = traktor.MacPaths("/app/Transfer", "/Volumes/M", resolve=resolve, resolve_budget=1000,
+                             resolve_seconds=5.0, clock=lambda: now[0])
+    traktor.plan(_offroot(100, "/slow"), paths)
+    assert len(calls) <= 6
+    traktor.clear_resolve_misses()
+
+
+@pytest.mark.gauntlet
+def test_no_lookups_when_nothing_could_place_the_result():
+    traktor.clear_resolve_misses()
+    calls = []
+    paths = traktor.MacPaths("/app/Transfer", None, resolve=lambda p: calls.append(p),
+                             same_path_mounts=False)
+    planned = traktor.plan(_offroot(200, "/none"), paths)
+    assert calls == [] and {x["reason"] for x in planned["left_out"]} == {"no_mac_path"}
+    # with /Volumes or /Users mounted the same inside and out, looking up can help
+    helps = traktor.MacPaths("/app/Transfer", None, resolve=lambda p: "/Volumes/M/x.flac",
+                             same_path_mounts=True)
+    assert helps.mac_path_for("/plex/1.flac") == ("/Volumes/M/x.flac", None)
+
+
+@pytest.mark.gauntlet
+def test_a_preview_asks_the_resolver_at_most_the_budget(client, db, monkeypatch):
+    import core.sample.worker as sample_worker
+
+    traktor.clear_resolve_misses()
+    calls = []
+    monkeypatch.setattr(sample_worker, "resolve_track_file", lambda p: calls.append(p))
+    for i in range(300):
+        _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path) VALUES (?, '10', '1', ?, ?)",
+             (f"p{i}", f"Plex {i}", f"/plex/{i}.flac"))
+    body = _export(client, action="preview", source="tracks", track_ids=[f"p{i}" for i in range(300)]).get_json()
+    assert len(calls) == traktor.RESOLVE_BUDGET
+    assert body["reasons"] == {"outside": traktor.RESOLVE_BUDGET, "lookup_limit": 300 - traktor.RESOLVE_BUDGET}
+    traktor.clear_resolve_misses()
+
+
+@pytest.mark.gauntlet
+def test_a_folder_swapped_after_the_check_is_never_written_into(folders, monkeypatch):
+    roots = folders["roots"]
+    real_check = traktor._check_folder
+
+    def swap_to_link(folder, r=None):
+        result = real_check(folder, r)
+        os.rename(folders["exports"], folders["music"] / "moved")
+        os.symlink(folders["outside"], folders["exports"], target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(traktor, "_check_folder", swap_to_link)
+    with pytest.raises(traktor.ExportFolderError):
+        traktor.save_to_folder(str(folders["exports"]), "x.nml", b"<NML/>", roots=roots)
+    assert os.listdir(folders["outside"]) == []
+    os.unlink(folders["exports"])
+    os.rename(folders["music"] / "moved", folders["exports"])
+
+    def swap_to_another_folder(folder, r=None):
+        result = real_check(folder, r)
+        os.rename(folders["exports"], folders["music"] / "moved")
+        os.mkdir(folders["exports"])
+        return result
+
+    monkeypatch.setattr(traktor, "_check_folder", swap_to_another_folder)
+    with pytest.raises(traktor.ExportFolderError):
+        traktor.save_to_folder(str(folders["exports"]), "x.nml", b"<NML/>", roots=roots)
+    assert os.listdir(folders["exports"]) == [] and os.listdir(folders["music"] / "moved") == []
+
+
+def test_the_file_gets_the_usual_mode(folders, monkeypatch):
+    import errno
+    import stat as st
+
+    monkeypatch.setattr(traktor, "_umask", lambda: 0o022)
+    path = traktor.save_to_folder(str(folders["exports"]), "Linked.nml", b"<NML/>", roots=folders["roots"])
+    assert st.S_IMODE(os.stat(path).st_mode) == 0o644
+
+    def no_links(*_a, **_k):
+        raise OSError(errno.EPERM, "no links here")
+
+    monkeypatch.setattr(traktor.os, "link", no_links)
+    path = traktor.save_to_folder(str(folders["exports"]), "Claimed.nml", b"<NML/>", roots=folders["roots"])
+    assert st.S_IMODE(os.stat(path).st_mode) == 0o644
+
+
+@pytest.mark.gauntlet
+def test_old_temporary_files_are_swept_and_none_are_left(folders):
+    import time as _time
+
+    old = folders["exports"] / ".synchros-traktor-deadbeef.tmp"
+    old.write_bytes(b"left by a save that died")
+    two_hours_ago = _time.time() - 7200
+    os.utime(old, (two_hours_ago, two_hours_ago))
+    fresh = folders["exports"] / ".synchros-traktor-inflight.tmp"
+    fresh.write_bytes(b"another save, right now")
+    mine = folders["exports"] / "notes.tmp"
+    mine.write_bytes(b"not ours")
+    os.utime(mine, (two_hours_ago, two_hours_ago))
+    traktor.save_to_folder(str(folders["exports"]), "A.nml", b"<NML/>", roots=folders["roots"])
+    assert sorted(os.listdir(folders["exports"])) == [".synchros-traktor-inflight.tmp", "A.nml", "notes.tmp"]
+
+
+@pytest.mark.gauntlet
+def test_without_links_a_failure_leaves_neither_the_claim_nor_the_temporary(folders, monkeypatch):
+    import errno
+
+    def no_links(*_a, **_k):
+        raise OSError(errno.EPERM, "no links here")
+
+    real_replace = os.replace
+
+    def failing_replace(src, dst, **kw):
+        if str(dst) == "B.nml":
+            raise OSError(errno.EIO, "the disk went away")
+        return real_replace(src, dst, **kw)
+
+    monkeypatch.setattr(traktor.os, "link", no_links)
+    monkeypatch.setattr(traktor.os, "replace", failing_replace)
+    with pytest.raises(OSError):
+        traktor.save_to_folder(str(folders["exports"]), "B.nml", b"<NML/>", roots=folders["roots"])
+    assert os.listdir(folders["exports"]) == []
+
+
+def test_members_see_whether_things_are_set_not_where(client):
+    client.cfg.data[traktor.SETTING_EXPORT_FOLDER] = str(client.exports)
+    admin = client.get("/api/library/dj/traktor/settings").get_json()
+    assert admin["library_folder"] == "/app/Transfer" and admin["export_folder"] == str(client.exports)
+    client.state["admin"] = False
+    member = client.get("/api/library/dj/traktor/settings").get_json()
+    for field in ("mac_path", "mac_path_from_helper", "library_folder", "export_folder", "export_folder_on_mac"):
+        assert field not in member, field
+    assert member["mac_path_set"] is True and member["export_folder_state"] == "ok"
+    assert member["can_edit"] is False
+    preview = _export(client, action="preview", source="tracks", track_ids=["1"]).get_json()
+    assert "mac_path" not in preview and "library_folder" not in preview
+    assert preview["folder"] == {"state": "ok", "shown": None, "can_save": False}
+    # their own track's path, as the Mac sees it, stays
+    assert preview["example_path"] == "/Volumes/Music HD/SoulSync/Transfer/Tidewater/01 Night Ferry.flac"
+
+
+def test_a_chunked_body_is_capped_too(client):
+    import io
+
+    big = b'{"action": "preview", "source": "tracks", "track_ids": [' + b'"1",' * 30000 + b'"1"]}'
+    res = client.post("/api/library/dj/traktor/export", input_stream=io.BytesIO(big),
+                      headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"},
+                      environ_overrides={"wsgi.input_terminated": True})  # what a server sets for chunked
+    assert res.status_code == 413
+    put = client.put("/api/library/dj/traktor/settings", input_stream=io.BytesIO(b'{"mac_path": "' + b"a" * 70000 + b'"}'),
+                     headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"},
+                     environ_overrides={"wsgi.input_terminated": True})
+    assert put.status_code == 413
+
+
+def test_file_names_drop_format_characters_and_never_take_traktors_own():
+    assert traktor.safe_filename("Sunday\u202eSet") == "SundaySet.nml"
+    assert traktor.safe_filename("evil\u202elmn.exe") == "evillmn.exe.nml"
+    assert traktor.safe_filename("a\u200bb\u2066c\ufeffd") == "abcd.nml"
+    assert traktor.safe_filename("collection") == "collection (playlist).nml"
+    assert traktor.safe_filename("Collection") == "Collection (playlist).nml"
+    assert traktor.safe_filename("collection.nml") != "collection.nml"
+
+
+def test_a_bpm_filter_of_nan_is_ignored(client):
+    for raw in ("nan", "NaN", "-nan", "inf"):
+        body = client.get(f"/api/library/dj/browse?bpm_min={raw}&bpm_max=130").get_json()
+        assert body["bpm_min"] is None and body["bpm_max"] == 130
