@@ -78,11 +78,15 @@ def _float(name: str) -> Optional[float]:
     raw = request.args.get(name)
     if raw in (None, ""):
         return None
+    text = str(raw).strip()
+    # "nan" (any case) would compare false with everything: refuse it outright
+    if text.lower().lstrip("+-") in ("nan", "inf", "infinity"):
+        return None
     try:
-        value = float(raw)
+        value = float(text)
     except (TypeError, ValueError):
         return None
-    return value if 0 < value < 1000 else None
+    return value if math.isfinite(value) and 0 < value < 1000 else None
 
 
 def _int(name: str, default: int) -> int:
@@ -230,10 +234,43 @@ def _is_admin() -> bool:
     return bool(is_admin_request())
 
 
+#: the card's fields that name folders on the server or the Mac: admins only
+_ADMIN_ONLY_FIELDS = ("mac_path", "mac_path_from_helper", "library_folder", "export_folder", "export_folder_on_mac")
+
+
 def _traktor_state() -> dict:
+    """The card's state. A member sees whether things are set, not where: the
+    folder fields go to admins only."""
     from core.dj import traktor
 
-    return {**traktor.settings_state(), "can_edit": bool(_is_admin())}
+    state = traktor.settings_state()
+    admin = bool(_is_admin())
+    if not admin:
+        state = {k: v for k, v in state.items() if k not in _ADMIN_ONLY_FIELDS}
+        full = traktor.settings_state()
+        state["mac_path_set"] = bool(full["mac_path"] or full["mac_path_from_helper"])
+        state["mac_path_from_helper_set"] = bool(full["mac_path_from_helper"])
+    return {**state, "can_edit": admin}
+
+
+def _read_json_capped(limit: int):
+    """The JSON body, read with a hard limit even when it comes chunked (no
+    Content-Length): at most ``limit + 1`` bytes are ever read. ``(body,
+    None)`` or ``(None, response)``; a body that isn't JSON reads as None."""
+    import json
+
+    too_big = (jsonify({"success": False, "error": "That request is too big"}), 413)
+    if request.content_length is not None and request.content_length > limit:
+        return None, too_big
+    raw = request.stream.read(limit + 1)
+    if len(raw) > limit:
+        return None, too_big
+    if not request.is_json or not raw:
+        return None, None
+    try:
+        return json.loads(raw), None
+    except ValueError:
+        return None, None
 
 
 @bp.route("/api/library/dj/traktor/settings", methods=["GET"])
@@ -254,7 +291,9 @@ def traktor_settings_save():
     from core.dj import traktor
     from core.settings import config_manager
 
-    body = request.get_json(silent=True)
+    body, refused = _read_json_capped(MAX_EXPORT_BODY)
+    if refused is not None:
+        return refused
     if not isinstance(body, dict):
         return jsonify({"success": False, "error": "Send the settings as JSON"}), 400
     updates = {}
@@ -352,9 +391,9 @@ def _attachment(data: bytes, filename: str):
 def traktor_export():
     if get_current_profile_id() is None:
         return _no_profile()
-    if request.content_length is not None and request.content_length > MAX_EXPORT_BODY:
-        return jsonify({"success": False, "error": "That request is too big"}), 413
-    body = request.get_json(silent=True)
+    body, refused = _read_json_capped(MAX_EXPORT_BODY)
+    if refused is not None:
+        return refused
     if not isinstance(body, dict):
         return jsonify({"success": False, "error": "Send the export as JSON"}), 400
     action = body.get("action") or "preview"
@@ -388,18 +427,23 @@ def traktor_export():
         for left in planned["left_out"]:
             reasons[left["reason"]] = reasons.get(left["reason"], 0) + 1
         entries = planned["entries"]
-        return _no_store({
+        preview = {
             "success": True, "name": name, "filename": filename, "counts": planned["counts"],
+            # the caller's own first track, as the Mac sees it
             "example_path": entries[0]["mac_path"] if entries else None,
-            "mac_path": state["mac_path"] or state["mac_path_from_helper"] or None,
-            "library_folder": state["library_folder"],
             "left_out": planned["left_out"][:50], "reasons": reasons,
             "keys": sum(1 for e in entries if traktor.confident_key(e["track"].get("dj"))),
             "can_edit": admin,
-            "folder": {"state": state["export_folder_state"],
-                       "shown": state["export_folder_on_mac"] or state["export_folder"] or None,
-                       "can_save": admin and state["export_folder_state"] == "ok"},
-        })
+            "folder": {"state": state["export_folder_state"], "shown": None, "can_save": False},
+        }
+        if admin:
+            # where things are on the server and the Mac: admins only
+            preview["mac_path"] = state["mac_path"] or state["mac_path_from_helper"] or None
+            preview["library_folder"] = state["library_folder"]
+            preview["folder"] = {"state": state["export_folder_state"],
+                                 "shown": state["export_folder_on_mac"] or state["export_folder"] or None,
+                                 "can_save": state["export_folder_state"] == "ok"}
+        return _no_store(preview)
     if not planned["entries"]:
         return jsonify({"success": False, "error": "None of these tracks can go to Traktor."}), 409
     data = traktor.build_nml(name, planned["entries"])
