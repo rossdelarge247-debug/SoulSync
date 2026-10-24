@@ -11,7 +11,7 @@ GET  /api/drives/status                 the three folders' drive state (everyone
 POST /api/drives/status/check           look again now
 GET  /api/drives/folders                the Folders card (14a)
 GET  /api/drives/docker                 the Docker step (14c): platform, folder, the lines
-POST /api/drives/docker/command         mint the one-use command
+POST /api/drives/docker/command         mint the one-use command (``names``: only the host hints)
 GET  /api/drives/docker/check           Check again (14d): restarted? sees the drives?
 GET  /api/drives/helper.sh?t=<token>    the helper script (token only)
 GET  /api/drives/browse?path=           folders under a drive, for Browse…
@@ -47,7 +47,7 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, Response, jsonify, request
 
-from core.drives import disks, helper, markers
+from core.drives import disks, helper, host_paths, markers
 from core.drives import move as moving
 from core.profile_context import admin_only, get_current_profile_id, is_admin_request
 from utils.logging_config import get_logger
@@ -172,6 +172,8 @@ def _status_payload(state: Dict[str, Any], *, admin: bool) -> Dict[str, Any]:
         if admin:
             item["path"] = f["path"]
             item["reason"] = f["reason"]
+            # the computer's own name for the folder (display only; host_paths)
+            item.update(host_paths.public_fields(f.get("path"), _platform()))
         folders[role] = item
     out = {"success": True, "checked_at": state["checked_at"], "interval": state["interval"],
            "library_away": state["library_away"], "away": state["away"], "folders": folders,
@@ -228,13 +230,14 @@ def _albums() -> Optional[int]:
 
 def _folder_rows(wait: bool = False):
     paths = markers.folder_paths(_config())
+    plat = _platform()
     rows = []
     for role in markers.ROLES:
         path = paths[role]
         size = SIZES.get(path, wait=wait)
         rows.append({"role": role, "label": markers.LABELS[role], "path": path, "drive": _label(path),
                      "holds": _readers(role), "files": size["files"] if size else None,
-                     "bytes": size["bytes"] if size else None})
+                     "bytes": size["bytes"] if size else None, **host_paths.public_fields(path, plat)})
     return rows
 
 
@@ -256,7 +259,9 @@ def get_folders():
     return _no_store(jsonify({"success": True, "folders": rows,
                               "drive": {"label": _label(lib), "free": free, "total": total, "percent": pct,
                                         "tone": tone},
-                              "move": current, "platform": _platform()}))
+                              "move": current, "platform": _platform(),
+                              "compose_folder": _config().get("drives.compose_folder", "")
+                              or helper.DEFAULT_COMPOSE_FOLDER}))
 
 
 # ── the Docker step (14c, 14d, 14m) ───────────────────────────────────────────
@@ -305,9 +310,15 @@ def post_docker_command():
     except ValueError as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
     _config().set("drives.compose_folder", folder)
+    names = bool(body.get("names"))
+    if names and _platform() == "windows":
+        return jsonify({"success": False, "error": "The helper runs on a Mac or Linux."}), 400
     minted = helper.TOKENS.mint(get_current_profile_id() or 1)
     plat = _platform()
-    return _no_store(jsonify({"success": True, "command": helper.command(base, minted["token"], folder, plat),
+    host_paths.forget()
+    return _no_store(jsonify({"success": True,
+                              "command": helper.command(base, minted["token"], folder, plat, names=names),
+                              "names": names,
                               "undo": helper.undo_command(folder), "expires_at": minted["expires_at"],
                               "platform": plat, "lines": _lines(plat), "compose_folder": folder}))
 
@@ -537,7 +548,26 @@ def get_plan_list(plan_id: str):
         plan = plan_store.peek(plan_id, moving.REMOVE_TOOL)
     except PlanError as exc:
         return jsonify({"success": False, "error": exc.message, "code": exc.code}), 409
-    body = "\n".join(f"{i['path']}\t{i['size']}" for i in plan.items) + "\n"
+    # the computer's names where SYNCHRO.S knows them (125), else the
+    # container's; the plan's own items stay what Remove deletes
+    roots = {}
+    try:
+        move = _job().store.row(int((plan.meta or {}).get("move_id") or 0))
+        sources = ((move or {}).get("plan") or {}).get("sources") or {}
+    except Exception:  # noqa: BLE001 - the container's paths, then
+        sources = {}
+    for role, root in sources.items():
+        found = host_paths.folder_host(root, _platform())
+        if found:
+            roots[role] = found["host_path"]
+
+    def shown(i):
+        host = roots.get(i.get("role"))
+        if host and i.get("rel"):
+            return host_paths._join_host(host, i["rel"])
+        return i["path"]
+
+    body = "\n".join(f"{shown(i)}\t{i['size']}" for i in plan.items) + "\n"
     resp = Response(body, mimetype="text/plain")
     resp.headers["Content-Disposition"] = 'attachment; filename="old-copies.txt"'
     return resp

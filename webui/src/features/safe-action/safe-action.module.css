@@ -194,6 +194,8 @@
 }
 
 .sample {
+  /* the body scrolls; the list keeps its height (on a phone it was squeezed to its head) */
+  flex-shrink: 0;
   overflow: hidden;
   border-radius: var(--ss-radius-card);
   border: 1px solid var(--white-a10);
@@ -247,6 +249,58 @@
 
 .keep {
   color: #4ade80;
+}
+
+/* What the list's rows are relative to (19c): an overline, then the folder
+   in mono. Also a group's head inside the table. */
+.listHead {
+  flex-shrink: 0;
+  margin: 0 0 -4px;
+  min-width: 0;
+}
+
+.listHeadInner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.listHeadLabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ss-text-meta);
+}
+
+.listHeadPath {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.86);
+  overflow-wrap: anywhere;
+}
+
+.table .groupRow th {
+  position: static;
+  padding: 12px 14px 8px;
+  border-top: 1px solid var(--white-a08);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  background: transparent;
+}
+
+.table tr:first-child.groupRow th {
+  border-top: 0;
+}
+
+.listNote {
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ss-text-meta);
 }
 
 .sampleFoot {

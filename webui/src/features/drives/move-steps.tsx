@@ -782,11 +782,7 @@ export function PlanStep(props: StepProps) {
     >
       <h2 className={styles.title}>The plan</h2>
       <p className={styles.lead}>
-        From {plan.source_label} to{' '}
-        {Object.values(plan.dests).length === 1
-          ? Object.values(plan.dests)[0]
-          : commonParent(Object.values(plan.dests) as string[])}
-        .
+        From {plan.source_label} to {planTarget(move)}.
       </p>
       {error ? (
         <Notice tone="danger" title="That didn’t go through" role="alert">
@@ -903,14 +899,30 @@ export function PlanStep(props: StepProps) {
   );
 }
 
+/** Where the plan copies to, as the computer names it when SYNCHRO.S knows
+ *  (125; `D:\SYNCHRO.S` on Windows), else the container's path: one
+ *  folder, or the folder the destinations share. */
+export function planTarget(move: Pick<Move, 'plan' | 'folders'>): string {
+  const plan = move.plan;
+  if (!plan) return '';
+  const byRole = new Map(move.folders.map((f) => [f.role, f]));
+  const dests = plan.order.filter((r) => plan.dests[r]);
+  const host = dests.map((r) => byRole.get(r)?.dest_host_path ?? null);
+  const paths = host.every(Boolean)
+    ? (host as string[])
+    : dests.map((r) => plan.dests[r] as string);
+  return paths.length === 1 ? paths[0] : commonParent(paths);
+}
+
 function commonParent(paths: string[]): string {
   if (!paths.length) return '';
-  const split = paths.map((p) => p.split('/'));
+  const sep = paths.every((p) => /^[A-Z]:\\/.test(p)) ? '\\' : '/';
+  const split = paths.map((p) => p.split(sep));
   const out: string[] = [];
   for (let i = 0; i < split[0].length; i += 1) {
     const part = split[0][i];
     if (split.every((s) => s[i] === part)) out.push(part);
     else break;
   }
-  return out.join('/') || '/';
+  return out.join(sep) || sep;
 }

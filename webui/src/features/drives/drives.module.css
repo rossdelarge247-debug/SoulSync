@@ -205,6 +205,25 @@
   outline-offset: var(--ss-focus-offset);
 }
 
+/* 125: the line under a list when the computer's names aren't known */
+.namesLine {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ss-text-meta);
+  overflow-wrap: anywhere;
+}
+
+.namesUnderRows {
+  padding: 12px 0 2px;
+}
+
+.namesCode {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--ss-text-secondary);
+}
+
 .moveNote {
   margin: 12px 0 0;
   font-size: 14px;

@@ -1150,7 +1150,9 @@ describe('carrying on after a failure when Downloads moves', () => {
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         const body = init?.body ? JSON.parse(init.body as string) : null;
-        sent.push({ url, body });
+        // only the move's calls: a Folders card mounted by an earlier test
+        // still takes its second look at the folders
+        if (url.includes('/api/drives/move/')) sent.push({ url, body });
         if (!body?.username)
           return new Response(
             JSON.stringify({

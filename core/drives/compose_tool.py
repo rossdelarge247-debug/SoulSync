@@ -18,9 +18,23 @@ refuses what it can't edit safely (a flow list like ``volumes: [a, b]``, a
 service whose keys come from a ``<<:`` merge, tabs) and says to do it by
 hand. Before writing, the new file is checked with ``docker compose config``.
 
-Run as a program: ``python3 compose_tool.py [--undo] [--dry-run] [--yes]
-[--platform mac|linux] [--file docker-compose.yml]`` from the folder that
-holds the compose file.
+Run as a program: ``python3 compose_tool.py [--undo] [--dry-run] [--names]
+[--yes] [--platform mac|linux] [--file docker-compose.yml]`` from the folder
+that holds the compose file.
+
+**Host hints (``--names``).** Each run that changes the file, or finds it
+already done, also writes ``host-paths.json`` into SYNCHRO.S's own settings
+folder (the ``./config`` it mounts at ``/app/config``): for each music folder
+it mounts (``./music`` for ``/app/Transfer``), keyed by the id in the marker
+SYNCHRO.S keeps at the folder's root, the folder's path on this computer,
+its volume's name, the OS and the time. SYNCHRO.S shows those names instead
+of container paths, and trusts an entry only while the marker id matches.
+Nothing is written into the music folders (slskd shares the library's root),
+and a ``.synchros-host.json`` an older helper left in one is deleted.
+``--names`` writes only that file: no compose change, no restart. A folder
+SYNCHRO.S hasn't marked yet, a link, or a mount it can't resolve is skipped
+and said. The file is written through a new, uniquely named file renamed
+over it, never through a link.
 
 **Which files.** With the default file name, Docker also reads
 ``docker-compose.override.yml`` (and ``COMPOSE_FILE`` when it's set), so the
@@ -39,10 +53,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import plistlib
 import re
+import stat
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Dict, List, Optional, Sequence, Tuple
 
 BACKUP_NAME = "docker-compose.before-drives.yml"
@@ -55,6 +72,17 @@ COMPOSE_NAMES = ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "co
 DRIVE_MOUNTS = {"mac": ["/Volumes:/Volumes"], "linux": ["/mnt:/mnt", "/media:/media"]}
 SLSKD_CONFIG_TARGET = "/slskd-config"
 MUSIC_TARGETS = ("/app/Transfer", "/app/downloads", "/app/Staging")
+MUSIC_LABELS = {"/app/Transfer": "Library", "/app/downloads": "Downloads", "/app/Staging": "Staging"}
+MARKER_NAME = ".synchros-folder.json"
+#: what an older helper wrote inside each music folder; deleted now
+LEGACY_HINT_NAME = ".synchros-host.json"
+HINTS_NAME = "host-paths.json"
+CONFIG_TARGET = "/app/config"
+HINT_VERSION = 1
+HINTS_MAX_FOLDERS = 64
+HINTS_MAX_BYTES = 96 * 1024
+_MARKER_ID = re.compile(r"^[0-9a-f]{32}$")
+_SMALL = 4096
 
 
 class Unsupported(ValueError):
@@ -564,6 +592,420 @@ def diff_lines(before: str, after: str) -> List[str]:
     return out
 
 
+# ── host hints (--names) ──────────────────────────────────────────────────────
+
+def _bind_source(src: str, compose_dir: str) -> Optional[str]:
+    """A bind mount's source as a path on this computer, or None (a named
+    volume lives inside Docker; ${VAR} comes from an .env this tool doesn't read)."""
+    if not src or not src.startswith(("/", "./", "../", "~", ".")) or "$" in src:
+        return None
+    return os.path.normpath(os.path.join(compose_dir, os.path.expanduser(src)))
+
+
+def _app_service(text: str) -> Dict[str, object]:
+    app = next((s for s in service_info(text) if _role(s) == "synchros"), None)
+    if app is None:
+        raise Unsupported("No service in this file mounts SYNCHRO.S's music folders (/app/Transfer, "
+                          "/app/downloads or /app/Staging).")
+    return app
+
+
+def _app_volumes(text: str, extra: Sequence[str] = ()) -> List[Tuple[str, str]]:
+    """SYNCHRO.S's service's volumes as (source, target), with the same
+    service in ``extra`` (docker-compose.override.yml, COMPOSE_FILE's other
+    files) applied on top the way Compose merges them: by target, the later
+    file winning. An extra file this tool can't read is left out."""
+    app = _app_service(text)
+    merged: Dict[str, str] = {}
+    for src, tgt in app["volumes"]:  # type: ignore[misc]
+        merged[tgt.rstrip("/") or tgt] = src
+    for more in extra:
+        try:
+            svc = next((s for s in service_info(more) if s["name"] == app["name"]), None)
+        except Unsupported:
+            continue
+        for src, tgt in (svc or {}).get("volumes") or []:  # type: ignore[union-attr]
+            merged[tgt.rstrip("/") or tgt] = src
+    return [(src, tgt) for tgt, src in merged.items()]
+
+
+def music_mounts(text: str, compose_dir: str, extra: Sequence[str] = ()) -> List[Dict[str, str]]:
+    """SYNCHRO.S's music folders as this computer names them: one dict per
+    bind mount onto a music target (target, label, source as written, host
+    path), or with ``problem`` when the source can't be resolved here."""
+    out = []
+    for src, tgt in _app_volumes(text, extra):
+        target = tgt.rstrip("/")
+        if target not in MUSIC_TARGETS:
+            continue
+        item = {"target": target, "label": MUSIC_LABELS[target], "source": src}
+        host = _bind_source(src, compose_dir)
+        if host is None:
+            item["problem"] = "isn't a folder on this computer the helper can name"
+        else:
+            item["host_path"] = host
+        out.append(item)
+    return sorted(out, key=lambda m: MUSIC_TARGETS.index(m["target"]))
+
+
+def config_folder(text: str, compose_dir: str, extra: Sequence[str] = ()) -> Optional[str]:
+    """Where SYNCHRO.S's settings folder (/app/config) is on this computer,
+    from its mount; None when the files don't bind-mount it."""
+    for src, tgt in _app_volumes(text, extra):
+        if tgt.rstrip("/") == CONFIG_TARGET:
+            return _bind_source(src, compose_dir)
+    return None
+
+
+# ── one folder's entry: the checks SYNCHRO.S applies too ─────────────────────
+
+ENTRY_KEYS = ("host_path", "volume", "os", "target", "written_at")
+ENTRY_OS = ("mac", "linux")
+#: control, line-separator and direction characters never go into a name shown on a page
+_UNSAFE_TEXT = re.compile("[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
+_MAX_PATH = 1024
+_MAX_VOLUME = 255
+
+
+def clean_path(value: object) -> Optional[str]:
+    """A plain absolute POSIX path (no ``.``/``..`` parts, no ``//`` start,
+    no control or direction characters), normalised; else None."""
+    if not isinstance(value, str) or not value or len(value) > _MAX_PATH or _UNSAFE_TEXT.search(value):
+        return None
+    if not value.startswith("/") or value.startswith("//"):
+        return None
+    parts = value.split("/")
+    if any(p in (".", "..") for p in parts):
+        return None
+    return "/" + "/".join(p for p in parts if p)
+
+
+def clean_volume(value: object) -> Optional[str]:
+    if not isinstance(value, str) or _UNSAFE_TEXT.search(value):
+        return None
+    text = value.strip()
+    if not text or len(text) > _MAX_VOLUME or "/" in text:
+        return None
+    return text
+
+
+def clean_entry(data: object) -> Optional[Dict[str, object]]:
+    """One folder's entry in host-paths.json when it is exactly the schema,
+    else None. The helper checks what it writes (and what it keeps) with
+    this, and SYNCHRO.S checks what it reads with it, so the two agree."""
+    if not isinstance(data, dict) or set(data) != set(ENTRY_KEYS):
+        return None
+    host_path, target = clean_path(data["host_path"]), clean_path(data["target"])
+    volume = clean_volume(data["volume"])
+    written_at = data["written_at"]
+    if host_path is None or target is None or volume is None or data["os"] not in ENTRY_OS:
+        return None
+    if type(written_at) is not int or written_at <= 0:
+        return None
+    return {"host_path": host_path, "volume": volume, "os": data["os"], "target": target,
+            "written_at": written_at}
+
+
+def _read_small(path: str, cap: int) -> Optional[bytes]:
+    """A regular file's bytes, read without following a link; None otherwise."""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > cap:
+            return None
+        raw = b""
+        while len(raw) <= cap:
+            chunk = os.read(fd, cap + 1 - len(raw))
+            if not chunk:
+                break
+            raw += chunk
+        return None if len(raw) > cap else raw
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def _read_marker_id(folder: str) -> Optional[str]:
+    """The id in the marker SYNCHRO.S keeps at ``folder``, read without
+    following a link; None when there's none (or it has no id yet)."""
+    raw = _read_small(os.path.join(folder, MARKER_NAME), _SMALL)
+    try:
+        data = json.loads(raw.decode("utf-8")) if raw is not None else None
+    except (UnicodeDecodeError, ValueError):
+        return None
+    value = data.get("id") if isinstance(data, dict) else None
+    return value if isinstance(value, str) and _MARKER_ID.match(value) else None
+
+
+#: how many entries of a mount's root the helper looks through for a marker one level down
+_SUBFOLDER_CAP = 2000
+
+
+def marked_folders(root: str, target: str) -> List[Tuple[str, str, str]]:
+    """The folders SYNCHRO.S marked at a music mount: the mount's root, or
+    else its folders one level down (SYNCHRO.S's setting can point inside the
+    mount), as (path here, path inside SYNCHRO.S, marker id). Links aren't
+    followed."""
+    found = _read_marker_id(root)
+    if found:
+        return [(root, target, found)]
+    out = []
+    try:
+        with os.scandir(root) as entries:
+            for i, entry in enumerate(entries):
+                if i >= _SUBFOLDER_CAP:
+                    break
+                try:
+                    if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                marker = _read_marker_id(entry.path)
+                if marker:
+                    out.append((entry.path, target.rstrip("/") + "/" + entry.name, marker))
+    except OSError:
+        return []
+    return sorted(out)
+
+
+def volume_name(path: str, platform: str) -> str:
+    """What this computer calls the disk ``path`` is on: the drive's name
+    under /Volumes, else (on a Mac) what ``diskutil`` says, "Macintosh HD"
+    when it can't; on Linux the mount point's name, or "this computer's disk"
+    for the root."""
+    if platform == "mac":
+        parts = path.split("/")
+        if len(parts) > 2 and parts[1] == "Volumes" and parts[2]:
+            return parts[2]
+        try:
+            proc = subprocess.run(["diskutil", "info", "-plist", path], stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, timeout=10)
+            if proc.returncode == 0:
+                name = plistlib.loads(proc.stdout).get("VolumeName")
+                if isinstance(name, str) and name.strip():
+                    name = name.strip()
+                    # the system's data volume is "Macintosh HD - Data"; Finder says "Macintosh HD"
+                    return name[: -len(" - Data")] if name.endswith(" - Data") else name
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        return "Macintosh HD"
+    probe = path
+    while probe and probe != "/" and not os.path.ismount(probe):
+        probe = os.path.dirname(probe)
+    if not probe or probe == "/":
+        return "this computer's disk"
+    return os.path.basename(probe) or "this computer's disk"
+
+
+def _existing_entries(path: str) -> Tuple[Dict[str, Dict[str, object]], int]:
+    """The entries already in the hints file that still pass ``clean_entry``
+    (kept for folders this run doesn't name, such as a move's old folders),
+    and how many were dropped for failing it."""
+    raw = _read_small(path, HINTS_MAX_BYTES)
+    try:
+        data = json.loads(raw.decode("utf-8")) if raw is not None else None
+    except (UnicodeDecodeError, ValueError):
+        return {}, 0
+    folders = data.get("folders") if isinstance(data, dict) and data.get("v") == HINT_VERSION else None
+    if not isinstance(folders, dict):
+        return {}, 0
+    keep, dropped = {}, 0
+    for key, value in folders.items():
+        entry = clean_entry(value)
+        if isinstance(key, str) and _MARKER_ID.match(key) and entry is not None:
+            keep[key] = entry
+        else:
+            dropped += 1
+    return keep, dropped
+
+
+def remove_stale_temp(config: str) -> int:
+    """Delete ``host-paths.json.*.tmp`` an interrupted run left in the
+    settings folder (a file or a link, never what a link points at)."""
+    gone = 0
+    try:
+        names = os.listdir(config)
+    except OSError:
+        return 0
+    for name in names:
+        if not (name.startswith(HINTS_NAME + ".") and name.endswith(".tmp")):
+            continue
+        path = os.path.join(config, name)
+        try:
+            st = os.lstat(path)
+            if stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode):
+                os.unlink(path)
+                gone += 1
+        except OSError:
+            continue
+    return gone
+
+
+def settings_owner(config: str) -> Optional[Tuple[int, int]]:
+    """Who owns SYNCHRO.S's settings (config.json when it's there, else the
+    folder): SYNCHRO.S runs as that user (PUID), so it must be able to read
+    the hints file."""
+    for path in (os.path.join(config, "config.json"), config):
+        try:
+            st = os.lstat(path)
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode):
+            return st.st_uid, st.st_gid
+    return None
+
+
+def hints_file_access(config: str) -> Tuple[Optional[Tuple[int, int]], int]:
+    """(owner to set, mode) for host-paths.json in ``config``. Run as root
+    (``sudo sh drives-helper.sh``), the file is given to the settings' owner;
+    then, or when this user already is that owner, 0640 (SYNCHRO.S reads it
+    as its owner); otherwise 0644, so SYNCHRO.S running as another user can
+    still read it (config.json is no tighter)."""
+    want = settings_owner(config)
+    euid = os.geteuid() if hasattr(os, "geteuid") else None
+    if want is not None and euid == 0:
+        return want, 0o640
+    if want is not None and euid == want[0]:
+        return None, 0o640
+    return None, 0o644
+
+
+def write_hints_file(path: str, entries: Dict[str, Dict[str, object]]) -> None:
+    """``path`` (host-paths.json), atomically: a new, uniquely named file
+    (``mkstemp`` opens it with O_EXCL, so a link planted at the name is never
+    followed), then renamed over the old one (a rename replaces a link rather
+    than writing through it), owned and moded so SYNCHRO.S can read it
+    (``hints_file_access``). A failed write deletes its temporary file."""
+    st = None
+    try:
+        st = os.lstat(path)
+    except OSError:
+        pass
+    if st is not None and stat.S_ISDIR(st.st_mode):
+        raise OSError(f"{HINTS_NAME} is a folder")
+    newest = sorted(entries.items(), key=lambda kv: -int(kv[1].get("written_at") or 0))[:HINTS_MAX_FOLDERS]
+    body = {"v": HINT_VERSION, "folders": dict(newest)}
+    owner, mode = hints_file_access(os.path.dirname(path) or ".")
+    _write_atomic(path, (json.dumps(body, ensure_ascii=False, indent=1) + "\n").encode("utf-8"), mode=mode,
+                  prefix=HINTS_NAME + ".", owner=owner)
+
+
+def remove_legacy_hint(folder: str) -> bool:
+    """Delete an older helper's ``.synchros-host.json`` from a music folder
+    (a file or a link, never what a link points at; a folder of that name
+    stays). True when one went."""
+    target = os.path.join(folder, LEGACY_HINT_NAME)
+    try:
+        st = os.lstat(target)
+    except OSError:
+        return False
+    if not (stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode)):
+        return False
+    try:
+        os.unlink(target)
+        return True
+    except OSError:
+        return False
+
+
+def write_host_hints(text: str, compose_dir: str, platform: str, *, extra: Sequence[str] = (),
+                     clock=time.time) -> List[Dict[str, str]]:
+    """Name each music folder in SYNCHRO.S's settings folder; what happened
+    to each, in words (and a last row for the file itself, or for older
+    entries dropped, when there's something to say)."""
+    results: List[Dict[str, str]] = []
+    entries: Dict[str, Dict[str, object]] = {}
+    for m in music_mounts(text, compose_dir, extra):
+        label = m["label"]
+        if m.get("problem"):
+            results.append({"label": label, "ok": "", "words": f"{m['source']} {m['problem']}"})
+            continue
+        root = m["host_path"]
+        if os.path.islink(root):
+            results.append({"label": label, "ok": "", "words": f"{root} is a link, so it was left alone"})
+            continue
+        if not os.path.isdir(root):
+            results.append({"label": label, "ok": "", "words": f"{root} isn't a folder here"})
+            continue
+        remove_legacy_hint(root)
+        found = marked_folders(root, m["target"])
+        if not found:
+            results.append({"label": label, "ok": "",
+                            "words": f"{root} isn't one of SYNCHRO.S's folders (no SYNCHRO.S marker in it or "
+                                     "one level down)"})
+            continue
+        for folder, target, marker in found:
+            remove_legacy_hint(folder)
+            entry = clean_entry({"host_path": folder, "volume": volume_name(folder, platform), "os": platform,
+                                 "target": target, "written_at": int(clock())})
+            if entry is None:
+                results.append({"label": label, "ok": "",
+                                "words": f"{folder!r} or its drive's name has characters SYNCHRO.S won't show "
+                                         "(a line break, a direction mark, a / in the name, or a // start)"})
+                continue
+            entries[marker] = entry
+            results.append({"label": label, "ok": "1", "words": f"{folder} (on {entry['volume']})"})
+    if not entries:
+        return results
+    config = config_folder(text, compose_dir, extra)
+    why = None
+    if config is None:
+        why = f"there's no bind mount for SYNCHRO.S's settings folder ({CONFIG_TARGET}) in the file"
+    elif os.path.islink(config) or not os.path.isdir(config):
+        why = f"{config} isn't a folder here (or is a link)"
+    else:
+        path = os.path.join(config, HINTS_NAME)
+        remove_stale_temp(config)
+        kept, dropped = _existing_entries(path)
+        try:
+            write_hints_file(path, {**kept, **entries})
+        except OSError as exc:
+            why = f"couldn't write {path} ({exc.strerror or exc})"
+        else:
+            if dropped:
+                results.append({"label": "Older names", "ok": "1",
+                                "words": f"{dropped} that SYNCHRO.S wouldn't show were left out"})
+    if why:
+        for r in results:
+            r["ok"] = ""
+        results.append({"label": "SYNCHRO.S's settings folder", "ok": "", "words": why})
+    return results
+
+
+def _hints_quietly(text: str, home: str, platform: str, extra: Sequence[str] = ()) -> List[Dict[str, str]]:
+    """The hints, as part of a normal run: a problem here never stops it."""
+    try:
+        return write_host_hints(text, home, platform, extra=extra)
+    except Exception as exc:  # noqa: BLE001 - the names are a nicety
+        _say(f"(Couldn't write your folders' names for SYNCHRO.S: {exc}.)")
+        return []
+
+
+def _extra_texts(folder: str, files: Sequence[str]) -> List[str]:
+    """The text of the files Docker reads with the edited one (an override,
+    COMPOSE_FILE's others); one that can't be read is left out."""
+    out = []
+    for name in files:
+        try:
+            with open(os.path.join(folder, name), encoding="utf-8") as f:
+                out.append(f.read())
+        except (OSError, UnicodeDecodeError):
+            continue
+    return out
+
+
+def _say_hints(results: List[Dict[str, str]]) -> None:
+    if not results:
+        return
+    _say("Your folders' names on this computer, for SYNCHRO.S to show:")
+    for r in results:
+        _say(f"  {r['label']}: {r['words']}" if r["ok"] else f"  {r['label']}: not written: {r['words']}")
+
+
 # ── the program ───────────────────────────────────────────────────────────────
 
 def _say(msg: str = "") -> None:
@@ -619,20 +1061,24 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _write_atomic(path: str, data: bytes, mode: Optional[int] = None) -> None:
+def _write_atomic(path: str, data: bytes, mode: Optional[int] = None, prefix: str = ".drives-",
+                  owner: Optional[Tuple[int, int]] = None) -> None:
     """Write ``path`` through a new, uniquely named file (never through a
-    link) renamed over it."""
+    link) renamed over it; ``owner`` (uid, gid) is set on the new file
+    before the rename (the helper run as root)."""
     if mode is None:
         try:
             mode = os.stat(path).st_mode & 0o7777
         except OSError:
             mode = None
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".drives-", suffix=".tmp")
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=prefix, suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
+            if owner is not None:
+                os.fchown(f.fileno(), owner[0], owner[1])
         if mode is not None:
             os.chmod(tmp, mode)
         os.replace(tmp, path)
@@ -682,6 +1128,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     undo = "--undo" in args
     dry = "--dry-run" in args
     yes = "--yes" in args
+    names = "--names" in args
     platform = _guess_platform()
     if "--platform" in args:
         platform = args[args.index("--platform") + 1]
@@ -701,6 +1148,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     backup = os.path.join(home, BACKUP_NAME)
     state_path = os.path.join(home, STATE_NAME)
     restart_files = files if use_f else None
+    if names and not undo:
+        # only the host hints: no compose change, no Docker, no restart
+        if platform not in ("mac", "linux"):
+            _say(f"--names works on a Mac or Linux, not {platform}. Nothing changed.")
+            return 7
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            extra = _extra_texts(folder, files[1:])
+            if dry:
+                for m in music_mounts(text, home, extra):
+                    _say(f"  {m['label']}: would name {m.get('host_path') or m['source']}")
+                config = config_folder(text, home, extra)
+                _say(f"  in {os.path.join(config, HINTS_NAME)}" if config
+                     else f"  but there's no bind mount for {CONFIG_TARGET} to write them in")
+                return 0
+            results = write_host_hints(text, home, platform, extra=extra)
+        except (Unsupported, UnicodeDecodeError) as exc:
+            _say(f"The helper can't read {name}: {exc}. Nothing changed.")
+            return 7
+        if not results:
+            _say(f"No service in {name} mounts SYNCHRO.S's music folders from this computer. Nothing changed.")
+            return 0
+        _say_hints(results)
+        _say("Done. SYNCHRO.S shows these names within a minute." if any(r["ok"] for r in results)
+             else "Nothing was written.")
+        return 0 if any(r["ok"] for r in results) else 13
     cmd = None if dry else _compose_cmd()
     if not dry and cmd is None:
         _say("Docker isn't answering here. Start Docker Desktop, then paste the command again.")
@@ -755,6 +1229,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 7
     if the_plan["nothing_to_do"]:
         _say(f"{name} already lets SYNCHRO.S see your drives. Nothing to change.")
+        if not dry:
+            _say_hints(_hints_quietly(text, home, platform, _extra_texts(folder, files[1:])))
         return 0
 
     _say(f"In {path}, the helper will add:")
@@ -805,6 +1281,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                   mode=0o644)
     _write_atomic(path, data)
     _say(f"Changed {path}")
+    _say_hints(_hints_quietly(text, home, platform, _extra_texts(folder, files[1:])))
     if not _restart(cmd, folder, restart_files):
         _say("The file is changed, but Docker couldn't restart. Run: docker compose up -d")
         _say("To undo: sh drives-helper.sh --undo")

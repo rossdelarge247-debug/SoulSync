@@ -1,8 +1,10 @@
 /**
  * Settings → Library → Folders (14a): the card's head with its one secondary
  * "Move to another drive…", the three folders at 72px (`1fr 300px 120px
- * auto`: what each holds and who reads it; the container path in mono over
- * the drive it's on; the size; Change…), and the drive line under a
+ * auto`: what each holds and who reads it; the folder in mono over the
+ * drive it's on, as the computer names it when SYNCHRO.S knows (125: the
+ * drives helper's host hint), else the container's path with one line
+ * offering the helper's `--names`; the size; Change…), and the drive line under a
  * hairline (free space as a 640px 4px bar, "Getting full" past 90%, danger
  * past 98%, and "Your music folders take 93.2 GB of it." under the bar: the
  * one fact SYNCHRO.S knows, in place of 14a's fill rate, 124).
@@ -23,8 +25,9 @@ import { StatusTag } from '@/components/primitives';
 import type { FolderRow, FoldersPayload, Role } from './drives.api';
 
 import { drivesApi } from './drives.api';
-import { sizeWords } from './drives.format';
+import { shownPath, sizeWords, wantsNames } from './drives.format';
 import styles from './drives.module.css';
+import { HostNamesLine } from './host-names';
 import { openDriveMove } from './move-flow';
 
 /** Bytes the music folders take on the library's drive (124), or null while
@@ -86,6 +89,16 @@ export function FoldersCard({ load = true }: { load?: boolean }) {
     return () => clearTimeout(t);
   }, [load, refresh]);
 
+  // back from Terminal (the helper's --names): read the names again, only
+  // while the card offers the command
+  const needNames = Boolean(data && wantsNames(data.folders, data.platform));
+  useEffect(() => {
+    if (!load || !needNames) return;
+    const onFocus = () => void refresh();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [load, needNames, refresh]);
+
   if (forbidden) return null;
   const drive = data?.drive;
   const music = data ? musicBytesOn(data) : null;
@@ -116,8 +129,10 @@ export function FoldersCard({ load = true }: { load?: boolean }) {
             <p className={styles.folderHolds}>{row.holds}</p>
           </div>
           <div>
-            <p className={styles.folderPath}>{row.path}</p>
-            <p className={styles.folderDrive}>on {row.drive}</p>
+            <p className={styles.folderPath}>{shownPath(row)}</p>
+            <p className={styles.folderDrive}>
+              on {row.host_path && row.volume ? row.volume : row.drive}
+            </p>
           </div>
           <span className={styles.folderSize}>
             {row.bytes === null ? 'Measuring…' : sizeWords(row.bytes)}
@@ -127,6 +142,9 @@ export function FoldersCard({ load = true }: { load?: boolean }) {
           </Button>
         </div>
       ))}
+      {data && needNames ? (
+        <HostNamesLine platform={data.platform} className={styles.namesUnderRows} />
+      ) : null}
       {drive && drive.total ? (
         <div className={styles.driveLine}>
           <div className={styles.driveHead}>

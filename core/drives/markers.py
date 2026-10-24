@@ -27,9 +27,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import stat as _stat
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import closing
 from typing import Any, Callable, Dict, List, Optional
 
@@ -88,23 +91,76 @@ def folder_paths(config=None) -> Dict[str, str]:
     return {role: resolve(config.get(SETTING_KEYS[role], DEFAULTS[role]), DEFAULTS[role]) for role in ROLES}
 
 
-def marker_body(role: str) -> Dict[str, Any]:
-    # kept small: slskd may share the library's root, so nothing private goes in
+#: a marker's id: 32 lowercase hex characters (a uuid4)
+MARKER_ID = re.compile(r"^[0-9a-f]{32}$")
+#: a marker is a few dozen bytes; anything bigger isn't one SYNCHRO.S wrote
+MARKER_MAX_BYTES = 4096
+
+
+def marker_body(role: str, *, marker_id: Optional[str] = None, created: Optional[int] = None) -> Dict[str, Any]:
+    # kept small: slskd may share the library's root, so nothing private goes in.
+    # ``id`` names this folder for the drives helper's host hint
+    # (core/drives/host_paths.py), which is trusted only while it matches.
     return {"app": "SYNCHRO.S", "role": role, "about": "Keeps this folder recognisable when its drive is away.",
-            "created": _now()}
+            "created": int(created) if created else _now(), "id": marker_id or uuid.uuid4().hex}
 
 
-def write_marker(path: str, role: str) -> bool:
-    """Write the marker at ``path`` (atomically). False when it can't."""
+def read_marker(path: str) -> Optional[Dict[str, Any]]:
+    """The marker at the root of ``path`` as a dict, or None (missing, a link,
+    not a regular file, too big, or not a JSON object). Never follows a link."""
+    target = os.path.join(path, MARKER_NAME)
+    try:
+        fd = os.open(target, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not _stat.S_ISREG(st.st_mode) or st.st_size > MARKER_MAX_BYTES:
+            return None
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            raw = f.read(MARKER_MAX_BYTES + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    if len(raw) > MARKER_MAX_BYTES:
+        return None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def marker_id(path: str) -> Optional[str]:
+    """The id of the marker at ``path``, or None when there's no marker or it
+    has no valid id (a marker written before ids existed)."""
+    data = read_marker(path)
+    value = (data or {}).get("id")
+    return value if isinstance(value, str) and MARKER_ID.match(value) else None
+
+
+def write_marker(path: str, role: str, *, keep_id: bool = True) -> bool:
+    """Write the marker at ``path`` (atomically). False when it can't. A
+    marker already there for the same role keeps its id and creation time, so
+    the drives helper's host hint stays valid when SYNCHRO.S writes it again
+    (a switch back, say); ``keep_id=False`` gives it a fresh id (a move's
+    forward switch, so a folder copied with its marker isn't taken for the
+    one it was copied from)."""
     target = os.path.join(path, MARKER_NAME)
     tmp = None
     try:
         if os.path.islink(target):
             return False
+        before = read_marker(path) or {}
+        kept_id = before.get("id") if keep_id and before.get("role") == role and isinstance(before.get("id"), str) \
+            and MARKER_ID.match(before["id"]) else None
+        kept_created = before.get("created") if before.get("role") == role \
+            and isinstance(before.get("created"), int) else None
         # a new, uniquely named file (never through a link), then renamed over
         fd, tmp = tempfile.mkstemp(dir=path, prefix=MARKER_NAME + ".", suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(marker_body(role), f)
+            json.dump(marker_body(role, marker_id=kept_id, created=kept_created), f)
         os.chmod(tmp, 0o644)
         os.replace(tmp, target)
         return True
@@ -135,7 +191,8 @@ def probe(path: str, *, wrote_here_before: bool, expects_content: bool) -> Dict[
     except OSError:
         return {"connected": False, "reason": "missing", "write": False}
     if has_marker(path):
-        return {"connected": True, "reason": "marker", "write": False}
+        # a marker from before ids existed is written again, with one
+        return {"connected": True, "reason": "marker", "write": marker_id(path) is None}
     try:
         with os.scandir(path) as entries:
             nonempty = any(True for _ in entries)
@@ -362,6 +419,6 @@ def away_roles() -> List[str]:
 AWAY_SKIP_WORDS = "Skipped: your library's drive isn't connected, so nothing was marked missing or cleaned up."
 
 
-__all__ = ["AWAY_SKIP_WORDS", "CHECK_SECONDS", "DriveWatch", "LABELS", "MARKER_NAME", "ROLES", "SETTING_KEYS",
-           "away_roles", "ensure_table", "folder_paths", "get_watch", "has_marker", "library_away",
-           "library_rows_under", "probe", "set_watch", "write_marker"]
+__all__ = ["AWAY_SKIP_WORDS", "CHECK_SECONDS", "DriveWatch", "LABELS", "MARKER_ID", "MARKER_NAME", "ROLES",
+           "SETTING_KEYS", "away_roles", "ensure_table", "folder_paths", "get_watch", "has_marker", "library_away",
+           "library_rows_under", "marker_id", "probe", "read_marker", "set_watch", "write_marker"]

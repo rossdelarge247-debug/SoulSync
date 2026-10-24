@@ -11,7 +11,19 @@ export const ROLES: Role[] = ['library', 'downloads', 'staging'];
 export type Platform = 'mac' | 'linux' | 'windows';
 export type Tone = 'success' | 'info' | 'warning' | 'danger' | 'neutral';
 
-export interface FolderState {
+/**
+ * The computer's own name for a folder (125, 160), for admins: from the drives
+ * helper's host hint (`hint`, trusted only while its marker matches) or a
+ * drives folder mounted at the same path (`same`). Display text only; null
+ * when SYNCHRO.S doesn't know it (show the container's path).
+ */
+export interface HostFields {
+  host_path?: string | null;
+  volume?: string | null;
+  host_source?: 'hint' | 'same' | null;
+}
+
+export interface FolderState extends HostFields {
   role: Role;
   label: string;
   connected: boolean;
@@ -43,7 +55,7 @@ export interface Reminder {
   switched_at: number;
 }
 
-export interface FolderRow {
+export interface FolderRow extends HostFields {
   role: Role;
   label: string;
   path: string;
@@ -66,6 +78,7 @@ export interface FoldersPayload {
   };
   move: { id: number; status: MoveStatus } | null;
   platform: Platform;
+  compose_folder?: string;
 }
 
 export interface Drive {
@@ -205,6 +218,10 @@ export interface MoveFolder {
   copied_files: number;
   copied_bytes: number;
   verified: number;
+  source_host_path?: string | null;
+  source_volume?: string | null;
+  dest_host_path?: string | null;
+  dest_volume?: string | null;
 }
 
 export interface AfterCheck {
@@ -213,6 +230,8 @@ export interface AfterCheck {
   title: string;
   detail: string;
   mono?: boolean;
+  /** the computer's name for a mono path, when known */
+  detail_host?: string | null;
 }
 
 export interface Failure {
@@ -306,12 +325,29 @@ export interface RemovePreview {
   plan_id: string;
   total: number;
   total_bytes: number;
-  sample: Array<{ path: string; size: number; action: string; reason: string }>;
+  sample: Array<{
+    path: string;
+    size: number;
+    action: string;
+    reason: string;
+    role?: Role;
+    rel?: string;
+  }>;
+  /** each old folder the list is relative to, with its computer name (19c) */
+  roots?: Partial<Record<Role, RemoveRoot>>;
+  platform?: Platform;
   truncated: boolean;
   created_at: number;
   expires_at: number;
   error?: string;
   code?: string;
+}
+
+export interface RemoveRoot extends HostFields {
+  role: Role;
+  label: string;
+  path: string;
+  drive?: string | null;
 }
 
 export class DrivesError extends Error {
@@ -366,6 +402,9 @@ export const drivesApi = {
   docker: () => call<DockerPayload>('GET', '/api/drives/docker'),
   dockerCommand: (folder: string, platform: Platform) =>
     call<DockerCommand>('POST', '/api/drives/docker/command', { folder, platform }),
+  /** The one-use command that runs the helper's `--names` only, with the
+   *  saved install folder (Mac and Linux). */
+  namesCommand: () => call<DockerCommand>('POST', '/api/drives/docker/command', { names: true }),
   dockerCheck: () => call<DockerCheck>('GET', '/api/drives/docker/check'),
   browse: (path?: string) =>
     call<{ success: boolean; path: string | null; folders: Array<{ name: string; path: string }> }>(

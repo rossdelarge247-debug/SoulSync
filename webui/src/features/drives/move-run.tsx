@@ -374,7 +374,7 @@ export function DoneStep({ move, act, done, busy, error }: RunProps) {
               <p className={styles.rowName}>{c.title}</p>
               {c.detail ? (
                 <p className={`${styles.rowMeta} ${c.mono ? styles.mono : ''} ${styles.hidePhone}`}>
-                  {c.detail}
+                  {c.detail_host || c.detail}
                 </p>
               ) : null}
             </div>

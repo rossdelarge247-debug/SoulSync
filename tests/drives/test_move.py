@@ -32,6 +32,8 @@ class FakeSlskd:
         self.restarts = []
         self.rescans = 0
         self.dirs = ["/music"]
+        #: slskd's effective share filters (None: its API can't be read)
+        self.filters = []
         os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, "slskd.yml"), "w") as f:
             f.write("# slskd's own settings\nsoulseek:\n  username: ross  # mine\n")
@@ -52,6 +54,9 @@ class FakeSlskd:
 
     def shared_directories(self):
         return list(self.dirs)
+
+    def share_filters(self):
+        return None if self.filters is None else list(self.filters)
 
     def sign_in(self, username, password):
         if password != "pw":
@@ -617,6 +622,63 @@ def test_remove_the_old_copies_deletes_exactly_the_checked_files(job):
 
 
 @pytest.mark.gauntlet
+@pytest.mark.parametrize("trusted", [True, False])
+def test_a_host_hint_never_changes_what_remove_deletes(job, trusted):
+    """The drives helper's hint names the old folder on the computer (125).
+    Trusted or forged, it only changes the words: Remove deletes exactly the
+    checked files at their container paths, never anything at the hint's
+    path, and never the hints file or the marker."""
+    from core.drives import host_paths
+    j = job["job"]
+    lib = job["roots"]["library"]
+    decoy = job["tmp"] / "host" / "music"
+    for rel in job["files"]["library"]:
+        write(os.path.join(str(decoy), rel), b"decoy")
+    markers.write_marker(lib, "library")
+    with open(host_paths.hints_file(), "w") as f:
+        json.dump({"v": 1, "folders": {markers.marker_id(lib) if trusted else "0" * 32: {
+            "host_path": str(decoy), "volume": "Macintosh HD", "os": "mac", "target": lib, "written_at": 1}}}, f)
+    host_paths.forget()
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    plans = PlanStore()
+    preview = j.remove_preview(move_id, plans)
+    assert preview["roots"]["library"]["host_path"] == (str(decoy) if trusted else None)
+    items = plans.peek(preview["plan_id"], M.REMOVE_TOOL).items
+    expected = {os.path.join(job["roots"][role], rel) for role, rels in job["files"].items() for rel in rels}
+    assert {i["path"] for i in items} == expected
+    out = j.remove_confirm(move_id, preview["plan_id"], plans)
+    assert out["deleted"] == 7 and out["skipped"] == 0
+    for rel in job["files"]["library"]:
+        with open(os.path.join(str(decoy), rel), "rb") as f:
+            assert f.read() == b"decoy"
+    assert os.path.isfile(host_paths.hints_file())
+    assert os.path.isfile(os.path.join(lib, markers.MARKER_NAME))
+
+
+@pytest.mark.gauntlet
+def test_the_forward_switch_gives_the_new_folder_a_fresh_marker_id_and_back_keeps_the_old(job):
+    """A marker copied to the new place (a Finder copy made beforehand) never
+    carries the old folder's id, so the computer's old name can't follow it;
+    switching back keeps the old folder's own id."""
+    j = job["job"]
+    lib = job["roots"]["library"]
+    markers.write_marker(lib, "library")
+    old_id = markers.marker_id(lib)
+    new_lib = os.path.join(_target(job), "Library")
+    os.makedirs(new_lib)
+    with open(os.path.join(lib, markers.MARKER_NAME)) as src, \
+            open(os.path.join(new_lib, markers.MARKER_NAME), "w") as dst:
+        dst.write(src.read())
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    assert j.store.row(move_id)["status"] == "switched"
+    assert markers.marker_id(new_lib) not in (None, old_id)
+    j.switch_back(move_id, username="slskd", password="pw")
+    assert markers.marker_id(lib) == old_id
+
+
+@pytest.mark.gauntlet
 def test_a_copy_that_went_missing_keeps_its_old_file(job):
     j = job["job"]
     move_id = _ready(job)
@@ -972,6 +1034,58 @@ def test_jellyfin_errors_are_refusals():
         jf.add_location("/x")
     with pytest.raises(ServiceRefused):
         jf.remove_location("/x")
+
+
+@pytest.mark.gauntlet
+def test_slskd_never_shares_synchros_own_files_once_it_edits_slskd_yml(job):
+    """The marker (and the move's note) sit in folders slskd shares: every
+    slskd.yml edit adds a filter for SYNCHRO.S's own files, once, and a
+    switch back keeps it."""
+    import re
+    import yaml
+    from core.drives.services import SYNCHROS_FILTER
+    j = job["job"]
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    filters = (yaml.safe_load(job["slskd"].read_config()).get("shares") or {}).get("filters") or []
+    assert filters.count(SYNCHROS_FILTER) == 1
+    pattern = re.compile(SYNCHROS_FILTER)
+    for name in (markers.MARKER_NAME, M.MOVE_MARK, ".synchros-host.json"):
+        assert pattern.search(f"/Volumes/Music HD/SYNCHRO.S/Library/{name}")
+    for name in ("Saltmarsh/Lantern/01 Tide.flac", "a.synchros-x.flac", ".synchros/inside.flac"):
+        assert not pattern.search(f"/Volumes/Music HD/SYNCHRO.S/Library/{name}")
+    j.switch_back(move_id, username="slskd", password="pw")
+    filters = (yaml.safe_load(job["slskd"].read_config()).get("shares") or {}).get("filters") or []
+    assert filters.count(SYNCHROS_FILTER) == 1
+
+
+@pytest.mark.gauntlet
+def test_the_users_own_slskd_filters_are_never_dropped_by_the_switch(job):
+    """slskd merges list settings by position across the environment and
+    slskd.yml: filters it takes from SLSKD_SHARE_FILTER stay in force when
+    SYNCHRO.S writes slskd.yml's list (the whole effective list plus its own)."""
+    import yaml
+    from core.drives.services import SYNCHROS_FILTER
+    job["slskd"].filters = ["\\.ini$", "secret/"]  # from the environment; slskd.yml has none
+    j = job["job"]
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    filters = yaml.safe_load(job["slskd"].read_config())["shares"]["filters"]
+    assert filters == ["\\.ini$", "secret/", SYNCHROS_FILTER]
+
+
+@pytest.mark.gauntlet
+def test_with_slskds_filters_unreadable_none_are_added_and_check_says_so(job):
+    import yaml
+    job["slskd"].filters = None
+    j = job["job"]
+    move_id = _ready(job)
+    rows = {r["key"]: r for r in j.store.row(move_id)["checks"]["rows"]}
+    assert rows["slskd_filters"]["tag"] == "Left as they are"
+    assert "couldn't read the share filters slskd uses" in rows["slskd_filters"]["detail"]
+    j.start(move_id, background=False)
+    assert j.store.row(move_id)["status"] == "switched"
+    assert "filters" not in ((yaml.safe_load(job["slskd"].read_config()) or {}).get("shares") or {})
 
 
 # ── switch back: slskd.yml and secrets ───────────────────────────────────────

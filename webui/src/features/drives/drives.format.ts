@@ -85,3 +85,26 @@ export type StepName = (typeof STEPS)[number];
 export function awayWords(drive: string): string {
   return `${drive} isn’t connected`;
 }
+
+/** The folder as a person knows it: the computer's path when SYNCHRO.S
+ *  knows it (125), else the container's. */
+export function shownPath(row: { path: string; host_path?: string | null }): string {
+  return row.host_path || row.path;
+}
+
+/** `path` relative to `root` ("Artist/Album/01.flac"), or `path` itself when
+ *  it isn't under it. Text only, compared after trimming trailing slashes. */
+export function relativeTo(path: string, root: string | null | undefined): string {
+  if (!root) return path;
+  const base = root.replace(/\/+$/, '');
+  return path.startsWith(`${base}/`) ? path.slice(base.length + 1) : path;
+}
+
+/** Whether a "show the computer's names" line belongs under a list: some
+ *  folder has no host path, and the helper runs there (not Windows). */
+export function wantsNames(
+  rows: Array<{ host_path?: string | null }>,
+  platform: string | null | undefined,
+): boolean {
+  return platform !== 'windows' && rows.some((r) => !r.host_path);
+}
