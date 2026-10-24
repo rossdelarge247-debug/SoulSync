@@ -15,6 +15,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | DJ area: BPM, key and mixing (Traktor Pro 3) | Exploring (stage 1: Building; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
 | Famous mixes and AI set suggestions | Ready for Design | [below](#famous-mixes-and-ai-set-suggestions) |
 | Lyrics centre stage, timed to the words | Ready for Design (step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
+| Star tracks and mix sets | Ready for Design | [below](#star-tracks-and-mix-sets) |
 
 ---
 
@@ -517,3 +518,87 @@ SYNCHRO.S already has timed lyrics, but they sit in a side panel of the expanded
 ### Settled with Ross
 
 - 24 October: yes to step 1, and to trying step 2 on a few albums before building it for real.
+
+---
+
+## Star tracks and mix sets
+
+**Status:** Ready for Design · raised by Ross, 2026-10-24 · direction and defaults approved by Ross the same day.
+
+### The problem
+
+Ross wants to star tracks and add them to mix sets from anywhere in the interface, as long as the track is in the library and its file is downloaded.
+
+Today:
+- **No track stars.** SYNCHRO.S keeps only liked artists and albums pulled from Spotify (`liked_artists_pool`, `liked_albums_pool`).
+- **No saved sets.** The DJ "Mixes" panel only suggests "Mixes well with…".
+- **Playlists** (`/api/user-playlists`) are plain lists.
+
+### What Ross wants
+
+1. **Stars**
+   - One tap on any track row and in the player: Library, Tracks, album and artist pages, Search, Listening history, Mixes well with, playlists, now playing.
+   - Only for tracks in the library with their file present. Elsewhere the star isn't shown at all, rather than shown disabled.
+   - **Per profile.**
+   - **A plain star**, not a 1–5 rating.
+   - **Kept in SYNCHRO.S only**: not synced to Plex or Jellyfin.
+   - A **Starred** view in Library with the Tracks page's BPM, key and energy filters, plus a "Starred" filter wherever tracks are browsed.
+   - **S** stars or unstars the playing track.
+   - Export to Traktor writes a starred track as Traktor's top rating (`RANKING="255"` in the `.nml`).
+2. **Mix sets**
+   - **"Add to mix set…"** in every track's "…", in the player and in the multi-select bar. It picks an existing set or makes a new one, with the same downloaded-only rule.
+   - **A mix set is an ordered DJ set:**
+     - BPM, key and energy per track;
+     - each transition marked smooth or a jump, with why;
+     - an energy graph;
+     - drag to reorder;
+     - an optional note per track ("mix out at the breakdown");
+     - Export to Traktor.
+   - **Per profile.** "Share with the family" may come later.
+   - **One home for sets:** a famous mix matched to the library, an AI-suggested set and a hand-built set are all mix sets (see "Famous mixes and AI set suggestions").
+
+### Constraints
+
+- "Downloaded" means the track's file is present now. A starred track whose file later goes missing keeps its star and shows as missing in the Starred view and in sets, never silently dropped.
+- The star must be the same control everywhere: legacy pages (`webui/static`) and React pages (`webui/src`) alike.
+- Adding a track to a set never moves or copies the file.
+
+### What Design needs to draw
+
+1. **The star:**
+   - on a track row: resting, hover, starred;
+   - in the now-playing bar and the expanded player;
+   - on a phone (touch size; does it live in the row or the "…"?).
+2. **"Add to mix set…":**
+   - the picker: recent sets first, a search field, "New mix set";
+   - the multi-select version;
+   - the toast with Open it.
+3. **The Starred view** in Library.
+4. **A mix set's page:**
+   - the ordered list with BPM, key and energy;
+   - transition marks;
+   - energy graph;
+   - notes;
+   - reorder;
+   - Export to Traktor;
+   - phone layout.
+5. **Where mix sets live:** in the DJ area beside the Mixes panel, in Library beside playlists, or both.
+6. **States:**
+   - a track in a set whose file has gone missing;
+   - a track whose BPM, key and energy are still being worked out;
+   - an empty set;
+   - adding a track that's already in the set.
+
+### Questions for Design
+
+1. Does the star sit in every row, or appear on hover with only starred rows showing it at rest?
+2. Where do mix sets live in the sidebar?
+3. Should adding a track already in a set offer "add again" (some sets repeat a track) or just say it's there?
+
+### Settled with Ross
+
+- 24 October:
+  - yes to both;
+  - stars stay in SYNCHRO.S, not synced to Plex or Jellyfin;
+  - stars and mix sets are per profile;
+  - a plain star, not a 1–5 rating.
