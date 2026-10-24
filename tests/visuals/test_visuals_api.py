@@ -439,3 +439,57 @@ def test_an_empty_folder_turns_your_own_presets_off(world):
     r = c.put("/api/visuals/settings", json={"own_presets_dir": ""})
     assert r.status_code == 200 and r.get_json()["own"]["configured"] is False
     assert c.put("/api/visuals/settings", json={}).status_code == 400
+
+
+# ── the walk stays cheap (review, 24 October) ───────────────────────────────
+
+def test_unknown_own_keys_dont_walk_the_folder_each_time(world, monkeypatch):
+    calls = []
+    real = P._walk_own
+    monkeypatch.setattr(P, "_walk_own", lambda folder: calls.append(folder) or real(folder))
+    world["config"].data["visuals.own_presets_dir"] = str(world["own"])
+    c = world["client"]
+    for i in range(20):
+        assert c.get(f"/api/visuals/presets/own-{i:016x}").status_code == 404
+    # one walk, then at most one fresh one every 5 s, however many keys are asked for
+    assert len(calls) <= 2
+
+
+def test_callers_at_the_same_time_share_one_walk(world, monkeypatch):
+    import threading
+    import time as _time
+    calls = []
+    real = P._walk_own
+
+    def slow(folder):
+        calls.append(folder)
+        _time.sleep(0.3)
+        return real(folder)
+
+    monkeypatch.setattr(P, "_walk_own", slow)
+    out = []
+    threads = [threading.Thread(target=lambda: out.append(P.own_listing(str(world["own"]), fresh=True)))
+               for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert len(calls) == 1 and len(out) == 6 and all(o is out[0] for o in out)
+
+
+def test_the_walk_stops_after_so_many_entries_and_resolves_only_milk_files(world, monkeypatch, tmp_path):
+    big = tmp_path / "big"
+    big.mkdir()
+    for i in range(30):
+        (big / f"note-{i:02d}.txt").write_text("x", encoding="utf-8")
+    (big / "zz - Late.milk").write_text(MILK, encoding="utf-8")
+    resolved = []
+    real = P._contained
+    monkeypatch.setattr(P, "_contained", lambda root, path: resolved.append(path) or real(root, path))
+    listing = P.own_listing(str(big), fresh=True)
+    assert [e["name"] for e in listing.entries] == ["Late"]
+    assert all(p.endswith(".milk") for p in resolved)
+    P.clear_caches()
+    monkeypatch.setattr(P, "OWN_MAX_SCAN", 10)
+    capped = P.own_listing(str(big), fresh=True)
+    assert capped.truncated is True

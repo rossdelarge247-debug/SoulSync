@@ -60,6 +60,10 @@ OWN_MAX_FILES = 5000
 OWN_MAX_DEPTH = 3
 # a listing is reused for this long, so typing in the search doesn't walk the disk
 OWN_CACHE_SECONDS = 30.0
+# a fresh walk (an unknown key asks for one) at most this often per folder
+OWN_FRESH_SECONDS = 5.0
+# how many folder entries one walk looks at, whatever they are, before it stops
+OWN_MAX_SCAN = 50000
 
 _LEADING_JUNK = re.compile(r"^[\s_!.\-]+")
 
@@ -219,19 +223,33 @@ def _walk_own(folder: str) -> OwnListing:
     paths: Dict[str, str] = {}
     truncated = False
     too_big = 0
+    scanned = 0
     stack: List[Tuple[str, int]] = [(root_real, 0)]
     try:
         while stack:
             current, depth = stack.pop()
             try:
                 with os.scandir(current) as it:
-                    items = sorted(it, key=lambda e: e.name)
+                    items = []
+                    for entry in it:
+                        scanned += 1
+                        if scanned > OWN_MAX_SCAN:
+                            truncated = True
+                            break
+                        items.append(entry)
+                items.sort(key=lambda e: e.name)
             except OSError:
                 if current == root_real:
                     return OwnListing(folder, [], {}, "unreadable", False)
                 continue
             for item in items:
                 if item.name.startswith("."):
+                    continue
+                try:
+                    # the name first: only folders and .milk files are resolved
+                    if not item.name.lower().endswith(".milk") and not item.is_dir():
+                        continue
+                except OSError:
                     continue
                 real = _contained(root_real, item.path)
                 if real is None:
@@ -262,27 +280,53 @@ def _walk_own(folder: str) -> OwnListing:
                 stem = os.path.splitext(os.path.basename(rel))[0]
                 paths[key] = rel
                 entries.append(_entry(key, stem, size, "own"))
+            if scanned > OWN_MAX_SCAN:
+                stack.clear()
     except OSError:
         return OwnListing(folder, entries, paths, "unreadable", truncated, too_big)
     return OwnListing(folder, entries, paths, None, truncated, too_big)
 
 
+_own_walks: Dict[str, threading.Event] = {}
+
+
 def own_listing(folder: Optional[str], *, fresh: bool = False,
                 now: Optional[float] = None) -> OwnListing:
+    """The folder's listing, reused for 30 s. ``fresh`` walks again, but at
+    most once every 5 s per folder; callers that arrive while a walk runs
+    wait for it and share its answer."""
     folder = str(folder or "").strip()
-    t = time.monotonic() if now is None else now
-    with _own_lock:
-        cached = _own_cache["listing"]
-        if (not fresh and cached is not None and _own_cache["folder"] == folder
-                and t - _own_cache["at"] < OWN_CACHE_SECONDS):
-            return cached
-    listing = _walk_own(folder)
-    with _own_lock:
-        _own_cache.update(folder=folder, at=t, listing=listing)
-    return listing
+    while True:
+        t = time.monotonic() if now is None else now
+        with _own_lock:
+            cached = _own_cache["listing"]
+            if cached is not None and _own_cache["folder"] == folder:
+                age = t - _own_cache["at"]
+                if age < (OWN_FRESH_SECONDS if fresh else OWN_CACHE_SECONDS):
+                    return cached
+            running = _own_walks.get(folder)
+            if running is None:
+                done = threading.Event()
+                _own_walks[folder] = done
+                break
+        running.wait(60)
+        with _own_lock:
+            cached = _own_cache["listing"]
+            if cached is not None and _own_cache["folder"] == folder:
+                return cached
+    try:
+        listing = _walk_own(folder)
+        with _own_lock:
+            _own_cache.update(folder=folder, at=time.monotonic() if now is None else now, listing=listing)
+        return listing
+    finally:
+        with _own_lock:
+            _own_walks.pop(folder, None)
+        done.set()
 
 
 def clear_caches() -> None:
+    """Forget the listings (a new folder was saved)."""
     with _own_lock:
         _own_cache.update(folder=None, at=0.0, listing=None)
     with _bundled_lock:
