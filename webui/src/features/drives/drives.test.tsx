@@ -3,7 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DriveStatus, Move, MovePayload } from './drives.api';
 
-import { CheckAgainAnswer, HelperSteps, linesSnippet } from './docker-step';
+import {
+  CheckAgainAnswer,
+  HelperSteps,
+  linesSnippet,
+  windowsComposeLines,
+  windowsFolder,
+  windowsRestartCommand,
+  WindowsSteps,
+} from './docker-step';
 import { awayRole, DriveAwayNotice } from './drive-away-notice';
 import { resetDriveStatus } from './drive-status';
 import { durationWords, lastSeenLine, seenWords, sizeOf, sizeWords } from './drives.format';
@@ -1053,5 +1061,52 @@ describe('Check’s slskd row (19a)', () => {
     expect(screen.getByText('Signed in as slskd')).toBeInTheDocument();
     expect(screen.queryByLabelText('Password')).toBeNull();
     expect(screen.getByRole('button', { name: 'See the plan' })).toBeEnabled();
+  });
+});
+
+describe('the Docker step on Windows (19b)', () => {
+  it('says the install folder, the lines and the command as Windows writes them', () => {
+    expect(windowsFolder('~/SoulSync')).toBe('C:\\SoulSync');
+    expect(windowsFolder('D:\\Apps\\SoulSync')).toBe('D:\\Apps\\SoulSync');
+    expect(windowsRestartCommand('')).toBe('cd C:\\SoulSync; docker compose up -d');
+    expect(windowsComposeLines('e', './slskd:/slskd-config')).toEqual([
+      { text: '  soulsync:', added: false },
+      { text: '    volumes:', added: false },
+      { text: '      - ./music:/app/Transfer', added: false },
+      { text: '      - E:\\:/drives/e', added: true },
+      { text: '      - ./slskd:/slskd-config', added: true },
+      { text: '  slskd:', added: false },
+      { text: '    volumes:', added: false },
+      { text: '      - E:\\:/drives/e', added: true },
+    ]);
+  });
+
+  it('three steps by hand: copy the file, add the lines in Notepad, restart from PowerShell', () => {
+    const onCopy = vi.fn();
+    render(
+      <WindowsSteps
+        folder="~/SoulSync"
+        slskdLine="./slskd:/slskd-config"
+        copied={null}
+        onCopy={onCopy}
+      />,
+    );
+    expect(screen.getByText('Keep a copy of your set-up file')).toBeInTheDocument();
+    expect(screen.getByText('Add the lines in Notepad')).toBeInTheDocument();
+    expect(screen.getByText('Restart SYNCHRO.S from PowerShell')).toBeInTheDocument();
+    expect(screen.getByText('cd C:\\SoulSync; docker compose up -d')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'The drive’s letter' }), {
+      target: { value: 'F' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the line' }));
+    expect(onCopy).toHaveBeenCalledWith('line', '      - F:\\:/drives/f');
+    fireEvent.change(screen.getByLabelText('The folder SYNCHRO.S was installed in'), {
+      target: { value: 'D:\\SoulSync' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(onCopy).toHaveBeenLastCalledWith('restart', 'cd D:\\SoulSync; docker compose up -d');
+    expect(
+      screen.getByText(/Put the copy from step 1 back and run step 3 again/),
+    ).toBeInTheDocument();
   });
 });

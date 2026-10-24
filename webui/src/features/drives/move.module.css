@@ -1052,6 +1052,17 @@
   color: var(--ss-success);
 }
 
+/* 19b: the drive letter's select reads into the sentence after it */
+.letterRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.letterRow .note {
+  flex: 1;
+}
+
 .checkAgain {
   display: flex;
   flex-direction: column;

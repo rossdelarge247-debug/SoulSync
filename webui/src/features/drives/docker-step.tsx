@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { Button, OptionButton, OptionButtonGroup } from '@/components/form';
+import { Button, OptionButton, OptionButtonGroup, Select } from '@/components/form';
 import { Notice } from '@/components/primitives';
 
 import type { DockerCommand, DockerPayload, Platform, PromiseLine } from './drives.api';
@@ -69,6 +69,52 @@ export function linesSnippet(
   out.push(keep('  plex:'), keep('    volumes:'));
   for (const m of mounts) out.push(add(m));
   return out;
+}
+
+// ── Windows, by hand (19b) ───────────────────────────────────────────────────
+
+/** Where a Windows install usually lives, when the saved folder isn't a Windows path. */
+export const WINDOWS_FOLDER = 'C:\\SoulSync';
+/** The drive letters a person can pick (C is the computer's own disk). */
+export const DRIVE_LETTERS = 'DEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+/** The install folder as Windows writes it: the saved one if it's a Windows path. */
+export function windowsFolder(folder: string): string {
+  const f = folder.trim();
+  return /^[A-Za-z]:[\\/]/.test(f) ? f : WINDOWS_FOLDER;
+}
+
+/** The volume line for a drive letter: `D:\:/drives/d`. */
+export function windowsDriveLine(letter: string): string {
+  const l = (letter || 'D').slice(0, 1).toUpperCase();
+  return `${l}:\\:/drives/${l.toLowerCase()}`;
+}
+
+/**
+ * Step 2's lines as they sit in docker-compose.yml: SYNCHRO.S's volumes with
+ * the drive's line and slskd's settings folder added, then slskd's with the
+ * drive's line. Added lines are green; the spaces in front are the file's.
+ */
+export function windowsComposeLines(
+  letter: string,
+  slskdConfig: string,
+): Array<{ text: string; added: boolean }> {
+  const drive = `      - ${windowsDriveLine(letter)}`;
+  return [
+    { text: '  soulsync:', added: false },
+    { text: '    volumes:', added: false },
+    { text: '      - ./music:/app/Transfer', added: false },
+    { text: drive, added: true },
+    { text: `      - ${slskdConfig}`, added: true },
+    { text: '  slskd:', added: false },
+    { text: '    volumes:', added: false },
+    { text: drive, added: true },
+  ];
+}
+
+/** Step 3's command: restart from the install folder in PowerShell. */
+export function windowsRestartCommand(folder: string): string {
+  return `cd ${windowsFolder(folder)}; docker compose up -d`;
 }
 
 /** "What it does, in order": the helper's steps, slskd's config line its own (121). */
@@ -243,7 +289,9 @@ export function DockerStep({
         <>
           <p className={styles.footNote}>
             <span className={styles.wide}>
-              SYNCHRO.S can’t see {rootWords} yet · it looks again by itself after a restart
+              {plat === 'windows'
+                ? 'Looking every 3 s for SYNCHRO.S to restart'
+                : `SYNCHRO.S can’t see ${rootWords} yet · it looks again by itself after a restart`}
             </span>
             <span className={styles.phoneOnly}>
               It also looks by itself after SYNCHRO.S restarts.
@@ -276,9 +324,9 @@ export function DockerStep({
       <h2 className={styles.title}>Let SYNCHRO.S see your drives</h2>
       <p className={styles.lead}>
         <span className={styles.wide}>
-          SYNCHRO.S runs inside Docker, which only lets it see the folders it was given when it was
-          set up. One small change gives it your drives as well. You do this once; moves after it
-          won’t need it.
+          {plat === 'windows' && showSteps
+            ? 'Once, on this computer. Three short steps in File Explorer, Notepad and PowerShell.'
+            : 'SYNCHRO.S runs inside Docker, which only lets it see the folders it was given when it was set up. One small change gives it your drives as well. You do this once; moves after it won’t need it.'}
         </span>
         <span className={styles.phoneOnly}>
           SYNCHRO.S runs inside Docker, which only lets it see the folders it was given. One change,
@@ -313,7 +361,7 @@ export function DockerStep({
         </div>
       ) : null}
 
-      <p className={styles.tintBox} data-tone="success">
+      <p className={styles.tintBox} data-tone="success" hidden={plat === 'windows' && showSteps}>
         <span className={styles.dot} aria-hidden="true" />
         <span>
           <strong>Your music isn’t touched by this.</strong>{' '}
@@ -351,7 +399,12 @@ export function DockerStep({
           </div>
 
           {plat === 'windows' ? (
-            <WindowsSteps folder={folder} />
+            <WindowsSteps
+              folder={folder}
+              slskdLine={slskdLine}
+              copied={copied}
+              onCopy={(what, text) => void copy(what, text)}
+            />
           ) : (
             <>
               <div className={styles.dockerCard}>
@@ -478,49 +531,126 @@ export function DockerStep({
   );
 }
 
-function WindowsSteps({ folder }: { folder: string }) {
+/**
+ * The Docker step on Windows (19b): three steps by hand, in the apps a
+ * Windows person already has, until the PowerShell helper is tested. A copy
+ * first, only lines added (green), one command; then Check again.
+ */
+export function WindowsSteps({
+  folder,
+  slskdLine,
+  copied,
+  onCopy,
+}: {
+  /** the saved install folder; used when it's a Windows path */
+  folder: string;
+  slskdLine: string;
+  copied: string | null;
+  onCopy: (what: string, text: string) => void;
+}) {
+  const [letter, setLetter] = useState('D');
+  const [typed, setTyped] = useState(() =>
+    windowsFolder(folder) === folder.trim() ? folder.trim() : '',
+  );
+  const where = windowsFolder(typed);
+  const lines = windowsComposeLines(letter, slskdLine);
+  const command = windowsRestartCommand(typed);
   return (
     <>
-      <Notice tone="neutral" title="On Windows, add the lines by hand for now">
-        <p>
-          The pasted helper is for Mac and Linux. Docker Desktop on Windows has no Python to run it,
-          so these three steps do the same thing.
-        </p>
-      </Notice>
       <div className={styles.dockerCard}>
         <span className={styles.bigChip}>1</span>
         <div className={styles.dockerBody}>
-          <p className={styles.dockerTitle}>Open docker-compose.yml in Notepad</p>
+          <p className={styles.dockerTitle}>Keep a copy of your set-up file</p>
           <p className={styles.dockerText}>
-            It’s in{' '}
-            <span className={styles.mono}>{folder || 'the folder SYNCHRO.S was installed in'}</span>
-            . Save a copy of it first as{' '}
-            <span className={styles.mono}>docker-compose.before-drives.yml</span>.
+            In File Explorer, open the folder SYNCHRO.S was installed in (
+            <span className={styles.mono}>{where}</span>), copy{' '}
+            <span className={styles.mono}>docker-compose.yml</span> and paste it in the same folder.
+            That copy is your way back.
           </p>
+          <div className={styles.field} style={{ marginTop: 0, maxWidth: 420 }}>
+            <label className={styles.fieldLabel} htmlFor="drive-move-windows-folder">
+              The folder SYNCHRO.S was installed in
+            </label>
+            <input
+              id="drive-move-windows-folder"
+              className={`${styles.input} ${styles.mono}`}
+              value={typed}
+              placeholder={WINDOWS_FOLDER}
+              spellCheck={false}
+              onChange={(e) => setTyped(e.target.value)}
+            />
+          </div>
         </div>
       </div>
       <div className={styles.dockerCard}>
         <span className={styles.bigChip}>2</span>
         <div className={styles.dockerBody}>
-          <p className={styles.dockerTitle}>Add one line for each drive under volumes:</p>
+          <p className={styles.dockerTitle}>Add the lines in Notepad</p>
           <p className={styles.dockerText}>
-            For SYNCHRO.S, slskd and Plex, with the drive’s letter:{' '}
-            <span className={styles.mono}>- D:\:/drives/d</span>. Under SYNCHRO.S also add{' '}
-            <span className={styles.mono}>- ./slskd:/slskd-config</span>.
+            Open <span className={styles.mono}>docker-compose.yml</span> with Notepad. Find{' '}
+            <span className={styles.mono}>volumes:</span> under{' '}
+            <span className={styles.mono}>soulsync:</span> and add the green lines under the others,
+            with the same spaces in front. Do the same under{' '}
+            <span className={styles.mono}>slskd:</span>, then save.
           </p>
+          <div className={styles.commandBox}>
+            <pre className={`${styles.code} ${styles.mono} ${styles.commandText}`}>
+              {lines.map((l, i) => (
+                <span key={i} className={l.added ? styles.added : undefined}>
+                  {l.text}
+                </span>
+              ))}
+            </pre>
+            <Button
+              size="lg"
+              variant="secondary"
+              onClick={() => onCopy('line', `      - ${windowsDriveLine(letter)}`)}
+            >
+              {copied === 'line' ? 'Copied' : 'Copy the line'}
+            </Button>
+          </div>
+          <div className={styles.letterRow}>
+            <Select
+              size="lg"
+              aria-label="The drive’s letter"
+              value={letter}
+              onChange={(e) => setLetter(e.target.value)}
+            >
+              {DRIVE_LETTERS.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </Select>
+            <p className={styles.note}>
+              is your drive’s letter in This PC; change it if it isn’t. Spaces matter; tabs don’t
+              work.
+            </p>
+          </div>
         </div>
       </div>
       <div className={styles.dockerCard}>
         <span className={styles.bigChip}>3</span>
         <div className={styles.dockerBody}>
-          <p className={styles.dockerTitle}>Restart, then come back here</p>
+          <p className={styles.dockerTitle}>Restart SYNCHRO.S from PowerShell</p>
           <p className={styles.dockerText}>
-            In PowerShell in that folder run{' '}
-            <span className={styles.mono}>docker compose up -d</span>. This page reconnects by
-            itself.
+            Start → type <strong>PowerShell</strong> → open it, paste this and press Enter. Then
+            come back here: this page notices by itself.
           </p>
+          <div className={styles.commandBox}>
+            <p className={`${styles.commandText} ${styles.mono}`} data-command="">
+              {command}
+            </p>
+            <Button size="lg" variant="secondary" onClick={() => onCopy('restart', command)}>
+              {copied === 'restart' ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
         </div>
       </div>
+      <p className={styles.note}>
+        Changed your mind? Put the copy from step 1 back and run step 3 again. A one-paste helper
+        for Windows is on its way.
+      </p>
     </>
   );
 }
