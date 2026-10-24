@@ -139,6 +139,8 @@ export interface Choice {
   per_role: Partial<Record<Role, string>>;
   exfat: 'carry_on' | 'erase' | null;
   checksum: boolean;
+  /** Check's slskd row: Downloads stays where it is, out of this move (19a) */
+  downloads_left?: boolean;
 }
 
 export interface CheckRow {
@@ -151,6 +153,12 @@ export interface CheckRow {
   needs_choice?: boolean;
   choice?: string | null;
   sign_in?: boolean;
+  /** slskd's row (19a): which option card is picked */
+  slskd_choice?: 'move' | 'leave';
+  signed_in?: boolean;
+  /** where Downloads is now ("Macintosh HD") and where the move goes ("Music HD") */
+  home_label?: string;
+  target_label?: string;
 }
 
 export interface Checks {

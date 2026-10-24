@@ -464,6 +464,9 @@ class MoveJob:
         self._thread: Optional[threading.Thread] = None
         self._live: Dict[str, Any] = {}
         self._last_save = 0.0
+        #: the slskd user name each move signed in as, for Check's row ("Signed in
+        #: as slskd"); never the password, and forgotten with the session
+        self._slskd_user: Dict[int, str] = {}
 
     # ── reading ──────────────────────────────────────────────────────────────
 
@@ -535,12 +538,29 @@ class MoveJob:
             clean["per_role"] = {r: str(v).strip()[:1024] for r, v in choice["per_role"].items() if r in ROLES and v}
         if "exfat" in choice:
             clean["exfat"] = choice["exfat"] if choice["exfat"] in ("carry_on", "erase") else None
+        # Check's slskd row (19a): "Leave Downloads on …" takes Downloads out of
+        # this move; "Move Downloads too" puts it back. Ticking folders on Choose
+        # is a fresh choice, so it forgets the row's.
+        if "downloads_left" in choice:
+            left = bool(choice["downloads_left"])
+            if left:
+                clean["roles"] = {**clean["roles"], "downloads": False}
+            elif clean.get("downloads_left"):
+                clean["roles"] = {**clean["roles"], "downloads": True}
+            clean["downloads_left"] = left
+        elif isinstance(roles, dict):
+            clean["downloads_left"] = False
         if not any(clean["roles"].values()):
             raise MoveError("Tick at least one folder to move.", 400)
         changed_place = (clean.get("target"), clean.get("per_role"), clean.get("separate"), clean.get("roles")) != (
             move["choice"].get("target"), move["choice"].get("per_role"), move["choice"].get("separate"),
             move["choice"].get("roles"))
-        self.store.update(move_id, choice=clean, **({"checks": None, "plan": None} if changed_place else {}))
+        fields: Dict[str, Any] = {"checks": None, "plan": None} if changed_place else {}
+        if not clean["roles"].get("downloads") and move.get("secret"):
+            # slskd's session was only for moving Downloads: without it, forget it now
+            fields["secret"] = None
+            self._slskd_user.pop(move["id"], None)
+        self.store.update(move_id, choice=clean, **fields)
         return self.store.row(move_id)  # type: ignore[return-value]
 
     def validated_destinations(self, choice: Dict[str, Any]) -> Dict[str, str]:
@@ -826,15 +846,37 @@ class MoveJob:
                                         "Downloads out.") if stop else
                                        ("SYNCHRO.S can't change what slskd shares without its settings file, so slskd "
                                         "keeps sharing the old copies. Run the helper again to add it.")})
-            elif "downloads" in dests and not move.get("secret"):
-                rows.append({"key": "slskd", "title": "slskd downloads to the new place", "tone": "danger",
-                             "tag": "Needs slskd's sign-in", "stop": True, "sign_in": True,
-                             "detail": "slskd has to restart once to use a new download folder, and only its own "
-                                       "sign-in can ask for that. Sign in to slskd once here, or leave Downloads out."})
             elif "downloads" in dests:
-                rows.append({"key": "slskd", "title": "slskd downloads to the new place", "tone": "success",
-                             "tag": "Fine", "detail": "SYNCHRO.S will restart slskd once at the switch."})
+                rows.append(self._slskd_choice_row(dests, choice, move))
+            elif choice.get("downloads_left"):
+                rows.append(self._slskd_choice_row(dests, choice, move))
         return rows
+
+    def _slskd_choice_row(self, dests: Dict[str, str], choice: Dict[str, Any],
+                          move: Dict[str, Any]) -> Dict[str, Any]:
+        """Check's slskd row (19a): moving Downloads needs slskd's sign-in, so the
+        row asks for the choice: sign in and move Downloads too (the default,
+        picked on Choose), or leave Downloads where it is. It doesn't stop the
+        move; See the plan waits until the choice is settled."""
+        home = self.label_of(self.current_paths().get("downloads") or "") or self.home_label()
+        target_path = dests.get("downloads") or next(iter(dests.values()), "")
+        target = self.label_of(target_path) if target_path else "the new drive"
+        base = {"key": "slskd", "title": "slskd downloads to the new place", "home_label": home,
+                "target_label": target}
+        if "downloads" not in dests:
+            return {**base, "tone": "success", "tag": "Fine", "slskd_choice": "leave", "signed_in": False,
+                    "detail": f"Downloads stays on {home}. slskd keeps downloading there; imports copy across "
+                              f"to {target}. You can move Downloads later."}
+        if not move.get("secret"):
+            return {**base, "tone": "warning", "tag": "Needs your choice", "needs_choice": True,
+                    "sign_in": True, "slskd_choice": "move", "signed_in": False,
+                    "detail": f"To download into {target}, slskd has to restart, and it only lets a signed-in "
+                              "admin do that. SYNCHRO.S signs in once, keeps only what slskd hands back, and "
+                              "forgets it when the move is done."}
+        user = self._slskd_user.get(move["id"])
+        return {**base, "tone": "success", "tag": f"Signed in as {user}" if user else "Signed in",
+                "slskd_choice": "move", "signed_in": True,
+                "detail": "SYNCHRO.S restarts slskd once at the switch, then forgets the sign-in."}
 
     def _slskd_unsupported(self, slskd: Any, dests: Dict[str, str], choice: Dict[str, Any]) -> Optional[str]:
         """Why the switch couldn't edit slskd.yml, from a dry run of the same
@@ -863,8 +905,11 @@ class MoveJob:
         try:
             token = slskd.sign_in(str(username or ""), str(password or ""))
         except ServiceRefused as exc:
-            raise MoveError(str(exc), 400) from None
+            raise MoveError(str(exc), 400, code="slskd_refused") from None
         self.store.update(move["id"], secret=self.deps.encrypt(token))
+        name = str(username or "").strip()
+        if name:
+            self._slskd_user[move["id"]] = name[:80]
         return self.check(move_id, background=background)
 
     # ── Plan ─────────────────────────────────────────────────────────────────
@@ -1208,6 +1253,7 @@ class MoveJob:
         t = _now()
         # the slskd session was only for the switch's restart
         self.store.update(move_id, status="switched", switched_at=t, result=result, failure=None, secret=None)
+        self._slskd_user.pop(move_id, None)
         self.store.job_row(self.store.row(move_id), "done",  # type: ignore[arg-type]
                            total=sum(c["files"] for c in counts.values()),
                            done=sum(c["verified"] for c in counts.values()), note="switched")
@@ -1803,8 +1849,10 @@ class MoveJob:
             raise MoveError("That move isn't there.", 404)
         if move["status"] == "draft":
             self.store.update(move_id, status="stopped", finished_at=_now(), secret=None)
+            self._slskd_user.pop(move_id, None)
         elif move.get("secret") and move["status"] not in ACTIVE + ("failed",):
             self.store.update(move_id, secret=None)
+            self._slskd_user.pop(move_id, None)
         return self.store.row(move_id)  # type: ignore[return-value]
 
     # ── helpers ──────────────────────────────────────────────────────────────

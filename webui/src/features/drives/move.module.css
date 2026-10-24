@@ -763,17 +763,82 @@
   color: var(--ss-text-tertiary);
 }
 
-.signIn {
-  grid-column: 1 / -1;
+/* Check's slskd row (19a): two option cards, the sign-in inside the picked one */
+.optionCard {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  padding-bottom: 8px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  transition: var(--ss-transition);
 }
 
-.signIn .input {
-  flex: 1 1 180px;
+.optionCard:hover:not([data-selected='true']) {
+  background: var(--ss-hover-wash);
+}
+
+.optionCard[data-selected='true'] {
+  background: var(--ss-selected-fill);
+  border-color: var(--ss-selected-border);
+}
+
+.optionHead {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ss-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.optionHead:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+  border-radius: 6px;
+}
+
+.optionHead .choiceText {
+  line-height: 1.5;
+}
+
+.optionForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+
+.optionFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.optionField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.optionLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ss-text-secondary);
+}
+
+.optionActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
 
 .rowDetail {
@@ -1105,6 +1170,10 @@
   .twoBoxes,
   .choices,
   .tiles {
+    grid-template-columns: 1fr;
+  }
+
+  .optionFields {
     grid-template-columns: 1fr;
   }
 

@@ -12,7 +12,7 @@ import { Notice, StatusTag } from '@/components/primitives';
 
 import type { CheckRow, Choice, Drive, Move, MovePayload, Overview, Role } from './drives.api';
 
-import { drivesApi, ROLES } from './drives.api';
+import { drivesApi, DrivesError, ROLES } from './drives.api';
 import { count, durationWords, sizeWords } from './drives.format';
 import { FlowShell } from './move-shell';
 import styles from './move.module.css';
@@ -414,8 +414,6 @@ function tagTone(row: CheckRow): 'success' | 'warning' | 'danger' {
 export function CheckStep(props: StepProps) {
   const { move, busy, error, act, go, leave } = props;
   const checks = move.checks;
-  const [user, setUser] = useState('');
-  const [password, setPassword] = useState('');
   const api = () => Promise.resolve(drivesApi);
   const label = move.plan?.target_label ?? targetLabel(props.payload, move);
 
@@ -432,14 +430,6 @@ export function CheckStep(props: StepProps) {
         return a.check(move.id);
       }),
     );
-  const leaveDownloadsOut = () =>
-    act(() =>
-      api().then(async (a) => {
-        await a.choose(move.id, { roles: { ...move.choice.roles, downloads: false } });
-        return a.check(move.id);
-      }),
-    );
-  const signIn = () => act(() => api().then((a) => a.slskdSession(move.id, user, password)));
   const toPlan = async () => {
     const ok = await act(() => api().then((a) => a.plan(move.id)));
     if (ok) go('plan');
@@ -448,6 +438,7 @@ export function CheckStep(props: StepProps) {
   const running = Boolean(checks?.running);
   const ok = Boolean(checks?.ok) && !running;
   const stop = !running && checks?.rows.some((r) => r.stop);
+  const slskdAsks = !running && checks?.rows.some((r) => r.key === 'slskd' && r.needs_choice);
   return (
     <FlowShell
       step={1}
@@ -483,9 +474,11 @@ export function CheckStep(props: StepProps) {
                   ? undefined
                   : stop
                     ? 'Fix what’s marked first.'
-                    : !ok
-                      ? 'Make the choice above first.'
-                      : undefined
+                    : slskdAsks
+                      ? 'Sign in to slskd, or leave Downloads where it is, to see the plan.'
+                      : !ok
+                        ? 'Make the choice above first.'
+                        : undefined
               }
               onClick={() => void toPlan()}
             >
@@ -510,9 +503,7 @@ export function CheckStep(props: StepProps) {
             <div key={row.key} className={styles.row}>
               <div>
                 <p className={styles.rowName}>{row.title}</p>
-                {row.key !== 'format' && !row.sign_in ? (
-                  <p className={styles.rowMeta}>{row.detail}</p>
-                ) : null}
+                {row.key !== 'format' ? <p className={styles.rowMeta}>{row.detail}</p> : null}
               </div>
               <StatusTag tone={tagTone(row)}>{row.tag}</StatusTag>
               {row.key === 'format' &&
@@ -551,51 +542,183 @@ export function CheckStep(props: StepProps) {
               {row.key === 'format' && row.tag !== 'Works, with a catch' ? (
                 <p className={styles.rowDetail}>{row.detail}</p>
               ) : null}
-              {row.sign_in ? (
-                <>
-                  <p className={styles.rowDetail}>{row.detail}</p>
-                  <form
-                    className={styles.signIn}
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void signIn();
-                    }}
-                  >
-                    <input
-                      className={styles.input}
-                      aria-label="slskd user name"
-                      placeholder="slskd user name"
-                      autoComplete="username"
-                      value={user}
-                      onChange={(e) => setUser(e.target.value)}
-                    />
-                    <input
-                      className={styles.input}
-                      aria-label="slskd password"
-                      placeholder="Password"
-                      type="password"
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                    <Button size="lg" variant="secondary" type="submit" disabled={busy || !user}>
-                      Sign in to slskd
-                    </Button>
-                    <button
-                      type="button"
-                      className={styles.linkButton}
-                      onClick={() => void leaveDownloadsOut()}
-                    >
-                      Leave Downloads out
-                    </button>
-                  </form>
-                </>
+              {row.slskd_choice ? (
+                <SlskdChoice row={row} move={move} busy={busy} act={act} payload={props.payload} />
               ) : null}
             </div>
           ))}
         </div>
       ) : null}
     </FlowShell>
+  );
+}
+
+/**
+ * Check's slskd row (19a): moving Downloads needs slskd's sign-in, so the row
+ * offers two cards. "Move Downloads too: sign in to slskd" is the default (it
+ * was picked on Choose) and holds the sign-in; "Leave Downloads on …" takes
+ * Downloads out of this move. The session slskd hands back is kept encrypted
+ * on the server and forgotten when the move is done; the password isn't kept
+ * here either once it's sent.
+ */
+export function SlskdChoice({
+  row,
+  move,
+  busy,
+  act,
+  payload,
+}: {
+  row: CheckRow;
+  move: Move;
+  busy: boolean;
+  act: StepProps['act'];
+  payload: MovePayload;
+}) {
+  const [user, setUser] = useState('');
+  const [password, setPassword] = useState('');
+  const [refused, setRefused] = useState<string | null>(null);
+  const moveRef = useRef<HTMLButtonElement>(null);
+  const leaveRef = useRef<HTMLButtonElement>(null);
+  const picked = row.slskd_choice === 'leave' ? 'leave' : 'move';
+  const home = row.home_label || 'this computer';
+  const target = row.target_label || 'the new drive';
+
+  const pick = (choice: 'move' | 'leave') => {
+    if (choice === picked || busy) return;
+    void act(() =>
+      drivesApi
+        .choose(move.id, { downloads_left: choice === 'leave' })
+        .then(() => drivesApi.check(move.id)),
+    );
+  };
+  const signIn = () =>
+    act(async () => {
+      setRefused(null);
+      try {
+        const next = await drivesApi.slskdSession(move.id, user.trim(), password);
+        setPassword('');
+        return next;
+      } catch (e) {
+        // a refused sign-in belongs under Password, not at the top of the page
+        if (e instanceof DrivesError && e.code === 'slskd_refused') {
+          setRefused(e.message);
+          return payload;
+        }
+        throw e;
+      }
+    });
+  const onKey = (e: React.KeyboardEvent) => {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+    e.preventDefault();
+    const next = picked === 'move' ? 'leave' : 'move';
+    (next === 'move' ? moveRef : leaveRef).current?.focus();
+    pick(next);
+  };
+
+  return (
+    <div className={styles.choices} role="radiogroup" aria-label="Downloads" onKeyDown={onKey}>
+      <div className={styles.optionCard} data-selected={picked === 'move' ? 'true' : undefined}>
+        <button
+          ref={moveRef}
+          type="button"
+          role="radio"
+          aria-checked={picked === 'move'}
+          tabIndex={picked === 'move' ? 0 : -1}
+          className={styles.optionHead}
+          onClick={() => pick('move')}
+        >
+          <span className={styles.choiceTitle}>Move Downloads too: sign in to slskd</span>
+          <span className={styles.choiceText}>
+            {picked !== 'move'
+              ? `slskd downloads into ${target} after one restart. It needs slskd’s own sign-in.`
+              : row.signed_in
+                ? 'What you chose. slskd restarts once at the switch; then the sign-in is forgotten.'
+                : 'What you chose. slskd’s own user name and password, as on its web page.'}
+          </span>
+        </button>
+        {picked === 'move' && !row.signed_in ? (
+          <form
+            className={styles.optionForm}
+            onSubmit={(e) => {
+              e.preventDefault();
+              void signIn();
+            }}
+          >
+            <div className={styles.optionFields}>
+              <div className={styles.optionField}>
+                <label className={styles.optionLabel} htmlFor="drive-move-slskd-user">
+                  User name
+                </label>
+                <input
+                  id="drive-move-slskd-user"
+                  className={styles.input}
+                  autoComplete="username"
+                  spellCheck={false}
+                  value={user}
+                  onChange={(e) => setUser(e.target.value)}
+                />
+              </div>
+              <div className={styles.optionField}>
+                <label className={styles.optionLabel} htmlFor="drive-move-slskd-password">
+                  Password
+                </label>
+                <input
+                  id="drive-move-slskd-password"
+                  className={styles.input}
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  aria-invalid={refused ? true : undefined}
+                  aria-describedby={refused ? 'drive-move-slskd-refused' : undefined}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setRefused(null);
+                  }}
+                />
+                {refused ? (
+                  <span id="drive-move-slskd-refused" className={styles.fieldError} role="alert">
+                    {refused}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className={styles.optionActions}>
+              <Button
+                size="lg"
+                variant="secondary"
+                type="submit"
+                disabled={busy || !user.trim() || !password}
+                focusableWhenDisabled
+              >
+                Sign in to slskd
+              </Button>
+              <span className={styles.note}>
+                {user.trim()
+                  ? `Then this row reads “Signed in as ${user.trim()}”.`
+                  : 'Then this row says who signed in.'}
+              </span>
+            </div>
+          </form>
+        ) : null}
+      </div>
+      <div className={styles.optionCard} data-selected={picked === 'leave' ? 'true' : undefined}>
+        <button
+          ref={leaveRef}
+          type="button"
+          role="radio"
+          aria-checked={picked === 'leave'}
+          tabIndex={picked === 'leave' ? 0 : -1}
+          className={styles.optionHead}
+          onClick={() => pick('leave')}
+        >
+          <span className={styles.choiceTitle}>Leave Downloads on {home}</span>
+          <span className={styles.choiceText}>
+            No sign-in. slskd keeps downloading there; imports then copy across to {target} instead
+            of moving, a little slower. You can move Downloads later.
+          </span>
+        </button>
+      </div>
+    </div>
   );
 }
 

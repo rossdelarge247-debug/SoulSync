@@ -234,14 +234,81 @@ def test_downloads_moving_needs_slskds_sign_in_once(job):
     j = job["job"]
     move = j.draft(1)
     j.set_choice(move["id"], {"target": _target(job)})
-    row = next(r for r in j.check(move["id"])["checks"]["rows"] if r["key"] == "slskd")
-    assert row["sign_in"] and row["tone"] == "danger"
-    with pytest.raises(M.MoveError, match="didn't accept"):
+    checks = j.check(move["id"])["checks"]
+    row = next(r for r in checks["rows"] if r["key"] == "slskd")
+    # 19a: a choice, not a stop: sign in and move Downloads too, or leave it
+    assert row["sign_in"] and row["tone"] == "warning" and row["tag"] == "Needs your choice"
+    assert row["needs_choice"] and not row.get("stop") and row["slskd_choice"] == "move"
+    assert row["home_label"] == "Macintosh HD" and row["target_label"] == "Music HD"
+    assert row["detail"].startswith("To download into Music HD, slskd has to restart")
+    assert checks["ok"] is False
+    with pytest.raises(M.MoveError, match="See|Something"):
+        j.plan(move["id"])
+    with pytest.raises(M.MoveError, match="didn't accept") as refused:
         j.slskd_sign_in(move["id"], "slskd", "wrong")
+    assert refused.value.code == "slskd_refused" and refused.value.status == 400
     after = j.slskd_sign_in(move["id"], "slskd", "pw")
-    assert next(r for r in after["checks"]["rows"] if r["key"] == "slskd")["tone"] == "success"
+    row = next(r for r in after["checks"]["rows"] if r["key"] == "slskd")
+    assert row["tone"] == "success" and row["tag"] == "Signed in as slskd" and row["signed_in"]
+    assert after["checks"]["ok"] is True
     # only the session, encrypted, is kept; never the password
     assert j.store.row(move["id"])["secret"] == "enc:jwt-token"
+    assert "pw" not in json.dumps(M.public(j, j.store.row(move["id"]), admin=True))
+    assert "jwt-token" not in json.dumps(M.public(j, j.store.row(move["id"]), admin=True))
+
+
+def test_leaving_downloads_on_the_computer_takes_it_out_and_forgets_the_session(job):
+    j = job["job"]
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job)})
+    j.slskd_sign_in(move["id"], "slskd", "pw")
+    left = j.set_choice(move["id"], {"downloads_left": True})
+    assert left["choice"]["roles"] == {"library": True, "downloads": False, "staging": True}
+    assert left["choice"]["downloads_left"] is True
+    # the session was only for moving Downloads; the old checks are gone
+    assert left["secret"] is None and left["checks"] is None
+    checks = j.check(move["id"])["checks"]
+    row = next(r for r in checks["rows"] if r["key"] == "slskd")
+    assert row["slskd_choice"] == "leave" and row["tone"] == "success" and not row.get("sign_in")
+    assert row["detail"].startswith("Downloads stays on Macintosh HD.")
+    assert checks["ok"] is True and "downloads" not in checks["dests"]
+    # "Move Downloads too" puts it back and asks for the sign-in again
+    back = j.set_choice(move["id"], {"downloads_left": False})
+    assert back["choice"]["roles"]["downloads"] is True and back["choice"]["downloads_left"] is False
+    row = next(r for r in j.check(move["id"])["checks"]["rows"] if r["key"] == "slskd")
+    assert row["needs_choice"] and row["slskd_choice"] == "move"
+
+
+def test_ticking_folders_on_choose_forgets_the_check_rows_choice(job):
+    j = job["job"]
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job)})
+    j.set_choice(move["id"], {"downloads_left": True})
+    chosen = j.set_choice(move["id"], {"roles": {"library": True, "downloads": False, "staging": True}})
+    assert chosen["choice"]["downloads_left"] is False
+    # Downloads left out on Choose: no slskd row to answer
+    assert not [r for r in j.check(move["id"])["checks"]["rows"] if r["key"] == "slskd"]
+
+
+@pytest.mark.gauntlet
+def test_leaving_downloads_never_touches_it_or_slskds_download_folder(job):
+    j = job["job"]
+    move = j.draft(1)
+    j.set_choice(move["id"], {"target": _target(job)})
+    j.set_choice(move["id"], {"downloads_left": True})
+    assert j.check(move["id"])["checks"]["ok"] is True
+    j.plan(move["id"])
+    j.start(move["id"], background=False)
+    moved = j.store.row(move["id"])
+    assert moved["status"] == "switched", moved["failure"]
+    assert "downloads" not in moved["plan"]["dests"]
+    # Downloads stays where it was, every file in it, and slskd isn't restarted
+    for rel in job["files"]["downloads"]:
+        assert os.path.isfile(os.path.join(job["roots"]["downloads"], rel))
+    assert not os.path.exists(os.path.join(_target(job), "Downloads"))
+    assert _stored_config(job)["soulseek"]["download_path"] == job["roots"]["downloads"]
+    assert job["slskd"].restarts == []
+    assert "Downloads" not in job["slskd"].read_config()
 
 
 def test_media_server_that_cant_see_the_drive_is_a_warning(job):
