@@ -1130,6 +1130,12 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .ss-visuals-progress .ss-player-wave { max-width: 520px; }
 .ss-visuals-buttons { display: flex; align-items: center; gap: 8px; }
 .ss-visuals-tbtn { border: 1px solid var(--ss-control-border); }
+/* a station (145): Live and the time listened in the waveform's place; Stop, not Pause */
+.ss-visuals-live { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.ss-visuals-live[hidden],
+.ss-visuals-progress[hidden],
+.ss-visuals-stop[hidden],
+.ss-visuals-buttons [hidden] { display: none !important; }
 .ss-visuals-tail { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .ss-visuals-shortcuts {
     display: inline-flex;

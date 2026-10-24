@@ -568,6 +568,27 @@ describe('the "…" menu and Visuals while a station plays', () => {
     expect($('#np-v2-visuals-artist').textContent).toBe('Live · Listening…');
   });
 
+  it('gives the Visuals transport Live, the time listened and Stop for a station (145)', () => {
+    boot();
+    const overlay = $('#np-modal-overlay');
+    const live = overlay.querySelector<HTMLElement>('[data-player-visuals-live]')!;
+    expect(live.hidden).toBe(false);
+    expect(live.textContent).toMatch(/Live\s*1:15 listened/);
+    expect(overlay.querySelector<HTMLElement>('.ss-visuals-progress')!.hidden).toBe(true);
+    expect(
+      overlay.querySelector<HTMLElement>('.ss-visuals-buttons [data-player-action="toggle"]')!
+        .hidden,
+    ).toBe(true);
+    for (const a of ['previous', 'next'])
+      expect(overlay.querySelector<HTMLElement>(`[data-player-action="${a}"]`)!.hidden).toBe(true);
+    const stop = overlay.querySelector<HTMLButtonElement>('[data-player-action="radio-stop"]')!;
+    expect(stop.hidden).toBe(false);
+    expect(stop.textContent!.trim()).toBe('Stop');
+    expect(stop.getAttribute('aria-keyshortcuts')).toBe('Space');
+    stop.click();
+    expect(api.stop).toHaveBeenCalled();
+  });
+
   it('offers Visuals in the phone sheet', () => {
     const openVisuals = vi.fn();
     (window as Window & { npV2?: unknown }).npV2 = { openVisuals };

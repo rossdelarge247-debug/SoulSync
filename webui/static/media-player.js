@@ -2809,6 +2809,12 @@ function handlePlayerKeyboardShortcuts(event) {
             // a focused control takes its own Space
             if (document.activeElement?.closest?.('button, a[href], [role="slider"], [role="tab"], summary')) return;
             event.preventDefault();
+            // a station stops (Design 145, 167): a paused live stream isn't what
+            // Pause promises, and the bar and the visuals' transport say Stop
+            if (currentTrack.kind === 'radio' && window.SoulSyncRadio && typeof window.SoulSyncRadio.stop === 'function') {
+                window.SoulSyncRadio.stop();
+                break;
+            }
             togglePlayback();
             break;
         case 'ArrowLeft':
