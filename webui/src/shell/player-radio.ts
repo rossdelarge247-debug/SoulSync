@@ -60,6 +60,7 @@ import type { HeardItem, HeardResponse } from '@/features/radio/radio.types';
 import {
   agoWords,
   cardSubline,
+  heardFold,
   heardRowView,
   heardToday,
   logoText,
@@ -1130,13 +1131,16 @@ export function bootRadioChrome(
     const list = inTray('[data-player-rtray-heard-list]');
     const status = inTray('[data-player-rtray-heard-status]');
     if (!list || !status || !st?.station) return;
-    const items =
+    const today =
       heard?.stationId === st.station.id && heard.items ? heardToday(heard.items) : null;
-    setText(inTray('[data-player-rtray-heard-count]'), String(items?.length ?? 0));
+    // 143: the tab counts identified tracks; the rest fold into one line at the end
+    const fold = today ? heardFold(today) : null;
+    const items = fold ? fold.rows : null;
+    setText(inTray('[data-player-rtray-heard-count]'), String(fold?.count ?? 0));
     setAttr(
       inTray('[data-player-rtray-tab="heard"]'),
       'aria-label',
-      `Heard today, ${items?.length ?? 0}`,
+      `Heard today, ${fold?.count ?? 0} identified`,
     );
     const key = JSON.stringify([
       st.station.id,
@@ -1144,12 +1148,16 @@ export function bootRadioChrome(
       heard?.loading && !items,
       heardBusy,
       items?.map((i) => [i.id, i.state, i.below_target]),
+      fold?.rest,
     ]);
     if (key === heardKey) return;
     heardKey = key;
     const keep = doc.activeElement as HTMLElement | null;
     const keepId = list.contains(keep) ? keep?.dataset.playerRtrayWant : undefined;
+    // the folded line sits after the list, not in it (it isn't a track)
+    const rest = inTray('[data-player-rtray-heard-rest]');
     if (!items) {
+      setHidden(rest, true);
       list.replaceChildren();
       status.replaceChildren();
       if (heard?.failed) {
@@ -1162,7 +1170,9 @@ export function bootRadioChrome(
       status.hidden = false;
       return;
     }
-    if (!items.length) {
+    setText(rest, fold?.rest ?? '');
+    setHidden(rest, !fold?.rest);
+    if (!items.length && !fold?.rest) {
       list.replaceChildren();
       status.textContent = `Nothing heard on ${st.station.name} today yet. Tracks show here as they’re identified while you listen.`;
       status.hidden = false;
@@ -1242,6 +1252,8 @@ export function bootRadioChrome(
     for (const p of tray()?.querySelectorAll<HTMLElement>('[data-player-rtray-panel]') ?? []) {
       p.classList.toggle('hidden', p.dataset.playerRtrayPanel !== tab);
     }
+    // 146: auto-add belongs to what this station played, so it shows on Heard today only
+    setHidden(inTray('[data-player-rtray-auto]'), tab !== 'heard');
     drawFoot();
   }
 

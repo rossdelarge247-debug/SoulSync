@@ -8,7 +8,13 @@ import { describe, expect, it } from 'vitest';
 
 import type { HeardItem, RadioSessionState, Station } from './radio.types';
 
-import { heardRowView, heardToday, stationPossessive, streamReadout } from './radio.format';
+import {
+  heardFold,
+  heardRowView,
+  heardToday,
+  stationPossessive,
+  streamReadout,
+} from './radio.format';
 import {
   readRecentStations,
   RECENT_STATIONS_KEY,
@@ -244,5 +250,30 @@ describe('Recent stations (kept in this browser)', () => {
     };
     // a private window: this page still has it
     expect(rememberStation(throwing, nts).map((s) => s.id)).toEqual(['nts-1']);
+  });
+});
+
+describe('heardFold (143)', () => {
+  const item = (state: HeardItem['state'], title: string | null) => ({ state, title });
+  it('keeps the identified rows and counts them; the rest are one line', () => {
+    const f = heardFold([
+      item('in_library', 'Harbour Light'),
+      item('not_identified', null),
+      item('not_added', 'Night Ferry'),
+      item('not_identified', null),
+      item('not_identified', null),
+    ]);
+    expect(f.count).toBe(2);
+    expect(f.rows.map((r) => r.title)).toEqual(['Harbour Light', 'Night Ferry']);
+    expect(f.rest).toBe('3 more weren’t identified · talk or a mix');
+  });
+  it('says one, none identified, and nothing to fold', () => {
+    expect(heardFold([item('in_library', 'A'), item('not_identified', null)]).rest).toBe(
+      '1 more wasn’t identified · talk or a mix',
+    );
+    expect(heardFold([item('not_identified', null), item('not_identified', null)]).rest).toBe(
+      '2 weren’t identified · talk or a mix',
+    );
+    expect(heardFold([item('in_library', 'A')]).rest).toBe('');
   });
 });
