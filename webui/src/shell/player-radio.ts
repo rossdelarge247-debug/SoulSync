@@ -43,6 +43,13 @@
  *   while it runs, volume and output. The list: Heard today (N) / Recent
  *   stations, the auto-add switch row (9c's confirm swaps in), and "All of
  *   it on NTS 1’s page".
+ * - Phase B1 (boards 16a–16e, HANDOFF 141, 142, 144, 147): the second tab
+ *   is "Stations" beside 6a's labelled Collapse; the record's row is the
+ *   action, the Sleep timer's moon (player.ts wires it; 15–60 min, no "End
+ *   of track") and a borderless "…"; under the deck's row, the ready
+ *   sentence or the scan's card in its place; Stations is the profile's
+ *   list from the server (GET /api/radio/recent, counted once a station has
+ *   played 30 s: POST /api/radio/recent), merged over this browser's copy.
  * - The meter's bars are counted from its width (ResizeObserver), in the bar
  *   and the deck, so it fills the room it has (Ross, 2026-10-23).
  * - The Visuals overlay's header names the identified track and the station.
@@ -60,7 +67,6 @@ import type { HeardItem, HeardResponse } from '@/features/radio/radio.types';
 
 import {
   agoWords,
-  cardSubline,
   heardFold,
   heardRowView,
   heardToday,
@@ -69,6 +75,8 @@ import {
   playerAction,
   secondsSince,
   stationPossessive,
+  stationRowLine,
+  streamChoice,
   streamReadout,
 } from '@/features/radio/radio.format';
 import {
@@ -87,6 +95,7 @@ import {
   scanAnswer,
   scanButton,
   scanPanel,
+  scanReadySentence,
   scanTrouble,
   sheetNowPlaying,
   sheetScanWords,
@@ -245,6 +254,20 @@ export function sheetStationLine(st: RadioSessionState | null): string {
       : [q.codec, q.bitrate_kbps || ''].filter(Boolean).join(' ')
     : '';
   return [kind, place, quality].filter(Boolean).join(' · ');
+}
+
+/** The bar's line under the station's name (16d): "Eclectic · AAC 256", no place. */
+export function barStationLine(st: RadioSessionState | null): string {
+  const station = st?.station;
+  if (!station) return '';
+  const kind = station.source === 'your_link' ? 'Your link' : station.genre || station.kind_label;
+  const q = st?.stream ?? station.quality;
+  const quality = q
+    ? q.lossless
+      ? q.codec || 'FLAC'
+      : [q.codec, q.bitrate_kbps || ''].filter(Boolean).join(' ')
+    : '';
+  return [kind, quality].filter(Boolean).join(' · ');
 }
 
 function go(win: Window, href: `/${string}`): void {
@@ -1248,7 +1271,7 @@ export function bootRadioChrome(
     const text = el(doc, 'span', 'ss-player-rtray-text');
     text.append(
       el(doc, 'span', 'ss-player-rtray-title', s.name),
-      el(doc, 'span', 'ss-player-rtray-meta', cardSubline(recentAsStation(s))),
+      el(doc, 'span', 'ss-player-rtray-meta', stationRowLine(recentAsStation(s))),
     );
     row.append(logo, text);
     if (current) {
@@ -1459,6 +1482,12 @@ export function bootRadioChrome(
         b.setAttribute('aria-label', 'Add to Wanted. Nothing identified to add yet.');
         action = b;
       }
+      // with the Sleep timer running beside it the row is short: "Add" stays,
+      // " to Wanted" steps aside (CSS), its full name kept for a screen reader
+      if (action.textContent === 'Add to Wanted') {
+        if (!action.hasAttribute('aria-label')) action.setAttribute('aria-label', 'Add to Wanted');
+        action.replaceChildren('Add', el(doc, 'span', 'ss-player-rtray-addmore', ' to Wanted'));
+      }
       actionBox.replaceChildren(action);
       restoreFocus(actionBox, keep);
     }
@@ -1467,19 +1496,25 @@ export function bootRadioChrome(
     const select = inTray<HTMLSelectElement>('[data-player-rtray-streams]');
     if (select) {
       const streams = station.streams ?? [];
-      const key = JSON.stringify([station.id, streams.map((x) => [x.id, x.label])]);
+      const cur = st.stream?.id ?? '';
+      // 16a: "AAC 256 · relayed" for the one playing, "MP3 128" for the rest
+      const key = JSON.stringify([station.id, cur, st.mode, streams.map((x) => [x.id, x.label])]);
       if (key !== streamsKey) {
         streamsKey = key;
         select.replaceChildren(
           ...streams.map((x) => {
-            const o = el(doc, 'option', '', x.label) as HTMLOptionElement;
+            const o = el(
+              doc,
+              'option',
+              '',
+              streamChoice(x, x.id === cur ? st.mode : null),
+            ) as HTMLOptionElement;
             o.value = x.id;
             return o;
           }),
         );
       }
       setHidden(select, streams.length < 2);
-      const cur = st.stream?.id ?? '';
       if (doc.activeElement !== select && cur && select.value !== cur) select.value = cur;
     }
     const scanBox = inTray('[data-player-rtray-scan]');
@@ -1492,26 +1527,33 @@ export function bootRadioChrome(
     }
     const words = inTray('[data-player-rtray-scanwords]');
     if (words) {
-      const running = panelView?.state === 'listening' || panelView?.state === 'identifying';
+      // one thing under the row (16a, 16c; 144): the scan's card while it runs
+      // and after it found nothing or failed, else the ready sentence
       const parts: HTMLElement[] = [];
-      if (running && panelView!.progress != null) {
-        const bar = el(doc, 'span', 'ss-player-radio-scan-progress');
-        bar.setAttribute('aria-hidden', 'true');
-        const fill = el(doc, 'span');
-        fill.style.width = `${Math.round(panelView!.progress * 100)}%`;
-        bar.append(fill);
-        parts.push(bar);
-      }
-      const said = sheetScanWords(panelView, services);
-      if (said) {
-        const p = el(doc, 'p', '', said.text);
-        if (said.danger) p.dataset.tone = 'danger';
-        parts.push(p);
+      let kind: 'card' | 'line' = 'line';
+      if (panelView && panelView.state !== 'identified') {
+        kind = 'card';
+        parts.push(el(doc, 'p', 'ss-player-rtray-scantitle', panelView.title));
+        if (panelView.progress != null) {
+          const bar = el(doc, 'span', 'ss-player-radio-scan-progress');
+          bar.setAttribute('aria-hidden', 'true');
+          const fill = el(doc, 'span');
+          fill.style.width = `${Math.round(panelView.progress * 100)}%`;
+          bar.append(fill);
+          parts.push(bar);
+        } else if (panelView.line) {
+          const p = el(doc, 'p', 'ss-player-rtray-scanline', panelView.line);
+          if (panelView.danger) p.dataset.tone = 'danger';
+          parts.push(p);
+        }
       } else if (!panelView) {
         const sb = scanButton(st);
         const trouble = sb.disabled ? null : scanTrouble(st.nowPlaying?.scan);
         if (trouble) parts.push(el(doc, 'p', '', trouble.sheet));
+        else if (!sb.disabled && services.length)
+          parts.push(el(doc, 'p', '', scanReadySentence(services)));
       }
+      if (words.dataset.kind !== kind) words.dataset.kind = kind;
       words.replaceChildren(...parts);
       setHidden(words, !parts.length);
     }
@@ -1760,7 +1802,7 @@ export function bootRadioChrome(
       }
     }
   };
-  // the tabs: the arrow keys move between Heard today and Recent stations
+  // the tabs: the arrow keys move between Heard today and Stations
   const onKey = (event: Event) => {
     const ev = event as KeyboardEvent;
     const tab = (ev.target as Element | null)?.closest?.('[data-player-rtray-tab]');

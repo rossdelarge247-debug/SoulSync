@@ -39,7 +39,7 @@ import {
   type OutputSupport,
 } from './player-output';
 import { bootQueueQuality } from './player-queue-quality';
-import { radioMiniLines } from './player-radio';
+import { barStationLine, radioMiniLines } from './player-radio';
 import {
   albumLine,
   barCount,
@@ -1008,6 +1008,13 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     setHidden(item('details'), radio);
     for (const row of menu.querySelectorAll('[data-player-menu-music]')) setHidden(row, radio);
     setAttr(menu, 'aria-label', radio ? 'More for this station' : 'More for this track');
+    // 16b: for a station the menu has one heading, "More for this station", over
+    // Equalizer, Visuals and Keyboard shortcuts; "Show" steps aside
+    setText(
+      menu.querySelector('[data-player-menu-head]'),
+      radio ? 'More for this station' : 'Playback',
+    );
+    setHidden(menu.querySelector('[data-player-menu-show]'), radio);
     // Visuals with nothing playing: disabled-neutral with its reason (10d)
     const visualsRow = item('visuals');
     if (st.track) visualsRow?.removeAttribute('aria-disabled');
@@ -1133,7 +1140,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       loadingWords && !/^\d+%$/.test(loadingWords)
         ? loadingWords
         : kind === 'radio'
-          ? artist
+          ? barStationLine(view.SoulSyncRadio?.state() ?? null) || artist
           : [
               artist,
               ro.short && kind !== 'podcast' && kind !== 'audiobook'

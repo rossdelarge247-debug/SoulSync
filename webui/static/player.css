@@ -326,7 +326,10 @@ html[data-player='tray'] { --ss-player-h: 360px; }
 .ss-player-wave:focus-visible { outline-offset: 4px; }
 
 /* radio's seam (build e): a Live tag where the times go, a level meter
-   where the waveform goes, one action slot */
+   where the waveform goes, one action slot. Live is in the danger hue, as
+   4a drew it (a broadcast light, not an error; 16a–16e): 13/600 with a 6px
+   dot in the bar and the sheet, the StatusTag's 14/600 and 8px dot in the
+   tray's deck and the Visuals transport */
 .ss-player-live-tag {
     display: inline-flex;
     align-items: center;
@@ -334,12 +337,14 @@ html[data-player='tray'] { --ss-player-h: 360px; }
     flex: none;
     padding: 1px 6px;
     border-radius: var(--ss-radius-tag);
-    background: rgba(var(--ss-info-rgb), 0.12);
-    color: var(--ss-info);
+    background: rgba(var(--ss-danger-rgb), 0.12);
+    color: var(--ss-danger);
     font-size: 13px;
     font-weight: 600;
 }
-.ss-player-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.ss-player-live-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+:is(.ss-player-rtray-live, .ss-visuals-live) .ss-player-live-tag { padding: 3px 8px; font-size: 14px; }
+:is(.ss-player-rtray-live, .ss-visuals-live) .ss-player-live-dot { width: 8px; height: 8px; }
 .ss-player-meter {
     display: flex;
     align-items: flex-end;
@@ -1771,10 +1776,11 @@ html:not([data-player-sheet]) .ss-player[data-source='radio'] .ss-player-radio {
    The record: the station's 112px logo (its letters under it, our logo route
    fading in over them), "Now playing · found by AudD", the title at 18/600,
    the artist as a link to Search, the release; the readout (Stream, Path);
-   Add to Wanted or the tag, and "…". The deck: the 72px meter, Live and the
-   time listened, Stop and the stream, Scan now (132px), the scan's words,
-   volume and output. The list: Heard today (N) / Recent stations, the
-   auto-add row, "All of it on NTS 1's page". */
+   Add to Wanted or the tag, the Sleep timer (147) and "…". The deck: the
+   72px meter, Live and the time listened, Stop and the stream, Scan now
+   (132px), the ready sentence or the scan's card, volume and output. The
+   list: Heard today (N) / Stations, the labelled Collapse (141), the
+   auto-add row, "All of it on NTS 1's page". Boards 16a–16c. */
 .ss-player-rtray-logo { position: relative; }
 .ss-player-rtray-letters {
     color: var(--ss-text);
@@ -1792,50 +1798,75 @@ html:not([data-player-sheet]) .ss-player[data-source='radio'] .ss-player-radio {
     transition: opacity 120ms ease;
 }
 .ss-player-rtray-logo img.is-loaded { opacity: 1; }
-.ss-player-rtray-action { display: inline-flex; align-items: center; min-width: 0; }
+.ss-player-rtray-action { display: inline-flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+/* 16a: Add to Wanted fills the row before the Sleep timer and a borderless "…" */
+.ss-player-rtray-action > .ss-player-radio-add { flex: 1 1 auto; min-width: 0; padding: 0 14px; }
+.ss-player-rtray-more { color: var(--ss-text-secondary); border: 0; border-radius: var(--ss-radius-control); background: transparent; }
+.ss-player-rtray-more:hover:not(:disabled),
+.ss-player-rtray-more[aria-expanded='true'] { background: var(--ss-hover-wash); color: var(--ss-text); }
+/* 16a's readout: no box, the labels in a 56px column, the values after them */
+.ss-player-readout--plain {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 2px 8px;
+    padding: 0;
+    border: 0;
+    background: none;
+}
+.ss-player-readout--plain > div { display: contents; }
+.ss-player-readout--plain dd { text-align: left; color: var(--ss-text-secondary); }
 .ss-player-rtray-deck .ss-player-meter--deck { height: 72px; }
 .ss-player-rtray-row { flex-wrap: wrap; row-gap: 8px; }
 .ss-player-rtray-live { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
-.ss-player-rtray-listened { font-size: 14px; color: var(--ss-text-meta); white-space: nowrap; }
-.ss-player-rtray-listened .ss-player-time { color: var(--ss-text); }
+/* "12:34 listened" in the mono at 72%, as one (16a, 16c) */
+.ss-player-rtray-listened { font-family: var(--ss-player-mono); font-size: 14px; color: var(--ss-text-tertiary); white-space: nowrap; }
+.ss-player-rtray-listened .ss-player-time { color: inherit; }
 .ss-player-rtray-deck .ss-player-transport { gap: 12px; }
 .ss-player-rtray-stream { max-width: 240px; }
 .ss-player-rtray-stream[hidden] { display: none; }
 .ss-player-rtray-scan { display: inline-flex; }
-/* the scan while it runs, and its not-found or failed line: the sheet's card (11d) */
-.ss-player-rtray-scanwords {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: -4px;
-    padding: 10px 14px;
+/* under the row, one thing (16a, 16c; 144): the ready sentence at 14/72%,
+   or the scan's card in its place: while it runs, the title over a 4px bar;
+   found nothing or failed, the title over its line (danger when it failed),
+   until the next named track or Scan again */
+.ss-player-rtray-scanwords { display: flex; flex-direction: column; gap: 8px; }
+.ss-player-rtray-scanwords[data-kind='card'] {
+    gap: 4px;
+    padding: 12px 16px;
     border: 1px solid var(--ss-surface-card-border);
-    border-radius: var(--ss-radius-card);
+    border-radius: var(--ss-radius-control);
     background: var(--ss-surface-card);
 }
+.ss-player-rtray-scanwords[data-kind='card']:has(.ss-player-radio-scan-progress) { gap: 8px; }
 .ss-player-rtray-scanwords[hidden] { display: none; }
 .ss-player-rtray-scanwords p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ss-text-tertiary); }
-.ss-player-rtray-scanwords p[data-tone='danger'] { color: var(--ss-danger); }
+.ss-player-rtray-scanwords .ss-player-rtray-scantitle { font-size: 15px; font-weight: 500; color: var(--ss-text); }
+.ss-player-rtray-scanwords[data-kind='card'] .ss-player-rtray-scanline { color: var(--ss-text-meta); }
+.ss-player-rtray-scanwords p[data-tone='danger'],
+.ss-player-rtray-scanwords[data-kind='card'] .ss-player-rtray-scanline[data-tone='danger'] { color: var(--ss-danger); }
 .ss-player-rtray-volume { width: 140px; }
-/* the list: Heard rows `48px 1fr auto` (time, title over the line, Add or
-   the state in words), station rows `40px 1fr auto` (logo, name over its
-   line, Play or the Playing tag) */
+/* the list (16a, 16b): rows straight on the tray, no box round them.
+   Heard rows `48px 1fr auto` (time, title over the line, Add or the state
+   in words) with a hairline under each; station rows `40px 1fr auto` (logo,
+   name over its line, Play or the Playing tag), 8px in, hairlines between,
+   the playing one in the selected wash with a 10px radius */
+.ss-player-rtray-list .ss-player-rows { border: 0; border-radius: 0; background: none; }
 .ss-player-rtray-row-heard,
 .ss-player-rtray-row-station {
     position: relative;
     display: grid;
     grid-template-columns: 48px minmax(0, 1fr) auto;
-    gap: 12px;
+    gap: 10px;
     align-items: center;
     min-height: 56px;
-    padding: 6px 12px;
+    padding: 6px 0;
 }
-.ss-player-rtray-row-station { grid-template-columns: 40px minmax(0, 1fr) auto; }
-.ss-player-rtray-row-heard + .ss-player-rtray-row-heard,
-.ss-player-rtray-row-station + .ss-player-rtray-row-station { border-top: 1px solid var(--ss-hairline); }
-.ss-player-rtray-row-heard:hover,
+.ss-player-rtray-row-heard { border-bottom: 1px solid var(--ss-hairline); }
+.ss-player-rtray-row-station { grid-template-columns: 40px minmax(0, 1fr) auto; padding: 6px 8px; border-radius: var(--ss-radius-control); }
+.ss-player-rtray-row-station:not(:last-child):not([aria-current='true']):not(:has(+ [aria-current='true'])) { border-bottom: 1px solid var(--ss-hairline); border-radius: 0; }
 .ss-player-rtray-row-station:hover { background: var(--ss-row-hover); }
 .ss-player-rtray-row-station[aria-current='true'] { background: var(--ss-selected-fill); box-shadow: inset 0 0 0 1px var(--ss-selected-border); }
+.ss-player-rtray-row-station[aria-current='true'] .ss-player-rtray-meta { color: var(--ss-text-tertiary); }
 .ss-player-rtray-time { font-family: var(--ss-player-mono); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ss-text-meta); }
 .ss-player-rtray-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ss-player-rtray-text > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1851,9 +1882,12 @@ html:not([data-player-sheet]) .ss-player[data-source='radio'] .ss-player-radio {
 .ss-player-rtray-row-heard .ss-player-radio-add { min-height: 44px; padding: 0 14px; }
 .ss-player-rtray-play {
     border: 1px solid var(--ss-control-border);
-    background: var(--ss-control-fill);
+    border-radius: var(--ss-radius-control);
+    background: transparent;
+    color: var(--ss-text-secondary);
 }
-.ss-player-rtray-play:hover:not(:disabled) { background: var(--ss-control-fill-hover); }
+.ss-player-rtray-play svg { width: 16px; height: 16px; }
+.ss-player-rtray-play:hover:not(:disabled) { background: var(--ss-hover-wash); color: var(--ss-text); }
 .ss-player-rtray-stationlogo {
     position: relative;
     display: inline-flex;
@@ -1873,9 +1907,7 @@ html:not([data-player-sheet]) .ss-player[data-source='radio'] .ss-player-radio {
 .ss-player-rtray-auto { flex: none; }
 .ss-player-rtray-auto:empty,
 .ss-player-rtray-auto[hidden] { display: none; }
-.ss-player-rtray-auto .ss-player-radio-auto { padding-top: 8px; border-top: 1px solid var(--ss-hairline); }
-.ss-player-rtray-auto .ss-player-radio-auto-title,
-.ss-player-rtray-auto .ss-player-radio-auto-text .ss-player-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ss-player-rtray-auto .ss-player-radio-auto { padding: 8px 0 6px; }
 /* the confirm (9c) takes the list's room while it's up, and scrolls there */
 .ss-player-rtray-list:has(.ss-player-radio-confirm) .ss-player-view { display: none; }
 .ss-player-rtray-list:has(.ss-player-radio-confirm) .ss-player-rtray-auto { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
@@ -1920,10 +1952,9 @@ button.ss-player-radio-heard {
 /* a loaded logo covers its letters (the radio cards' rule) */
 .ss-player-rtray-logo:has(img.is-loaded) .ss-player-rtray-letters,
 :is(.ss-player-radio-logo, .ss-player-rtray-stationlogo):has(img.is-loaded) .ss-player-logo-letters { visibility: hidden; }
-/* the radio list's head carries two tabs, so its Collapse is the 44px icon
-   (named "Collapse"; HANDOFF question 141) */
-.ss-player-rtray-list .ss-player-collapse { width: 44px; padding: 0; justify-content: center; }
-.ss-player-rtray-list .ss-player-collapse-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* the deck's output is the 44px icon in radio's tray (16a), its device kept as its name */
+.ss-player-rtray-deck .ss-player-output { width: 44px; padding: 0; justify-content: center; border: 0; }
+.ss-player-rtray-deck .ss-player-output span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* the overlay's transport follows the player's kinds: a hidden control is
    gone (radio has no Previous or Next there either) */
 #np-modal-overlay [hidden] { display: none !important; }
@@ -1934,3 +1965,13 @@ button.ss-player-radio-heard {
 .ss-player-rtray-auto .ss-player-radio-tile { padding: 6px 10px; }
 .ss-player-rtray-auto .ss-player-radio-tile-label { font-size: 13px; }
 .ss-player-rtray-auto .ss-player-radio-tile-value { font-size: 18px; }
+/* 16a: the deck's row is Live and the time listened on the left, then Stop,
+   the stream and Scan now together at the right, 12px apart; the record's
+   artist is a link in the accent at 15/500 */
+.ss-player-rtray-row { justify-content: flex-start; gap: 12px; }
+.ss-player-rtray-row .ss-player-transport { margin-left: auto; }
+.ss-player-rtray-record a.ss-player-record-artist { color: rgb(var(--ss-accent-light-rgb)); font-weight: 500; }
+/* the action keeps one line beside a running Sleep timer ("Add", 147) */
+.ss-player-rtray-action > .ss-player-radio-add { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ss-player-rtray-controls:has([data-player-sleep][aria-pressed='true']) .ss-player-rtray-addmore { display: none; }
+.ss-player-rtray-addmore { white-space: pre; }

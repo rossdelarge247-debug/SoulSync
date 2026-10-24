@@ -251,6 +251,27 @@ export function streamReadout(
   return [quality, path].filter(Boolean).join(' · ') || '—';
 }
 
+/**
+ * The tray's stream picker (16a): the stream in the readout's words, short,
+ * "AAC 256 · relayed" for the one playing and "MP3 128" for the others.
+ */
+export function streamChoice(
+  stream: { label?: string; codec?: string; bitrate_kbps?: number; lossless?: boolean },
+  mode: 'direct' | 'relay' | null,
+): string {
+  let quality: string;
+  if (stream.lossless) quality = stream.codec || 'FLAC';
+  else if (stream.codec && stream.bitrate_kbps) quality = `${stream.codec} ${stream.bitrate_kbps}`;
+  else quality = (stream.label ?? '').replace(' (best offered)', '') || 'Stream';
+  const path = mode === 'relay' ? 'relayed' : mode === 'direct' ? 'direct' : '';
+  return [quality, path].filter(Boolean).join(' · ');
+}
+
+/** A station row's line in the tray's Stations (16b): a link is "Your link", no name. */
+export function stationRowLine(station: Station): string {
+  return station.source === 'your_link' ? 'Your link' : cardSubline(station);
+}
+
 /** Heard rows from today in the browser's day, newest first. */
 export function heardToday<T extends Pick<HeardItem, 'heard_at'>>(
   items: T[],
