@@ -14,6 +14,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
 | DJ area: BPM, key and mixing (Traktor Pro 3) | Exploring (stage 1: Building; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
 | Famous mixes and AI set suggestions | Ready for Design | [below](#famous-mixes-and-ai-set-suggestions) |
+| Lyrics centre stage, timed to the words | Ready for Design (step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
 
 ---
 
@@ -440,3 +441,79 @@ Building a set from a big library is slow: SYNCHRO.S knows each track's BPM, key
 ### Settled with Ross
 
 - 24 October: yes to both parts, and to the tracklist sources above (MixesDB, MusicBrainz and Discogs, paste a tracklist).
+
+---
+
+## Lyrics centre stage, timed to the words
+
+**Status:** Ready for Design (step 1) · step 2 Exploring · raised by Ross, 2026-10-24 · direction approved by Ross the same day.
+
+### The problem
+
+SYNCHRO.S already has timed lyrics, but they sit in a side panel of the expanded player. Ross wants them as a presentable option in the visuals area, centre stage over the visualiser, with the word being sung picked out live.
+
+### What the app gives today (Dev checked)
+
+- **Line-timed lyrics** from LRCLIB (free; `core/lyrics_client.py`), or from an `.lrc` or `.txt` file beside the track. `POST /api/lyrics/fetch` answers `{synced, plain, source}`: `synced` is LRC text with a `[mm:ss.xx]` start per line, `plain` is untimed text.
+- They're shown in the expanded player's lyrics panel (`np-lyrics-panel`, `static/media-player-v2.js`). They're hidden for spoken audio and radio.
+- LRCLIB times **lines, not words**. Word timings exist only in "Enhanced LRC" files (`<mm:ss.xx>` before each word), which are rare.
+
+### Step 1: lyrics in the visuals area
+
+- **A Lyrics layer** in the visuals area. The chosen visualiser (MilkDrop, spectrum, artwork) keeps running behind it, a little dimmed.
+- The current line is large and centred; the previous line fades out above and the next waits below.
+- **A sweep across the line as it's sung:**
+  - With Enhanced LRC (from a file or LRCLIB), it follows each word's real time.
+  - Otherwise SYNCHRO.S estimates: it spreads the line's time across its syllables. This is close on most songs but not exact on held notes or fast rap, and the design shouldn't promise exactness.
+- **Controls:**
+  - tap a line to jump there;
+  - "lyrics early or late" nudge (remembered per track);
+  - text size;
+  - lyrics on or off over the visuals;
+  - lyrics only (no visualiser);
+  - full screen.
+- **Fallbacks:**
+  - plain untimed lyrics scroll gently with the track's progress;
+  - no lyrics found or an instrumental says so quietly;
+  - radio and spoken audio stay as today.
+- **Timing:** the highlight allows for the browser's output delay, so words land with the audio.
+
+### Step 2 (Exploring): true word timing, worked out by SYNCHRO.S
+
+- When a track has lyrics but no word timings, an open-source speech-alignment model lines each known word up with the audio.
+- It runs in the background, gently, like the BPM analysis.
+- The result is saved as an Enhanced LRC file beside the track, so other players can use it too.
+- **Costs:**
+  - a model download of about 1–2 GB;
+  - on a Mac in Docker (no GPU), around a minute a track;
+  - separating the vocals first improves accuracy but roughly doubles the time.
+
+  These numbers are estimates until a trial.
+- **Scope:** opt-in per album or playlist, or "tracks I play often", not the whole library.
+- Before choosing a model, Dev checks its licence (some alignment models are for non-commercial use only) and tries it on a handful of Ross's albums.
+- **Not Musixmatch:** it has word timing, but it's a paid service whose terms rule this out.
+
+### What Design needs to draw (step 1)
+
+1. The lyrics layer over each visualiser (MilkDrop, spectrum, artwork), at 1440, full screen and on a phone (390), in portrait and landscape.
+2. The line layout (current, previous, next) and the word sweep, both real and estimated. Should estimated timing look any different?
+3. The controls: where they live, and how they hide while lyrics play.
+4. The states:
+   - loading;
+   - line-timed;
+   - word-timed;
+   - plain untimed;
+   - none found;
+   - instrumental;
+   - an `.lrc` file beside the track that's being used.
+5. For step 2 later: how a track or album shows "word timing being worked out", and where the opt-in lives (an album's "…", Settings → Library).
+
+### Questions for Design
+
+1. Is the lyrics layer a visualiser of its own (picked like MilkDrop), or an overlay switched on over whichever visualiser is playing?
+2. How much should the visualiser dim behind the words, and does the artwork mode need its own treatment?
+3. On a phone, does the lyrics layer replace the expanded player's artwork, or sit below it?
+
+### Settled with Ross
+
+- 24 October: yes to step 1, and to trying step 2 on a few albums before building it for real.
