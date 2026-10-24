@@ -13,6 +13,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Move your music folders to another drive | Built | [below](#move-your-music-folders-to-another-drive) |
 | AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
 | DJ area: BPM, key and mixing (Traktor Pro 3) | Exploring (stage 1: Building; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
+| Famous mixes and AI set suggestions | Ready for Design | [below](#famous-mixes-and-ai-set-suggestions) |
 
 ---
 
@@ -383,3 +384,59 @@ Ross DJs with **Traktor Pro 3** on a Mac. His music lives in SYNCHRO.S, but noth
 2. **Energy scale:** 1–10 from loudness and how busy the track is, relative like Mixed In Key's. Is that the scale you'd use, or would you rather have Traktor's or Rekordbox's rating, or none at all?
 3. **Traktor's analysis:** when stage 2b reads `collection.nml`, should Traktor's BPM and key win over SYNCHRO.S's (they're the ones your beat grids use)?
 
+---
+
+## Famous mixes and AI set suggestions
+
+**Status:** Ready for Design · raised by Ross, 2026-10-24 · direction approved by Ross the same day. It builds on the DJ area (BPM, key and energy from stage 1, the Mixes panel, Export to Traktor from stage 2a) and on Settings → AI (`core/ai`, with its per-profile usage limits). Dev suggests building it into the set planner, Phase D's next step after Export to Traktor, so a famous mix, a suggested set and a hand-built set are the same thing: a tracklist you edit, save as a mix and export.
+
+### The problem
+
+Building a set from a big library is slow: SYNCHRO.S knows each track's BPM, key and energy, but it can't answer "which of my tracks would make a warm, building 90 minutes?" or "how much of that classic mix do I already own?".
+
+### What Ross wants
+
+1. **Famous mixes.** Find a well-known mix (a DJ's Essential Mix, a Fabric or Global Underground CD), match its tracklist against the library and show what's owned, owned in another version, and missing. From there: save it as a mix, export it to Traktor, or add the missing tracks to Wanted.
+2. **Set suggestions.** Describe a set in words ("90 minutes, deep and warm, building to peak time, ending melodic"; "Sunday afternoon, like Peggy Gou"; "a warm-up before a techno headliner, 122–126 BPM") and get a draft tracklist from the library.
+3. **Later: "more like this mix".** Fill the gaps in a half-owned famous mix with owned tracks of matching key, BPM, energy and style.
+
+### Where tracklists come from (Ross agreed, 24 October)
+
+- **MixesDB** (a community wiki of DJ mixes, strong on classic and radio mixes): read through its wiki API. Dev checks its terms before building.
+- **MusicBrainz and Discogs** for released mix CDs (Fabric, Global Underground, DJ-Kicks). MusicBrainz is already used; Discogs needs a free token in Settings → Connections.
+- **Paste a tracklist** from anywhere. The AI tidies the text into artist and title lines, so this always works.
+- **Not 1001Tracklists:** it has no public API and its terms forbid scraping.
+
+### Who does what
+
+- **The AI judges taste.** It reads the brief and picks candidate tracks using what it knows about the DJ or style named, plus each track's genres, artist, year and the profile's listening history. Only track details (titles, artists, genres, BPM, key, energy) go to the AI, never audio, and each request counts against the profile's AI usage like the assistant's.
+- **SYNCHRO.S orders the set itself.** Plain code, not the AI, puts the picks in order: compatible keys from one track to the next (the Camelot rules "Mixes well with" already uses), small BPM steps, and the energy shape asked for. The AI is unreliable at this kind of number-matching; code gets it right every time and can explain each step.
+- **Matching a tracklist to the library** is plain code too (artist and title with "feat." and remix spellings normalised, MusicBrainz ids where both sides have them); the AI only cleans up pasted text.
+
+### What Design needs to draw
+
+1. **Famous mixes:** search or paste, then the match. Each line is owned, a different version (which one), or missing, with "You own 14 of 22", Save as mix, Export to Traktor and Add missing to Wanted.
+2. **The set brief:** a free-text box plus optional dials (length, BPM range, energy shape, which music to draw from, e.g. a genre, a playlist or the whole library). Draw it as a few chips or presets, not a long form.
+3. **The draft set:**
+   - each transition marked smooth (compatible key, small BPM step) or a jump, with why;
+   - an energy graph across the set;
+   - a short line from the AI on why it chose the set;
+   - swap any track for one of a few suggested alternatives, reorder by hand, lock a track before asking again;
+   - Save as mix, Export to Traktor.
+4. **States:**
+   - AI not set up: famous mixes still work, set suggestions say how to turn the AI on;
+   - the AI's usage limit reached;
+   - BPM, key and energy still being worked out for part of the library: say how much and order by what's known;
+   - nothing in the library fits the brief;
+   - a tracklist source can't be reached.
+5. **Phone and 1440,** as with the rest of the DJ area.
+
+### Questions for Design
+
+1. Is this part of the set planner (Dev's suggestion) or a page of its own in the DJ area?
+2. How should "a different version" read: the version name alone, or a choice to use it or add the right one to Wanted?
+3. How much of the AI's reasoning belongs on screen: one line per set, a line per track, or both, with the per-track lines behind a tap?
+
+### Settled with Ross
+
+- 24 October: yes to both parts, and to the tracklist sources above (MixesDB, MusicBrainz and Discogs, paste a tracklist).
