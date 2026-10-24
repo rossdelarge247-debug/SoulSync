@@ -268,7 +268,7 @@ def _name(folder, role, host, *, marker_id=None):
         with open(path) as f:
             data = json.load(f)
     data["folders"][marker_id or markers.marker_id(folder)] = {
-        "host_path": host, "volume": "Macintosh HD", "os": "mac", "written_at": 1761300000}
+        "host_path": host, "volume": "Macintosh HD", "os": "mac", "target": folder, "written_at": 1761300000}
     with open(path, "w") as f:
         json.dump(data, f)
     host_paths.forget()

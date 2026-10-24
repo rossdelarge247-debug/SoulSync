@@ -1393,7 +1393,9 @@ class MoveJob:
         result: Dict[str, Any] = {}
         # 1. markers at the new folders, so the watch reads them as connected at once
         for role, path in new.items():
-            write_marker(path, role)
+            # a fresh id going forward (a marker that came with a copy names
+            # another folder); switching back keeps the old folder's
+            write_marker(path, role, keep_id=not forward)
             watch = self._safe_get(self.deps.drive_watch)
             if watch is not None:
                 try:

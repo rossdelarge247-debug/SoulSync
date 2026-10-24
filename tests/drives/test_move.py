@@ -637,7 +637,7 @@ def test_a_host_hint_never_changes_what_remove_deletes(job, trusted):
     markers.write_marker(lib, "library")
     with open(host_paths.hints_file(), "w") as f:
         json.dump({"v": 1, "folders": {markers.marker_id(lib) if trusted else "0" * 32: {
-            "host_path": str(decoy), "volume": "Macintosh HD", "os": "mac", "written_at": 1}}}, f)
+            "host_path": str(decoy), "volume": "Macintosh HD", "os": "mac", "target": lib, "written_at": 1}}}, f)
     host_paths.forget()
     move_id = _ready(job)
     j.start(move_id, background=False)
@@ -654,6 +654,28 @@ def test_a_host_hint_never_changes_what_remove_deletes(job, trusted):
             assert f.read() == b"decoy"
     assert os.path.isfile(host_paths.hints_file())
     assert os.path.isfile(os.path.join(lib, markers.MARKER_NAME))
+
+
+@pytest.mark.gauntlet
+def test_the_forward_switch_gives_the_new_folder_a_fresh_marker_id_and_back_keeps_the_old(job):
+    """A marker copied to the new place (a Finder copy made beforehand) never
+    carries the old folder's id, so the computer's old name can't follow it;
+    switching back keeps the old folder's own id."""
+    j = job["job"]
+    lib = job["roots"]["library"]
+    markers.write_marker(lib, "library")
+    old_id = markers.marker_id(lib)
+    new_lib = os.path.join(_target(job), "Library")
+    os.makedirs(new_lib)
+    with open(os.path.join(lib, markers.MARKER_NAME)) as src, \
+            open(os.path.join(new_lib, markers.MARKER_NAME), "w") as dst:
+        dst.write(src.read())
+    move_id = _ready(job)
+    j.start(move_id, background=False)
+    assert j.store.row(move_id)["status"] == "switched"
+    assert markers.marker_id(new_lib) not in (None, old_id)
+    j.switch_back(move_id, username="slskd", password="pw")
+    assert markers.marker_id(lib) == old_id
 
 
 @pytest.mark.gauntlet

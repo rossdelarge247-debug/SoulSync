@@ -24,9 +24,9 @@ from core.drives import markers
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "ross-mac-compose.yml")
 
 
-def _entry(**over):
+def _entry(target="/app/Transfer", **over):
     body = {"host_path": "/Users/ross/SoulSync/music", "volume": "Macintosh HD", "os": "mac",
-            "written_at": 1761300000}
+            "target": target, "written_at": 1761300000}
     body.update(over)
     return body
 
@@ -41,6 +41,9 @@ def _write_hints(folders, *, v=1, extra=None):
 
 
 def _name(folder, **over):
+    """An entry for ``folder`` as the helper writes it, its mount target
+    being the folder itself."""
+    over.setdefault("target", str(folder))
     _write_hints({markers.marker_id(str(folder)): _entry(**over)})
 
 
@@ -109,16 +112,16 @@ def test_the_hints_file_is_read_with_the_trust_rules(marked):
     """An entry names a folder only while it is keyed by that folder's marker
     id right now, in a file that is exactly the schema."""
     _name(marked)
-    assert HP.read_hint(str(marked)) == {**_entry(), "marker_id": markers.marker_id(str(marked))}
+    assert HP.read_hint(str(marked)) == {**_entry(target=str(marked)), "marker_id": markers.marker_id(str(marked))}
     assert HP.folder_host(str(marked), "mac") == {"host_path": "/Users/ross/SoulSync/music",
                                                    "volume": "Macintosh HD", "source": "hint"}
     # one bad entry refuses the whole file
-    _write_hints({markers.marker_id(str(marked)): _entry(), "0" * 32: _entry(host_path="relative")})
+    _write_hints({markers.marker_id(str(marked)): _entry(target=str(marked)), "0" * 32: _entry(host_path="relative")})
     assert HP.read_hint(str(marked)) is None
     # a link in place of the file is never followed
     real = os.path.join(os.path.dirname(HP.hints_file()), "elsewhere.json")
     with open(real, "w") as f:
-        json.dump({"v": 1, "folders": {markers.marker_id(str(marked)): _entry()}}, f)
+        json.dump({"v": 1, "folders": {markers.marker_id(str(marked)): _entry(target=str(marked))}}, f)
     os.unlink(HP.hints_file())
     os.symlink(real, HP.hints_file())
     HP.forget()
@@ -129,7 +132,7 @@ def test_the_hints_file_is_read_with_the_trust_rules(marked):
     HP.forget()
     assert HP.read_hint(str(marked)) is None
     os.rmdir(HP.hints_file())
-    _write_hints({markers.marker_id(str(marked)): _entry()}, extra={})
+    _write_hints({markers.marker_id(str(marked)): _entry(target=str(marked))})
     with open(HP.hints_file(), "a") as f:
         f.write(" " * HP.HINTS_MAX_BYTES)
     HP.forget()
@@ -141,6 +144,7 @@ def test_the_hints_file_is_read_with_the_trust_rules(marked):
     {"host_path": "//server/share"}, {"host_path": "/x/\u202egnp.exe"}, {"host_path": "/" + "a" * 2000},
     {"host_path": ["/x"]}, {"volume": ""}, {"volume": "a/b"}, {"volume": "\x07bell"}, {"volume": None},
     {"os": "windows"}, {"written_at": True}, {"written_at": 0}, {"written_at": "1761300000"}, {"extra": "field"},
+    {"target": "app/Transfer"}, {"target": "/app/../etc"}, {"target": None},
 ])
 def test_an_entry_that_isnt_exactly_the_schema_is_ignored(marked, over):
     _name(marked, **over)
@@ -160,7 +164,7 @@ def test_junk_is_ignored(marked, raw):
 
 def test_too_many_folders_is_ignored(marked):
     folders = {f"{i:032x}": _entry() for i in range(HP.HINTS_MAX_FOLDERS)}
-    folders[markers.marker_id(str(marked))] = _entry()
+    folders[markers.marker_id(str(marked))] = _entry(target=str(marked))
     _write_hints(folders)
     assert HP.read_hint(str(marked)) is None
 
@@ -190,6 +194,71 @@ def test_a_forged_or_mismatched_hint_is_ignored(marked, monkeypatch):
     assert markers.write_marker(str(marked), "library")
     HP.forget()
     assert HP.read_hint(str(marked)) is None
+
+
+@pytest.mark.gauntlet
+def test_a_copy_that_kept_its_marker_never_takes_the_originals_name(marked, tmp_path, monkeypatch):
+    """A Finder, rsync or Time Machine copy of the library keeps
+    .synchros-folder.json, id and all. The entry names only the folder at or
+    under the mount target it was written for, so the copy (and to_host for
+    its files, which Export to Traktor writes) names nothing."""
+    import shutil
+    _name(marked)
+    clone = tmp_path / "Backup" / "Transfer"
+    shutil.copytree(marked, clone)
+    assert markers.marker_id(str(clone)) == markers.marker_id(str(marked))
+    assert HP.read_hint(str(clone)) is None and HP.folder_host(str(clone), "mac") is None
+    monkeypatch.setattr(markers, "folder_paths", lambda config=None: {"library": str(clone)})
+    monkeypatch.setattr(HP, "current_platform", lambda config=None: "mac")
+    assert HP.to_host(str(clone / "Saltmarsh" / "01 Tide.flac")) is None
+    # a folder inside the mount target is still its own
+    inner = marked / "Library"
+    inner.mkdir()
+    markers.write_marker(str(inner), "library")
+    _write_hints({markers.marker_id(str(inner)): _entry(target=str(marked), host_path="/Users/ross/SoulSync/music/Library")})
+    assert HP.read_hint(str(inner))["host_path"] == "/Users/ross/SoulSync/music/Library"
+
+
+@pytest.mark.gauntlet
+def test_an_entry_goes_stale_when_the_compose_mount_moves(marked, tmp_path):
+    """./music was mounted at another target when the helper ran; SYNCHRO.S
+    now reads the same folder (same marker) somewhere else: the old name isn't shown."""
+    _name(marked, target=str(tmp_path / "old-mount" / "Transfer"))
+    assert HP.read_hint(str(marked)) is None
+    assert HP.public_fields(str(marked), "mac")["host_path"] is None
+
+
+def test_the_drives_folder_rule_comes_before_the_file(monkeypatch):
+    def boom(folder):
+        raise AssertionError("the hints file was read for a drives-folder path")
+
+    monkeypatch.setattr(HP.CACHE, "get", boom)
+    monkeypatch.setattr(markers, "folder_paths", lambda config=None: {"library": "/Volumes/Music HD/Library"})
+    monkeypatch.setattr(HP, "current_platform", lambda config=None: "mac")
+    assert HP.folder_host("/Volumes/Music HD/Library", "mac")["source"] == "same"
+    assert HP.to_host("/Volumes/Music HD/Library/a.flac") == "/Volumes/Music HD/Library/a.flac"
+
+
+def test_the_helper_and_synchros_check_entries_the_same_way():
+    assert HP.parse_entry is not None
+    good = _entry()
+    assert HP.parse_entry(good) == C.clean_entry(good) == good
+    for bad in ({**good, "volume": "a/b"}, {**good, "host_path": "//server/share"},
+                {**good, "host_path": "/Users/ross/mu‮sic"}, {**good, "volume": "Mac\nHD"}):
+        assert HP.parse_entry(bad) is None and C.clean_entry(bad) is None
+
+
+def test_the_settings_path_gap_is_said_once_in_the_log(monkeypatch, tmp_path):
+    said = []
+    helper_dir = tmp_path / "app-config"
+    helper_dir.mkdir()
+    monkeypatch.delenv(HP.HINTS_FILE_ENV)
+    monkeypatch.setattr(HP, "HELPER_CONFIG_DIR", str(helper_dir))
+    monkeypatch.setattr(HP, "_GAP_SAID", False)
+    monkeypatch.setattr(HP.logger, "warning", lambda msg, *a: said.append(msg % a))
+    HP.hints_file()
+    HP.hints_file()
+    assert len(said) == 1 and str(helper_dir) in said[0] and HP.HINTS_FILE_ENV in said[0]
 
 
 # ── to_host: the stable function for other features ──────────────────────────
@@ -267,6 +336,20 @@ def soulsync(tmp_path, monkeypatch):
     return {"home": home, "ids": ids, "tmp": tmp_path, "file": home / "config" / HP.HINTS_NAME}
 
 
+def _trusted(ctx):
+    """What SYNCHRO.S would show for each container folder, from the file the
+    helper wrote: the music folders are at their mount targets inside, with
+    the same markers (read here from the folders the helper saw)."""
+    hints = HP.parse_hints(ctx["file"].read_bytes())
+    assert hints is not None
+    out = {}
+    for name in ("music", "downloads", "staging"):
+        entry = hints.get(markers.marker_id(str(ctx["home"] / name)))
+        if entry:
+            out[entry["target"]] = entry["host_path"]
+    return out
+
+
 def _music_files(home):
     return sorted(p for name in ("music", "downloads", "staging") for p in os.listdir(home / name))
 
@@ -283,11 +366,14 @@ def test_the_helper_names_rosss_three_folders_in_the_settings_folder(soulsync):
     data = json.loads(soulsync["file"].read_text())
     assert data == {"v": 1, "folders": {
         soulsync["ids"][name]: {"host_path": str(home / name), "volume": "Macintosh HD", "os": "mac",
-                                "written_at": 1761300000} for name in ("music", "downloads", "staging")}}
-    assert oct(os.stat(soulsync["file"]).st_mode & 0o777) == "0o644"
-    for name in ("music", "downloads", "staging"):
-        # and SYNCHRO.S trusts what the helper wrote
-        assert HP.read_hint(str(home / name))["host_path"] == str(home / name)
+                                "target": target, "written_at": 1761300000}
+        for name, target in (("music", "/app/Transfer"), ("downloads", "/app/downloads"),
+                             ("staging", "/app/Staging"))}}
+    # readable by its owner only: it names the computer's folders
+    assert oct(os.stat(soulsync["file"]).st_mode & 0o777) == "0o600"
+    # and SYNCHRO.S accepts what the helper wrote (inside, at /app/Transfer…)
+    assert _trusted(soulsync) == {"/app/Transfer": str(home / "music"), "/app/downloads": str(home / "downloads"),
+                                  "/app/Staging": str(home / "staging")}
     assert not [p for p in os.listdir(home / "config") if p.endswith(".tmp")]
 
 
@@ -349,7 +435,8 @@ def test_a_folder_synchros_hasnt_marked_is_skipped_and_said(soulsync):
     home = soulsync["home"]
     os.unlink(home / "staging" / markers.MARKER_NAME)
     out = C.write_host_hints((home / "docker-compose.yml").read_text(), str(home), "mac")
-    assert out[2]["ok"] == "" and "hasn't marked" in out[2]["words"]
+    assert out[2]["ok"] == "" and "isn't one of SYNCHRO.S's folders" in out[2]["words"]
+    assert "--names" not in out[2]["words"]  # no loop: running it again wouldn't help
     assert len(json.loads(soulsync["file"].read_text())["folders"]) == 2
 
 
@@ -393,13 +480,96 @@ def test_a_link_planted_at_the_hints_temp_path_is_not_followed(soulsync, monkeyp
     planted = config / f"{HP.HINTS_NAME}.planted1.tmp"
     os.symlink(victim, planted)
     os.symlink(victim, soulsync["file"])
-    out = C.write_host_hints((home / "docker-compose.yml").read_text(), str(home), "mac")
-    assert [r["ok"] for r in out] == ["1", "1", "1"]
+    # the write itself: O_EXCL steps past the planted name, the rename replaces the link
+    C.write_hints_file(str(soulsync["file"]), {"a" * 32: _entry()})
     assert victim.read_text() == "keep me"
     assert os.path.islink(planted) and os.readlink(planted) == str(victim)
-    # the file replaced the link with a regular file of its own
     assert not os.path.islink(soulsync["file"])
-    assert set(json.loads(soulsync["file"].read_text())["folders"]) == set(soulsync["ids"].values())
+    # a whole run first clears leftover temporary names (the link itself, never its target)
+    out = C.write_host_hints((home / "docker-compose.yml").read_text(), str(home), "mac")
+    assert [r["ok"] for r in out] == ["1", "1", "1"]
+    assert victim.read_text() == "keep me" and not os.path.lexists(planted)
+    assert set(json.loads(soulsync["file"].read_text())["folders"]) == set(soulsync["ids"].values()) | {"a" * 32}
+
+
+def _compose(volumes):
+    return ("services:\n  soulsync:\n    image: boulderbadgedad/soulsync:latest\n    volumes:\n"
+            + "".join(f"      - '{v}'\n" for v in volumes))
+
+
+@pytest.mark.parametrize("why", ["direction", "slash-volume", "double-slash"])
+def test_a_name_synchros_wouldnt_show_is_skipped_and_said(soulsync, monkeypatch, why):
+    """The helper checks each entry as SYNCHRO.S will, so one name it would
+    refuse never hides the others (the app refuses a file with a bad entry)."""
+    home = soulsync["home"]
+    src = "./music"
+    if why == "direction":
+        bad = home / "mu‮sic"
+        bad.mkdir()
+        markers.write_marker(str(bad), "library")
+        src = "./mu‮sic"
+    elif why == "slash-volume":
+        monkeypatch.setattr(C, "volume_name", lambda path, platform: "AC/DC" if path.endswith("music") else "Mac HD")
+    else:
+        src = "/" + str(home / "music")  # //…: normpath keeps a leading double slash
+    text = _compose([f"{src}:/app/Transfer", "./downloads:/app/downloads", "./config:/app/config"])
+    out = C.write_host_hints(text, str(home), "mac")
+    assert out[0]["ok"] == "" and "characters SYNCHRO.S won't show" in out[0]["words"]
+    assert out[1]["ok"] == "1"
+    hints = HP.parse_hints(soulsync["file"].read_bytes())
+    assert hints is not None and list(hints) == [soulsync["ids"]["downloads"]]
+
+
+def test_older_entries_that_fail_the_check_are_dropped_and_said(soulsync):
+    home = soulsync["home"]
+    soulsync["file"].write_text(json.dumps({"v": 1, "folders": {
+        "e" * 32: _entry(volume="AC/DC"), "f" * 32: _entry(host_path="/Users/ross/Old"),
+        "d" * 32: {"host_path": "/x", "volume": "X", "os": "mac", "written_at": 1}}}))  # an earlier shape
+    out = C.write_host_hints((home / "docker-compose.yml").read_text(), str(home), "mac")
+    assert out[-1] == {"label": "Older names", "ok": "1", "words": "2 that SYNCHRO.S wouldn't show were left out"}
+    hints = HP.parse_hints(soulsync["file"].read_bytes())
+    assert hints is not None and "f" * 32 in hints and "e" * 32 not in hints and "d" * 32 not in hints
+
+
+def test_a_marker_one_level_down_in_a_mount_is_found(soulsync):
+    home = soulsync["home"]
+    (home / "data" / "Library").mkdir(parents=True)
+    (home / "data" / "other").mkdir()
+    markers.write_marker(str(home / "data" / "Library"), "library")
+    text = _compose(["./data:/app/Transfer", "./config:/app/config"])
+    out = C.write_host_hints(text, str(home), "mac")
+    assert out[0]["ok"] == "1"
+    entry = HP.parse_hints(soulsync["file"].read_bytes())[markers.marker_id(str(home / "data" / "Library"))]
+    assert (entry["host_path"], entry["target"]) == (str(home / "data" / "Library"), "/app/Transfer/Library")
+
+
+def test_the_override_file_is_read_too(soulsync):
+    home = soulsync["home"]
+    (home / "music2").mkdir()
+    markers.write_marker(str(home / "music2"), "library")
+    override = "services:\n  soulsync:\n    volumes:\n      - ./music2:/app/Transfer\n"
+    text = (home / "docker-compose.yml").read_text()
+    assert C.music_mounts(text, str(home), [override])[0]["host_path"] == str(home / "music2")
+    (home / "docker-compose.override.yml").write_text(override)
+    (home / H.SCRIPT_NAME).write_text(H.script())
+    r = subprocess.run(["sh", H.SCRIPT_NAME, "--platform", "mac", "--names"], cwd=home, capture_output=True,
+                       text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    hints = HP.parse_hints(soulsync["file"].read_bytes())
+    assert hints[markers.marker_id(str(home / "music2"))]["target"] == "/app/Transfer"
+    assert soulsync["ids"]["music"] not in hints
+
+
+def test_a_failed_write_leaves_no_temporary_file(soulsync, monkeypatch):
+    home = soulsync["home"]
+
+    def refuse(a, b):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(C.os, "replace", refuse)
+    out = C.write_host_hints((home / "docker-compose.yml").read_text(), str(home), "mac")
+    assert "No space left on device" in out[-1]["words"] and not any(r["ok"] for r in out)
+    assert os.listdir(home / "config") == []
 
 
 # ── the script: --names only writes the hints ────────────────────────────────
@@ -433,8 +603,7 @@ def test_names_writes_the_hints_and_changes_nothing_else(script_home):
     assert not (home / C.BACKUP_NAME).exists()
     calls = script_home["log"].read_text().splitlines() if script_home["log"].exists() else []
     assert not any("up -d" in c or "config" in c for c in calls)
-    for name in ("music", "downloads", "staging"):
-        assert HP.read_hint(str(home / name))["host_path"] == str(home / name)
+    assert set(_trusted(script_home).values()) == {str(home / n) for n in ("music", "downloads", "staging")}
     assert _music_files(home) == [markers.MARKER_NAME] * 3
 
 
@@ -449,7 +618,7 @@ def test_the_normal_run_writes_the_hints_too(script_home):
     r = _sh(script_home, stdin="y\n")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "Your folders' names on this computer" in r.stdout
-    assert HP.read_hint(str(script_home["home"] / "music"))["volume"] == "Macintosh HD"
+    assert _trusted(script_home)["/app/Transfer"] == str(script_home["home"] / "music")
     assert _music_files(script_home["home"]) == [markers.MARKER_NAME] * 3
 
 

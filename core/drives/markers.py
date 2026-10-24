@@ -140,25 +140,27 @@ def marker_id(path: str) -> Optional[str]:
     return value if isinstance(value, str) and MARKER_ID.match(value) else None
 
 
-def write_marker(path: str, role: str) -> bool:
+def write_marker(path: str, role: str, *, keep_id: bool = True) -> bool:
     """Write the marker at ``path`` (atomically). False when it can't. A
     marker already there for the same role keeps its id and creation time, so
     the drives helper's host hint stays valid when SYNCHRO.S writes it again
-    (a switch back, say)."""
+    (a switch back, say); ``keep_id=False`` gives it a fresh id (a move's
+    forward switch, so a folder copied with its marker isn't taken for the
+    one it was copied from)."""
     target = os.path.join(path, MARKER_NAME)
     tmp = None
     try:
         if os.path.islink(target):
             return False
         before = read_marker(path) or {}
-        keep_id = before.get("id") if before.get("role") == role and isinstance(before.get("id"), str) \
+        kept_id = before.get("id") if keep_id and before.get("role") == role and isinstance(before.get("id"), str) \
             and MARKER_ID.match(before["id"]) else None
-        keep_created = before.get("created") if before.get("role") == role \
+        kept_created = before.get("created") if before.get("role") == role \
             and isinstance(before.get("created"), int) else None
         # a new, uniquely named file (never through a link), then renamed over
         fd, tmp = tempfile.mkstemp(dir=path, prefix=MARKER_NAME + ".", suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(marker_body(role, marker_id=keep_id, created=keep_created), f)
+            json.dump(marker_body(role, marker_id=kept_id, created=kept_created), f)
         os.chmod(tmp, 0o644)
         os.replace(tmp, target)
         return True

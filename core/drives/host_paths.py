@@ -10,6 +10,7 @@ music folder's marker id::
     /app/config/host-paths.json
     {"v": 1, "folders": {"<marker id>": {"host_path": "/Users/ross/SoulSync/music",
                                           "volume": "Macintosh HD", "os": "mac",
+                                          "target": "/app/Transfer",
                                           "written_at": 1761300000}}}
 
 Nothing is written into the music folders: slskd shares the library's root,
@@ -23,8 +24,12 @@ the container, so:
 * it is read without following a link, from a regular file of at most
   ``HINTS_MAX_BYTES``, and must match the schema exactly (``parse_hints``);
 * a folder's entry is trusted only while its key equals the id of the marker
-  at that folder (``markers.marker_id``): a folder SYNCHRO.S marked afresh,
-  or an entry for another folder, names nothing;
+  at that folder (``markers.marker_id``) **and** the folder is at or under the
+  mount target the helper read (``target``): a folder SYNCHRO.S marked
+  afresh, a copy of a folder that kept its marker (Finder, rsync, Time
+  Machine), or a mount the compose file has since moved names nothing;
+* each entry passes the same check the helper applies when it writes
+  (``compose_tool.clean_entry``);
 * nothing here, and nothing that calls it, uses a host path to open, list,
   write or delete a file. The routes and the page escape it like any text.
 
@@ -49,7 +54,7 @@ import threading
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from core.drives import disks, markers
+from core.drives import compose_tool, disks, markers
 from utils.logging_config import get_logger
 
 logger = get_logger("drives.host_paths")
@@ -64,51 +69,21 @@ HINTS_MAX_FOLDERS = 64
 #: 64 entries of at most ~1.4 KB each
 HINTS_MAX_BYTES = 96 * 1024
 HINTS_KEYS = frozenset({"v", "folders"})
-ENTRY_KEYS = frozenset({"host_path", "volume", "os", "written_at"})
-HINT_OS = ("mac", "linux")
+ENTRY_KEYS = frozenset(compose_tool.ENTRY_KEYS)
+HINT_OS = compose_tool.ENTRY_OS
+#: where the helper writes the file, inside the container (the settings folder's mount)
+HELPER_CONFIG_DIR = compose_tool.CONFIG_TARGET
 #: how long the file and each folder's answer are remembered before reading again
 CACHE_SECONDS = 5.0
 
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
-_MAX_PATH = 1024
-_MAX_VOLUME = 255
 
 
 # ── the hints file ────────────────────────────────────────────────────────────
 
-def _clean_host_path(value: Any) -> Optional[str]:
-    """A plain absolute POSIX path, normalised, or None."""
-    if not isinstance(value, str) or not value or len(value) > _MAX_PATH or _CONTROL.search(value):
-        return None
-    if not value.startswith("/") or value.startswith("//"):
-        return None
-    parts = value.split("/")
-    if any(p in (".", "..") for p in parts):
-        return None
-    return "/" + "/".join(p for p in parts if p)
-
-
-def _clean_volume(value: Any) -> Optional[str]:
-    if not isinstance(value, str) or _CONTROL.search(value):
-        return None
-    text = value.strip()
-    if not text or len(text) > _MAX_VOLUME or "/" in text:
-        return None
-    return text
-
-
 def parse_entry(data: Any) -> Optional[Dict[str, Any]]:
-    """One folder's entry when it is exactly the schema, else None."""
-    if not isinstance(data, dict) or set(data) != ENTRY_KEYS:
-        return None
-    host_path = _clean_host_path(data["host_path"])
-    volume = _clean_volume(data["volume"])
-    written_at = data["written_at"]
-    if host_path is None or volume is None or data["os"] not in HINT_OS:
-        return None
-    if type(written_at) is not int or written_at <= 0:
-        return None
-    return {"host_path": host_path, "volume": volume, "os": data["os"], "written_at": written_at}
+    """One folder's entry when it is exactly the schema (the helper's own
+    check, ``compose_tool.clean_entry``), else None."""
+    return compose_tool.clean_entry(data)
 
 
 def parse_hints(raw: bytes) -> Optional[Dict[str, Dict[str, Any]]]:
@@ -163,16 +138,30 @@ def _read_small(path: str, cap: int) -> Optional[bytes]:
         os.close(fd)
 
 
+_GAP_SAID = False
+
+
 def hints_file() -> str:
-    """Where the helper's hints live: SYNCHRO.S's own settings folder."""
+    """Where the helper's hints live: SYNCHRO.S's own settings folder. When
+    that isn't the folder the helper writes to (``SOULSYNC_CONFIG_PATH``
+    points elsewhere while /app/config is mounted), it says so in the log
+    once rather than showing container paths without a word."""
+    global _GAP_SAID
     env = os.environ.get(HINTS_FILE_ENV, "").strip()
     if env:
         return env
     try:
         from core.settings import config_manager
-        return str(config_manager.config_path.parent / HINTS_NAME)
+        folder = str(config_manager.config_path.parent)
     except Exception:  # noqa: BLE001
-        return os.path.join("/app/config", HINTS_NAME)
+        folder = HELPER_CONFIG_DIR
+    if not _GAP_SAID and os.path.normpath(folder) != HELPER_CONFIG_DIR and os.path.isdir(HELPER_CONFIG_DIR):
+        _GAP_SAID = True
+        logger.warning("[Drives] The drives helper writes your computer's folder names to %s/%s, but SYNCHRO.S's "
+                       "settings are in %s (SOULSYNC_CONFIG_PATH), so the names aren't read. Set %s to %s/%s to "
+                       "read them.", HELPER_CONFIG_DIR, HINTS_NAME, folder, HINTS_FILE_ENV, HELPER_CONFIG_DIR,
+                       HINTS_NAME)
+    return os.path.join(folder, HINTS_NAME)
 
 
 def read_hints(path: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
@@ -189,16 +178,25 @@ def read_hints(path: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     return parsed
 
 
+def _at_or_under(path: str, root: str) -> bool:
+    path, root = os.path.normpath(path), os.path.normpath(root)
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
 def read_hint(folder: str, hints: Optional[Dict[str, Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
     """The entry for ``folder``: the one keyed by the id of the marker at
-    ``folder`` right now, or None (no marker, no id, no entry)."""
+    ``folder`` right now, and only while ``folder`` is at or under the mount
+    target it was written for; None otherwise (no marker, no id, no entry, a
+    copy elsewhere that kept the marker, a mount since moved)."""
     if not isinstance(folder, str) or not folder.startswith("/"):
         return None
     current = markers.marker_id(folder)
     if current is None:
         return None
     entry = (read_hints() if hints is None else hints).get(current)
-    return {**entry, "marker_id": current} if entry else None
+    if not entry or not _at_or_under(folder, entry["target"]):
+        return None
+    return {**entry, "marker_id": current}
 
 
 class _Cache:
@@ -289,10 +287,14 @@ def folder_host(folder: Optional[str], platform: str) -> Optional[Dict[str, Any]
     name on the computer. ``source`` is ``hint`` or ``same``."""
     if not isinstance(folder, str) or not folder.startswith("/") or "\x00" in folder:
         return None
+    # the drives folder is the computer's own path: no file needed, nothing to go stale
+    same = _same_path(folder, platform)
+    if same is not None:
+        return same
     hint = CACHE.get(os.path.normpath(folder))
     if hint is not None:
         return {"host_path": hint["host_path"], "volume": hint["volume"], "source": "hint"}
-    return _same_path(folder, platform)
+    return None
 
 
 def public_fields(folder: Optional[str], platform: str) -> Dict[str, Any]:
@@ -343,6 +345,10 @@ def to_host(container_path: str) -> str | None:
     if not isinstance(container_path, str) or not container_path.startswith("/") or "\x00" in container_path \
             or ".." in container_path.split("/") or len(container_path) > 4096:
         return None
+    # the drives folder is the computer's own path: preferred, nothing to go stale
+    found = _same_path(container_path, current_platform())
+    if found is not None:
+        return found["host_path"]
     try:
         roots = markers.folder_paths()
     except Exception as exc:  # noqa: BLE001
@@ -359,8 +365,7 @@ def to_host(container_path: str) -> str | None:
         hint = CACHE.get(os.path.normpath(best[0]))
         if hint is not None:
             return _join_host(hint["host_path"], best[1])
-    found = _same_path(container_path, current_platform())
-    return found["host_path"] if found else None
+    return None
 
 
 __all__ = ["HINTS_FILE_ENV", "HINTS_MAX_BYTES", "HINTS_NAME", "HINT_VERSION", "LEGACY_HINT_NAME", "folder_host",
