@@ -222,7 +222,9 @@ describe('Settings → Radio: AudD listens automatically', () => {
     current = body({ stopped: 'cap_reached' });
     await loadRadioSettings();
     expect($('radio-audd-auto-state').dataset.tone).toBe('warning');
-    expect(autoStateTone({ on: true, daily_cap: 100, ready: true, stopped: 'bad_key' })).toBe('danger');
+    expect(autoStateTone({ on: true, daily_cap: 100, ready: true, stopped: 'bad_key' })).toBe(
+      'danger',
+    );
     expect(autoStateTone({ on: true, daily_cap: 100, ready: true, stopped: 'out_of_credit' })).toBe(
       'danger',
     );
