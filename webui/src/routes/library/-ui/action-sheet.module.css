@@ -78,3 +78,20 @@
   outline: var(--ss-focus-ring);
   outline-offset: -2px;
 }
+
+/* disabled-neutral (123): the row stays, in 62% text, with its reason at the end */
+.item[aria-disabled='true'] {
+  color: var(--ss-disabled-text);
+  cursor: not-allowed;
+}
+
+.item[aria-disabled='true']:hover {
+  background: transparent;
+}
+
+.reason {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}

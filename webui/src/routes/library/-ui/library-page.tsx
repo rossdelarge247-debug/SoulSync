@@ -78,6 +78,8 @@ export function LibraryPage() {
   // a drive that's away is never an empty library (14k)
   const drive = useDriveStatus();
   const away = Boolean(drive.status?.library_away);
+  // 123: Play on History and Tracks waits for the drive, with its name as the reason
+  const awayDrive = away ? (drive.status?.folders.library?.drive ?? 'Your library’s drive') : null;
 
   const go: Go = (patch, options) =>
     void navigate({
@@ -106,7 +108,7 @@ export function LibraryPage() {
             onCheckAgain={() => void drive.checkNow()}
           />
         ) : null}
-        <TracksPage search={search} go={go} />
+        <TracksPage search={search} go={go} awayDrive={awayDrive} />
       </div>
     );
   }
@@ -130,7 +132,7 @@ export function LibraryPage() {
               onCheckAgain={() => void drive.checkNow()}
             />
           ) : null}
-          <HistoryPage search={search} go={go} />
+          <HistoryPage search={search} go={go} awayDrive={awayDrive} />
         </>
       ) : (
         <ArtistsPage search={search} go={go} />

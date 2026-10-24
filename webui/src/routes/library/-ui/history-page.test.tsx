@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
+import { resetDriveStatus } from '@/features/drives/drive-status';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
@@ -152,6 +153,7 @@ const DJ = {
 
 let requested: string[] = [];
 let empty = false;
+let driveAway = false;
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -163,6 +165,8 @@ beforeEach(() => {
   window.startLibraryRadio = vi.fn(async () => undefined);
   requested = [];
   empty = false;
+  driveAway = false;
+  resetDriveStatus();
   localStorage.clear();
   vi.stubGlobal(
     'fetch',
@@ -176,6 +180,25 @@ beforeEach(() => {
         body = empty ? { ...MUSIC, items: [], total: 0, days: {}, sources: [] } : MUSIC;
       else if (u.pathname.endsWith('/api/player/plays')) body = PODCASTS;
       else if (u.pathname.endsWith('/api/library/dj/tracks')) body = DJ;
+      else if (u.pathname.endsWith('/api/drives/status'))
+        body = {
+          success: true,
+          checked_at: 0,
+          interval: 30,
+          library_away: driveAway,
+          away: driveAway ? ['library'] : [],
+          folders: {
+            library: {
+              role: 'library',
+              label: 'Library',
+              connected: !driveAway,
+              last_seen: 1792000000,
+              drive: 'Music HD',
+            },
+          },
+          can_check: true,
+          boot_id: 'b',
+        };
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -380,7 +403,7 @@ describe('Listening history on a phone (15d, HANDOFF 94)', () => {
     expect(row('Orchard Sodium').getAttribute('data-actions')).toBeNull();
   });
 
-  it('"…" opens the action sheet: Play next, Add to playlist…, Open artist, Open album', async () => {
+  it('"…" opens the action sheet: Play next, Mixes well with…, Add to playlist…, Open artist, Open album (154)', async () => {
     renderPage();
     await screen.findByText('Static Bloom');
     const more = screen.getByRole('button', { name: 'More for Static Bloom' });
@@ -393,7 +416,7 @@ describe('Listening history on a phone (15d, HANDOFF 94)', () => {
       within(sheet)
         .getAllByRole('button')
         .map((b) => b.textContent),
-    ).toEqual(['Play next', 'Add to playlist…', 'Open artist', 'Open album', 'Mixes well with…']);
+    ).toEqual(['Play next', 'Mixes well with…', 'Add to playlist…', 'Open artist', 'Open album']);
     fireEvent.click(within(sheet).getByRole('button', { name: 'Play next' }));
     expect(window.playNext).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -403,6 +426,38 @@ describe('Listening history on a phone (15d, HANDOFF 94)', () => {
     expect(within(ferry).queryByRole('button', { name: 'Open album' })).toBeNull();
     fireEvent.keyDown(ferry, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+});
+
+describe('Listening history while the library’s drive is away (123)', () => {
+  it('keeps the list; Play is disabled-neutral, described by “Music HD isn’t connected”', async () => {
+    driveAway = true;
+    renderPage();
+    await screen.findByText('Your library’s drive isn’t connected');
+    await screen.findByText('Static Bloom');
+    const play = await waitFor(() => {
+      const b = screen.getByRole('button', { name: 'Play Static Bloom next' });
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      return b;
+    });
+    expect(play).not.toBeDisabled();
+    expect(document.getElementById(play.getAttribute('aria-describedby')!)!.textContent).toBe(
+      'Music HD isn’t connected',
+    );
+    fireEvent.click(play);
+    expect(window.playNext).not.toHaveBeenCalled();
+    // the "…" menu's Play next waits too
+    fireEvent.click(screen.getAllByRole('button', { name: 'More for Static Bloom' })[0]);
+    const next = await screen.findByRole('menuitem', { name: 'Play next' });
+    expect(next.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('a connected drive leaves Play as it was', async () => {
+    renderPage();
+    await screen.findByText('Static Bloom');
+    const play = screen.getByRole('button', { name: 'Play Static Bloom next' });
+    expect(play.getAttribute('aria-disabled')).toBeNull();
+    expect(play.getAttribute('aria-describedby')).toBeNull();
   });
 });
 

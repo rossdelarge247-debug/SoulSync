@@ -228,7 +228,11 @@ describe('Library → Tracks', () => {
 
   it('says how far the analysis has got, with Stop', async () => {
     renderPage();
-    await screen.findByText('Working out BPM, key and energy: 0 of 1');
+    await screen.findByText('BPM, key and energy: 2 of 3 tracks done');
+    // 153: the 120px bar counts what's done
+    const bar = screen.getByRole('progressbar', { name: 'BPM, key and energy worked out' });
+    expect(bar.getAttribute('aria-valuenow')).toBe('2');
+    expect(bar.getAttribute('aria-valuemax')).toBe('3');
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     await waitFor(() =>
       expect(
@@ -264,7 +268,29 @@ describe('Library → Tracks', () => {
     driveAway = true;
     renderPage();
     await screen.findByText('Static Bloom');
-    await screen.findByText(/isn.t connected/);
+    await screen.findByText('Your library’s drive isn’t connected');
     expect(screen.getByRole('heading', { level: 1, name: 'Tracks' })).toBeTruthy();
+    // 123: Play waits for the drive, disabled-neutral and described by the reason
+    const play = screen.getByRole('button', { name: 'Play Static Bloom next' });
+    expect(play.getAttribute('aria-disabled')).toBe('true');
+    expect(play).not.toBeDisabled();
+    const reason = document.getElementById(play.getAttribute('aria-describedby')!)!;
+    expect(reason.textContent).toBe('Music HD isn’t connected');
+    fireEvent.click(play);
+    expect(window.playNext).not.toHaveBeenCalled();
+  });
+
+  it('puts Mixes well with… second in the "…" menu (154)', async () => {
+    renderPage();
+    const row = (await screen.findByText('Static Bloom')).closest('li')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'More for Static Bloom' }));
+    await screen.findByRole('menuitem', { name: 'Mixes well with…' });
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      'Play next',
+      'Mixes well with…',
+      'Add to playlist…',
+      'Open artist',
+      'Open album',
+    ]);
   });
 });

@@ -80,3 +80,8 @@ export function lastSeenLine(
 /** The step row's six steps, in order. */
 export const STEPS = ['Choose', 'Check', 'Plan', 'Copy', 'Check and switch', 'Done'] as const;
 export type StepName = (typeof STEPS)[number];
+
+/** The reason beside a control that needs the library's drive (123). */
+export function awayWords(drive: string): string {
+  return `${drive} isn’t connected`;
+}

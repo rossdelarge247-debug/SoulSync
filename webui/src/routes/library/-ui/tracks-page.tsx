@@ -14,6 +14,7 @@ import {
 import {
   CAMELOT_KEYS,
   analysisLine,
+  analysisProgress,
   bpmNumber,
   bpmTitle,
   formatBpmRange,
@@ -22,6 +23,7 @@ import {
   parseBpmRange,
 } from '@/features/dj/dj.format';
 import { addTrackToPlaylist, playTrackNext, useMixesWith } from '@/features/dj/mixes-dialog';
+import { awayWords } from '@/features/drives/drives.format';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import type { LibrarySearch } from '../-library.types';
@@ -71,10 +73,14 @@ function TrackRow({
   track,
   phone,
   onMixes,
+  away,
 }: {
   track: DjTrack;
   phone: boolean;
   onMixes: (track: DjTrack) => void;
+  /** While the library's drive is away (123): Play is disabled-neutral and
+   *  described by the reason ("Music HD isn't connected", element `id`). */
+  away?: { id: string; words: string };
 }) {
   const dj = track.dj;
   const artist = artistHref(track);
@@ -141,8 +147,10 @@ function TrackRow({
           type="button"
           className={hs.play}
           aria-label={`Play ${track.title} next`}
-          title="Play next, after the current track"
-          onClick={() => playTrackNext(track)}
+          title={away ? undefined : 'Play next, after the current track'}
+          aria-disabled={away ? 'true' : undefined}
+          aria-describedby={away?.id}
+          onClick={away ? undefined : () => playTrackNext(track)}
         >
           <PlayIcon />
         </button>
@@ -150,6 +158,13 @@ function TrackRow({
           className={hs.more}
           label={`More for ${track.title}`}
           entries={[
+            // 154: Play next, Mixes well with…, Add to playlist…, Open artist, Open album
+            {
+              key: 'next',
+              label: 'Play next',
+              onSelect: () => playTrackNext(track),
+              disabled: Boolean(away),
+            },
             { key: 'mixes', label: 'Mixes well with…', onSelect: () => onMixes(track) },
             {
               key: 'playlist',
@@ -272,7 +287,18 @@ function BpmRange({ value, onChange }: { value: string; onChange: (next: string)
  * the range (`bpm=120-128`), the key (`key=8A`, `8A:mix` with the keys that
  * mix with it), the sort and the filter text.
  */
-export function TracksPage({ search, go }: { search: LibrarySearch; go: Go }) {
+export function TracksPage({
+  search,
+  go,
+  awayDrive = null,
+}: {
+  search: LibrarySearch;
+  go: Go;
+  /** The library's drive while it's away (123): Play waits for it. */
+  awayDrive?: string | null;
+}) {
+  const awayId = useId();
+  const away = awayDrive ? { id: awayId, words: awayWords(awayDrive) } : undefined;
   const { profileId } = useProfile();
   const phone = usePhone();
   const queryClient = useQueryClient();
@@ -317,6 +343,8 @@ export function TracksPage({ search, go }: { search: LibrarySearch; go: Go }) {
   const s = status.data;
   const running = s?.job?.status === 'running';
   const line = s ? analysisLine(s) : '';
+  // 153: the 120px bar counts what's done, beside the words
+  const progress = s ? analysisProgress(s) : null;
 
   return (
     <div className={hs.page}>
@@ -339,8 +367,22 @@ export function TracksPage({ search, go }: { search: LibrarySearch; go: Go }) {
       </header>
 
       {line ? (
-        <div className={styles.analysis} aria-live="polite">
-          <span className={hs.metaLine}>{line}</span>
+        <div className={styles.analysis}>
+          {progress ? (
+            <span
+              className={styles.analysisBar}
+              role="progressbar"
+              aria-label="BPM, key and energy worked out"
+              aria-valuemin={0}
+              aria-valuemax={progress.total}
+              aria-valuenow={progress.done}
+            >
+              <span style={{ width: `${(100 * progress.done) / progress.total}%` }} />
+            </span>
+          ) : null}
+          <span className={`${hs.metaLine} ${styles.analysisWords}`} aria-live="polite">
+            {line}
+          </span>
           {s?.can_stop && running ? (
             <Button
               size="lg"
@@ -436,6 +478,11 @@ export function TracksPage({ search, go }: { search: LibrarySearch; go: Go }) {
               <span />
             </div>
           )}
+          {away ? (
+            <span id={away.id} className={styles.srOnly}>
+              {away.words}
+            </span>
+          ) : null}
           <ul className={hs.list} aria-label="Your tracks">
             {tracks.map((track) => (
               <TrackRow
@@ -443,6 +490,7 @@ export function TracksPage({ search, go }: { search: LibrarySearch; go: Go }) {
                 track={track}
                 phone={phone}
                 onMixes={(t) => mixes.open({ id: t.id, title: t.title })}
+                away={away}
               />
             ))}
           </ul>

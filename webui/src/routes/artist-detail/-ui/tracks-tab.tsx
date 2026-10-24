@@ -337,6 +337,12 @@ function LibraryTracks({
                             else window.addToQueue?.(payload);
                           },
                         },
+                        // 154: Mixes well with… straight after Play next
+                        {
+                          key: 'mixes',
+                          label: 'Mixes well with…',
+                          onSelect: () => mixes.open({ id: text(track.id), title }),
+                        },
                         {
                           key: 'queue',
                           label: 'Add to queue',
@@ -350,11 +356,6 @@ function LibraryTracks({
                             const row = playlistTrackPayload(track, album, artist);
                             if (row) openAddToPlaylist(row);
                           },
-                        },
-                        {
-                          key: 'mixes',
-                          label: 'Mixes well with…',
-                          onSelect: () => mixes.open({ id: text(track.id), title }),
                         },
                       ]}
                     />
