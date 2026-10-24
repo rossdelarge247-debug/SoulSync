@@ -86,14 +86,18 @@ export function FoldersCard({ load = true }: { load?: boolean }) {
     void refresh();
     // sizes are measured in the background the first time: ask once more
     const t = setTimeout(() => void refresh(), 4000);
-    // back from Terminal (the helper's --names): read the names again
+    return () => clearTimeout(t);
+  }, [load, refresh]);
+
+  // back from Terminal (the helper's --names): read the names again, only
+  // while the card offers the command
+  const needNames = Boolean(data && wantsNames(data.folders, data.platform));
+  useEffect(() => {
+    if (!load || !needNames) return;
     const onFocus = () => void refresh();
     window.addEventListener('focus', onFocus);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener('focus', onFocus);
-    };
-  }, [load, refresh]);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [load, needNames, refresh]);
 
   if (forbidden) return null;
   const drive = data?.drive;
@@ -138,7 +142,7 @@ export function FoldersCard({ load = true }: { load?: boolean }) {
           </Button>
         </div>
       ))}
-      {data && wantsNames(data.folders, data.platform) ? (
+      {data && needNames ? (
         <HostNamesLine platform={data.platform} className={styles.namesUnderRows} />
       ) : null}
       {drive && drive.total ? (
