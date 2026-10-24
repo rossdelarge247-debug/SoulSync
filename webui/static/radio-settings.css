@@ -387,7 +387,15 @@
 #settings-page #radio-settings .radio-scan-auto-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 72ch; }
 #settings-page #radio-settings .radio-scan-auto-title { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.4; color: var(--ss-text); }
 #settings-page #radio-settings .radio-scan-auto-state { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ss-text-secondary); }
-#settings-page #radio-settings .radio-scan-auto-state[data-tone='danger'] { color: var(--ss-danger); }
+/* 111: one line, its tone carried by an 8px dot (warning for the cap, danger for Refused / No requests left) */
+#settings-page #radio-settings .radio-scan-auto-state[data-tone='warning'],
+#settings-page #radio-settings .radio-scan-auto-state[data-tone='danger'] { display: flex; align-items: flex-start; gap: 8px; }
+#settings-page #radio-settings .radio-scan-auto-state[data-tone='warning']::before,
+#settings-page #radio-settings .radio-scan-auto-state[data-tone='danger']::before {
+    content: ''; flex: none; width: 8px; height: 8px; margin-top: 6.5px; border-radius: 50%;
+}
+#settings-page #radio-settings .radio-scan-auto-state[data-tone='warning']::before { background: var(--ss-warning); }
+#settings-page #radio-settings .radio-scan-auto-state[data-tone='danger']::before { background: var(--ss-danger); }
 #settings-page #radio-settings .radio-scan-auto-state[hidden] { display: none; }
 #settings-page #radio-settings .radio-scan-auto-controls { display: flex; align-items: flex-end; gap: 16px; }
 #settings-page #radio-settings .radio-scan-auto-controls[hidden] { display: none; }

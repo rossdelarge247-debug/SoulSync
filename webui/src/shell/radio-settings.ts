@@ -363,10 +363,18 @@ export function autoStateWords(auto: AuddAuto | undefined): string {
     case 'out_of_credit':
       return 'Stopped for today: AudD says the account has no requests left.';
     case 'cap_reached':
-      return `Today’s ${auto.daily_cap} are used. It starts again at midnight.`;
+      return `Stopped for today: today’s ${auto.daily_cap} are used. It starts again at midnight.`;
     default:
       return '';
   }
+}
+
+/** The stopped line's dot (111): warning for the cap (it waits), danger when AudD refused or ran out. */
+export function autoStateTone(auto: AuddAuto | undefined): 'warning' | 'danger' | 'neutral' {
+  if (!auto || !auto.on || auto.ready === false) return 'neutral';
+  if (auto.stopped === 'cap_reached') return 'warning';
+  if (auto.stopped === 'bad_key' || auto.stopped === 'out_of_credit') return 'danger';
+  return 'neutral';
 }
 
 function renderAuto(): void {
@@ -383,8 +391,7 @@ function renderAuto(): void {
     const words = autoStateWords(scanAuto);
     state.textContent = words;
     state.hidden = !words;
-    state.dataset.tone =
-      scanAuto?.stopped && scanAuto.stopped !== 'cap_reached' ? 'danger' : 'neutral';
+    state.dataset.tone = autoStateTone(scanAuto);
   }
   const sw = $('radio-audd-auto');
   if (sw) {
