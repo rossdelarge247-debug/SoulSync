@@ -244,7 +244,7 @@ def test_the_helper_and_synchros_check_entries_the_same_way():
     good = _entry()
     assert HP.parse_entry(good) == C.clean_entry(good) == good
     for bad in ({**good, "volume": "a/b"}, {**good, "host_path": "//server/share"},
-                {**good, "host_path": "/Users/ross/mu‮sic"}, {**good, "volume": "Mac\nHD"}):
+                {**good, "host_path": "/Users/ross/mu\u202esic"}, {**good, "volume": "Mac\nHD"}):
         assert HP.parse_entry(bad) is None and C.clean_entry(bad) is None
 
 
@@ -504,10 +504,10 @@ def test_a_name_synchros_wouldnt_show_is_skipped_and_said(soulsync, monkeypatch,
     home = soulsync["home"]
     src = "./music"
     if why == "direction":
-        bad = home / "mu‮sic"
+        bad = home / "mu\u202esic"
         bad.mkdir()
         markers.write_marker(str(bad), "library")
-        src = "./mu‮sic"
+        src = "./mu\u202esic"
     elif why == "slash-volume":
         monkeypatch.setattr(C, "volume_name", lambda path, platform: "AC/DC" if path.endswith("music") else "Mac HD")
     else:

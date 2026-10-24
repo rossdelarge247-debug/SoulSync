@@ -662,7 +662,7 @@ def config_folder(text: str, compose_dir: str, extra: Sequence[str] = ()) -> Opt
 ENTRY_KEYS = ("host_path", "volume", "os", "target", "written_at")
 ENTRY_OS = ("mac", "linux")
 #: control, line-separator and direction characters never go into a name shown on a page
-_UNSAFE_TEXT = re.compile("[\x00-\x1f\x7f-\x9f  ‪-‮⁦-⁩]")
+_UNSAFE_TEXT = re.compile("[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
 _MAX_PATH = 1024
 _MAX_VOLUME = 255
 
