@@ -59,6 +59,10 @@ core/downloads/cleanup.py
 core/downloads/lifecycle.py
 core/downloads/release_import.py
 core/downloads/staging.py
+# Export to Traktor: writes .nml files into a configured export folder, and
+# the DJ routes that save its settings and serve the export
+core/dj/traktor.py
+api/dj.py
 
 ## Database migrations and schema
 database/**
