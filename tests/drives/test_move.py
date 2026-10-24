@@ -383,6 +383,7 @@ def test_checksum_finds_a_damaged_copy_and_copy_them_again_fixes_it(job, monkeyp
     assert j.store.row(move_id)["status"] == "switched"
 
 
+@pytest.mark.gauntlet
 def test_the_drive_going_away_fails_and_carry_on_finishes(job, monkeypatch):
     j = job["job"]
     move_id = _ready(job)
@@ -428,6 +429,7 @@ def test_an_unreadable_old_file_can_be_left_where_it_is(job, monkeypatch):
     assert all("01 Glass.mp3" not in i["path"] for i in preview["sample"])
 
 
+@pytest.mark.gauntlet
 def test_stop_and_undo_deletes_only_the_half_made_copy(job):
     j = job["job"]
     move_id = _ready(job)
@@ -458,6 +460,7 @@ def test_stop_and_undo_deletes_only_the_half_made_copy(job):
     assert job["config"].get("soulseek.transfer_path") == job["roots"]["library"]
 
 
+@pytest.mark.gauntlet
 def test_a_refused_service_switches_everything_back(job):
     job["media"].refuse = True
     j = job["job"]
@@ -480,6 +483,7 @@ def test_a_refused_service_switches_everything_back(job):
     assert j.store.row(move_id)["status"] == "switched"
 
 
+@pytest.mark.gauntlet
 def test_slskd_refusing_to_restart_switches_back(job):
     job["slskd"].refuse_restart = True
     j = job["job"]
@@ -492,6 +496,7 @@ def test_slskd_refusing_to_restart_switches_back(job):
     assert job["slskd"].restarts == [] and move["failure"]["left"] == []
 
 
+@pytest.mark.gauntlet
 def test_a_restart_mid_copy_reads_as_stopped_and_can_carry_on(job):
     j = job["job"]
     move_id = _ready(job)
@@ -509,6 +514,7 @@ def test_a_restart_mid_copy_reads_as_stopped_and_can_carry_on(job):
 
 # ── Done: remove the old copies, switch back, the reminder ───────────────────
 
+@pytest.mark.gauntlet
 def test_remove_the_old_copies_deletes_exactly_the_checked_files(job):
     j = job["job"]
     move_id = _ready(job)
@@ -536,6 +542,7 @@ def test_remove_the_old_copies_deletes_exactly_the_checked_files(job):
         j.remove_confirm(move_id, preview["plan_id"], plans)
 
 
+@pytest.mark.gauntlet
 def test_a_copy_that_went_missing_keeps_its_old_file(job):
     j = job["job"]
     move_id = _ready(job)
@@ -641,6 +648,7 @@ def _fake_mount(monkeypatch, link):
     monkeypatch.setattr(os.path, "realpath", realpath)
 
 
+@pytest.mark.gauntlet
 @pytest.mark.parametrize("sub", ["", "inside"])
 def test_a_destination_that_is_the_source_through_another_mount_is_refused(job, monkeypatch, sub):
     j = job["job"]
@@ -658,6 +666,7 @@ def test_a_destination_that_is_the_source_through_another_mount_is_refused(job, 
     assert not [n for n in os.listdir(job["roots"]["library"]) if n.startswith(".synchros-probe")]
 
 
+@pytest.mark.gauntlet
 def test_remove_skips_an_old_file_that_is_its_own_copy(job, monkeypatch):
     j = job["job"]
     move_id = _ready(job)
@@ -727,6 +736,7 @@ def test_two_destinations_cant_nest(job):
 
 # ── what's already at the new place is never trusted ─────────────────────────
 
+@pytest.mark.gauntlet
 def test_a_stale_file_at_the_new_place_is_copied_again(job):
     j = job["job"]
     lib_new = os.path.join(_target(job), "Library")
@@ -741,6 +751,7 @@ def test_a_stale_file_at_the_new_place_is_copied_again(job):
         assert a.read() == b.read()
 
 
+@pytest.mark.gauntlet
 def test_remove_skips_an_old_file_edited_since_the_copy_at_the_same_size(job):
     j = job["job"]
     move_id = _ready(job)
@@ -757,6 +768,7 @@ def test_remove_skips_an_old_file_edited_since_the_copy_at_the_same_size(job):
     assert os.path.isfile(src) and out["skipped"] == 1
 
 
+@pytest.mark.gauntlet
 def test_verify_finds_an_old_file_edited_after_its_copy(job, monkeypatch):
     j = job["job"]
     move_id = _ready(job)
@@ -784,6 +796,7 @@ class Boom(RuntimeError):
     pass
 
 
+@pytest.mark.gauntlet
 def test_any_error_after_the_settings_switched_switches_everything_back(job):
     j = job["job"]
     before_yaml = job["slskd"].read_config()
@@ -806,6 +819,7 @@ def test_any_error_after_the_settings_switched_switches_everything_back(job):
     assert job["slskd"].restarts == ["jwt-token", "jwt-token"]
 
 
+@pytest.mark.gauntlet
 def test_an_unreadable_slskd_yml_at_the_switch_switches_back(job):
     j = job["job"]
     move_id = _ready(job)
@@ -833,6 +847,7 @@ def test_check_catches_an_slskd_yml_it_cant_edit(job):
     assert checks["ok"] is False
 
 
+@pytest.mark.gauntlet
 def test_the_copy_isnt_deleted_while_the_settings_point_at_it(job):
     j = job["job"]
     move_id = _ready(job)
@@ -844,6 +859,7 @@ def test_the_copy_isnt_deleted_while_the_settings_point_at_it(job):
         assert os.path.isfile(os.path.join(_target(job), "Library", rel))
 
 
+@pytest.mark.gauntlet
 def test_a_failure_while_the_settings_point_at_the_new_place_isnt_nothing_switched(job, monkeypatch):
     j = job["job"]
     move_id = _ready(job)
@@ -914,6 +930,7 @@ def test_switch_back_keeps_later_slskd_edits_and_never_shows_the_old_file(job):
     assert j.store.row(move_id)["secret"] is None
 
 
+@pytest.mark.gauntlet
 def test_switch_back_brings_home_files_changed_at_the_new_place(job):
     j = job["job"]
     move_id = _ready(job, roles=["library"])

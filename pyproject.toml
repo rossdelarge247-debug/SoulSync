@@ -33,4 +33,5 @@ addopts = "-m 'not soundcloud_live and not youtube_live'"
 markers = [
     "soundcloud_live: live SoundCloud integration test (network-dependent, run with -m soundcloud_live)",
     "youtube_live: live YouTube probe/download test (network-dependent, run with -m youtube_live)",
+    "gauntlet: disaster-scenario test the gauntlet runs on its own (pytest -m gauntlet; see docs/GAUNTLET.md)",
 ]
