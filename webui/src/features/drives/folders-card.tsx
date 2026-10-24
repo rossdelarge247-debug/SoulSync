@@ -4,7 +4,8 @@
  * auto`: what each holds and who reads it; the container path in mono over
  * the drive it's on; the size; Change…), and the drive line under a
  * hairline (free space as a 640px 4px bar, "Getting full" past 90%, danger
- * past 98%).
+ * past 98%, and "Your music folders take 93.2 GB of it." under the bar: the
+ * one fact SYNCHRO.S knows, in place of 14a's fill rate, 124).
  *
  * Mounted into the legacy Settings page (`#folders-music-panel`) in place of
  * the three path fields, which stay in the page (hidden) because the page's
@@ -25,6 +26,18 @@ import { drivesApi } from './drives.api';
 import { sizeWords } from './drives.format';
 import styles from './drives.module.css';
 import { openDriveMove } from './move-flow';
+
+/** Bytes the music folders take on the library's drive (124), or null while
+ *  one of them is still being measured. A folder inside another counted one
+ *  (downloads kept in the library) isn't counted twice. */
+export function musicBytesOn(data: Pick<FoldersPayload, 'folders' | 'drive'>): number | null {
+  const on = data.folders.filter((r) => r.drive === data.drive.label);
+  if (!on.length || on.some((r) => r.bytes === null)) return null;
+  const inside = (a: string, b: string) => a !== b && a.startsWith(b.endsWith('/') ? b : `${b}/`);
+  return on
+    .filter((r) => !on.some((o) => inside(r.path, o.path)))
+    .reduce((sum, r) => sum + (r.bytes ?? 0), 0);
+}
 
 export const LEGACY_INPUTS: Record<Role, string> = {
   library: 'transfer-path',
@@ -75,6 +88,7 @@ export function FoldersCard({ load = true }: { load?: boolean }) {
 
   if (forbidden) return null;
   const drive = data?.drive;
+  const music = data ? musicBytesOn(data) : null;
   return (
     <section
       className={styles.foldersCard}
@@ -137,6 +151,9 @@ export function FoldersCard({ load = true }: { load?: boolean }) {
           >
             <span style={{ width: `${Math.min(100, drive.percent ?? 0)}%` }} />
           </div>
+          {music !== null ? (
+            <p className={styles.driveMusic}>Your music folders take {sizeWords(music)} of it.</p>
+          ) : null}
         </div>
       ) : null}
       {changing ? (

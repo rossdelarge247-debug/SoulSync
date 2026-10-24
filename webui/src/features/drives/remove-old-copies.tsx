@@ -81,7 +81,7 @@ export function RemoveOldCopies({
       open
       onClose={onClose}
       phase={phase}
-      title={`Remove the old copies from ${source}?`}
+      title="Permanently delete the old copies?"
       stats={
         preview
           ? [

@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DriveStatus, Move, MovePayload } from './drives.api';
 
-import { CheckAgainAnswer, linesSnippet } from './docker-step';
+import { CheckAgainAnswer, HelperSteps, linesSnippet } from './docker-step';
 import { awayRole, DriveAwayNotice } from './drive-away-notice';
 import { resetDriveStatus } from './drive-status';
 import { durationWords, lastSeenLine, seenWords, sizeOf, sizeWords } from './drives.format';
-import { ChangeFolderDialog, FoldersCard, mountFoldersCard } from './folders-card';
+import { ChangeFolderDialog, FoldersCard, mountFoldersCard, musicBytesOn } from './folders-card';
 import { draftView, MoveFlow, useMoveFlow } from './move-flow';
 import { CopyStep, DoneStep, FailureView, failureTitle, SwitchStep } from './move-run';
 import { destinations, driveFor } from './move-steps';
@@ -227,6 +227,16 @@ describe('the flow’s pieces', () => {
     ]);
   });
 
+  it('says slskd’s config line as its own step in “What it does, in order” (121)', () => {
+    render(<HelperSteps slskdLine="./slskd:/slskd-config" />);
+    const steps = screen.getAllByRole('listitem').map((li) => li.textContent);
+    expect(steps).toHaveLength(5);
+    expect(steps[3]).toBe(
+      'Gives SYNCHRO.S slskd’s own settings folder (./slskd:/slskd-config), so it can change what slskd shares when your music moves.',
+    );
+    expect(steps[4]).toMatch(/^Restarts them/);
+  });
+
   it('answers Check again four ways (14d)', () => {
     const props = {
       now: 24000,
@@ -426,7 +436,7 @@ describe('the running flow', () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Keep Music HD' }));
     fireEvent.click(screen.getByRole('button', { name: 'Remove the old copies…' }));
-    await screen.findByText('Remove the old copies from Macintosh HD?');
+    await screen.findByText('Permanently delete the old copies?');
     await screen.findByText('For good');
     const confirm = screen.getByRole('button', { name: 'Delete 3,671 files' });
     expect(confirm).toHaveAttribute('aria-disabled', 'true');
@@ -742,6 +752,59 @@ describe('the Folders card (14a)', () => {
     expect(screen.getByRole('meter')).toHaveAttribute('aria-valuenow', '91.7');
     expect(screen.getByRole('button', { name: /Move to another drive…/ })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Change…' })).toHaveLength(3);
+    // 124: no fill rate, and no music line while Staging is still being measured
+    expect(screen.queryByText(/Your music folders take/)).toBeNull();
+    expect(screen.queryByText(/At this month’s rate/)).toBeNull();
+  });
+
+  it('says how much of the drive the music takes (124), counting a nested folder once', () => {
+    const row = (
+      role: 'library' | 'downloads' | 'staging',
+      path: string,
+      bytes: number | null,
+    ) => ({
+      role,
+      label: role,
+      path,
+      drive: 'Macintosh HD',
+      holds: '',
+      files: 1,
+      bytes,
+    });
+    const drive = {
+      label: 'Macintosh HD',
+      free: 41 * GB,
+      total: 494 * GB,
+      percent: 91.7,
+      tone: null,
+    };
+    expect(
+      musicBytesOn({
+        drive,
+        folders: [
+          row('library', '/app/Transfer', 88.4 * GB),
+          row('downloads', '/app/downloads', 4.2 * GB),
+          row('staging', '/app/Staging', 0.6 * GB),
+        ],
+      }),
+    ).toBeCloseTo(93.2 * GB);
+    expect(
+      musicBytesOn({
+        drive,
+        folders: [
+          row('library', '/app/Transfer', 88.4 * GB),
+          row('downloads', '/app/Transfer/downloads', 4.2 * GB),
+          row('staging', '/app/Staging', 0.6 * GB),
+        ],
+      }),
+    ).toBeCloseTo(89 * GB);
+    expect(
+      musicBytesOn({
+        drive,
+        folders: [{ ...row('library', '/app/Transfer', 1), drive: 'Music HD' }],
+      }),
+    ).toBeNull();
+    expect(sizeWords(93.2 * GB)).toBe('93.2 GB');
   });
 
   it('Change… writes the Settings page’s field and says it moves nothing', () => {

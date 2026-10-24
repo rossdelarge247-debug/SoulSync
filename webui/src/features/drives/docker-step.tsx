@@ -71,6 +71,28 @@ export function linesSnippet(
   return out;
 }
 
+/** "What it does, in order": the helper's steps, slskd's config line its own (121). */
+export function HelperSteps({ slskdLine }: { slskdLine: string }) {
+  return (
+    <ol className={styles.steps4}>
+      <li>Shows you the lines it will add and asks “Go ahead? (y/n)”.</li>
+      <li>
+        Keeps a copy of your set-up file as{' '}
+        <span className={styles.mono}>docker-compose.before-drives.yml</span>.
+      </li>
+      <li>
+        Adds one line to SYNCHRO.S, slskd and Plex, so all three see your drives at the same place.
+      </li>
+      <li>
+        Gives SYNCHRO.S slskd’s own settings folder (
+        <span className={styles.mono}>{slskdLine}</span>), so it can change what slskd shares when
+        your music moves.
+      </li>
+      <li>Restarts them (about a minute) and ends with “Done. Go back to SYNCHRO.S.”</li>
+    </ol>
+  );
+}
+
 export function DockerStep({
   promise,
   onBack,
@@ -403,20 +425,7 @@ export function DockerStep({
                   <p className={styles.fieldLabel} style={{ margin: 0 }}>
                     What it does, in order
                   </p>
-                  <ol className={styles.steps4}>
-                    <li>Shows you the lines it will add and asks “Go ahead? (y/n)”.</li>
-                    <li>
-                      Keeps a copy of your set-up file as{' '}
-                      <span className={styles.mono}>docker-compose.before-drives.yml</span>.
-                    </li>
-                    <li>
-                      Adds one line to SYNCHRO.S, slskd and Plex, so all three see your drives at
-                      the same place.
-                    </li>
-                    <li>
-                      Restarts them (about a minute) and ends with “Done. Go back to SYNCHRO.S.”
-                    </li>
-                  </ol>
+                  <HelperSteps slskdLine={slskdLine} />
                   <details className={styles.disclosure}>
                     <summary>See the lines it adds</summary>
                     <div className={styles.disclosureBody}>
@@ -428,10 +437,9 @@ export function DockerStep({
                         ))}
                       </pre>
                       <p className={styles.note}>
-                        The second line under SYNCHRO.S lets it change what slskd shares when your
-                        music moves. Rather do it by hand? Add these lines in any text editor, save,
-                        then run <span className={styles.mono}>docker compose up -d</span> in the
-                        same folder.
+                        Rather do it by hand? Add these lines in any text editor, save, then run{' '}
+                        <span className={styles.mono}>docker compose up -d</span> in the same
+                        folder.
                       </p>
                     </div>
                   </details>
