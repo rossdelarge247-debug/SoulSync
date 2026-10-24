@@ -2,10 +2,9 @@
  * Settings → Connections' Spotify card while paused (board 12c), against the
  * real settings.js: the header tag with the time in its three states and
  * back to Connected, the warning box with the sentence, an admin's Try again
- * now and its note, a member's line instead.
+ * now and its note, a member's line instead. The modal around it is the
+ * shared service frame (15a, HANDOFF 85 and 132).
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -14,42 +13,23 @@ import {
   type SpotifyPauseStatus,
 } from '@/features/spotify-pause/spotify-pause';
 
-import { extractFunction } from './vanilla-extract';
+import { buildFrame, head, mountModal, type Frame } from './service-frame-harness';
 
-const settings = readFileSync(resolve(process.cwd(), 'static/settings.js'), 'utf8');
-
-type Api = {
+type Api = Frame & {
   render: (status: SpotifyPauseStatus) => void;
   modal: (payload: unknown) => void;
-  calls: string[];
-  rebuilt: () => number;
 };
 
 function build(): Api {
-  return new Function(
-    `let _stgSpotifyPauseStatus = null;
-     let _stgSpotifyPauseAt = 0;
-     let _stgSpotifyPauseTimer = null;
-     let _lastStatusPayload = null;
-     let rebuilt = 0;
-     const calls = [];
-     function retryStgSpotifyPause() {}
-     function buildServiceTiles() { rebuilt += 1; }
-     function disconnectSpotify() { calls.push('disconnect'); }
-     function testConnection(s) { calls.push('test ' + s); }
-     function saveSettings() { calls.push('save'); }
-     ${extractFunction('renderStgSpotifyPause', settings)}
-     ${extractFunction('_stgSpotifyTileTag', settings)}
-     ${extractFunction('renderStgSpotifyTile', settings)}
-     ${extractFunction('spotifyAccountParts', settings)}
-     ${extractFunction('renderStgSpotifyModal', settings)}
-     return {
-       render(status) { _stgSpotifyPauseStatus = status; _stgSpotifyPauseAt = Date.now(); renderStgSpotifyPause(); },
-       modal(payload) { _lastStatusPayload = payload; renderStgSpotifyModal(); },
-       calls,
-       rebuilt: () => rebuilt,
-     };`,
-  )() as Api;
+  const frame = buildFrame();
+  return {
+    ...frame,
+    render: (status: SpotifyPauseStatus) => frame.pause(status),
+    modal: (payload: unknown) => {
+      frame.setStatus(payload);
+      frame.render();
+    },
+  } as Api;
 }
 
 const TOLD: SpotifyPauseStatus & { authenticated: boolean } = {
@@ -71,12 +51,10 @@ function as(admin: boolean) {
 }
 
 beforeEach(() => {
-  document.body.innerHTML = `<div id="settings-page"><div class="stg-service" data-service="spotify">
-    <div class="stg-service-header"><span class="stg-service-dot"></span><h4>Spotify</h4><span class="stg-service-chevron">›</span></div>
-    <div class="stg-service-body"><div class="form-group"></div></div></div>
-    <div id="service-config-modal" data-svc="spotify"><div class="src-modal-header"><span class="src-modal-titles"><span class="src-modal-titlerow"><h3 id="svc-modal-title">Spotify</h3></span><span class="src-modal-sub" id="svc-modal-sub">Playlists and metadata</span></span><button class="src-modal-close"></button></div>
-    <div class="src-modal-body"></div><div class="src-modal-foot" id="svc-modal-foot" hidden></div></div>
-    <div id="service-tile-grid"><button data-service-tile="spotify"><span class="src-tile-chip svc-tile-pause"></span></button></div></div>`;
+  mountModal('spotify', {
+    title: 'Spotify',
+    form: '<div class="form-group"></div><div class="form-actions"><button data-svc-foot="disconnect">Disconnect</button><button data-svc-foot="test">Test Connection</button></div>',
+  });
   Object.assign(window, {
     ssSpotifyPauseView: spotifyPauseView,
     ssCanClearSpotifyPause: canClearSpotifyPause,
@@ -101,12 +79,13 @@ describe('the Connections Spotify card (12c)', () => {
     expect(tag()!.dataset.tone).toBe('warning');
     expect(tag()!.nextElementSibling!.className).toBe('stg-service-chevron');
     // the service modal's head carries it too, beside the name (15a)
-    const modalTag = document.querySelector('.src-modal-header .stg-spotify-pause-tag')!;
+    const modalTag = head().tag!;
     expect(modalTag.textContent).toBe('Paused by Spotify · 11 min');
+    expect(modalTag.dataset.tone).toBe('warning');
     expect(modalTag.parentElement!.className).toBe('src-modal-titlerow');
     expect(modalTag.previousElementSibling!.id).toBe('svc-modal-title');
     // and the tile in the grid, shorter
-    const tile = document.querySelector<HTMLElement>('.svc-tile-pause')!;
+    const tile = document.querySelector<HTMLElement>('.svc-tile-tag')!;
     expect(tile.textContent).toBe('Paused · 11 min');
     expect(tile.dataset.tone).toBe('warning');
     expect(box()!.dataset.tone).toBe('warning');
@@ -167,7 +146,7 @@ describe('the Connections Spotify card (12c)', () => {
 });
 
 describe('the Spotify service modal (15a, HANDOFF 85)', () => {
-  it('the tile says "Easing back in", and goes back to its chip after', () => {
+  it('the tile says "Easing back in", and is rebuilt (to "Connected") after', () => {
     as(true);
     const api = build();
     api.render({
@@ -175,51 +154,61 @@ describe('the Spotify service modal (15a, HANDOFF 85)', () => {
       rate_limited: false,
       post_ban_cooldown: 300,
     } as SpotifyPauseStatus);
-    expect(document.querySelector('.svc-tile-pause')!.textContent).toBe('Easing back in');
-    expect(document.querySelector<HTMLElement>('.svc-tile-pause')!.dataset.tone).toBe('info');
+    expect(document.querySelector('.svc-tile-tag')!.textContent).toBe('Easing back in');
+    expect(document.querySelector<HTMLElement>('.svc-tile-tag')!.dataset.tone).toBe('info');
     const before = api.rebuilt();
     api.render({ authenticated: true, rate_limited: false } as SpotifyPauseStatus);
     expect(api.rebuilt()).toBe(before + 1);
   });
 
-  it('heads with "Connected as ross · 14 playlists · metadata source" and puts Disconnect, Test connection and Save in the footer', () => {
+  it('heads with "Connected as ross · 14 playlists · metadata source" and puts Disconnect, Test connection and Save in the footer', async () => {
     as(true);
     const api = build();
     api.modal({
       spotify: { authenticated: true, account: { name: 'ross <b>', playlists: 14 } },
       metadata_source: { source: 'spotify' },
     });
-    const sub = document.getElementById('svc-modal-sub')!;
+    const { sub, tag, buttons } = { ...head(), tag: head().tag! };
     expect(sub.textContent).toBe('Connected as ross <b> · 14 playlists · metadata source');
     // the name is text, never markup
     expect(sub.querySelector('strong')!.textContent).toBe('ross <b>');
     expect(sub.querySelectorAll('b')).toHaveLength(0);
+    expect(tag.textContent).toBe('Connected');
+    expect(tag.dataset.tone).toBe('success');
     const foot = document.getElementById('svc-modal-foot')!;
     expect(foot.hidden).toBe(false);
-    const buttons = [...foot.querySelectorAll<HTMLButtonElement>('button')];
-    expect(buttons.map((b) => b.textContent)).toEqual(['Disconnect', 'Test connection', 'Save']);
-    expect(buttons[0]!.className).toContain('src-modal-btn--ghost');
-    expect(buttons[2]!.className).toContain('src-modal-btn--primary');
-    buttons.forEach((b) => b.click());
-    expect(api.calls).toEqual(['disconnect', 'test spotify', 'save']);
+    expect(buttons()).toEqual(['Disconnect', 'Test connection', 'Save']);
+    const all = [...foot.querySelectorAll<HTMLButtonElement>('button')];
+    expect(all[0]!.className).toContain('src-modal-btn--ghost');
+    expect(all[2]!.className).toContain('src-modal-btn--primary');
+    all[0]!.click();
+    all[1]!.click();
+    all[2]!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.calls).toEqual(['disconnect spotify', 'test spotify', 'save']);
     // another metadata source, one playlist, no name yet
     api.modal({
       spotify: { authenticated: true, account: { name: null, playlists: 1 } },
       metadata_source: { source: 'deezer' },
     });
     expect(sub.textContent).toBe('Connected · 1 playlist');
-    expect(foot.querySelectorAll('button')).toHaveLength(3);
-    // not connected: the service's own line, no Disconnect
+    // not connected: no line, no Disconnect, and no tag without an app set up
     api.modal({ spotify: { authenticated: false }, metadata_source: { source: 'deezer' } });
-    expect(sub.textContent).toBe('Playlists and metadata');
-    expect(foot.querySelector<HTMLElement>('[data-spotify-disconnect]')!.hidden).toBe(true);
+    expect(sub.hidden).toBe(true);
+    expect(buttons()).toEqual(['Test connection', 'Save']);
+    expect(head().tag).toBeNull();
   });
 
-  it('does nothing while another service is open', () => {
+  it('a passing test never says Connected while no account is (the fallback source passes)', async () => {
     as(true);
-    document.getElementById('service-config-modal')!.dataset.svc = 'tidal';
-    build().modal({ spotify: { authenticated: true, account: { name: 'ross', playlists: 2 } } });
-    expect(document.getElementById('svc-modal-sub')!.textContent).toBe('Playlists and metadata');
-    expect(document.getElementById('svc-modal-foot')!.hidden).toBe(true);
+    const api = build();
+    api.answers.spotify = {
+      success: true,
+      message: 'Deezer connection successful! (Spotify not configured)',
+    };
+    api.modal({ spotify: { authenticated: false } });
+    await api.test('spotify');
+    expect(head().tag).toBeNull();
+    expect(head().box).toBeNull();
   });
 });
