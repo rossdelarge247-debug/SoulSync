@@ -78,7 +78,9 @@ import re
 import tempfile
 import unicodedata
 import uuid
-import xml.etree.ElementTree as ET  # nosec B405 - builds XML, never parses untrusted input
+# ElementTree only builds the file here; nothing is ever parsed, so there is no
+# XXE to defuse (defusedxml has no builder).
+import xml.etree.ElementTree as ET  # nosemgrep
 from contextlib import closing
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 

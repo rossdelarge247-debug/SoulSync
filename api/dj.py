@@ -46,6 +46,7 @@ other library routes.
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from typing import Any, Optional
@@ -306,9 +307,9 @@ def _export_items(database, body: dict):
         seed = body.get("track_id")
         if not isinstance(seed, (str, int)) or not str(seed):
             return jsonify({"success": False, "error": "track_id is needed"}), 400
-        try:
-            within = float(body.get("within") or 6)
-        except (TypeError, ValueError):
+        raw_within = body.get("within")
+        within = float(raw_within) if isinstance(raw_within, (int, float)) and not isinstance(raw_within, bool) else 6.0
+        if not math.isfinite(within):
             within = 6.0
         within = min(store.MAX_TOLERANCE * 100, max(1.0, within))
         found = traktor.mixes_tracks(database, str(seed)[:128], tolerance=within / 100)
