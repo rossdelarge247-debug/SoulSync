@@ -288,6 +288,7 @@ function MusicRow({
                     label: 'Play next',
                     onSelect: () => queueNext(play),
                     disabled: Boolean(away),
+                    reason: away?.words,
                   },
                   ...mixesEntry,
                   { key: 'playlist', label: 'Add to playlist…', onSelect: addToPlaylist },

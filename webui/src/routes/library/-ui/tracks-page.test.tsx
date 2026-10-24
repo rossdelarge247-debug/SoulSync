@@ -322,6 +322,13 @@ describe('Library → Tracks', () => {
     expect(reason.textContent).toBe('Music HD isn’t connected');
     fireEvent.click(play);
     expect(window.playNext).not.toHaveBeenCalled();
+    // 172 (23a): the "…" menu's Play next says why on a second line
+    const row = play.closest('li')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'More for Static Bloom' }));
+    const next = await screen.findByRole('menuitem', { name: 'Play next' });
+    expect(next.getAttribute('aria-disabled')).toBe('true');
+    expect(next).toHaveAccessibleDescription('Music HD isn’t connected');
+    expect(next.textContent).toBe('Play nextMusic HD isn’t connected');
   });
 
   it('puts Mixes well with… second in the "…" menu (154)', async () => {

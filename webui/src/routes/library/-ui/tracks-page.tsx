@@ -287,11 +287,12 @@ function TrackRow({
           <MoreMenu
             className={styles.more}
             label={`More for ${track.title}`}
-            entries={entries.map(({ key: k, label, onSelect, disabled }) => ({
+            entries={entries.map(({ key: k, label, onSelect, disabled, reason }) => ({
               key: k,
               label,
               onSelect,
               disabled,
+              reason,
             }))}
           />
         )}
