@@ -945,6 +945,13 @@ describe('the markup', () => {
     expect(admin).toEqual(['setup-check', 'hydrabase', 'maintenance', 'issues', 'help']);
   });
 
+  it('gives Tracks the list glyph, not Activity’s pulse (150)', () => {
+    const icon = (row: string) =>
+      document.querySelector(`#app-sidebar [data-nav-row="${row}"] svg`)!.innerHTML;
+    expect(icon('tracks')).toContain('M8 6h13M8 12h13M8 18h13');
+    expect(icon('tracks')).not.toBe(icon('activity'));
+  });
+
   it('pins three rows at the foot: Admin and help, the side switch and the profile', () => {
     const bottom = $('#app-sidebar .ss-nav-bottom');
     const pinned = [...bottom.children].map((el) => el.id || el.className);
