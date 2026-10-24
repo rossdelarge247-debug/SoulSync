@@ -105,6 +105,9 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **An export folder that escapes:** a folder given as `…/../outside` or as a link inside a music folder that leads outside is refused when set and again at the write; a file name with `..`, a slash, a NUL or the wrong suffix is refused; nothing is written outside. A stored export folder swapped for a link that leads out after it was set is refused at the save (409).
   - **No overwrite:** an existing file, a link at the name (even a dangling one) and a folder at the name are never written over without `overwrite`, and a link's target is never touched, even with it; the save route answers 409 `exists` and leaves the file as it was; no temporary file is left behind; without hard links the exclusive create still refuses.
   - **Profile scope:** a member's export of track ids, a playlist or Mixes well with only reaches tracks in their own library scope; another profile's playlist reads as missing; a profile on its own library sees only its tracks.
+  - **Looking paths up on disk is bounded:** an export of 1,000 tracks whose stored paths are a media server's looks up at most 50 of them (or for 5 s; the rest are left out as `lookup_limit`), a miss isn't looked up again for 5 minutes, nothing is looked up when nothing could place the result, and a preview through the route asks the resolver at most the budget.
+  - **A folder swapped after the check:** the export folder replaced by a link that leads outside, or by another folder, between the check and the write is refused; nothing is written outside or into the other folder.
+  - **Orphaned temporary files and the no-link path:** temporary export files older than an hour are swept (a fresh one and files that aren't ours stay), and on a file system without hard links a failure leaves neither the claim nor the temporary file.
 
 When you write a test for a new way a change could lose data, tag it `gauntlet` too.
 
