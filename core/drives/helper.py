@@ -142,15 +142,16 @@ def script_sha256() -> str:
     return hashlib.sha256(script().encode("utf-8")).hexdigest()
 
 
-def command(base_url: str, token: str, folder: str, platform: str = "mac") -> str:
+def command(base_url: str, token: str, folder: str, platform: str = "mac", *, names: bool = False) -> str:
     """The line to paste (Mac and Linux): fetch the script, check it is the
-    one SYNCHRO.S serves (``shasum`` on a Mac, ``sha256sum`` on Linux), run it."""
+    one SYNCHRO.S serves (``shasum`` on a Mac, ``sha256sum`` on Linux), run it.
+    With ``names`` it runs ``--names``: only the folders' host hints."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", token or ""):
         raise ValueError("bad token")
     url = f"{clean_base_url(base_url)}/api/drives/helper.sh?t={token}"
     check = "shasum -a 256 -c -" if platform == "mac" else "sha256sum -c -"
     return (f"cd {_shell_folder(folder)} && curl -fsSL {shlex.quote(url)} -o {SCRIPT_NAME} && "
-            f"echo '{script_sha256()}  {SCRIPT_NAME}' | {check} && sh {SCRIPT_NAME}")
+            f"echo '{script_sha256()}  {SCRIPT_NAME}' | {check} && sh {SCRIPT_NAME}" + (" --names" if names else ""))
 
 
 def undo_command(folder: str) -> str:
@@ -173,6 +174,8 @@ SCRIPT_TEMPLATE = r"""#!/bin/sh
 #   sh drives-helper.sh --dry-run  only shows them
 #   sh drives-helper.sh --undo     puts docker-compose.before-drives.yml back
 #                                  (only while the file is as the helper left it)
+#   sh drives-helper.sh --names    only tells SYNCHRO.S your folders' names on
+#                                  this computer (no change to the set-up file)
 #
 # It keeps a copy of your set-up file as docker-compose.before-drives.yml
 # before it changes a line, edits the file with a small Python program (below,
