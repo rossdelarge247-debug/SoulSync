@@ -50904,8 +50904,6 @@ tr.tag-diff-same {
     border-radius: 50%;
     background: currentColor;
 }
-#settings-page .src-modal-header .stg-spotify-pause-tag { display: none; }
-#settings-page #service-config-modal:has(.stg-service[data-service="spotify"]) .src-modal-header .stg-spotify-pause-tag { display: inline-flex; }
 #settings-page .stg-spotify-pause-tag[data-tone="info"] { background: rgba(56, 189, 248, 0.12); color: #38bdf8; }
 #settings-page .stg-spotify-pause-tag[data-tone="success"] { background: rgba(74, 222, 128, 0.12); color: #4ade80; }
 #settings-page .stg-spotify-pause {
@@ -50967,49 +50965,100 @@ tr.tag-diff-same {
     #settings-page .stg-spotify-pause-retry { width: 100%; }
 }
 
-/* ── The Spotify service modal (board 15a, HANDOFF 85): the legacy form stays;
-   the dialog takes the 680 frame on the dialog ground, the head is the logo,
-   the name with its tag, and "Connected as ross · 14 playlists · metadata
-   source"; the warning box tops the body; the footer has Disconnect as a ghost
-   on the left, Test connection and Save on the right. The Spotify tile in the
-   grid carries a short tag ("Paused · 11 min", "Easing back in"). ── */
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal {
+/* ── The service modal's frame (board 15a, HANDOFF 85 and 132): every
+   Connections service keeps its legacy form inside it. The dialog takes the
+   680 frame on the dialog ground; the head is the 40px logo well, the name at
+   22/600 with a StatusTag beside it, and one line under them ("Connected as
+   ross · 14 playlists · metadata source"; none when there's nothing to say);
+   the warning box tops the body; the footer has Disconnect as a ghost on the
+   left (only while connected), Test connection and Save on the right. Tiles in
+   the grid carry the same tag in place of their chip. Drawn by
+   renderServiceModalFrame() in settings.js. ── */
+#settings-page #service-config-modal .src-modal {
     width: min(680px, 100%);
     border: 0;
-    border-radius: 16px;
-    background: #17171c;
+    border-radius: var(--ss-radius-dialog);
+    background: var(--ss-ground-dialog);
     box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
 }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-header {
+#settings-page #service-config-modal .src-modal-header {
     align-items: flex-start;
     gap: 12px;
     padding: 24px 24px 0;
     border-bottom: 0;
     background: none;
 }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-icon { flex: none; width: 40px; height: 40px; border-radius: 10px; }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-titles { gap: 4px; }
-#settings-page .src-modal-titlerow { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-width: 0; }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-titles h3 { font-size: 22px; font-weight: 600; line-height: 1.3; }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-titlerow .stg-spotify-pause-tag { margin: 0; }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-sub { font-size: 15px; line-height: 1.5; color: rgba(255, 255, 255, 0.72); }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-sub strong { font-weight: 600; color: #fff; }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-close {
+#settings-page #service-config-modal .src-modal-icon { flex: none; width: 40px; height: 40px; border-radius: var(--ss-radius-control); }
+#settings-page #service-config-modal .src-modal-titles { gap: 4px; min-width: 0; }
+#settings-page .src-modal-titlerow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+#settings-page #service-config-modal .src-modal-titles h3 { font-size: 22px; font-weight: 600; line-height: 1.3; }
+#settings-page #service-config-modal .src-modal-sub { font-size: 15px; line-height: 1.5; color: var(--ss-text-tertiary); }
+#settings-page #service-config-modal .src-modal-sub[hidden] { display: none; }
+#settings-page #service-config-modal .src-modal-sub strong { font-weight: 600; color: var(--ss-text); }
+#settings-page #service-config-modal .src-modal-close {
+    flex: none;
     width: 44px;
     height: 44px;
     border: 0;
-    border-radius: 10px;
+    border-radius: var(--ss-radius-control);
     background: transparent;
-    color: rgba(255, 255, 255, 0.86);
+    color: var(--ss-text-secondary);
     font-size: 24px;
 }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-close:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-close:focus-visible { outline: 2px solid rgb(var(--ss-accent-light-rgb)); outline-offset: 2px; }
-#settings-page #service-config-modal[data-svc="spotify"] .src-modal-body { padding: 20px 24px 24px; }
-#settings-page #service-config-modal[data-svc="spotify"] .stg-spotify-pause { margin: 0 0 16px; }
-/* Test connection and Disconnect live in the footer here */
-#settings-page #service-config-modal[data-svc="spotify"] .form-actions .test-button,
-#settings-page #service-config-modal[data-svc="spotify"] .form-actions .disconnect-button { display: none !important; }
+#settings-page #service-config-modal .src-modal-close:hover { background: var(--ss-control-fill); color: var(--ss-text); }
+#settings-page #service-config-modal .src-modal-close:focus-visible { outline: var(--ss-focus-ring); outline-offset: var(--ss-focus-offset); }
+#settings-page #service-config-modal .src-modal-body { padding: 20px 24px 24px; }
+#settings-page #service-config-modal .stg-spotify-pause { margin: 0 0 16px; }
+/* The StatusTag beside the name and on the tiles: the colour at 12%, an 8px
+   dot, 14/600, 6px radius; never reacts to hover */
+#settings-page .svc-modal-tag,
+#settings-page .svc-tile .svc-tile-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border: 0;
+    border-radius: var(--ss-radius-tag);
+    background: var(--ss-neutral-fill);
+    color: var(--ss-neutral);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: normal;
+    white-space: nowrap;
+}
+#settings-page .svc-modal-tag::before,
+#settings-page .svc-tile .svc-tile-tag::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+#settings-page .svc-modal-tag[data-tone="success"],
+#settings-page .svc-tile .svc-tile-tag[data-tone="success"] { background: rgba(var(--ss-success-rgb), 0.12); color: var(--ss-success); }
+#settings-page .svc-modal-tag[data-tone="warning"],
+#settings-page .svc-tile .svc-tile-tag[data-tone="warning"] { background: rgba(var(--ss-warning-rgb), 0.12); color: var(--ss-warning); }
+#settings-page .svc-modal-tag[data-tone="info"],
+#settings-page .svc-tile .svc-tile-tag[data-tone="info"] { background: rgba(var(--ss-info-rgb), 0.12); color: var(--ss-info); }
+#settings-page .svc-modal-tag[data-tone="danger"],
+#settings-page .svc-tile .svc-tile-tag[data-tone="danger"] { background: rgba(var(--ss-danger-rgb), 0.12); color: var(--ss-danger); }
+/* The warning box at the top of the body (10px radius, the tone at 35% border
+   and 7% fill, 15/1.5), the same box as Spotify's pause */
+#settings-page .svc-modal-warning {
+    margin: 0 0 16px;
+    padding: 14px 16px;
+    border-radius: var(--ss-radius-control);
+    border: 1px solid rgba(var(--ss-warning-rgb), 0.35);
+    background: rgba(var(--ss-warning-rgb), 0.07);
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ss-text-secondary);
+}
+#settings-page .svc-modal-warning[data-tone="danger"] { border-color: rgba(var(--ss-danger-rgb), 0.35); background: rgba(var(--ss-danger-rgb), 0.07); }
+#settings-page .svc-modal-warning[data-tone="info"] { border-color: rgba(var(--ss-info-rgb), 0.35); background: rgba(var(--ss-info-rgb), 0.07); }
+#settings-page .svc-modal-warning p { margin: 0; overflow-wrap: anywhere; }
+#settings-page .svc-modal-warning strong { font-weight: 600; color: var(--ss-text); }
+/* The form's own Test Connection and Disconnect live in the footer here, and
+   a row of actions left empty by that goes with them */
+#settings-page #service-config-modal [data-svc-foot],
+#settings-page #service-config-modal [data-video-test-service] { display: none !important; }
+#settings-page #service-config-modal .form-actions:not(:has(> :not([data-svc-foot]))) { display: none; }
 #settings-page .src-modal-foot {
     display: flex;
     align-items: center;
@@ -51017,7 +51066,7 @@ tr.tag-diff-same {
     gap: 12px;
     flex-shrink: 0;
     padding: 16px 24px 24px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--ss-hairline);
 }
 #settings-page .src-modal-foot[hidden],
 #settings-page .src-modal-foot .src-modal-btn[hidden] { display: none; }
@@ -51028,47 +51077,32 @@ tr.tag-diff-same {
     justify-content: center;
     min-height: 44px;
     padding: 0 16px;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #fff;
+    border: 1px solid var(--ss-control-border);
+    border-radius: var(--ss-radius-control);
+    background: var(--ss-control-fill);
+    color: var(--ss-text);
     font: inherit;
     font-size: 15px;
     font-weight: 500;
     cursor: pointer;
     transition: background 120ms ease, opacity 120ms ease;
 }
-#settings-page .src-modal-btn:hover { background: rgba(255, 255, 255, 0.10); }
-#settings-page .src-modal-btn:focus-visible { outline: 2px solid rgb(var(--ss-accent-light-rgb)); outline-offset: 2px; }
-#settings-page .src-modal-btn--ghost { background: transparent; color: rgba(255, 255, 255, 0.86); }
-#settings-page .src-modal-btn--ghost:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+#settings-page .src-modal-btn:hover { background: var(--ss-control-fill-hover); }
+#settings-page .src-modal-btn:focus-visible { outline: var(--ss-focus-ring); outline-offset: var(--ss-focus-offset); }
+#settings-page .src-modal-btn[aria-busy="true"] { opacity: 0.92; cursor: progress; }
+#settings-page .src-modal-btn--ghost { background: transparent; color: var(--ss-text-secondary); }
+#settings-page .src-modal-btn--ghost:hover { background: var(--ss-control-fill); color: var(--ss-text); }
 #settings-page .src-modal-btn--primary {
     padding: 0 18px;
     border-color: rgba(var(--ss-accent-light-rgb), 0.45);
     background: rgb(var(--ss-accent-light-rgb));
-    color: #0b0b0f;
+    color: var(--ss-text-on-accent);
 }
-#settings-page .src-modal-btn--primary:hover { background: rgb(var(--ss-accent-light-rgb)); opacity: 0.84; }
-#settings-page .svc-tile .svc-tile-pause {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 8px;
-    border: 0;
-    border-radius: 6px;
-    background: rgba(251, 191, 36, 0.12);
-    color: #fbbf24;
-    font-size: 14px;
-    font-weight: 600;
-    line-height: 1.4;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-#settings-page .svc-tile .svc-tile-pause::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-#settings-page .svc-tile .svc-tile-pause[data-tone="info"] { background: rgba(56, 189, 248, 0.12); color: #38bdf8; }
+#settings-page .src-modal-btn--primary:hover { background: rgb(var(--ss-accent-light-rgb)); opacity: 0.92; }
+#settings-page .src-modal-btn--primary:active { opacity: 0.84; }
 @media (max-width: 640px) {
-    #settings-page #service-config-modal[data-svc="spotify"] .src-modal-header { padding: 16px 16px 0; }
-    #settings-page #service-config-modal[data-svc="spotify"] .src-modal-body { padding: 16px; }
+    #settings-page #service-config-modal .src-modal-header { padding: 16px 16px 0; }
+    #settings-page #service-config-modal .src-modal-body { padding: 16px; }
     #settings-page .src-modal-foot { padding: 12px 16px 16px; }
     #settings-page .src-modal-foot .src-modal-btn { flex: 1 1 auto; }
     #settings-page .src-modal-foot-gap { display: none; }

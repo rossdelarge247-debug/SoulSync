@@ -906,11 +906,15 @@ function buildServiceTiles() {
             : (set === null ? '<span class="src-tile-chip">no key needed</span>'
                : set ? '<span class="src-tile-chip src-tile-chip--on">configured</span>'
                      : '<span class="src-tile-chip">not set up</span>');
-        const brand = (m.colour || '').replace('#', '');
-        // the Spotify tile carries the pause before its modal opens (15a)
-        const pause = id === 'spotify' ? _stgSpotifyTileTag() : null;
-        const tileChip = pause
-            ? `<span class="src-tile-chip svc-tile-pause" data-tone="${pause.tone}">${escapeHtml(pause.text)}</span>`
+        // the tile carries the service's own state before its modal opens
+        // (15a, HANDOFF 132): "Paused · 11 min", "Connected", "Not connected",
+        // "Refused" after a Test. A service that reports nothing keeps the
+        // chip above.
+        const view = serviceFrameView(id, _svcFrameContext(id, frame));
+        const t = view.tileTag;
+        const tileChip = t
+            ? `<span class="src-tile-chip svc-tile-tag" data-tone="${escapeHtml(t.tone)}"`
+              + `${t.pause ? ' data-pause="1"' : ''}>${escapeHtml(t.text)}</span>`
             : chip;
         return `<button type="button" class="svc-tile${set ? ' is-active' : ''}" `
              + `data-service-tile="${escapeHtml(id)}" onclick="openServiceModal('${escapeHtml(id)}')" `
@@ -970,9 +974,13 @@ function openServiceModal(id) {
     overlay.dataset.svc = id;
     overlay.hidden = false;
     document.body.classList.add('src-modal-open');
-    if (id === 'spotify') {
-        renderStgSpotifyModal();
-        renderStgSpotifyPause();
+    // every service on 15a's frame (HANDOFF 132): head, warning box, footer
+    renderServiceModalFrame();
+    if (id === 'spotify') renderStgSpotifyPause();
+    // Qobuz's account comes from what the server kept at sign-in (no call to
+    // Qobuz), read when its modal opens as the Sources tab does
+    if (id === 'qobuz' && _svcOpen.attr === 'data-service' && typeof checkQobuzAuthStatus === 'function') {
+        checkQobuzAuthStatus();
     }
 }
 window.openServiceModal = openServiceModal;
@@ -992,7 +1000,9 @@ function closeServiceModal() {
     _svcOpen = null;
     delete overlay.dataset.svc;
     const foot = document.getElementById('svc-modal-foot');
-    if (foot) { foot.hidden = true; foot.replaceChildren(); }
+    if (foot) { foot.hidden = true; foot.replaceChildren(); delete foot.dataset.svc; }
+    document.querySelector('#service-config-modal .svc-modal-tag')?.remove();
+    document.querySelector('#svc-modal-body > .svc-modal-warning')?.remove();
     overlay.hidden = true;
     document.body.classList.remove('src-modal-open');
     // an api key typed seconds before closing would otherwise sit on the 2s
@@ -1415,6 +1425,9 @@ async function applyServiceStatusGradients() {
             }
         });
         syncSpotifySettingsAuthState(_lastStatusPayload?.spotify || null);
+        // the tiles' and the open modal's tags read the same answer (HANDOFF 132)
+        if (!_svcOpen && document.getElementById('service-tile-grid')) buildServiceTiles();
+        renderServiceModalFrame();
     } catch (e) {
         console.warn('[Settings Status] Failed to apply gradients:', e);
     }
@@ -1470,12 +1483,8 @@ function renderStgSpotifyPause() {
         ? window.ssSpotifyPauseView(_stgSpotifyPauseStatus, elapsed) : null;
     const header = card ? card.querySelector('.stg-service-header') : null;
     const body = card ? card.querySelector('.stg-service-body') : null;
-    // the card opens in the service modal, whose own head is the card's
-    // header there: the tag goes in both (CSS shows the modal's only while
-    // Spotify is the one open)
-    // (15a: beside the name, in the head's title row)
-    const modalHead = document.querySelector('#service-config-modal .src-modal-titlerow')
-        || document.querySelector('#service-config-modal .src-modal-header');
+    // the card's own header (the legacy list) carries the tag here; in the
+    // service modal the shared frame puts it beside the name (15a, HANDOFF 132)
     let box = body ? body.querySelector('.stg-spotify-pause') : null;
     const tagIn = (host, before) => {
         if (!host) return null;
@@ -1488,9 +1497,10 @@ function renderStgSpotifyPause() {
         }
         return t;
     };
-    const tags = () => [tagIn(header, '.stg-service-chevron'), tagIn(modalHead, '.src-modal-close')].filter(Boolean);
+    const tags = () => [tagIn(header, '.stg-service-chevron')].filter(Boolean);
     renderStgSpotifyTile(view);
-    const dropTags = () => [header, modalHead].forEach((h) => h?.querySelector('.stg-spotify-pause-tag')?.remove());
+    renderStgSpotifyModal();
+    const dropTags = () => header?.querySelector('.stg-spotify-pause-tag')?.remove();
 
     if (!view) {
         if (box) box.remove();
@@ -1530,38 +1540,25 @@ function renderStgSpotifyPause() {
     if (paused && canRetry && !note.dataset.busy && !note.dataset.result) note.textContent = view.cardNote || '';
 }
 
-// The Spotify tile's own tag in the Connections grid (15a): "Paused · 11 min"
-// (warning), "Easing back in" (info); the tile's usual chip otherwise.
-function _stgSpotifyTileTag() {
-    if (typeof window.ssSpotifyPauseView !== 'function' || !_stgSpotifyPauseStatus) return null;
-    const elapsed = Math.max(0, (Date.now() - _stgSpotifyPauseAt) / 1000);
-    const view = window.ssSpotifyPauseView(_stgSpotifyPauseStatus, elapsed);
-    return view ? { text: view.tileTag || view.tag, tone: view.tone } : null;
-}
-
+// The Spotify tile's tag while paused (15a): "Paused · 11 min" (warning),
+// "Easing back in" (info). Counts down in place; the grid is rebuilt only when
+// the pause starts or ends, so the tile goes to "Connected" after.
 function renderStgSpotifyTile(view) {
     const tile = document.querySelector('#settings-page [data-service-tile="spotify"]');
     if (!tile) return;
-    const chip = tile.querySelector('.svc-tile-pause');
-    if (!view) {
-        // the pause ended: the tile's usual chip comes back
-        if (chip && typeof buildServiceTiles === 'function') buildServiceTiles();
+    const tag = tile.querySelector('.svc-tile-tag[data-pause]');
+    if (view && tag) {
+        tag.dataset.tone = view.tone;
+        tag.textContent = view.tileTag || view.tag;
         return;
     }
-    if (!chip) {
-        if (typeof buildServiceTiles === 'function') buildServiceTiles();
-        return;
-    }
-    chip.dataset.tone = view.tone;
-    chip.textContent = view.tileTag || view.tag;
+    if (!view && !tag) return;
+    if (typeof buildServiceTiles === 'function') buildServiceTiles();
 }
 
-// The Spotify service modal's head and footer (15a, HANDOFF 85): the legacy
-// form stays; the head says "Connected as ross · 14 playlists · metadata
-// source" under the name and the tag, and the footer has Disconnect as a ghost
-// on the left, Test connection and Save on the right. The name and the count
-// come from /status's spotify.account (what the server already saw; nothing
-// asks Spotify for them).
+// Spotify's account line (15a, HANDOFF 85): "Connected as ross · 14 playlists
+// · metadata source". The name and the count come from /status's
+// spotify.account (what the server already saw; nothing asks Spotify for them).
 function spotifyAccountParts(status, metadataSource) {
     if (!status || status.authenticated !== true) return null;
     const account = status.account || {};
@@ -1574,55 +1571,360 @@ function spotifyAccountParts(status, metadataSource) {
     return parts;
 }
 
+// Kept for the callers that refresh Spotify's state: the shared frame below
+// draws Spotify's modal like every other service's.
 function renderStgSpotifyModal() {
     const overlay = document.getElementById('service-config-modal');
     if (!overlay || overlay.hidden || overlay.dataset.svc !== 'spotify') return;
-    const status = (typeof _lastStatusPayload !== 'undefined' && _lastStatusPayload && _lastStatusPayload.spotify)
-        || _stgSpotifyPauseStatus;
-    const source = typeof _lastStatusPayload !== 'undefined' && _lastStatusPayload
-        ? (_lastStatusPayload.metadata_source || {}).source : null;
+    renderServiceModalFrame();
+}
+
+// ── Every Connections service modal on 15a's frame (HANDOFF 132) ──────────
+//
+// Spotify's modal (15a) became the frame for all of them. The legacy form is
+// still the body, moved in untouched; around it:
+//   - the head: logo, name, a StatusTag where the service reports a state, and
+//     one line that says who it's connected as and what it's used for, from
+//     what the server already keeps. No line where there's nothing to say.
+//   - a warning box at the top of the body for that service's problems.
+//   - the footer: Disconnect as a ghost on the left (only while connected and
+//     only where the service has a disconnect), Test connection and Save on
+//     the right. The form's own Test and Disconnect hide in the modal.
+// The tile in the grid carries the same tag. Nothing here calls a service:
+// a state that needs a call (refused, rate-limited, can't reach) shows only
+// after Test connection, from its answer. No token or key is ever read into
+// the frame: the inputs are only checked for being empty.
+const _svcTests = {};              // id -> the last Test connection's outcome, this page only
+let _svcLastfmAuthorized = false;  // Last.fm handed back a session (the settings answer says so, masked)
+let _svcQobuzAuth = null;          // /api/qobuz/auth/status as the page last read it
+
+// Keys and tokens can ride inside an error the server passes on (a URL's
+// query string, a long token). The frame keeps the words and drops those.
+function _svcSafeText(text) {
+    return String(text || '')
+        .replace(/⚠️?\s*/g, '')
+        .replace(/([?&;](?:api_?key|apikey|key|token|access_token|auth_token|secret|client_secret|password|arl|sig|session|session_key)=)[^&\s)'",;]+/gi, '$1…')
+        .replace(/\b[A-Za-z0-9_\-]{32,}\b/g, '…')
+        .trim();
+}
+
+// What a Test connection answer means for the tag and the warning box.
+function serviceTestOutcome(result) {
+    if (!result || typeof result !== 'object') return null;
+    const raw = String((result.success ? result.message : (result.error || result.message)) || '');
+    const text = _svcSafeText(raw);
+    if (result.success) {
+        if (raw.trim().startsWith('⚠')) {
+            return { ok: true, tag: { text: 'Needs a look', tone: 'warning' },
+                     lead: 'The test worked, with a warning.', text };
+        }
+        return { ok: true, tag: { text: 'Connected', tone: 'success' }, lead: '', text };
+    }
+    const fail = (t, tone, lead) => ({ ok: false, tag: { text: t, tone }, lead, text });
+    if (/rate.?limit|too many requests|\b429\b/i.test(raw)) {
+        return fail('Rate-limited', 'warning', 'The service is limiting requests right now.');
+    }
+    if (/^\s*missing\b|\bis required\b|\bneeds both\b|\bis disabled\b|no .*keys?\b.*(set|saved)/i.test(raw)) {
+        return fail('Not set up', 'neutral', 'Nothing to test yet.');
+    }
+    if (/invalid|unauthori[sz]ed|authentication failed|expired|refused|rejected|denied|forbidden|\b40[13]\b/i.test(raw)) {
+        return fail('Refused', 'danger', 'The service refused what it was given.');
+    }
+    if (/could not connect|couldn.t connect|connection error|unreachable|timed? ?out|failed to test|\bHTTP 5\d\d\b|returned HTTP/i.test(raw)) {
+        return fail("Can't reach", 'danger', "SYNCHRO.S couldn't reach the service.");
+    }
+    return fail('Test failed', 'danger', "The test didn't work.");
+}
+
+// The frame's view of one service, from what the page already holds (ctx is
+// built by _svcFrameContext). Pure, so the tests can drive it.
+function serviceFrameView(id, ctx) {
+    const c = ctx || {};
+    const test = c.test || null;
+    let state = null;          // the service's own state, as a tag
+    let parts = null;          // the head line's account part
+    let warning = null;        // { tone, lead, text }
+    let connected = false;
+    let canDisconnect = false;
+    // services with an account: whether it's connected is theirs to say, so
+    // a passed test (Spotify's passes on the fallback source) never says it
+    const account = ['spotify', 'tidal', 'qobuz', 'lastfm'].includes(id);
+
+    if (id === 'spotify') {
+        const s = c.spotify || null;
+        connected = !!(s && s.authenticated === true);
+        canDisconnect = true;
+        parts = spotifyAccountParts(s, c.metadataSource);
+        if (connected) state = { text: 'Connected', tone: 'success' };
+        else if (c.hasApp) state = { text: 'Not connected', tone: 'neutral' };
+    } else if (id === 'tidal') {
+        // config-status' tidal is "has a token" (no call to Tidal)
+        connected = !!(c.config && c.config.configured === true);
+        canDisconnect = true;
+        if (connected) state = { text: 'Connected', tone: 'success' };
+        else if (c.hasApp) state = { text: 'Not connected', tone: 'neutral' };
+    } else if (id === 'qobuz') {
+        const q = c.qobuz || null;
+        connected = !!(q && q.authenticated === true);
+        canDisconnect = true;
+        if (connected) {
+            parts = [q.name ? { lead: 'Connected as ', strong: String(q.name) } : { text: 'Connected' }];
+            if (q.plan && !/^(unknown|active)$/i.test(String(q.plan))) parts.push({ text: String(q.plan) });
+            state = { text: 'Connected', tone: 'success' };
+        } else if (q && ((c.config && c.config.configured === true) || c.configured === true)) {
+            state = { text: 'Not connected', tone: 'neutral' };
+        }
+    } else if (id === 'lastfm') {
+        const l = c.lastfm || {};
+        connected = l.authorized === true;
+        if (connected) {
+            parts = [l.username ? { lead: 'Connected as ', strong: String(l.username) } : { text: 'Connected' }];
+            if (l.scrobble) parts.push({ text: 'scrobbling your plays' });
+            state = { text: 'Connected', tone: 'success' };
+        } else if (l.scrobble) {
+            state = { text: 'Not authorized', tone: 'warning' };
+            warning = {
+                tone: 'warning',
+                lead: "Last.fm hasn't authorized SYNCHRO.S yet.",
+                text: 'Scrobbling is on, but no plays are sent until you Authorize below.',
+            };
+        }
+    } else if (c.required && c.configured === false) {
+        warning = {
+            tone: 'warning',
+            lead: 'Required.',
+            text: 'Nothing on the video side works until this key is set.',
+        };
+    }
+
+    // what it's used for: the service's own line, and the metadata source
+    // ("No Key" says nothing the tile's "no key needed" doesn't)
+    const detail = c.detail && !/^no key$/i.test(String(c.detail).trim()) ? String(c.detail) : '';
+    const line = parts ? parts.slice() : (detail ? [{ text: detail }] : []);
+    if (id !== 'spotify' && c.metadataSource && c.metadataSource === id) line.push({ text: 'metadata source' });
+
+    // the tag: Spotify's pause first, then a failed test, then the service's
+    // own problem, then a test's warning, then the service's state, then a
+    // passed test (for services without an account).
+    let tag = null;
+    let tileTag = null;
+    const problem = state && (state.tone === 'warning' || state.tone === 'danger');
+    if (c.pause) {
+        tag = { text: c.pause.tag, tone: c.pause.tone };
+        tileTag = { text: c.pause.tileTag || c.pause.tag, tone: c.pause.tone, pause: true };
+    } else {
+        if (test && !test.ok) tag = test.tag;
+        else if (problem) tag = state;
+        else if (test && test.tag.tone === 'warning') tag = test.tag;
+        else tag = state || (test && !account ? test.tag : null);
+        tileTag = tag;
+    }
+    if (test && (!test.ok || test.tag.tone === 'warning')) {
+        warning = { tone: test.tag.tone === 'neutral' ? 'warning' : test.tag.tone, lead: test.lead, text: test.text };
+    }
+    return {
+        tag,
+        tileTag,
+        line,
+        warning,
+        connected,
+        disconnect: canDisconnect && connected,
+        test: !!c.hasTest,
+    };
+}
+
+// What the page holds about one service, for serviceFrameView.
+function _svcFrameContext(id, frame) {
+    const status = (typeof _lastStatusPayload !== 'undefined' && _lastStatusPayload) || {};
+    const m = _svcMeta(frame);
+    const video = frame.hasAttribute('data-video-service');
+    const ctx = {
+        detail: m.detail,
+        required: m.required,
+        configured: _svcConfigured(frame),
+        config: video ? null : ((typeof _stgServiceStatusState !== 'undefined' && _stgServiceStatusState) || {})[id] || null,
+        metadataSource: video ? null : ((status.metadata_source || {}).source || null),
+        test: _svcTests[id] || null,
+        hasTest: !!_svcTestAction(id, frame),
+    };
+    if ((id === 'spotify' || id === 'tidal') && !video) {
+        // an app's client id typed in: set up, so "Not connected" means something
+        ctx.hasApp = !!(document.getElementById(`${id}-client-id`)?.value || '').trim();
+    }
+    if (id === 'spotify' && !video) {
+        ctx.spotify = status.spotify || (typeof _stgSpotifyPauseStatus !== 'undefined' ? _stgSpotifyPauseStatus : null);
+        if (typeof window.ssSpotifyPauseView === 'function' && _stgSpotifyPauseStatus) {
+            const elapsed = Math.max(0, (Date.now() - _stgSpotifyPauseAt) / 1000);
+            ctx.pause = window.ssSpotifyPauseView(_stgSpotifyPauseStatus, elapsed) || null;
+        }
+    } else if (id === 'qobuz' && !video) {
+        ctx.qobuz = _svcQobuzAuth;
+    } else if (id === 'lastfm' && !video) {
+        ctx.lastfm = {
+            authorized: _svcLastfmAuthorized,
+            scrobble: !!document.getElementById('lastfm-scrobble-enabled')?.checked,
+            username: (document.getElementById('lastfm-username')?.value || '').trim(),
+        };
+    }
+    return ctx;
+}
+
+// The footer's Test connection runs what the form's own button ran.
+function _svcTestAction(id, frame) {
+    if (frame.hasAttribute('data-video-service')) {
+        const spec = frame.querySelector('[data-video-test-service]')?.getAttribute('data-video-test-service');
+        return spec ? () => testConnection(spec) : null;
+    }
+    if (!frame.querySelector('[data-svc-foot="test"]')) return null;
+    if (id === 'deezer') return () => testDeezerConnection();
+    return () => testConnection(id);
+}
+
+const SERVICE_DISCONNECT = {
+    spotify: () => disconnectSpotify(),
+    tidal: () => disconnectTidal(),
+    qobuz: () => logoutQobuz(),
+};
+
+function _svcOpenFrame() {
+    const overlay = document.getElementById('service-config-modal');
+    if (!overlay || overlay.hidden || !overlay.dataset.svc) return null;
+    const frame = document.querySelector('#svc-modal-body > .api-service-frame');
+    return frame ? { overlay, frame, id: overlay.dataset.svc } : null;
+}
+
+function renderServiceModalFrame() {
+    const open = _svcOpenFrame();
+    if (!open) return;
+    const { overlay, frame, id } = open;
+    const view = serviceFrameView(id, _svcFrameContext(id, frame));
+
+    // the head: the tag beside the name
+    const row = overlay.querySelector('.src-modal-titlerow');
+    let tag = row ? row.querySelector('.svc-modal-tag') : null;
+    if (view.tag && row) {
+        if (!tag) {
+            tag = document.createElement('span');
+            tag.className = 'svc-modal-tag';
+            row.appendChild(tag);
+        }
+        tag.dataset.tone = view.tag.tone;
+        tag.textContent = view.tag.text;
+    } else if (tag) {
+        tag.remove();
+    }
+
+    // the line under them, or none
     const sub = document.getElementById('svc-modal-sub');
-    const parts = spotifyAccountParts(status, source);
-    if (sub && parts) {
-        if (!('detail' in sub.dataset)) sub.dataset.detail = sub.textContent;
+    if (sub) {
         sub.replaceChildren();
-        parts.forEach((p, i) => {
+        view.line.forEach((p, i) => {
             if (i) sub.append(' · ');
             if (p.strong) {
                 const b = document.createElement('strong');
                 b.textContent = p.strong;
-                sub.append(p.lead, b);
+                sub.append(p.lead || '', b);
             } else {
                 sub.append(p.text);
             }
         });
-    } else if (sub && 'detail' in sub.dataset) {
-        sub.textContent = sub.dataset.detail;
-        delete sub.dataset.detail;
+        sub.hidden = !view.line.length;
     }
+
+    // the warning box tops the body
+    const body = document.getElementById('svc-modal-body');
+    let box = body ? body.querySelector(':scope > .svc-modal-warning') : null;
+    if (view.warning && body) {
+        if (!box) {
+            box = document.createElement('div');
+            box.className = 'svc-modal-warning';
+            box.setAttribute('role', 'note');
+            box.innerHTML = '<p><strong class="svc-modal-warning-lead"></strong> <span class="svc-modal-warning-text"></span></p>';
+            body.insertBefore(box, body.firstChild);
+        }
+        box.dataset.tone = view.warning.tone;
+        box.querySelector('.svc-modal-warning-lead').textContent = view.warning.lead || '';
+        box.querySelector('.svc-modal-warning-text').textContent = view.warning.text || '';
+    } else if (box) {
+        box.remove();
+    }
+
+    // the footer: Disconnect left, Test connection and Save right
     const foot = document.getElementById('svc-modal-foot');
     if (!foot) return;
-    if (!foot.childElementCount) {
-        const btn = (label, cls, onClick) => {
+    if (foot.dataset.svc !== id) {
+        const btn = (label, cls, onClick, mark) => {
             const b = document.createElement('button');
             b.type = 'button';
             b.className = `src-modal-btn ${cls}`;
             b.textContent = label;
+            b.dataset[mark] = '';
             b.addEventListener('click', onClick);
             return b;
         };
-        const disconnect = btn('Disconnect', 'src-modal-btn--ghost', () => disconnectSpotify());
-        disconnect.dataset.spotifyDisconnect = '';
         const gap = document.createElement('span');
         gap.className = 'src-modal-foot-gap';
-        foot.append(disconnect, gap,
-            btn('Test connection', 'src-modal-btn--secondary', () => testConnection('spotify')),
-            btn('Save', 'src-modal-btn--primary', () => saveSettings()));
+        foot.replaceChildren(
+            btn('Disconnect', 'src-modal-btn--ghost', () => _svcFrameDisconnect(id), 'svcDisconnect'),
+            gap,
+            btn('Test connection', 'src-modal-btn--secondary', () => _svcFrameTest(id), 'svcTest'),
+            btn('Save', 'src-modal-btn--primary', () => _svcFrameSave(id), 'svcSave'));
+        foot.dataset.svc = id;
     }
     foot.hidden = false;
-    const disconnect = foot.querySelector('[data-spotify-disconnect]');
-    if (disconnect) disconnect.hidden = !(status && status.authenticated === true);
+    foot.querySelector('[data-svc-disconnect]').hidden = !view.disconnect;
+    foot.querySelector('[data-svc-test]').hidden = !view.test;
 }
+
+async function _svcFrameTest(id) {
+    const open = _svcOpenFrame();
+    if (!open || open.id !== id) return;
+    const run = _svcTestAction(id, open.frame);
+    if (!run) return;
+    const button = document.querySelector('#svc-modal-foot [data-svc-test]');
+    button?.setAttribute('aria-busy', 'true');
+    let result = null;
+    try {
+        result = await run();
+    } finally {
+        button?.removeAttribute('aria-busy');
+    }
+    const outcome = serviceTestOutcome(result);
+    if (outcome) _svcTests[id] = { ...outcome, at: Date.now() };
+    renderServiceModalFrame();
+}
+
+async function _svcFrameDisconnect(id) {
+    const run = SERVICE_DISCONNECT[id];
+    if (!run) return;
+    await run();
+    delete _svcTests[id];
+    // Tidal's state is config-status' "has a token"; Spotify's comes back on
+    // the status refresh disconnectSpotify already makes
+    if (id === 'tidal' && typeof applyServiceStatusGradients === 'function') await applyServiceStatusGradients();
+    renderServiceModalFrame();
+}
+
+function _svcFrameSave(id) {
+    delete _svcTests[id];
+    const open = _svcOpenFrame();
+    // the video side saves through the page's Save button, which it takes over
+    if (open && open.frame.hasAttribute('data-video-service')) {
+        document.getElementById('save-settings')?.click();
+    } else {
+        saveSettings();
+    }
+    renderServiceModalFrame();
+}
+
+// A field changed in the open modal: the last test was of what was there
+// before, so its tag and box go until the next Test.
+document.addEventListener('input', (e) => {
+    const open = _svcOpenFrame();
+    if (!open || !_svcTests[open.id] || !open.frame.contains(e.target)) return;
+    delete _svcTests[open.id];
+    renderServiceModalFrame();
+});
 
 async function retryStgSpotifyPause(event) {
     const btn = event.currentTarget;
@@ -3334,6 +3636,8 @@ async function loadSettingsData() {
         if (lfmStatus) {
             lfmStatus.textContent = settings.lastfm?.session_key ? 'Authorized' : 'Not authorized';
         }
+        // only whether a session exists (the answer masks it), for the frame
+        _svcLastfmAuthorized = !!settings.lastfm?.session_key;
 
         // Populate ListenBrainz scrobble toggle
         document.getElementById('listenbrainz-scrobble-enabled').checked = settings.listenbrainz?.scrobble_enabled === true;
@@ -7293,11 +7597,14 @@ async function testConnection(service) {
                 loadNavidromeMusicFolders();
             }
         } else {
-            showToast(`${service} connection failed: ${result.error}`, 'error', 'gs-connecting');
+            showToast(`${service} connection failed: ${_svcSafeText(result.error)}`, 'error', 'gs-connecting');
         }
+        // the service modal's frame reads the answer for its tag (HANDOFF 132)
+        return result;
     } catch (error) {
         console.error(`Error testing ${service} connection:`, error);
         showToast(`Failed to test ${service} connection`, 'error', 'gs-connecting');
+        return { success: false, error: `Failed to test ${service} connection` };
     } finally {
         hideLoadingOverlay();
     }
@@ -7332,6 +7639,9 @@ async function testDeezerConnection() {
         const ok = api.success && arlRes.success;
         const warned = String(api.message || '').trim().startsWith('\u26a0');
         showToast(`${apiMsg} · ${arlMsg}`, !ok ? 'error' : (warned ? 'warning' : 'success'), ok ? undefined : 'gs-connecting');
+        // for the service modal's frame: what failed, in the same words
+        const failed = [api.success ? '' : apiMsg, arlRes.success ? '' : arlMsg].filter(Boolean).join(' · ');
+        return ok ? { success: true, message: api.message || apiMsg } : { success: false, error: failed };
     } finally {
         hideLoadingOverlay();
     }
@@ -8520,6 +8830,15 @@ async function checkQobuzAuthStatus() {
     try {
         const resp = await fetch('/api/qobuz/auth/status');
         const data = await resp.json();
+        // the Connections modal's head: the name and the plan, nothing else
+        const who = (data && data.user) || {};
+        _svcQobuzAuth = {
+            authenticated: !!(data && data.authenticated),
+            name: who.display_name ? String(who.display_name) : null,
+            plan: who.subscription ? String(who.subscription) : null,
+        };
+        if (typeof renderServiceModalFrame === 'function') renderServiceModalFrame();
+        if (!_svcOpen && typeof buildServiceTiles === 'function') buildServiceTiles();
 
         // Update downloads tab section
         const formEl = document.getElementById('qobuz-auth-form');
