@@ -8,6 +8,12 @@ import { resetDriveStatus } from '@/features/drives/drive-status';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
+const addToPlaylist = vi.hoisted(() => vi.fn());
+vi.mock('@/features/playlists/add-to-playlist', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/playlists/add-to-playlist')>()),
+  openAddToPlaylist: addToPlaylist,
+}));
+
 /**
  * Library → Tracks (the DJ data, BACKLOG "DJ area" stage 1) through the real
  * router: the URL's BPM range, key and sort drive the browse request, rows
@@ -369,5 +375,39 @@ describe('Library → Tracks', () => {
     fireEvent.click(within(bar).getByRole('button', { name: 'Done' }));
     expect(screen.queryByRole('toolbar', { name: 'Selected tracks' })).toBeNull();
     expect(screen.queryByRole('checkbox', { name: 'Select Static Bloom' })).toBeNull();
+  });
+
+  it('the selection’s “…” holds Add to playlist… and Clear the selection (232)', async () => {
+    addToPlaylist.mockClear();
+    renderPage();
+    await screen.findByText('Static Bloom');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected tracks' });
+    fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
+    await screen.findByRole('menuitem', { name: 'Add to playlist…' });
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      'Add to playlist…',
+      'Clear the selection',
+    ]);
+    // nothing picked: both wait
+    expect(screen.getByRole('menuitem', { name: 'Add to playlist…' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Night Ferry' }));
+    fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Add to playlist…' }));
+    expect(addToPlaylist).toHaveBeenCalledTimes(1);
+    expect(
+      (addToPlaylist.mock.calls[0]![0] as Array<{ track_name: string }>).map((t) => t.track_name),
+    ).toEqual(['Static Bloom', 'Night Ferry']);
+    expect(addToPlaylist.mock.calls[0]![0][0]).toMatchObject({
+      artist_name: 'Saltmarsh',
+      album_name: 'Lantern',
+      duration_ms: 276000,
+    });
   });
 });
