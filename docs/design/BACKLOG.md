@@ -557,6 +557,60 @@ Today:
    - **Per profile.** "Share with the family" may come later.
    - **One home for sets:** a famous mix matched to the library, an AI-suggested set and a hand-built set are all mix sets (see "Famous mixes and AI set suggestions").
 
+### The expanded player's Mix tab (added 24 October, approved by Ross)
+
+The expanded player gets a **Mix** tab beside Lyrics and Details. On a phone it's a swipe-up sheet: Lyrics · Mix · Set. The tab does three jobs.
+
+1. **This track,** always in the header:
+   - key chip, BPM and energy meter, and the star;
+   - "Not analysed yet · Analyse it now" (the Mixes panel's existing `POST /api/library/dj/start {track_id}`).
+2. **Mixes well with:** the top 5 for the playing track, refreshed on each track change.
+   - **Each match says why:** "Same key · +2% BPM · energy ↑1".
+   - **Ranking, all in code:**
+     - harmonic match and BPM (today's rules);
+     - the energy direction of the working set;
+     - not played recently;
+     - skipping tracks already in the set;
+     - a boost for starred tracks;
+     - style closeness from genres and artists.
+   - **"Vibe" (optional, off by default):** the AI re-ranks the top 20 for feel, and it counts against the profile's AI usage.
+   - **Per match:**
+     - **Play next**;
+     - **Add to set**;
+     - **More like this** (that track's own matches, for browsing a chain);
+     - **Preview** only once there's a second audio output (headphone preview via `setSinkId`, DJ stage 3). Until then there's no preview, and the playing track is never cut.
+3. **The working set:** "Working on: Sunday Set", one per profile, kept until changed, picked or started from here.
+   - **A set strip:** the set's last few tracks, then the playing track, with smooth/jump marks and a small energy line.
+   - **The main button:** "Add to Sunday Set", which becomes "✓ Added · #7".
+   - **"Suggest from":**
+     - **Now playing** (browsing);
+     - **End of set** (building: matches follow the set's last track, so a set can be planned while something else plays).
+   - **While a set is playing:** "Track 4 of 12", the next track with its transition mark, and a warning when an edit made a jump.
+
+**Keys:** S stars the playing track, A adds it to the working set, N plays the top match next, and M opens the Mix tab.
+
+**Edge cases:**
+- **Matches come only from the library with files present,** so every suggestion is playable.
+- **Radio:** if the track on air is identified and is in the library, the Mix tab works for it (hear it on a station, mix from your own collection); otherwise the tab is hidden, as now.
+- **Podcasts and spoken audio:** no Mix tab.
+
+**Server changes:**
+- `GET /api/library/dj/mixes/<track_id>` gains:
+  - `set_id` (skip the set's tracks and follow its energy direction);
+  - a starred boost;
+  - recently played;
+  - `limit` (default 5 for the tab).
+- A per-profile working-set setting.
+
+**Draw:** the Mix tab at 1440, full screen and on a phone: header, matches, working set and strip. States:
+- no working set yet;
+- the playing track isn't analysed;
+- no matches;
+- Vibe on and thinking;
+- the AI is off or at its limit;
+- playing a set;
+- radio with an identified library track.
+
 ### Constraints
 
 - "Downloaded" means the track's file is present now. A starred track whose file later goes missing keeps its star and shows as missing in the Starred view and in sets, never silently dropped.
