@@ -80,8 +80,15 @@ export const DRIVE_LETTERS = 'DEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 /** The install folder as Windows writes it: the saved one if it's a Windows path. */
 export function windowsFolder(folder: string): string {
-  const f = folder.trim();
-  return /^[A-Za-z]:[\\/]/.test(f) ? f : WINDOWS_FOLDER;
+  const f = cleanWindowsFolder(folder).trim();
+  return /^[A-Za-z]:\\/.test(f) ? f : WINDOWS_FOLDER;
+}
+
+/** What the install-folder field keeps: letters, digits, spaces and
+ *  `_ - . ( )`, plus `:` and `\`; anything else (quotes, `$`, backticks, `;`)
+ *  is dropped, so the command can't run something else. */
+export function cleanWindowsFolder(folder: string): string {
+  return folder.replace(/[^A-Za-z0-9 _.()\-:\\]/g, '').slice(0, 240);
 }
 
 /** The volume line for a drive letter: `D:\:/drives/d`. */
@@ -113,8 +120,11 @@ export function windowsComposeLines(
 }
 
 /** Step 3's command: restart from the install folder in PowerShell. */
+/** Step 3's command: go to the install folder (quoted, taken literally) and
+ *  start only if that worked, so `docker compose` never runs elsewhere. */
 export function windowsRestartCommand(folder: string): string {
-  return `cd ${windowsFolder(folder)}; docker compose up -d`;
+  const quoted = `'${windowsFolder(folder).replace(/'/g, "''")}'`;
+  return `Set-Location -LiteralPath ${quoted}; if ($?) { docker compose up -d }`;
 }
 
 /** "What it does, in order": the helper's steps, slskd's config line its own (121). */
@@ -579,7 +589,7 @@ export function WindowsSteps({
               value={typed}
               placeholder={WINDOWS_FOLDER}
               spellCheck={false}
-              onChange={(e) => setTyped(e.target.value)}
+              onChange={(e) => setTyped(cleanWindowsFolder(e.target.value))}
             />
           </div>
         </div>

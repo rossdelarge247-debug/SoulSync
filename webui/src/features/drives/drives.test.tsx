@@ -6,6 +6,7 @@ import type { DriveStatus, Move, MovePayload } from './drives.api';
 import {
   CheckAgainAnswer,
   HelperSteps,
+  cleanWindowsFolder,
   linesSnippet,
   windowsComposeLines,
   windowsFolder,
@@ -1068,7 +1069,9 @@ describe('the Docker step on Windows (19b)', () => {
   it('says the install folder, the lines and the command as Windows writes them', () => {
     expect(windowsFolder('~/SoulSync')).toBe('C:\\SoulSync');
     expect(windowsFolder('D:\\Apps\\SoulSync')).toBe('D:\\Apps\\SoulSync');
-    expect(windowsRestartCommand('')).toBe('cd C:\\SoulSync; docker compose up -d');
+    expect(windowsRestartCommand('')).toBe(
+      "Set-Location -LiteralPath 'C:\\SoulSync'; if ($?) { docker compose up -d }",
+    );
     expect(windowsComposeLines('e', './slskd:/slskd-config')).toEqual([
       { text: '  soulsync:', added: false },
       { text: '    volumes:', added: false },
@@ -1079,6 +1082,23 @@ describe('the Docker step on Windows (19b)', () => {
       { text: '    volumes:', added: false },
       { text: '      - E:\\:/drives/e', added: true },
     ]);
+  });
+
+  it('quotes the folder, so spaces and (x86) work and nothing in it is run', () => {
+    expect(windowsRestartCommand('C:\\Program Files (x86)\\SoulSync')).toBe(
+      "Set-Location -LiteralPath 'C:\\Program Files (x86)\\SoulSync'; if ($?) { docker compose up -d }",
+    );
+    // quotes, $…, backticks and ; can't be typed into the folder
+    expect(cleanWindowsFolder("C:\\Soul'Sync$(rm)`x;y")).toBe('C:\\SoulSync(rm)xy');
+    expect(windowsRestartCommand("C:\\Soul'Sync$(Get-Process)")).toBe(
+      "Set-Location -LiteralPath 'C:\\SoulSync(Get-Process)'; if ($?) { docker compose up -d }",
+    );
+    render(
+      <WindowsSteps folder="" slskdLine="./slskd:/slskd-config" copied={null} onCopy={vi.fn()} />,
+    );
+    const field = screen.getByLabelText('The folder SYNCHRO.S was installed in');
+    fireEvent.change(field, { target: { value: 'D:\\My $Music`' } });
+    expect(field).toHaveValue('D:\\My Music');
   });
 
   it('three steps by hand: copy the file, add the lines in Notepad, restart from PowerShell', () => {
@@ -1094,7 +1114,11 @@ describe('the Docker step on Windows (19b)', () => {
     expect(screen.getByText('Keep a copy of your set-up file')).toBeInTheDocument();
     expect(screen.getByText('Add the lines in Notepad')).toBeInTheDocument();
     expect(screen.getByText('Restart SYNCHRO.S from PowerShell')).toBeInTheDocument();
-    expect(screen.getByText('cd C:\\SoulSync; docker compose up -d')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Set-Location -LiteralPath 'C:\\SoulSync'; if ($?) { docker compose up -d }",
+      ),
+    ).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'The drive’s letter' }), {
       target: { value: 'F' },
     });
@@ -1104,9 +1128,64 @@ describe('the Docker step on Windows (19b)', () => {
       target: { value: 'D:\\SoulSync' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
-    expect(onCopy).toHaveBeenLastCalledWith('restart', 'cd D:\\SoulSync; docker compose up -d');
+    expect(onCopy).toHaveBeenLastCalledWith(
+      'restart',
+      "Set-Location -LiteralPath 'D:\\SoulSync'; if ($?) { docker compose up -d }",
+    );
     expect(
       screen.getByText(/Put the copy from step 1 back and run step 3 again/),
     ).toBeInTheDocument();
+  });
+});
+
+describe('carrying on after a failure when Downloads moves', () => {
+  it('asks for slskd’s sign-in when the server says so, then sends it', async () => {
+    const m = move({
+      status: 'failed',
+      plan: PLAN,
+      failure: { kind: 'drive_away', words: 'Music HD disconnected.', at: 0, matching_files: 10 },
+    });
+    const sent: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? JSON.parse(init.body as string) : null;
+        sent.push({ url, body });
+        if (!body?.username)
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'slskd has to restart… Sign in to slskd to carry on.',
+              code: 'slskd_sign_in',
+            }),
+            { status: 409 },
+          );
+        return new Response(
+          JSON.stringify({ success: true, move: m, boot_id: 'b', running: true }),
+        );
+      }),
+    );
+    const props = {
+      ...runProps(m),
+      act: async (fn: () => Promise<MovePayload>) => {
+        try {
+          await fn();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    };
+    render(<FailureView {...props} />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Plug it in and carry on' })[0]!);
+    await waitFor(() => expect(screen.getByLabelText('slskd user name')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('slskd user name'), { target: { value: 'slskd' } });
+    fireEvent.change(screen.getByLabelText('slskd password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Plug it in and carry on' })[0]!);
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({
+      url: '/api/drives/move/1/resume',
+      body: { username: 'slskd', password: 'pw' },
+    });
   });
 });
