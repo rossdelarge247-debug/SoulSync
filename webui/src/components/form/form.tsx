@@ -360,6 +360,9 @@ export type ButtonProps = Omit<BaseButtonProps, 'className'> & {
   /** `lg` is 44px tall, the touch target; use it for page and dialog actions. */
   size?: 'sm' | 'md' | 'lg' | 'icon';
   variant?: 'default' | 'primary' | 'secondary' | 'ghost';
+  /** A primary that overwrites something but deletes nothing (Replace it,
+   *  234): the warning fill with dark text. Neutral while disabled. */
+  tone?: 'warning';
 };
 
 /**
@@ -376,6 +379,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     disabledReason,
     focusableWhenDisabled,
     size = 'md',
+    tone,
     type = 'button',
     variant = 'default',
     ...props
@@ -392,6 +396,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       className={clsx(styles.button, disabled && styles.disabledNeutral, className)}
       data-variant={variant}
+      data-tone={tone}
       data-size={size}
       type={type}
       disabled={disabled}

@@ -272,6 +272,24 @@ describe('Button: disabled is neutral, with its reason', () => {
   });
 });
 
+describe('Button: the warning tone (234)', () => {
+  it('marks a primary in the warning tone, and only when asked', () => {
+    render(
+      <>
+        <Button variant="primary" tone="warning">
+          Replace it
+        </Button>
+        <Button variant="primary">Save 23 tracks</Button>
+      </>,
+    );
+    expect(screen.getByRole('button', { name: 'Replace it' })).toHaveAttribute(
+      'data-tone',
+      'warning',
+    );
+    expect(screen.getByRole('button', { name: 'Save 23 tracks' })).not.toHaveAttribute('data-tone');
+  });
+});
+
 describe('FormField error', () => {
   it('marks the control invalid and shows the message', () => {
     render(

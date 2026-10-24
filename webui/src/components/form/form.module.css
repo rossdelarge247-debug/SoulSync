@@ -597,6 +597,18 @@
     opacity: var(--ss-pressed-opacity-primary);
   }
 
+  /* 234: a primary in the warning tone (Replace it): it overwrites a file,
+     nothing more, so warning rather than danger */
+  &[data-variant='primary'][data-tone='warning'] {
+    border-color: rgba(var(--ss-warning-rgb), 0.45);
+    background: rgb(var(--ss-warning-rgb));
+    color: var(--ss-text-on-accent);
+  }
+
+  &[data-variant='primary'][data-tone='warning']:hover:not(:disabled):not([aria-disabled='true']) {
+    background: rgb(var(--ss-warning-rgb));
+  }
+
   &[data-variant='primary'] [data-slot='badge'] {
     color: #fff;
     background: rgba(0, 0, 0, 0.18);

@@ -94,6 +94,43 @@ export function exportLabel(found: number): string {
   return `Export ${found.toLocaleString()} ${found === 1 ? 'track' : 'tracks'}`;
 }
 
+/** The primary with an export folder set (234, 23d): "Save 23 tracks". */
+export function saveLabel(found: number): string {
+  return `Save ${found.toLocaleString()} ${found === 1 ? 'track' : 'tracks'}`;
+}
+
+/** The export folder as the sentence names it: its last part ("Traktor exports"). */
+export function folderName(shown: string | null | undefined): string {
+  const parts = (shown ?? '').split(/[\\/]+/).filter(Boolean);
+  return parts.length ? parts[parts.length - 1]! : 'the export folder';
+}
+
+/** "22 October" (with the year when it isn't this one). */
+export function dayWords(at: number, now = Date.now()): string {
+  const when = new Date(at * 1000);
+  const sameYear = when.getFullYear() === new Date(now).getFullYear();
+  return when.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
+}
+
+/** A name already in the export folder (234, 23d): the warning's sentence,
+ *  and the phone's shorter one. */
+export function takenWords(
+  filename: string,
+  folder: string,
+  at: number | null | undefined,
+  now = Date.now(),
+): { wide: string; phone: string } {
+  const from = at ? `, from ${dayWords(at, now)}` : '';
+  return {
+    wide: `${filename} is already in ${folder}${from}. Replacing it doesn’t change what Traktor imported then.`,
+    phone: `${filename} is already there${from}.`,
+  };
+}
+
 /** The Traktor card's line under the export folder, by its state. */
 export function folderLine(state: FolderState): string {
   switch (state) {

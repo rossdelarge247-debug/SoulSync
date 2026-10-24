@@ -5,9 +5,13 @@
  * (Tracks, Found on your Mac, Left out), the path as the Mac sees it shown
  * once with where it came from, why anything was left out (a warning box),
  * where the file goes and how to import it in Traktor's own words, then
- * Cancel and "Export 23 tracks".
+ * Cancel and "Export 23 tracks". With an export folder set (admins, 23d) the
+ * primary is "Save 23 tracks", the sentence names the folder and Download
+ * instead sits beside it; a name already there turns the sentence into a
+ * warning Notice and the primary into Replace it in the warning tone, which
+ * never takes focus on its own (so Enter doesn't replace).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { DialogBody, DialogFooter, DialogFrame, DialogHeader } from '@/components/dialog';
 import { Button } from '@/components/form';
@@ -22,7 +26,14 @@ import {
   type TraktorPreview,
   type TraktorSource,
 } from './traktor.api';
-import { exportLabel, exportTitle, leftOutLines } from './traktor.format';
+import {
+  exportLabel,
+  exportTitle,
+  folderName,
+  leftOutLines,
+  saveLabel,
+  takenWords,
+} from './traktor.format';
 import styles from './traktor.module.css';
 
 function Tile({ label, value }: { label: string; value: string }) {
@@ -69,14 +80,20 @@ export function TraktorExportDialog({
   }, [key]);
   useEffect(() => load(), [load]);
   const [busy, setBusy] = useState(false);
-  const [exists, setExists] = useState<string | null>(null);
+  // a file of this name in the export folder: from the preview, or the save's 409
+  const [refused, setRefused] = useState<{ at: number | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const takenRef = useRef<HTMLDivElement>(null);
+  const taken =
+    refused ??
+    (data?.folder.can_save && data.folder.exists_at ? { at: data.folder.exists_at } : null);
   const count = from.source === 'tracks' ? from.track_ids.length : null;
   const title = exportTitle(
     name ?? (from.source === 'tracks' ? null : (data?.name ?? null)),
     count,
   );
   const toFolder = Boolean(data?.folder.can_save);
+  const folder = folderName(data?.folder.shown);
 
   const download = async () => {
     if (!data) return;
@@ -100,16 +117,17 @@ export function TraktorExportDialog({
     setBusy(true);
     setError(null);
     try {
-      const saved = await saveTraktor(from, overwrite);
+      await saveTraktor(from, overwrite);
       onClose();
-      window.showToast?.(
-        `Saved ${saved.filename} in ${data.folder.shown ?? saved.folder}. In Traktor: File → Import Playlist…`,
-        'success',
-      );
+      window.showToast?.(`Saved to ${folder} · import it in Traktor`, 'success');
     } catch (err) {
       setBusy(false);
-      if (err instanceof TraktorError && err.exists) setExists(data.filename);
-      else setError(err instanceof Error ? err.message : "The file wasn't saved.");
+      if (err instanceof TraktorError && err.exists) {
+        setRefused({ at: err.existsAt });
+        // the primary turns into Replace it under the pointer: never leave
+        // focus (and so Enter) on it; the warning takes it
+        requestAnimationFrame(() => takenRef.current?.focus());
+      } else setError(err instanceof Error ? err.message : "The file wasn't saved.");
     }
   };
 
@@ -199,12 +217,25 @@ export function TraktorExportDialog({
               </div>
             </div>
           ) : null}
-          {data && found ? (
+          {data && found && taken && toFolder ? (
+            // 234 (23d): the last sentence becomes the warning
+            <Notice tone="warning" role="alert" ref={takenRef} tabIndex={-1} data-traktor-taken="">
+              <span className={styles.wideOnly}>
+                {takenWords(data.filename, folder, taken.at).wide}
+              </span>
+              <span className={styles.phoneOnly}>
+                {takenWords(data.filename, folder, taken.at).phone}
+              </span>
+            </Notice>
+          ) : data && found ? (
             <p className={styles.how}>
               {toFolder ? (
                 <>
                   Saves <Strong>{data.filename}</Strong> to{' '}
-                  <Strong>{data.folder.shown ?? 'the export folder'}</Strong>.
+                  <span title={data.folder.shown ?? undefined}>
+                    <Strong>{folder}</Strong>
+                  </span>
+                  .
                 </>
               ) : (
                 <>
@@ -215,30 +246,6 @@ export function TraktorExportDialog({
               Import Playlist). The BPM{data.keys ? ' and key go' : ' goes'} in the file; Traktor
               keeps any it already has.
             </p>
-          ) : null}
-          {exists ? (
-            <Notice
-              tone="warning"
-              role="alert"
-              title={`${exists} is already in the export folder`}
-              actions={
-                <>
-                  <Button
-                    size="lg"
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() => void save(true)}
-                  >
-                    Replace it
-                  </Button>
-                  <Button size="lg" variant="ghost" disabled={busy} onClick={() => void download()}>
-                    Download instead
-                  </Button>
-                </>
-              }
-            >
-              Replace it with this export, or download this one through the browser instead.
-            </Notice>
           ) : null}
           {error ? (
             <Notice tone="danger" role="alert" title="That didn't go through">
@@ -259,17 +266,20 @@ export function TraktorExportDialog({
         <Button
           size="lg"
           variant="primary"
-          disabled={busy || !data || !found || Boolean(exists)}
-          disabledReason={
-            data && !found
-              ? 'Nothing here can go to Traktor yet.'
-              : exists
-                ? 'Choose Replace it or Download instead.'
-                : undefined
-          }
-          onClick={() => void (toFolder ? save(false) : download())}
+          tone={taken && toFolder ? 'warning' : undefined}
+          disabled={busy || !data || !found}
+          disabledReason={data && !found ? 'Nothing here can go to Traktor yet.' : undefined}
+          onClick={() => void (toFolder ? save(Boolean(taken)) : download())}
         >
-          {busy ? 'Exporting…' : exportLabel(found)}
+          {busy
+            ? toFolder
+              ? 'Saving…'
+              : 'Exporting…'
+            : taken && toFolder
+              ? 'Replace it'
+              : toFolder
+                ? saveLabel(found)
+                : exportLabel(found)}
         </Button>
       </DialogFooter>
     </DialogFrame>

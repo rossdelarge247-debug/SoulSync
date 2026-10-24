@@ -181,7 +181,20 @@
   font-weight: 600;
 }
 
+/* 234: the taken-name warning's words, wide and on a phone (23d) */
+.phoneOnly {
+  display: none;
+}
+
 @media (max-width: 640px) {
+  .wideOnly {
+    display: none;
+  }
+
+  .phoneOnly {
+    display: inline;
+  }
+
   .dialog [data-slot='dialog-header'] {
     padding: 18px 18px 0;
   }
