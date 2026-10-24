@@ -411,6 +411,62 @@ describe('the list: Heard today / Recent stations', () => {
     );
   });
 
+  it('counts identified tracks and folds the rest into one line at the end (143)', async () => {
+    const orig = fetchImpl.getMockImplementation() as (
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    const t = Math.floor(Date.now() / 1000);
+    const unnamed = (id: number): HeardItem => ({
+      ...heardItems()[0]!,
+      id,
+      heard_at: t - 30 * id,
+      artist: null,
+      title: null,
+      release: null,
+      duration_s: 600,
+      state: 'not_identified',
+    });
+    fetchImpl.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.includes('/api/radio/heard?')
+        ? respond(200, {
+            success: true,
+            items: [...heardItems(), unnamed(5), unnamed(6), unnamed(7)],
+            days: 1,
+            keep_days: 90,
+            counts: {},
+          })
+        : orig(url, init),
+    );
+    boot();
+    player!.expand();
+    await flush();
+    expect(tray('[data-player-rtray-heard-count]').textContent).toBe('2');
+    expect(tray('[data-player-rtray-tab="heard"]').getAttribute('aria-label')).toBe(
+      'Heard today, 2 identified',
+    );
+    expect(
+      document.querySelectorAll('[data-player-radio-tray] .ss-player-rtray-row-heard'),
+    ).toHaveLength(2);
+    const rest = tray('[data-player-rtray-heard-rest]');
+    expect(rest.hidden).toBe(false);
+    expect(rest.textContent).toBe('3 more weren’t identified · talk or a mix');
+    // the line follows the list, outside it
+    expect(tray('[data-player-rtray-heard-list]').contains(rest)).toBe(false);
+  });
+
+  it('shows auto-add on Heard today only (146)', async () => {
+    boot();
+    player!.expand();
+    await flush();
+    const auto = tray('[data-player-rtray-auto]');
+    expect(auto.hidden).toBe(false);
+    tray('[data-player-rtray-tab="recent"]').click();
+    expect(auto.hidden).toBe(true);
+    tray('[data-player-rtray-tab="heard"]').click();
+    expect(auto.hidden).toBe(false);
+  });
+
   it('switches to Recent stations (the arrow keys too) and plays one from it', async () => {
     localStorage.setItem(
       RECENT_STATIONS_KEY,
@@ -513,6 +569,27 @@ describe('the "…" menu and Visuals while a station plays', () => {
     radioChrome!.draw();
     expect($('#np-v2-visuals-title').textContent).toBe('NTS 1');
     expect($('#np-v2-visuals-artist').textContent).toBe('Live · Listening…');
+  });
+
+  it('gives the Visuals transport Live, the time listened and Stop for a station (145)', () => {
+    boot();
+    const overlay = $('#np-modal-overlay');
+    const live = overlay.querySelector<HTMLElement>('[data-player-visuals-live]')!;
+    expect(live.hidden).toBe(false);
+    expect(live.textContent).toMatch(/Live\s*1:15 listened/);
+    expect(overlay.querySelector<HTMLElement>('.ss-visuals-progress')!.hidden).toBe(true);
+    expect(
+      overlay.querySelector<HTMLElement>('.ss-visuals-buttons [data-player-action="toggle"]')!
+        .hidden,
+    ).toBe(true);
+    for (const a of ['previous', 'next'])
+      expect(overlay.querySelector<HTMLElement>(`[data-player-action="${a}"]`)!.hidden).toBe(true);
+    const stop = overlay.querySelector<HTMLButtonElement>('[data-player-action="radio-stop"]')!;
+    expect(stop.hidden).toBe(false);
+    expect(stop.textContent!.trim()).toBe('Stop');
+    expect(stop.getAttribute('aria-keyshortcuts')).toBe('Space');
+    stop.click();
+    expect(api.stop).toHaveBeenCalled();
   });
 
   it('offers Visuals in the phone sheet', () => {

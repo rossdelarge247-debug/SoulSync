@@ -263,6 +263,23 @@ export function heardToday<T extends Pick<HeardItem, 'heard_at'>>(
 }
 
 /**
+ * Heard today in the tray (143): the count and the rows are the identified
+ * tracks (as the phone sheet's `heard_today.identified`); the rest fold into
+ * one meta line at the list's end, "3 more weren't identified · talk or a mix".
+ */
+export function heardFold<T extends Pick<HeardItem, 'state' | 'title'>>(
+  items: T[],
+): { rows: T[]; count: number; rest: string } {
+  const named = (i: T) => i.state !== 'not_identified' && Boolean(i.title);
+  const rows = items.filter(named);
+  const left = items.length - rows.length;
+  const rest = !left
+    ? ''
+    : `${left}${rows.length ? ' more' : ''} ${left === 1 ? 'wasn’t' : 'weren’t'} identified · talk or a mix`;
+  return { rows, count: rows.length, rest };
+}
+
+/**
  * One Heard row in the expanded player's list: the title and the line (the
  * same source phrase as the bar, HANDOFF 58), and either the one thing to do
  * (Add, or Upgrade for a copy below your target) or the state in words.

@@ -111,34 +111,58 @@ export function formatBpmRange(min: number | null, max: number | null): string {
   return `${min ?? ''}-${max ?? ''}`;
 }
 
-/** The Tracks header's line about the analysis. */
-export function analysisLine(status: {
+type AnalysisStatus = {
   counts: { tracks: number; analyzed: number; pending: number };
-  job: { status: string; total: number; done: number; waiting?: string | null } | null;
+  job: {
+    status: string;
+    total: number;
+    done: number;
+    waiting?: string | null;
+    recent?: boolean;
+  } | null;
   settings: { analyze: boolean };
   held: boolean;
-}): string {
+};
+
+const WAITING_WORDS: Record<string, string> = {
+  download: 'waiting while a download runs',
+  import: 'waiting while an import runs',
+  drive_away: "waiting for your library's drive",
+  drive_move: 'waiting while your music moves to another drive',
+  tag_write: 'waiting while tags are written',
+};
+
+/** Tracks the analysis has been through (BPM, key and energy, or why not): the bar's fill. */
+export function analysisProgress(status: AnalysisStatus): { done: number; total: number } | null {
+  const { tracks, pending } = status.counts;
+  if (!tracks || !pending) return null;
+  return { done: Math.max(0, tracks - pending), total: tracks };
+}
+
+/**
+ * Tracks' analysis line (153), beside its 120px bar: "BPM, key and energy:
+ * 3,328 of 3,740 tracks done · waiting while a download runs" (Stop follows
+ * it for admins); finished, "All 3,740 tracks have BPM, key and energy" for a
+ * day after the sweep, then nothing.
+ */
+export function analysisLine(status: AnalysisStatus): string {
   const { counts, job } = status;
   const n = (v: number) => v.toLocaleString();
-  if (job?.status === 'running') {
-    const waiting =
-      job.waiting === 'download'
-        ? ', waiting while a download runs'
-        : job.waiting === 'import'
-          ? ', waiting while an import runs'
-          : job.waiting === 'drive_away'
-            ? ", waiting for your library's drive"
-            : job.waiting === 'drive_move'
-              ? ', waiting while your music moves to another drive'
-              : job.waiting === 'tag_write'
-                ? ', waiting while tags are written'
-                : '';
-    return `Working out BPM, key and energy: ${n(job.done)} of ${n(job.total)}${waiting}`;
-  }
   if (!counts.tracks) return '';
-  if (!counts.pending) return `BPM, key and energy for all ${n(counts.tracks)} tracks`;
-  const have = `BPM, key and energy for ${n(counts.analyzed)} of ${n(counts.tracks)} tracks`;
-  if (!status.settings.analyze) return `${have}. Working them out is off in Settings → Library.`;
-  if (status.held) return `${have}. Stopped until you start it again.`;
-  return `${have}. The rest are worked out in the background.`;
+  const done = `BPM, key and energy: ${n(counts.tracks - counts.pending)} of ${n(counts.tracks)} tracks done`;
+  if (job?.status === 'running') {
+    const waiting = job.waiting ? WAITING_WORDS[job.waiting] : '';
+    return waiting ? `${done} · ${waiting}` : done;
+  }
+  if (!counts.pending) {
+    // finished: said for a day after the last sweep, then the line goes
+    if (job && !job.recent) return '';
+    if (counts.analyzed >= counts.tracks)
+      return `All ${n(counts.tracks)} tracks have BPM, key and energy`;
+    const rest = counts.tracks - counts.analyzed;
+    return `${n(counts.analyzed)} of ${n(counts.tracks)} tracks have BPM, key and energy · ${n(rest)} couldn't be analysed`;
+  }
+  if (!status.settings.analyze) return `${done} · working them out is off in Settings → Library`;
+  if (status.held) return `${done} · stopped until you start it again`;
+  return `${done} · the rest are worked out in the background`;
 }

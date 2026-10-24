@@ -372,6 +372,27 @@
   color: var(--ss-text);
 }
 
+/* disabled-neutral while the library's drive is away (123): 6% fill, 16%
+   border, 62% text, full opacity; the reason is the Notice above and the
+   button's aria-describedby */
+.play[aria-disabled='true'],
+.ghostPlay[aria-disabled='true'] {
+  border: 1px solid var(--ss-disabled-border);
+  background: var(--ss-disabled-fill);
+  color: var(--ss-disabled-text);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .play:focus-visible,
 .ghostPlay:focus-visible {
   outline: var(--ss-focus-ring);

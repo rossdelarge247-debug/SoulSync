@@ -541,6 +541,21 @@ export function meterBarCount(width: number, pitch = 6): number {
   return Math.max(12, Math.min(160, Math.floor((width + 2) / pitch)));
 }
 
+/** Scan now's width with its word (11a), and the least the bar's track block keeps (148). */
+export const SCAN_FULL_WIDTH = 132;
+export const TRACK_BLOCK_MIN = 240;
+
+/**
+ * The bar's Scan now goes icon-only by room (Design 148): when, with the
+ * meter at its least and Scan now at its full 132px, the track block would
+ * get under 240px. `centre` is the bar's centre width; `fixed` what else in
+ * it takes room (the one action, the gaps); `meterMin` the meter's least.
+ */
+export function scanIconOnly(centre: number, fixed: number, meterMin: number): boolean {
+  if (!Number.isFinite(centre) || centre <= 0) return false;
+  return centre - fixed - meterMin - SCAN_FULL_WIDTH < TRACK_BLOCK_MIN;
+}
+
 /** Each bar's whole-pixel width for `count` bars with 2px gaps, so they draw crisply. */
 export function meterBarWidth(width: number, count: number): number {
   if (!Number.isFinite(width) || width <= 0 || count <= 0) return 0;

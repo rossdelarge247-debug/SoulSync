@@ -81,7 +81,7 @@
 .folderHolds {
   margin: 2px 0 0;
   font-size: 14px;
-  color: var(--ss-text-tertiary);
+  color: var(--ss-text-meta);
 }
 
 .folderPath {
@@ -94,7 +94,7 @@
 .folderDrive {
   margin: 0;
   font-size: 14px;
-  color: var(--ss-text-tertiary);
+  color: var(--ss-text-meta);
 }
 
 .folderSize {
@@ -122,6 +122,13 @@
 
 .driveFree {
   color: var(--ss-text-tertiary);
+}
+
+/* 124: how much of the drive the music takes, under the bar */
+.driveMusic {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ss-text-meta);
 }
 
 .bar {
@@ -201,7 +208,7 @@
 .moveNote {
   margin: 12px 0 0;
   font-size: 14px;
-  color: var(--ss-text-tertiary);
+  color: var(--ss-text-meta);
 }
 
 @media (max-width: 900px) {

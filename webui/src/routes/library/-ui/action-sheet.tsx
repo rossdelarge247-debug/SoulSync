@@ -6,6 +6,10 @@ export interface SheetAction {
   key: string;
   label: string;
   onSelect: () => void;
+  /** Disabled-neutral: kept in the list with its reason beside it, and does nothing. */
+  disabled?: boolean;
+  /** Why it's disabled ("Music HD isn't connected"), written at the row's end. */
+  reason?: string;
 }
 
 /**
@@ -42,12 +46,20 @@ export function ActionSheet({
             <button
               type="button"
               className={styles.item}
-              onClick={() => {
-                onClose();
-                action.onSelect();
-              }}
+              aria-disabled={action.disabled ? 'true' : undefined}
+              onClick={
+                action.disabled
+                  ? undefined
+                  : () => {
+                      onClose();
+                      action.onSelect();
+                    }
+              }
             >
               {action.label}
+              {action.disabled && action.reason ? (
+                <span className={styles.reason}>{action.reason}</span>
+              ) : null}
             </button>
           </li>
         ))}

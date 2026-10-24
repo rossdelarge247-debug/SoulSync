@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   _resetRadioSettingsForTests,
   autoLine,
+  autoStateTone,
   autoStateWords,
   autoUsageLine,
   loadRadioSettings,
@@ -158,7 +159,7 @@ describe('Settings → Radio: AudD listens automatically', () => {
         ready: true,
         stopped: 'cap_reached',
       }),
-    ).toBe('Today’s 100 are used. It starts again at midnight.');
+    ).toBe('Stopped for today: today’s 100 are used. It starts again at midnight.');
     expect(autoStateWords({ on: true, daily_cap: 100, ready: false })).toBe(
       'Needs AudD’s token, above.',
     );
@@ -214,5 +215,21 @@ describe('Settings → Radio: AudD listens automatically', () => {
     expect($('radio-audd-auto-state').textContent).toBe(
       'Stopped for today: AudD says the account has no requests left.',
     );
+    expect($('radio-audd-auto-state').dataset.tone).toBe('danger');
+  });
+
+  it('gives the stopped line’s dot its tone (111): warning for the cap, danger for refused or none left', async () => {
+    current = body({ stopped: 'cap_reached' });
+    await loadRadioSettings();
+    expect($('radio-audd-auto-state').dataset.tone).toBe('warning');
+    expect(autoStateTone({ on: true, daily_cap: 100, ready: true, stopped: 'bad_key' })).toBe(
+      'danger',
+    );
+    expect(autoStateTone({ on: true, daily_cap: 100, ready: true, stopped: 'out_of_credit' })).toBe(
+      'danger',
+    );
+    expect(autoStateTone({ on: true, daily_cap: 100, ready: false })).toBe('neutral');
+    expect(autoStateTone({ on: true, daily_cap: 100, ready: true, stopped: null })).toBe('neutral');
+    expect(autoStateTone(undefined)).toBe('neutral');
   });
 });

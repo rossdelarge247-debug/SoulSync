@@ -346,7 +346,11 @@ describe('the stage cards (10c, 10d)', () => {
     expect(screen.getByText('Visuals can’t follow this station')).toBeInTheDocument();
     expect(screen.getByText(/NTS 1 plays straight from its own server/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Play through SYNCHRO.S' })).toBeInTheDocument();
-    expect(screen.getByText('restarts the stream')).toBeInTheDocument();
+    // 105: what to expect is in the sentence, so the button's old note went
+    expect(
+      screen.getByText(/it can\. The stream restarts: a second or two of silence\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('restarts the stream')).toBeNull();
     c.dispose();
   });
 });

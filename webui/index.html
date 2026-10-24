@@ -369,7 +369,7 @@
                             <span class="nav-text ss-label">Albums</span>
                         </a>
                         <a class="nav-button ss-item" data-nav-row="tracks" data-page="library" href="/library?view=tracks" data-nav-query>
-                            <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                            <svg class="ss-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
                             <span class="nav-text ss-label">Tracks</span>
                         </a>
                         <a class="nav-button ss-item" data-nav-row="history" data-page="library" href="/library?view=history" data-nav-query>
@@ -12880,6 +12880,7 @@
                     <div class="ss-player-view" id="ss-player-rpanel-heard" role="tabpanel" aria-labelledby="ss-player-rtab-heard" data-player-rtray-panel="heard">
                         <p class="ss-player-empty" data-player-rtray-heard-status>Loading what was heard today…</p>
                         <div class="ss-player-rows" data-player-rtray-heard-list role="list"></div>
+                        <p class="ss-player-rtray-rest" data-player-rtray-heard-rest hidden></p>
                     </div>
                     <div class="ss-player-view hidden" id="ss-player-rpanel-recent" role="tabpanel" aria-labelledby="ss-player-rtab-recent" data-player-rtray-panel="recent">
                         <p class="ss-player-empty" data-player-rtray-recent-status hidden></p>
@@ -12968,6 +12969,11 @@
             </div>
             <!-- the transport: the player bar's centre (10a), the mini bar's on a phone (10f) -->
             <div class="ss-player-visuals-transport" role="group" aria-label="Playback">
+                <!-- a station (145): Live and the time listened where the waveform was -->
+                <span class="ss-visuals-live" data-player-visuals-live hidden>
+                    <span class="ss-player-live-tag"><span class="ss-player-live-dot" aria-hidden="true"></span>Live</span>
+                    <span class="ss-player-rtray-listened"><span class="ss-player-time" data-player-visuals-listened>0:00</span> listened</span>
+                </span>
                 <div class="ss-visuals-progress">
                     <span class="ss-player-time" data-player-elapsed>0:00</span>
                     <div class="ss-player-wave ss-visuals-wave" data-player-wave role="slider" tabindex="0" aria-label="Position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></div>
@@ -12984,6 +12990,10 @@
                     </button>
                     <button type="button" class="ss-player-btn ss-visuals-tbtn" data-player-action="next" aria-label="Next">
                         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4l10 8-10 8zM17 5h2v14h-2z"/></svg>
+                    </button>
+                    <!-- a station (145): Stop, as the bar has it; a paused live stream isn't what Pause promises -->
+                    <button type="button" class="ss-player-radio-stop ss-player-radio-stop--sheet ss-visuals-stop" data-player-action="radio-stop" aria-label="Stop the station" aria-keyshortcuts="Space" hidden>
+                        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg><span>Stop</span>
                     </button>
                 </div>
                 <div class="ss-visuals-tail">
@@ -13009,7 +13019,7 @@
             </div>
             <p>The first group works anywhere outside a text field; the rest while the tray or the visuals are open. In the visuals, V, Shift V, R and S work on the visuals; L is the A–B loop there too.</p>
             <dl class="ss-player-shortcuts-grid">
-                <div><dt>Play or pause</dt><dd><kbd>Space</kbd></dd></div>
+                <div><dt>Play or pause; stop, while a station plays</dt><dd><kbd>Space</kbd></dd></div>
                 <div><dt>Back or forward 5 seconds</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div>
                 <div><dt>Volume</dt><dd><kbd>↑</kbd> <kbd>↓</kbd></dd></div>
                 <div><dt>Mute</dt><dd><kbd>M</kbd></dd></div>

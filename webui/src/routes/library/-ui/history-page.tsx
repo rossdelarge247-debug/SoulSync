@@ -1,11 +1,12 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 import { DjMeta } from '@/features/dj/dj-meta';
 import { useDjInfo, type DjInfo } from '@/features/dj/dj.api';
 import { useMixesWith, type MixesSeed } from '@/features/dj/mixes-dialog';
+import { awayWords } from '@/features/drives/drives.format';
 import { playInAppPlayer } from '@/features/playback/app-player';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { useProfile } from '@/platform/shell/route-controllers';
@@ -120,9 +121,13 @@ function MusicRow({
   first = false,
   dj,
   onMixes,
+  away,
 }: {
   play: MusicPlay;
   phone: boolean;
+  /** While the library's drive is away (123): Play is disabled-neutral and
+   *  described by the reason ("Music HD isn't connected", element `id`). */
+  away?: { id: string; words: string };
   /** The list's first row: on a phone its Play is filled, the rest are ghosts (15d). */
   first?: boolean;
   /** The track's BPM and key (the library's DJ data), when known. */
@@ -214,8 +219,10 @@ function MusicRow({
               type="button"
               className={phone && !first ? styles.ghostPlay : styles.play}
               aria-label={`Play ${play.title} next`}
-              title="Play next, after the current track"
-              onClick={() => queueNext(play)}
+              title={away ? undefined : 'Play next, after the current track'}
+              aria-disabled={away ? 'true' : undefined}
+              aria-describedby={away?.id}
+              onClick={away ? undefined : () => queueNext(play)}
             >
               <PlayIcon />
             </button>
@@ -238,7 +245,15 @@ function MusicRow({
                     heading={[play.title, play.artist].filter(Boolean).join(' · ')}
                     onClose={() => setSheet(false)}
                     actions={[
-                      { key: 'next', label: 'Play next', onSelect: () => queueNext(play) },
+                      // 154: Play next, Mixes well with…, Add to playlist…, Open artist, Open album
+                      {
+                        key: 'next',
+                        label: 'Play next',
+                        onSelect: () => queueNext(play),
+                        disabled: Boolean(away),
+                        reason: away?.words,
+                      },
+                      ...mixesEntry,
                       { key: 'playlist', label: 'Add to playlist…', onSelect: addToPlaylist },
                       ...(artist
                         ? [
@@ -258,7 +273,6 @@ function MusicRow({
                             },
                           ]
                         : []),
-                      ...mixesEntry,
                     ]}
                   />
                 ) : null}
@@ -268,6 +282,15 @@ function MusicRow({
                 className={styles.more}
                 label={`More for ${play.title}`}
                 entries={[
+                  // 154: the sheet's order on a desktop too
+                  {
+                    key: 'next',
+                    label: 'Play next',
+                    onSelect: () => queueNext(play),
+                    disabled: Boolean(away),
+                  },
+                  ...mixesEntry,
+                  { key: 'playlist', label: 'Add to playlist…', onSelect: addToPlaylist },
                   ...(artist
                     ? [
                         {
@@ -286,8 +309,6 @@ function MusicRow({
                         },
                       ]
                     : []),
-                  { key: 'playlist', label: 'Add to playlist…', onSelect: addToPlaylist },
-                  ...mixesEntry,
                 ]}
               />
             )}
@@ -385,7 +406,18 @@ function RowsSkeleton() {
  * remembered per browser and the URL holds the kind, an explicit range and
  * the filter.
  */
-export function HistoryPage({ search, go }: { search: LibrarySearch; go: Go }) {
+export function HistoryPage({
+  search,
+  go,
+  awayDrive = null,
+}: {
+  search: LibrarySearch;
+  go: Go;
+  /** The library's drive while it's away (123): music rows' Play waits for it. */
+  awayDrive?: string | null;
+}) {
+  const awayId = useId();
+  const away = awayDrive ? { id: awayId, words: awayWords(awayDrive) } : undefined;
   const { profileId } = useProfile();
   const phone = usePhone();
   const kind: HistoryKind = search.kind;
@@ -525,6 +557,11 @@ export function HistoryPage({ search, go }: { search: LibrarySearch; go: Go }) {
         <RowsSkeleton />
       ) : items.length ? (
         <div className={styles.groups} data-history-kind={kind}>
+          {away ? (
+            <span id={away.id} className={styles.srOnly}>
+              {away.words}
+            </span>
+          ) : null}
           {groups.map((group) => (
             <section key={group.day} className={styles.group} aria-label={dayHead(group.day, now)}>
               <h2 className={styles.dayHead}>
@@ -545,6 +582,7 @@ export function HistoryPage({ search, go }: { search: LibrarySearch; go: Go }) {
                       first={play === items[0]}
                       dj={play.track_id ? djInfo[String(play.track_id)] : undefined}
                       onMixes={mixes.open}
+                      away={away}
                     />
                   ) : (
                     <SpokenRow key={`s-${play.play_id}`} play={play} phone={phone} />

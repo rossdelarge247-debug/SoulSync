@@ -1130,6 +1130,12 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .ss-visuals-progress .ss-player-wave { max-width: 520px; }
 .ss-visuals-buttons { display: flex; align-items: center; gap: 8px; }
 .ss-visuals-tbtn { border: 1px solid var(--ss-control-border); }
+/* a station (145): Live and the time listened in the waveform's place; Stop, not Pause */
+.ss-visuals-live { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.ss-visuals-live[hidden],
+.ss-visuals-progress[hidden],
+.ss-visuals-stop[hidden],
+.ss-visuals-buttons [hidden] { display: none !important; }
 .ss-visuals-tail { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .ss-visuals-shortcuts {
     display: inline-flex;
@@ -1528,11 +1534,11 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     background: rgb(var(--ss-accent-light-rgb));
     transition: width 0.9s linear;
 }
-@media (max-width: 1180px) {
-    /* the bar's centre is narrow: the scan control keeps its icon only */
-    .ss-player-bar .ss-player-radio-scan > span:not(.ss-player-radio-spinner) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-    .ss-player-bar .ss-player-radio-scan { min-width: 44px; padding: 0 12px; }
-}
+/* 148: by room, not by breakpoint: the scan control keeps its icon only (its
+   name kept for a screen reader) when the track block would otherwise get
+   under 240px (player-radio.ts fitScan sets data-scan-compact) */
+.ss-player-bar [data-scan-compact='true'] .ss-player-radio-scan > span:not(.ss-player-radio-spinner) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ss-player-bar [data-scan-compact='true'] .ss-player-radio-scan { min-width: 44px; padding: 0 12px; }
 .ss-player-text-link {
     display: inline-flex;
     align-items: center;
@@ -1835,6 +1841,9 @@ html:not([data-player-sheet]) .ss-player[data-source='radio'] .ss-player-radio {
 .ss-player-rtray-text > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ss-player-rtray-title { font-size: 15px; font-weight: 500; color: var(--ss-text); }
 .ss-player-rtray-meta { font-size: 14px; color: var(--ss-text-meta); }
+/* 143: the not-identified rows of today, folded into one meta line after the list */
+.ss-player-rtray-rest { margin: 0; padding: 10px 0 2px; font-size: 14px; line-height: 1.5; color: var(--ss-text-meta); }
+.ss-player-rtray-rest[hidden] { display: none; }
 .ss-player-rtray-status { font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--ss-text-meta); }
 .ss-player-rtray-status[data-tone='success'] { color: var(--ss-success); }
 .ss-player-rtray-status[data-tone='info'] { color: var(--ss-info); }
@@ -1862,7 +1871,8 @@ html:not([data-player-sheet]) .ss-player[data-source='radio'] .ss-player-radio {
 .ss-player-rtray-stationlogo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 120ms ease; }
 .ss-player-rtray-stationlogo img.is-loaded { opacity: 1; }
 .ss-player-rtray-auto { flex: none; }
-.ss-player-rtray-auto:empty { display: none; }
+.ss-player-rtray-auto:empty,
+.ss-player-rtray-auto[hidden] { display: none; }
 .ss-player-rtray-auto .ss-player-radio-auto { padding-top: 8px; border-top: 1px solid var(--ss-hairline); }
 .ss-player-rtray-auto .ss-player-radio-auto-title,
 .ss-player-rtray-auto .ss-player-radio-auto-text .ss-player-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

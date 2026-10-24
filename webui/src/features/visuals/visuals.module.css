@@ -732,11 +732,6 @@
   gap: 10px;
 }
 
-.stateNote {
-  color: var(--ss-text-meta);
-  font-size: 14px;
-}
-
 /* Reduce motion (10d): the art, still, and the card under it */
 .still {
   position: absolute;

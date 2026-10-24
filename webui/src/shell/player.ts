@@ -695,6 +695,9 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     const c = current();
     const pct = d > 0 ? Math.min(100, (c / d) * 100) : 0;
     for (const el of all('[data-player-elapsed]')) setText(el, formatClock(c));
+    // a station's time listened is the stream element's own (as the tray's deck)
+    const listened = overlay?.querySelector('[data-player-visuals-listened]');
+    if (listened && snapshot.kind === 'radio') setText(listened, formatClock(c));
     for (const el of all('[data-player-total]')) setText(el, formatClock(d));
     for (const el of all('[data-player-remaining]')) setText(el, formatRemaining(c, d));
     const now = Date.now();
@@ -1289,6 +1292,18 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     for (const b of all('[data-player-action="toggle"]')) {
       setAttr(b, 'aria-label', busy ? 'Loading' : st.playing ? 'Pause' : 'Play');
     }
+    // 145: the Visuals overlay's transport while a station plays: Live and the
+    // time listened in the waveform's place, Stop instead of Pause
+    if (overlay) {
+      const radioNow = kind === 'radio';
+      setHidden(overlay.querySelector('[data-player-visuals-live]'), !radioNow);
+      setHidden(overlay.querySelector('.ss-visuals-progress'), radioNow);
+      setHidden(
+        overlay.querySelector('.ss-visuals-buttons [data-player-action="toggle"]'),
+        radioNow,
+      );
+      setHidden(overlay.querySelector('[data-player-action="radio-stop"]'), !radioNow);
+    }
     const mini = root!.querySelector<HTMLButtonElement>('[data-player-action="mini"]');
     if (mini) {
       setHidden(mini.querySelector('[data-mini-icon="next"]'), spoken);
@@ -1481,6 +1496,9 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
           break;
         case 'repeat':
           engine.cycleRepeat();
+          break;
+        case 'radio-stop':
+          void view.SoulSyncRadio?.stop();
           break;
         case 'mute':
           engine.toggleMute();
