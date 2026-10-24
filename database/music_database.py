@@ -2161,7 +2161,6 @@ class MusicDatabase:
         'sample_stash_v1':            ('table', 'sample_stash'),
         'sample_stems_v1':            ('table', 'sample_stems'),
         'track_dj_v1':               ('table', 'track_dj'),
-        'radio_recent_v1':           ('table', 'radio_recent'),
         'similar_artists_rematch':  ('table', '_similar_artists_rematch_applied'),
         'beatport_positional_purged': ('table', '_beatport_positional_purged'),
     }
@@ -3731,6 +3730,9 @@ class MusicDatabase:
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_radio_recent_profile "
                            "ON radio_recent (profile_id, played_at)")
+            # the step records itself, and only once it finished: it isn't in
+            # _KNOWN_MIGRATION_SIGNALS, whose back-fill would record it from the
+            # table alone after a later part of the step failed
             if self._migration_step_ok():
                 self._record_migration(cursor, 'radio_recent_v1')
 

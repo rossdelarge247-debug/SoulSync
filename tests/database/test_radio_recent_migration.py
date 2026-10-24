@@ -121,3 +121,21 @@ def test_a_step_that_cannot_finish_fails_loudly_and_retries(tmp_path):
     db._initialize_database()
     assert db.schema_health()["ok"] and _columns(path) == WANTED
     assert _q(path, "SELECT 1 FROM schema_migrations WHERE name = 'radio_recent_v1'")
+
+
+def test_a_step_that_fails_after_the_table_isnt_recorded_by_the_ledger_sync(tmp_path):
+    """The step records its own ledger row only when it finished; the ledger
+    back-fill (_sync_migration_ledger) mustn't record it just because the
+    table exists after a later part of the step failed."""
+    path = tmp_path / "half.db"
+    db = MusicDatabase(str(path))
+    conn = sqlite3.connect(str(path))
+    conn.execute("DELETE FROM schema_migrations WHERE name = 'radio_recent_v1'")
+    conn.execute("DROP INDEX idx_radio_recent_profile")
+    # a table in the index's name: the table is there, the index can't be made
+    conn.execute("CREATE TABLE idx_radio_recent_profile (x INTEGER)")
+    conn.commit()
+    conn.close()
+    db._initialize_database()  # the next start
+    assert any("add_radio_recent" in f["step"] for f in db.schema_health()["failed_steps"])
+    assert not _q(path, "SELECT 1 FROM schema_migrations WHERE name = 'radio_recent_v1'")
