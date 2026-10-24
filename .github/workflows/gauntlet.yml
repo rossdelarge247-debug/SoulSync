@@ -1,0 +1,421 @@
+name: Gauntlet
+
+# The stricter lane for risky changes. docs/GAUNTLET.md says what it is, which
+# changes go through it, what it runs and how to read its results. The risky
+# paths are in .github/gauntlet-paths.txt; the helper is .github/gauntlet/gauntlet.py.
+#
+# The full test suite already runs in build-and-test.yml's sanity-check, so
+# this lane runs only its own checks and aims to finish in about 10 minutes.
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - dev
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      full_scan:
+        description: "Judge every line of every risky file against the baselines, not only changed lines"
+        type: boolean
+        default: false
+
+concurrency:
+  # A label other than `gauntlet` gets its own group, so it never cancels a real run.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.event.action == 'labeled' && github.event.label.name || 'run' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  BANDIT_VERSION: "1.9.4"
+  SEMGREP_VERSION: "1.180.0"
+  # Semgrep's rules come from github.com/semgrep/semgrep-rules at a pinned
+  # commit: no semgrep.dev registry, no token, the same rules every run. These
+  # folders are the security halves of what the registry's p/python, p/flask
+  # and p/secrets packs draw on. Change the commit or the folders only together
+  # with a regenerated .github/gauntlet/semgrep-baseline.json.
+  SEMGREP_RULES_REF: 9bbf021d0acffa3095fcffd17b2bc7787eb4796d
+  SEMGREP_RULE_DIRS: |
+    python/lang/security
+    python/flask/security
+    python/requests/security
+    python/jwt/security
+    python/cryptography/security
+    python/pycryptodome/security
+    python/sqlalchemy/security
+    python/jinja2/security
+    generic/secrets
+  FULL_SCAN: ${{ github.event_name == 'workflow_dispatch' && inputs.full_scan && 'true' || 'false' }}
+
+jobs:
+  changes:
+    name: What changed
+    # A label other than `gauntlet` changes nothing.
+    if: github.event.action != 'labeled' || github.event.label.name == 'gauntlet'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.match.outputs.run }}
+      reason: ${{ steps.match.outputs.reason }}
+      base: ${{ steps.base.outputs.base }}
+      base_reason: ${{ steps.base.outputs.base_reason }}
+      risky_count: ${{ steps.match.outputs.risky_count }}
+      changed_count: ${{ steps.match.outputs.changed_count }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          # all history (for the merge base) but no file contents until needed
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Pick the commit to compare against
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: >-
+          python3 .github/gauntlet/gauntlet.py base
+          --event "$EVENT" --head "$GITHUB_SHA" --before "$BEFORE" --pr-base "$PR_BASE"
+          --default-branch integration
+
+      - name: Match changed files against the risky paths
+        id: match
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ steps.base.outputs.base }}
+          BASE_REASON: ${{ steps.base.outputs.base_reason }}
+          LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'gauntlet') }}
+        run: |
+          label=""
+          if [ "$LABELLED" = "true" ]; then label="--label"; fi
+          python3 .github/gauntlet/gauntlet.py changes --event "$EVENT" --base "$BASE" \
+            --base-reason "$BASE_REASON" --head "$GITHUB_SHA" $label --out changes.json
+
+      - name: Keep the list for the other jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: gauntlet-changes
+          path: changes.json
+          retention-days: 7
+
+  bandit:
+    name: Security scan (Bandit)
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      failing: ${{ steps.triage.outputs.failing }}
+      warnings: ${{ steps.triage.outputs.warnings }}
+      drift: ${{ steps.triage.outputs.drift }}
+      scanned: ${{ steps.triage.outputs.scanned }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: .github/workflows/gauntlet.yml
+
+      - name: Install Bandit
+        run: python -m pip install "bandit==${BANDIT_VERSION}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: gauntlet-changes
+
+      - name: Pick the files to scan
+        run: |
+          all=""
+          if [ "$FULL_SCAN" = "true" ]; then all="--all"; fi
+          python .github/gauntlet/gauntlet.py targets --changes changes.json --python $all --out targets.txt
+
+      - name: Run Bandit
+        run: |
+          if [ -s targets.txt ]; then
+            # Bandit exits 1 when it finds anything; the triage step decides.
+            xargs -a targets.txt -d '\n' bandit -q -f json -o bandit.json || true
+            test -s bandit.json
+          else
+            echo '{"results": []}' > bandit.json
+          fi
+
+      - name: Compare with the baseline
+        id: triage
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+        run: |
+          all=""
+          if [ "$FULL_SCAN" = "true" ]; then all="--all-lines"; fi
+          python .github/gauntlet/gauntlet.py triage bandit --report bandit.json \
+            --baseline .github/gauntlet/bandit-baseline.json --targets targets.txt \
+            --base "$BASE" --head "$GITHUB_SHA" $all
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gauntlet-bandit
+          path: |
+            bandit.json
+            targets.txt
+          retention-days: 7
+
+  semgrep:
+    name: Security scan (Semgrep)
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      failing: ${{ steps.triage.outputs.failing }}
+      warnings: ${{ steps.triage.outputs.warnings }}
+      drift: ${{ steps.triage.outputs.drift }}
+      scanned: ${{ steps.triage.outputs.scanned }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Checkout the pinned Semgrep rules
+        uses: actions/checkout@v6
+        with:
+          repository: semgrep/semgrep-rules
+          ref: ${{ env.SEMGREP_RULES_REF }}
+          path: .gauntlet-rules
+          persist-credentials: false
+          sparse-checkout: ${{ env.SEMGREP_RULE_DIRS }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: .github/workflows/gauntlet.yml
+
+      - name: Install Semgrep
+        run: python -m pip install "semgrep==${SEMGREP_VERSION}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: gauntlet-changes
+
+      - name: Pick the files to scan
+        run: |
+          all=""
+          if [ "$FULL_SCAN" = "true" ]; then all="--all"; fi
+          # Files over 1 MB (web_server.py, database/music_database.py) take
+          # Semgrep's taint rules many minutes; Bandit covers them.
+          python .github/gauntlet/gauntlet.py targets --changes changes.json --max-bytes 1000000 $all --out targets.txt
+
+      - name: Run Semgrep
+        env:
+          SEMGREP_ENABLE_VERSION_CHECK: "0"
+          SEMGREP_SEND_METRICS: "off"
+        run: |
+          if [ -s targets.txt ]; then
+            configs=""
+            for d in $SEMGREP_RULE_DIRS; do configs="$configs --config .gauntlet-rules/$d"; done
+            # Exit code 0 with findings (no --error); the triage step decides.
+            xargs -a targets.txt -d '\n' semgrep scan --metrics=off --disable-version-check \
+              --json -o semgrep.json $configs
+            test -s semgrep.json
+          else
+            echo '{"results": [], "errors": []}' > semgrep.json
+          fi
+          python - <<'EOF'
+          import json, os
+          errs = json.load(open("semgrep.json")).get("errors", [])
+          if errs:
+              lines = [f"Semgrep couldn't fully read {len(errs)} file/rule pair(s) (timeouts or parse errors); "
+                       "any findings there are missed, not failed:", ""]
+              lines += [f"- `{e.get('path', '?')}`: {e.get('type', '?')}" for e in errs[:30]]
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
+                  fh.write("\n".join(lines) + "\n\n")
+          EOF
+
+      - name: Compare with the baseline
+        id: triage
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+        run: |
+          all=""
+          if [ "$FULL_SCAN" = "true" ]; then all="--all-lines"; fi
+          python .github/gauntlet/gauntlet.py triage semgrep --report semgrep.json \
+            --baseline .github/gauntlet/semgrep-baseline.json --targets targets.txt \
+            --base "$BASE" --head "$GITHUB_SHA" $all
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gauntlet-semgrep
+          path: |
+            semgrep.json
+            targets.txt
+          retention-days: 7
+
+  tests:
+    name: Upgrade, migration and disaster-scenario tests
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      migration: ${{ steps.migration.outcome }}
+      scenario: ${{ steps.scenario.outcome }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # Same Python, cache and install as build-and-test.yml's sanity-check
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        id: install
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
+
+      - name: Upgrade and migration tests
+        id: migration
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: >-
+          python -m pytest -n auto -p no:cacheprovider -rfE
+          tests/database
+          tests/test_db_migration_ledger.py
+          tests/test_canonical_columns_migration.py
+          tests/test_tracks_year_migration.py
+          tests/test_soulid_path_migration.py
+          tests/test_db_watchlist_amazon_id_migration.py
+          tests/automation/test_migrate_repair_jobs.py
+          tests/quality/test_migrate_to_profiles.py
+          tests/quality/test_schema.py
+
+      - name: Disaster-scenario tests (pytest -m gauntlet)
+        id: scenario
+        # Runs even when the migration step failed, so both results show.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        # One process, in collection order: the kids guard's ordering test
+        # (tests/playback before tests/test_content_guard_music.py) only means
+        # something when both run in the same process.
+        run: python -m pytest -m gauntlet -n 0 -p no:cacheprovider -rfE tests
+
+  summary:
+    name: Gauntlet summary
+    needs: [changes, bandit, semgrep, tests]
+    if: ${{ always() && needs.changes.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: gauntlet-changes
+
+      - name: Write the summary
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          FULL: ${{ env.FULL_SCAN }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUN: ${{ needs.changes.outputs.run }}
+          REASON: ${{ needs.changes.outputs.reason }}
+          BASE: ${{ needs.changes.outputs.base }}
+          BASE_REASON: ${{ needs.changes.outputs.base_reason }}
+          CHANGED: ${{ needs.changes.outputs.changed_count }}
+          BANDIT: ${{ needs.bandit.result }}
+          BANDIT_FAIL: ${{ needs.bandit.outputs.failing }}
+          BANDIT_WARN: ${{ needs.bandit.outputs.warnings }}
+          BANDIT_DRIFT: ${{ needs.bandit.outputs.drift }}
+          BANDIT_SCANNED: ${{ needs.bandit.outputs.scanned }}
+          SEMGREP: ${{ needs.semgrep.result }}
+          SEMGREP_FAIL: ${{ needs.semgrep.outputs.failing }}
+          SEMGREP_WARN: ${{ needs.semgrep.outputs.warnings }}
+          SEMGREP_DRIFT: ${{ needs.semgrep.outputs.drift }}
+          SEMGREP_SCANNED: ${{ needs.semgrep.outputs.scanned }}
+          TESTS: ${{ needs.tests.result }}
+          MIGRATION: ${{ needs.tests.outputs.migration }}
+          SCENARIO: ${{ needs.tests.outputs.scenario }}
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          e = os.environ.get
+          icon = {"success": "✅ passed", "failure": "❌ failed", "cancelled": "⚪ cancelled",
+                  "skipped": "⏭️ skipped", "": "⏭️ skipped"}
+          def res(v): return icon.get(v or "", v)
+          run = e("RUN") == "true"
+          out = [f"# Gauntlet: {'ran' if run else 'skipped'}", ""]
+          out.append(f"**Triggered by:** `{e('EVENT')}` on `{e('REF')}` at `{e('SHA', '')[:12]}` by {e('ACTOR')}"
+                     + (" (full scan)" if e("FULL") == "true" else ""))
+          out.append(f"**Compared with:** `{(e('BASE') or '?')[:12]}`, {e('BASE_REASON') or '?'}; "
+                     f"{e('CHANGED') or 0} file(s) changed")
+          out.append(f"**Why:** {e('REASON') or 'the change detection job did not finish'}")
+          out.append("")
+          try:
+              risky = json.load(open("changes.json"))["risky"]
+          except (OSError, ValueError, KeyError):
+              risky = []
+          if risky:
+              out += ["## Risky files changed", "", "| File | Area |", "|---|---|"]
+              out += [f"| `{r['path']}` | {r['area']} |" for r in risky[:200]]
+              if len(risky) > 200:
+                  out.append(f"| … {len(risky) - 200} more | |")
+              out.append("")
+          elif run:
+              out += ["No risky files changed; it ran because of the label or a manual start.", ""]
+          if run:
+              def scan(name, result, fail, warn, drift, scanned):
+                  extra = "" if result in ("skipped", "") else (
+                      f"{scanned or 0} file(s); {fail or 0} new failing, {warn or 0} warning(s), "
+                      f"{drift or 0} not on changed lines")
+                  return f"| {name} | {res(result)} | {extra} |"
+              out += ["## Checks", "", "| Check | Result | Details |", "|---|---|---|"]
+              out.append(scan("Bandit (new High fails, Medium warns)", e("BANDIT"), e("BANDIT_FAIL"),
+                              e("BANDIT_WARN"), e("BANDIT_DRIFT"), e("BANDIT_SCANNED")))
+              out.append(scan("Semgrep (new Error/Warning fails, Info warns)", e("SEMGREP"), e("SEMGREP_FAIL"),
+                              e("SEMGREP_WARN"), e("SEMGREP_DRIFT"), e("SEMGREP_SCANNED")))
+              out.append(f"| Upgrade and migration tests | {res(e('MIGRATION'))} | tests/database and the migration tests |")
+              out.append(f"| Disaster-scenario tests | {res(e('SCENARIO'))} | `pytest -m gauntlet` |")
+              out += ["", "Each job's own summary below lists the findings and failures. "
+                      "How to read them: docs/GAUNTLET.md."]
+          else:
+              out.append("Nothing risky changed, so Bandit, Semgrep and the gauntlet tests were skipped.")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write("\n".join(out) + "\n")
+          print("\n".join(out))
+          EOF
+
+      - name: Fail if any check failed
+        if: ${{ needs.changes.outputs.run == 'true' || needs.changes.result != 'success' }}
+        env:
+          RESULTS: ${{ needs.changes.result }} ${{ needs.bandit.result }} ${{ needs.semgrep.result }} ${{ needs.tests.result }}
+        run: |
+          for r in $RESULTS; do
+            case "$r" in
+              failure|cancelled) echo "A gauntlet check did not pass: $RESULTS"; exit 1 ;;
+            esac
+          done
+          echo "Every gauntlet check passed."
