@@ -80,11 +80,13 @@ import {
   streamReadout,
 } from '@/features/radio/radio.format';
 import {
+  dropSharedRecent,
   keepRecentStations,
   mergeRecent,
   readRecentStations,
   RECENT_AFTER_MS,
   recentAsStation,
+  recentStationsKey,
   rememberStation,
   serverRecent,
   type RecentStation,
@@ -1082,6 +1084,20 @@ export function bootRadioChrome(
       return null;
     }
   })();
+  // this browser's copy of Stations is the profile's own (review of B1): the
+  // key names the profile, and the copy kept before that, shared by every
+  // profile on the browser, is dropped
+  const recentStore = (): string | null =>
+    recentStationsKey(
+      (
+        win as Window & {
+          SoulSyncWebShellBridge?: {
+            getCurrentProfileContext?: () => { profileId?: number | null } | null;
+          };
+        }
+      ).SoulSyncWebShellBridge?.getCurrentProfileContext?.()?.profileId ?? null,
+    );
+  dropSharedRecent(storage);
   let trayTab: 'heard' | 'recent' = 'heard';
   let heard: {
     stationId: string;
@@ -1293,8 +1309,9 @@ export function bootRadioChrome(
     const list = inTray('[data-player-rtray-recent-list]');
     const status = inTray('[data-player-rtray-recent-status]');
     if (!list || !status) return;
-    const items = readRecentStations(storage);
+    const items = readRecentStations(storage, recentStore());
     const key = JSON.stringify([
+      recentStore(),
       st.station?.id,
       items.map((s) => [s.id, s.name, s.logo_url, s.source, s.added_by]),
     ]);
@@ -1320,6 +1337,7 @@ export function bootRadioChrome(
   // then merged over it and kept as the next first paint
   let recentAt = 0;
   let recentLoading = false;
+  let recentProfile = recentStore();
   let recentTimer: ReturnType<typeof setTimeout> | null = null;
   let recentFor = '';
   const recentSent = new Set<string>();
@@ -1328,13 +1346,16 @@ export function bootRadioChrome(
     if (recentLoading) return;
     recentLoading = true;
     recentAt = Date.now();
+    const key = recentStore();
     try {
       const res = await fetcher(appURL('/api/radio/recent'), { credentials: 'same-origin' });
       const body = (await res.json().catch(() => ({}))) as { stations?: unknown };
-      if (res.ok && Array.isArray(body.stations)) {
+      // an answer for the profile that asked only: a switch since then reads again
+      if (res.ok && Array.isArray(body.stations) && key === recentStore()) {
         keepRecentStations(
           storage,
-          mergeRecent(readRecentStations(storage), serverRecent(body.stations)),
+          key,
+          mergeRecent(readRecentStations(storage, key), serverRecent(body.stations)),
         );
         recentKey = '';
         const st = radio()?.state();
@@ -1618,7 +1639,7 @@ export function bootRadioChrome(
     if (st.station && stationInfo?.id !== st.station.id) void loadStation(st.station.id);
     if (st.station && st.status === 'playing' && rememberedId !== st.station.id) {
       rememberedId = st.station.id;
-      rememberStation(storage, st.station);
+      rememberStation(storage, recentStore(), st.station);
       recentKey = '';
       drawRecent(st);
     }
@@ -1674,7 +1695,9 @@ export function bootRadioChrome(
     const playBtn = target?.closest<HTMLElement>('[data-player-rtray-play]');
     if (playBtn) {
       event.preventDefault();
-      const s = readRecentStations(storage).find((x) => x.id === playBtn.dataset.playerRtrayPlay);
+      const s = readRecentStations(storage, recentStore()).find(
+        (x) => x.id === playBtn.dataset.playerRtrayPlay,
+      );
       if (s) await radio()?.play(s.id, { station: recentAsStation(s) });
       return;
     }
@@ -1848,6 +1871,19 @@ export function bootRadioChrome(
   layout?.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-player'] });
   win.addEventListener(RADIO_EVENT, draw);
   win.addEventListener('ss:player', draw);
+  // a profile switch: that profile's own copy first, then its server list
+  const onProfile = () => {
+    const key = recentStore();
+    if (key === recentProfile) return;
+    recentProfile = key;
+    recentKey = '';
+    recentAt = 0;
+    recentLoading = false;
+    const st = radio()?.state();
+    if (st?.station) drawRecent(st);
+    if (trayOpen()) void loadRecent();
+  };
+  win.addEventListener('ss:webui-profile-context-changed', onProfile);
   cleanups.push(
     () => root.removeEventListener('click', onClick),
     () => root.removeEventListener('keydown', onKey),
@@ -1859,6 +1895,7 @@ export function bootRadioChrome(
     () => root.removeEventListener('input', onInput),
     () => win.removeEventListener(RADIO_EVENT, draw),
     () => win.removeEventListener('ss:player', draw),
+    () => win.removeEventListener('ss:webui-profile-context-changed', onProfile),
   );
   selectTab('heard');
   draw();

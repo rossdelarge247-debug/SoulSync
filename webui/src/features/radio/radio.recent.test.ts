@@ -9,17 +9,21 @@ import type { Station } from './radio.types';
 
 import { stationRowLine, streamChoice } from './radio.format';
 import {
+  dropSharedRecent,
   keepRecentStations,
   mergeRecent,
   readRecentStations,
   RECENT_AFTER_MS,
   RECENT_STATIONS_KEY,
   RECENT_STATIONS_MAX,
+  recentStationsKey,
   rememberStation,
   serverRecent,
   type RecentStation,
 } from './radio.recent';
 import { scanReadySentence } from './radio.scan';
+
+const K = `${RECENT_STATIONS_KEY}:1`;
 
 function memory(): Storage {
   const m = new Map<string, string>();
@@ -90,17 +94,40 @@ describe('the server’s list in the browser', () => {
 
   it('keeps the merged list as the next first paint, under the same key', () => {
     const store = memory();
-    keepRecentStations(store, [row('kexp', 1), row('nts-1', 2)]);
-    expect(JSON.parse(store.getItem(RECENT_STATIONS_KEY)!).map((s: RecentStation) => s.id)).toEqual(
-      ['kexp', 'nts-1'],
-    );
-    expect(readRecentStations(store).map((s) => s.played_at)).toEqual([1, 2]);
+    keepRecentStations(store, K, [row('kexp', 1), row('nts-1', 2)]);
+    expect(JSON.parse(store.getItem(K)!).map((s: RecentStation) => s.id)).toEqual([
+      'kexp',
+      'nts-1',
+    ]);
+    expect(readRecentStations(store, K).map((s) => s.played_at)).toEqual([1, 2]);
   });
 
   it('stamps a station played in this browser with the time it started', () => {
     const store = memory();
-    const [first] = rememberStation(store, row('nts-1') as unknown as Station, 1_700_000_000_500);
+    const [first] = rememberStation(
+      store,
+      K,
+      row('nts-1') as unknown as Station,
+      1_700_000_000_500,
+    );
     expect(first!.played_at).toBe(1_700_000_000);
+  });
+
+  it('keys this browser’s copy by profile, keeps nothing without one, and drops the shared copy', () => {
+    expect(recentStationsKey(1)).toBe('ssRadioRecentStations:1');
+    expect(recentStationsKey(null)).toBeNull();
+    const store = memory();
+    rememberStation(store, null, row('nts-1') as unknown as Station, 1_700_000_000_000);
+    expect(store.length).toBe(0);
+    expect(readRecentStations(store, null)).toEqual([]);
+    keepRecentStations(store, recentStationsKey(1), [row('kexp', 1)]);
+    keepRecentStations(store, recentStationsKey(2), [row('fip-jazz', 2)]);
+    expect(readRecentStations(store, recentStationsKey(1)).map((s) => s.id)).toEqual(['kexp']);
+    expect(readRecentStations(store, recentStationsKey(2)).map((s) => s.id)).toEqual(['fip-jazz']);
+    store.setItem(RECENT_STATIONS_KEY, '[]');
+    dropSharedRecent(store);
+    expect(store.getItem(RECENT_STATIONS_KEY)).toBeNull();
+    expect(store.getItem(recentStationsKey(1)!)).not.toBeNull();
   });
 
   it('counts a station after 30 seconds, as the server does', () => {

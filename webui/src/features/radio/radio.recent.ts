@@ -2,9 +2,11 @@
  * The stations a profile played last, newest first (the expanded player's
  * Stations tab; HANDOFF 142, 163). The server keeps the profile's list
  * (`GET /api/radio/recent`, written once a station has played for 30 s, so a
- * skim doesn't count); this browser keeps its own copy under the same key as
- * before, which is the first paint and the fallback, and is merged with the
- * server's when it answers.
+ * skim doesn't count); this browser keeps its own copy per profile
+ * (`ssRadioRecentStations:<profile id>`), which is the first paint and the
+ * fallback, and is merged with the server's when it answers. The copy is per
+ * profile because the server's list is: two profiles on one browser never
+ * see each other's stations. The old shared key (no profile) is dropped.
  *
  * Only what a row draws and what `play()` needs is kept: the id, the name,
  * the letters, our own logo route, the card's line, and when it was played.
@@ -12,7 +14,22 @@
 
 import type { Station } from './radio.types';
 
+/** The old shared key, and the prefix of each profile's own. */
 export const RECENT_STATIONS_KEY = 'ssRadioRecentStations';
+
+/** This profile's key, or null while no profile is known (then nothing is kept). */
+export function recentStationsKey(profileId: number | string | null | undefined): string | null {
+  return profileId == null || profileId === '' ? null : `${RECENT_STATIONS_KEY}:${profileId}`;
+}
+
+/** Drop the copy kept before it was per profile: it may hold another profile's stations. */
+export function dropSharedRecent(store: Store): void {
+  try {
+    store?.removeItem?.(RECENT_STATIONS_KEY);
+  } catch {
+    // storage that can't be written has nothing to drop
+  }
+}
 export const RECENT_STATIONS_MAX = 8;
 /** A station counts on the server once it has played this long (the server checks too). */
 export const RECENT_AFTER_MS = 30_000;
@@ -34,7 +51,10 @@ export type RecentStation = Pick<
   played_at?: number;
 };
 
-type Store = Pick<Storage, 'getItem' | 'setItem'> | null | undefined;
+type Store =
+  | (Pick<Storage, 'getItem' | 'setItem'> & Partial<Pick<Storage, 'removeItem'>>)
+  | null
+  | undefined;
 
 function clean(raw: unknown): RecentStation | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -61,9 +81,10 @@ function clean(raw: unknown): RecentStation | null {
 }
 
 /** What's kept, newest first; nothing (not an error) when storage can't be read. */
-export function readRecentStations(store: Store): RecentStation[] {
+export function readRecentStations(store: Store, key: string | null): RecentStation[] {
+  if (!key) return [];
   try {
-    const raw = store?.getItem(RECENT_STATIONS_KEY);
+    const raw = store?.getItem(key);
     if (!raw) return [];
     const list = JSON.parse(raw) as unknown;
     if (!Array.isArray(list)) return [];
@@ -81,9 +102,10 @@ export function readRecentStations(store: Store): RecentStation[] {
   }
 }
 
-function save(store: Store, list: RecentStation[]): void {
+function save(store: Store, key: string | null, list: RecentStation[]): void {
+  if (!key) return;
   try {
-    store?.setItem(RECENT_STATIONS_KEY, JSON.stringify(list));
+    store?.setItem(key, JSON.stringify(list));
   } catch {
     // a private window: the list lives for this page only
   }
@@ -92,15 +114,16 @@ function save(store: Store, list: RecentStation[]): void {
 /** Put a station at the front (once), keep the newest eight; returns the new list. */
 export function rememberStation(
   store: Store,
+  key: string | null,
   station: Station | RecentStation,
   now = Date.now(),
 ): RecentStation[] {
   const entry = clean(station);
-  const list = readRecentStations(store);
+  const list = readRecentStations(store, key);
   if (!entry) return list;
   entry.played_at = Math.floor(now / 1000);
   const next = [entry, ...list.filter((s) => s.id !== entry.id)].slice(0, RECENT_STATIONS_MAX);
-  save(store, next);
+  save(store, key, next);
   return next;
 }
 
@@ -140,9 +163,13 @@ export function mergeRecent(local: RecentStation[], server: RecentStation[]): Re
 }
 
 /** Keep the merged list as this browser's first paint; returns it. */
-export function keepRecentStations(store: Store, list: RecentStation[]): RecentStation[] {
+export function keepRecentStations(
+  store: Store,
+  key: string | null,
+  list: RecentStation[],
+): RecentStation[] {
   const next = list.slice(0, RECENT_STATIONS_MAX);
-  save(store, next);
+  save(store, key, next);
   return next;
 }
 

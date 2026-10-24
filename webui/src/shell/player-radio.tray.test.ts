@@ -250,6 +250,10 @@ function boot() {
 beforeEach(() => {
   mountMarkup();
   localStorage.clear();
+  // the signed-in profile, as the shell's bridge says (Stations' browser copy is per profile)
+  (window as unknown as Record<string, unknown>).SoulSyncWebShellBridge = {
+    getCurrentProfileContext: () => ({ profileId: 1, isAdmin: true }),
+  };
   st = radioState();
   window.showToast = vi.fn();
   fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
@@ -472,7 +476,7 @@ describe('the list: Heard today / Recent stations', () => {
 
   it('switches to Recent stations (the arrow keys too) and plays one from it', async () => {
     localStorage.setItem(
-      RECENT_STATIONS_KEY,
+      `${RECENT_STATIONS_KEY}:1`,
       JSON.stringify([
         { id: 'fip-jazz', name: 'FIP Jazz', logo_url: '', genre: 'Jazz', city: 'Paris' },
         { id: 'nts-1', name: 'NTS 1', logo_url: '', genre: 'Eclectic', city: 'London' },
@@ -783,7 +787,7 @@ describe('phase B1: the tray as drawn (16a–16e)', () => {
 
   it('says "Your link" alone on a link’s row', async () => {
     localStorage.setItem(
-      RECENT_STATIONS_KEY,
+      `${RECENT_STATIONS_KEY}:1`,
       JSON.stringify([
         { id: 'link-1', name: 'Lowlands Radio', source: 'your_link', added_by: 'ross' },
       ]),
@@ -824,7 +828,7 @@ describe('Stations from the server, per profile (142, 163)', () => {
 
   it('paints this browser’s list first, then merges the server’s and keeps it', async () => {
     localStorage.setItem(
-      RECENT_STATIONS_KEY,
+      `${RECENT_STATIONS_KEY}:1`,
       JSON.stringify([{ id: 'fip-jazz', name: 'FIP Jazz', played_at: 1_700_000_100 }]),
     );
     withRecent([kexp]);
@@ -841,13 +845,13 @@ describe('Stations from the server, per profile (142, 163)', () => {
     ].map((r) => r.querySelector('.ss-player-rtray-title')!.textContent);
     // NTS 1 is playing (just now), KEXP from the server, FIP Jazz from this browser
     expect(names).toEqual(['NTS 1', 'KEXP', 'FIP Jazz']);
-    const kept = JSON.parse(localStorage.getItem(RECENT_STATIONS_KEY)!) as { id: string }[];
+    const kept = JSON.parse(localStorage.getItem(`${RECENT_STATIONS_KEY}:1`)!) as { id: string }[];
     expect(kept.map((s) => s.id)).toEqual(['nts-1', 'kexp', 'fip-jazz']);
   });
 
   it('keeps this browser’s list when the server doesn’t answer', async () => {
     localStorage.setItem(
-      RECENT_STATIONS_KEY,
+      `${RECENT_STATIONS_KEY}:1`,
       JSON.stringify([{ id: 'fip-jazz', name: 'FIP Jazz' }]),
     );
     boot();
@@ -889,5 +893,68 @@ describe('Stations from the server, per profile (142, 163)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('Stations in this browser are kept per profile (review)', () => {
+  type Bridge = { getCurrentProfileContext: () => { profileId: number } | null };
+  let pid = 1;
+  const kexp = { ...station({ id: 'kexp', name: 'KEXP', logo_url: '' }), played_at: 1_700_000_500 };
+  const fip = {
+    ...station({ id: 'fip-jazz', name: 'FIP Jazz', logo_url: '' }),
+    played_at: 1_700_000_400,
+  };
+
+  beforeEach(() => {
+    pid = 1;
+    (window as unknown as Record<string, Bridge>).SoulSyncWebShellBridge = {
+      getCurrentProfileContext: () => ({ profileId: pid }),
+    };
+    const orig = fetchImpl.getMockImplementation() as (
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    fetchImpl.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.includes('/api/radio/recent')
+        ? respond(200, { success: true, stations: pid === 1 ? [kexp] : [fip] })
+        : orig(url, init),
+    );
+  });
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).SoulSyncWebShellBridge;
+  });
+
+  const names = () =>
+    [...document.querySelectorAll('[data-player-radio-tray] .ss-player-rtray-row-station')].map(
+      (r) => r.querySelector('.ss-player-rtray-title')!.textContent,
+    );
+
+  it('keeps each profile’s copy under its own key, and drops the old shared one', async () => {
+    localStorage.setItem(
+      RECENT_STATIONS_KEY,
+      JSON.stringify([{ id: 'x', name: 'Someone else’s' }]),
+    );
+    boot();
+    player!.expand();
+    await flush();
+    expect(localStorage.getItem(RECENT_STATIONS_KEY)).toBeNull();
+    const kept = JSON.parse(localStorage.getItem(`${RECENT_STATIONS_KEY}:1`)!) as { id: string }[];
+    expect(kept.map((s) => s.id)).toEqual(['nts-1', 'kexp']);
+    tray('[data-player-rtray-tab="recent"]').click();
+    expect(names()).not.toContain('Someone else’s');
+  });
+
+  it('a profile switch reads the other profile’s list, and never shows the first one’s', async () => {
+    boot();
+    player!.expand();
+    await flush();
+    tray('[data-player-rtray-tab="recent"]').click();
+    expect(names()).toContain('KEXP');
+    pid = 2;
+    window.dispatchEvent(new CustomEvent('ss:webui-profile-context-changed'));
+    await flush();
+    expect(names()).toContain('FIP Jazz');
+    expect(names()).not.toContain('KEXP');
+    expect(localStorage.getItem(`${RECENT_STATIONS_KEY}:2`)).not.toContain('kexp');
   });
 });

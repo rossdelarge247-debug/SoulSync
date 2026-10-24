@@ -24,6 +24,8 @@ import {
 } from './radio.recent';
 import { ownLogo, radioVisualsHeader } from './radio.scan';
 
+const K = `${RECENT_STATIONS_KEY}:1`;
+
 function memory(): Storage {
   const m = new Map<string, string>();
   return {
@@ -202,9 +204,9 @@ describe('Recent stations (kept in this browser)', () => {
 
   it('puts the newest first, once, and keeps eight', () => {
     const store = memory();
-    for (let i = 0; i < 10; i++) rememberStation(store, { ...nts, id: `s${i}`, name: `S ${i}` });
-    rememberStation(store, { ...nts, id: 's3', name: 'S 3' });
-    const list = readRecentStations(store);
+    for (let i = 0; i < 10; i++) rememberStation(store, K, { ...nts, id: `s${i}`, name: `S ${i}` });
+    rememberStation(store, K, { ...nts, id: 's3', name: 'S 3' });
+    const list = readRecentStations(store, K);
     expect(list).toHaveLength(RECENT_STATIONS_MAX);
     expect(list[0]!.id).toBe('s3');
     expect(list.filter((s) => s.id === 's3')).toHaveLength(1);
@@ -213,8 +215,8 @@ describe('Recent stations (kept in this browser)', () => {
 
   it('keeps only what a row and play() need', () => {
     const store = memory();
-    rememberStation(store, nts);
-    const raw = JSON.parse(store.getItem(RECENT_STATIONS_KEY)!)[0];
+    rememberStation(store, K, nts);
+    const raw = JSON.parse(store.getItem(K)!)[0];
     expect(Object.keys(raw).sort()).toEqual([
       'added_by',
       'city',
@@ -227,7 +229,7 @@ describe('Recent stations (kept in this browser)', () => {
       'played_at',
       'source',
     ]);
-    expect(recentAsStation(readRecentStations(store)[0]!)).toMatchObject({
+    expect(recentAsStation(readRecentStations(store, K)[0]!)).toMatchObject({
       id: 'nts-1',
       name: 'NTS 1',
       streams: [],
@@ -236,11 +238,11 @@ describe('Recent stations (kept in this browser)', () => {
 
   it('reads nothing (not an error) from bad or missing storage', () => {
     const store = memory();
-    store.setItem(RECENT_STATIONS_KEY, '{nope');
-    expect(readRecentStations(store)).toEqual([]);
-    store.setItem(RECENT_STATIONS_KEY, JSON.stringify([{ id: 1 }, { id: 'x', name: '' }, 'z']));
-    expect(readRecentStations(store)).toEqual([]);
-    expect(readRecentStations(null)).toEqual([]);
+    store.setItem(K, '{nope');
+    expect(readRecentStations(store, K)).toEqual([]);
+    store.setItem(K, JSON.stringify([{ id: 1 }, { id: 'x', name: '' }, 'z']));
+    expect(readRecentStations(store, K)).toEqual([]);
+    expect(readRecentStations(null, K)).toEqual([]);
     const throwing = {
       getItem: () => {
         throw new Error('denied');
@@ -250,7 +252,7 @@ describe('Recent stations (kept in this browser)', () => {
       },
     };
     // a private window: this page still has it
-    expect(rememberStation(throwing, nts).map((s) => s.id)).toEqual(['nts-1']);
+    expect(rememberStation(throwing, K, nts).map((s) => s.id)).toEqual(['nts-1']);
   });
 });
 
