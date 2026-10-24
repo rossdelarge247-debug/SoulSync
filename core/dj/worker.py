@@ -12,7 +12,14 @@ Gentle on a laptop:
   Mac runs it; ffmpeg decodes it starts inherit that);
 * after each track it rests at least as long as the track took (so it uses
   at most about half of one core) and never less than ``MIN_REST_SECONDS``;
-* it waits while a download batch or an auto-import is running, and while the
+* tracks over 30 minutes or 400 MB are skipped as "too long to analyse", and
+  of the rest only the first 10 minutes are decoded (mono at 22050 Hz, about
+  53 MB at most); a provisional ``analyzing`` row is written before each
+  decode, so a track that took the process down is skipped with that reason
+  at the next start instead of crashing every boot;
+* it waits while a drive move copies or switches (``core.drives.holds``, and
+  the move pauses it), while the Write Tags batch runs (a hook the web server
+  registers), while a download batch or an auto-import is running, and while the
   library's drive isn't connected (``core.drives.markers.library_away``),
   saying so in Activity.
 
@@ -59,6 +66,15 @@ UNREACHABLE_RETRY_SECONDS = 24 * 3600.0
 RECENT_SECONDS = 24 * 3600
 #: this many failures in a row (not missing files) and the sweep stops
 MAX_ERRORS_IN_A_ROW = 25
+#: tracks longer than this, or files bigger than this, are skipped as "too
+#: long to analyse" (a DJ mix or a whole-album rip): a set's tracks are
+#: minutes long, and decoding hours of audio on a laptop is all cost
+MAX_SECONDS = 30 * 60.0
+MAX_BYTES = 400 * 1024 * 1024
+#: and of the tracks it does analyse, only the first 10 minutes are decoded
+#: (mono at 22050 Hz: about 53 MB at most)
+DECODE_SECONDS = 600.0
+TOO_LONG = "too long to analyse"
 
 SETTING_ANALYZE = "library.dj_analysis"
 SETTING_WRITE_TAGS = "library.dj_write_tags"
@@ -109,9 +125,28 @@ def library_away() -> bool:
     return away()
 
 
+#: more things the sweep waits for, registered by the web server: each
+#: returns a reason word ("tag_write" while the Write Tags batch runs) or None
+_busy_hooks: List[Callable[[], Optional[str]]] = []
+
+
+def register_busy(hook: Callable[[], Optional[str]]) -> None:
+    if hook not in _busy_hooks:
+        _busy_hooks.append(hook)
+
+
 def busy_reason(database) -> Optional[str]:
     """``"download"`` while a download batch runs, ``"import"`` while an
-    auto-import is processing, else None."""
+    auto-import is processing, a registered hook's word (``"tag_write"``),
+    else None."""
+    for hook in list(_busy_hooks):
+        try:
+            word = hook()
+        except Exception as exc:  # noqa: BLE001 - unknown: don't wait on it
+            logger.debug("busy hook failed: %s", exc)
+            word = None
+        if word:
+            return word
     try:
         from core.activity.feed import snapshot_live_batches
 
@@ -156,7 +191,61 @@ def _default_resolve(stored: str) -> Optional[str]:
 def _default_analyze(path: str) -> Dict[str, Any]:
     from core.sample.analyze import analyze_track
 
-    return analyze_track(path)
+    return analyze_track(path, max_seconds=DECODE_SECONDS)
+
+
+def _too_long(path: str) -> bool:
+    """Over the size cap, or over the length cap by the file's own header
+    (mutagen reads it without decoding)."""
+    try:
+        if os.path.getsize(path) > MAX_BYTES:
+            return True
+    except OSError:
+        return False
+    try:
+        from mutagen import File as MutagenFile
+
+        audio = MutagenFile(path)
+        length = float(getattr(getattr(audio, "info", None), "length", 0) or 0)
+    except Exception:  # noqa: BLE001 - unreadable header: let the bounded decode try
+        return False
+    return length > MAX_SECONDS
+
+
+def library_roots() -> List[str]:
+    """The configured library folders a tag write may land in: the library
+    (``soulseek.transfer_path``) and ``library.music_paths``."""
+    roots: List[str] = []
+    try:
+        from core.imports.paths import docker_resolve_path
+        from core.settings import config_manager
+
+        for raw in [config_manager.get("soulseek.transfer_path", "")] + list(
+                config_manager.get("library.music_paths", []) or []):
+            if isinstance(raw, dict):
+                raw = raw.get("path") or ""
+            if raw:
+                roots.append(docker_resolve_path(str(raw)))
+    except Exception as exc:  # noqa: BLE001 - no config: nowhere is allowed
+        logger.debug("library folders unreadable: %s", exc)
+    return roots
+
+
+def write_allowed(stored: str, path: str, roots: List[str]) -> bool:
+    """A tag write lands only on the library's own file: the stored path as it
+    is, or a resolved path inside a configured library folder, never a copy
+    the resolver found in downloads or staging."""
+    try:
+        real = os.path.realpath(path)
+        if stored and os.path.isfile(stored) and os.path.realpath(stored) == real:
+            return True
+        for root in roots:
+            base = os.path.realpath(root)
+            if base and (real == base or real.startswith(base.rstrip(os.sep) + os.sep)):
+                return True
+    except Exception:  # noqa: BLE001
+        return False
+    return False
 
 
 def _notify_rescan(count: int) -> None:
@@ -195,10 +284,15 @@ def _share_with_sample_studio(track_id: str, result: Dict[str, Any], sig: Option
 def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[str]] = _default_resolve,
                   analyze: Callable[[str], Dict[str, Any]] = _default_analyze,
                   write_tags: bool = False, overwrite_tags: bool = False,
-                  notify: Callable[[int], None] = _notify_rescan) -> str:
+                  notify: Callable[[int], None] = _notify_rescan,
+                  may_write: Callable[[], bool] = lambda: True,
+                  library_roots: Callable[[], List[str]] = library_roots) -> str:
     """Analyse one library track and keep its DJ data. Returns ``done``
-    (``tagged`` when BPM or key went into the file too), ``unreachable`` or
-    ``error``; raises _Abort when analysis can't run at all."""
+    (``tagged`` when BPM or key went into the file too), ``unreachable``,
+    ``skipped`` (too long), ``error``, ``deferred`` (a drive move or a tag
+    write started before the file could be written: back in the queue) or
+    ``stale`` (the file changed during the analysis: back in the queue);
+    raises _Abort when analysis can't run at all."""
     from core.dj import store
     from core.dj.tags import read_dj_tags, write_dj_tags
     from core.sample.store import source_signature
@@ -208,23 +302,32 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
     if not row or not row.get("file_path"):
         store.mark(database, track_id, "error", "the track has no file", version)
         return "error"
-    path = resolve(str(row["file_path"]))
+    stored = str(row["file_path"])
+    path = resolve(stored)
     if not path or not os.path.isfile(path):
-        store.mark(database, track_id, "unreachable", f"SYNCHRO.S can't open {row['file_path']}", version)
+        store.mark(database, track_id, "unreachable", f"SYNCHRO.S can't open {stored}", version)
         return "unreachable"
+    if _too_long(path):
+        store.mark(database, track_id, "skipped", TOO_LONG, version)
+        return "skipped"
     sig = source_signature(path)
     tags = read_dj_tags(path)
     analysis = _reuse_sample_analysis(track_id, sig, version)
     if analysis is None:
+        # written before the decode: a crash inside it is known at the next start
+        store.mark(database, track_id, "analyzing", None, version)
         try:
             analysis = analyze(path)
         except ImportError as exc:
+            store.requeue(database, track_id, "analysis isn't available")
             raise _Abort(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - one bad file never stops the sweep
             logger.info("DJ analysis failed for track %s: %s", track_id, exc)
             store.mark(database, track_id, "error", str(exc), version)
             return "error"
-        _share_with_sample_studio(track_id, analysis, sig)
+        if not analysis.get("truncated"):
+            # a whole-file result is Sample Studio's too; a partial one isn't
+            _share_with_sample_studio(track_id, analysis, sig)
 
     if overwrite_tags and write_tags:
         values = store.decide(enrichment_bpm=row.get("bpm"), analysis=analysis)
@@ -233,7 +336,14 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
                               analysis=analysis)
 
     written: List[str] = []
-    if write_tags:
+    if write_tags and write_allowed(stored, path, library_roots()):
+        if not may_write():
+            store.requeue(database, track_id, "waited for a drive move or a tag write")
+            return "deferred"
+        if source_signature(path) != sig:
+            # replaced while it was analysed: the values are the old file's
+            store.requeue(database, track_id, "the file changed while it was analysed")
+            return "stale"
         # an uncertain key is shown with "key uncertain" but never written
         # into a file, where DJ software would trust it
         confident = values["key_source"] != "analysis" or (values["key_confidence"] or 0) >= store.KEY_CONFIDENT
@@ -244,13 +354,12 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
             logger.info("BPM and key not written into %s: %s", path, result["error"])
         if written:
             new_sig = source_signature(path)
-            # only the tags changed: keep Sample Studio's row current too
+            # only the tags changed, in this write: Sample Studio's analysis and
+            # stems made from the file as it was just before move on with it
             try:
                 from core.sample import store as sample_store
 
-                sample = sample_store.get_analysis(track_id)
-                if sample and sample.get("source_sig") == sig:
-                    sample_store.update_source_sig(track_id, new_sig)
+                sample_store.update_source_sig(track_id, new_sig, old_sig=sig)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("couldn't refresh Sample Studio's signature: %s", exc)
             sig = new_sig
@@ -272,6 +381,15 @@ def _ensure_table(conn) -> None:
     ensure_table(conn)
 
 
+def _move_holds_writes() -> bool:
+    """A drive move is copying or switching (core.drives.holds)."""
+    try:
+        from core.drives import holds
+    except Exception:  # noqa: BLE001 - no drive move on this build
+        return False
+    return holds.held_by() is not None or bool(holds.move_in_progress())
+
+
 class DjAnalysisJob:
     """The one sweep at a time. Everything that touches the outside is
     injectable for tests."""
@@ -279,12 +397,18 @@ class DjAnalysisJob:
     def __init__(self, *, process: Optional[Callable[..., str]] = None,
                  busy: Optional[Callable[[Any], Optional[str]]] = None,
                  away: Optional[Callable[[], bool]] = None,
+                 held: Optional[Callable[[], bool]] = None,
                  settings: Optional[Callable[[], Dict[str, bool]]] = None,
                  sleep_floor: float = MIN_REST_SECONDS, rest_factor: float = REST_FACTOR,
                  wait_step: float = WAIT_STEP_SECONDS) -> None:
         self._process = process or process_track
         self._busy = busy or busy_reason
         self._away = away or library_away
+        self._held_fn = held or _move_holds_writes
+        #: the drive move paused the job (its pause_workers hook)
+        self._paused_for_move = threading.Event()
+        #: set while a track is being analysed or written, for the move's busy check
+        self._in_track = threading.Event()
         self._settings = settings or settings_state
         self._sleep_floor = sleep_floor
         self._rest_factor = rest_factor
@@ -307,6 +431,28 @@ class DjAnalysisJob:
     def running(self) -> bool:
         return self.live() is not None
 
+    # -- the drive move --
+
+    def _held(self) -> bool:
+        """True while a drive move copies or switches (its hold), or paused it."""
+        if self._paused_for_move.is_set():
+            return True
+        try:
+            return bool(self._held_fn())
+        except Exception:  # noqa: BLE001 - unknown: don't hold
+            return False
+
+    def pause_for_move(self) -> None:
+        """The move's pause_workers: no new track, no write, until resumed."""
+        self._paused_for_move.set()
+
+    def resume_after_move(self) -> None:
+        self._paused_for_move.clear()
+
+    def busy_words(self) -> List[str]:
+        """For the move's "waiting for …": a track mid-analysis or mid-write."""
+        return ["BPM/key analysis"] if self._in_track.is_set() else []
+
     # -- starting and stopping --
 
     def start(self, database, profile_id: int = 1, *, manual: bool = True,
@@ -322,6 +468,7 @@ class DjAnalysisJob:
                 self.held = False
             retry = time.time() - (0 if manual else UNREACHABLE_RETRY_SECONDS)
             ids = store.pending_ids(database, analyzer_version(), retry_unreachable_before=retry)
+            store.fail_leftover_analyzing(database)
             if not ids:
                 return None
             self._stop.clear()
@@ -336,7 +483,7 @@ class DjAnalysisJob:
                 conn.commit()
                 run_id = int(cur.lastrowid)
             self._state = {"id": run_id, "status": "running", "profile_id": int(profile_id), "total": len(ids),
-                           "done": 0, "failed": 0, "unreachable": 0, "tags_written": 0, "started_at": started,
+                           "done": 0, "failed": 0, "unreachable": 0, "skipped": 0, "tags_written": 0, "started_at": started,
                            "waiting": None, "current": None, "manual": bool(manual)}
             state = dict(self._state)
         if background:
@@ -393,6 +540,8 @@ class DjAnalysisJob:
     def _wait_reason(self, database) -> Optional[str]:
         if self._away():
             return "drive_away"
+        if self._held():
+            return "drive_move"
         return self._busy(database)
 
     def _wait_while_busy(self, database) -> bool:
@@ -424,8 +573,13 @@ class DjAnalysisJob:
                 prefs = self._settings()
                 self._update(current=track_id)
                 started = time.monotonic()
-                outcome = self._process(database, track_id, write_tags=prefs.get("write_tags", False),
-                                        overwrite_tags=prefs.get("overwrite_tags", False))
+                self._in_track.set()
+                try:
+                    outcome = self._process(database, track_id, write_tags=prefs.get("write_tags", False),
+                                            overwrite_tags=prefs.get("overwrite_tags", False),
+                                            may_write=lambda: self._wait_reason(database) is None)
+                finally:
+                    self._in_track.clear()
                 took = time.monotonic() - started
                 if outcome in ("done", "tagged"):
                     errors_in_a_row = 0
@@ -434,6 +588,10 @@ class DjAnalysisJob:
                         self._bump("tags_written")
                 elif outcome == "unreachable":
                     self._bump("unreachable")
+                elif outcome == "skipped":
+                    self._bump("skipped")
+                elif outcome in ("deferred", "stale"):
+                    pass  # back in the queue for the next sweep
                 else:
                     errors_in_a_row += 1
                     self._bump("failed")
@@ -517,8 +675,8 @@ def public_state(database, job: DjAnalysisJob = JOB, *, now: Optional[int] = Non
     """The running sweep, else the last one (``recent`` within a day)."""
     live = job.live()
     if live:
-        return {k: live.get(k) for k in ("id", "status", "total", "done", "failed", "unreachable", "tags_written",
-                                         "started_at", "waiting", "current")} | {"recent": True}
+        return {k: live.get(k) for k in ("id", "status", "total", "done", "failed", "unreachable", "skipped",
+                                         "tags_written", "started_at", "waiting", "current")} | {"recent": True}
     row = last_run(database)
     if not row:
         return None
@@ -532,5 +690,6 @@ def public_state(database, job: DjAnalysisJob = JOB, *, now: Optional[int] = Non
             "recent": bool(row.get("finished_at")) and t - int(row.get("finished_at") or 0) < RECENT_SECONDS}
 
 
-__all__ = ["JOB", "JobRunning", "KIND", "DjAnalysisJob", "busy_reason", "library_away", "process_track",
-           "public_state", "settings_state", "start_scheduler", "stop_scheduler"]
+__all__ = ["DECODE_SECONDS", "JOB", "JobRunning", "KIND", "MAX_BYTES", "MAX_SECONDS", "DjAnalysisJob", "busy_reason",
+           "library_away", "library_roots", "process_track", "public_state", "register_busy", "settings_state",
+           "start_scheduler", "stop_scheduler", "write_allowed"]

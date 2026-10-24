@@ -101,9 +101,9 @@ def test_tags_are_written_only_where_missing_and_the_signature_follows(db, tmp_p
     _track(db, 2, "Tide", "/stored/b.flac")
     notes = []
     out = worker.process_track(db, "2", resolve=lambda p: path, analyze=lambda p: _analysis(), write_tags=True,
-                               notify=notes.append)
+                               notify=notes.append, library_roots=lambda: [str(tmp_path)])
     assert out == "tagged" and notes == [1]
-    assert read_dj_tags(path) == {"bpm": 126.0, "key": "Am", "format": "vorbis"}
+    assert (read_dj_tags(path)["bpm"], read_dj_tags(path)["key"]) == (126.0, "Am")
     row = store.get(db, "2")
     assert row["bpm"] == 126.0 and row["bpm_source"] == "tag" and row["tags_written"] == "key"
     from core.sample import store as sample_store
@@ -124,7 +124,7 @@ def test_overwrite_replaces_with_what_analysis_heard(db, tmp_path):
     f.save()
     _track(db, 3, "Overwrite", "/stored/c.flac")
     worker.process_track(db, "3", resolve=lambda p: path, analyze=lambda p: _analysis(), write_tags=True,
-                         overwrite_tags=True, notify=lambda n: None)
+                         overwrite_tags=True, notify=lambda n: None, library_roots=lambda: [str(tmp_path)])
     assert read_dj_tags(path)["bpm"] == 124.0 and read_dj_tags(path)["key"] == "Am"
     assert store.get(db, "3")["bpm_source"] == "analysis"
 
@@ -133,8 +133,8 @@ def test_an_uncertain_key_is_never_written(db, tmp_path):
     path = write_flac(tmp_path / "d.flac", dj_track(124, 9, True, seconds=2))
     _track(db, 4, "Unsure", "/stored/d.flac")
     worker.process_track(db, "4", resolve=lambda p: path, analyze=lambda p: _analysis(conf=0.3), write_tags=True,
-                         notify=lambda n: None)
-    assert read_dj_tags(path) == {"bpm": 124.0, "key": None, "format": "vorbis"}
+                         notify=lambda n: None, library_roots=lambda: [str(tmp_path)])
+    assert (read_dj_tags(path)["bpm"], read_dj_tags(path)["key"]) == (124.0, None)
     assert store.lookup(db, ["4"])["4"]["key_uncertain"] is True
 
 
@@ -194,7 +194,7 @@ def test_a_sweep_does_every_track_once_and_resumes(db):
     assert job.start(db, 1, background=False) is None  # nothing left: no new row
     assert len(_runs(db)) == 1
     assert store.counts(db, worker.analyzer_version()) == {"tracks": 4, "analyzed": 4, "failed": 0,
-                                                           "unreachable": 0, "pending": 0}
+                                                           "unreachable": 0, "skipped": 0, "pending": 0}
     # a new analyzer version redoes the library
     _sql(db, "UPDATE track_dj SET dj_analyzer_version = dj_analyzer_version - 1 WHERE track_id IN ('2', '3')")
     seen.clear()

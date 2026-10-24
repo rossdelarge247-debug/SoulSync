@@ -89,7 +89,7 @@ def client(db, monkeypatch):
 
 def test_status_start_and_stop(client, db):
     body = client.get("/api/library/dj/status").get_json()
-    assert body["counts"] == {"tracks": 9, "analyzed": 8, "failed": 0, "unreachable": 0, "pending": 1}
+    assert body["counts"] == {"tracks": 9, "analyzed": 8, "failed": 0, "unreachable": 0, "skipped": 0, "pending": 1}
     assert body["settings"]["analyze"] is True and body["can_start"] is True and body["job"] is None
     res = client.post("/api/library/dj/start")
     assert res.status_code == 202
@@ -122,7 +122,7 @@ def test_track_rows_lookup(client):
     one = body["tracks"]["1"]
     assert one == {"bpm": 124.0, "bpm_source": "analysis", "key": "8A", "key_name": "Am", "key_long": "A minor",
                    "key_source": "analysis", "key_confidence": 0.8, "key_uncertain": False, "energy": 7,
-                   "analyzed": True}
+                   "analyzed": True, "skipped": None}
     # not analysed yet: the BPM enrichment found
     assert body["tracks"]["9"]["bpm"] == 128.0 and body["tracks"]["9"]["bpm_source"] == "enrichment"
     assert body["tracks"]["9"]["key"] is None

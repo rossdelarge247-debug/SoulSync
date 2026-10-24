@@ -15,8 +15,9 @@ Rekordbox, Serato and Mixxx all read; a Camelot "8A" in TKEY is read by some
 and shown raw by others, so it is never written. BPM is a whole number
 because ID3's TBPM is defined as one.
 
-Writing only fills a gap: a value already in the file stays unless the
-person turned on ``library.dj_overwrite_tags``. Saves go through
+Writing only fills a gap: a BPM or key frame already in the file stays
+(even one that doesn't read as a value) unless the person turned on
+``library.dj_overwrite_tags``, and then only a different value is written. Saves go through
 ``core.metadata.common.save_audio_file`` (temp copy, audio checked
 byte-for-byte or structurally, atomic replace), like every other tag write.
 """
@@ -65,9 +66,12 @@ def _parse_bpm(text) -> Optional[float]:
 
 
 def read_dj_tags(path: str) -> Dict[str, Any]:
-    """``{"bpm": float | None, "key": str | None, "format": "id3" | "vorbis" | "mp4" | None}``
-    from the file's tags. Never raises: an unreadable file reads as empty."""
-    out: Dict[str, Any] = {"bpm": None, "key": None, "format": None}
+    """``{"bpm": float | None, "key": str | None, "format": "id3" | "vorbis" | "mp4" | None,
+    "bpm_present": bool, "key_present": bool}`` from the file's tags. ``*_present``
+    says a BPM or key frame/field exists at all, even one that doesn't read
+    as a value ("128 BPM", "0"): a value is only ever filled where none exists.
+    Never raises: an unreadable file reads as empty."""
+    out: Dict[str, Any] = {"bpm": None, "key": None, "format": None, "bpm_present": False, "key_present": False}
     if not path or os.path.splitext(path)[1].lower() not in SUPPORTED or not os.path.isfile(path):
         return out
     try:
@@ -79,14 +83,19 @@ def read_dj_tags(path: str) -> Dict[str, Any]:
         if isinstance(tags, ID3):
             out["format"] = "id3"
             frame = tags.get("TBPM")
+            out["bpm_present"] = frame is not None
             out["bpm"] = _parse_bpm(frame.text[0]) if frame is not None and frame.text else None
             frame = tags.get("TKEY")
+            out["key_present"] = frame is not None
             out["key"] = (str(frame.text[0]).strip() or None) if frame is not None and frame.text else None
         elif isinstance(audio, MP4):
             out["format"] = "mp4"
             tmpo = (tags or {}).get("tmpo")
+            out["bpm_present"] = tmpo is not None
             out["bpm"] = _parse_bpm(tmpo[0]) if tmpo else None
             for name in (MP4_KEY, "----:com.apple.iTunes:KEY", "----:com.apple.iTunes:INITIALKEY"):
+                if (tags or {}).get(name) is not None:
+                    out["key_present"] = True
                 key = _first_text((tags or {}).get(name))
                 if key:
                     out["key"] = key
@@ -95,9 +104,11 @@ def read_dj_tags(path: str) -> Dict[str, Any]:
             out["format"] = "vorbis"
             lower = {str(k).lower(): k for k in tags.keys()}
             if "bpm" in lower:
+                out["bpm_present"] = True
                 out["bpm"] = _parse_bpm(_first_text(tags[lower["bpm"]]))
             for name in ("initialkey", "key"):
                 if name in lower:
+                    out["key_present"] = True
                     key = _first_text(tags[lower[name]])
                     if key:
                         out["key"] = key
@@ -107,11 +118,24 @@ def read_dj_tags(path: str) -> Dict[str, Any]:
     return out
 
 
+#: a BPM outside this range is never written (half-time trackers, typos)
+MIN_WRITE_BPM = 20
+MAX_WRITE_BPM = 400
+
+
 def write_dj_tags(path: str, *, bpm: Optional[float] = None, key_name: Optional[str] = None,
                   overwrite: bool = False) -> Dict[str, Any]:
-    """Write BPM and/or key into ``path`` where the file has none (or always,
-    with ``overwrite``). ``{"written": ["bpm", "key"], "error": None}``; an
-    empty list when there was nothing to fill. Never raises."""
+    """Write BPM and/or key into ``path`` where the file has no such frame or
+    field (or, with ``overwrite``, where its value differs). ``{"written":
+    ["bpm", "key"], "error": None}``; an empty list when there was nothing to
+    do. Never raises.
+
+    Safety: the per-file lock the other tag writers use
+    (``core.metadata.common.get_file_lock``) is held from the read to the
+    save; the save is the atomic one with no in-place fallback (a full disk
+    leaves the file untouched and reports the error), and it keeps the file's
+    tag layout: an ID3v1 tag stays, ID3v2.3 stays 2.3, a FLAC keeps an ID3
+    block."""
     result: Dict[str, Any] = {"written": [], "error": None}
     if not path or os.path.splitext(path)[1].lower() not in SUPPORTED or not os.path.isfile(path):
         result["error"] = "unsupported or missing file"
@@ -119,44 +143,59 @@ def write_dj_tags(path: str, *, bpm: Optional[float] = None, key_name: Optional[
     try:
         from types import SimpleNamespace
 
-        from core.metadata.common import save_audio_file
+        from core.metadata.common import get_file_lock, save_audio_file
 
         MutagenFile, FLAC, ID3, MP4 = _symbols()
-        current = read_dj_tags(path)
-        want_bpm = bpm is not None and float(bpm) > 0 and (overwrite or current["bpm"] is None)
-        want_key = bool(key_name) and (overwrite or not current["key"])
-        if not want_bpm and not want_key:
-            return result
-        audio = MutagenFile(path)
-        if audio is None:
-            result["error"] = "mutagen couldn't open the file"
-            return result
-        if audio.tags is None and hasattr(audio, "add_tags"):
-            audio.add_tags()
-        bpm_text = str(int(round(float(bpm)))) if want_bpm else None
-        if isinstance(audio.tags, ID3):
-            from mutagen.id3 import TBPM, TKEY
+        bpm_text = None
+        if bpm is not None:
+            try:
+                value = float(bpm)
+            except (TypeError, ValueError):
+                value = 0.0
+            if MIN_WRITE_BPM <= value <= MAX_WRITE_BPM:
+                bpm_text = str(int(round(value)))
+        with get_file_lock(path):
+            current = read_dj_tags(path)
+            if overwrite:
+                want_bpm = bpm_text is not None and (current["bpm"] is None
+                                                     or str(int(round(current["bpm"]))) != bpm_text)
+                want_key = bool(key_name) and (current["key"] or "").strip() != str(key_name).strip()
+            else:
+                want_bpm = bpm_text is not None and not current["bpm_present"]
+                want_key = bool(key_name) and not current["key_present"]
+            if not want_bpm and not want_key:
+                return result
+            audio = MutagenFile(path)
+            if audio is None:
+                result["error"] = "mutagen couldn't open the file"
+                return result
+            if audio.tags is None and hasattr(audio, "add_tags"):
+                audio.add_tags()
+            if isinstance(audio.tags, ID3):
+                from mutagen.id3 import TBPM, TKEY
 
-            if want_bpm:
-                audio.tags.delall("TBPM")
-                audio.tags.add(TBPM(encoding=3, text=[bpm_text]))
-            if want_key:
-                audio.tags.delall("TKEY")
-                audio.tags.add(TKEY(encoding=3, text=[key_name]))
-        elif isinstance(audio, MP4):
-            from mutagen.mp4 import MP4FreeForm
+                if want_bpm:
+                    audio.tags.delall("TBPM")
+                    audio.tags.add(TBPM(encoding=3, text=[bpm_text]))
+                if want_key:
+                    audio.tags.delall("TKEY")
+                    audio.tags.add(TKEY(encoding=3, text=[key_name]))
+            elif isinstance(audio, MP4):
+                from mutagen.mp4 import MP4FreeForm
 
-            if want_bpm:
-                audio["tmpo"] = [int(bpm_text)]
-            if want_key:
-                audio[MP4_KEY] = [MP4FreeForm(str(key_name).encode("utf-8"))]
-        else:
-            if want_bpm:
-                audio["BPM"] = [bpm_text]
-            if want_key:
-                audio["INITIALKEY"] = [key_name]
-        if not save_audio_file(audio, SimpleNamespace(ID3=ID3, FLAC=FLAC, File=MutagenFile)):
-            result["error"] = "the write would have changed the audio, so the file was left as it was"
+                if want_bpm:
+                    audio["tmpo"] = [int(bpm_text)]
+                if want_key:
+                    audio[MP4_KEY] = [MP4FreeForm(str(key_name).encode("utf-8"))]
+            else:
+                if want_bpm:
+                    audio["BPM"] = [bpm_text]
+                if want_key:
+                    audio["INITIALKEY"] = [key_name]
+            saved = save_audio_file(audio, SimpleNamespace(ID3=ID3, FLAC=FLAC, File=MutagenFile),
+                                    allow_inplace_fallback=False, preserve_layout=True)
+        if not saved:
+            result["error"] = "the file couldn't be saved safely, so it was left as it was"
             return result
         result["written"] = [name for name, wanted in (("bpm", want_bpm), ("key", want_key)) if wanted]
     except PermissionError:
@@ -167,4 +206,4 @@ def write_dj_tags(path: str, *, bpm: Optional[float] = None, key_name: Optional[
     return result
 
 
-__all__ = ["MP4_KEY", "SUPPORTED", "read_dj_tags", "write_dj_tags"]
+__all__ = ["MAX_WRITE_BPM", "MIN_WRITE_BPM", "MP4_KEY", "SUPPORTED", "read_dj_tags", "write_dj_tags"]

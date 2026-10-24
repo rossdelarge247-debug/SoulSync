@@ -989,6 +989,8 @@ _DJ_WAITING = {
     "download": "waiting while a download runs",
     "import": "waiting while an import runs",
     "drive_away": "waiting for your library's drive",
+    "drive_move": "waiting while your music moves to another drive",
+    "tag_write": "waiting while tags are written",
 }
 
 

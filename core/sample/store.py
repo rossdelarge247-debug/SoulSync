@@ -173,14 +173,22 @@ def save_analysis(track_id: str, result: Dict[str, Any], source_sig: Optional[st
         conn.close()
 
 
-def update_source_sig(track_id: str, source_sig: Optional[str]) -> None:
+def update_source_sig(track_id: str, source_sig: Optional[str], old_sig: Optional[str] = None) -> None:
     """Record a new signature for a file whose audio didn't change (only its
-    tags did: the DJ worker's BPM and key write), so the row stays current."""
+    tags did: the DJ worker's BPM and key write), so the analysis and the
+    separated stems stay current. With ``old_sig``, only rows made from the
+    file as it was just before that write move on; anything older stays
+    stale."""
     db = get_database()
     conn = db._get_connection()
     try:
-        conn.execute("UPDATE sample_analysis SET source_sig = ? WHERE track_id = ?",
-                     (source_sig, track_key(track_id)))
+        for table in ("sample_analysis", "sample_stems"):
+            if old_sig is None:
+                conn.execute(f"UPDATE {table} SET source_sig = ? WHERE track_id = ?",
+                             (source_sig, track_key(track_id)))
+            else:
+                conn.execute(f"UPDATE {table} SET source_sig = ? WHERE track_id = ? AND source_sig = ?",
+                             (source_sig, track_key(track_id), old_sig))
         conn.commit()
     finally:
         conn.close()

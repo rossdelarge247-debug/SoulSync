@@ -97,8 +97,10 @@ def get(database, track_id: str) -> Optional[Dict[str, Any]]:
 
 
 def mark(database, track_id: str, status: str, error: Optional[str], version: int) -> None:
-    """Record a track that couldn't be analysed (``error``) or reached
-    (``unreachable``), so the job doesn't ask again at this version."""
+    """Record a track's state without values: ``analyzing`` (written before
+    the decode, so a crash mid-track is known at the next start), ``error``,
+    ``unreachable`` or ``skipped`` (too long to analyse), so the job doesn't
+    ask again at this version. ``version`` 0 puts it back in the queue."""
     save(database, track_id, {"status": status, "error": (error or "")[:300] or None,
                               "dj_analyzer_version": int(version), "dj_analyzed_at": time.time()})
 
@@ -129,15 +131,35 @@ def counts(database, version: int) -> Dict[str, int]:
             "SELECT COUNT(*) AS tracks, "
             "SUM(CASE WHEN d.dj_analyzer_version >= ? AND d.status = 'done' THEN 1 ELSE 0 END) AS analyzed, "
             "SUM(CASE WHEN d.dj_analyzer_version >= ? AND d.status = 'error' THEN 1 ELSE 0 END) AS failed, "
-            "SUM(CASE WHEN d.status = 'unreachable' THEN 1 ELSE 0 END) AS unreachable "
+            "SUM(CASE WHEN d.status = 'unreachable' THEN 1 ELSE 0 END) AS unreachable, "
+            "SUM(CASE WHEN d.dj_analyzer_version >= ? AND d.status = 'skipped' THEN 1 ELSE 0 END) AS skipped "
             "FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id "
-            "WHERE t.file_path IS NOT NULL AND t.file_path != ''", (int(version), int(version))).fetchone()
+            "WHERE t.file_path IS NOT NULL AND t.file_path != ''", (int(version),) * 3).fetchone()
     tracks = int(row["tracks"] or 0)
     analyzed = int(row["analyzed"] or 0)
     failed = int(row["failed"] or 0)
     unreachable = int(row["unreachable"] or 0)
+    skipped = int(row["skipped"] or 0)
     return {"tracks": tracks, "analyzed": analyzed, "failed": failed, "unreachable": unreachable,
-            "pending": max(0, tracks - analyzed - failed - unreachable)}
+            "skipped": skipped, "pending": max(0, tracks - analyzed - failed - unreachable - skipped)}
+
+
+def requeue(database, track_id: str, why: str) -> None:
+    """Put a track back in the queue (its row stays, at version 0)."""
+    mark(database, track_id, "stale", why, 0)
+
+
+def fail_leftover_analyzing(database) -> int:
+    """At a sweep's start: a track still marked ``analyzing`` was being decoded
+    when SYNCHRO.S stopped (perhaps the decode itself took the process down).
+    It becomes an error with that reason and isn't tried again at this
+    version, so one file can't crash every boot."""
+    with closing(database._get_connection()) as conn:
+        cur = conn.execute(
+            "UPDATE track_dj SET status = 'error', error = ? WHERE status = 'analyzing'",
+            ("SYNCHRO.S stopped while analysing this track (it may be too big to analyse); skipped",))
+        conn.commit()
+        return int(cur.rowcount or 0)
 
 
 def track_row(database, track_id: str) -> Optional[Dict[str, Any]]:
@@ -163,7 +185,8 @@ def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Di
         except (TypeError, ValueError):
             bpm = None
     key = parse_key(row.get("musical_key")) if row.get("musical_key") else None
-    if bpm is None and key is None and row.get("energy") is None:
+    skipped = row.get("error") if row.get("status") == "skipped" else None
+    if bpm is None and key is None and row.get("energy") is None and not skipped:
         return None
     conf = row.get("key_confidence")
     return {
@@ -177,6 +200,7 @@ def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Di
                               and float(conf) < KEY_CONFIDENT),
         "energy": row.get("energy"),
         "analyzed": row.get("status") == "done",
+        "skipped": skipped,
     }
 
 
@@ -186,13 +210,15 @@ def lookup(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
     if not ids:
         return {}
     out: Dict[str, Dict[str, Any]] = {}
+    where, params = _scope(database)
     with closing(database._get_connection()) as conn:
         for start in range(0, len(ids), 250):
             chunk = ids[start:start + 250]
             marks = ",".join("?" * len(chunk))
             rows = conn.execute(
                 f"SELECT t.id AS tid, t.bpm AS enrichment_bpm, d.* FROM tracks t "
-                f"LEFT JOIN track_dj d ON d.track_id = t.id WHERE t.id IN ({marks})", chunk).fetchall()
+                f"LEFT JOIN track_dj d ON d.track_id = t.id WHERE t.id IN ({marks}) AND {where}",
+                chunk + params).fetchall()
             for r in rows:
                 shaped = public(dict(r), enrichment_bpm=r["enrichment_bpm"])
                 if shaped:
@@ -222,8 +248,9 @@ def _scope(database, alias: str = "t") -> Tuple[str, List[Any]]:
         sql, params = database._current_scope_sql(f"{alias}.owner_profile_id")
         clauses.append(sql)
         values.extend(params)
-    except Exception as exc:  # noqa: BLE001 - a bare test database has no scope
-        logger.debug("no library scope: %s", exc)
+    except Exception as exc:  # noqa: BLE001 - no scope: show nothing rather than everyone's
+        logger.warning("library scope unreadable, showing no tracks: %s", exc)
+        return "1=0", []
     return " AND ".join(clauses) or "1=1", values
 
 
@@ -313,7 +340,8 @@ def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None) -> Dic
     tempo (same before half/double), then the closest BPM."""
     where, params = _scope(database)
     with closing(database._get_connection()) as conn:
-        seed_row = conn.execute(f"{_track_select()} WHERE t.id = ?", (str(track_id),)).fetchone()
+        seed_row = conn.execute(f"{_track_select()} WHERE t.id = ? AND {where}",
+                                [str(track_id)] + list(params)).fetchone()
         if seed_row is None:
             return {"track": None, "matches": [], "reason": "unknown"}
         seed = _shape_track(seed_row, fix_art)
@@ -346,5 +374,5 @@ def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None) -> Dic
             "reason": None if matches else "none"}
 
 
-__all__ = ["KEY_CONFIDENT", "SORTS", "browse", "counts", "decide", "get", "lookup", "mark", "mixes_with",
-           "pending_ids", "public", "save", "track_row"]
+__all__ = ["KEY_CONFIDENT", "SORTS", "browse", "counts", "decide", "fail_leftover_analyzing", "get", "lookup",
+           "mark", "mixes_with", "pending_ids", "public", "requeue", "save", "track_row"]
