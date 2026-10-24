@@ -10,7 +10,13 @@ import type { ShellProfileContext, ShellRouteDefinition, ShellPageId } from './b
 
 declare global {
   interface Window {
-    showToast?: (message: string, type?: string, durationOrContext?: number | string) => void;
+    showToast?: (
+      message: string,
+      type?: string,
+      durationOrContext?: number | string | null,
+      /** static/downloads.js: `action` adds a link-style button after the words */
+      opts?: { journal?: boolean; action?: { label: string; run: () => void } } | null,
+    ) => void;
     /** core.js: the latest server-side active music download count from the status push. */
     __soulsyncMusicActiveDownloads?: number;
     /** core.js: repaints the music Requests nav badge (admin: waiting, member: news). */

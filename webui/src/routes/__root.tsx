@@ -2,6 +2,7 @@ import { Outlet, createRootRouteWithContext } from '@tanstack/react-router';
 
 import type { AppRouterContext } from '@/app/router';
 
+import { MixesPanelHost } from '@/features/dj/mixes-panel';
 import { waitForShellContext } from '@/platform/shell/bridge';
 import { ShellLocationReporter } from '@/platform/shell/route-controllers';
 import { shellStatusQueryOptions } from '@/platform/shell/status';
@@ -31,6 +32,9 @@ export const Route = createRootRouteWithContext<AppRouterContext>()({
       <VideoDownloadsBadgePoller />
       {/* the navigation shell's current row follows the whole URL */}
       <ShellLocationReporter />
+      {/* "Mixes well with" (17a, HANDOFF 164): docked at the right, it stays
+          open while you move between pages and play */}
+      <MixesPanelHost />
     </>
   ),
 });

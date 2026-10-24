@@ -5738,7 +5738,8 @@ function _patchOverlayActive() {
 }
 
 // opts.journal === false skips the server journal: for notes the server
-// already logged itself (profile:notify)
+// already logged itself (profile:notify). opts.action = {label, run} adds a
+// link-style button after the message (Make a playlist's "Open it", 17b).
 function showToast(message, type = 'success', helpSection = null, opts = null) {
     const toastKey = `${type}:${message}`;
     const now = Date.now();
@@ -5778,6 +5779,15 @@ function showToast(message, type = 'success', helpSection = null, opts = null) {
         link.onclick = e => { e.stopPropagation(); if (typeof navigateToDocsSection === 'function') navigateToDocsSection(helpSection); };
         toast.appendChild(link);
     }
+    const action = opts && opts.action && opts.action.label && typeof opts.action.run === 'function' ? opts.action : null;
+    if (action) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'toast-compact-link toast-compact-action';
+        button.textContent = action.label;
+        button.onclick = e => { e.stopPropagation(); action.run(); };
+        toast.appendChild(button);
+    }
     toast.onclick = () => { toast.classList.add('toast-exit'); setTimeout(() => { if (container.contains(toast)) container.removeChild(toast); }, 200); };
 
     container.appendChild(toast);
@@ -5790,7 +5800,7 @@ function showToast(message, type = 'success', helpSection = null, opts = null) {
             setTimeout(() => { if (container.contains(toast)) container.removeChild(toast); }, 300);
         }
         _notifState.currentToast = null;
-    }, helpSection ? 5000 : 3500);
+    }, helpSection || action ? 5000 : 3500);
 }
 
 function _escToast(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
