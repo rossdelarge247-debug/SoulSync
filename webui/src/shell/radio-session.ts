@@ -362,6 +362,11 @@ export function createRadioSession(deps: RadioSessionDeps): RadioSessionApi & { 
     if (timer) clearTimeout(timer);
     const sid = st.sessionId;
     set(idle());
+    // the player stops first: a server that doesn't answer can't keep a
+    // direct stream playing (or a relay open) while Stop waits for it
+    const engine = deps.engine();
+    const track = engine?.state?.().track;
+    if (track?.kind === 'radio') await engine?.stop?.();
     if (sid) {
       try {
         await api('stop', { method: 'POST', body: JSON.stringify({ session_id: sid }) });
@@ -369,9 +374,6 @@ export function createRadioSession(deps: RadioSessionDeps): RadioSessionApi & { 
         // the server drops an unused session on its own
       }
     }
-    const engine = deps.engine();
-    const track = engine?.state?.().track;
-    if (track?.kind === 'radio') await engine?.stop?.();
   }
 
   async function addToWanted(): Promise<boolean> {

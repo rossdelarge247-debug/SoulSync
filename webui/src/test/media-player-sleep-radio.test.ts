@@ -15,7 +15,14 @@ const fn = extractFunction('npFireSleepTimer', source);
 let stop: ReturnType<typeof vi.fn>;
 let calls: string[];
 
-function fire(track: unknown, audio: { paused: boolean; pause: () => void }) {
+type Audio = {
+  paused: boolean;
+  pause: () => void;
+  removeAttribute?: (n: string) => void;
+  load?: () => void;
+};
+
+function fire(track: unknown, audio: Audio) {
   return new Function(
     'window',
     'currentTrack',
@@ -53,4 +60,14 @@ it('pauses music and keeps it', () => {
   expect(stop).not.toHaveBeenCalled();
   expect(audio.pause).toHaveBeenCalledTimes(1);
   expect(calls).toEqual(['crossfade', 'playing:false', 'clear']);
+});
+
+it('stops the stream itself when the radio session isn’t there, so no relay stays open', () => {
+  delete (window as unknown as { SoulSyncRadio?: unknown }).SoulSyncRadio;
+  const audio = { paused: false, pause: vi.fn(), removeAttribute: vi.fn(), load: vi.fn() };
+  fire({ kind: 'radio', title: 'NTS 1' }, audio)();
+  expect(audio.pause).toHaveBeenCalledTimes(1);
+  expect(audio.removeAttribute).toHaveBeenCalledWith('src');
+  expect(audio.load).toHaveBeenCalledTimes(1);
+  expect(calls).toContain('clear');
 });

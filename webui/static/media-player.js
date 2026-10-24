@@ -2756,10 +2756,18 @@ function npClearSleepTimer() {
 function npFireSleepTimer() {
     // A station stops, as its Stop does (Design 147): a paused live stream
     // isn't what the timer promises, and the relay would keep running.
-    if (typeof currentTrack !== 'undefined' && currentTrack && currentTrack.kind === 'radio'
-        && window.SoulSyncRadio && typeof window.SoulSyncRadio.stop === 'function') {
+    if (typeof currentTrack !== 'undefined' && currentTrack && currentTrack.kind === 'radio') {
         npClearSleepTimer();
-        window.SoulSyncRadio.stop();
+        if (window.SoulSyncRadio && typeof window.SoulSyncRadio.stop === 'function') {
+            window.SoulSyncRadio.stop();
+            return;
+        }
+        // no radio session to ask: drop the stream itself, so a relay doesn't stay open
+        if (audioPlayer) {
+            audioPlayer.pause();
+            audioPlayer.removeAttribute('src');
+            if (typeof audioPlayer.load === 'function') audioPlayer.load();
+        }
         return;
     }
     // Pause, don't stop: handleStop() runs clearTrack(), which wipes
