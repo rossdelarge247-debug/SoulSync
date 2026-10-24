@@ -7,6 +7,7 @@ writes may land."""
 from __future__ import annotations
 
 import os
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -192,6 +193,7 @@ def test_the_ffmpeg_decode_is_bounded(monkeypatch, tmp_path):
         stdout = b""
         stderr = b"x"
 
+    monkeypatch.setattr(analyze, "ffmpeg_bin", lambda: "ffmpeg")  # CI may have no ffmpeg on PATH
     monkeypatch.setattr(analyze.subprocess, "run", lambda cmd, **kw: calls.append(cmd) or _P())
     with pytest.raises(RuntimeError):
         analyze._decode_via_ffmpeg(__file__, target_sr=22050, max_seconds=600)
@@ -329,7 +331,7 @@ def test_replace_skips_values_already_equal(tmp_path):
 
 # ── 8. the tag layout ────────────────────────────────────────────────────────
 
-@pytest.mark.skipif(not os.path.exists("/usr/bin/ffmpeg"), reason="ffmpeg makes the mp3")
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg makes the mp3")
 def test_an_mp3_keeps_its_id3v1_and_v23(tmp_path):
     from mutagen.id3 import ID3, TIT2
 
