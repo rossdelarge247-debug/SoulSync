@@ -62,6 +62,7 @@ import {
   sleepButtonLabel,
   sleepButtonText,
   sleepChoiceLabel,
+  sleepStepsFor,
   sourceLabel,
   sourceView,
   spokenRecentMeta,
@@ -1043,6 +1044,8 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       root!.querySelector('[data-player-record="playlist"]'),
       !st.playlistTrack || typeof view.openAddToPlaylist !== 'function',
     );
+    // a station has no end of track (147): that choice doesn't carry over to one
+    if (st.kind === 'radio' && st.sleep === 'track') engine!.setSleep(0);
     const now = Date.now();
     const running = st.sleep === 'track' || Boolean(st.sleep);
     for (const b of root!.querySelectorAll<HTMLElement>('[data-player-sleep]')) {
@@ -1058,7 +1061,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     const st = snapshot;
     fillChoices(
       box,
-      st.sleepSteps.map((v) => ({
+      sleepStepsFor(st.kind, st.sleepSteps).map((v) => ({
         value: String(v),
         label: sleepChoiceLabel(v),
         checked: v === st.sleep,
@@ -1530,12 +1533,15 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     closeMenus(false);
     openPlaylist(e.currentTarget as HTMLElement);
   });
-  on(root.querySelector('[data-player-sleep]'), 'click', (e) => {
-    if (!sleepMenu) return;
-    fillSleep(sleepMenu);
-    openMenu(sleepMenu, e.currentTarget as HTMLElement);
-    sleepMenu.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
-  });
+  // the record's moon, and radio's (147): the same timer and choices, less
+  // "End of track" and the hours for a station
+  for (const b of root.querySelectorAll<HTMLElement>('[data-player-sleep]'))
+    on(b, 'click', (e) => {
+      if (!sleepMenu) return;
+      fillSleep(sleepMenu);
+      openMenu(sleepMenu, e.currentTarget as HTMLElement);
+      sleepMenu.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+    });
   const sleepTick = view.setInterval(() => drawRecordControls(), 15000);
   cleanups.push(() => view.clearInterval(sleepTick));
   for (const more of root.querySelectorAll<HTMLElement>('[data-player-more]'))

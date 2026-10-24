@@ -2754,6 +2754,14 @@ function npClearSleepTimer() {
 }
 
 function npFireSleepTimer() {
+    // A station stops, as its Stop does (Design 147): a paused live stream
+    // isn't what the timer promises, and the relay would keep running.
+    if (typeof currentTrack !== 'undefined' && currentTrack && currentTrack.kind === 'radio'
+        && window.SoulSyncRadio && typeof window.SoulSyncRadio.stop === 'function') {
+        npClearSleepTimer();
+        window.SoulSyncRadio.stop();
+        return;
+    }
     // Pause, don't stop: handleStop() runs clearTrack(), which wipes
     // the queue (including the persisted copy) — falling asleep to a
     // playlist shouldn't cost the playlist. Pause keeps track + queue

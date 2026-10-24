@@ -12825,10 +12825,14 @@
                         <div><dt>Stream</dt><dd data-player-rtray-stream>—</dd></div>
                         <div><dt>Path</dt><dd data-player-rtray-path>—</dd></div>
                     </dl>
-                    <div class="ss-player-record-controls">
+                    <!-- 16a: the action fills the row, then the Sleep timer (147) and "…" -->
+                    <div class="ss-player-record-controls ss-player-rtray-controls">
                         <span class="ss-player-rtray-action" data-player-rtray-action></span>
-                        <span class="ss-player-spacer"></span>
-                        <button type="button" class="ss-player-btn ss-player-btn--outline ss-player-more" data-player-more aria-haspopup="true" aria-expanded="false" aria-controls="ss-player-menu" aria-label="More">
+                        <button type="button" class="ss-player-btn ss-player-btn--outline ss-player-sleep" data-player-sleep aria-haspopup="true" aria-expanded="false" aria-controls="ss-player-sleep-menu" aria-pressed="false" aria-label="Sleep timer" title="Sleep timer">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+                            <span class="ss-player-sleep-left" data-player-sleep-left hidden></span>
+                        </button>
+                        <button type="button" class="ss-player-btn ss-player-more ss-player-rtray-more" data-player-more aria-haspopup="true" aria-expanded="false" aria-controls="ss-player-menu" aria-label="More">
                             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
                         </button>
                     </div>

@@ -27,6 +27,7 @@ import {
   sleepButtonText,
   sleepChoiceLabel,
   sleepLabel,
+  sleepStepsFor,
   sourceLabel,
   sourceView,
   timeAgo,
@@ -222,6 +223,13 @@ describe('the list and menus', () => {
       '8 up next · from Lantern · then from the top',
     );
     expect(queueFoot({ ...q, index: 9 })).toBe('Nothing up next · playback stops after this');
+  });
+
+  it('a station’s timer offers Off and 15 to 60 minutes, no end of track (147)', () => {
+    const music = [0, 15, 30, 45, 60, 90, 120, 'track'] as (number | 'track')[];
+    expect(sleepStepsFor('radio', music)).toEqual([0, 15, 30, 45, 60]);
+    expect(sleepStepsFor('library', music)).toEqual(music);
+    expect(sleepStepsFor(null, music)).toEqual(music);
   });
 
   it('sleep and speed wording', () => {
