@@ -75,7 +75,10 @@ import errno
 import os
 import posixpath
 import re
-import tempfile
+import secrets
+import stat
+import threading
+import time
 import unicodedata
 import uuid
 # ElementTree only builds the file here; nothing is ever parsed, so there is no
@@ -158,13 +161,22 @@ def xml_text(value: Any, limit: int = MAX_TEXT) -> str:
 _UNSAFE_NAME = re.compile(r'[\x00-\x1f\x7f/\\:*?"<>|]+')
 
 
+#: names Traktor keeps for its own files: an export never takes one
+_TRAKTOR_OWN = {"collection"}
+
+
 def safe_filename(name: Any, suffix: str = ".nml") -> str:
-    """A file name from a playlist's name: no folders, no control or reserved
-    characters, no leading dots, at most 80 characters before the suffix."""
+    """A file name from a playlist's name: no folders, no control, format
+    (``Cf``: the right-to-left override, zero-width characters) or reserved
+    characters, no leading dots, at most 80 characters before the suffix, and
+    never Traktor's own ``collection.nml``."""
     text = unicodedata.normalize("NFC", xml_text(name, 400))
+    text = "".join(c for c in text if unicodedata.category(c) != "Cf")
     text = _UNSAFE_NAME.sub(" ", text)
     text = re.sub(r"\s+", " ", text).strip().lstrip(". ")
     text = text[:80].rstrip(" .")
+    if text.casefold() in _TRAKTOR_OWN:
+        text = f"{text} (playlist)"
     return f"{text or 'Traktor export'}{suffix}"
 
 
@@ -186,6 +198,49 @@ def _load_to_host() -> Optional[Callable[[str], Optional[str]]]:
     except Exception:  # noqa: BLE001 - not there yet: the card's setting stands alone
         return None
     return to_host
+
+
+#: how many stored paths one export may look up on disk (each can ask the media
+#: server where its music lives), and for how long
+RESOLVE_BUDGET = 50
+RESOLVE_SECONDS = 5.0
+#: a stored path that resolved to nothing isn't looked up again for this long
+MISS_TTL_SECONDS = 300.0
+_MISS_CACHE_MAX = 5000
+_misses: Dict[str, float] = {}
+_misses_lock = threading.Lock()
+
+
+def _missed_recently(stored: str) -> bool:
+    with _misses_lock:
+        until = _misses.get(stored)
+        if until is None:
+            return False
+        if until < time.monotonic():
+            _misses.pop(stored, None)
+            return False
+        return True
+
+
+def _remember_miss(stored: str) -> None:
+    with _misses_lock:
+        if len(_misses) >= _MISS_CACHE_MAX:
+            now = time.monotonic()
+            for key in [k for k, v in _misses.items() if v < now][:_MISS_CACHE_MAX // 2] or list(_misses)[:100]:
+                _misses.pop(key, None)
+        _misses[stored] = time.monotonic() + MISS_TTL_SECONDS
+
+
+def clear_resolve_misses() -> None:
+    """Forget the remembered misses (tests; a library rescan)."""
+    with _misses_lock:
+        _misses.clear()
+
+
+def _same_path_mounts() -> bool:
+    """Whether this container sees ``/Volumes`` or ``/Users``: only then can a
+    resolved path be the Mac's own without a Mac path set."""
+    return os.path.isdir("/Volumes") or os.path.isdir("/Users")
 
 
 def _norm(path: str) -> str:
@@ -229,11 +284,24 @@ class MacPaths:
 
     def __init__(self, library_root: str, mac_root: Optional[str], *,
                  to_host: Optional[Callable[[str], Optional[str]]] = None,
-                 resolve: Optional[Callable[[str], Optional[str]]] = None):
+                 resolve: Optional[Callable[[str], Optional[str]]] = None,
+                 resolve_budget: int = RESOLVE_BUDGET, resolve_seconds: float = RESOLVE_SECONDS,
+                 same_path_mounts: Optional[bool] = None, clock: Callable[[], float] = time.monotonic):
         self.library_root = _norm(library_root)
         self.mac_root = valid_mac_path(mac_root) if mac_root else None
         self.to_host = to_host
         self.resolve = resolve
+        # looking a path up on disk can only help when something can place the
+        # result: a Mac path, the helper's map, or a /Volumes or /Users mount
+        if self.mac_root is None and to_host is None:
+            mounts = _same_path_mounts() if same_path_mounts is None else same_path_mounts
+            if not mounts:
+                self.resolve = None
+        self.resolve_budget = max(0, int(resolve_budget))
+        self.resolve_seconds = float(resolve_seconds)
+        self._clock = clock
+        self._started: Optional[float] = None
+        self.resolved = 0
 
     def _place(self, path: str) -> Optional[str]:
         if self.to_host is not None:
@@ -260,13 +328,21 @@ class MacPaths:
         found = self._place(path)
         if found:
             return found, None
-        if self.resolve is not None:
+        if self.resolve is not None and not _missed_recently(str(stored)):
+            if self._started is None:
+                self._started = self._clock()
+            if (self.resolved >= self.resolve_budget
+                    or self._clock() - self._started > self.resolve_seconds):
+                return None, "lookup_limit"
+            self.resolved += 1
             try:
                 on_disk = self.resolve(str(stored))
             except Exception as exc:  # noqa: BLE001 - unreadable: say so below
                 logger.debug("resolve failed for a stored path: %s", exc)
                 on_disk = None
-            if on_disk and _norm(on_disk) != path:
+            if not on_disk:
+                _remember_miss(str(stored))
+            elif _norm(on_disk) != path:
                 found = self._place(_norm(on_disk))
                 if found:
                     return found, None
@@ -309,6 +385,7 @@ REASON_WORDS = {
     "outside": "is in a folder the Mac path doesn't cover",
     "bad_path": "has a path Traktor can't read",
     "too_many": "is past the 1,000 tracks one export takes",
+    "lookup_limit": "wasn't looked for on disk: too many to look up in one export",
 }
 
 
@@ -531,37 +608,50 @@ def export_roots() -> List[str]:
     return roots
 
 
+def _check_folder(folder: Optional[str], roots: Optional[Sequence[str]] = None
+                  ) -> Tuple[Optional[str], str, Optional[Tuple[int, int]], List[str]]:
+    """``check_export_folder`` plus the folder's identity (device, inode) as it
+    was checked and the real paths of the roots it was checked against."""
+    if not folder:
+        return None, "unset", None, []
+    if not isinstance(folder, str) or "\x00" in folder or len(folder) > 1000 or not os.path.isabs(folder):
+        return None, "invalid", None, []
+    roots = export_roots() if roots is None else list(roots)
+    try:
+        real = os.path.realpath(folder)
+    except (OSError, ValueError):
+        return None, "invalid", None, []
+    bases = []
+    for root in roots:
+        if not root:
+            continue
+        base = os.path.realpath(root)
+        if os.path.isdir(base):  # an unmounted folder holds nothing
+            bases.append(base)
+    if not any(_within(real, base) for base in bases):
+        return None, "outside", None, bases
+    try:
+        st = os.stat(real)
+    except OSError:
+        return None, "missing", None, bases
+    if not stat.S_ISDIR(st.st_mode):
+        return None, "missing", None, bases
+    if not os.access(real, os.W_OK | os.X_OK):
+        return None, "not_writable", None, bases
+    return real, "ok", (st.st_dev, st.st_ino), bases
+
+
+def _within(path: str, base: str) -> bool:
+    return path == base or path.startswith(base.rstrip(os.sep) + os.sep)
+
+
 def check_export_folder(folder: Optional[str], roots: Optional[Sequence[str]] = None) -> Tuple[Optional[str], str]:
     """``(real_folder, "ok")`` when ``folder`` is a directory SYNCHRO.S can
     write, inside one of the configured folders once every link is followed;
     else ``(None, state)``: ``unset``, ``invalid``, ``outside``, ``missing`` or
     ``not_writable``."""
-    if not folder:
-        return None, "unset"
-    if not isinstance(folder, str) or "\x00" in folder or len(folder) > 1000 or not os.path.isabs(folder):
-        return None, "invalid"
-    roots = export_roots() if roots is None else list(roots)
-    try:
-        real = os.path.realpath(folder)
-    except (OSError, ValueError):
-        return None, "invalid"
-    inside = False
-    for root in roots:
-        if not root:
-            continue
-        base = os.path.realpath(root)
-        if not os.path.isdir(base):
-            continue  # an unmounted folder holds nothing
-        if real == base or real.startswith(base.rstrip(os.sep) + os.sep):
-            inside = True
-            break
-    if not inside:
-        return None, "outside"
-    if not os.path.isdir(real):
-        return None, "missing"
-    if not os.access(real, os.W_OK | os.X_OK):
-        return None, "not_writable"
-    return real, "ok"
+    real, state, _ident, _bases = _check_folder(folder, roots)
+    return real, state
 
 
 class ExportFolderError(RuntimeError):
@@ -570,71 +660,175 @@ class ExportFolderError(RuntimeError):
         self.state = state
 
 
+TEMP_PREFIX = ".synchros-traktor-"
+TEMP_SUFFIX = ".tmp"
+#: a temporary export file older than this was left by a save that died; it's removed
+STALE_TEMP_SECONDS = 3600.0
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+
+
+def _umask() -> int:
+    """The process's umask without changing it (``os.umask`` sets it, which
+    races other threads): Linux says it in /proc; else the usual 022."""
+    try:
+        with open("/proc/self/status", encoding="ascii", errors="ignore") as handle:
+            for line in handle:
+                if line.startswith("Umask:"):
+                    return int(line.split()[1], 8)
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0o022
+
+
+def _open_checked_folder(real: str, ident: Tuple[int, int], bases: Sequence[str]) -> int:
+    """The export folder opened once, as a directory, without following a link
+    at its name, and confirmed to be the very folder that was checked (same
+    device and inode, and still inside a configured folder where the system
+    can say where an open folder is). Every later step works relative to it."""
+    try:
+        dfd = os.open(real, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
+    except OSError as exc:
+        raise ExportFolderError("missing") from exc
+    try:
+        st = os.fstat(dfd)
+        if not stat.S_ISDIR(st.st_mode) or (st.st_dev, st.st_ino) != ident:
+            raise ExportFolderError("outside")
+        try:
+            where = os.readlink(f"/proc/self/fd/{dfd}")
+        except OSError:
+            where = None
+        if where is not None and not any(_within(where, base) for base in bases):
+            raise ExportFolderError("outside")
+    except BaseException:
+        os.close(dfd)
+        raise
+    return dfd
+
+
+def _sweep_stale_temps(dfd: int, *, now: Optional[float] = None) -> int:
+    """Remove temporary export files a save that died left behind (older than
+    an hour), in the open export folder. Returns how many went."""
+    now = time.time() if now is None else now
+    removed = 0
+    try:
+        names = os.listdir(dfd)
+    except OSError:
+        return 0
+    for name in names:
+        if not (name.startswith(TEMP_PREFIX) and name.endswith(TEMP_SUFFIX)):
+            continue
+        try:
+            st = os.lstat(name, dir_fd=dfd)
+            if stat.S_ISREG(st.st_mode) and now - st.st_mtime > STALE_TEMP_SECONDS:
+                os.unlink(name, dir_fd=dfd)
+                removed += 1
+        except OSError as exc:
+            logger.debug("couldn't sweep an old temporary export file: %s", exc)
+    return removed
+
+
 def save_to_folder(folder: str, filename: str, data: bytes, *, overwrite: bool = False,
                    roots: Optional[Sequence[str]] = None) -> str:
     """Write ``data`` as ``filename`` in the export folder; returns the path.
 
     The folder is checked again here (inside a configured folder once links
-    are followed, a writable directory). The file is written to a temporary
-    name made by ``mkstemp`` in that folder, then linked into place, which
-    fails when the name exists (``FileExistsError``) unless ``overwrite``,
-    when it's renamed over it. Nothing is ever written outside the folder."""
-    real, state = check_export_folder(folder, roots)
-    if real is None:
+    are followed, a writable directory), then opened once and confirmed to be
+    the folder checked; every step after that is relative to the open folder,
+    so swapping a folder or a link in by name afterwards changes nothing. The
+    file is written to a new temporary name (``O_EXCL | O_NOFOLLOW``), given
+    the usual 0644 less the umask, then linked into place, which fails when the
+    name exists (``FileExistsError``), unless ``overwrite``, when it's renamed
+    over it. Temporary files older than an hour are swept first. Nothing is
+    ever written outside the folder."""
+    real, state, ident, bases = _check_folder(folder, roots)
+    if real is None or ident is None:
         raise ExportFolderError(state)
     stem = filename[:-4] if isinstance(filename, str) and filename.endswith(".nml") else None
     if not stem or "/" in filename or "\\" in filename or "\x00" in filename or filename != safe_filename(stem):
         raise ValueError("unsafe file name")
-    final = os.path.join(real, filename)
-    if os.path.realpath(os.path.dirname(final)) != real:
-        raise ExportFolderError("outside")
-    if os.path.isdir(final) and not os.path.islink(final):
-        raise FileExistsError(final)
-    if os.path.lexists(final) and not overwrite:
-        raise FileExistsError(final)
-    fd, tmp = tempfile.mkstemp(prefix=".synchros-traktor-", suffix=".tmp", dir=real)
+    dfd = _open_checked_folder(real, ident, bases)
+    tmp: Optional[str] = None
     try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
+        _sweep_stale_temps(dfd)
+        try:
+            st = os.lstat(filename, dir_fd=dfd)
+        except FileNotFoundError:
+            st = None
+        if st is not None and (stat.S_ISDIR(st.st_mode) or not overwrite):
+            raise FileExistsError(os.path.join(real, filename))
+        tmp, fd = _new_temp(dfd)
+        try:
+            os.fchmod(fd, 0o644 & ~_umask())
+            view = memoryview(data)
+            while view:
+                view = view[os.write(fd, view):]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
         if overwrite:
-            os.replace(tmp, final)
+            os.replace(tmp, filename, src_dir_fd=dfd, dst_dir_fd=dfd)
+            tmp = None
         else:
-            _link_new(tmp, final, data)
+            _place_new(dfd, tmp, filename)
+        try:
+            os.fsync(dfd)
+        except OSError:
+            pass
     finally:
-        if os.path.lexists(tmp):
+        if tmp is not None:
             try:
-                os.unlink(tmp)
+                os.unlink(tmp, dir_fd=dfd)
+            except FileNotFoundError:
+                pass
             except OSError as exc:
                 logger.warning("couldn't remove the temporary export file: %s", exc)
-    return final
+        os.close(dfd)
+    return os.path.join(real, filename)
 
 
-def _link_new(tmp: str, final: str, data: bytes) -> None:
-    """Put ``tmp`` at ``final`` only if nothing is there: a hard link (atomic,
-    refused when the name exists, a dangling link included); on a file system
-    without links, an exclusive create (``O_EXCL`` refuses an existing name or
-    link too)."""
+def _new_temp(dfd: int) -> Tuple[str, int]:
+    """A new temporary file in the open folder: ``(name, fd)``."""
+    for _ in range(20):
+        name = f"{TEMP_PREFIX}{secrets.token_hex(8)}{TEMP_SUFFIX}"
+        try:
+            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o600, dir_fd=dfd)
+        except FileExistsError:
+            continue
+        return name, fd
+    raise FileExistsError("no free temporary name")
+
+
+#: errors that mean "this file system has no hard links"
+_NO_LINKS = (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EXDEV, errno.EMLINK, errno.ENOSYS,
+             errno.EACCES)
+
+
+def _place_new(dfd: int, tmp: str, final: str) -> None:
+    """Put ``tmp`` at ``final`` only if nothing is there. A hard link is atomic
+    and refused when the name exists (a dangling link included); ``tmp`` then
+    goes. On a file system without links: claim the name with an exclusive
+    create (``O_EXCL | O_NOFOLLOW`` refuses an existing name or link), then
+    rename the written file over that empty claim. That isn't atomic: for the
+    moment between the two, the name holds an empty file; if anything fails the
+    claim is removed."""
     try:
-        os.link(tmp, final)
-        return
+        os.link(tmp, final, src_dir_fd=dfd, dst_dir_fd=dfd, follow_symlinks=False)
     except FileExistsError:
         raise
     except OSError as exc:
-        if exc.errno not in (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EXDEV, errno.EMLINK,
-                             errno.ENOSYS, errno.EACCES):
+        if exc.errno not in _NO_LINKS:
             raise
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(final, flags, 0o644)
+    else:
+        os.unlink(tmp, dir_fd=dfd)
+        return
+    claim = os.open(final, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o600, dir_fd=dfd)
+    os.close(claim)
     try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
+        os.replace(tmp, final, src_dir_fd=dfd, dst_dir_fd=dfd)
     except BaseException:
         try:
-            os.unlink(final)
+            os.unlink(final, dir_fd=dfd)
         except OSError:
             pass
         raise
