@@ -462,6 +462,50 @@ describe('the list: Heard today / Recent stations', () => {
     expect(tray('[data-player-rtray-heard-list]').contains(rest)).toBe(false);
   });
 
+  it('says “Nothing identified today” over the folded line when none were identified (174)', async () => {
+    const orig = fetchImpl.getMockImplementation() as (
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    const t = Math.floor(Date.now() / 1000);
+    const unnamed = (id: number): HeardItem => ({
+      ...heardItems()[0]!,
+      id,
+      heard_at: t - 30 * id,
+      artist: null,
+      title: null,
+      release: null,
+      duration_s: 600,
+      state: 'not_identified',
+    });
+    fetchImpl.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.includes('/api/radio/heard?')
+        ? respond(200, {
+            success: true,
+            items: [unnamed(5), unnamed(6)],
+            days: 1,
+            keep_days: 90,
+            counts: {},
+          })
+        : orig(url, init),
+    );
+    boot();
+    player!.expand();
+    await flush();
+    expect(tray('[data-player-rtray-heard-count]').textContent).toBe('0');
+    const status = tray('[data-player-rtray-heard-status]');
+    expect(status.hidden).toBe(false);
+    expect(status.textContent).toBe('Nothing identified today');
+    const rest = tray('[data-player-rtray-heard-rest]');
+    expect(rest.hidden).toBe(false);
+    expect(rest.textContent).toBe('2 weren’t identified · talk or a mix');
+    // the sentence comes first, then the folded line
+    expect(status.compareDocumentPosition(rest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      document.querySelectorAll('[data-player-radio-tray] .ss-player-rtray-row-heard'),
+    ).toHaveLength(0);
+  });
+
   it('shows auto-add on Heard today only (146)', async () => {
     boot();
     player!.expand();
