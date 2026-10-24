@@ -391,14 +391,19 @@ class Store:
         cols.append("updated_at = ?")
         vals.append(_now())
         vals.append(int(move_id))
-        where = "id = ?"
-        if expect_status is not None:
-            where += " AND status = ?"
-            vals.append(expect_status)
         with closing(self.conn()) as conn:
-            cur = conn.execute(f"UPDATE drive_moves SET {', '.join(cols)} WHERE {where}", vals)
+            if expect_status is not None:
+                # read and write in one immediate transaction: nothing changes the status between
+                conn.execute("BEGIN IMMEDIATE")
+                now = conn.execute("SELECT status FROM drive_moves WHERE id = ?", (int(move_id),)).fetchone()
+                if now is None or now[0] != expect_status:
+                    conn.rollback()
+                    return 0
+            before = getattr(conn, "total_changes", 0)
+            conn.execute(f"UPDATE drive_moves SET {', '.join(cols)} WHERE id = ?", vals)
+            changed = getattr(conn, "total_changes", 1) - before
             conn.commit()
-            return int(cur.rowcount or 0)
+            return int(changed)
 
     # -- the activity row --
 
