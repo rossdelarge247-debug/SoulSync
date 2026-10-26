@@ -274,3 +274,24 @@ def test_matching_finds_a_track_behind_many_out_of_scope_matches(client, db):
         assert "idx_tracks_title_norm" in plan
     finally:
         reset_library_scope(token)
+
+
+# ── Low 5: a set makes a new playlist only when it has none following ───────
+
+@pytest.mark.gauntlet
+def test_a_new_playlist_only_when_the_old_one_no_longer_follows(client, db):
+    made = client.post("/api/sets", json={"name": "Sunday", "tracks": _rows("1", "2")}).get_json()
+    set_id, playlist_id = made["id"], made["playlist_id"]
+    assert playlist_id
+    refused = client.post(f"/api/sets/{set_id}/playlist", json={"action": "new"})
+    assert refused.status_code == 409 and refused.get_json()["playlist_id"] == playlist_id
+    for _ in range(3):
+        assert client.post(f"/api/sets/{set_id}/playlist", json={"action": "new"}).status_code == 409
+    # changed elsewhere: one new playlist, which then follows, so no more
+    _sql(db, "UPDATE dj_sets SET playlist_state = 'changed' WHERE id = ?", (set_id,))
+    fresh = client.post(f"/api/sets/{set_id}/playlist", json={"action": "new"})
+    assert fresh.status_code == 200 and fresh.get_json()["playlist_id"] not in (None, playlist_id)
+    assert client.post(f"/api/sets/{set_id}/playlist", json={"action": "new"}).status_code == 409
+    # no playlist at all: one may be made
+    _sql(db, "UPDATE dj_sets SET playlist_id = NULL, playlist_state = NULL WHERE id = ?", (set_id,))
+    assert client.post(f"/api/sets/{set_id}/playlist", json={"action": "new"}).status_code == 200

@@ -530,6 +530,11 @@ def _own_playlist(database, profile_id: int, playlist_id: Optional[int]):
     return found if up.is_user_playlist(found) else None
 
 
+def has_own_playlist(database, profile_id: int, playlist_id: Optional[int]) -> bool:
+    """Whether ``playlist_id`` is still one of the profile's own playlists."""
+    return _own_playlist(database, profile_id, playlist_id) is not None
+
+
 def make_playlist(database, profile_id: int, set_id: int, name: str, rows: List[Dict[str, Any]]) -> Optional[int]:
     """A new playlist of the set's tracks, followed from now on ("Save as
     mix", and "Make a new playlist from this set"). Best effort."""

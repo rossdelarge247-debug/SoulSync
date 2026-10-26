@@ -200,6 +200,13 @@ def set_playlist(set_id: int):
             return _ok({"playlist_id": saved.get("playlist_id")})
         if body.get("action") != "new":
             return _bad("action must be new or dismiss")
+        # a new playlist only for a set whose playlist no longer follows it
+        # (changed elsewhere or deleted), or that has none: one set can't
+        # make playlists without end
+        if (saved.get("playlist_id") and not saved.get("playlist_state")
+                and store.has_own_playlist(database, pid, saved["playlist_id"])):
+            return jsonify({"success": False, "following": True, "playlist_id": saved["playlist_id"],
+                            "error": "This set already has a playlist that follows it."}), 409
         playlist_id = store.make_playlist(database, pid, set_id, saved["name"], saved["rows"])
     except Exception as exc:  # noqa: BLE001
         return _failed("playlist", exc)
