@@ -9,7 +9,7 @@ from contextlib import closing
 
 import pytest
 
-from core.sets import sources, store
+from core.sets import matching, sources, store
 
 
 @pytest.fixture(autouse=True)
@@ -242,3 +242,35 @@ def test_the_deadline_covers_the_wait_for_headers(monkeypatch):
         sources._get_json("mixesdb", sources.MIXESDB_API, {})
     connect, read = seen[0]
     assert connect <= 0.2 and read <= 0.2
+
+
+# ── Low 4: matching finds the caller's tracks among many others ──────────────
+
+@pytest.mark.gauntlet
+def test_matching_finds_a_track_behind_many_out_of_scope_matches(client, db):
+    """Thousands of tracks sharing the title's first word that the caller
+    can't use (no file, or another profile's) and sorting before it mustn't
+    crowd the caller's own out of the candidates."""
+    from core.library_scope import reset_library_scope, set_library_scope
+
+    many = [(f"x{i}", "a100", "100", f"Night Bus {i:05d}", None, None) for i in range(1300)]
+    many += [(f"y{i}", "a100", "100", f"Night Bus {i:05d} b", f"/m/y{i}.flac", 7) for i in range(1300)]
+    with closing(db._get_connection()) as conn:
+        conn.executemany("INSERT INTO tracks (id, album_id, artist_id, title, file_path, owner_profile_id) "
+                         "VALUES (?, ?, ?, ?, ?, ?)", many)
+        conn.commit()
+    db.ensure_norm_backfilled()
+    token = set_library_scope("shared")
+    try:
+        rows = matching.match_lines(db, [{"artist": "Tidewater", "title": "Night Ferrys"}])
+        assert (rows[0]["state"], rows[0]["track"]["id"]) == ("owned", "9")
+        with closing(db._get_connection()) as conn:
+            where, params = matching.dj_store._scope(db)
+            seen = []
+            conn.set_trace_callback(seen.append)
+            matching._prefix_range(conn, where, params, "night", True)
+            conn.set_trace_callback(None)
+            plan = " ".join(str(tuple(r)) for r in conn.execute("EXPLAIN QUERY PLAN " + seen[-1]))
+        assert "idx_tracks_title_norm" in plan
+    finally:
+        reset_library_scope(token)

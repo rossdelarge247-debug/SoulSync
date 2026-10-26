@@ -50,9 +50,11 @@ def _prefix_range(conn, where: str, params: List[Any], prefix: str, ready: bool)
     never a scan, once the norm columns are filled."""
     if ready:
         # the range alone in a subquery, so the planner can only answer it
-        # from the title_norm index, whatever the scope's own indexes are
-        found = ("t.rowid IN (SELECT rowid FROM tracks WHERE title_norm >= ? AND title_norm < ? "
-                 f"LIMIT {_CANDIDATES * 10})")
+        # from the title_norm index, whatever the scope's own indexes are.
+        # No LIMIT inside: the scope and the file check apply outside it, so
+        # a cut here could fill up with other profiles' or file-less tracks
+        # and miss the caller's own (the outer LIMIT bounds the rows read).
+        found = "t.rowid IN (SELECT rowid FROM tracks WHERE title_norm >= ? AND title_norm < ?)"
     else:
         found = ("COALESCE(t.title_norm, norm_text(t.title)) >= ? "
                  "AND COALESCE(t.title_norm, norm_text(t.title)) < ?")
