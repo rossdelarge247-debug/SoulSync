@@ -336,6 +336,25 @@ def reorder_tracks(db: Any, playlist: Dict[str, Any], order: Iterable[Any]) -> N
         _write(db, playlist, [current[p - 1] for p in positions])
 
 
+def replace_tracks(db: Any, playlist: Dict[str, Any], raw_tracks: Iterable[Any]) -> int:
+    """make the playlist exactly these tracks, in this order (a saved set's
+    playlist follows the set: Library → Sets). a track already there keeps
+    its row, so its identify match and date added survive; returns the
+    new count."""
+    incoming = [t for t in (clean_track(r) for r in raw_tracks or []) if t]
+    with _edit_lock:
+        current = _stored_tracks(db, playlist['id'])
+        spare: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+        for row in current:
+            spare.setdefault(track_key(row), []).append(row)
+        out = []
+        for track in incoming:
+            kept = spare.get(track_key(track))
+            out.append(kept.pop(0) if kept else track)
+        _write(db, playlist, out)
+    return len(out)
+
+
 def remove_matching(db: Any, playlist: Dict[str, Any], raw_tracks: Iterable[Any]) -> Dict[str, Any]:
     """drop every row that is LIKELY one of these songs (track_key), for the
     picker's untick and for unliking. returns how many went."""

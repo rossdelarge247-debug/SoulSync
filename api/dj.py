@@ -34,8 +34,9 @@ PUT  /api/library/dj/traktor/settings  (admins)
     the configured folders, missing or not writable.
 POST /api/library/dj/traktor/export
     "Export to Traktor…" (21a). ``{action: preview | download | save,
-    source: playlist | tracks | mixes, playlist_id | track_ids (≤ 1000) |
-    track_id (+ within), overwrite?}``. ``preview`` answers the counts, the
+    source: playlist | tracks | mixes, playlist_id | track_ids (≤ 1000, with
+    an optional name and ``left_out``: a set's lines that aren't in the
+    library, ``[{title, artist}]``) | track_id (+ within), overwrite?}``. ``preview`` answers the counts, the
     Mac path, what was left out and why; ``download`` answers the ``.nml`` as
     an attachment; ``save`` (admins) writes it into the export folder (409
     ``exists`` unless ``overwrite``, with ``exists_at``). For admins the
@@ -341,6 +342,14 @@ def _export_items(database, body: dict):
         tracks = traktor.tracks_by_ids(database, clean)
         found = {t["id"] for t in tracks}
         missing = [(None, "", "") for i in dict.fromkeys(clean) if i not in found]
+        # a set's lines that aren't in the library (Missing, IDs), named in
+        # the dialog's Left out box: words only, nothing is looked up for them
+        extra = body.get("left_out")
+        if isinstance(extra, list):
+            for line in extra[:traktor.MAX_TRACKS]:
+                if isinstance(line, dict):
+                    missing.append((None, traktor.xml_text(str(line.get("title") or ""), 300).strip(),
+                                    traktor.xml_text(str(line.get("artist") or ""), 300).strip()))
         name = body.get("name") if isinstance(body.get("name"), str) else ""
         name = traktor.xml_text(name, 200).strip() or f"SYNCHRO.S tracks {time.strftime('%Y-%m-%d')}"
         return name, [(t, t["title"], t["artist_name"]) for t in tracks] + missing, 0

@@ -120,6 +120,17 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **Asking whether a name is taken only looks:** the preview's `folder.exists_at` (234) checks and opens the export folder as the save does and `lstat`s the name in it: a link at the name counts as taken without its target being looked at, an unsafe name or a folder outside answers nothing, and nothing in the folder changes.
   - **Orphaned temporary files and the no-link path:** temporary export files older than an hour are swept (a fresh one and files that aren't ours stay), and on a file system without hard links a failure leaves neither the claim nor the temporary file.
 
+- **Library → Sets** (`tests/sets/test_sets_routes.py`, `test_sources.py`, `test_steps_and_tracklist.py`, `test_review_fixes.py`; `api/sets.py` and all of `core/sets/**` are on the list because the routes keep per-profile sets, delete a set's rows and read pasted text, the reader parses other sites' text, and the sources talk to MixesDB and Discogs):
+  - **Another site's text can't freeze the server:** a 100 KB line of `=`, `[[`, `[[[`, `[http://`, `{{` or `<` in a MixesDB page is read in well under 100 ms (Python's `re` holds the GIL, so a backtracking pattern would stall every request): wiki lines are cut to 1,000 characters, and headings and links are scanned, not matched.
+  - **An edit never drops a track that's briefly away:** with a track's file gone for a moment, a rename, a save of the same tracks and a reorder all keep its row and its place in the playlist, and it plays again when the file's back.
+  - **A source can't hold a worker:** an answer that trickles a byte at a time is cut off at the whole request's deadline (20 s), and the connection is closed.
+  - **Sets are per profile:** another profile's set reads, changes and deletes as a 404, admins included, and the list shows only your own.
+  - **A set never points at another profile's track:** a track id outside the caller's library is saved as a plain Missing line, and the view and Swap never show it.
+  - **Bodies have a size:** every Sets body is cut off at its cap (413), a body without a Content-Length too.
+  - **A paste is data and has a size:** markup, links and control characters come back as plain text; 500 lines, 300 characters a line.
+  - **Only fixed hosts are ever asked:** whatever is searched or opened, every request goes to MixesDB's API or Discogs' API (or through the MusicBrainz client, which refuses an id that isn't an MBID); a pasted MixesDB link is read for its page title only, and a link to any other host is search text.
+  - **A redirect or a huge answer is a source down:** redirects aren't followed, and an answer over 2 MB is cut off while it streams.
+
 When you write a test for a new way a change could lose data, tag it `gauntlet` too.
 
 ## How to read the results

@@ -377,7 +377,7 @@ describe('Library → Tracks', () => {
     expect(screen.queryByRole('checkbox', { name: 'Select Static Bloom' })).toBeNull();
   });
 
-  it('the selection’s “…” holds Add to playlist… and Clear the selection (232)', async () => {
+  it('the selection’s “…” holds Add to playlist…, Start a set from these and Clear the selection (232)', async () => {
     addToPlaylist.mockClear();
     renderPage();
     await screen.findByText('Static Bloom');
@@ -387,13 +387,13 @@ describe('Library → Tracks', () => {
     await screen.findByRole('menuitem', { name: 'Add to playlist…' });
     expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
       'Add to playlist…',
+      'Start a set from these',
       'Clear the selection',
     ]);
-    // nothing picked: both wait
-    expect(screen.getByRole('menuitem', { name: 'Add to playlist…' })).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
+    // nothing picked: all three wait
+    for (const name of ['Add to playlist…', 'Start a set from these', 'Clear the selection']) {
+      expect(screen.getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true');
+    }
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
@@ -409,5 +409,26 @@ describe('Library → Tracks', () => {
       album_name: 'Lantern',
       duration_ms: 276000,
     });
+  });
+  it('Start a set from these opens a draft with the picked tracks, in the order picked', async () => {
+    window.localStorage.clear();
+    const { router } = renderPage();
+    await screen.findByText('Static Bloom');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected tracks' });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Night Ferry' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
+    fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Start a set from these' }));
+    await waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ view: 'sets', set: 'draft' }),
+    );
+    const stored = Object.keys(window.localStorage)
+      .filter((k) => k.startsWith('soulsync.sets.draft.'))
+      .map(
+        (k) => JSON.parse(window.localStorage.getItem(k)!) as { rows: Array<{ title: string }> },
+      );
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.rows.map((r) => r.title)).toEqual(['Night Ferry', 'Static Bloom']);
   });
 });

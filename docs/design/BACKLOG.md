@@ -13,7 +13,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Move your music folders to another drive | Built | [below](#move-your-music-folders-to-another-drive) |
 | AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
 | DJ area: BPM, key and mixing (Traktor Pro 3) | Building (stage 1: Built; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
-| Famous mixes and AI set suggestions | Ready for Design | [below](#famous-mixes-and-ai-set-suggestions) |
+| Famous mixes and AI set suggestions | Sets 1: Building · Sets 2: Ready for Dev after 240–246 | [below](#famous-mixes-and-ai-set-suggestions) |
 | Lyrics centre stage, timed to the words | Ready for Design (step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
 | Star tracks and mix sets | Ready for Design | [below](#star-tracks-and-mix-sets) |
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
@@ -393,7 +393,7 @@ Ross DJs with **Traktor Pro 3** on a Mac. His music lives in SYNCHRO.S, but noth
 
 ## Famous mixes and AI set suggestions
 
-**Status:** Ready for Design · raised by Ross, 2026-10-24 · direction approved by Ross the same day. It builds on the DJ area (BPM, key and energy from stage 1, the Mixes panel, Export to Traktor from stage 2a) and on Settings → AI (`core/ai`, with its per-profile usage limits). Dev suggests building it into the set planner, Phase D's next step after Export to Traktor, so a famous mix, a suggested set and a hand-built set are the same thing: a tracklist you edit, save as a mix and export.
+**Status:** Sets 1: Building on `feat/sets-1` (`HANDOFF.md`, "Dev, Sets 1 of 24 October"; routes in `CONTRACTS.md`, "Sets") · Sets 2 (the AI's parts) after Dev's answers 240–246 · drawn by Design (`Sets (famous mixes, set suggestions).dc.html` 22a–22i, `Sets states.dc.html` 22j–22s) and approved by Ross 24 October · raised by Ross, 2026-10-24 · direction approved by Ross the same day. It builds on the DJ area (BPM, key and energy from stage 1, the Mixes panel, Export to Traktor from stage 2a) and on Settings → AI (`core/ai`, with its per-profile usage limits). Dev suggests building it into the set planner, Phase D's next step after Export to Traktor, so a famous mix, a suggested set and a hand-built set are the same thing: a tracklist you edit, save as a mix and export.
 
 ### The problem
 

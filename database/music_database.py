@@ -837,6 +837,11 @@ class MusicDatabase:
             # with where each came from (core/dj/store.py)
             self._add_track_dj_table(cursor)
 
+            # Library → Sets: saved DJ sets per profile, each an ordered list
+            # of tracks with a lock, a note and a transition style per row
+            # (core/sets/store.py)
+            self._add_dj_sets_tables(cursor)
+
             # Per-user curation signals read back off the media server —
             # what people deliberately CHOSE about a track (favourited,
             # rated, added to a playlist), as opposed to play_count which
@@ -2161,6 +2166,7 @@ class MusicDatabase:
         'sample_stash_v1':            ('table', 'sample_stash'),
         'sample_stems_v1':            ('table', 'sample_stems'),
         'track_dj_v1':               ('table', 'track_dj'),
+        'dj_sets_v1':                ('table', 'dj_sets'),
         'similar_artists_rematch':  ('table', '_similar_artists_rematch_applied'),
         'beatport_positional_purged': ('table', '_beatport_positional_purged'),
     }
@@ -3874,6 +3880,71 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_dj_version ON track_dj (dj_analyzer_version)")
             if self._migration_step_ok():
                 self._record_migration(cursor, 'track_dj_v1')
+
+    #: Library → Sets (core/sets/store.py). A set belongs to one profile; its
+    #: rows are ordered, and each row is either a library track (track_id) or
+    #: a line of a tracklist that isn't in the library (artist and title).
+    #: ``note`` and ``transition`` are for the mix sets of BACKLOG "Star
+    #: tracks and mix sets" (a note per track, a transition style per step).
+    _DJ_SETS_COLUMNS = (
+        ('profile_id', 'INTEGER NOT NULL'),
+        ('name', 'TEXT NOT NULL'),
+        ('kind', "TEXT NOT NULL DEFAULT 'hand'"),      # hand | famous | suggested
+        ('status', "TEXT NOT NULL DEFAULT 'saved'"),   # saved (drafts stay in the browser: HANDOFF 246)
+        ('shape', 'TEXT'),                             # the energy shape asked for, or NULL
+        ('source', 'TEXT'),                            # mixesdb | musicbrainz | discogs | paste
+        ('source_id', 'TEXT'),
+        ('source_url', 'TEXT'),
+        ('source_meta', 'TEXT'),                       # JSON: the mix's own title, date, length
+        ('playlist_id', 'INTEGER'),                    # the user playlist "Save as mix" made
+        ('playlist_hash', 'TEXT'),                     # what the set last wrote into it
+        ('playlist_state', 'TEXT'),                    # NULL | changed | deleted (it stopped following)
+        ('revision', 'INTEGER NOT NULL DEFAULT 0'),    # the page's last applied autosave
+        ('created_at', 'REAL'),
+        ('updated_at', 'REAL'),
+    )
+    _DJ_SET_TRACKS_COLUMNS = (
+        ('track_id', 'TEXT'),                          # the library track, or NULL
+        ('artist', 'TEXT'),
+        ('title', 'TEXT'),
+        ('line_at', 'TEXT'),                           # the mix's own time ("27:02")
+        ('state', 'TEXT'),                             # owned | version | missing | id
+        ('want', 'TEXT'),                              # yours | wanted (Another version rows)
+        ('version', 'TEXT'),                           # the cut the mix plays ("Dub")
+        ('locked', 'INTEGER NOT NULL DEFAULT 0'),
+        ('note', 'TEXT'),
+        ('transition', 'TEXT'),
+        ('mbid', 'TEXT'),
+        ('raw', 'TEXT'),                               # the pasted line it came from
+    )
+
+    def _add_dj_sets_tables(self, cursor):
+        """The Sets tables and their index. Only adds (atomic=False): a
+        failure is an ERROR naming the step, in schema_health, and the step
+        runs again on the next start."""
+        with self._migration_step(cursor, 'add_dj_sets', atomic=False):
+            columns = ",\n".join(f"    {name} {kind}" for name, kind in self._DJ_SETS_COLUMNS)
+            cursor.execute("CREATE TABLE IF NOT EXISTS dj_sets (\n"
+                           f"    id INTEGER PRIMARY KEY AUTOINCREMENT,\n{columns}\n)")
+            rows = ",\n".join(f"    {name} {kind}" for name, kind in self._DJ_SET_TRACKS_COLUMNS)
+            cursor.execute("CREATE TABLE IF NOT EXISTS dj_set_tracks (\n"
+                           "    set_id INTEGER NOT NULL REFERENCES dj_sets (id) ON DELETE CASCADE,\n"
+                           f"    position INTEGER NOT NULL,\n{rows},\n"
+                           "    PRIMARY KEY (set_id, position)\n)")
+            for table, wanted in (('dj_sets', self._DJ_SETS_COLUMNS),
+                                  ('dj_set_tracks', self._DJ_SET_TRACKS_COLUMNS)):
+                cursor.execute(f"PRAGMA table_info({table})")
+                have = {row[1] for row in cursor.fetchall()}
+                for name, kind in wanted:
+                    if name not in have:
+                        # NOT NULL needs a default on an ALTER: a short table
+                        # from an earlier build gets the plain column
+                        plain = kind.replace(' NOT NULL', '') if 'DEFAULT' not in kind else kind
+                        with self._migration_step(cursor, f"add {table}.{name}"):
+                            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {plain}")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_dj_sets_profile ON dj_sets (profile_id, updated_at)")
+            if self._migration_step_ok():
+                self._record_migration(cursor, 'dj_sets_v1')
 
     def _migrate_id_columns_to_text(self, cursor):
         """Migrate ID columns from INTEGER to TEXT to support both Plex (int) and Jellyfin (GUID) IDs"""

@@ -19,6 +19,7 @@ import { ArtistsPage } from './artists-page';
 import { LibraryDriveAway } from './drive-away';
 import { HistoryPage } from './history-page';
 import styles from './library.module.css';
+import { SetsPage } from './sets-page';
 import { TracksPage } from './tracks-page';
 
 /** Search params without the empty or default ones, so a default never sits in the URL. */
@@ -98,6 +99,15 @@ export function LibraryPage() {
   // Library → Tracks: the DJ data (BPM, key and energy), its own page. Like
   // Listening history it reads the database, not the drive, so a drive that's
   // away gets the Notice above the list rather than the page in its place.
+  // Library → Sets (22a–22i): the set planner, its own page and row
+  if (search.view === 'sets') {
+    return (
+      <div id="library-page" className={styles.root}>
+        <SetsPage search={search} go={go} />
+      </div>
+    );
+  }
+
   if (search.view === 'tracks') {
     return (
       <div id="library-page" className={styles.root}>

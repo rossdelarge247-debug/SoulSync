@@ -929,6 +929,7 @@ describe('the markup', () => {
       'artists',
       'albums',
       'tracks',
+      'sets',
       'history',
       'import',
       'stats',
@@ -950,6 +951,13 @@ describe('the markup', () => {
       document.querySelector(`#app-sidebar [data-nav-row="${row}"] svg`)!.innerHTML;
     expect(icon('tracks')).toContain('M8 6h13M8 12h13M8 18h13');
     expect(icon('tracks')).not.toBe(icon('activity'));
+  });
+
+  it('gives Sets an energy curve over a baseline, after Tracks (22a)', () => {
+    const row = document.querySelector<HTMLAnchorElement>('#app-sidebar [data-nav-row="sets"]')!;
+    expect(row.getAttribute('href')).toBe('/library?view=sets');
+    expect(row.textContent?.trim()).toBe('Sets');
+    expect(row.querySelector('svg')!.innerHTML).toContain('M3 20h18');
   });
 
   it('pins three rows at the foot: Admin and help, the side switch and the profile', () => {

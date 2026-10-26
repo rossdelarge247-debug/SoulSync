@@ -33,6 +33,8 @@ import { usePlayingTrackId } from '@/features/dj/playing-track';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { awayWords } from '@/features/drives/drives.format';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
+import { readDraft, writeDraft } from '@/features/sets/draft-store';
+import { newSetName } from '@/features/sets/sets.format';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import type { LibrarySearch } from '../-library.types';
@@ -530,6 +532,27 @@ export function TracksPage({
   // 153: the 120px bar counts what's done, beside the words
   const progress = s && !phone ? analysisProgress(s) : null;
   const clearFilters = () => go({ q: '', bpm: '', key: '' });
+  // 232: the selection's "…" starts a set (Library → Sets' draft) with them, in the order picked
+  const startSet = () => {
+    if (
+      readDraft(profileId) &&
+      !window.confirm('Start a new set? The draft you have in this browser is replaced.')
+    )
+      return;
+    const byId = new Map(tracks.map((t) => [t.id, t]));
+    const rows = picked
+      .map((id) => byId.get(id))
+      .filter((t): t is DjTrack => Boolean(t))
+      .map((t) => ({
+        track_id: t.id,
+        artist: t.artist_name,
+        title: t.title,
+        state: 'owned' as const,
+        want: 'yours' as const,
+      }));
+    writeDraft(profileId, { name: newSetName(), kind: 'hand', rows });
+    go({ view: 'sets', set: 'draft', q: '', bpm: '', key: '', sort: '' });
+  };
 
   const keyPick = (
     <PickButton
@@ -769,8 +792,8 @@ export function TracksPage({
               : null
           }
           onPrimary={() => setExporting(true)}
-          // 232: Add to playlist…, then Clear the selection ("Start a set
-          // from these" joins between them once Sets is built)
+          // 232: Add to playlist…, Start a set from these (Library → Sets'
+          // draft), then Clear the selection
           menu={[
             {
               key: 'playlist',
@@ -781,6 +804,12 @@ export function TracksPage({
                   tracks.filter((t) => picked.includes(t.id)).map(playlistTrack),
                   null,
                 ),
+            },
+            {
+              key: 'set',
+              label: 'Start a set from these',
+              disabled: !picked.length,
+              onSelect: () => startSet(),
             },
             {
               key: 'clear',

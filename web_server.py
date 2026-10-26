@@ -24032,6 +24032,12 @@ from api.dj import configure as _cfg_dj, create_blueprint as _bp_dj
 _cfg_dj(get_database_=get_database, fix_art_url_=lambda url: fix_artist_image_url(url))
 app.register_blueprint(_bp_dj())
 
+# Library → Sets (api/sets.py, core/sets/): saved DJ sets, famous mixes from
+# MixesDB, MusicBrainz and Discogs, pasted tracklists matched to the library.
+from api.sets import configure as _cfg_sets, create_blueprint as _bp_sets
+_cfg_sets(get_database_=get_database, fix_art_url_=lambda url: fix_artist_image_url(url))
+app.register_blueprint(_bp_sets())
+
 # The player's reads (api/player.py): waveform peaks, the readout's audio
 # details and Recent. Files are found through Sample Studio's resolver, which
 # tries the playback resolver first, so a track that plays also draws.

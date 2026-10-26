@@ -827,3 +827,15 @@ def test_a_bpm_filter_of_nan_is_ignored(client):
     for raw in ("nan", "NaN", "-nan", "inf"):
         body = client.get(f"/api/library/dj/browse?bpm_min={raw}&bpm_max=130").get_json()
         assert body["bpm_min"] is None and body["bpm_max"] == 130
+
+
+def test_a_sets_lines_outside_the_library_are_named_in_left_out(client):
+    """Library → Sets exports its tracks by id and names its Missing lines
+    and IDs in Left out; their words are only text, never looked up."""
+    body = _export(client, action="preview", source="tracks", track_ids=["1"], name="Essential Mix",
+                   left_out=[{"title": "Gravity Well", "artist": "Vela Sund"}, {"title": "ID", "artist": "ID"},
+                             "nope", {"title": "<x>\x00", "artist": "&"}]).get_json()
+    assert body["counts"] == {"tracks": 4, "found": 1, "left_out": 3}
+    assert body["reasons"] == {"not_in_library": 3}
+    assert [(x["title"], x["artist"]) for x in body["left_out"]] == [
+        ("Gravity Well", "Vela Sund"), ("ID", "ID"), ("<x>", "&")]
