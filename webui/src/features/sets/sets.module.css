@@ -1013,7 +1013,7 @@
 
 .at {
   color: var(--ss-text-secondary);
-  font-family: var(--ss-font-mono, ui-monospace, monospace);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 14px;
 }
 
@@ -1063,7 +1063,7 @@
 .pasteText textarea,
 textarea.pasteText,
 .raw {
-  font-family: var(--ss-font-mono, ui-monospace, monospace);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 14px;
 }
 
