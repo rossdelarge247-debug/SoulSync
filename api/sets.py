@@ -5,8 +5,9 @@ GET    /api/sets                     Your sets.
 POST   /api/sets                     Save as mix set: a new set, and its playlist.
 GET    /api/sets/<id>                One of your sets, with its view.
 PUT    /api/sets/<id>                Change a saved set's name or tracks (its playlist follows while
-                                     it still holds what the set wrote), from a base revision: the
-                                     save applies only while the set is still at it (409 stale).
+                                     it still holds what the set wrote), from `base_revision`, which
+                                     is required: the save applies only while the set is still at it
+                                     (409 stale; without one, 409 stale with reason "reload").
 POST   /api/sets/<id>/playlist       {action: new | dismiss}: a new playlist from the set, or stop
                                      saying its playlist went its own way.
 DELETE /api/sets/<id>                Remove a set; its playlist stays.
@@ -177,9 +178,14 @@ def update_set(set_id: int):
         else:
             state = (store.get_set(database, pid, set_id) or {}).get("playlist_state")
     except store.StaleRevision as exc:
-        # an older autosave than one already applied: nothing changed
-        return jsonify({"success": False, "stale": True, "revision": exc.current,
-                        "error": "A newer change to this set is already saved."}), 409
+        # the set moved on since the page's base (or the save had no base):
+        # nothing changed; the page reads the set again
+        body = {"success": False, "stale": True, "revision": exc.current,
+                "error": "A newer change to this set is already saved."}
+        if exc.reason:
+            body["reason"] = exc.reason
+            body["error"] = "This page is out of date. Reload it to keep editing the set."
+        return jsonify(body), 409
     except store.SetError as exc:
         return _bad(str(exc))
     except Exception as exc:  # noqa: BLE001

@@ -80,13 +80,17 @@ def test_the_picker_numbers_rows_as_the_page_does(client):
 
 
 def test_an_open_pages_older_autosave_is_refused_after_an_add(client):
-    """Sets 1's revision rule: an add moves the revision on, so a page that
-    saved revision 1 and then sends 1 again is stale, not applied."""
+    """An add moves the revision on, so a page that saved and then sends its
+    old base again is stale, not applied; and a page with no base at all
+    (an older bundle's ``revision``) is told to reload."""
     set_id, _ = _make(client, "1", "2")
-    assert client.put(f"/api/sets/{set_id}", json={"tracks": _rows("2", "1"), "revision": 1}).status_code == 200
+    first = client.put(f"/api/sets/{set_id}", json={"tracks": _rows("2", "1"), "base_revision": 0})
+    assert first.status_code == 200 and first.get_json()["revision"] == 1
     assert _add(client, set_id, "9").get_json()["revision"] == 2
-    res = client.put(f"/api/sets/{set_id}", json={"tracks": _rows("1", "2"), "revision": 2})
-    assert res.status_code == 409 and res.get_json()["stale"] is True
+    res = client.put(f"/api/sets/{set_id}", json={"tracks": _rows("1", "2"), "base_revision": 1})
+    assert res.status_code == 409 and res.get_json()["stale"] is True and "reason" not in res.get_json()
+    old = client.put(f"/api/sets/{set_id}", json={"tracks": _rows("1", "2"), "revision": 3})
+    assert old.status_code == 409 and old.get_json()["reason"] == "reload"
     assert [r["track_id"] for r in client.get(f"/api/sets/{set_id}").get_json()["rows"]] == ["2", "1", "9"]
 
 
@@ -136,7 +140,7 @@ def test_notes_and_transitions_are_saved_with_the_set(client):
     rows = [{"track_id": "1", "note": "mix out at the breakdown", "transition": {"style": "long_blend", "bars": 32}},
             {"track_id": "2", "transition": {"style": "cut", "bars": 8}},
             {"track_id": "3", "transition": {"style": "nonsense", "bars": 7}}]
-    assert client.put(f"/api/sets/{set_id}", json={"tracks": rows}).status_code == 200
+    assert client.put(f"/api/sets/{set_id}", json={"tracks": rows, "base_revision": 0}).status_code == 200
     got = client.get(f"/api/sets/{set_id}").get_json()["rows"]
     assert got[0]["note"] == "mix out at the breakdown"
     assert [r["transition"] for r in got] == [{"style": "long_blend", "bars": 32}, {"style": "cut", "bars": None},

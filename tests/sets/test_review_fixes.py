@@ -13,6 +13,7 @@ import pytest
 import requests
 
 from core.sets import matching, sources, store, wanted
+from tests.sets.conftest import put_set
 
 
 def _sql(db, sql, params=()):
@@ -46,12 +47,12 @@ def test_a_briefly_unreachable_track_survives_any_edit(client, db):
     assert view["rows"][1]["track"] is None and view["rows"][1]["track_id"] == "2"
     assert view["rows"][1]["unreachable"] is True
     # a rename (name only), then an old client sending the tracks it was shown
-    assert client.put(f"/api/sets/{set_id}", json={"name": "Sunday Set"}).status_code == 200
+    assert put_set(client, set_id, {"name": "Sunday Set"}).status_code == 200
     shown = [{k: r[k] for k in ("track_id", "artist", "title", "state")} for r in view["rows"]]
-    assert client.put(f"/api/sets/{set_id}", json={"tracks": shown}).status_code == 200
+    assert put_set(client, set_id, {"tracks": shown}).status_code == 200
     assert _playlist_names(db, playlist_id) == ["Lowtide Hymn", "Foghorn Study", "Undertow"]
     # a reorder while it's away keeps it in the playlist by the set's own words
-    assert client.put(f"/api/sets/{set_id}", json={"tracks": [shown[2], shown[1], shown[0]]}).status_code == 200
+    assert put_set(client, set_id, {"tracks": [shown[2], shown[1], shown[0]]}).status_code == 200
     assert _playlist_names(db, playlist_id) == ["Undertow", "Foghorn Study", "Lowtide Hymn"]
     _sql(db, "UPDATE tracks SET file_path = '/m/2.flac' WHERE id = '2'")
     back = client.get(f"/api/sets/{set_id}").get_json()
@@ -61,7 +62,7 @@ def test_a_briefly_unreachable_track_survives_any_edit(client, db):
 
 def test_a_new_id_outside_the_library_is_still_refused_on_update(client, db):
     set_id = client.post("/api/sets", json={"name": "x", "tracks": _rows("1")}).get_json()["id"]
-    client.put(f"/api/sets/{set_id}", json={"tracks": _rows("1", "20")})
+    put_set(client, set_id, {"tracks": _rows("1", "20")})
     rows = client.get(f"/api/sets/{set_id}").get_json()["rows"]
     assert rows[1]["track_id"] is None and rows[1]["state"] == "missing"
 
@@ -70,10 +71,10 @@ def test_a_save_without_track_changes_leaves_the_playlist_alone(client, db, monk
     made = client.post("/api/sets", json={"name": "x", "tracks": _rows("1", "2")}).get_json()
     called = []
     monkeypatch.setattr(store, "follow_playlist", lambda *a, **k: called.append(a))
-    client.put(f"/api/sets/{made['id']}", json={"name": "y"})
-    client.put(f"/api/sets/{made['id']}", json={"tracks": _rows("1", "2", locked=True)})
+    put_set(client, made['id'], {"name": "y"})
+    put_set(client, made['id'], {"tracks": _rows("1", "2", locked=True)})
     assert called == []
-    client.put(f"/api/sets/{made['id']}", json={"tracks": _rows("2", "1")})
+    put_set(client, made['id'], {"tracks": _rows("2", "1")})
     assert len(called) == 1
 
 
@@ -86,7 +87,7 @@ def test_a_playlist_edited_elsewhere_stops_following_the_set(client, db):
     set_id, playlist_id = made["id"], made["playlist_id"]
     playlist = db.get_mirrored_playlist(playlist_id, profile_id=1)
     up.add_tracks(db, playlist, [{"track_name": "Someone's addition", "artist_name": "Ross"}])
-    res = client.put(f"/api/sets/{set_id}", json={"tracks": _rows("2", "1", "3")}).get_json()
+    res = put_set(client, set_id, {"tracks": _rows("2", "1", "3")}).get_json()
     assert res["playlist_state"] == "changed"
     # the person's edit is kept, the set's order isn't forced on it
     assert _playlist_names(db, playlist_id) == ["Lowtide Hymn", "Foghorn Study", "Someone's addition"]
@@ -96,7 +97,7 @@ def test_a_playlist_edited_elsewhere_stops_following_the_set(client, db):
     fresh = client.post(f"/api/sets/{set_id}/playlist", json={"action": "new"}).get_json()["playlist_id"]
     assert fresh != playlist_id and _playlist_names(db, fresh) == ["Foghorn Study", "Lowtide Hymn", "Undertow"]
     assert client.get(f"/api/sets/{set_id}").get_json()["set"]["playlist_state"] is None
-    client.put(f"/api/sets/{set_id}", json={"tracks": _rows("3", "2")})
+    put_set(client, set_id, {"tracks": _rows("3", "2")})
     assert _playlist_names(db, fresh) == ["Undertow", "Foghorn Study"]
 
 
@@ -104,7 +105,7 @@ def test_a_deleted_playlist_isnt_made_again(client, db):
     made = client.post("/api/sets", json={"name": "Sunday", "tracks": _rows("1", "2")}).get_json()
     db.delete_mirrored_playlist(made["playlist_id"])
     before = len(db.get_mirrored_playlists(profile_id=1))
-    res = client.put(f"/api/sets/{made['id']}", json={"tracks": _rows("2", "1")}).get_json()
+    res = put_set(client, made['id'], {"tracks": _rows("2", "1")}).get_json()
     assert res["playlist_state"] == "deleted"
     assert len(db.get_mirrored_playlists(profile_id=1)) == before
     assert client.post(f"/api/sets/{made['id']}/playlist", json={"action": "dismiss"}).status_code == 200
@@ -119,13 +120,28 @@ def test_a_deleted_playlist_isnt_made_again(client, db):
 def test_an_older_autosave_is_refused(client):
     set_id = client.post("/api/sets", json={"name": "x", "tracks": _rows("1", "2")}).get_json()["id"]
     assert client.get(f"/api/sets/{set_id}").get_json()["set"]["revision"] == 0
-    assert client.put(f"/api/sets/{set_id}", json={"name": "b", "revision": 2}).get_json()["revision"] == 2
-    late = client.put(f"/api/sets/{set_id}", json={"name": "a", "revision": 1})
+    assert client.put(f"/api/sets/{set_id}", json={"name": "b", "base_revision": 0}).get_json()["revision"] == 1
+    late = client.put(f"/api/sets/{set_id}", json={"name": "a", "base_revision": 0})
     assert late.status_code == 409 and late.get_json() == {
-        "success": False, "stale": True, "revision": 2, "error": "A newer change to this set is already saved."}
+        "success": False, "stale": True, "revision": 1, "error": "A newer change to this set is already saved."}
     assert client.get(f"/api/sets/{set_id}").get_json()["set"]["name"] == "b"
-    # without a revision (an older page) it still saves, counting up
-    assert client.put(f"/api/sets/{set_id}", json={"name": "c"}).get_json()["revision"] == 3
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("body", [{"name": "c"}, {"name": "c", "revision": 2}, {"tracks": [{"track_id": "2"}]},
+                                  {"tracks": [{"track_id": "2"}], "revision": 99}])
+def test_a_save_without_a_base_revision_is_refused(client, body):
+    """M-A: an older page (it counted ``revision`` up itself) or no revision
+    at all could write over a change it never saw: 409, reason "reload",
+    and nothing changes."""
+    set_id = client.post("/api/sets", json={"name": "x", "tracks": _rows("1", "2")}).get_json()["id"]
+    res = client.put(f"/api/sets/{set_id}", json=body)
+    assert res.status_code == 409
+    got = res.get_json()
+    assert got["stale"] is True and got["reason"] == "reload" and got["revision"] == 0
+    saved = client.get(f"/api/sets/{set_id}").get_json()
+    assert saved["set"]["name"] == "x" and saved["set"]["revision"] == 0
+    assert [r["track_id"] for r in saved["rows"]] == ["1", "2"]
 
 
 # ── Low 6 and 8: what a row may say ──────────────────────────────────────────

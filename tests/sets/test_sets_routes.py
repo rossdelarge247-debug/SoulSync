@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from core.sets import matching
+from tests.sets.conftest import put_set
 
 
 def _rows(*ids, **extra):
@@ -42,10 +43,10 @@ def test_save_as_mix_keeps_a_set_and_a_playlist(client, db):
     got = client.get(f"/api/sets/{set_id}").get_json()
     assert got["set"]["name"] == "Sunday Set" and len(got["rows"]) == 3 and got["steps"][1]["kind"] == "jump"
     # reorder: the playlist follows
-    assert client.put(f"/api/sets/{set_id}", json={"tracks": _rows("1", "3", "4")}).status_code == 200
+    assert put_set(client, set_id, {"tracks": _rows("1", "3", "4")}).status_code == 200
     assert [t["track_name"] for t in db.get_mirrored_playlist_tracks(playlist_id)] == [
         "Lowtide Hymn", "Undertow", "Copper Sky"]
-    assert client.put(f"/api/sets/{set_id}", json={"name": "Renamed"}).status_code == 200
+    assert put_set(client, set_id, {"name": "Renamed"}).status_code == 200
     assert client.get(f"/api/sets/{set_id}").get_json()["set"]["name"] == "Renamed"
     # deleting the set leaves its playlist
     assert client.delete(f"/api/sets/{set_id}").status_code == 200

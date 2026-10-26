@@ -106,3 +106,11 @@ def client(db, cfg, monkeypatch):
     c = app.test_client()
     c.state = state
     return c
+
+
+def put_set(client, set_id, body):
+    """PUT a set's change the way the page does: from the revision it read
+    (``base_revision`` is required)."""
+    got = client.get(f"/api/sets/{set_id}")
+    base = got.get_json()["set"]["revision"] if got.status_code == 200 else 0
+    return client.put(f"/api/sets/{set_id}", json={**body, "base_revision": base})

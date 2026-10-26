@@ -397,9 +397,12 @@ class StaleRevision(Exception):
     """An autosave older than one already applied (``current`` is the
     revision the set has)."""
 
-    def __init__(self, current: int):
+    def __init__(self, current: int, reason: Optional[str] = None):
         super().__init__("stale")
         self.current = current
+        #: "reload": the save had no base revision (a page from before
+        #: compare-and-set); it's refused and the page must read the set again
+        self.reason = reason
 
 
 def create_set(database, profile_id: int, body: Dict[str, Any]) -> int:
@@ -434,23 +437,6 @@ def _track_list(rows: List[Dict[str, Any]]) -> List[Any]:
 
 #: the highest revision a page may send (JavaScript's largest exact integer)
 MAX_REVISION = 2 ** 53
-#: how far one save may move the revision on: a page counts up by one per
-#: save, so a jump bigger than this is a crafted number, not an autosave
-MAX_REVISION_STEP = 10_000
-
-
-def _check_revision(revision: Any, current: int) -> None:
-    """A sent revision must be a whole number in 0..2**53 and no more than
-    MAX_REVISION_STEP above the set's own (SetError, a 400, otherwise), so a
-    crafted number can't lock the set against every later save."""
-    if isinstance(revision, bool) or not isinstance(revision, int):
-        raise SetError("The revision must be a whole number")
-    if revision < 0 or revision > MAX_REVISION:
-        raise SetError("The revision is out of range")
-    if revision > current + MAX_REVISION_STEP:
-        raise SetError("The revision is too far ahead of the set's")
-
-
 def _check_base(base: Any) -> None:
     """A base revision must be a whole number in 0..2**53 - 1 (the set's
     next is one more, and stays within JavaScript's exact integers)."""
@@ -477,16 +463,13 @@ def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> 
     StaleRevision with the stored one and changes nothing: the page stops
     and says so, never writing over what it hasn't seen.
 
-    ``revision`` (an older page's: a whole number it counts up with each save)
-    keeps autosaves in order: one at or below the set's revision is older
-    than what's stored and raises StaleRevision, changing nothing. The check
-    and the write are one conditional UPDATE, so two saves at once can't both
-    pass it. Without a revision the save simply counts the set's on by one.
+    **A save needs ``base_revision``.** One without it (an older page's,
+    which counted ``revision`` up itself, or no revision at all) could write
+    over a change it never saw, so it raises StaleRevision with ``reason``
+    "reload" and changes nothing.
     Returns ``{"revision", "tracks_changed"}``: whether the playing tracks or
     their order changed, which is when the playlist follows."""
     base = body.get("base_revision")
-    revision = body.get("revision") if base is None else None
-    explicit = revision is not None
     if base is not None:
         _check_base(base)
     name = clean_name(body["name"]) if "name" in body else None
@@ -496,35 +479,20 @@ def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> 
         if row is None:
             return None
         sid = int(row["id"])
-        if explicit:
-            _check_revision(revision, int(row.get("revision") or 0))
+        if base is None:
+            raise StaleRevision(int(row.get("revision") or 0), reason="reload")
         try:
-            if base is not None:
-                # applied only while nothing has changed the set since the
-                # page's base: compare and set, in one statement
-                cur = conn.execute(
-                    "UPDATE dj_sets SET name = COALESCE(?, name), updated_at = ?, revision = revision + 1 "
-                    "WHERE id = ? AND profile_id = ? AND revision = ?",
-                    (name, time.time(), sid, int(profile_id), base))
-            elif explicit:
-                # applied only while the stored revision is still below this
-                # one (and this one isn't too far ahead of it)
-                cur = conn.execute(
-                    "UPDATE dj_sets SET name = COALESCE(?, name), updated_at = ?, revision = ? "
-                    "WHERE id = ? AND profile_id = ? AND revision < ? AND ? <= revision + ?",
-                    (name, time.time(), revision, sid, int(profile_id), revision, revision, MAX_REVISION_STEP))
-            else:
-                cur = conn.execute(
-                    "UPDATE dj_sets SET name = COALESCE(?, name), updated_at = ?, revision = revision + 1 "
-                    "WHERE id = ? AND profile_id = ?",
-                    (name, time.time(), sid, int(profile_id)))
+            # applied only while nothing has changed the set since the page's
+            # base: compare and set, in one statement
+            cur = conn.execute(
+                "UPDATE dj_sets SET name = COALESCE(?, name), updated_at = ?, revision = revision + 1 "
+                "WHERE id = ? AND profile_id = ? AND revision = ?",
+                (name, time.time(), sid, int(profile_id), base))
             if cur.rowcount != 1:
                 conn.rollback()
                 now = _revision_of(conn, profile_id, sid)
                 if now is None:
                     return None
-                if explicit and revision > now:
-                    raise SetError("The revision is too far ahead of the set's")
                 raise StaleRevision(now)
             # this transaction now holds the write lock: what it reads from
             # here on is what it replaces
