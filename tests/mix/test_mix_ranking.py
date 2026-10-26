@@ -127,6 +127,12 @@ def test_widen_the_search_takes_any_key_at_ten_percent(client):
     assert _ids(body)[:3] == ["8", "4", "5"]
 
 
+def test_more_like_this_leaves_out_the_playing_track(client):
+    assert "8" not in _ids(_mix(client, exclude="8,zzz"))
+    # the cap on what's read
+    assert _ids(_mix(client, exclude="," * 9000))[:1] == ["8"]
+
+
 def test_a_track_not_worked_out_yet_says_so(client, sql):
     sql("UPDATE track_dj SET musical_key = NULL WHERE track_id = '9'")
     body = _mix(client)

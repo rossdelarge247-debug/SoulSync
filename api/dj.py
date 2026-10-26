@@ -30,8 +30,10 @@ GET  /api/library/dj/mixes/<track_id>
     The Mix tab (29a) adds ``rank=mix`` (its order: a starred boost, not
     played recently, style closeness; core/dj/ranking.py), ``set_id`` (one
     of the caller's sets: its tracks left out, its energy direction
-    followed; implies ``rank=mix``), ``wide=1`` (10% and any key) and
-    ``limit`` (5 by default then). Without them the answer is as before.
+    followed; implies ``rank=mix``), ``wide=1`` (10% and any key),
+    ``exclude`` (ids to leave out: More like this leaves out the playing
+    track) and ``limit`` (5 by default then). Without them the answer is as
+    before.
 POST /api/library/dj/mixes/<track_id>/vibe
     Vibe (29a): the ranked top 20 re-ordered for feel by the AI provider
     (core/dj/vibe.py); 403 with ``code`` when the AI is off for this profile
@@ -225,6 +227,12 @@ def _set_id_arg() -> Optional[int]:
     return int(raw)
 
 
+def _exclude_arg() -> list:
+    """``exclude``: up to 50 comma-separated track ids to leave out."""
+    raw = (request.args.get("exclude") or "")[:6500]
+    return [x.strip()[:128] for x in raw.split(",") if x.strip()][:50]
+
+
 @bp.route("/api/library/dj/mixes/<track_id>", methods=["GET"])
 def dj_mixes(track_id: str):
     if get_current_profile_id() is None:
@@ -240,7 +248,7 @@ def dj_mixes(track_id: str):
             result = ranking.rank(get_database(), str(track_id)[:128], profile_id=int(get_current_profile_id()),
                                   set_id=_set_id_arg(), limit=_int("limit", ranking.TAB_LIMIT),
                                   wide=request.args.get("wide") in ("1", "true"), tolerance=tolerance,
-                                  fix_art=fix_art_url)
+                                  fix_art=fix_art_url, exclude=_exclude_arg())
         else:
             result = store.mixes_with(get_database(), str(track_id)[:128], limit=_int("limit", 50),
                                       fix_art=fix_art_url, tolerance=tolerance)
@@ -264,7 +272,7 @@ _VIBE_STATUS = {"not_configured": 403, "members_not_allowed": 403, "key_refused"
 @bp.route("/api/library/dj/mixes/<track_id>/vibe", methods=["POST"])
 def dj_mixes_vibe(track_id: str):
     """Vibe (29a): the Mix tab's top 20 re-ranked for feel by the AI.
-    ``{set_id?, wide?, limit?}``; answers the ranked route's shape with the
+    ``{set_id?, wide?, limit?, exclude?}``; answers the ranked route's shape with the
     AI's order and ``vibe: {line}``. Counts against the profile's AI usage."""
     pid = get_current_profile_id()
     if pid is None:
@@ -284,10 +292,13 @@ def dj_mixes_vibe(track_id: str):
     raw_limit = body.get("limit")
     limit = raw_limit if isinstance(raw_limit, int) and not isinstance(raw_limit, bool) else ranking.TAB_LIMIT
     limit = max(1, min(vibe.TOP, limit))
+    raw_exclude = body.get("exclude")
+    exclude = ([str(x)[:128] for x in raw_exclude if isinstance(x, (str, int)) and not isinstance(x, bool)][:50]
+               if isinstance(raw_exclude, list) else [])
     database = get_database()
     try:
         found = ranking.rank(database, str(track_id)[:128], profile_id=int(pid), set_id=set_id, limit=vibe.TOP,
-                             wide=body.get("wide") is True, fix_art=fix_art_url)
+                             wide=body.get("wide") is True, fix_art=fix_art_url, exclude=exclude)
     except Exception as exc:  # noqa: BLE001
         logger.error("Vibe's ranking failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500

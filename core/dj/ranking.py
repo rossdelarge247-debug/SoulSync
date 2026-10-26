@@ -273,12 +273,13 @@ def energy_push(heading: Optional[str], delta: Optional[int]) -> float:
 
 def rank(database, track_id: str, *, profile_id: int, set_id: Any = None, limit: int = TAB_LIMIT,
          wide: bool = False, tolerance: Optional[float] = None, fix_art=None,
-         now: Optional[datetime] = None) -> Dict[str, Any]:
+         now: Optional[datetime] = None, exclude: Iterable[str] = ()) -> Dict[str, Any]:
     """The Mix tab's answer for one track: what ``mixes_with`` answers, with
     the matches in the tab's order, ``limit`` of them, and ``set`` (the set
     followed: id, name, its ``direction``, how many of its tracks were left
     out) when ``set_id`` is one of the caller's. ``wide`` is "Widen the
-    search": 10% and any key."""
+    search": 10% and any key. ``exclude`` leaves tracks out too (More like
+    this leaves out the playing one)."""
     started = time.monotonic()
     tol = WIDE_TOLERANCE if wide else (tolerance if tolerance is not None else dj_store.BPM_TOLERANCE)
     found = dj_store.mixes_with(database, str(track_id), limit=200, fix_art=fix_art, tolerance=tol,
@@ -305,6 +306,9 @@ def rank(database, track_id: str, *, profile_id: int, set_id: Any = None, limit:
         matches = kept
         heading = direction(the_set["energies"])
         found["set"]["left_out"] = left_out
+    skip = {str(i) for i in exclude}
+    if skip:
+        matches = [m for m in matches if m["id"] not in skip]
     ids = [m["id"] for m in matches]
     starred: Set[str] = set()
     try:
