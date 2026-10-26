@@ -63,6 +63,10 @@ core/downloads/staging.py
 # the DJ routes that save its settings and serve the export
 core/dj/traktor.py
 api/dj.py
+# Library → Sets: the routes (per-profile sets, body caps, pasted text, the
+# delete) and the store that deletes a set's rows
+api/sets.py
+core/sets/store.py
 
 ## Database migrations and schema
 database/**
@@ -97,6 +101,9 @@ web_server.py
 ## Outbound HTTP
 # core/security/** above holds the outbound guard (outbound.py)
 core/*_client.py
+# Library → Sets' tracklist sources: MixesDB's wiki API and Discogs (fixed
+# hosts, timeouts, size caps); MusicBrainz goes through its client above
+core/sets/sources.py
 core/torrent_clients/**
 core/usenet_clients/**
 
