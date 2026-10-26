@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { SETTINGS_JS, buildFrame, head, mountModal } from './service-frame-harness';
+import { extractFunction } from './vanilla-extract';
 
 const INDEX = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
 
@@ -318,5 +319,26 @@ describe('Qobuz in the Connections modal (224)', () => {
       <div id="settings-page"><div id="qobuz-auth-logged-in" style="display: flex">Connected: Ross (Studio)</div></div>`;
     expect(getComputedStyle(document.getElementById('qobuz-auth-logged-in')!).display).toBe('flex');
     expect(STYLE).not.toMatch(/#qobuz-auth-logged-in\s*\{[^}]*display:\s*none/);
+  });
+});
+
+describe('the grid’s tiles without a state of their own (223)', () => {
+  const chip = new Function(
+    `${extractFunction('_svcTileChip', SETTINGS_JS)}; return _svcTileChip;`,
+  )() as (set: boolean | null, required?: boolean) => { text: string; tone: string };
+
+  it('are neutral StatusTags, and Required is the warning', () => {
+    expect(chip(true)).toEqual({ text: 'Set up', tone: 'neutral' });
+    expect(chip(false)).toEqual({ text: 'Not set up', tone: 'neutral' });
+    expect(chip(null)).toEqual({ text: 'No key needed', tone: 'neutral' });
+    expect(chip(false, true)).toEqual({ text: 'Required', tone: 'warning' });
+    expect(chip(true, true)).toEqual({ text: 'Set up', tone: 'neutral' });
+  });
+
+  it('the tile draws them as the StatusTag the service states use', () => {
+    expect(SETTINGS_JS).toContain(
+      'const chip = `<span class="src-tile-chip svc-tile-tag" data-tone="${c.tone}">${c.text}</span>`;',
+    );
+    expect(SETTINGS_JS).not.toContain('src-tile-chip--on">configured');
   });
 });

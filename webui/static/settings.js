@@ -901,11 +901,8 @@ function buildServiceTiles() {
               + `onerror="this.replaceWith(document.createRange().createContextualFragment(this.dataset.fb))" `
               + `data-fb="${escapeHtml(fallback)}">`
             : fallback;
-        const chip = m.required && !set
-            ? '<span class="src-tile-chip src-tile-chip--warn">required</span>'
-            : (set === null ? '<span class="src-tile-chip">no key needed</span>'
-               : set ? '<span class="src-tile-chip src-tile-chip--on">configured</span>'
-                     : '<span class="src-tile-chip">not set up</span>');
+        const c = _svcTileChip(set, m.required);
+        const chip = `<span class="src-tile-chip svc-tile-tag" data-tone="${c.tone}">${c.text}</span>`;
         // the tile carries the service's own state before its modal opens
         // (15a, HANDOFF 132): "Paused · 11 min", "Connected", "Not connected",
         // "Refused" after a Test. A service that reports nothing keeps the
@@ -949,6 +946,14 @@ function switchServiceKind(kind) {
     buildServiceTiles();
 }
 window.switchServiceKind = switchServiceKind;
+
+// A tile's StatusTag when its service reports no state of its own (223):
+// neutral Set up / Not set up / No key needed, and Required in warning.
+function _svcTileChip(set, required) {
+    if (required && !set) return { text: 'Required', tone: 'warning' };
+    if (set === null) return { text: 'No key needed', tone: 'neutral' };
+    return set ? { text: 'Set up', tone: 'neutral' } : { text: 'Not set up', tone: 'neutral' };
+}
 
 function openServiceModal(id) {
     const attr = SERVICE_KINDS[_svcKind].attr;
