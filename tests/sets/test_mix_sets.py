@@ -184,3 +184,88 @@ def test_a_file_missing_row_shows_nothing_of_another_profiles_track(client, db):
     _sql(db, "UPDATE tracks SET file_path = '' WHERE id = '20'")
     view = client.post("/api/sets/view", json={"tracks": [{"track_id": "20", "state": "owned"}]}).get_json()
     assert view["rows"][0]["gone_track"] is None
+
+
+# ── after the gauntlet review ─────────────────────────────────────────────────
+
+@pytest.mark.gauntlet
+def test_an_add_elsewhere_is_never_undone_by_an_open_pages_save(client, db):
+    """H1: the page read the set at revision R; another tab adds a track
+    (R+1). The page's save from base R is refused, whatever revision it
+    would have counted to, and the add (and its playlist entry) stay."""
+    set_id, playlist_id = _make(client, "1", "2")
+    base = client.get(f"/api/sets/{set_id}").get_json()["set"]["revision"]
+    assert _add(client, set_id, "9").get_json()["revision"] == base + 1
+    for sent in ({"base_revision": base}, {"base_revision": base, "revision": base + 1}):
+        res = client.put(f"/api/sets/{set_id}", json={"tracks": _rows("2", "1"), **sent})
+        assert res.status_code == 409 and res.get_json() == {
+            "success": False, "stale": True, "revision": base + 1,
+            "error": "A newer change to this set is already saved."}
+    got = client.get(f"/api/sets/{set_id}").get_json()
+    assert [r["track_id"] for r in got["rows"]] == ["1", "2", "9"]
+    assert [t["track_name"] for t in db.get_mirrored_playlist_tracks(playlist_id)] == [
+        "Lowtide Hymn", "Foghorn Study", "Night Ferry"]
+    # from the newest base the save applies, and the revision is one more
+    res = client.put(f"/api/sets/{set_id}", json={"tracks": _rows("9", "1", "2"), "base_revision": base + 1})
+    assert res.status_code == 200 and res.get_json()["revision"] == base + 2
+
+
+@pytest.mark.gauntlet
+def test_saves_chained_on_their_bases_all_land(client):
+    """Two quick edits from one window: the second goes from the first's
+    confirmed revision, and both apply."""
+    set_id, _ = _make(client, "1", "2", "3")
+    first = client.put(f"/api/sets/{set_id}", json={"tracks": _rows("3", "2", "1"), "base_revision": 0})
+    assert first.status_code == 200
+    second = client.put(f"/api/sets/{set_id}", json={"name": "Renamed",
+                                                    "base_revision": first.get_json()["revision"]})
+    assert second.status_code == 200 and second.get_json()["revision"] == 2
+    got = client.get(f"/api/sets/{set_id}").get_json()
+    assert got["set"]["name"] == "Renamed" and [r["track_id"] for r in got["rows"]] == ["3", "2", "1"]
+    # the same base twice: only the first applies
+    again = client.put(f"/api/sets/{set_id}", json={"name": "Again", "base_revision": 1})
+    assert again.status_code == 409 and again.get_json()["revision"] == 2
+
+
+@pytest.mark.parametrize("base", [-1, 2 ** 53, "1", 1.5, True])
+def test_a_base_revision_is_checked(client, base):
+    set_id, _ = _make(client, "1")
+    res = client.put(f"/api/sets/{set_id}", json={"name": "x", "base_revision": base})
+    assert res.status_code == 400
+    assert client.get(f"/api/sets/{set_id}").get_json()["set"]["revision"] == 0
+
+
+def test_two_adds_at_once_leave_the_playlist_with_both(client, db, monkeypatch):
+    """L3: the sync reads the set again under its lock, so an add whose sync
+    runs late can't write its older rows over a newer add's."""
+    import threading
+
+    set_id, playlist_id = _make(client, "1")
+    in_follow, b_synced = threading.Event(), threading.Event()
+    real_follow = store.follow_playlist
+
+    def follow(database, pid, sid, rows):
+        # A has read its rows and is about to write them: it waits for B's
+        # whole sync (or, as it must with the lock held, gives up waiting)
+        if threading.current_thread().name == "A":
+            in_follow.set()
+            b_synced.wait(2)
+            return real_follow(database, pid, sid, rows)
+        done = real_follow(database, pid, sid, rows)
+        b_synced.set()
+        return done
+
+    monkeypatch.setattr(store, "follow_playlist", follow)
+    app = client.application
+    a = threading.Thread(name="A", target=lambda: app.test_client().post(
+        f"/api/sets/{set_id}/tracks", json={"track_ids": ["9"]}))
+    b = threading.Thread(name="B", target=lambda: app.test_client().post(
+        f"/api/sets/{set_id}/tracks", json={"track_ids": ["4"]}))
+    a.start()
+    assert in_follow.wait(5)
+    b.start()
+    a.join(10)
+    b.join(10)
+    assert [r["track_id"] for r in client.get(f"/api/sets/{set_id}").get_json()["rows"]] == ["1", "9", "4"]
+    assert [t["track_name"] for t in db.get_mirrored_playlist_tracks(playlist_id)] == [
+        "Lowtide Hymn", "Night Ferry", "Copper Sky"]

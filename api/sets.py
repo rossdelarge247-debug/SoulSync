@@ -5,7 +5,8 @@ GET    /api/sets                     Your sets.
 POST   /api/sets                     Save as mix set: a new set, and its playlist.
 GET    /api/sets/<id>                One of your sets, with its view.
 PUT    /api/sets/<id>                Change a saved set's name or tracks (its playlist follows while
-                                     it still holds what the set wrote), with an autosave revision.
+                                     it still holds what the set wrote), from a base revision: the
+                                     save applies only while the set is still at it (409 stale).
 POST   /api/sets/<id>/playlist       {action: new | dismiss}: a new playlist from the set, or stop
                                      saying its playlist went its own way.
 DELETE /api/sets/<id>                Remove a set; its playlist stays.
@@ -170,10 +171,11 @@ def update_set(set_id: int):
         done = store.update_set(database, pid, set_id, body)
         if done is None:
             return _bad("That set isn't one of yours", 404)
-        saved = store.get_set(database, pid, set_id)
-        state = saved.get("playlist_state")
         if done["tracks_changed"]:
-            state = store.follow_playlist(database, pid, set_id, saved["rows"])
+            # the rows read again under the sync's lock (store.follow_latest)
+            state = store.follow_latest(database, pid, set_id)
+        else:
+            state = (store.get_set(database, pid, set_id) or {}).get("playlist_state")
     except store.StaleRevision as exc:
         # an older autosave than one already applied: nothing changed
         return jsonify({"success": False, "stale": True, "revision": exc.current,
@@ -267,15 +269,16 @@ def add_tracks(set_id: int):
         done = store.append_tracks(database, pid, set_id, ids, again=body.get("again") is True)
         if done is None:
             return _bad("That set isn't one of yours", 404)
-        saved = store.get_set(database, pid, set_id)
-        state = saved.get("playlist_state")
         if done["tracks_changed"]:
-            state = store.follow_playlist(database, pid, set_id, saved["rows"])
+            state = store.follow_latest(database, pid, set_id)
+        saved = store.get_set(database, pid, set_id) or {}
+        if not done["tracks_changed"]:
+            state = saved.get("playlist_state")
     except store.SetError as exc:
         return _bad(str(exc))
     except Exception as exc:  # noqa: BLE001
         return _failed("add", exc)
-    return _ok({"id": set_id, "name": saved["name"], "added": done["added"], "already": done["already"],
+    return _ok({"id": set_id, "name": saved.get("name", ""), "added": done["added"], "already": done["already"],
                 "left_out": done["left_out"], "revision": done["revision"], "playlist_state": state})
 
 

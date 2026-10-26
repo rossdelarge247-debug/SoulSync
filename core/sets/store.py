@@ -20,6 +20,7 @@ browser that made them.
 from __future__ import annotations
 
 import json
+import threading
 import time
 from contextlib import closing
 from typing import Any, Dict, List, Optional
@@ -450,6 +451,15 @@ def _check_revision(revision: Any, current: int) -> None:
         raise SetError("The revision is too far ahead of the set's")
 
 
+def _check_base(base: Any) -> None:
+    """A base revision must be a whole number in 0..2**53 - 1 (the set's
+    next is one more, and stays within JavaScript's exact integers)."""
+    if isinstance(base, bool) or not isinstance(base, int):
+        raise SetError("The base revision must be a whole number")
+    if base < 0 or base >= MAX_REVISION:
+        raise SetError("The base revision is out of range")
+
+
 def _revision_of(conn, profile_id: int, set_id: int) -> Optional[int]:
     found = conn.execute("SELECT revision FROM dj_sets WHERE id = ? AND profile_id = ?",
                          (int(set_id), int(profile_id))).fetchone()
@@ -459,15 +469,26 @@ def _revision_of(conn, profile_id: int, set_id: int) -> Optional[int]:
 def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Change a saved set's name and/or rows. None when it isn't yours.
 
-    ``revision`` (optional, a whole number the page counts up with each save)
+    ``base_revision`` (what the page sends): the revision the page last read
+    or had confirmed. The write happens only while the stored revision still
+    equals it, in one conditional UPDATE, and the set's revision becomes that
+    plus one. Anything else in between (an add from another tab or device, a
+    save from another window) moved the revision on, so the save raises
+    StaleRevision with the stored one and changes nothing: the page stops
+    and says so, never writing over what it hasn't seen.
+
+    ``revision`` (an older page's: a whole number it counts up with each save)
     keeps autosaves in order: one at or below the set's revision is older
     than what's stored and raises StaleRevision, changing nothing. The check
     and the write are one conditional UPDATE, so two saves at once can't both
     pass it. Without a revision the save simply counts the set's on by one.
     Returns ``{"revision", "tracks_changed"}``: whether the playing tracks or
     their order changed, which is when the playlist follows."""
-    revision = body.get("revision")
+    base = body.get("base_revision")
+    revision = body.get("revision") if base is None else None
     explicit = revision is not None
+    if base is not None:
+        _check_base(base)
     name = clean_name(body["name"]) if "name" in body else None
     cleaned = clean_rows(body["tracks"]) if "tracks" in body else None
     with closing(database._get_connection()) as conn:
@@ -478,7 +499,14 @@ def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> 
         if explicit:
             _check_revision(revision, int(row.get("revision") or 0))
         try:
-            if explicit:
+            if base is not None:
+                # applied only while nothing has changed the set since the
+                # page's base: compare and set, in one statement
+                cur = conn.execute(
+                    "UPDATE dj_sets SET name = COALESCE(?, name), updated_at = ?, revision = revision + 1 "
+                    "WHERE id = ? AND profile_id = ? AND revision = ?",
+                    (name, time.time(), sid, int(profile_id), base))
+            elif explicit:
                 # applied only while the stored revision is still below this
                 # one (and this one isn't too far ahead of it)
                 cur = conn.execute(
@@ -760,6 +788,22 @@ def follow_playlist(database, profile_id: int, set_id: int, rows: List[Dict[str,
         return None
 
 
+#: one playlist sync at a time (the app runs one worker process, with threads)
+_FOLLOW_LOCK = threading.Lock()
+
+
+def follow_latest(database, profile_id: int, set_id: int) -> Optional[str]:
+    """``follow_playlist`` with the set's rows read again under a lock, so of
+    two changes at once (two adds, an add and a save) the last sync to run
+    always writes the newest rows: a sync never writes rows another change
+    has already replaced. Returns what follow_playlist does."""
+    with _FOLLOW_LOCK:
+        saved = get_set(database, profile_id, set_id)
+        if saved is None:
+            return None
+        return follow_playlist(database, profile_id, set_id, saved["rows"])
+
+
 def clear_playlist_state(database, profile_id: int, set_id: int) -> None:
     """"Not now": the set stops saying its playlist went its own way."""
     _set_playlist_fields(database, profile_id, set_id, playlist_state=None)
@@ -767,5 +811,5 @@ def clear_playlist_state(database, profile_id: int, set_id: int) -> None:
 
 __all__ = ["KINDS", "MAX_ROWS", "MAX_SETS", "TRANSITION_BARS", "TRANSITION_STYLES", "SetError", "StaleRevision",
            "alternatives", "append_tracks", "clean_rows", "clean_transition", "clear_playlist_state", "create_set",
-           "delete_set", "follow_playlist", "get_set", "holding", "list_sets", "make_playlist", "read_transition",
+           "delete_set", "follow_latest", "follow_playlist", "get_set", "holding", "list_sets", "make_playlist", "read_transition",
            "saved_famous", "update_set", "view"]
