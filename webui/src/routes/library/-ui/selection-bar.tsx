@@ -22,6 +22,7 @@ export function SelectionBar({
   onDone,
   barLabel,
   primaryVariant = 'primary',
+  secondary = null,
 }: {
   /** "6 albums selected · 49 tracks" */
   label: string;
@@ -33,12 +34,15 @@ export function SelectionBar({
   idleLabel?: string;
   emptyReason: string;
   count: number;
-  onPrimary: () => void;
+  /** the primary's own button, for a picker that pops from it (28b) */
+  onPrimary: (anchor: HTMLElement | null) => void;
   menu: MenuEntry[];
   onDone: () => void;
   barLabel: string;
   /** 21a draws Tracks' "Export to Traktor…" as a secondary */
   primaryVariant?: 'primary' | 'secondary';
+  /** 28b: Tracks' "Export to Traktor…" beside the primary */
+  secondary?: { label: string; onClick: () => void } | null;
 }) {
   return (
     <div className={styles.barDock} data-selection-bar="">
@@ -63,7 +67,7 @@ export function SelectionBar({
             variant={primaryVariant}
             disabled={count === 0}
             disabledReason={count === 0 ? emptyReason : undefined}
-            onClick={onPrimary}
+            onClick={(event) => onPrimary(event.currentTarget)}
           >
             {count === 0 ? (
               idleLabel
@@ -74,6 +78,18 @@ export function SelectionBar({
               </>
             )}
           </Button>
+          {secondary ? (
+            <Button
+              size="lg"
+              variant="secondary"
+              className={styles.barSecondary}
+              disabled={count === 0}
+              disabledReason={count === 0 ? emptyReason : undefined}
+              onClick={secondary.onClick}
+            >
+              {secondary.label}
+            </Button>
+          ) : null}
           <MoreMenu label="More actions for the selection" entries={menu} vertical={false} />
           <Button size="lg" variant="ghost" className={styles.barDone} onClick={onDone}>
             Done

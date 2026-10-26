@@ -245,7 +245,7 @@
 .head,
 .row {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 64px 64px 96px 92px;
+  grid-template-columns: 48px minmax(0, 1fr) 64px 64px 96px 32px 92px;
   gap: 12px;
   align-items: center;
 }
@@ -437,7 +437,7 @@
 
   .row {
     grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
-    gap: 8px;
+    gap: 4px;
     padding: 8px 0;
     border-radius: 0;
   }
@@ -458,4 +458,50 @@
   .actions {
     display: contents;
   }
+}
+
+/* ── stars (28a, 28d) ───────────────────────────────────────────────── */
+
+.starCell {
+  display: flex;
+  justify-content: center;
+}
+
+/* 24a: Starred, a filter chip with its count */
+.starredChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.starredIcon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+
+.starredChip[aria-pressed='true'] .starredIcon {
+  fill: rgb(var(--ss-accent-light-rgb));
+  stroke: rgb(var(--ss-accent-light-rgb));
+}
+
+.starredCount {
+  padding: 1px 6px;
+  border-radius: var(--ss-radius-tag);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* a starred track whose file is gone: kept, at 62%, with its tag (28a) */
+.row[data-file-missing='true'] > :not(.starCell):not(.actions) {
+  opacity: 0.62;
+}
+
+.missingTag {
+  margin-left: 8px;
+  vertical-align: middle;
 }

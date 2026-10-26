@@ -42,6 +42,10 @@ export interface DjTrack {
   bitrate: number | null;
   image_url: string | null;
   dj: DjInfo | null;
+  /** browse only: whether you starred it (the store is primed from it) */
+  starred?: boolean;
+  /** browse with the Starred filter: a starred track whose file is gone */
+  file_missing?: boolean;
 }
 
 export type KeyRelation = 'same' | 'up' | 'down' | 'relative';
@@ -163,6 +167,8 @@ export interface DjBrowseQuery {
   key: string;
   q: string;
   sort: string;
+  /** Tracks' Starred filter (24a) */
+  starred?: boolean;
 }
 
 export function djBrowseInfiniteQueryOptions(profileId: number, query: DjBrowseQuery) {
@@ -179,6 +185,7 @@ export function djBrowseInfiniteQueryOptions(profileId: number, query: DjBrowseQ
       if (query.bpmMax !== null) searchParams.bpm_max = query.bpmMax;
       if (query.key) searchParams.key = query.key;
       if (query.q) searchParams.q = query.q;
+      if (query.starred) searchParams.starred = 1;
       return readOk(
         readJson<DjBrowseResponse>(apiClient.get('library/dj/browse', { searchParams })),
       );
