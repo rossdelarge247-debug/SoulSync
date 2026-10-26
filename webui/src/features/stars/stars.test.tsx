@@ -20,8 +20,9 @@ type Body = Record<string, unknown>;
 function server(answers: Record<string, (body: Body) => [number, unknown]>) {
   const calls: { path: string; body: Body }[] = [];
   const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
-    const path = String(url).replace(/^.*\/api\//, '');
-    const body = init?.body ? (JSON.parse(String(init.body)) as Body) : {};
+    const href = url instanceof Request ? url.url : url.toString();
+    const path = href.replace(/^.*\/api\//, '');
+    const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Body) : {};
     calls.push({ path, body });
     const [status, payload] = (answers[path] ?? (() => [404, { success: false }]))(body);
     return new Response(JSON.stringify(payload), { status });

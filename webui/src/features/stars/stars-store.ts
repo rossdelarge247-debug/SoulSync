@@ -101,7 +101,8 @@ export function createStarStore(fetcher: Fetch = (...args) => window.fetch(...ar
 
   const emit = () => {
     tick += 1;
-    for (const listener of [...listeners]) listener();
+    // a copy: a listener may unsubscribe while this runs
+    for (const listener of Array.from(listeners)) listener();
   };
 
   const put = (id: string, state: StarState) => {
