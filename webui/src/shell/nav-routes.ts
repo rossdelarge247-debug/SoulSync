@@ -43,6 +43,7 @@ export const NAV_ROWS = [
   'artists',
   'albums',
   'tracks',
+  'sets',
   'history',
   'import',
   'stats',
@@ -80,6 +81,7 @@ export const ROW_GROUP: Partial<Record<NavRowKey, NavGroupKey>> = {
   artists: 'library',
   albums: 'library',
   tracks: 'library',
+  sets: 'library',
   history: 'library',
   import: 'library',
   stats: 'library',
@@ -153,6 +155,11 @@ export function isTracksView(search: string): boolean {
   return new URLSearchParams(search).get('view') === 'tracks';
 }
 
+/** Library → Sets (the set planner, 22a) is its own row, after Tracks. */
+export function isSetsView(search: string): boolean {
+  return new URLSearchParams(search).get('view') === 'sets';
+}
+
 /** The row that lights up for a page, or null when no row owns it. */
 export function navRowFor(pageId: string | null | undefined, search = ''): NavRowKey | null {
   if (!pageId) return null;
@@ -163,7 +170,9 @@ export function navRowFor(pageId: string | null | undefined, search = ''): NavRo
         ? 'history'
         : isTracksView(search)
           ? 'tracks'
-          : 'artists';
+          : isSetsView(search)
+            ? 'sets'
+            : 'artists';
   return PAGE_ROWS[pageId] ?? null;
 }
 

@@ -60,8 +60,18 @@ export const librarySearchSchema = z.object({
   view: z
     .preprocess((v) => {
       const s = searchString(v);
-      return s === 'albums' || s === 'history' || s === 'tracks' ? s : undefined;
-    }, z.enum(['albums', 'history', 'tracks']).optional())
+      return s === 'albums' || s === 'history' || s === 'tracks' || s === 'sets' ? s : undefined;
+    }, z.enum(['albums', 'history', 'tracks', 'sets']).optional())
+    .catch(undefined),
+  /**
+   * Sets: which page of the planner. A saved set's id, `draft` (this
+   * browser's draft), `famous` (search) or `paste` (paste a tracklist).
+   */
+  set: z
+    .preprocess((v) => {
+      const s = searchString(v);
+      return s && /^(?:draft|famous|paste|\d{1,9})$/.test(s) ? s : undefined;
+    }, z.string().optional())
     .catch(undefined),
   /** Tracks' BPM range, "120-128" (either side may be empty). */
   bpm: z.preprocess(optional, z.string().max(16).optional()).catch(undefined),
@@ -107,7 +117,7 @@ export type LibrarySearchParams = z.infer<typeof librarySearchSchema>;
 
 /** The URL's search with every default filled in, as the page reads it. */
 export interface LibrarySearch {
-  view: 'artists' | 'albums' | 'history' | 'tracks';
+  view: 'artists' | 'albums' | 'history' | 'tracks' | 'sets';
   tab: 'albums' | 'genres';
   kind: 'music' | 'podcast' | 'audiobook';
   /** '' when the URL leaves it to the browser's remembered range. */
@@ -116,6 +126,8 @@ export interface LibrarySearch {
   genre: string;
   sort: string;
   q: string;
+  /** Sets' page: a set id, 'draft', 'famous', 'paste' or '' (the planner). */
+  set: string;
   /** Tracks' BPM range and key ('' when unset). */
   bpm: string;
   key: string;
@@ -131,6 +143,7 @@ export function resolveLibrarySearch(raw: LibrarySearchParams): LibrarySearch {
     genre: raw.genre ?? '',
     sort: raw.sort ?? '',
     q: raw.q ?? '',
+    set: raw.set ?? '',
     bpm: raw.bpm ?? '',
     key: raw.key ?? '',
   };

@@ -44,6 +44,8 @@ export const Route = createFileRoute('/library')({
     if (deps.view === 'history') return;
     // Tracks reads its own routes on mount (core/dj; the DJ data)
     if (deps.view === 'tracks') return;
+    // Sets reads its own routes on mount (core/sets)
+    if (deps.view === 'sets') return;
     if (deps.view === 'albums') {
       if (deps.tab === 'genres') return;
       await context.queryClient

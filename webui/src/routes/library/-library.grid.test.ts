@@ -166,10 +166,21 @@ describe('the URL', () => {
       genre: 'ambient',
       sort: 'year',
       q: '',
+      set: '',
       bpm: '',
       key: '',
     });
     expect(librarySearchSchema.parse({ view: 'nope', tab: 'x', q: 123 })).toEqual({ q: '123' });
+    // Sets: which page of the planner; anything else is dropped
+    expect(librarySearchSchema.parse({ view: 'sets', set: '7' })).toEqual({
+      view: 'sets',
+      set: '7',
+    });
+    expect(librarySearchSchema.parse({ view: 'sets', set: 'famous' })).toEqual({
+      view: 'sets',
+      set: 'famous',
+    });
+    expect(librarySearchSchema.parse({ view: 'sets', set: '../x' })).toEqual({ view: 'sets' });
     // Tracks (the DJ data): the BPM range and the key ride along as text
     expect(librarySearchSchema.parse({ view: 'tracks', bpm: '120-128', key: '8A:mix' })).toEqual({
       view: 'tracks',
