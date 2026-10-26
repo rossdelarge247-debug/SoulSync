@@ -846,6 +846,9 @@ class MusicDatabase:
             # only (core/stars/store.py)
             self._add_track_stars_table(cursor)
 
+            # The Mix tab's working set: one per profile (core/sets/working.py)
+            self._add_dj_working_sets_table(cursor)
+
             # Per-user curation signals read back off the media server —
             # what people deliberately CHOSE about a track (favourited,
             # rated, added to a playlist), as opposed to play_count which
@@ -2172,6 +2175,7 @@ class MusicDatabase:
         'track_dj_v1':               ('table', 'track_dj'),
         'dj_sets_v1':                ('table', 'dj_sets'),
         'track_stars_v1':            ('table', 'track_stars'),
+        'dj_working_sets_v1':        ('table', 'dj_working_sets'),
         'similar_artists_rematch':  ('table', '_similar_artists_rematch_applied'),
         'beatport_positional_purged': ('table', '_beatport_positional_purged'),
     }
@@ -3978,6 +3982,33 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_stars_profile ON track_stars (profile_id, starred_at)")
             if self._migration_step_ok():
                 self._record_migration(cursor, 'track_stars_v1')
+
+    #: The Mix tab's working set (core/sets/working.py): the one mix set a
+    #: profile is building, kept until it picks another. One row per profile;
+    #: the set is checked as the profile's own on every read, so a removed
+    #: set reads as none.
+    _DJ_WORKING_SETS_COLUMNS = (
+        ('profile_id', 'INTEGER NOT NULL PRIMARY KEY'),
+        ('set_id', 'INTEGER'),
+        ('chosen_at', 'REAL'),
+    )
+
+    def _add_dj_working_sets_table(self, cursor):
+        """The working-set table. Only adds (atomic=False): a failure is an
+        ERROR naming the step, in schema_health, and the step runs again on
+        the next start."""
+        with self._migration_step(cursor, 'add_dj_working_sets', atomic=False):
+            columns = ",\n".join(f"    {name} {kind}" for name, kind in self._DJ_WORKING_SETS_COLUMNS)
+            cursor.execute(f"CREATE TABLE IF NOT EXISTS dj_working_sets (\n{columns}\n)")
+            cursor.execute("PRAGMA table_info(dj_working_sets)")
+            have = {row[1] for row in cursor.fetchall()}
+            for name, kind in self._DJ_WORKING_SETS_COLUMNS:
+                if name not in have:
+                    plain = kind.replace(' NOT NULL', '').replace(' PRIMARY KEY', '')
+                    with self._migration_step(cursor, f"add dj_working_sets.{name}"):
+                        cursor.execute(f"ALTER TABLE dj_working_sets ADD COLUMN {name} {plain}")
+            if self._migration_step_ok():
+                self._record_migration(cursor, 'dj_working_sets_v1')
 
     def _migrate_id_columns_to_text(self, cursor):
         """Migrate ID columns from INTEGER to TEXT to support both Plex (int) and Jellyfin (GUID) IDs"""

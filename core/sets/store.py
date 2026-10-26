@@ -556,10 +556,41 @@ def holding(database, profile_id: int, track_ids: List[str]) -> List[Dict[str, A
     return out
 
 
+def _insert_at(rows: List[Dict[str, Any]], after: Optional[Dict[str, Any]]) -> Optional[int]:
+    """The row index ``after`` names (``{"track_id", "number"}``: the playing
+    track and its number in the set, the Mix tab's "Add" while a set plays):
+    the row with that number when it still holds that track, else the
+    track's first row; None (the end) when the set doesn't hold it."""
+    if not isinstance(after, dict):
+        return None
+    tid = after.get("track_id")
+    if not isinstance(tid, (str, int)) or isinstance(tid, bool) or not str(tid):
+        return None
+    tid = str(tid)
+    number = after.get("number")
+    n = 0
+    first = None
+    for index, row in enumerate(rows):
+        if not row.get("track_id"):
+            continue
+        n += 1
+        if str(row["track_id"]) != tid:
+            continue
+        if isinstance(number, int) and not isinstance(number, bool) and number == n:
+            return index
+        if first is None:
+            first = index
+    return first
+
+
 def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], *,
-                  again: bool = False) -> Optional[Dict[str, Any]]:
+                  again: bool = False, after: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Add library tracks to the end of one of your sets ("Add to mix
     set…"). None when the set isn't yours.
+
+    ``after`` (``{"track_id", "number"}``, the Mix tab while a set plays,
+    29b) puts them straight after that row instead; ``placed`` says
+    "after", or "end" when the set no longer holds that track.
 
     Only tracks in the caller's library with their file present go in (the
     downloaded-only rule); the rest are ``left_out``. A track the set already
@@ -603,8 +634,18 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
             if len(old_rows) + len(adding) > MAX_ROWS:
                 raise SetError(f"A set can hold at most {MAX_ROWS} tracks")
             next_number = sum(len(v) for v in numbers.values()) + 1
+            at = _insert_at(old_rows, after) if after is not None else None
             added = []
-            if adding:
+            if adding and at is not None:
+                fresh = [{"track_id": tid, "artist": found[tid].get("artist_name") or None,
+                          "title": found[tid].get("title") or None, "line_at": None, "state": "owned",
+                          "want": "yours", "version": None, "locked": 0, "note": None, "transition": None,
+                          "mbid": None, "raw": None} for tid in adding]
+                _write_rows(conn, sid, old_rows[:at + 1] + fresh + old_rows[at + 1:])
+                before = sum(1 for r in old_rows[:at + 1] if r.get("track_id"))
+                added = [{"track_id": tid, "number": before + 1 + k} for k, tid in enumerate(adding)]
+                conn.commit()
+            elif adding:
                 conn.executemany(
                     "INSERT INTO dj_set_tracks (set_id, position, track_id, artist, title, state, want, locked) "
                     "VALUES (?, ?, ?, ?, ?, 'owned', 'yours', 0)",
@@ -620,7 +661,7 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
             conn.rollback()
             raise
     return {"added": added, "already": already, "left_out": left_out, "revision": revision,
-            "tracks_changed": bool(added)}
+            "tracks_changed": bool(added), "placed": "after" if at is not None else "end"}
 
 
 #: one fixed statement per playlist field (no SQL is put together at run time)
