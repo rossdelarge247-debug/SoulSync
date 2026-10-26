@@ -5,7 +5,6 @@ import { Button, TextInput } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
 import { Notice, Skeleton } from '@/components/primitives';
 import { addTrackToPlaylist, playlistTrack, playTrackNext } from '@/features/dj/dj-actions';
-import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import {
   DJ_PAGE_SIZE,
   DJ_QUERY_KEY,
@@ -33,6 +32,7 @@ import { openMixes } from '@/features/dj/mixes-store';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { awayWords } from '@/features/drives/drives.format';
+import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import type { LibrarySearch } from '../-library.types';

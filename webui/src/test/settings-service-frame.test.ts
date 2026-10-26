@@ -323,6 +323,8 @@ describe('Qobuz in the Connections modal (224)', () => {
 });
 
 describe('the grid’s tiles without a state of their own (223)', () => {
+  // the page's own function, lifted from settings.js as the harness does
+  // oxlint-disable-next-line typescript-eslint/no-implied-eval
   const chip = new Function(
     `${extractFunction('_svcTileChip', SETTINGS_JS)}; return _svcTileChip;`,
   )() as (set: boolean | null, required?: boolean) => { text: string; tone: string };
