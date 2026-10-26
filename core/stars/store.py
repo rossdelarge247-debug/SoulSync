@@ -78,7 +78,8 @@ def _in_scope(conn, ids: Sequence[str], where: str, params: Sequence[Any]) -> Di
 def _starred(conn, profile_id: int, ids: Sequence[str]) -> set:
     out = set()
     for chunk in _chunks(list(ids)):
-        rows = conn.execute(
+        # only "?" placeholders are formatted in; the ids are bound parameters
+        rows = conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
             f"SELECT track_id FROM track_stars WHERE profile_id = ? AND track_id IN ({','.join('?' * len(chunk))})",
             [int(profile_id)] + list(chunk)).fetchall()
         out.update(str(r["track_id"]) for r in rows)
@@ -167,7 +168,8 @@ def unstar(database, profile_id: int, ids: Sequence[str]) -> List[str]:
     with closing(database._get_connection()) as conn:
         had = _starred(conn, profile_id, ids)
         for chunk in _chunks(list(had)):
-            conn.execute(
+            # only "?" placeholders are formatted in; the ids are bound parameters
+            conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
                 f"DELETE FROM track_stars WHERE profile_id = ? AND track_id IN ({','.join('?' * len(chunk))})",
                 [int(profile_id)] + list(chunk))
         conn.commit()

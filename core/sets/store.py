@@ -312,7 +312,9 @@ def _without_file(database, ids: List[str], fix_art=None) -> Dict[str, Dict[str,
     with closing(database._get_connection()) as conn:
         for start in range(0, len(ids), 250):
             chunk = ids[start:start + 250]
-            rows = conn.execute(
+            # a fixed SELECT, "?" placeholders and the library scope's fixed
+            # fragment are formatted in; every value is a bound parameter
+            rows = conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
                 f"{dj_store._track_select()} WHERE t.id IN ({','.join('?' * len(chunk))}) AND {where}",
                 list(chunk) + list(params)).fetchall()
             for r in rows:
@@ -579,7 +581,9 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
         if missing:
             where, params = dj_store._scope(database)
             with closing(database._get_connection()) as conn:
-                known = {str(r[0]) for r in conn.execute(
+                # "?" placeholders and the library scope's fixed fragment are
+                # formatted in; every value is a bound parameter
+                known = {str(r[0]) for r in conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
                     f"SELECT t.id FROM tracks t WHERE t.id IN ({','.join('?' * len(missing))}) AND {where}",
                     list(missing) + list(params)).fetchall()}
             left_out = [{"id": i, "reason": "file_missing" if i in known else "not_in_library"} for i in missing]
