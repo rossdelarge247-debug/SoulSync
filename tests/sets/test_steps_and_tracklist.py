@@ -156,3 +156,42 @@ def test_a_pasted_link_is_only_read_for_its_page_title(link, title):
     from core.sets.sources import MIXESDB_LINK_HOSTS
 
     assert tracklist.page_title_from_link(link, MIXESDB_LINK_HOSTS) == title
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("line", [
+    "=" * 100_000,
+    "== " + "=" * 100_000 + " ==",
+    "# " + "[[" * 50_000,
+    "# " + "[[" * 50_000 + "]]",
+    "# " + "[[[" * 30_000 + "|" * 1000,
+    "# " + "[http://" * 20_000,
+    "# " + "[https://a " * 20_000,
+    "# " + "{{" * 50_000,
+    "# " + "<" * 100_000,
+])
+def test_a_hostile_mixesdb_line_is_read_in_linear_time(line):
+    """A MixesDB page is someone else's text, and Python's re holds the GIL:
+    a line that makes a pattern backtrack would freeze the whole server.
+    Lines are cut before anything reads them, and headings and links are
+    scanned, so a 100 KB line of "=" or "[[" costs well under 100 ms."""
+    import time
+
+    page = "== Tracklist ==\n" + line + "\n# [00] Pale Harbour - Lantern Room\n"
+    started = time.perf_counter()
+    lines = tracklist.wikitext_lines(page)
+    assert time.perf_counter() - started < 0.1
+    assert lines[-1] == "[00] Pale Harbour - Lantern Room"
+    started = time.perf_counter()
+    for text in lines:
+        tracklist.read_line(text)
+    assert time.perf_counter() - started < 0.1
+
+
+def test_links_are_reduced_by_scanning():
+    assert tracklist.wikitext_lines(
+        "== Tracklist ==\n# [[A|Pale Harbour]] - [[Lantern]] [[[Label:Glass|Glass]]] "
+        "[https://www.discogs.com/x on Discogs] [not a link] [[ open\n"
+    ) == ["Pale Harbour - Lantern [Glass] on Discogs [not a link] [[ open"]
+    # a heading needs the same number of = on both sides
+    assert tracklist.wikitext_lines("== Tracklist =\n# A - B\n") == ["A - B"]

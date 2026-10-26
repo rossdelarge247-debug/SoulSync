@@ -69,7 +69,7 @@ def split_title(title: Any) -> Dict[str, str]:
     "Saltmarsh Remix". Featured artists are dropped ("Sand Script (feat.
     Mira)"), "Original Mix" counts as no version, and ``key`` /
     ``version_key`` are the folded forms used for comparing."""
-    text = " ".join(str(title or "").split())
+    text = " ".join(str(title or "")[:MAX_LINE_CHARS * 2].split())[:MAX_LINE_CHARS]
     text = _FEAT_BRACKET.sub("", text)
     version = ""
     for inner in _BRACKETS.findall(text):
@@ -96,7 +96,7 @@ def artist_keys(artist: Any) -> List[str]:
     """Each credited name, folded: "Okan Dere feat. Mira" -> ["okan dere",
     "mira"]. A leading "The" is dropped."""
     out = []
-    for part in _ARTIST_SPLIT.split(str(artist or "")):
+    for part in _ARTIST_SPLIT.split(str(artist or "")[:MAX_LINE_CHARS]):
         key = fold(part)
         if key.startswith("the "):
             key = key[4:]
@@ -216,26 +216,100 @@ def read_paste(text: Any) -> Dict[str, Any]:
 
 # ── a MixesDB page ────────────────────────────────────────────────────────────
 
-_LABEL_LINK = re.compile(r"\[\[\[(?:[^|\]]*\|)?([^\]]*)\]\]\]")  # "[[[Label:Glass|Glass]]]"
-_WIKILINK = re.compile(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]")
-_EXTLINK = re.compile(r"\[(?:https?://|//)[^\s\]]*\s*([^\]]*)\]")
+#: a wiki text line longer than this is cut before anything reads it, so no
+#: pattern ever runs over a long line (a page is someone else's text)
+MAX_WIKI_LINE = 1000
 _TEMPLATE = re.compile(r"\{\{[^{}]*\}\}")
 _TAGS = re.compile(r"<[^>]{0,200}>")
+
+
+def _heading(line: str) -> Optional[str]:
+    """"== Tracklist ==" -> "Tracklist", by counting the equals signs at
+    each end (no pattern: a long run of "=" stays linear)."""
+    if not line.startswith("="):
+        return None
+    lead = len(line) - len(line.lstrip("="))
+    trail = len(line) - len(line.rstrip("="))
+    if lead == len(line) or lead != trail:
+        return None
+    return line[lead:len(line) - trail].strip()
+
+
+def _unlink(text: str) -> str:
+    """Wiki links reduced to their words, by scanning, never by a pattern:
+    "[[Pale Harbour]]" -> "Pale Harbour", "[[Label:Glass|Glass]]" ->
+    "Glass", "[[[Label:Glass|Glass]]]" -> "[Glass]". Linear in the line,
+    however many "[[" it holds."""
+    out: List[str] = []
+    i = 0
+    close = -1
+    while True:
+        a = text.find("[[", i)
+        if a < 0:
+            break
+        if close < a + 2:
+            close = text.find("]]", a + 2)
+        if close < 0:
+            break
+        inner = text[a + 2:close]
+        label = inner.startswith("[")
+        if label:
+            inner = inner[1:]
+        if "[" in inner:
+            # another opener before the close: the link starts later
+            out.append(text[i:a + 1])
+            i = a + 1
+            continue
+        words = inner.split("|", 1)[-1]
+        out.append(text[i:a])
+        out.append(f"[{words}]" if label else words)
+        i = close + 2
+        if label and text.startswith("]", i):
+            i += 1
+    out.append(text[i:])
+    return "".join(out)
+
+
+def _unextlink(text: str) -> str:
+    """"[https://… Discogs]" -> "Discogs", "[https://…]" -> "": external
+    links reduced to their words by scanning (linear)."""
+    out: List[str] = []
+    i = 0
+    while True:
+        a = text.find("[", i)
+        if a < 0:
+            break
+        rest = text[a + 1:a + 9].lower()
+        if not (rest.startswith("http://") or rest.startswith("https://") or rest.startswith("//")):
+            out.append(text[i:a + 1])
+            i = a + 1
+            continue
+        b = text.find("]", a + 1)
+        if b < 0:
+            break
+        inner = text[a + 1:b].split(None, 1)
+        out.append(text[i:a])
+        out.append(inner[1] if len(inner) > 1 else "")
+        i = b + 1
+    out.append(text[i:])
+    return "".join(out)
 
 
 def wikitext_lines(wikitext: Any) -> List[str]:
     """The tracklist lines of a MixesDB page's wiki text: the numbered and
     bulleted lines ("# [00] Artist - Title [Label]") under its Tracklist
-    heading, links and templates reduced to their words."""
+    heading, links and templates reduced to their words. Every line is cut
+    to MAX_WIKI_LINE characters first, and headings and links are read by
+    scanning, so a hostile page costs time in proportion to its size."""
     text = str(wikitext or "")[:512 * 1024]
     out: List[str] = []
     in_list = False
     seen_heading = False
     for raw in text.splitlines():
-        line = raw.strip()
-        heading = re.match(r"^(=+)\s*(.*?)\s*\1\s*$", line)
-        if heading:
-            title = heading.group(2).lower()
+        line = raw[:MAX_WIKI_LINE].strip()
+        title = _heading(line)
+        if title is not None:
+            title = title.lower()
             seen_heading = True
             in_list = "tracklist" in title or "track list" in title
             continue
@@ -246,9 +320,8 @@ def wikitext_lines(wikitext: Any) -> List[str]:
         line = line.lstrip("#*: ").strip()
         for _ in range(3):
             line = _TEMPLATE.sub("", line)
-        line = _LABEL_LINK.sub(r"[\1]", line)
-        line = _WIKILINK.sub(r"\1", line)
-        line = _EXTLINK.sub(r"\1", line)
+        line = _unlink(line)
+        line = _unextlink(line)
         line = _TAGS.sub("", line).replace("'''", "").replace("''", "")
         line = line.strip()
         if line:
