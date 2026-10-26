@@ -8,6 +8,8 @@ import type {
   SetSummary,
   SourceName,
   SourceStates,
+  Transition,
+  TransitionStyle,
 } from './sets.api';
 
 export const SOURCE_NAMES: Record<SourceName, string> = {
@@ -190,7 +192,7 @@ export function haveLine(have: string | null | undefined): string {
   return `You have the ${v}`;
 }
 
-/** The tracklist's rows as a set keeps them (Save as mix). */
+/** The tracklist's rows as a set keeps them (Save as mix set). */
 export function rowsFromMatch(rows: MatchRow[], wants: Record<number, boolean> = {}): SetRow[] {
   return rows.map((r, i) => ({
     track_id: r.track && r.state !== 'missing' ? r.track.id : null,
@@ -275,4 +277,161 @@ export function isShape(value: unknown): value is ShapeKey {
 /** A name for a new empty set: "New set 24 October". */
 export function newSetName(now = new Date()): string {
   return `New set ${now.getDate()} ${MONTHS[now.getMonth()]}`;
+}
+
+// ── mix sets beyond 22c (28a–28g) ────────────────────────────────────────────
+
+export const STYLE_WORDS: Record<TransitionStyle, string> = {
+  auto: 'Auto',
+  long_blend: 'Long blend',
+  short_blend: 'Short blend',
+  bass_swap: 'Bass swap',
+  cut: 'Cut',
+  echo_out: 'Echo out',
+  filter_sweep: 'Filter sweep',
+  drop_swap: 'Drop swap',
+};
+
+/** A row's transition, auto when there's none (the default). */
+export function transitionOf(t: Transition | null | undefined): Transition {
+  return t && t.style ? { style: t.style, bars: t.bars ?? null } : { style: 'auto', bars: null };
+}
+
+/** The chip's words (26i): "Long blend · 32 bars", "Cut", "Auto". */
+export function chipWords(t: Transition | null | undefined): string {
+  const { style, bars } = transitionOf(t);
+  return [STYLE_WORDS[style], bars && style !== 'cut' ? `${bars} bars` : '']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** Who chose it, after the chip: "auto" until the person picks a style, then "yours". */
+export function whoChose(t: Transition | null | undefined): 'auto' | 'yours' {
+  return transitionOf(t).style === 'auto' ? 'auto' : 'yours';
+}
+
+/** "#25", or "#25–28" for several. */
+export function placeWords(first: number, count: number): string {
+  return count > 1 ? `#${first}–${first + count - 1}` : `#${first}`;
+}
+
+/**
+ * The picker's line under a set's name (28a, 28b): where the tracks would
+ * land, or that they're there already.
+ */
+export function pickerLine(opts: {
+  count: number;
+  next: number;
+  /** of the tracks asked about, the numbers of those already in it */
+  held: number[][];
+  when?: string;
+}): { line: string; already: number } {
+  const already = opts.held.filter((n) => n.length).length;
+  const when = opts.when ? ` · ${opts.when}` : '';
+  if (opts.count === 1) {
+    if (already) return { line: `In it already · #${opts.held[0][0]}${when}`, already };
+    return { line: `adds as #${opts.next}${when}`, already };
+  }
+  if (!already) return { line: `adds as ${placeWords(opts.next, opts.count)}${when}`, already };
+  const fresh = opts.count - already;
+  if (!fresh) return { line: `All ${opts.count} are in it already${when}`, already };
+  return {
+    line: `${already} of them ${already === 1 ? 'is' : 'are'} in it already: adds ${fresh}, as ${placeWords(opts.next, fresh)}`,
+    already,
+  };
+}
+
+/** The toast after adding (28a): "Added Harbour Light to Sunday Set · #25". */
+export function addedWords(opts: {
+  title: string | null;
+  count: number;
+  set: string;
+  first: number;
+}): string {
+  const what = opts.count === 1 && opts.title ? opts.title : plural(opts.count, 'track');
+  return `Added ${what} to ${opts.set} · ${placeWords(opts.first, opts.count)}`;
+}
+
+/** "1 isn't on this computer (File missing) and is left out." (28b) */
+export function leftOutWords(missing: number): string {
+  if (!missing) return '';
+  return missing === 1
+    ? "1 isn't on this computer (File missing) and is left out."
+    : `${missing} aren't on this computer (File missing) and are left out.`;
+}
+
+/** The meta line's last part (28e): "1 file missing". */
+export function missingWords(missing: number): string {
+  return missing ? `${missing.toLocaleString()} file${missing === 1 ? '' : 's'} missing` : '';
+}
+
+/**
+ * What this page holds that isn't saved, for the "changed somewhere else"
+ * Notice (H1): "Not saved here: Copper Sky added, Undertow removed." or the
+ * name, or "your changes to the order, notes or transitions."
+ */
+/** How many changes the "changed somewhere else" Notice names before "…and N more". */
+export const UNSAVED_SHOWN = 5;
+
+export function unsavedWords(opts: {
+  savedRows: SetRow[];
+  rows: SetRow[];
+  savedName: string;
+  name: string;
+}): string {
+  const label = (r: SetRow) => r.title || r.artist || 'a line';
+  const count = (rows: SetRow[]) => {
+    const m = new Map<string, number>();
+    for (const r of rows) {
+      const k = `${r.track_id ?? ''}\u0000${r.title ?? ''}`;
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return m;
+  };
+  const before = count(opts.savedRows);
+  const after = count(opts.rows);
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const r of opts.rows) {
+    const k = `${r.track_id ?? ''}\u0000${r.title ?? ''}`;
+    if ((after.get(k) ?? 0) > (before.get(k) ?? 0)) {
+      added.push(label(r));
+      after.set(k, (after.get(k) ?? 0) - 1);
+    }
+  }
+  const again = count(opts.rows);
+  for (const r of opts.savedRows) {
+    const k = `${r.track_id ?? ''}\u0000${r.title ?? ''}`;
+    if ((before.get(k) ?? 0) > (again.get(k) ?? 0)) {
+      removed.push(label(r));
+      before.set(k, (before.get(k) ?? 0) - 1);
+    }
+  }
+  const parts = [
+    ...added.map((t) => `${t} added`),
+    ...removed.map((t) => `${t} removed`),
+    ...(opts.name.trim() && opts.name.trim() !== opts.savedName
+      ? [`the name “${opts.name.trim()}”`]
+      : []),
+  ];
+  if (parts.length) {
+    // a long list stays short: the first few, then how many more (L-B)
+    const shown = parts.slice(0, UNSAVED_SHOWN);
+    const more = parts.length - shown.length;
+    return `Not saved here: ${shown.join(', ')}${more ? `, …and ${more.toLocaleString()} more` : ''}.`;
+  }
+  return JSON.stringify(rowsBodyOf(opts.rows)) === JSON.stringify(rowsBodyOf(opts.savedRows))
+    ? 'Nothing here is unsaved.'
+    : 'Not saved here: your changes to the order, notes or transitions.';
+}
+
+function rowsBodyOf(rows: SetRow[]) {
+  return rows.map((r) => [
+    r.track_id,
+    r.title,
+    r.note ?? null,
+    r.transition ?? null,
+    Boolean(r.locked),
+    r.want,
+  ]);
 }

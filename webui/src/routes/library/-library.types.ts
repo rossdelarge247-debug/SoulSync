@@ -77,6 +77,10 @@ export const librarySearchSchema = z.object({
   bpm: z.preprocess(optional, z.string().max(16).optional()).catch(undefined),
   /** Tracks' key: a Camelot code ("8A"), or "8A:mix" for the keys that mix with it. */
   key: z.preprocess(optional, z.string().max(12).optional()).catch(undefined),
+  /** Tracks' Starred filter (24a): only your starred tracks, "1" when on. */
+  starred: z
+    .preprocess((v) => (searchString(v) === '1' ? '1' : undefined), z.literal('1').optional())
+    .catch(undefined),
   /** Listening history's Kind (Music is the default). */
   kind: z
     .preprocess((v) => {
@@ -131,6 +135,8 @@ export interface LibrarySearch {
   /** Tracks' BPM range and key ('' when unset). */
   bpm: string;
   key: string;
+  /** Tracks' Starred filter: '1' when on, else ''. */
+  starred: string;
 }
 
 export function resolveLibrarySearch(raw: LibrarySearchParams): LibrarySearch {
@@ -146,6 +152,7 @@ export function resolveLibrarySearch(raw: LibrarySearchParams): LibrarySearch {
     set: raw.set ?? '',
     bpm: raw.bpm ?? '',
     key: raw.key ?? '',
+    starred: raw.starred ?? '',
   };
 }
 

@@ -169,8 +169,17 @@ describe('the URL', () => {
       set: '',
       bpm: '',
       key: '',
+      starred: '',
     });
     expect(librarySearchSchema.parse({ view: 'nope', tab: 'x', q: 123 })).toEqual({ q: '123' });
+    // Tracks' Starred filter: "1" or nothing
+    expect(librarySearchSchema.parse({ view: 'tracks', starred: '1' })).toEqual({
+      view: 'tracks',
+      starred: '1',
+    });
+    expect(librarySearchSchema.parse({ view: 'tracks', starred: 'yes' })).toEqual({
+      view: 'tracks',
+    });
     // Sets: which page of the planner; anything else is dropped
     expect(librarySearchSchema.parse({ view: 'sets', set: '7' })).toEqual({
       view: 'sets',

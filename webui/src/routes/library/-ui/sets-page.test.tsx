@@ -54,19 +54,37 @@ const LIBRARY: Record<string, ReturnType<typeof track>> = {
 
 type Row = { track_id: string | null; title: string | null; locked?: boolean };
 
+/** 28e: ids whose file has gone (File missing), and ids not analysed yet */
+let GONE = new Set<string>();
+let WORKING = new Set<string>();
+
 function view(rows: Row[]) {
-  const out = rows.map((r) => ({ ...r, track: r.track_id ? (LIBRARY[r.track_id] ?? null) : null }));
+  const out = rows.map((r) => {
+    const known = r.track_id ? (LIBRARY[r.track_id] ?? null) : null;
+    if (r.track_id && GONE.has(r.track_id))
+      return { ...r, track: null, unreachable: true, gone_track: known };
+    if (known && r.track_id && WORKING.has(r.track_id))
+      return {
+        ...r,
+        track: {
+          ...known,
+          dj: { ...known.dj, bpm: null, key: null, energy: null, analyzed: false },
+        },
+      };
+    return { ...r, track: known };
+  });
   // like the server: the step from each playing row to the next playing one
   const steps = out.map((r, i) => {
     const next = out.slice(i + 1).find((n) => n.track);
-    return r.track && next?.track
-      ? {
+    if (!r.track || !next?.track) return null;
+    return !r.track.dj.key || !next.track.dj.key
+      ? { kind: 'unknown', reason: 'BPM and key not worked out yet', steps: null, bpm_diff: null }
+      : {
           kind: 'smooth',
           reason: `${r.track.dj.key} → ${next.track.dj.key}, +1 BPM`,
           steps: 1,
           bpm_diff: 1,
-        }
-      : null;
+        };
   });
   const playing = out.filter((r) => r.track).length;
   return {
@@ -78,7 +96,7 @@ function view(rows: Row[]) {
       seconds: playing * 360,
       bpm_min: 118,
       bpm_max: 120,
-      smooth: steps.filter(Boolean).length,
+      smooth: steps.filter((x) => x?.kind === 'smooth').length,
       jumps: 0,
       unknown: 0,
       locked: rows.filter((r) => r.locked).length,
@@ -146,9 +164,10 @@ let sent: { path: string; method: string; body: unknown }[] = [];
 let mixesdbDown = false;
 let mixesdbBusy = false;
 let playlistState: string | null = null;
-let staleNext = false;
-/** hold the next PUT until released, then refuse it as older than `revision` */
-let holdNextPut: { revision: number; release?: () => void } | null = null;
+/** the set's revision on the stand-in server (compare and set, like the real one) */
+let serverRevision = 3;
+/** hold the next PUT until released (two quick edits from one window) */
+let holdNextPut: { release?: () => void } | null = null;
 
 beforeEach(() => {
   window.SoulSyncWebShellBridge = createShellBridge();
@@ -160,8 +179,10 @@ beforeEach(() => {
   mixesdbDown = false;
   mixesdbBusy = false;
   playlistState = null;
-  staleNext = false;
+  serverRevision = 3;
   holdNextPut = null;
+  GONE = new Set();
+  WORKING = new Set();
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -206,7 +227,7 @@ beforeEach(() => {
             source_meta: {},
             playlist_id: playlistState ? null : 4,
             playlist_state: playlistState,
-            revision: 3,
+            revision: serverRevision,
           },
           rows: view(SAVED_ROWS).rows,
         };
@@ -216,19 +237,20 @@ beforeEach(() => {
           await new Promise<void>((resolve) => {
             held.release = resolve;
           });
+        }
+        const base = (body as { base_revision?: number }).base_revision;
+        if (base !== serverRevision) {
           status = 409;
-          answer = { success: false, stale: true, revision: held.revision, error: 'Newer.' };
-        } else if (staleNext) {
-          staleNext = false;
-          status = 409;
-          answer = { success: false, stale: true, revision: 9, error: 'A newer change is saved.' };
-        } else
           answer = {
-            success: true,
-            id: 7,
-            revision: (body as { revision: number }).revision,
-            playlist_state: null,
+            success: false,
+            stale: true,
+            revision: serverRevision,
+            error: 'A newer change to this set is already saved.',
           };
+        } else {
+          serverRevision += 1;
+          answer = { success: true, id: 7, revision: serverRevision, playlist_state: null };
+        }
       } else if (path === '/api/sets/7/playlist') answer = { success: true, playlist_id: 12 };
       else if (path === '/api/sets/wanted/remove') answer = { success: true, removed: true };
       else if (path === '/api/sets/view') answer = view((body as { tracks: Row[] }).tracks);
@@ -342,9 +364,19 @@ describe('Library → Sets', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'New empty set' }));
     await screen.findByText('Draft · not saved');
     expect(router.state.location.search).toMatchObject({ view: 'sets', set: 'draft' });
-    expect(screen.getByText('An empty set')).toBeTruthy();
+    // 28g: the empty set names itself and offers the ways to fill it
+    expect(screen.getByRole('heading', { name: /^Nothing in .+ yet$/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Suggest a set…' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Start from a famous mix…' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add the playing track' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
     expect(window.localStorage.getItem('soulsync.sets.draft.2')).toContain('"rows":[]');
-    const save = screen.getByRole('button', { name: 'Save as mix' });
+    const save = screen.getByRole('button', { name: 'Save as mix set' });
     expect(save.getAttribute('aria-disabled')).toBe('true');
   });
 
@@ -416,7 +448,7 @@ describe('Library → Sets', () => {
       tracks: [{ artist: 'Vela Sund', title: 'Gravity Well' }],
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save as mix' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save as mix set' }));
     await waitFor(() => expect(calls('/api/sets', 'POST').length).toBe(1));
     const saved = calls('/api/sets', 'POST')[0].body as {
       kind: string;
@@ -446,39 +478,78 @@ describe('Library → Sets', () => {
     expect(screen.getByText('You own 1 of 2')).toBeTruthy();
   });
 
-  it('saves a rename as the name alone, with the next revision', async () => {
+  it('saves a rename as the name alone, from the revision it read', async () => {
     renderPage('/library?view=sets&set=7');
     const name = await screen.findByDisplayValue('Sunday Set');
     fireEvent.change(name, { target: { value: 'Sunday Session' } });
     await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
-    expect(calls('/api/sets/7', 'PUT')[0].body).toEqual({ name: 'Sunday Session', revision: 4 });
-  });
-
-  it('says when a newer save came from another window', async () => {
-    staleNext = true;
-    renderPage('/library?view=sets&set=7');
-    fireEvent.change(await screen.findByDisplayValue('Sunday Set'), { target: { value: 'Later' } });
-    expect(
-      await screen.findByText(/changed in another window/, {}, { timeout: 2000 }),
-    ).toBeTruthy();
-  });
-
-  it('says nothing when the newer save was this window’s own', async () => {
-    holdNextPut = { revision: 5 };
-    renderPage('/library?view=sets&set=7');
-    const name = await screen.findByDisplayValue('Sunday Set');
-    fireEvent.change(name, { target: { value: 'Sunday Session' } });
-    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
-    fireEvent.change(name, { target: { value: 'Sunday Sessions' } });
-    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(2), { timeout: 2000 });
-    expect(calls('/api/sets/7', 'PUT')[1].body).toEqual({ name: 'Sunday Sessions', revision: 5 });
+    expect(calls('/api/sets/7', 'PUT')[0].body).toEqual({
+      name: 'Sunday Session',
+      base_revision: 3,
+    });
     await screen.findByText('Saved');
-    // the first, held back, now arrives late and is refused as older than 5
+  });
+
+  it('[gauntlet H1] a set changed somewhere else stops the saves, keeps the edits and says so', async () => {
+    renderPage('/library?view=sets&set=7');
+    const name = await screen.findByDisplayValue('Sunday Set');
+    // another tab adds a track: the server is at 4, the page read 3. The
+    // refusal's revision (4) is the one this page's save would have made:
+    // it's still someone else's change, never taken for this window's own
+    serverRevision = 4;
+    fireEvent.change(name, { target: { value: 'Later' } });
+    const notice = await screen.findByRole('alert', {}, { timeout: 2000 });
+    expect(notice).toHaveAttribute('data-set-conflict');
+    expect(within(notice).getByText('This set changed somewhere else')).toBeTruthy();
+    expect(notice.textContent).toContain('Not saved here: the name “Later”.');
+    expect(calls('/api/sets/7', 'PUT')).toHaveLength(1);
+    expect(calls('/api/sets/7', 'PUT')[0].body).toEqual({ name: 'Later', base_revision: 3 });
+    // later edits stay here and are never sent over the top
+    fireEvent.change(name, { target: { value: 'Later still' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lock Lowtide Hymn' }));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(calls('/api/sets/7', 'PUT')).toHaveLength(1);
+    expect(screen.getByDisplayValue('Later still')).toBeTruthy();
+    // kept as a draft in this browser, so nothing is lost
+    fireEvent.click(within(notice).getByRole('button', { name: 'Keep mine as a draft' }));
+    const draft = JSON.parse(window.localStorage.getItem('soulsync.sets.draft.2')!) as {
+      name: string;
+      rows: { locked?: boolean }[];
+    };
+    expect(draft.name).toBe('Later still (my version)');
+    expect(draft.rows[0].locked).toBe(true);
+    // Reload it: the newest set, and saving again from its revision
+    fireEvent.click(within(notice).getByRole('button', { name: 'Reload it' }));
+    await waitFor(() => expect(screen.getByDisplayValue('Sunday Set')).toBeTruthy());
+    expect(screen.queryByText('This set changed somewhere else')).toBeNull();
+    fireEvent.change(screen.getByDisplayValue('Sunday Set'), { target: { value: 'Fresh' } });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(2), { timeout: 2000 });
+    expect(calls('/api/sets/7', 'PUT')[1].body).toEqual({ name: 'Fresh', base_revision: 4 });
+  });
+
+  it('[gauntlet H1] two quick edits from one window both land, one save at a time', async () => {
+    holdNextPut = {};
+    renderPage('/library?view=sets&set=7');
+    const name = await screen.findByDisplayValue('Sunday Set');
+    fireEvent.change(name, { target: { value: 'Sunday Session' } });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    // the second edit while the first is still on its way: it waits for it
+    fireEvent.click(screen.getByRole('button', { name: 'Lock Lowtide Hymn' }));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(calls('/api/sets/7', 'PUT')).toHaveLength(1);
     holdNextPut.release!();
-    await waitFor(() => expect(holdNextPut).toBeTruthy());
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screen.queryByText(/changed in another window/)).toBeNull();
-    expect(screen.getByText('Saved')).toBeTruthy();
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(2), { timeout: 2000 });
+    const second = calls('/api/sets/7', 'PUT')[1].body as {
+      base_revision: number;
+      tracks: { locked: boolean }[];
+      name?: string;
+    };
+    expect(second.base_revision).toBe(4);
+    expect(second.name).toBeUndefined();
+    expect(second.tracks[0].locked).toBe(true);
+    await screen.findByText('Saved');
+    expect(serverRevision).toBe(5);
+    expect(screen.queryByText('This set changed somewhere else')).toBeNull();
   });
 
   it('says once that the playlist went its own way, and makes a new one', async () => {
@@ -526,5 +597,112 @@ describe('Library → Sets', () => {
       title: 'Signal Fire (Dub)',
       set_name: 'fabric 104: Saltmarsh',
     });
+  });
+});
+
+describe('a mix set’s page beyond 22c (28e, 28g)', () => {
+  it('a note per track, typed in place, saves with the set', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a note to Lowtide Hymn' }));
+    const input = screen.getByRole('textbox', { name: 'A note for Lowtide Hymn' });
+    fireEvent.change(input, { target: { value: '  mix out at   the breakdown ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    const put = calls('/api/sets/7', 'PUT')[0].body as { tracks: { note: string | null }[] };
+    expect(put.tracks[0].note).toBe('mix out at the breakdown');
+    expect(
+      screen.getByRole('button', {
+        name: 'Note for Lowtide Hymn: mix out at the breakdown. Change it',
+      }),
+    ).toBeTruthy();
+  });
+
+  it('each known step ends with its chip; picking a style and length saves {style, bars}', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const chip = await screen.findByRole('button', {
+      name: 'Transition from Lowtide Hymn to Foghorn Study: Auto, auto. Change it',
+    });
+    expect(chip.closest('[data-step]')!.getAttribute('data-step')).toBe('smooth');
+    fireEvent.click(chip);
+    const picker = screen.getByRole('dialog', { name: 'How Lowtide Hymn goes into Foghorn Study' });
+    expect(
+      within(picker)
+        .getAllByRole('radio')
+        .slice(0, 8)
+        .map((r) => r.textContent),
+    ).toEqual([
+      'AutoAuto-mix picks when it plays',
+      'Long blend',
+      'Short blend',
+      'Bass swap',
+      'Cut',
+      'Echo out',
+      'Filter sweep',
+      'Drop swap',
+    ]);
+    fireEvent.click(within(picker).getByRole('radio', { name: 'Bass swap' }));
+    fireEvent.click(within(picker).getByRole('radio', { name: '32 bars' }));
+    fireEvent.click(within(picker).getByRole('button', { name: 'Done' }));
+    expect(
+      screen.getByRole('button', {
+        name: 'Transition from Lowtide Hymn to Foghorn Study: Bass swap · 32 bars, your choice. Change it',
+      }),
+    ).toBeTruthy();
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    const put = calls('/api/sets/7', 'PUT')[0].body as { tracks: { transition: unknown }[] };
+    expect(put.tracks[0].transition).toEqual({ style: 'bass_swap', bars: 32 });
+  });
+
+  it('a file gone missing keeps its place, number and values, at 62% with its tag (28e)', async () => {
+    GONE = new Set(['2']);
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    await waitFor(() =>
+      expect(document.querySelector('[data-set-editor] p')!.textContent).toContain(
+        '1 file missing',
+      ),
+    );
+    const row = document.querySelector('[data-set-row="1"]')!;
+    expect(row.getAttribute('data-state')).toBe('gone');
+    expect(within(row as HTMLElement).getByText('File missing')).toBeTruthy();
+    expect(within(row as HTMLElement).getByText('2')).toBeTruthy(); // its number
+    expect(within(row as HTMLElement).getByText('119')).toBeTruthy(); // its BPM
+    expect(row.textContent).toContain('Skipped when played');
+    fireEvent.click(
+      within(row as HTMLElement).getByRole('button', { name: 'More for Foghorn Study' }),
+    );
+    const items = (await screen.findAllByRole('menuitem')).map((m) => m.textContent);
+    expect(items.slice(0, 2)).toEqual(['Find it again', 'Add to Wanted']);
+  });
+
+  it('a track still being analysed says so, with dashes and no chip (28e)', async () => {
+    WORKING = new Set(['2']);
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const row = (await screen.findByText('Being worked out')).closest('li')!;
+    expect(within(row).getAllByText('—').length).toBeGreaterThanOrEqual(3);
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-step="unknown"]').length).toBeGreaterThan(0),
+    );
+    for (const step of document.querySelectorAll('[data-step="unknown"]'))
+      expect(step.querySelector('button')).toBeNull();
+  });
+
+  it('a set row’s "…" keeps 24a’s order, then the set’s own', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    fireEvent.click(await screen.findByRole('button', { name: 'More for Foghorn Study' }));
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual([
+      'Play next',
+      'Mixes well with…',
+      'Add to mix set…',
+      'Add to playlist…',
+      'Move up',
+      'Move down',
+      'Move…',
+      'Remove from set',
+    ]);
   });
 });

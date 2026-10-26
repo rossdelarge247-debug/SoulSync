@@ -190,6 +190,8 @@ function SavedSet({ id, go }: { id: number; go: Go }) {
   const { set, rows } = query.data;
   return (
     <SetEditor
+      // a newer revision from the server is taken in place by the editor
+      // (when nothing there is unsaved), so the editor keeps its edits
       key={set.id}
       source={{
         kind: 'saved',
@@ -209,6 +211,7 @@ function SavedSet({ id, go }: { id: number; go: Go }) {
         },
       }}
       onSaved={(next) => go({ set: String(next) })}
+      onFamous={() => go({ set: 'famous' })}
       onDeleted={() => go({ set: '' })}
       onBack={() => go({ set: '' })}
     />
@@ -245,7 +248,7 @@ export function SetsPage({ search, go }: { search: LibrarySearch; go: Go }) {
               </Button>
             }
           >
-            Drafts are kept in the browser that made them until they&apos;re saved as a mix.
+            Drafts are kept in the browser that made them until they&apos;re saved as a mix set.
           </Notice>
         </div>
       );
@@ -254,6 +257,7 @@ export function SetsPage({ search, go }: { search: LibrarySearch; go: Go }) {
       <div className={`${hs.page} ${styles.page}`}>
         <SetEditor
           source={{ kind: 'draft', draft }}
+          onFamous={() => go({ set: 'famous' })}
           onSaved={(id) => go({ set: String(id) })}
           onDeleted={() => go({ set: '' })}
           onBack={() => go({ set: '' })}

@@ -1,0 +1,111 @@
+/* The star (boards 28a–28d; 24a "the star"). One control for legacy and
+   React pages: src/features/stars/star-control.ts sets its attributes,
+   src/features/stars/star-button.tsx draws it in React rows.
+
+   - The column is always reserved: the button keeps its box in every state.
+   - In a row: the outline star shows on the row's hover and keyboard focus
+     (a row carries data-star-row), the filled star (accent-light) stays.
+   - In the player: the outline shows at rest at 62% (28c).
+   - data-star="none": a track without a library file. Nothing shows. */
+
+.ss-star {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    border-radius: var(--ss-radius-control, 8px);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.62);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.ss-star svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linejoin: round;
+}
+.ss-star:hover { color: var(--ss-text, #fff); background: var(--ss-hover-wash, rgba(255, 255, 255, 0.06)); }
+.ss-star:focus-visible { outline: var(--ss-focus-ring, 2px solid rgb(194, 169, 250)); outline-offset: 2px; }
+.ss-star[data-star='on'] { color: rgb(var(--ss-accent-light-rgb, 194, 169, 250)); }
+.ss-star[data-star='on'] svg { fill: currentColor; }
+.ss-star[data-star='none'] { visibility: hidden; pointer-events: none; }
+
+/* in a row: hidden at rest until the row is hovered or has the keyboard */
+.ss-star[data-star-variant='row'][data-star='off'] { opacity: 0; }
+[data-star-row]:hover .ss-star[data-star-variant='row'][data-star='off'],
+[data-star-row]:focus-within .ss-star[data-star-variant='row'][data-star='off'],
+.ss-star[data-star-variant='row'][data-star='off']:focus-visible { opacity: 1; }
+
+/* in the player: the outline at rest */
+.ss-star[data-star-variant='player'] { width: 36px; height: 36px; }
+.ss-star[data-star-variant='player'] svg { width: 20px; height: 20px; }
+
+/* a phone: no hover, so only a starred row shows its star, at 44px (28d);
+   Star is the first line of the row's "…" sheet */
+@media (max-width: 640px) {
+    .ss-star[data-star-variant='row'] { width: 44px; height: 44px; }
+    .ss-star[data-star-variant='row'][data-star='off'],
+    [data-star-row]:hover .ss-star[data-star-variant='row'][data-star='off'],
+    [data-star-row]:focus-within .ss-star[data-star-variant='row'][data-star='off'] { opacity: 0; pointer-events: none; }
+    .ss-star[data-star-variant='player'] { width: 44px; height: 44px; }
+}
+
+@media (forced-colors: active) {
+    .ss-star[data-star='on'] svg { fill: CanvasText; }
+}
+
+/* ── the player (28c): the bar's star after the title, the mini bar's,
+   the record's at the start of its control row ───────────────────────── */
+.ss-player-now-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+.ss-player-now-cell > .ss-player-now { flex: 0 1 auto; min-width: 0; }
+.ss-player-star-slot { display: inline-flex; flex: none; align-items: center; }
+.ss-player-star-slot:empty { display: none; }
+/* a station, a podcast or a book has no star at all */
+.ss-player[data-source='radio'] .ss-player-star-slot,
+.ss-player[data-source='podcast'] .ss-player-star-slot,
+.ss-player[data-source='audiobook'] .ss-player-star-slot { display: none; }
+.ss-player-star-slot .ss-star[data-star='none'] { display: none; }
+
+@media (max-width: 768px) {
+    /* the mini bar takes one more 44px cell for the star */
+    .ss-player-mini {
+        grid-template-columns: minmax(0, 1fr);
+        grid-auto-flow: column;
+        grid-auto-columns: auto;
+    }
+}
+
+/* ── a playlist's rows (src/routes/sync/-ui/mirrored-detail-modal.tsx): the
+   star's column before the row's + (Add to playlist) ───────────────────── */
+.mm-list-head,
+.mm-row {
+    grid-template-columns: 34px 40px minmax(0, 1.6fr) minmax(0, 1.1fr) 56px 32px 28px;
+}
+.mm-list--editable .mm-list-head,
+.mm-list--editable .mm-row {
+    grid-template-columns: 34px 40px minmax(0, 1.6fr) minmax(0, 1.1fr) 56px 32px 28px 28px;
+}
+@media (max-width: 768px) {
+    .mm-list-head,
+    .mm-row {
+        grid-template-columns: 26px 36px minmax(0, 1fr) 48px 44px 28px;
+    }
+    .mm-list--editable .mm-list-head,
+    .mm-list--editable .mm-row {
+        grid-template-columns: 26px 36px minmax(0, 1fr) 48px 44px 28px 28px;
+    }
+}
+.mm-row-star { display: flex; justify-content: center; }

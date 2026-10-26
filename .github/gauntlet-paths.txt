@@ -69,6 +69,10 @@ api/dj.py
 # and the sources below)
 api/sets.py
 core/sets/**
+# Stars: per-profile rows (one profile never reads or changes another's),
+# the library-scope check on what can be starred, and the body caps
+api/stars.py
+core/stars/**
 
 ## Database migrations and schema
 database/**

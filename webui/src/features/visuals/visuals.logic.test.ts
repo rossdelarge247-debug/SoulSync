@@ -262,20 +262,22 @@ describe('the credit (10c)', () => {
 });
 
 describe('the overlay keys (10a; HANDOFF 83)', () => {
-  it('V next, Shift+V previous, R random, S favourite; L is never the overlay’s', () => {
+  it('V next, Shift+V previous, R random, Shift+S favourite; S and L are never the overlay’s', () => {
     expect(overlayKey({ key: 'v' })).toBe('next');
     expect(overlayKey({ key: 'V', shiftKey: true })).toBe('previous');
     expect(overlayKey({ key: 'r' })).toBe('random');
-    expect(overlayKey({ key: 'S' })).toBe('favourite');
-    expect(overlayKey({ key: 's' })).toBe('favourite');
-    expect(overlayKey({ key: 'S', shiftKey: true })).toBeNull();
+    // 24a: plain S stars the playing track everywhere; the favourite is Shift+S
+    expect(overlayKey({ key: 'S', shiftKey: true })).toBe('favourite');
+    expect(overlayKey({ key: 's', shiftKey: true })).toBe('favourite');
+    expect(overlayKey({ key: 's' })).toBeNull();
+    expect(overlayKey({ key: 'S' })).toBeNull();
     expect(overlayKey({ key: 'l' })).toBeNull();
     expect(overlayKey({ key: 'L' })).toBeNull();
   });
 
   it('nothing with a modifier, in a field, or for other keys', () => {
     expect(overlayKey({ key: 'v', ctrlKey: true })).toBeNull();
-    expect(overlayKey({ key: 's', inField: true })).toBeNull();
+    expect(overlayKey({ key: 's', shiftKey: true, inField: true })).toBeNull();
     expect(overlayKey({ key: 'f' })).toBeNull();
   });
 });

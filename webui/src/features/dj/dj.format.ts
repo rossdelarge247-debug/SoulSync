@@ -181,14 +181,19 @@ export function filterCountLine({
   bpmMax,
   keys,
   q,
+  starred = false,
 }: {
   total: number;
   bpmMin: number | null;
   bpmMax: number | null;
   keys: readonly string[];
   q: string;
+  /** the Starred filter: "12 starred tracks at 120–128 BPM" */
+  starred?: boolean;
 }): string {
-  const parts = [`${total.toLocaleString()} ${total === 1 ? 'track' : 'tracks'}`];
+  const parts = [
+    `${total.toLocaleString()} ${starred ? 'starred ' : ''}${total === 1 ? 'track' : 'tracks'}`,
+  ];
   if (q.trim()) parts.push(`matching “${q.trim()}”`);
   if (bpmMin !== null && bpmMax !== null) {
     parts.push(

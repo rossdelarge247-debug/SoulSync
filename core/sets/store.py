@@ -9,7 +9,7 @@ A set's rows are its whole tracklist in order: library tracks, and for a
 famous mix the lines that aren't in the library (Missing) or aren't known
 (ID). Only rows with a library track play, export and count in the steps.
 
-"Save as mix" keeps a set here and as a normal user playlist of its library
+"Save as mix set" keeps a set here and as a normal user playlist of its library
 tracks (``core.playlists.user_playlists``), so Play, sync and the phone's
 planner work on it like any playlist. Deleting a set leaves the playlist.
 
@@ -20,6 +20,7 @@ browser that made them.
 from __future__ import annotations
 
 import json
+import threading
 import time
 from contextlib import closing
 from typing import Any, Dict, List, Optional
@@ -41,6 +42,16 @@ MAX_SETS = 500
 MAX_NAME = 200
 
 
+#: a step's transition styles (26a's picker), "auto" first: auto-mix picks
+#: (not built yet, so an auto step only says "Auto")
+TRANSITION_STYLES = ("auto", "long_blend", "short_blend", "bass_swap", "cut", "echo_out", "filter_sweep",
+                     "drop_swap")
+#: a transition's lengths in bars (26a: 2 · 4 · 8 · 16 · 32)
+TRANSITION_BARS = (2, 4, 8, 16, 32)
+#: what a row without a chosen style reads as
+AUTO = {"style": "auto", "bars": None}
+
+
 class SetError(ValueError):
     """What the person sent can't be a set; ``str()`` is safe to show."""
 
@@ -58,6 +69,39 @@ def clean_name(value: Any) -> str:
     if not name:
         raise SetError("Give the set a name")
     return name
+
+
+def clean_transition(value: Any) -> Optional[str]:
+    """A row's transition as it's stored: ``{"style", "bars"}`` as compact
+    JSON, or None for auto with no length (the default). A style that isn't
+    26a's reads as auto; a length that isn't 2, 4, 8, 16 or 32 bars is
+    dropped, and a cut has none. A plain style name (an older page) is
+    taken too."""
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("{"):
+            try:
+                value = json.loads(text[:200])
+            except ValueError:
+                value = {}
+        else:
+            value = {"style": text}
+    if not isinstance(value, dict):
+        return None
+    style = value.get("style") if value.get("style") in TRANSITION_STYLES else "auto"
+    bars = value.get("bars")
+    if isinstance(bars, bool) or bars not in TRANSITION_BARS or style == "cut":
+        bars = None
+    if style == "auto" and bars is None:
+        return None
+    return json.dumps({"style": style, "bars": bars}, separators=(",", ":"))
+
+
+def read_transition(stored: Any) -> Dict[str, Any]:
+    """A stored transition as the page takes it: ``{"style", "bars"}``,
+    auto when there's none."""
+    cleaned = clean_transition(stored)
+    return json.loads(cleaned) if cleaned else dict(AUTO)
 
 
 def clean_rows(raw: Any) -> List[Dict[str, Any]]:
@@ -87,7 +131,7 @@ def clean_rows(raw: Any) -> List[Dict[str, Any]]:
             "version": _text(item.get("version") or item.get("want_version"), 120) or None,
             "locked": 1 if item.get("locked") is True else 0,
             "note": _text(item.get("note"), 500) or None,
-            "transition": _text(item.get("transition"), 40) or None,
+            "transition": clean_transition(item.get("transition")),
             "mbid": _text(item.get("mbid"), 40) or None,
             "raw": _text(item.get("raw"), 300) or None,
         })
@@ -223,7 +267,7 @@ def _row_out(row: Dict[str, Any]) -> Dict[str, Any]:
     return {"track_id": row.get("track_id"), "artist": row.get("artist"), "title": row.get("title"),
             "at": row.get("line_at"), "state": row.get("state"), "want": row.get("want") or "yours",
             "version": row.get("version"), "locked": bool(row.get("locked")), "note": row.get("note"),
-            "transition": row.get("transition"), "mbid": row.get("mbid"), "raw": row.get("raw")}
+            "transition": read_transition(row.get("transition")), "mbid": row.get("mbid"), "raw": row.get("raw")}
 
 
 # ── the page's view: tracks, steps, the meta line ─────────────────────────────
@@ -235,16 +279,19 @@ def view(database, rows: List[Dict[str, Any]], *, fix_art=None) -> Dict[str, Any
     to the next playing one, and the meta line's numbers."""
     ids = [r["track_id"] for r in rows if r.get("track_id")]
     found = {t["id"]: t for t in traktor.tracks_by_ids(database, list(dict.fromkeys(ids)), fix_art)}
+    gone = _without_file(database, [i for i in dict.fromkeys(ids) if i not in found], fix_art)
     out = []
     for row in rows:
         track = found.get(row.get("track_id") or "")
         if track is not None:
             track = {k: v for k, v in track.items() if k != "file_path"}
         # a row whose track can't be reached now keeps its state and its id
-        # (it comes back when the file does); the page shows it as missing
+        # (it comes back when the file does); the page shows it as File
+        # missing (28e), with its values when the library still has its row
         out.append({**_row_out({**row, "line_at": row.get("line_at") or row.get("at")}),
                     "state": row.get("state") or "owned", "track": track,
-                    "unreachable": bool(row.get("track_id")) and track is None})
+                    "unreachable": bool(row.get("track_id")) and track is None,
+                    "gone_track": gone.get(row.get("track_id") or "") if track is None else None})
     playing = [i for i, r in enumerate(out) if r["track"] is not None]
     after: List[Optional[Dict[str, Any]]] = [None] * len(out)
     for a, b in zip(playing, playing[1:], strict=False):
@@ -253,6 +300,28 @@ def view(database, rows: List[Dict[str, Any]], *, fix_art=None) -> Dict[str, Any
              "locked": out[i]["locked"]} for i in playing]
     return {"rows": out, "steps": after,
             "summary": set_steps.summary(used, [s for s in after if s is not None])}
+
+
+def _without_file(database, ids: List[str], fix_art=None) -> Dict[str, Dict[str, Any]]:
+    """The caller's library tracks among ``ids`` whose file isn't there now:
+    their title, artist and values, for a set's File missing row (28e). The
+    caller's library scope only, like every read here; no file path."""
+    if not ids:
+        return {}
+    where, params = dj_store._scope(database)
+    out: Dict[str, Dict[str, Any]] = {}
+    with closing(database._get_connection()) as conn:
+        for start in range(0, len(ids), 250):
+            chunk = ids[start:start + 250]
+            # a fixed SELECT, "?" placeholders and the library scope's fixed
+            # fragment are formatted in; every value is a bound parameter
+            rows = conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
+                f"{dj_store._track_select()} WHERE t.id IN ({','.join('?' * len(chunk))}) AND {where}",
+                list(chunk) + list(params)).fetchall()
+            for r in rows:
+                shaped = dj_store._shape_track(r, fix_art)
+                out[shaped["id"]] = {k: v for k, v in shaped.items() if k != "file_path"}
+    return out
 
 
 # ── Swap: alternatives that fit both neighbours ───────────────────────────────
@@ -328,9 +397,12 @@ class StaleRevision(Exception):
     """An autosave older than one already applied (``current`` is the
     revision the set has)."""
 
-    def __init__(self, current: int):
+    def __init__(self, current: int, reason: Optional[str] = None):
         super().__init__("stale")
         self.current = current
+        #: "reload": the save had no base revision (a page from before
+        #: compare-and-set); it's refused and the page must read the set again
+        self.reason = reason
 
 
 def create_set(database, profile_id: int, body: Dict[str, Any]) -> int:
@@ -365,21 +437,13 @@ def _track_list(rows: List[Dict[str, Any]]) -> List[Any]:
 
 #: the highest revision a page may send (JavaScript's largest exact integer)
 MAX_REVISION = 2 ** 53
-#: how far one save may move the revision on: a page counts up by one per
-#: save, so a jump bigger than this is a crafted number, not an autosave
-MAX_REVISION_STEP = 10_000
-
-
-def _check_revision(revision: Any, current: int) -> None:
-    """A sent revision must be a whole number in 0..2**53 and no more than
-    MAX_REVISION_STEP above the set's own (SetError, a 400, otherwise), so a
-    crafted number can't lock the set against every later save."""
-    if isinstance(revision, bool) or not isinstance(revision, int):
-        raise SetError("The revision must be a whole number")
-    if revision < 0 or revision > MAX_REVISION:
-        raise SetError("The revision is out of range")
-    if revision > current + MAX_REVISION_STEP:
-        raise SetError("The revision is too far ahead of the set's")
+def _check_base(base: Any) -> None:
+    """A base revision must be a whole number in 0..2**53 - 1 (the set's
+    next is one more, and stays within JavaScript's exact integers)."""
+    if isinstance(base, bool) or not isinstance(base, int):
+        raise SetError("The base revision must be a whole number")
+    if base < 0 or base >= MAX_REVISION:
+        raise SetError("The base revision is out of range")
 
 
 def _revision_of(conn, profile_id: int, set_id: int) -> Optional[int]:
@@ -391,15 +455,23 @@ def _revision_of(conn, profile_id: int, set_id: int) -> Optional[int]:
 def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Change a saved set's name and/or rows. None when it isn't yours.
 
-    ``revision`` (optional, a whole number the page counts up with each save)
-    keeps autosaves in order: one at or below the set's revision is older
-    than what's stored and raises StaleRevision, changing nothing. The check
-    and the write are one conditional UPDATE, so two saves at once can't both
-    pass it. Without a revision the save simply counts the set's on by one.
+    ``base_revision`` (what the page sends): the revision the page last read
+    or had confirmed. The write happens only while the stored revision still
+    equals it, in one conditional UPDATE, and the set's revision becomes that
+    plus one. Anything else in between (an add from another tab or device, a
+    save from another window) moved the revision on, so the save raises
+    StaleRevision with the stored one and changes nothing: the page stops
+    and says so, never writing over what it hasn't seen.
+
+    **A save needs ``base_revision``.** One without it (an older page's,
+    which counted ``revision`` up itself, or no revision at all) could write
+    over a change it never saw, so it raises StaleRevision with ``reason``
+    "reload" and changes nothing.
     Returns ``{"revision", "tracks_changed"}``: whether the playing tracks or
     their order changed, which is when the playlist follows."""
-    revision = body.get("revision")
-    explicit = revision is not None
+    base = body.get("base_revision")
+    if base is not None:
+        _check_base(base)
     name = clean_name(body["name"]) if "name" in body else None
     cleaned = clean_rows(body["tracks"]) if "tracks" in body else None
     with closing(database._get_connection()) as conn:
@@ -407,28 +479,20 @@ def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> 
         if row is None:
             return None
         sid = int(row["id"])
-        if explicit:
-            _check_revision(revision, int(row.get("revision") or 0))
+        if base is None:
+            raise StaleRevision(int(row.get("revision") or 0), reason="reload")
         try:
-            if explicit:
-                # applied only while the stored revision is still below this
-                # one (and this one isn't too far ahead of it)
-                cur = conn.execute(
-                    "UPDATE dj_sets SET name = COALESCE(?, name), updated_at = ?, revision = ? "
-                    "WHERE id = ? AND profile_id = ? AND revision < ? AND ? <= revision + ?",
-                    (name, time.time(), revision, sid, int(profile_id), revision, revision, MAX_REVISION_STEP))
-            else:
-                cur = conn.execute(
-                    "UPDATE dj_sets SET name = COALESCE(?, name), updated_at = ?, revision = revision + 1 "
-                    "WHERE id = ? AND profile_id = ?",
-                    (name, time.time(), sid, int(profile_id)))
+            # applied only while nothing has changed the set since the page's
+            # base: compare and set, in one statement
+            cur = conn.execute(
+                "UPDATE dj_sets SET name = COALESCE(?, name), updated_at = ?, revision = revision + 1 "
+                "WHERE id = ? AND profile_id = ? AND revision = ?",
+                (name, time.time(), sid, int(profile_id), base))
             if cur.rowcount != 1:
                 conn.rollback()
                 now = _revision_of(conn, profile_id, sid)
                 if now is None:
                     return None
-                if explicit and revision > now:
-                    raise SetError("The revision is too far ahead of the set's")
                 raise StaleRevision(now)
             # this transaction now holds the write lock: what it reads from
             # here on is what it replaces
@@ -447,6 +511,116 @@ def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> 
             raise
     changed = rows is not None and _track_list(rows) != _track_list(old_rows)
     return {"revision": new_revision, "tracks_changed": changed}
+
+
+# ── "Add to mix set…" (28a, 28b) ─────────────────────────────────────────────
+
+def _numbers(rows: List[Dict[str, Any]]) -> Dict[str, List[int]]:
+    """Each library track's numbers in a set, as the set's page numbers its
+    rows: every row that holds a library track counts (one whose file is
+    missing keeps its number), tracklist lines that aren't in the library
+    don't."""
+    out: Dict[str, List[int]] = {}
+    n = 0
+    for row in rows:
+        if row.get("track_id"):
+            n += 1
+            out.setdefault(str(row["track_id"]), []).append(n)
+    return out
+
+
+def holding(database, profile_id: int, track_ids: List[str]) -> List[Dict[str, Any]]:
+    """The picker's list (28a): your sets, newest change first, each with
+    the number the next track takes (``next``) and where each of
+    ``track_ids`` already is (``holds``: id -> its numbers). Two queries
+    whatever the number of sets."""
+    wanted = set(track_ids)
+    with closing(database._get_connection()) as conn:
+        sets = [dict(r) for r in conn.execute(
+            "SELECT id, name, kind, updated_at FROM dj_sets WHERE profile_id = ? "
+            "ORDER BY updated_at DESC, id DESC LIMIT ?", (int(profile_id), MAX_SETS)).fetchall()]
+        rows = conn.execute(
+            "SELECT st.set_id AS set_id, st.track_id AS track_id FROM dj_set_tracks st "
+            "JOIN dj_sets s ON s.id = st.set_id WHERE s.profile_id = ? ORDER BY st.set_id, st.position",
+            (int(profile_id),)).fetchall()
+    per: Dict[int, List[Dict[str, Any]]] = {}
+    for r in rows:
+        per.setdefault(r["set_id"], []).append({"track_id": r["track_id"]})
+    out = []
+    for s in sets:
+        numbers = _numbers(per.get(s["id"], []))
+        out.append({"id": s["id"], "name": s["name"], "kind": s["kind"], "updated_at": s["updated_at"],
+                    "next": sum(len(v) for v in numbers.values()) + 1,
+                    "rows": len(per.get(s["id"], [])),
+                    "holds": {tid: numbers[tid] for tid in wanted if tid in numbers}})
+    return out
+
+
+def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], *,
+                  again: bool = False) -> Optional[Dict[str, Any]]:
+    """Add library tracks to the end of one of your sets ("Add to mix
+    set…"). None when the set isn't yours.
+
+    Only tracks in the caller's library with their file present go in (the
+    downloaded-only rule); the rest are ``left_out``. A track the set already
+    holds is skipped (``already``) unless ``again`` ("Add again", "Add all
+    6"). The set's revision moves on by one in the same transaction, like a
+    save without a revision, so an open page's older autosave is refused
+    rather than undoing this. Returns ``{"added": [{"track_id", "number"}],
+    "already": [...], "left_out": [{"id", "reason"}], "revision",
+    "tracks_changed"}``."""
+    ids = list(dict.fromkeys(str(i) for i in track_ids if i not in (None, "")))
+    found = {t["id"]: t for t in traktor.tracks_by_ids(database, ids)}
+    left_out = []
+    if ids:
+        missing = [i for i in ids if i not in found]
+        if missing:
+            where, params = dj_store._scope(database)
+            with closing(database._get_connection()) as conn:
+                # "?" placeholders and the library scope's fixed fragment are
+                # formatted in; every value is a bound parameter
+                known = {str(r[0]) for r in conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
+                    f"SELECT t.id FROM tracks t WHERE t.id IN ({','.join('?' * len(missing))}) AND {where}",
+                    list(missing) + list(params)).fetchall()}
+            left_out = [{"id": i, "reason": "file_missing" if i in known else "not_in_library"} for i in missing]
+    with closing(database._get_connection()) as conn:
+        row = _own(conn, profile_id, set_id)
+        if row is None:
+            return None
+        sid = int(row["id"])
+        try:
+            cur = conn.execute("UPDATE dj_sets SET updated_at = ?, revision = revision + 1 "
+                               "WHERE id = ? AND profile_id = ?", (time.time(), sid, int(profile_id)))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return None
+            # this transaction holds the write lock: the rows read here are
+            # the ones the new tracks follow
+            old_rows = _rows_of(conn, sid)
+            numbers = _numbers(old_rows)
+            already = [i for i in ids if i in found and i in numbers]
+            adding = [i for i in ids if i in found and (again or i not in numbers)]
+            if len(old_rows) + len(adding) > MAX_ROWS:
+                raise SetError(f"A set can hold at most {MAX_ROWS} tracks")
+            next_number = sum(len(v) for v in numbers.values()) + 1
+            added = []
+            if adding:
+                conn.executemany(
+                    "INSERT INTO dj_set_tracks (set_id, position, track_id, artist, title, state, want, locked) "
+                    "VALUES (?, ?, ?, ?, ?, 'owned', 'yours', 0)",
+                    [(sid, len(old_rows) + k, tid, found[tid].get("artist_name") or None,
+                      found[tid].get("title") or None) for k, tid in enumerate(adding)])
+                added = [{"track_id": tid, "number": next_number + k} for k, tid in enumerate(adding)]
+                conn.commit()
+            else:
+                # nothing to add: the revision stays where it was
+                conn.rollback()
+            revision = _revision_of(conn, profile_id, sid)
+        except BaseException:
+            conn.rollback()
+            raise
+    return {"added": added, "already": already, "left_out": left_out, "revision": revision,
+            "tracks_changed": bool(added)}
 
 
 #: one fixed statement per playlist field (no SQL is put together at run time)
@@ -485,7 +659,7 @@ def delete_set(database, profile_id: int, set_id: Any) -> bool:
     return True
 
 
-# ── the playlist "Save as mix" keeps ──────────────────────────────────────────
+# ── the playlist "Save as mix set" keeps ──────────────────────────────────────
 #
 # The set writes its playlist and remembers a hash of what it wrote. Later
 # edits to the set's tracks bring the playlist along only while it still
@@ -537,7 +711,7 @@ def has_own_playlist(database, profile_id: int, playlist_id: Optional[int]) -> b
 
 def make_playlist(database, profile_id: int, set_id: int, name: str, rows: List[Dict[str, Any]]) -> Optional[int]:
     """A new playlist of the set's tracks, followed from now on ("Save as
-    mix", and "Make a new playlist from this set"). Best effort."""
+    mix set", and "Make a new playlist from this set"). Best effort."""
     from core.playlists import user_playlists as up
 
     try:
@@ -582,11 +756,28 @@ def follow_playlist(database, profile_id: int, set_id: int, rows: List[Dict[str,
         return None
 
 
+#: one playlist sync at a time (the app runs one worker process, with threads)
+_FOLLOW_LOCK = threading.Lock()
+
+
+def follow_latest(database, profile_id: int, set_id: int) -> Optional[str]:
+    """``follow_playlist`` with the set's rows read again under a lock, so of
+    two changes at once (two adds, an add and a save) the last sync to run
+    always writes the newest rows: a sync never writes rows another change
+    has already replaced. Returns what follow_playlist does."""
+    with _FOLLOW_LOCK:
+        saved = get_set(database, profile_id, set_id)
+        if saved is None:
+            return None
+        return follow_playlist(database, profile_id, set_id, saved["rows"])
+
+
 def clear_playlist_state(database, profile_id: int, set_id: int) -> None:
     """"Not now": the set stops saying its playlist went its own way."""
     _set_playlist_fields(database, profile_id, set_id, playlist_state=None)
 
 
-__all__ = ["KINDS", "MAX_ROWS", "MAX_SETS", "SetError", "StaleRevision", "alternatives", "clean_rows",
-           "clear_playlist_state", "create_set", "delete_set", "follow_playlist", "get_set", "list_sets",
-           "make_playlist", "saved_famous", "update_set", "view"]
+__all__ = ["KINDS", "MAX_ROWS", "MAX_SETS", "TRANSITION_BARS", "TRANSITION_STYLES", "SetError", "StaleRevision",
+           "alternatives", "append_tracks", "clean_rows", "clean_transition", "clear_playlist_state", "create_set",
+           "delete_set", "follow_latest", "follow_playlist", "get_set", "holding", "list_sets", "make_playlist", "read_transition",
+           "saved_famous", "update_set", "view"]

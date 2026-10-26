@@ -3,7 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 
 import { Button, TextInput } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
-import { Notice, Skeleton } from '@/components/primitives';
+import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 import { addTrackToPlaylist, playlistTrack, playTrackNext } from '@/features/dj/dj-actions';
 import {
   DJ_PAGE_SIZE,
@@ -28,13 +28,16 @@ import {
 import { EnergyMeter } from '@/features/dj/energy-meter';
 import { KeyChip } from '@/features/dj/key-chip';
 import { keyLongName } from '@/features/dj/key-colour';
-import { openMixes } from '@/features/dj/mixes-store';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
+import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { awayWords } from '@/features/drives/drives.format';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
+import { openAddToMixSet } from '@/features/sets/add-to-mix-set';
 import { readDraft, writeDraft } from '@/features/sets/draft-store';
 import { newSetName } from '@/features/sets/sets.format';
+import { StarButton, primeStars, useStar, useStarCount } from '@/features/stars/star-button';
+import { starStore } from '@/features/stars/stars-store';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import type { LibrarySearch } from '../-library.types';
@@ -85,7 +88,12 @@ function artistHref(track: DjTrack): string | null {
     : `/artist-detail/library/${encodeURIComponent(String(track.artist_id))}`;
 }
 
-/** The "…" entries (154): Play next, Mixes well with…, Add to playlist…, Open artist, Open album. */
+/**
+ * The "…" (24a's one order): Play next, Mixes well with…, Add to mix set…,
+ * Add to playlist…, Open artist, Open album; on a phone Star comes first
+ * (28d). A starred track whose file is gone (the Starred filter) has only
+ * what still makes sense.
+ */
 function moreEntries(
   track: DjTrack,
   {
@@ -93,38 +101,32 @@ function moreEntries(
     album,
     away,
     anchor,
+    phone,
+    star,
   }: {
     artist: string | null;
     album: string | null;
     away?: { words: string };
     anchor: () => HTMLElement | null | undefined;
+    phone: boolean;
+    star: ReturnType<typeof useStar>;
   },
 ): SheetAction[] {
-  return [
+  const missing = Boolean(track.file_missing);
+  return trackMenu(
+    { id: track.id, title: track.title, artist: track.artist_name, fileMissing: missing },
     {
-      key: 'next',
-      label: 'Play next',
-      onSelect: () => playTrackNext(track),
-      disabled: Boolean(away),
-      reason: away?.words,
+      phone,
+      star,
+      anchor,
+      playNext: missing
+        ? null
+        : { onSelect: () => playTrackNext(track), disabled: Boolean(away), reason: away?.words },
+      addToPlaylist: missing ? null : () => addTrackToPlaylist(track, anchor()),
+      artistHref: artist,
+      albumHref: album,
     },
-    {
-      key: 'mixes',
-      label: 'Mixes well with…',
-      onSelect: () => openMixes({ id: track.id, title: track.title }),
-    },
-    {
-      key: 'playlist',
-      label: 'Add to playlist…',
-      onSelect: () => addTrackToPlaylist(track, anchor()),
-    },
-    ...(artist
-      ? [{ key: 'artist', label: 'Open artist', onSelect: () => window.location.assign(artist) }]
-      : []),
-    ...(album
-      ? [{ key: 'album', label: 'Open album', onSelect: () => window.location.assign(album) }]
-      : []),
-  ];
+  );
 }
 
 function TrackRow({
@@ -157,10 +159,14 @@ function TrackRow({
   const rowRef = useRef<HTMLLIElement>(null);
   const [failed, setFailed] = useState(false);
   const [sheet, setSheet] = useState(false);
+  const star = useStar(track.id);
+  const missing = Boolean(track.file_missing);
   const entries = moreEntries(track, {
     artist,
     album,
     away,
+    phone,
+    star,
     anchor: () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
   });
   const key = dj?.key ? (
@@ -176,6 +182,8 @@ function TrackRow({
       ref={rowRef}
       className={styles.row}
       data-track-row={track.id}
+      data-star-row={track.id}
+      data-file-missing={missing ? 'true' : undefined}
       data-playing={playing ? 'true' : undefined}
       data-selected={selecting && checked ? 'true' : undefined}
     >
@@ -195,7 +203,14 @@ function TrackRow({
         </span>
       )}
       <div className={`${hs.text} ${styles.text}`}>
-        <span className={hs.title}>{track.title}</span>
+        <span className={hs.title}>
+          {track.title}
+          {missing ? (
+            <StatusTag tone="warning" className={styles.missingTag}>
+              File missing
+            </StatusTag>
+          ) : null}
+        </span>
         {phone ? (
           // 17c: "124 BPM · 8A · E7 · Tidewater", the key's text in its hue
           <span className={hs.meta}>
@@ -253,18 +268,24 @@ function TrackRow({
           </span>
         </>
       )}
+      <span className={styles.starCell}>
+        <StarButton id={track.id} title={track.title} />
+      </span>
       <div className={styles.actions}>
-        <button
-          type="button"
-          className={phone ? hs.ghostPlay : hs.play}
-          aria-label={`Play ${track.title} next`}
-          title={away ? undefined : 'Play next, after the current track'}
-          aria-disabled={away ? 'true' : undefined}
-          aria-describedby={away?.id}
-          onClick={away ? undefined : () => playTrackNext(track)}
-        >
-          <PlayIcon />
-        </button>
+        {/* 28d: the phone's row has the star and "…"; Play next is in the sheet */}
+        {phone || missing ? null : (
+          <button
+            type="button"
+            className={hs.play}
+            aria-label={`Play ${track.title} next`}
+            title={away ? undefined : 'Play next, after the current track'}
+            aria-disabled={away ? 'true' : undefined}
+            aria-describedby={away?.id}
+            onClick={away ? undefined : () => playTrackNext(track)}
+          >
+            <PlayIcon />
+          </button>
+        )}
         {phone ? (
           <>
             <button
@@ -467,6 +488,8 @@ export function TracksPage({
   const key = isCamelot(keyCode) ? keyCode : '';
   const { min, max } = parseBpmRange(search.bpm);
   const q = search.q.trim();
+  const starredOnly = search.starred === '1';
+  const starCount = useStarCount();
   const keyId = useId();
   const sortId = useId();
   // selection (21a): pick tracks for "Export to Traktor…"
@@ -498,12 +521,15 @@ export function TracksPage({
       key: key ? `${key}${withMix ? ':mix' : ''}` : '',
       q,
       sort,
+      starred: starredOnly,
     }),
   );
   const pages = query.data?.pages ?? [];
   const tracks = useMemo(() => pages.flatMap((p) => p.tracks), [pages]);
+  // browse says each row's star, so the rows don't look it up again
+  useEffect(() => primeStars(tracks), [tracks]);
   const total = pages[0]?.total ?? 0;
-  const filtered = Boolean(q || key || min !== null || max !== null);
+  const filtered = Boolean(q || key || min !== null || max !== null || starredOnly);
   // what the key filter covered, as the server read it ("8A, 7A, 9A or 8B")
   const keys = pages[0]?.keys ?? (key ? [key] : []);
 
@@ -531,7 +557,29 @@ export function TracksPage({
       : fullLine;
   // 153: the 120px bar counts what's done, beside the words
   const progress = s && !phone ? analysisProgress(s) : null;
-  const clearFilters = () => go({ q: '', bpm: '', key: '' });
+  const clearFilters = () => go({ q: '', bpm: '', key: '', starred: '' });
+  const pickedTracks = () => {
+    const byId = new Map(tracks.map((t) => [t.id, t]));
+    return picked.map((id) => byId.get(id)).filter((t): t is DjTrack => Boolean(t));
+  };
+  // 28b: the selection bar's primary
+  const addPickedToMixSet = (anchor: HTMLElement | null) =>
+    openAddToMixSet(
+      pickedTracks().map((t) => ({
+        id: t.id,
+        title: t.title,
+        artist: t.artist_name,
+        fileMissing: Boolean(t.file_missing),
+      })),
+      anchor,
+    );
+  const starAll = async () => {
+    const ids = pickedTracks()
+      .filter((t) => !t.file_missing)
+      .map((t) => t.id);
+    const n = await starStore().starMany(ids);
+    if (n) window.showToast?.(`Starred ${plural(n, 'track')}`, 'success');
+  };
   // 232: the selection's "…" starts a set (Library → Sets' draft) with them, in the order picked
   const startSet = () => {
     if (
@@ -646,6 +694,21 @@ export function TracksPage({
       ) : null}
 
       <div className={styles.toolbar}>
+        {/* 24a: Starred is a filter here, with its count, not a page of its own */}
+        <button
+          type="button"
+          className={`${hs.chip} ${styles.starredChip}`}
+          aria-pressed={starredOnly}
+          onClick={() => go({ starred: starredOnly ? '' : '1' })}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.starredIcon}>
+            <path d="M12 3.2l2.63 5.33 5.88.86-4.26 4.15 1.01 5.86L12 16.63 6.74 19.4l1.01-5.86L3.49 9.39l5.88-.86L12 3.2z" />
+          </svg>
+          Starred
+          {starCount !== null ? (
+            <span className={styles.starredCount}>{starCount.toLocaleString()}</span>
+          ) : null}
+        </button>
         <BpmRange value={search.bpm} onChange={(next) => go({ bpm: next }, { replace: true })} />
         <div className={styles.keyGroup}>
           <label className={`${hs.rowLabel} ${styles.label} ${styles.keyLabel}`} htmlFor={keyId}>
@@ -677,7 +740,7 @@ export function TracksPage({
 
       {filtered && !query.isPending && !query.isError && tracks.length ? (
         <p className={styles.countLine} aria-live="polite">
-          {filterCountLine({ total, bpmMin: min, bpmMax: max, keys, q })} ·{' '}
+          {filterCountLine({ total, bpmMin: min, bpmMax: max, keys, q, starred: starredOnly })} ·{' '}
           <button type="button" className={styles.linkButton} onClick={clearFilters}>
             Clear filters
           </button>
@@ -715,6 +778,7 @@ export function TracksPage({
               <span>Key</span>
               <span>Energy</span>
               <span />
+              <span />
             </div>
           )}
           {away ? (
@@ -740,10 +804,17 @@ export function TracksPage({
       ) : (
         <div className={hs.empty}>
           <h2>
-            {filtered
-              ? 'No tracks match these filters'
-              : 'No tracks with a file in your library yet'}
+            {starredOnly && !(q || key || min !== null || max !== null)
+              ? 'No starred tracks yet'
+              : filtered
+                ? 'No tracks match these filters'
+                : 'No tracks with a file in your library yet'}
           </h2>
+          {starredOnly && !(q || key || min !== null || max !== null) ? (
+            <p className={hs.subtitle}>
+              Star a track from its row, the player or with S while it plays.
+            </p>
+          ) : null}
           {filtered ? (
             <div className={hs.emptyActions}>
               <Button size="lg" variant="secondary" onClick={clearFilters}>
@@ -779,10 +850,10 @@ export function TracksPage({
           label={`${plural(picked.length, 'track')} selected`}
           shortLabel={plural(picked.length, 'track')}
           count={picked.length}
-          primaryLabel="Export to Traktor…"
-          idleLabel="Export to Traktor…"
-          primaryVariant="secondary"
+          primaryLabel="Add to mix set…"
+          idleLabel="Add to mix set…"
           emptyReason="Tick tracks to select them"
+          secondary={{ label: 'Export to Traktor…', onClick: () => setExporting(true) }}
           selectAll={
             picked.length < tracks.length
               ? {
@@ -791,10 +862,26 @@ export function TracksPage({
                 }
               : null
           }
-          onPrimary={() => setExporting(true)}
-          // 232: Add to playlist…, Start a set from these (Library → Sets'
-          // draft), then Clear the selection
+          onPrimary={(anchor) => addPickedToMixSet(anchor)}
+          // 28b: Star all; 232: Add to playlist…, Start a set from these
+          // (Library → Sets' draft), then Clear the selection
           menu={[
+            ...(phone
+              ? [
+                  {
+                    key: 'traktor',
+                    label: 'Export to Traktor…',
+                    disabled: !picked.length,
+                    onSelect: () => setExporting(true),
+                  },
+                ]
+              : []),
+            {
+              key: 'star',
+              label: 'Star all',
+              disabled: !picked.length,
+              onSelect: () => void starAll(),
+            },
             {
               key: 'playlist',
               label: 'Add to playlist…',

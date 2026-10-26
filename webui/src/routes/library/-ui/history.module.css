@@ -238,6 +238,21 @@
   background: var(--ss-surface-card);
 }
 
+/* music rows: the star's column before Play and "…" (28a; reserved, so rows don't shift) */
+.row[data-music] {
+  grid-template-columns: 72px 48px minmax(0, 1fr) 200px 32px 100px;
+}
+
+.starCell {
+  display: flex;
+  justify-content: center;
+}
+
+/* the star stays at full strength on a row that has left the library */
+.row[data-gone='true'] .starCell {
+  opacity: 1;
+}
+
 /* a track that has left the library: the row at 62%, no Play (13a) */
 .row[data-gone='true'] {
   opacity: 0.62;
@@ -574,10 +589,15 @@
     height: 44px;
   }
 
-  /* music rows (15d): 44px 1fr 44px 44px at 8px, Play and "…" each in a column */
-  .row[data-actions='2'] {
+  /* music rows (15d): Play and "…" each in a column, the star's before them
+     (28d: it shows only once starred) */
+  .row[data-music] {
     grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
-    gap: 8px;
+  }
+
+  .row[data-actions='2'] {
+    grid-template-columns: 44px minmax(0, 1fr) 44px 44px 44px;
+    gap: 4px;
   }
 
   .row[data-actions='2'] .text {

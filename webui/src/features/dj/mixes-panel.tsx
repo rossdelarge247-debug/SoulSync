@@ -7,6 +7,7 @@ import { DialogFrame } from '@/components/dialog';
 import { Button } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
 import { LoadingState, Notice } from '@/components/primitives';
+import { StarButton } from '@/features/stars/star-button';
 
 import type { DjMatch, DjMixesResponse, DjTrack } from './dj.api';
 import type { TraktorSource } from './traktor.api';
@@ -160,7 +161,7 @@ function MatchRow({ match, phone }: { match: DjMatch; phone: boolean }) {
   const dj = match.dj;
   const how = howItMixes(match);
   return (
-    <li className={styles.mixRow} data-mix-row={match.id}>
+    <li className={styles.mixRow} data-mix-row={match.id} data-star-row={match.id}>
       <span className={styles.mixArt} aria-hidden="true">
         {match.image_url ? <img src={match.image_url} alt="" loading="lazy" /> : null}
       </span>
@@ -194,6 +195,7 @@ function MatchRow({ match, phone }: { match: DjMatch; phone: boolean }) {
           </span>
         )}
       </span>
+      <StarButton id={match.id} title={match.title} />
       <button
         type="button"
         className={styles.mixButton}

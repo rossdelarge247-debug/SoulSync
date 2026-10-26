@@ -18,6 +18,8 @@ import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
 import djStyles from '@/features/dj/dj.module.css';
 import { KeyChip } from '@/features/dj/key-chip';
 import { closeMixes } from '@/features/dj/mixes-store';
+import { useStar } from '@/features/stars/star-button';
+import { showsStar, starStore } from '@/features/stars/stars-store';
 
 import type { Step, SwapAlternative, ViewRow } from './sets.api';
 
@@ -280,6 +282,8 @@ export function TrackSheet({
   onClose: () => void;
 }) {
   const row = rows[index];
+  const starId = row?.track?.id ?? (row?.unreachable ? row.track_id : null);
+  const star = useStar(starId);
   if (!row) return null;
   const place = rows.slice(0, index + 1).filter((r) => r.track).length;
   return (
@@ -319,6 +323,17 @@ export function TrackSheet({
         </button>
       </div>
       <div className={styles.sheetButtons}>
+        {/* 28d: on a phone Star comes first (Unstar once starred) */}
+        {starId && showsStar(star) ? (
+          <Button
+            size="lg"
+            variant="secondary"
+            aria-pressed={Boolean(star?.starred)}
+            onClick={() => void starStore().toggle(starId, row.track?.title ?? row.title ?? '')}
+          >
+            {star?.starred ? 'Unstar' : 'Star'}
+          </Button>
+        ) : null}
         {row.track ? (
           <Button size="lg" variant="secondary" aria-pressed={Boolean(row.locked)} onClick={onLock}>
             {row.locked ? 'Unlock' : 'Lock'}

@@ -3801,15 +3801,16 @@ function npv2HandleKeys(event) {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
     const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || tag === 'select' || (document.activeElement && document.activeElement.isContentEditable)) return;
-    // the overlay's own keys (10a): V next, Shift+V previous, R random, S
-    // favourite (for the star). L is the A-B loop everywhere, overlay
+    // the overlay's own keys (10a): V next, Shift+V previous, R random,
+    // Shift+S favourite (24a: plain S stars the track everywhere, so it falls
+    // through to the player's keys). L is the A-B loop everywhere, overlay
     // included (HANDOFF 83), so it falls through to the switch below.
     const bridge = npv2ModalOpen() ? npv2Bridge() : null;
     if (bridge && bridge.key) {
         const k = event.key;
         const action = (k === 'v' || k === 'V') ? (event.shiftKey ? 'previous' : 'next')
             : ((k === 'r' || k === 'R') && !event.shiftKey) ? 'random'
-            : ((k === 's' || k === 'S') && !event.shiftKey) ? 'favourite' : null;
+            : ((k === 's' || k === 'S') && event.shiftKey) ? 'favourite' : null;
         if (action) {
             event.preventDefault();
             event.stopPropagation();

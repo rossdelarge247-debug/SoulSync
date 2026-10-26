@@ -165,6 +165,9 @@ beforeEach(() => {
       if (u.pathname.endsWith('/api/library/dj/browse')) body = BROWSE;
       else if (u.pathname.endsWith('/api/library/dj/status')) body = STATUS;
       else if (u.pathname.endsWith('/api/library/dj/mixes/1')) body = MIXES;
+      else if (u.pathname.endsWith('/api/stars/count'))
+        body = { success: true, count: 48, missing: 1 };
+      else if (u.pathname.endsWith('/api/stars/status')) body = { success: true, tracks: {} };
       else if (u.pathname.endsWith('/api/library/dj/traktor/export')) {
         const raw = input instanceof Request ? await input.text() : (init?.body as string);
         const sent: unknown = JSON.parse(raw);
@@ -194,6 +197,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete window.SoulSyncStars;
   resetMixesForTests();
   vi.unstubAllGlobals();
   delete window.SoulSyncWebShellBridge;
@@ -337,7 +341,7 @@ describe('Library → Tracks', () => {
     expect(next.textContent).toBe('Play nextMusic HD isn’t connected');
   });
 
-  it('puts Mixes well with… second in the "…" menu (154)', async () => {
+  it('keeps 24a’s one order in the "…" menu: Add to mix set… fourth (154, 28a)', async () => {
     renderPage();
     const row = (await screen.findByText('Static Bloom')).closest('li')!;
     fireEvent.click(within(row).getByRole('button', { name: 'More for Static Bloom' }));
@@ -345,10 +349,44 @@ describe('Library → Tracks', () => {
     expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
       'Play next',
       'Mixes well with…',
+      'Add to mix set…',
       'Add to playlist…',
       'Open artist',
       'Open album',
     ]);
+  });
+
+  it('Starred is a filter chip with its count (24a, 28a)', async () => {
+    const { router } = renderPage();
+    await screen.findByText('Static Bloom');
+    const chip = await screen.findByRole('button', { name: /Starred/ });
+    await waitFor(() => expect(chip.textContent).toBe('Starred48'));
+    expect(chip).toHaveAttribute('aria-pressed', 'false');
+    expect(browseParams().get('starred')).toBeNull();
+    fireEvent.click(chip);
+    await waitFor(() => expect(browseParams().get('starred')).toBe('1'));
+    expect(router.state.location.search).toMatchObject({ view: 'tracks', starred: '1' });
+    expect(screen.getByRole('button', { name: /Starred/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a row’s star: starred rows show it, others on hover; none without a file (28a)', async () => {
+    BROWSE.tracks[0] = { ...BROWSE.tracks[0], starred: true } as (typeof BROWSE.tracks)[number];
+    BROWSE.tracks[1] = { ...BROWSE.tracks[1], starred: false } as (typeof BROWSE.tracks)[number];
+    try {
+      renderPage();
+      const row = (await screen.findByText('Static Bloom')).closest('li')!;
+      expect(row).toHaveAttribute('data-star-row', '1');
+      const star = await within(row).findByRole('button', { name: 'Unstar Static Bloom' });
+      expect(star).toHaveAttribute('data-star', 'on');
+      const other = screen.getByText('Night Ferry').closest('li')!;
+      expect(within(other).getByRole('button', { name: 'Star Night Ferry' })).toHaveAttribute(
+        'data-star',
+        'off',
+      );
+    } finally {
+      delete (BROWSE.tracks[0] as { starred?: boolean }).starred;
+      delete (BROWSE.tracks[1] as { starred?: boolean }).starred;
+    }
   });
 
   it('selects tracks and exports them to Traktor from the selection bar (21a)', async () => {
@@ -377,7 +415,7 @@ describe('Library → Tracks', () => {
     expect(screen.queryByRole('checkbox', { name: 'Select Static Bloom' })).toBeNull();
   });
 
-  it('the selection’s “…” holds Add to playlist…, Start a set from these and Clear the selection (232)', async () => {
+  it('the selection’s “…” holds Star all, Add to playlist…, Start a set from these and Clear the selection (28b, 232)', async () => {
     addToPlaylist.mockClear();
     renderPage();
     await screen.findByText('Static Bloom');
@@ -386,12 +424,18 @@ describe('Library → Tracks', () => {
     fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
     await screen.findByRole('menuitem', { name: 'Add to playlist…' });
     expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      'Star all',
       'Add to playlist…',
       'Start a set from these',
       'Clear the selection',
     ]);
-    // nothing picked: all three wait
-    for (const name of ['Add to playlist…', 'Start a set from these', 'Clear the selection']) {
+    // nothing picked: they all wait
+    for (const name of [
+      'Star all',
+      'Add to playlist…',
+      'Start a set from these',
+      'Clear the selection',
+    ]) {
       expect(screen.getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true');
     }
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });

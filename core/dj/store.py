@@ -281,13 +281,23 @@ def _shape_track(row, fix_art=None) -> Dict[str, Any]:
 
 
 def browse(database, *, bpm_min=None, bpm_max=None, key: str = "", q: str = "", sort: str = "bpm",
-           page: int = 1, limit: int = 50, fix_art=None) -> Dict[str, Any]:
+           page: int = 1, limit: int = 50, fix_art=None, profile_id: Optional[int] = None,
+           starred: bool = False) -> Dict[str, Any]:
     """Library tracks with a file, filtered by a BPM range, a Camelot key
     (``key``, or ``key:mix`` for the key and the keys that mix with it) and
-    text, sorted. Tracks without the sort's value go last."""
+    text, sorted. Tracks without the sort's value go last.
+
+    With ``profile_id`` each track says whether that profile starred it
+    (``starred``). ``starred`` (Tracks' Starred filter, 24a) keeps only that
+    profile's starred tracks, and keeps a starred track whose file has gone
+    missing too, marked ``file_missing`` (it keeps its star, BACKLOG)."""
     where, params = _scope(database)
-    clauses = [where, "t.file_path IS NOT NULL", "t.file_path != ''"]
+    only_starred = bool(starred and profile_id is not None)
+    clauses = [where] if only_starred else [where, "t.file_path IS NOT NULL", "t.file_path != ''"]
     values: List[Any] = list(params)
+    if only_starred:
+        clauses.append("t.id IN (SELECT st.track_id FROM track_stars st WHERE st.profile_id = ?)")
+        values.append(int(profile_id))
     if bpm_min is not None:
         clauses.append(f"{_BPM_SQL} >= ?")
         values.append(float(bpm_min))
@@ -325,7 +335,18 @@ def browse(database, *, bpm_min=None, bpm_max=None, key: str = "", q: str = "", 
         total = int(conn.execute(f"SELECT COUNT(*) {base}", values).fetchone()[0])
         rows = conn.execute(f"{_track_select()} WHERE {' AND '.join(clauses)} ORDER BY {order} LIMIT ? OFFSET ?",
                             values + [limit, (page - 1) * limit]).fetchall()
-    return {"tracks": [_shape_track(r, fix_art) for r in rows], "total": total, "page": page, "limit": limit,
+    tracks = [_shape_track(r, fix_art) for r in rows]
+    if profile_id is not None:
+        if only_starred:
+            mine = {t["id"] for t in tracks}
+        else:
+            from core.stars.store import starred_among
+
+            mine = starred_among(database, int(profile_id), [t["id"] for t in tracks])
+        for track in tracks:
+            track["starred"] = track["id"] in mine
+            track["file_missing"] = not track.get("file_path")
+    return {"tracks": tracks, "total": total, "page": page, "limit": limit,
             "has_more": page * limit < total, "sort": sort, "keys": keys}
 
 

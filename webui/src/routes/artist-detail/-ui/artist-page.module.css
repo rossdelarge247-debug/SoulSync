@@ -728,6 +728,16 @@
   border-top: 0;
 }
 
+/* your tracks: the star's column before the "…" (28a; reserved, so rows don't shift) */
+.row[data-library-row] {
+  grid-template-columns: 32px 44px minmax(0, 1fr) auto auto 32px 44px;
+}
+
+.starCell {
+  display: flex;
+  justify-content: center;
+}
+
 .row:hover {
   background: var(--ss-row-hover);
 }
@@ -1200,6 +1210,10 @@ a.similarCard:focus-visible {
   .row {
     grid-template-columns: 44px minmax(0, 1fr) 44px;
     padding: 6px 8px 6px 4px;
+  }
+
+  .row[data-library-row] {
+    grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
   }
 
   .rowNum,

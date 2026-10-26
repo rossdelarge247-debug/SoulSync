@@ -839,3 +839,15 @@ def test_a_sets_lines_outside_the_library_are_named_in_left_out(client):
     assert body["reasons"] == {"not_in_library": 3}
     assert [(x["title"], x["artist"]) for x in body["left_out"]] == [
         ("Gravity Well", "Vela Sund"), ("ID", "ID"), ("<x>", "&")]
+
+
+def test_a_track_the_caller_starred_goes_out_with_traktors_top_rating(client, db):
+    """Stars (core/stars): RANKING="255" for the caller's starred tracks only;
+    another profile's star on the same track changes nothing."""
+    _sql(db, "INSERT INTO track_stars (profile_id, track_id, starred_at) VALUES (1, '2', 0), (2, '1', 0)")
+    preview = _export(client, action="preview", source="tracks", track_ids=["1", "2"]).get_json()
+    assert preview["starred"] == 1
+    res = _export(client, action="download", source="tracks", track_ids=["1", "2"])
+    root = ET.fromstring(res.data)
+    ranks = {e.get("TITLE"): e.find("INFO").get("RANKING") for e in root.findall("COLLECTION/ENTRY")}
+    assert ranks == {"Night Ferry": None, "Low Tide": "255"}

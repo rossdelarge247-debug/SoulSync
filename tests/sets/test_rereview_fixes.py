@@ -41,9 +41,10 @@ def _revision(db, set_id):
 
 @pytest.mark.gauntlet
 def test_a_late_save_cannot_slip_in_between_the_check_and_the_write(client, db, monkeypatch):
-    """Revision 1 reads the set (revision 0) and is about to write when
-    revision 2 lands. With a read, a check and a separate write, 1 would
-    pass its check and overwrite 2; as one conditional UPDATE it's refused."""
+    """A save from base 0 reads the set (revision 0) and is about to write
+    when revision 2 lands. With a read, a check and a separate write, it
+    would pass its check and overwrite 2; as one conditional UPDATE it's
+    refused."""
     made = client.post("/api/sets", json={"name": "Sunday", "tracks": _rows("1", "2")}).get_json()
     set_id = made["id"]
     real_own = store._own
@@ -55,7 +56,7 @@ def test_a_late_save_cannot_slip_in_between_the_check_and_the_write(client, db, 
 
     monkeypatch.setattr(store, "_own", own_then_newer_lands)
     with pytest.raises(store.StaleRevision) as refused:
-        store.update_set(db, 1, set_id, {"name": "Older", "revision": 1})
+        store.update_set(db, 1, set_id, {"name": "Older", "base_revision": 0})
     assert refused.value.current == 2
     monkeypatch.setattr(store, "_own", real_own)
     assert tuple(_revision(db, set_id)) == (2, "Newer")
@@ -63,7 +64,7 @@ def test_a_late_save_cannot_slip_in_between_the_check_and_the_write(client, db, 
 
 @pytest.mark.gauntlet
 def test_two_saves_at_once_only_one_with_a_revision_wins(client, db):
-    """Many threads send the same revision at once: exactly one is applied."""
+    """Many threads save from the same base at once: exactly one is applied."""
     set_id = client.post("/api/sets", json={"name": "Sunday", "tracks": _rows("1", "2")}).get_json()["id"]
     outcomes = []
     lock = threading.Lock()
@@ -72,7 +73,7 @@ def test_two_saves_at_once_only_one_with_a_revision_wins(client, db):
     def save(i):
         start.wait()
         try:
-            store.update_set(db, 1, set_id, {"name": f"Window {i}", "revision": 1})
+            store.update_set(db, 1, set_id, {"name": f"Window {i}", "base_revision": 0})
             result = "saved"
         except store.StaleRevision:
             result = "stale"
@@ -90,19 +91,18 @@ def test_two_saves_at_once_only_one_with_a_revision_wins(client, db):
     assert _revision(db, set_id)[0] == 1
 
 
-def test_a_save_without_a_revision_counts_on_from_the_stored_one(client, db):
+def test_a_name_only_save_keeps_the_rows_and_a_rows_only_save_keeps_the_name(client, db):
     set_id = client.post("/api/sets", json={"name": "Sunday", "tracks": _rows("1", "2")}).get_json()["id"]
     _sql(db, "UPDATE dj_sets SET revision = 7 WHERE id = ?", (set_id,))
-    assert store.update_set(db, 1, set_id, {"name": "Renamed"})["revision"] == 8
-    # a name-only save keeps the rows; a rows-only save keeps the name
-    assert store.update_set(db, 1, set_id, {"tracks": _rows("3", "2"), "revision": 9})["tracks_changed"]
+    assert store.update_set(db, 1, set_id, {"name": "Renamed", "base_revision": 7})["revision"] == 8
+    assert store.update_set(db, 1, set_id, {"tracks": _rows("3", "2"), "base_revision": 8})["tracks_changed"]
     saved = store.get_set(db, 1, set_id)
     assert saved["name"] == "Renamed" and [r["track_id"] for r in saved["rows"]] == ["3", "2"]
 
 
 def test_a_save_that_fails_changes_nothing(client, db):
     set_id = client.post("/api/sets", json={"name": "Sunday", "tracks": _rows("1", "2")}).get_json()["id"]
-    res = client.put(f"/api/sets/{set_id}", json={"name": "Gone", "tracks": [{"title": "  "}], "revision": 1})
+    res = client.put(f"/api/sets/{set_id}", json={"name": "Gone", "tracks": [{"title": "  "}], "base_revision": 0})
     assert res.status_code == 400
     assert tuple(_revision(db, set_id)) == (0, "Sunday")
 
@@ -110,24 +110,22 @@ def test_a_save_that_fails_changes_nothing(client, db):
 # ── Low 3: a crafted revision can't lock a set ───────────────────────────────
 
 @pytest.mark.gauntlet
-@pytest.mark.parametrize("bad", [-1, 2 ** 53 + 1, 10 ** 30, 10_001, "5", 1.5, True, [], {}])
+@pytest.mark.parametrize("bad", [-1, 2 ** 53, 10 ** 30, "5", 1.5, True, [], {}])
 def test_a_revision_out_of_range_is_refused(client, db, bad):
     set_id = client.post("/api/sets", json={"name": "Sunday", "tracks": _rows("1", "2")}).get_json()["id"]
-    res = client.put(f"/api/sets/{set_id}", json={"name": "Locked", "revision": bad})
+    res = client.put(f"/api/sets/{set_id}", json={"name": "Locked", "base_revision": bad})
     assert res.status_code == 400
     assert tuple(_revision(db, set_id)) == (0, "Sunday")
     # and the set still saves normally afterwards
-    assert client.put(f"/api/sets/{set_id}", json={"name": "Fine", "revision": 1}).get_json()["revision"] == 1
+    assert client.put(f"/api/sets/{set_id}", json={"name": "Fine", "base_revision": 0}).get_json()["revision"] == 1
 
 
-def test_a_revision_up_to_the_step_is_taken(client, db):
+def test_a_base_ahead_of_the_set_is_stale_not_applied(client, db):
+    """A crafted base far ahead can't lock or jump the set: it just doesn't match."""
     set_id = client.post("/api/sets", json={"name": "Sunday", "tracks": _rows("1", "2")}).get_json()["id"]
-    assert client.put(f"/api/sets/{set_id}", json={"name": "A", "revision": 10_000}).get_json()["revision"] == 10_000
-    assert client.put(f"/api/sets/{set_id}", json={"name": "B", "revision": 20_000}).get_json()["revision"] == 20_000
-    assert client.put(f"/api/sets/{set_id}", json={"name": "C", "revision": 30_001}).status_code == 400
-    _sql(db, "UPDATE dj_sets SET revision = ? WHERE id = ?", (2 ** 53, set_id))
-    res = client.put(f"/api/sets/{set_id}", json={"name": "D", "revision": 2 ** 53 + 1})
-    assert res.status_code == 400
+    res = client.put(f"/api/sets/{set_id}", json={"name": "A", "base_revision": 2 ** 53 - 1})
+    assert res.status_code == 409 and res.get_json()["revision"] == 0
+    assert client.put(f"/api/sets/{set_id}", json={"name": "B", "base_revision": 0}).get_json()["revision"] == 1
 
 
 # ── Low 2: pacing can't tie up workers ───────────────────────────────────────

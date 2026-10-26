@@ -15,7 +15,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | DJ area: BPM, key and mixing (Traktor Pro 3) | Building (stage 1: Built; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
 | Famous mixes and AI set suggestions | Sets 1: Building · Sets 2: Ready for Dev after 240–246 | [below](#famous-mixes-and-ai-set-suggestions) |
 | Lyrics centre stage, timed to the words | Ready for Design (step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
-| Star tracks and mix sets | Ready for Design | [below](#star-tracks-and-mix-sets) |
+| Star tracks and mix sets | Building | [below](#star-tracks-and-mix-sets) |
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
 | Auto-mix: beat-matched transitions in Up next | Ready for Design (built with DJ stage 3's decks) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
 | Data visualiser: the decoded audio as numbers and bits | Ready for Design | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
@@ -422,14 +422,14 @@ Building a set from a big library is slow: SYNCHRO.S knows each track's BPM, key
 
 ### What Design needs to draw
 
-1. **Famous mixes:** search or paste, then the match. Each line is owned, a different version (which one), or missing, with "You own 14 of 22", Save as mix, Export to Traktor and Add missing to Wanted.
+1. **Famous mixes:** search or paste, then the match. Each line is owned, a different version (which one), or missing, with "You own 14 of 22", Save as mix set, Export to Traktor and Add missing to Wanted.
 2. **The set brief:** a free-text box plus optional dials (length, BPM range, energy shape, which music to draw from, e.g. a genre, a playlist or the whole library). Draw it as a few chips or presets, not a long form.
 3. **The draft set:**
    - each transition marked smooth (compatible key, small BPM step) or a jump, with why;
    - an energy graph across the set;
    - a short line from the AI on why it chose the set;
    - swap any track for one of a few suggested alternatives, reorder by hand, lock a track before asking again;
-   - Save as mix, Export to Traktor.
+   - Save as mix set, Export to Traktor.
 4. **States:**
    - AI not set up: famous mixes still work, set suggestions say how to turn the AI on;
    - the AI's usage limit reached;
@@ -528,7 +528,7 @@ SYNCHRO.S already has timed lyrics, but they sit in a side panel of the expanded
 
 ## Star tracks and mix sets
 
-**Status:** Ready for Design · raised by Ross, 2026-10-24 · direction and defaults approved by Ross the same day.
+**Status:** Stars and mix sets: Building · raised by Ross, 2026-10-24 · direction and defaults approved by Ross the same day · drawn by Design as `Stars and mix sets.dc.html` (28a–28g) and placed in `DJ area map (six briefs).dc.html` (24a), approved by Ross 2026-10-26 · built on `feat/stars-mix-sets`: `HANDOFF.md`, "Dev, stars and mix sets of 26 October"; the routes are in `CONTRACTS.md`, "Stars" and "Sets". The Mix tab below is the next build, not this one.
 
 ### The problem
 

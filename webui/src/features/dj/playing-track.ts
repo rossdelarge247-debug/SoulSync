@@ -60,3 +60,13 @@ export function usePlayingTrackId(): string | null {
   }, []);
   return id;
 }
+
+/** The playing library track (28g's "Add the playing track"), or null. */
+export function usePlayingTrack(): PlayingTrack | null {
+  const [track, setTrack] = useState<PlayingTrack | null>(() => readPlayingTrack());
+  useEffect(() => {
+    setTrack(readPlayingTrack());
+    return watchPlayingTrack(setTrack);
+  }, []);
+  return track;
+}

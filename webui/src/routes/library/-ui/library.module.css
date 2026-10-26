@@ -876,6 +876,11 @@
   flex: 1;
 }
 
+/* 28b: Export to Traktor… beside the primary (in the "…" on a phone) */
+.barSecondary {
+  white-space: nowrap;
+}
+
 .barActions {
   display: flex;
   align-items: center;
@@ -1313,7 +1318,8 @@
 
   .barCountLong,
   .barSelectAll,
-  .barDone {
+  .barDone,
+  .barSecondary {
     display: none;
   }
 

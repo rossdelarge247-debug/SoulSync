@@ -842,6 +842,10 @@ class MusicDatabase:
             # (core/sets/store.py)
             self._add_dj_sets_tables(cursor)
 
+            # Stars: one plain star per track per profile, kept in SYNCHRO.S
+            # only (core/stars/store.py)
+            self._add_track_stars_table(cursor)
+
             # Per-user curation signals read back off the media server —
             # what people deliberately CHOSE about a track (favourited,
             # rated, added to a playlist), as opposed to play_count which
@@ -2167,6 +2171,7 @@ class MusicDatabase:
         'sample_stems_v1':            ('table', 'sample_stems'),
         'track_dj_v1':               ('table', 'track_dj'),
         'dj_sets_v1':                ('table', 'dj_sets'),
+        'track_stars_v1':            ('table', 'track_stars'),
         'similar_artists_rematch':  ('table', '_similar_artists_rematch_applied'),
         'beatport_positional_purged': ('table', '_beatport_positional_purged'),
     }
@@ -3945,6 +3950,34 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_dj_sets_profile ON dj_sets (profile_id, updated_at)")
             if self._migration_step_ok():
                 self._record_migration(cursor, 'dj_sets_v1')
+
+    #: Stars (core/stars/store.py): one row per starred track per profile. A
+    #: star is plain (no rating), stays in SYNCHRO.S and is never synced to a
+    #: media server. The track id is the library's text id; a track whose file
+    #: goes missing keeps its row.
+    _TRACK_STARS_COLUMNS = (
+        ('profile_id', 'INTEGER NOT NULL'),
+        ('track_id', 'TEXT NOT NULL'),
+        ('starred_at', 'REAL'),
+    )
+
+    def _add_track_stars_table(self, cursor):
+        """The stars table and its index. Only adds (atomic=False): a failure
+        is an ERROR naming the step, in schema_health, and the step runs again
+        on the next start."""
+        with self._migration_step(cursor, 'add_track_stars', atomic=False):
+            columns = ",\n".join(f"    {name} {kind}" for name, kind in self._TRACK_STARS_COLUMNS)
+            cursor.execute("CREATE TABLE IF NOT EXISTS track_stars (\n"
+                           f"{columns},\n    PRIMARY KEY (profile_id, track_id)\n)")
+            cursor.execute("PRAGMA table_info(track_stars)")
+            have = {row[1] for row in cursor.fetchall()}
+            for name, kind in self._TRACK_STARS_COLUMNS:
+                if name not in have:
+                    with self._migration_step(cursor, f"add track_stars.{name}"):
+                        cursor.execute(f"ALTER TABLE track_stars ADD COLUMN {name} {kind.replace(' NOT NULL', '')}")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_stars_profile ON track_stars (profile_id, starred_at)")
+            if self._migration_step_ok():
+                self._record_migration(cursor, 'track_stars_v1')
 
     def _migrate_id_columns_to_text(self, cursor):
         """Migrate ID columns from INTEGER to TEXT to support both Plex (int) and Jellyfin (GUID) IDs"""
@@ -11067,6 +11100,23 @@ class MusicDatabase:
                            (keeper_id, old_id))
         except Exception as e:
             logger.debug("listening_history repoint skipped: %s", e)
+        # a profile's star and a mix set's row follow the track to its new id
+        # (core/stars, core/sets): a star already on the keeper stays as it is
+        try:
+            cursor.execute("INSERT OR IGNORE INTO track_stars (profile_id, track_id, starred_at) "
+                           "SELECT profile_id, ?, starred_at FROM track_stars WHERE track_id = ?",
+                           (keeper_id, old_id))
+            cursor.execute("DELETE FROM track_stars WHERE track_id = ?", (old_id,))
+        except Exception as e:  # noqa: BLE001 - the table may predate this install
+            logger.debug("track_stars repoint skipped: %s", e)
+        try:
+            # a set whose row moves counts on, so a page holding the old id
+            # gets a conflict (or takes the change) rather than saving it back
+            cursor.execute("UPDATE dj_sets SET revision = revision + 1 WHERE id IN "
+                           "(SELECT set_id FROM dj_set_tracks WHERE track_id = ?)", (old_id,))
+            cursor.execute("UPDATE dj_set_tracks SET track_id = ? WHERE track_id = ?", (keeper_id, old_id))
+        except Exception as e:  # noqa: BLE001
+            logger.debug("dj_set_tracks repoint skipped: %s", e)
         cursor.execute("DELETE FROM track_credits WHERE track_id = ?", (old_id,))
         cursor.execute("DELETE FROM tracks WHERE id = ?", (old_id,))
         logger.debug(f"Track row {old_id} folded into {keeper_id}")
