@@ -168,3 +168,32 @@ def test_words():
     assert ranking.key_words("relative", "8B", "8A")["long"] == "Relative major"
     assert ranking.key_words("relative", "8A", "8B")["short"] == "relative minor"
     assert ranking.key_words("up", "9A", "8A")["long"] == "One step on the wheel"
+
+
+# ── after the gauntlet review ─────────────────────────────────────────────────
+
+@pytest.mark.parametrize("arg", ["set_id=%C2%B2", "set_id=%D9%A3", "set_id=1%C2%B2", "limit=%C2%B2",
+                                 "set_at=%C2%B2&set_id=1", "set_id=0", "set_id=-1", "set_id=9999999999999999"])
+def test_l2_unicode_digits_are_no_number(client, arg):
+    res = client.get(f"/api/library/dj/mixes/9?rank=mix&{arg}")
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["set"] is None or arg.startswith("set_at")
+    assert len(body["matches"]) <= 5
+
+
+def test_l6_while_the_set_plays_its_direction_is_read_up_to_the_insert(client):
+    # energies 3, 3, 4, 6, then 3, 4: the set's end is steady, its first four rise
+    set_id = make_set(client, "Playing", ["7", "1", "5", "9", "2", "3"])
+    assert _mix(client, set_id=set_id)["set"]["direction"] == "steady"
+    assert _mix(client, set_id=set_id, set_at=4)["set"]["direction"] == "up"
+    # past the end, or nonsense: the set's last tracks
+    assert _mix(client, set_id=set_id, set_at=40)["set"]["direction"] == "steady"
+
+
+def test_l6_widening_never_cuts_the_keys_that_mix(client, monkeypatch):
+    monkeypatch.setattr(dj_store, "MIXES_READ", 2)
+    body = _mix(client, wide=1, limit=20)
+    # the closest of the keys that mix are read first; another key can't push them out
+    assert _ids(body) == ["8", "4"]
+    assert {m["key_relation"] for m in body["matches"]} == {"same"}

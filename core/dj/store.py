@@ -370,6 +370,8 @@ _BPM_RANK = {"same": 0, "half": 1, "double": 1}
 
 #: how far "Widen" may take the tempo window, as a fraction
 MAX_TOLERANCE = 0.12
+#: the most candidate rows one "Mixes well with" reads
+MIXES_READ = 2000
 
 
 def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None,
@@ -405,9 +407,16 @@ def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None,
         # a fixed SELECT, fixed key and tempo fragments with "?" placeholders
         # and the library scope's fixed fragment are formatted in; every
         # value is a bound parameter
+        # any key: the four that mix come first, then the closest tempo, so
+        # the cap can only cut the furthest of the other keys (gauntlet L6)
+        order_sql = ""
+        if any_key:
+            order_sql = (f" ORDER BY CASE WHEN d.musical_key IN ({','.join('?' * len(keys))}) THEN 0 ELSE 1 END, "
+                         f"ABS({_BPM_SQL} - ?)")
+            values = values + list(keys) + [float(dj["bpm"])]
         rows = conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
             f"{_track_select()} WHERE {where} AND t.file_path IS NOT NULL AND t.file_path != '' "
-            f"AND {key_sql} AND ({bpm_sql}) AND t.id != ? LIMIT 2000",
+            f"AND {key_sql} AND ({bpm_sql}) AND t.id != ?{order_sql} LIMIT {MIXES_READ}",
             values).fetchall()
     matches = []
     for row in rows:

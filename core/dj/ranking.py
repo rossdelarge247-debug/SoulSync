@@ -126,19 +126,23 @@ def energy_delta(seed_dj: Dict[str, Any], other_dj: Dict[str, Any]) -> Optional[
 
 # ── what the ranking reads ────────────────────────────────────────────────────
 
-def set_tracks(database, profile_id: int, set_id: Any) -> Optional[Dict[str, Any]]:
+def set_tracks(database, profile_id: int, set_id: Any, at: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """The caller's set: its id, name, the library track ids it holds (in
-    order) and their energies. None when it isn't the caller's."""
+    order) and the energies its direction is read from: the set's last
+    tracks, or with ``at`` (while the set plays, the number Add puts tracks
+    after) the tracks up to that one, where the next join is (gauntlet L6).
+    None when it isn't the caller's."""
     from core.sets import store as sets_store
 
     saved = sets_store.get_set(database, int(profile_id), set_id)
     if saved is None:
         return None
     ids = [str(r["track_id"]) for r in saved["rows"] if r.get("track_id")]
+    upto = ids[:at] if at and 0 < at <= len(ids) else ids
     energies: List[Optional[int]] = []
-    if ids:
-        found = dj_store.lookup(database, ids[-200:])
-        energies = [(found.get(i) or {}).get("energy") for i in ids[-200:]]
+    if upto:
+        found = dj_store.lookup(database, upto[-200:])
+        energies = [(found.get(i) or {}).get("energy") for i in upto[-200:]]
     return {"id": saved["id"], "name": saved["name"], "ids": ids, "energies": energies}
 
 
@@ -273,7 +277,8 @@ def energy_push(heading: Optional[str], delta: Optional[int]) -> float:
 
 def rank(database, track_id: str, *, profile_id: int, set_id: Any = None, limit: int = TAB_LIMIT,
          wide: bool = False, tolerance: Optional[float] = None, fix_art=None,
-         now: Optional[datetime] = None, exclude: Iterable[str] = ()) -> Dict[str, Any]:
+         now: Optional[datetime] = None, exclude: Iterable[str] = (),
+         set_at: Optional[int] = None) -> Dict[str, Any]:
     """The Mix tab's answer for one track: what ``mixes_with`` answers, with
     the matches in the tab's order, ``limit`` of them, and ``set`` (the set
     followed: id, name, its ``direction``, how many of its tracks were left
@@ -286,7 +291,7 @@ def rank(database, track_id: str, *, profile_id: int, set_id: Any = None, limit:
                                 any_key=wide)
     found["ranked"] = "mix"
     found["wide"] = bool(wide)
-    the_set = set_tracks(database, profile_id, set_id) if set_id not in (None, "") else None
+    the_set = set_tracks(database, profile_id, set_id, set_at) if set_id not in (None, "") else None
     found["set"] = None
     if found.get("track") is None:
         return found
