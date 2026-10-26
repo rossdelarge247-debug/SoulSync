@@ -176,7 +176,12 @@ export function useMixModel(subject: TrackSubject | null, profileId: number | nu
   });
   const dj: DjInfo | null = subjectId ? (djQuery.data?.[subjectId] ?? null) : null;
 
-  const working = useQuery({ ...workingSetQueryOptions(profileId), retry: false });
+  // read only while something plays that the tab works for
+  const working = useQuery({
+    ...workingSetQueryOptions(profileId),
+    retry: false,
+    enabled: Boolean(subjectId),
+  });
   const workingSet: WorkingSet | null = working.data ?? null;
   const setView = useQuery({
     ...setQueryOptions(profileId ?? 0, workingSet?.id ?? 0),
