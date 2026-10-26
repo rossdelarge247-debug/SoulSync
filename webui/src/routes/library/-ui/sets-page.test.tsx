@@ -164,9 +164,10 @@ let sent: { path: string; method: string; body: unknown }[] = [];
 let mixesdbDown = false;
 let mixesdbBusy = false;
 let playlistState: string | null = null;
-let staleNext = false;
-/** hold the next PUT until released, then refuse it as older than `revision` */
-let holdNextPut: { revision: number; release?: () => void } | null = null;
+/** the set's revision on the stand-in server (compare and set, like the real one) */
+let serverRevision = 3;
+/** hold the next PUT until released (two quick edits from one window) */
+let holdNextPut: { release?: () => void } | null = null;
 
 beforeEach(() => {
   window.SoulSyncWebShellBridge = createShellBridge();
@@ -178,7 +179,7 @@ beforeEach(() => {
   mixesdbDown = false;
   mixesdbBusy = false;
   playlistState = null;
-  staleNext = false;
+  serverRevision = 3;
   holdNextPut = null;
   GONE = new Set();
   WORKING = new Set();
@@ -226,7 +227,7 @@ beforeEach(() => {
             source_meta: {},
             playlist_id: playlistState ? null : 4,
             playlist_state: playlistState,
-            revision: 3,
+            revision: serverRevision,
           },
           rows: view(SAVED_ROWS).rows,
         };
@@ -236,19 +237,20 @@ beforeEach(() => {
           await new Promise<void>((resolve) => {
             held.release = resolve;
           });
+        }
+        const base = (body as { base_revision?: number }).base_revision;
+        if (base !== serverRevision) {
           status = 409;
-          answer = { success: false, stale: true, revision: held.revision, error: 'Newer.' };
-        } else if (staleNext) {
-          staleNext = false;
-          status = 409;
-          answer = { success: false, stale: true, revision: 9, error: 'A newer change is saved.' };
-        } else
           answer = {
-            success: true,
-            id: 7,
-            revision: (body as { revision: number }).revision,
-            playlist_state: null,
+            success: false,
+            stale: true,
+            revision: serverRevision,
+            error: 'A newer change to this set is already saved.',
           };
+        } else {
+          serverRevision += 1;
+          answer = { success: true, id: 7, revision: serverRevision, playlist_state: null };
+        }
       } else if (path === '/api/sets/7/playlist') answer = { success: true, playlist_id: 12 };
       else if (path === '/api/sets/wanted/remove') answer = { success: true, removed: true };
       else if (path === '/api/sets/view') answer = view((body as { tracks: Row[] }).tracks);
@@ -476,39 +478,78 @@ describe('Library → Sets', () => {
     expect(screen.getByText('You own 1 of 2')).toBeTruthy();
   });
 
-  it('saves a rename as the name alone, with the next revision', async () => {
+  it('saves a rename as the name alone, from the revision it read', async () => {
     renderPage('/library?view=sets&set=7');
     const name = await screen.findByDisplayValue('Sunday Set');
     fireEvent.change(name, { target: { value: 'Sunday Session' } });
     await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
-    expect(calls('/api/sets/7', 'PUT')[0].body).toEqual({ name: 'Sunday Session', revision: 4 });
-  });
-
-  it('says when a newer save came from another window', async () => {
-    staleNext = true;
-    renderPage('/library?view=sets&set=7');
-    fireEvent.change(await screen.findByDisplayValue('Sunday Set'), { target: { value: 'Later' } });
-    expect(
-      await screen.findByText(/changed in another window/, {}, { timeout: 2000 }),
-    ).toBeTruthy();
-  });
-
-  it('says nothing when the newer save was this window’s own', async () => {
-    holdNextPut = { revision: 5 };
-    renderPage('/library?view=sets&set=7');
-    const name = await screen.findByDisplayValue('Sunday Set');
-    fireEvent.change(name, { target: { value: 'Sunday Session' } });
-    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
-    fireEvent.change(name, { target: { value: 'Sunday Sessions' } });
-    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(2), { timeout: 2000 });
-    expect(calls('/api/sets/7', 'PUT')[1].body).toEqual({ name: 'Sunday Sessions', revision: 5 });
+    expect(calls('/api/sets/7', 'PUT')[0].body).toEqual({
+      name: 'Sunday Session',
+      base_revision: 3,
+    });
     await screen.findByText('Saved');
-    // the first, held back, now arrives late and is refused as older than 5
+  });
+
+  it('[gauntlet H1] a set changed somewhere else stops the saves, keeps the edits and says so', async () => {
+    renderPage('/library?view=sets&set=7');
+    const name = await screen.findByDisplayValue('Sunday Set');
+    // another tab adds a track: the server is at 4, the page read 3. The
+    // refusal's revision (4) is the one this page's save would have made:
+    // it's still someone else's change, never taken for this window's own
+    serverRevision = 4;
+    fireEvent.change(name, { target: { value: 'Later' } });
+    const notice = await screen.findByRole('alert', {}, { timeout: 2000 });
+    expect(notice).toHaveAttribute('data-set-conflict');
+    expect(within(notice).getByText('This set changed somewhere else')).toBeTruthy();
+    expect(notice.textContent).toContain('Not saved here: the name “Later”.');
+    expect(calls('/api/sets/7', 'PUT')).toHaveLength(1);
+    expect(calls('/api/sets/7', 'PUT')[0].body).toEqual({ name: 'Later', base_revision: 3 });
+    // later edits stay here and are never sent over the top
+    fireEvent.change(name, { target: { value: 'Later still' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lock Lowtide Hymn' }));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(calls('/api/sets/7', 'PUT')).toHaveLength(1);
+    expect(screen.getByDisplayValue('Later still')).toBeTruthy();
+    // kept as a draft in this browser, so nothing is lost
+    fireEvent.click(within(notice).getByRole('button', { name: 'Keep mine as a draft' }));
+    const draft = JSON.parse(window.localStorage.getItem('soulsync.sets.draft.2')!) as {
+      name: string;
+      rows: { locked?: boolean }[];
+    };
+    expect(draft.name).toBe('Later still (my version)');
+    expect(draft.rows[0].locked).toBe(true);
+    // Reload it: the newest set, and saving again from its revision
+    fireEvent.click(within(notice).getByRole('button', { name: 'Reload it' }));
+    await waitFor(() => expect(screen.getByDisplayValue('Sunday Set')).toBeTruthy());
+    expect(screen.queryByText('This set changed somewhere else')).toBeNull();
+    fireEvent.change(screen.getByDisplayValue('Sunday Set'), { target: { value: 'Fresh' } });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(2), { timeout: 2000 });
+    expect(calls('/api/sets/7', 'PUT')[1].body).toEqual({ name: 'Fresh', base_revision: 4 });
+  });
+
+  it('[gauntlet H1] two quick edits from one window both land, one save at a time', async () => {
+    holdNextPut = {};
+    renderPage('/library?view=sets&set=7');
+    const name = await screen.findByDisplayValue('Sunday Set');
+    fireEvent.change(name, { target: { value: 'Sunday Session' } });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    // the second edit while the first is still on its way: it waits for it
+    fireEvent.click(screen.getByRole('button', { name: 'Lock Lowtide Hymn' }));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(calls('/api/sets/7', 'PUT')).toHaveLength(1);
     holdNextPut.release!();
-    await waitFor(() => expect(holdNextPut).toBeTruthy());
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screen.queryByText(/changed in another window/)).toBeNull();
-    expect(screen.getByText('Saved')).toBeTruthy();
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(2), { timeout: 2000 });
+    const second = calls('/api/sets/7', 'PUT')[1].body as {
+      base_revision: number;
+      tracks: { locked: boolean }[];
+      name?: string;
+    };
+    expect(second.base_revision).toBe(4);
+    expect(second.name).toBeUndefined();
+    expect(second.tracks[0].locked).toBe(true);
+    await screen.findByText('Saved');
+    expect(serverRevision).toBe(5);
+    expect(screen.queryByText('This set changed somewhere else')).toBeNull();
   });
 
   it('says once that the playlist went its own way, and makes a new one', async () => {

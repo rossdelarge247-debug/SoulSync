@@ -268,6 +268,9 @@ export function setsListQueryOptions(profileId: number) {
 export function setQueryOptions(profileId: number, id: number) {
   return queryOptions({
     queryKey: [...SETS_QUERY_KEY, 'set', profileId, id] as const,
+    // another tab or device may have changed it (the page takes it when it
+    // has nothing unsaved; otherwise its next save says so)
+    refetchOnWindowFocus: true,
     queryFn: () => call<SetView & { set: SavedSet }>(apiClient.get(`sets/${id}`, opts)),
   });
 }
@@ -331,17 +334,19 @@ export class StaleSaveError extends Error {
 
 /**
  * Save a set's name and/or rows. Send only what changed: a rename sends the
- * name alone. `revision` counts up with each save, so the server refuses
- * an older one that arrives late (StaleSaveError).
+ * name alone. `baseRevision` is the revision this page last read or had a
+ * save confirmed at; the server applies the save only while the set is
+ * still at it, and answers the new one. Anything else (StaleSaveError)
+ * means the set changed somewhere else.
  */
 export async function updateSet(
   id: number,
-  patch: { name?: string; rows?: SetRow[]; revision?: number },
+  patch: { name?: string; rows?: SetRow[]; baseRevision?: number },
 ): Promise<{ id: number; revision: number; playlist_state: SavedSet['playlist_state'] }> {
   const json: Record<string, unknown> = {};
   if (patch.name !== undefined) json.name = patch.name;
   if (patch.rows) json.tracks = rowsBody(patch.rows);
-  if (patch.revision !== undefined) json.revision = patch.revision;
+  if (patch.baseRevision !== undefined) json.base_revision = patch.baseRevision;
   const response = await apiClient.put(`sets/${id}`, { ...opts, json });
   const payload = (await response.json().catch(() => ({}))) as {
     success?: boolean;

@@ -31,7 +31,7 @@ import { MoreMenu } from '@/routes/library/-ui/parts';
 import type { Draft } from './draft-store';
 import type { SetRow, SetView, Step, Transition, ViewRow } from './sets.api';
 
-import { clearDraft, writeDraft } from './draft-store';
+import { clearDraft, readDraft, writeDraft } from './draft-store';
 import { EnergyGraph } from './energy-graph';
 import { NoteLine, TransitionChip } from './mix-set-parts';
 import {
@@ -51,6 +51,7 @@ import {
   metaLine,
   metaLineShort,
   missingWords,
+  unsavedWords,
   moveRow,
   safeSourceLink,
   sourceLine,
@@ -692,31 +693,114 @@ export function SetEditor({
   // rename sends the name alone) and nothing when nothing did
   const savedName = useRef(initial.name);
   const savedRows = useRef(JSON.stringify(rowsBody(initial.rows)));
-  // autosaves count up, so one that arrives late can't undo a newer one
-  const revision = useRef(source.kind === 'saved' ? source.revision : 0);
-  // the revisions this window has sent: a refusal naming one of them only
-  // means a later save from here got there first, not another window
-  const sentRevisions = useRef(new Set<number>());
+  // the revision this page last read or had a save confirmed at: a save
+  // applies only while the set is still at it (H1, after the gauntlet review)
+  const base = useRef(source.kind === 'saved' ? source.revision : 0);
+  // one save in flight from this window; the newest edit goes after it
+  const inFlight = useRef(false);
+  const queued = useRef(false);
+  // the set changed somewhere else: autosave stops, the edits stay here
+  const [conflict, setConflict] = useState(false);
+  const conflictRef = useRef(false);
+  const reloading = useRef(false);
   const [playlistState, setPlaylistState] = useState(
     source.kind === 'saved' ? source.playlistState : null,
   );
   const [playlistId, setPlaylistId] = useState(source.kind === 'saved' ? source.playlistId : null);
 
-  // the picker added to this set from elsewhere (28a): with nothing unsaved
-  // here, read it again; with changes in flight, the revision rule says so
   const rowsNow = useRef(rows);
   rowsNow.current = rows;
+  const nameNow = useRef(name);
+  nameNow.current = name;
+  const dirty = () =>
+    (nameNow.current.trim() || savedName.current) !== savedName.current ||
+    JSON.stringify(rowsBody(rowsNow.current)) !== savedRows.current;
+
+  // a newer set from the server (the picker added to it here, another tab
+  // or device changed it; refetched on focus): taken as it is when nothing
+  // here is unsaved, or when Reload it was asked for. With edits here, the
+  // next save is refused and the Notice says so.
+  const serverRevision = source.kind === 'saved' ? source.revision : 0;
+  const adopt = () => {
+    if (source.kind !== 'saved') return;
+    reloading.current = false;
+    base.current = serverRevision;
+    savedName.current = source.name;
+    savedRows.current = JSON.stringify(rowsBody(source.rows));
+    queued.current = false;
+    conflictRef.current = false;
+    setConflict(false);
+    setError(null);
+    setSaving('idle');
+    setName(source.name);
+    setRows(source.rows);
+  };
+  useEffect(() => {
+    if (source.kind !== 'saved') return;
+    if (reloading.current || (serverRevision > base.current && !dirty() && !inFlight.current))
+      adopt();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverRevision]);
+
   useEffect(() => {
     if (source.kind !== 'saved') return;
     const onChanged = (event: Event) => {
       const id = (event as CustomEvent<{ id?: number }>).detail?.id;
-      if (id !== source.id) return;
-      if (JSON.stringify(rowsBody(rowsNow.current)) !== savedRows.current) return;
+      if (id !== undefined && id !== source.id) return;
       void queryClient.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'set'] });
     };
     window.addEventListener(MIX_SET_CHANGED, onChanged);
     return () => window.removeEventListener(MIX_SET_CHANGED, onChanged);
   }, [source, queryClient]);
+
+  /** Send what changed since the last confirmed save, from its revision. */
+  const flush = () => {
+    if (source.kind !== 'saved' || conflictRef.current) return;
+    if (inFlight.current) {
+      queued.current = true;
+      return;
+    }
+    const nextName = nameNow.current.trim() || savedName.current;
+    const nextRows = JSON.stringify(rowsBody(rowsNow.current));
+    const patch: { name?: string; rows?: SetRow[] } = {};
+    if (nextName !== savedName.current) patch.name = nextName;
+    if (nextRows !== savedRows.current) patch.rows = rowsNow.current;
+    if (patch.name === undefined && !patch.rows) {
+      setSaving((cur) => (cur === 'saving' ? 'saved' : cur));
+      return;
+    }
+    inFlight.current = true;
+    setSaving('saving');
+    updateSet(source.id, { ...patch, baseRevision: base.current })
+      .then((done) => {
+        if (patch.name !== undefined) savedName.current = nextName;
+        if (patch.rows) savedRows.current = nextRows;
+        base.current = done.revision;
+        setPlaylistState(done.playlist_state);
+        if (done.playlist_state) setPlaylistId(null);
+        setSaving('saved');
+        setError(null);
+        void queryClient.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'list'] });
+      })
+      .catch((err: unknown) => {
+        setSaving('error');
+        if (err instanceof StaleSaveError) {
+          // someone else changed it: never retried over the top
+          conflictRef.current = true;
+          queued.current = false;
+          setConflict(true);
+        } else setError(err instanceof Error ? err.message : "The change wasn't saved.");
+      })
+      .finally(() => {
+        inFlight.current = false;
+        if (queued.current && !conflictRef.current) {
+          queued.current = false;
+          flushRef.current();
+        }
+      });
+  };
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
 
   // keep the draft in this browser, or save a saved set as it changes
   useEffect(() => {
@@ -728,49 +812,37 @@ export function SetEditor({
       writeDraft(profileId, { ...source.draft, name, rows });
       return;
     }
-    const nextName = name.trim() || savedName.current;
-    const nextRows = JSON.stringify(rowsBody(rows));
-    const patch: { name?: string; rows?: SetRow[] } = {};
-    if (nextName !== savedName.current) patch.name = nextName;
-    if (nextRows !== savedRows.current) patch.rows = rows;
-    if (patch.name === undefined && !patch.rows) return;
+    if (conflictRef.current || !dirty()) return;
     setSaving('saving');
-    const timer = setTimeout(() => {
-      revision.current += 1;
-      const sent = revision.current;
-      sentRevisions.current.add(sent);
-      for (const old of sentRevisions.current) {
-        if (old < sent - 50) sentRevisions.current.delete(old);
-      }
-      updateSet(source.id, { ...patch, revision: sent })
-        .then((done) => {
-          if (patch.name !== undefined) savedName.current = nextName;
-          if (patch.rows) savedRows.current = nextRows;
-          revision.current = Math.max(revision.current, done.revision);
-          setPlaylistState(done.playlist_state);
-          if (done.playlist_state) setPlaylistId(null);
-          setSaving('saved');
-          void queryClient.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'list'] });
-        })
-        .catch((err: unknown) => {
-          if (err instanceof StaleSaveError && sentRevisions.current.has(err.revision)) {
-            // a later save from this window, which holds this change too,
-            // was applied first: nothing to say
-            revision.current = Math.max(revision.current, err.revision);
-            return;
-          }
-          setSaving('error');
-          if (err instanceof StaleSaveError) {
-            revision.current = Math.max(revision.current, err.revision);
-            setError(
-              'This set was changed in another window. Reload the page to see the newest version.',
-            );
-          } else setError(err instanceof Error ? err.message : "The change wasn't saved.");
-        });
-    }, 700);
+    const timer = setTimeout(() => flushRef.current(), 700);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, rows]);
+
+  /** The Notice's Reload it: the newest set from the server, these edits let go. */
+  const reload = () => {
+    reloading.current = true;
+    if (serverRevision > base.current) adopt();
+    void queryClient.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'set'] });
+  };
+
+  /** The Notice's Keep mine as a draft: this page's version, in this browser. */
+  const keepAsDraft = () => {
+    if (source.kind !== 'saved') return;
+    if (
+      readDraft(profileId) &&
+      !window.confirm(
+        'Keep your version as the draft? The draft you have in this browser is replaced.',
+      )
+    )
+      return;
+    writeDraft(profileId, {
+      ...source.base,
+      name: `${nameNow.current.trim() || source.name} (my version)`,
+      rows: rowsNow.current,
+    });
+    window.showToast?.('Your version is kept as a draft in this browser, under Sets.', 'success');
+  };
 
   const playlistAction = async (action: 'new' | 'dismiss') => {
     if (source.kind !== 'saved') return;
@@ -1034,6 +1106,32 @@ export function SetEditor({
         </div>
       </header>
 
+      {conflict ? (
+        <Notice
+          tone="warning"
+          role="alert"
+          title="This set changed somewhere else"
+          data-set-conflict=""
+          actions={
+            <>
+              <Button size="lg" variant="secondary" onClick={reload}>
+                Reload it
+              </Button>
+              <Button size="lg" variant="ghost" onClick={keepAsDraft}>
+                Keep mine as a draft
+              </Button>
+            </>
+          }
+        >
+          {unsavedWords({
+            savedRows: JSON.parse(savedRows.current) as SetRow[],
+            rows,
+            savedName: savedName.current,
+            name,
+          })}{' '}
+          Nothing more is saved from here until you reload it.
+        </Notice>
+      ) : null}
       {error ? (
         <Notice tone="danger" role="alert" title="That didn't work">
           {error}

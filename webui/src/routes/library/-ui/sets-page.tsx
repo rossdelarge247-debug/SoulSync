@@ -190,8 +190,9 @@ function SavedSet({ id, go }: { id: number; go: Go }) {
   const { set, rows } = query.data;
   return (
     <SetEditor
-      // a set changed elsewhere (the picker added to it) opens afresh at its new revision
-      key={`${set.id}-${set.revision ?? 0}`}
+      // a newer revision from the server is taken in place by the editor
+      // (when nothing there is unsaved), so the editor keeps its edits
+      key={set.id}
       source={{
         kind: 'saved',
         id: set.id,

@@ -364,3 +364,66 @@ export function leftOutWords(missing: number): string {
 export function missingWords(missing: number): string {
   return missing ? `${missing.toLocaleString()} file${missing === 1 ? '' : 's'} missing` : '';
 }
+
+/**
+ * What this page holds that isn't saved, for the "changed somewhere else"
+ * Notice (H1): "Not saved here: Copper Sky added, Undertow removed." or the
+ * name, or "your changes to the order, notes or transitions."
+ */
+export function unsavedWords(opts: {
+  savedRows: SetRow[];
+  rows: SetRow[];
+  savedName: string;
+  name: string;
+}): string {
+  const label = (r: SetRow) => r.title || r.artist || 'a line';
+  const count = (rows: SetRow[]) => {
+    const m = new Map<string, number>();
+    for (const r of rows) {
+      const k = `${r.track_id ?? ''}\u0000${r.title ?? ''}`;
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return m;
+  };
+  const before = count(opts.savedRows);
+  const after = count(opts.rows);
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const r of opts.rows) {
+    const k = `${r.track_id ?? ''}\u0000${r.title ?? ''}`;
+    if ((after.get(k) ?? 0) > (before.get(k) ?? 0)) {
+      added.push(label(r));
+      after.set(k, (after.get(k) ?? 0) - 1);
+    }
+  }
+  const again = count(opts.rows);
+  for (const r of opts.savedRows) {
+    const k = `${r.track_id ?? ''}\u0000${r.title ?? ''}`;
+    if ((before.get(k) ?? 0) > (again.get(k) ?? 0)) {
+      removed.push(label(r));
+      before.set(k, (before.get(k) ?? 0) - 1);
+    }
+  }
+  const parts = [
+    ...added.map((t) => `${t} added`),
+    ...removed.map((t) => `${t} removed`),
+    ...(opts.name.trim() && opts.name.trim() !== opts.savedName
+      ? [`the name “${opts.name.trim()}”`]
+      : []),
+  ];
+  if (parts.length) return `Not saved here: ${parts.join(', ')}.`;
+  return JSON.stringify(rowsBodyOf(opts.rows)) === JSON.stringify(rowsBodyOf(opts.savedRows))
+    ? 'Nothing here is unsaved.'
+    : 'Not saved here: your changes to the order, notes or transitions.';
+}
+
+function rowsBodyOf(rows: SetRow[]) {
+  return rows.map((r) => [
+    r.track_id,
+    r.title,
+    r.note ?? null,
+    r.transition ?? null,
+    Boolean(r.locked),
+    r.want,
+  ]);
+}

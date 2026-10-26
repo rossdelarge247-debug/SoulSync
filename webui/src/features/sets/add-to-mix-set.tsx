@@ -299,7 +299,12 @@ function Picker({ request }: { request: Request }) {
       return;
     }
     fetchHolding(ok.map((t) => t.id))
-      .then((list) => live && setSets(list))
+      .then((list) => {
+        if (!live) return;
+        setSets(list);
+        // what the picker read may be newer than an open set page: it reads itself again
+        window.dispatchEvent(new CustomEvent(MIX_SET_CHANGED, { detail: {} }));
+      })
       .catch((err: unknown) => live && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       live = false;
