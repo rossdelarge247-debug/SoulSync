@@ -51,11 +51,13 @@ describe('words', () => {
     expect(stepWord({ kind: 'unknown', reason: '', steps: null, bpm_diff: null })).toBe(
       'Not known yet',
     );
-    expect(vibeOffWords('cap_reached')).toMatch(/budget is spent/);
+    expect(vibeOffWords('cap_reached')).toMatch(
+      /server's AI budget for the month is spent \(one budget for every profile\)/,
+    );
     expect(vibeOffWords(null)).toBe('');
     expect(matchesFoot({})).toBe('From your library, files present · starred first among equals');
     expect(matchesFoot({ vibeLine: 'Warmer first.' })).toBe(
-      'Ordered for feel by the AI · Warmer first.',
+      "Ordered for feel by the AI. The AI's note: “Warmer first.”",
     );
   });
   it('draws the strip’s line: the set solid, the step to now dashed', () => {

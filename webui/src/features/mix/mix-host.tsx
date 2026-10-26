@@ -116,9 +116,12 @@ function keyAction(
 ): boolean {
   if (!isAvailable(subject)) return false;
   const k = key.toUpperCase();
+  // the keys work for a library track (or a station's that's yours) only: a
+  // preview's tab only says why there's nothing, so M stays the player's
+  // (gauntlet L7)
+  if (subject.kind !== 'track') return false;
   if (k === 'M') {
     if (visualsOpen) {
-      if (subject.kind !== 'track') return false;
       setDrawer(!getMixState().drawer);
       return true;
     }
@@ -140,7 +143,6 @@ function keyAction(
     setTrayMode(mode === 'mix' ? 'now' : 'mix');
     return true;
   }
-  if (subject.kind !== 'track') return false;
   if (k === 'A') {
     void model.addPlaying();
     return true;

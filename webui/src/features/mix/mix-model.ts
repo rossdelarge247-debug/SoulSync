@@ -222,6 +222,8 @@ export function useMixModel(subject: TrackSubject | null, profileId: number | nu
     wide: state.wide,
     // following another track: the playing one isn't a match to play next
     exclude: seed && subjectId && seed.id !== subjectId ? subjectId : null,
+    // while the set plays, its direction is read up to where Add puts tracks
+    setAt: playing ? playing.number : null,
   };
   const [waiting, setWaiting] = useState(false);
   useEffect(() => setWaiting(false), [seed?.id]);

@@ -91,6 +91,7 @@ interface World {
   mixes: Record<string, unknown>;
   ai: { can_use: boolean; reason: string | null };
   asked: string[];
+  setAts: string[];
   added: unknown[];
   started: unknown[];
   vibes: number;
@@ -140,6 +141,7 @@ function serve() {
           url.searchParams.get('set_id') ? `:set${url.searchParams.get('set_id')}` : ''
         }`,
       );
+      if (url.searchParams.get('set_at')) world.setAts.push(url.searchParams.get('set_at')!);
       const key = `${String(params.id)}${url.searchParams.get('wide') ? ':wide' : ''}`;
       const found = world.mixes[key] ?? world.mixes[String(params.id)];
       if (!found)
@@ -324,6 +326,7 @@ beforeEach(() => {
     },
     ai: { can_use: false, reason: 'not_configured' },
     asked: [],
+    setAts: [],
     added: [],
     started: [],
     vibes: 0,
@@ -461,6 +464,8 @@ describe('while the set plays (29b)', () => {
     const list = await mix.findByRole('list', { name: 'Tracks that mix well with Night Ferry' });
     fireEvent.click(within(list).getAllByRole('button', { name: /^Add .* to Sunday Set$/ })[1]);
     await waitFor(() => expect(world.added).toHaveLength(1));
+    // the direction is read up to where Add puts tracks (gauntlet L6)
+    expect(world.setAts).toContain('2');
     expect(world.added[0]).toEqual({
       track_ids: ['6'],
       again: false,
@@ -500,6 +505,10 @@ describe("29d's states", () => {
     const mix = await openMix();
     expect(await mix.findByText('Mix works on your own tracks')).toBeInTheDocument();
     expect(mix.getByText(/This is a stream preview/)).toBeInTheDocument();
+    // the keys stay the player's for a preview (gauntlet L7): M mutes, N skips
+    expect(window.SoulSyncMix!.key('M')).toBe(false);
+    expect(window.SoulSyncMix!.key('N')).toBe(false);
+    expect(window.SoulSyncMix!.key('A')).toBe(false);
   });
 
   it('podcasts and books: no tab, and the keys are left to the player', async () => {
@@ -557,7 +566,9 @@ describe('Vibe', () => {
     await waitFor(() => expect(sw).not.toHaveAttribute('aria-disabled'));
     fireEvent.click(sw);
     expect(
-      await mix.findByText('Ordered for feel by the AI · Darker and slower first.'),
+      await mix.findByText(
+        'Ordered for feel by the AI. The AI’s note: “Darker and slower first.”'.replace('’', "'"),
+      ),
     ).toBeInTheDocument();
     const rows = within(
       mix.getByRole('list', { name: 'Tracks that mix well with Night Ferry' }),

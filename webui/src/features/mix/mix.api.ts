@@ -54,6 +54,8 @@ export interface MixQuery {
   wide: boolean;
   /** a track to leave out: More like this leaves out the playing one */
   exclude?: string | null;
+  /** while the set plays: the number Add puts tracks after (its direction is read up to there) */
+  setAt?: number | null;
 }
 
 async function call<T>(promise: Promise<Response>): Promise<T> {
@@ -93,12 +95,21 @@ export const MIX_LIMIT = 5;
 /** Mixes well with in the tab's order: five, the working set's tracks left out. */
 export function mixQueryOptions(trackId: string, q: MixQuery) {
   return queryOptions({
-    queryKey: [...DJ_QUERY_KEY, 'mix', trackId, q.setId, q.wide, q.exclude ?? null] as const,
+    queryKey: [
+      ...DJ_QUERY_KEY,
+      'mix',
+      trackId,
+      q.setId,
+      q.wide,
+      q.exclude ?? null,
+      q.setAt ?? null,
+    ] as const,
     queryFn: () => {
       const searchParams: Record<string, string | number> = { rank: 'mix', limit: MIX_LIMIT };
       if (q.setId) searchParams.set_id = q.setId;
       if (q.wide) searchParams.wide = 1;
       if (q.exclude) searchParams.exclude = q.exclude;
+      if (q.setId && q.setAt) searchParams.set_at = q.setAt;
       return call<MixAnswer>(
         apiClient.get(`library/dj/mixes/${encodeURIComponent(trackId)}`, {
           ...opts,
@@ -113,7 +124,15 @@ export function mixQueryOptions(trackId: string, q: MixQuery) {
 /** Vibe: the top 20 re-ordered for feel by the AI. Throws MixError with its code. */
 export function vibeQueryOptions(trackId: string, q: MixQuery) {
   return queryOptions({
-    queryKey: [...DJ_QUERY_KEY, 'mix-vibe', trackId, q.setId, q.wide, q.exclude ?? null] as const,
+    queryKey: [
+      ...DJ_QUERY_KEY,
+      'mix-vibe',
+      trackId,
+      q.setId,
+      q.wide,
+      q.exclude ?? null,
+      q.setAt ?? null,
+    ] as const,
     queryFn: () =>
       call<MixAnswer>(
         apiClient.post(`library/dj/mixes/${encodeURIComponent(trackId)}/vibe`, {
@@ -123,6 +142,7 @@ export function vibeQueryOptions(trackId: string, q: MixQuery) {
             wide: q.wide,
             limit: MIX_LIMIT,
             ...(q.exclude ? { exclude: [q.exclude] } : {}),
+            ...(q.setId && q.setAt ? { set_at: q.setAt } : {}),
           },
         }),
       ),

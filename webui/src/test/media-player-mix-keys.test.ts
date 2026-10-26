@@ -2,16 +2,20 @@
  * The Mix tab's keys (24a): A adds the playing track to the working set, N
  * plays the top match next, M switches the tray to Mix. They go through the
  * player's one handler, so S's guard holds: nothing fires in a text field, a
- * dialog or a menu. Where there's no Mix tab, M still mutes and N skips.
+ * dialog or a menu. The bindings are one table (NP_LETTER_KEYS), so moving
+ * mute and next to ⇧M / ⇧N (HANDOFF 287) is a one-line change; each mapping
+ * is tested. Where there's no Mix tab, M still mutes and N skips.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { extractFunction } from './vanilla-extract';
 
 const source = readFileSync(resolve(process.cwd(), 'static/media-player.js'), 'utf8');
 const fn = extractFunction('handlePlayerKeyboardShortcuts', source);
+const action = extractFunction('npLetterKeyAction', source);
+const table = /const NP_LETTER_KEYS = \{[\s\S]*?\n\};/.exec(source)![0];
 
 let mute: ReturnType<typeof vi.fn>;
 let next: ReturnType<typeof vi.fn>;
@@ -25,9 +29,14 @@ function handler() {
     'playNextInQueue',
     `const audioPlayer = null, npQueue = [{ id: '2' }], npVolumePercent = 50, currentTrack = { id: '1' };
      const npSetVolume = () => {}, togglePlayback = () => {}, playPreviousInQueue = () => {};
+     ${table}
+     ${action}
      ${fn}
-     return handlePlayerKeyboardShortcuts;`,
-  )(document, window, mute, next) as (e: KeyboardEvent) => void;
+     return { handle: handlePlayerKeyboardShortcuts, table: NP_LETTER_KEYS };`,
+  )(document, window, mute, next) as {
+    handle: (e: KeyboardEvent) => void;
+    table: Record<string, string[]>;
+  };
 }
 
 const key = (k: string, extra: KeyboardEventInit = {}) =>
@@ -45,40 +54,69 @@ afterEach(() => {
   delete (window as unknown as { SoulSyncMix?: unknown }).SoulSyncMix;
 });
 
-it('hands A, N and M to the Mix tab', () => {
-  for (const k of ['a', 'N', 'm']) {
-    const ev = key(k);
-    handler()(ev);
-    expect(ev.defaultPrevented).toBe(true);
-  }
-  expect(mixKey.mock.calls.map((c) => c[0])).toEqual(['A', 'N', 'M']);
-  expect(mute).not.toHaveBeenCalled();
-  expect(next).not.toHaveBeenCalled();
-});
+describe('the table (one place for 287)', () => {
+  it('maps M, ⇧M, N, ⇧N and A, and nothing else', () => {
+    expect(handler().table).toEqual({
+      M: ['mix:M', 'mute'],
+      '⇧M': ['mix:M', 'mute'],
+      N: ['mix:N', 'next'],
+      '⇧N': ['mix:N', 'next'],
+      A: ['mix:A'],
+    });
+  });
 
-it('mutes and skips where there is no Mix tab', () => {
-  mixKey.mockReturnValue(false);
-  handler()(key('m'));
-  handler()(key('n'));
-  const a = key('a');
-  handler()(a);
-  expect(mute).toHaveBeenCalledTimes(1);
-  expect(next).toHaveBeenCalledTimes(1);
-  expect(a.defaultPrevented).toBe(false);
+  it.each([
+    ['m', {}, 'M', 'mute'],
+    ['M', { shiftKey: true }, 'M', 'mute'],
+    ['n', {}, 'N', 'next'],
+    ['N', { shiftKey: true }, 'N', 'next'],
+  ] as const)('%s %o: the Mix tab first, then %s', (k, extra, mixAs, fallback) => {
+    const { handle } = handler();
+    const ev = key(k, extra);
+    handle(ev);
+    expect(mixKey).toHaveBeenLastCalledWith(mixAs);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(mute).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+    mixKey.mockReturnValue(false);
+    const ev2 = key(k, extra);
+    handle(ev2);
+    expect(ev2.defaultPrevented).toBe(true);
+    expect((fallback === 'mute' ? mute : next).mock.calls).toHaveLength(1);
+  });
+
+  it('a: the Mix tab only, and left to the page when it doesn’t act', () => {
+    const { handle } = handler();
+    const ev = key('a');
+    handle(ev);
+    expect(mixKey).toHaveBeenCalledWith('A');
+    expect(ev.defaultPrevented).toBe(true);
+    mixKey.mockReturnValue(false);
+    const ev2 = key('a');
+    handle(ev2);
+    expect(ev2.defaultPrevented).toBe(false);
+    // ⇧A isn't bound
+    mixKey.mockClear();
+    handle(key('A', { shiftKey: true }));
+    expect(mixKey).not.toHaveBeenCalled();
+  });
 });
 
 it('leaves text fields, dialogs, menus and modified keys alone', () => {
   document.body.innerHTML =
     '<input id="i"><div role="dialog" data-open><button id="d">x</button></div><div class="ss-player-menu"><button id="m">x</button></div>';
+  const { handle } = handler();
   for (const id of ['i', 'd', 'm']) {
     document.getElementById(id)!.focus();
-    handler()(key('a'));
-    handler()(key('m'));
+    handle(key('a'));
+    handle(key('m'));
+    handle(key('n'));
   }
   document.body.focus();
-  handler()(key('a', { ctrlKey: true }));
-  handler()(key('m', { metaKey: true }));
-  handler()(key('A', { shiftKey: true }));
+  handle(key('a', { ctrlKey: true }));
+  handle(key('m', { metaKey: true }));
+  handle(key('n', { altKey: true }));
   expect(mixKey).not.toHaveBeenCalled();
   expect(mute).not.toHaveBeenCalled();
+  expect(next).not.toHaveBeenCalled();
 });

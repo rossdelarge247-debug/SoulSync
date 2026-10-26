@@ -99,7 +99,7 @@ export function vibeOffWords(reason: string | null | undefined): string {
     case 'key_refused':
       return "The AI's key was refused: an admin checks it in Settings → AI.";
     case 'cap_reached':
-      return "This month's AI budget is spent, so Vibe waits for the 1st.";
+      return "This server's AI budget for the month is spent (one budget for every profile), so Vibe waits for the 1st.";
     default:
       return '';
   }
@@ -107,7 +107,10 @@ export function vibeOffWords(reason: string | null | undefined): string {
 
 /** The foot under the matches (29a). */
 export function matchesFoot(opts: { vibeLine?: string | null; leftOut?: number }): string {
-  if (opts.vibeLine) return `Ordered for feel by the AI · ${opts.vibeLine}`;
+  // the note is the AI's own words (a title can steer them), so it's quoted
+  // and named as the AI's; the server has already cleaned it and dropped
+  // any link or address (gauntlet L3)
+  if (opts.vibeLine) return `Ordered for feel by the AI. The AI's note: “${opts.vibeLine}”`;
   const base = 'From your library, files present · starred first among equals';
   return opts.leftOut ? `${base} · the set's own tracks left out` : base;
 }

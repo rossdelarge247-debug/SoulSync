@@ -2853,31 +2853,24 @@ function handlePlayerKeyboardShortcuts(event) {
             event.preventDefault();
             npSetVolume(npVolumePercent - 5);
             break;
-        // 24a: M switches the tray to Mix and back (Visuals: its drawer), N
-        // plays the top match next, A adds the playing track to the working
-        // set (src/features/mix/mix-host.tsx). Where there's no Mix tab (a
-        // podcast, a book, a station that isn't playing one of yours) M still
-        // mutes and N still skips. X is reserved for Mix now (auto-mix, 26c):
-        // not bound yet.
+        // 24a: M, N and A through NP_LETTER_KEYS (below the handler)
         case 'm':
         case 'M':
-            if (event.ctrlKey || event.metaKey || event.altKey) return;
-            event.preventDefault();
-            if (window.SoulSyncMix && window.SoulSyncMix.key('M')) break;
-            handleNpMuteToggle();   // works whether or not the modal is open
-            break;
         case 'n':
         case 'N':
-            if (event.ctrlKey || event.metaKey || event.altKey) return;
-            event.preventDefault();
-            if (window.SoulSyncMix && window.SoulSyncMix.key('N')) break;
-            if (npQueue.length > 0) playNextInQueue();
-            break;
         case 'a':
-        case 'A':
-            if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
-            if (window.SoulSyncMix && window.SoulSyncMix.key('A')) event.preventDefault();
+        case 'A': {
+            if (event.ctrlKey || event.metaKey || event.altKey) return;
+            const actions = NP_LETTER_KEYS[(event.shiftKey ? '⇧' : '') + event.key.toUpperCase()];
+            if (!actions) return;
+            for (const action of actions) {
+                if (npLetterKeyAction(action)) {
+                    event.preventDefault();
+                    break;
+                }
+            }
             break;
+        }
         case 'p':
         case 'P':
             event.preventDefault();
@@ -2893,6 +2886,37 @@ function handlePlayerKeyboardShortcuts(event) {
         default:
             return; // Don't prevent default for unhandled keys
     }
+}
+
+// The letter keys (24a), each a list of actions tried in order until one
+// acts: "mix:M" / "mix:N" / "mix:A" are the Mix tab's (M the tray to Mix and
+// back, or the Visuals drawer; N the top match next; A the playing track into
+// the working set; src/features/mix/mix-host.tsx), which act only while the
+// playing track has a working Mix tab; "mute" and "next" are the player's
+// own. Ross's question 287 (mute and next to ⇧M / ⇧N?) is a change to this
+// table only. X is reserved for Mix now (auto-mix, 26c): not bound yet.
+const NP_LETTER_KEYS = {
+    'M': ['mix:M', 'mute'],
+    '⇧M': ['mix:M', 'mute'],
+    'N': ['mix:N', 'next'],
+    '⇧N': ['mix:N', 'next'],
+    'A': ['mix:A'],
+};
+
+// true when the action acted (the key is then the page's no more)
+function npLetterKeyAction(action) {
+    if (action.startsWith('mix:')) {
+        return Boolean(window.SoulSyncMix && window.SoulSyncMix.key(action.slice(4)));
+    }
+    if (action === 'mute') {
+        handleNpMuteToggle();   // works whether or not the modal is open
+        return true;
+    }
+    if (action === 'next') {
+        if (npQueue.length > 0) playNextInQueue();
+        return true;
+    }
+    return false;
 }
 
 function syncVolumeUI(volumePercent) {
