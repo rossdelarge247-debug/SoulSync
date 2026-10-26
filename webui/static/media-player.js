@@ -2853,15 +2853,30 @@ function handlePlayerKeyboardShortcuts(event) {
             event.preventDefault();
             npSetVolume(npVolumePercent - 5);
             break;
+        // 24a: M switches the tray to Mix and back (Visuals: its drawer), N
+        // plays the top match next, A adds the playing track to the working
+        // set (src/features/mix/mix-host.tsx). Where there's no Mix tab (a
+        // podcast, a book, a station that isn't playing one of yours) M still
+        // mutes and N still skips. X is reserved for Mix now (auto-mix, 26c):
+        // not bound yet.
         case 'm':
         case 'M':
+            if (event.ctrlKey || event.metaKey || event.altKey) return;
             event.preventDefault();
+            if (window.SoulSyncMix && window.SoulSyncMix.key('M')) break;
             handleNpMuteToggle();   // works whether or not the modal is open
             break;
         case 'n':
         case 'N':
+            if (event.ctrlKey || event.metaKey || event.altKey) return;
             event.preventDefault();
+            if (window.SoulSyncMix && window.SoulSyncMix.key('N')) break;
             if (npQueue.length > 0) playNextInQueue();
+            break;
+        case 'a':
+        case 'A':
+            if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+            if (window.SoulSyncMix && window.SoulSyncMix.key('A')) event.preventDefault();
             break;
         case 'p':
         case 'P':

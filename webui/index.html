@@ -12575,6 +12575,8 @@
 
             <!-- left: the record -->
             <div class="ss-player-record">
+                <!-- Now playing · Mix (29a, key M): src/features/mix/mix-host.tsx -->
+                <div class="ss-player-modes" data-player-modes="music"></div>
                 <div class="ss-player-record-top">
                     <span class="ss-player-record-art">
                         <!-- media-player.js sets this one: its colours feed the visuals -->
@@ -12820,6 +12822,8 @@
                  fills it; the sheet's card above stays the phone's. -->
             <div class="ss-player-radio-tray" data-player-radio-tray>
                 <div class="ss-player-record ss-player-rtray-record">
+                    <!-- Now playing · Mix, while the track on air is one of yours -->
+                    <div class="ss-player-modes" data-player-modes="radio"></div>
                     <div class="ss-player-record-top">
                         <span class="ss-player-record-art ss-player-rtray-logo" aria-hidden="true">
                             <span class="ss-player-rtray-letters" data-player-rtray-letters></span>
@@ -12907,6 +12911,11 @@
                     <p class="ss-player-list-foot" data-player-rtray-foot></p>
                 </div>
             </div>
+
+            <!-- Mix (29a; the phone's Mix · Set, 29c): the tray's second mode, in
+                 the columns' place while #media-player[data-tray-mode="mix"].
+                 src/features/mix/mix-host.tsx fills it -->
+            <div class="ss-player-mix" data-player-mix hidden></div>
         </div>
 
         <!-- the record's "…": everything the old Now Playing had beyond the board -->
@@ -12977,6 +12986,10 @@
                     </button>
                 </div>
                 <div class="ss-visuals-head-right">
+                    <!-- 29b: the Mix tab as a drawer (src/features/mix/mix-host.tsx) -->
+                    <button type="button" class="ss-visuals-hbtn ss-visuals-mix-btn" id="np-v2-visuals-mix-btn" aria-pressed="false" aria-expanded="false" aria-controls="ss-mix-drawer" title="Mix (M)" hidden>
+                        <span>Mix</span>
+                    </button>
                     <button type="button" class="ss-visuals-hbtn ss-visuals-panel-btn" id="np-v2-visuals-panel-btn" aria-expanded="false" aria-pressed="false" aria-label="Visuals">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
                         <span>Visuals</span>
@@ -13041,8 +13054,10 @@
                 <div><dt>Play or pause; stop, while a station plays</dt><dd><kbd>Space</kbd></dd></div>
                 <div><dt>Back or forward 5 seconds</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div>
                 <div><dt>Volume</dt><dd><kbd>↑</kbd> <kbd>↓</kbd></dd></div>
-                <div><dt>Mute</dt><dd><kbd>M</kbd></dd></div>
-                <div><dt>Next or previous track</dt><dd><kbd>N</kbd> <kbd>P</kbd></dd></div>
+                <div><dt>The tray to Mix and back (Visuals: the Mix drawer); mute where there's no Mix tab</dt><dd><kbd>M</kbd></dd></div>
+                <div><dt>Play the top match next; the next track where there's no Mix tab</dt><dd><kbd>N</kbd></dd></div>
+                <div><dt>Previous track</dt><dd><kbd>P</kbd></dd></div>
+                <div><dt>Add the playing track to the working set</dt><dd><kbd>A</kbd></dd></div>
                 <div><dt>Star or unstar the playing track (the focused row's, on a list)</dt><dd><kbd>S</kbd></dd></div>
                 <div class="ss-player-shortcuts-gap"><dt>A–B loop</dt><dd><kbd>L</kbd></dd></div>
                 <div><dt>Slower or faster</dt><dd><kbd>[</kbd> <kbd>]</kbd></dd></div>

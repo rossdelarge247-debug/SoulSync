@@ -17,6 +17,8 @@
 }
 html[data-player='bar'] { --ss-player-h: 72px; }
 html[data-player='tray'] { --ss-player-h: 360px; }
+/* with the Mix tab (29a): the tray is 500px, in both of its modes */
+html[data-player='tray'][data-mix-available] { --ss-player-h: 500px; }
 
 @media (min-width: 769px) {
     html[data-player] .main-container { height: calc(100vh - var(--ss-player-h)); }
@@ -483,6 +485,34 @@ html[data-player='tray'] .ss-player-bar { display: none; }
 }
 .ss-player-tray[hidden] { display: none; }
 .ss-player-sheet-head { display: none; }
+
+/* ── Now playing · Mix (Mix tab.dc.html, 29a; key M) ─────────────────────
+   src/features/mix/mix-host.tsx puts the switch at the top of the record
+   ([data-player-modes]) while the playing track has a Mix tab, and the Mix
+   mode's three columns in [data-player-mix]; #media-player[data-tray-mode]
+   is "mix" while they show. The tray is 500px then, in both modes. */
+.ss-player-modes:empty { display: none; }
+html[data-mix-available] .ss-player-tray { height: 500px; }
+.ss-player-mix { display: none; }
+.ss-player[data-tray-mode='mix'] .ss-player-tray {
+    grid-template-columns: 280px minmax(0, 1fr) 440px;
+    padding: 20px 24px;
+}
+.ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-record,
+.ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-deck,
+.ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-list,
+.ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-radio,
+.ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-radio-tray { display: none !important; }
+.ss-player[data-tray-mode='mix'] .ss-player-mix:not([hidden]) { display: contents; }
+/* the matches' list scrolls inside the tray's height */
+.ss-player[data-tray-mode='mix'] .ss-player-mix [data-mix-col] { overflow-y: auto; overscroll-behavior: contain; }
+/* the Visuals' Mix button (29b): a text button, selected while its drawer is open */
+.ss-visuals-mix-btn[hidden] { display: none !important; }
+.ss-visuals-mix-btn { padding: 0 14px; }
+.ss-visuals-mix-btn[aria-pressed='true'] {
+    border-color: var(--ss-selected-border);
+    background: var(--ss-selected-fill);
+}
 
 /* the record */
 /* gaps of 10 so the record's control row (9d) fits the 360px tray */
@@ -1251,6 +1281,7 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     .ss-player-side .ss-player-volume { width: 72px; }
     .ss-player-tray { grid-template-columns: 240px minmax(0, 1fr) 320px; gap: 24px; padding: 20px 16px 16px; }
     .ss-player-record-art { width: 88px; height: 88px; }
+    .ss-player[data-tray-mode='mix'] .ss-player-tray { grid-template-columns: 240px minmax(0, 1fr) 340px; gap: 24px; padding: 20px 16px 16px; }
 }
 
 /* ── phones: the mini bar and the sheet ──────────────────────────────── */
@@ -1300,6 +1331,9 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
         color: var(--ss-text);
     }
     .ss-player-mini-play .ss-player-spinner { border-color: rgba(255, 255, 255, 0.2); border-top-color: #fff; }
+    /* the sheet in Mix (29c): Mix · Set in the record's place */
+    html[data-mix-available] .ss-player-tray { height: auto; }
+    .ss-player[data-tray-mode='mix'] .ss-player-mix:not([hidden]) { display: block; }
     .ss-player-mini [data-player-action='mini'] { width: auto; min-width: 44px; padding: 0 6px; font-size: 14px; font-weight: 500; }
 
     /* the tray never opens in place on a phone; it's the sheet */

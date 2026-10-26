@@ -1,0 +1,929 @@
+/*
+ * The Mix tab (Mix tab.dc.html, 29a–29d): the tray's second mode at 1440
+ * (three columns: this track 280px, Mixes well with, the working set 440px),
+ * the 520px drawer in Visuals, and the phone's Mix · Set sheet. Tokens only;
+ * text 14px or larger at 62% white or brighter, but the strip's 13px
+ * numbers and keys, as drawn.
+ */
+
+/* ── Now playing · Mix ─────────────────────────────────────────────────── */
+
+.modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--ss-surface-card);
+  border: 1px solid var(--ss-surface-card-border);
+}
+
+.modeTab {
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ss-text-secondary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.modeTab:hover {
+  background: var(--ss-hover-wash);
+}
+
+.modeTab[aria-selected='true'] {
+  background: rgba(var(--ss-accent-rgb), 0.14);
+  border-color: rgba(var(--ss-accent-rgb), 0.45);
+  color: var(--ss-text);
+}
+
+.modeTab:focus-visible,
+.iconButton:focus-visible,
+.addButton:focus-visible,
+.pickButton:focus-visible,
+.choice:focus-visible,
+.vibe:focus-visible,
+.primary:focus-visible,
+.textButton:focus-visible,
+.stateAction:focus-visible {
+  outline: 2px solid rgb(var(--ss-accent-light-rgb));
+  outline-offset: 2px;
+}
+
+.modes[data-size='lg'] .modeTab {
+  min-height: 44px;
+}
+
+/* ── the tray's three columns (29a) ────────────────────────────────────── */
+
+.left,
+.middle,
+.right {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.left {
+  grid-column: 1;
+  gap: 14px;
+}
+
+.middle {
+  grid-column: 2;
+  gap: 8px;
+}
+
+.right {
+  grid-column: 3;
+  gap: 12px;
+}
+
+.now {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.art {
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border-radius: var(--ss-radius-control);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.art img,
+.rowArt img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.nowText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.nowTitle {
+  font-size: 17px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nowArtist {
+  font-size: 15px;
+  color: var(--ss-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clock {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  color: var(--ss-text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.keyLine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 15px;
+}
+
+.keyLine abbr {
+  font-size: 15px;
+}
+
+.keyName {
+  white-space: nowrap;
+}
+
+.bpm {
+  color: var(--ss-text-secondary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.star {
+  display: inline-flex;
+  flex: none;
+}
+
+.analyse {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ss-text-meta);
+}
+
+/* ── Mixes well with ──────────────────────────────────────────────────── */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.headTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.headMeta {
+  font-size: 14px;
+  color: var(--ss-text-meta);
+}
+
+.choices {
+  display: flex;
+  gap: 4px;
+}
+
+.choice {
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid var(--ss-control-border);
+  background: transparent;
+  color: var(--ss-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.choice:hover:not([aria-disabled='true']) {
+  background: var(--ss-hover-wash);
+}
+
+.choice[aria-checked='true'] {
+  background: rgba(var(--ss-accent-rgb), 0.14);
+  border-color: rgba(var(--ss-accent-rgb), 0.45);
+  color: var(--ss-text);
+}
+
+.choice[aria-disabled='true'] {
+  color: var(--ss-text-meta);
+  cursor: default;
+}
+
+/* Vibe: a switch in a 36px control (44px on a phone) */
+.vibe {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid var(--ss-control-border);
+  background: transparent;
+  color: var(--ss-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.vibe[data-size='lg'] {
+  min-height: 44px;
+}
+
+.vibe:hover:not([aria-disabled='true']) {
+  background: var(--ss-hover-wash);
+}
+
+.vibe[aria-disabled='true'] {
+  color: var(--ss-text-meta);
+  cursor: default;
+}
+
+.vibeTrack {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.2);
+  transition: background var(--ss-motion, 120ms) ease;
+}
+
+.vibeTrack::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--ss-motion, 120ms) ease;
+}
+
+.vibe[aria-checked='true'] .vibeTrack {
+  background: rgb(var(--ss-accent-light-rgb));
+}
+
+.vibe[aria-checked='true'] .vibeTrack::after {
+  transform: translateX(12px);
+  background: #0b0b0f;
+}
+
+.vibe[aria-disabled='true'] .vibeTrack {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.vibe[aria-disabled='true'] .vibeTrack::after {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--ss-text-meta);
+}
+
+.textButton {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.textButton:hover {
+  text-decoration: underline;
+}
+
+.sheet > .textButton {
+  align-self: flex-start;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid var(--ss-surface-card-border);
+  background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+  min-height: 0;
+  transition: opacity var(--ss-motion, 120ms) ease;
+}
+
+.list[aria-busy='true'] {
+  opacity: 0.62;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 44px auto 44px;
+  gap: 8px;
+  align-items: center;
+  min-height: 64px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--ss-hairline);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.rowArt {
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: var(--ss-radius-tag);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* reserved for Preview (headphone preview needs DJ stage 3's second output) */
+.previewSlot {
+  display: none;
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowArtist {
+  font-weight: 400;
+  color: var(--ss-text-meta);
+}
+
+.starMark {
+  color: rgb(var(--ss-accent-light-rgb));
+}
+
+.rowMeta {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ss-radius-control);
+  background: transparent;
+  color: var(--ss-text-secondary);
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--ss-hover-wash);
+  color: var(--ss-text);
+}
+
+.iconButton[data-bordered] {
+  border: 1px solid var(--ss-control-border);
+  background: var(--ss-control-fill);
+  color: var(--ss-text);
+}
+
+.addButton {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid var(--ss-control-border);
+  background: var(--ss-control-fill);
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.addButton:hover:not(:disabled) {
+  background: var(--ss-control-fill-hover);
+}
+
+.addButton:disabled {
+  color: var(--ss-text-meta);
+  cursor: default;
+}
+
+.foot {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ss-text-meta);
+}
+
+.foot[data-tone='warning'] {
+  color: var(--ss-warning);
+}
+
+/* 29d: a dashed card in the matches' place, or the strip's */
+.state {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 16px;
+  border-radius: var(--ss-radius-control);
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+}
+
+.stateTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.stateDot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.state[data-tone='info'] .stateDot {
+  background: var(--ss-info);
+}
+
+.stateBody {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.stateAction {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid var(--ss-control-border);
+  background: var(--ss-control-fill);
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.stateAction:hover:not(:disabled) {
+  background: var(--ss-control-fill-hover);
+}
+
+.stateAction:disabled {
+  color: var(--ss-text-meta);
+  cursor: default;
+}
+
+/* ── the working set ──────────────────────────────────────────────────── */
+
+.workingRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pickButton {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid var(--ss-input-border);
+  background: var(--ss-surface-card);
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.pickButton:hover {
+  border-color: var(--ss-input-border-hover);
+}
+
+.pickButton[data-size='lg'] {
+  min-height: 48px;
+}
+
+.pickName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickMeta {
+  flex: none;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--ss-text-meta);
+}
+
+.menu {
+  min-width: 280px;
+  max-width: 400px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--ss-ground-dialog);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  outline: 0;
+  z-index: 9800;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 15px;
+  color: var(--ss-text);
+  cursor: pointer;
+  outline: 0;
+}
+
+.menuItem[data-highlighted] {
+  background: var(--ss-hover-wash);
+}
+
+.menuItem[aria-checked='true'] {
+  background: rgba(var(--ss-accent-rgb), 0.14);
+}
+
+.menuItemMeta {
+  flex: none;
+  font-size: 14px;
+  color: var(--ss-text-meta);
+}
+
+.menuSeparator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--ss-hairline);
+}
+
+.stripCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--ss-radius-control);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--ss-surface-card-border);
+}
+
+.strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--ss-surface-card-border);
+}
+
+.cell[data-now] {
+  background: transparent;
+  border: 1px dashed rgba(var(--ss-accent-light-rgb), 0.6);
+}
+
+.cell[data-empty] {
+  background: transparent;
+  border-style: dashed;
+}
+
+.cellPos {
+  font-size: 13px;
+  color: var(--ss-text-meta);
+}
+
+.cellTitle {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell abbr {
+  font-size: 13px;
+}
+
+.energyLine {
+  display: block;
+  width: 100%;
+  height: 28px;
+}
+
+.energyLine polyline {
+  fill: none;
+  stroke: rgb(var(--ss-accent-light-rgb));
+  stroke-width: 2;
+}
+
+.join {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.stepWord {
+  font-weight: 600;
+  color: var(--ss-text-meta);
+}
+
+.stepWord[data-kind='smooth'] {
+  color: var(--ss-success);
+}
+
+.stepWord[data-kind='jump'] {
+  color: var(--ss-warning);
+}
+
+.primary {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid rgba(var(--ss-accent-light-rgb), 0.45);
+  background: rgb(var(--ss-accent-light-rgb));
+  color: var(--ss-text-on-accent, #0b0b0f);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.primary:disabled {
+  border-color: var(--ss-disabled-border);
+  background: var(--ss-disabled-fill);
+  color: var(--ss-disabled-text);
+  cursor: default;
+}
+
+.keys {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ss-text-meta);
+}
+
+/* while a set plays (29b) */
+.playing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--ss-radius-control);
+  background: rgba(var(--ss-accent-rgb), 0.08);
+  border: 1px solid rgba(var(--ss-accent-rgb), 0.35);
+}
+
+.playingTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.playingNext {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: var(--ss-text-secondary);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 14px;
+  border: 1px solid var(--ss-control-border);
+  font-weight: 600;
+}
+
+.pill i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.pill[data-tone='smooth'] i {
+  background: var(--ss-success);
+}
+
+.pill[data-tone='jump'] {
+  border-color: rgba(var(--ss-warning-rgb), 0.45);
+}
+
+.pill[data-tone='jump'] i {
+  background: var(--ss-warning);
+}
+
+/* ── the Visuals drawer (29b) ─────────────────────────────────────────── */
+
+.drawer {
+  position: absolute;
+  right: 16px;
+  top: 80px;
+  bottom: 88px;
+  z-index: 30;
+  width: 520px;
+  max-width: calc(100% - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--ss-ground-note);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--ss-radius-card);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  color: var(--ss-text);
+  font-family: var(--ss-shell-font, inherit);
+}
+
+.drawer .row,
+.sheet .row {
+  grid-template-columns: minmax(0, 1fr) 44px 44px 44px;
+  gap: 6px;
+  padding: 0;
+}
+
+.sheet .row {
+  grid-template-columns: minmax(0, 1fr) 44px 44px;
+}
+
+.drawer .list,
+.sheet .list {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* ── the phone sheet (29c) ────────────────────────────────────────────── */
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.sheetTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sheetMeter {
+  flex: 1;
+  min-width: 0;
+}
+
+.sheetGraph {
+  display: block;
+  width: 100%;
+  height: 40px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sheetGraph polyline {
+  fill: none;
+  stroke: rgb(var(--ss-accent-light-rgb));
+  stroke-width: 2;
+}
+
+.setRow {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 44px;
+  gap: 8px;
+  align-items: center;
+  min-height: 56px;
+  border-bottom: 1px solid var(--ss-hairline);
+}
+
+.setNumber {
+  font-size: 14px;
+  color: var(--ss-text-meta);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.setMeta {
+  font-size: 14px;
+  color: var(--ss-text-meta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vibeTrack,
+  .vibeTrack::after,
+  .list {
+    transition: none;
+  }
+}

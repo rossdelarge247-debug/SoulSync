@@ -3,6 +3,7 @@ import { Outlet, createRootRouteWithContext } from '@tanstack/react-router';
 import type { AppRouterContext } from '@/app/router';
 
 import { MixesPanelHost } from '@/features/dj/mixes-panel';
+import { MixTabHost } from '@/features/mix/mix-host';
 import { waitForShellContext } from '@/platform/shell/bridge';
 import { ShellLocationReporter } from '@/platform/shell/route-controllers';
 import { shellStatusQueryOptions } from '@/platform/shell/status';
@@ -35,6 +36,9 @@ export const Route = createRootRouteWithContext<AppRouterContext>()({
       {/* "Mixes well with" (17a, HANDOFF 164): docked at the right, it stays
           open while you move between pages and play */}
       <MixesPanelHost />
+      {/* the player's Mix tab (29a–29c): the tray's second mode, the
+          Visuals drawer and the phone's Mix · Set, placed into the shell */}
+      <MixTabHost />
     </>
   ),
 });
