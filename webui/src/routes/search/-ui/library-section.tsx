@@ -17,6 +17,7 @@ import { LoadingState, Notice, SkeletonList, StatusTag } from '@/components/prim
 import { DjMeta } from '@/features/dj/dj-meta';
 import { useDjInfo } from '@/features/dj/dj.api';
 import { openMixes } from '@/features/dj/mixes-store';
+import { StarButton } from '@/features/stars/star-button';
 import { AppLink } from '@/routes/activity/-ui/app-link';
 import { albumQueueTrack } from '@/routes/library/-library.helpers';
 
@@ -306,7 +307,12 @@ export function LibrarySection({
             const track = row.item;
             const verdict = qualityVerdict([track], bar);
             return (
-              <div className={styles.row} data-kind="library" key={`track:${track.id}`}>
+              <div
+                className={styles.row}
+                data-kind="library"
+                data-star-row={track.file_path ? String(track.id) : undefined}
+                key={`track:${track.id}`}
+              >
                 <Art url={track.album_thumb_url} />
                 <div className={styles.rowText}>
                   <span className={styles.rowTitle}>{track.title}</span>
@@ -323,6 +329,8 @@ export function LibrarySection({
                   <QualityTag verdict={verdict} />
                 </span>
                 <div className={styles.actions}>
+                  {/* 28a: the star, for a library track with its file */}
+                  <StarButton id={track.file_path ? String(track.id) : null} title={track.title} />
                   {track.file_path ? (
                     <Button
                       size="lg"

@@ -290,7 +290,8 @@
 
 .mixRow {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 44px 44px;
+  /* 28a: the star's column before Play next and Add to playlist */
+  grid-template-columns: 40px minmax(0, 1fr) 32px 44px 44px;
   gap: 8px;
   align-items: center;
   min-height: 64px;
@@ -466,7 +467,7 @@
 }
 
 .sheet .mixRow {
-  grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px 44px 44px;
 }
 
 .sheet .mixArt {

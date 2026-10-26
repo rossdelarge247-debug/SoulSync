@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { EmptyState, LoadingState, Notice, SkeletonList } from '@/components/primitives';
 import { DjMeta } from '@/features/dj/dj-meta';
 import { useDjInfo } from '@/features/dj/dj.api';
-import { openMixes } from '@/features/dj/mixes-store';
+import { trackMenu } from '@/features/dj/track-menu';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
+import { StarButton } from '@/features/stars/star-button';
 import { getShellBridge } from '@/platform/shell/bridge';
 import { profileAsksFirst } from '@/platform/shell/download-rights';
 
@@ -223,6 +224,85 @@ function PopularTracks({ artistId, artistName }: { artistId: unknown; artistName
   );
 }
 
+/**
+ * One of your tracks (the shared "…" of 24a and the star of 28a): Play
+ * next, Mixes well with…, Add to queue (this page's own), Add to mix set…,
+ * Add to playlist…; on a phone the sheet would start with Star, here the
+ * row keeps it (the star's 44px column).
+ */
+function LibraryTrackRow({
+  track,
+  title,
+  focus,
+  play,
+  playNext,
+  addToQueue,
+  addToPlaylist,
+  artistName,
+  dj,
+}: {
+  track: EnhancedTrack;
+  title: string;
+  focus: boolean;
+  play: () => void;
+  playNext: () => void;
+  addToQueue: () => void;
+  addToPlaylist: () => void;
+  artistName: string;
+  dj: Parameters<typeof DjMeta>[0]['dj'];
+}) {
+  const id = text(track.id);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const entries = trackMenu(
+    { id, title, artist: artistName },
+    {
+      playNext: { onSelect: playNext },
+      anchor: () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
+      addToPlaylist,
+    },
+  );
+  // this page's own Add to queue stays, straight after Play next
+  const at = entries.findIndex((e) => e.key === 'next') + 1;
+  entries.splice(at, 0, { key: 'queue', label: 'Add to queue', onSelect: addToQueue });
+  return (
+    <li
+      ref={rowRef}
+      className={styles.row}
+      data-star-row={id}
+      data-library-row=""
+      data-focus={focus ? 'true' : undefined}
+    >
+      <span className={styles.rowNum}>{text(track.track_number)}</span>
+      <button
+        type="button"
+        className={styles.playButton}
+        aria-label={`Play ${title}`}
+        onClick={play}
+      >
+        <PlayIcon />
+      </button>
+      <span className={styles.rowText}>
+        <span className={styles.rowTitle}>{title}</span>
+        <span className={`${styles.rowMeta} ${styles.rowMetaPhone}`}>
+          {[durationText(track.duration), qualityText(track)].filter(Boolean).join(' · ')}
+          <DjMeta dj={dj} lead />
+        </span>
+        {dj ? (
+          <span className={`${styles.rowMeta} ${styles.rowMetaWide}`}>
+            <DjMeta dj={dj} />
+          </span>
+        ) : null}
+      </span>
+      <span className={styles.rowAside}>{durationText(track.duration)}</span>
+      <span className={styles.rowAside}>{qualityText(track)}</span>
+      <span className={styles.starCell}>
+        <StarButton id={id} title={title} />
+      </span>
+      <ArtistMenu label={`More for ${title}`} variant="bare" entries={entries} />
+    </li>
+  );
+}
+
 /** Every track you have by them, grouped by release, newest release first. */
 function LibraryTracks({
   data,
@@ -290,75 +370,25 @@ function LibraryTracks({
               {tracks.map((track) => {
                 const title = text(track.title) || 'Unknown track';
                 return (
-                  <li
-                    className={styles.row}
+                  <LibraryTrackRow
                     key={String(track.id)}
-                    data-focus={
-                      focusAlbumId && String(album.id) === focusAlbumId ? 'true' : undefined
-                    }
-                  >
-                    <span className={styles.rowNum}>{text(track.track_number)}</span>
-                    <button
-                      type="button"
-                      className={styles.playButton}
-                      aria-label={`Play ${title}`}
-                      onClick={() => play(track, album)}
-                    >
-                      <PlayIcon />
-                    </button>
-                    <span className={styles.rowText}>
-                      <span className={styles.rowTitle}>{title}</span>
-                      <span className={`${styles.rowMeta} ${styles.rowMetaPhone}`}>
-                        {[durationText(track.duration), qualityText(track)]
-                          .filter(Boolean)
-                          .join(' · ')}
-                        <DjMeta dj={djInfo[text(track.id)]} lead />
-                      </span>
-                      {djInfo[text(track.id)] ? (
-                        <span className={`${styles.rowMeta} ${styles.rowMetaWide}`}>
-                          <DjMeta dj={djInfo[text(track.id)]} />
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className={styles.rowAside}>{durationText(track.duration)}</span>
-                    <span className={styles.rowAside}>{qualityText(track)}</span>
-                    <ArtistMenu
-                      label={`More for ${title}`}
-                      variant="bare"
-                      entries={[
-                        { key: 'play', label: 'Play', onSelect: () => play(track, album) },
-                        {
-                          key: 'next',
-                          label: 'Play next',
-                          onSelect: () => {
-                            const payload = queueTrackPayload(track, album, artist);
-                            if (typeof window.playNext === 'function') window.playNext(payload);
-                            else window.addToQueue?.(payload);
-                          },
-                        },
-                        // 154: Mixes well with… straight after Play next
-                        {
-                          key: 'mixes',
-                          label: 'Mixes well with…',
-                          onSelect: () => openMixes({ id: text(track.id), title }),
-                        },
-                        {
-                          key: 'queue',
-                          label: 'Add to queue',
-                          onSelect: () =>
-                            window.addToQueue?.(queueTrackPayload(track, album, artist)),
-                        },
-                        {
-                          key: 'playlist',
-                          label: 'Add to a playlist…',
-                          onSelect: () => {
-                            const row = playlistTrackPayload(track, album, artist);
-                            if (row) openAddToPlaylist(row);
-                          },
-                        },
-                      ]}
-                    />
-                  </li>
+                    track={track}
+                    title={title}
+                    focus={Boolean(focusAlbumId && String(album.id) === focusAlbumId)}
+                    play={() => play(track, album)}
+                    playNext={() => {
+                      const payload = queueTrackPayload(track, album, artist);
+                      if (typeof window.playNext === 'function') window.playNext(payload);
+                      else window.addToQueue?.(payload);
+                    }}
+                    addToQueue={() => window.addToQueue?.(queueTrackPayload(track, album, artist))}
+                    addToPlaylist={() => {
+                      const row = playlistTrackPayload(track, album, artist);
+                      if (row) openAddToPlaylist(row);
+                    }}
+                    artistName={artistName}
+                    dj={djInfo[text(track.id)]}
+                  />
                 );
               })}
             </ol>
