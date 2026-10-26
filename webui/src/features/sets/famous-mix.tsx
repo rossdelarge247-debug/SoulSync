@@ -2,7 +2,7 @@
  * Famous mix (22f–22i; states 22r, 22s): search MixesDB, MusicBrainz and
  * Discogs, or paste a tracklist, then the match against the library: "You
  * own 14 of 22", the three-part bar, each line Owned / Another version /
- * Missing (IDs aside), Use yours or Want the Dub on a version, Save as mix,
+ * Missing (IDs aside), Use yours or Want the Dub on a version, Save as mix set,
  * Export to Traktor… and Add N missing to Wanted. Matching and reading a
  * paste are plain code on the server; nothing here asks an AI.
  */
@@ -213,7 +213,7 @@ export function MatchView({
             disabled={busy || !used.length}
             onClick={() => void save()}
           >
-            Save as mix
+            Save as mix set
           </Button>
           {phone ? null : (
             <Button
@@ -567,7 +567,7 @@ export function FamousSearch({
             <p>
               SYNCHRO.S tried for 10 seconds; {SOURCE_NAMES[err.source]} didn&apos;t answer.
               It&apos;s often back within the hour.
-              {saved ? ' You saved it as a mix, so that copy still opens.' : ''}
+              {saved ? ' You saved it as a mix set, so that copy still opens.' : ''}
             </p>
             {saved ? (
               <Button size="lg" variant="primary" onClick={() => onOpenSaved(Number(saved.id))}>

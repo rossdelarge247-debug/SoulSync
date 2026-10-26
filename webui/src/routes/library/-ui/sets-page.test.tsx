@@ -54,19 +54,37 @@ const LIBRARY: Record<string, ReturnType<typeof track>> = {
 
 type Row = { track_id: string | null; title: string | null; locked?: boolean };
 
+/** 28e: ids whose file has gone (File missing), and ids not analysed yet */
+let GONE = new Set<string>();
+let WORKING = new Set<string>();
+
 function view(rows: Row[]) {
-  const out = rows.map((r) => ({ ...r, track: r.track_id ? (LIBRARY[r.track_id] ?? null) : null }));
+  const out = rows.map((r) => {
+    const known = r.track_id ? (LIBRARY[r.track_id] ?? null) : null;
+    if (r.track_id && GONE.has(r.track_id))
+      return { ...r, track: null, unreachable: true, gone_track: known };
+    if (known && r.track_id && WORKING.has(r.track_id))
+      return {
+        ...r,
+        track: {
+          ...known,
+          dj: { ...known.dj, bpm: null, key: null, energy: null, analyzed: false },
+        },
+      };
+    return { ...r, track: known };
+  });
   // like the server: the step from each playing row to the next playing one
   const steps = out.map((r, i) => {
     const next = out.slice(i + 1).find((n) => n.track);
-    return r.track && next?.track
-      ? {
+    if (!r.track || !next?.track) return null;
+    return !r.track.dj.key || !next.track.dj.key
+      ? { kind: 'unknown', reason: 'BPM and key not worked out yet', steps: null, bpm_diff: null }
+      : {
           kind: 'smooth',
           reason: `${r.track.dj.key} → ${next.track.dj.key}, +1 BPM`,
           steps: 1,
           bpm_diff: 1,
-        }
-      : null;
+        };
   });
   const playing = out.filter((r) => r.track).length;
   return {
@@ -78,7 +96,7 @@ function view(rows: Row[]) {
       seconds: playing * 360,
       bpm_min: 118,
       bpm_max: 120,
-      smooth: steps.filter(Boolean).length,
+      smooth: steps.filter((x) => x?.kind === 'smooth').length,
       jumps: 0,
       unknown: 0,
       locked: rows.filter((r) => r.locked).length,
@@ -162,6 +180,8 @@ beforeEach(() => {
   playlistState = null;
   staleNext = false;
   holdNextPut = null;
+  GONE = new Set();
+  WORKING = new Set();
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -342,9 +362,19 @@ describe('Library → Sets', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'New empty set' }));
     await screen.findByText('Draft · not saved');
     expect(router.state.location.search).toMatchObject({ view: 'sets', set: 'draft' });
-    expect(screen.getByText('An empty set')).toBeTruthy();
+    // 28g: the empty set names itself and offers the ways to fill it
+    expect(screen.getByRole('heading', { name: /^Nothing in .+ yet$/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Suggest a set…' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Start from a famous mix…' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add the playing track' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
     expect(window.localStorage.getItem('soulsync.sets.draft.2')).toContain('"rows":[]');
-    const save = screen.getByRole('button', { name: 'Save as mix' });
+    const save = screen.getByRole('button', { name: 'Save as mix set' });
     expect(save.getAttribute('aria-disabled')).toBe('true');
   });
 
@@ -416,7 +446,7 @@ describe('Library → Sets', () => {
       tracks: [{ artist: 'Vela Sund', title: 'Gravity Well' }],
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save as mix' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save as mix set' }));
     await waitFor(() => expect(calls('/api/sets', 'POST').length).toBe(1));
     const saved = calls('/api/sets', 'POST')[0].body as {
       kind: string;
@@ -526,5 +556,112 @@ describe('Library → Sets', () => {
       title: 'Signal Fire (Dub)',
       set_name: 'fabric 104: Saltmarsh',
     });
+  });
+});
+
+describe('a mix set’s page beyond 22c (28e, 28g)', () => {
+  it('a note per track, typed in place, saves with the set', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a note to Lowtide Hymn' }));
+    const input = screen.getByRole('textbox', { name: 'A note for Lowtide Hymn' });
+    fireEvent.change(input, { target: { value: '  mix out at   the breakdown ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    const put = calls('/api/sets/7', 'PUT')[0].body as { tracks: { note: string | null }[] };
+    expect(put.tracks[0].note).toBe('mix out at the breakdown');
+    expect(
+      screen.getByRole('button', {
+        name: 'Note for Lowtide Hymn: mix out at the breakdown. Change it',
+      }),
+    ).toBeTruthy();
+  });
+
+  it('each known step ends with its chip; picking a style and length saves {style, bars}', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const chip = await screen.findByRole('button', {
+      name: 'Transition from Lowtide Hymn to Foghorn Study: Auto, auto. Change it',
+    });
+    expect(chip.closest('[data-step]')!.getAttribute('data-step')).toBe('smooth');
+    fireEvent.click(chip);
+    const picker = screen.getByRole('dialog', { name: 'How Lowtide Hymn goes into Foghorn Study' });
+    expect(
+      within(picker)
+        .getAllByRole('radio')
+        .slice(0, 8)
+        .map((r) => r.textContent),
+    ).toEqual([
+      'AutoAuto-mix picks when it plays',
+      'Long blend',
+      'Short blend',
+      'Bass swap',
+      'Cut',
+      'Echo out',
+      'Filter sweep',
+      'Drop swap',
+    ]);
+    fireEvent.click(within(picker).getByRole('radio', { name: 'Bass swap' }));
+    fireEvent.click(within(picker).getByRole('radio', { name: '32 bars' }));
+    fireEvent.click(within(picker).getByRole('button', { name: 'Done' }));
+    expect(
+      screen.getByRole('button', {
+        name: 'Transition from Lowtide Hymn to Foghorn Study: Bass swap · 32 bars, your choice. Change it',
+      }),
+    ).toBeTruthy();
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    const put = calls('/api/sets/7', 'PUT')[0].body as { tracks: { transition: unknown }[] };
+    expect(put.tracks[0].transition).toEqual({ style: 'bass_swap', bars: 32 });
+  });
+
+  it('a file gone missing keeps its place, number and values, at 62% with its tag (28e)', async () => {
+    GONE = new Set(['2']);
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    await waitFor(() =>
+      expect(document.querySelector('[data-set-editor] p')!.textContent).toContain(
+        '1 file missing',
+      ),
+    );
+    const row = document.querySelector('[data-set-row="1"]')!;
+    expect(row.getAttribute('data-state')).toBe('gone');
+    expect(within(row as HTMLElement).getByText('File missing')).toBeTruthy();
+    expect(within(row as HTMLElement).getByText('2')).toBeTruthy(); // its number
+    expect(within(row as HTMLElement).getByText('119')).toBeTruthy(); // its BPM
+    expect(row.textContent).toContain('Skipped when played');
+    fireEvent.click(
+      within(row as HTMLElement).getByRole('button', { name: 'More for Foghorn Study' }),
+    );
+    const items = (await screen.findAllByRole('menuitem')).map((m) => m.textContent);
+    expect(items.slice(0, 2)).toEqual(['Find it again', 'Add to Wanted']);
+  });
+
+  it('a track still being analysed says so, with dashes and no chip (28e)', async () => {
+    WORKING = new Set(['2']);
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const row = (await screen.findByText('Being worked out')).closest('li')!;
+    expect(within(row).getAllByText('—').length).toBeGreaterThanOrEqual(3);
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-step="unknown"]').length).toBeGreaterThan(0),
+    );
+    for (const step of document.querySelectorAll('[data-step="unknown"]'))
+      expect(step.querySelector('button')).toBeNull();
+  });
+
+  it('a set row’s "…" keeps 24a’s order, then the set’s own', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    fireEvent.click(await screen.findByRole('button', { name: 'More for Foghorn Study' }));
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual([
+      'Play next',
+      'Mixes well with…',
+      'Add to mix set…',
+      'Add to playlist…',
+      'Move up',
+      'Move down',
+      'Move…',
+      'Remove from set',
+    ]);
   });
 });

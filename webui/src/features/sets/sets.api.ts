@@ -68,6 +68,8 @@ export interface ViewRow extends SetRow {
   track: DjTrack | null;
   /** the set holds this track but it can't be reached now (it plays again when its file is back) */
   unreachable?: boolean;
+  /** 28e: a File missing row's title and values, when the library still has its row */
+  gone_track?: Omit<DjTrack, 'file_path'> | null;
 }
 
 export interface SetSummary {

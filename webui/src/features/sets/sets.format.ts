@@ -192,7 +192,7 @@ export function haveLine(have: string | null | undefined): string {
   return `You have the ${v}`;
 }
 
-/** The tracklist's rows as a set keeps them (Save as mix). */
+/** The tracklist's rows as a set keeps them (Save as mix set). */
 export function rowsFromMatch(rows: MatchRow[], wants: Record<number, boolean> = {}): SetRow[] {
   return rows.map((r, i) => ({
     track_id: r.track && r.state !== 'missing' ? r.track.id : null,

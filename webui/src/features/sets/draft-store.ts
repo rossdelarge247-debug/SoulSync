@@ -1,6 +1,6 @@
 /**
  * The draft set ("Draft · not saved", 22c), kept in this browser per profile
- * until it's saved as a mix. Design asked for drafts on the server for a
+ * until it's saved as a mix set. Design asked for drafts on the server for a
  * week; whether that's wanted is HANDOFF 246, so for now a draft lives here
  * and a different browser doesn't see it.
  */

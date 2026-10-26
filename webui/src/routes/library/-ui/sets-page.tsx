@@ -190,7 +190,8 @@ function SavedSet({ id, go }: { id: number; go: Go }) {
   const { set, rows } = query.data;
   return (
     <SetEditor
-      key={set.id}
+      // a set changed elsewhere (the picker added to it) opens afresh at its new revision
+      key={`${set.id}-${set.revision ?? 0}`}
       source={{
         kind: 'saved',
         id: set.id,
@@ -245,7 +246,7 @@ export function SetsPage({ search, go }: { search: LibrarySearch; go: Go }) {
               </Button>
             }
           >
-            Drafts are kept in the browser that made them until they&apos;re saved as a mix.
+            Drafts are kept in the browser that made them until they&apos;re saved as a mix set.
           </Notice>
         </div>
       );
