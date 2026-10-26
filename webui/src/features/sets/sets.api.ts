@@ -137,7 +137,7 @@ export interface UnreadLine {
 
 export interface SourceState {
   state: 'ok' | 'down' | 'off' | 'limited';
-  why?: 'token' | 'terms' | 'rate_limited' | 'profile';
+  why?: 'token' | 'terms' | 'rate_limited' | 'profile' | 'busy';
 }
 
 export type SourceStates = Record<SourceName, SourceState>;

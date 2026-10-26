@@ -321,12 +321,14 @@ def famous_open():
     if source not in sources.SOURCES or not isinstance(mix_id, str) or not mix_id.strip():
         return _bad("source and id are needed")
     try:
-        mix = sources.open_mix(source, mix_id)
+        mix = sources.open_mix(source, mix_id, profile_id=pid)
     except LookupError:
         return _bad(f"{sources.SOURCE_NAMES[source]} isn't searched", 409)
-    except sources.SourceBusy:
-        return jsonify({"success": False, "limited": source,
-                        "error": f"{sources.SOURCE_NAMES[source]} is busy right now. Try again in a minute."}), 429
+    except sources.SourceBusy as exc:
+        name = sources.SOURCE_NAMES[source]
+        said = (f"You've opened several mixes from {name} just now. Try again in a minute."
+                if exc.why == "profile" else f"{name} is busy right now. Try again in a minute.")
+        return jsonify({"success": False, "limited": source, "why": exc.why, "error": said}), 429
     except sources.SourceDown:
         return jsonify({"success": False, "down": source, "source_name": sources.SOURCE_NAMES[source],
                         "error": f"{sources.SOURCE_NAMES[source]} can't be reached"}), 503

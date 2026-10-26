@@ -300,8 +300,10 @@ def test_one_request_at_a_time_per_source(monkeypatch):
 
     monkeypatch.setattr(sources, "_http_get", fake)
     monkeypatch.setattr(sources, "MIN_INTERVAL", {"mixesdb": 0.0, "discogs": 0.0})
+    # one holds the source and MAX_WAITERS wait for it (one more would be
+    # refused at once: test_rereview_fixes)
     threads = [threading.Thread(target=sources._get_json, args=("mixesdb", sources.MIXESDB_API, {}))
-               for _ in range(5)]
+               for _ in range(1 + sources.MAX_WAITERS)]
     for t in threads:
         t.start()
     for t in threads:

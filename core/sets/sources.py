@@ -13,16 +13,20 @@ Outbound rules (docs/GAUNTLET.md, "Outbound HTTP"):
   answer, at most 2 MB read from any answer (streamed, so a bigger one is
   cut off, not downloaded), and one request at a time per source (a lock
   held for the whole request) with 1 s between them; a request that waits
-  over 25 s for its turn is a source down.
-* **Discogs' token is the admin's** (Settings → Connections, shared by every
-  profile), so each profile may start 20 uncached Discogs searches a
-  minute, and a 429 from Discogs pauses it for a minute (``limited``).
+  over 25 s for its turn is a source down, and while 3 requests already
+  wait for a source's turn a fourth isn't queued at all (``limited``,
+  ``busy``). The 20 s covers the wait for the answer's headers too.
+* **Each profile has a budget.** Discogs' token is the admin's (Settings →
+  Connections, shared by every profile), so each profile may start 20
+  uncached Discogs requests a minute, searches and opened tracklists
+  together, and MixesDB the same; a cached answer costs nothing. A 429
+  from Discogs pauses it for a minute (``limited``).
 * **Cached.** Searches for 10 minutes and tracklists for 6 hours, in memory,
   so a page reload or a second look costs nothing.
 * **Said, not hidden.** Each search answers every source's state: ``ok``,
   ``down`` (it didn't answer: 22r's Notice), ``off`` (not set up, with
   why: Discogs without a token, MixesDB until an admin turns it on),
-  ``limited`` (why: ``rate_limited`` or ``profile``).
+  ``limited`` (why: ``rate_limited``, ``profile`` or ``busy``).
 
 Answers are data: titles and names are cut to sane lengths and nothing in
 them is followed.
@@ -125,18 +129,28 @@ LOCK_WAIT = 25.0
 TOTAL_DEADLINE = 20.0
 #: after Discogs says "too many requests" (429), it isn't asked for this long
 DISCOGS_BACKOFF = 60.0
-#: uncached Discogs searches one profile may start in a minute (the token is
-#: the admin's, shared by every profile)
+#: uncached Discogs requests (searches and opened tracklists) one profile
+#: may start in a minute (the token is the admin's, shared by every profile)
 DISCOGS_PER_PROFILE = 20
+#: the same for MixesDB, a volunteer-run site
+MIXESDB_PER_PROFILE = 20
+PER_PROFILE = {"discogs": DISCOGS_PER_PROFILE, "mixesdb": MIXESDB_PER_PROFILE}
+#: requests that may wait for one source's turn at once; one more is refused
+#: straight away rather than holding a worker for up to LOCK_WAIT
+MAX_WAITERS = 3
 
 _discogs_until = 0.0
-_discogs_asks: Dict[Any, List[float]] = {}
-_discogs_lock = threading.Lock()
+#: (source, profile) -> when its uncached requests in the last minute started
+_asks: Dict[Tuple[str, Any], List[float]] = {}
+_asks_lock = threading.Lock()
+_waiting: Dict[str, int] = {name: 0 for name in MIN_INTERVAL}
+_waiting_lock = threading.Lock()
 
 
 class SourceBusy(SourceDown):
-    """The source asked us to slow down (429), or this profile has asked it
-    often enough for now. ``why`` is "rate_limited" or "profile"."""
+    """The source asked us to slow down (429), this profile has asked it
+    often enough for now, or enough requests already wait for its turn.
+    ``why`` is "rate_limited", "profile" or "busy"."""
 
     def __init__(self, message: str, why: str):
         super().__init__(message)
@@ -145,9 +159,19 @@ class SourceBusy(SourceDown):
 
 def _turn(source: str):
     """One request at a time per source, at least MIN_INTERVAL apart: the
-    lock is held for the whole request, so the pause holds across threads."""
+    lock is held for the whole request, so the pause holds across threads.
+    At most MAX_WAITERS wait for it; one more is SourceBusy ("busy") at once."""
     lock = _pace_locks[source]
-    if not lock.acquire(timeout=LOCK_WAIT):
+    with _waiting_lock:
+        if _waiting[source] >= MAX_WAITERS:
+            raise SourceBusy(f"{SOURCE_NAMES[source]} is busy with other requests", "busy")
+        _waiting[source] += 1
+    try:
+        got = lock.acquire(timeout=LOCK_WAIT)
+    finally:
+        with _waiting_lock:
+            _waiting[source] -= 1
+    if not got:
         raise SourceDown(f"{SOURCE_NAMES[source]} is busy with other requests")
     wait = _last_call.get(source, 0.0) + MIN_INTERVAL[source] - time.monotonic()
     if wait > 0:
@@ -165,7 +189,7 @@ def _get_json(source: str, url: str, params: Dict[str, Any], headers: Optional[D
     """GET a fixed URL with ``params``: JSON, or SourceDown. ``url`` is one of
     this module's constants plus a fixed path, never anything from outside.
     Bounded three ways: 5 s to connect and 10 s between bytes, TOTAL_DEADLINE
-    for the whole answer, and MAX_BYTES."""
+    for the whole answer (the wait for its headers included), and MAX_BYTES."""
     global _discogs_until
     if not (url.startswith(MIXESDB_API) or url.startswith(DISCOGS_API + "/")):
         raise ValueError("not a Sets source address")
@@ -175,12 +199,16 @@ def _get_json(source: str, url: str, params: Dict[str, Any], headers: Optional[D
     try:
         started = time.monotonic()
         sent = {"User-Agent": user_agent(), "Accept": "application/json", **(headers or {})}
+        remaining = TOTAL_DEADLINE - (time.monotonic() - started)
         try:
-            response = _http_get(url, params=params, headers=sent, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            response = _http_get(url, params=params, headers=sent,
+                                 timeout=(min(CONNECT_TIMEOUT, remaining), min(READ_TIMEOUT, remaining)),
                                  allow_redirects=False, stream=True)
         except requests.RequestException as exc:
             raise SourceDown(f"{SOURCE_NAMES[source]} didn't answer") from exc
         try:
+            if time.monotonic() - started > TOTAL_DEADLINE:
+                raise SourceDown(f"{SOURCE_NAMES[source]} took too long to answer")
             if response.status_code == 429 and source == "discogs":
                 _discogs_until = time.monotonic() + DISCOGS_BACKOFF
                 raise SourceBusy("Discogs asked SYNCHRO.S to slow down", "rate_limited")
@@ -206,28 +234,41 @@ def _get_json(source: str, url: str, params: Dict[str, Any], headers: Optional[D
         raise SourceDown(f"{SOURCE_NAMES[source]} didn't send JSON") from exc
 
 
-def _discogs_allowed(profile_id: Any) -> bool:
-    """Whether this profile may start another uncached Discogs search now
-    (DISCOGS_PER_PROFILE a minute); counts it when it may."""
+def _profile_allowed(source: str, profile_id: Any) -> bool:
+    """Whether this profile may start another uncached request to
+    ``source`` now (PER_PROFILE a minute; a source without a budget always
+    may); counts it when it may."""
+    limit = PER_PROFILE.get(source)
+    if limit is None:
+        return True
     now = time.monotonic()
-    with _discogs_lock:
-        asks = [t for t in _discogs_asks.get(profile_id, []) if now - t < 60.0]
-        if len(asks) >= DISCOGS_PER_PROFILE:
-            _discogs_asks[profile_id] = asks
+    key = (source, profile_id)
+    with _asks_lock:
+        asks = [t for t in _asks.get(key, []) if now - t < 60.0]
+        if len(asks) >= limit:
+            _asks[key] = asks
             return False
         asks.append(now)
-        _discogs_asks[profile_id] = asks
-        if len(_discogs_asks) > 1000:
-            for key in [k for k, v in _discogs_asks.items() if not v or now - v[-1] >= 60.0]:
-                _discogs_asks.pop(key, None)
+        _asks[key] = asks
+        if len(_asks) > 1000:
+            for old in [k for k, v in _asks.items() if not v or now - v[-1] >= 60.0]:
+                _asks.pop(old, None)
         return True
 
 
+def _discogs_allowed(profile_id: Any) -> bool:
+    return _profile_allowed("discogs", profile_id)
+
+
 def reset_limits() -> None:
-    """Tests: forget the Discogs back-off and the per-profile counts."""
+    """Tests: forget the Discogs back-off, the per-profile counts and the
+    waiters."""
     global _discogs_until
-    with _discogs_lock:
-        _discogs_asks.clear()
+    with _asks_lock:
+        _asks.clear()
+    with _waiting_lock:
+        for name in _waiting:
+            _waiting[name] = 0
     _discogs_until = 0.0
 
 
@@ -449,8 +490,15 @@ def search(query: str, *, only: Optional[str] = None, profile_id: Any = None) ->
     if page:
         if found["mixesdb"]["state"] != "ok":
             return {"results": [], "sources": found}
+        key = ("open", "mixesdb", page)
+        if not _cache_has(key) and not _profile_allowed("mixesdb", profile_id):
+            found["mixesdb"] = {"state": "limited", "why": "profile"}
+            return {"results": [], "sources": found}
         try:
-            opened = _cached(("open", "mixesdb", page), TRACKLIST_TTL, lambda: _mixesdb_open(page))
+            opened = _cached(key, TRACKLIST_TTL, lambda: _mixesdb_open(page))
+        except SourceBusy as exc:
+            found["mixesdb"] = {"state": "limited", "why": exc.why}
+            return {"results": [], "sources": found}
         except SourceDown:
             found["mixesdb"] = {"state": "down"}
             return {"results": [], "sources": found}
@@ -463,7 +511,7 @@ def search(query: str, *, only: Optional[str] = None, profile_id: Any = None) ->
     def one(name: str):
         key = ("search", name, text.lower())
         try:
-            if name == "discogs" and not _cache_has(key) and not _discogs_allowed(profile_id):
+            if not _cache_has(key) and not _profile_allowed(name, profile_id):
                 return name, [], "limited:profile"
             return name, _cached(key, SEARCH_TTL, lambda: _SEARCHERS[name](text)), None
         except SourceBusy as exc:
@@ -488,10 +536,11 @@ def search(query: str, *, only: Optional[str] = None, profile_id: Any = None) ->
     return {"results": results, "sources": found}
 
 
-def open_mix(source: str, mix_id: str) -> Dict[str, Any]:
+def open_mix(source: str, mix_id: str, profile_id: Any = None) -> Dict[str, Any]:
     """One mix's tracklist: ``{"found": True, "lines": [...], ...}``,
     ``{"found": False}``, or SourceDown. ``state`` "off" sources raise
-    LookupError."""
+    LookupError. An uncached open counts against the profile's budget for
+    that source (SourceBusy "profile" once it's spent); a cached one doesn't."""
     if source not in _OPENERS:
         raise LookupError("unknown source")
     if states()[source]["state"] != "ok":
@@ -499,7 +548,10 @@ def open_mix(source: str, mix_id: str) -> Dict[str, Any]:
     key = str(mix_id or "").strip()[:255]
     if not key:
         return {"found": False}
-    return _cached(("open", source, key), TRACKLIST_TTL, lambda: _OPENERS[source](key))
+    cache_key = ("open", source, key)
+    if not _cache_has(cache_key) and not _profile_allowed(source, profile_id):
+        raise SourceBusy(f"{SOURCE_NAMES[source]} has been asked often enough for now", "profile")
+    return _cached(cache_key, TRACKLIST_TTL, lambda: _OPENERS[source](key))
 
 
 __all__ = ["DISCOGS_API", "MAX_BYTES", "MIXESDB_API", "MIXESDB_LINK_HOSTS", "SETTING_MIXESDB", "SOURCES",

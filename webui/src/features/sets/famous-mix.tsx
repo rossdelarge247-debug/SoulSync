@@ -351,12 +351,19 @@ function offLines(answer: SearchAnswer | undefined, isAdmin: boolean) {
       </p>,
     );
   }
-  if (answer.sources.discogs?.state === 'limited') {
+  for (const name of ['discogs', 'mixesdb'] as const) {
+    const state = answer.sources[name];
+    if (state?.state !== 'limited') continue;
+    const label = name === 'discogs' ? 'Discogs' : 'MixesDB';
     lines.push(
-      <p key="discogs-limited" className={styles.offLine}>
-        {answer.sources.discogs.why === 'profile'
-          ? "Discogs isn't searched for a minute: you've searched it often just now, and its key is shared."
-          : 'Discogs asked SYNCHRO.S to slow down, so it isn’t searched for a minute.'}
+      <p key={`${name}-limited`} className={styles.offLine}>
+        {state.why === 'profile'
+          ? name === 'discogs'
+            ? "Discogs isn't searched for a minute: you've searched it often just now, and its key is shared."
+            : "MixesDB isn't searched for a minute: you've searched it often just now."
+          : state.why === 'busy'
+            ? `${label} is busy with other searches just now. Try again in a moment.`
+            : `${label} asked SYNCHRO.S to slow down, so it isn’t searched for a minute.`}
       </p>,
     );
   }

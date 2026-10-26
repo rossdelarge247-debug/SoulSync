@@ -144,6 +144,7 @@ const MATCH_ROWS = [
 
 let sent: { path: string; method: string; body: unknown }[] = [];
 let mixesdbDown = false;
+let mixesdbBusy = false;
 let playlistState: string | null = null;
 let staleNext = false;
 /** hold the next PUT until released, then refuse it as older than `revision` */
@@ -157,6 +158,7 @@ beforeEach(() => {
   resetDraftsForTests();
   sent = [];
   mixesdbDown = false;
+  mixesdbBusy = false;
   playlistState = null;
   staleNext = false;
   holdNextPut = null;
@@ -261,7 +263,9 @@ beforeEach(() => {
           ],
           saved: [],
           sources: {
-            mixesdb: { state: mixesdbDown ? 'down' : 'ok' },
+            mixesdb: mixesdbBusy
+              ? { state: 'limited', why: 'busy' }
+              : { state: mixesdbDown ? 'down' : 'ok' },
             musicbrainz: { state: 'ok' },
             discogs: { state: 'off', why: 'token' },
           },
@@ -375,6 +379,16 @@ describe('Library → Sets', () => {
       },
       { timeout: 2000 },
     );
+  });
+
+  it('says when a source is busy with other searches', async () => {
+    mixesdbBusy = true;
+    renderPage('/library?view=sets&set=famous&q=saltmarsh');
+    expect(
+      await screen.findByText(
+        'MixesDB is busy with other searches just now. Try again in a moment.',
+      ),
+    ).toBeTruthy();
   });
 
   it('searches famous mixes, says a source is down, and matches a mix', async () => {
