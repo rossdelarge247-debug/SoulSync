@@ -583,14 +583,72 @@ def _insert_at(rows: List[Dict[str, Any]], after: Optional[Dict[str, Any]]) -> O
     return first
 
 
+#: what a row's transition becomes when its next track changes under it: Auto,
+#: with the picker's starting length (it described another join)
+RESET_TRANSITION = {"style": "auto", "bars": 16}
+
+
+def insert_keeping_locked(rows: List[Dict[str, Any]], at: int,
+                          fresh: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """``rows`` with ``fresh`` put after index ``at``, the way the set's page
+    moves rows (``moveRow``): **locked rows keep their places**. Rows up to
+    ``at`` stay; after it, each locked row keeps its index and the unlocked
+    ones, the fresh first, fill the free places in order (gauntlet L5)."""
+    total = len(rows) + len(fresh)
+    out: List[Optional[Dict[str, Any]]] = [None] * total
+    for i in range(min(at + 1, len(rows))):
+        out[i] = rows[i]
+    queue: List[Dict[str, Any]] = list(fresh)
+    for i in range(at + 1, len(rows)):
+        if rows[i].get("locked"):
+            out[i] = rows[i]
+        else:
+            queue.append(rows[i])
+    k = 0
+    for i in range(total):
+        if out[i] is None:
+            out[i] = queue[k]
+            k += 1
+    return [r for r in out if r is not None]
+
+
+def _next_rows(rows: List[Dict[str, Any]]) -> Dict[int, Optional[Dict[str, Any]]]:
+    """Each row (by identity) -> the next row holding a library track, or None."""
+    out: Dict[int, Optional[Dict[str, Any]]] = {}
+    following: Optional[Dict[str, Any]] = None
+    for row in reversed(rows):
+        out[id(row)] = following
+        if row.get("track_id"):
+            following = row
+    return out
+
+
+def reset_changed_joins(before: List[Dict[str, Any]], after: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """``after`` with the transition reset to Auto (RESET_TRANSITION) on every
+    row whose next track changed from one track to another: its style and
+    length described a join that isn't there any more (gauntlet L5). A row
+    that had no next track (the last), or no chosen transition, is left."""
+    was, now = _next_rows(before), _next_rows(after)
+    reset = clean_transition(RESET_TRANSITION)
+    out = []
+    for row in after:
+        old_next = was.get(id(row))
+        if row.get("transition") and old_next is not None and now.get(id(row)) is not old_next:
+            row = {**row, "transition": reset}
+        out.append(row)
+    return out
+
+
 def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], *,
                   again: bool = False, after: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Add library tracks to the end of one of your sets ("Add to mix
     set…"). None when the set isn't yours.
 
     ``after`` (``{"track_id", "number"}``, the Mix tab while a set plays,
-    29b) puts them straight after that row instead; ``placed`` says
-    "after", or "end" when the set no longer holds that track.
+    29b) puts them straight after that row instead (locked rows keep their
+    places, and a row whose next track changes has its transition reset to
+    Auto: ``insert_keeping_locked``, ``reset_changed_joins``); ``placed``
+    says "after", or "end" when the set no longer holds that track.
 
     Only tracks in the caller's library with their file present go in (the
     downloaded-only rule); the rest are ``left_out``. A track the set already
@@ -641,9 +699,15 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
                           "title": found[tid].get("title") or None, "line_at": None, "state": "owned",
                           "want": "yours", "version": None, "locked": 0, "note": None, "transition": None,
                           "mbid": None, "raw": None} for tid in adding]
-                _write_rows(conn, sid, old_rows[:at + 1] + fresh + old_rows[at + 1:])
-                before = sum(1 for r in old_rows[:at + 1] if r.get("track_id"))
-                added = [{"track_id": tid, "number": before + 1 + k} for k, tid in enumerate(adding)]
+                placed = insert_keeping_locked(old_rows, at, fresh)
+                _write_rows(conn, sid, reset_changed_joins(old_rows, placed))
+                fresh_ids = {id(r) for r in fresh}
+                n = 0
+                for r in placed:
+                    if r.get("track_id"):
+                        n += 1
+                        if id(r) in fresh_ids:
+                            added.append({"track_id": r["track_id"], "number": n})
                 conn.commit()
             elif adding:
                 conn.executemany(
@@ -818,7 +882,7 @@ def clear_playlist_state(database, profile_id: int, set_id: int) -> None:
     _set_playlist_fields(database, profile_id, set_id, playlist_state=None)
 
 
-__all__ = ["KINDS", "MAX_ROWS", "MAX_SETS", "TRANSITION_BARS", "TRANSITION_STYLES", "SetError", "StaleRevision",
+__all__ = ["RESET_TRANSITION", "insert_keeping_locked", "reset_changed_joins", "KINDS", "MAX_ROWS", "MAX_SETS", "TRANSITION_BARS", "TRANSITION_STYLES", "SetError", "StaleRevision",
            "alternatives", "append_tracks", "clean_rows", "clean_transition", "clear_playlist_state", "create_set",
            "delete_set", "follow_latest", "follow_playlist", "get_set", "holding", "list_sets", "make_playlist", "read_transition",
            "saved_famous", "update_set", "view"]

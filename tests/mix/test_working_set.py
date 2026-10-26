@@ -143,3 +143,76 @@ def test_add_without_after_is_unchanged(client):
     body = client.post(f"/api/sets/{set_id}/tracks", json={"track_ids": ["8", "1"]}).get_json()
     assert body["placed"] == "end" and body["added"] == [{"track_id": "8", "number": 2}]
     assert body["already"] == ["1"]
+
+
+# ── after the gauntlet review (L5) ────────────────────────────────────────────
+
+from core.sets import store as sets_store  # noqa: E402
+
+
+def _r(tid, locked=False, transition=None):
+    return {"track_id": tid, "locked": 1 if locked else 0, "transition": transition}
+
+
+def test_l5_insert_keeps_locked_rows_in_their_places():
+    rows = [_r("1"), _r("2"), _r("3", locked=True), _r("4"), _r("5", locked=True)]
+    fresh = [_r("8"), _r("9")]
+    out = sets_store.insert_keeping_locked(rows, 0, fresh)
+    assert [r["track_id"] for r in out] == ["1", "8", "3", "9", "5", "2", "4"]
+    # the locked rows hold their indexes; nothing before the insert moves
+    assert out[2] is rows[2] and out[4] is rows[4] and out[0] is rows[0]
+    # after the last row, or with no locked rows: plainly after
+    assert [r["track_id"] for r in sets_store.insert_keeping_locked(rows, 4, fresh)] == \
+        ["1", "2", "3", "4", "5", "8", "9"]
+    plain = [_r("1"), _r("2")]
+    assert [r["track_id"] for r in sets_store.insert_keeping_locked(plain, 0, [_r("8")])] == ["1", "8", "2"]
+
+
+def test_l5_a_row_whose_next_track_changed_goes_back_to_auto():
+    long = sets_store.clean_transition({"style": "long_blend", "bars": 32})
+    rows = [_r("1", transition=long), {"track_id": None, "transition": None}, _r("2", transition=long),
+            _r("3", transition=long)]
+    fresh = [_r("8")]
+    placed = sets_store.insert_keeping_locked(rows, 2, fresh)
+    out = sets_store.reset_changed_joins(rows, placed)
+    by = {r["track_id"]: r["transition"] for r in out if r["track_id"]}
+    auto16 = sets_store.clean_transition(sets_store.RESET_TRANSITION)
+    # 2 now goes into 8, not 3: reset; 1 still goes into 2; 3 is last (it had no next)
+    assert by == {"1": long, "2": auto16, "8": None, "3": long}
+    assert sets_store.read_transition(auto16) == {"style": "auto", "bars": 16}
+
+
+@pytest.mark.gauntlet
+def test_l5_add_after_keeps_locked_rows_and_resets_the_changed_joins(client):
+    rows = [{"track_id": "1", "state": "owned", "transition": {"style": "long_blend", "bars": 32}},
+            {"track_id": "2", "state": "owned", "transition": {"style": "cut"}},
+            {"track_id": "3", "state": "owned", "locked": True, "transition": {"style": "bass_swap", "bars": 8}},
+            {"track_id": "4", "state": "owned"}]
+    set_id = client.post("/api/sets", json={"name": "Locked", "kind": "hand", "tracks": rows}).get_json()["id"]
+    body = client.post(f"/api/sets/{set_id}/tracks",
+                       json={"track_ids": ["8"], "after": {"track_id": "1", "number": 1}}).get_json()
+    assert body["placed"] == "after" and body["added"] == [{"track_id": "8", "number": 2}]
+    got = client.get(f"/api/sets/{set_id}").get_json()["rows"]
+    assert [r["track_id"] for r in got] == ["1", "8", "3", "2", "4"]
+    assert got[2]["locked"] is True  # Undertow keeps #3
+    tr = {r["track_id"]: r["transition"] for r in got}
+    assert tr["1"] == {"style": "auto", "bars": 16}   # was into 2, now into 8
+    assert tr["3"] == {"style": "auto", "bars": 16}   # was into 4, now into 2
+    assert tr["2"] == {"style": "auto", "bars": 16}   # a cut into 3, now into 4
+    assert tr["8"] == {"style": "auto", "bars": None}
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("method, path, data", [
+    ("put", "/api/sets/working", "set_id=1"),
+    ("post", "/api/sets/working/start", "track_ids=9&name=x"),
+    ("post", "/api/sets/{sid}/tracks", "track_ids=8"),
+])
+def test_m1_the_new_writes_take_json_only(client, method, path, data):
+    """M1's audit: a cross-site form or text/plain body is refused, nothing changes."""
+    sid = make_set(client, "Mine", ["1"])
+    for content_type, body in (("application/x-www-form-urlencoded", data), ("text/plain", '{"set_id": 1}')):
+        res = getattr(client, method)(path.format(sid=sid), data=body, content_type=content_type)
+        assert res.status_code == 400
+    assert _working(client) is None
+    assert _rows(client, sid) == ["1"]
