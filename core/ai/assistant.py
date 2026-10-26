@@ -280,10 +280,13 @@ def run(req: AssistantRequest, *, database, config, blocks: Dict[str, Any],
                                                       "Try again in a moment; your message is still in the box."})
         return
     stream = None
-    model_key = ai_config.model_key(config)
-    served_model = ai_config.MODELS[model_key]["id"]
+    served_model = ""
     started = False
+    # everything after the slot is taken runs inside the try, so the slot is
+    # always given back (the Mix tab's gauntlet review, L1)
     try:
+        model_key = ai_config.model_key(config)
+        served_model = ai_config.MODELS[model_key]["id"]
         cap = ai_config.monthly_cap(config)
         if cap is not None and store.month_usage(database)["cost_usd"] >= cap:
             yield sse("error", {"code": "cap_reached",

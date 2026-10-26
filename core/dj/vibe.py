@@ -12,14 +12,18 @@ number it makes up is ignored.
 It goes through the app's AI provider (``core.ai``): the same key, model and
 switches as the Assistant, refused when the AI is off for this profile
 (``not_configured``, ``members_not_allowed``, ``key_refused``) or the
-month's budget is spent (``cap_reached``), and each request that reaches
-the provider counts against the profile's usage (``core.ai.store``).
+server's monthly budget is spent (``cap_reached``: the cap is one figure
+for the whole server, not per profile), and each request that reaches the
+provider is counted for the server and for the profile (``core.ai.store``).
 """
 
 from __future__ import annotations
 
 import json
+import math
+import re
 import threading
+import unicodedata
 from typing import Any, Callable, Dict, List, Optional
 
 from core.ai import config as ai_config
@@ -77,7 +81,8 @@ REFUSALS = {
     "not_configured": "The AI is off: an admin adds a key in Settings → AI.",
     "members_not_allowed": "Only admins can use the AI on this server.",
     "key_refused": "The AI's key was refused: an admin checks it in Settings → AI.",
-    "cap_reached": "This month's AI budget is spent, so Vibe waits for the 1st.",
+    "cap_reached": "This server's AI budget for the month is spent (one budget for every profile), "
+                   "so Vibe waits for the 1st.",
     "busy": "The AI is answering other requests. Try again in a moment.",
 }
 
@@ -122,17 +127,43 @@ def request_body(seed: Dict[str, Any], candidates: List[Dict[str, Any]],
     return body
 
 
+#: a link or an address in the AI's note: it's dropped (a title can steer the
+#: note, so it never carries somewhere to go or someone to write to)
+_LINKISH = re.compile(r"://|\bwww\.|[^\s@]+@[^\s@]+\.[^\s@]+", re.IGNORECASE)
+
+
+def clean_line(raw: Any) -> str:
+    """The AI's note, safe to show as its note: control and format
+    characters (bidi overrides, zero-width marks) dropped, spaces collapsed,
+    cut to MAX_LINE; nothing at all when it holds a link or an email
+    address (gauntlet L3)."""
+    if not isinstance(raw, str):
+        return ""
+    # whitespace controls become spaces; every other control or format
+    # character (the bidi overrides, zero-width marks) goes
+    text = "".join(" " if c.isspace() else c for c in raw[:MAX_LINE * 4]
+                   if c.isspace() or unicodedata.category(c)[0] != "C")
+    line = " ".join(text.split())[:MAX_LINE].strip()
+    if not line or _LINKISH.search(line):
+        return ""
+    return line
+
+
 def apply_order(candidates: List[Dict[str, Any]], order: Any) -> List[Dict[str, Any]]:
     """The candidates in the AI's order: the numbers it named (each once,
-    only real ones), then the rest in code's order."""
+    only real ones), then the rest in code's order. A number that isn't a
+    finite whole number in range is ignored (gauntlet L4)."""
     picked: List[int] = []
     if isinstance(order, list):
-        for n in order:
-            if isinstance(n, bool):
+        for n in order[:TOP * 4]:
+            if isinstance(n, bool) or not isinstance(n, (int, float, str)):
                 continue
             try:
-                i = int(n) - 1
-            except (TypeError, ValueError):
+                value = float(n)
+                if not math.isfinite(value) or value != int(value):
+                    continue
+                i = int(value) - 1
+            except (TypeError, ValueError, OverflowError):
                 continue
             if 0 <= i < len(candidates) and i not in picked:
                 picked.append(i)
@@ -151,15 +182,17 @@ def rerank(database, config, *, profile_id: int, is_admin: bool, seed: Dict[str,
     candidates = list(candidates)[:TOP]
     if len(candidates) < 2:
         return {"matches": candidates, "line": "", "usage": None}
-    if not _slots.acquire(blocking=False):
-        raise VibeError("busy", REFUSALS["busy"])
-    if provider_factory is None:
-        from core.ai.assistant import default_provider_factory as provider_factory
-    model_key = ai_config.model_key(config)
-    served = ai_config.MODELS[model_key]["id"]
     stream = None
     started = False
+    served = ""
+    if not _slots.acquire(blocking=False):
+        raise VibeError("busy", REFUSALS["busy"])
+    # everything after the slot is taken runs inside the try, so the slot is
+    # always given back (gauntlet L1)
     try:
+        if provider_factory is None:
+            from core.ai.assistant import default_provider_factory as provider_factory
+        served = ai_config.MODELS[ai_config.model_key(config)]["id"]
         from core.dj.ranking import styles
 
         found = styles(database, [str(seed.get("id"))] + [str(c.get("id")) for c in candidates])
@@ -187,8 +220,7 @@ def rerank(database, config, *, profile_id: int, is_admin: bool, seed: Dict[str,
         call = next((c for c in final.tool_calls if c.name == TOOL["name"]), None)
         if call is None:
             raise VibeError("provider_error", "The AI didn't give an order. Code's order stands.")
-        line = call.input.get("line") if isinstance(call.input.get("line"), str) else ""
-        line = " ".join(line.split())[:MAX_LINE]
+        line = clean_line(call.input.get("line"))
         ordered = apply_order(candidates, call.input.get("order"))
         usage = final.usage
         return {"matches": ordered, "line": line,
@@ -209,5 +241,5 @@ def rerank(database, config, *, profile_id: int, is_admin: bool, seed: Dict[str,
             _slots.release()
 
 
-__all__ = ["MAX_AT_ONCE", "REFUSALS", "TOOL", "TOP", "VibeError", "apply_order", "availability", "details",
-           "request_body", "rerank"]
+__all__ = ["MAX_AT_ONCE", "REFUSALS", "TOOL", "TOP", "VibeError", "apply_order", "availability", "clean_line",
+           "details", "request_body", "rerank"]

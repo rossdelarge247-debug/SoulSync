@@ -190,3 +190,97 @@ def test_busy_and_body_cap(client, ai):
 def test_not_your_library(client, ai):
     assert _vibe(client, track="20").status_code == 404
     assert ai["provider"].calls == []
+
+
+# ── after the gauntlet review ─────────────────────────────────────────────────
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("data, content_type", [
+    ("set_id=1&wide=true", "application/x-www-form-urlencoded"),
+    ("", "text/plain"),
+    ('{"set_id": 1}', "text/plain"),
+    ("null", "application/json"),
+    ("[1, 2]", "application/json"),
+])
+def test_m1_only_a_json_object_is_taken(client, ai, sql, data, content_type):
+    """M1: a cross-site form or text/plain POST needs no preflight; it must
+    never reach the provider (each request spends AI usage)."""
+    res = client.post("/api/library/dj/mixes/9/vibe", data=data, content_type=content_type)
+    assert res.status_code == 400 and res.get_json()["error"] == "Send it as JSON"
+    assert ai["provider"].calls == []
+    assert _usage(sql) == []
+
+
+@pytest.mark.gauntlet
+def test_l1_a_failure_before_the_call_gives_the_slot_back(client, ai, monkeypatch):
+    """L1: whatever fails once a slot is taken, the slot is given back."""
+    import core.ai.config as ai_config
+
+    def broken(_config):
+        raise RuntimeError("settings unreadable")
+
+    monkeypatch.setattr(ai_config, "model_key", broken)
+    for _ in range(vibe.MAX_AT_ONCE + 1):
+        assert _vibe(client).status_code == 502
+    taken = [vibe._slots.acquire(blocking=False) for _ in range(vibe.MAX_AT_ONCE)]
+    try:
+        assert all(taken)
+    finally:
+        for got in taken:
+            if got:
+                vibe._slots.release()
+
+
+@pytest.mark.gauntlet
+def test_l1_the_assistants_slot_is_given_back_too(db, monkeypatch):
+    import core.ai.config as ai_config
+    from core.ai import assistant
+
+    monkeypatch.setattr(ai_config, "model_key", lambda _c: (_ for _ in ()).throw(RuntimeError("x")))
+    req = assistant.AssistantRequest(message="hi", profile_id=1, is_admin=True)
+    for _ in range(assistant.MAX_STREAMS + 1):
+        with pytest.raises(RuntimeError):
+            list(assistant.run(req, database=db, config=object(), blocks={}))
+    taken = [assistant._slots.acquire(blocking=False) for _ in range(assistant.MAX_STREAMS)]
+    try:
+        assert all(taken)
+    finally:
+        for got in taken:
+            if got:
+                assistant._slots.release()
+
+
+@pytest.mark.parametrize("order, expected", [
+    ([float("inf"), 2], ["1", "0", "2", "3"]),
+    ([float("nan"), "1e999", 10 ** 400, 2.5, -1, 0, 3], ["2", "0", "1", "3"]),
+    (["2", 4.0, {"n": 1}, None], ["1", "3", "0", "2"]),
+])
+def test_l4_numbers_that_are_not_finite_whole_numbers_in_range_are_ignored(order, expected):
+    items = [{"id": str(i)} for i in range(4)]
+    assert [i["id"] for i in vibe.apply_order(items, order)] == expected
+
+
+def test_l4_an_infinite_order_from_the_ai_is_no_error(client, ai):
+    ai["provider"].order = [float("inf"), 10 ** 400, 1]
+    res = _vibe(client)
+    assert res.status_code == 200
+
+
+@pytest.mark.parametrize("raw, shown", [
+    ("Warm  and\nlate-night\tfirst.", "Warm and late-night first."),
+    ("Deep ‮edis​ first", "Deep edis first"),
+    ("x" * 400, "x" * vibe.MAX_LINE),
+    ("See https://evil.example for more", ""),
+    ("Visit www.example.com", ""),
+    ("Write to someone@example.com", ""),
+    ("ftp://files", ""),
+    (None, ""),
+    (42, ""),
+])
+def test_l3_the_ais_note_is_cleaned_and_drops_links(raw, shown):
+    assert vibe.clean_line(raw) == shown
+
+
+def test_l3_a_note_with_a_link_is_not_sent_to_the_page(client, ai):
+    ai["provider"].line = "Play these, then visit www.example.com"
+    assert _vibe(client).get_json()["vibe"]["line"] == ""
