@@ -190,20 +190,53 @@ def test_a_star_follows_its_track_when_the_row_is_rekeyed(client, db):
 
 
 @pytest.mark.gauntlet
-def test_stars_on_tracks_no_library_has_are_swept(client, db):
-    """M1: the scan's orphan sweep drops stars whose track id is in no
-    source's library; a star on a track whose file is only missing stays."""
+def test_stars_on_tracks_away_for_a_while_reattach_when_they_return(client, db):
+    """H-A: a stopped full refresh (or an unplugged drive) leaves the track
+    rows gone for a while; the scans that follow must not sweep the stars,
+    and when the same ids come back the stars are there."""
     from tests.sets.conftest import _sql
 
     _star(client, "4", "9")
-    _sql(db, "UPDATE tracks SET file_path = '' WHERE id = '9'")
-    _sql(db, "DELETE FROM tracks WHERE id = '4'")
-    db.cleanup_orphaned_records()
+    client.state["profile"] = 2
+    _star(client, "4")
+    client.state["profile"] = 1
     conn = db._get_connection()
     try:
-        assert [r[0] for r in conn.execute("SELECT track_id FROM track_stars")] == ["9"]
+        saved = [tuple(r) for r in conn.execute(
+            "SELECT id, album_id, artist_id, title, file_path, duration FROM tracks WHERE id IN ('4', '9')")]
+        artists = [tuple(r) for r in conn.execute("SELECT id, name FROM artists")]
+        albums = [tuple(r) for r in conn.execute("SELECT id, artist_id, title FROM albums")]
     finally:
         conn.close()
+    _sql(db, "DELETE FROM tracks WHERE id IN ('4', '9')")  # what a stopped clear_server_data leaves
+    db.cleanup_orphaned_records()
+    db.delete_removed_content(set(), set(), "plex")
+    db.absorb_superseded_tracks({"a103"}, {"5"}, "plex")
+    assert client.get("/api/stars/count").get_json()["count"] == 0  # away: not counted
+    # the next scan writes them back, artists and albums first
+    for row in artists:
+        _sql(db, "INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)", row)
+    for row in albums:
+        _sql(db, "INSERT OR IGNORE INTO albums (id, artist_id, title) VALUES (?, ?, ?)", row)
+    for row in saved:
+        _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, duration) "
+                 "VALUES (?, ?, ?, ?, ?, ?)", row)
+    assert _status(client, "4", "9")["tracks"] == {"4": {"starred": True, "can_star": True},
+                                                   "9": {"starred": True, "can_star": True}}
+    client.state["profile"] = 2
+    assert _status(client, "4")["tracks"]["4"]["starred"] is True
+
+
+def test_stars_on_ids_that_are_away_dont_fill_the_cap(client, db, monkeypatch):
+    """H-A: the per-profile cap counts stars on tracks the library has now."""
+    from core.stars import store
+    from tests.sets.conftest import _sql
+
+    monkeypatch.setattr(store, "MAX_STARS", 2)
+    assert _star(client, "1", "2").status_code == 200
+    assert _star(client, "3").status_code == 400  # at the cap
+    _sql(db, "DELETE FROM tracks WHERE id = '2'")
+    assert _star(client, "3").get_json()["starred"] == ["3"]
 
 
 def test_starring_many_reads_the_stars_once(db, monkeypatch):
@@ -231,3 +264,24 @@ def test_ids_and_songs_are_looked_up_apart(client):
     assert len(body["tracks"]) == 500 and body["tracks"]["1"] == {"starred": False, "can_star": True}
     assert len(body["songs"]) == 500
     assert body["songs"][-1] == {"track_id": "9", "starred": True, "can_star": True}
+
+
+def test_a_rekeyed_set_row_moves_the_sets_revision(client, db):
+    """L-A: the absorb that repoints a set's row counts the set on, so a
+    page holding the old id gets a conflict instead of saving it back."""
+    from tests.sets.conftest import _sql
+
+    set_id = client.post("/api/sets", json={"name": "x", "tracks": [{"track_id": "4"}, {"track_id": "1"}]}
+                         ).get_json()["id"]
+    _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, duration) "
+             "VALUES ('40', 'a103', '103', 'Copper Sky', '/m/40.flac', 360000)")
+    conn = db._get_connection()
+    try:
+        db._absorb_track_row(conn.cursor(), "4", "40", [])
+        conn.commit()
+    finally:
+        conn.close()
+    stale = client.put(f"/api/sets/{set_id}", json={"tracks": [{"track_id": "4"}, {"track_id": "1"}],
+                                                    "base_revision": 0})
+    assert stale.status_code == 409 and stale.get_json()["revision"] == 1
+    assert [r["track_id"] for r in client.get(f"/api/sets/{set_id}").get_json()["rows"]] == ["40", "1"]

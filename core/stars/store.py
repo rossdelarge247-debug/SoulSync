@@ -10,7 +10,10 @@ Only a library track with its file present can be starred: it must be in
 the caller's library scope (``core.dj.store._scope``, the same rule as the DJ
 and Sets routes) with a file path. A starred track whose file later goes
 missing keeps its star (it shows as File missing) and can be unstarred; it
-can't be starred again until its file is back.
+can't be starred again until its file is back. A star whose track row is
+gone for a while (a stopped full refresh, an unplugged drive) is kept and
+reattaches when the same id comes back; nothing sweeps it. When a scan folds
+a row into another, the star moves with it (``_absorb_track_row``).
 """
 
 from __future__ import annotations
@@ -146,8 +149,11 @@ def star(database, profile_id: int, ids: Sequence[str]) -> Dict[str, Any]:
         left = [{"id": i, "reason": "file_missing" if i in present else "not_in_library"}
                 for i in ids if not present.get(i)]
         if ok:
-            have = conn.execute("SELECT COUNT(*) FROM track_stars WHERE profile_id = ?",
-                                (int(profile_id),)).fetchone()[0]
+            # only stars on tracks the library has now count: a star on an id
+            # that's away (a stopped refresh, an unplugged drive) waits to
+            # reattach and never fills the cap
+            have = conn.execute("SELECT COUNT(*) FROM track_stars s JOIN tracks t ON t.id = s.track_id "
+                                "WHERE s.profile_id = ?", (int(profile_id),)).fetchone()[0]
             already = _starred(conn, profile_id, ok)
             new = [i for i in ok if i not in already]
             if have + len(new) > MAX_STARS:
