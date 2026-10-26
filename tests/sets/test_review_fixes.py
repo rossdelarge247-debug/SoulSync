@@ -159,10 +159,12 @@ def test_wanted_takes_a_whole_mix_and_gives_a_version_back(client, db):
     assert client.post("/api/sets/wanted/remove", json={**dub, "set_name": "Other"}).get_json()["removed"] is False
     assert client.post("/api/sets/wanted/remove", json={**dub, "set_name": "Essential Mix"}).get_json()["removed"]
     assert db.get_wishlist_track(wanted.wanted_id("Mareld", "Signal Fire (Dub)"), profile_id=1) is None
-    assert client.post("/api/sets/wanted/remove", json=dub).get_json()["removed"] is False
+    assert client.post("/api/sets/wanted/remove", json={**dub, "set_name": "Essential Mix"}).get_json()["removed"] is False
+    assert client.post("/api/sets/wanted/remove", json=dub).status_code == 400  # the set's name is needed
     db.add_to_wishlist_detailed({"id": wanted.wanted_id("A", "B"), "name": "B", "artists": [{"name": "A"}]},
                                 source_type="manual", profile_id=1, user_initiated=True)
-    assert client.post("/api/sets/wanted/remove", json={"artist": "A", "title": "B"}).get_json()["removed"] is False
+    body = {"artist": "A", "title": "B", "set_name": "Essential Mix"}
+    assert client.post("/api/sets/wanted/remove", json=body).get_json()["removed"] is False
 
 
 # ── Low 8: the paste cap counts characters, not bytes ────────────────────────

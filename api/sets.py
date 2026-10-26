@@ -423,8 +423,10 @@ def wanted():
 
 @bp.route("/api/sets/wanted/remove", methods=["POST"])
 def wanted_remove():
-    """Use yours again after Want the Dub: the Wanted row that choice added
-    goes, if it's still waiting (not downloaded) and came from this set."""
+    """Use yours again after Want the Dub: this set's want of the Wanted row
+    that choice added is taken back, if the row is still waiting (not
+    downloaded). The row goes only when no other set wants it too.
+    ``set_name`` is required."""
     pid = _profile()
     if pid is None:
         return _no_profile()
@@ -434,6 +436,8 @@ def wanted_remove():
     from core.sets import wanted as sets_wanted
 
     name = body.get("set_name") if isinstance(body.get("set_name"), str) else ""
+    if not name.strip():
+        return _bad("set_name is needed")
     try:
         removed = sets_wanted.remove(get_database(), pid, body.get("artist"), body.get("title"), set_name=name)
     except Exception as exc:  # noqa: BLE001

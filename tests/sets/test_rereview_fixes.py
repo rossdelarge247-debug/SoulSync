@@ -3,13 +3,14 @@ After the second review): each finding's regression test."""
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from contextlib import closing
 
 import pytest
 
-from core.sets import matching, sources, store
+from core.sets import matching, sources, store, wanted
 
 
 @pytest.fixture(autouse=True)
@@ -295,3 +296,57 @@ def test_a_new_playlist_only_when_the_old_one_no_longer_follows(client, db):
     # no playlist at all: one may be made
     _sql(db, "UPDATE dj_sets SET playlist_id = NULL, playlist_state = NULL WHERE id = ?", (set_id,))
     assert client.post(f"/api/sets/{set_id}/playlist", json={"action": "new"}).status_code == 200
+
+
+# ── Low 6: taking a want back leaves other sets' wants ───────────────────────
+
+DUB = {"artist": "Mareld", "title": "Signal Fire (Dub)"}
+
+
+def _info(db):
+    row = db.get_wishlist_track(wanted.wanted_id(DUB["artist"], DUB["title"]), profile_id=1)
+    return None if row is None else json.loads(row["source_info"])
+
+
+@pytest.mark.gauntlet
+def test_a_want_two_sets_share_stays_until_both_take_it_back(client, db):
+    assert client.post("/api/sets/wanted", json={"tracks": [DUB], "set_name": "Essential Mix"}).status_code == 200
+    assert client.post("/api/sets/wanted", json={"tracks": [DUB], "set_name": "Sunday Set"}).status_code == 200
+    assert _info(db)["set_names"] == ["Essential Mix", "Sunday Set"]
+    # a set that never asked takes nothing back
+    gone = client.post("/api/sets/wanted/remove", json={**DUB, "set_name": "Other"}).get_json()
+    assert gone["removed"] is False and _info(db)["set_names"] == ["Essential Mix", "Sunday Set"]
+    # the first set's want goes; the row stays for the second
+    assert client.post("/api/sets/wanted/remove", json={**DUB, "set_name": "Essential Mix"}).get_json()["removed"]
+    assert _info(db)["set_names"] == ["Sunday Set"] and _info(db)["set_name"] == "Sunday Set"
+    # the last one left takes the row
+    assert client.post("/api/sets/wanted/remove", json={**DUB, "set_name": "Sunday Set"}).get_json()["removed"]
+    assert _info(db) is None
+
+
+def test_taking_a_want_back_needs_the_sets_name(client, db):
+    client.post("/api/sets/wanted", json={"tracks": [DUB], "set_name": "Essential Mix"})
+    for body in (DUB, {**DUB, "set_name": ""}, {**DUB, "set_name": "  "}, {**DUB, "set_name": 5}):
+        assert client.post("/api/sets/wanted/remove", json=body).status_code == 400
+    assert _info(db)["set_names"] == ["Essential Mix"]
+
+
+def test_a_row_remembers_at_most_twenty_sets(client, db):
+    for i in range(wanted.MAX_SET_NAMES + 1):
+        client.post("/api/sets/wanted", json={"tracks": [DUB], "set_name": f"Set {i}"})
+    names = _info(db)["set_names"]
+    assert len(names) == wanted.MAX_SET_NAMES and f"Set {wanted.MAX_SET_NAMES}" not in names
+    # the set that wasn't listed can't take the row back
+    last = {**DUB, "set_name": f"Set {wanted.MAX_SET_NAMES}"}
+    assert client.post("/api/sets/wanted/remove", json=last).get_json()["removed"] is False
+    assert len(_info(db)["set_names"]) == wanted.MAX_SET_NAMES
+
+
+def test_a_row_from_before_the_list_keeps_its_one_set(client, db):
+    db.add_to_wishlist_detailed(wanted.track_data(DUB["artist"], DUB["title"]), failure_reason="Wanted for a set",
+                                source_type="set", source_info={"set_name": "Old Set", "added_via": "sets"},
+                                profile_id=1, user_initiated=True)
+    client.post("/api/sets/wanted", json={"tracks": [DUB], "set_name": "New Set"})
+    assert _info(db)["set_names"] == ["Old Set", "New Set"]
+    assert client.post("/api/sets/wanted/remove", json={**DUB, "set_name": "Old Set"}).get_json()["removed"]
+    assert _info(db)["set_names"] == ["New Set"]
