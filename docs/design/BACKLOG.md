@@ -12,7 +12,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Classic Winamp visualisers (MilkDrop, AVS, bars and scope) | Built (AVS: later spike) | [below](#classic-winamp-visualisers-milkdrop-avs-bars-and-scope) |
 | Move your music folders to another drive | Built | [below](#move-your-music-folders-to-another-drive) |
 | AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
-| DJ area: BPM, key and mixing (Traktor Pro 3) | Exploring (stage 1: Building; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
+| DJ area: BPM, key and mixing (Traktor Pro 3) | Building (stage 1: Built; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
 | Famous mixes and AI set suggestions | Sets 1: Building · Sets 2: Ready for Dev after 240–246 | [below](#famous-mixes-and-ai-set-suggestions) |
 | Lyrics centre stage, timed to the words | Ready for Design (step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
 | Star tracks and mix sets | Ready for Design | [below](#star-tracks-and-mix-sets) |
@@ -343,7 +343,7 @@ Automatic AudD (built on `feat/audd-auto`) asks AudD only when a watched station
 
 ## DJ area: BPM, key and mixing (Traktor Pro 3)
 
-**Status:** Exploring · raised by Ross, 2026-10-23 · **stage 1 is Building** on `feat/dj-stage1` (`HANDOFF.md`, "Dev, DJ stage 1"; routes in `CONTRACTS.md`, "DJ data"). **Stage 2a (Export to Traktor) is Built** on `feat/dj-traktor-export` from boards 21a and 21b (`HANDOFF.md`, "Dev, DJ stage 2a (Export to Traktor)"; routes in `CONTRACTS.md`, "Export to Traktor"); it needs a check in Traktor Pro 3 on Ross's Mac before it's called done. Stages 2b, 2c and 3 follow Design's Phase D order (direction approved by Ross, 24 October).
+**Status:** Exploring · raised by Ross, 2026-10-23 · **stage 1 is Built** (from `feat/dj-stage1`, then phase B2 as drawn) (`HANDOFF.md`, "Dev, DJ stage 1"; routes in `CONTRACTS.md`, "DJ data"). **Stage 2a (Export to Traktor) is Built** on `feat/dj-traktor-export` from boards 21a and 21b (`HANDOFF.md`, "Dev, DJ stage 2a (Export to Traktor)"; routes in `CONTRACTS.md`, "Export to Traktor"); it needs a check in Traktor Pro 3 on Ross's Mac before it's called done. Stages 2b, 2c and 3 follow Design's Phase D order (direction approved by Ross, 24 October).
 
 ### The problem
 

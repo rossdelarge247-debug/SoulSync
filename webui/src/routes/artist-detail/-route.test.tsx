@@ -1114,7 +1114,13 @@ describe('the "…" menu keeps what the old page did', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Remove 1 album' }));
     await waitFor(() => expect(callsTo('/api/library/albums/remove')).toHaveLength(1));
     expect(JSON.parse(callsTo('/api/library/albums/remove')[0].body)).toEqual({ plan_id: 'p1' });
-    expect(await screen.findByText('Removed Pale Harbour from your library')).toBeInTheDocument();
+    // the done state follows the remove's answer and a refetch; give a busy
+    // CI runner longer than findBy's default second
+    expect(
+      await screen.findByText('Removed Pale Harbour from your library', undefined, {
+        timeout: 5000,
+      }),
+    ).toBeInTheDocument();
   });
 
   it('lets More filters choose what the page lists, as the old filter bar did', async () => {

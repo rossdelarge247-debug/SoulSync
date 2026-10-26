@@ -725,6 +725,36 @@ def _sweep_stale_temps(dfd: int, *, now: Optional[float] = None) -> int:
     return removed
 
 
+def _safe_name(filename: object) -> bool:
+    """Whether ``filename`` is an export's own name: ``<safe stem>.nml``, no
+    separator or NUL."""
+    stem = filename[:-4] if isinstance(filename, str) and filename.endswith(".nml") else None
+    return bool(stem) and "/" not in filename and "\\" not in filename and "\x00" not in filename \
+        and filename == safe_filename(stem)
+
+
+def existing_export(folder: Optional[str], filename: str, *,
+                    roots: Optional[Sequence[str]] = None) -> Optional[float]:
+    """When something already has ``filename`` in the export folder (a file, a
+    link or a folder): its modification time (``lstat``, a link isn't
+    followed), for the export's "already there, from 22 October" (234);
+    else ``None``. Read only: the folder is checked and opened as the save
+    does, and nothing in it is written or followed."""
+    real, _state, ident, bases = _check_folder(folder, roots)
+    if real is None or ident is None or not _safe_name(filename):
+        return None
+    try:
+        dfd = _open_checked_folder(real, ident, bases)
+    except ExportFolderError:
+        return None
+    try:
+        return os.lstat(filename, dir_fd=dfd).st_mtime
+    except OSError:
+        return None
+    finally:
+        os.close(dfd)
+
+
 def save_to_folder(folder: str, filename: str, data: bytes, *, overwrite: bool = False,
                    roots: Optional[Sequence[str]] = None) -> str:
     """Write ``data`` as ``filename`` in the export folder; returns the path.
@@ -741,8 +771,7 @@ def save_to_folder(folder: str, filename: str, data: bytes, *, overwrite: bool =
     real, state, ident, bases = _check_folder(folder, roots)
     if real is None or ident is None:
         raise ExportFolderError(state)
-    stem = filename[:-4] if isinstance(filename, str) and filename.endswith(".nml") else None
-    if not stem or "/" in filename or "\\" in filename or "\x00" in filename or filename != safe_filename(stem):
+    if not _safe_name(filename):
         raise ValueError("unsafe file name")
     dfd = _open_checked_folder(real, ident, bases)
     tmp: Optional[str] = None
@@ -863,6 +892,6 @@ def settings_state(*, roots: Optional[Sequence[str]] = None) -> Dict[str, Any]:
 
 __all__ = ["BOOT_VOLUME", "COLLECTION_HINT", "ExportFolderError", "MAX_TRACKS", "MacPaths", "REASON_WORDS",
            "SETTING_EXPORT_FOLDER", "SETTING_MAC_PATH", "ascii_filename", "build_nml", "check_export_folder",
-           "confident_key", "export_roots", "library_root", "mixes_tracks", "nml_location", "open_key", "plan",
+           "confident_key", "existing_export", "export_roots", "library_root", "mixes_tracks", "nml_location", "open_key", "plan",
            "playlist_tracks", "primary_key", "safe_filename", "save_to_folder", "settings_state",
            "traktor_key_value", "tracks_by_ids", "valid_mac_path", "xml_text"]

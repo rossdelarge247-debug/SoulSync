@@ -376,6 +376,21 @@
   cursor: default;
 }
 
+.menuItem[data-two-line] {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding-block: 8px;
+}
+
+/* 172 (23a): the reason under a disabled item, the menu's only two-line item */
+.menuReason {
+  color: var(--ss-text-meta);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
 .menuItem .menuMeta {
   color: var(--ss-text-meta);
   font-size: 14px;

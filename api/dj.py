@@ -39,7 +39,9 @@ POST /api/library/dj/traktor/export
     library, ``[{title, artist}]``) | track_id (+ within), overwrite?}``. ``preview`` answers the counts, the
     Mac path, what was left out and why; ``download`` answers the ``.nml`` as
     an attachment; ``save`` (admins) writes it into the export folder (409
-    ``exists`` unless ``overwrite``). Code: core/dj/traktor.py.
+    ``exists`` unless ``overwrite``, with ``exists_at``). For admins the
+    preview's ``folder.exists_at`` is when a file of that name already in the
+    export folder was written (else null). Code: core/dj/traktor.py.
 
 Every route needs a profile and reads the caller's library scope, like the
 other library routes.
@@ -443,15 +445,20 @@ def traktor_export():
             "left_out": planned["left_out"][:50], "reasons": reasons,
             "keys": sum(1 for e in entries if traktor.confident_key(e["track"].get("dj"))),
             "can_edit": admin,
-            "folder": {"state": state["export_folder_state"], "shown": None, "can_save": False},
+            "folder": {"state": state["export_folder_state"], "shown": None, "can_save": False,
+                       "exists_at": None},
         }
         if admin:
             # where things are on the server and the Mac: admins only
             preview["mac_path"] = state["mac_path"] or state["mac_path_from_helper"] or None
             preview["library_folder"] = state["library_folder"]
+            can_save = state["export_folder_state"] == "ok"
             preview["folder"] = {"state": state["export_folder_state"],
                                  "shown": state["export_folder_on_mac"] or state["export_folder"] or None,
-                                 "can_save": state["export_folder_state"] == "ok"}
+                                 "can_save": can_save,
+                                 # a file of this name there already: when it was written (234)
+                                 "exists_at": traktor.existing_export(state["export_folder"], filename)
+                                 if can_save else None}
         return _no_store(preview)
     if not planned["entries"]:
         return jsonify({"success": False, "error": "None of these tracks can go to Traktor."}), 409
@@ -465,6 +472,7 @@ def traktor_export():
         traktor.save_to_folder(folder, filename, data, overwrite=body.get("overwrite") is True)
     except FileExistsError:
         return jsonify({"success": False, "exists": True, "filename": filename,
+                        "exists_at": traktor.existing_export(folder, filename),
                         "error": f"{filename} is already in the export folder."}), 409
     except traktor.ExportFolderError as exc:
         return jsonify({"success": False, "folder_state": exc.state,

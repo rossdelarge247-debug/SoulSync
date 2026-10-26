@@ -8,6 +8,12 @@ import { resetDriveStatus } from '@/features/drives/drive-status';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
+const addToPlaylist = vi.hoisted(() => vi.fn());
+vi.mock('@/features/playlists/add-to-playlist', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/playlists/add-to-playlist')>()),
+  openAddToPlaylist: addToPlaylist,
+}));
+
 /**
  * Library → Tracks (the DJ data, BACKLOG "DJ area" stage 1) through the real
  * router: the URL's BPM range, key and sort drive the browse request, rows
@@ -322,6 +328,13 @@ describe('Library → Tracks', () => {
     expect(reason.textContent).toBe('Music HD isn’t connected');
     fireEvent.click(play);
     expect(window.playNext).not.toHaveBeenCalled();
+    // 172 (23a): the "…" menu's Play next says why on a second line
+    const row = play.closest('li')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'More for Static Bloom' }));
+    const next = await screen.findByRole('menuitem', { name: 'Play next' });
+    expect(next.getAttribute('aria-disabled')).toBe('true');
+    expect(next).toHaveAccessibleDescription('Music HD isn’t connected');
+    expect(next.textContent).toBe('Play nextMusic HD isn’t connected');
   });
 
   it('puts Mixes well with… second in the "…" menu (154)', async () => {
@@ -362,5 +375,60 @@ describe('Library → Tracks', () => {
     fireEvent.click(within(bar).getByRole('button', { name: 'Done' }));
     expect(screen.queryByRole('toolbar', { name: 'Selected tracks' })).toBeNull();
     expect(screen.queryByRole('checkbox', { name: 'Select Static Bloom' })).toBeNull();
+  });
+
+  it('the selection’s “…” holds Add to playlist…, Start a set from these and Clear the selection (232)', async () => {
+    addToPlaylist.mockClear();
+    renderPage();
+    await screen.findByText('Static Bloom');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected tracks' });
+    fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
+    await screen.findByRole('menuitem', { name: 'Add to playlist…' });
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      'Add to playlist…',
+      'Start a set from these',
+      'Clear the selection',
+    ]);
+    // nothing picked: all three wait
+    for (const name of ['Add to playlist…', 'Start a set from these', 'Clear the selection']) {
+      expect(screen.getByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true');
+    }
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Night Ferry' }));
+    fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Add to playlist…' }));
+    expect(addToPlaylist).toHaveBeenCalledTimes(1);
+    expect(
+      (addToPlaylist.mock.calls[0]![0] as Array<{ track_name: string }>).map((t) => t.track_name),
+    ).toEqual(['Static Bloom', 'Night Ferry']);
+    expect(addToPlaylist.mock.calls[0]![0][0]).toMatchObject({
+      artist_name: 'Saltmarsh',
+      album_name: 'Lantern',
+      duration_ms: 276000,
+    });
+  });
+  it('Start a set from these opens a draft with the picked tracks, in the order picked', async () => {
+    window.localStorage.clear();
+    const { router } = renderPage();
+    await screen.findByText('Static Bloom');
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected tracks' });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Night Ferry' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
+    fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Start a set from these' }));
+    await waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ view: 'sets', set: 'draft' }),
+    );
+    const stored = Object.keys(window.localStorage)
+      .filter((k) => k.startsWith('soulsync.sets.draft.'))
+      .map(
+        (k) => JSON.parse(window.localStorage.getItem(k)!) as { rows: Array<{ title: string }> },
+      );
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.rows.map((r) => r.title)).toEqual(['Night Ferry', 'Static Bloom']);
   });
 });

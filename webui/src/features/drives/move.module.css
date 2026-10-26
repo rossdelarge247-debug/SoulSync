@@ -698,6 +698,17 @@
   background: rgba(var(--ss-info-rgb), 0.07);
 }
 
+.listBox .oldPlaces {
+  margin: 0 0 12px;
+  list-style: none;
+  padding: 0;
+  gap: 2px;
+}
+
+.listBox h3 .mono {
+  overflow-wrap: anywhere;
+}
+
 .listBox h3 {
   margin: 0 0 6px;
   font-size: 16px;
