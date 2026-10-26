@@ -496,6 +496,41 @@ class MusicBrainzClient:
                 raise
             return []
 
+    #: the most bytes a DJ-mix answer may hold (a three-disc mix CD is ~200 KB)
+    DJ_MIX_MAX_BYTES = 2 * 1024 * 1024
+
+    def search_dj_mixes(self, query: str, limit: int = 8) -> List[Dict[str, Any]]:
+        """Released DJ mixes (secondary type "DJ-mix": Fabric, Global
+        Underground, DJ-Kicks) matching ``query``, for Library → Sets'
+        Famous mix. Raises on a transport failure, so the page can say
+        MusicBrainz didn't answer instead of "nothing found"."""
+        text = ' '.join(str(query or '').split())[:200]
+        if not text:
+            return []
+        params = {'query': f'({_escape_lucene(text)}) AND secondarytype:"dj-mix"', 'fmt': 'json',
+                  'limit': max(1, min(25, int(limit)))}
+        response = self._get("/release", params=params)
+        if len(response.content) > self.DJ_MIX_MAX_BYTES:
+            raise ValueError("MusicBrainz's answer was too big")
+        return list((response.json() or {}).get('releases') or [])
+
+    def get_dj_mix_release(self, mbid: str) -> Optional[Dict[str, Any]]:
+        """One release with its tracks, their recordings and artist credits;
+        None when MusicBrainz has no such release. Raises on a transport
+        failure."""
+        value = str(mbid or '').strip().lower()
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', value):
+            return None
+        try:
+            response = self._get(f"/release/{value}", params={'fmt': 'json', 'inc': 'recordings+artist-credits'})
+        except requests.HTTPError as exc:
+            if getattr(getattr(exc, 'response', None), 'status_code', None) == 404:
+                return None
+            raise
+        if len(response.content) > self.DJ_MIX_MAX_BYTES:
+            raise ValueError("MusicBrainz's answer was too big")
+        return response.json()
+
     def search_release_by_barcode(self, barcode: str, limit: int = 5,
                                   raise_on_error: bool = False) -> List[Dict[str, Any]]:
         """
