@@ -8,6 +8,8 @@ import type {
   SetSummary,
   SourceName,
   SourceStates,
+  Transition,
+  TransitionStyle,
 } from './sets.api';
 
 export const SOURCE_NAMES: Record<SourceName, string> = {
@@ -275,4 +277,90 @@ export function isShape(value: unknown): value is ShapeKey {
 /** A name for a new empty set: "New set 24 October". */
 export function newSetName(now = new Date()): string {
   return `New set ${now.getDate()} ${MONTHS[now.getMonth()]}`;
+}
+
+// ── mix sets beyond 22c (28a–28g) ────────────────────────────────────────────
+
+export const STYLE_WORDS: Record<TransitionStyle, string> = {
+  auto: 'Auto',
+  long_blend: 'Long blend',
+  short_blend: 'Short blend',
+  bass_swap: 'Bass swap',
+  cut: 'Cut',
+  echo_out: 'Echo out',
+  filter_sweep: 'Filter sweep',
+  drop_swap: 'Drop swap',
+};
+
+/** A row's transition, auto when there's none (the default). */
+export function transitionOf(t: Transition | null | undefined): Transition {
+  return t && t.style ? { style: t.style, bars: t.bars ?? null } : { style: 'auto', bars: null };
+}
+
+/** The chip's words (26i): "Long blend · 32 bars", "Cut", "Auto". */
+export function chipWords(t: Transition | null | undefined): string {
+  const { style, bars } = transitionOf(t);
+  return [STYLE_WORDS[style], bars && style !== 'cut' ? `${bars} bars` : '']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** Who chose it, after the chip: "auto" until the person picks a style, then "yours". */
+export function whoChose(t: Transition | null | undefined): 'auto' | 'yours' {
+  return transitionOf(t).style === 'auto' ? 'auto' : 'yours';
+}
+
+/** "#25", or "#25–28" for several. */
+export function placeWords(first: number, count: number): string {
+  return count > 1 ? `#${first}–${first + count - 1}` : `#${first}`;
+}
+
+/**
+ * The picker's line under a set's name (28a, 28b): where the tracks would
+ * land, or that they're there already.
+ */
+export function pickerLine(opts: {
+  count: number;
+  next: number;
+  /** of the tracks asked about, the numbers of those already in it */
+  held: number[][];
+  when?: string;
+}): { line: string; already: number } {
+  const already = opts.held.filter((n) => n.length).length;
+  const when = opts.when ? ` · ${opts.when}` : '';
+  if (opts.count === 1) {
+    if (already) return { line: `In it already · #${opts.held[0][0]}${when}`, already };
+    return { line: `adds as #${opts.next}${when}`, already };
+  }
+  if (!already) return { line: `adds as ${placeWords(opts.next, opts.count)}${when}`, already };
+  const fresh = opts.count - already;
+  if (!fresh) return { line: `All ${opts.count} are in it already${when}`, already };
+  return {
+    line: `${already} of them ${already === 1 ? 'is' : 'are'} in it already: adds ${fresh}, as ${placeWords(opts.next, fresh)}`,
+    already,
+  };
+}
+
+/** The toast after adding (28a): "Added Harbour Light to Sunday Set · #25". */
+export function addedWords(opts: {
+  title: string | null;
+  count: number;
+  set: string;
+  first: number;
+}): string {
+  const what = opts.count === 1 && opts.title ? opts.title : plural(opts.count, 'track');
+  return `Added ${what} to ${opts.set} · ${placeWords(opts.first, opts.count)}`;
+}
+
+/** "1 isn't on this computer (File missing) and is left out." (28b) */
+export function leftOutWords(missing: number): string {
+  if (!missing) return '';
+  return missing === 1
+    ? "1 isn't on this computer (File missing) and is left out."
+    : `${missing} aren't on this computer (File missing) and are left out.`;
+}
+
+/** The meta line's last part (28e): "1 file missing". */
+export function missingWords(missing: number): string {
+  return missing ? `${missing.toLocaleString()} file${missing === 1 ? '' : 's'} missing` : '';
 }

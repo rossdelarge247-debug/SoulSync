@@ -1,0 +1,219 @@
+/* "Add to mix set…" (28a popover 360px; 28d sheet on a phone). */
+
+.picker {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(520px, calc(100vh - 16px));
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--ss-hairline, rgba(255, 255, 255, 0.09));
+  border-radius: 14px;
+  background: #141416;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 14px;
+}
+
+.picker[data-phone] {
+  inset: auto 0 0 0;
+  width: auto;
+  max-height: 80vh;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-radius: 20px 20px 0 0;
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.grabber {
+  align-self: center;
+  width: 36px;
+  height: 4px;
+  margin: 4px 0 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.search {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--ss-radius-control, 8px);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  font: inherit;
+}
+
+.search:focus {
+  border-color: var(--ss-input-focus-border, rgba(194, 169, 250, 0.6));
+  outline: none;
+}
+
+.overline {
+  margin: 4px 0 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 4px 8px;
+  border-radius: 10px;
+}
+
+.setRow[data-held],
+.setRow[data-open] {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.setButton {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  min-height: 44px;
+  justify-content: center;
+  margin: -4px -8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.setButton:hover {
+  background: var(--ss-hover-wash, rgba(255, 255, 255, 0.06));
+}
+
+.setButton:focus-visible,
+.quiet:focus-visible,
+.primary:focus-visible,
+.secondary:focus-visible,
+.newSet:focus-visible {
+  outline: var(--ss-focus-ring, 2px solid rgb(194, 169, 250));
+  outline-offset: 2px;
+}
+
+.setText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.setName {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setMeta {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+}
+
+.choice {
+  display: flex;
+  flex-basis: 100%;
+  gap: 8px;
+  padding: 4px 0 4px;
+}
+
+.quiet,
+.secondary,
+.primary {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--ss-radius-control, 8px);
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: transparent;
+  background: rgb(var(--ss-accent-light-rgb, 194, 169, 250));
+  color: var(--ss-text-on-accent, #0b0b0f);
+}
+
+.quiet:hover,
+.secondary:hover {
+  background: var(--ss-hover-wash, rgba(255, 255, 255, 0.06));
+}
+
+.newSet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  margin-top: 4px;
+  padding: 0 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.create {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.note {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

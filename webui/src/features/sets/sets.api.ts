@@ -28,10 +28,31 @@ export interface SetRow {
   version?: string | null;
   locked?: boolean;
   note?: string | null;
-  /** the step style after this row (mix sets, later) */
-  transition?: string | null;
+  /** the step after this row: its transition style and length (26a; auto by default) */
+  transition?: Transition | null;
   mbid?: string | null;
   raw?: string | null;
+}
+
+/** 26a's styles; "auto" lets auto-mix pick (not built yet, so it only says Auto). */
+export const TRANSITION_STYLES = [
+  'auto',
+  'long_blend',
+  'short_blend',
+  'bass_swap',
+  'cut',
+  'echo_out',
+  'filter_sweep',
+  'drop_swap',
+] as const;
+export type TransitionStyle = (typeof TRANSITION_STYLES)[number];
+/** 26a's lengths, in bars */
+export const TRANSITION_BARS = [2, 4, 8, 16, 32] as const;
+
+/** A step's transition as a mix set keeps it (the chip, 26i). */
+export interface Transition {
+  style: TransitionStyle;
+  bars: number | null;
 }
 
 export type StepKind = 'smooth' | 'jump' | 'unknown';
@@ -337,6 +358,48 @@ export async function updateSet(
     playlist_state: payload.playlist_state ?? null,
   };
 }
+
+/** A set the "Add to mix set…" picker lists (POST /api/sets/holding). */
+export interface HoldingSet {
+  id: number;
+  name: string;
+  kind: SetKind;
+  updated_at: number | null;
+  /** the number the next track added takes */
+  next: number;
+  rows: number;
+  /** where the tracks asked about already are: id -> their numbers */
+  holds: Record<string, number[]>;
+}
+
+export function fetchHolding(trackIds: string[]): Promise<HoldingSet[]> {
+  return call<{ sets: HoldingSet[] }>(
+    apiClient.post('sets/holding', { ...opts, json: { track_ids: trackIds.slice(0, 500) } }),
+  ).then((p) => p.sets);
+}
+
+export interface AddedToSet {
+  id: number;
+  name: string;
+  added: { track_id: string; number: number }[];
+  already: string[];
+  left_out: { id: string; reason: 'not_in_library' | 'file_missing' }[];
+  revision: number;
+  playlist_state: SavedSet['playlist_state'];
+}
+
+/** "Add to mix set…": at the end; one the set holds is skipped unless `again`. */
+export function addToSet(id: number, trackIds: string[], again = false): Promise<AddedToSet> {
+  return call<AddedToSet>(
+    apiClient.post(`sets/${id}/tracks`, {
+      ...opts,
+      json: { track_ids: trackIds.slice(0, 500), again },
+    }),
+  );
+}
+
+/** Said on window when a set changed outside its page (the picker added to it). */
+export const MIX_SET_CHANGED = 'ss:mix-set-changed';
 
 /** "Make a new playlist from this set", or "Not now" for the note that it went its own way. */
 export function setPlaylist(
