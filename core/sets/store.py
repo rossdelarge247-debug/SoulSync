@@ -400,14 +400,22 @@ def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> 
     return {"revision": new_revision, "tracks_changed": changed}
 
 
+#: one fixed statement per playlist field (no SQL is put together at run time)
+_PLAYLIST_FIELD_SQL = {
+    "playlist_id": "UPDATE dj_sets SET playlist_id = ? WHERE id = ? AND profile_id = ?",
+    "playlist_hash": "UPDATE dj_sets SET playlist_hash = ? WHERE id = ? AND profile_id = ?",
+    "playlist_state": "UPDATE dj_sets SET playlist_state = ? WHERE id = ? AND profile_id = ?",
+}
+
+
 def _set_playlist_fields(database, profile_id: int, set_id: int, **fields: Any) -> None:
-    allowed = {"playlist_id", "playlist_hash", "playlist_state"}
-    cols = [k for k in fields if k in allowed]
-    if not cols:
-        return
+    """Set the playlist fields given (others are left as they are), in one
+    transaction."""
     with closing(database._get_connection()) as conn:
-        conn.execute(f"UPDATE dj_sets SET {', '.join(c + ' = ?' for c in cols)} WHERE id = ? AND profile_id = ?",
-                     [fields[c] for c in cols] + [int(set_id), int(profile_id)])
+        for name, value in fields.items():
+            sql = _PLAYLIST_FIELD_SQL.get(name)
+            if sql is not None:
+                conn.execute(sql, (value, int(set_id), int(profile_id)))
         conn.commit()
 
 
