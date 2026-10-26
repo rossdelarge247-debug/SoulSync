@@ -119,6 +119,14 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **A folder swapped after the check:** the export folder replaced by a link that leads outside, or by another folder, between the check and the write is refused; nothing is written outside or into the other folder.
   - **Orphaned temporary files and the no-link path:** temporary export files older than an hour are swept (a fresh one and files that aren't ours stay), and on a file system without hard links a failure leaves neither the claim nor the temporary file.
 
+- **Library → Sets** (`tests/sets/test_sets_routes.py`, `test_sources.py`, `test_steps_and_tracklist.py`; `api/sets.py`, `core/sets/store.py` and `core/sets/sources.py` are on the list because the routes keep per-profile sets, delete a set's rows and read pasted text, and the sources talk to MixesDB and Discogs):
+  - **Sets are per profile:** another profile's set reads, changes and deletes as a 404, admins included, and the list shows only your own.
+  - **A set never points at another profile's track:** a track id outside the caller's library is saved as a plain Missing line, and the view and Swap never show it.
+  - **Bodies have a size:** every Sets body is cut off at its cap (413), a body without a Content-Length too.
+  - **A paste is data and has a size:** markup, links and control characters come back as plain text; 500 lines, 300 characters a line.
+  - **Only fixed hosts are ever asked:** whatever is searched or opened, every request goes to MixesDB's API or Discogs' API (or through the MusicBrainz client, which refuses an id that isn't an MBID); a pasted MixesDB link is read for its page title only, and a link to any other host is search text.
+  - **A redirect or a huge answer is a source down:** redirects aren't followed, and an answer over 2 MB is cut off while it streams.
+
 When you write a test for a new way a change could lose data, tag it `gauntlet` too.
 
 ## How to read the results
