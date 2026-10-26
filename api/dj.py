@@ -20,6 +20,9 @@ GET  /api/library/dj/browse
     with it), ``q``, ``sort`` (bpm | key | energy | title | artist | recent),
     ``page``, ``limit`` (50, at most 200). ``keys`` in the answer is what the
     key filter covered, in the count line's order ("8A, 7A, 9A or 8B").
+    Each track says whether the caller starred it (``starred``);
+    ``starred=1`` (the Starred filter) keeps only the caller's starred
+    tracks, a starred one whose file is gone included (``file_missing``).
 GET  /api/library/dj/mixes/<track_id>
     "Mixes well with…": the same key, ±1 on the Camelot wheel or the relative
     major/minor, at a BPM within ±6% (half and double time count);
@@ -41,7 +44,9 @@ POST /api/library/dj/traktor/export
     an attachment; ``save`` (admins) writes it into the export folder (409
     ``exists`` unless ``overwrite``, with ``exists_at``). For admins the
     preview's ``folder.exists_at`` is when a file of that name already in the
-    export folder was written (else null). Code: core/dj/traktor.py.
+    export folder was written (else null). A track the caller starred is
+    written with Traktor's top rating (``RANKING="255"``); the preview's
+    ``starred`` counts them. Code: core/dj/traktor.py.
 
 Every route needs a profile and reads the caller's library scope, like the
 other library routes.
@@ -190,7 +195,8 @@ def dj_browse():
         page = store.browse(get_database(), bpm_min=bpm_min, bpm_max=bpm_max,
                             key=(request.args.get("key") or "")[:12], q=(request.args.get("q") or "")[:200],
                             sort=request.args.get("sort") or "bpm", page=_int("page", 1), limit=_int("limit", 50),
-                            fix_art=fix_art_url)
+                            fix_art=fix_art_url, profile_id=int(get_current_profile_id()),
+                            starred=request.args.get("starred") in ("1", "true"))
     except Exception as exc:  # noqa: BLE001
         logger.error("DJ browse failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
@@ -382,6 +388,18 @@ def _export_items(database, body: dict):
     return jsonify({"success": False, "error": "source must be playlist, tracks or mixes"}), 400
 
 
+def _starred_count(database, entries) -> int:
+    """How many of the export's tracks the caller starred (rated in Traktor)."""
+    try:
+        from core.stars import store as stars
+
+        return len(stars.starred_among(database, int(get_current_profile_id()),
+                                       [e["track"].get("id") for e in entries]))
+    except Exception as exc:  # noqa: BLE001 - the count is a nicety
+        logger.debug("starred count unreadable: %s", exc)
+        return 0
+
+
 def _attachment(data: bytes, filename: str):
     from urllib.parse import quote
 
@@ -444,6 +462,7 @@ def traktor_export():
             "example_path": entries[0]["mac_path"] if entries else None,
             "left_out": planned["left_out"][:50], "reasons": reasons,
             "keys": sum(1 for e in entries if traktor.confident_key(e["track"].get("dj"))),
+            "starred": _starred_count(database, entries),
             "can_edit": admin,
             "folder": {"state": state["export_folder_state"], "shown": None, "can_save": False,
                        "exists_at": None},
@@ -462,7 +481,15 @@ def traktor_export():
         return _no_store(preview)
     if not planned["entries"]:
         return jsonify({"success": False, "error": "None of these tracks can go to Traktor."}), 409
-    data = traktor.build_nml(name, planned["entries"])
+    try:
+        from core.stars import store as stars
+
+        starred = stars.starred_among(database, int(get_current_profile_id()),
+                                      [e["track"].get("id") for e in planned["entries"]])
+    except Exception as exc:  # noqa: BLE001 - the file is right without ratings
+        logger.warning("Traktor export: couldn't read stars: %s", exc)
+        starred = set()
+    data = traktor.build_nml(name, planned["entries"], starred=starred)
     if action == "download":
         return _attachment(data, filename)
     if not admin:

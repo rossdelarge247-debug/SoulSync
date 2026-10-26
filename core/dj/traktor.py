@@ -56,7 +56,11 @@ Assumed (no Traktor here to try it on; Ross checks, see HANDOFF):
 * on import Traktor adds a track it doesn't have with this BPM and key and
   keeps its own values for a track it already has.
 
-Never written: cue points, beat grids (``CUE_V2``), ratings, ``LOCK``.
+A track the person starred (core/stars) is written with Traktor's top
+rating, ``INFO RANKING="255"`` (Traktor keeps a rating as 0–255 in steps of
+51; 255 is five stars). Others carry no RANKING, so Traktor keeps its own.
+
+Never written: cue points, beat grids (``CUE_V2``), ``LOCK``.
 
 Mac paths
 =========
@@ -493,7 +497,11 @@ def plan(items: Iterable[Tuple[Optional[Dict[str, Any]], str, str]], paths: MacP
 
 # ── the file ──────────────────────────────────────────────────────────────────
 
-def _entry(track: Dict[str, Any], location: Dict[str, str]) -> ET.Element:
+#: Traktor's top rating (five stars), written for a starred track
+STARRED_RANKING = "255"
+
+
+def _entry(track: Dict[str, Any], location: Dict[str, str], *, starred: bool = False) -> ET.Element:
     attrs = {}
     if track.get("title"):
         attrs["TITLE"] = xml_text(track["title"])
@@ -521,6 +529,8 @@ def _entry(track: Dict[str, Any], location: Dict[str, str]) -> ET.Element:
     if ms > 0:
         info["PLAYTIME"] = str(int(round(ms / 1000)))
         info["PLAYTIME_FLOAT"] = f"{ms / 1000:.6f}"
+    if starred:
+        info["RANKING"] = STARRED_RANKING
     if info:
         ET.SubElement(entry, "INFO", info)
     try:
@@ -535,10 +545,12 @@ def _entry(track: Dict[str, Any], location: Dict[str, str]) -> ET.Element:
     return entry
 
 
-def build_nml(name: str, entries: Sequence[Dict[str, Any]]) -> bytes:
+def build_nml(name: str, entries: Sequence[Dict[str, Any]], *, starred: Optional[Iterable[Any]] = None) -> bytes:
     """The playlist file: every entry once in COLLECTION, the playlist in
     order (a track twice is listed twice). Built with ElementTree, so every
-    name and path is escaped; characters XML can't hold are dropped first."""
+    name and path is escaped; characters XML can't hold are dropped first.
+    A track whose id is in ``starred`` gets Traktor's top rating."""
+    stars = {str(i) for i in (starred or ())}
     root = ET.Element("NML", {"VERSION": NML_VERSION})
     ET.SubElement(root, "HEAD", {"COMPANY": "www.native-instruments.com", "PROGRAM": "Traktor"})
     ET.SubElement(root, "MUSICFOLDERS")
@@ -551,7 +563,7 @@ def build_nml(name: str, entries: Sequence[Dict[str, Any]]) -> bytes:
             unique.append(e)
     collection = ET.SubElement(root, "COLLECTION", {"ENTRIES": str(len(unique))})
     for e in unique:
-        collection.append(_entry(e["track"], e["location"]))
+        collection.append(_entry(e["track"], e["location"], starred=str(e["track"].get("id")) in stars))
     playlists = ET.SubElement(root, "PLAYLISTS")
     folder = ET.SubElement(playlists, "NODE", {"TYPE": "FOLDER", "NAME": "$ROOT"})
     subnodes = ET.SubElement(folder, "SUBNODES", {"COUNT": "1"})
