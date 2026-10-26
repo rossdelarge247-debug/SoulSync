@@ -26,7 +26,7 @@ MAX_ITEMS = 200
 
 def wanted_id(artist: str, title: str) -> str:
     key = f"{len(artist)}:{artist.casefold()}{len(title)}:{title.casefold()}"
-    return ID_PREFIX + hashlib.sha1(key.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return ID_PREFIX + hashlib.sha256(key.encode("utf-8", errors="replace")).hexdigest()[:16]
 
 
 def track_data(artist: str, title: str, album: str = "") -> Dict[str, Any]:
