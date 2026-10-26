@@ -19,6 +19,8 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
 | Auto-mix: beat-matched transitions in Up next | Ready for Design (built with DJ stage 3's decks) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
 | Data visualiser: the decoded audio as numbers and bits | Ready for Design | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
+| Privacy: a VPN for Soulseek and torrents, and a privacy check | Exploring | [below](#privacy-a-vpn-for-soulseek-and-torrents-and-a-privacy-check) |
+| Reach SYNCHRO.S from anywhere with Tailscale | Exploring | [below](#reach-synchros-from-anywhere-with-tailscale) |
 
 ---
 
@@ -859,3 +861,75 @@ Beside or under the track's spectrum (EQ) in the player, a view of the data that
 ### Settled with Ross
 
 - 24 October: yes to step 1, as a mode and a layer; the file-bytes view only later, if wanted.
+
+---
+
+## Privacy: a VPN for Soulseek and torrents, and a privacy check
+
+**Status:** Exploring · raised by Ross, 2026-10-26.
+
+### The problem (Dev's assessment, 26 October)
+
+- **Soulseek (slskd)** is unencrypted. Every peer sees the home IP address and the Soulseek username, the Soulseek server sees every search, and the ISP can see the traffic.
+- **Torrents,** if used, show the IP to the whole swarm, and SYNCHRO.S can seed.
+- **Encrypted and private enough:** Usenet (SSL to the provider).
+- **Encrypted but tied to Ross's own accounts:** the streaming-service downloaders (Tidal, Qobuz, Deezer, Amazon, HTTPS), which a VPN doesn't change; YouTube, SoundCloud and Bandcamp (HTTPS); and the metadata look-ups (HTTPS).
+- **SYNCHRO.S itself:**
+  - It serves plain HTTP on 8008, which is fine on the home network but must never be opened to the internet. See the Tailscale entry.
+  - Keys and tokens are kept unencrypted in the settings folder.
+
+### What Ross wants
+
+As much security and anonymity as the setup allows, starting with the peer-to-peer traffic. The VPN will be **Proton VPN**, or Malwarebytes if it offers port forwarding.
+
+Dev's note: as far as Dev knows, Malwarebytes Privacy VPN doesn't offer port forwarding. Proton VPN does on paid plans, on its P2P servers. Check both before choosing.
+
+### What it would be
+
+1. **A VPN container (Gluetun) for slskd and any torrent client,** in the compose file and the Mac guide:
+   - only slskd's (and the torrent client's) traffic goes through the VPN;
+   - **a kill switch:** if the VPN drops, slskd loses its connection instead of using the home IP;
+   - **port forwarding** from the VPN provider (Gluetun supports Proton's), so Soulseek can still accept connections;
+   - slskd's listening port follows the forwarded port, which can change.
+2. **A privacy row in Setup check:**
+   - Compare slskd's public IP, seen from inside its container, with SYNCHRO.S's own. Say plainly when slskd isn't behind the VPN.
+   - Show whether the kill switch holds, whether the forwarded port is open, and whether torrent seeding is on.
+3. **Defaults and advice:**
+   - torrent seeding off unless behind the VPN;
+   - a Soulseek username that isn't used elsewhere;
+   - DNS through the VPN (no leaks).
+4. **Later, maybe:** keys and tokens encrypted at rest, with a key the person holds.
+
+### Honest limits
+
+- A VPN hides the home IP from peers and the ISP. It doesn't make Soulseek anonymous: the username stays the same over time.
+- The streaming services always know it's Ross.
+
+### Questions
+
+- **For Ross:** Proton VPN or Malwarebytes, once port forwarding is checked?
+- **For Design** (once it's Ready): the privacy row in Setup check, and where the VPN state shows (the slskd tile, Activity).
+
+---
+
+## Reach SYNCHRO.S from anywhere with Tailscale
+
+**Status:** Exploring · raised by Ross, 2026-10-26.
+
+### What Ross wants
+
+Once SYNCHRO.S and slskd move to the **new media centre** at home, reach them from his phone or laptop anywhere in the world. That means listening, browsing, adding to Wanted and checking downloads, without opening anything to the internet.
+
+### What it would be
+
+- **Tailscale:** a private network between Ross's own devices. Install it on the media centre and on the phone and laptop, and SYNCHRO.S is reachable at a private address (or a name like `synchros.<tailnet>.ts.net`) from anywhere, with no ports opened on the router.
+- **HTTPS:** through Tailscale's own certificates (`tailscale serve`), so the browser has a padlock and the phone can install SYNCHRO.S as a web app.
+- **slskd's own interface** is reachable the same way when needed.
+- **Works with the VPN:** Tailscale carries remote access, and the VPN carries Soulseek traffic. The guide must set them up so they don't fight (e.g. Gluetun only wraps slskd, and Tailscale runs on the host).
+- **Playing on the phone away from home:** streaming quality may need a lower setting on mobile data. Check the player's quality options work over Tailscale.
+- **A guide** for the media centre (its OS isn't known yet), the iPhone or Android app, and the laptop.
+
+### Questions
+
+- **For Ross:** what will the media centre run (macOS, Linux or Windows)? Which phone?
+- **For Design** (once it's Ready): does SYNCHRO.S need to show "you're connected from away" anywhere, for example to suggest a lower streaming quality?
