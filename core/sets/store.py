@@ -46,7 +46,11 @@ class SetError(ValueError):
 
 
 def _text(value: Any, limit: int) -> str:
-    return " ".join(str(value or "").split())[:limit]
+    """Display text from a request: control and format characters (NUL,
+    the bidi overrides, zero-width marks) dropped, spaces collapsed, cut."""
+    from core.sets.tracklist import clean_text
+
+    return clean_text(value, limit)
 
 
 def clean_name(value: Any) -> str:
@@ -73,6 +77,8 @@ def clean_rows(raw: Any) -> List[Dict[str, Any]]:
         if not track_id and not (artist and title):
             continue
         state = item.get("state") if item.get("state") in STATES else ("owned" if track_id else "missing")
+        if state in ("owned", "version") and not track_id:
+            raise SetError("A row marked as yours needs its library track")
         rows.append({
             "track_id": track_id or None, "artist": artist or None, "title": title or None,
             "line_at": _text(item.get("at") or item.get("line_at"), 16) or None,
@@ -138,29 +144,69 @@ def _public_set(row: Dict[str, Any]) -> Dict[str, Any]:
     return {"id": row["id"], "name": row["name"], "kind": row["kind"], "status": row["status"],
             "shape": row.get("shape"), "source": row.get("source"), "source_id": row.get("source_id"),
             "source_url": row.get("source_url"), "source_meta": meta if isinstance(meta, dict) else {},
-            "playlist_id": row.get("playlist_id"), "created_at": row.get("created_at"),
+            "playlist_id": row.get("playlist_id"), "playlist_state": row.get("playlist_state"),
+            "revision": int(row.get("revision") or 0), "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at")}
 
 
 def list_sets(database, profile_id: int) -> List[Dict[str, Any]]:
     """Your sets, newest change first, each with what the row shows: how
-    many tracks play, their length, and the energy line's points."""
+    many tracks play, their length, and the energy line's points. Two
+    queries whatever the number of sets or tracks: the sets, then every
+    row of them joined to the caller's library."""
+    where, params = dj_store._scope(database)
     with closing(database._get_connection()) as conn:
         sets = [dict(r) for r in conn.execute(
             "SELECT * FROM dj_sets WHERE profile_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?",
             (int(profile_id), MAX_SETS)).fetchall()]
-        rows_by_set = {s["id"]: _rows_of(conn, s["id"]) for s in sets}
-    ids = [r["track_id"] for rows in rows_by_set.values() for r in rows if r.get("track_id")]
-    tracks = {t["id"]: t for t in traktor.tracks_by_ids(database, list(dict.fromkeys(ids))[:traktor.MAX_TRACKS])}
+        rows = conn.execute(
+            f"SELECT st.set_id AS set_id, st.state AS state, t.id AS tid, t.duration AS duration, "
+            f"d.energy AS energy FROM dj_set_tracks st JOIN dj_sets s ON s.id = st.set_id "
+            f"LEFT JOIN tracks t ON t.id = st.track_id AND {where} "
+            f"AND t.file_path IS NOT NULL AND t.file_path != '' "
+            f"LEFT JOIN track_dj d ON d.track_id = t.id "
+            f"WHERE s.profile_id = ? ORDER BY st.set_id, st.position",
+            list(params) + [int(profile_id)]).fetchall()
+    per: Dict[int, Dict[str, Any]] = {}
+    for r in rows:
+        agg = per.setdefault(r["set_id"], {"tracks": 0, "lines": 0, "owned": 0, "ms": 0, "energy": []})
+        if r["state"] != "id":
+            agg["lines"] += 1
+        if r["state"] == "owned":
+            agg["owned"] += 1
+        if r["tid"] is not None:
+            agg["tracks"] += 1
+            agg["ms"] += int(r["duration"] or 0)
+            if len(agg["energy"]) < 200:
+                agg["energy"].append(r["energy"])
     out = []
     for s in sets:
-        rows = rows_by_set[s["id"]]
-        playing = [tracks[r["track_id"]] for r in rows if r.get("track_id") in tracks]
-        out.append({**_public_set(s),
-                    "tracks": len(playing), "lines": sum(1 for r in rows if r["state"] != "id"),
-                    "owned": sum(1 for r in rows if r["state"] == "owned"),
-                    "seconds": sum(int(t.get("duration_ms") or 0) for t in playing) // 1000,
-                    "energy": [((t.get("dj") or {}).get("energy")) for t in playing][:200]})
+        agg = per.get(s["id"], {"tracks": 0, "lines": 0, "owned": 0, "ms": 0, "energy": []})
+        out.append({**_public_set(s), "tracks": agg["tracks"], "lines": agg["lines"], "owned": agg["owned"],
+                    "seconds": agg["ms"] // 1000, "energy": agg["energy"]})
+    return out
+
+
+def saved_famous(database, profile_id: int, words: List[str], limit: int = 5) -> List[Dict[str, Any]]:
+    """Your saved famous mixes whose name has every word (Famous mix's
+    search lists them, so a mix opens while its source is down). One query."""
+    words = [w.lower() for w in words if w][:12]
+    if not words:
+        return []
+    with closing(database._get_connection()) as conn:
+        found = conn.execute(
+            "SELECT s.id, s.name, s.source, s.source_id, "
+            "(SELECT COUNT(*) FROM dj_set_tracks st WHERE st.set_id = s.id AND st.state != 'id') AS lines "
+            "FROM dj_sets s WHERE s.profile_id = ? AND s.kind = 'famous' ORDER BY s.updated_at DESC LIMIT ?",
+            (int(profile_id), MAX_SETS)).fetchall()
+    out = []
+    for r in found:
+        name = (r["name"] or "").lower()
+        if all(w in name for w in words):
+            out.append({"source": "saved", "id": str(r["id"]), "title": r["name"], "from": r["source"],
+                        "tracks": int(r["lines"] or 0), "kind": "saved", "source_id": r["source_id"]})
+        if len(out) >= limit:
+            break
     return out
 
 
@@ -194,13 +240,11 @@ def view(database, rows: List[Dict[str, Any]], *, fix_art=None) -> Dict[str, Any
         track = found.get(row.get("track_id") or "")
         if track is not None:
             track = {k: v for k, v in track.items() if k != "file_path"}
-        state = row.get("state") or "owned"
-        if row.get("track_id") and track is None:
-            # it was in the library when it was added; it isn't now (or isn't
-            # this profile's): shown as missing, never silently dropped
-            state = "missing"
+        # a row whose track can't be reached now keeps its state and its id
+        # (it comes back when the file does); the page shows it as missing
         out.append({**_row_out({**row, "line_at": row.get("line_at") or row.get("at")}),
-                    "state": state, "track": track})
+                    "state": row.get("state") or "owned", "track": track,
+                    "unreachable": bool(row.get("track_id")) and track is None})
     playing = [i for i, r in enumerate(out) if r["track"] is not None]
     after: List[Optional[Dict[str, Any]]] = [None] * len(out)
     for a, b in zip(playing, playing[1:], strict=False):
@@ -257,21 +301,36 @@ def _write_rows(conn, set_id: int, rows: List[Dict[str, Any]]) -> None:
           r["locked"], r["note"], r["transition"], r["mbid"], r["raw"]) for i, r in enumerate(rows)])
 
 
-def _library_only(database, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """A track id the caller's library doesn't have becomes a plain line,
-    so a set can never point at another profile's track."""
-    ids = [r["track_id"] for r in rows if r.get("track_id")]
+def _library_only(database, rows: List[Dict[str, Any]], keep: Optional[set] = None) -> List[Dict[str, Any]]:
+    """A track id the caller's library doesn't have becomes a plain line, so
+    a set can never point at another profile's track. Ids in ``keep`` (the
+    ones the set already held) are kept as they are: a track that's briefly
+    unreachable (a server switch, a rescan, a file being moved) mustn't be
+    dropped by an unrelated edit; the view shows it as missing meanwhile."""
+    keep = keep or set()
+    ids = [r["track_id"] for r in rows if r.get("track_id") and r["track_id"] not in keep]
     found = {t["id"]: t for t in traktor.tracks_by_ids(database, list(dict.fromkeys(ids)))}
     out = []
     for row in rows:
-        track = found.get(row["track_id"] or "")
-        if row["track_id"] and track is None:
-            row = {**row, "track_id": None, "state": "missing" if row["state"] != "id" else "id"}
-        if track is not None:
-            row = {**row, "artist": row["artist"] or track.get("artist_name"),
-                   "title": row["title"] or track.get("title")}
+        tid = row["track_id"]
+        if tid and tid not in keep:
+            track = found.get(tid)
+            if track is None:
+                row = {**row, "track_id": None, "state": "missing" if row["state"] != "id" else "id"}
+            else:
+                row = {**row, "artist": row["artist"] or track.get("artist_name"),
+                       "title": row["title"] or track.get("title")}
         out.append(row)
     return out
+
+
+class StaleRevision(Exception):
+    """An autosave older than one already applied (``current`` is the
+    revision the set has)."""
+
+    def __init__(self, current: int):
+        super().__init__("stale")
+        self.current = current
 
 
 def create_set(database, profile_id: int, body: Dict[str, Any]) -> int:
@@ -290,7 +349,7 @@ def create_set(database, profile_id: int, body: Dict[str, Any]) -> int:
             raise SetError(f"You can keep {MAX_SETS} sets; remove one first")
         cur = conn.execute(
             "INSERT INTO dj_sets (profile_id, name, kind, status, shape, source, source_id, source_url, "
-            "source_meta, created_at, updated_at) VALUES (?, ?, ?, 'saved', ?, ?, ?, ?, ?, ?, ?)",
+            "source_meta, created_at, updated_at, revision) VALUES (?, ?, ?, 'saved', ?, ?, ?, ?, ?, ?, ?, 0)",
             (int(profile_id), name, kind, _text(body.get("shape"), 40) or None, source,
              _text(body.get("source_id"), 255) or None, _source_url(source, body.get("source_url")),
              json.dumps(_meta(body.get("source_meta"))), now, now))
@@ -300,29 +359,60 @@ def create_set(database, profile_id: int, body: Dict[str, Any]) -> int:
     return set_id
 
 
-def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> bool:
-    """Change a saved set's name and/or rows. False when it isn't yours."""
+def _track_list(rows: List[Dict[str, Any]]) -> List[Any]:
+    return [r.get("track_id") for r in rows if r.get("track_id")]
+
+
+def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Change a saved set's name and/or rows. None when it isn't yours.
+
+    ``revision`` (optional, an integer the page counts up with each save)
+    keeps autosaves in order: one at or below the set's revision is older
+    than what's stored and raises StaleRevision, changing nothing.
+    ``{"revision", "tracks_changed"}``: whether the playing tracks or their
+    order changed, which is when the playlist follows."""
     with closing(database._get_connection()) as conn:
         row = _own(conn, profile_id, set_id)
         if row is None:
-            return False
+            return None
+        current = int(row.get("revision") or 0)
+        revision = body.get("revision")
+        if isinstance(revision, int) and not isinstance(revision, bool):
+            if revision <= current:
+                raise StaleRevision(current)
+            new_revision = revision
+        else:
+            new_revision = current + 1
         name = clean_name(body["name"]) if "name" in body else row["name"]
-        rows = _library_only(database, clean_rows(body["tracks"])) if "tracks" in body else None
-        if rows is not None and not rows:
-            raise SetError("A set needs at least one track")
-        conn.execute("UPDATE dj_sets SET name = ?, updated_at = ? WHERE id = ? AND profile_id = ?",
-                     (name, time.time(), row["id"], int(profile_id)))
+        old_rows = _rows_of(conn, row["id"])
+        rows = None
+        if "tracks" in body:
+            held = {r["track_id"] for r in old_rows if r.get("track_id")}
+            rows = _library_only(database, clean_rows(body["tracks"]), keep=held)
+            if not rows:
+                raise SetError("A set needs at least one track")
+        conn.execute("UPDATE dj_sets SET name = ?, updated_at = ?, revision = ? WHERE id = ? AND profile_id = ?",
+                     (name, time.time(), new_revision, row["id"], int(profile_id)))
         if rows is not None:
             _write_rows(conn, row["id"], rows)
         conn.commit()
-    return True
+    changed = rows is not None and _track_list(rows) != _track_list(old_rows)
+    return {"revision": new_revision, "tracks_changed": changed}
+
+
+def _set_playlist_fields(database, profile_id: int, set_id: int, **fields: Any) -> None:
+    allowed = {"playlist_id", "playlist_hash", "playlist_state"}
+    cols = [k for k in fields if k in allowed]
+    if not cols:
+        return
+    with closing(database._get_connection()) as conn:
+        conn.execute(f"UPDATE dj_sets SET {', '.join(c + ' = ?' for c in cols)} WHERE id = ? AND profile_id = ?",
+                     [fields[c] for c in cols] + [int(set_id), int(profile_id)])
+        conn.commit()
 
 
 def set_playlist(database, profile_id: int, set_id: int, playlist_id: Optional[int]) -> None:
-    with closing(database._get_connection()) as conn:
-        conn.execute("UPDATE dj_sets SET playlist_id = ? WHERE id = ? AND profile_id = ?",
-                     (playlist_id, int(set_id), int(profile_id)))
-        conn.commit()
+    _set_playlist_fields(database, profile_id, set_id, playlist_id=playlist_id)
 
 
 def delete_set(database, profile_id: int, set_id: Any) -> bool:
@@ -339,50 +429,102 @@ def delete_set(database, profile_id: int, set_id: Any) -> bool:
 
 
 # ── the playlist "Save as mix" keeps ──────────────────────────────────────────
+#
+# The set writes its playlist and remembers a hash of what it wrote. Later
+# edits to the set's tracks bring the playlist along only while it still
+# holds exactly that: once someone changes it on the Playlists page it stops
+# following the set (``playlist_state`` "changed"), and a playlist that was
+# deleted is never made again behind the person's back ("deleted"). The set
+# says so once and offers "Make a new playlist from this set".
 
 def playlist_tracks(database, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """The set's playing tracks in order, in the user playlist's shape."""
+    """The set's tracks in order, in the user playlist's shape. A track the
+    set holds but that's briefly unreachable keeps its place by the set's own
+    artist and title."""
     ids = [r["track_id"] for r in rows if r.get("track_id")]
     found = {t["id"]: t for t in traktor.tracks_by_ids(database, list(dict.fromkeys(ids)))}
     out = []
     for row in rows:
-        track = found.get(row.get("track_id") or "")
-        if track is None:
+        if not row.get("track_id"):
             continue
+        track = found.get(row["track_id"]) or {}
         out.append({"track_name": track.get("title") or row.get("title") or "",
                     "artist_name": track.get("artist_name") or row.get("artist") or "",
                     "album_name": track.get("album_title") or "", "duration_ms": track.get("duration_ms") or 0})
-    return out
+    return [t for t in out if t["track_name"] and t["artist_name"]]
 
 
-def keep_playlist(database, profile_id: int, set_id: int, name: str, rows: List[Dict[str, Any]],
-                  playlist_id: Optional[int]) -> Optional[int]:
-    """Make the set's playlist, or bring it in line with the set; its id.
-    A playlist that's gone (deleted on the Playlists page) is made again.
-    Best effort: a failure here never loses the set."""
+def _playlist_hash(database, playlist_id: int) -> str:
+    """What a playlist holds, in order, as a short hash (its songs' keys)."""
+    import hashlib
+
     from core.playlists import user_playlists as up
 
-    tracks = [t for t in playlist_tracks(database, rows) if t["track_name"] and t["artist_name"]]
+    keys = [list(up.track_key(t)) for t in database.get_mirrored_playlist_tracks(int(playlist_id))]
+    return hashlib.sha256(json.dumps(keys).encode("utf-8")).hexdigest()
+
+
+def _own_playlist(database, profile_id: int, playlist_id: Optional[int]):
+    from core.playlists import user_playlists as up
+
+    if not playlist_id:
+        return None
+    found = database.get_mirrored_playlist(int(playlist_id), profile_id=int(profile_id))
+    return found if up.is_user_playlist(found) else None
+
+
+def make_playlist(database, profile_id: int, set_id: int, name: str, rows: List[Dict[str, Any]]) -> Optional[int]:
+    """A new playlist of the set's tracks, followed from now on ("Save as
+    mix", and "Make a new playlist from this set"). Best effort."""
+    from core.playlists import user_playlists as up
+
     try:
-        playlist = None
-        if playlist_id:
-            found = database.get_mirrored_playlist(int(playlist_id), profile_id=int(profile_id))
-            playlist = found if up.is_user_playlist(found) else None
-        if playlist is None:
-            new_id = up.create_playlist(database, int(profile_id), name)
-            playlist = database.get_mirrored_playlist(new_id, profile_id=int(profile_id))
-            if tracks:
-                up.add_tracks(database, playlist, tracks, allow_duplicates=True)
-        else:
-            up.replace_tracks(database, playlist, tracks)
-        new = int(playlist["id"])
-        if new != playlist_id:
-            set_playlist(database, profile_id, set_id, new)
-        return new
+        new_id = up.create_playlist(database, int(profile_id), name)
+        playlist = database.get_mirrored_playlist(new_id, profile_id=int(profile_id))
+        tracks = playlist_tracks(database, rows)
+        if tracks:
+            up.add_tracks(database, playlist, tracks, allow_duplicates=True)
+        _set_playlist_fields(database, profile_id, set_id, playlist_id=int(new_id),
+                             playlist_hash=_playlist_hash(database, new_id), playlist_state=None)
+        return int(new_id)
     except Exception as exc:  # noqa: BLE001 - the set is saved either way
-        logger.warning("Sets: couldn't keep set %s's playlist: %s", set_id, exc)
-        return playlist_id
+        logger.warning("Sets: couldn't make set %s's playlist: %s", set_id, exc)
+        return None
 
 
-__all__ = ["KINDS", "MAX_ROWS", "MAX_SETS", "SetError", "alternatives", "clean_rows", "create_set",
-           "delete_set", "get_set", "keep_playlist", "list_sets", "update_set", "view"]
+def follow_playlist(database, profile_id: int, set_id: int, rows: List[Dict[str, Any]]) -> Optional[str]:
+    """After the set's tracks changed: bring its playlist along, or let it go.
+    Returns the playlist's state afterwards: None (following, or there is
+    none), "changed" or "deleted"."""
+    from core.playlists import user_playlists as up
+
+    with closing(database._get_connection()) as conn:
+        row = _own(conn, profile_id, set_id)
+    if row is None or not row.get("playlist_id"):
+        return row.get("playlist_state") if row else None
+    try:
+        playlist = _own_playlist(database, profile_id, row["playlist_id"])
+        if playlist is None:
+            _set_playlist_fields(database, profile_id, set_id, playlist_id=None, playlist_hash=None,
+                                 playlist_state="deleted")
+            return "deleted"
+        if row.get("playlist_hash") and _playlist_hash(database, playlist["id"]) != row["playlist_hash"]:
+            _set_playlist_fields(database, profile_id, set_id, playlist_id=None, playlist_hash=None,
+                                 playlist_state="changed")
+            return "changed"
+        up.replace_tracks(database, playlist, playlist_tracks(database, rows))
+        _set_playlist_fields(database, profile_id, set_id, playlist_hash=_playlist_hash(database, playlist["id"]))
+        return None
+    except Exception as exc:  # noqa: BLE001 - the set is saved either way
+        logger.warning("Sets: couldn't bring set %s's playlist along: %s", set_id, exc)
+        return None
+
+
+def clear_playlist_state(database, profile_id: int, set_id: int) -> None:
+    """"Not now": the set stops saying its playlist went its own way."""
+    _set_playlist_fields(database, profile_id, set_id, playlist_state=None)
+
+
+__all__ = ["KINDS", "MAX_ROWS", "MAX_SETS", "SetError", "StaleRevision", "alternatives", "clean_rows",
+           "clear_playlist_state", "create_set", "delete_set", "follow_playlist", "get_set", "list_sets",
+           "make_playlist", "saved_famous", "update_set", "view"]

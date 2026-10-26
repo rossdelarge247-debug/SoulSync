@@ -3897,6 +3897,9 @@ class MusicDatabase:
         ('source_url', 'TEXT'),
         ('source_meta', 'TEXT'),                       # JSON: the mix's own title, date, length
         ('playlist_id', 'INTEGER'),                    # the user playlist "Save as mix" made
+        ('playlist_hash', 'TEXT'),                     # what the set last wrote into it
+        ('playlist_state', 'TEXT'),                    # NULL | changed | deleted (it stopped following)
+        ('revision', 'INTEGER NOT NULL DEFAULT 0'),    # the page's last applied autosave
         ('created_at', 'REAL'),
         ('updated_at', 'REAL'),
     )

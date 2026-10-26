@@ -129,6 +129,14 @@ def _clean(text: str) -> str:
     return " ".join(text.split())[:MAX_LINE_CHARS]
 
 
+def clean_text(value: Any, limit: int = MAX_LINE_CHARS) -> str:
+    """Text from outside as display text: control and format characters
+    (NUL, the bidi overrides, zero-width marks) dropped, spaces collapsed,
+    cut to ``limit``."""
+    text = "".join(c for c in str(value or "")[:limit * 4] if c == "\t" or unicodedata.category(c)[0] != "C")
+    return " ".join(text.split())[:limit]
+
+
 def _damaged(text: str) -> bool:
     return "�" in text or sum(1 for c in text if unicodedata.category(c) == "So") > 3
 
@@ -359,5 +367,5 @@ def page_title_from_link(link: Any, hosts: Tuple[str, ...]) -> Optional[str]:
     return title
 
 
-__all__ = ["MAX_LINES", "MAX_PASTE_CHARS", "artist_keys", "artists_match", "fold", "page_title_from_link",
+__all__ = ["MAX_LINES", "MAX_PASTE_CHARS", "artist_keys", "artists_match", "clean_text", "fold", "page_title_from_link",
            "read_line", "read_paste", "split_title", "wikitext_lines"]

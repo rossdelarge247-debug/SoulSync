@@ -4,7 +4,10 @@ CONTRACTS.md "Sets"). Code: core/sets/.
 GET    /api/sets                     Your sets.
 POST   /api/sets                     Save as mix: a new set, and its playlist.
 GET    /api/sets/<id>                One of your sets, with its view.
-PUT    /api/sets/<id>                Change a saved set's name or tracks (its playlist follows).
+PUT    /api/sets/<id>                Change a saved set's name or tracks (its playlist follows while
+                                     it still holds what the set wrote), with an autosave revision.
+POST   /api/sets/<id>/playlist       {action: new | dismiss}: a new playlist from the set, or stop
+                                     saying its playlist went its own way.
 DELETE /api/sets/<id>                Remove a set; its playlist stays.
 POST   /api/sets/view                Rows -> library tracks, steps and the meta line (drafts).
 GET    /api/sets/swap                Alternatives that fit both neighbours (Swap).
@@ -15,6 +18,7 @@ POST   /api/sets/match               Tracklist lines matched to your library ("T
 POST   /api/sets/paste               A pasted tracklist read by code and matched.
 POST   /api/sets/wanted              Tracks onto Wanted ("Add N missing", "Want the Dub"), each
                                      keyed by a SHA-256 of its artist and title.
+POST   /api/sets/wanted/remove       Take back a "Want the Dub" still waiting on Wanted.
 
 Every route needs a profile. Sets are the caller's own (admins included):
 another profile's set reads as missing. Library reads use the caller's
@@ -40,8 +44,11 @@ fix_art_url = None
 
 #: a set of 500 rows is well under this
 MAX_BODY = 256 * 1024
-#: a pasted tracklist: the text cap (core.sets.tracklist.MAX_PASTE_CHARS) plus room
-MAX_PASTE_BODY = 72 * 1024
+#: a pasted tracklist: the text cap (core.sets.tracklist.MAX_PASTE_CHARS, in
+#: characters) at up to 6 bytes each once in JSON (a \uXXXX escape; a raw
+#: UTF-8 character is at most 4), plus room for the rest of the body. The
+#: text itself is then capped in characters.
+MAX_PASTE_BODY = 64 * 1024 * 6 + 8 * 1024
 
 
 def configure(*, get_database_, fix_art_url_=None) -> None:
@@ -117,9 +124,7 @@ def create_set():
     try:
         set_id = store.create_set(database, pid, body)
         saved = store.get_set(database, pid, set_id)
-        playlist_id = store.keep_playlist(database, pid, set_id, saved["name"],
-                                          [{"track_id": r["track_id"], "title": r["title"], "artist": r["artist"]}
-                                           for r in saved["rows"]], None)
+        playlist_id = store.make_playlist(database, pid, set_id, saved["name"], saved["rows"])
     except store.SetError as exc:
         return _bad(str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -157,16 +162,50 @@ def update_set(set_id: int):
 
     database = get_database()
     try:
-        if not store.update_set(database, pid, set_id, body):
+        done = store.update_set(database, pid, set_id, body)
+        if done is None:
             return _bad("That set isn't one of yours", 404)
         saved = store.get_set(database, pid, set_id)
-        if "tracks" in body:
-            store.keep_playlist(database, pid, set_id, saved["name"], saved["rows"], saved.get("playlist_id"))
+        state = saved.get("playlist_state")
+        if done["tracks_changed"]:
+            state = store.follow_playlist(database, pid, set_id, saved["rows"])
+    except store.StaleRevision as exc:
+        # an older autosave than one already applied: nothing changed
+        return jsonify({"success": False, "stale": True, "revision": exc.current,
+                        "error": "A newer change to this set is already saved."}), 409
     except store.SetError as exc:
         return _bad(str(exc))
     except Exception as exc:  # noqa: BLE001
         return _failed("update", exc)
-    return _ok({"id": set_id})
+    return _ok({"id": set_id, "revision": done["revision"], "playlist_state": state})
+
+
+@bp.route("/api/sets/<int:set_id>/playlist", methods=["POST"])
+def set_playlist(set_id: int):
+    pid = _profile()
+    if pid is None:
+        return _no_profile()
+    body, refused = _body(1024)
+    if refused is not None:
+        return refused
+    from core.sets import store
+
+    database = get_database()
+    try:
+        saved = store.get_set(database, pid, set_id)
+        if saved is None:
+            return _bad("That set isn't one of yours", 404)
+        if body.get("action") == "dismiss":
+            store.clear_playlist_state(database, pid, set_id)
+            return _ok({"playlist_id": saved.get("playlist_id")})
+        if body.get("action") != "new":
+            return _bad("action must be new or dismiss")
+        playlist_id = store.make_playlist(database, pid, set_id, saved["name"], saved["rows"])
+    except Exception as exc:  # noqa: BLE001
+        return _failed("playlist", exc)
+    if playlist_id is None:
+        return _bad("The playlist wasn't made. Try again in a moment.", 500)
+    return _ok({"playlist_id": playlist_id})
 
 
 @bp.route("/api/sets/<int:set_id>", methods=["DELETE"])
@@ -246,17 +285,7 @@ def _saved_matches(database, pid: int, query: str) -> list:
     source is down still opens (22r)."""
     from core.sets import store
 
-    words = [w for w in query.lower().split() if w]
-    out = []
-    for saved in store.list_sets(database, pid):
-        if saved["kind"] != "famous":
-            continue
-        name = saved["name"].lower()
-        if words and all(w in name for w in words):
-            out.append({"source": "saved", "id": str(saved["id"]), "title": saved["name"],
-                        "from": saved.get("source"), "tracks": saved["lines"], "kind": "saved",
-                        "source_id": saved.get("source_id")})
-    return out[:5]
+    return store.saved_famous(database, pid, query.split())
 
 
 @bp.route("/api/sets/famous/search", methods=["GET"])
@@ -270,7 +299,7 @@ def famous_search():
     if not query:
         return _bad("Type what to look for")
     try:
-        found = sources.search(query)
+        found = sources.search(query, profile_id=pid)
         saved = _saved_matches(get_database(), pid, query)
     except Exception as exc:  # noqa: BLE001
         return _failed("search", exc)
@@ -295,6 +324,9 @@ def famous_open():
         mix = sources.open_mix(source, mix_id)
     except LookupError:
         return _bad(f"{sources.SOURCE_NAMES[source]} isn't searched", 409)
+    except sources.SourceBusy:
+        return jsonify({"success": False, "limited": source,
+                        "error": f"{sources.SOURCE_NAMES[source]} is busy right now. Try again in a minute."}), 429
     except sources.SourceDown:
         return jsonify({"success": False, "down": source, "source_name": sources.SOURCE_NAMES[source],
                         "error": f"{sources.SOURCE_NAMES[source]} can't be reached"}), 503
@@ -345,7 +377,7 @@ def paste():
     if not isinstance(text, str) or not text.strip():
         return _bad("Paste the tracklist first")
     if len(text) > tracklist.MAX_PASTE_CHARS:
-        return _bad("That's longer than a tracklist can be (64 KB)", 413)
+        return _bad("That's longer than a tracklist can be (64,000 characters)", 413)
     read = tracklist.read_paste(text)
     readable = [line for line in read["lines"] if line["kind"] in ("track", "id")]
     unread = [line for line in read["lines"] if line["kind"] == "unread"]
@@ -378,6 +410,26 @@ def wanted():
     except Exception as exc:  # noqa: BLE001
         return _failed("wanted", exc)
     return _ok(result)
+
+
+@bp.route("/api/sets/wanted/remove", methods=["POST"])
+def wanted_remove():
+    """Use yours again after Want the Dub: the Wanted row that choice added
+    goes, if it's still waiting (not downloaded) and came from this set."""
+    pid = _profile()
+    if pid is None:
+        return _no_profile()
+    body, refused = _body(8 * 1024)
+    if refused is not None:
+        return refused
+    from core.sets import wanted as sets_wanted
+
+    name = body.get("set_name") if isinstance(body.get("set_name"), str) else ""
+    try:
+        removed = sets_wanted.remove(get_database(), pid, body.get("artist"), body.get("title"), set_name=name)
+    except Exception as exc:  # noqa: BLE001
+        return _failed("wanted remove", exc)
+    return _ok({"removed": removed})
 
 
 __all__ = ["bp", "configure", "create_blueprint"]

@@ -86,6 +86,7 @@ def net(monkeypatch, cfg):
     mb = FakeMB()
     monkeypatch.setattr(sources, "_mb_client", mb)
     sources.clear_cache()
+    sources.reset_limits()
     cfg.data.update({sources.SETTING_MIXESDB: True, "discogs.token": "tok"})
 
     def wiki(url, params):
@@ -129,6 +130,7 @@ def test_one_source_down_leaves_the_others(client, net):
     assert {r["source"] for r in body["results"]} == {"musicbrainz", "discogs"}
     net.mb.fail = True
     sources.clear_cache()
+    sources.reset_limits()
     net.routes[f"{sources.DISCOGS_API}/database/search"] = Answer(status=503)
     body = client.get("/api/sets/famous/search?q=fabric").get_json()
     assert {k: v["state"] for k, v in body["sources"].items()} == {"mixesdb": "down", "musicbrainz": "down",

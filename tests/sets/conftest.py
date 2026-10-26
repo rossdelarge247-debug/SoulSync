@@ -84,6 +84,7 @@ def client(db, cfg, monkeypatch):
     from core.sets import sources
 
     sources.clear_cache()
+    sources.reset_limits()
     sets_api.configure(get_database_=lambda: db)
     state = {"profile": 1, "scope": "shared"}
     monkeypatch.setattr(sets_api, "get_current_profile_id", lambda: state["profile"])
