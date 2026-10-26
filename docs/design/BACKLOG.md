@@ -931,5 +931,5 @@ Once SYNCHRO.S and slskd move to the **new media centre** at home, reach them fr
 
 ### Questions
 
-- **For Ross:** what will the media centre run (macOS, Linux or Windows)? Which phone?
+- **Settled with Ross, 26 October:** the media centre runs **macOS**, and the phone is **Android**. The guide covers Tailscale on macOS (the standalone app, so it runs before login on a headless media centre, with Docker Desktop's containers reached through the host), the Android app, and the laptop. SYNCHRO.S is installed on Android as a web app from Chrome.
 - **For Design** (once it's Ready): does SYNCHRO.S need to show "you're connected from away" anywhere, for example to suggest a lower streaming quality?
