@@ -13,7 +13,8 @@ GET    /api/sets/famous/search?q=    Famous mixes from MixesDB, MusicBrainz and 
 POST   /api/sets/famous/open         One mix's tracklist, matched to your library.
 POST   /api/sets/match               Tracklist lines matched to your library ("Type it…").
 POST   /api/sets/paste               A pasted tracklist read by code and matched.
-POST   /api/sets/wanted              Tracks onto Wanted ("Add N missing", "Want the Dub").
+POST   /api/sets/wanted              Tracks onto Wanted ("Add N missing", "Want the Dub"), each
+                                     keyed by a SHA-256 of its artist and title.
 
 Every route needs a profile. Sets are the caller's own (admins included):
 another profile's set reads as missing. Library reads use the caller's
