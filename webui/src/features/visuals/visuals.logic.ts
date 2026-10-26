@@ -386,9 +386,10 @@ export function creditLine(opts: {
 export type OverlayKey = 'next' | 'previous' | 'random' | 'favourite';
 
 /**
- * The overlay's own keys: V next, Shift+V previous, R random, S favourite.
- * L is the A–B loop everywhere, the overlay included (HANDOFF 83). Nothing while
- * a modifier is held or a field has the keyboard.
+ * The overlay's own keys: V next, Shift+V previous, R random, Shift+S
+ * favourite (24a: plain S stars the playing track everywhere, the overlay
+ * included). L is the A–B loop everywhere, the overlay included (HANDOFF 83).
+ * Nothing while Ctrl, Cmd or Alt is held or a field has the keyboard.
  */
 export function overlayKey(ev: {
   key: string;
@@ -408,7 +409,7 @@ export function overlayKey(ev: {
       return ev.shiftKey ? null : 'random';
     case 's':
     case 'S':
-      return ev.shiftKey ? null : 'favourite';
+      return ev.shiftKey ? 'favourite' : null;
     default:
       return null;
   }

@@ -516,12 +516,14 @@ describe('nothing of the old player was dropped', () => {
 });
 
 describe('the record (HANDOFF 47, board 9d)', () => {
-  it('has the quality line, then Add to playlist, Sleep timer and "…" at the right end', () => {
+  it('has the quality line, then the star, Add to playlist, Sleep timer and "…" at the right end', () => {
     window.openAddToPlaylist = vi.fn() as never;
     boot(fakeEngine(snapshot({ playlistTrack: { id: '42', title: 'Halcyon' } })));
     const row = $('.ss-player-record-controls');
     const order = [...row.children].map((el) => el.getAttribute('aria-label') ?? el.className);
     expect(order).toEqual([
+      // 28c: the star's slot (player-star.ts fills it)
+      'ss-player-star-slot',
       'Add to playlist',
       'Sleep timer, off',
       'ss-player-spacer',

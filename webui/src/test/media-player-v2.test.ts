@@ -2049,20 +2049,27 @@ describe('the Visuals keys (HANDOFF 60)', () => {
       /data-player-menu="visuals" aria-keyshortcuts="F">Visuals <kbd[^>]*>F<\/kbd>/,
     );
     expect(html).toContain(
-      'In the visuals, V, Shift V, R and S work on the visuals; L is the A–B loop there too.',
+      'In the visuals, V, Shift V, R and Shift S work on the visuals; L is the A–B loop and S the star there too.',
     );
-    // 83: L is the A–B loop everywhere; the favourite is S
+    // 83: L is the A–B loop everywhere; 24a: the favourite is Shift S, S the star
     expect(html).toContain('<dt>A–B loop</dt><dd><kbd>L</kbd></dd>');
-    expect(html).toContain('<dt>Favourite this MilkDrop preset</dt><dd><kbd>S</kbd></dd>');
+    expect(html).toContain('<dt>Favourite this MilkDrop preset</dt><dd><kbd>Shift S</kbd></dd>');
+    expect(html).toMatch(/<dt>Star or unstar the playing track[^<]*<\/dt><dd><kbd>S<\/kbd><\/dd>/);
   });
 
-  it('inside the overlay V, Shift+V, R and S go to the visuals (10a; HANDOFF 83)', () => {
+  it('inside the overlay V, Shift+V, R and Shift+S go to the visuals (10a; 24a)', () => {
     const { calls, press } = keys(true, false, { bridge: true });
     press('v');
     press('V', true);
     press('r');
-    press('s');
+    press('S', true);
     expect(calls).toEqual(['bridge next', 'bridge previous', 'bridge random', 'bridge favourite']);
+  });
+
+  it('inside the overlay plain S is not the favourite: it stars the track (24a)', () => {
+    const { calls, press } = keys(true, false, { bridge: true });
+    expect(press('s')).toBe(false);
+    expect(calls).toEqual([]);
   });
 
   it('inside the overlay L is still the A–B loop (HANDOFF 83)', () => {

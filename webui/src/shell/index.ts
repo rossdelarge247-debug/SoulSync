@@ -76,6 +76,7 @@ import {
 import './server-activity';
 import { bootPlayer } from './player';
 import { bootRadioChrome } from './player-radio';
+import { bootPlayerStar } from './player-star';
 import { initPlexSignIn } from './plex-signin';
 import { bootRadioSession } from './radio-session';
 import { initRadioSettings, loadRadioSettings, openRadioSettings } from './radio-settings';
@@ -205,6 +206,8 @@ const onReady = () => {
   // mode ride on it (build e)
   bootRadioSession();
   bootPlayer();
+  // the star in the bar, the mini bar and the record (28c), and S
+  bootPlayerStar();
   bootRadioChrome();
   initWeatherPreviewSettings();
   initAppearanceSettings();

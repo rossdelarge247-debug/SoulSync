@@ -2868,6 +2868,13 @@ function handlePlayerKeyboardShortcuts(event) {
             event.preventDefault();
             playPreviousInQueue();
             break;
+        case 's':
+        case 'S':
+            // 24a: S stars or unstars the playing track everywhere (the
+            // focused row's track first); Shift+S is the visuals' favourite
+            if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+            if (typeof window.SoulSyncStarKey === 'function' && window.SoulSyncStarKey()) event.preventDefault();
+            break;
         default:
             return; // Don't prevent default for unhandled keys
     }

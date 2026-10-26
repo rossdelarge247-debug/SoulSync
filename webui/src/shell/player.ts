@@ -26,6 +26,7 @@
  */
 
 import { logoText } from '@/features/radio/radio.format';
+import { starStore } from '@/features/stars/stars-store';
 
 import {
   applyOutput,
@@ -1001,6 +1002,22 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     const st = snapshot;
     const item = (name: string) => menu.querySelector<HTMLElement>(`[data-player-menu="${name}"]`);
     setHidden(item('report'), !st.reportable);
+    // 24a: a library track with its file present goes in a mix set
+    const t = st.track;
+    const libraryId =
+      (st.kind ?? 'library') === 'library' &&
+      t &&
+      !t.is_preview &&
+      t.id !== null &&
+      t.id !== undefined
+        ? String(t.id)
+        : '';
+    setHidden(
+      item('mixset'),
+      !libraryId ||
+        !starStore().get(libraryId)?.canStar ||
+        typeof (view as { openAddToMixSet?: unknown }).openAddToMixSet !== 'function',
+    );
     const spoken = st.kind === 'podcast' || st.kind === 'audiobook';
     const radio = st.kind === 'radio';
     setHidden(item('lyrics'), spoken || radio);
@@ -1614,6 +1631,24 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
         case 'crossfade':
           engine.setCrossfade(!snapshot.crossfade);
           break;
+        case 'mixset': {
+          const t = snapshot.track;
+          closeMenus(false);
+          const open = (
+            view as {
+              openAddToMixSet?: (
+                tracks: { id: string; title: string; artist: string },
+                anchor?: HTMLElement | null,
+              ) => void;
+            }
+          ).openAddToMixSet;
+          if (t && t.id !== null && t.id !== undefined)
+            open?.(
+              { id: String(t.id), title: stripId(t.title) || '', artist: stripId(t.artist) || '' },
+              anchor ?? null,
+            );
+          break;
+        }
         case 'visuals':
           if (!snapshot.track) break;
           closeMenus(false);

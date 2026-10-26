@@ -144,6 +144,8 @@
     <!-- The player's bar and tray (board 6a), after the shell: it shortens the
          shell's .main-container while something plays. -->
     <link rel="stylesheet" href="{{ url_for('static', filename='player.css') }}">
+    <!-- the star (src/features/stars), one control for every page and the player -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='stars.css') }}">
     <style id="soulsync-initial-appearance">
         :root {
             --accent-rgb: {{ initial_accent_rgb }};
@@ -12465,6 +12467,8 @@
 
         <!-- ── the bar (desktop) ── -->
         <div class="ss-player-bar" id="ss-player-bar">
+            <!-- the bar's first cell: the track, then its star after the title (28c) -->
+            <div class="ss-player-now-cell">
             <button type="button" class="ss-player-now" data-player-toggle aria-expanded="false" aria-controls="ss-player-tray">
                 <span class="ss-player-art" aria-hidden="true">
                     <img alt="" data-player-art hidden>
@@ -12481,6 +12485,8 @@
                     <span class="ss-player-meta" data-player-meta></span>
                 </span>
             </button>
+            <span class="ss-player-star-slot" data-player-star="bar"></span>
+            </div>
             <div class="ss-player-centre" role="group" aria-label="Playback">
                 <button type="button" class="ss-player-btn" data-player-action="previous" aria-label="Previous">
                     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 20L9 12l10-8zM5 19V5h2v14z"/></svg>
@@ -12540,6 +12546,7 @@
                     <span class="ss-player-meta" data-player-mini-meta></span>
                 </span>
             </button>
+            <span class="ss-player-star-slot" data-player-star="mini"></span>
             <button type="button" class="ss-player-btn" data-player-action="mini" aria-label="Next">
                 <svg data-mini-icon="next" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4l10 8-10 8zM17 5h2v14h-2z"/></svg>
                 <span data-mini-icon="forward" hidden>+30 s</span>
@@ -12594,6 +12601,7 @@
                     <a class="ss-player-link" data-player-album href="#" hidden>Open album</a>
                 </div>
                 <div class="ss-player-record-controls">
+                    <span class="ss-player-star-slot" data-player-star="record"></span>
                     <button type="button" class="ss-player-btn ss-player-btn--outline" data-player-record="playlist" aria-label="Add to playlist" title="Add to playlist" hidden>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h12M3 12h12M3 18h7M18 14v6M15 17h6"/></svg>
                     </button>
@@ -12907,6 +12915,8 @@
              meta on the right; keys as kbd. Add to playlist and Sleep timer are the
              record's own buttons now. -->
         <div class="ss-player-menu" id="ss-player-menu" role="group" aria-label="More for this track" hidden>
+            <!-- a library track with its file: 24a's "Add to mix set…" -->
+            <button type="button" class="ss-player-menu-item" data-player-menu="mixset" aria-haspopup="dialog" hidden>Add to mix set…</button>
             <p class="ss-player-menu-label" data-player-menu-head>Playback</p>
             <button type="button" class="ss-player-menu-item" data-player-menu="crossfade" aria-pressed="false" data-player-menu-music>Crossfade <span class="ss-player-menu-state" data-player-crossfade-state>Off</span></button>
             <button type="button" class="ss-player-menu-item" data-player-menu="speed" aria-expanded="false" aria-controls="ss-player-speed-list" data-player-menu-music>Speed <span class="ss-player-menu-state" data-player-speed-state>1.0×</span></button>
@@ -13026,20 +13036,21 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
             </div>
-            <p>The first group works anywhere outside a text field; the rest while the tray or the visuals are open. In the visuals, V, Shift V, R and S work on the visuals; L is the A–B loop there too.</p>
+            <p>The first group works anywhere outside a text field; the rest while the tray or the visuals are open. In the visuals, V, Shift V, R and Shift S work on the visuals; L is the A–B loop and S the star there too.</p>
             <dl class="ss-player-shortcuts-grid">
                 <div><dt>Play or pause; stop, while a station plays</dt><dd><kbd>Space</kbd></dd></div>
                 <div><dt>Back or forward 5 seconds</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd></div>
                 <div><dt>Volume</dt><dd><kbd>↑</kbd> <kbd>↓</kbd></dd></div>
                 <div><dt>Mute</dt><dd><kbd>M</kbd></dd></div>
                 <div><dt>Next or previous track</dt><dd><kbd>N</kbd> <kbd>P</kbd></dd></div>
+                <div><dt>Star or unstar the playing track (the focused row's, on a list)</dt><dd><kbd>S</kbd></dd></div>
                 <div class="ss-player-shortcuts-gap"><dt>A–B loop</dt><dd><kbd>L</kbd></dd></div>
                 <div><dt>Slower or faster</dt><dd><kbd>[</kbd> <kbd>]</kbd></dd></div>
                 <div><dt>Visuals</dt><dd><kbd>F</kbd></dd></div>
                 <div><dt>This list</dt><dd><kbd>?</kbd></dd></div>
                 <div class="ss-player-shortcuts-gap"><dt>Next or previous visual</dt><dd><kbd>V</kbd> <kbd>Shift V</kbd></dd></div>
                 <div><dt>A random visual</dt><dd><kbd>R</kbd></dd></div>
-                <div><dt>Favourite this MilkDrop preset</dt><dd><kbd>S</kbd></dd></div>
+                <div><dt>Favourite this MilkDrop preset</dt><dd><kbd>Shift S</kbd></dd></div>
                 <div><dt>Close the panel, then the visuals, then collapse the tray</dt><dd><kbd>Esc</kbd></dd></div>
             </dl>
         </div>
