@@ -7,7 +7,7 @@
  * paste are plain code on the server; nothing here asks an AI.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 
 import { Button, TextArea, TextInput } from '@/components/form';
 import { LoadingState, Notice, StatusTag } from '@/components/primitives';
@@ -114,7 +114,10 @@ export function MatchView({
   phone,
   onSaved,
   footNote,
+  before,
 }: {
+  /** what sits between the title and the count (22h: the lines to check) */
+  before?: ReactNode;
   rows: MatchRow[];
   counts: MatchCounts;
   source: MatchSource;
@@ -183,6 +186,7 @@ export function MatchView({
     <section className={styles.match} aria-label={`The match: ${source.name}`} data-match="">
       <h2 className={styles.matchTitle}>{source.name}</h2>
       {source.meta ? <p className={styles.matchMeta}>{source.meta}</p> : null}
+      {before}
       <div className={styles.ownCard}>
         <p className={styles.ownLine}>
           <strong>{ownLine(counts)}</strong>
@@ -236,7 +240,7 @@ export function MatchView({
           const tag = TAGS[row.state];
           return (
             <li key={i} className={styles.matchRow} data-state={row.state}>
-              {phone ? null : <span className={styles.at}>{row.at || ''}</span>}
+              {phone ? null : <span className={styles.at}>{row.at || (row.n ?? '')}</span>}
               <span className={styles.matchText}>
                 <span className={styles.matchLine}>{lineTitle(row)}</span>
                 <span className={styles.matchSub}>
@@ -451,6 +455,7 @@ export function FamousSearch({
       ) : down.length ? (
         <Notice
           tone="warning"
+          layout="stacked"
           title={`${namesList(down)} can't be reached`}
           actions={
             <>
@@ -793,28 +798,6 @@ export function PasteTracklist({
   const result =
     rows && counts ? (
       <div className={styles.pasteResult}>
-        {unread.length ? (
-          <>
-            <Notice
-              tone="warning"
-              title={`${unread.length} ${unread.length === 1 ? 'line' : 'lines'} couldn't be read as a track.`}
-            >
-              Type what {unread.length === 1 ? 'it is' : 'they are'}, or leave{' '}
-              {unread.length === 1 ? 'it' : 'them'} out. The rest is matched already: you own{' '}
-              {counts.owned} of {counts.of}.
-            </Notice>
-            <ul className={styles.unreadList} aria-label="Lines to check">
-              {unread.map((line) => (
-                <UnreadRow
-                  key={line.n}
-                  line={line}
-                  onType={(value) => void typed(line, value)}
-                  onLeave={() => setUnread((cur) => cur.filter((u) => u.n !== line.n))}
-                />
-              ))}
-            </ul>
-          </>
-        ) : null}
         <MatchView
           rows={rows}
           counts={counts}
@@ -827,6 +810,30 @@ export function PasteTracklist({
             source_meta: { title: shown, lines },
           }}
           footNote="Lines you leave out aren’t in the mix or the export."
+          before={
+            unread.length ? (
+              <>
+                <Notice
+                  tone="warning"
+                  title={`${unread.length} ${unread.length === 1 ? 'line' : 'lines'} couldn't be read as a track.`}
+                >
+                  Type what {unread.length === 1 ? 'it is' : 'they are'}, or leave{' '}
+                  {unread.length === 1 ? 'it' : 'them'} out. The rest is matched already: you own{' '}
+                  {counts.owned} of {counts.of}.
+                </Notice>
+                <ul className={styles.unreadList} aria-label="Lines to check">
+                  {unread.map((line) => (
+                    <UnreadRow
+                      key={line.n}
+                      line={line}
+                      onType={(value) => void typed(line, value)}
+                      onLeave={() => setUnread((cur) => cur.filter((u) => u.n !== line.n))}
+                    />
+                  ))}
+                </ul>
+              </>
+            ) : null
+          }
         />
       </div>
     ) : null;

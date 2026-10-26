@@ -201,6 +201,10 @@
   margin-right: 8px;
 }
 
+.setKindInline {
+  display: none;
+}
+
 .spark {
   display: block;
 }
@@ -1045,6 +1049,7 @@
 
 .backLink {
   align-self: flex-start;
+  justify-self: start;
   min-height: 44px;
   padding: 0;
   border: 0;
@@ -1138,8 +1143,18 @@ textarea.pasteText,
     padding: 8px 12px;
   }
 
-  .setWhen {
+  .setWhen,
+  .setKind,
+  .setMore {
     display: none;
+  }
+
+  .setKindInline {
+    display: inline;
+  }
+
+  .setRow .spark {
+    width: 64px;
   }
 
   .row {
@@ -1170,7 +1185,7 @@ textarea.pasteText,
     min-height: 44px;
   }
 
-  .editorActions > * {
+  .editorActions > :not(.headMore) {
     flex: 1 1 auto;
   }
 

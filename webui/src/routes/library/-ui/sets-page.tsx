@@ -14,7 +14,12 @@ import { readDraft, useDraft, writeDraft } from '@/features/sets/draft-store';
 import { Sparkline } from '@/features/sets/energy-graph';
 import { FamousSearch, PasteTracklist } from '@/features/sets/famous-mix';
 import { SetEditor } from '@/features/sets/set-editor';
-import { setQueryOptions, setsListQueryOptions, type SetListItem } from '@/features/sets/sets.api';
+import {
+  deleteSet,
+  setQueryOptions,
+  setsListQueryOptions,
+  type SetListItem,
+} from '@/features/sets/sets.api';
 import { KIND_TAGS, newSetName, setRowMeta, whenWords } from '@/features/sets/sets.format';
 import styles from '@/features/sets/sets.module.css';
 import { useProfile } from '@/platform/shell/route-controllers';
@@ -81,10 +86,12 @@ function YourSets({
   sets,
   onOpen,
   onDraft,
+  onRemove,
 }: {
   sets: SetListItem[];
   onOpen: (id: number) => void;
   onDraft: (() => void) | null;
+  onRemove: (set: SetListItem) => void;
 }) {
   const { profileId } = useProfile();
   const draft = useDraft(profileId);
@@ -121,6 +128,7 @@ function YourSets({
               <span className={styles.setText}>
                 <span className={styles.setName}>{s.name}</span>
                 <span className={styles.setMeta}>
+                  <span className={styles.setKindInline}>{KIND_TAGS[s.kind]} · </span>
                   {s.kind === 'famous' && s.lines > s.tracks
                     ? `${s.tracks} of ${s.lines} · ${setRowMeta(s.tracks, s.seconds).split(' · ')[1] ?? ''}`.replace(
                         / · $/,
@@ -129,13 +137,23 @@ function YourSets({
                     : setRowMeta(s.tracks, s.seconds)}
                 </span>
               </span>
-              <StatusTag tone="neutral">{KIND_TAGS[s.kind]}</StatusTag>
+              <StatusTag tone="neutral" className={styles.setKind}>
+                {KIND_TAGS[s.kind]}
+              </StatusTag>
               <span className={styles.setWhen}>{whenWords(s.updated_at)}</span>
             </button>
             <MoreMenu
               className={styles.setMore}
               label={`More for ${s.name}`}
-              entries={[{ key: 'open', label: 'Open', onSelect: () => onOpen(s.id) }]}
+              entries={[
+                { key: 'open', label: 'Open', onSelect: () => onOpen(s.id) },
+                {
+                  key: 'remove',
+                  label: 'Remove this set…',
+                  tone: 'danger',
+                  onSelect: () => onRemove(s),
+                },
+              ]}
             />
           </li>
         ))}
@@ -313,6 +331,20 @@ export function SetsPage({ search, go }: { search: LibrarySearch; go: Go }) {
           sets={list.data}
           onOpen={(id) => go({ set: String(id) })}
           onDraft={() => go({ set: 'draft' })}
+          onRemove={(s) => {
+            if (!window.confirm(`Remove ${s.name}? Its playlist stays.`)) return;
+            deleteSet(s.id)
+              .then(() => {
+                window.showToast?.(`Removed ${s.name}. Its playlist stays.`, 'success');
+                void list.refetch();
+              })
+              .catch((err: unknown) =>
+                window.showToast?.(
+                  err instanceof Error ? err.message : "It wasn't removed.",
+                  'error',
+                ),
+              );
+          }}
         />
       )}
     </div>
