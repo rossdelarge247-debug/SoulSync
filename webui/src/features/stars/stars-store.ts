@@ -95,6 +95,7 @@ export function createStarStore(fetcher: Fetch = (...args) => window.fetch(...ar
   const pending = new Set<string>();
   const asked = new Set<string>();
   const listeners = new Set<Listener>();
+  const toggling = new Set<string>();
   let starredCount: number | null = null;
   let tick = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -177,6 +178,10 @@ export function createStarStore(fetcher: Fetch = (...args) => window.fetch(...ar
     async toggle(id, title) {
       const was = states.get(id);
       if (!was || (!was.starred && !was.canStar)) return Boolean(was?.starred);
+      // one change at a time per track: a second press while the first is
+      // on its way does nothing (L4)
+      if (toggling.has(id)) return was.starred;
+      toggling.add(id);
       const on = !was.starred;
       put(id, { ...was, starred: on });
       if (starredCount !== null) starredCount = Math.max(0, starredCount + (on ? 1 : -1));
@@ -186,9 +191,11 @@ export function createStarStore(fetcher: Fetch = (...args) => window.fetch(...ar
           track_ids: [id],
         });
         if (typeof body.count === 'number') starredCount = body.count;
+        toggling.delete(id);
         emit();
         return on;
       } catch (err) {
+        toggling.delete(id);
         put(id, was);
         if (starredCount !== null) starredCount = Math.max(0, starredCount + (on ? -1 : 1));
         emit();

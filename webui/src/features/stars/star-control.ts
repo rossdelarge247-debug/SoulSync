@@ -131,20 +131,34 @@ export function starFromKeyboard(
     return { id: rowId, title: '' };
   }
   if (!playing?.id) return null;
-  const state = store.get(playing.id);
+  const id = playing.id;
+  const state = store.get(id);
   if (!showsStar(state)) {
-    // not looked up yet: ask, and toggle once it's known
-    if (!state) {
-      store.want([playing.id]);
-      const stop = store.subscribe(() => {
-        const s = store.get(playing.id);
-        if (!s) return;
+    // not looked up yet: ask, and toggle once it's known. One wait per id:
+    // a second press meanwhile does nothing, and a lookup that fails gives
+    // up after a while instead of leaving a listener behind
+    if (!state && !waitingFor.has(id)) {
+      waitingFor.add(id);
+      const done = () => {
+        waitingFor.delete(id);
+        clearTimeout(timer);
         stop();
-        if (showsStar(s)) void store.toggle(playing.id, playing.title);
+      };
+      const stop = store.subscribe(() => {
+        const s = store.get(id);
+        if (!s) return;
+        done();
+        if (showsStar(s)) void store.toggle(id, playing.title);
       });
+      const timer = setTimeout(done, LOOKUP_WAIT_MS);
+      store.want([id]);
     }
     return state ? null : playing;
   }
-  void store.toggle(playing.id, playing.title);
+  void store.toggle(id, playing.title);
   return playing;
 }
+
+/** S on a track not looked up yet: one wait per id (L4). */
+const waitingFor = new Set<string>();
+const LOOKUP_WAIT_MS = 10_000;

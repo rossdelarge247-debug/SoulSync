@@ -225,3 +225,51 @@ describe('S', () => {
     delete window.SoulSyncStarKey;
   });
 });
+
+describe('after the gauntlet review (L4)', () => {
+  it('a second press while a change is on its way does nothing', async () => {
+    let answer: (() => void) | null = null;
+    const calls: string[] = [];
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      const href = url instanceof Request ? url.url : url.toString();
+      calls.push(href.replace(/^.*\/api\//, ''));
+      await new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      return new Response(JSON.stringify({ success: true, starred: ['4'], count: 1 }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+    const store = createStarStore(fetcher);
+    store.prime({ '4': { starred: false, can_star: true } });
+    const first = store.toggle('4');
+    expect(await store.toggle('4')).toBe(true); // shown starred already; nothing sent
+    expect(calls).toEqual(['stars']);
+    answer!();
+    expect(await first).toBe(true);
+    expect(store.get('4')?.starred).toBe(true);
+  });
+
+  it('S on a track not looked up yet waits once per id, and a failed lookup leaves nothing behind', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn(
+        async () => new Response('{}', { status: 500 }),
+      ) as unknown as typeof fetch;
+      const store = createStarStore(fetcher);
+      const subscribe = vi.spyOn(store, 'subscribe');
+      starFromKeyboard({ id: '7', title: 'Night Ferry' }, store);
+      starFromKeyboard({ id: '7', title: 'Night Ferry' }, store);
+      starFromKeyboard({ id: '7', title: 'Night Ferry' }, store);
+      expect(subscribe).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      // the wait gave up: the next press may ask again
+      starFromKeyboard({ id: '7', title: 'Night Ferry' }, store);
+      expect(subscribe).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(fetcher).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
