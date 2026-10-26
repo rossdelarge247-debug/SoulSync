@@ -4,7 +4,7 @@
  * (star-control.ts): the same attributes, stylesheet and store, so a star
  * changed anywhere shows everywhere.
  */
-import { useCallback, useEffect, useSyncExternalStore, type MouseEvent } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore, type MouseEvent } from 'react';
 
 import { STAR_PATH, starAttributes, type StarVariant } from './star-control';
 import { showsStar, starStore, type StarState } from './stars-store';
@@ -90,4 +90,38 @@ export function primeStars(
     entries[t.id] = { starred: t.starred, can_star: !t.file_missing };
   }
   if (Object.keys(entries).length) starStore().prime(entries);
+}
+
+/**
+ * A playlist's rows (title and artist, no library id) matched to your
+ * library tracks once, for their stars: `{"title\u0000artist": id}`. Rows
+ * with no match have no star.
+ */
+export function useSongStarIds(songs: { title: string; artist: string }[]): Record<string, string> {
+  const key = songs.map((s) => `${s.title}\u0000${s.artist}`).join('\u0001');
+  const [ids, setIds] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let live = true;
+    const list = key ? key.split('\u0001').map((k) => k.split('\u0000')) : [];
+    if (!list.length) {
+      setIds({});
+      return;
+    }
+    starStore()
+      .resolveSongs(list.map(([title, artist]) => ({ title: title ?? '', artist: artist ?? '' })))
+      .then((found) => {
+        if (!live) return;
+        const out: Record<string, string> = {};
+        list.forEach(([title, artist], i) => {
+          const id = found[i];
+          if (id) out[`${title}\u0000${artist}`] = id;
+        });
+        setIds(out);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [key]);
+  return ids;
 }

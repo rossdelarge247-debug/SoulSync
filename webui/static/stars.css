@@ -87,3 +87,25 @@
         grid-auto-columns: auto;
     }
 }
+
+/* ── a playlist's rows (src/routes/sync/-ui/mirrored-detail-modal.tsx): the
+   star's column before the row's + (Add to playlist) ───────────────────── */
+.mm-list-head,
+.mm-row {
+    grid-template-columns: 34px 40px minmax(0, 1.6fr) minmax(0, 1.1fr) 56px 32px 28px;
+}
+.mm-list--editable .mm-list-head,
+.mm-list--editable .mm-row {
+    grid-template-columns: 34px 40px minmax(0, 1.6fr) minmax(0, 1.1fr) 56px 32px 28px 28px;
+}
+@media (max-width: 768px) {
+    .mm-list-head,
+    .mm-row {
+        grid-template-columns: 26px 36px minmax(0, 1fr) 48px 44px 28px;
+    }
+    .mm-list--editable .mm-list-head,
+    .mm-list--editable .mm-row {
+        grid-template-columns: 26px 36px minmax(0, 1fr) 48px 44px 28px 28px;
+    }
+}
+.mm-row-star { display: flex; justify-content: center; }

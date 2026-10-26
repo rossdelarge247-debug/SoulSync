@@ -17,6 +17,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { StarButton, useSongStarIds } from '@/features/stars/star-button';
+
 import type { MirroredPlaylistDetail } from '../-sync.api';
 import type { MirroredTrack, MirroredTrackStatus } from '../-sync.mirrored';
 
@@ -259,8 +261,11 @@ function TrackRow({
   track,
   edit,
   onPlay,
+  starId = null,
 }: {
   track: MirroredTrack;
+  /** the library track this row matched, for its star (28a); null: no star */
+  starId?: string | null;
   edit?: EditProps;
   /** play the playlist from this song on; the number turns into it on hover */
   onPlay?: () => void;
@@ -270,6 +275,7 @@ function TrackRow({
   return (
     <div
       className={cls}
+      data-star-row={starId ?? undefined}
       draggable={edit && edit.canDrag && !edit.busy ? true : undefined}
       onDragStart={
         edit?.canDrag
@@ -349,6 +355,9 @@ function TrackRow({
       </div>
       <span className="mm-row-album">{track.album_name || ''}</span>
       <span className="mm-row-dur">{mirroredRowDuration(track.duration_ms)}</span>
+      <span className="mm-row-star">
+        <StarButton id={starId} title={track.track_name ?? ''} />
+      </span>
       {/* copy it onto one of your playlists, from any mirror or your own */}
       <AddToPlaylistButton
         track={{
@@ -420,6 +429,12 @@ export function MirroredDetailModal({
   onFindMatches,
 }: MirroredDetailModalProps) {
   const tracks = (data.tracks ?? []) as MirroredTrack[];
+  // 28a: a row your library has (with its file) gets the star
+  const starIds = useSongStarIds(
+    tracks
+      .filter((t) => !t.status || t.status === 'in_library')
+      .map((t) => ({ title: t.track_name ?? '', artist: t.artist_name ?? '' })),
+  );
   const own = isUserPlaylist(data);
   const liked = isLikedPlaylist(data);
   const [sort, setSort] = useState<TrackSort>(liked ? 'added' : 'custom');
@@ -1024,6 +1039,7 @@ export function MirroredDetailModal({
             <span>Album</span>
             <span className="mm-col-dur">Time</span>
             <span />
+            <span />
             {editable ? <span /> : null}
           </div>
           {tracks.length > 0 ? (
@@ -1031,6 +1047,9 @@ export function MirroredDetailModal({
               <TrackRow
                 key={`${track.position ?? index}-${track.track_name ?? ''}`}
                 track={track}
+                starId={
+                  starIds[`${track.track_name ?? ''}\u0000${track.artist_name ?? ''}`] ?? null
+                }
                 onPlay={() => void runPlay('play', index)}
                 edit={
                   editable
