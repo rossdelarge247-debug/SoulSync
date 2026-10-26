@@ -1801,9 +1801,13 @@ html:not([data-player-sheet]) .ss-player[data-source='radio'] .ss-player-radio {
 .ss-player-rtray-action { display: inline-flex; align-items: center; flex: 1 1 auto; min-width: 0; }
 /* 16a: Add to Wanted fills the row before the Sleep timer and a borderless "…" */
 .ss-player-rtray-action > .ss-player-radio-add { flex: 1 1 auto; min-width: 0; padding: 0 14px; }
-.ss-player-rtray-more { color: var(--ss-text-secondary); border: 0; border-radius: var(--ss-radius-control); background: transparent; }
+/* 181: music's record has the same borderless "…" */
+.ss-player-rtray-more,
+.ss-player-record-more { color: var(--ss-text-secondary); border: 0; border-radius: var(--ss-radius-control); background: transparent; }
 .ss-player-rtray-more:hover:not(:disabled),
-.ss-player-rtray-more[aria-expanded='true'] { background: var(--ss-hover-wash); color: var(--ss-text); }
+.ss-player-rtray-more[aria-expanded='true'],
+.ss-player-record-more:hover:not(:disabled),
+.ss-player-record-more[aria-expanded='true'] { background: var(--ss-hover-wash); color: var(--ss-text); }
 /* 16a's readout: no box, the labels in a 56px column, the values after them */
 .ss-player-readout--plain {
     display: grid;
@@ -1970,7 +1974,8 @@ button.ss-player-radio-heard {
    artist is a link in the accent at 15/500 */
 .ss-player-rtray-row { justify-content: flex-start; gap: 12px; }
 .ss-player-rtray-row .ss-player-transport { margin-left: auto; }
-.ss-player-rtray-record a.ss-player-record-artist { color: rgb(var(--ss-accent-light-rgb)); font-weight: 500; }
+/* 181: music's record follows 16a, so the artist link is the accent there too */
+.ss-player-record a.ss-player-record-artist { color: rgb(var(--ss-accent-light-rgb)); font-weight: 500; }
 /* the action keeps one line beside a running Sleep timer ("Add", 147) */
 .ss-player-rtray-action > .ss-player-radio-add { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ss-player-rtray-controls:has([data-player-sleep][aria-pressed='true']) .ss-player-rtray-addmore { display: none; }
