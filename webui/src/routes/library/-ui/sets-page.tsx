@@ -210,6 +210,7 @@ function SavedSet({ id, go }: { id: number; go: Go }) {
         },
       }}
       onSaved={(next) => go({ set: String(next) })}
+      onFamous={() => go({ set: 'famous' })}
       onDeleted={() => go({ set: '' })}
       onBack={() => go({ set: '' })}
     />
@@ -255,6 +256,7 @@ export function SetsPage({ search, go }: { search: LibrarySearch; go: Go }) {
       <div className={`${hs.page} ${styles.page}`}>
         <SetEditor
           source={{ kind: 'draft', draft }}
+          onFamous={() => go({ set: 'famous' })}
           onSaved={(id) => go({ set: String(id) })}
           onDeleted={() => go({ set: '' })}
           onBack={() => go({ set: '' })}

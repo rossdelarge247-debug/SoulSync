@@ -607,6 +607,7 @@
 }
 
 .stepWord {
+  flex: none;
   font-weight: 600;
 }
 
@@ -1265,7 +1266,10 @@ textarea.pasteText,
   cursor: text;
 }
 
+/* an empty note costs nothing: no line until the row is hovered or focused
+   (still in the tab order, so the keyboard reaches it) */
 .note[data-empty] {
+  max-height: 0;
   color: var(--ss-text-meta);
   font-style: normal;
   opacity: 0;
@@ -1274,6 +1278,7 @@ textarea.pasteText,
 .rowItem:hover .note[data-empty],
 .rowItem:focus-within .note[data-empty],
 .note[data-empty]:focus-visible {
+  max-height: 24px;
   opacity: 1;
 }
 
