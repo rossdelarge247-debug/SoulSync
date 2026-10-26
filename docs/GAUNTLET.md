@@ -119,7 +119,10 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **A folder swapped after the check:** the export folder replaced by a link that leads outside, or by another folder, between the check and the write is refused; nothing is written outside or into the other folder.
   - **Orphaned temporary files and the no-link path:** temporary export files older than an hour are swept (a fresh one and files that aren't ours stay), and on a file system without hard links a failure leaves neither the claim nor the temporary file.
 
-- **Library → Sets** (`tests/sets/test_sets_routes.py`, `test_sources.py`, `test_steps_and_tracklist.py`; `api/sets.py`, `core/sets/store.py` and `core/sets/sources.py` are on the list because the routes keep per-profile sets, delete a set's rows and read pasted text, and the sources talk to MixesDB and Discogs):
+- **Library → Sets** (`tests/sets/test_sets_routes.py`, `test_sources.py`, `test_steps_and_tracklist.py`, `test_review_fixes.py`; `api/sets.py` and all of `core/sets/**` are on the list because the routes keep per-profile sets, delete a set's rows and read pasted text, the reader parses other sites' text, and the sources talk to MixesDB and Discogs):
+  - **Another site's text can't freeze the server:** a 100 KB line of `=`, `[[`, `[[[`, `[http://`, `{{` or `<` in a MixesDB page is read in well under 100 ms (Python's `re` holds the GIL, so a backtracking pattern would stall every request): wiki lines are cut to 1,000 characters, and headings and links are scanned, not matched.
+  - **An edit never drops a track that's briefly away:** with a track's file gone for a moment, a rename, a save of the same tracks and a reorder all keep its row and its place in the playlist, and it plays again when the file's back.
+  - **A source can't hold a worker:** an answer that trickles a byte at a time is cut off at the whole request's deadline (20 s), and the connection is closed.
   - **Sets are per profile:** another profile's set reads, changes and deletes as a 404, admins included, and the list shows only your own.
   - **A set never points at another profile's track:** a track id outside the caller's library is saved as a plain Missing line, and the view and Swap never show it.
   - **Bodies have a size:** every Sets body is cut off at its cap (413), a body without a Content-Length too.
