@@ -2853,16 +2853,24 @@ function handlePlayerKeyboardShortcuts(event) {
             event.preventDefault();
             npSetVolume(npVolumePercent - 5);
             break;
+        // 24a: M, N and A through NP_LETTER_KEYS (below the handler)
         case 'm':
         case 'M':
-            event.preventDefault();
-            handleNpMuteToggle();   // works whether or not the modal is open
-            break;
         case 'n':
         case 'N':
-            event.preventDefault();
-            if (npQueue.length > 0) playNextInQueue();
+        case 'a':
+        case 'A': {
+            if (event.ctrlKey || event.metaKey || event.altKey) return;
+            const actions = NP_LETTER_KEYS[(event.shiftKey ? '⇧' : '') + event.key.toUpperCase()];
+            if (!actions) return;
+            for (const action of actions) {
+                if (npLetterKeyAction(action)) {
+                    event.preventDefault();
+                    break;
+                }
+            }
             break;
+        }
         case 'p':
         case 'P':
             event.preventDefault();
@@ -2878,6 +2886,38 @@ function handlePlayerKeyboardShortcuts(event) {
         default:
             return; // Don't prevent default for unhandled keys
     }
+}
+
+// The letter keys (24a), each a list of actions tried in order until one
+// acts: "mix:M" / "mix:N" / "mix:A" are the Mix tab's (M the tray to Mix and
+// back, or the Visuals drawer; N the top match next; A the playing track into
+// the working set; src/features/mix/mix-host.tsx), which act only while the
+// playing track has a working Mix tab; "mute" and "next" are the player's
+// own. Ross answered 287: mute and next move to ⇧M / ⇧N, which always mute
+// and skip; plain M and N still do where there's no Mix tab. X is reserved
+// for Mix now (auto-mix, 26c): not bound yet.
+const NP_LETTER_KEYS = {
+    'M': ['mix:M', 'mute'],
+    '⇧M': ['mute'],
+    'N': ['mix:N', 'next'],
+    '⇧N': ['next'],
+    'A': ['mix:A'],
+};
+
+// true when the action acted (the key is then the page's no more)
+function npLetterKeyAction(action) {
+    if (action.startsWith('mix:')) {
+        return Boolean(window.SoulSyncMix && window.SoulSyncMix.key(action.slice(4)));
+    }
+    if (action === 'mute') {
+        handleNpMuteToggle();   // works whether or not the modal is open
+        return true;
+    }
+    if (action === 'next') {
+        if (npQueue.length > 0) playNextInQueue();
+        return true;
+    }
+    return false;
 }
 
 function syncVolumeUI(volumePercent) {

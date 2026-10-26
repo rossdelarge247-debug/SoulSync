@@ -27,6 +27,18 @@ GET  /api/library/dj/mixes/<track_id>
     "Mixes well with…": the same key, ±1 on the Camelot wheel or the relative
     major/minor, at a BPM within ±6% (half and double time count);
     ``within`` (percent, 1–12) widens or narrows the tempo window.
+    The Mix tab (29a) adds ``rank=mix`` (its order: a starred boost, not
+    played recently, style closeness; core/dj/ranking.py), ``set_id`` (one
+    of the caller's sets: its tracks left out, its energy direction
+    followed; implies ``rank=mix``), ``wide=1`` (10% and any key),
+    ``exclude`` (ids to leave out: More like this leaves out the playing
+    track), ``set_at`` (while the set plays: the number Add puts tracks
+    after; the direction is read from the tracks up to it) and ``limit``
+    (5 by default then). Without them the answer is as before.
+POST /api/library/dj/mixes/<track_id>/vibe
+    Vibe (29a): the ranked top 20 re-ordered for feel by the AI provider
+    (core/dj/vibe.py); 403 with ``code`` when the AI is off for this profile
+    or at its limit, 429 ``busy``. Counts against the profile's AI usage.
 GET  /api/library/dj/traktor/settings
     The Settings → Library → Traktor Pro 3 card (21b): the Mac path for the
     library folder, the export folder and its state, Traktor's collection
@@ -56,6 +68,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import time
 from typing import Any, Optional
 
@@ -204,6 +217,38 @@ def dj_browse():
                     "key": request.args.get("key") or ""})
 
 
+def _mix_ranked() -> bool:
+    """The Mix tab's order was asked for (``rank=mix``, or a ``set_id``)."""
+    return request.args.get("rank") == "mix" or request.args.get("set_id") not in (None, "")
+
+
+def _whole_arg(name: str) -> Optional[int]:
+    """A positive whole number from the query, ASCII digits only (``²`` and
+    other Unicode digits are no number, gauntlet L2); None otherwise."""
+    raw = (request.args.get(name) or "").strip()
+    if not re.fullmatch(r"[0-9]{1,15}", raw):
+        return None
+    value = int(raw)
+    return value if value > 0 else None
+
+
+def _set_id_arg() -> Optional[int]:
+    return _whole_arg("set_id")
+
+
+def _body_whole(value: Any) -> Optional[int]:
+    """A positive whole number from a JSON body (never a bool), or None."""
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 < value < 10 ** 15:
+        return None
+    return value
+
+
+def _exclude_arg() -> list:
+    """``exclude``: up to 50 comma-separated track ids to leave out."""
+    raw = (request.args.get("exclude") or "")[:6500]
+    return [x.strip()[:128] for x in raw.split(",") if x.strip()][:50]
+
+
 @bp.route("/api/library/dj/mixes/<track_id>", methods=["GET"])
 def dj_mixes(track_id: str):
     if get_current_profile_id() is None:
@@ -213,14 +258,79 @@ def dj_mixes(track_id: str):
     try:
         within = _float("within")
         tolerance = within / 100 if within is not None else store.BPM_TOLERANCE
-        result = store.mixes_with(get_database(), str(track_id)[:128], limit=_int("limit", 50),
-                                  fix_art=fix_art_url, tolerance=tolerance)
+        if _mix_ranked():
+            from core.dj import ranking
+
+            result = ranking.rank(get_database(), str(track_id)[:128], profile_id=int(get_current_profile_id()),
+                                  set_id=_set_id_arg(), limit=_whole_arg("limit") or ranking.TAB_LIMIT,
+                                  wide=request.args.get("wide") in ("1", "true"), tolerance=tolerance,
+                                  fix_art=fix_art_url, exclude=_exclude_arg(), set_at=_whole_arg("set_at"))
+        else:
+            result = store.mixes_with(get_database(), str(track_id)[:128], limit=_int("limit", 50),
+                                      fix_art=fix_art_url, tolerance=tolerance)
     except Exception as exc:  # noqa: BLE001
         logger.error("Mixes well with failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
     if result.get("track") is None:
         return jsonify({"success": False, "error": "That track isn't in your library"}), 404
     return jsonify({"success": True, **result})
+
+
+#: Vibe's request body: a set id and a flag fit in far less
+MAX_VIBE_BODY = 4 * 1024
+#: tests swap the provider here (core.ai.assistant.default_provider_factory when None)
+vibe_provider_factory = None
+
+_VIBE_STATUS = {"not_configured": 403, "members_not_allowed": 403, "key_refused": 403, "cap_reached": 403,
+                "busy": 429, "rate_limited": 429, "offline": 503}
+
+
+@bp.route("/api/library/dj/mixes/<track_id>/vibe", methods=["POST"])
+def dj_mixes_vibe(track_id: str):
+    """Vibe (29a): the Mix tab's top 20 re-ranked for feel by the AI.
+    ``{set_id?, set_at?, wide?, limit?, exclude?}`` (JSON only); answers the ranked route's shape with the
+    AI's order and ``vibe: {line}``. Counts against the profile's AI usage."""
+    pid = get_current_profile_id()
+    if pid is None:
+        return _no_profile()
+    body, refused = _read_json_capped(MAX_VIBE_BODY)
+    if refused is not None:
+        return refused
+    # JSON only (gauntlet M1): a form or text/plain POST from another site
+    # needs no preflight, and each request here spends AI usage
+    if not request.is_json or not isinstance(body, dict):
+        return jsonify({"success": False, "error": "Send it as JSON"}), 400
+    from core.dj import ranking, vibe
+    from core.settings import config_manager
+
+    set_id = _body_whole(body.get("set_id"))
+    set_at = _body_whole(body.get("set_at"))
+    limit = max(1, min(vibe.TOP, _body_whole(body.get("limit")) or ranking.TAB_LIMIT))
+    raw_exclude = body.get("exclude")
+    exclude = ([str(x)[:128] for x in raw_exclude if isinstance(x, (str, int)) and not isinstance(x, bool)][:50]
+               if isinstance(raw_exclude, list) else [])
+    database = get_database()
+    try:
+        found = ranking.rank(database, str(track_id)[:128], profile_id=int(pid), set_id=set_id, limit=vibe.TOP,
+                             wide=body.get("wide") is True, fix_art=fix_art_url, exclude=exclude, set_at=set_at)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Vibe's ranking failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    if found.get("track") is None:
+        return jsonify({"success": False, "error": "That track isn't in your library"}), 404
+    heading = (found.get("set") or {}).get("direction")
+    try:
+        answer = vibe.rerank(database, config_manager, profile_id=int(pid), is_admin=_is_admin(),
+                             seed=found["track"], candidates=found["matches"], heading=heading,
+                             provider_factory=vibe_provider_factory)
+    except vibe.VibeError as exc:
+        return jsonify({"success": False, "code": exc.code, "error": exc.message}), _VIBE_STATUS.get(exc.code, 502)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Vibe failed: %s", type(exc).__name__)
+        return jsonify({"success": False, "code": "provider_error",
+                        "error": "The AI couldn't order these. Code's order stands."}), 502
+    return _no_store({"success": True, **found, "matches": answer["matches"][:limit],
+                      "vibe": {"line": answer["line"], "usage": answer["usage"]}})
 
 
 # ── Export to Traktor (stage 2a) ──────────────────────────────────────────────

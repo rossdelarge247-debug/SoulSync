@@ -3779,10 +3779,15 @@ function npv2HandleKeys(event) {
                 npv2ToggleShortcuts(false);
                 return;
             }
-            // Esc closes the visuals' panel, then the visuals (10a).
+            // Esc closes the visuals' panel (or the Mix drawer, 29b), then the visuals (10a).
             if (npv2VisualsModeOn()) {
                 event.stopPropagation();
                 event.preventDefault();
+                if (window.SoulSyncMix && window.SoulSyncMix.drawerOpen()) {
+                    window.SoulSyncMix.closeDrawer();
+                    npv2VisualsWakeUI();
+                    return;
+                }
                 const bridge = npv2Bridge();
                 if (bridge && bridge.panelOpen && bridge.panelOpen()) {
                     bridge.closePanel();

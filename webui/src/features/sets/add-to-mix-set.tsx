@@ -17,13 +17,21 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import { StatusTag } from '@/components/primitives';
 import { starStore } from '@/features/stars/stars-store';
 import { appURL } from '@/platform/url-base';
 import { usePopoverDismiss } from '@/routes/sync/-ui/use-popover-dismiss';
 import { usePopoverPosition } from '@/routes/sync/-ui/use-popover-position';
 
 import styles from './add-to-mix-set.module.css';
-import { MIX_SET_CHANGED, addToSet, createSet, fetchHolding, type HoldingSet } from './sets.api';
+import {
+  MIX_SET_CHANGED,
+  addToSet,
+  createSet,
+  fetchHolding,
+  fetchWorkingSetId,
+  type HoldingSet,
+} from './sets.api';
 import { addedWords, leftOutWords, pickerLine, whenWords } from './sets.format';
 
 export interface MixSetTrack {
@@ -43,7 +51,7 @@ declare global {
 }
 
 const PICKER_WIDTH = 360;
-/** Recent: the working set's place is first once there is one (the Mix tab); until then the last edited */
+/** Recent: the working set first (the Mix tab's), then the last edited */
 const RECENT = 5;
 const PHONE_QUERY = '(max-width: 640px)';
 
@@ -161,8 +169,26 @@ export function splitMissing(tracks: MixSetTrack[]): {
   return { ok: tracks.filter((t) => !gone.has(t.id)), missing };
 }
 
+/** The set's name, with "Working set" on the Mix tab's (29a). */
+function SetName({ set, working }: { set: HoldingSet; working: boolean }) {
+  return (
+    <span className={styles.setName}>
+      {set.name}
+      {working ? (
+        <>
+          {' '}
+          <StatusTag tone="neutral" data-working-set="">
+            Working set
+          </StatusTag>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
 function SetRowView({
   set,
+  working = false,
   tracks,
   busy,
   choosing,
@@ -170,6 +196,7 @@ function SetRowView({
   onAdd,
 }: {
   set: HoldingSet;
+  working?: boolean;
   tracks: MixSetTrack[];
   busy: boolean;
   choosing: boolean;
@@ -190,7 +217,7 @@ function SetRowView({
     return (
       <li className={styles.setRow} data-mix-set={set.id} data-held="">
         <span className={styles.setText}>
-          <span className={styles.setName}>{set.name}</span>
+          <SetName set={set} working={working} />
           <span className={styles.setMeta}>{line}</span>
         </span>
         <button
@@ -216,7 +243,7 @@ function SetRowView({
           disabled={busy}
           onClick={onChoose}
         >
-          <span className={styles.setName}>{set.name}</span>
+          <SetName set={set} working={working} />
           <span className={styles.setMeta}>{line}</span>
         </button>
         {choosing ? (
@@ -254,7 +281,7 @@ function SetRowView({
         disabled={busy}
         onClick={() => onAdd(false)}
       >
-        <span className={styles.setName}>{set.name}</span>
+        <SetName set={set} working={working} />
         <span className={styles.setMeta}>{line}</span>
       </button>
     </li>
@@ -281,6 +308,7 @@ function Picker({ request }: { request: Request }) {
   const [newName, setNewName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [choosing, setChoosing] = useState<number | null>(null);
+  const [working, setWorking] = useState<number | null>(null);
   const { ok, missing } = useMemo(() => splitMissing(request.tracks), [request.tracks]);
 
   usePopoverDismiss({ ref, anchor: request.anchor, onClose: closeAddToMixSet });
@@ -298,9 +326,10 @@ function Picker({ request }: { request: Request }) {
       setSets([]);
       return;
     }
-    fetchHolding(ok.map((t) => t.id))
-      .then((list) => {
+    Promise.all([fetchHolding(ok.map((t) => t.id)), fetchWorkingSetId().catch(() => null)])
+      .then(([list, workingId]) => {
         if (!live) return;
+        setWorking(workingId);
         setSets(list);
         // what the picker read may be newer than an open set page: it reads itself again
         window.dispatchEvent(new CustomEvent(MIX_SET_CHANGED, { detail: {} }));
@@ -377,7 +406,11 @@ function Picker({ request }: { request: Request }) {
 
   const needle = query.trim().toLowerCase();
   const shown = (sets ?? []).filter((s) => !needle || s.name.toLowerCase().includes(needle));
-  const list = needle ? shown : shown.slice(0, RECENT);
+  // the working set (the Mix tab's) first, then the last edited
+  const ordered = needle
+    ? shown
+    : [...shown.filter((s) => s.id === working), ...shown.filter((s) => s.id !== working)];
+  const list = needle ? shown : ordered.slice(0, RECENT);
   const heading =
     request.tracks.length === 1
       ? `Add ${request.tracks[0].title || 'this track'} to…`
@@ -435,6 +468,7 @@ function Picker({ request }: { request: Request }) {
                   <SetRowView
                     key={set.id}
                     set={set}
+                    working={set.id === working}
                     tracks={ok}
                     busy={busy}
                     choosing={choosing === set.id}

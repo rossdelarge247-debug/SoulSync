@@ -11,11 +11,15 @@ PUT    /api/sets/<id>                Change a saved set's name or tracks (its pl
 POST   /api/sets/<id>/playlist       {action: new | dismiss}: a new playlist from the set, or stop
                                      saying its playlist went its own way.
 DELETE /api/sets/<id>                Remove a set; its playlist stays.
-POST   /api/sets/<id>/tracks         {track_ids, again?}: "Add to mix set…", at the end; only
-                                     library tracks with their file, one the set holds skipped
-                                     unless ``again``; the playlist follows.
+POST   /api/sets/<id>/tracks         {track_ids, again?, after?}: "Add to mix set…", at the end
+                                     (or after ``after: {track_id, number}``, the Mix tab while a
+                                     set plays); only library tracks with their file, one the set
+                                     holds skipped unless ``again``; the playlist follows.
 POST   /api/sets/holding             {track_ids}: the picker's sets, newest change first, with
                                      the number the next track takes and where these already are.
+GET    /api/sets/working             The Mix tab's working set (one per profile), or null.
+PUT    /api/sets/working             {set_id | null}: choose one of your sets, or none.
+POST   /api/sets/working/start       {name, track_ids}: a new mix set of these, made the working set.
 POST   /api/sets/view                Rows -> library tracks, steps and the meta line (drafts).
 GET    /api/sets/swap                Alternatives that fit both neighbours (Swap).
 GET    /api/sets/sources             Each tracklist source's set-up state.
@@ -272,7 +276,8 @@ def add_tracks(set_id: int):
 
     database = get_database()
     try:
-        done = store.append_tracks(database, pid, set_id, ids, again=body.get("again") is True)
+        after = body.get("after") if isinstance(body.get("after"), dict) else None
+        done = store.append_tracks(database, pid, set_id, ids, again=body.get("again") is True, after=after)
         if done is None:
             return _bad("That set isn't one of yours", 404)
         if done["tracks_changed"]:
@@ -285,7 +290,74 @@ def add_tracks(set_id: int):
     except Exception as exc:  # noqa: BLE001
         return _failed("add", exc)
     return _ok({"id": set_id, "name": saved.get("name", ""), "added": done["added"], "already": done["already"],
-                "left_out": done["left_out"], "revision": done["revision"], "playlist_state": state})
+                "left_out": done["left_out"], "revision": done["revision"], "playlist_state": state,
+                "placed": done["placed"]})
+
+
+# ── the working set (the Mix tab, 29a) ────────────────────────────────────────
+
+@bp.route("/api/sets/working", methods=["GET"])
+def working_get():
+    pid = _profile()
+    if pid is None:
+        return _no_profile()
+    from core.sets import working
+
+    try:
+        return _ok({"working": working.get(get_database(), pid)})
+    except Exception as exc:  # noqa: BLE001
+        return _failed("working", exc)
+
+
+@bp.route("/api/sets/working", methods=["PUT"])
+def working_put():
+    pid = _profile()
+    if pid is None:
+        return _no_profile()
+    body, refused = _body(1024)
+    if refused is not None:
+        return refused
+    from core.sets import working
+
+    raw = body.get("set_id")
+    database = get_database()
+    try:
+        if raw is None:
+            working.clear(database, pid)
+            return _ok({"working": None})
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+            return _bad("set_id must be one of your sets, or null")
+        chosen = working.choose(database, pid, raw)
+    except Exception as exc:  # noqa: BLE001
+        return _failed("working", exc)
+    if chosen is None:
+        return _bad("That set isn't one of yours", 404)
+    return _ok({"working": chosen})
+
+
+@bp.route("/api/sets/working/start", methods=["POST"])
+def working_start():
+    """A new mix set holding these tracks, made the working set (29d's "New
+    mix set", and A or Add with no working set yet)."""
+    pid = _profile()
+    if pid is None:
+        return _no_profile()
+    body, refused = _body(64 * 1024)
+    if refused is not None:
+        return refused
+    ids, refused = _track_ids(body)
+    if refused is not None:
+        return refused
+    from core.sets import store, working
+
+    database = get_database()
+    try:
+        set_id = working.start(database, pid, body.get("name"), ids)
+    except store.SetError as exc:
+        return _bad(str(exc))
+    except Exception as exc:  # noqa: BLE001
+        return _failed("start", exc)
+    return _ok({"id": set_id, "working": working.get(database, pid)}, 201)
 
 
 @bp.route("/api/sets/holding", methods=["POST"])

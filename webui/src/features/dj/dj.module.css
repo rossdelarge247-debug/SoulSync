@@ -96,6 +96,37 @@
   color: var(--ss-text-meta);
 }
 
+/* the Mix tab's meter (29a, 29c): ten 8px steps across the width */
+.energyLabelled {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.energyWords {
+  font-size: 14px;
+  color: var(--ss-text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.energySteps {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 3px;
+  min-width: 0;
+}
+
+.energySteps > span {
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.energySteps > span[data-lit='true'] {
+  background: rgb(var(--ss-accent-light-rgb));
+}
+
 /* ── the Camelot wheel ───────────────────────────────────────────────── */
 
 .wheel {

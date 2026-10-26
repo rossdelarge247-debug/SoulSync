@@ -73,6 +73,13 @@ core/sets/**
 # the library-scope check on what can be starred, and the body caps
 api/stars.py
 core/stars/**
+# The Mix tab: its ranking reads the caller's stars, sets and listening
+# history (and the library store's scoped queries it builds on); Vibe sends
+# track details to the AI provider and counts the profile's usage. The
+# working set and "Add" after the playing track are in core/sets/** above
+core/dj/ranking.py
+core/dj/vibe.py
+core/dj/store.py
 
 ## Database migrations and schema
 database/**

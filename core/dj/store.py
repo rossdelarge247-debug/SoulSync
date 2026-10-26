@@ -363,21 +363,28 @@ def mix_keys(code: str) -> List[str]:
 
 
 #: how each harmonic relation ranks in "Mixes well with…": the same key first
-_KEY_RANK = {"same": 0, "relative": 1, "up": 2, "down": 2}
+#: ("other" is any other key, only when the Mix tab widens to any key)
+_KEY_RANK = {"same": 0, "relative": 1, "up": 2, "down": 2, "other": 3}
 _BPM_RANK = {"same": 0, "half": 1, "double": 1}
 
 
 #: how far "Widen" may take the tempo window, as a fraction
 MAX_TOLERANCE = 0.12
+#: the most candidate rows one "Mixes well with" reads
+MIXES_READ = 2000
 
 
 def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None,
-               tolerance: float = BPM_TOLERANCE) -> Dict[str, Any]:
+               tolerance: float = BPM_TOLERANCE, any_key: bool = False) -> Dict[str, Any]:
     """Tracks that mix well with one: the same key, ±1 on the Camelot wheel or
     the relative major/minor, at a BPM within ±6% (``tolerance``; half and
     double time count). Ranked by key (same, then relative, then
     neighbours), then tempo (same before half/double), then the closest
-    BPM."""
+    BPM.
+
+    ``any_key`` (the Mix tab's "Widen the search", 29d) keeps every track
+    with a known key in the tempo window; one outside the four that mix is
+    ``key_relation`` "other" and ranks after them."""
     tolerance = min(MAX_TOLERANCE, max(0.01, float(tolerance)))
     within = round(tolerance * 100)
     where, params = _scope(database)
@@ -393,10 +400,23 @@ def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None,
         keys = compatible_keys(dj["key"])
         windows = bpm_windows(dj["bpm"], tolerance)
         bpm_sql = " OR ".join(f"({_BPM_SQL} BETWEEN ? AND ?)" for _ in windows)
-        values = list(params) + list(keys) + [v for w in windows for v in w] + [str(track_id)]
-        rows = conn.execute(
+        key_sql = ("d.musical_key IS NOT NULL AND d.musical_key != ''" if any_key
+                   else f"d.musical_key IN ({','.join('?' * len(keys))})")
+        values = (list(params) + ([] if any_key else list(keys)) + [v for w in windows for v in w]
+                  + [str(track_id)])
+        # a fixed SELECT, fixed key and tempo fragments with "?" placeholders
+        # and the library scope's fixed fragment are formatted in; every
+        # value is a bound parameter
+        # any key: the four that mix come first, then the closest tempo, so
+        # the cap can only cut the furthest of the other keys (gauntlet L6)
+        order_sql = ""
+        if any_key:
+            order_sql = (f" ORDER BY CASE WHEN d.musical_key IN ({','.join('?' * len(keys))}) THEN 0 ELSE 1 END, "
+                         f"ABS({_BPM_SQL} - ?)")
+            values = values + list(keys) + [float(dj["bpm"])]
+        rows = conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
             f"{_track_select()} WHERE {where} AND t.file_path IS NOT NULL AND t.file_path != '' "
-            f"AND d.musical_key IN ({','.join('?' * len(keys))}) AND ({bpm_sql}) AND t.id != ? LIMIT 2000",
+            f"AND {key_sql} AND ({bpm_sql}) AND t.id != ?{order_sql} LIMIT {MIXES_READ}",
             values).fetchall()
     matches = []
     for row in rows:
@@ -404,6 +424,8 @@ def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None,
         other = shaped["dj"] or {}
         relation = bpm_relation(dj["bpm"], other.get("bpm"), tolerance)
         key_rel = keys.get(other.get("key") or "")
+        if key_rel is None and any_key and other.get("key"):
+            key_rel = "other"
         if relation is None or key_rel is None:
             continue
         shaped["key_relation"] = key_rel
