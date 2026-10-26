@@ -9,14 +9,20 @@ Outbound rules (docs/GAUNTLET.md, "Outbound HTTP"):
   constant base; nothing a person typed is ever fetched. A pasted MixesDB
   link is read for its page title (``tracklist.page_title_from_link``) and
   the title goes to the API as a parameter. Redirects aren't followed.
-* **Bounded.** A 5 s connect and 10 s read timeout, at most 2 MB read from
-  any answer (streamed, so a bigger one is cut off, not downloaded), and
-  one request at a time per source with a pause between them.
+* **Bounded.** A 5 s connect and 10 s read timeout, 20 s for the whole
+  answer, at most 2 MB read from any answer (streamed, so a bigger one is
+  cut off, not downloaded), and one request at a time per source (a lock
+  held for the whole request) with 1 s between them; a request that waits
+  over 25 s for its turn is a source down.
+* **Discogs' token is the admin's** (Settings → Connections, shared by every
+  profile), so each profile may start 20 uncached Discogs searches a
+  minute, and a 429 from Discogs pauses it for a minute (``limited``).
 * **Cached.** Searches for 10 minutes and tracklists for 6 hours, in memory,
   so a page reload or a second look costs nothing.
 * **Said, not hidden.** Each search answers every source's state: ``ok``,
   ``down`` (it didn't answer: 22r's Notice), ``off`` (not set up, with
-  why: Discogs without a token).
+  why: Discogs without a token, MixesDB until an admin turns it on),
+  ``limited`` (why: ``rate_limited`` or ``profile``).
 
 Answers are data: titles and names are cut to sane lengths and nothing in
 them is followed.
@@ -25,6 +31,7 @@ them is followed.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -106,13 +113,46 @@ def clear_cache() -> None:
         _cache.clear()
 
 
-def _pace(source: str) -> None:
+def _cache_has(key: Tuple) -> bool:
+    with _cache_lock:
+        hit = _cache.get(key)
+        return bool(hit and hit[0] > time.monotonic())
+
+
+#: how long a request waits for its source's turn before it gives up
+LOCK_WAIT = 25.0
+#: the whole request, connect to last byte, ends by this many seconds
+TOTAL_DEADLINE = 20.0
+#: after Discogs says "too many requests" (429), it isn't asked for this long
+DISCOGS_BACKOFF = 60.0
+#: uncached Discogs searches one profile may start in a minute (the token is
+#: the admin's, shared by every profile)
+DISCOGS_PER_PROFILE = 20
+
+_discogs_until = 0.0
+_discogs_asks: Dict[Any, List[float]] = {}
+_discogs_lock = threading.Lock()
+
+
+class SourceBusy(SourceDown):
+    """The source asked us to slow down (429), or this profile has asked it
+    often enough for now. ``why`` is "rate_limited" or "profile"."""
+
+    def __init__(self, message: str, why: str):
+        super().__init__(message)
+        self.why = why
+
+
+def _turn(source: str):
+    """One request at a time per source, at least MIN_INTERVAL apart: the
+    lock is held for the whole request, so the pause holds across threads."""
     lock = _pace_locks[source]
-    with lock:
-        wait = _last_call.get(source, 0.0) + MIN_INTERVAL[source] - time.monotonic()
-        if wait > 0:
-            time.sleep(wait)
-        _last_call[source] = time.monotonic()
+    if not lock.acquire(timeout=LOCK_WAIT):
+        raise SourceDown(f"{SOURCE_NAMES[source]} is busy with other requests")
+    wait = _last_call.get(source, 0.0) + MIN_INTERVAL[source] - time.monotonic()
+    if wait > 0:
+        time.sleep(wait)
+    return lock
 
 
 # ── one request ───────────────────────────────────────────────────────────────
@@ -123,32 +163,72 @@ _http_get: Callable[..., Any] = requests.get
 
 def _get_json(source: str, url: str, params: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Any:
     """GET a fixed URL with ``params``: JSON, or SourceDown. ``url`` is one of
-    this module's constants plus a fixed path, never anything from outside."""
+    this module's constants plus a fixed path, never anything from outside.
+    Bounded three ways: 5 s to connect and 10 s between bytes, TOTAL_DEADLINE
+    for the whole answer, and MAX_BYTES."""
+    global _discogs_until
     if not (url.startswith(MIXESDB_API) or url.startswith(DISCOGS_API + "/")):
         raise ValueError("not a Sets source address")
-    _pace(source)
-    sent = {"User-Agent": user_agent(), "Accept": "application/json", **(headers or {})}
+    if source == "discogs" and time.monotonic() < _discogs_until:
+        raise SourceBusy("Discogs asked SYNCHRO.S to slow down", "rate_limited")
+    lock = _turn(source)
     try:
-        response = _http_get(url, params=params, headers=sent, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
-                             allow_redirects=False, stream=True)
-    except requests.RequestException as exc:
-        raise SourceDown(f"{SOURCE_NAMES[source]} didn't answer") from exc
-    try:
-        if response.status_code != 200:
-            raise SourceDown(f"{SOURCE_NAMES[source]} answered {response.status_code}")
-        body = bytearray()
-        for chunk in response.iter_content(64 * 1024):
-            body += chunk
-            if len(body) > MAX_BYTES:
-                raise SourceDown(f"{SOURCE_NAMES[source]}'s answer was too big")
-    except requests.RequestException as exc:
-        raise SourceDown(f"{SOURCE_NAMES[source]} stopped answering") from exc
+        started = time.monotonic()
+        sent = {"User-Agent": user_agent(), "Accept": "application/json", **(headers or {})}
+        try:
+            response = _http_get(url, params=params, headers=sent, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+                                 allow_redirects=False, stream=True)
+        except requests.RequestException as exc:
+            raise SourceDown(f"{SOURCE_NAMES[source]} didn't answer") from exc
+        try:
+            if response.status_code == 429 and source == "discogs":
+                _discogs_until = time.monotonic() + DISCOGS_BACKOFF
+                raise SourceBusy("Discogs asked SYNCHRO.S to slow down", "rate_limited")
+            if response.status_code != 200:
+                raise SourceDown(f"{SOURCE_NAMES[source]} answered {response.status_code}")
+            body = bytearray()
+            for chunk in response.iter_content(64 * 1024):
+                body += chunk
+                if len(body) > MAX_BYTES:
+                    raise SourceDown(f"{SOURCE_NAMES[source]}'s answer was too big")
+                if time.monotonic() - started > TOTAL_DEADLINE:
+                    raise SourceDown(f"{SOURCE_NAMES[source]} took too long to answer")
+        except requests.RequestException as exc:
+            raise SourceDown(f"{SOURCE_NAMES[source]} stopped answering") from exc
+        finally:
+            response.close()
     finally:
-        response.close()
+        _last_call[source] = time.monotonic()
+        lock.release()
     try:
         return json.loads(body.decode("utf-8", errors="replace"))
     except ValueError as exc:
         raise SourceDown(f"{SOURCE_NAMES[source]} didn't send JSON") from exc
+
+
+def _discogs_allowed(profile_id: Any) -> bool:
+    """Whether this profile may start another uncached Discogs search now
+    (DISCOGS_PER_PROFILE a minute); counts it when it may."""
+    now = time.monotonic()
+    with _discogs_lock:
+        asks = [t for t in _discogs_asks.get(profile_id, []) if now - t < 60.0]
+        if len(asks) >= DISCOGS_PER_PROFILE:
+            _discogs_asks[profile_id] = asks
+            return False
+        asks.append(now)
+        _discogs_asks[profile_id] = asks
+        if len(_discogs_asks) > 1000:
+            for key in [k for k, v in _discogs_asks.items() if not v or now - v[-1] >= 60.0]:
+                _discogs_asks.pop(key, None)
+        return True
+
+
+def reset_limits() -> None:
+    """Tests: forget the Discogs back-off and the per-profile counts."""
+    global _discogs_until
+    with _discogs_lock:
+        _discogs_asks.clear()
+    _discogs_until = 0.0
 
 
 def _text(value: Any, limit: int = 300) -> str:
@@ -314,7 +394,7 @@ def _discogs_search(query: str) -> List[Dict[str, Any]]:
 
 
 def _discogs_open(release_id: str) -> Dict[str, Any]:
-    if not release_id.isdigit() or len(release_id) > 12:
+    if not re.fullmatch(r"[0-9]{1,12}", release_id):
         return {"found": False}
     data = _get_json("discogs", f"{DISCOGS_API}/releases/{int(release_id)}", {}, _discogs_headers())
     if not isinstance(data, dict) or not data.get("id"):
@@ -356,7 +436,7 @@ _SEARCHERS = {"mixesdb": _mixesdb_search, "musicbrainz": _musicbrainz_search, "d
 _OPENERS = {"mixesdb": _mixesdb_open, "musicbrainz": _musicbrainz_open, "discogs": _discogs_open}
 
 
-def search(query: str, *, only: Optional[str] = None) -> Dict[str, Any]:
+def search(query: str, *, only: Optional[str] = None, profile_id: Any = None) -> Dict[str, Any]:
     """Search every source that's set up, together. ``{"results": [...],
     "sources": {name: {"state", "why"?}}}``; a source that fails is
     ``down`` and the others still answer. A pasted MixesDB link becomes
@@ -381,8 +461,14 @@ def search(query: str, *, only: Optional[str] = None) -> Dict[str, Any]:
     wanted = [name for name in SOURCES if found[name]["state"] == "ok" and (only is None or only == name)]
 
     def one(name: str):
+        key = ("search", name, text.lower())
         try:
-            return name, _cached(("search", name, text.lower()), SEARCH_TTL, lambda: _SEARCHERS[name](text)), None
+            if name == "discogs" and not _cache_has(key) and not _discogs_allowed(profile_id):
+                return name, [], "limited:profile"
+            return name, _cached(key, SEARCH_TTL, lambda: _SEARCHERS[name](text)), None
+        except SourceBusy as exc:
+            logger.info("Sets: %s", exc)
+            return name, [], f"limited:{exc.why}"
         except SourceDown as exc:
             logger.info("Sets: %s", exc)
             return name, [], "down"
@@ -394,7 +480,9 @@ def search(query: str, *, only: Optional[str] = None) -> Dict[str, Any]:
     if wanted:
         with ThreadPoolExecutor(max_workers=len(wanted)) as pool:
             for name, rows, state in pool.map(one, wanted):
-                if state:
+                if state and state.startswith("limited:"):
+                    found[name] = {"state": "limited", "why": state.split(":", 1)[1]}
+                elif state:
                     found[name] = {"state": state}
                 results.extend(rows)
     return {"results": results, "sources": found}
@@ -415,4 +503,5 @@ def open_mix(source: str, mix_id: str) -> Dict[str, Any]:
 
 
 __all__ = ["DISCOGS_API", "MAX_BYTES", "MIXESDB_API", "MIXESDB_LINK_HOSTS", "SETTING_MIXESDB", "SOURCES",
-           "SOURCE_NAMES", "SourceDown", "clear_cache", "open_mix", "search", "states"]
+           "SOURCE_NAMES", "SourceBusy", "SourceDown", "clear_cache", "open_mix", "reset_limits", "search",
+           "states"]
