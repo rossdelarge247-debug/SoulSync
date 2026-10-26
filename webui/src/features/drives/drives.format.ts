@@ -92,6 +92,27 @@ export function shownPath(row: { path: string; host_path?: string | null }): str
   return row.host_path || row.path;
 }
 
+/** Where Done (14i, 214) says the old copies are: the drive as the computer
+ *  names it when SYNCHRO.S knows the folder's host path, else the plan's
+ *  label, and each moved folder's old place (host path, else the
+ *  container's), once each. */
+export function oldCopiesPlace(
+  folders: Array<{
+    source?: string | null;
+    source_host_path?: string | null;
+    source_volume?: string | null;
+  }>,
+  fallbackDrive: string,
+): { drive: string; paths: string[] } {
+  const named = folders.find((f) => f.source_host_path && f.source_volume);
+  const paths: string[] = [];
+  for (const f of folders) {
+    const path = f.source_host_path || f.source;
+    if (path && !paths.includes(path)) paths.push(path);
+  }
+  return { drive: named?.source_volume || fallbackDrive, paths };
+}
+
 /** `path` relative to `root` ("Artist/Album/01.flac"), or `path` itself when
  *  it isn't under it. Text only, compared after trimming trailing slashes. */
 export function relativeTo(path: string, root: string | null | undefined): string {

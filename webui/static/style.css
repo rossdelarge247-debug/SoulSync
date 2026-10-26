@@ -51059,6 +51059,9 @@ tr.tag-diff-same {
 #settings-page #service-config-modal [data-svc-foot],
 #settings-page #service-config-modal [data-video-test-service] { display: none !important; }
 #settings-page #service-config-modal .form-actions:not(:has(> :not([data-svc-foot]))) { display: none; }
+/* Qobuz's own "Connected: Ross (Studio)" line repeats the head here (224);
+   the Sources tab's Qobuz keeps its line */
+#settings-page #service-config-modal #qobuz-connection-logged-in { display: none !important; }
 #settings-page .src-modal-foot {
     display: flex;
     align-items: center;

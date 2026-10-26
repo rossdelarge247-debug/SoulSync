@@ -111,18 +111,31 @@ export function TraktorCard({ load = true }: { load?: boolean }) {
           <label className={styles.rowName} htmlFor={edit ? macId : undefined}>
             Your music on the Mac
           </label>
-          <span className={styles.rowLine}>
-            {data?.library_folder ? (
+          <span className={styles.rowLine} id={`${macId}-hint`}>
+            {edit && !(data?.mac_path_from_helper || data?.mac_path_from_helper_set) ? (
+              // 230 (23c): where a person finds it, in words they can follow
               <>
-                Where the Mac keeps what SYNCHRO.S calls{' '}
-                <span className={styles.mono}>{data.library_folder}</span>.{' '}
+                The left side of{' '}
+                <span className={styles.mono}>
+                  ./music:{data?.library_folder || '/app/Transfer'}
+                </span>{' '}
+                in your compose file.
               </>
             ) : (
-              'Where the Mac keeps your library folder. '
+              <>
+                {data?.library_folder ? (
+                  <>
+                    Where the Mac keeps what SYNCHRO.S calls{' '}
+                    <span className={styles.mono}>{data.library_folder}</span>.{' '}
+                  </>
+                ) : (
+                  'Where the Mac keeps your library folder. '
+                )}
+                {data?.mac_path_from_helper || data?.mac_path_from_helper_set
+                  ? 'Filled in by the drive helper.'
+                  : 'Type it as the Mac names it, like /Volumes/Music HD/SoulSync/Transfer.'}
+              </>
             )}
-            {data?.mac_path_from_helper || data?.mac_path_from_helper_set
-              ? 'Filled in by the drive helper.'
-              : 'Type it as the Mac names it, like /Volumes/Music HD/SoulSync/Transfer.'}
           </span>
         </span>
         {edit ? (
@@ -135,7 +148,7 @@ export function TraktorCard({ load = true }: { load?: boolean }) {
               spellCheck={false}
               autoComplete="off"
               aria-invalid={errors.mac_path ? true : undefined}
-              aria-describedby={errors.mac_path ? `${macId}-error` : undefined}
+              aria-describedby={errors.mac_path ? `${macId}-hint ${macId}-error` : `${macId}-hint`}
               onChange={(event) => setMac(event.target.value)}
             />
             {errors.mac_path ? (

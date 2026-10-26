@@ -1268,6 +1268,13 @@ export function bootRadioChrome(
       status.hidden = false;
       return;
     }
+    if (!items.length) {
+      // 174: a tab of 0 says so, then the folded line under it
+      list.replaceChildren();
+      status.textContent = 'Nothing identified today';
+      status.hidden = false;
+      return;
+    }
     status.hidden = true;
     list.replaceChildren(...items.map(heardRow));
     if (keepId)

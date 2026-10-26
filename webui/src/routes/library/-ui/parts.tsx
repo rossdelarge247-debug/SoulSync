@@ -393,7 +393,16 @@ export function GenreChips({
 }
 
 export type MenuEntry =
-  | { key: string; label: string; onSelect: () => void; tone?: 'danger'; disabled?: boolean }
+  | {
+      key: string;
+      label: string;
+      onSelect: () => void;
+      tone?: 'danger';
+      disabled?: boolean;
+      /** Why it's disabled (172, 23a): a 13px second line under the label,
+       *  and the item's description for a screen reader. */
+      reason?: string;
+    }
   | { key: string; separator: true };
 
 /** A 44px "…" and its menu (Base UI: arrows, Escape, focus back to the button). */
@@ -408,6 +417,7 @@ export function MoreMenu({
   className?: string;
   vertical?: boolean;
 }) {
+  const reasonId = useId();
   return (
     <Menu.Root modal={false}>
       <Menu.Trigger
@@ -427,10 +437,23 @@ export function MoreMenu({
                   key={entry.key}
                   className={styles.menuItem}
                   data-tone={entry.tone}
+                  data-two-line={entry.reason ? '' : undefined}
+                  // Base UI keeps a disabled item focusable, with aria-disabled
                   disabled={entry.disabled}
+                  aria-label={entry.reason ? entry.label : undefined}
+                  aria-describedby={entry.reason ? `${reasonId}-${entry.key}` : undefined}
                   onClick={entry.onSelect}
                 >
-                  {entry.label}
+                  {entry.reason ? (
+                    <>
+                      <span>{entry.label}</span>
+                      <span id={`${reasonId}-${entry.key}`} className={styles.menuReason}>
+                        {entry.reason}
+                      </span>
+                    </>
+                  ) : (
+                    entry.label
+                  )}
                 </Menu.Item>
               ),
             )}

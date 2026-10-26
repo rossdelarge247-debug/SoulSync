@@ -7,7 +7,16 @@ import type { TraktorPreview, TraktorSettings } from './traktor.api';
 
 import { TraktorCard, mountTraktorCard } from './traktor-card';
 import { TraktorExportDialog } from './traktor-export-dialog';
-import { exportLabel, exportTitle, folderLine, leftOutLines } from './traktor.format';
+import {
+  dayWords,
+  exportLabel,
+  exportTitle,
+  folderLine,
+  folderName,
+  leftOutLines,
+  saveLabel,
+  takenWords,
+} from './traktor.format';
 
 /**
  * "Export to Traktor…" (21a): the shared confirm (tiles, the Mac's path,
@@ -96,6 +105,25 @@ describe('the words', () => {
     expect(exportLabel(23)).toBe('Export 23 tracks');
     expect(folderLine('unset')).toBe('Optional. Otherwise exports download in the browser.');
   });
+
+  it('the folder case’s words (234, 23d)', () => {
+    expect(saveLabel(23)).toBe('Save 23 tracks');
+    expect(saveLabel(1)).toBe('Save 1 track');
+    expect(folderName('/app/Transfer/Traktor exports')).toBe('Traktor exports');
+    expect(folderName('/Volumes/Music HD/Traktor exports/')).toBe('Traktor exports');
+    expect(folderName(null)).toBe('the export folder');
+    const now = new Date(2026, 9, 24, 12).getTime();
+    const oct22 = new Date(2026, 9, 22, 9).getTime() / 1000;
+    expect(dayWords(oct22, now)).toBe('22 October');
+    expect(dayWords(new Date(2025, 9, 22, 9).getTime() / 1000, now)).toBe('22 October 2025');
+    expect(takenWords('Sunday Set.nml', 'Traktor exports', oct22, now)).toEqual({
+      wide: 'Sunday Set.nml is already in Traktor exports, from 22 October. Replacing it doesn’t change what Traktor imported then.',
+      phone: 'Sunday Set.nml is already there, from 22 October.',
+    });
+    expect(takenWords('Sunday Set.nml', 'Traktor exports', null, now).phone).toBe(
+      'Sunday Set.nml is already there.',
+    );
+  });
 });
 
 describe('the confirm (21a)', () => {
@@ -166,7 +194,86 @@ describe('the confirm (21a)', () => {
     ).toBeTruthy();
   });
 
-  it('saves into the export folder, and asks before replacing a file', async () => {
+  it('saves into the export folder: “Save 23 tracks”, the folder named (234, 23d)', async () => {
+    const shown = '/Volumes/Music HD/SoulSync/Transfer/Traktor exports';
+    const toast = vi.fn();
+    window.showToast = toast;
+    answer = (body) =>
+      body.action === 'save'
+        ? HttpResponse.json({ success: true, filename: 'Sunday Set.nml', folder: shown })
+        : HttpResponse.json({
+            ...PREVIEW,
+            folder: { state: 'ok', shown, can_save: true, exists_at: null },
+          });
+    const onClose = vi.fn();
+    render(
+      <TraktorExportDialog
+        from={{ source: 'playlist', playlist_id: 4 }}
+        name="Sunday Set"
+        onClose={onClose}
+      />,
+    );
+    const dialog = await screen.findByRole('dialog');
+    const save = await within(dialog).findByRole('button', { name: 'Save 23 tracks' });
+    expect(dialog.textContent).toContain('Saves Sunday Set.nml to Traktor exports.');
+    expect(within(dialog).getByText('Traktor exports').closest('[title]')).toHaveAttribute(
+      'title',
+      shown,
+    );
+    // Download instead beside it
+    const footer = save.parentElement!;
+    expect(within(footer).getByRole('button', { name: 'Download instead' })).toBeTruthy();
+    expect(save.getAttribute('data-tone')).toBeNull();
+    fireEvent.click(save);
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(asked.at(-1)).toMatchObject({ action: 'save', overwrite: false });
+    expect(toast).toHaveBeenCalledWith(
+      'Saved to Traktor exports · import it in Traktor',
+      'success',
+    );
+  });
+
+  it('a name already there: a warning Notice and Replace it in the warning tone (234, 23d)', async () => {
+    const shown = '/Volumes/Music HD/SoulSync/Transfer/Traktor exports';
+    const at = new Date(new Date().getFullYear(), 9, 22, 12).getTime() / 1000;
+    answer = (body) =>
+      body.action === 'save'
+        ? HttpResponse.json({ success: true, filename: 'Sunday Set.nml', folder: shown })
+        : HttpResponse.json({
+            ...PREVIEW,
+            folder: { state: 'ok', shown, can_save: true, exists_at: at },
+          });
+    const onClose = vi.fn();
+    render(
+      <TraktorExportDialog
+        from={{ source: 'playlist', playlist_id: 4 }}
+        name="Sunday Set"
+        onClose={onClose}
+      />,
+    );
+    const dialog = await screen.findByRole('dialog');
+    const replace = await within(dialog).findByRole('button', { name: 'Replace it' });
+    expect(replace.getAttribute('data-variant')).toBe('primary');
+    expect(replace.getAttribute('data-tone')).toBe('warning');
+    expect(replace).not.toHaveFocus();
+    const notice = dialog.querySelector('[data-traktor-taken]')!;
+    expect(notice.getAttribute('data-tone')).toBe('warning');
+    expect(notice.textContent).toContain(
+      'Sunday Set.nml is already in Traktor exports, from 22 October. Replacing it doesn’t change what Traktor imported then.',
+    );
+    expect(notice.textContent).toContain('Sunday Set.nml is already there, from 22 October.');
+    // the sentence it replaces has gone; Download instead stays beside it
+    expect(dialog.textContent).not.toContain('Saves Sunday Set.nml to');
+    expect(
+      within(replace.parentElement!).getByRole('button', { name: 'Download instead' }),
+    ).toBeTruthy();
+    expect(within(dialog).queryByRole('button', { name: 'Save 23 tracks' })).toBeNull();
+    fireEvent.click(replace);
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(asked.at(-1)).toMatchObject({ action: 'save', overwrite: true });
+  });
+
+  it('a name taken since the preview: the save’s 409 turns the primary into Replace it, focus on the warning', async () => {
     const shown = '/Volumes/Music HD/SoulSync/Transfer/Traktor exports';
     let saves = 0;
     answer = (body) => {
@@ -175,7 +282,12 @@ describe('the confirm (21a)', () => {
         return body.overwrite
           ? HttpResponse.json({ success: true, filename: 'Sunday Set.nml', folder: shown })
           : HttpResponse.json(
-              { success: false, exists: true, error: 'Sunday Set.nml is already there.' },
+              {
+                success: false,
+                exists: true,
+                exists_at: null,
+                error: 'Sunday Set.nml is already there.',
+              },
               { status: 409 },
             );
       }
@@ -190,14 +302,15 @@ describe('the confirm (21a)', () => {
       />,
     );
     const dialog = await screen.findByRole('dialog');
-    await within(dialog).findByText(shown);
-    expect(dialog.textContent).toContain(`Saves Sunday Set.nml to ${shown}.`);
-    expect(within(dialog).getByRole('button', { name: 'Download instead' })).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Export 23 tracks' }));
-    await within(dialog).findByText('Sunday Set.nml is already in the export folder');
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Save 23 tracks' }));
+    const replace = await within(dialog).findByRole('button', { name: 'Replace it' });
+    const notice = dialog.querySelector<HTMLElement>('[data-traktor-taken]')!;
+    expect(notice.textContent).toContain('Sunday Set.nml is already in Traktor exports.');
+    await waitFor(() => expect(notice).toHaveFocus());
+    expect(replace).not.toHaveFocus();
     expect(asked.at(-1)).toMatchObject({ action: 'save', overwrite: false });
     expect(onClose).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Replace it' }));
+    fireEvent.click(replace);
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(asked.at(-1)).toMatchObject({ action: 'save', overwrite: true });
     expect(saves).toBe(2);
@@ -256,7 +369,13 @@ describe('Settings → Library → Traktor Pro 3 (21b)', () => {
     render(<TraktorCard />);
     const card = await screen.findByRole('region', { name: 'Traktor Pro 3' });
     await within(card).findByText('Not set');
-    expect(card.textContent).toContain('Where the Mac keeps what SYNCHRO.S calls /app/Transfer.');
+    // 230 (23c): the hint says where to find it
+    expect(card.textContent).toContain(
+      'The left side of ./music:/app/Transfer in your compose file.',
+    );
+    expect(within(card).getByLabelText('Your music on the Mac')).toHaveAccessibleDescription(
+      'The left side of ./music:/app/Transfer in your compose file.',
+    );
     expect(card.textContent).toContain(
       'collection.nml in Documents/Native Instruments/Traktor 3.x',
     );

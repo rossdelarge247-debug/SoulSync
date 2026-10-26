@@ -4,7 +4,7 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Questions 1–28 were answered in Design's session of 22 October, 29–57 in its evening pass, 58–82 on 23 October and 83–95 that afternoon; all are built. Design answered **100–106, 110–112, 120–125, 130–134, 140–148 and 150–154 on 24 October** (`Start here - Design notes 2026-10-24.dc.html`, boards 16a–21f; the hand-off's "Build order for Dev, 24 October"), so they're out of this list. Phase A of that order is built ("Dev, phase A of 24 October, and answers 160–168" below): 105, 111, 121, 123, 124, 130 (nothing to build), 143, 145, 146, 148, 150, 153, 154 and 14i's title. What those answers left to build waits for its phase: **Phase B** (on Ross's yes): 141 "Stations" and the labelled Collapse, 147 the Sleep timer for radio, DJ stage 1's 17a–17e (151's key chips and energy bars, 152's docked Mixes panel), 101 and 103's MilkDrop curated default, "Every preset" and "Yours N" (18a, 18b), 120 and 122's drive-move boards (19a, 19b), 142 Recent stations on the server; **Phase C** (after Dev's answers 160–168, which are in that entry): AudD every track per station (20b, 165), host paths in the Remove list (125, 160; **built in phase C1**, below), every service modal on 15a's frame (132, built: "Dev, phase C2" below); **Phase D**: DJ stages 2 and 3 (21a–21f). 100, 102, 104, 106, 110, 112, 131, 133, 134, 140, 144 needed nothing. New questions are numbered from 170. Answer on the canvas, naming the board, as before.
+Questions 1–28 were answered in Design's session of 22 October, 29–57 in its evening pass, 58–82 on 23 October and 83–95 that afternoon; all are built. Design answered **100–106, 110–112, 120–125, 130–134, 140–148 and 150–154 on 24 October** (`Start here - Design notes 2026-10-24.dc.html`, boards 16a–21f; the hand-off's "Build order for Dev, 24 October"), so they're out of this list. Phase A of that order is built ("Dev, phase A of 24 October, and answers 160–168" below): 105, 111, 121, 123, 124, 130 (nothing to build), 143, 145, 146, 148, 150, 153, 154 and 14i's title. What those answers left to build waits for its phase: **Phase B** (on Ross's yes): 141 "Stations" and the labelled Collapse, 147 the Sleep timer for radio, DJ stage 1's 17a–17e (151's key chips and energy bars, 152's docked Mixes panel), 101 and 103's MilkDrop curated default, "Every preset" and "Yours N" (18a, 18b), 120 and 122's drive-move boards (19a, 19b), 142 Recent stations on the server; **Phase C** (after Dev's answers 160–168, which are in that entry): AudD every track per station (20b, 165), host paths in the Remove list (125, 160; **built in phase C1**, below), every service modal on 15a's frame (132, built: "Dev, phase C2" below); **Phase D**: DJ stages 2 and 3 (21a–21f). 100, 102, 104, 106, 110, 112, 131, 133, 134, 140, 144 needed nothing. **170–236 were answered by Design in its 24 October evening notes** (`Start here - Design notes 2026-10-24 (evening).dc.html`, boards 23a–23d in `Answers 170-236.dc.html`; the hand-off's "Build order for Dev, 24 October evening"), so they're out of this list. Phase E built the small answers and Ross's two yeses (172, 174, 181, 214, 223, 224, 230, 232, 234; "Dev, phase E of 24 October" below); 170, 171, 173, 180, 182–186, 200–203, 211–213, 220–222, 231, 233, 235 and 236 needed nothing ("as built"). Two parts wait for their phase: 175's "Split one output" (23b) with stage 3, and 232's "Start a set from these" with Sets. Design's own questions for Dev from 240 are answered with Sets 2. New questions for Design are numbered from 270. Answer on the canvas, naming the board, as before.
 
 **Later (Ross: not yet)**
 31. The first-run setup flow in the design system.
@@ -13,52 +13,57 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 **For Ross (from DJ stage 1)**
 155. Writing BPM and key into files is **off** by default and only fills gaps (BACKLOG, Questions for Ross 1); energy's 1–10 scale (2). Design is happy with both (24 October); answer in the backlog entry.
 
-**From phase A of 24 October**
-170. 105: the direct-radio card's sentence now ends "The stream restarts: a second or two of silence.", so the button's "restarts the stream" note beside Play through SYNCHRO.S went (it said the same thing twice). 10d still draws the note. Fine?
-171. 111: 20a draws the cap's line in secondary text with a warning dot; built that way for all three, so Refused and No requests left are now secondary text with a danger dot (they were danger text before). Or keep the danger text for those two?
-172. 123: on a desktop, History's and Tracks' row actions show on hover or focus, so the disabled Play is only seen there too; the "…" menu's Play next is disabled as well (Base UI's disabled item, no reason beside it), and the phone sheet's Play next writes "Music HD isn't connected" at the row's end. No board shows the menus or the sheet in that state: draw them if they should read differently.
-173. 153: only the running line and the finished line are drawn. Built for the rest: "BPM, key and energy: 3,328 of 3,740 tracks done · the rest are worked out in the background" (idle, tracks left; Start now for admins), "· stopped until you start it again" (after Stop), "· working them out is off in Settings → Library"; and when the sweep ends with some tracks that couldn't be analysed, "3,736 of 3,740 tracks have BPM, key and energy · 4 couldn't be analysed" for a day instead of "All 3,740…". Right words?
-174. 143: when nothing today was identified but something was heard, the list has no rows and the folded line reads "2 weren't identified · talk or a mix" (no "more"); the tab's count is 0. Fine, or should the empty sentence show too?
-175. 162 (answered below): Safari before 18.4 and any browser without a second output can't send Deck B to headphones on its own. The fallback Dev suggests is a "split" headphone mode (master in the left ear, the cue in the right, on one output), as Traktor and Mixxx offer. That needs a place in Decks' set-up (21e): a choice of "Headphones on another output" / "Split one output" with a test tone. Draw it with stage 3.
-
-**From phase B1 of 24 October**
-180. 141: 16a, 16b and 16d draw Collapse and Expand with the chevron first and no border; 6a (and the build, for music, radio and the bar alike) has the word first, then the chevron, in a 16% border. Built as 6a's, since 141 says "keep 6a's labelled Collapse" and both trays now collapse the same way. If the chevron-first, borderless one is meant, it should change for music too: say so and Dev changes the one button.
-181. 16a draws radio's readout without a box, the artist in the accent and "…" borderless; 6a and 9d give music's record a boxed readout, an 86% artist and an outlined "…". Built as drawn for radio only. Should music's record follow 16a?
-182. 147: at zero the Sleep timer stops the station as Stop does, so the player leaves with it (nothing is playing); the tray's expanded state stays remembered, so the next station opens in the tray. 16b says "the tray stays": is that what was meant, or should a stopped station stay in the tray with a Play?
-183. 16b's confirm reads "Auto-add what NTS 1 plays?", Today / Adds now / A day, most and "Turn on auto-add", labelled "as built"; the build is 9c's ("Add everything NTS 1 plays to Wanted?", Identified yesterday / You already have / Would be added, "Turn on auto-add for NTS 1", the guard sentence). Kept 9c's. Which words?
-184. 142: the server keeps a profile's newest 20; the tray shows eight, as 142 says. Show more (the list scrolls), or is eight right?
-185. A station played for under 30 s shows in this browser's own list (the first paint) but isn't counted on the server, so other devices don't see it. Fine?
-186. 147: with the timer running, "23 min" leaves the record's row too short for "Add to Wanted", so the action reads "Add" (named in full for a screen reader). Fine, or should the running timer drop its minutes there?
-
-**From phase B3 of 24 October** (`ux/oct24-b3`)
-200. 101: Design's note says "Every preset" is remembered per profile; Ross's brief for this phase said per browser, so it's built per browser (`soulsync-visuals-every-preset`, like Quality and Blend). Move it to the profile?
-201. 103 / 18b: the panel's Yours card is drawn once, for "empty or unreadable", with the empty words. Built: empty says "None of yours yet / The folder for your own presets is empty. An admin adds .milk files to it; Player settings says where."; unreadable says "None of yours to show / SYNCHRO.S can't open the folder for your own presets. An admin checks it in Player settings." Words fine?
-202. 120 / 19a: only the asking state is drawn. Built for the rest: signed in, the tag is "Signed in as slskd" (success) and the first card reads "What you chose. slskd restarts once at the switch; then the sign-in is forgotten." with no fields; after "Leave Downloads on Macintosh HD" the tag is "Fine" and the detail "Downloads stays on Macintosh HD. slskd keeps downloading there; imports copy across to Music HD. You can move Downloads later." The two cards stay under the row in both, so the choice can be changed. Right?
-203. 122 / 19b: the board's step 2 adds two lines (the drive under soulsync: and under slskd:). Built with three: SYNCHRO.S also needs slskd's settings folder (`./slskd:/slskd-config`, 121's step), or Check says it can't reach slskd.yml. Plex isn't named (often not in the same file). The file's existing line is shown as `- ./music:/app/Transfer` (SYNCHRO.S can't read the file on the computer; 19b drew `C:\SoulSync\music`). Step 1 gained the install folder as a field (step 3's command follows it) and step 2 a drive-letter select reading into "is your drive's letter in This PC; change it if it isn't." Fine?
-
-**From phase C2 of 24 October** (`ux/oct24-c2`)
-220. 132: Plex, Jellyfin and Navidrome aren't modals: Connections' "Server Connections" is a picker of four with the chosen server's form in place. slskd and YouTube live on Settings → Sources, whose modal is its own. Both are as they were. Should the media servers become tiles that open this frame, and should the Sources modal take it too? A board for either.
-221. Only Spotify's tags are drawn. Built for the rest: "Not connected" (neutral; Spotify and Tidal once a client id is in, Qobuz), "Not authorized" (warning; Last.fm with scrobbling on and no session), and after Test "Connected", "Needs a look" (it worked with a warning), "Rate-limited", "Refused", "Can't reach", "Not set up", "Test failed". The warning box's leads: "The service refused what it was given.", "The service is limiting requests right now.", "SYNCHRO.S couldn't reach the service.", "The test worked, with a warning.", "Last.fm hasn't authorized SYNCHRO.S yet." and "Required." Right words?
-222. A tag from Test lasts for the page (gone on a reload, or as soon as a field in that modal changes). Fine, or should the server keep the last answer so the grid can say "Refused" tomorrow?
-223. Services that report no state keep the grid's old chips ("configured", "not set up", "no key needed", "required"), so the grid mixes those with StatusTags. Should the chips become neutral StatusTags ("Set up", "Not set up", "No key needed", "Required" in warning)?
-224. Qobuz's form still shows its own green "Connected: Ross (Studio)" line, which now repeats the head. Hide it in the modal (it stays in the Sources tab's Qobuz), or keep the form exactly as it was?
-
-**From DJ stage 2a of 24 October** (`feat/dj-traktor-export`)
-230. 21b draws "Your music on the Mac" as a value box with a **Checked** tag and the export folder as a box with **Change…**. Until the drive helper fills the Mac path (question 160's sidecar, `feat/host-paths`), it has to be typed, so both rows are **44px inputs with one Save** in a card foot (admins; members see the boxes). The tag is **Checked** (success) only when the helper gave the path, **Typed in** (neutral) when a person did, **Not set** (warning) otherwise; the export folder shows **Ready** or **Can't use it**. Draw the typed state, or keep Change… opening a small dialog?
-231. 21b's sentence under the title promises cue points, grids and ratings coming in, and the collection row has "Read it again…". Neither exists until stage 2b, so the sentence reads "Send playlists to Traktor as a file it imports. SYNCHRO.S only reads Traktor's files." and the collection row says where collection.nml lives and that SYNCHRO.S doesn't read it yet, without a button. Fine until 2b?
-232. 21a draws Tracks' selection bar without Done; Albums' 7c bar has Done, so Tracks' does too (and the header's Select becomes Done, as on Albums). The bar's "…" holds "Clear the selection" only. Anything else there (Add to playlist…)?
-233. 21a's Left out box draws one sentence. With several reasons, it's one sentence per reason, the first led by "Left out:", naming the first two tracks and "and N more" (`traktor.format.ts` `leftOutLines`). The preview names at most 50. Words fine?
-234. With an export folder set (admins), the primary saves there and a secondary **Download instead** joins the footer; a file already there turns into a warning Notice with **Replace it** and Download instead. 21a only draws the download. Draw the folder case and the replace ask?
-235. Recent additions: 21a's note says it gets the same "…", but SYNCHRO.S has no "Recent additions" playlist yet (no such row in Mirrored playlists, nothing on Home). Tracks sorted by "Recently added" plus Select is the nearest today. Should Recent additions become a built-in playlist (a later item), or is Tracks' sort enough?
-236. "Make a playlist from these…" became "Make a playlist…" beside "Export to Traktor…", as 21a draws (and the phone sheet's 48px buttons share the row too). Confirm the shorter words in 17b's dialog title stay "Make a playlist from these".
-
-**From phase C1 of 24 October** (`feat/host-paths`)
-211. No board draws the line shown when SYNCHRO.S doesn't know the Mac's names. Built under the Folders card's rows and under the Remove list: "Paths as SYNCHRO.S sees them. To show your Mac's names, *copy the command* for Terminal: it runs `drives-helper.sh --names`." (13px meta; the link mints the one-use command and copies it, then "Copied. Paste it into Terminal on your Mac; the Mac's names show here within a minute."). Right words and place?
-212. 19c draws the list over one folder. Over several (Library, Downloads and Staging all moved), each folder heads its own rows inside the list ("On Macintosh HD, in /Users/ross/SoulSync/staging", then its rows). Fine?
-213. On a phone the Remove list was squeezed to its column head (the dialog's body shrank it); it now keeps its height and the body scrolls, so the list is reached by scrolling past the guard. Fine, or should the list come before the guard on a phone?
-214. Done (14i) says "The old copies are still on Macintosh HD" with no folder. Should it name the folder too ("in /Users/ross/SoulSync/music"), now that SYNCHRO.S knows it?
+**From phase E of 24 October** (`ux/oct24-e`)
+270. 214: with several folders moved (Library, Downloads and Staging), Done's head names the drive only ("The old copies are still on Macintosh HD") and lists each old folder under it in mono, one a line, as the Remove list heads its folders (212). With one folder it's 214's sentence in full. Fine?
+271. 234 (23d): the sentence names the folder by its last part ("to Traktor exports"), with the full path as the name's hover title; the warning names it the same way. When the save finds the name taken but can't say when it was written, the date is left out ("…is already in Traktor exports. Replacing it…"). Fine?
+272. 232: the selection's Add to playlist… opens the playlist picker in the middle of the window, not at the "…": the selection bar sits at the window's foot, so the picker would open off-screen under it. Fine, or should it open above the bar?
+273. 230 (23c): the hint is shown to admins while the path is typed; once the drive helper has filled it, the line stays "Filled in by the drive helper." Members keep 21b's line. The hint's `./music:/app/Transfer` is drawn with the library folder SYNCHRO.S sees (`/app/Transfer` in most setups), in mono. Right?
 
 ## Log
+
+### 2026-10-26: Ross's yes to Design's 24 October evening, 24 October late and 26 October items
+
+- **24 October evening** (`Start here - Design notes 2026-10-24 (evening)`), all five:
+  - Library → Sets as its own page (22a–22s);
+  - "Use yours / Want the Dub" for versions in a famous mix (22f, 22g);
+  - the AI's lines: one per set, plus one per track behind "Why this one" (22c–22e);
+  - 181, music's record as 16a (built in phase E);
+  - 223, neutral StatusTags on the Connections grid (built in phase E).
+- **24 October late** (`Start here - Design notes 2026-10-24 (late)`), all four:
+  - the DJ area map (24a);
+  - the tray's list column at 440px, with Clear in Up next's foot;
+  - Versions (25a–25g);
+  - Auto-mix (26a–26j).
+- **26 October** (`Start here - Design notes 2026-10-26`), all four:
+  - the Data visualiser (30a–30i) as a mode and a layer, accent by default;
+  - the key changes: S star, ⇧S favourite preset, T lyrics, M Mix, X Mix now;
+  - the Mix tab as a mode of the tray (Now playing · Mix);
+  - Lyrics (27a–27h), Stars and mix sets (28a–28g) and the Mix tab (29a–29d) as drawn.
+- **Build order** (Dev's plan, shared with Ross):
+  1. phase E and Sets 1;
+  2. stars and mix sets, then the Mix tab;
+  3. Sets 2;
+  4. Lyrics step 1 with Data;
+  5. Versions;
+  6. Traktor 2b, then the decks with auto-mix, then 2c;
+  7. Lyrics step 2 as a trial.
+- **Design's questions to Dev:** 240–258 are answered with the pieces they belong to.
+
+### 2026-10-26: Dev, phase E of 24 October
+
+Built on `ux/oct24-e` from `integration` (05f0cbba), from Design's "Build order for Dev, 24 October evening" (Phase E) and the boards in `Answers 170-236.dc.html` (23a, 23c, 23d), with Ross's yes for 181 and 223. `api/dj.py` and `core/dj/traktor.py` changed (234), so the push goes through the gauntlet; the new check only looks (scenario in `docs/GAUNTLET.md`). Routes: `CONTRACTS.md` ("Export to Traktor": `folder.exists_at`); patterns: `DESIGN-SYSTEM.md` (`MoreMenu`'s reason, `Button tone="warning"`, export into a folder, the grid's tags, the player's record); rows: `SCREENS.md`.
+
+- **172 (23a):** Tracks' and Listening history's desktop "…" give Play next a 13px second line with the reason ("Music HD isn't connected") while the library's drive is away. `MoreMenu` entries take a `reason`; the item stays focusable (Base UI's disabled item, `aria-disabled`), named "Play next" and described by the reason. The phone sheet is as built.
+- **174:** Heard today in the radio tray, with nothing identified but something heard: "Nothing identified today", then the folded line ("2 weren't identified · talk or a mix"). The tab still counts 0.
+- **181 (Ross's yes):** music's record in the expanded player follows 16a: the Format and Path readout without its box (radio's plain readout, labels in a 56px column), the artist link in the accent at 15/500, and a borderless "…" (`.ss-player-record-more`, the rule radio's "…" uses). Add to playlist and the Sleep timer keep their outline.
+- **214:** the move's Done reads "The old copies are still on Macintosh HD, in /Users/ross/SoulSync/music", the folder in mono: the drive helper's host path and volume (`core/drives/host_paths`, already in the move's `folders` for admins) where known, else the container's path. Several folders: the drive in the head, each folder listed under it (270).
+- **223 (Ross's yes):** the Connections grid's chips are StatusTags: "Set up", "Not set up", "No key needed" (neutral) and "Required" (warning), drawn as the tile's service-state tag (`_svcTileChip`).
+- **224:** Qobuz's own green "Connected: Ross (Studio)" line is hidden inside the Connections modal (the head says it); the Sources tab's Qobuz keeps it. CSS only.
+- **230 (23c):** the Traktor card's hint under "Your music on the Mac", while an admin types it: "The left side of ./music:/app/Transfer in your compose file." (the compose line in mono), also the field's description.
+- **232:** Tracks' selection "…": "Add to playlist…" (the picked tracks into the playlist picker, which also makes a new one) above "Clear the selection"; both wait while nothing is picked. "Start a set from these" joins between them with Sets.
+- **234 (23d):** Export to Traktor with an export folder set: the primary "Save 23 tracks", the sentence "Saves Sunday Set.nml to Traktor exports.", Download instead beside it. A name already there, known from the preview (`folder.exists_at`, new: `core/dj/traktor.py` `existing_export` opens the folder as the save does and `lstat`s the name) or from the save's 409 (now with `exists_at`), becomes a warning Notice ("Sunday Set.nml is already in Traktor exports, from 22 October. Replacing it doesn't change what Traktor imported then."; shorter on a phone) and the primary becomes **Replace it** in the warning tone. `Button` gains `tone="warning"` for that (the component changed, as the brief says). Replace it never takes the focus by itself: after a 409 the focus goes to the Notice, so Enter doesn't replace. Done: "Saved to Traktor exports · import it in Traktor".
+
+**Checks:** `tsc --noEmit`, `npm run check` (format and lint, no new warnings), `npm run build`; vitest on the changed features (library, drives, dj, form, the player and radio tray, the service frame); pytest `tests/dj`.
 
 ### 2026-10-24: Dev, phase C1 (the Mac's own folder names)
 

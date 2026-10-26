@@ -46,7 +46,13 @@ export interface TraktorPreview {
   keys: number;
   /** an admin: may change the card's settings */
   can_edit: boolean;
-  folder: { state: FolderState; shown: string | null; can_save: boolean };
+  folder: {
+    state: FolderState;
+    shown: string | null;
+    can_save: boolean;
+    /** admins: when a file of this export's name in the folder was written (234) */
+    exists_at?: number | null;
+  };
 }
 
 export interface TraktorSettings {
@@ -67,16 +73,29 @@ export interface TraktorSettings {
 export class TraktorError extends Error {
   status: number;
   exists: boolean;
+  /** with `exists`: when the file already there was written */
+  existsAt: number | null;
   field?: string;
-  constructor(message: string, status: number, extra: { exists?: boolean; field?: string } = {}) {
+  constructor(
+    message: string,
+    status: number,
+    extra: { exists?: boolean; exists_at?: number | null; field?: string } = {},
+  ) {
     super(message);
     this.status = status;
     this.exists = Boolean(extra.exists);
+    this.existsAt = typeof extra.exists_at === 'number' ? extra.exists_at : null;
     this.field = extra.field;
   }
 }
 
-type Payload = { success?: boolean; error?: string; exists?: boolean; field?: string };
+type Payload = {
+  success?: boolean;
+  error?: string;
+  exists?: boolean;
+  exists_at?: number | null;
+  field?: string;
+};
 
 async function post(body: Record<string, unknown>): Promise<Response> {
   return apiClient.post('library/dj/traktor/export', { json: body, throwHttpErrors: false });

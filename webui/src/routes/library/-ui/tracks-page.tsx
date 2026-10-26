@@ -4,7 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { Button, TextInput } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
 import { Notice, Skeleton } from '@/components/primitives';
-import { addTrackToPlaylist, playTrackNext } from '@/features/dj/dj-actions';
+import { addTrackToPlaylist, playlistTrack, playTrackNext } from '@/features/dj/dj-actions';
 import {
   DJ_PAGE_SIZE,
   DJ_QUERY_KEY,
@@ -32,6 +32,7 @@ import { openMixes } from '@/features/dj/mixes-store';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { awayWords } from '@/features/drives/drives.format';
+import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import type { LibrarySearch } from '../-library.types';
@@ -287,11 +288,12 @@ function TrackRow({
           <MoreMenu
             className={styles.more}
             label={`More for ${track.title}`}
-            entries={entries.map(({ key: k, label, onSelect, disabled }) => ({
+            entries={entries.map(({ key: k, label, onSelect, disabled, reason }) => ({
               key: k,
               label,
               onSelect,
               disabled,
+              reason,
             }))}
           />
         )}
@@ -767,7 +769,19 @@ export function TracksPage({
               : null
           }
           onPrimary={() => setExporting(true)}
+          // 232: Add to playlist…, then Clear the selection ("Start a set
+          // from these" joins between them once Sets is built)
           menu={[
+            {
+              key: 'playlist',
+              label: 'Add to playlist…',
+              disabled: !picked.length,
+              onSelect: () =>
+                openAddToPlaylist(
+                  tracks.filter((t) => picked.includes(t.id)).map(playlistTrack),
+                  null,
+                ),
+            },
             {
               key: 'clear',
               label: 'Clear the selection',

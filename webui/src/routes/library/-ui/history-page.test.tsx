@@ -450,6 +450,22 @@ describe('Listening history while the library’s drive is away (123)', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'More for Static Bloom' })[0]);
     const next = await screen.findByRole('menuitem', { name: 'Play next' });
     expect(next.getAttribute('aria-disabled')).toBe('true');
+    // 172 (23a): the reason is the item's 13px second line, and its description
+    expect(next).toHaveAccessibleDescription('Music HD isn’t connected');
+    expect(within(next).getByText('Music HD isn’t connected')).toBeInTheDocument();
+    // still focusable (Base UI's disabled item), so a screen reader reaches it
+    expect(next.getAttribute('tabindex')).not.toBeNull();
+    fireEvent.click(next);
+    expect(window.playNext).not.toHaveBeenCalled();
+  });
+
+  it('a connected drive leaves the menu’s Play next on one line', async () => {
+    renderPage();
+    await screen.findByText('Static Bloom');
+    fireEvent.click(screen.getAllByRole('button', { name: 'More for Static Bloom' })[0]);
+    const next = await screen.findByRole('menuitem', { name: 'Play next' });
+    expect(next.getAttribute('aria-describedby')).toBeNull();
+    expect(next.getAttribute('aria-disabled')).toBeNull();
   });
 
   it('a connected drive leaves Play as it was', async () => {

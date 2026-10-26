@@ -652,6 +652,35 @@ describe('the record (HANDOFF 47, board 9d)', () => {
   });
 });
 
+describe('music’s record follows radio’s 16a (181)', () => {
+  const css = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
+
+  it('no box round the readout, a borderless “…”, as radio’s record', () => {
+    boot(fakeEngine(snapshot({ playlistTrack: { id: '42', title: 'Halcyon' } })));
+    const music = $('.ss-player-record:not(.ss-player-rtray-record)');
+    expect(music.querySelector('.ss-player-readout')!.classList).toContain(
+      'ss-player-readout--plain',
+    );
+    const more = music.querySelector('[data-player-more]')!;
+    expect(more.classList).not.toContain('ss-player-btn--outline');
+    expect(more.classList).toContain('ss-player-record-more');
+    // the record's other two controls keep their outline
+    expect(music.querySelector('[data-player-record="playlist"]')!.classList).toContain(
+      'ss-player-btn--outline',
+    );
+  });
+
+  it('the borderless “…” and the accent artist are one rule for both records', () => {
+    expect(css).toMatch(
+      /\.ss-player-rtray-more,\s*\.ss-player-record-more\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent;/,
+    );
+    expect(css).toContain(
+      '.ss-player-record a.ss-player-record-artist { color: rgb(var(--ss-accent-light-rgb)); font-weight: 500; }',
+    );
+    expect(css).not.toContain('.ss-player-rtray-record a.ss-player-record-artist {');
+  });
+});
+
 describe('the Visuals row and the visuals’ transport (10a, 10d)', () => {
   it('with nothing playing the row is disabled-neutral: "Play something first", no F', () => {
     const openVisuals = vi.fn();
