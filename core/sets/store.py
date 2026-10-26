@@ -278,16 +278,19 @@ def view(database, rows: List[Dict[str, Any]], *, fix_art=None) -> Dict[str, Any
     to the next playing one, and the meta line's numbers."""
     ids = [r["track_id"] for r in rows if r.get("track_id")]
     found = {t["id"]: t for t in traktor.tracks_by_ids(database, list(dict.fromkeys(ids)), fix_art)}
+    gone = _without_file(database, [i for i in dict.fromkeys(ids) if i not in found], fix_art)
     out = []
     for row in rows:
         track = found.get(row.get("track_id") or "")
         if track is not None:
             track = {k: v for k, v in track.items() if k != "file_path"}
         # a row whose track can't be reached now keeps its state and its id
-        # (it comes back when the file does); the page shows it as missing
+        # (it comes back when the file does); the page shows it as File
+        # missing (28e), with its values when the library still has its row
         out.append({**_row_out({**row, "line_at": row.get("line_at") or row.get("at")}),
                     "state": row.get("state") or "owned", "track": track,
-                    "unreachable": bool(row.get("track_id")) and track is None})
+                    "unreachable": bool(row.get("track_id")) and track is None,
+                    "gone_track": gone.get(row.get("track_id") or "") if track is None else None})
     playing = [i for i, r in enumerate(out) if r["track"] is not None]
     after: List[Optional[Dict[str, Any]]] = [None] * len(out)
     for a, b in zip(playing, playing[1:], strict=False):
@@ -296,6 +299,26 @@ def view(database, rows: List[Dict[str, Any]], *, fix_art=None) -> Dict[str, Any
              "locked": out[i]["locked"]} for i in playing]
     return {"rows": out, "steps": after,
             "summary": set_steps.summary(used, [s for s in after if s is not None])}
+
+
+def _without_file(database, ids: List[str], fix_art=None) -> Dict[str, Dict[str, Any]]:
+    """The caller's library tracks among ``ids`` whose file isn't there now:
+    their title, artist and values, for a set's File missing row (28e). The
+    caller's library scope only, like every read here; no file path."""
+    if not ids:
+        return {}
+    where, params = dj_store._scope(database)
+    out: Dict[str, Dict[str, Any]] = {}
+    with closing(database._get_connection()) as conn:
+        for start in range(0, len(ids), 250):
+            chunk = ids[start:start + 250]
+            rows = conn.execute(
+                f"{dj_store._track_select()} WHERE t.id IN ({','.join('?' * len(chunk))}) AND {where}",
+                list(chunk) + list(params)).fetchall()
+            for r in rows:
+                shaped = dj_store._shape_track(r, fix_art)
+                out[shaped["id"]] = {k: v for k, v in shaped.items() if k != "file_path"}
+    return out
 
 
 # ── Swap: alternatives that fit both neighbours ───────────────────────────────

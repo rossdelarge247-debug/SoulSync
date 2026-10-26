@@ -162,3 +162,25 @@ def test_notes_and_transitions_are_saved_with_the_set(client):
 ])
 def test_a_transition_is_kept_as_style_and_bars(sent, kept):
     assert store.clean_transition(sent) == kept
+
+
+def test_a_file_gone_missing_keeps_its_place_and_values(client, db):
+    """28e: the row keeps its number, its title and values (at 62% on the
+    page), the step is worked out around it, and Export leaves it out."""
+    set_id, _ = _make(client, "3", "5", "4")
+    _sql(db, "UPDATE tracks SET file_path = '' WHERE id = '5'")
+    got = client.get(f"/api/sets/{set_id}").get_json()
+    gone = got["rows"][1]
+    assert gone["track"] is None and gone["unreachable"] is True
+    assert gone["gone_track"]["title"] == "Signal Fire (Original Mix)" and "file_path" not in gone["gone_track"]
+    assert gone["gone_track"]["dj"]["bpm"] == 121
+    # the step from Undertow goes to Copper Sky, around the missing one
+    assert got["steps"][0]["reason"].startswith("7A → 8A") and got["steps"][1] is None
+
+
+@pytest.mark.gauntlet
+def test_a_file_missing_row_shows_nothing_of_another_profiles_track(client, db):
+    """A set that names profile 7's own track never gets its details."""
+    _sql(db, "UPDATE tracks SET file_path = '' WHERE id = '20'")
+    view = client.post("/api/sets/view", json={"tracks": [{"track_id": "20", "state": "owned"}]}).get_json()
+    assert view["rows"][0]["gone_track"] is None
