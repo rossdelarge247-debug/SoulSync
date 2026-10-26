@@ -2,9 +2,9 @@
  * The Mix tab's keys (24a): A adds the playing track to the working set, N
  * plays the top match next, M switches the tray to Mix. They go through the
  * player's one handler, so S's guard holds: nothing fires in a text field, a
- * dialog or a menu. The bindings are one table (NP_LETTER_KEYS), so moving
- * mute and next to ⇧M / ⇧N (HANDOFF 287) is a one-line change; each mapping
- * is tested. Where there's no Mix tab, M still mutes and N skips.
+ * dialog or a menu. The bindings are one table (NP_LETTER_KEYS); each
+ * mapping is tested. Ross answered 287: ⇧M mutes and ⇧N skips, always; where
+ * there's no Mix tab, plain M still mutes and N skips.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -58,31 +58,45 @@ describe('the table (one place for 287)', () => {
   it('maps M, ⇧M, N, ⇧N and A, and nothing else', () => {
     expect(handler().table).toEqual({
       M: ['mix:M', 'mute'],
-      '⇧M': ['mix:M', 'mute'],
+      '⇧M': ['mute'],
       N: ['mix:N', 'next'],
-      '⇧N': ['mix:N', 'next'],
+      '⇧N': ['next'],
       A: ['mix:A'],
     });
   });
 
   it.each([
-    ['m', {}, 'M', 'mute'],
-    ['M', { shiftKey: true }, 'M', 'mute'],
-    ['n', {}, 'N', 'next'],
-    ['N', { shiftKey: true }, 'N', 'next'],
-  ] as const)('%s %o: the Mix tab first, then %s', (k, extra, mixAs, fallback) => {
+    ['m', 'M', 'mute'],
+    ['n', 'N', 'next'],
+  ] as const)('%s: the Mix tab first, then %s where there is none', (k, mixAs, fallback) => {
     const { handle } = handler();
-    const ev = key(k, extra);
+    const ev = key(k);
     handle(ev);
     expect(mixKey).toHaveBeenLastCalledWith(mixAs);
     expect(ev.defaultPrevented).toBe(true);
     expect(mute).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();
     mixKey.mockReturnValue(false);
-    const ev2 = key(k, extra);
+    const ev2 = key(k);
     handle(ev2);
     expect(ev2.defaultPrevented).toBe(true);
     expect((fallback === 'mute' ? mute : next).mock.calls).toHaveLength(1);
+  });
+
+  it.each([
+    ['M', 'mute'],
+    ['N', 'next'],
+  ] as const)('⇧%s always does %s, Mix tab or not (287)', (k, what) => {
+    for (const mixActs of [true, false]) {
+      mixKey.mockReturnValue(mixActs);
+      const { handle } = handler();
+      const ev = key(k, { shiftKey: true });
+      handle(ev);
+      expect(ev.defaultPrevented).toBe(true);
+    }
+    expect(mixKey).not.toHaveBeenCalled();
+    expect((what === 'mute' ? mute : next).mock.calls).toHaveLength(2);
+    expect((what === 'mute' ? next : mute).mock.calls).toHaveLength(0);
   });
 
   it('a: the Mix tab only, and left to the page when it doesn’t act', () => {

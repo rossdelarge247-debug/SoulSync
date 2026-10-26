@@ -2893,13 +2893,14 @@ function handlePlayerKeyboardShortcuts(event) {
 // back, or the Visuals drawer; N the top match next; A the playing track into
 // the working set; src/features/mix/mix-host.tsx), which act only while the
 // playing track has a working Mix tab; "mute" and "next" are the player's
-// own. Ross's question 287 (mute and next to ⇧M / ⇧N?) is a change to this
-// table only. X is reserved for Mix now (auto-mix, 26c): not bound yet.
+// own. Ross answered 287: mute and next move to ⇧M / ⇧N, which always mute
+// and skip; plain M and N still do where there's no Mix tab. X is reserved
+// for Mix now (auto-mix, 26c): not bound yet.
 const NP_LETTER_KEYS = {
     'M': ['mix:M', 'mute'],
-    '⇧M': ['mix:M', 'mute'],
+    '⇧M': ['mute'],
     'N': ['mix:N', 'next'],
-    '⇧N': ['mix:N', 'next'],
+    '⇧N': ['next'],
     'A': ['mix:A'],
 };
 
