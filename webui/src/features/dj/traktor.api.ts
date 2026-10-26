@@ -8,7 +8,14 @@ import { apiClient } from '@/app/api-client';
 /** Where the tracks come from: one of the three doors. */
 export type TraktorSource =
   | { source: 'playlist'; playlist_id: number }
-  | { source: 'tracks'; track_ids: string[] }
+  | {
+      source: 'tracks';
+      track_ids: string[];
+      /** the file's playlist name (a set's name) */
+      name?: string;
+      /** a set's lines that aren't in the library, named in Left out */
+      left_out?: { title: string; artist: string }[];
+    }
   | { source: 'mixes'; track_id: string; within?: number };
 
 export type LeftOutReason =
