@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { resetDriveStatus } from '@/features/drives/drive-status';
+import { starStore } from '@/features/stars/stars-store';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
@@ -208,6 +209,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete window.SoulSyncStars;
   vi.useRealTimers();
   vi.unstubAllGlobals();
   delete window.SoulSyncWebShellBridge;
@@ -403,7 +405,8 @@ describe('Listening history on a phone (15d, HANDOFF 94)', () => {
     expect(row('Orchard Sodium').getAttribute('data-actions')).toBeNull();
   });
 
-  it('"…" opens the action sheet: Play next, Mixes well with…, Add to playlist…, Open artist, Open album (154)', async () => {
+  it('"…" opens the action sheet: Unstar first, then 24a’s order (154, 28d)', async () => {
+    starStore().prime({ '1': { starred: true, can_star: true } });
     renderPage();
     await screen.findByText('Static Bloom');
     const more = screen.getByRole('button', { name: 'More for Static Bloom' });
@@ -416,7 +419,19 @@ describe('Listening history on a phone (15d, HANDOFF 94)', () => {
       within(sheet)
         .getAllByRole('button')
         .map((b) => b.textContent),
-    ).toEqual(['Play next', 'Mixes well with…', 'Add to playlist…', 'Open artist', 'Open album']);
+    ).toEqual([
+      'Unstar',
+      'Play next',
+      'Mixes well with…',
+      'Add to mix set…',
+      'Add to playlist…',
+      'Open artist',
+      'Open album',
+    ]);
+    // the starred row shows its filled star
+    expect(
+      screen.getByText('Static Bloom').closest('li')!.querySelector('.ss-star'),
+    ).toHaveAttribute('data-star', 'on');
     fireEvent.click(within(sheet).getByRole('button', { name: 'Play next' }));
     expect(window.playNext).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

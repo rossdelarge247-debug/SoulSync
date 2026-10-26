@@ -6,9 +6,11 @@ import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 import { DjMeta } from '@/features/dj/dj-meta';
 import { useDjInfo, type DjInfo } from '@/features/dj/dj.api';
 import { openMixes, type MixesSeed } from '@/features/dj/mixes-store';
+import { trackMenu } from '@/features/dj/track-menu';
 import { awayWords } from '@/features/drives/drives.format';
 import { playInAppPlayer } from '@/features/playback/app-player';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
+import { StarButton, useStar } from '@/features/stars/star-button';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import type { LibrarySearch } from '../-library.types';
@@ -152,16 +154,52 @@ function MusicRow({
       },
       rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
     );
-  const mixesEntry =
-    onMixes && play.track_id
-      ? [
+  const trackId = play.track_id ? String(play.track_id) : null;
+  const star = useStar(trackId);
+  const anchor = () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]');
+  // 24a's one order (Play next, Mixes well with…, Add to mix set…, Add to
+  // playlist…, Open artist, Open album); Star first in the phone's sheet
+  const entries = (sheetStar: boolean) =>
+    trackId
+      ? trackMenu(
+          { id: trackId, title: play.title, artist: play.artist },
           {
-            key: 'mixes',
-            label: 'Mixes well with…',
-            onSelect: () => onMixes({ id: String(play.track_id), title: play.title }),
+            phone: sheetStar,
+            star,
+            anchor,
+            playNext: {
+              onSelect: () => queueNext(play),
+              disabled: Boolean(away),
+              reason: away?.words,
+            },
+            mixes: Boolean(onMixes),
+            addToPlaylist,
+            artistHref: artist,
+            albumHref: album,
           },
-        ]
-      : [];
+        )
+      : [
+          {
+            key: 'next',
+            label: 'Play next',
+            onSelect: () => queueNext(play),
+            disabled: Boolean(away),
+            reason: away?.words,
+          },
+          { key: 'playlist', label: 'Add to playlist…', onSelect: addToPlaylist },
+          ...(artist
+            ? [
+                {
+                  key: 'artist',
+                  label: 'Open artist',
+                  onSelect: () => window.location.assign(artist),
+                },
+              ]
+            : []),
+          ...(album
+            ? [{ key: 'album', label: 'Open album', onSelect: () => window.location.assign(album) }]
+            : []),
+        ];
   const meta = (
     <>
       {artist ? <a href={artist}>{play.artist}</a> : play.artist || 'Unknown artist'}
@@ -194,6 +232,8 @@ function MusicRow({
       data-gone={gone ? 'true' : undefined}
       data-actions={phone && !gone ? '2' : undefined}
       data-history-row={play.id}
+      data-star-row={trackId ?? undefined}
+      data-music=""
     >
       {phone ? null : (
         <time className={styles.time} dateTime={play.played_at.replace(' ', 'T') + 'Z'}>
@@ -212,6 +252,9 @@ function MusicRow({
           ) : null}
         </span>
       )}
+      <span className={styles.starCell}>
+        <StarButton id={trackId} title={play.title} />
+      </span>
       <div className={styles.actions} data-reveal={phone ? undefined : 'hover'}>
         {gone ? null : (
           <>
@@ -244,36 +287,7 @@ function MusicRow({
                     label={`More for ${play.title}`}
                     heading={[play.title, play.artist].filter(Boolean).join(' · ')}
                     onClose={() => setSheet(false)}
-                    actions={[
-                      // 154: Play next, Mixes well with…, Add to playlist…, Open artist, Open album
-                      {
-                        key: 'next',
-                        label: 'Play next',
-                        onSelect: () => queueNext(play),
-                        disabled: Boolean(away),
-                        reason: away?.words,
-                      },
-                      ...mixesEntry,
-                      { key: 'playlist', label: 'Add to playlist…', onSelect: addToPlaylist },
-                      ...(artist
-                        ? [
-                            {
-                              key: 'artist',
-                              label: 'Open artist',
-                              onSelect: () => window.location.assign(artist),
-                            },
-                          ]
-                        : []),
-                      ...(album
-                        ? [
-                            {
-                              key: 'album',
-                              label: 'Open album',
-                              onSelect: () => window.location.assign(album),
-                            },
-                          ]
-                        : []),
-                    ]}
+                    actions={entries(true)}
                   />
                 ) : null}
               </>
@@ -281,36 +295,7 @@ function MusicRow({
               <MoreMenu
                 className={styles.more}
                 label={`More for ${play.title}`}
-                entries={[
-                  // 154: the sheet's order on a desktop too
-                  {
-                    key: 'next',
-                    label: 'Play next',
-                    onSelect: () => queueNext(play),
-                    disabled: Boolean(away),
-                    reason: away?.words,
-                  },
-                  ...mixesEntry,
-                  { key: 'playlist', label: 'Add to playlist…', onSelect: addToPlaylist },
-                  ...(artist
-                    ? [
-                        {
-                          key: 'artist',
-                          label: 'Open artist',
-                          onSelect: () => window.location.assign(artist),
-                        },
-                      ]
-                    : []),
-                  ...(album
-                    ? [
-                        {
-                          key: 'album',
-                          label: 'Open album',
-                          onSelect: () => window.location.assign(album),
-                        },
-                      ]
-                    : []),
-                ]}
+                entries={entries(false)}
               />
             )}
           </>
