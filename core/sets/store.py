@@ -363,39 +363,88 @@ def _track_list(rows: List[Dict[str, Any]]) -> List[Any]:
     return [r.get("track_id") for r in rows if r.get("track_id")]
 
 
+#: the highest revision a page may send (JavaScript's largest exact integer)
+MAX_REVISION = 2 ** 53
+#: how far one save may move the revision on: a page counts up by one per
+#: save, so a jump bigger than this is a crafted number, not an autosave
+MAX_REVISION_STEP = 10_000
+
+
+def _check_revision(revision: Any, current: int) -> None:
+    """A sent revision must be a whole number in 0..2**53 and no more than
+    MAX_REVISION_STEP above the set's own (SetError, a 400, otherwise), so a
+    crafted number can't lock the set against every later save."""
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        raise SetError("The revision must be a whole number")
+    if revision < 0 or revision > MAX_REVISION:
+        raise SetError("The revision is out of range")
+    if revision > current + MAX_REVISION_STEP:
+        raise SetError("The revision is too far ahead of the set's")
+
+
+def _revision_of(conn, profile_id: int, set_id: int) -> Optional[int]:
+    found = conn.execute("SELECT revision FROM dj_sets WHERE id = ? AND profile_id = ?",
+                         (int(set_id), int(profile_id))).fetchone()
+    return None if found is None else int(found[0] or 0)
+
+
 def update_set(database, profile_id: int, set_id: Any, body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Change a saved set's name and/or rows. None when it isn't yours.
 
-    ``revision`` (optional, an integer the page counts up with each save)
+    ``revision`` (optional, a whole number the page counts up with each save)
     keeps autosaves in order: one at or below the set's revision is older
-    than what's stored and raises StaleRevision, changing nothing.
-    ``{"revision", "tracks_changed"}``: whether the playing tracks or their
-    order changed, which is when the playlist follows."""
+    than what's stored and raises StaleRevision, changing nothing. The check
+    and the write are one conditional UPDATE, so two saves at once can't both
+    pass it. Without a revision the save simply counts the set's on by one.
+    Returns ``{"revision", "tracks_changed"}``: whether the playing tracks or
+    their order changed, which is when the playlist follows."""
+    revision = body.get("revision")
+    explicit = revision is not None
+    name = clean_name(body["name"]) if "name" in body else None
+    cleaned = clean_rows(body["tracks"]) if "tracks" in body else None
     with closing(database._get_connection()) as conn:
         row = _own(conn, profile_id, set_id)
         if row is None:
             return None
-        current = int(row.get("revision") or 0)
-        revision = body.get("revision")
-        if isinstance(revision, int) and not isinstance(revision, bool):
-            if revision <= current:
-                raise StaleRevision(current)
-            new_revision = revision
-        else:
-            new_revision = current + 1
-        name = clean_name(body["name"]) if "name" in body else row["name"]
-        old_rows = _rows_of(conn, row["id"])
-        rows = None
-        if "tracks" in body:
-            held = {r["track_id"] for r in old_rows if r.get("track_id")}
-            rows = _library_only(database, clean_rows(body["tracks"]), keep=held)
-            if not rows:
-                raise SetError("A set needs at least one track")
-        conn.execute("UPDATE dj_sets SET name = ?, updated_at = ?, revision = ? WHERE id = ? AND profile_id = ?",
-                     (name, time.time(), new_revision, row["id"], int(profile_id)))
-        if rows is not None:
-            _write_rows(conn, row["id"], rows)
-        conn.commit()
+        sid = int(row["id"])
+        if explicit:
+            _check_revision(revision, int(row.get("revision") or 0))
+        try:
+            if explicit:
+                # applied only while the stored revision is still below this
+                # one (and this one isn't too far ahead of it)
+                cur = conn.execute(
+                    "UPDATE dj_sets SET name = COALESCE(?, name), updated_at = ?, revision = ? "
+                    "WHERE id = ? AND profile_id = ? AND revision < ? AND ? <= revision + ?",
+                    (name, time.time(), revision, sid, int(profile_id), revision, revision, MAX_REVISION_STEP))
+            else:
+                cur = conn.execute(
+                    "UPDATE dj_sets SET name = COALESCE(?, name), updated_at = ?, revision = revision + 1 "
+                    "WHERE id = ? AND profile_id = ?",
+                    (name, time.time(), sid, int(profile_id)))
+            if cur.rowcount != 1:
+                conn.rollback()
+                now = _revision_of(conn, profile_id, sid)
+                if now is None:
+                    return None
+                if explicit and revision > now:
+                    raise SetError("The revision is too far ahead of the set's")
+                raise StaleRevision(now)
+            # this transaction now holds the write lock: what it reads from
+            # here on is what it replaces
+            new_revision = _revision_of(conn, profile_id, sid)
+            old_rows = _rows_of(conn, sid)
+            rows = None
+            if cleaned is not None:
+                held = {r["track_id"] for r in old_rows if r.get("track_id")}
+                rows = _library_only(database, cleaned, keep=held)
+                if not rows:
+                    raise SetError("A set needs at least one track")
+                _write_rows(conn, sid, rows)
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
     changed = rows is not None and _track_list(rows) != _track_list(old_rows)
     return {"revision": new_revision, "tracks_changed": changed}
 

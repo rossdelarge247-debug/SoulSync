@@ -146,6 +146,8 @@ let sent: { path: string; method: string; body: unknown }[] = [];
 let mixesdbDown = false;
 let playlistState: string | null = null;
 let staleNext = false;
+/** hold the next PUT until released, then refuse it as older than `revision` */
+let holdNextPut: { revision: number; release?: () => void } | null = null;
 
 beforeEach(() => {
   window.SoulSyncWebShellBridge = createShellBridge();
@@ -157,6 +159,7 @@ beforeEach(() => {
   mixesdbDown = false;
   playlistState = null;
   staleNext = false;
+  holdNextPut = null;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -206,7 +209,14 @@ beforeEach(() => {
           rows: view(SAVED_ROWS).rows,
         };
       else if (path === '/api/sets/7' && method === 'PUT') {
-        if (staleNext) {
+        const held = holdNextPut;
+        if (held && !held.release) {
+          await new Promise<void>((resolve) => {
+            held.release = resolve;
+          });
+          status = 409;
+          answer = { success: false, stale: true, revision: held.revision, error: 'Newer.' };
+        } else if (staleNext) {
           staleNext = false;
           status = 409;
           answer = { success: false, stale: true, revision: 9, error: 'A newer change is saved.' };
@@ -437,6 +447,24 @@ describe('Library → Sets', () => {
     expect(
       await screen.findByText(/changed in another window/, {}, { timeout: 2000 }),
     ).toBeTruthy();
+  });
+
+  it('says nothing when the newer save was this window’s own', async () => {
+    holdNextPut = { revision: 5 };
+    renderPage('/library?view=sets&set=7');
+    const name = await screen.findByDisplayValue('Sunday Set');
+    fireEvent.change(name, { target: { value: 'Sunday Session' } });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    fireEvent.change(name, { target: { value: 'Sunday Sessions' } });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(2), { timeout: 2000 });
+    expect(calls('/api/sets/7', 'PUT')[1].body).toEqual({ name: 'Sunday Sessions', revision: 5 });
+    await screen.findByText('Saved');
+    // the first, held back, now arrives late and is refused as older than 5
+    holdNextPut.release!();
+    await waitFor(() => expect(holdNextPut).toBeTruthy());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText(/changed in another window/)).toBeNull();
+    expect(screen.getByText('Saved')).toBeTruthy();
   });
 
   it('says once that the playlist went its own way, and makes a new one', async () => {

@@ -537,6 +537,9 @@ export function SetEditor({
   const savedRows = useRef(JSON.stringify(rowsBody(initial.rows)));
   // autosaves count up, so one that arrives late can't undo a newer one
   const revision = useRef(source.kind === 'saved' ? source.revision : 0);
+  // the revisions this window has sent: a refusal naming one of them only
+  // means a later save from here got there first, not another window
+  const sentRevisions = useRef(new Set<number>());
   const [playlistState, setPlaylistState] = useState(
     source.kind === 'saved' ? source.playlistState : null,
   );
@@ -561,7 +564,12 @@ export function SetEditor({
     setSaving('saving');
     const timer = setTimeout(() => {
       revision.current += 1;
-      updateSet(source.id, { ...patch, revision: revision.current })
+      const sent = revision.current;
+      sentRevisions.current.add(sent);
+      for (const old of sentRevisions.current) {
+        if (old < sent - 50) sentRevisions.current.delete(old);
+      }
+      updateSet(source.id, { ...patch, revision: sent })
         .then((done) => {
           if (patch.name !== undefined) savedName.current = nextName;
           if (patch.rows) savedRows.current = nextRows;
@@ -572,6 +580,12 @@ export function SetEditor({
           void queryClient.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'list'] });
         })
         .catch((err: unknown) => {
+          if (err instanceof StaleSaveError && sentRevisions.current.has(err.revision)) {
+            // a later save from this window, which holds this change too,
+            // was applied first: nothing to say
+            revision.current = Math.max(revision.current, err.revision);
+            return;
+          }
           setSaving('error');
           if (err instanceof StaleSaveError) {
             revision.current = Math.max(revision.current, err.revision);
