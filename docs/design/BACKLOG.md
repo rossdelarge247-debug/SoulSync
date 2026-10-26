@@ -15,7 +15,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | DJ area: BPM, key and mixing (Traktor Pro 3) | Building (stage 1: Built; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
 | Famous mixes and AI set suggestions | Sets 1: Building · Sets 2: Ready for Dev after 240–246 | [below](#famous-mixes-and-ai-set-suggestions) |
 | Lyrics centre stage, timed to the words | Ready for Design (step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
-| Star tracks and mix sets | Building | [below](#star-tracks-and-mix-sets) |
+| Star tracks and mix sets | Building (Mix tab: Building) | [below](#star-tracks-and-mix-sets) |
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
 | Auto-mix: beat-matched transitions in Up next | Ready for Design (built with DJ stage 3's decks) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
 | Data visualiser: the decoded audio as numbers and bits | Ready for Design | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
@@ -528,7 +528,7 @@ SYNCHRO.S already has timed lyrics, but they sit in a side panel of the expanded
 
 ## Star tracks and mix sets
 
-**Status:** Stars and mix sets: Building · raised by Ross, 2026-10-24 · direction and defaults approved by Ross the same day · drawn by Design as `Stars and mix sets.dc.html` (28a–28g) and placed in `DJ area map (six briefs).dc.html` (24a), approved by Ross 2026-10-26 · built on `feat/stars-mix-sets`: `HANDOFF.md`, "Dev, stars and mix sets of 26 October"; the routes are in `CONTRACTS.md`, "Stars" and "Sets". The Mix tab below is the next build, not this one.
+**Status:** Stars and mix sets: Building · raised by Ross, 2026-10-24 · direction and defaults approved by Ross the same day · drawn by Design as `Stars and mix sets.dc.html` (28a–28g) and placed in `DJ area map (six briefs).dc.html` (24a), approved by Ross 2026-10-26 · built on `feat/stars-mix-sets`: `HANDOFF.md`, "Dev, stars and mix sets of 26 October"; the routes are in `CONTRACTS.md`, "Stars" and "Sets". Mix tab: Building · drawn by Design as `Mix tab.dc.html` (29a–29d), approved by Ross 2026-10-26 · built on `feat/mix-tab`: `HANDOFF.md`, "Dev, the Mix tab of 26 October"; the routes are in `CONTRACTS.md`, "The Mix tab".
 
 ### The problem
 
