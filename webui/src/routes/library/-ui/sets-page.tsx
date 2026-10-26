@@ -197,6 +197,8 @@ function SavedSet({ id, go }: { id: number; go: Go }) {
         name: set.name,
         rows: rows.map(({ track: _t, ...row }) => row),
         playlistId: set.playlist_id,
+        playlistState: set.playlist_state ?? null,
+        revision: set.revision ?? 0,
         base: {
           kind: set.kind,
           source: set.source,

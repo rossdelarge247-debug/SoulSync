@@ -28,6 +28,8 @@ export interface SetRow {
   version?: string | null;
   locked?: boolean;
   note?: string | null;
+  /** the step style after this row (mix sets, later) */
+  transition?: string | null;
   mbid?: string | null;
   raw?: string | null;
 }
@@ -43,6 +45,8 @@ export interface Step {
 
 export interface ViewRow extends SetRow {
   track: DjTrack | null;
+  /** the set holds this track but it can't be reached now (it plays again when its file is back) */
+  unreachable?: boolean;
 }
 
 export interface SetSummary {
@@ -84,6 +88,10 @@ export interface SavedSet {
   source_url: string | null;
   source_meta: MixMeta;
   playlist_id: number | null;
+  /** the playlist stopped following the set: edited elsewhere, or deleted */
+  playlist_state: 'changed' | 'deleted' | null;
+  /** the last autosave applied */
+  revision: number;
   created_at: number | null;
   updated_at: number | null;
 }
@@ -128,8 +136,8 @@ export interface UnreadLine {
 }
 
 export interface SourceState {
-  state: 'ok' | 'down' | 'off';
-  why?: 'token' | 'terms';
+  state: 'ok' | 'down' | 'off' | 'limited';
+  why?: 'token' | 'terms' | 'rate_limited' | 'profile';
 }
 
 export type SourceStates = Record<SourceName, SourceState>;
@@ -262,6 +270,7 @@ export function rowsBody(rows: SetRow[]): SetRow[] {
     version: r.version ?? null,
     locked: Boolean(r.locked),
     note: r.note ?? null,
+    transition: r.transition ?? null,
     mbid: r.mbid ?? null,
     raw: r.raw ?? null,
   }));
@@ -287,14 +296,54 @@ export function createSet(body: SetBody): Promise<{ id: number; playlist_id: num
   return call(apiClient.post('sets', { ...opts, json: { ...rest, tracks: rowsBody(rows) } }));
 }
 
-export function updateSet(
+/** A newer save of this set is already on the server (another window). */
+export class StaleSaveError extends Error {
+  revision: number;
+
+  constructor(revision: number, message: string) {
+    super(message);
+    this.revision = revision;
+  }
+}
+
+/**
+ * Save a set's name and/or rows. Send only what changed: a rename sends the
+ * name alone. `revision` counts up with each save, so the server refuses
+ * an older one that arrives late (StaleSaveError).
+ */
+export async function updateSet(
   id: number,
-  patch: { name?: string; rows?: SetRow[] },
-): Promise<{ id: number }> {
+  patch: { name?: string; rows?: SetRow[]; revision?: number },
+): Promise<{ id: number; revision: number; playlist_state: SavedSet['playlist_state'] }> {
   const json: Record<string, unknown> = {};
   if (patch.name !== undefined) json.name = patch.name;
   if (patch.rows) json.tracks = rowsBody(patch.rows);
-  return call(apiClient.put(`sets/${id}`, { ...opts, json }));
+  if (patch.revision !== undefined) json.revision = patch.revision;
+  const response = await apiClient.put(`sets/${id}`, { ...opts, json });
+  const payload = (await response.json().catch(() => ({}))) as {
+    success?: boolean;
+    stale?: boolean;
+    revision?: number;
+    error?: string;
+    playlist_state?: SavedSet['playlist_state'];
+    id?: number;
+  };
+  if (payload.stale) throw new StaleSaveError(payload.revision ?? 0, payload.error || '');
+  if (!response.ok || payload.success === false)
+    throw new Error(payload.error || "The change wasn't saved.");
+  return {
+    id: payload.id ?? id,
+    revision: payload.revision ?? 0,
+    playlist_state: payload.playlist_state ?? null,
+  };
+}
+
+/** "Make a new playlist from this set", or "Not now" for the note that it went its own way. */
+export function setPlaylist(
+  id: number,
+  action: 'new' | 'dismiss',
+): Promise<{ playlist_id: number | null }> {
+  return call(apiClient.post(`sets/${id}/playlist`, { ...opts, json: { action } }));
 }
 
 export function deleteSet(id: number): Promise<unknown> {
@@ -333,9 +382,38 @@ export function pasteTracklist(text: string): Promise<PasteAnswer> {
   return call<PasteAnswer>(apiClient.post('sets/paste', { ...opts, json: { text } }));
 }
 
-export function addToWanted(
+/** The most tracks one Wanted request carries; longer lists go in batches. */
+export const WANTED_BATCH = 500;
+
+export async function addToWanted(
   tracks: { artist: string; title: string; album?: string }[],
   setName: string,
 ): Promise<{ added: number; already: number; refused: { artist: string; title: string }[] }> {
-  return call(apiClient.post('sets/wanted', { ...opts, json: { tracks, set_name: setName } }));
+  const total = { added: 0, already: 0, refused: [] as { artist: string; title: string }[] };
+  for (let i = 0; i < tracks.length; i += WANTED_BATCH) {
+    const done = await call<{
+      added: number;
+      already: number;
+      refused: { artist: string; title: string }[];
+    }>(
+      apiClient.post('sets/wanted', {
+        ...opts,
+        json: { tracks: tracks.slice(i, i + WANTED_BATCH), set_name: setName },
+      }),
+    );
+    total.added += done.added;
+    total.already += done.already;
+    total.refused.push(...done.refused);
+  }
+  return total;
+}
+
+/** "Use yours" after "Want the Dub": the Wanted row it added goes, if it's still waiting. */
+export function removeFromWanted(
+  track: { artist: string; title: string },
+  setName: string,
+): Promise<{ removed: boolean }> {
+  return call(
+    apiClient.post('sets/wanted/remove', { ...opts, json: { ...track, set_name: setName } }),
+  );
 }

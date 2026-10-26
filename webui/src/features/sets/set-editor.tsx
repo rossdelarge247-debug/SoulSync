@@ -30,8 +30,25 @@ import type { SetRow, SetView, Step, ViewRow } from './sets.api';
 
 import { clearDraft, writeDraft } from './draft-store';
 import { EnergyGraph } from './energy-graph';
-import { SETS_QUERY_KEY, createSet, deleteSet, postView, updateSet } from './sets.api';
-import { haveLine, metaLine, metaLineShort, moveRow, sourceLine, wantLabel } from './sets.format';
+import {
+  SETS_QUERY_KEY,
+  StaleSaveError,
+  createSet,
+  deleteSet,
+  postView,
+  rowsBody,
+  setPlaylist,
+  updateSet,
+} from './sets.api';
+import {
+  haveLine,
+  metaLine,
+  metaLineShort,
+  moveRow,
+  safeSourceLink,
+  sourceLine,
+  wantLabel,
+} from './sets.format';
 import styles from './sets.module.css';
 import { SwapPanel, TrackSheet, trackMeta } from './swap-panel';
 
@@ -300,12 +317,21 @@ function Row({
   const dj = track?.dj;
   const title = track?.title ?? row.title ?? '';
   const artist = track?.artist_name ?? row.artist ?? '';
+  // a locked row holds its place: its moves are there, disabled
+  const held = Boolean(row.locked);
   const entries = [
-    ...(index > 0 ? [{ key: 'up', label: 'Move up', onSelect: () => onMoveTo(index - 1) }] : []),
-    ...(index < count - 1
-      ? [{ key: 'down', label: 'Move down', onSelect: () => onMoveTo(index + 1) }]
+    ...(index > 0
+      ? [{ key: 'up', label: 'Move up', onSelect: () => onMoveTo(index - 1), disabled: held }]
       : []),
-    { key: 'move', label: 'Move…', onSelect: onMove },
+    ...(index < count - 1
+      ? [{ key: 'down', label: 'Move down', onSelect: () => onMoveTo(index + 1), disabled: held }]
+      : []),
+    {
+      key: 'move',
+      label: held ? 'Move… (unlock it first)' : 'Move…',
+      onSelect: onMove,
+      disabled: held,
+    },
     ...(track
       ? [
           { key: 'next', label: 'Play next', onSelect: () => playTrackNext(track) },
@@ -331,6 +357,7 @@ function Row({
       data-state={track ? 'playing' : row.state}
       data-swapping={swapping ? 'true' : undefined}
       data-drag-over={drag.over ? 'true' : undefined}
+      data-locked={held ? 'true' : undefined}
       draggable={drag.armed}
       onDragStart={drag.onDragStart}
       onDragOver={drag.onDragOver}
@@ -342,7 +369,7 @@ function Row({
           <span
             className={styles.grip}
             aria-hidden="true"
-            title="Drag to reorder"
+            title={held ? 'Locked in its place' : 'Drag to reorder'}
             onPointerDown={drag.onGrip}
           >
             <Grip />
@@ -359,7 +386,9 @@ function Row({
                 ? artist
                 : row.state === 'id'
                   ? 'Not identified in the tracklist'
-                  : `${artist ? `${artist} · ` : ''}Not in your library`}
+                  : row.unreachable
+                    ? `${artist ? `${artist} · ` : ''}Can't be reached right now; it plays again when its file is back`
+                    : `${artist ? `${artist} · ` : ''}Not in your library`}
               {second ? ` · ${second}` : ''}
             </span>
           )}
@@ -412,7 +441,9 @@ function Row({
           )
         ) : (
           <span className={styles.rowTag}>
-            {row.state === 'id' ? null : <StatusTag tone="neutral">Missing</StatusTag>}
+            {row.state === 'id' ? null : (
+              <StatusTag tone="neutral">{row.unreachable ? 'Away' : 'Missing'}</StatusTag>
+            )}
           </span>
         )}
         {phone ? (
@@ -465,6 +496,8 @@ export type EditorSource =
       rows: SetRow[];
       base: Omit<Draft, 'rows' | 'name' | 'updatedAt'>;
       playlistId: number | null;
+      playlistState: 'changed' | 'deleted' | null;
+      revision: number;
     };
 
 export function SetEditor({
@@ -498,6 +531,16 @@ export function SetEditor({
   const [over, setOver] = useState<number | null>(null);
   const nameId = useId();
   const first = useRef(true);
+  // what the server last stored, so a save sends only what changed (a
+  // rename sends the name alone) and nothing when nothing did
+  const savedName = useRef(initial.name);
+  const savedRows = useRef(JSON.stringify(rowsBody(initial.rows)));
+  // autosaves count up, so one that arrives late can't undo a newer one
+  const revision = useRef(source.kind === 'saved' ? source.revision : 0);
+  const [playlistState, setPlaylistState] = useState(
+    source.kind === 'saved' ? source.playlistState : null,
+  );
+  const [playlistId, setPlaylistId] = useState(source.kind === 'saved' ? source.playlistId : null);
 
   // keep the draft in this browser, or save a saved set as it changes
   useEffect(() => {
@@ -509,21 +552,52 @@ export function SetEditor({
       writeDraft(profileId, { ...source.draft, name, rows });
       return;
     }
+    const nextName = name.trim() || savedName.current;
+    const nextRows = JSON.stringify(rowsBody(rows));
+    const patch: { name?: string; rows?: SetRow[] } = {};
+    if (nextName !== savedName.current) patch.name = nextName;
+    if (nextRows !== savedRows.current) patch.rows = rows;
+    if (patch.name === undefined && !patch.rows) return;
     setSaving('saving');
     const timer = setTimeout(() => {
-      updateSet(source.id, { name: name.trim() || source.name, rows })
-        .then(() => {
+      revision.current += 1;
+      updateSet(source.id, { ...patch, revision: revision.current })
+        .then((done) => {
+          if (patch.name !== undefined) savedName.current = nextName;
+          if (patch.rows) savedRows.current = nextRows;
+          revision.current = Math.max(revision.current, done.revision);
+          setPlaylistState(done.playlist_state);
+          if (done.playlist_state) setPlaylistId(null);
           setSaving('saved');
           void queryClient.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'list'] });
         })
         .catch((err: unknown) => {
           setSaving('error');
-          setError(err instanceof Error ? err.message : "The change wasn't saved.");
+          if (err instanceof StaleSaveError) {
+            revision.current = Math.max(revision.current, err.revision);
+            setError(
+              'This set was changed in another window. Reload the page to see the newest version.',
+            );
+          } else setError(err instanceof Error ? err.message : "The change wasn't saved.");
         });
     }, 700);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, rows]);
+
+  const playlistAction = async (action: 'new' | 'dismiss') => {
+    if (source.kind !== 'saved') return;
+    try {
+      const done = await setPlaylist(source.id, action);
+      setPlaylistState(null);
+      if (action === 'new') {
+        setPlaylistId(done.playlist_id);
+        window.showToast?.(`Made a new playlist from ${name.trim() || source.name}`, 'success');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That didn't work.");
+    }
+  };
 
   const viewKey = JSON.stringify(rows.map((r) => [r.track_id, r.state, r.locked, r.want, r.title]));
   const view = useQuery({
@@ -553,7 +627,13 @@ export function SetEditor({
     setSwap(null);
     setSheet(null);
   };
-  const moveTo = (from: number, to: number) => setRows((cur) => moveRow(cur, from, to));
+  const moveTo = (from: number, to: number) => {
+    if (rows[from]?.locked) {
+      window.showToast?.('That track is locked in its place. Unlock it to move it.', 'info');
+      return;
+    }
+    setRows((cur) => moveRow(cur, from, to));
+  };
   const use = (index: number, track: DjTrack) => {
     update(index, {
       track_id: track.id,
@@ -621,7 +701,7 @@ export function SetEditor({
   const dragFor = (index: number) => ({
     armed: armed === index,
     over: over === index && dragFrom !== null && dragFrom !== index,
-    onGrip: () => setArmed(index),
+    onGrip: () => setArmed(rows[index]?.locked ? null : index),
     onDragStart: (event: DragEvent) => {
       setDragFrom(index);
       event.dataTransfer.effectAllowed = 'move';
@@ -688,10 +768,14 @@ export function SetEditor({
             <>
               {' · '}
               {fromSource}
-              {initial.source_url ? (
+              {safeSourceLink(initial.source_url) ? (
                 <>
                   {' · '}
-                  <a href={initial.source_url} target="_blank" rel="noopener noreferrer nofollow">
+                  <a
+                    href={safeSourceLink(initial.source_url)!}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                  >
                     open it there
                   </a>
                 </>
@@ -734,12 +818,12 @@ export function SetEditor({
                     },
                   ]
                 : [
-                    ...(source.playlistId
+                    ...(playlistId
                       ? [
                           {
                             key: 'playlist',
                             label: 'Open its playlist',
-                            onSelect: () => openPlaylist(source.playlistId!),
+                            onSelect: () => openPlaylist(playlistId!),
                           },
                         ]
                       : []),
@@ -758,6 +842,29 @@ export function SetEditor({
       {error ? (
         <Notice tone="danger" role="alert" title="That didn't work">
           {error}
+        </Notice>
+      ) : null}
+      {playlistState ? (
+        <Notice
+          tone="info"
+          title={
+            playlistState === 'changed'
+              ? 'Its playlist was changed elsewhere, so it no longer follows this set'
+              : 'Its playlist was deleted, so it no longer follows this set'
+          }
+          actions={
+            <>
+              <Button size="lg" variant="secondary" onClick={() => void playlistAction('new')}>
+                Make a new playlist from this set
+              </Button>
+              <Button size="lg" variant="ghost" onClick={() => void playlistAction('dismiss')}>
+                Not now
+              </Button>
+            </>
+          }
+          data-playlist-state={playlistState}
+        >
+          The set is saved as it is. Your changes to the playlist stay in the playlist.
         </Notice>
       ) : null}
       {view.isError ? (

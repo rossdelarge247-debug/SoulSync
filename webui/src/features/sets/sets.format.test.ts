@@ -12,6 +12,7 @@ import {
   ownRest,
   resultMeta,
   rowsFromMatch,
+  safeSourceLink,
   searchedLine,
   sourceLine,
   wantLabel,
@@ -136,10 +137,48 @@ describe('Sets words', () => {
     expect(rows[1]).toMatchObject({ track_id: null, state: 'missing', want: 'yours' });
   });
 
+  it('keeps locked rows in their places (Lock holds)', () => {
+    const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
+    const rows = [
+      { id: 'a', locked: false },
+      { id: 'L', locked: true },
+      { id: 'b', locked: false },
+      { id: 'c', locked: false },
+      { id: 'M', locked: true },
+      { id: 'd', locked: false },
+    ];
+    // a locked row doesn't move at all
+    expect(moveRow(rows, 1, 3)).toBe(rows);
+    // moving others never shifts a locked one
+    expect(ids(moveRow(rows, 0, 5))).toEqual(['b', 'L', 'c', 'd', 'M', 'a']);
+    expect(ids(moveRow(rows, 5, 0))).toEqual(['d', 'L', 'a', 'b', 'M', 'c']);
+    expect(ids(moveRow(rows, 2, 3))).toEqual(['a', 'L', 'c', 'b', 'M', 'd']);
+    // a drop on a locked row's place lands on the nearest free place
+    expect(ids(moveRow(rows, 0, 1))).toEqual(['a', 'L', 'b', 'c', 'M', 'd']);
+    expect(ids(moveRow(rows, 0, 4))).toEqual(['b', 'L', 'c', 'a', 'M', 'd']);
+    expect(ids(moveRow(rows, 5, 4))).toEqual(['a', 'L', 'b', 'c', 'M', 'd']);
+    expect(ids(moveRow(rows, 5, 1))).toEqual(['a', 'L', 'd', 'b', 'M', 'c']);
+  });
+
+  it('only links to a source’s own pages', () => {
+    expect(safeSourceLink('https://www.mixesdb.com/w/2019_-_x')).toBe(
+      'https://www.mixesdb.com/w/2019_-_x',
+    );
+    expect(safeSourceLink('https://musicbrainz.org/release/abc')).toBe(
+      'https://musicbrainz.org/release/abc',
+    );
+    expect(safeSourceLink('javascript:alert(1)')).toBeNull();
+    expect(safeSourceLink('https://www.mixesdb.com.evil.example/w/x')).toBeNull();
+    expect(safeSourceLink('https://evil.example/?https://www.discogs.com/release/1')).toBeNull();
+    expect(safeSourceLink(null)).toBeNull();
+  });
+
   it('moves a row, and the six shapes stay in 1–10', () => {
-    expect(moveRow(['a', 'b', 'c', 'd'], 0, 2)).toEqual(['b', 'c', 'a', 'd']);
-    expect(moveRow(['a', 'b', 'c'], 2, 0)).toEqual(['c', 'a', 'b']);
-    expect(moveRow(['a', 'b'], 5, 0)).toEqual(['a', 'b']);
+    const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
+    const plain = (...names: string[]) => names.map((id) => ({ id, locked: false }));
+    expect(ids(moveRow(plain('a', 'b', 'c', 'd'), 0, 2))).toEqual(['b', 'c', 'a', 'd']);
+    expect(ids(moveRow(plain('a', 'b', 'c'), 2, 0))).toEqual(['c', 'a', 'b']);
+    expect(ids(moveRow(plain('a', 'b'), 5, 0))).toEqual(['a', 'b']);
     for (const shape of Object.values(SHAPES))
       for (let t = 0; t <= 1; t += 0.05) {
         expect(shape.at(t)).toBeGreaterThanOrEqual(1);

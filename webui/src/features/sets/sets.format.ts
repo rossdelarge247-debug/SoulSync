@@ -205,13 +205,50 @@ export function rowsFromMatch(rows: MatchRow[], wants: Record<number, boolean> =
   }));
 }
 
-/** Move one row (Move…, drag, Move up/down): a new list. */
-export function moveRow<T>(rows: T[], from: number, to: number): T[] {
-  if (from === to || from < 0 || from >= rows.length) return rows;
+/**
+ * Move one row (Move…, drag, Move up/down): a new list. Locked rows hold
+ * their places: a locked row doesn't move, and moving another row never
+ * shifts one. The unlocked rows fill the places between them in their new
+ * order; a drop on a locked row's place lands on the nearest free place.
+ */
+export function moveRow<T extends { locked?: boolean | null }>(
+  rows: T[],
+  from: number,
+  to: number,
+): T[] {
+  if (from === to || from < 0 || from >= rows.length || rows[from]?.locked) return rows;
+  const free = rows.map((r, i) => (r.locked ? -1 : i)).filter((i) => i >= 0);
+  const target = Math.max(0, Math.min(rows.length - 1, to));
+  // the free place nearest the target, looking the way the row moves first
+  let slot = free.indexOf(target);
+  if (slot < 0) {
+    const ahead = target > from ? free.filter((i) => i > target) : free.filter((i) => i < target);
+    const behind = target > from ? free.filter((i) => i < target) : free.filter((i) => i > target);
+    const pick = target > from ? (behind.at(-1) ?? ahead[0]) : (behind[0] ?? ahead.at(-1));
+    slot = free.indexOf(pick ?? from);
+  }
+  const order = free.map((i) => rows[i]);
+  const [row] = order.splice(free.indexOf(from), 1);
+  order.splice(slot, 0, row);
   const next = rows.slice();
-  const [row] = next.splice(from, 1);
-  next.splice(Math.max(0, Math.min(next.length, to)), 0, row);
+  free.forEach((place, k) => {
+    next[place] = order[k];
+  });
   return next;
+}
+
+/** The prefixes a mix's "open it there" link may start with (the server keeps the same list). */
+export const SOURCE_LINK_PREFIXES = [
+  'https://www.mixesdb.com/w/',
+  'https://www.mixes.wiki/w/',
+  'https://musicbrainz.org/release/',
+  'https://www.discogs.com/release/',
+] as const;
+
+/** A source link safe to use as an href, or null. */
+export function safeSourceLink(url: string | null | undefined): string | null {
+  if (!url || url.length > 500) return null;
+  return SOURCE_LINK_PREFIXES.some((p) => url.startsWith(p)) ? url : null;
 }
 
 /* ── energy shapes (22a's six) ───────────────────────────────────────── */

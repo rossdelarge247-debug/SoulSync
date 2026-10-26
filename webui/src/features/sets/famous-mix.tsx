@@ -31,6 +31,7 @@ import {
   SourceDownError,
   addToWanted,
   createSet,
+  removeFromWanted,
   matchLines,
   openMix,
   pasteTracklist,
@@ -48,6 +49,7 @@ import {
   ownRest,
   resultMeta,
   rowsFromMatch,
+  safeSourceLink,
   searchedLine,
   sourceLine,
   wantLabel,
@@ -178,8 +180,19 @@ export function MatchView({
   };
 
   const pick = (index: number, row: MatchRow, on: boolean) => {
+    if (Boolean(wants[index]) === on) return;
     setWants((cur) => ({ ...cur, [index]: on }));
     if (on) void want([row], `${row.title}`);
+    else
+      // Use yours again: the Wanted row Want the Dub added goes, if it's still waiting
+      void removeFromWanted({ artist: row.artist, title: row.title }, source.name)
+        .then((done) =>
+          window.showToast?.(
+            done.removed ? `${row.title} is off Wanted again` : `Using yours for ${row.title}`,
+            'success',
+          ),
+        )
+        .catch(() => undefined);
   };
 
   return (
@@ -286,10 +299,14 @@ export function MatchView({
       {source.from || footNote ? (
         <p className={styles.matchFoot}>
           {footNote ?? source.from}
-          {source.source_url ? (
+          {safeSourceLink(source.source_url) ? (
             <>
               {' · '}
-              <a href={source.source_url} target="_blank" rel="noopener noreferrer nofollow">
+              <a
+                href={safeSourceLink(source.source_url)!}
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+              >
                 open it there
               </a>
             </>
@@ -331,6 +348,15 @@ function offLines(answer: SearchAnswer | undefined, isAdmin: boolean) {
           'Settings → Connections'
         )}
         .
+      </p>,
+    );
+  }
+  if (answer.sources.discogs?.state === 'limited') {
+    lines.push(
+      <p key="discogs-limited" className={styles.offLine}>
+        {answer.sources.discogs.why === 'profile'
+          ? "Discogs isn't searched for a minute: you've searched it often just now, and its key is shared."
+          : 'Discogs asked SYNCHRO.S to slow down, so it isn’t searched for a minute.'}
       </p>,
     );
   }

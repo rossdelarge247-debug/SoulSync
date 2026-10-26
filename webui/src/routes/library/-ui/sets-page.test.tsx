@@ -144,6 +144,8 @@ const MATCH_ROWS = [
 
 let sent: { path: string; method: string; body: unknown }[] = [];
 let mixesdbDown = false;
+let playlistState: string | null = null;
+let staleNext = false;
 
 beforeEach(() => {
   window.SoulSyncWebShellBridge = createShellBridge();
@@ -153,6 +155,8 @@ beforeEach(() => {
   resetDraftsForTests();
   sent = [];
   mixesdbDown = false;
+  playlistState = null;
+  staleNext = false;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -195,10 +199,26 @@ beforeEach(() => {
             status: 'saved',
             source: null,
             source_meta: {},
-            playlist_id: 4,
+            playlist_id: playlistState ? null : 4,
+            playlist_state: playlistState,
+            revision: 3,
           },
           rows: view(SAVED_ROWS).rows,
         };
+      else if (path === '/api/sets/7' && method === 'PUT') {
+        if (staleNext) {
+          staleNext = false;
+          status = 409;
+          answer = { success: false, stale: true, revision: 9, error: 'A newer change is saved.' };
+        } else
+          answer = {
+            success: true,
+            id: 7,
+            revision: (body as { revision: number }).revision,
+            playlist_state: null,
+          };
+      } else if (path === '/api/sets/7/playlist') answer = { success: true, playlist_id: 12 };
+      else if (path === '/api/sets/wanted/remove') answer = { success: true, removed: true };
       else if (path === '/api/sets/view') answer = view((body as { tracks: Row[] }).tracks);
       else if (path === '/api/sets/swap')
         answer = {
@@ -400,5 +420,69 @@ describe('Library → Sets', () => {
     fireEvent.click(within(line).getByRole('button', { name: 'Leave out' }));
     await waitFor(() => expect(screen.queryByText('02. the vocals lol')).toBeNull());
     expect(screen.getByText('You own 1 of 2')).toBeTruthy();
+  });
+
+  it('saves a rename as the name alone, with the next revision', async () => {
+    renderPage('/library?view=sets&set=7');
+    const name = await screen.findByDisplayValue('Sunday Set');
+    fireEvent.change(name, { target: { value: 'Sunday Session' } });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    expect(calls('/api/sets/7', 'PUT')[0].body).toEqual({ name: 'Sunday Session', revision: 4 });
+  });
+
+  it('says when a newer save came from another window', async () => {
+    staleNext = true;
+    renderPage('/library?view=sets&set=7');
+    fireEvent.change(await screen.findByDisplayValue('Sunday Set'), { target: { value: 'Later' } });
+    expect(
+      await screen.findByText(/changed in another window/, {}, { timeout: 2000 }),
+    ).toBeTruthy();
+  });
+
+  it('says once that the playlist went its own way, and makes a new one', async () => {
+    playlistState = 'changed';
+    renderPage('/library?view=sets&set=7');
+    expect(
+      await screen.findByText(
+        'Its playlist was changed elsewhere, so it no longer follows this set',
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Make a new playlist from this set' }));
+    await waitFor(() => expect(calls('/api/sets/7/playlist').length).toBe(1));
+    expect(calls('/api/sets/7/playlist')[0].body).toEqual({ action: 'new' });
+    await waitFor(() => expect(screen.queryByText(/no longer follows this set/)).toBeNull());
+  });
+
+  it('holds a locked row in its place', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    await waitFor(() => expect(document.querySelectorAll('[data-step]').length).toBe(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock Lowtide Hymn' }));
+    const first = document.querySelector('[data-set-row="0"]')!;
+    expect(first.getAttribute('data-locked')).toBe('true');
+    expect(first.getAttribute('draggable')).not.toBe('true');
+    // the grip won't arm a locked row for dragging
+    fireEvent.pointerDown(first.querySelector('[title="Locked in its place"]')!);
+    expect(first.getAttribute('draggable')).not.toBe('true');
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    const locked = calls('/api/sets/7', 'PUT')[0].body as {
+      tracks: { track_id: string | null; locked: boolean }[];
+    };
+    expect(locked.tracks.map((t) => t.track_id)).toEqual(['1', '2', null, '3']);
+    expect(locked.tracks[0].locked).toBe(true);
+  });
+
+  it('takes a Want the Dub back off Wanted on Use yours', async () => {
+    renderPage('/library?view=sets&set=famous&q=saltmarsh');
+    fireEvent.click(await screen.findByRole('button', { name: /fabric 104: Saltmarsh/ }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Want the Dub' }));
+    await waitFor(() => expect(calls('/api/sets/wanted').length).toBe(1));
+    fireEvent.click(screen.getByRole('radio', { name: 'Use yours' }));
+    await waitFor(() => expect(calls('/api/sets/wanted/remove').length).toBe(1));
+    expect(calls('/api/sets/wanted/remove')[0].body).toEqual({
+      artist: 'Mareld',
+      title: 'Signal Fire (Dub)',
+      set_name: 'fabric 104: Saltmarsh',
+    });
   });
 });
