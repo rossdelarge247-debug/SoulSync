@@ -217,7 +217,7 @@ def dj_browse():
 
 def _mix_ranked() -> bool:
     """The Mix tab's order was asked for (``rank=mix``, or a ``set_id``)."""
-    return request.args.get("rank") == "mix" or bool(request.args.get("set_id"))
+    return request.args.get("rank") == "mix" or request.args.get("set_id") not in (None, "")
 
 
 def _set_id_arg() -> Optional[int]:
