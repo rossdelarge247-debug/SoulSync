@@ -15,6 +15,7 @@ import {
   safeSourceLink,
   searchedLine,
   sourceLine,
+  unsavedWords,
   wantLabel,
   whenWords,
 } from './sets.format';
@@ -184,5 +185,44 @@ describe('Sets words', () => {
         expect(shape.at(t)).toBeGreaterThanOrEqual(1);
         expect(shape.at(t)).toBeLessThanOrEqual(10);
       }
+  });
+});
+
+describe('what isn’t saved (the “changed somewhere else” Notice)', () => {
+  const row = (id: string, title: string) => ({
+    track_id: id,
+    artist: 'x',
+    title,
+    state: 'owned' as const,
+  });
+  it('names what was added, removed and renamed', () => {
+    expect(
+      unsavedWords({
+        savedRows: [row('1', 'Copper Sky'), row('2', 'Undertow')],
+        rows: [row('1', 'Copper Sky'), row('3', 'Night Ferry')],
+        savedName: 'Sunday',
+        name: 'Later',
+      }),
+    ).toBe('Not saved here: Night Ferry added, Undertow removed, the name “Later”.');
+  });
+
+  it('keeps a long list short: the first five, then how many more (L-B)', () => {
+    const many = Array.from({ length: 40 }, (_v, i) => row(String(i + 10), `Track ${i + 1}`));
+    const words = unsavedWords({ savedRows: [], rows: many, savedName: 's', name: 's' });
+    expect(words).toBe(
+      'Not saved here: Track 1 added, Track 2 added, Track 3 added, Track 4 added, Track 5 added, …and 35 more.',
+    );
+    expect(words.length).toBeLessThan(140);
+  });
+
+  it('order, notes or transitions only', () => {
+    expect(
+      unsavedWords({
+        savedRows: [row('1', 'A'), row('2', 'B')],
+        rows: [row('2', 'B'), row('1', 'A')],
+        savedName: 's',
+        name: 's',
+      }),
+    ).toBe('Not saved here: your changes to the order, notes or transitions.');
   });
 });

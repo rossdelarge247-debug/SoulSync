@@ -370,6 +370,9 @@ export function missingWords(missing: number): string {
  * Notice (H1): "Not saved here: Copper Sky added, Undertow removed." or the
  * name, or "your changes to the order, notes or transitions."
  */
+/** How many changes the "changed somewhere else" Notice names before "…and N more". */
+export const UNSAVED_SHOWN = 5;
+
 export function unsavedWords(opts: {
   savedRows: SetRow[];
   rows: SetRow[];
@@ -411,7 +414,12 @@ export function unsavedWords(opts: {
       ? [`the name “${opts.name.trim()}”`]
       : []),
   ];
-  if (parts.length) return `Not saved here: ${parts.join(', ')}.`;
+  if (parts.length) {
+    // a long list stays short: the first few, then how many more (L-B)
+    const shown = parts.slice(0, UNSAVED_SHOWN);
+    const more = parts.length - shown.length;
+    return `Not saved here: ${shown.join(', ')}${more ? `, …and ${more.toLocaleString()} more` : ''}.`;
+  }
   return JSON.stringify(rowsBodyOf(opts.rows)) === JSON.stringify(rowsBodyOf(opts.savedRows))
     ? 'Nothing here is unsaved.'
     : 'Not saved here: your changes to the order, notes or transitions.';
