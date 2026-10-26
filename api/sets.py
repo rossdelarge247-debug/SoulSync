@@ -2,13 +2,18 @@
 CONTRACTS.md "Sets"). Code: core/sets/.
 
 GET    /api/sets                     Your sets.
-POST   /api/sets                     Save as mix: a new set, and its playlist.
+POST   /api/sets                     Save as mix set: a new set, and its playlist.
 GET    /api/sets/<id>                One of your sets, with its view.
 PUT    /api/sets/<id>                Change a saved set's name or tracks (its playlist follows while
                                      it still holds what the set wrote), with an autosave revision.
 POST   /api/sets/<id>/playlist       {action: new | dismiss}: a new playlist from the set, or stop
                                      saying its playlist went its own way.
 DELETE /api/sets/<id>                Remove a set; its playlist stays.
+POST   /api/sets/<id>/tracks         {track_ids, again?}: "Add to mix set…", at the end; only
+                                     library tracks with their file, one the set holds skipped
+                                     unless ``again``; the playlist follows.
+POST   /api/sets/holding             {track_ids}: the picker's sets, newest change first, with
+                                     the number the next track takes and where these already are.
 POST   /api/sets/view                Rows -> library tracks, steps and the meta line (drafts).
 GET    /api/sets/swap                Alternatives that fit both neighbours (Swap).
 GET    /api/sets/sources             Each tracklist source's set-up state.
@@ -228,6 +233,69 @@ def delete_set(set_id: int):
     except Exception as exc:  # noqa: BLE001
         return _failed("delete", exc)
     return _ok({"deleted": set_id})
+
+
+# ── "Add to mix set…" (28a, 28b) ──────────────────────────────────────────────
+
+def _track_ids(body):
+    from core.stars import store as stars
+
+    try:
+        ids = stars.clean_ids(body.get("track_ids"))
+    except stars.StarError as exc:
+        return None, _bad(str(exc))
+    if not ids:
+        return None, _bad("track_ids must name at least one track")
+    return ids, None
+
+
+@bp.route("/api/sets/<int:set_id>/tracks", methods=["POST"])
+def add_tracks(set_id: int):
+    pid = _profile()
+    if pid is None:
+        return _no_profile()
+    body, refused = _body(64 * 1024)
+    if refused is not None:
+        return refused
+    ids, refused = _track_ids(body)
+    if refused is not None:
+        return refused
+    from core.sets import store
+
+    database = get_database()
+    try:
+        done = store.append_tracks(database, pid, set_id, ids, again=body.get("again") is True)
+        if done is None:
+            return _bad("That set isn't one of yours", 404)
+        saved = store.get_set(database, pid, set_id)
+        state = saved.get("playlist_state")
+        if done["tracks_changed"]:
+            state = store.follow_playlist(database, pid, set_id, saved["rows"])
+    except store.SetError as exc:
+        return _bad(str(exc))
+    except Exception as exc:  # noqa: BLE001
+        return _failed("add", exc)
+    return _ok({"id": set_id, "name": saved["name"], "added": done["added"], "already": done["already"],
+                "left_out": done["left_out"], "revision": done["revision"], "playlist_state": state})
+
+
+@bp.route("/api/sets/holding", methods=["POST"])
+def holding():
+    pid = _profile()
+    if pid is None:
+        return _no_profile()
+    body, refused = _body(64 * 1024)
+    if refused is not None:
+        return refused
+    ids, refused = _track_ids(body)
+    if refused is not None:
+        return refused
+    from core.sets import store
+
+    try:
+        return _ok({"sets": store.holding(get_database(), pid, ids)})
+    except Exception as exc:  # noqa: BLE001
+        return _failed("holding", exc)
 
 
 # ── the draft's view and Swap ─────────────────────────────────────────────────
