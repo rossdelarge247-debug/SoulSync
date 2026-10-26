@@ -40,25 +40,48 @@ _CANDIDATES = 200
 _LITTLE_WORDS = {"the", "a", "an", "le", "la", "el", "die", "der", "de", "i", "in", "on", "of"}
 
 
-def _candidates(conn, where: str, params: List[Any], base_key: str, base_title: str) -> List[Dict[str, Any]]:
-    """Library tracks with a file whose title starts like the song's."""
-    if not base_key:
-        return []
+#: the highest code point: "x" <= anything starting with "x" < "x" + this
+_TOP = "\U0010ffff"
 
-    def like(words: str) -> str:
-        # the song's first word as a prefix (two when the first is a little
-        # word like "The"), so a close spelling later in the title is still
-        # found; LIKE's own wildcards escaped
-        parts = words.split(" ")
-        head = " ".join(parts[:2]) if parts[0].lower() in _LITTLE_WORDS else parts[0]
-        return head.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
+def _prefix_range(conn, where: str, params: List[Any], prefix: str, ready: bool) -> List[Dict[str, Any]]:
+    """Library tracks with a file whose normalised title starts with
+    ``prefix``: an indexed range on ``tracks.title_norm`` (idx_tracks_title_norm),
+    never a scan, once the norm columns are filled."""
+    if ready:
+        # the range alone in a subquery, so the planner can only answer it
+        # from the title_norm index, whatever the scope's own indexes are
+        found = ("t.rowid IN (SELECT rowid FROM tracks WHERE title_norm >= ? AND title_norm < ? "
+                 f"LIMIT {_CANDIDATES * 10})")
+    else:
+        found = ("COALESCE(t.title_norm, norm_text(t.title)) >= ? "
+                 "AND COALESCE(t.title_norm, norm_text(t.title)) < ?")
     rows = conn.execute(
-        f"{dj_store._track_select()} WHERE {where} AND t.file_path IS NOT NULL AND t.file_path != '' "
-        f"AND (t.title LIKE ? ESCAPE '\\' OR t.title_norm LIKE ? ESCAPE '\\') LIMIT ?",
-        list(params) + [like(base_title or base_key), like(normalize_for_comparison(base_title) or base_key),
-                        _CANDIDATES]).fetchall()
+        f"{dj_store._track_select()} WHERE {found} AND {where} "
+        f"AND t.file_path IS NOT NULL AND t.file_path != '' LIMIT ?",
+        [prefix, prefix + _TOP] + list(params) + [_CANDIDATES]).fetchall()
     return [dict(r) for r in rows]
+
+
+def _candidates(conn, where: str, params: List[Any], base_title: str, ready: bool,
+                seen: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Library tracks that could be this song: those whose title starts with
+    the song's whole name, and those starting with its first word (two when
+    the first is a little word like "The"), so a close spelling later in the
+    title is still found. ``seen`` keeps each prefix's rows for the call, so
+    a tracklist asks the database once per distinct prefix."""
+    whole = normalize_for_comparison(base_title)
+    if not whole:
+        return []
+    parts = whole.split(" ")
+    head = " ".join(parts[:2]) if parts[0] in _LITTLE_WORDS else parts[0]
+    out: Dict[str, Dict[str, Any]] = {}
+    for prefix in dict.fromkeys((whole, head)):
+        if prefix not in seen:
+            seen[prefix] = _prefix_range(conn, where, params, prefix, ready)
+        for row in seen[prefix]:
+            out.setdefault(str(row["id"]), row)
+    return list(out.values())
 
 
 def _by_mbids(conn, where: str, params: List[Any], mbids: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -122,6 +145,11 @@ def match_lines(database, lines: List[Dict[str, Any]], *, fix_art=None) -> List[
     where, params = dj_store._scope(database)
     out: List[Dict[str, Any]] = []
     with closing(database._get_connection()) as conn:
+        try:
+            ready = bool(database._norm_ready(conn.cursor()))
+        except Exception:  # noqa: BLE001 - the slower expression still finds them
+            ready = False
+        seen: Dict[str, List[Dict[str, Any]]] = {}
         mbids = [str(line["mbid"]) for line in lines if line.get("mbid")]
         by_mbid = _by_mbids(conn, where, params, list(dict.fromkeys(mbids)))
         for line in lines:
@@ -136,7 +164,7 @@ def match_lines(database, lines: List[Dict[str, Any]], *, fix_art=None) -> List[
                             "confidence": 1.0, "matched_by": "musicbrainz"})
                 continue
             song = split_title(row["title"])
-            found = _judge(row, _candidates(conn, where, params, song["key"], song["base"]))
+            found = _judge(row, _candidates(conn, where, params, song["base"], ready, seen))
             item = {**row, "state": found["state"],
                     "track": _shape(found["row"], fix_art) if found.get("row") else None,
                     "confidence": found["confidence"], "matched_by": "title" if found.get("row") else None}
