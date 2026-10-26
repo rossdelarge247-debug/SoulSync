@@ -385,6 +385,13 @@ export function fetchHolding(trackIds: string[]): Promise<HoldingSet[]> {
   ).then((p) => p.sets);
 }
 
+/** The Mix tab's working set's id (`GET /api/sets/working`), or null; the picker puts it first. */
+export function fetchWorkingSetId(): Promise<number | null> {
+  return call<{ working: { id: number } | null }>(apiClient.get('sets/working', opts)).then(
+    (p) => p.working?.id ?? null,
+  );
+}
+
 export interface AddedToSet {
   id: number;
   name: string;

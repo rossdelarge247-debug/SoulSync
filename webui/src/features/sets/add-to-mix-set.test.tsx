@@ -13,6 +13,7 @@ import { pickerLine } from './sets.format';
 type Body = Record<string, unknown>;
 let posted: { path: string; body: Body }[] = [];
 let toast: ReturnType<typeof vi.fn>;
+let workingId: number | null = null;
 
 const NOW = Date.now() / 1000;
 const SETS = [
@@ -38,6 +39,7 @@ const SETS = [
 
 beforeEach(() => {
   posted = [];
+  workingId = null;
   toast = vi.fn();
   window.showToast = toast as never;
   vi.stubGlobal(
@@ -74,6 +76,8 @@ beforeEach(() => {
           playlist_state: null,
         };
       } else if (path === 'sets') answer = { success: true, id: 12, playlist_id: 3 };
+      else if (path === 'sets/working')
+        answer = { success: true, working: workingId ? { id: workingId, name: 'x' } : null };
       return new Response(JSON.stringify(answer), { status: 200 });
     }),
   );
@@ -187,5 +191,19 @@ describe('Add to mix set…', () => {
     expect(within(dialog).getByText('Deep and warm, building to peak')).toBeTruthy();
     fireEvent.change(within(dialog).getByRole('searchbox'), { target: { value: 'zzz' } });
     expect(within(dialog).getByText('No mix set matches “zzz”.')).toBeTruthy();
+  });
+
+  it('puts the Mix tab’s working set first, tagged (29a)', async () => {
+    workingId = 8;
+    render(<AddToMixSetHost />);
+    act(() => openAddToMixSet(one));
+    const dialog = await screen.findByRole('dialog', { name: 'Add Harbour Light to…' });
+    const list = await within(dialog).findByRole('list', { name: 'Your mix sets' });
+    await waitFor(() =>
+      expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent(
+        'Deep and warm, building to peak Working set',
+      ),
+    );
+    expect(within(list).getAllByRole('listitem')[1]).toHaveTextContent('Sunday Set');
   });
 });
