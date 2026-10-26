@@ -148,7 +148,8 @@ def star(database, profile_id: int, ids: Sequence[str]) -> Dict[str, Any]:
         if ok:
             have = conn.execute("SELECT COUNT(*) FROM track_stars WHERE profile_id = ?",
                                 (int(profile_id),)).fetchone()[0]
-            new = [i for i in ok if i not in _starred(conn, profile_id, ok)]
+            already = _starred(conn, profile_id, ok)
+            new = [i for i in ok if i not in already]
             if have + len(new) > MAX_STARS:
                 raise StarError(f"A profile can keep {MAX_STARS:,} stars")
             conn.executemany(

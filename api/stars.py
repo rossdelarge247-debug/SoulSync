@@ -174,11 +174,13 @@ def status():
     database = get_database()
     try:
         matched = store.resolve_songs(database, songs) if songs else []
-        every = list(dict.fromkeys(ids + [m for m in matched if m]))
-        found = store.status(database, pid, every) if every else {}
+        # looked up apart, so 500 ids and 500 songs never cut each other off
+        found = store.status(database, pid, ids) if ids else {}
+        found_songs = store.status(database, pid, [m for m in matched if m]) if matched else {}
     except Exception as exc:  # noqa: BLE001
         return _failed("status", exc)
     tracks = {i: found.get(i, {"starred": False, "can_star": False}) for i in ids}
+    found = {**found_songs, **found}
     return _ok({"tracks": tracks,
                 "songs": [{"track_id": m, **(found.get(m) if m else {"starred": False, "can_star": False})}
                           for m in matched]})

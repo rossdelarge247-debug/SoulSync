@@ -157,3 +157,77 @@ def test_traktor_rates_a_starred_track_at_the_top():
     info = {e.get("TITLE"): e.find("INFO") for e in root.findall("COLLECTION/ENTRY")}
     assert info["Night Ferry"].get("RANKING") == "255"
     assert info["Low Tide"] is None or info["Low Tide"].get("RANKING") is None
+
+
+# ── after the gauntlet review ─────────────────────────────────────────────────
+
+@pytest.mark.gauntlet
+def test_a_star_follows_its_track_when_the_row_is_rekeyed(client, db):
+    """M1: a scan folds a superseded row into the live one
+    (``_absorb_track_row``): every profile's star moves to the keeper, a
+    star already there stays, and a mix set's row follows too."""
+    from tests.sets.conftest import _sql
+
+    _star(client, "4")
+    client.state["profile"] = 2
+    _star(client, "4", "3")
+    client.state["profile"] = 1
+    set_id = client.post("/api/sets", json={"name": "x", "tracks": [{"track_id": "4"}]}).get_json()["id"]
+    _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, duration) "
+             "VALUES ('40', 'a103', '103', 'Copper Sky', '/m/40.flac', 360000)")
+    conn = db._get_connection()
+    try:
+        conn.execute("INSERT INTO track_stars (profile_id, track_id, starred_at) VALUES (2, '40', 1)")
+        db._absorb_track_row(conn.cursor(), "4", "40", [])
+        conn.commit()
+        rows = sorted(tuple(r) for r in conn.execute("SELECT profile_id, track_id FROM track_stars"))
+        set_rows = [r[0] for r in conn.execute("SELECT track_id FROM dj_set_tracks WHERE set_id = ?", (set_id,))]
+    finally:
+        conn.close()
+    assert rows == [(1, "40"), (2, "3"), (2, "40")]
+    assert set_rows == ["40"]
+    assert _status(client, "40")["tracks"]["40"] == {"starred": True, "can_star": True}
+
+
+@pytest.mark.gauntlet
+def test_stars_on_tracks_no_library_has_are_swept(client, db):
+    """M1: the scan's orphan sweep drops stars whose track id is in no
+    source's library; a star on a track whose file is only missing stays."""
+    from tests.sets.conftest import _sql
+
+    _star(client, "4", "9")
+    _sql(db, "UPDATE tracks SET file_path = '' WHERE id = '9'")
+    _sql(db, "DELETE FROM tracks WHERE id = '4'")
+    db.cleanup_orphaned_records()
+    conn = db._get_connection()
+    try:
+        assert [r[0] for r in conn.execute("SELECT track_id FROM track_stars")] == ["9"]
+    finally:
+        conn.close()
+
+
+def test_starring_many_reads_the_stars_once(db, monkeypatch):
+    """L1: one lookup of what's starred already, not one per track."""
+    from core.library_scope import reset_library_scope, set_library_scope
+    from core.stars import store
+
+    calls = []
+    real = store._starred
+    monkeypatch.setattr(store, "_starred", lambda *a: calls.append(1) or real(*a))
+    token = set_library_scope("shared")
+    try:
+        assert store.star(db, 1, ["1", "2", "3", "4", "5"])["starred"] == ["1", "2", "3", "4", "5"]
+    finally:
+        reset_library_scope(token)
+    assert len(calls) == 1
+
+
+def test_ids_and_songs_are_looked_up_apart(client):
+    """L2: 500 ids and 500 songs in one status request: neither is cut off."""
+    _star(client, "9")
+    ids = [str(i) for i in range(1, 9)] + [f"x{i}" for i in range(492)]  # 500, not "9"
+    songs = [{"title": "Lowtide Hymn", "artist": "x"}] * 499 + [{"title": "Night Ferry", "artist": "Tidewater"}]
+    body = _status(client, *ids, songs=songs)
+    assert len(body["tracks"]) == 500 and body["tracks"]["1"] == {"starred": False, "can_star": True}
+    assert len(body["songs"]) == 500
+    assert body["songs"][-1] == {"track_id": "9", "starred": True, "can_star": True}

@@ -10727,6 +10727,17 @@ class MusicDatabase:
                         f"Kept {artists_held} artists and {albums_held} albums this run "
                         f"just wrote - trackless for now, not orphaned")
 
+                # stars on a track id no source's library has any more (one
+                # anti-join on the primary key; core/stars)
+                try:
+                    cursor.execute("DELETE FROM track_stars WHERE NOT EXISTS "
+                                   "(SELECT 1 FROM tracks t WHERE t.id = track_stars.track_id)")
+                    stars_removed = max(0, cursor.rowcount or 0)
+                    if stars_removed:
+                        logger.info(f"Removed {stars_removed} stars on tracks no longer in the library")
+                except Exception as e:  # noqa: BLE001 - the table may predate this install
+                    logger.debug("orphaned stars sweep skipped: %s", e)
+
                 conn.commit()
 
                 return {
@@ -11100,6 +11111,19 @@ class MusicDatabase:
                            (keeper_id, old_id))
         except Exception as e:
             logger.debug("listening_history repoint skipped: %s", e)
+        # a profile's star and a mix set's row follow the track to its new id
+        # (core/stars, core/sets): a star already on the keeper stays as it is
+        try:
+            cursor.execute("INSERT OR IGNORE INTO track_stars (profile_id, track_id, starred_at) "
+                           "SELECT profile_id, ?, starred_at FROM track_stars WHERE track_id = ?",
+                           (keeper_id, old_id))
+            cursor.execute("DELETE FROM track_stars WHERE track_id = ?", (old_id,))
+        except Exception as e:  # noqa: BLE001 - the table may predate this install
+            logger.debug("track_stars repoint skipped: %s", e)
+        try:
+            cursor.execute("UPDATE dj_set_tracks SET track_id = ? WHERE track_id = ?", (keeper_id, old_id))
+        except Exception as e:  # noqa: BLE001
+            logger.debug("dj_set_tracks repoint skipped: %s", e)
         cursor.execute("DELETE FROM track_credits WHERE track_id = ?", (old_id,))
         cursor.execute("DELETE FROM tracks WHERE id = ?", (old_id,))
         logger.debug(f"Track row {old_id} folded into {keeper_id}")
