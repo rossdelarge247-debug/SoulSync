@@ -155,8 +155,11 @@ export interface AutomixServices {
   window(ctx: BaseAudioContext, id: string, start: number, dur: number): Promise<DeckData>;
   /** the engine on the player's audio graph (made once), or null where it can't be */
   engine(): Promise<EngineLike | null>;
-  /** a track's waveform (200 peaks), for Smart crossfade's silences */
-  peaks(id: string): Promise<number[] | null>;
+  /**
+   * a track's waveform (200 peaks), for Smart crossfade's silences;
+   * 'pending' while the server is still working it out (its 202)
+   */
+  peaks(id: string): Promise<number[] | null | 'pending'>;
   prefs(): AutomixPrefs;
   /** why this page can't run the decks (support.ts), or null */
   support?: () => string | null;
@@ -1116,7 +1119,8 @@ export class AutomixController {
     }
     if (at < 0) return this.player.insertNext(p.to);
     if (at === next) return next;
-    return this.player.moveNext ? this.player.moveNext(at) : at;
+    const moved = this.player.moveNext ? this.player.moveNext(at) : at;
+    return moved >= 0 ? moved : at;
   }
 
   /**
@@ -1491,10 +1495,11 @@ export class AutomixController {
     const key = `${a}|${b}`;
     const data = this.smart.get(key);
     if (data === undefined) {
-      // worked out in the last minute of the track, not at its start (L3)
+      // worked out in the track's last two minutes, not at its start (L3),
+      // leaving time for a waveform the server has still to work out
       const el = this.player.audio();
       const left = el && Number.isFinite(el.duration) ? el.duration - el.currentTime : Infinity;
-      if (!(left <= 60)) return null;
+      if (!(left <= SMART_LEAD_S)) return null;
       this.smart.set(key, 'loading');
       void this.loadSmart(key, a, b, next.duration ?? null);
       return null;
@@ -1517,8 +1522,8 @@ export class AutomixController {
         gridA: gridFromApi(grids[a]),
         apiA: grids[a] ?? null,
         apiB: grids[b] ?? null,
-        peaksA: pa,
-        peaksB: pb,
+        peaksA: pa === 'pending' ? null : pa,
+        peaksB: pb === 'pending' ? null : pb,
         // the next track's length: the queue's, else its analysis's when it was analysed whole
         durB:
           durB && durB > 0
@@ -1527,6 +1532,9 @@ export class AutomixController {
               ? (grids[b].analysed_s ?? null)
               : null,
       });
+      // a waveform still being worked out isn't "none": asked again (L1)
+      if (pa === 'pending' || pb === 'pending')
+        this.retrySmartPeaks(key, pa === 'pending' ? a : null, pb === 'pending' ? b : null, 1);
     } catch {
       this.smart.set(key, null);
     }
@@ -1534,6 +1542,32 @@ export class AutomixController {
       const first = this.smart.keys().next().value;
       if (first !== undefined) this.smart.delete(first);
     }
+  }
+
+  /** a pending waveform asked for again, twice at most, well before the fade */
+  private retrySmartPeaks(key: string, a: string | null, b: string | null, attempt: number): void {
+    if (attempt > SMART_PEAK_RETRIES) return;
+    this.timers.setTimeout(() => {
+      void (async () => {
+        const held = this.smart.get(key);
+        if (!held || typeof held !== 'object') return;
+        const [pa, pb] = await Promise.all([
+          a ? this.svc.peaks(a).catch(() => null) : null,
+          b ? this.svc.peaks(b).catch(() => null) : null,
+        ]);
+        const d = this.smart.get(key);
+        if (!d || typeof d !== 'object') return;
+        if (Array.isArray(pa)) d.peaksA = pa;
+        if (Array.isArray(pb)) d.peaksB = pb;
+        if (pa === 'pending' || pb === 'pending')
+          this.retrySmartPeaks(
+            key,
+            pa === 'pending' ? a : null,
+            pb === 'pending' ? b : null,
+            attempt + 1,
+          );
+      })();
+    }, SMART_PEAK_RETRY_MS);
   }
 
   // ── the view ──
@@ -1682,6 +1716,12 @@ export function albumInOrder(current: QueueTrack, next: QueueTrack): boolean {
   const b = Number(next.track_number);
   return Number.isFinite(a) && Number.isFinite(b) && a > 0 && b === a + 1;
 }
+
+/** Smart crossfade looks at the pair in the track's last two minutes */
+const SMART_LEAD_S = 120;
+/** a waveform the server is still working out: asked again this often, this many times */
+const SMART_PEAK_RETRY_MS = 10_000;
+const SMART_PEAK_RETRIES = 2;
 
 interface SmartData {
   gridA: BeatGrid | null;

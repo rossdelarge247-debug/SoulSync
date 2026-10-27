@@ -223,7 +223,12 @@ function track(id: string, title: string, extra: Partial<QueueTrack> = {}): Queu
 }
 
 function harness(
-  opts: { plan?: PairPlan; prefs?: Partial<AutomixPrefs>; support?: string } = {},
+  opts: {
+    plan?: PairPlan;
+    prefs?: Partial<AutomixPrefs>;
+    support?: string;
+    peaks?: (id: string) => Promise<number[] | null | 'pending'>;
+  } = {},
 ): Harness {
   engine = new FakeEngine();
   engine.port.time = 10;
@@ -251,10 +256,12 @@ function harness(
       queue.splice(st.index + 1, 0, t);
       return st.index + 1;
     }),
+    // as the player's npMoveNext: a row from above takes the playing row's place
     moveNext: vi.fn((i: number) => {
       const [t] = queue.splice(i, 1);
+      if (i < st.index) st.index -= 1;
       queue.splice(st.index + 1, 0, t);
-      return st.index + 1;
+      return queue.indexOf(t);
     }),
     renderQueue: vi.fn(),
   };
@@ -269,7 +276,7 @@ function harness(
     grids,
     window,
     engine: async () => engine,
-    peaks: async () => null,
+    peaks: opts.peaks ?? (async () => null),
     prefs: () => prefs,
     support: () => opts.support ?? null,
   });
@@ -690,7 +697,7 @@ describe('the crossfade’s hint (media-player.js)', () => {
 
   it('Smart crossfade: not on an album in order; else the sums once it knows', async () => {
     const h = harness({ prefs: { between: 'smart' } });
-    // worked out in the track's last minute only (L3)
+    // worked out late in the track only (L3)
     expect(h.ctl.crossfade(track('1', 'One'), track('2', 'Two'))).toBeNull();
     await flush();
     expect(h.grids).not.toHaveBeenCalled();
@@ -711,6 +718,50 @@ describe('the crossfade’s hint (media-player.js)', () => {
     expect(hint?.startAt).toBeLessThanOrEqual(294);
     expect(hint?.startAt).toBeGreaterThan(292);
     expect(hint?.gain).toBeCloseTo(Math.pow(10, -2 / 20), 6);
+  });
+});
+
+describe('[gauntlet L1b] Smart crossfade’s waveforms', () => {
+  // the sound ends at 285 s of 300: the fade starts 6 s before it
+  const ending = [...Array.from({ length: 19 }, () => 1), 0];
+
+  it('looked for in the last two minutes, and a waveform still being worked out is asked again', async () => {
+    let ready = false;
+    const peaks = vi.fn(async (id: string) => (id === '1' && !ready ? 'pending' : ending));
+    const h = harness({ prefs: { between: 'smart' }, peaks });
+    const a = track('1', 'One');
+    const b = track('2', 'Two');
+    h.el.advance(175); // 125 s left: not yet
+    expect(h.ctl.crossfade(a, b)).toBeNull();
+    await flush();
+    expect(peaks).not.toHaveBeenCalled();
+    h.el.advance(185); // 115 s left
+    expect(h.ctl.crossfade(a, b)).toBeNull();
+    await flush();
+    expect(peaks).toHaveBeenCalledTimes(2);
+    // meanwhile: the grid's downbeat before 300 - 6, not a final "no waveform"
+    const before = h.ctl.crossfade(a, b);
+    expect(before?.startAt).toBeGreaterThan(292);
+    ready = true;
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flush();
+    expect(peaks).toHaveBeenCalledTimes(3);
+    expect(peaks).toHaveBeenLastCalledWith('1');
+    const after = h.ctl.crossfade(a, b);
+    expect(after?.startAt).toBeLessThan(281);
+    expect(after?.startAt).toBeGreaterThan(276);
+  });
+
+  it('asked again twice at most', async () => {
+    const peaks = vi.fn(async (id: string) => (id === '1' ? 'pending' : ending) as 'pending');
+    const h = harness({ prefs: { between: 'smart' }, peaks });
+    h.el.advance(200);
+    h.ctl.crossfade(track('1', 'One'), track('2', 'Two'));
+    await flush();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await flush();
+    expect(peaks.mock.calls.filter(([id]) => id === '1')).toHaveLength(3);
+    expect(h.ctl.crossfade(track('1', 'One'), track('2', 'Two'))?.startAt).toBeGreaterThan(292);
   });
 });
 

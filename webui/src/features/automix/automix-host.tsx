@@ -147,7 +147,9 @@ function controllerFor(qc: QueryClient): AutomixController {
       const res = await fetch(appURL(`/api/library/tracks/${encodeURIComponent(id)}/peaks`), {
         credentials: 'same-origin',
       });
-      if (!res.ok || res.status === 202) return null;
+      // 202: the server is still working the waveform out; asked again later
+      if (res.status === 202) return 'pending';
+      if (!res.ok) return null;
       const body = (await res.json()) as { peaks?: number[] | null };
       return Array.isArray(body.peaks) ? body.peaks : null;
     },
