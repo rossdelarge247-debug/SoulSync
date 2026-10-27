@@ -103,7 +103,10 @@ def decode(path: str, start: float, dur: float, rate: int) -> bytes:
         raise Busy("two windows are being decoded already")
     try:
         try:
-            proc = subprocess.run(
+            # an argument list, no shell: ffmpeg's own path, a library file's
+            # path from the database (never from the request) and numbers
+            # parse_args has already checked
+            proc = subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit
                 [ffmpeg_bin(), "-nostdin", "-v", "error", "-i", path, "-ss", f"{start:.6f}", "-t", f"{dur:.6f}",
                  "-map", "0:a:0", "-ac", str(CHANNELS), "-ar", str(rate), "-f", "s16le", "-acodec", "pcm_s16le", "-"],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=TIMEOUT_S)
