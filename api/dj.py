@@ -55,9 +55,9 @@ GET  /api/library/dj/plan?from=<id>&to=<id>&style=&bars=
     drop_swap; ``bars`` 2, 4, 8, 16 or 32.
 GET  /api/library/dj/window/<track_id>?start=&dur=&rate=
     Auto-mix stage B: a stretch of the track as 16-bit stereo WAV for the
-    browser's two-deck engine (core/dj/window.py; ``dur`` at most 180 s,
-    ``rate`` 44100 or 48000), decoded as the analysis decodes it. 429 while
-    two windows are decoding.
+    browser's two-deck engine (core/dj/window.py; ``dur`` 0.05 to 180 s,
+    ``rate`` 44100 or 48000), on the analysis's timeline. 429 while two
+    windows are decoding, or one of the caller's.
 POST /api/library/dj/mixes/<track_id>/vibe
     Vibe (29a): the ranked top 20 re-ordered for feel by the AI provider
     (core/dj/vibe.py); 403 with ``code`` when the AI is off for this profile
@@ -400,10 +400,10 @@ def dj_plan():
 def dj_window(track_id: str):
     """Auto-mix stage B: a stretch of one library track as 16-bit stereo WAV
     for the browser's two-deck engine (core/dj/window.py): ``start`` and
-    ``dur`` in seconds (at most 180), ``rate`` 44100 or 48000. Decoded from
-    the file's start, as the analysis decodes it, so the grid's seconds and
-    the samples agree. 404 outside the caller's library or when the file
-    can't be opened, 429 while two windows are decoding."""
+    ``dur`` in seconds (0.05 to 180), ``rate`` 44100 or 48000. On the
+    analysis's timeline, so the grid's seconds and the samples agree. 404
+    outside the caller's library or when the file can't be opened, 429 while
+    two windows are decoding or one of the caller's is."""
     if get_current_profile_id() is None:
         return _no_profile()
     from core.dj import grid_store, store, window
@@ -433,7 +433,7 @@ def dj_window(track_id: str):
     if not path:
         return jsonify({"success": False, "error": "SYNCHRO.S can't open that track's file"}), 404
     try:
-        data = window.decode(path, start, dur, rate)
+        data = window.decode(path, start, dur, rate, owner=get_current_profile_id())
     except window.Busy:
         response = jsonify({"success": False, "error": "busy"})
         response.status_code = 429
@@ -445,7 +445,10 @@ def dj_window(track_id: str):
         return jsonify({"success": False, "error": f"Couldn't decode that track: {exc}"}), 422
     from flask import Response
 
-    response = Response(data, mimetype="audio/wav")
+    # sent in pieces from the one buffer, never copied whole again
+    response = Response(window.chunks(data), mimetype="audio/wav", direct_passthrough=True)
+    response.headers["Content-Length"] = str(len(data))
+    response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["X-Window-Start"] = f"{start:.6f}"
     response.headers["X-Window-Rate"] = str(rate)

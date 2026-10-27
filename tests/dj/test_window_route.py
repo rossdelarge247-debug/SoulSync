@@ -82,8 +82,11 @@ def client(db, monkeypatch):
 
     @app.before_request
     def _profile():
+        from flask import request
+
         if state["profile"] is not None:
-            g.profile_id = state["profile"]
+            # a request can say whose it is (the concurrency test's threads)
+            g.profile_id = int(request.headers.get("X-Test-Profile", state["profile"]))
         tokens.append(set_library_scope("shared"))
 
     @app.teardown_request
@@ -121,6 +124,8 @@ def test_a_window_is_the_tracks_own_samples_on_its_own_timeline(client, files):
     res = client.get("/api/library/dj/window/1?start=10.25&dur=4&rate=48000")
     assert res.status_code == 200 and res.mimetype == "audio/wav"
     assert res.headers["Cache-Control"] == "private, no-store"
+    assert res.headers["X-Content-Type-Options"] == "nosniff"
+    assert int(res.headers["Content-Length"]) == len(res.data) == 44 + 4 * SR * 4
     assert res.headers["X-Window-Start"] == "10.250000" and res.headers["X-Window-Rate"] == "48000"
     data, sr = _read(res)
     assert sr == SR and data.shape == (4 * SR, 2)
@@ -164,6 +169,8 @@ def test_44100_is_resampled_and_the_end_of_the_track_is_short(client):
     "start=0", "dur=5", "start=-1&dur=5", "start=nan&dur=5", "start=1e3&dur=5", "start=0&dur=0",
     "start=0&dur=181", "start=0&dur=inf", "start=1980&dur=5", "start=0&dur=5&rate=22050", "start=0x10&dur=5",
     "start=%EF%BC%91&dur=5", "start=1..2&dur=5", "start=00000000000000001&dur=5",
+    "start=.&dur=5", "start=0&dur=.", "start=0&dur=0.0000001", "start=0&dur=0.04", "start=%201&dur=5",
+    "start=1%00&dur=5", "start=%D9%A1&dur=5", "start=0&dur=5&rate=44100.0", "start=0&dur=5&rate=%2048000",
 ])
 def test_anything_but_plain_numbers_in_range_is_refused(client, query):
     res = client.get(f"/api/library/dj/window/1?{query}")
@@ -197,6 +204,18 @@ def test_a_hide_explicit_profile_gets_no_explicit_track(client, monkeypatch):
     assert client.get("/api/library/dj/window/5?start=0&dur=5").status_code == 200
 
 
+def test_a_hide_explicit_profiles_head_is_refused_too_and_decodes_nothing(client, monkeypatch):
+    """Flask answers HEAD with the GET route: the guard checks it the same."""
+    calls = []
+    monkeypatch.setattr(window, "decode", lambda *a, **k: calls.append(a) or bytearray(window.wav_bytes(b"", 48000)))
+    client.state["kid"] = True
+    res = client.head("/api/library/dj/window/5?start=0&dur=2")
+    assert res.status_code == 403 and calls == []
+    assert client.head("/api/library/tracks/5/peaks").status_code == 403
+    client.state["kid"] = False
+    assert client.head("/api/library/dj/window/5?start=0&dur=2").status_code == 200
+
+
 def test_two_decodes_at_most_then_wait(client, monkeypatch):
     """Every slot taken: 429 with Retry-After, and the slot comes back."""
     held = []
@@ -212,36 +231,32 @@ def test_two_decodes_at_most_then_wait(client, monkeypatch):
     assert client.get("/api/library/dj/window/3?start=0&dur=5").status_code == 404  # and it's free again
 
 
-def test_a_failed_decode_releases_its_slot(tmp_path, monkeypatch):
-    import subprocess
-
-    bad = tmp_path / "bad.flac"
-    bad.write_bytes(b"not audio")
-
-    def fails(*a, **k):
-        return subprocess.CompletedProcess(a, 1, b"", b"Invalid data")
+def _fake_ffmpeg(monkeypatch, script: str):
+    """window.command runs a small Python program in ffmpeg's place."""
+    import sys
 
     monkeypatch.setattr("core.sample.analyze.ffmpeg_bin", lambda: "ffmpeg")  # installed or not
-    monkeypatch.setattr(subprocess, "run", fails)
+    monkeypatch.setattr(window, "command", lambda *a, **k: [sys.executable, "-c", script])
+
+
+def test_a_failed_decode_releases_its_slot(tmp_path, monkeypatch):
+    bad = tmp_path / "bad.flac"
+    bad.write_bytes(b"not audio")
+    _fake_ffmpeg(monkeypatch, "import sys; sys.stderr.write('Invalid data'); sys.exit(1)")
     for _ in range(window.MAX_RUNNING + 2):
-        with pytest.raises(window.WindowError):
-            window.decode(str(bad), 0.0, 5.0, 48000)
+        with pytest.raises(window.WindowError, match="couldn't decode"):
+            window.decode(str(bad), 0.0, 5.0, 48000, owner=1)
+    assert window._owners == {}
 
 
 def test_a_slow_decode_hits_its_deadline(tmp_path, monkeypatch):
-    import subprocess
-
     f = tmp_path / "slow.flac"
     f.write_bytes(b"x")
-
-    def slow(*a, **k):
-        assert k["timeout"] == window.TIMEOUT_S
-        raise subprocess.TimeoutExpired(a, k["timeout"])
-
-    monkeypatch.setattr("core.sample.analyze.ffmpeg_bin", lambda: "ffmpeg")  # installed or not
-    monkeypatch.setattr(subprocess, "run", slow)
+    _fake_ffmpeg(monkeypatch, "import time; time.sleep(30)")
+    monkeypatch.setattr(window, "TIMEOUT_S", 0.3)
     with pytest.raises(window.WindowError, match="too long"):
-        window.decode(str(f), 0.0, 5.0, 48000)
+        window.decode(str(f), 0.0, 5.0, 48000, owner=1)
+    assert window._owners == {}
 
 
 def test_without_ffmpeg_a_window_says_so(tmp_path, monkeypatch):
@@ -266,32 +281,124 @@ def test_the_wav_header_says_its_length():
     assert struct.unpack("<I", data[40:44])[0] == 40 and len(data) == 44 + 40
 
 
-@needs_ffmpeg
 def test_concurrent_requests_never_exceed_the_slots(client, monkeypatch):
-    running = []
-    peak = []
-    real = window.subprocess.run
+    """Six at once from two profiles: never more than two decoding, never
+    more than one a profile, and each profile gets its window."""
+    import subprocess
+
+    running: dict = {}
+    peak = {"all": 0, "one": 0}
     lock = threading.Lock()
+    real = subprocess.Popen
 
-    def counting(*a, **k):
-        with lock:
-            running.append(1)
-            peak.append(len(running))
-        try:
-            return real(*a, **k)
-        finally:
+    class Counting(real):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
             with lock:
-                running.pop()
+                running[self.pid] = 1
+                peak["all"] = max(peak["all"], len(running))
 
-    monkeypatch.setattr(window.subprocess, "run", counting)
-    codes = []
+        def wait(self, *a, **k):
+            code = super().wait(*a, **k)
+            with lock:
+                running.pop(self.pid, None)
+            return code
 
-    def get():
-        codes.append(client.get("/api/library/dj/window/1?start=0&dur=10").status_code)
+    _fake_ffmpeg(monkeypatch, "import sys, time; time.sleep(0.4); sys.stdout.buffer.write(bytes(4000))")
+    monkeypatch.setattr(window.subprocess, "Popen", Counting)
+    owners_peak = []
+    take = window._take
 
-    threads = [threading.Thread(target=get) for _ in range(6)]
+    def counting_take(owner):
+        take(owner)
+        with window._owners_lock:
+            owners_peak.append(max(window._owners.values(), default=0))
+
+    monkeypatch.setattr(window, "_take", counting_take)
+    codes: dict = {1: [], 9: []}
+
+    def get(profile):
+        res = client.get("/api/library/dj/window/1?start=0&dur=1", headers={"X-Test-Profile": str(profile)})
+        codes[profile].append(res.status_code)
+
+    threads = [threading.Thread(target=get, args=(p,)) for p in (1, 1, 1, 9, 9, 9)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    assert max(peak) <= window.MAX_RUNNING and set(codes) <= {200, 429} and 200 in codes
+    assert peak["all"] <= window.MAX_RUNNING and max(owners_peak) <= window.MAX_PER_PROFILE
+    for profile in (1, 9):
+        assert set(codes[profile]) <= {200, 429} and 200 in codes[profile]
+    assert window._owners == {}
+
+
+def test_one_profile_waits_for_its_own_window_but_not_for_anyone_else(monkeypatch, tmp_path):
+    f = tmp_path / "t.flac"
+    f.write_bytes(b"x")
+    window._take(1)
+    try:
+        with pytest.raises(window.Busy, match="of yours"):
+            window.decode(str(f), 0.0, 1.0, 48000, owner=1)
+        _fake_ffmpeg(monkeypatch, "import sys; sys.stdout.buffer.write(bytes(400))")
+        out = window.decode(str(f), 0.0, 1.0, 48000, owner=2)
+        assert len(out) == 44 + 400
+    finally:
+        window._give(1)
+    assert window._owners == {}
+
+
+def test_ffmpeg_runs_niced_and_seeks_just_before_the_window(monkeypatch, tmp_path):
+    f = tmp_path / "t.flac"
+    f.write_bytes(b"x")
+    niced = []
+    command = window.command
+    monkeypatch.setattr(window.os, "setpriority", lambda which, pid, n: niced.append(n))
+    _fake_ffmpeg(monkeypatch, "import sys; sys.stdout.buffer.write(bytes(40))")
+    window.decode(str(f), 100.0, 1.0, 48000)
+    assert niced == [window.NICE]
+    args = command("ffmpeg", str(f), 100.0, 2.0, 48000)
+    i = args.index("-i")
+    # a quick seek to five seconds before, then five seconds decoded and dropped
+    assert args[i - 2:i] == ["-ss", "95.000000"] and args[i + 2:i + 4] == ["-ss", "5.000000"]
+    assert args[i + 1] == "file:" + str(f)  # a name never reads as an ffmpeg protocol
+    early = command("ffmpeg", str(f), 2.5, 2.0, 48000)
+    j = early.index("-i")
+    assert early[j - 1] == "0.000000" and early[j + 2:j + 4] == ["-ss", "2.500000"]
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("name", ["concat:x.flac", "-i.flac", "http:x.flac", "subfile:,,start,0,end,0,,:x.flac"])
+def test_odd_file_names_are_files(tmp_path, files, name):
+    import shutil as sh
+
+    p = tmp_path / name
+    sh.copy(files["flac"], p)
+    import soundfile as sf
+
+    data, sr = sf.read(io.BytesIO(bytes(window.decode(str(p), 1.0, 1.0, SR))), dtype="float32", always_2d=True)
+    assert data.shape == (SR, 2)
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("codec", [["-c:a", "flac"], ["-c:a", "libmp3lame", "-q:a", "2"],
+                                   ["-c:a", "libmp3lame", "-b:a", "192k"], ["-c:a", "libvorbis", "-q:a", "5"]],
+                         ids=["flac", "mp3_vbr", "mp3_cbr", "vorbis"])
+def test_a_late_window_is_on_the_analysis_timeline_to_the_sample(tmp_path, files, codec):
+    """The quick seek lands every sample where a decode from the start does."""
+    import subprocess
+
+    import soundfile as sf
+
+    from core.sample.analyze import decode_mono_at
+
+    ext = {"flac": "flac", "libmp3lame": "mp3", "libvorbis": "ogg"}[codec[1]]
+    path = tmp_path / f"t.{ext}"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", files["flac"], *codec, str(path)], check=True)
+    whole, _ = decode_mono_at(str(path), SR)
+    start = 21.37
+    data, _ = sf.read(io.BytesIO(bytes(window.decode(str(path), start, 3.0, SR))), dtype="float32", always_2d=True)
+    part = data.mean(axis=1)
+    ref = whole[int(start * SR) - 200:int((start + 3) * SR) + 200]
+    scores = [float(np.dot(part[:SR], ref[k:k + SR])) for k in range(401)]
+    assert int(np.argmax(scores)) == 200
+    assert np.max(np.abs(part[SR // 2:2 * SR] - ref[200 + SR // 2:200 + 2 * SR])) < 2.0 / 32768
