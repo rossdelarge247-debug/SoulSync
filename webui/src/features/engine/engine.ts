@@ -201,6 +201,11 @@ export class Engine implements DeckPort {
     return this.watch?.interrupted ?? null;
   }
 
+  /** The listener paused or played (lifecycle.ts setPaused): not an interruption. */
+  setPaused(on: boolean): void {
+    this.watch?.setPaused(on);
+  }
+
   // -- DeckPort --
 
   now(): number {
@@ -254,6 +259,14 @@ export class Engine implements DeckPort {
       },
       transfer,
     );
+  }
+
+  /** Let a deck's window go (its memory with it); the deck is silent. */
+  unload(deck: DeckId): void {
+    this.loaded[deck] = null;
+    this.maps[deck] = [];
+    this.reports[deck] = null;
+    this.node.port.postMessage({ type: 'unload', deck: IDS.indexOf(deck) });
   }
 
   /** The window a deck holds (its samples were handed to the worklet: only the shape is left). */

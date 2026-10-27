@@ -129,3 +129,36 @@ describe('telling that Web Audio stopped (Design 252)', () => {
     expect(looksLikePhone(null)).toBe(false);
   });
 });
+
+describe('a pause that is the listener’s (auto-mix stage C: Pause pauses both)', () => {
+  it('a suspended context while paused is no interruption, nor a phone’s hidden page', () => {
+    const { context, doc, events, w } = watch(true);
+    w.setPaused(true);
+    context.set('suspended');
+    doc.set('hidden');
+    expect(events).toEqual([]);
+    expect(w.interrupted).toBeNull();
+    // played again: running and visible, still nothing
+    doc.set('visible');
+    context.set('running');
+    w.setPaused(false);
+    expect(events).toEqual([]);
+  });
+
+  it('the system suspending it after the listener played again is one', () => {
+    const { context, events, w } = watch();
+    w.setPaused(true);
+    context.set('suspended');
+    context.set('running');
+    w.setPaused(false);
+    context.set('suspended');
+    expect(events.map((e) => `${e.kind}:${e.reason}`)).toEqual(['interrupted:suspended']);
+  });
+
+  it('closed still counts, paused or not', () => {
+    const { context, events, w } = watch();
+    w.setPaused(true);
+    context.set('closed');
+    expect(events.map((e) => `${e.kind}:${e.reason}`)).toEqual(['interrupted:closed']);
+  });
+});

@@ -12,10 +12,12 @@ import type { Transition } from '../executor';
 import type { Plan } from '../loader';
 
 import { Engine, type DeckData } from '../engine';
-import { BeatGrid, gridFromApi, relativeTrimDb, type ApiGrid } from '../grid';
+import { gridFromApi, relativeTrimDb, type ApiGrid } from '../grid';
 import { looksLikePhone } from '../lifecycle';
 import { correction, onsets } from '../refine';
-import { DEFAULT_BARS, needsBeatmatch, type Style } from '../score';
+import { windowsFor, type Windows } from '../windows';
+
+export { windowsFor, type Windows };
 
 export interface LabRequest {
   from: string;
@@ -38,56 +40,6 @@ export interface LabDeps {
   workletUrl: string;
   /** pause the player (it would play over the mix) */
   pausePlayer(): void;
-}
-
-export interface Windows {
-  a: { start: number; dur: number };
-  b: { start: number; dur: number };
-  /** where the outgoing deck starts playing (track seconds) */
-  aFrom: number;
-  /** the outgoing mix point (track seconds) */
-  outStart: number;
-}
-
-/** The server's cap on a window (seconds). */
-const MAX = 180;
-
-/** The stretches of the two tracks a transition needs, with room to finish or go back. */
-export function windowsFor(
-  plan: Plan,
-  gridA: BeatGrid | null,
-  gridB: BeatGrid | null,
-  prerollBars: number,
-): Windows {
-  const style = (plan.status === 'crossfade' ? 'crossfade' : plan.style) as Style;
-  const beatmatch =
-    plan.status === 'ok' && needsBeatmatch(style) && gridA !== null && gridB !== null;
-  const bars = plan.bars ?? DEFAULT_BARS[style] ?? 0;
-  const clamp = (start: number, end: number) => {
-    const s = Math.max(0, start);
-    return { start: s, dur: Math.max(1, Math.min(MAX, end - s)) };
-  };
-  if (beatmatch && gridA && gridB && plan.out.bar != null && plan.in.bar != null) {
-    const outStart = gridA.barTime(plan.out.bar);
-    const aFrom = Math.max(0, gridA.barTime(plan.out.bar - prerollBars));
-    const a = clamp(aFrom - 0.5, gridA.barTime(plan.out.bar + bars + 16) + 1);
-    const perMaster = { same: 1, half: 0.5, double: 2 }[plan.tempo?.relation ?? 'same'];
-    const b0 = gridB.barBeat(plan.in.bar);
-    const inStart = gridB.timeAt(b0);
-    const b = clamp(inStart - 0.5, gridB.timeAt(b0 + (bars * 4 + 16 + 64) * perMaster) + 2);
-    return { a, b, aFrom, outStart };
-  }
-  const outStart = plan.out.start ?? 0;
-  const beat = gridA ? gridA.periodAt(gridA.beatAt(outStart)) : 0.5;
-  const preroll = gridA ? prerollBars * 4 * beat : 15;
-  const aFrom = Math.max(0, outStart - preroll);
-  const length = style === 'crossfade' ? (plan.length_s ?? 6) : bars * 4 * beat;
-  return {
-    a: clamp(aFrom - 0.5, outStart + length + 8),
-    b: clamp(plan.in.start - 0.5, plan.in.start + 60),
-    aFrom,
-    outStart,
-  };
 }
 
 export interface LabStatus {

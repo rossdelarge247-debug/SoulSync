@@ -30,6 +30,9 @@ export interface ApiGrid {
     note?: string | null;
   };
   bars?: number;
+  /** every 8 bars from each section change (the planner's phrases) */
+  phrases?: { bar: number; time: number; level: number; section?: boolean }[];
+  mix_out?: { start: number; end: number; start_bar?: number; end_bar?: number } | null;
   loudness?: { replaygain_db: number | null; level_db: number | null; source?: string } | null;
   analysed_s?: number;
   truncated?: boolean;

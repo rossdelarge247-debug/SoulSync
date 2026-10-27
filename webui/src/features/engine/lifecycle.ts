@@ -115,6 +115,19 @@ export class LifecycleWatch {
     return this.reason;
   }
 
+  private paused = false;
+
+  /**
+   * The listener paused (auto-mix's Pause pauses both decks by suspending
+   * the context): a suspended context, or a phone's hidden page, isn't an
+   * interruption then, since nothing is playing to be cut off. Resuming
+   * looks again.
+   */
+  setPaused(on: boolean): void {
+    this.paused = on;
+    this.evaluate();
+  }
+
   /** The clock check (on a timer; tests call it). */
   check(): void {
     const ctxNow = this.env.context.currentTime;
@@ -143,6 +156,7 @@ export class LifecycleWatch {
     let reason: InterruptReason | null = null;
     if (state === 'closed') reason = 'closed';
     else if (state === 'interrupted') reason = 'interrupted';
+    else if (this.paused) reason = null;
     else if (state === 'suspended') reason = 'suspended';
     else if (this.env.phone && this.env.doc?.visibilityState === 'hidden') reason = 'hidden';
     else if (this.reason === 'stalled' && !clockMoved) reason = 'stalled';
