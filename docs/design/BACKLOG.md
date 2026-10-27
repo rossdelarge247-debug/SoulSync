@@ -953,5 +953,5 @@ The DJ sweep works through the whole library in its own order, gently, so a trac
 
 ### Questions for Design
 
-325–331 in `HANDOFF.md`: the final indicator, where it lives on each surface, and the words.
+333–339 in `HANDOFF.md`: the final indicator, where it lives on each surface, and the words (338 and 339 are answered by Design's 302 and 308).
 
