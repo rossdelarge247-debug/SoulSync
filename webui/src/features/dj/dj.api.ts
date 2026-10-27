@@ -7,12 +7,18 @@ import { infiniteQueryOptions, queryOptions, useQuery } from '@tanstack/react-qu
 
 import { apiClient, readJson } from '@/app/api-client';
 
-export type DjSource = 'tag' | 'enrichment' | 'analysis';
+/**
+ * Where a value came from. A BPM can also be the beat grid's measured one
+ * (`grid`, HANDOFF 300) or a person's Double / Halve BPM (`override`).
+ */
+export type DjSource = 'tag' | 'enrichment' | 'analysis' | 'grid' | 'override';
 
 /** One track's DJ data, or null when nothing is known yet. */
 export interface DjInfo {
   bpm: number | null;
   bpm_source: DjSource | null;
+  /** The file's tagged BPM when another one is shown (300's "Tagged 123"). */
+  bpm_tag?: number | null;
   /** Camelot, e.g. "8A". */
   key: string | null;
   /** The tag form, e.g. "Am". */
@@ -207,6 +213,35 @@ export function djMixesQueryOptions(trackId: string, within = 6) {
         ),
       ),
   });
+}
+
+export type TempoAction = 'double' | 'halve' | 'reset';
+export type TempoSkip = 'no_bpm' | 'out_of_range' | 'not_set';
+
+export interface DjBpmResponse {
+  success?: boolean;
+  error?: string;
+  /** each changed track's new BPM (null: back to the measured one) */
+  changed: Record<string, number | null>;
+  skipped: Record<string, TempoSkip>;
+  tracks: Record<string, DjInfo>;
+}
+
+/**
+ * Double BPM / Halve BPM for the caller's own tracks (`reset` goes back to
+ * the measured BPM). The server keeps it so no later analysis undoes it;
+ * throws with the server's sentence.
+ */
+export async function postDjBpm(trackIds: string[], action: TempoAction): Promise<DjBpmResponse> {
+  const response = await apiClient.post('library/dj/bpm', {
+    throwHttpErrors: false,
+    json: { track_ids: trackIds.slice(0, 500), action },
+  });
+  const payload = (await response.json().catch(() => ({}))) as Partial<DjBpmResponse>;
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.error || "That didn't work. Try again in a moment.");
+  }
+  return { changed: {}, skipped: {}, tracks: {}, ...payload };
 }
 
 /**

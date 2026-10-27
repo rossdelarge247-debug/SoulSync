@@ -15,6 +15,8 @@ const SOURCE_WORDS: Record<string, string> = {
   tag: "from the file's tag",
   enrichment: 'from the metadata source',
   analysis: 'worked out by SYNCHRO.S',
+  grid: 'measured from the beats',
+  override: 'set by hand',
 };
 
 /**
@@ -31,10 +33,15 @@ export function keyTitle(
   return parts.join(', ');
 }
 
-export function bpmTitle(dj: Pick<DjInfo, 'bpm' | 'bpm_source'>): string {
+/**
+ * The BPM's title: "174 BPM, measured from the beats · Tagged 87" (300: the
+ * tag shows on hover when the grid's BPM is shown instead).
+ */
+export function bpmTitle(dj: Pick<DjInfo, 'bpm' | 'bpm_source' | 'bpm_tag'>): string {
   if (!dj.bpm) return '';
   const source = dj.bpm_source ? SOURCE_WORDS[dj.bpm_source] : '';
-  return [bpmWords(dj.bpm), source].filter(Boolean).join(', ');
+  const said = [bpmWords(dj.bpm), source].filter(Boolean).join(', ');
+  return dj.bpm_tag ? `${said} · Tagged ${bpmNumber(dj.bpm_tag)}` : said;
 }
 
 /** "Same key", "Relative minor", "+1 on the wheel", "−1 on the wheel". */

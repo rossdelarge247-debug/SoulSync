@@ -4,12 +4,16 @@
  * artist · Open album. On a desktop the star is never in the menu (it's in
  * the row); on a phone the sheet's first line is Star, or Unstar (28d).
  * Tracks, Listening history, the Artist page, Search, Mixes well with and a
- * mix set's rows all build their menu here, so the order stays one.
+ * mix set's rows all build their menu here, so the order stays one. Tracks
+ * adds Double BPM and Halve BPM after Add to playlist… (HANDOFF 340).
  */
 import { openAddToMixSet } from '@/features/sets/add-to-mix-set';
 import { showsStar, starStore, type StarState } from '@/features/stars/stars-store';
 
+import type { TempoAction } from './dj.api';
+
 import { openMixes } from './mixes-store';
+import { TEMPO_MAX, TEMPO_MIN } from './tempo';
 
 export interface TrackMenuEntry {
   key: string;
@@ -40,6 +44,15 @@ export function trackMenu(
     /** where Add to mix set… pops from */
     anchor?: () => HTMLElement | null | undefined;
     addToPlaylist?: (() => void) | null;
+    /**
+     * Double BPM / Halve BPM, for a track with a BPM; with `overridden`
+     * (a person's BPM) also "Use the measured BPM".
+     */
+    tempo?: {
+      bpm: number | null;
+      overridden?: boolean;
+      onSet: (action: TempoAction) => void;
+    } | null;
     artistHref?: string | null;
     albumHref?: string | null;
   } = {},
@@ -72,6 +85,31 @@ export function trackMenu(
     });
   if (opts.addToPlaylist)
     entries.push({ key: 'playlist', label: 'Add to playlist…', onSelect: opts.addToPlaylist });
+  if (opts.tempo?.bpm && !track.fileMissing) {
+    const { bpm, onSet, overridden } = opts.tempo;
+    const tooFast = bpm * 2 > TEMPO_MAX;
+    const tooSlow = bpm / 2 < TEMPO_MIN;
+    entries.push({
+      key: 'double',
+      label: 'Double BPM',
+      onSelect: () => onSet('double'),
+      disabled: tooFast,
+      reason: tooFast ? `It would be over ${TEMPO_MAX} BPM` : undefined,
+    });
+    entries.push({
+      key: 'halve',
+      label: 'Halve BPM',
+      onSelect: () => onSet('halve'),
+      disabled: tooSlow,
+      reason: tooSlow ? `It would be under ${TEMPO_MIN} BPM` : undefined,
+    });
+    if (overridden)
+      entries.push({
+        key: 'measured',
+        label: 'Use the measured BPM',
+        onSelect: () => onSet('reset'),
+      });
+  }
   if (opts.artistHref) {
     const href = opts.artistHref;
     entries.push({

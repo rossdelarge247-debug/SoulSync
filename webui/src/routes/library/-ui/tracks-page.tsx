@@ -32,6 +32,7 @@ import { EnergyMeter } from '@/features/dj/energy-meter';
 import { KeyChip } from '@/features/dj/key-chip';
 import { keyLongName } from '@/features/dj/key-colour';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
+import { useSetTempo } from '@/features/dj/tempo';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { awayWords } from '@/features/drives/drives.format';
@@ -93,9 +94,10 @@ function artistHref(track: DjTrack): string | null {
 
 /**
  * The "…" (24a's one order): Play next, Mixes well with…, Add to mix set…,
- * Add to playlist…, Open artist, Open album; on a phone Star comes first
- * (28d). A starred track whose file is gone (the Starred filter) has only
- * what still makes sense.
+ * Add to playlist…, Double BPM, Halve BPM (Use the measured BPM after
+ * either), Open artist, Open album; on a phone Star comes first (28d). A
+ * starred track whose file is gone (the Starred filter) has only what still
+ * makes sense.
  */
 function moreEntries(
   track: DjTrack,
@@ -106,6 +108,7 @@ function moreEntries(
     anchor,
     phone,
     star,
+    setTempo,
   }: {
     artist: string | null;
     album: string | null;
@@ -113,6 +116,7 @@ function moreEntries(
     anchor: () => HTMLElement | null | undefined;
     phone: boolean;
     star: ReturnType<typeof useStar>;
+    setTempo: ReturnType<typeof useSetTempo>;
   },
 ): SheetAction[] {
   const missing = Boolean(track.file_missing);
@@ -126,6 +130,11 @@ function moreEntries(
         ? null
         : { onSelect: () => playTrackNext(track), disabled: Boolean(away), reason: away?.words },
       addToPlaylist: missing ? null : () => addTrackToPlaylist(track, anchor()),
+      tempo: {
+        bpm: track.dj?.bpm ?? null,
+        overridden: track.dj?.bpm_source === 'override',
+        onSet: (action) => void setTempo([track.id], action),
+      },
       artistHref: artist,
       albumHref: album,
     },
@@ -166,6 +175,7 @@ function TrackRow({
   const [failed, setFailed] = useState(false);
   const [sheet, setSheet] = useState(false);
   const star = useStar(track.id);
+  const setTempo = useSetTempo();
   const missing = Boolean(track.file_missing);
   const entries = moreEntries(track, {
     artist,
@@ -173,6 +183,7 @@ function TrackRow({
     away,
     phone,
     star,
+    setTempo,
     anchor: () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
   });
   const key = dj?.key ? (
@@ -495,6 +506,7 @@ export function TracksPage({
   const { profileId } = useProfile();
   const phone = usePhone();
   const queryClient = useQueryClient();
+  const setTempo = useSetTempo();
   const playingId = usePlayingTrackId();
   const sort = pick(search.sort, TRACK_SORTS);
   const withMix = search.key.endsWith(':mix');
@@ -893,7 +905,8 @@ export function TracksPage({
           }
           onPrimary={(anchor) => addPickedToMixSet(anchor)}
           // 28b: Star all; 232: Add to playlist…, Start a set from these
-          // (Library → Sets' draft), then Clear the selection
+          // (Library → Sets' draft), then Clear the selection; Double and
+          // Halve BPM after Add to playlist… (HANDOFF 341)
           menu={[
             ...(phone
               ? [
@@ -920,6 +933,19 @@ export function TracksPage({
                   tracks.filter((t) => picked.includes(t.id)).map(playlistTrack),
                   null,
                 ),
+            },
+            // the picked tracks' BPM at double or half (a half-time read)
+            {
+              key: 'double',
+              label: 'Double BPM',
+              disabled: !picked.length,
+              onSelect: () => void setTempo(picked.slice(0, 500), 'double'),
+            },
+            {
+              key: 'halve',
+              label: 'Halve BPM',
+              disabled: !picked.length,
+              onSelect: () => void setTempo(picked.slice(0, 500), 'halve'),
             },
             {
               key: 'set',
