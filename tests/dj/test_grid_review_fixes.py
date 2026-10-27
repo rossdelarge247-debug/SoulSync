@@ -298,3 +298,63 @@ def test_l_e_levels_are_finite_and_damaged_samples_are_silence():
     r = grid.analyze_audio(y, SR)
     assert r["status"] == "done" and r["bpm"] == pytest.approx(124.0, abs=0.02)
     assert np.isfinite(r["level_db"])
+
+
+# ── the stage A re-review: L1, L2, L3 ────────────────────────────────────────
+
+def _wav(tmp_path, name="t.wav"):
+    path = tmp_path / name
+    path.write_bytes(b"RIFF" + b"x" * 60)
+    return str(path)
+
+
+def _analysis(**_kw):
+    return {"bpm": 124.0, "onsets": [0.5], "duration_s": 220.0, "key": {"name": "A minor", "confidence": 0.9},
+            "energy": 6, "analyzer_version": 1, "truncated": False}
+
+
+def test_l1_a_failed_decode_doesnt_hold_back_the_grid_of_a_later_analysis(db, tmp_path):
+    """The DJ decode failed, so its grid row said error too; it was stamped
+    with the file, so when the analysis later worked the grid looked current
+    and waited a week. It isn't stamped now, and a full analysis that works
+    looks for a grid an error row stands for at once (also for rows stamped
+    before the fix)."""
+    path = _wav(tmp_path)
+    _track(db, "11", "Brass Tide", path)
+
+    def broken(_p):
+        raise RuntimeError("couldn't decode a frame")
+
+    assert worker.process_track(db, "11", resolve=lambda s: s, analyze=broken) == "error"
+    row = grid_store.get(db, "11")
+    assert row["status"] == "error" and row["source_sig"] is None
+    found = []
+
+    def finds(p, **kw):
+        found.append(p)
+        return _grid()
+
+    assert worker.process_track(db, "11", resolve=lambda s: s, analyze=lambda p: _analysis(),
+                                analyze_grid=finds) == "done"
+    assert found == [path] and grid_store.get(db, "11")["status"] == "done"
+
+
+def test_l1_an_error_grid_stamped_before_the_fix_is_found_again(db, tmp_path):
+    from core.sample.store import source_signature
+
+    path = _wav(tmp_path)
+    _track(db, "12", "Copper Sky", path)
+    store.mark(db, "12", "error", "couldn't decode", worker.analyzer_version())
+    grid_store.mark(db, "12", "error", "couldn't decode", source_sig=source_signature(path))
+    found = []
+    assert worker.process_track(db, "12", resolve=lambda s: s, analyze=lambda p: _analysis(),
+                                analyze_grid=lambda p, **kw: found.append(p) or _grid()) == "done"
+    assert found == [path] and grid_store.get(db, "12")["status"] == "done"
+    # a crash's error isn't tried again: it could crash again
+    grid_store.mark(db, "12", "error", "SYNCHRO.S stopped while finding this track's beats; skipped",
+                    source_sig=source_signature(path))
+    store.mark(db, "12", "error", "again", worker.analyzer_version())
+    found.clear()
+    worker.process_track(db, "12", resolve=lambda s: s, analyze=lambda p: _analysis(),
+                         analyze_grid=lambda p, **kw: found.append(p) or _grid())
+    assert found == []

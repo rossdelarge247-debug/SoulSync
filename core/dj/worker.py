@@ -268,6 +268,19 @@ def _find_grid(database, track_id: str, path: str, sig: Optional[str], *, audio,
     return "done"
 
 
+def _grid_due(row: Optional[Dict[str, Any]], sig: Optional[str]) -> bool:
+    """After a full analysis: the grid is looked for unless it's this file's
+    at this version. A failed one is looked for again at once (the audio is
+    already decoded), unless a crash left it: a grid error stamped by a
+    failed decode before L1 would otherwise wait a week."""
+    from core.dj import grid_store
+
+    if not grid_store.current(row, sig):
+        return True
+    return bool(row and row.get("status") == "error"
+                and not str(row.get("reason") or "").startswith("SYNCHRO.S stopped"))
+
+
 def _too_long(path: str) -> bool:
     """Over the size cap, or over the length cap by the file's own header
     (mutagen reads it without decoding)."""
@@ -420,7 +433,10 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
             raise _Abort(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - one bad file never stops the sweep
             logger.info("DJ analysis failed for track %s: %s", track_id, exc)
-            _mark_both(database, track_id, "error", str(exc), version, source_sig=sig)
+            # the grid's row isn't stamped with the file: the grid wasn't
+            # looked for, so a later analysis that works finds it at once
+            # rather than a week on (stage A re-review, L1)
+            _mark_both(database, track_id, "error", str(exc), version)
             return "error"
         audio = analysis.pop("audio", None)
         if not analysis.get("truncated"):
@@ -471,7 +487,7 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
         values.update(tags_written=",".join(written), tags_written_at=time.time())
     store.save(database, track_id, values)
     grid_failed = False
-    if not grid_store.current(grid_store.get(database, track_id), sig):
+    if _grid_due(grid_store.get(database, track_id), sig):
         grid_failed = _find_grid(database, track_id, path, sig, audio=audio, bpm_hint=values.get("bpm"),
                                  analyze_grid=analyze_grid) == "error"
     del audio
