@@ -190,6 +190,47 @@ describe('[gauntlet H2] every loader that isn’t the queue’s tells auto-mix f
   });
 });
 
+describe('[gauntlet M1b] moveNext: the incoming row straight after the playing one', () => {
+  function queueOf(ids: string[], playing: string) {
+    return new Function(
+      'ids',
+      'playing',
+      `let npQueue = ids.map((id) => ({ id })), npQueueIndex = ids.indexOf(playing);
+       const renderNpQueue = () => {}, updateNpPrevNextButtons = () => {},
+         npScheduleQueuePrefetch = () => {}, npPersistQueue = () => {};
+       ${pick('npReorderQueue', 'npMoveNext')}
+       return {
+         move: (i) => npMoveNext(i),
+         get ids() { return npQueue.map((t) => t.id); },
+         get index() { return npQueueIndex; },
+       };`,
+    )(ids, playing) as { move: (i: number) => number; ids: string[]; index: number };
+  }
+
+  it.each([
+    // [queue, playing, the incoming row's index, the queue after, playing index after]
+    [['B', 'P', 'Q'], 'P', 0, ['P', 'B', 'Q'], 0],
+    [['X', 'B', 'P'], 'P', 1, ['X', 'P', 'B'], 1],
+    [['P', 'Q', 'R', 'B'], 'P', 3, ['P', 'B', 'Q', 'R'], 0],
+    [['A', 'P', 'Q', 'B', 'R'], 'P', 3, ['A', 'P', 'B', 'Q', 'R'], 1],
+    [['P', 'B', 'Q'], 'P', 1, ['P', 'B', 'Q'], 0],
+  ])('%j playing %s, the incoming at %i', (ids, playing, from, after, index) => {
+    const q = queueOf(ids as string[], playing as string);
+    const at = q.move(from as number);
+    expect(q.ids).toEqual(after);
+    expect(q.index).toBe(index);
+    // the index it returns is the incoming row's, straight after the playing one
+    expect(at).toBe((index as number) + 1);
+    expect(q.ids[at]).toBe('B');
+  });
+
+  it('an index that isn’t a row: -1, nothing moved', () => {
+    const q = queueOf(['P', 'B'], 'P');
+    expect(q.move(5)).toBe(-1);
+    expect(q.ids).toEqual(['P', 'B']);
+  });
+});
+
 describe('the crossfade with a hint', () => {
   beforeEach(() => vi.useFakeTimers());
 

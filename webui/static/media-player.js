@@ -2819,6 +2819,18 @@ function npReorderQueue(from, to) {
     npScheduleQueuePrefetch();
 }
 
+// Auto-mix's hand-back: move a row to straight after the playing one and
+// return where it is now. A row from above the playing one takes the playing
+// row's place (npReorderQueue moves the playing index up by one for it).
+function npMoveNext(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= npQueue.length) return -1;
+    const moved = npQueue[index];
+    const at = index < npQueueIndex ? npQueueIndex : npQueueIndex + 1;
+    if (index !== at) npReorderQueue(index, Math.min(at, npQueue.length - 1));
+    npPersistQueue();
+    return npQueue.indexOf(moved);
+}
+
 // Up-next peek: the old modal's "Next" line. The tray's list shows what's
 // up next now; kept for callers.
 function npUpdateUpNext() {}
@@ -4073,12 +4085,7 @@ window.SoulSyncPlayer = {
         return at;
     },
     /** auto-mix: move a queued row to straight after the playing one; its index */
-    moveNext(index) {
-        const at = Math.max(0, npQueueIndex + 1);
-        if (index !== at) npReorderQueue(index, at);
-        npPersistQueue();
-        return Math.max(0, npQueueIndex + 1);
-    },
+    moveNext(index) { return npMoveNext(index); },
     /** Up next again (auto-mix's chips changed, or the setting) */
     renderQueue: () => renderNpQueue(),
     persistQueue: () => npPersistQueue(),
