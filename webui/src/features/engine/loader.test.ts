@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BUSY_BUDGET_MS, busyDelayMs, fetchWindow, inLine } from './loader';
+import { BUSY_BUDGET_MS, FETCH_TIMEOUT_MS, busyDelayMs, fetchWindow, inLine } from './loader';
 
 const SR = 48000;
 
@@ -125,5 +125,40 @@ describe('loading windows (re-review N2)', () => {
     ]);
     expect(order).toEqual(['start a', 'end a', 'start b', 'end b', 'start c', 'end c']);
     expect(results.map((r) => r.status)).toEqual(['rejected', 'fulfilled', 'fulfilled']);
+  });
+
+  it('gives a hung request up after its deadline, so the tab’s line moves on (stage B review)', async () => {
+    expect(FETCH_TIMEOUT_MS).toBe(90_000);
+    const signals: (AbortSignal | undefined)[] = [];
+    // a server that never answers: only the signal ends the request
+    const hung = ((_url: string, init?: RequestInit) => {
+      signals.push(init?.signal ?? undefined);
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+      });
+    }) as typeof fetch;
+    const started = Date.now();
+    await expect(fetchWindow(ctx, '1', 10, 30, { fetchImpl: hung, timeoutMs: 40 })).rejects.toThrow(
+      /took too long/,
+    );
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    // the next window in the line isn't held behind it
+    const next = await fetchWindow(ctx, '2', 5, 30, {
+      fetchImpl: (async () => okResponse(5)) as typeof fetch,
+    });
+    expect(next.offset).toBe(5);
+  });
+
+  it('passes a deadline with every request by default', async () => {
+    let seen: AbortSignal | null | undefined;
+    await fetchWindow(ctx, '1', 1, 30, {
+      fetchImpl: (async (_u: string, init?: RequestInit) => {
+        seen = init?.signal;
+        return okResponse(1);
+      }) as typeof fetch,
+    });
+    expect(seen).toBeInstanceOf(AbortSignal);
+    expect(seen?.aborted).toBe(false);
   });
 });
