@@ -128,6 +128,8 @@ const REMEMBER_MS = 10 * 60_000;
 /** ids gathered for this long go in one request */
 const GATHER_MS = 250;
 const MAX_TRIES = 6;
+/** the server takes one request a second a profile: the next waits that long */
+const SPACING_MS = 1_050;
 
 interface Waiter {
   ids: string[];
@@ -139,6 +141,7 @@ const asked = new Map<string, number>();
 let gathered: Waiter[] = [];
 let timer: ReturnType<typeof setTimeout> | null = null;
 let sending: Promise<void> | null = null;
+let lastSent = -Infinity;
 
 function now(): number {
   return Date.now();
@@ -177,9 +180,15 @@ function flush(): void {
     });
     return;
   }
+  const wait = lastSent + SPACING_MS - now();
+  if (wait > 0) {
+    timer = setTimeout(flush, wait);
+    return;
+  }
   const batch = gathered;
   gathered = [];
   if (!batch.length) return;
+  lastSent = now();
   sending = send(batch).finally(() => {
     sending = null;
   });
@@ -397,4 +406,5 @@ export function resetAnalysisRequests(): void {
   if (timer) clearTimeout(timer);
   timer = null;
   sending = null;
+  lastSent = -Infinity;
 }
