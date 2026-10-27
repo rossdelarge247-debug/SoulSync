@@ -35,7 +35,7 @@ ensure_web_mimetypes()
 from flask import Flask, abort, render_template, request, jsonify, redirect, send_file, send_from_directory, Response, session, g, stream_with_context
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from utils.logging_config import get_logger, setup_logging
-from utils.async_helpers import run_async
+from utils.async_helpers import AsyncCallTimeout, run_async
 from mutagen.flac import FLAC
 from mutagen.mp4 import MP4
 from mutagen.oggvorbis import OggVorbis
@@ -2368,10 +2368,39 @@ def _mark_task_completed(task_id, track_info=None):
 # --- Shared Transfer Data Cache ---
 # Cache transfer data to avoid hammering the Soulseek API with multiple concurrent modals
 
+# How long a browser request (or the dashboard push) waits for slskd's
+# downloads list when there's no recent copy to use: slskd busy or hung must
+# not hold a request thread (gunicorn has 8) for the client's 120 s timeout.
+SLSKD_LIST_REQUEST_WAIT_SECONDS = 5.0
+# A copy this old is still good enough for a request thread while a fresh
+# read is under way (progress bars and speeds, not decisions).
+SLSKD_LIST_STALE_OK_SECONDS = 30.0
+
+
+def _slskd_transfers(*, stale_ok=0.0, timeout=None):
+    """slskd's downloads list from the Soulseek client's shared copy
+    (``SoulseekClient.get_transfers_snapshot``): one read per 2 s for every
+    poller instead of one each. ``None`` when slskd didn't answer, or didn't
+    within ``timeout`` seconds (the read carries on for the others)."""
+    if not download_orchestrator:
+        return None
+    try:
+        return run_async(download_orchestrator.get_soulseek_transfers(stale_ok=stale_ok),
+                         timeout=timeout)
+    except AsyncCallTimeout:
+        logger.debug("slskd's downloads list took over %ss; going on without it", timeout)
+        return None
+
+
 def get_cached_transfer_data():
     """
     Get transfer data with caching to reduce API calls when multiple modals are active.
     Returns a lookup dictionary for efficient transfer matching.
+
+    The lock only guards the cache itself: building it reads slskd (and the
+    other download clients), and a request thread waiting on that read used
+    to hold every other caller behind it, the Downloads page's 2 s poll
+    included, for as long as slskd took.
     """
     current_time = time.time()
 
@@ -2380,77 +2409,79 @@ def get_cached_transfer_data():
         if (current_time - transfer_data_cache['last_update']) < transfer_data_cache['cache_duration']:
             return transfer_data_cache['data']
 
-        # Cache expired or empty, fetch new data
-        live_transfers_lookup = {}
+    # Cache expired or empty, fetch new data
+    live_transfers_lookup = {}
+    try:
+        # Skip Soulseek API call if not active or known disconnected
+        _dl_mode = config_manager.get('download_source.mode', 'hybrid')
+        _hybrid_order = config_manager.get('download_source.hybrid_order', ['hifi', 'youtube', 'soulseek'])
+        _slsk_active = (_dl_mode == 'soulseek' or
+                       (_dl_mode == 'hybrid' and 'soulseek' in _hybrid_order))
+        soulseek_known_down = not _slsk_active or not _status_cache.get('soulseek', {}).get('connected', True)
+
+        # First, get Soulseek downloads from API
+        transfers_data = None
+        _slsk = download_orchestrator.client("soulseek") if download_orchestrator else None
+        if not soulseek_known_down and _slsk and _slsk.base_url:
+            transfers_data = _slskd_transfers(stale_ok=SLSKD_LIST_STALE_OK_SECONDS,
+                                              timeout=SLSKD_LIST_REQUEST_WAIT_SECONDS)
+        if transfers_data:
+            all_transfers = []
+            for user_data in transfers_data:
+                username = user_data.get('username', 'Unknown')
+                if 'directories' in user_data:
+                    for directory in user_data['directories']:
+                        if 'files' in directory:
+                            for file_info in directory['files']:
+                                file_info['username'] = username
+                                all_transfers.append(file_info)
+            for transfer in all_transfers:
+                key = _make_context_key(transfer.get('username'), transfer.get('filename', ''))
+                live_transfers_lookup[key] = transfer
+
+        # Also add non-Soulseek downloads. Soulseek is excluded
+        # because slskd's transfers endpoint was already pulled
+        # above — without the exclude both fetch paths run.
+        # Every streaming source must appear here — task progress
+        # for in-flight downloads comes from this lookup. Missing a
+        # source = task.progress stays at 0 even when the
+        # underlying client knows the real percent.
         try:
-            # Skip Soulseek API call if not active or known disconnected
-            _dl_mode = config_manager.get('download_source.mode', 'hybrid')
-            _hybrid_order = config_manager.get('download_source.hybrid_order', ['hifi', 'youtube', 'soulseek'])
-            _slsk_active = (_dl_mode == 'soulseek' or
-                           (_dl_mode == 'hybrid' and 'soulseek' in _hybrid_order))
-            soulseek_known_down = not _slsk_active or not _status_cache.get('soulseek', {}).get('connected', True)
-
-            # First, get Soulseek downloads from API
-            transfers_data = None
-            _slsk = download_orchestrator.client("soulseek") if download_orchestrator else None
-            if not soulseek_known_down and _slsk and _slsk.base_url:
-                transfers_data = run_async(download_orchestrator._make_request('GET', 'transfers/downloads'))
-            if transfers_data:
-                all_transfers = []
-                for user_data in transfers_data:
-                    username = user_data.get('username', 'Unknown')
-                    if 'directories' in user_data:
-                        for directory in user_data['directories']:
-                            if 'files' in directory:
-                                for file_info in directory['files']:
-                                    file_info['username'] = username
-                                    all_transfers.append(file_info)
-                for transfer in all_transfers:
-                    key = _make_context_key(transfer.get('username'), transfer.get('filename', ''))
-                    live_transfers_lookup[key] = transfer
-
-            # Also add non-Soulseek downloads. Soulseek is excluded
-            # because slskd's transfers endpoint was already pulled
-            # above — without the exclude both fetch paths run.
-            # Every streaming source must appear here — task progress
-            # for in-flight downloads comes from this lookup. Missing a
-            # source = task.progress stays at 0 even when the
-            # underlying client knows the real percent.
-            try:
-                all_downloads = []
-                if download_orchestrator and hasattr(download_orchestrator, 'engine'):
-                    try:
-                        all_downloads = run_async(
-                            download_orchestrator.engine.get_all_downloads(exclude=('soulseek',))
-                        )
-                    except Exception as e:
-                        logger.debug("get_all_downloads failed: %s", e)
-                for download in all_downloads:
-                    key = _make_context_key(download.username, download.filename)
-                    # Convert DownloadStatus to transfer dict format
-                    live_transfers_lookup[key] = {
-                        'id': download.id,
-                        'filename': download.filename,
-                        'username': download.username,
-                        'state': download.state,
-                        'percentComplete': download.progress,
-                        'size': download.size,
-                        'bytesTransferred': download.transferred,
-                        'averageSpeed': download.speed,
-                        'error': getattr(download, 'error', None),
-                    }
-            except Exception as e:
-                logger.error(f"Could not fetch streaming source downloads: {e}")
-
-            # Update cache
-            transfer_data_cache['data'] = live_transfers_lookup
-            transfer_data_cache['last_update'] = current_time
-
+            all_downloads = []
+            if download_orchestrator and hasattr(download_orchestrator, 'engine'):
+                try:
+                    all_downloads = run_async(
+                        download_orchestrator.engine.get_all_downloads(exclude=('soulseek',))
+                    )
+                except Exception as e:
+                    logger.debug("get_all_downloads failed: %s", e)
+            for download in all_downloads:
+                key = _make_context_key(download.username, download.filename)
+                # Convert DownloadStatus to transfer dict format
+                live_transfers_lookup[key] = {
+                    'id': download.id,
+                    'filename': download.filename,
+                    'username': download.username,
+                    'state': download.state,
+                    'percentComplete': download.progress,
+                    'size': download.size,
+                    'bytesTransferred': download.transferred,
+                    'averageSpeed': download.speed,
+                    'error': getattr(download, 'error', None),
+                }
         except Exception as e:
-            logger.error(f"Could not fetch live transfers (cached): {e}")
-            # Return empty dict on error, but don't update cache timestamp
-            # This way we'll retry on the next request
-            return {}
+            logger.error(f"Could not fetch streaming source downloads: {e}")
+
+        # Update cache
+        with transfer_data_cache['update_lock']:
+            transfer_data_cache['data'] = live_transfers_lookup
+            transfer_data_cache['last_update'] = time.time()
+
+    except Exception as e:
+        logger.error(f"Could not fetch live transfers (cached): {e}")
+        # Return empty dict on error, but don't update cache timestamp
+        # This way we'll retry on the next request
+        return {}
 
     return live_transfers_lookup
 
@@ -3586,6 +3617,98 @@ def _get_enrichment_status():
 
 # Status check caching to reduce unnecessary API calls
 
+# /status's two network checks (the media server and slskd) run on a thread of
+# their own, one at a time each, never on the request thread. With slskd hung,
+# every /status request used to run its own check_connection (up to 120 s a
+# request, three times over); seven of the eight request threads ended up
+# waiting there and every page load timed out (UI latency of 27 October).
+# The request that starts a check waits this long for it, so a quick answer is
+# shown at once as before; later requests read the cache while it runs.
+STATUS_PROBE_WAIT_SECONDS = 2.0
+# A slskd check longer than this counts as not connected.
+STATUS_SLSKD_PROBE_SECONDS = 15.0
+_status_probes_lock = threading.Lock()
+_status_probes_running: dict = {}
+
+
+def _start_status_probe(name, probe):
+    """Run ``probe`` on its own thread unless one for ``name`` is running.
+    Returns the thread it started, or ``None``."""
+    with _status_probes_lock:
+        running = _status_probes_running.get(name)
+        if running is not None and running.is_alive():
+            return None
+
+        def _run():
+            try:
+                probe()
+            except Exception as e:  # noqa: BLE001 - a probe must never kill its thread loudly
+                logger.debug("status probe %s failed: %s", name, e)
+            finally:
+                with _status_probes_lock:
+                    if _status_probes_running.get(name) is threading.current_thread():
+                        _status_probes_running.pop(name, None)
+
+        thread = threading.Thread(target=_run, name=f"status-probe-{name}", daemon=True)
+        _status_probes_running[name] = thread
+        thread.start()
+        return thread
+
+
+def _probe_media_server(active_server):
+    started = time.time()
+    connected = media_server_engine.is_connected() if media_server_engine else False
+    _status_cache['media_server'] = {
+        'connected': connected,
+        'response_time': round((time.time() - started) * 1000, 1),
+        'type': active_server
+    }
+    _status_cache_timestamps['media_server'] = time.time()
+
+
+def _probe_download_source(download_mode, hybrid_order, source_cache_key):
+    soulseek_relevant = (download_mode == 'soulseek' or
+                        (download_mode == 'hybrid' and 'soulseek' in hybrid_order))
+
+    # Serverless sources (YouTube, HiFi, Qobuz, Tidal, Deezer, Lidarr, SoundCloud)
+    # don't depend on slskd being reachable — when one of these is the
+    # active source, surface "connected" without probing slskd so the
+    # dashboard / sidebar indicator stays green.
+    serverless_sources = ('youtube', 'hifi', 'qobuz', 'tidal', 'deezer_dl', 'lidarr', 'soundcloud', 'amazon')
+    is_serverless = (download_mode in serverless_sources or
+                     (download_mode == 'hybrid' and
+                      hybrid_order and any(s in serverless_sources for s in hybrid_order)))
+    external_client_sources = ('torrent', 'usenet')
+    external_client_relevant = (
+        download_mode in external_client_sources or
+        (download_mode == 'hybrid' and
+         hybrid_order and any(s in external_client_sources for s in hybrid_order))
+    )
+
+    # Serverless check first — avoids slow slskd timeout when YouTube/HiFi are in hybrid order
+    if is_serverless:
+        soulseek_status = True
+        soulseek_response_time = 0
+    elif (external_client_relevant or soulseek_relevant) and download_orchestrator:
+        soulseek_start = time.time()
+        try:
+            soulseek_status = run_async(download_orchestrator.check_connection(),
+                                        timeout=STATUS_SLSKD_PROBE_SECONDS)
+        except Exception:
+            soulseek_status = False
+        soulseek_response_time = (time.time() - soulseek_start) * 1000
+    else:
+        soulseek_status = False
+        soulseek_response_time = 0
+
+    _status_cache['soulseek'] = {
+        'connected': soulseek_status,
+        'response_time': round(soulseek_response_time, 1),
+        'source_cache_key': source_cache_key,
+    }
+    _status_cache_timestamps['soulseek'] = time.time()
+
+
 @app.route('/status')
 def get_status():
     if not config_manager:
@@ -3598,22 +3721,13 @@ def get_status():
 
         metadata_status = get_metadata_status_snapshot(spotify_client=spotify_client)
 
-        # Test media server — engine reads active_server config + dispatches
-        # to the right client (with internal connection caching). Engine
-        # returns False safely if the active client is None / not registered.
+        # The media server and the download source are checked on threads of
+        # their own (_start_status_probe); this request waits briefly for a
+        # check it started and otherwise answers from the cache.
+        probes = []
         if current_time - _status_cache_timestamps['media_server'] > STATUS_CACHE_TTL:
-            media_server_start = time.time()
-            media_server_status = (
-                media_server_engine.is_connected() if media_server_engine else False
-            )
-            media_server_response_time = (time.time() - media_server_start) * 1000
-            _status_cache['media_server'] = {
-                'connected': media_server_status,
-                'response_time': round(media_server_response_time, 1),
-                'type': active_server
-            }
-            _status_cache_timestamps['media_server'] = current_time
-        # else: use cached value
+            probes.append(_start_status_probe('media_server',
+                                              lambda: _probe_media_server(active_server)))
 
         download_mode = config_manager.get('download_source.mode', 'hybrid')
         hybrid_order = config_manager.get('download_source.hybrid_order', ['hifi', 'youtube', 'soulseek'])
@@ -3624,52 +3738,14 @@ def get_status():
         # Test Soulseek/download source only when the cached source selection is still current.
         if (current_time - _status_cache_timestamps['soulseek'] > STATUS_CACHE_TTL or
                 _status_cache['soulseek'].get('source_cache_key') != source_cache_key):
-            soulseek_relevant = (download_mode == 'soulseek' or
-                                (download_mode == 'hybrid' and 'soulseek' in hybrid_order))
+            probes.append(_start_status_probe(
+                'download_source',
+                lambda: _probe_download_source(download_mode, hybrid_order, source_cache_key)))
 
-            # Serverless sources (YouTube, HiFi, Qobuz, Tidal, Deezer, Lidarr, SoundCloud)
-            # don't depend on slskd being reachable — when one of these is the
-            # active source, surface "connected" without probing slskd so the
-            # dashboard / sidebar indicator stays green.
-            serverless_sources = ('youtube', 'hifi', 'qobuz', 'tidal', 'deezer_dl', 'lidarr', 'soundcloud', 'amazon')
-            is_serverless = (download_mode in serverless_sources or
-                             (download_mode == 'hybrid' and
-                              hybrid_order and any(s in serverless_sources for s in hybrid_order)))
-            external_client_sources = ('torrent', 'usenet')
-            external_client_relevant = (
-                download_mode in external_client_sources or
-                (download_mode == 'hybrid' and
-                 hybrid_order and any(s in external_client_sources for s in hybrid_order))
-            )
-
-            # Serverless check first — avoids slow slskd timeout when YouTube/HiFi are in hybrid order
-            if is_serverless:
-                soulseek_status = True
-                soulseek_response_time = 0
-            elif external_client_relevant and download_orchestrator:
-                soulseek_start = time.time()
-                try:
-                    soulseek_status = run_async(download_orchestrator.check_connection())
-                except Exception:
-                    soulseek_status = False
-                soulseek_response_time = (time.time() - soulseek_start) * 1000
-            elif soulseek_relevant and download_orchestrator:
-                soulseek_start = time.time()
-                try:
-                    soulseek_status = run_async(download_orchestrator.check_connection())
-                except Exception:
-                    soulseek_status = False
-                soulseek_response_time = (time.time() - soulseek_start) * 1000
-            else:
-                soulseek_status = False
-                soulseek_response_time = 0
-
-            _status_cache['soulseek'] = {
-                'connected': soulseek_status,
-                'response_time': round(soulseek_response_time, 1),
-                'source_cache_key': source_cache_key,
-            }
-            _status_cache_timestamps['soulseek'] = current_time
+        deadline = time.time() + STATUS_PROBE_WAIT_SECONDS
+        for probe_thread in probes:
+            if probe_thread is not None:
+                probe_thread.join(max(0.0, deadline - time.time()))
 
         # Include download source mode so frontend can update labels
         _status_cache['soulseek']['source'] = download_mode
@@ -4123,9 +4199,7 @@ def _build_system_stats():
             # pinned one of them for up to the 120s worker timeout (perf
             # sweep, Aug 2026). Three seconds is plenty for a local slskd;
             # a miss just means one tick shows 0 B/s.
-            transfers_data = run_async(
-                download_orchestrator._make_request('GET', 'transfers/downloads'),
-                timeout=3)
+            transfers_data = _slskd_transfers(stale_ok=SLSKD_LIST_STALE_OK_SECONDS, timeout=3)
             if transfers_data:
                 for user_data in transfers_data:
                     if 'directories' in user_data:
@@ -7571,7 +7645,9 @@ def get_download_status():
         soulseek_known_down = not _status_cache.get('soulseek', {}).get('connected', True)
         transfers_data = None
         if not soulseek_known_down:
-            transfers_data = run_async(download_orchestrator._make_request('GET', 'transfers/downloads'))
+            # the shared copy; get_all_downloads below reads the same one
+            transfers_data = _slskd_transfers(stale_ok=SLSKD_LIST_STALE_OK_SECONDS,
+                                              timeout=SLSKD_LIST_REQUEST_WAIT_SECONDS * 3)
 
         # Don't return early if no Soulseek transfers - YouTube/Tidal downloads need to be checked too!
         all_transfers = []
@@ -23398,6 +23474,10 @@ def _emit_download_status_loop():
     while not globals().get('IS_SHUTTING_DOWN', False):
         socketio.sleep(2)
         if not _has_connected_clients():
+            continue
+        # no batches, nothing to push: don't read slskd's list for nobody
+        # (it was 27 full lists a minute with a tab open and nothing queued)
+        if not download_batches:
             continue
         try:
             live_transfers_lookup = get_cached_transfer_data()

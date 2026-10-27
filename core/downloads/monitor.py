@@ -756,7 +756,9 @@ class WebUIDownloadMonitor:
             transfers_data = None
             _slsk = download_orchestrator.client('soulseek') if download_orchestrator and hasattr(download_orchestrator, 'client') else None
             if soulseek_active and _slsk and _slsk.base_url:
-                transfers_data = run_async(download_orchestrator._make_request('GET', 'transfers/downloads'))
+                # the shared copy of slskd's list (at most one read per 2 s
+                # for every poller, SoulseekClient.get_transfers_snapshot)
+                transfers_data = run_async(download_orchestrator.get_soulseek_transfers())
             if transfers_data:
                 for user_data in transfers_data:
                     username = user_data.get('username', 'Unknown')

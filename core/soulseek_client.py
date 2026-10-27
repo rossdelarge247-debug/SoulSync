@@ -4,6 +4,7 @@ import threading
 import aiohttp
 import json
 import os
+import weakref
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 import time
@@ -79,6 +80,18 @@ _SEARCH_MAX_FILES = 20_000
 _SEARCH_STATE_GRACE_POLLS = 15
 # Without a readable state, this many polls with nothing new ends the search.
 _SEARCH_QUIET_POLLS = 5
+
+# slskd's whole downloads list (GET transfers/downloads) is read by every
+# download poller: the download monitor (each second), the Downloads page and
+# batch modals, the socket's batch push, the dashboard's speed, the completion
+# checker and each plugin's get_all_downloads. Each read is the full list:
+# every user, folder and file slskd still holds, often megabytes, and slskd
+# builds it from its database each time. They used to read it separately:
+# about 190 full lists a minute with one tab open and three downloads running
+# (UI latency of 27 October, docs/design/HANDOFF.md). Now they share one copy:
+# a read younger than this is reused, and readers that arrive while a read is
+# in flight wait for that one instead of starting their own.
+TRANSFERS_FRESH_SECONDS = 2.0
 
 
 def _index_transfers(downloads) -> Dict[tuple, DownloadStatus]:
@@ -233,6 +246,10 @@ class SoulseekClient(DownloadSourcePlugin):
 
 
                 if response.status in [200, 201, 204]:  # Accept 200 OK, 201 Created, and 204 No Content
+                    if method != 'GET' and endpoint.startswith('transfers/'):
+                        # we just changed slskd's transfers: the shared
+                        # copy of the list is out of date
+                        self.invalidate_transfers_snapshot()
                     self._last_401_logged = False  # Reset on success
                     self._last_unreachable_logged = False  # Same reset for unreachable-host suppression
                     try:
@@ -1070,13 +1087,77 @@ class SoulseekClient(DownloadSourcePlugin):
             logger.error(f"Error getting download status: {e}")
             return None
     
+    # ── slskd's downloads list, shared by every poller ────────────────────
+
+    def _transfers_state(self) -> Dict[str, Any]:
+        # Built on first use: tests make clients with __new__ to skip
+        # __init__, and those need the shared list's lock too.
+        state = self.__dict__.get('_transfers_shared')
+        if state is None:
+            state = self.__dict__.setdefault('_transfers_shared', {
+                'lock': threading.Lock(),
+                'snapshot': None,        # (time.monotonic() when read, list)
+                'generation': 0,         # bumped when we change slskd's list
+                'reads': weakref.WeakKeyDictionary(),  # event loop -> read in flight
+            })
+        return state
+
+    def invalidate_transfers_snapshot(self) -> None:
+        """Forget the shared copy: we just added or removed a transfer, so the
+        next reader asks slskd. A read already in flight isn't kept either."""
+        state = self._transfers_state()
+        with state['lock']:
+            state['generation'] += 1
+            state['snapshot'] = None
+
+    async def get_transfers_snapshot(self, max_age: float = TRANSFERS_FRESH_SECONDS,
+                                     stale_ok: float = 0.0):
+        """slskd's downloads list (``GET transfers/downloads``, as slskd sends
+        it), read at most once per ``max_age`` seconds for the whole process.
+
+        A reader that finds the copy older than ``max_age`` joins the read in
+        flight (or starts one) and waits for it. With ``stale_ok``, a reader
+        that has a copy at most that many seconds old takes it straight away
+        and leaves the read to refresh it: what a request thread wants, so a
+        slow slskd never holds a browser request. ``None`` when slskd didn't
+        answer (as ``_make_request``). The list is shared: read it, don't
+        change it."""
+        if not self.base_url:
+            return None
+        state = self._transfers_state()
+        loop = asyncio.get_running_loop()
+        with state['lock']:
+            snapshot = state['snapshot']
+            now = time.monotonic()
+            if snapshot is not None and now - snapshot[0] <= max_age:
+                return snapshot[1]
+            read = state['reads'].get(loop)
+            if read is None or read.done():
+                read = loop.create_task(self._read_transfers(state['generation']))
+                state['reads'][loop] = read
+            if stale_ok and snapshot is not None and now - snapshot[0] <= stale_ok:
+                return snapshot[1]
+        # shielded: a caller giving up (run_async's timeout) doesn't cancel
+        # the read the others are waiting on
+        return await asyncio.shield(read)
+
+    async def _read_transfers(self, generation: int):
+        data = await self._make_request('GET', 'transfers/downloads')
+        if data is not None:
+            state = self._transfers_state()
+            with state['lock']:
+                if state['generation'] == generation:
+                    state['snapshot'] = (time.monotonic(), data)
+        return data
+
     async def get_all_downloads(self) -> List[DownloadStatus]:
         if not self.base_url:
             return []
         
         try:
-            # FIXED: Skip the 404 endpoint and go straight to the working one
-            response = await self._make_request('GET', 'transfers/downloads')
+            # the shared copy (get_transfers_snapshot): this runs on every
+            # download poll, and the list is the same for all of them
+            response = await self.get_transfers_snapshot()
                 
             if not response:
                 return []
