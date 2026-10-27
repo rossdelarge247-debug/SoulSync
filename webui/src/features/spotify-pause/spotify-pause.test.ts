@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   canClearSpotifyPause,
   clearSpotifyPause,
+  formatBackAt,
   formatWait,
   formatWaitExact,
   lengthWords,
@@ -173,6 +174,49 @@ describe('the boards’ words (Spotify pause 12a–12d)', () => {
       rate_limit: { remaining_seconds: 14000, retry_after: 14400, source: 'estimate' },
     })!;
     expect(longest.body).toContain('4 hours, the longest it waits.');
+  });
+
+  it('a wait of an hour or more also says when it ends (Spotify throttling, 27 October)', () => {
+    // 21:40 on a fixed day, 15 hours ahead of 06:40 the same day
+    const now = new Date(2026, 9, 27, 6, 40, 0).getTime();
+    const v = spotifyPauseView(
+      {
+        rate_limited: true,
+        rate_limit: {
+          remaining_seconds: 15 * 3600,
+          retry_after: 15 * 3600,
+          source: 'spotify',
+          trigger: 'reading your liked songs',
+        },
+      },
+      0,
+      now,
+    )!;
+    expect(v.backAt).toBe('21:40');
+    expect(v.title).toBe('Spotify asked us to wait 15 h, until 21:40');
+    expect(v.sentence).toBe(
+      'Spotify asked us to wait 15 h, until 21:40 (after reading your liked songs)',
+    );
+    expect(v.cardSentence).toMatch(
+      /^Spotify asked us to wait 15 h, until 21:40, after reading your liked songs\./,
+    );
+    // the short tags stay short
+    expect(v.tag).toBe('Paused by Spotify · 15 h');
+    expect(v.short).toBe('Spotify paused · 15 h');
+    // counting down keeps the same end
+    expect(
+      spotifyPauseView(
+        { rate_limited: true, rate_limit: { remaining_seconds: 15 * 3600, source: 'spotify' } },
+        3600,
+        now + 3600_000,
+      )!.backAt,
+    ).toBe('21:40');
+  });
+
+  it('says tomorrow for a wait past midnight', () => {
+    const now = new Date(2026, 9, 27, 22, 0, 0).getTime();
+    expect(formatBackAt(now + 11 * 3600_000 + 12 * 60_000, now)).toBe('tomorrow 09:12');
+    expect(formatBackAt(now + 30 * 60_000, now)).toBe('22:30');
   });
 
   it('easing back in: info, no button', () => {
