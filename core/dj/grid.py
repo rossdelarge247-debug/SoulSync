@@ -58,6 +58,15 @@ CHUNK_FRAMES = 4096
 #: a constant grid when the beats sit this close to a straight line (ms)
 STEADY_MAD_MS = 9.0
 STEADY_DRIFT_MS = 22.0
+#: a drifting grid needs the onsets to line up on a tempo at least this well
+#: half a minute at a time (the median of the comb's alignment over 30 s
+#: windows): noise, pink or brown noise and random clicks measure 0.06-0.13,
+#: drifting tracks about 0.6. Over a whole track a drift smears the one
+#: tempo away (a 10-minute ramp from 122 to 127 BPM: 0.09), so it's measured
+#: in windows
+MIN_DRIFT_ALIGNMENT = 0.25
+#: the windows that measures over
+ALIGN_WINDOW_S = 30.0
 #: below this beat confidence there's no grid to mix on
 MIN_BEAT_CONFIDENCE = 0.3
 #: the flux peaks this long before a beat's attack (measured on generated
@@ -388,6 +397,25 @@ def _steady_grid(times, weights, period0: float):
     return period, first % period, float(strength[k])
 
 
+def _local_alignment(times, weights, period: float) -> float:
+    """The median, over 30 s windows (overlapping by half), of how well the
+    onsets line up on a constant grid near ``period``: a drifting track is
+    steady for half a minute; noise never is."""
+    import numpy as np
+
+    if times.size == 0:
+        return 0.0
+    found = []
+    start = 0.0
+    end = float(times.max())
+    while start <= max(0.0, end - ALIGN_WINDOW_S / 2):
+        inside = (times >= start) & (times < start + ALIGN_WINDOW_S)
+        if inside.sum() >= 12:
+            found.append(_steady_grid(times[inside], weights[inside], period)[2])
+        start += ALIGN_WINDOW_S / 2
+    return float(np.median(found)) if found else 0.0
+
+
 def _octave_of(a: float, b: float) -> bool:
     """True when two tempos are the same up to halving or doubling (±4%)."""
     for factor in (0.5, 1.0, 2.0):
@@ -441,7 +469,7 @@ def _drifting_beats(env, period: float, duration: float):
 
     tracked = _dp_beats(env, 60.0 / period)
     if len(tracked) < 16:
-        return None
+        return None, tracked
     idx = _index_beats(tracked, period)
     peaks, at = _peak_near(env, tracked, 0.06)
     # an anchor is a kick-sized onset: a pad's slow attack peaks late, and an
@@ -463,7 +491,7 @@ def _drifting_beats(env, period: float, duration: float):
     before, after = full < a_idx[0], full > a_idx[-1]
     beats[before] = a_t[0] + (full[before] - a_idx[0]) * head
     beats[after] = a_t[-1] + (full[after] - a_idx[-1]) * tail
-    return beats[(beats >= -0.02) & (beats < duration)]
+    return beats[(beats >= -0.02) & (beats < duration)], tracked
 
 
 def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[str, Any]:
@@ -527,10 +555,20 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
     # number; the beats with a clear onset are kept where the onset is, and
     # the rest (a breakdown without a kick) are drawn in a straight line
     # between them, carried on at the ends at the local period
-    beats = _drifting_beats(env, period, duration)
+    local = _local_alignment(times, weights, period)
+    if local < MIN_DRIFT_ALIGNMENT:
+        # no tempo the onsets lean toward, even half a minute at a time
+        # (noise, random clicks): a beat tracker would still lay beats on
+        # its onsets
+        return {"kind": "none", "reason": "no_beat", "confidence": 0.0, "alignment": round(strength, 3),
+                "local_alignment": round(local, 3)}
+    beats, tracked = _drifting_beats(env, period, duration)
     if beats is None or len(beats) < 16:
         return {"kind": "none", "reason": "no_beat", "confidence": 0.0}
-    hits = _hit_rate(env, beats, active_mask(beats))
+    # scored on the tracked beats as the tracker placed them, before each is
+    # pulled onto its onset: pulled beats would score themselves
+    tracked = np.asarray(tracked, dtype=np.float64)
+    hits = _hit_rate(env, tracked, active_mask(tracked))
     period = float(np.median(np.diff(beats)))
     return {"kind": "beats", "bpm": round(60.0 / period, 3), "period": period, "first_beat": float(beats[0]),
             "beats": beats, "confidence": round(hits * 0.8, 3), "mad_ms": round(mad_ms, 1),
@@ -839,6 +877,9 @@ def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bo
     import numpy as np
 
     y = np.asarray(y, dtype=np.float32)
+    if y.size and not np.isfinite(y).all():
+        # a damaged frame (NaN or inf samples) is silence, not the whole track
+        y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
     if sr != SR:
         import librosa
 
@@ -896,7 +937,11 @@ def _level_db(y) -> Optional[float]:
         level = loudness_db(y)
     except Exception:  # noqa: BLE001 - no level is fine
         return None
-    return round(float(level), 2) if level is not None else None
+    # never inf or NaN into the row (or the JSON a route answers); a level
+    # past full scale only comes from samples that aren't audio
+    if level is None or not math.isfinite(float(level)):
+        return None
+    return round(min(20.0, max(-150.0, float(level))), 2)
 
 
 # ── reading a stored grid back as times ──────────────────────────────────────

@@ -167,3 +167,64 @@ def test_phrases_count_back_from_the_first_change_and_skip_stubs():
     assert grid.phrases_from([12], 30)[:3] == [[4, 8, 0], [12, 32, 1], [20, 8, 0]]
     # a phrase 2 bars before the next change isn't one
     assert [p[0] for p in grid.phrases_from([16, 26], 40)] == [0, 8, 16, 26, 34]
+
+
+# ── noise gets no grid (gauntlet M2) ─────────────────────────────────────────
+
+def _noise(kind: str, seed: int) -> np.ndarray:
+    from scipy.signal import lfilter
+
+    rng = np.random.default_rng(seed)
+    white = rng.standard_normal(SR * 120)
+    if kind == "white":
+        y = white
+    elif kind == "pink":  # Kellet's filter: -3 dB an octave
+        y = lfilter([0.049922035, -0.095993537, 0.050612699, -0.004408786],
+                    [1, -2.494956002, 2.017265875, -0.522189400], white)
+    elif kind == "brown":
+        y = np.cumsum(white)
+    else:  # clicks at random times, about three a second
+        y = np.zeros(SR * 120)
+        y[rng.integers(0, len(y), 360)] = 1.0
+    return (y / np.max(np.abs(y)) * 0.9).astype(np.float32)
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("kind", ["white", "pink", "brown", "clicks"])
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_noise_has_no_grid_to_mix_on(kind, seed):
+    from core.dj import grid_store
+
+    r = grid.analyze_audio(_noise(kind, seed), SR)
+    assert r["status"] == "none" or r["beat_confidence"] < grid_store.BEAT_CONFIDENT, r
+
+
+@pytest.mark.gauntlet
+def test_noise_through_the_planner_falls_back():
+    from core.dj import grid_store, planner
+
+    from .test_planner import _row, _track
+
+    r = grid.analyze_audio(_noise("pink", 4), SR)
+    assert r["status"] == "none" and r["reason"] == "no_beat"
+    row = {"grid_version": grid.GRID_VERSION, "status": "none", "reason": r["reason"],
+           "beat_confidence": r.get("beat_confidence")}
+    assert grid_store.public(row, "2")["reason"] == "no_beat"
+    p = planner.plan(_track(_row(124.0)), _track(row, title="Static", tid="2"), style="long_blend")
+    assert p["status"] == "crossfade" and p["fallback"]["reason"] == "Static has no steady beat"
+
+
+@pytest.mark.gauntlet
+def test_a_long_drift_still_keeps_its_beats_and_long_noise_still_has_none():
+    """Over ten minutes a 122 → 127 BPM ramp fits no single tempo (its
+    whole-track alignment is under noise's threshold), so the noise check
+    is made half a minute at a time."""
+    sections = (("intro", 16), ("groove", 96), ("breakdown", 16), ("drop", 160), ("outro", 16))
+    y, truth = dance_track(122.0, sections, end_bpm=127.0)
+    y = y[:SR * 600]
+    r = grid.analyze_audio(y, SR, truncated=True)
+    assert r["status"] == "done" and r["kind"] == "beats"
+    beats = np.asarray(truth["beats"])
+    assert _beat_errors(r, beats[beats < 599.0]).max() < 0.010
+    noise = np.random.default_rng(0).standard_normal(SR * 600).astype(np.float32)
+    assert grid.analyze_audio(noise, SR, truncated=True)["status"] == "none"
