@@ -87,7 +87,7 @@ Built on `feat/automix-a` from `integration` (feba5654), from BACKLOG "Auto-mix:
 - Section changes on the exact bar (16, 48, 64, 96 of 112; an odd 28-bar section restarts the phrases), labelled intro, main, breakdown, drop, outro; the mix-in region the intro, the mix-out the outro.
 - A waltz says `not_4_4`; a pad without a beat has no grid (`no_beat`); under 20 s is `too_short`.
 - Real music, checked locally only (three Creative Commons clips from librosa's example data, not committed, no ground truth): a waltz at 150.0 BPM (confidence 0.86, the downbeat uncertain, 0.13, and it wasn't recognised as 3/4), a drum and bass loop at 136.0 (0.54) and a swung lounge track at 130.0 (0.37, near the 0.3 floor); the tempos agree with librosa's own tracker. **Honest limits:** very good on steady four-on-the-floor music, weaker on breakbeats and swing (lower confidences, which is what the fallback reads), the downbeat is a heuristic, and sections are best effort.
-- Cost: about 1 s of analysis for a 9-minute track (two cores, nice 10), about 200 MB at its peak; the decode is shared.
+- Cost: about 1–5 s of analysis for a 10-minute track (the most for a drifting one, or the first after a start; at nice 10) and about 215–320 MB of memory on top of the decode (corrected after the gauntlet review; the first figure, about 200 MB, missed the decode's neighbours); the decode is shared.
 
 **In the sweep** (`core/dj/worker.py`): a new track's grid comes from the decode its BPM, key and energy already made (`analyze_track(..., keep_audio=True)`): one decode a track. A track whose DJ data is done for this file only gets its grid (the **top-up**: one decode for the grid alone, its known BPM as the place to look), through the same sweep, so the existing priority, rests, waits (downloads, imports, a drive move, an unplugged drive) and Stop apply, and a provisional row before each decode keeps a crash from repeating. A grid that fails or finds nothing never costs the track its DJ data. Status gains `grids: {done, no_beat, pending}`.
 
@@ -102,6 +102,17 @@ Built on `feat/automix-a` from `integration` (feba5654), from BACKLOG "Auto-mix:
 **Left out, and why:** everything in the browser (the chips, Mix now, the setting, the handover view, Decks driven by auto-mix) is stages B and C. Vocal detection needs a model. The grid's BPM isn't written back over stage 1's (300).
 
 **Checks:** ruff; pytest on the new tests (`tests/dj/test_grid_accuracy.py`, `test_grid_store_and_worker.py`, `test_planner.py`, `test_grid_routes.py`, `tests/database/test_track_grid_migration.py`), `tests/dj`, `tests/sets`, `tests/mix`, the migration and upgrade tests and the web_server import test; `pytest -m gauntlet`.
+
+**After the gauntlet review** (an independent review of b4fc649f: no High, 3 Medium, 6 Low). Each fix has a regression test (`tests/dj/test_grid_review_fixes.py`, the noise tests in `test_grid_accuracy.py`); M1–M3's are marked `gauntlet`.
+
+- **M1, a track that can't be analysed waited for ever:** a track skipped as too long, unreadable or missing had no grid row, so its chip and plan said Waiting for good. Its grid row now records the same state with the DJ row, and a track that failed before grids existed is read from its DJ row: the grid says `too_long`, `error` or `unreachable`, and the plan crossfades with the reason ("A Mix is too long to analyse", "… couldn't be analysed", "… can't be opened"). Tested from the sweep through the routes to the plan.
+- **M2, noise got a confident drifting grid:** the drifting path scored its beats after pulling each onto an onset, so they scored themselves. Hits are now counted on the beats as the tracker placed them, and a drifting grid needs its onsets to line up on a tempo half a minute at a time (noise 0.06–0.13, drifting tracks about 0.6; over a whole 10-minute ramp the one-tempo figure is 0.09, which is why it's windowed). White, pink and brown noise and random clicks get no grid, and the plan says "has no steady beat"; the drifting tests, and a new 10-minute one, keep their beats within 10 ms.
+- **M3, a plan's cost grew with the stated length:** the phrases past the analysed part were listed out to the track's `duration`. The length is now believed only to 30 minutes (and to the analysed length for a track analysed whole), and the last phrase that fits is worked out by arithmetic: a 2^40 ms length plans in well under 50 ms.
+- **L-a:** a failed grid counts toward the sweep's 25-failures-in-a-row stop and Activity's failure count, and is tried again after a week (one a crash left, never).
+- **L-b:** when a scan folds an old track row into its new one, the DJ data and grid follow it (the new row's own stay); and a grid kept for another file than the DJ data's (a reused id) is due again.
+- **L-c:** the top-up only skips BPM, key and energy while the file's size and modification time match its DJ data. A file changed since is analysed again whole, and with Settings' "Write BPM and key into files" on, that analysis may write them into the file, as for any new track (CONTRACTS says so).
+- **L-e:** damaged samples (inf or NaN) are treated as silence, and a level is never inf or NaN.
+- **L-f:** the memory figure above is corrected.
 
 ### 2026-10-26: Dev, the Mix tab of 26 October
 
