@@ -452,8 +452,45 @@ export class AutomixController {
     return this.view;
   }
 
+  private signature = '';
+
+  /** Tell the views, when what they draw has changed (the tick is 120 ms; most say nothing new). */
   private emit(): void {
-    this.view = this.buildView();
+    const next = this.buildView();
+    const t = next.transition;
+    const sig = [
+      next.dj,
+      next.stage,
+      next.pair?.fromId,
+      next.pair?.toId,
+      next.pair?.toIndex,
+      next.pair?.choice.style,
+      next.pair?.choice.bars,
+      next.plan ? 1 : 0,
+      next.plan?.status,
+      next.plan?.out.start,
+      next.planError,
+      next.loadError,
+      next.inSeconds === null ? '' : Math.round(next.inSeconds),
+      next.outStart,
+      next.barsToGo,
+      next.manual,
+      t?.phase,
+      t?.bar,
+      t ? Math.round(t.secondsLeft) : '',
+      t?.canGoBack,
+      next.phi === null ? '' : Math.round(next.phi * 8),
+      next.lanes ? 1 : 0,
+      next.fallback,
+      next.canMixNow,
+      next.mixNowWhy,
+      next.incomingBpm ? next.incomingBpm.bpm.toFixed(1) : '',
+      next.unsupported,
+    ].join('|');
+    if (sig === this.signature && next.plan === this.view.plan && next.lanes === this.view.lanes)
+      return;
+    this.signature = sig;
+    this.view = next;
     for (const fn of this.listeners) fn();
   }
 

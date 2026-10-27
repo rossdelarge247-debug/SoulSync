@@ -161,6 +161,8 @@ function useView(ctl: AutomixController): AutomixView {
 }
 
 interface Slots {
+  /** the player itself: what a screen reader hears is said inside it */
+  player: HTMLElement | null;
   settings: HTMLElement | null;
   gaps: HTMLElement[];
   bar: HTMLElement | null;
@@ -173,6 +175,7 @@ interface Slots {
 function findSlots(): Slots {
   const q = (sel: string) => document.querySelector<HTMLElement>(sel);
   return {
+    player: document.getElementById('media-player'),
     settings: document.getElementById('ss-between-tracks-settings'),
     gaps: Array.from(document.querySelectorAll<HTMLElement>('[data-automix-gap]')),
     bar: q('[data-automix-slot="bar"]'),
@@ -185,6 +188,7 @@ function findSlots(): Slots {
 
 function sameSlots(a: Slots, b: Slots): boolean {
   return (
+    a.player === b.player &&
     a.settings === b.settings &&
     a.bar === b.bar &&
     a.record === b.record &&
@@ -460,7 +464,7 @@ export function AutomixHost() {
       {slots.deck && (handing || counting)
         ? createPortal(<HandoverDeck view={view} actions={actions} />, slots.deck)
         : null}
-      <LiveWords view={view} />
+      {slots.player ? createPortal(<LiveWords view={view} />, slots.player) : null}
     </>
   );
 }
