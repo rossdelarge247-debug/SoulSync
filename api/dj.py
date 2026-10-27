@@ -422,6 +422,11 @@ def dj_window(track_id: str):
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
     if row is None:
         return jsonify({"success": False, "error": "That track isn't in your library"}), 404
+    # past the track's known end there's nothing to decode: say so rather
+    # than have ffmpeg read the whole file for an empty window
+    length = found[tid].get("duration_s")
+    if length and start >= float(length) + 1.0:
+        return jsonify({"success": False, "error": "start is past the track's end"}), 400
     from core.sample.worker import resolve_track_file
 
     path = resolve_track_file(str(row.get("file_path") or "")) if row.get("file_path") else None

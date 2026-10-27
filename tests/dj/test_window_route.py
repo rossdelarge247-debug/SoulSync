@@ -170,6 +170,16 @@ def test_anything_but_plain_numbers_in_range_is_refused(client, query):
     assert res.status_code == 400 and res.get_json()["success"] is False
 
 
+def test_a_window_past_the_tracks_end_is_refused_without_decoding(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(window, "decode", lambda *a, **k: calls.append(a) or window.wav_bytes(b"", 48000))
+    # the track is 30 s long (its duration in the library)
+    res = client.get("/api/library/dj/window/1?start=31.5&dur=5")
+    assert res.status_code == 400 and "past the track's end" in res.get_json()["error"]
+    assert calls == []
+    assert client.get("/api/library/dj/window/1?start=29&dur=5").status_code == 200
+
+
 def test_another_profiles_track_an_unknown_one_and_a_missing_file_are_not_found(client):
     assert client.get("/api/library/dj/window/2?start=0&dur=5").status_code == 404
     assert client.get("/api/library/dj/window/nope?start=0&dur=5").status_code == 404
