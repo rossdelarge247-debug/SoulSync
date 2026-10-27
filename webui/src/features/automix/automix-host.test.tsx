@@ -26,7 +26,8 @@ vi.mock('@/platform/shell/route-controllers', () => ({
   useProfile: () => ({ profileId: 1, isAdmin: true }),
 }));
 // jsdom has no AudioWorklet: the decks' support is the browser's, tested on its own
-vi.mock('./support', () => ({ mixSupport: () => null }));
+const support = vi.hoisted(() => ({ why: null as string | null }));
+vi.mock('./support', () => ({ mixSupport: () => support.why }));
 const saved = vi.hoisted(() => ({ calls: [] as unknown[][] }));
 vi.mock('./set-play', async (original) => ({
   ...(await original<typeof import('./set-play')>()),
@@ -526,6 +527,26 @@ describe('the handover (26d–26f)', () => {
     expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
     rerender(<BarStatus view={view({ stage: 'cut', transition: null })} actions={actions} />);
     expect(document.body.textContent).not.toMatch(/crossfad/i);
+  });
+});
+
+describe('no crossfade on a page that can’t run the decks', () => {
+  it('Up next shows no chips (the pairs play on), and Mix now says why', async () => {
+    support.why = 'Auto mix needs SYNCHRO.S on https';
+    try {
+      mount();
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 300));
+      });
+      expect(document.querySelector('[data-automix-gap]')).not.toBeNull();
+      expect(screen.queryByRole('button', { name: /^Transition from/ })).toBeNull();
+      expect(document.body.textContent).not.toMatch(/crossfad/i);
+      await waitFor(() =>
+        expect(window.SoulSyncAutomix?.view().mixNowWhy).toBe('Auto mix needs SYNCHRO.S on https'),
+      );
+    } finally {
+      support.why = null;
+    }
   });
 });
 

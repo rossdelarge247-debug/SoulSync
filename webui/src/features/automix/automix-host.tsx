@@ -9,7 +9,7 @@
  * - `[data-automix-slot="mixnow-bar"]` / `="mixnow-deck"`: Mix now, beside
  *   Next in the bar and in the tray;
  * - `[data-automix-slot="bar"]`: the bar's middle while it counts down,
- *   mixes or crossfades in a mix's place (26e);
+ *   or mixes (26e);
  * - `[data-automix-slot="record"]` / `="deck"`: the handover in the tray's
  *   record and in the waveform's place (26d; the phone's sheet, 26f).
  *
@@ -280,15 +280,17 @@ function GapChip({
   )
     live = { kind: 'counting', bars: view.barsToGo, onCancel: () => ctl.cancel() };
   const set = from.mix_set && to.mix_set && from.mix_set.id === to.mix_set.id ? from.mix_set : null;
-  // a page that can't run the decks: the pair crossfades, saying why
+  // a page that can't run the decks: the pair plays on (no crossfade, no
+  // chip; Mix now and Between tracks say why). A cut needs no decks.
   const data =
     plan.data && view.unsupported && plan.data.status === 'ok'
       ? {
           ...plan.data,
-          status: 'crossfade',
-          style: 'crossfade',
-          length_s: 6,
-          fallback: { kind: 'crossfade', code: 'unsupported', reason: view.unsupported },
+          status: 'play_on',
+          style: null,
+          out: undefined,
+          in: undefined,
+          fallback: { kind: 'play_on', code: 'unsupported', reason: view.unsupported },
         }
       : (plan.data ?? null);
   const waitingId = data?.waiting_for === 'from' ? fromId : toId;
