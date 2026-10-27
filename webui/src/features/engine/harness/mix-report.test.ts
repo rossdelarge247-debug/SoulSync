@@ -126,7 +126,8 @@ describe('the mix report', () => {
         src: 'x',
       }),
     ).toEqual({ a: '[path left out]', b: '[path left out]', c: '[path left out]', d: '8A → 9A' });
-    // [review L6] spaces, C:/, a share, one file at the root, and inside a sentence
+    // [review L6] spaces, C:/, a share, one file at the root, and inside a
+    // sentence: from the path on, the rest of the line goes
     const L = '[path left out]';
     expect(
       scrub({
@@ -138,7 +139,8 @@ describe('the mix report', () => {
         sentence: "Couldn't read /music/Ross/Lantern/01 Static Bloom.flac: no such file",
         windows: 'Open C:\\Music\\Ross Album\\x.mp3 failed',
         home: 'at ~/Music/x.flac, then',
-        keep: ['8A → 9A', '1/2 speed', 'half or double', 'BPM 124.0', 'Night Ferry'],
+        quoted: 'the file "/music/a/b.flac" is gone',
+        keep: ['8A → 9A', '1/2 speed', 'half or double', 'BPM 124.0', 'Night Ferry', 'not 4/4'],
       }),
     ).toEqual({
       spaces: L,
@@ -146,10 +148,40 @@ describe('the mix report', () => {
       unc: L,
       root: L,
       relative: L,
-      sentence: `Couldn't read ${L}: no such file`,
-      windows: `Open ${L} failed`,
-      home: `at ${L}, then`,
-      keep: ['8A → 9A', '1/2 speed', 'half or double', 'BPM 124.0', 'Night Ferry'],
+      sentence: `Couldn't read ${L}`,
+      windows: `Open ${L}`,
+      home: `at ${L}`,
+      quoted: `the file "${L}" is gone`,
+      keep: ['8A → 9A', '1/2 speed', 'half or double', 'BPM 124.0', 'Night Ferry', 'not 4/4'],
+    });
+    // [re-review 3] brackets, commas, & and ' in names; percent-encoding;
+    // dates and slash words without an anchor or a file stay
+    expect(
+      scrub({
+        year: '/music/Artist/Album (2019)/01 Track.flac',
+        country: 'C:\\Music\\Artist (UK)\\Album\\02.mp3',
+        csn: '/music/Crosby, Stills & Nash/Déjà Vu (Deluxe) [2019]/01 Carry On.flac',
+        apostrophe: "/music/Guns N' Roses/Appetite/01.flac",
+        bare: 'Music/Album (2019)/Disc 1/01 Track.flac',
+        encoded: 'path=%2Fm%2FRoss%2Fx.flac',
+        encodedSentence: 'stream?path=%2Fmusic%2FAlbum%20(2019)%2F01.flac&t=1 failed',
+        paren: 'read (/music/a/b.flac)',
+        date: '27/10/2026',
+        band: 'AC/DC/Back',
+        percent: '60% done · 2/3 decks',
+      }),
+    ).toEqual({
+      year: L,
+      country: L,
+      csn: L,
+      apostrophe: L,
+      bare: L,
+      encoded: `path=${L}`,
+      encodedSentence: `stream?path=${L}`,
+      paren: `read (${L}`,
+      date: '27/10/2026',
+      band: 'AC/DC/Back',
+      percent: '60% done · 2/3 decks',
     });
     expect(
       gridSummary({ track_id: '3', analyzed: false, reason: 'no_beat' } as ApiGrid &

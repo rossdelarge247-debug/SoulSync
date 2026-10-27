@@ -82,25 +82,43 @@ export interface Environment {
 }
 
 const PATH_KEYS = new Set(['file_path', 'path', 'src', 'url', 'image_url', 'folder', 'stored']);
-// a path anywhere in a string: a drive (C:\ or C:/), a share (\\nas\x), a
-// file: URL, an absolute path of two parts or more (spaces allowed in its
-// folders, and in its last part up to an extension), /x.flac, or a
-// relative one with two separators or more (Music/Ross/x.flac)
-const NAME = String.raw`[^\s\\/:*?"<>|,;()[\]{}]+`;
-const DIRS = String.raw`(?:${NAME}(?: ${NAME})*[\\/])`;
-const LAST = String.raw`(?:${NAME}(?: ${NAME})*?\.[a-z0-9]{1,5}\b|${NAME})`;
-const PATH_IN_TEXT = new RegExp(
-  [
-    String.raw`file:\S+`,
-    String.raw`\\\\${NAME}[\\/]${DIRS}*${LAST}?`,
-    String.raw`\b[a-z]:[\\/]${DIRS}*${LAST}?`,
-    String.raw`(?<![\w.~])~?\/${DIRS}+${LAST}?`,
-    String.raw`(?<![\w.~])\/${NAME}\.[a-z0-9]{1,5}\b`,
-    String.raw`(?<![\w.])${NAME}[\\/]${DIRS}+${LAST}`,
-  ].join('|'),
+// A path anywhere in a string. Once an anchor is found (a drive, C:\ or
+// C:/; a share, \\nas; file:; ~/; or a / that starts a path of two parts or
+// a file), everything to the next double quote or the line's end goes: a
+// path's names can hold spaces, commas, brackets, & and '. Without an anchor
+// only a relative path to a file (Music/Ross/01 Static Bloom.flac) is one,
+// from its first name without a space, so dates (27/10/2026) and words with
+// slashes (AC/DC, 1/2) stay.
+// Percent-encoded text (%2Fm%2Fx.flac) is decoded before it's looked at.
+const EXT = String.raw`\.[a-z][a-z0-9]{0,4}\b`;
+const ANCHORED = new RegExp(
+  String.raw`(?:file:|\\\\(?=[^\s\\])|\b[a-z]:[\\/]|~[\\/]|(?<![\w.~/\\)\]])\/(?=[^\s/\\"][^/\\"\n]*?(?:[\\/]|${EXT})))[^"\x60<>\n]*`,
+  'gi',
+);
+const RELATIVE = new RegExp(
+  String.raw`(?<![\w.~/\\%])[^\s/\\"<>|:*?]+(?:[\\/][^/\\"<>|:*?\n]+?)+${EXT}`,
   'gi',
 );
 const LEFT_OUT = '[path left out]';
+
+function leaveOutPaths(text: string): string {
+  return text.replace(ANCHORED, LEFT_OUT).replace(RELATIVE, LEFT_OUT);
+}
+
+/** A string with any path in it left out (percent-encoded ones too). */
+export function scrubText(text: string): string {
+  const plain = leaveOutPaths(text);
+  if (!/%[0-9a-f]{2}/i.test(text)) return plain;
+  const decoded = text.replace(/(?:%[0-9a-f]{2})+/gi, (m) => {
+    try {
+      return decodeURIComponent(m);
+    } catch {
+      return m;
+    }
+  });
+  const scrubbed = leaveOutPaths(decoded);
+  return scrubbed === decoded ? plain : scrubbed;
+}
 
 /** A deep copy without anything that could carry a file path. */
 export function scrub<T>(value: T): T {
@@ -113,7 +131,7 @@ export function scrub<T>(value: T): T {
     }
     return out as T;
   }
-  if (typeof value === 'string') return value.replace(PATH_IN_TEXT, LEFT_OUT) as unknown as T;
+  if (typeof value === 'string') return scrubText(value) as unknown as T;
   return value;
 }
 
