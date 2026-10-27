@@ -92,7 +92,10 @@ def client(db, monkeypatch):
             reset_library_scope(tokens.pop())
 
     monkeypatch.setattr(guard, "_hide_explicit", lambda: state["kid"])
-    guard.register(app, lambda: db)
+    # the guard's own hook, on this app, with its database swapped only for
+    # this test (register() would leave it set for the next test's app)
+    monkeypatch.setattr(guard, "_get_database", lambda: db)
+    app.before_request(guard._guard_play)
     app.register_blueprint(dj_api.create_blueprint())
     c = app.test_client()
     c.state = state
