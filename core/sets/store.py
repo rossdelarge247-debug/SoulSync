@@ -612,6 +612,22 @@ def insert_keeping_locked(rows: List[Dict[str, Any]], at: int,
     return [r for r in out if r is not None]
 
 
+def placed_as(at: int, indexes: List[int], total: int) -> str:
+    """Where ``insert_keeping_locked`` really put the new rows (at
+    ``indexes`` of ``total``), asked to go after row ``at`` (gauntlet L9):
+    ``after`` (together, straight after it), ``later`` (together, but past
+    locked rows that keep their places after it), ``end`` (together at the
+    set's end, past them), or ``split`` (locked rows between them)."""
+    if not indexes:
+        return "after"
+    together = indexes == list(range(indexes[0], indexes[0] + len(indexes)))
+    if together and indexes[0] == at + 1:
+        return "after"
+    if together and indexes[-1] == total - 1:
+        return "end"
+    return "later" if together else "split"
+
+
 def _next_rows(rows: List[Dict[str, Any]]) -> Dict[int, Optional[Dict[str, Any]]]:
     """Each row (by identity) -> the next row holding a library track, or None."""
     out: Dict[int, Optional[Dict[str, Any]]] = {}
@@ -654,7 +670,9 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
     29b) puts them straight after that row instead (locked rows keep their
     places, and a row whose next track changes has its transition reset to
     Auto: ``insert_keeping_locked``, ``reset_changed_joins``); ``placed``
-    says "after", or "end" when the set no longer holds that track.
+    says where they really went (``placed_as``): "after", "later" or
+    "split" when locked rows came first or between them, or "end" (also
+    when the set no longer holds that track, or without ``after``).
 
     Only tracks in the caller's library with their file present go in (the
     downloaded-only rule); the rest are ``left_out``. A track the set already
@@ -699,6 +717,8 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
                 raise SetError(f"A set can hold at most {MAX_ROWS} tracks")
             next_number = sum(len(v) for v in numbers.values()) + 1
             at = _insert_at(old_rows, after) if after is not None else None
+            # nothing added: where they would have gone
+            where = "after" if at is not None else "end"
             added = []
             if adding and at is not None:
                 fresh = [{"track_id": tid, "artist": found[tid].get("artist_name") or None,
@@ -708,6 +728,7 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
                 placed = insert_keeping_locked(old_rows, at, fresh)
                 _write_rows(conn, sid, reset_changed_joins(old_rows, placed))
                 fresh_ids = {id(r) for r in fresh}
+                where = placed_as(at, [i for i, r in enumerate(placed) if id(r) in fresh_ids], len(placed))
                 n = 0
                 for r in placed:
                     if r.get("track_id"):
@@ -716,6 +737,7 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
                             added.append({"track_id": r["track_id"], "number": n})
                 conn.commit()
             elif adding:
+                where = "end"
                 conn.executemany(
                     "INSERT INTO dj_set_tracks (set_id, position, track_id, artist, title, state, want, locked) "
                     "VALUES (?, ?, ?, ?, ?, 'owned', 'yours', 0)",
@@ -731,7 +753,7 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
             conn.rollback()
             raise
     return {"added": added, "already": already, "left_out": left_out, "revision": revision,
-            "tracks_changed": bool(added), "placed": "after" if at is not None else "end"}
+            "tracks_changed": bool(added), "placed": where}
 
 
 #: one fixed statement per playlist field (no SQL is put together at run time)
@@ -888,7 +910,7 @@ def clear_playlist_state(database, profile_id: int, set_id: int) -> None:
     _set_playlist_fields(database, profile_id, set_id, playlist_state=None)
 
 
-__all__ = ["RESET_TRANSITION", "insert_keeping_locked", "reset_changed_joins", "KINDS", "MAX_ROWS", "MAX_SETS", "TRANSITION_BARS", "TRANSITION_STYLES", "SetError", "StaleRevision",
+__all__ = ["RESET_TRANSITION", "insert_keeping_locked", "placed_as", "reset_changed_joins", "KINDS", "MAX_ROWS", "MAX_SETS", "TRANSITION_BARS", "TRANSITION_STYLES", "SetError", "StaleRevision",
            "alternatives", "append_tracks", "clean_rows", "clean_transition", "clear_playlist_state", "create_set",
            "delete_set", "follow_latest", "follow_playlist", "get_set", "holding", "list_sets", "make_playlist", "read_transition",
            "saved_famous", "update_set", "view"]

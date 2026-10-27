@@ -216,6 +216,33 @@ def test_l5_add_after_keeps_locked_rows_and_resets_the_changed_joins(client):
     assert tr["8"] == {"style": "auto", "bars": None}
 
 
+def test_l9_placed_says_where_the_tracks_really_went():
+    assert sets_store.placed_as(0, [1, 2], 5) == "after"
+    assert sets_store.placed_as(0, [2], 4) == "later"
+    assert sets_store.placed_as(0, [3], 4) == "end"
+    assert sets_store.placed_as(0, [1, 3], 6) == "split"
+    assert sets_store.placed_as(3, [4], 5) == "after"  # after the last row is after it
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("locks, add, placed, order", [
+    ((False, False, False), ["8"], "after", ["1", "8", "2", "3"]),
+    ((False, True, False), ["8"], "later", ["1", "2", "8", "3"]),
+    ((False, True, True), ["8"], "end", ["1", "2", "3", "8"]),
+    ((False, False, True), ["8", "9"], "split", ["1", "8", "3", "9", "2"]),
+])
+def test_l9_the_add_answer_does_not_say_after_when_locked_rows_moved_them(client, locks, add, placed, order):
+    rows = [{"track_id": tid, "state": "owned", "locked": lock}
+            for tid, lock in zip(("1", "2", "3"), locks, strict=True)]
+    set_id = client.post("/api/sets", json={"name": "Locks", "kind": "hand", "tracks": rows}).get_json()["id"]
+    body = client.post(f"/api/sets/{set_id}/tracks",
+                       json={"track_ids": add, "after": {"track_id": "1", "number": 1}}).get_json()
+    assert body["placed"] == placed
+    assert _rows(client, set_id) == order
+    numbers = {a["track_id"]: a["number"] for a in body["added"]}
+    assert all(order[numbers[t] - 1] == t for t in add)
+
+
 @pytest.mark.gauntlet
 @pytest.mark.parametrize("method, path, data", [
     ("put", "/api/sets/working", "set_id=1"),
