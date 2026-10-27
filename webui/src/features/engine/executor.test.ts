@@ -158,6 +158,20 @@ describe('running a plan (stage B)', () => {
     expect(tr.state().phase).toBe('back');
   });
 
+  it('offers Back while the outgoing track has 4 bars of its own left after it (251)', () => {
+    const { port, tr } = setup();
+    const clock = tr.beatClock;
+    port.time = clock.timeAt(100);
+    expect(tr.state().canGoBack).toBe(true);
+    port.time = clock.timeAt(108.5);
+    expect(tr.state().canGoBack).toBe(false);
+    const short = setup({ plan: plan({ style: 'short_blend', bars: 8 }) });
+    short.port.time = short.tr.beatClock.timeAt(11);
+    expect(short.tr.state().canGoBack).toBe(true);
+    short.port.time = short.tr.beatClock.timeAt(13);
+    expect(short.tr.state().canGoBack).toBe(false);
+  });
+
   for (const hasHold of [true, false]) {
     it(`takes over: every control stops where it is, the decks stay on the beat (Design 250, ${hasHold ? 'with' : 'without'} cancelAndHold)`, () => {
       const { port, tr } = setup({}, hasHold);
@@ -235,7 +249,7 @@ describe('interruptions (Design 252)', () => {
   });
 
   it('on a phone, a hidden page finishes the mix over one bar before the lock stops it', () => {
-    const { port, tr } = setup({ phone: true });
+    const { port, tr } = setup();
     port.time = tr.beatClock.timeAt(20.2);
     tr.onLifecycle({ kind: 'interrupted', reason: 'hidden' });
     expect(tr.state().phase).toBe('done');

@@ -140,9 +140,10 @@ export function buildGraph(
   let limiter: DynamicsCompressorNode | null = null;
   if (opts.limiter !== false) {
     limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -2;
-    limiter.knee.value = 2;
-    limiter.ratio.value = 16;
+    // only peaks over -1 dBFS (two full decks summed), as near transparent as it gets
+    limiter.threshold.value = -1;
+    limiter.knee.value = 1;
+    limiter.ratio.value = 20;
     limiter.attack.value = 0.002;
     limiter.release.value = 0.2;
     master.connect(limiter).connect(out);

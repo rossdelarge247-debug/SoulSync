@@ -357,7 +357,15 @@ export default function AutomixLab() {
             <button type="button" className={styles.button} onClick={() => tr?.finishNow()}>
               Finish now
             </button>
-            <button type="button" className={styles.button} onClick={() => tr?.back()}>
+            <button
+              type="button"
+              className={styles.button}
+              disabled={!st.canGoBack}
+              title={
+                st.canGoBack ? undefined : 'Too near the outgoing track’s end to go back to it'
+              }
+              onClick={() => tr?.back()}
+            >
               Back
             </button>
             <button type="button" className={styles.button} onClick={() => tr?.takeover()}>

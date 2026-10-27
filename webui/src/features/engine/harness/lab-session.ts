@@ -13,6 +13,7 @@ import type { Plan } from '../loader';
 
 import { Engine, type DeckData } from '../engine';
 import { BeatGrid, gridFromApi, relativeTrimDb, type ApiGrid } from '../grid';
+import { looksLikePhone } from '../lifecycle';
 import { correction, onsets } from '../refine';
 import { DEFAULT_BARS, needsBeatmatch, type Style } from '../score';
 
@@ -128,7 +129,12 @@ export class LabSession {
     if (this.engine) return this.engine;
     const { context, analyser } = this.deps.graph();
     if (context.state !== 'running') await context.resume().catch(() => undefined);
-    this.engine = await Engine.create({ context, workletUrl: this.deps.workletUrl, tap: analyser });
+    this.engine = await Engine.create({
+      context,
+      workletUrl: this.deps.workletUrl,
+      tap: analyser,
+      phone: looksLikePhone(typeof navigator === 'object' ? navigator : null),
+    });
     return this.engine;
   }
 

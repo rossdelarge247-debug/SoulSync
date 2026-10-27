@@ -93,8 +93,6 @@ export interface TransitionInput {
   /** seconds added to the incoming deck's place (refine.ts) */
   correction?: (phi: number) => number;
   keyLock?: KeyLock;
-  /** a hidden page counts as an interruption (a phone) */
-  phone?: boolean;
 }
 
 export type Phase = 'counting' | 'mixing' | 'done' | 'cancelled' | 'back' | 'yours' | 'interrupted';
@@ -113,6 +111,8 @@ export interface TransitionState {
   modes: Record<'out' | 'in', 'resample' | 'stretch'>;
   rates: { out: number; in: number } | null;
   fallback: string | null;
+  /** Back is offered (251): while the outgoing track has 4 bars of its own left after the bar back */
+  canGoBack: boolean;
 }
 
 export type TransitionEvent =
@@ -124,6 +124,8 @@ export type TransitionEvent =
 export const SPEED_CHANGE_OK = 0.03;
 /** After a mix the incoming deck's tempo has this long (bars) to get back to its own. */
 const SETTLE_BARS = 4;
+/** Back is offered while the outgoing track has this many bars left after the bar back. */
+const BACK_LEFT_BARS = 4;
 /** A mix cut off by an interruption ends with a crossfade this long once sound is back. */
 export const INTERRUPTED_CROSSFADE_S = 2;
 
@@ -312,7 +314,20 @@ export class Transition {
       modes: { ...this.modes },
       rates,
       fallback: this.input.plan.fallback?.reason ?? null,
+      canGoBack: this.canGoBack(beat, phase),
     };
+  }
+
+  /**
+   * Design's 251: going back is sound at any point (every control returns
+   * from where it is over one bar, on the beat; after the bass swap that's
+   * the swap made the other way). It's only offered while the outgoing
+   * track has at least 4 bars of its own left once it's back, so it isn't
+   * brought back just to end.
+   */
+  private canGoBack(beat: number, phase: Phase): boolean {
+    if (phase !== 'counting' && phase !== 'mixing' && phase !== 'yours') return false;
+    return this.score.beats - Math.max(0, Math.ceil(beat)) >= 4 + BACK_LEFT_BARS * 4;
   }
 
   /** The next whole beat at least LOOKAHEAD from now, and its time. */
