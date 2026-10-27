@@ -92,6 +92,13 @@ core/dj/planner.py
 # and its scope check are in api/dj.py above, the kids guard in
 # api/content_guard.py below)
 core/dj/window.py
+# Analyse on demand: any profile puts its own library's tracks first in the
+# DJ sweep (per-profile caps and a rate limit, scoped to the caller's
+# library), the sweep's waits and Stop for that line, and the progress route
+# that names only the caller's own tracks
+core/dj/ondemand.py
+core/dj/progress.py
+core/dj/worker.py
 
 ## Database migrations and schema
 database/**

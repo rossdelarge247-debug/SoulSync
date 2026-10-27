@@ -1045,6 +1045,9 @@ def _dj_job_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
     if live is not None:
         detail = _sentence(_many(total, "track"), f"{done:,} done", _DJ_WAITING.get(live.get("waiting") or "", ""))
         ref["stop_path"] = _DJ_STOP
+        # the row's bar and the track it's on come from the progress route
+        # (core/dj/ondemand.py), which names only the viewer's own tracks
+        ref["dj_progress"] = True
         return _item("library_job", int(row["id"]), id=f"library-job:{row['id']}", time=int(row["started_at"] or 0),
                      kind="library", status="running", title=_DJ_TITLES["running"], detail=detail,
                      link=_DJ_LINK, ref=ref)
