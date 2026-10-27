@@ -18,6 +18,7 @@ import type { AutomixPrefs } from './prefs';
 import {
   AutomixController,
   LEAD_BARS,
+  albumInOrder,
   PRELOAD_S,
   choiceOf,
   mixNowPlan,
@@ -220,7 +221,9 @@ function track(id: string, title: string, extra: Partial<QueueTrack> = {}): Queu
   return { id, title, artist: 'Tidewater', file_path: `/m/${id}.flac`, is_library: true, ...extra };
 }
 
-function harness(opts: { plan?: PairPlan; prefs?: Partial<AutomixPrefs> } = {}): Harness {
+function harness(
+  opts: { plan?: PairPlan; prefs?: Partial<AutomixPrefs>; support?: string } = {},
+): Harness {
   engine = new FakeEngine();
   engine.port.time = 10;
   const el = new FakeAudio();
@@ -259,6 +262,7 @@ function harness(opts: { plan?: PairPlan; prefs?: Partial<AutomixPrefs> } = {}):
     engine: async () => engine,
     peaks: async () => null,
     prefs: () => prefs,
+    support: () => opts.support ?? null,
   });
   return { ctl, el, st, prefs, player, plan, grids, window };
 }
@@ -383,6 +387,23 @@ async function intoTheMix(h: Harness) {
   await flush();
   return t0;
 }
+
+describe('a page that can’t run the decks (plain http on another address)', () => {
+  it('nothing loads, Mix now isn’t offered, and the pair crossfades saying why', async () => {
+    const why = 'DJ mix needs SYNCHRO.S on https';
+    const h = harness({ support: why });
+    await at(h, OUT - 30);
+    expect(h.window).not.toHaveBeenCalled();
+    const v = h.ctl.getView();
+    expect(v.unsupported).toBe(why);
+    expect(v.canMixNow).toBe(false);
+    expect(v.mixNowWhy).toBe(why);
+    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toEqual({ seconds: 6 });
+    h.st.crossfading = true;
+    h.ctl.poke();
+    expect(h.ctl.getView().fallback).toBe(why);
+  });
+});
 
 describe('while it mixes', () => {
   it('the view counts bars, and the lanes span the window', async () => {
@@ -660,8 +681,15 @@ describe('the crossfade’s hint (media-player.js)', () => {
 
   it('Smart crossfade: not on an album in order; else the sums once it knows', async () => {
     const h = harness({ prefs: { between: 'smart' } });
-    const a = track('1', 'One', { album_id: 7 });
-    expect(h.ctl.crossfade(a, track('2', 'Two', { album_id: 7 }))).toEqual({ skip: true });
+    const a = track('1', 'One', { album_id: 7, track_number: 3 });
+    expect(h.ctl.crossfade(a, track('2', 'Two', { album_id: 7, track_number: 4 }))).toEqual({
+      skip: true,
+    });
+    // the same album out of order, or without its numbers, crossfades
+    expect(albumInOrder(a, track('2', 'Two', { album_id: 7, track_number: 9 }))).toBe(false);
+    expect(
+      albumInOrder(track('1', 'One', { album_id: 7 }), track('2', 'Two', { album_id: 7 })),
+    ).toBe(false);
     expect(h.ctl.crossfade(a, track('2', 'Two', { album_id: 8 }))).toBeNull();
     await flush();
     const hint = h.ctl.crossfade(a, track('2', 'Two', { album_id: 8 }));

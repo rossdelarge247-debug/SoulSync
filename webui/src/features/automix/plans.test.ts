@@ -93,7 +93,7 @@ describe('the chip’s words (26g)', () => {
   it('Auto names its pick and why (26a); impossible styles say why', () => {
     expect(autoLine(plan())).toEqual({
       name: 'Auto: Long blend',
-      why: 'Chosen as the keys mix and the tempo is close',
+      why: 'Chosen because the keys mix and the tempo is close',
     });
     expect(autoLine(plan({ style: 'echo_out', why: '9A → 4B, +1 BPM: the keys clash' })).name).toBe(
       'Auto: Echo out',

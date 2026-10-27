@@ -157,7 +157,7 @@ export function TransitionChip({
         <i aria-hidden="true" />
         {words}
       </button>
-      <span className={sets.chipWho}>
+      <span className={sets.chipWho} data-chip-who="">
         {meta}
         {plan?.status === 'waiting' && analyse ? (
           <>
@@ -234,7 +234,8 @@ function TransitionPicker({
     };
   }, [anchor]);
   useLayoutEffect(() => {
-    if (!floating || !anchor) return;
+    // on a phone the picker is a sheet from the bottom (sets.module.css)
+    if (!floating || !anchor || window.innerWidth <= 640) return;
     const r = anchor.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -242,8 +243,8 @@ function TransitionPicker({
     const below = vh - r.bottom;
     setPlace(
       below >= 460 || below >= r.top
-        ? { position: 'fixed', left, top: r.bottom + 6, maxHeight: below - 16 }
-        : { position: 'fixed', left, bottom: vh - r.top + 6, maxHeight: r.top - 16 },
+        ? { position: 'fixed', left, top: r.bottom + 6, bottom: 'auto', maxHeight: below - 16 }
+        : { position: 'fixed', left, top: 'auto', bottom: vh - r.top + 6, maxHeight: r.top - 16 },
     );
   }, [floating, anchor]);
   const choose = (next: Transition) => {

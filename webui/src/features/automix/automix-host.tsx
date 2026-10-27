@@ -56,6 +56,7 @@ import { TransitionChip, type ChipLive } from './mix-chip';
 import { AUTO_CHOICE, inWords, planFor, planKey, stepOf, type Choice } from './plans';
 import { getPrefs, refreshPrefs, subscribePrefs, usePrefs } from './prefs';
 import { saveTransitionToSet } from './set-play';
+import { mixSupport } from './support';
 
 declare global {
   interface Window {
@@ -146,6 +147,7 @@ function controllerFor(qc: QueryClient): AutomixController {
       return Array.isArray(body.peaks) ? body.peaks : null;
     },
     prefs: getPrefs,
+    support: () => mixSupport(),
   });
   return shared;
 }
@@ -226,6 +228,7 @@ function GapChip({
   const prefs = usePrefs();
   const profile = useProfile();
   const [open, setOpen] = useState(false);
+  const [, bump] = useState(0);
   const st = port.state();
   const from = st.queue[index];
   const to = st.queue[index + 1];
@@ -257,7 +260,17 @@ function GapChip({
   )
     live = { kind: 'counting', bars: view.barsToGo, onCancel: () => ctl.cancel() };
   const set = from.mix_set && to.mix_set && from.mix_set.id === to.mix_set.id ? from.mix_set : null;
-  const data = plan.data ?? null;
+  // a page that can't run the decks: the pair crossfades, saying why
+  const data =
+    plan.data && view.unsupported && plan.data.status === 'ok'
+      ? {
+          ...plan.data,
+          status: 'crossfade',
+          style: 'crossfade',
+          length_s: 6,
+          fallback: { kind: 'crossfade', code: 'unsupported', reason: view.unsupported },
+        }
+      : (plan.data ?? null);
   const waitingId = data?.waiting_for === 'from' ? fromId : toId;
   return (
     <TransitionChip
@@ -298,9 +311,11 @@ function GapChip({
           : null
       }
       onChange={(t) => {
+        // kept on the row (the step out of it) for this queue; Up next isn't
+        // drawn again, so the picker stays open for the length
         from.automix = { style: t.style, bars: t.bars } as Choice;
         playerApi()?.persistQueue?.();
-        port.renderQueue();
+        bump((n) => n + 1);
         ctl.poke();
       }}
     />

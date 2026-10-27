@@ -1326,6 +1326,7 @@ textarea.pasteText,
   font: inherit;
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1468,7 +1469,8 @@ textarea.pasteText,
 
 /* in the player's tray it floats over the page (placed from the chip) */
 .picker[data-floating] {
-  z-index: 2000;
+  /* over the player and the page's floating buttons (999999) */
+  z-index: 1000002;
   overflow: auto;
 }
 

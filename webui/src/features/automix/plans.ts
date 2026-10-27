@@ -184,7 +184,7 @@ export function autoLine(plan: PairPlan | null | undefined): { name: string; why
   const why = plan.leaned
     ? `Leaning to ${label.toLowerCase()}s (Player settings)`
     : reason
-      ? `Chosen as ${reason}`
+      ? `Chosen because ${reason}`
       : 'Chosen for this pair';
   return { name: `Auto: ${label}`, why };
 }

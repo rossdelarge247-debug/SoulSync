@@ -65,6 +65,8 @@ export interface QueueTrack {
   title?: string;
   artist?: string;
   album_id?: string | number | null;
+  /** an album's own order (an album played from its page carries it) */
+  track_number?: number | null;
   file_path?: string;
   is_library?: boolean;
   kind?: string;
@@ -154,6 +156,8 @@ export interface AutomixServices {
   /** a track's waveform (200 peaks), for Smart crossfade's silences */
   peaks(id: string): Promise<number[] | null>;
   prefs(): AutomixPrefs;
+  /** why this page can't run the decks (support.ts), or null */
+  support?: () => string | null;
   timers?: {
     setTimeout(fn: () => void, ms: number): unknown;
     clearTimeout(id: unknown): void;
@@ -212,6 +216,8 @@ export interface AutomixView {
   } | null;
   plan: PairPlan | null;
   planError: string | null;
+  /** why the windows didn't load (the fallback says it when the mix is missed) */
+  loadError: string | null;
   /** seconds to `out.start` (the first chip's "in 2:58") */
   inSeconds: number | null;
   /** where the mix starts, in the playing track's seconds (the waveform's cyan marker) */
@@ -229,6 +235,8 @@ export interface AutomixView {
   mixNowWhy: string | null;
   /** the incoming deck's tempo change against its own (26d: "124.0 (−1.6%)") */
   incomingBpm: { bpm: number; pct: number } | null;
+  /** why this page can't run the decks (support.ts), or null */
+  unsupported: string | null;
 }
 
 const EMPTY_VIEW: AutomixView = {
@@ -237,6 +245,7 @@ const EMPTY_VIEW: AutomixView = {
   pair: null,
   plan: null,
   planError: null,
+  loadError: null,
   inSeconds: null,
   outStart: null,
   barsToGo: null,
@@ -248,6 +257,7 @@ const EMPTY_VIEW: AutomixView = {
   canMixNow: false,
   mixNowWhy: null,
   incomingBpm: null,
+  unsupported: null,
 };
 
 // ── timings ────────────────────────────────────────────────────────────────
@@ -589,6 +599,9 @@ export class AutomixController {
       return;
     }
     this.stage = p.decks ? 'ready' : p.loading ? 'loading' : 'planned';
+    // a page that can't run the decks: every pair crossfades, saying why
+    const unsupported = this.svc.support?.() ?? null;
+    if (unsupported && p.plan.status === 'ok' && !p.missed) p.missed = unsupported;
     if (p.plan.status !== 'ok' || p.cancelled || p.missed || p.wentBack || !el) {
       this.emit();
       return;
@@ -1270,13 +1283,7 @@ export class AutomixController {
    * known) the plain crossfade.
    */
   private smartHint(current: QueueTrack, next: QueueTrack): CrossfadeHint | null {
-    if (
-      current.album_id !== null &&
-      current.album_id !== undefined &&
-      current.album_id !== '' &&
-      String(current.album_id) === String(next.album_id ?? '')
-    )
-      return { skip: true };
+    if (albumInOrder(current, next)) return { skip: true };
     const a = idOf(current);
     const b = idOf(next);
     if (!a || !b || !mixable(current) || !mixable(next)) return null;
@@ -1422,7 +1429,9 @@ export class AutomixController {
     const dj = Boolean(p);
     let canMixNow = false;
     let mixNowWhy: string | null = null;
+    const unsupported = this.svc.support?.() ?? null;
     if (!dj) mixNowWhy = prefs.between === 'dj' ? 'Nothing up next to mix into' : 'DJ mix is off';
+    else if (unsupported) mixNowWhy = unsupported;
     else if (this.engineOwns()) mixNowWhy = 'Mixing now';
     else if (st.crossfading) mixNowWhy = 'Crossfading now';
     else if (!el || el.paused) mixNowWhy = 'Play first';
@@ -1440,6 +1449,7 @@ export class AutomixController {
       pair,
       plan,
       planError: p?.planError ?? null,
+      loadError: p?.loadError ?? null,
       inSeconds,
       outStart,
       barsToGo,
@@ -1451,11 +1461,22 @@ export class AutomixController {
       canMixNow,
       mixNowWhy,
       incomingBpm,
+      unsupported: this.svc.support?.() ?? null,
     };
   }
 }
 
 // ── Smart crossfade's sums ──────────────────────────────────────────────────
+
+/** One album's tracks one after the other in its own order: gapless, no crossfade (26h). */
+export function albumInOrder(current: QueueTrack, next: QueueTrack): boolean {
+  if (current.album_id === null || current.album_id === undefined || current.album_id === '')
+    return false;
+  if (String(current.album_id) !== String(next.album_id ?? '')) return false;
+  const a = Number(current.track_number);
+  const b = Number(next.track_number);
+  return Number.isFinite(a) && Number.isFinite(b) && a > 0 && b === a + 1;
+}
 
 interface SmartData {
   gridA: BeatGrid | null;

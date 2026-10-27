@@ -60,11 +60,16 @@
   min-width: 0;
 }
 
+/* in a gap the chip's line is one line, cut with an ellipsis (26a's meta) */
 .gap > span {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
-.gap [data-dimmed] {
+.gap [data-chip-who] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   min-width: 0;
 }
 
@@ -344,6 +349,11 @@
 .card[aria-checked='true'] {
   border-color: var(--ss-selected-border);
   background: var(--ss-selected-fill);
+}
+
+.card[data-unavailable] {
+  color: var(--ss-text-meta);
+  cursor: not-allowed;
 }
 
 .card:focus-visible {

@@ -678,7 +678,9 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
     ]);
     // the pair and why, Auto naming its pick, a style the pair can't do listed with why (26a)
     expect(picker).toHaveTextContent('6A → 7A, +1 BPM: the keys mix and the tempo is close');
-    expect(radios[0]).toHaveAccessibleDescription('Chosen as the keys mix and the tempo is close');
+    expect(radios[0]).toHaveAccessibleDescription(
+      'Chosen because the keys mix and the tempo is close',
+    );
     expect(radios[1]).toHaveAccessibleDescription('32 bars, the EQ handed over slowly');
     expect(radios[7]).toHaveAttribute('aria-disabled', 'true');
     expect(radios[7]).toHaveAccessibleDescription('Needs a drop: none found in Foghorn Study');

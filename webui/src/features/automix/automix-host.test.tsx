@@ -20,6 +20,8 @@ import { refreshPrefs } from './prefs';
 vi.mock('@/platform/shell/route-controllers', () => ({
   useProfile: () => ({ profileId: 1, isAdmin: true }),
 }));
+// jsdom has no AudioWorklet: the decks' support is the browser's, tested on its own
+vi.mock('./support', () => ({ mixSupport: () => null }));
 
 function track(id: string, title: string) {
   return { id, title, artist: 'Tidewater', file_path: `/m/${id}.flac`, is_library: true } as Record<
@@ -195,8 +197,12 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
     fireEvent.click(within(picker).getByRole('radio', { name: 'Echo out' }));
     expect(queue[0].automix).toEqual({ style: 'echo_out', bars: 4 });
     expect(player.persistQueue).toHaveBeenCalled();
+    // the picker stays open for the length
+    fireEvent.click(within(picker).getByRole('radio', { name: '8 bars' }));
+    expect(queue[0].automix).toEqual({ style: 'echo_out', bars: 8 });
+    fireEvent.click(within(picker).getByRole('button', { name: 'Done' }));
     await screen.findByRole('button', {
-      name: 'Transition from Night Ferry to Static Bloom: Echo out · 4 bars, your choice. Change it',
+      name: 'Transition from Night Ferry to Static Bloom: Echo out · 8 bars, your choice. Change it',
     });
   });
 
@@ -279,6 +285,7 @@ function view(over: Partial<AutomixView> = {}): AutomixView {
     },
     plan: null,
     planError: null,
+    loadError: null,
     inSeconds: null,
     outStart: 155,
     barsToGo: null,
@@ -291,7 +298,7 @@ function view(over: Partial<AutomixView> = {}): AutomixView {
       bars: 32,
       secondsLeft: 23,
       beatmatch: true,
-      marker: { beat: 60, label: 'bass swap' },
+      marker: { beat: 64, label: 'bass swap' },
       modes: { out: 'resample', in: 'resample' },
       rates: { out: 1.006, in: 0.984 },
       fallback: null,
@@ -302,7 +309,7 @@ function view(over: Partial<AutomixView> = {}): AutomixView {
       phi0: -8,
       phi1: 136,
       beats: 128,
-      marker: { beat: 60, label: 'bass swap' },
+      marker: { beat: 64, label: 'bass swap' },
       a: { levels: new Float32Array(160).fill(0.6) },
       b: { levels: new Float32Array(160).fill(0.4) },
     },
@@ -310,6 +317,7 @@ function view(over: Partial<AutomixView> = {}): AutomixView {
     canMixNow: false,
     mixNowWhy: 'Mixing now',
     incomingBpm: { bpm: 124, pct: -1.6 },
+    unsupported: null,
     ...over,
   };
 }

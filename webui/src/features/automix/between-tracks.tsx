@@ -11,6 +11,7 @@ import { looksLikePhone } from '@/features/engine/lifecycle';
 
 import styles from './automix.module.css';
 import { setPrefs, usePrefs, type BetweenTracks, type Lean } from './prefs';
+import { mixSupport } from './support';
 
 const PHONE_QUERY = '(max-width: 768px)';
 
@@ -35,6 +36,7 @@ export function BetweenTracksSettings({ crossfadeSeconds = 6 }: { crossfadeSecon
   const phone =
     narrow || looksLikePhone(typeof navigator === 'object' ? (navigator as Navigator) : null);
   const secs = crossfadeSeconds > 0 ? crossfadeSeconds : 6;
+  const unsupported = mixSupport();
   const cards: { value: BetweenTracks; title: string; line: string; short: string }[] = [
     {
       value: 'off',
@@ -64,20 +66,26 @@ export function BetweenTracksSettings({ crossfadeSeconds = 6 }: { crossfadeSecon
         <p>How one track gives way to the next. For this browser.</p>
       </div>
       <div className={styles.cards} role="radiogroup" aria-labelledby={`${id}-head`}>
-        {cards.map((c) => (
-          <button
-            key={c.value}
-            type="button"
-            role="radio"
-            aria-checked={prefs.between === c.value}
-            className={styles.card}
-            onClick={() => setPrefs({ between: c.value })}
-          >
-            <span className={styles.radio} aria-hidden="true" />
-            <strong>{c.title}</strong>
-            <small>{phone ? c.short : c.line}</small>
-          </button>
-        ))}
+        {cards.map((c) => {
+          // DJ mix on a page that can't run the decks: listed, with why
+          const off = c.value === 'dj' && unsupported !== null;
+          return (
+            <button
+              key={c.value}
+              type="button"
+              role="radio"
+              aria-checked={prefs.between === c.value}
+              aria-disabled={off ? 'true' : undefined}
+              className={styles.card}
+              data-unavailable={off ? '' : undefined}
+              onClick={off ? undefined : () => setPrefs({ between: c.value })}
+            >
+              <span className={styles.radio} aria-hidden="true" />
+              <strong>{c.title}</strong>
+              <small>{off ? unsupported : phone ? c.short : c.line}</small>
+            </button>
+          );
+        })}
       </div>
       {prefs.between === 'dj' ? (
         <>

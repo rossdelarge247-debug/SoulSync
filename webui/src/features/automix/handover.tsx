@@ -46,7 +46,8 @@ function styleWords(view: AutomixView): string {
 function markerWords(view: AutomixView): string | null {
   const m = view.transition?.marker;
   if (!m) return null;
-  const bar = Math.floor(m.beat / 4) + 1;
+  // the bar the change comes after: a 32-bar blend's swap is "at bar 16" (26d)
+  const bar = Math.max(1, Math.round(m.beat / 4));
   if (/bass/.test(m.label)) return `bass swaps at bar ${bar}`;
   if (/drop/.test(m.label)) return `the drop lands at bar ${bar}`;
   return `${m.label} at bar ${bar}`;
@@ -76,6 +77,9 @@ export function MixNowButton({
   compact?: boolean;
 }) {
   if (!view.dj) return null;
+  // the countdown has its own Cancel in Mix now's place, and a crossfade
+  // in a mix's place its status line (26e)
+  if (view.barsToGo !== null || view.fallback !== null) return null;
   if (['counting', 'mixing', 'settling', 'handback', 'back', 'rejoin'].includes(view.stage))
     return null;
   const disabled = !view.canMixNow;
