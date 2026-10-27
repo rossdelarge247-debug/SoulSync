@@ -6,10 +6,14 @@
  * - `requestAnalysis(ids)`: asks for tracks, batched (one request at a time,
  *   gathered over a moment, since the server takes one a second a profile)
  *   and remembered for a while so a page drawn again doesn't ask again.
+ *   An automatic ask says `reason: "auto"` and a person's (Analyse these,
+ *   Analyse now, a pick in the lab) `"asked"`: while an admin's Stop holds
+ *   the sweeps the server turns automatic asks away (409 `held`), quietly.
  * - `analysisStore`: one poll for every track any part of the page is
- *   showing progress for, every 1.5 s while something is in line or being
- *   worked out, else every 20 s; when a track finishes, the DJ data, sets
- *   and plans are read again so rows and chips update on their own.
+ *   showing progress for, every 1.5 s while one of them is in line or being
+ *   worked out (or Activity's sweep row is open and the sweep runs), else
+ *   every 20 s; finished tracks are gathered for a few seconds, then the DJ
+ *   data, sets and plans that show them are read again.
  */
 import type { QueryClient } from '@tanstack/react-query';
 
@@ -93,9 +97,12 @@ export class AnalyseError extends Error {
   }
 }
 
+/** A person's ask, or an automatic one (the server turns those away while held). */
+export type AnalyseReason = 'asked' | 'auto';
+
 /** One request: the tracks (or a playlist) in the asked-for line. */
 export async function postAnalyse(
-  body: { track_ids: string[] } | { playlist_id: number },
+  body: ({ track_ids: string[] } | { playlist_id: number }) & { reason: AnalyseReason },
 ): Promise<AnalyseAnswer> {
   const response = await apiClient.post('library/dj/analyse', {
     json: body,
@@ -114,11 +121,26 @@ export async function postAnalyse(
   return payload as AnalyseAnswer;
 }
 
+/** the server reads up to this many ids a request */
+const PROGRESS_CHUNK = 500;
+
+/** Where these tracks are: one request per 500, put back together. */
 export async function postProgress(ids: string[]): Promise<ProgressAnswer> {
-  const response = await apiClient.post('library/dj/progress', {
-    json: { track_ids: ids.slice(0, 500) },
-  });
-  return (await response.json()) as ProgressAnswer;
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += PROGRESS_CHUNK)
+    chunks.push(ids.slice(i, i + PROGRESS_CHUNK));
+  if (!chunks.length) chunks.push([]);
+  const tracks: Record<string, AnalysisEntry> = {};
+  let last: ProgressAnswer | undefined;
+  for (const chunk of chunks) {
+    const response = await apiClient.post('library/dj/progress', {
+      json: { track_ids: chunk },
+    });
+    const part = (await response.json()) as ProgressAnswer;
+    Object.assign(tracks, part.tracks ?? {});
+    last = part;
+  }
+  return { ...last!, tracks };
 }
 
 /* ── asking: one request at a time, gathered and remembered ──────────── */
@@ -133,7 +155,8 @@ const SPACING_MS = 1_050;
 
 interface Waiter {
   ids: string[];
-  resolve: (a: AnalyseAnswer) => void;
+  reason: AnalyseReason;
+  resolve: (a: AnalyseAnswer | null) => void;
   reject: (e: unknown) => void;
 }
 
@@ -147,12 +170,12 @@ function now(): number {
   return Date.now();
 }
 
-async function send(batch: Waiter[]): Promise<void> {
+async function send(batch: Waiter[], reason: AnalyseReason): Promise<void> {
   const ids = [...new Set(batch.flatMap((w) => w.ids))].slice(0, 500);
   let tries = 0;
   for (;;) {
     try {
-      const answer = await postAnalyse({ track_ids: ids });
+      const answer = await postAnalyse({ track_ids: ids, reason });
       const t = now();
       for (const id of ids) asked.set(id, t);
       for (const w of batch) w.resolve(answer);
@@ -163,6 +186,12 @@ async function send(batch: Waiter[]): Promise<void> {
       if (error instanceof AnalyseError && error.status === 429 && tries < MAX_TRIES) {
         await new Promise((r) => setTimeout(r, (error.retryAfter ?? 1) * 1000 + 50));
         continue;
+      }
+      if (error instanceof AnalyseError && error.status === 409 && error.code === 'held') {
+        // an admin's Stop holds the sweeps: nothing to say, and these
+        // aren't asked for again until the memory runs out
+        for (const w of batch) w.resolve(null);
+        return;
       }
       for (const id of ids) asked.delete(id);
       for (const w of batch) w.reject(error);
@@ -185,12 +214,15 @@ function flush(): void {
     timer = setTimeout(flush, wait);
     return;
   }
-  const batch = gathered;
-  gathered = [];
-  if (!batch.length) return;
+  if (!gathered.length) return;
+  // a person's asks and automatic ones go in separate requests
+  const reason = gathered[0]!.reason;
+  const batch = gathered.filter((w) => w.reason === reason);
+  gathered = gathered.filter((w) => w.reason !== reason);
   lastSent = now();
-  sending = send(batch).finally(() => {
+  sending = send(batch, reason).finally(() => {
     sending = null;
+    if (!timer && gathered.length) timer = setTimeout(flush, 0);
   });
 }
 
@@ -198,12 +230,15 @@ function flush(): void {
  * Ask for tracks to be analysed now. `force` (Analyse these) asks even for
  * tracks asked for a moment ago; otherwise (an automatic trigger: a set
  * opened, Up next with DJ mix) a track asked for in the last ten minutes
- * isn't asked again, and with nothing left the answer is null.
+ * isn't asked again, and with nothing left the answer is null. `reason`
+ * says whether a person asked (the default with `force`) or a page did;
+ * an automatic ask turned away while the sweeps are held answers null.
  */
 export function requestAnalysis(
   ids: (string | number | null | undefined)[],
-  { force = false }: { force?: boolean } = {},
+  { force = false, reason }: { force?: boolean; reason?: AnalyseReason } = {},
 ): Promise<AnalyseAnswer | null> {
+  const why: AnalyseReason = reason ?? (force ? 'asked' : 'auto');
   const t = now();
   const wanted = [
     ...new Set(
@@ -215,15 +250,18 @@ export function requestAnalysis(
   if (!wanted.length) return Promise.resolve(null);
   // marked at once, so a page drawn twice in a moment asks once
   for (const id of wanted) asked.set(id, t);
-  return new Promise<AnalyseAnswer>((resolve, reject) => {
-    gathered.push({ ids: wanted, resolve, reject });
+  return new Promise<AnalyseAnswer | null>((resolve, reject) => {
+    gathered.push({ ids: wanted, reason: why, resolve, reject });
     if (!timer) timer = setTimeout(flush, GATHER_MS);
   });
 }
 
-/** Ask, saying nothing on a failure: an automatic trigger. */
-export function requestAnalysisQuietly(ids: (string | number | null | undefined)[]): void {
-  requestAnalysis(ids).catch(() => {
+/** Ask, saying nothing on a failure: an automatic trigger (or a lab pick, `asked`). */
+export function requestAnalysisQuietly(
+  ids: (string | number | null | undefined)[],
+  reason: AnalyseReason = 'auto',
+): void {
+  requestAnalysis(ids, { reason }).catch(() => {
     /* the sweep reaches them anyway; a page shows Not analysed yet */
   });
 }
@@ -232,7 +270,37 @@ export function requestAnalysisQuietly(ids: (string | number | null | undefined)
 
 const ACTIVE_MS = 1_500;
 const IDLE_MS = 20_000;
+/** finished tracks are gathered this long before the data is read again */
+const FINISH_GATHER_MS = 3_000;
 export const DJ_ANALYSED_EVENT = 'soulsync:dj-analysed';
+
+/** Lists that show analysed tracks without naming them in their keys. */
+function listKey(k: readonly unknown[]): boolean {
+  if (k[0] === 'dj') return k[1] === 'status' || k[1] === 'browse';
+  if (k[0] === 'sets')
+    return k[1] === 'set' || k[1] === 'view' || k[1] === 'list' || k[1] === 'working';
+  return false;
+}
+
+/** a key part that's an id (a string or a number), else '' */
+function idPart(v: unknown): string {
+  return typeof v === 'string' || typeof v === 'number' ? String(v) : '';
+}
+
+/** Queries that name one of these tracks in their key. */
+function namesOne(k: readonly unknown[], ids: Set<string>): boolean {
+  if (k[0] === 'dj') {
+    // never Vibe, which would spend AI usage again
+    if (k[1] === 'tracks')
+      return idPart(k[2])
+        .split(',')
+        .some((id) => ids.has(id));
+    if (k[1] === 'mix' || k[1] === 'mixes') return ids.has(idPart(k[2]));
+    return false;
+  }
+  if (k[0] === 'automix' && k[1] === 'plan') return ids.has(idPart(k[2])) || ids.has(idPart(k[3]));
+  return false;
+}
 
 function active(e: AnalysisEntry | undefined): boolean {
   if (!e) return false;
@@ -251,6 +319,9 @@ class AnalysisStore {
   private inFlight = false;
   private again = false;
   private qc: QueryClient | null = null;
+  private done = new Set<string>();
+  private doneTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastRefresh = -Infinity;
 
   setQueryClient(qc: QueryClient): void {
     this.qc = qc;
@@ -297,6 +368,11 @@ class AnalysisStore {
         this.timer = null;
       }
     };
+  }
+
+  /** Whether a poll is waiting to run (for tests). */
+  get scheduled(): boolean {
+    return this.timer !== null;
   }
 
   pollSoon(): void {
@@ -351,7 +427,12 @@ class AnalysisStore {
       if (finished.length) this.finished(finished);
       else if (sweepWas?.running && sweepWas.done !== this.sweepState?.done && this.sweepWatchers)
         void this.qc?.invalidateQueries({ queryKey: ['dj', 'status'] });
-      if (ids.some((id) => active(this.entries.get(id))) || this.sweepState?.running)
+      // fast only while a watched track moves, or Activity's sweep row is
+      // open while the sweep runs; a sweep elsewhere doesn't speed up pages
+      if (
+        ids.some((id) => active(this.entries.get(id))) ||
+        (this.sweepWatchers > 0 && this.sweepState?.running)
+      )
         next = ACTIVE_MS;
       this.emit();
     } catch {
@@ -366,27 +447,47 @@ class AnalysisStore {
     if (this.watched.size || this.sweepWatchers) this.schedule(next);
   }
 
-  /** Tracks finished: their BPM, key, energy and chips are read again. */
+  /**
+   * Tracks finished: their BPM, key, energy and chips are read again, once
+   * for every few seconds of finishes (a sweep finishes one every few).
+   */
   private finished(ids: string[]): void {
+    for (const id of ids) this.done.add(id);
+    if (this.doneTimer) return;
+    const wait = this.lastRefresh + FINISH_GATHER_MS - now();
+    if (wait <= 0) this.refresh();
+    else
+      this.doneTimer = setTimeout(() => {
+        this.doneTimer = null;
+        this.refresh();
+      }, wait);
+  }
+
+  private refresh(): void {
+    const ids = new Set(this.done);
+    this.done.clear();
+    if (!ids.size) return;
+    this.lastRefresh = now();
     const qc = this.qc;
     if (qc) {
-      // the DJ data (rows, the Mix tab, browse), sets' rows and steps, and
-      // the auto-mix plans; never Vibe, which would spend AI usage again
+      // the rows, Mix tab and plans that name a finished track, and the
+      // lists that show them (browse, the sweep's status, sets' rows)
       void qc.invalidateQueries({
-        predicate: (q) => {
-          const k = q.queryKey;
-          return (k[0] === 'dj' && k[1] !== 'mix-vibe') || k[0] === 'sets' || k[0] === 'automix';
-        },
+        predicate: (q) => namesOne(q.queryKey, ids) || listKey(q.queryKey),
       });
     }
     if (typeof window === 'object')
-      window.dispatchEvent(new CustomEvent(DJ_ANALYSED_EVENT, { detail: { ids } }));
+      window.dispatchEvent(new CustomEvent(DJ_ANALYSED_EVENT, { detail: { ids: [...ids] } }));
   }
 
   /** For tests: forget everything. */
   reset(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    if (this.doneTimer) clearTimeout(this.doneTimer);
+    this.doneTimer = null;
+    this.done.clear();
+    this.lastRefresh = -Infinity;
     this.watched.clear();
     this.entries.clear();
     this.sweepWatchers = 0;

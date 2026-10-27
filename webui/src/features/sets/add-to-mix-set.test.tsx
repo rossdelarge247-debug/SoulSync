@@ -168,7 +168,7 @@ describe('Add to mix set…', () => {
     await waitFor(() => expect(posted.at(-1)?.path).toBe('sets/7/tracks'));
     expect(posted.at(-1)?.body).toEqual({ track_ids: ['4'], again: true });
     // analyse on demand: a track added to a mix set jumps the analysis queue
-    await waitFor(() => expect(analysed).toEqual([{ track_ids: ['4'] }]));
+    await waitFor(() => expect(analysed).toEqual([{ track_ids: ['4'], reason: 'auto' }]));
   });
 
   it('many: the choice opens in place, and a missing file is left out and said (28b)', async () => {

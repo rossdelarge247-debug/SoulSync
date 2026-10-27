@@ -508,7 +508,7 @@ describe('Analyse these (analyse on demand)', () => {
       expect(item.textContent).toContain('Analyse these');
       expect(item.getAttribute('title')).toContain('2 tracks · ones already done are skipped');
       fireEvent.click(item);
-      await waitFor(() => expect(asked).toEqual([{ track_ids: ['1', '2'] }]));
+      await waitFor(() => expect(asked).toEqual([{ track_ids: ['1', '2'], reason: 'asked' }]));
       await waitFor(() =>
         expect(toast).toHaveBeenCalledWith('2 tracks will be analysed next.', 'success'),
       );

@@ -511,6 +511,61 @@ describe('while the set plays (29b)', () => {
 });
 
 describe("29d's states", () => {
+  it('[review M1, M2] asks and watches only while the tab is shown, not for a track merely playing', async () => {
+    world.mixes['1'] = {
+      ...answer(track('1', 'Night Ferry', 'Tidewater', null), []),
+      reason: 'not_analyzed',
+    };
+    world.progress['1'] = { state: 'queued', position: 3, asked_for: true };
+    const polled: string[][] = [];
+    server.use(
+      http.post('/api/library/dj/progress', async ({ request }) => {
+        const ids = ((await request.json()) as { track_ids: string[] }).track_ids;
+        polled.push(ids);
+        return HttpResponse.json({
+          success: true,
+          tracks: { '1': world.progress['1'] },
+          sweep: { running: true, held: false, analyze: true, in_line: 1, yours: 1, current: null },
+        });
+      }),
+    );
+    const tray = document.getElementById('ss-player-tray')!;
+    tray.hidden = true;
+    mount();
+    const pause = () =>
+      act(async () => {
+        await new Promise((r) => setTimeout(r, 400));
+      });
+    await pause();
+    // the tray is shut: nothing asked, nothing watched
+    expect(world.analysed).toEqual([]);
+    expect(polled).toEqual([]);
+    // Now playing with the tray open: still nothing
+    act(() => {
+      tray.hidden = false;
+    });
+    await pause();
+    expect(world.analysed).toEqual([]);
+    expect(polled).toEqual([]);
+    // the Mix tab shown: asked for (automatically), and watched
+    fireEvent.click(
+      await within(document.querySelector<HTMLElement>('[data-player-modes="music"]')!).findByRole(
+        'tab',
+        { name: 'Mix' },
+      ),
+    );
+    await waitFor(() => expect(world.analysed).toEqual([{ track_ids: ['1'], reason: 'auto' }]));
+    await waitFor(() => expect(polled.flat()).toContain('1'));
+    // the tray shut again: the watch stops, so the poll does
+    act(() => {
+      tray.hidden = true;
+    });
+    await waitFor(() => expect(analysisStore.scheduled).toBe(false));
+    const seen = polled.length;
+    await pause();
+    expect(polled).toHaveLength(seen);
+  });
+
   it('not analysed yet: asked for at once (any profile), its step shows', async () => {
     world.mixes['1'] = {
       ...answer(track('1', 'Night Ferry', 'Tidewater', null), []),
@@ -520,7 +575,7 @@ describe("29d's states", () => {
     const mix = await openMix();
     expect(await mix.findByText('Night Ferry is being worked out')).toBeInTheDocument();
     // opening it asked for it: analyse on demand, not the admins' /start
-    await waitFor(() => expect(world.analysed).toEqual([{ track_ids: ['1'] }]));
+    await waitFor(() => expect(world.analysed).toEqual([{ track_ids: ['1'], reason: 'auto' }]));
     expect(world.started).toEqual([]);
     const bars = await mix.findAllByRole('progressbar', { name: 'Analysis of Night Ferry' });
     expect(bars[0]).toHaveAttribute('aria-valuenow', '60');
@@ -548,7 +603,7 @@ describe("29d's states", () => {
     fireEvent.click(await mix.findByRole('button', { name: 'Analyse this one now' }));
     // asks are a second apart (the server takes one a second a profile)
     await waitFor(() => expect(world.analysed).toHaveLength(2), { timeout: 4000 });
-    expect(world.analysed[1]).toEqual({ track_ids: ['1'] });
+    expect(world.analysed[1]).toEqual({ track_ids: ['1'], reason: 'asked' });
   });
 
   it('nothing fits: Widen the search asks for 10% and any key', async () => {

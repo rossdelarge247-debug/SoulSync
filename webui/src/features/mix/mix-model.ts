@@ -142,7 +142,11 @@ export function lastPlayable(rows: ViewRow[]): ViewRow | null {
 
 const ADDED_MS = 4_000;
 
-export function useMixModel(subject: TrackSubject | null, profileId: number | null) {
+export function useMixModel(
+  subject: TrackSubject | null,
+  profileId: number | null,
+  { shown = true }: { shown?: boolean } = {},
+) {
   const qc = useQueryClient();
   const state = useMixState();
   const subjectId = subject?.id ?? null;
@@ -356,9 +360,10 @@ export function useMixModel(subject: TrackSubject | null, profileId: number | nu
 
   const status = useQuery({ ...djStatusQueryOptions(), retry: false, enabled: Boolean(subject) });
   // analyse on demand: a track opened in the Mix tab jumps the queue (any
-  // profile; the server skips one that's done), and its progress shows
-  useAutoAnalyse([subjectId]);
-  const progressOf = useAnalysis([subjectId, seed?.id]);
+  // profile; the server skips one that's done), and its progress shows;
+  // only while the tab is shown, so a track merely playing asks nothing
+  useAutoAnalyse([subjectId], shown);
+  const progressOf = useAnalysis([subjectId, seed?.id], shown);
   const [analysing, setAnalysing] = useState(false);
   const analyse = useCallback(async () => {
     if (!subjectId) return;

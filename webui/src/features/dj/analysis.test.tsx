@@ -13,10 +13,16 @@ import { createTestQueryClient } from '@/test/query-client';
 
 import type { AnalyseAnswer, AnalysisEntry } from './analysis.api';
 
-import { AnalysisProgress, SweepProgress, useAnalysis } from './analysis-progress';
+import {
+  AnalysisProgress,
+  SweepProgress,
+  useAnalysis,
+  useAnalysisSweep,
+} from './analysis-progress';
 import {
   DJ_ANALYSED_EVENT,
   analysisStore,
+  postProgress,
   requestAnalysis,
   resetAnalysisRequests,
 } from './analysis.api';
@@ -216,14 +222,17 @@ describe('asking', () => {
       ),
     );
     const [a, b] = await Promise.all([requestAnalysis(['1', '2']), requestAnalysis(['2', '3'])]);
-    expect(bodies).toEqual([{ track_ids: ['1', '2', '3'] }]);
+    expect(bodies).toEqual([{ track_ids: ['1', '2', '3'], reason: 'auto' }]);
     expect(a?.queued).toBe(2);
     expect(b).toEqual(a);
     expect(await requestAnalysis(['1', '3'])).toBeNull();
     expect(bodies).toHaveLength(1);
     // Analyse these asks again whatever was asked
     await requestAnalysis(['1'], { force: true });
-    expect(bodies).toEqual([{ track_ids: ['1', '2', '3'] }, { track_ids: ['1'] }]);
+    expect(bodies).toEqual([
+      { track_ids: ['1', '2', '3'], reason: 'auto' },
+      { track_ids: ['1'], reason: 'asked' },
+    ]);
   });
 
   it("waits out the server's one request a second", async () => {
@@ -248,6 +257,60 @@ describe('asking', () => {
     const got = await requestAnalysis(['9']);
     expect(calls).toBe(2);
     expect(got?.queued).toBe(1);
+  });
+
+  it('[review M1] while Stop holds the sweeps an automatic ask is turned away quietly; a person’s goes in', async () => {
+    const bodies: { track_ids: string[]; reason: string }[] = [];
+    server.use(
+      http.post('/api/library/dj/analyse', async ({ request }) => {
+        const body = (await request.json()) as { track_ids: string[]; reason: string };
+        bodies.push(body);
+        if (body.reason !== 'asked')
+          return HttpResponse.json(
+            { success: false, code: 'held', error: 'Stopped by an admin' },
+            { status: 409 },
+          );
+        return HttpResponse.json(
+          { success: true, ...answer({ asked: 1, queued: 1, started: true }) },
+          { status: 202 },
+        );
+      }),
+      http.post('/api/library/dj/progress', () =>
+        HttpResponse.json({ success: true, tracks: {}, sweep: { running: false } }),
+      ),
+    );
+    // automatic: no error, nothing said, and not asked again in a while
+    expect(await requestAnalysis(['4'])).toBeNull();
+    expect(await requestAnalysis(['4'])).toBeNull();
+    expect(bodies).toEqual([{ track_ids: ['4'], reason: 'auto' }]);
+    // a person's ask (Analyse these, Analyse now, a lab pick) says so and goes in
+    const got = await requestAnalysis(['4'], { force: true });
+    expect(got?.queued).toBe(1);
+    expect(bodies[1]).toEqual({ track_ids: ['4'], reason: 'asked' });
+    const lab = await requestAnalysis(['5'], { reason: 'asked' });
+    expect(lab?.queued).toBe(1);
+    expect(bodies[2]).toEqual({ track_ids: ['5'], reason: 'asked' });
+  });
+
+  it('a person’s ask and an automatic one gathered together go in separate requests', async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post('/api/library/dj/analyse', async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(
+          { success: true, ...answer({ asked: 1, queued: 1 }) },
+          { status: 202 },
+        );
+      }),
+      http.post('/api/library/dj/progress', () =>
+        HttpResponse.json({ success: true, tracks: {}, sweep: { running: false } }),
+      ),
+    );
+    await Promise.all([requestAnalysis(['1']), requestAnalysis(['2'], { force: true })]);
+    expect(bodies).toEqual([
+      { track_ids: ['1'], reason: 'auto' },
+      { track_ids: ['2'], reason: 'asked' },
+    ]);
   });
 
   it('says why when analysis is off', async () => {
@@ -355,4 +418,139 @@ describe('the poll', () => {
     expect(asked[0]?.slice().sort()).toEqual(['1', '2']);
     expect(asked).toHaveLength(1);
   });
+
+  it('[review L4] more than 500 tracks: one request per 500, put back together', async () => {
+    const sizes: number[] = [];
+    server.use(
+      http.post('/api/library/dj/progress', async ({ request }) => {
+        const ids = ((await request.json()) as { track_ids: string[] }).track_ids;
+        sizes.push(ids.length);
+        return HttpResponse.json({
+          success: true,
+          tracks: Object.fromEntries(ids.map((id) => [id, { state: 'done' }])),
+          sweep: { running: false },
+        });
+      }),
+    );
+    const ids = Array.from({ length: 1200 }, (_, i) => String(i + 1));
+    const got = await postProgress(ids);
+    expect(sizes).toEqual([500, 500, 200]);
+    expect(Object.keys(got.tracks)).toHaveLength(1200);
+    expect(got.tracks['1200']).toEqual({ state: 'done' });
+  });
+
+  it('[review cleanup] the poll’s timer is cleared when the last row goes', async () => {
+    let polls = 0;
+    server.use(
+      http.post('/api/library/dj/progress', () => {
+        polls += 1;
+        return HttpResponse.json({
+          success: true,
+          tracks: { '1': { state: 'queued', position: 1, asked_for: true } },
+          sweep: { running: true },
+        });
+      }),
+    );
+    const view = render(<Rows ids={['1']} />);
+    await waitFor(() => expect(polls).toBe(1));
+    await waitFor(() => expect(analysisStore.scheduled).toBe(true));
+    view.unmount();
+    expect(analysisStore.scheduled).toBe(false);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 1700));
+    });
+    expect(polls).toBe(1);
+  });
+
+  it('[review M2] a sweep running elsewhere doesn’t speed up a page whose tracks are done', async () => {
+    let polls = 0;
+    server.use(
+      http.post('/api/library/dj/progress', () => {
+        polls += 1;
+        return HttpResponse.json({
+          success: true,
+          tracks: { '1': { state: 'done' } },
+          sweep: { running: true, total: 10, done: 2, current: null },
+        });
+      }),
+    );
+    const view = render(<Rows ids={['1']} />);
+    await waitFor(() => expect(polls).toBe(1));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 1800));
+    });
+    // the slow interval: no second poll within 1.5 s
+    expect(polls).toBe(1);
+    view.unmount();
+    // Activity's sweep row open: the sweep's progress is polled fast
+    function Sweep() {
+      useAnalysisSweep();
+      return null;
+    }
+    polls = 0;
+    const sweep = render(<Sweep />);
+    await waitFor(() => expect(polls).toBeGreaterThanOrEqual(2), { timeout: 4000 });
+    sweep.unmount();
+  }, 10_000);
+
+  it('[review M3] finishes are gathered, and only what shows those tracks is read again', async () => {
+    let polls = 0;
+    server.use(
+      http.post('/api/library/dj/progress', () => {
+        polls += 1;
+        const seven =
+          polls >= 2 ? { state: 'done' } : { state: 'working', step: 'grid', percent: 60 };
+        const eight =
+          polls >= 3 ? { state: 'done' } : { state: 'queued', position: 1, asked_for: true };
+        return HttpResponse.json({
+          success: true,
+          tracks: { '7': seven, '8': eight },
+          sweep: { running: true, total: 2, done: 0, current: null },
+        });
+      }),
+    );
+    const qc = createTestQueryClient();
+    const keys: unknown[][] = [
+      ['dj', 'tracks', '7,9'],
+      ['dj', 'tracks', '9'],
+      ['dj', 'mix', '7', null, false, null, null],
+      ['dj', 'mix', '9', null, false, null, null],
+      ['dj', 'mix-vibe', '7', null, false, null, null],
+      ['dj', 'mixes', '7', 'library'],
+      ['dj', 'status'],
+      ['dj', 'browse', 1, {}],
+      ['automix', 'plan', '7', '9', 'auto', 0, 'auto'],
+      ['automix', 'plan', '1', '2', 'auto', 0, 'auto'],
+      ['sets', 'set', 1, 3],
+      ['sets', 'famous', 'x'],
+    ];
+    for (const k of keys) qc.setQueryData(k, { x: 1 });
+    const finished: string[][] = [];
+    const onDone = (e: Event) => finished.push((e as CustomEvent<{ ids: string[] }>).detail.ids);
+    window.addEventListener(DJ_ANALYSED_EVENT, onDone);
+    try {
+      render(
+        <QueryClientProvider client={qc}>
+          <Rows ids={['7', '8']} />
+        </QueryClientProvider>,
+      );
+      await waitFor(() => expect(finished).toEqual([['7']]), { timeout: 4000 });
+      const stale = (k: unknown[]) => qc.getQueryState(k)?.isInvalidated ?? false;
+      expect(keys.filter(stale)).toEqual([
+        ['dj', 'tracks', '7,9'],
+        ['dj', 'mix', '7', null, false, null, null],
+        ['dj', 'mixes', '7', 'library'],
+        ['dj', 'status'],
+        ['dj', 'browse', 1, {}],
+        ['automix', 'plan', '7', '9', 'auto', 0, 'auto'],
+        ['sets', 'set', 1, 3],
+      ]);
+      // 8 finishes on the next poll; its refresh waits out the few seconds
+      await waitFor(() => expect(polls).toBeGreaterThanOrEqual(3), { timeout: 4000 });
+      expect(finished).toEqual([['7']]);
+      await waitFor(() => expect(finished).toEqual([['7'], ['8']]), { timeout: 4000 });
+    } finally {
+      window.removeEventListener(DJ_ANALYSED_EVENT, onDone);
+    }
+  }, 15_000);
 });

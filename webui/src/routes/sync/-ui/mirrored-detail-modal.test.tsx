@@ -511,7 +511,7 @@ describe('MirroredDetailModal — Analyse these (analyse on demand)', () => {
       const item = screen.getByRole('menuitem', { name: /Analyse these/ });
       expect(item.textContent).toContain('ones already done are skipped');
       fireEvent.click(item);
-      await waitFor(() => expect(asked).toEqual([{ playlist_id: 3 }]));
+      await waitFor(() => expect(asked).toEqual([{ playlist_id: 3, reason: 'asked' }]));
       await waitFor(() =>
         expect(toast).toHaveBeenCalledWith(
           '3 tracks will be analysed next. 2 tracks already done are skipped.',

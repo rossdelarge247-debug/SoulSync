@@ -331,7 +331,7 @@ describe('analyse on demand in Up next', () => {
 
   it("with DJ mix on, the queue's coming tracks jump the analysis queue", async () => {
     mount();
-    await waitFor(() => expect(asked).toEqual([{ track_ids: ['1', '2', '3'] }]));
+    await waitFor(() => expect(asked).toEqual([{ track_ids: ['1', '2', '3'], reason: 'auto' }]));
   });
 
   it('with DJ mix off nothing is asked for', async () => {

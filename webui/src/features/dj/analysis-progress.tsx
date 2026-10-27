@@ -14,6 +14,7 @@ import { useContext, useEffect, useMemo, useSyncExternalStore } from 'react';
 import {
   analysisStore,
   requestAnalysisQuietly,
+  type AnalyseReason,
   type AnalysisEntry,
   type AnalysisSweep,
 } from './analysis.api';
@@ -83,11 +84,15 @@ export function useAnalysisSweep(enabled = true): AnalysisSweep | null {
  * tracks someone needs analysed. Each is asked once in a while at most;
  * the server skips tracks already done.
  */
-export function useAutoAnalyse(ids: (string | number | null | undefined)[], enabled = true): void {
+export function useAutoAnalyse(
+  ids: (string | number | null | undefined)[],
+  enabled = true,
+  reason: AnalyseReason = 'auto',
+): void {
   const key = enabled ? idKey(ids) : '';
   useEffect(() => {
-    if (key) requestAnalysisQuietly(key.split(','));
-  }, [key]);
+    if (key) requestAnalysisQuietly(key.split(','), reason);
+  }, [key, reason]);
 }
 
 /** The bar and the words for one track; nothing once it's done. */

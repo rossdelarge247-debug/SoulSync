@@ -154,8 +154,9 @@ export default function AutomixLab() {
   const [prefs, setPrefs] = useState<CuePrefs>(() => readCuePrefs(browserStore(), support.device));
   const [devices, setDevices] = useState<{ id: string; label: string }[]>([]);
   const live = session.current?.status.stage === 'playing';
-  // analyse on demand: a track picked here jumps the queue (the pickers show its step)
-  useAutoAnalyse([outTrack?.id, inTrack?.id]);
+  // analyse on demand: a track picked here jumps the queue (the pickers show
+  // its step); a pick is a person asking, so it goes in even while held
+  useAutoAnalyse([outTrack?.id, inTrack?.id], true, 'asked');
   useTicker(live || session.current?.status.stage === 'loading');
 
   useEffect(() => {

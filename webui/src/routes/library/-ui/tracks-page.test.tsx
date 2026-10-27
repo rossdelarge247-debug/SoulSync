@@ -503,7 +503,7 @@ describe('Library → Tracks', () => {
     const item = await screen.findByRole('menuitem', { name: 'Analyse these' });
     expect(item.textContent).toContain('2 tracks · ones already done are skipped');
     fireEvent.click(item);
-    await waitFor(() => expect(analysed).toEqual([{ track_ids: ['1', '3'] }]));
+    await waitFor(() => expect(analysed).toEqual([{ track_ids: ['1', '3'], reason: 'asked' }]));
     await waitFor(() =>
       expect(window.showToast).toHaveBeenCalledWith(
         '1 track will be analysed next. 1 track already done is skipped.',

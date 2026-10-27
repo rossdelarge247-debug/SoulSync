@@ -60,7 +60,7 @@ import { LikedArt } from './playlist-art';
 async function analysePlaylist(id: number): Promise<void> {
   for (let tries = 0; ; tries += 1) {
     try {
-      const said = analyseTheseWords(await postAnalyse({ playlist_id: id }));
+      const said = analyseTheseWords(await postAnalyse({ playlist_id: id, reason: 'asked' }));
       window.showToast?.(said.words, said.tone);
       return;
     } catch (error) {

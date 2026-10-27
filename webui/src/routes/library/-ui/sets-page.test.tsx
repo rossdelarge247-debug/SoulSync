@@ -787,6 +787,7 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
     await waitFor(() =>
       expect(sent.filter((c) => c.path === '/api/library/dj/analyse')[0]?.body).toEqual({
         track_ids: ['1', '2', '3'],
+        reason: 'auto',
       }),
     );
     const row = (await screen.findByText('Finding phrases and sections · 85%')).closest('li')!;

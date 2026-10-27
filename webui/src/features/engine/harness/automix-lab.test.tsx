@@ -309,7 +309,7 @@ describe('analyse on demand in the lab', () => {
       target: { value: 'sand' },
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Pick Sand Script' }));
-    await waitFor(() => expect(asked).toEqual([{ track_ids: ['5'] }]));
+    await waitFor(() => expect(asked).toEqual([{ track_ids: ['5'], reason: 'asked' }]));
     expect((await screen.findAllByText('Finding the tempo · 20%')).length).toBeGreaterThan(0);
     analysisStore.reset();
   });
