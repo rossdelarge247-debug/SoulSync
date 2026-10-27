@@ -8,6 +8,7 @@ decoder's as the analysis's, on the same timeline."""
 from __future__ import annotations
 
 import io
+import os
 import shutil
 import threading
 
@@ -347,6 +348,17 @@ def test_one_profile_waits_for_its_own_window_but_not_for_anyone_else(monkeypatc
     assert window._owners == {}
 
 
+def test_a_profiles_second_window_is_told_when_to_ask_again(client):
+    """The per-profile 429 carries Retry-After, which the browser's loader
+    honours (re-review N2)."""
+    window._take(1)
+    try:
+        res = client.get("/api/library/dj/window/1?start=0&dur=1")
+        assert res.status_code == 429 and res.headers["Retry-After"] == "1"
+    finally:
+        window._give(1)
+
+
 def test_ffmpeg_runs_niced_and_seeks_just_before_the_window(monkeypatch, tmp_path):
     f = tmp_path / "t.flac"
     f.write_bytes(b"x")
@@ -363,7 +375,8 @@ def test_ffmpeg_runs_niced_and_seeks_just_before_the_window(monkeypatch, tmp_pat
     assert args[i + 1] == "file:" + str(f)  # a name never reads as an ffmpeg protocol
     early = command("ffmpeg", str(f), 2.5, 2.0, 48000)
     j = early.index("-i")
-    assert early[j - 1] == "0.000000" and early[j + 2:j + 4] == ["-ss", "2.500000"]
+    # in the first five seconds no quick seek at all (N3), only the exact one
+    assert "-ss" not in early[:j] and early[j + 2:j + 4] == ["-ss", "2.500000"]
 
 
 @needs_ffmpeg
@@ -379,26 +392,96 @@ def test_odd_file_names_are_files(tmp_path, files, name):
     assert data.shape == (SR, 2)
 
 
-@needs_ffmpeg
-@pytest.mark.parametrize("codec", [["-c:a", "flac"], ["-c:a", "libmp3lame", "-q:a", "2"],
-                                   ["-c:a", "libmp3lame", "-b:a", "192k"], ["-c:a", "libvorbis", "-q:a", "5"]],
-                         ids=["flac", "mp3_vbr", "mp3_cbr", "vorbis"])
-def test_a_late_window_is_on_the_analysis_timeline_to_the_sample(tmp_path, files, codec):
-    """The quick seek lands every sample where a decode from the start does."""
+def _encode(tmp_path, files, codec):
     import subprocess
 
+    ext = {"flac": "flac", "libmp3lame": "mp3", "libvorbis": "ogg", "aac": "m4a"}[codec[1]]
+    path = tmp_path / f"t.{ext}"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", files["flac"], *codec, str(path)], check=True)
+    return path
+
+
+def _lag(path, start):
+    """How far (samples) a window sits from where a decode from the file's start puts it, and the error there."""
     import soundfile as sf
 
     from core.sample.analyze import decode_mono_at
 
-    ext = {"flac": "flac", "libmp3lame": "mp3", "libvorbis": "ogg"}[codec[1]]
-    path = tmp_path / f"t.{ext}"
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", files["flac"], *codec, str(path)], check=True)
     whole, _ = decode_mono_at(str(path), SR)
-    start = 21.37
     data, _ = sf.read(io.BytesIO(bytes(window.decode(str(path), start, 3.0, SR))), dtype="float32", always_2d=True)
     part = data.mean(axis=1)
-    ref = whole[int(start * SR) - 200:int((start + 3) * SR) + 200]
-    scores = [float(np.dot(part[:SR], ref[k:k + SR])) for k in range(401)]
-    assert int(np.argmax(scores)) == 200
-    assert np.max(np.abs(part[SR // 2:2 * SR] - ref[200 + SR // 2:200 + 2 * SR])) < 2.0 / 32768
+    pad = 600
+    at = int(round(start * SR))
+    ref = np.concatenate([np.zeros(pad, np.float32), whole])[at:at + 3 * SR + 2 * pad]
+    seg = part[SR // 2:SR // 2 + SR]
+    scores = [float(np.dot(seg, ref[k + SR // 2:k + SR // 2 + SR])) for k in range(2 * pad + 1)]
+    lag = int(np.argmax(scores)) - pad
+    err = float(np.max(np.abs(seg - ref[pad + lag + SR // 2:pad + lag + SR // 2 + SR])))
+    return lag, err
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("codec", [["-c:a", "flac"], ["-c:a", "libmp3lame", "-q:a", "2"],
+                                   ["-c:a", "libmp3lame", "-b:a", "192k"], ["-c:a", "aac", "-b:a", "192k"]],
+                         ids=["flac", "mp3_vbr", "mp3_cbr", "aac"])
+@pytest.mark.parametrize("start", [0.0, 1.0, 3.0, 21.37])
+def test_a_window_is_on_the_analysis_timeline_to_the_sample(tmp_path, files, codec, start):
+    """The quick seek (only past the first five seconds: N3, an AAC file's
+    priming frame) lands every sample where a decode from the start does."""
+    lag, err = _lag(_encode(tmp_path, files, codec), start)
+    assert lag == 0 and err < 2.0 / 32768
+
+
+@needs_ffmpeg
+def test_a_vorbis_window_is_within_a_few_hundred_samples(tmp_path, files):
+    """ffmpeg trims Ogg packets so a Vorbis window can sit a few hundred
+    samples off (worst near the file's end); refine.py's ±25 ms takes it."""
+    path = _encode(tmp_path, files, ["-c:a", "libvorbis", "-q:a", "5"])
+    for start in (0.0, 3.0, 21.37, 26.0):
+        lag, _ = _lag(path, start)
+        assert abs(lag) <= 400
+
+
+def test_no_quick_seek_in_the_first_five_seconds():
+    for start in (0.0, 1.0, 4.99, 5.0):
+        args = window.command("ffmpeg", "/m/t.m4a", start, 2.0, 48000)
+        assert args.index("-ss") > args.index("-i")  # only the exact one, after the input
+    late = window.command("ffmpeg", "/m/t.m4a", 5.5, 2.0, 48000)
+    assert late.index("-ss") < late.index("-i")
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_a_flood_of_ffmpeg_errors_never_stalls_a_decode(tmp_path, monkeypatch, ok):
+    """ffmpeg writing more than a pipe holds to stderr (a damaged file): its
+    complaints go to a file, so the decode ends at once, not at the
+    deadline, and leaves no slot, reservation or file behind (N1)."""
+    import time
+
+    f = tmp_path / "noisy.mp3"
+    f.write_bytes(b"x")
+    _fake_ffmpeg(monkeypatch, "import sys\n"
+                              "for _ in range(1500): sys.stderr.write('[mp3] invalid frame ' * 40 + '\\n')\n"
+                              "sys.stderr.flush()\n"
+                              "sys.stdout.buffer.write(bytes(4000))\n"
+                              f"sys.exit({0 if ok else 1})\n")
+    fds = len(os.listdir("/proc/self/fd")) if os.path.isdir("/proc/self/fd") else None
+    started = time.monotonic()
+    if ok:
+        assert len(window.decode(str(f), 0.0, 1.0, 48000, owner=3)) == 44 + 4000
+    else:
+        with pytest.raises(window.WindowError, match="couldn't decode"):
+            window.decode(str(f), 0.0, 1.0, 48000, owner=3)
+    assert time.monotonic() - started < 10 < window.TIMEOUT_S
+    assert window._owners == {} and window._slots._value == window.MAX_RUNNING
+    if fds is not None:
+        assert len(os.listdir("/proc/self/fd")) == fds
+
+
+def test_ffmpeg_that_cant_start_gives_its_slot_back(tmp_path, monkeypatch):
+    f = tmp_path / "t.flac"
+    f.write_bytes(b"x")
+    monkeypatch.setattr("core.sample.analyze.ffmpeg_bin", lambda: "ffmpeg")
+    monkeypatch.setattr(window, "command", lambda *a, **k: [str(tmp_path / "no-such-ffmpeg")])
+    with pytest.raises(window.WindowError, match="couldn't start"):
+        window.decode(str(f), 0.0, 1.0, 48000, owner=4)
+    assert window._owners == {} and window._slots._value == window.MAX_RUNNING

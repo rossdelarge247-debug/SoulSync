@@ -29,6 +29,7 @@ import os
 import re
 import struct
 import subprocess
+import tempfile
 import threading
 from typing import Dict, Iterator, List, Optional, Tuple
 
@@ -161,7 +162,11 @@ def command(ffmpeg: str, path: str, start: float, dur: float, rate: int) -> List
     ffmpeg's protocols."""
     lead = min(start, SEEK_LEAD_S)
     seek = start - lead
-    return [ffmpeg, "-nostdin", "-v", "error", "-ss", f"{seek:.6f}", "-i", "file:" + os.path.abspath(path),
+    # no input seek at all for a window in the first seconds: even a seek to
+    # 0 makes ffmpeg drop an AAC file's priming frame, which a decode from
+    # the start keeps (gauntlet re-review N3)
+    quick = ["-ss", f"{seek:.6f}"] if seek > 0 else []
+    return [ffmpeg, "-nostdin", "-v", "error", *quick, "-i", "file:" + os.path.abspath(path),
             "-ss", f"{lead:.6f}", "-t", f"{dur:.6f}", "-map", "0:a:0", "-ac", str(CHANNELS), "-ar", str(rate),
             "-f", "s16le", "-acodec", "pcm_s16le", "-"]
 
@@ -184,10 +189,18 @@ def decode(path: str, start: float, dur: float, rate: int, *, owner: object = No
         block = CHANNELS * 2
         cap = int(math.ceil(dur * rate)) * block
         out = bytearray(HEADER_BYTES + cap)
-        # an argument list, no shell: ffmpeg's own path, a library file's
-        # path from the database (never from the request) and numbers
-        # parse_args has already checked
-        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # nosemgrep: dangerous-subprocess-use-audit
+        # ffmpeg's complaints go to a file, not a pipe nobody reads while it
+        # runs: a damaged file can print far more than a pipe holds, and
+        # ffmpeg would stop until the deadline (gauntlet re-review N1)
+        errors = tempfile.TemporaryFile()
+        try:
+            # an argument list, no shell: ffmpeg's own path, a library file's
+            # path from the database (never from the request) and numbers
+            # parse_args has already checked
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=errors)  # nosemgrep: dangerous-subprocess-use-audit
+        except OSError as exc:  # ffmpeg vanished or can't run
+            errors.close()
+            raise WindowError(f"ffmpeg couldn't start: {exc}") from exc
         try:
             os.setpriority(os.PRIO_PROCESS, proc.pid, NICE)
         except (AttributeError, OSError) as exc:  # not on this system, or it's gone already
@@ -212,13 +225,17 @@ def decode(path: str, start: float, dur: float, rate: int, *, owner: object = No
                 got += n
             view.release()  # the buffer can be trimmed once nothing points into it
             proc.stdout.read()  # anything past the window (a frame's rounding)
-            err = proc.stderr.read() if proc.stderr is not None else b""
             code = proc.wait()
+            errors.seek(0)
+            err = errors.read(300)
         finally:
             timer.cancel()
             if proc.poll() is None:
                 proc.kill()
                 proc.wait()
+            if proc.stdout is not None:
+                proc.stdout.close()
+            errors.close()
         if late.is_set():
             raise WindowError("decoding took too long")
         if code != 0:
