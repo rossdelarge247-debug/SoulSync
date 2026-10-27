@@ -185,7 +185,10 @@ def _out_point(track: Dict[str, Any], grid: Grid, style: str, bars: int) -> Dict
         # the latest phrase that still fits: the mix ends where the outro does
         bar, level = fits[-1]
     in_outro = region_start is not None and bar >= region_start
-    confidence = float(region["confidence"]) if (region and in_outro) else 0.3
+    # the window reaches into the outro (a long blend starts before it and
+    # ends with it): the outro's confidence; a window that never does, less
+    reaches = region_start is not None and bar + max(bars, 1) > region_start
+    confidence = float(region["confidence"]) if reaches else 0.3
     if not known:
         confidence = min(confidence, 0.4)
     return {"bar": int(bar), "level": int(level), "in_outro": bool(in_outro), "known": known,
