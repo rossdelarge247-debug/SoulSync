@@ -94,6 +94,10 @@ const SINGLES = [
     ago: 21 * DAY,
   }),
 ];
+// an hour ago, but always today (between midnight and 1am an hour back is
+// yesterday, and "Found today" would read "Found yesterday")
+const sinceMidnight = Date.now() - new Date(new Date().setHours(0, 0, 0, 0)).getTime();
+const FOUND_AGO = Math.min(3_600_000, Math.floor(sinceMidnight / 2));
 const FOUND = [
   {
     id: 'sb',
@@ -102,7 +106,7 @@ const FOUND = [
     album: 'Lantern',
     quality: 'FLAC 24/96',
     image: '',
-    found_at: new Date(Date.now() - 3_600_000).toISOString(),
+    found_at: new Date(Date.now() - FOUND_AGO).toISOString(),
     reason: 'download_complete',
   },
 ];

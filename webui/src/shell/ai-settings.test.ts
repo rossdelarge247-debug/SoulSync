@@ -37,7 +37,12 @@ function mount() {
 }
 
 const NOW = new Date();
-const iso = (msAgo: number) => new Date(NOW.getTime() - msAgo).toISOString();
+// so long ago, but never before this morning's midnight: the key's line
+// says "today" for both times, also when the suite runs between midnight
+// and 1am (it runs in Los Angeles time)
+const SINCE_MIDNIGHT = NOW.getTime() - new Date(NOW).setHours(0, 0, 0, 0);
+const iso = (msAgo: number) =>
+  new Date(NOW.getTime() - Math.min(msAgo, Math.floor(SINCE_MIDNIGHT / 2))).toISOString();
 
 function settings(over: Partial<AiSettings> = {}): AiSettings {
   return {

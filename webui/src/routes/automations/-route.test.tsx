@@ -829,7 +829,10 @@ describe('automation editor', () => {
     expect(body.then_actions.map((t) => t.type)).toEqual(['fire_signal', 'discord_webhook']);
     expect(body.then_actions[0].config).toEqual({ signal_name: 'library_ready' });
     expect(body).not.toHaveProperty('assistant_draft');
-  });
+    // the whole editor mounts and every block is typed into: on a slow or
+    // busy runner it can pass 15 s, so this one has more time; the steps and
+    // what's saved are checked the same
+  }, 45_000);
 
   it('reorders the Then blocks by dragging, and from the handle with the keyboard', async () => {
     const calls = mockApi();

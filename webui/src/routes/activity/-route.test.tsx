@@ -13,11 +13,15 @@ import { RANGE_STORAGE_KEY, localMidnight } from './-activity.helpers';
 
 const NOW_S = Math.floor(Date.now() / 1000);
 const HOUR = 3600;
+// "an hour ago", but never before this morning's midnight: run between
+// midnight and 1am, an hour back is yesterday and Today's heading would
+// be missing (the suite runs in Los Angeles time)
+const RECENT = Math.min(HOUR, Math.floor((NOW_S - localMidnight()) / 2));
 
 function item(over: Partial<ActivityItem>): ActivityItem {
   return {
     id: 'lh:1',
-    time: NOW_S - HOUR,
+    time: NOW_S - RECENT,
     kind: 'download',
     status: 'ok',
     title: 'Downloaded 12 tracks',
