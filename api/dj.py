@@ -35,6 +35,24 @@ GET  /api/library/dj/mixes/<track_id>
     track), ``set_at`` (while the set plays: the number Add puts tracks
     after; the direction is read from the tracks up to it) and ``limit``
     (5 by default then). Without them the answer is as before.
+GET  /api/library/dj/grid/<track_id>
+    Auto-mix stage A: the track's beat grid (BPM, the first beat and the
+    period, or its beats when the tempo drifts), downbeats, phrases,
+    sections, the mix-in and mix-out regions, loudness and how sure each is
+    (core/dj/grid_store.py ``public``); ``analyzed: false`` with ``reason``
+    (``not_analyzed`` …) when there's none yet. 404 outside the library.
+POST /api/library/dj/grids
+    ``{track_ids: [...]}`` (up to 50, body at most 8 KB; a queue's tracks)
+    -> ``{grids: {id: grid}}``, the same shape without drifting tracks' beat
+    lists unless ``beats: true``. Ids outside the library are left out.
+GET  /api/library/dj/plan?from=<id>&to=<id>&style=&bars=
+    The pair planner (core/dj/planner.py): where the outgoing track's mix
+    starts (a phrase in its outro), where the incoming one starts (its
+    intro's downbeat), the tempo ratio, whether it can be beat-matched, Auto's
+    pick and why, or the crossfade fallback with its reason; ``waiting``
+    while either isn't analysed. ``style`` one of auto (the default),
+    long_blend, short_blend, bass_swap, cut, echo_out, filter_sweep,
+    drop_swap; ``bars`` 2, 4, 8, 16 or 32.
 POST /api/library/dj/mixes/<track_id>/vibe
     Vibe (29a): the ranked top 20 re-ordered for feel by the AI provider
     (core/dj/vibe.py); 403 with ``code`` when the AI is off for this profile
@@ -133,12 +151,16 @@ def dj_status():
     database = get_database()
     try:
         counts = store.counts(database, worker.analyzer_version())
+        from core.dj import grid_store
+
+        grids = grid_store.counts(database)
         job = worker.public_state(database)
     except Exception as exc:  # noqa: BLE001
         logger.error("DJ status failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
     admin = bool(_is_admin())
-    return _no_store({"success": True, "settings": worker.settings_state(), "counts": counts, "job": job,
+    return _no_store({"success": True, "settings": worker.settings_state(), "counts": counts, "grids": grids,
+                      "job": job,
                       "held": worker.JOB.held, "analyzer_version": worker.analyzer_version(),
                       "can_start": admin, "can_stop": admin})
 
@@ -274,6 +296,99 @@ def dj_mixes(track_id: str):
     if result.get("track") is None:
         return jsonify({"success": False, "error": "That track isn't in your library"}), 404
     return jsonify({"success": True, **result})
+
+
+# ── Auto-mix stage A: grids and the pair planner ──────────────────────────────
+
+#: the batch form's body: 50 ids fit in far less
+MAX_GRIDS_BODY = 8 * 1024
+#: and its cap
+MAX_GRIDS = 50
+
+
+def _track_for_plan(entry: dict, track_id: str, *, with_beats: bool = True) -> dict:
+    """A scoped row (grid_store.scoped_rows) as the planner's track: the
+    public grid with the DJ data's BPM and key, the length and the title."""
+    from core.dj import grid_store
+
+    shaped = grid_store.public(entry.get("grid"), track_id, with_beats=with_beats)
+    return {**shaped, "dj_bpm": entry.get("bpm"), "key": entry.get("key"), "duration_s": entry.get("duration_s"),
+            "title": entry.get("title")}
+
+
+@bp.route("/api/library/dj/grid/<track_id>", methods=["GET"])
+def dj_grid(track_id: str):
+    if get_current_profile_id() is None:
+        return _no_profile()
+    from core.dj import grid_store
+
+    tid = str(track_id)[:128]
+    try:
+        found = grid_store.scoped_rows(get_database(), [tid])
+    except Exception as exc:  # noqa: BLE001
+        logger.error("DJ grid failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    if tid not in found:
+        return jsonify({"success": False, "error": "That track isn't in your library"}), 404
+    return jsonify({"success": True, "grid": grid_store.public(found[tid]["grid"], tid)})
+
+
+@bp.route("/api/library/dj/grids", methods=["POST"])
+def dj_grids():
+    if get_current_profile_id() is None:
+        return _no_profile()
+    body, refused = _read_json_capped(MAX_GRIDS_BODY)
+    if refused is not None:
+        return refused
+    if not isinstance(body, dict) or not isinstance(body.get("track_ids"), list):
+        return jsonify({"success": False, "error": "track_ids must be a list"}), 400
+    raw = body["track_ids"]
+    if len(raw) > MAX_GRIDS:
+        return jsonify({"success": False, "error": f"At most {MAX_GRIDS} tracks at a time"}), 400
+    ids = list(dict.fromkeys(str(t)[:128] for t in raw
+                             if isinstance(t, (str, int)) and not isinstance(t, bool) and str(t)))
+    from core.dj import grid_store
+
+    try:
+        found = grid_store.scoped_rows(get_database(), ids)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("DJ grids failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    with_beats = body.get("beats") is True
+    return jsonify({"success": True, "grids": {i: grid_store.public(found[i]["grid"], i, with_beats=with_beats)
+                                               for i in ids if i in found}})
+
+
+@bp.route("/api/library/dj/plan", methods=["GET"])
+def dj_plan():
+    if get_current_profile_id() is None:
+        return _no_profile()
+    from core.dj import grid_store, planner
+
+    out_id = (request.args.get("from") or "").strip()[:128]
+    in_id = (request.args.get("to") or "").strip()[:128]
+    if not out_id or not in_id:
+        return jsonify({"success": False, "error": "from and to are needed"}), 400
+    style = (request.args.get("style") or "auto").strip()
+    if style not in planner.STYLES:
+        return jsonify({"success": False, "error": "style must be one of " + ", ".join(planner.STYLES)}), 400
+    bars = None
+    if request.args.get("bars") not in (None, ""):
+        bars = _whole_arg("bars")
+        if bars not in planner.BARS:
+            return jsonify({"success": False, "error": "bars must be 2, 4, 8, 16 or 32"}), 400
+    try:
+        found = grid_store.scoped_rows(get_database(), [out_id, in_id])
+        if out_id not in found or in_id not in found:
+            return jsonify({"success": False, "error": "That track isn't in your library"}), 404
+        result = planner.plan(_track_for_plan(found[out_id], out_id), _track_for_plan(found[in_id], in_id),
+                              style=style, bars=bars)
+    except planner.PlanError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        logger.error("DJ plan failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    return jsonify({"success": True, "from": out_id, "to": in_id, "plan": result})
 
 
 #: Vibe's request body: a set id and a flag fit in far less
