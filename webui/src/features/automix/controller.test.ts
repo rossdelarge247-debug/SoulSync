@@ -997,3 +997,65 @@ describe('[gauntlet L3] the tick runs only while there is something to watch', (
     on.ctl.stop();
   });
 });
+
+// the planner's own shapes (core/dj/planner.py): a waiting plan has no
+// places at all, a crossfade's outgoing start can be null
+function serverWaiting(over: Partial<PairPlan> = {}): PairPlan {
+  const { out: _o, in: _i, ...rest } = okPlan();
+  return {
+    ...rest,
+    status: 'waiting',
+    style: null,
+    bars: null,
+    length_s: undefined,
+    waiting_for: 'to',
+    reason: 'analyzing',
+    why: 'Waiting for the analysis',
+    ...over,
+  };
+}
+
+describe('[gauntlet lab] every plan status, as the server sends it', () => {
+  it('waiting (no out, no in): planned, ticked to the end, Mix now and the view never throw', async () => {
+    const h = harness({ plan: serverWaiting() });
+    for (const t of [10, 100, 250, OUT - 20, OUT - 2, OUT + 5, 295]) {
+      await at(h, t);
+      expect(() => h.ctl.getView()).not.toThrow();
+    }
+    expect(h.ctl.getView().stage).not.toBe('mixing');
+    expect(h.ctl.ownsAdvance()).toBe(false);
+    expect(() => h.ctl.key('X')).not.toThrow();
+    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toEqual({ seconds: 6 });
+    expect(h.window).not.toHaveBeenCalled();
+    expect(h.el.muted).toBe(false);
+  });
+
+  it('crossfade with no outgoing start: crossfades at the player’s own place', async () => {
+    const { out: _o, ...rest } = okPlan();
+    const h = harness({
+      plan: {
+        ...rest,
+        status: 'crossfade',
+        style: 'crossfade',
+        bars: null,
+        beatmatch: false,
+        out: { start: null, bar: null, end: null },
+        in: { start: 1.5, bar: null },
+        length_s: 6,
+        fallback: { kind: 'crossfade', code: 'no_beat', reason: 'no steady beat' },
+      },
+    });
+    for (const t of [100, 250, 295]) {
+      await at(h, t);
+      expect(() => h.ctl.getView()).not.toThrow();
+    }
+    const hint = h.ctl.crossfade(h.st.queue[0], h.st.queue[1]);
+    expect(hint?.startAt).toBeUndefined();
+    expect(hint?.inAt).toBe(1.5);
+    expect(h.ctl.ownsAdvance()).toBe(false);
+  });
+
+  it('Mix now on a plan with no places: nothing moved', () => {
+    expect(mixNowPlan(serverWaiting(), GA, [], 30, 300)).toBeNull();
+  });
+});

@@ -139,7 +139,7 @@ export function TransitionChip({
     : plan
       ? compact
         ? chipWhyShort(plan, t)
-        : chipWhy(plan, t, to)
+        : chipWhy(plan, t, to, from)
       : who;
   return (
     <span className={sets.chipWrap} data-dimmed={dimmed ? '' : undefined}>

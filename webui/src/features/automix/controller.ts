@@ -46,10 +46,15 @@
 
 import type { BeatClock, Knot } from '@/features/engine/clock';
 import type { DeckData, DeckReport } from '@/features/engine/engine';
-import type { TransitionInput, TransitionState } from '@/features/engine/executor';
 import type { ApiGrid, BeatGrid } from '@/features/engine/grid';
 import type { DeckId, Score } from '@/features/engine/score';
 
+import {
+  isPlaced,
+  type PlacedPlan,
+  type TransitionInput,
+  type TransitionState,
+} from '@/features/engine/executor';
 import { gridFromApi, relativeTrimDb } from '@/features/engine/grid';
 import { correction, onsets } from '@/features/engine/refine';
 import { windowLevels, windowsFor, type Windows } from '@/features/engine/windows';
@@ -336,7 +341,8 @@ export function mixNowPlan(
   position: number,
   duration: number,
   lead = MIX_NOW_LEAD_S,
-): PairPlan | null {
+): (PairPlan & PlacedPlan) | null {
+  if (!isPlaced(plan)) return null;
   const earliest = position + lead;
   const barOf = (t: number) => Math.ceil((gridA.beatAt(t) - gridA.downbeatIndex) / 4 - 1e-6);
   let bar: number | null = null;
@@ -482,7 +488,7 @@ export class AutomixController {
       next.pair?.choice.bars,
       next.plan ? 1 : 0,
       next.plan?.status,
-      next.plan?.out.start,
+      next.plan?.out?.start,
       next.planError,
       next.loadError,
       next.inSeconds === null ? '' : Math.round(next.inSeconds),
@@ -740,7 +746,12 @@ export class AutomixController {
       return;
     }
     const armed = p.manual || p.forced || prefs.auto;
-    const plan = p.effective ?? p.plan;
+    // a plan without its places (waiting) has nothing to arm
+    const plan = this.placedPlan(p);
+    if (!plan) {
+      this.emit();
+      return;
+    }
     const outStart = plan.out.start;
     if (!armed || outStart == null || el.paused || (el.playbackRate ?? 1) !== 1) {
       this.emit();
@@ -797,7 +808,8 @@ export class AutomixController {
       if (this.pending !== p) return;
       const gridA = gridFromApi(p.grids[p.fromId]);
       const gridB = gridFromApi(p.grids[p.toId]);
-      const plan = p.effective ?? p.plan!;
+      const plan = this.placedPlan(p);
+      if (!plan) throw new Error('the plan has no place for the mix');
       const w = windowsFor(plan, gridA, gridB, PREROLL_BARS);
       const A = await this.svc.window(engine.context, p.fromId, w.a.start, w.a.dur);
       if (this.pending !== p) return;
@@ -914,7 +926,11 @@ export class AutomixController {
     const d = p.decks;
     if (!engine || !el || !d) return;
     const ctx = engine.context;
-    const plan = p.effective ?? p.plan!;
+    const plan = this.placedPlan(p);
+    if (!plan) {
+      p.missed = 'the plan has no place for the mix';
+      return;
+    }
     const T = ctx.currentTime + AHEAD_S;
     const from = el.currentTime + AHEAD_S;
     if (from < d.w.a.start || from > d.w.a.start + d.w.a.dur - 1) {
@@ -1241,7 +1257,7 @@ export class AutomixController {
       // waiting or a crossfade: a crossfade now (26e's fallback line says why)
       const hint: CrossfadeHint = {
         seconds: p.plan.length_s ?? 6,
-        inAt: p.plan.status === 'crossfade' ? p.plan.in.start : 0,
+        inAt: p.plan.status === 'crossfade' ? (p.plan.in?.start ?? 0) : 0,
       };
       if (this.player.crossfadeInto(pair.toIndex, hint)) {
         p.crossfaded = true;
@@ -1438,7 +1454,7 @@ export class AutomixController {
     }
     const el = this.boundEl;
     if (p && el && !this.engineOwns()) {
-      const out = (p.effective ?? p.plan)?.out.start;
+      const out = (p.effective ?? p.plan)?.out?.start;
       // sent back before the mix: it can happen again
       if (out != null && el.currentTime < out - this.leadSeconds(p) - 1) {
         p.missed = null;
@@ -1462,9 +1478,9 @@ export class AutomixController {
       if (p.plan.status === 'crossfade') {
         const gain = gainFromTrim(this.smartTrim(p));
         return {
-          startAt: p.plan.out.start ?? undefined,
+          startAt: p.plan.out?.start ?? undefined,
           seconds: p.plan.length_s ?? 6,
-          inAt: p.plan.in.start,
+          inAt: p.plan.in?.start ?? 0,
           gain,
         };
       }
@@ -1570,6 +1586,12 @@ export class AutomixController {
     }, SMART_PEAK_RETRY_MS);
   }
 
+  /** the pair's plan with its places, or null (a waiting plan has none) */
+  private placedPlan(p: Pending): (PairPlan & PlacedPlan) | null {
+    const plan = p.effective ?? p.plan;
+    return isPlaced(plan) ? plan : null;
+  }
+
   // ── the view ──
 
   private buildLanes(
@@ -1589,7 +1611,8 @@ export class AutomixController {
     const step = 0.05;
     const levelsA = new Float32Array(n);
     const levelsB = new Float32Array(n);
-    const plan = p.effective ?? p.plan!;
+    const plan = this.placedPlan(p);
+    if (!plan) return null;
     const per = PER[plan.tempo?.relation ?? 'same'];
     const gA = d.gridA;
     const gB = d.gridB;
@@ -1640,7 +1663,7 @@ export class AutomixController {
         }
       : null;
     const plan = p ? (p.effective ?? p.plan) : null;
-    const outStart = plan?.status === 'ok' ? (plan.out.start ?? null) : null;
+    const outStart = plan?.status === 'ok' ? (plan.out?.start ?? null) : null;
     const pos = el ? el.currentTime : 0;
     const t = this.transition;
     const ts = t ? t.state() : null;

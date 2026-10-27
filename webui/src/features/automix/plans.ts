@@ -28,7 +28,10 @@ export interface Choice {
 export const AUTO_CHOICE: Choice = { style: 'auto', bars: null };
 
 export interface PairPlan extends Plan {
-  tempo?: Plan['tempo'] & { from_bpm?: number; to_bpm?: number; gap_pct?: number };
+  /** null where a tempo isn't known (the planner's own null) */
+  tempo?:
+    | (NonNullable<Plan['tempo']> & { from_bpm?: number; to_bpm?: number; gap_pct?: number })
+    | null;
   key?: { from: string | null; to: string | null; relation: string };
   /** Auto's lean (26h) moved Auto's own pick */
   leaned?: boolean;
@@ -147,10 +150,17 @@ export function chipWhy(
   plan: PairPlan | null | undefined,
   choice: Choice,
   toTitle: string,
+  fromTitle = '',
 ): string {
   const who = choice.style === 'auto' ? 'auto' : 'yours';
   if (!plan) return who;
-  if (plan.status === 'waiting') return `${toTitle || 'It'} is being analysed`;
+  if (plan.status === 'waiting') {
+    // the track it's waiting for (the planner's waiting_for), and why
+    const title = (plan.waiting_for === 'from' ? fromTitle : toTitle) || 'It';
+    return plan.reason === 'not_analyzed'
+      ? `${title} isn't analysed yet`
+      : `${title} is being analysed`;
+  }
   if (plan.status === 'crossfade')
     return `couldn't beat-match: ${plan.fallback?.reason ?? 'no steady beat'}`;
   const pair = plan.pair ?? '';
