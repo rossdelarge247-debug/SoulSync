@@ -74,6 +74,11 @@ UNREACHABLE_RETRY_SECONDS = 24 * 3600.0
 RECENT_SECONDS = 24 * 3600
 #: this many failures in a row (not missing files) and the sweep stops
 MAX_ERRORS_IN_A_ROW = 25
+#: this many beat grids failing in a row and the sweep stops looking for
+#: grids (BPM, key and energy carry on); the next sweep looks again
+MAX_GRID_ERRORS_IN_A_ROW = 25
+#: the run's note when it stopped looking for grids (Activity says so)
+GRIDS_PAUSED = "grids_paused"
 #: tracks longer than this, or files bigger than this, are skipped as "too
 #: long to analyse" (a DJ mix or a whole-album rip): a set's tracks are
 #: minutes long, and decoding hours of audio on a laptop is all cost
@@ -374,11 +379,14 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
                   notify: Callable[[int], None] = _notify_rescan,
                   may_write: Callable[[], bool] = lambda: True,
                   library_roots: Callable[[], List[str]] = library_roots,
-                  analyze_grid: Callable[..., Dict[str, Any]] = _default_grid) -> str:
+                  analyze_grid: Callable[..., Dict[str, Any]] = _default_grid,
+                  find_grid: bool = True) -> str:
     """Analyse one library track and keep its DJ data and its beat grid
     (a track whose DJ data is already done for this file only gets its grid:
     the top-up). ``grid_error``, ``done_grid_error`` or ``tagged_grid_error``
-    when the grid failed (the DJ data is kept). Returns ``done``
+    when the grid failed (the DJ data is kept). With ``find_grid`` False
+    (the sweep stopped looking for grids) no grid is looked for, and a
+    top-up is ``grid_paused``. Returns ``done``
     (``tagged`` when BPM or key went into the file too), ``unreachable``,
     ``skipped`` (too long), ``error``, ``deferred`` (a drive move or a tag
     write started before the file could be written: back in the queue) or
@@ -416,6 +424,8 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
     sig = source_signature(path)
     if top_up and dj_row.get("source_sig") == sig:
         if not grid_store.current(grid_store.get(database, track_id), sig):
+            if not find_grid:
+                return "grid_paused"
             found = _find_grid(database, track_id, path, sig, audio=None, bpm_hint=dj_row.get("bpm"),
                                analyze_grid=analyze_grid)
             if found == "error":
@@ -487,7 +497,7 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
         values.update(tags_written=",".join(written), tags_written_at=time.time())
     store.save(database, track_id, values)
     grid_failed = False
-    if _grid_due(grid_store.get(database, track_id), sig):
+    if find_grid and _grid_due(grid_store.get(database, track_id), sig):
         grid_failed = _find_grid(database, track_id, path, sig, audio=audio, bpm_hint=values.get("bpm"),
                                  analyze_grid=analyze_grid) == "error"
     del audio
@@ -661,6 +671,7 @@ class DjAnalysisJob:
                 run_id = int(cur.lastrowid)
             self._state = {"id": run_id, "status": "running", "profile_id": int(profile_id), "total": len(ids),
                            "done": 0, "failed": 0, "unreachable": 0, "skipped": 0, "tags_written": 0, "started_at": started,
+                           "grid_failed": 0, "grids_paused": False,
                            "waiting": None, "current": None, "manual": bool(manual)}
             state = dict(self._state)
         if background:
@@ -739,6 +750,10 @@ class DjAnalysisJob:
         lower_priority()
         status, note = "done", None
         errors_in_a_row = 0
+        # the beat grids fail on their own count: a run of them stops only
+        # the looking for grids, never BPM, key and energy (re-review L3)
+        grid_errors_in_a_row = 0
+        find_grid = True
         try:
             for track_id in self._ordered(ids):
                 if self._stop.is_set() or not self._settings().get("analyze", True):
@@ -754,21 +769,31 @@ class DjAnalysisJob:
                 try:
                     outcome = self._process(database, track_id, write_tags=prefs.get("write_tags", False),
                                             overwrite_tags=prefs.get("overwrite_tags", False),
-                                            may_write=lambda: self._wait_reason(database) is None)
+                                            may_write=lambda: self._wait_reason(database) is None,
+                                            find_grid=find_grid)
                 finally:
                     self._in_track.clear()
                 took = time.monotonic() - started
                 if outcome in ("grid_error", "done_grid_error", "tagged_grid_error"):
-                    # the beat grid failed (the DJ data, if any, is kept)
-                    errors_in_a_row += 1
-                    self._bump("failed")
+                    # the DJ data is kept (or was already there): the track is
+                    # done, and its grid counts on its own
+                    if outcome != "grid_error":
+                        errors_in_a_row = 0
+                    self._bump("done")
+                    self._bump("grid_failed")
                     if outcome == "tagged_grid_error":
                         self._bump("tags_written")
-                    if errors_in_a_row >= MAX_ERRORS_IN_A_ROW:
-                        status, note = "failed", f"{MAX_ERRORS_IN_A_ROW} tracks in a row couldn't be analysed"
-                        break
+                    grid_errors_in_a_row += 1
+                    if grid_errors_in_a_row >= MAX_GRID_ERRORS_IN_A_ROW and find_grid:
+                        find_grid = False
+                        self._update(grids_paused=True)
+                        logger.info("[Library] DJ analysis: %s beat grids in a row failed; grids wait for the next "
+                                    "sweep", MAX_GRID_ERRORS_IN_A_ROW)
+                elif outcome == "grid_paused":
+                    pass  # its grid waits for the next sweep
                 elif outcome in ("done", "tagged"):
                     errors_in_a_row = 0
+                    grid_errors_in_a_row = 0
                     self._bump("done")
                     if outcome == "tagged":
                         self._bump("tags_written")
@@ -794,6 +819,10 @@ class DjAnalysisJob:
         except Exception as exc:  # noqa: BLE001 - a broken sweep says so in Activity
             logger.error("DJ analysis sweep failed: %s", exc, exc_info=True)
             status, note = "failed", "Something went wrong; the log has the details."
+        with self._lock:
+            paused = bool((self._state or {}).get("grids_paused"))
+        if note is None and paused:
+            note = GRIDS_PAUSED
         self._update(status=status, note=note, finished_at=_now(), current=None, waiting=None)
         self._save(database, final=True)
         with self._lock:
@@ -862,7 +891,8 @@ def public_state(database, job: DjAnalysisJob = JOB, *, now: Optional[int] = Non
     live = job.live()
     if live:
         return {k: live.get(k) for k in ("id", "status", "total", "done", "failed", "unreachable", "skipped",
-                                         "tags_written", "started_at", "waiting", "current")} | {"recent": True}
+                                         "tags_written", "started_at", "waiting", "current", "grid_failed",
+                                         "grids_paused")} | {"recent": True}
     row = last_run(database)
     if not row:
         return None
@@ -873,9 +903,38 @@ def public_state(database, job: DjAnalysisJob = JOB, *, now: Optional[int] = Non
             "failed": row["failed"], "tags_written": row.get("found_releases") or 0,
             "unreachable": row.get("found_artists") or 0, "started_at": row["started_at"],
             "finished_at": row.get("finished_at"), "note": row.get("note"),
+            "grid_failed": grid_failed_in(database, row), "grids_paused": row.get("note") == GRIDS_PAUSED,
             "recent": bool(row.get("finished_at")) and t - int(row.get("finished_at") or 0) < RECENT_SECONDS}
 
 
-__all__ = ["DECODE_SECONDS", "JOB", "JobRunning", "KIND", "MAX_BYTES", "MAX_SECONDS", "DjAnalysisJob", "busy_reason",
+def grid_failed_in(database, row: Dict[str, Any]) -> int:
+    """How many tracks a finished run kept the DJ data of but found no beat
+    grid for: their grid rows it marked ``error`` while it ran (library_jobs
+    has no column for it; a grid found again since no longer counts)."""
+    try:
+        with closing(database._get_connection()) as conn:
+            return grid_failed_count(conn, row)
+    except Exception as exc:  # noqa: BLE001 - no grid table yet reads as none
+        logger.debug("grid failures unreadable: %s", exc)
+        return 0
+
+
+def grid_failed_count(conn, row: Dict[str, Any]) -> int:
+    """grid_failed_in on an open connection (Activity's)."""
+    try:
+        start = float(row.get("started_at") or 0)
+        end = float(row.get("finished_at") or _now()) + 1
+        found = conn.execute(
+            "SELECT COUNT(*) FROM track_grid g JOIN track_dj d ON d.track_id = g.track_id "
+            "WHERE g.status = 'error' AND d.status = 'done' AND g.analyzed_at >= ? AND g.analyzed_at <= ? "
+            "AND COALESCE(g.reason, '') NOT LIKE 'SYNCHRO.S stopped%'", (start, end)).fetchone()
+        return int(found[0] or 0) if found else 0
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("grid failures unreadable: %s", exc)
+        return 0
+
+
+__all__ = ["DECODE_SECONDS", "GRIDS_PAUSED", "JOB", "MAX_GRID_ERRORS_IN_A_ROW", "grid_failed_count",
+           "grid_failed_in", "JobRunning", "KIND", "MAX_BYTES", "MAX_SECONDS", "DjAnalysisJob", "busy_reason",
            "library_away", "library_roots", "process_track", "public_state", "register_busy", "settings_state",
            "start_scheduler", "stop_scheduler", "write_allowed"]

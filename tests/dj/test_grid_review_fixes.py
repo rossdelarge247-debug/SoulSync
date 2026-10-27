@@ -206,7 +206,10 @@ def test_m3_a_whole_track_is_kept_to_its_analysed_length():
 
 # ── L-a: grid failures count, and are tried again ────────────────────────────
 
-def test_l_a_grid_failures_count_toward_the_run_of_failures(db):
+def test_l_a_grid_failures_are_counted_on_their_own(db):
+    """(Changed by the re-review's L3.) A grid that fails is counted as a
+    grid failure; the track is done, since its DJ data was kept, and a run
+    of them never ends the sweep for BPM and key."""
     for i in range(1, worker.MAX_ERRORS_IN_A_ROW + 4):
         _track(db, i, f"T{i}", f"/m/{i}.flac")
     job = worker.DjAnalysisJob(process=lambda d, t, **kw: "grid_error", busy=lambda d: None, away=lambda: False,
@@ -214,7 +217,8 @@ def test_l_a_grid_failures_count_toward_the_run_of_failures(db):
                                sleep_floor=0, rest_factor=0)
     job.start(db, 1, background=False)
     state = worker.public_state(db, job)
-    assert state["status"] == "failed" and state["failed"] == worker.MAX_ERRORS_IN_A_ROW
+    assert state["status"] == "done" and state["failed"] == 0
+    assert state["done"] == worker.MAX_ERRORS_IN_A_ROW + 3
 
 
 def test_l_a_a_failed_grid_is_tried_again_after_a_week_but_not_a_crash(db):
@@ -358,3 +362,100 @@ def test_l1_an_error_grid_stamped_before_the_fix_is_found_again(db, tmp_path):
     worker.process_track(db, "12", resolve=lambda s: s, analyze=lambda p: _analysis(),
                          analyze_grid=lambda p, **kw: found.append(p) or _grid())
     assert found == []
+
+
+@pytest.mark.gauntlet
+def test_l2_a_finished_row_replaces_the_keepers_unfinished_one(db):
+    """When a scan folds an old track row into the keeper, the keeper's own
+    DJ data and grid stay, unless they aren't finished (an error, still
+    waiting) and the old ones are: then the old ones replace them."""
+    _analysed(db, "21")
+    _track(db, "210", "Keeper", "/m/210.flac")
+    store.mark(db, "210", "error", "couldn't decode", worker.analyzer_version())
+    grid_store.mark(db, "210", "error", "couldn't decode")
+    _analysed(db, "22")
+    _track(db, "220", "Keeper done", "/m/220.flac")
+    store.save(db, "220", {"bpm": 128.0, "status": "done", "dj_analyzer_version": worker.analyzer_version()})
+    grid_store.save_result(db, "220", _grid(128.0), source_sig=None)
+    _track(db, "23", "Old, failed", "/m/23.flac")
+    store.mark(db, "23", "error", "gone", worker.analyzer_version())
+    grid_store.mark(db, "23", "error", "gone")
+    _track(db, "230", "Keeper analysing", "/m/230.flac")
+    store.mark(db, "230", "analyzing", None, worker.analyzer_version())
+    conn = db._get_connection()
+    try:
+        for old, keeper in (("21", "210"), ("22", "220"), ("23", "230")):
+            db._absorb_track_row(conn.cursor(), old, keeper, [])
+        conn.commit()
+    finally:
+        conn.close()
+    assert store.get(db, "210")["status"] == "done" and store.get(db, "210")["bpm"] == 124.0
+    assert grid_store.get(db, "210")["status"] == "done"
+    assert store.get(db, "220")["bpm"] == 128.0 and grid_store.get(db, "220")["bpm"] == 128.0  # its own stay
+    assert store.get(db, "230")["status"] == "analyzing"  # an unfinished old row never replaces anything
+    assert grid_store.get(db, "230")["status"] == "error"  # the keeper had none: the old one follows
+    for old in ("21", "22", "23"):
+        assert store.get(db, old) is None and grid_store.get(db, old) is None
+
+
+def _sweep(db, outcome, count):
+    for i in range(1, count + 1):
+        _track(db, f"s{i}", f"T{i}", f"/m/s{i}.flac")
+    calls = []
+
+    def process(d, t, **kw):
+        calls.append(kw.get("find_grid"))
+        store.save(d, t, {"status": "done", "dj_analyzer_version": worker.analyzer_version()})
+        if not kw.get("find_grid"):
+            return "done"
+        grid_store.mark(d, t, "error", "bad frame")
+        return outcome
+
+    job = worker.DjAnalysisJob(process=process, busy=lambda d: None, away=lambda: False,
+                               settings=lambda: {"analyze": True, "write_tags": False, "overwrite_tags": False},
+                               sleep_floor=0, rest_factor=0)
+    job.start(db, 1, background=False)
+    return job, calls
+
+
+def test_l3_grid_errors_alone_never_end_the_sweep(db):
+    """A run of grid failures stops only the looking for grids: BPM, key and
+    energy carry on for every track; each such track counts as done, with a
+    separate grid-failed count, and the run says the grids wait."""
+    n = worker.MAX_GRID_ERRORS_IN_A_ROW + 5
+    job, calls = _sweep(db, "done_grid_error", n)
+    state = worker.public_state(db, job)
+    assert state["status"] == "done" and state["done"] == n and state["failed"] == 0
+    assert state["grid_failed"] == worker.MAX_GRID_ERRORS_IN_A_ROW and state["grids_paused"] is True
+    assert calls == [True] * worker.MAX_GRID_ERRORS_IN_A_ROW + [False] * 5
+    assert state["note"] == worker.GRIDS_PAUSED
+
+
+def test_l3_activity_counts_grid_failures_apart(db):
+    from core.activity import feed
+
+    job, _ = _sweep(db, "done_grid_error", 3)
+    row = worker.last_run(db)
+    conn = db._get_connection()
+    try:
+        class Ctx:
+            pass
+
+        ctx = Ctx()
+        ctx.conn = conn
+        item = feed._dj_job_item(ctx, row)
+    finally:
+        conn.close()
+    assert "3 tracks" in item["detail"] and "No beat grid found for 3 tracks" in item["detail"]
+    assert "couldn't be analysed" not in item["detail"] and item["status"] == "warning"
+
+
+def test_l3_a_dj_failure_still_counts_toward_its_own_stop(db):
+    for i in range(1, worker.MAX_ERRORS_IN_A_ROW + 4):
+        _track(db, i, f"T{i}", f"/m/{i}.flac")
+    job = worker.DjAnalysisJob(process=lambda d, t, **kw: "error", busy=lambda d: None, away=lambda: False,
+                               settings=lambda: {"analyze": True, "write_tags": False, "overwrite_tags": False},
+                               sleep_floor=0, rest_factor=0)
+    job.start(db, 1, background=False)
+    state = worker.public_state(db, job)
+    assert state["status"] == "failed" and state["failed"] == worker.MAX_ERRORS_IN_A_ROW
