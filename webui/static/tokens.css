@@ -234,6 +234,13 @@
     --ss-neutral: rgba(255, 255, 255, 0.86);
     --ss-neutral-fill: rgba(255, 255, 255, 0.06);
 
+    /* The decks (21e, 26a–26j): Deck A is the accent-light, Deck B cyan, in
+       the player's handover as on Decks (auto-mix stage C) */
+    --ss-deck-a: rgb(var(--ss-accent-light-rgb));
+    --ss-deck-b: oklch(0.85 0.1 200);
+    --ss-deck-b-fill: oklch(0.85 0.1 200 / 0.12);
+    --ss-deck-b-border: oklch(0.85 0.1 200 / 0.6);
+
     /* Interaction states */
     --ss-selected-fill: rgba(var(--ss-accent-rgb), 0.14);
     --ss-selected-border: rgba(var(--ss-accent-rgb), 0.45);

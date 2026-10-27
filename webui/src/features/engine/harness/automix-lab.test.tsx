@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { HttpResponse, http, server } from '@/test/msw';
 
 import { CUE_WHY_NOT } from '../outputs';
-import AutomixLab from './automix-lab';
+import AutomixLab, { PlanSummary } from './automix-lab';
+import { LabSession, waitingWords } from './lab-session';
 
 const track = (id: string, title: string, bpm: number, key: string) => ({
   id,
@@ -98,5 +99,147 @@ describe('the lab without storage', () => {
     } finally {
       if (real) Object.defineProperty(window, 'localStorage', real);
     }
+  });
+});
+
+// ── every planner status (core/dj/planner.py): waiting has no places, a
+// crossfade may have no outgoing start ──
+
+const WAITING = {
+  status: 'waiting',
+  style: null,
+  bars: null,
+  waiting_for: 'from',
+  reason: 'analyzing',
+  why: 'Waiting for the analysis',
+  styles: [],
+  pair: '8A → 9A, +2 BPM',
+  key: { from: '8A', to: '9A', relation: 'up' },
+  tempo: null,
+};
+const CROSSFADE = {
+  status: 'crossfade',
+  style: 'crossfade',
+  bars: null,
+  beatmatch: false,
+  why: "Couldn't beat-match: no steady beat",
+  fallback: { kind: 'crossfade', code: 'no_beat', reason: 'no steady beat' },
+  out: { start: null, bar: null, end: null },
+  in: { start: 0, bar: null },
+  length_s: 6,
+};
+const OK = {
+  status: 'ok',
+  style: 'long_blend',
+  label: 'Long blend',
+  bars: 32,
+  chosen_by: 'auto',
+  why: '8A → 9A, +2 BPM: the keys mix',
+  beatmatch: true,
+  tempo: { relation: 'same', rate: 0.98413, speed_change_ok: true },
+  out: { start: 154.951, bar: 80 },
+  in: { start: 0.2, bar: 0 },
+};
+const titles = { from: 'Night Ferry', to: 'Static Bloom' };
+
+describe('[gauntlet lab] the plan summary reads every status', () => {
+  it('waiting: which track and why, no places', () => {
+    render(<PlanSummary plan={WAITING as never} titles={titles} />);
+    expect(
+      screen.getByText("Waiting for Night Ferry's beat grid · being analysed"),
+    ).toBeInTheDocument();
+    expect(screen.getByText('waiting')).toBeInTheDocument();
+  });
+
+  it('crossfade with no outgoing start: "?" for it, the incoming start', () => {
+    render(<PlanSummary plan={CROSSFADE as never} titles={titles} />);
+    expect(screen.getByText('? s (bar —) → 0.00 s (bar —)')).toBeInTheDocument();
+    expect(screen.getByText("Couldn't beat-match: no steady beat")).toBeInTheDocument();
+  });
+
+  it('ok: both places', () => {
+    render(<PlanSummary plan={OK as never} titles={titles} />);
+    expect(screen.getByText('154.95 s (bar 80) → 0.20 s (bar 0)')).toBeInTheDocument();
+  });
+
+  it('the words for each track and reason', () => {
+    expect(waitingWords({ waiting_for: 'to', reason: 'not_analyzed' }, titles)).toBe(
+      "Waiting for Static Bloom's beat grid · not analysed yet",
+    );
+    expect(waitingWords({ waiting_for: 'from' })).toBe(
+      "Waiting for the outgoing track's beat grid · not analysed yet",
+    );
+  });
+});
+
+describe('[gauntlet lab] a waiting pair on the page', () => {
+  function serve(plan: object) {
+    server.use(
+      http.get('*/api/library/dj/browse', ({ request }) => {
+        const q = new URL(request.url).searchParams.get('q');
+        const tracks =
+          q === 'night'
+            ? [track('1', 'Night Ferry', 124, '8A')]
+            : [track('2', 'Static Bloom', 126, '9A')];
+        return HttpResponse.json({
+          tracks,
+          total: 1,
+          page: 1,
+          limit: 8,
+          has_more: false,
+          sort: 'title',
+        });
+      }),
+      http.get('*/api/library/dj/plan', () => HttpResponse.json({ success: true, plan })),
+    );
+  }
+  async function pick() {
+    render(<AutomixLab />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find the outgoing track' }), {
+      target: { value: 'night' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: /Night Ferry/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find the incoming track' }), {
+      target: { value: 'static' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: /Static Bloom/ }));
+  }
+
+  it('shows the plan without breaking, and Play the mix waits, saying why', async () => {
+    serve(WAITING);
+    await pick();
+    const play = screen.getByRole('button', { name: 'Play the mix' });
+    expect(play).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Show the plan' }));
+    await waitFor(() => expect(play).toBeDisabled());
+    expect(play).toHaveAccessibleDescription(
+      "Waiting for Night Ferry's beat grid · being analysed: Play the mix waits for it.",
+    );
+  });
+
+  it('a crossfade plan shows and can play', async () => {
+    serve(CROSSFADE);
+    await pick();
+    fireEvent.click(screen.getByRole('button', { name: 'Show the plan' }));
+    await screen.findByText('? s (bar —) → 0.00 s (bar —)');
+    expect(screen.getByRole('button', { name: 'Play the mix' })).toBeEnabled();
+  });
+
+  it('the session itself stops at a waiting plan with the words, before any grid or window', async () => {
+    const fetchGrids = vi.fn();
+    const fetchWindow = vi.fn();
+    const s = new LabSession(
+      { from: '1', to: '2', style: 'auto', prerollBars: 8, keyLock: false, correct: true, titles },
+      {
+        fetchPlan: async () => WAITING as never,
+        fetchGrids,
+        fetchWindow,
+      } as never,
+    );
+    await s.start();
+    expect(s.status.stage).toBe('error');
+    expect(s.status.words).toBe("Waiting for Night Ferry's beat grid · being analysed");
+    expect(fetchGrids).not.toHaveBeenCalled();
+    expect(fetchWindow).not.toHaveBeenCalled();
   });
 });

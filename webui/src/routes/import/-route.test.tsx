@@ -882,6 +882,21 @@ describe('import route', () => {
       await waitFor(() => expect(history.location.pathname).toBe('/import/match/hash-2'));
     });
 
+    it('[gauntlet L1] the inbox claims its letters from the player while it has rows; a key already acted on is not acted on twice', async () => {
+      const { unmount } = renderImportRoute(['/import?filter=all']);
+      await screen.findAllByTestId('import-inbox-row');
+      expect(document.documentElement.dataset.letterKeys).toBe('jkadx');
+      fireEvent.keyDown(window, { key: 'j' });
+      const handled = new KeyboardEvent('keydown', { key: 'x', cancelable: true, bubbles: true });
+      handled.preventDefault();
+      window.dispatchEvent(handled);
+      expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+      fireEvent.keyDown(window, { key: 'x' });
+      expect(screen.getByText('1 selected')).toBeInTheDocument();
+      unmount();
+      expect(document.documentElement.dataset.letterKeys).toBeUndefined();
+    });
+
     it('keyboard shortcuts stay out of text fields', async () => {
       renderImportRoute(['/import/match/hash-1']);
       const input = await screen.findByPlaceholderText('Artist and album');

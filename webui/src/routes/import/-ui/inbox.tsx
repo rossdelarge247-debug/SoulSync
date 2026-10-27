@@ -286,9 +286,22 @@ export function Inbox({
   };
 
   // j/k move, enter opens the matcher, a approves, d dismisses, x ticks.
-  // only while nothing else has the keyboard.
+  // only while nothing else has the keyboard. While the inbox has rows it
+  // claims those letters (html[data-letter-keys]): the player leaves them
+  // alone here (its A and X), and a key another handler already acted on
+  // (defaultPrevented) isn't acted on twice.
+  const hasRows = visible.length > 0;
+  useEffect(() => {
+    if (!hasRows) return;
+    const root = document.documentElement;
+    root.dataset.letterKeys = 'jkadx';
+    return () => {
+      if (root.dataset.letterKeys === 'jkadx') delete root.dataset.letterKeys;
+    };
+  }, [hasRows]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
       if (target?.isContentEditable || event.metaKey || event.ctrlKey || event.altKey) return;

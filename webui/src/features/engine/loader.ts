@@ -59,6 +59,22 @@ export function windowUrl(trackId: string, start: number, dur: number, rate: num
 export const BUSY_BUDGET_MS = 10_000;
 
 /**
+ * How long one window's request may take, answer and body (milliseconds).
+ * A hung request would hold this tab's line (below) for good, and every
+ * window after it would wait behind it; the server's own deadline is 60 s
+ * a decode, so past 90 s nothing is coming.
+ */
+export const FETCH_TIMEOUT_MS = 90_000;
+
+/** An abort signal that fires after `ms` (AbortSignal.timeout where the browser has it). */
+export function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms);
+  const c = new AbortController();
+  setTimeout(() => c.abort(new DOMException('The request timed out', 'TimeoutError')), ms);
+  return c.signal;
+}
+
+/**
  * Windows are fetched one at a time in this tab: the server decodes one a
  * profile (core/dj/window.py), so two decks asked for together would have
  * the second refused. Each job starts when the one before has finished,
@@ -82,6 +98,8 @@ export interface FetchWindowOptions {
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /** each request's deadline (FETCH_TIMEOUT_MS) */
+  timeoutMs?: number;
 }
 
 /** One window's bytes, asking again while the server is busy (another tab, another deck), for up to 10 s. */
@@ -91,7 +109,14 @@ async function fetchBytes(
 ): Promise<{ bytes: ArrayBuffer; res: Response }> {
   const started = o.now();
   for (let attempt = 0; ; attempt++) {
-    const res = await o.fetchImpl(url, { credentials: 'same-origin' });
+    // its own deadline each time it's asked, the body's reading included
+    const signal = timeoutSignal(o.timeoutMs);
+    let res: Response;
+    try {
+      res = await o.fetchImpl(url, { credentials: 'same-origin', signal });
+    } catch (e) {
+      throw signal.aborted ? new Error(TIMED_OUT) : e;
+    }
     if (res.status === 429) {
       const wait = busyDelayMs(res, attempt);
       if (o.now() - started + wait > BUSY_BUDGET_MS) {
@@ -110,9 +135,15 @@ async function fetchBytes(
       }
       throw new Error(words);
     }
-    return { bytes: await res.arrayBuffer(), res };
+    try {
+      return { bytes: await res.arrayBuffer(), res };
+    } catch (e) {
+      throw signal.aborted ? new Error(TIMED_OUT) : e;
+    }
   }
 }
+
+const TIMED_OUT = 'The server took too long to send the track: try again in a moment.';
 
 /**
  * Fetch and decode a window, in this tab's line (above). The browser
@@ -131,6 +162,7 @@ export async function fetchWindow(
     fetchImpl: o.fetchImpl ?? ((...a: Parameters<typeof fetch>) => fetch(...a)),
     sleep: o.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms))),
     now: o.now ?? (() => Date.now()),
+    timeoutMs: o.timeoutMs ?? FETCH_TIMEOUT_MS,
   };
   const s = Math.max(0, start);
   const url = windowUrl(trackId, s, dur, ctx.sampleRate);

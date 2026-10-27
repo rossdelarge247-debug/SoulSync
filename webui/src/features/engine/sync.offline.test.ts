@@ -13,7 +13,7 @@
 import { AudioWorkletNode as NodeWorkletNode, OfflineAudioContext } from 'node-web-audio-api';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { PlanLike } from './executor';
+import type { PlacedPlan } from './executor';
 
 import { Engine, prepareDeck } from './engine';
 import { BeatGrid } from './grid';
@@ -103,7 +103,7 @@ async function run(
   const bars = opts.bars ?? 16;
   const outBar = 24;
   const outStart = gridA.barTime(outBar);
-  const plan: PlanLike = {
+  const plan: PlacedPlan = {
     status: 'ok',
     style: 'long_blend',
     bars,

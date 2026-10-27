@@ -12500,6 +12500,11 @@
                 <button type="button" class="ss-player-btn" data-player-action="next" aria-label="Next">
                     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4l10 8-10 8zM17 5h2v14h-2z"/></svg>
                 </button>
+                <!-- DJ mix's Mix now (26a, key X) beside Next, which still cuts; and the
+                     bar's middle while it counts down, mixes or crossfades in a mix's
+                     place (26e): src/features/automix/automix-host.tsx -->
+                <span class="ss-player-automix-mixnow" data-automix-slot="mixnow-bar"></span>
+                <div class="ss-player-automix-bar" data-automix-slot="bar"></div>
                 <button type="button" class="ss-player-btn ss-player-skip" data-player-action="forward" aria-label="Forward 30 seconds" hidden>+30 s</button>
                 <span class="ss-player-time" data-player-elapsed>0:00</span>
                 <div class="ss-player-wave" data-player-wave role="slider" tabindex="0" aria-label="Position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></div>
@@ -12593,6 +12598,8 @@
                         <p class="ss-player-record-line" data-player-album-line></p>
                     </div>
                 </div>
+                <!-- while auto-mix mixes, both tracks in the record (26d, 26f) -->
+                <div class="ss-player-automix-record" data-automix-slot="record"></div>
                 <dl class="ss-player-readout ss-player-readout--plain">
                     <div><dt>Format</dt><dd data-player-format>—</dd></div>
                     <div><dt>Path</dt><dd data-player-path>—</dd></div>
@@ -12620,6 +12627,9 @@
 
             <!-- centre: the deck -->
             <div class="ss-player-deck">
+                <!-- while auto-mix mixes: two lanes on one bar ruler in the waveform's
+                     place, Back, Finish now (26d); its countdown before (26e) -->
+                <div class="ss-player-automix-deck" data-automix-slot="deck"></div>
                 <div class="ss-player-wave ss-player-wave--deck" data-player-wave role="slider" tabindex="0" aria-label="Position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></div>
                 <div class="ss-player-meter ss-player-meter--deck" data-player-meter aria-hidden="true" hidden></div>
                 <div class="ss-player-deck-row">
@@ -12642,6 +12652,7 @@
                         <button type="button" class="ss-player-btn" data-player-action="next" aria-label="Next">
                             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4l10 8-10 8zM17 5h2v14h-2z"/></svg>
                         </button>
+                        <span class="ss-player-automix-mixnow" data-automix-slot="mixnow-deck"></span>
                         <button type="button" class="ss-player-btn ss-player-skip" data-player-action="forward" aria-label="Forward 30 seconds" hidden>+30 s</button>
                         <button type="button" class="ss-player-btn ss-player-repeat" data-player-action="repeat" aria-label="Repeat: off" aria-pressed="false">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
@@ -12725,6 +12736,9 @@
                         <button type="button" class="ss-player-text-btn" data-player-view-close>Back to Up next</button>
                     </div>
                     <div class="ss-player-view-body">
+                        <!-- Between tracks: Off / Smart crossfade / DJ mix (26h):
+                             src/features/automix/between-tracks.tsx -->
+                        <div id="ss-between-tracks-settings"></div>
                         <p class="ss-player-section">Playback</p>
                         <label class="ss-player-setting"><span>Speed<small>Kept on this device.</small></span>
                             <select class="ss-player-select" id="np-v2-speed-select">
@@ -12737,7 +12751,7 @@
                                 <option value="2">2×</option>
                             </select>
                         </label>
-                        <label class="ss-player-setting"><span>Crossfade length<small>How much two library tracks overlap while Crossfade is on.</small></span>
+                        <label class="ss-player-setting"><span>Crossfade length<small>How much two library tracks overlap with Smart crossfade.</small></span>
                             <select class="ss-player-select" id="np-v2-xfade-secs">
                                 <option value="0">Off</option>
                                 <option value="2">2 seconds</option>
@@ -13060,6 +13074,7 @@
                 <div><dt>Next or previous track</dt><dd><kbd>Shift N</kbd> <kbd>P</kbd></dd></div>
                 <div><dt>Add the playing track to the working set</dt><dd><kbd>A</kbd></dd></div>
                 <div><dt>Star or unstar the playing track (the focused row's, on a list)</dt><dd><kbd>S</kbd></dd></div>
+                <div><dt>Mix now, into the next track on the next phrase (DJ mix on)</dt><dd><kbd>X</kbd></dd></div>
                 <div class="ss-player-shortcuts-gap"><dt>A–B loop</dt><dd><kbd>L</kbd></dd></div>
                 <div><dt>Slower or faster</dt><dd><kbd>[</kbd> <kbd>]</kbd></dd></div>
                 <div><dt>Visuals</dt><dd><kbd>F</kbd></dd></div>

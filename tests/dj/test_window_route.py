@@ -485,3 +485,31 @@ def test_ffmpeg_that_cant_start_gives_its_slot_back(tmp_path, monkeypatch):
     with pytest.raises(window.WindowError, match="couldn't start"):
         window.decode(str(f), 0.0, 1.0, 48000, owner=4)
     assert window._owners == {} and window._slots._value == window.MAX_RUNNING
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_no_writable_temp_directory_still_decodes(client, tmp_path, monkeypatch, ok):
+    """Where no temporary file can be made (a read-only or full temp
+    directory), ffmpeg's complaints are dropped (stderr to DEVNULL) and the
+    window is still decoded: never a 500 (stage B review). A failing decode
+    still says so, with nothing left behind."""
+    f = tmp_path / "quiet.flac"
+    f.write_bytes(b"x")
+
+    def no_temp(*a, **k):
+        raise OSError(30, "Read-only file system")
+
+    monkeypatch.setattr(window.tempfile, "TemporaryFile", no_temp)
+    _fake_ffmpeg(monkeypatch, "import sys\n"
+                              "sys.stderr.write('[flac] a complaint nobody keeps\\n' * 5000)\n"
+                              "sys.stdout.buffer.write(bytes(4000))\n"
+                              f"sys.exit({0 if ok else 1})\n")
+    if ok:
+        assert len(window.decode(str(f), 0.0, 1.0, 48000, owner=5)) == 44 + 4000
+        # and through the route: a WAV, not a 500
+        res = client.get("/api/library/dj/window/1?start=0&dur=1")
+        assert res.status_code == 200 and res.mimetype == "audio/wav"
+    else:
+        with pytest.raises(window.WindowError, match="couldn't decode"):
+            window.decode(str(f), 0.0, 1.0, 48000, owner=5)
+    assert window._owners == {} and window._slots._value == window.MAX_RUNNING

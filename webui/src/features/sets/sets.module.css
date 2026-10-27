@@ -1326,6 +1326,7 @@ textarea.pasteText,
   font: inherit;
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1347,6 +1348,44 @@ textarea.pasteText,
 .chip:focus-visible {
   outline: var(--ss-focus-ring);
   outline-offset: 2px;
+}
+
+/* 26g: Waiting, the fallback, the mix (Deck B), the picker open, DJ mix off */
+.chip[data-tone='wait'] {
+  background: transparent;
+  color: var(--ss-text-tertiary);
+}
+
+.chip[data-tone='wait'] i {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.chip[data-tone='warn'] {
+  border-color: rgba(var(--ss-warning-rgb), 0.5);
+  background: rgba(var(--ss-warning-rgb), 0.08);
+}
+
+.chip[data-tone='warn'] i {
+  background: var(--ss-warning);
+}
+
+.chip[data-tone='mix'] {
+  border-color: var(--ss-deck-b-border);
+  background: var(--ss-deck-b-fill);
+  cursor: default;
+}
+
+.chip[data-tone='mix'] i {
+  background: var(--ss-deck-b);
+}
+
+.chip[data-open] {
+  border-color: rgba(var(--ss-accent-rgb), 0.6);
+  background: rgba(var(--ss-accent-rgb), 0.18);
+}
+
+.chipWrap[data-dimmed] .chip {
+  opacity: 0.62;
 }
 
 .chipWho {
@@ -1417,6 +1456,22 @@ textarea.pasteText,
 .pickerHint {
   color: var(--ss-text-meta);
   font-size: 13px;
+}
+
+.pickerStyle[data-unavailable] {
+  color: var(--ss-text-meta);
+  cursor: not-allowed;
+}
+
+.pickerStyle[data-unavailable]:hover {
+  background: none;
+}
+
+/* in the player's tray it floats over the page (placed from the chip) */
+.picker[data-floating] {
+  /* over the player and the page's floating buttons (999999) */
+  z-index: 1000002;
+  overflow: auto;
 }
 
 .pickerLabel {
