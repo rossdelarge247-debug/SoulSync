@@ -17,8 +17,25 @@ out, filter sweep, drop swap, or auto) and a length in bars, it works out:
   change will do (within 3%) or it needs a time-stretch;
 * **whether it can be beat-matched:** not over about an 8% gap, nor when
   either grid isn't confident (or isn't 4/4). Blends, bass swap, filter sweep
-  and drop swap need it, and fall back to a crossfade with the reason; cut
-  and echo out don't.
+  and drop swap need it; cut and echo out don't.
+
+**No crossfade** (Ross, 27 October: "we either mix auto or manual or
+nothing"). When a pair can't be beat-matched the plan quietly takes a DJ move
+that doesn't need it, where the outgoing track has enough to work with:
+
+* the outgoing track has a grid, even one not trusted for a beat-match (a
+  break held at 0.45, not 4/4): **echo out** on its outro (``status: ok``);
+* no grid going out (no beat, too short, too long, unreadable): **play on**
+  (``status: play_on``): the outgoing track plays to its end and the next one
+  starts, as with no transition. Nothing without a grid is ever cut by
+  counting bars at a BPM (the review's M4: that cut ambient and classical
+  endings early). ``status: cut`` stays in the plan's shape for Design's
+  302 (a cut on the outgoing grid's last phrase), the next step;
+* one album's tracks in their order (the same album, the next track
+  number): **play on**, so an album stays gapless.
+
+``fallback`` keeps the move and the short reason (``{kind, code, reason}``)
+for the picker's details; nothing says "crossfade".
 
 **Auto** follows BACKLOG and 26a: a compatible key (the same, ±1 on the
 wheel or the relative major/minor) and a BPM within 3% give a long blend (32
@@ -49,12 +66,10 @@ CLOSE_GAP = 0.03
 #: below these the grid or the downbeat isn't trusted
 BEAT_CONFIDENT = 0.5
 DOWNBEAT_CONFIDENT = 0.3
-#: a crossfade's length when there's nothing to line up (26h: 6 s)
-CROSSFADE_S = 6.0
 
 STYLE_WORDS = {"long_blend": "Long blend", "short_blend": "Short blend", "bass_swap": "Bass swap", "cut": "Cut",
                "echo_out": "Echo out", "filter_sweep": "Filter sweep", "drop_swap": "Drop swap",
-               "crossfade": "Crossfade", "auto": "Auto"}
+               "auto": "Auto"}
 
 
 class PlanError(ValueError):
@@ -307,24 +322,38 @@ def _pair_words(out_t, in_t, tempo) -> str:
     return keys
 
 
-def _crossfade(out_t, in_t, code: str, reason: str, base: Dict[str, Any]) -> Dict[str, Any]:
-    """A plain crossfade: no beats to line up. It starts at the outgoing
-    track's outro when one is known, else 6 s before its end."""
-    start = None
-    region = out_t.get("mix_out") if out_t.get("analyzed") else None
-    if region and not out_t.get("truncated"):
-        start = float(region["start"])
-    elif _length(out_t):
-        start = max(0.0, _length(out_t) - CROSSFADE_S)
-    in_start = 0.0
-    if in_t.get("analyzed") and in_t.get("mix_in"):
-        in_start = float(in_t["mix_in"]["start"])
-    return {**base, "status": "crossfade", "style": "crossfade", "bars": None, "beatmatch": False,
-            "why": f"Couldn't beat-match: {reason}", "fallback": {"kind": "crossfade", "code": code, "reason": reason},
-            "out": {"start": round(start, 3) if start is not None else None, "bar": None, "end": None,
-                    "in_outro": bool(region), "confidence": 0.3},
-            "in": {"start": round(in_start, 3), "bar": None, "how": "crossfade", "confidence": 0.3},
-            "length_s": CROSSFADE_S, "confidence": 0.3}
+def _play_on(code: str, reason: str, base: Dict[str, Any]) -> Dict[str, Any]:
+    """No transition: the outgoing track plays to its end and the next one
+    starts. Never a crossfade, and never a cut by bar count."""
+    return {**base, "status": "play_on", "style": None, "bars": None, "beatmatch": False,
+            "why": f"Plays on: {reason}", "fallback": {"kind": "play_on", "code": code, "reason": reason},
+            "note": None, "length_s": 0.0, "confidence": 0.0}
+
+
+def _album_in_order(out_t: Dict[str, Any], in_t: Dict[str, Any]) -> bool:
+    """One album's tracks one after the other in its own order: track n into
+    n + 1 on the same disc, or a disc's last track into the next disc's first
+    (a disc not known is disc 1)."""
+    a, b = out_t.get("album_id"), in_t.get("album_id")
+    if a in (None, "") or str(a) != str(b if b is not None else ""):
+        return False
+    try:
+        n, m = int(out_t.get("track_number")), int(in_t.get("track_number"))
+        d = int(out_t.get("disc_number") or 1)
+        e = int(in_t.get("disc_number") or 1)
+    except (TypeError, ValueError):
+        return False
+    if n <= 0:
+        return False
+    if d == e:
+        return m == n + 1
+    if e != d + 1 or m != 1:
+        return False
+    try:
+        last = int(out_t.get("disc_last"))
+    except (TypeError, ValueError):
+        return False
+    return n == last
 
 
 def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
@@ -350,6 +379,9 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
         "key": {"from": out_t.get("key"), "to": in_t.get("key"), "relation": key},
         "pair": _pair_words(out_t, in_t, tempo),
     }
+    if _album_in_order(out_t, in_t):
+        # an album played in its order stays gapless: no transition at all
+        return {**_play_on("album_in_order", "one album's tracks in their order", base), "styles": []}
     for track, which in ((out_t, "from"), (in_t, "to")):
         if not track.get("analyzed") and track.get("reason") in (None, "not_analyzed", "analyzing"):
             return {**base, "status": "waiting", "style": None, "waiting_for": which,
@@ -368,21 +400,32 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
     available = _availability(out_t, in_t, beat_ok)
     base["styles"] = [{"style": s, "label": STYLE_WORDS[s], "available": available[s] is None,
                        "why": available[s]} for s in STYLES[1:]]
+    fallback = None
+    if out_grid is None:
+        # nowhere to put the one: it plays on (never cut by counting bars)
+        return _play_on(out_problem[0], out_problem[1], base)
     if out_problem is not None:
-        # nowhere to put the one: whatever the style, a plain crossfade
-        return _crossfade(out_t, in_t, out_problem[0], out_problem[1], base)
-    if style == "auto":
+        # a grid, but not one to beat-match on (a break held under 0.5, not
+        # 4/4): echo out needs no beat-match, only the outgoing track's beats
+        chosen = "echo_out"
+        why = f"Echo out: {out_problem[1]}"
+        fallback = {"kind": "echo_out", "code": out_problem[0], "reason": out_problem[1]}
+    elif style == "auto":
         chosen, why = _auto(tempo, key, in_problem, in_t)
         why = f"{base['pair']}: {why}"
     else:
         chosen, why = style, None
         if available[style] is not None:
             if style in NEEDS_BEATMATCH and beat_ok is not None:
-                return _crossfade(out_t, in_t, beat_ok[0], beat_ok[1], base)
-            # a drop swap without a drop: Auto's choice instead, saying why
-            chosen, auto_why = _auto(tempo, key, in_problem, in_t)
-            why = f"{STYLE_WORDS[style]}: {available[style]}, so {STYLE_WORDS[chosen].lower()} ({auto_why})"
-    length = 0 if chosen == "cut" else (bars if (bars and style != "auto") else DEFAULT_BARS[chosen])
+                # the style needs a beat-match the pair can't have: echo out
+                chosen = "echo_out"
+                why = f"{STYLE_WORDS[style]}: {beat_ok[1]}, so echo out"
+                fallback = {"kind": "echo_out", "code": beat_ok[0], "reason": beat_ok[1]}
+            else:
+                # a drop swap without a drop: Auto's choice instead, saying why
+                chosen, auto_why = _auto(tempo, key, in_problem, in_t)
+                why = f"{STYLE_WORDS[style]}: {available[style]}, so {STYLE_WORDS[chosen].lower()} ({auto_why})"
+    length = 0 if chosen == "cut" else (bars if (bars and style == chosen) else DEFAULT_BARS[chosen])
     out_pt = _out_point(out_t, out_grid, chosen, length)
     if in_grid is not None:
         in_pt = _in_point(in_t, in_grid, chosen, max(length, 1))
@@ -404,7 +447,7 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
     elif not out_pt["known"]:
         note = f"Only the first 10 minutes of {out_name} were analysed: its ending is estimated."
     return {**base, "status": "ok", "style": chosen, "label": STYLE_WORDS[chosen], "bars": length or None,
-            "beatmatch": beatmatch, "why": why, "fallback": None, "note": note,
+            "beatmatch": beatmatch, "why": why, "fallback": fallback, "note": note,
             "out": {"start": round(start, 3), "end": round(end, 3), "bar": out_pt["bar"],
                     "end_bar": out_pt["bar"] + length, "phrase_level": out_pt["level"],
                     "in_outro": out_pt["in_outro"], "confidence": out_pt["confidence"]},

@@ -489,7 +489,6 @@ describe('nothing of the old player was dropped', () => {
     ['clear played', '#np-queue-clear-played'],
     ['Shuffle your library (radio mode)', '#np-radio-btn'],
     ['download missing queue tracks', '#np-autodownload-btn'],
-    ['crossfade', '[data-player-menu="crossfade"]'],
     ['sleep timer (on the record, 9d)', '[data-player-sleep], #ss-player-sleep-menu'],
     ['speed', '[data-player-menu="speed"], #np-v2-speed-select'],
     ['lyrics', '#np-lyrics-panel'],
@@ -608,7 +607,6 @@ describe('the record (HANDOFF 47, board 9d)', () => {
       );
     expect(lines).toEqual([
       '# Playback',
-      'Crossfade',
       'Speed',
       'Equalizer',
       'A–B loop',
@@ -637,7 +635,6 @@ describe('the record (HANDOFF 47, board 9d)', () => {
     boot(engine);
     $('[data-player-more]').click();
     const state = (sel: string) => $(sel).textContent;
-    expect(state('[data-player-crossfade-state]')).toBe('4 s');
     expect(state('[data-player-speed-state]')).toBe('1.0×');
     expect(state('[data-player-eq-state]')).toBe('Flat');
     expect(state('[data-player-radio-state]')).toBe('Off');
@@ -646,7 +643,8 @@ describe('the record (HANDOFF 47, board 9d)', () => {
     engine.current = snapshot({ crossfade: false, radio: true });
     window.npV2 = { getSpeed: () => 1.25, getEq: () => ({ on: false, preset: 'Bass' }) };
     window.dispatchEvent(new CustomEvent('ss:player', { detail: { reason: 'state' } }));
-    expect(state('[data-player-crossfade-state]')).toBe('Off');
+    // no Crossfade in the "…" (Ross, 27 October: Between tracks is Off or Auto mix)
+    expect(document.querySelector('[data-player-menu="crossfade"]')).toBeNull();
     expect(state('[data-player-speed-state]')).toBe('1.25×');
     expect(state('[data-player-eq-state]')).toBe('Off');
     expect(state('[data-player-radio-state]')).toBe('On');

@@ -8,6 +8,11 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  DJ_ANALYSED_EVENT,
+  analysisStore,
+  resetAnalysisRequests,
+} from '@/features/dj/analysis.api';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 
@@ -15,13 +20,14 @@ import type { AutomixView } from './controller';
 
 import { AutomixHost } from './automix-host';
 import { BarStatus, HandoverDeck, HandoverRecord } from './handover';
-import { refreshPrefs } from './prefs';
+import { readPrefs, refreshPrefs } from './prefs';
 
 vi.mock('@/platform/shell/route-controllers', () => ({
   useProfile: () => ({ profileId: 1, isAdmin: true }),
 }));
 // jsdom has no AudioWorklet: the decks' support is the browser's, tested on its own
-vi.mock('./support', () => ({ mixSupport: () => null }));
+const support = vi.hoisted(() => ({ why: null as string | null }));
+vi.mock('./support', () => ({ mixSupport: () => support.why }));
 const saved = vi.hoisted(() => ({ calls: [] as unknown[][] }));
 vi.mock('./set-play', async (original) => ({
   ...(await original<typeof import('./set-play')>()),
@@ -38,6 +44,9 @@ function track(id: string, title: string) {
 }
 
 let queue: Record<string, unknown>[];
+/** analyse on demand: what the host asked for, and the progress route's tracks */
+let asked: unknown[] = [];
+let progress: Record<string, unknown> = {};
 let audio: {
   currentTime: number;
   duration: number;
@@ -98,7 +107,6 @@ beforeEach(() => {
     }),
     audio: () => audio,
     playIndex: vi.fn(async () => ({ status: 'played' })),
-    crossfadeInto: vi.fn(() => true),
     insertNext: vi.fn(() => 1),
     renderQueue: vi.fn(() => drawQueue()),
     persistQueue: vi.fn(),
@@ -109,7 +117,32 @@ beforeEach(() => {
   (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = player;
   localStorage.setItem('soulsync-between-tracks', 'dj');
   refreshPrefs();
+  resetAnalysisRequests();
+  analysisStore.reset();
+  asked = [];
+  progress = {};
   server.use(
+    http.post('*/api/library/dj/analyse', async ({ request }) => {
+      asked.push(await request.json());
+      return HttpResponse.json(
+        {
+          success: true,
+          asked: 3,
+          queued: 1,
+          already_queued: 0,
+          already_done: 2,
+          cant: 0,
+          over_limit: 0,
+          limit: 200,
+          yours: 1,
+          started: true,
+        },
+        { status: 202 },
+      );
+    }),
+    http.post('*/api/library/dj/progress', () =>
+      HttpResponse.json({ success: true, tracks: progress, sweep: { running: true } }),
+    ),
     http.get('*/api/library/dj/plan', ({ request }) => {
       const u = new URL(request.url);
       const style = u.searchParams.get('style') ?? 'auto';
@@ -233,7 +266,7 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
   });
 
   it('no chips with DJ mix off; they come with it', async () => {
-    localStorage.setItem('soulsync-between-tracks', 'smart');
+    localStorage.setItem('soulsync-between-tracks', 'off');
     refreshPrefs();
     mount();
     await act(async () => {
@@ -257,17 +290,111 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
   });
 });
 
+describe('analyse on demand in Up next', () => {
+  const waitingFor2 = () =>
+    server.use(
+      http.get('*/api/library/dj/plan', ({ request }) => {
+        const u = new URL(request.url);
+        const waits = u.searchParams.get('to') === '2' || u.searchParams.get('from') === '2';
+        return HttpResponse.json({
+          success: true,
+          plan: waits
+            ? {
+                status: 'waiting',
+                style: null,
+                bars: null,
+                waiting_for: u.searchParams.get('to') === '2' ? 'to' : 'from',
+                reason: 'not_analyzed',
+                why: 'Waiting for the analysis',
+                styles: [],
+                key: { from: '8A', to: null, relation: null },
+                tempo: null,
+              }
+            : {
+                status: 'ok',
+                style: 'long_blend',
+                bars: 32,
+                beatmatch: true,
+                why: '8A → 9A, +2 BPM: the keys mix and the tempo is close',
+                pair: '8A → 9A, +2 BPM',
+                key: { from: '8A', to: '9A', relation: 'up' },
+                tempo: { relation: 'same', rate: 0.98, speed_change_ok: true },
+                out: { start: 278.2, bar: 140 },
+                in: { start: 0.2, bar: 0 },
+                length_s: 62,
+                styles: [],
+              },
+        });
+      }),
+    );
+
+  it("with DJ mix on, the queue's coming tracks jump the analysis queue", async () => {
+    mount();
+    await waitFor(() => expect(asked).toEqual([{ track_ids: ['1', '2', '3'], reason: 'auto' }]));
+  });
+
+  it('with DJ mix off nothing is asked for', async () => {
+    localStorage.setItem('soulsync-between-tracks', 'off');
+    refreshPrefs();
+    mount();
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    expect(asked).toEqual([]);
+  });
+
+  it('a Waiting chip shows the step of the track it waits for', async () => {
+    waitingFor2();
+    progress = { '2': { state: 'working', step: 'key', percent: 35 } };
+    mount();
+    const bar = await screen.findAllByRole('progressbar', { name: 'Analysis of Static Bloom' });
+    expect(bar[0]).toHaveAttribute('aria-valuenow', '35');
+    expect(screen.getAllByText('Working out the key · 35%').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Analyse now' })).toBeNull();
+  });
+
+  it('once it is analysed, the pair is planned again', async () => {
+    // a pair no other test planned (the shared controller keeps its answers)
+    queue = [track('7', 'Sand Script'), track('2', 'Static Bloom')];
+    waitingFor2();
+    mount();
+    await waitFor(() => expect(window.SoulSyncAutomix?.view().plan?.status).toBe('waiting'));
+    server.use(
+      http.get('*/api/library/dj/plan', () =>
+        HttpResponse.json({
+          success: true,
+          plan: {
+            status: 'ok',
+            style: 'long_blend',
+            bars: 32,
+            beatmatch: true,
+            why: 'the keys mix',
+            pair: '8A → 9A',
+            key: { from: '8A', to: '9A', relation: 'up' },
+            tempo: { relation: 'same', rate: 0.98, speed_change_ok: true },
+            out: { start: 278.2, bar: 140 },
+            in: { start: 0.2, bar: 0 },
+            length_s: 62,
+            styles: [],
+          },
+        }),
+      ),
+    );
+    act(() => {
+      window.dispatchEvent(new CustomEvent(DJ_ANALYSED_EVENT, { detail: { ids: ['2'] } }));
+    });
+    await waitFor(() => expect(window.SoulSyncAutomix?.view().plan?.status).toBe('ok'));
+  });
+});
+
 describe('Player settings → Between tracks (26h)', () => {
-  it('Off / Smart crossfade / DJ mix; DJ mix adds Mix automatically and Auto’s lean', async () => {
+  it('Off / Auto mix (no crossfade); Auto mix adds Mix automatically and Auto’s lean', async () => {
     mount();
     const group = await screen.findByRole('radiogroup', { name: 'Between tracks' });
     const cards = within(group).getAllByRole('radio');
-    expect(cards.map((c) => c.querySelector('strong')?.textContent)).toEqual([
-      'Off',
-      'Smart crossfade',
-      'DJ mix',
-    ]);
-    expect(cards[2]).toHaveAttribute('aria-checked', 'true');
+    expect(cards.map((c) => c.querySelector('strong')?.textContent)).toEqual(['Off', 'Auto mix']);
+    expect(cards[1]).toHaveAttribute('aria-checked', 'true');
+    expect(group.textContent).not.toMatch(/crossfade/i);
     expect(screen.getByRole('switch', { name: 'Mix automatically' })).toHaveAttribute(
       'aria-checked',
       'true',
@@ -275,20 +402,19 @@ describe('Player settings → Between tracks (26h)', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Mix automatically' }));
     expect(localStorage.getItem('soulsync-dj-auto')).toBe('0');
     expect(
-      screen.getByText('Off: DJ mix waits for Mix now, and tracks play to their end.'),
+      screen.getByText('Off: Auto mix waits for Mix now, and tracks play to their end.'),
     ).toBeTruthy();
     fireEvent.change(screen.getByRole('combobox', { name: /Style when Auto can choose/ }), {
       target: { value: 'long' },
     });
     expect(localStorage.getItem('soulsync-dj-lean')).toBe('long');
-    fireEvent.click(cards[1]);
-    expect(player.setCrossfade).toHaveBeenCalledWith(true);
-    expect(localStorage.getItem('soulsync-between-tracks')).toBe('smart');
+    fireEvent.click(cards[0]);
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('off');
+    expect(localStorage.getItem('soulsync-crossfade')).toBe('0');
     expect(screen.queryByRole('switch', { name: 'Mix automatically' })).toBeNull();
     expect(screen.getByText(/Podcasts, audiobooks and radio always play as Off/)).toBeTruthy();
-    fireEvent.click(cards[0]);
-    expect(player.setCrossfade).toHaveBeenLastCalledWith(false);
-    expect(localStorage.getItem('soulsync-between-tracks')).toBe('off');
+    fireEvent.click(cards[1]);
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
     localStorage.removeItem('soulsync-dj-auto');
     localStorage.removeItem('soulsync-dj-lean');
   });
@@ -339,7 +465,6 @@ function view(over: Partial<AutomixView> = {}): AutomixView {
       a: { levels: new Float32Array(160).fill(0.6) },
       b: { levels: new Float32Array(160).fill(0.4) },
     },
-    fallback: null,
     canMixNow: false,
     mixNowWhy: 'Mixing now',
     incomingBpm: { bpm: 124, pct: -1.6 },
@@ -385,7 +510,7 @@ describe('the handover (26d–26f)', () => {
     expect(back).toHaveAccessibleDescription('Too near the end of Night Ferry to go back');
   });
 
-  it('the bar: counting down in bars with Cancel; mixing with both titles; the fallback’s line', () => {
+  it('the bar: counting down in bars with Cancel; mixing with both titles; no crossfade line', () => {
     const { rerender } = render(
       <BarStatus
         view={view({ stage: 'planned', transition: null, lanes: null, barsToGo: 6 })}
@@ -399,18 +524,44 @@ describe('the handover (26d–26f)', () => {
     expect(screen.getByText('Night Ferry → Static Bloom')).toBeTruthy();
     expect(screen.getByText('Mixing · bar 12 of 32')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
-    rerender(
-      <BarStatus
-        view={view({
-          stage: 'fallback',
-          transition: null,
-          fallback: 'Sand Script has no steady beat',
-        })}
-        actions={actions}
-      />,
-    );
-    expect(screen.getByRole('status')).toHaveTextContent(
-      "Couldn't beat-match: crossfading · Sand Script has no steady beat",
-    );
+    rerender(<BarStatus view={view({ stage: 'cut', transition: null })} actions={actions} />);
+    expect(document.body.textContent).not.toMatch(/crossfad/i);
+  });
+});
+
+describe('no crossfade on a page that can’t run the decks', () => {
+  it('Up next shows no chips (the pairs play on), and Mix now says why', async () => {
+    support.why = 'Auto mix needs SYNCHRO.S on https';
+    try {
+      mount();
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 300));
+      });
+      expect(document.querySelector('[data-automix-gap]')).not.toBeNull();
+      expect(screen.queryByRole('button', { name: /^Transition from/ })).toBeNull();
+      expect(document.body.textContent).not.toMatch(/crossfad/i);
+      await waitFor(() =>
+        expect(window.SoulSyncAutomix?.view().mixNowWhy).toBe('Auto mix needs SYNCHRO.S on https'),
+      );
+    } finally {
+      support.why = null;
+    }
+  });
+});
+
+describe('no crossfade: the stored setting moves on (Ross, 27 October)', () => {
+  it('Smart crossfade and the old crossfade switch become Off; DJ mix is Auto mix', () => {
+    localStorage.setItem('soulsync-between-tracks', 'smart');
+    localStorage.setItem('soulsync-crossfade', '1');
+    expect(readPrefs().between).toBe('off');
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('off');
+    expect(localStorage.getItem('soulsync-crossfade')).toBe('0');
+    localStorage.removeItem('soulsync-between-tracks');
+    localStorage.setItem('soulsync-crossfade', '1');
+    expect(readPrefs().between).toBe('off');
+    expect(localStorage.getItem('soulsync-crossfade')).toBe('0');
+    localStorage.setItem('soulsync-between-tracks', 'dj');
+    expect(readPrefs().between).toBe('dj');
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
   });
 });

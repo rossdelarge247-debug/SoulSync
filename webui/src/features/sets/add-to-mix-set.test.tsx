@@ -7,11 +7,15 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resetAnalysisRequests } from '@/features/dj/analysis.api';
+
 import { AddToMixSetHost, closeAddToMixSet, openAddToMixSet } from './add-to-mix-set';
 import { pickerLine } from './sets.format';
 
 type Body = Record<string, unknown>;
 let posted: { path: string; body: Body }[] = [];
+/** analyse on demand's own requests, kept apart from the sets' */
+let analysed: Body[] = [];
 let toast: ReturnType<typeof vi.fn>;
 let workingId: number | null = null;
 
@@ -39,6 +43,8 @@ const SETS = [
 
 beforeEach(() => {
   posted = [];
+  analysed = [];
+  resetAnalysisRequests();
   workingId = null;
   toast = vi.fn();
   window.showToast = toast as never;
@@ -50,6 +56,29 @@ beforeEach(() => {
         input instanceof Request ? await input.text() : (init?.body as string | undefined);
       const body = raw ? (JSON.parse(raw) as Body) : {};
       const path = new URL(url, 'http://x').pathname.replace(/^.*\/api\//, '');
+      if (path === 'library/dj/analyse' || path === 'library/dj/progress') {
+        if (path === 'library/dj/analyse') analysed.push(body);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            tracks: {},
+            sweep: null,
+            asked: 0,
+            queued: 0,
+            already_queued: 0,
+            already_done: 0,
+            cant: 0,
+            over_limit: 0,
+            limit: 200,
+            yours: 0,
+            started: false,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
       posted.push({ path, body });
       let answer: unknown = { success: true };
       if (path === 'sets/holding') {
@@ -138,6 +167,8 @@ describe('Add to mix set…', () => {
     );
     await waitFor(() => expect(posted.at(-1)?.path).toBe('sets/7/tracks'));
     expect(posted.at(-1)?.body).toEqual({ track_ids: ['4'], again: true });
+    // analyse on demand: a track added to a mix set jumps the analysis queue
+    await waitFor(() => expect(analysed).toEqual([{ track_ids: ['4'], reason: 'auto' }]));
   });
 
   it('many: the choice opens in place, and a missing file is left out and said (28b)', async () => {

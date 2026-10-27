@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
+import { analysisStore } from '@/features/dj/analysis.api';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
@@ -143,6 +144,7 @@ describe('activity route', () => {
   });
 
   afterEach(() => {
+    analysisStore.reset();
     window.SoulSyncWebShellBridge = undefined;
     window.showToast = undefined;
     localStorage.clear();
@@ -414,6 +416,54 @@ describe('activity route', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Couldn’t load the log: No log for that item.',
     );
+  });
+
+  // ── analyse on demand: the DJ row's bar ───────────────────────────────────
+
+  it('the running DJ analysis shows its bar and the track it is on, with its step', async () => {
+    const DJ = item({
+      id: 'library-job:3',
+      kind: 'library',
+      status: 'running',
+      title: 'Working out BPM, key and energy',
+      detail: '3 tracks · 1 done',
+      link: '/library?view=tracks',
+      ref: { job_id: 3, stop_path: 'library/dj/stop', dj_progress: true },
+    });
+    mockFeed(() => response({ items: [DJ], running_count: 1 }));
+    server.use(
+      http.post('/api/library/dj/progress', () =>
+        HttpResponse.json({
+          success: true,
+          tracks: {},
+          sweep: {
+            running: true,
+            held: false,
+            analyze: true,
+            id: 3,
+            total: 3,
+            done: 1,
+            percent: 33,
+            waiting: null,
+            in_line: 1,
+            yours: 1,
+            current: {
+              step: 'grid',
+              percent: 60,
+              asked_for: true,
+              track_id: '7',
+              title: 'Static Bloom',
+            },
+          },
+        }),
+      ),
+    );
+    await renderPage();
+    const bar = await screen.findByRole('progressbar', { name: 'Working out BPM, key and energy' });
+    expect(bar).toHaveAttribute('aria-valuenow', '33');
+    expect(
+      screen.getByText('1 of 3 tracks · Static Bloom · Finding the beat grid · 60%'),
+    ).toBeInTheDocument();
   });
 
   // ── retry ─────────────────────────────────────────────────────────────────

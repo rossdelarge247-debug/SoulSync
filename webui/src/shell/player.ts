@@ -1050,12 +1050,8 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
       menu.querySelector('[data-player-speed-state]'),
       formatSpeedValue(view.npV2?.getSpeed?.() ?? 1),
     );
-    // values in meta on the right (9d): Crossfade · 4 s, Equalizer · Flat
-    setAttr(item('crossfade'), 'aria-pressed', st.crossfade ? 'true' : 'false');
-    setText(
-      menu.querySelector('[data-player-crossfade-state]'),
-      st.crossfade ? `${st.crossfadeSeconds ?? 6} s` : 'Off',
-    );
+    // values in meta on the right (9d): Equalizer · Flat (no Crossfade:
+    // Between tracks is Off or Auto mix, Ross, 27 October)
     const eq = view.npV2?.getEq?.();
     setText(menu.querySelector('[data-player-eq-state]'), eq?.on ? eq.preset || 'On' : 'Off');
     setText(menu.querySelector('[data-player-radio-state]'), st.radio ? 'On' : 'Off');
@@ -1628,9 +1624,6 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
           if (anchor) placeMenu(menu, anchor);
           break;
         }
-        case 'crossfade':
-          engine.setCrossfade(!snapshot.crossfade);
-          break;
         case 'mixset': {
           const t = snapshot.track;
           closeMenus(false);

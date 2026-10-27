@@ -12,6 +12,7 @@ import {
   planFor,
   planWords,
   stepOf,
+  playsOn,
 } from './plans';
 
 function plan(over: Partial<PairPlan> = {}): PairPlan {
@@ -34,12 +35,19 @@ function plan(over: Partial<PairPlan> = {}): PairPlan {
 }
 
 describe('the chip’s words (26g)', () => {
-  it('style and length; Cut has none; the fallback and Waiting', () => {
+  it('style and length; Cut has none; the moves with no beat-match; Waiting; never a crossfade', () => {
     expect(planWords(plan(), AUTO_CHOICE)).toBe('Long blend · 32 bars');
     expect(planWords(plan({ style: 'cut', bars: null }), AUTO_CHOICE)).toBe('Cut');
-    expect(
-      planWords(plan({ status: 'crossfade', style: 'crossfade', length_s: 6 }), AUTO_CHOICE),
-    ).toBe('Crossfade · 6 s');
+    expect(planWords(plan({ status: 'cut', style: 'cut', bars: null }), AUTO_CHOICE)).toBe('Cut');
+    const echo = plan({
+      style: 'echo_out',
+      bars: 4,
+      fallback: { kind: 'echo_out', code: 'tempo_gap', reason: 'the tempos are 9.7% apart' },
+    });
+    expect(planWords(echo, AUTO_CHOICE)).toBe('Echo out · 4 bars');
+    expect(autoLine(echo).why).toBe('No beat-match: the tempos are 9.7% apart');
+    expect(playsOn(plan({ status: 'play_on', style: null }))).toBe(true);
+    expect(playsOn(echo)).toBe(false);
     expect(planWords(plan({ status: 'waiting' }), AUTO_CHOICE)).toBe('Waiting');
     expect(planWords(null, { style: 'bass_swap', bars: 16 })).toBe('Bass swap · 16 bars');
   });
@@ -57,16 +65,13 @@ describe('the chip’s words (26g)', () => {
     expect(chipWhy(plan({ status: 'waiting' }), AUTO_CHOICE, 'Sand Script')).toBe(
       'Sand Script is being analysed',
     );
-    expect(
-      chipWhy(
-        plan({
-          status: 'crossfade',
-          fallback: { kind: 'crossfade', code: 'no_beat', reason: 'live drums' },
-        }),
-        AUTO_CHOICE,
-        'x',
-      ),
-    ).toBe("couldn't beat-match: live drums");
+    const echo = plan({
+      style: 'echo_out',
+      fallback: { kind: 'echo_out', code: 'no_beat', reason: 'live drums' },
+    });
+    // the reason is the picker's detail only: the chip's line has no warning
+    expect(chipWhy(echo, AUTO_CHOICE, 'x')).toBe('auto · 8A → 9A, +2 BPM');
+    expect(chipWhy(plan({ status: 'play_on', style: null }), AUTO_CHOICE, 'x')).toBe('plays on');
   });
 
   it('the step: a clash or more than 3 BPM is a jump, half time counts, no key is not known', () => {

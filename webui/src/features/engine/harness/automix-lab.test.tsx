@@ -1,9 +1,16 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { HttpResponse, http, server } from '@/test/msw';
 
 import { CUE_WHY_NOT } from '../outputs';
+
+const downloads = vi.hoisted(() => ({ files: [] as { name: string; data: unknown }[] }));
+vi.mock('./mix-report', async (original) => ({
+  ...(await original<typeof import('./mix-report')>()),
+  downloadJson: (name: string, data: unknown) => downloads.files.push({ name, data }),
+}));
 import AutomixLab, { PlanSummary } from './automix-lab';
 import { LabSession, waitingWords } from './lab-session';
 
@@ -20,6 +27,12 @@ const track = (id: string, title: string, bpm: number, key: string) => ({
   image_url: null,
   dj: { bpm, key, analyzed: true },
 });
+
+/** A deck's picker: Search, its fallback source. */
+function searchIn(deck: 'outgoing' | 'incoming') {
+  const group = screen.getByRole('radiogroup', { name: `Pick the ${deck} track from` });
+  fireEvent.click(within(group).getByRole('radio', { name: 'Search' }));
+}
 
 describe('the auto-mix lab page', () => {
   it('finds two tracks, shows their plan, and says why a second output is impossible here', async () => {
@@ -66,14 +79,16 @@ describe('the auto-mix lab page', () => {
     expect(screen.getByRole('radio', { name: /On another output/ })).toBeDisabled();
     const play = screen.getByRole('button', { name: 'Play the mix' });
     expect(play).toBeDisabled();
+    searchIn('outgoing');
     fireEvent.change(screen.getByRole('textbox', { name: 'Find the outgoing track' }), {
       target: { value: 'night' },
     });
-    fireEvent.click(await screen.findByRole('button', { name: /Night Ferry/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Night Ferry' }));
+    searchIn('incoming');
     fireEvent.change(screen.getByRole('textbox', { name: 'Find the incoming track' }), {
       target: { value: 'static' },
     });
-    fireEvent.click(await screen.findByRole('button', { name: /Static Bloom/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Static Bloom' }));
     expect(play).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Show the plan' }));
     await waitFor(() =>
@@ -195,14 +210,16 @@ describe('[gauntlet lab] a waiting pair on the page', () => {
   }
   async function pick() {
     render(<AutomixLab />);
+    searchIn('outgoing');
     fireEvent.change(screen.getByRole('textbox', { name: 'Find the outgoing track' }), {
       target: { value: 'night' },
     });
-    fireEvent.click(await screen.findByRole('button', { name: /Night Ferry/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Night Ferry' }));
+    searchIn('incoming');
     fireEvent.change(screen.getByRole('textbox', { name: 'Find the incoming track' }), {
       target: { value: 'static' },
     });
-    fireEvent.click(await screen.findByRole('button', { name: /Static Bloom/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Static Bloom' }));
   }
 
   it('shows the plan without breaking, and Play the mix waits, saying why', async () => {
@@ -241,5 +258,167 @@ describe('[gauntlet lab] a waiting pair on the page', () => {
     expect(s.status.words).toBe("Waiting for Night Ferry's beat grid · being analysed");
     expect(fetchGrids).not.toHaveBeenCalled();
     expect(fetchWindow).not.toHaveBeenCalled();
+  });
+});
+
+describe('analyse on demand in the lab', () => {
+  it('a picked track jumps the analysis queue, and shows its step', async () => {
+    resetAnalysisRequests();
+    analysisStore.reset();
+    const asked: unknown[] = [];
+    server.use(
+      http.get('*/api/library/dj/browse', () =>
+        HttpResponse.json({
+          tracks: [{ ...track('5', 'Sand Script', 0, ''), dj: null }],
+          total: 1,
+          page: 1,
+          limit: 8,
+          has_more: false,
+          sort: 'title',
+        }),
+      ),
+      http.post('*/api/library/dj/analyse', async ({ request }) => {
+        asked.push(await request.json());
+        return HttpResponse.json(
+          {
+            success: true,
+            asked: 1,
+            queued: 1,
+            already_queued: 0,
+            already_done: 0,
+            cant: 0,
+            over_limit: 0,
+            limit: 200,
+            yours: 1,
+            started: true,
+          },
+          { status: 202 },
+        );
+      }),
+      http.post('*/api/library/dj/progress', () =>
+        HttpResponse.json({
+          success: true,
+          tracks: { '5': { state: 'working', step: 'tempo', percent: 20 } },
+          sweep: { running: true },
+        }),
+      ),
+    );
+    render(<AutomixLab />);
+    searchIn('outgoing');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find the outgoing track' }), {
+      target: { value: 'sand' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Sand Script' }));
+    await waitFor(() => expect(asked).toEqual([{ track_ids: ['5'], reason: 'asked' }]));
+    expect((await screen.findAllByText('Finding the tempo · 20%')).length).toBeGreaterThan(0);
+    analysisStore.reset();
+  });
+});
+
+describe('Download a mix report', () => {
+  it('saves the pair’s grids and plan as JSON, with no file paths', async () => {
+    downloads.files.length = 0;
+    resetAnalysisRequests();
+    analysisStore.reset();
+    server.use(
+      http.get('*/api/library/dj/browse', ({ request }) => {
+        const q = new URL(request.url).searchParams.get('q');
+        const tracks =
+          q === 'night'
+            ? [track('1', 'Night Ferry', 124, '8A')]
+            : [track('2', 'Static Bloom', 126, '9A')];
+        return HttpResponse.json({
+          tracks,
+          total: 1,
+          page: 1,
+          limit: 8,
+          has_more: false,
+          sort: 'title',
+        });
+      }),
+      http.get('*/api/library/dj/plan', () =>
+        HttpResponse.json({
+          success: true,
+          plan: {
+            status: 'ok',
+            style: 'long_blend',
+            bars: 32,
+            why: '8A → 9A: the keys mix',
+            out: { start: 154.9, bar: 80 },
+            in: { start: 0.2, bar: 0 },
+          },
+        }),
+      ),
+      http.post('*/api/library/dj/grids', () =>
+        HttpResponse.json({
+          grids: {
+            '1': {
+              track_id: '1',
+              analyzed: true,
+              bpm: 124,
+              grid: {
+                kind: 'constant',
+                first_beat: 0.5,
+                period: 0.4839,
+                beats: null,
+                confidence: 0.9,
+              },
+            },
+            '2': { track_id: '2', analyzed: false, reason: 'no_beat' },
+          },
+        }),
+      ),
+      http.post('*/api/library/dj/analyse', () =>
+        HttpResponse.json(
+          {
+            success: true,
+            asked: 0,
+            queued: 0,
+            already_queued: 0,
+            already_done: 2,
+            cant: 0,
+            over_limit: 0,
+            limit: 200,
+            yours: 0,
+            started: false,
+          },
+          { status: 202 },
+        ),
+      ),
+      http.post('*/api/library/dj/progress', () =>
+        HttpResponse.json({ success: true, tracks: {}, sweep: { running: false } }),
+      ),
+    );
+    render(<AutomixLab />);
+    const report = screen.getByRole('button', { name: 'Download a mix report' });
+    expect(report).toBeDisabled();
+    searchIn('outgoing');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find the outgoing track' }), {
+      target: { value: 'night' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Night Ferry' }));
+    searchIn('incoming');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find the incoming track' }), {
+      target: { value: 'static' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Static Bloom' }));
+    fireEvent.click(report);
+    await waitFor(() => expect(downloads.files).toHaveLength(1));
+    const file = downloads.files[0]!;
+    expect(file.name).toMatch(/^mix-report-night-ferry-to-static-bloom-\d{4}-\d{2}-\d{2}\.json$/);
+    const data = file.data as {
+      pair: { from: { title: string } };
+      plan: { style: string };
+      grids: { from: { bpm: number }; to: { analyzed: boolean } };
+      run: unknown;
+    };
+    expect(data.pair.from.title).toBe('Night Ferry');
+    expect(data.plan.style).toBe('long_blend');
+    expect(data.grids.from.bpm).toBe(124);
+    expect(data.grids.to.analyzed).toBe(false);
+    expect(data.run).toBeNull();
+    // the picked tracks came with their file paths: none reach the report
+    expect(JSON.stringify(data)).not.toContain('/m/');
+    analysisStore.reset();
   });
 });

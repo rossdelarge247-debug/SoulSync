@@ -33,6 +33,8 @@ import {
   trackStatusSegments,
 } from '../-sync.mirrored';
 import { skippedNoteText } from '../-sync.modal-core';
+import { AnalyseError, postAnalyse } from '../../../features/dj/analysis.api';
+import { analyseTheseWords } from '../../../features/dj/analysis.format';
 import { TraktorExportDialog } from '../../../features/dj/traktor-export-dialog';
 import { AddSongsPanel } from '../../../features/playlists/add-songs-panel';
 import { AddToPlaylistButton } from '../../../features/playlists/add-to-playlist';
@@ -48,6 +50,29 @@ import {
   uploadPlaylistCover,
 } from '../../../features/playlists/user-playlists';
 import { LikedArt } from './playlist-art';
+
+/**
+ * "Analyse these" (analyse on demand): the playlist's rows matched to your
+ * library (by title and artist, as Export to Traktor matches them) jump the
+ * DJ sweep's queue; the toast says how many, and that ones already done are
+ * skipped.
+ */
+async function analysePlaylist(id: number): Promise<void> {
+  for (let tries = 0; ; tries += 1) {
+    try {
+      const said = analyseTheseWords(await postAnalyse({ playlist_id: id, reason: 'asked' }));
+      window.showToast?.(said.words, said.tone);
+      return;
+    } catch (error) {
+      if (error instanceof AnalyseError && error.status === 429 && tries < 3) {
+        await new Promise((r) => setTimeout(r, (error.retryAfter ?? 1) * 1000 + 50));
+        continue;
+      }
+      window.showToast?.(error instanceof Error ? error.message : "That didn't work.", 'error');
+      return;
+    }
+  }
+}
 import { usePopoverDismiss } from './use-popover-dismiss';
 
 export interface MirroredDetailModalProps {
@@ -979,6 +1004,12 @@ export function MirroredDetailModal({
                           ]
                         : []),
                       ...(!own ? [{ label: 'Edit source link', onSelect: onEditSource }] : []),
+                      // analyse on demand: its tracks in your library jump the queue
+                      {
+                        label: 'Analyse these',
+                        hint: 'its tracks in your library · ones already done are skipped',
+                        onSelect: () => analysePlaylist(playlistId),
+                      },
                       // 21a: before the hairline and Delete
                       { label: 'Export to Traktor…', onSelect: () => setTraktor(true) },
                       {
