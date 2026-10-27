@@ -130,6 +130,11 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **A paste is data and has a size:** markup, links and control characters come back as plain text; 500 lines, 300 characters a line.
   - **Only fixed hosts are ever asked:** whatever is searched or opened, every request goes to MixesDB's API or Discogs' API (or through the MusicBrainz client, which refuses an id that isn't an MBID); a pasted MixesDB link is read for its page title only, and a link to any other host is search text.
   - **A redirect or a huge answer is a source down:** redirects aren't followed, and an answer over 2 MB is cut off while it streams.
+- **Double BPM / Halve BPM** (`tests/dj/test_bpm_override.py`, `tests/database/test_dj_tempo_promotion.py`; the route is in `api/dj.py` and the write in `core/dj/store.py`, both on the list, and `core/sample/tempo.py`, the tempo rule the sweep runs on every file, is added):
+  - **Only your own library:** a member's ×2, ÷2 or reset reaches only tracks in their library scope; another profile's track reads as missing (404 when it's the only one) and is never changed; a profile on its own library can't reach the shared one.
+  - **A person's BPM is kept:** a later analysis, a re-analysis of the file and the sweep's grid top-up never undo it; a grid found at the other octave is rescaled to it as it's saved.
+  - **JSON only, with a size:** a form or `text/plain` POST is refused, a body over 64 KB is 413, and over 500 ids is 400.
+  - **The upgrade only skips what can't change:** DJ data and grids read at 100–140 BPM (and errors, too long, too short) move to the new versions without a decode; everything the new rule can change is analysed again; it runs once.
 
 When you write a test for a new way a change could lose data, tag it `gauntlet` too.
 
