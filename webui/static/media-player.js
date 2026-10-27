@@ -3902,6 +3902,14 @@ window.SoulSyncPlayer = {
         };
     },
     analyser() { return npAnalyser; },
+    /** The player's audio graph, made now if it isn't yet: the two-deck
+     * engine (auto-mix) plays on this context and into this analyser, so
+     * the visualisers see the mix and the output device applies to it. */
+    audioGraph() {
+        npInitVisualizer();
+        npEnsureAudioContextRunning();
+        return npAudioContext && npAnalyser ? { context: npAudioContext, analyser: npAnalyser } : null;
+    },
     toggle: () => togglePlayback(),
     stop: () => handleStop(),
     next: () => playNextInQueue(),

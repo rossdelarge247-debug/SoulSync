@@ -1,0 +1,158 @@
+/*
+ * The auto-mix lab (/automix-lab): a dev bench, not a SYNCHRO.S screen, so
+ * it keeps to plain controls on the page's tokens.
+ */
+
+.lab {
+  display: grid;
+  gap: 16px;
+  max-width: 1040px;
+  padding: 24px 16px;
+  color: var(--ss-text);
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.lead,
+.meta {
+  margin: 0;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+}
+
+.picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.pick,
+.outputs {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+}
+
+.chosen {
+  margin: 0;
+  font-weight: 600;
+}
+
+.input,
+.lab select {
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 1px solid var(--ss-input-border);
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-control-fill);
+  color: inherit;
+  font: inherit;
+}
+
+.results {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.result:hover,
+.result:focus-visible {
+  background: var(--ss-hover-wash);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.button,
+.primary {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: transparent;
+  background: rgb(var(--ss-accent-rgb));
+  font-weight: 600;
+}
+
+.button:focus-visible,
+.primary:focus-visible,
+.result:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.button:disabled,
+.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  margin: 0;
+  color: var(--ss-warning);
+}
+
+.plan {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.plan dt {
+  color: var(--ss-text-secondary);
+}
+
+.plan dd {
+  margin: 0;
+}
+
+.live {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  /* Deck B's cyan (21e), as auto-mix's status is drawn in 26j */
+  border: 1px solid oklch(0.85 0.1 200 / 0.5);
+  border-radius: var(--ss-radius-card);
+}
+
+.state {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
