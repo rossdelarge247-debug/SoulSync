@@ -12,6 +12,7 @@ after it, in milliseconds). A typical row is well under 1 KB.
 from __future__ import annotations
 
 import json
+import math
 import time
 from contextlib import closing
 from typing import Any, Dict, Iterable, List, Optional
@@ -71,10 +72,13 @@ def decode_beats(text: Optional[str]) -> Optional[List[float]]:
 
 def save_result(database, track_id: str, result: Dict[str, Any], *, source_sig: Optional[str],
                 replaygain_db: Optional[float] = None) -> None:
-    """Keep one analysis (core/dj/grid.analyze_audio's result)."""
+    """Keep one analysis (core/dj/grid.analyze_audio's result). A track
+    whose BPM a person set (×2 or ÷2, ``track_dj.bpm_override``) keeps it: a
+    grid found at the other octave is rescaled to it (``rescale``), so no
+    later analysis undoes the person's choice."""
     done = result.get("status") == "done"
     mix = {"in": result.get("mix_in"), "out": result.get("mix_out")} if done else None
-    _save(database, track_id, {
+    values = {
         "grid_version": int(result.get("version") or GRID_VERSION), "analyzed_at": time.time(),
         "source_sig": source_sig, "status": "done" if done else "none",
         "reason": None if done else (result.get("reason") or "no_beat"),
@@ -92,7 +96,169 @@ def save_result(database, track_id: str, result: Dict[str, Any], *, source_sig: 
         "mix_json": json.dumps(mix, separators=(",", ":")) if done else None,
         "analysed_s": result.get("analysed_s"), "truncated": 1 if result.get("truncated") else 0,
         "level_db": result.get("level_db"), "replaygain_db": replaygain_db,
-    })
+    }
+    if done:
+        values.update(follow_override(values, _override(database, track_id)))
+    _save(database, track_id, values)
+
+
+# ── a person's ×2 or ÷2 (track_dj.bpm_override) ───────────────────────────────
+
+def _override(database, track_id: str) -> Optional[float]:
+    with closing(database._get_connection()) as conn:
+        row = conn.execute("SELECT bpm_override FROM track_dj WHERE track_id = ?", (str(track_id),)).fetchone()
+    try:
+        value = float(row[0]) if row and row[0] is not None else None
+    except (TypeError, ValueError):
+        return None
+    return value if value and math.isfinite(value) and value > 0 else None
+
+
+#: a grid is at a tempo's octave when within this of it (the grid search's ±4%)
+OCTAVE_MARGIN = 0.04
+
+
+def octave_factor(grid_bpm, target) -> Optional[float]:
+    """2, 0.5 (or 4, 0.25) when ``target`` is the grid's tempo doubled or
+    halved (within 4%), 1 when it's the same, None when it's neither (a
+    different tempo altogether: the grid is left as it is)."""
+    try:
+        a, b = float(grid_bpm), float(target)
+    except (TypeError, ValueError):
+        return None
+    if not (a > 0 and b > 0):
+        return None
+    for factor in (1.0, 2.0, 0.5, 4.0, 0.25):
+        if abs(a * factor - b) / b <= OCTAVE_MARGIN:
+            return factor
+    return None
+
+
+def follow_override(row: Dict[str, Any], target: Optional[float]) -> Dict[str, Any]:
+    """The values that put a done grid row at the octave of ``target`` (a
+    person's BPM): ``{}`` when there's none, it's already there, or it isn't
+    an octave away."""
+    if target is None or row.get("status") != "done":
+        return {}
+    factor = octave_factor(row.get("bpm"), target)
+    if factor is None or factor == 1.0:
+        return {}
+    out = dict(row)
+    while factor not in (1.0, None):
+        step = 2.0 if factor > 1 else 0.5
+        out.update(rescale(out, step))
+        factor /= step
+    return {k: out[k] for k in _RESCALED if k in out}
+
+
+#: what rescale changes
+_RESCALED = ("bpm", "period", "first_beat", "downbeat_index", "first_downbeat", "bars", "beats_ms",
+             "phrases_json", "sections_json", "mix_json")
+
+
+def rescale(row: Dict[str, Any], factor: float) -> Dict[str, Any]:
+    """A done grid row (the stored form) at double (``factor`` 2) or half
+    (0.5) its tempo, without the audio: ``{field: value}`` to save.
+
+    Doubling is exact: every beat stays a beat and one is added halfway to
+    the next (a drifting grid's halfway point is where the off-beat falls
+    to within the tempo's change over one beat), the downbeat stays the
+    one, and every bar becomes two, so sections and mix regions double and
+    the phrases are counted again from the same section changes.
+
+    Halving keeps every other beat (those the downbeat is on), so the beats
+    are exact too; two bars become one, paired so that the most section
+    changes fall on a bar line (an odd one rounds down), and the phrases are
+    counted again from them."""
+    from core.dj.grid import phrases_from
+
+    if row.get("status") != "done" or not row.get("period") or factor not in (2.0, 0.5):
+        return {}
+    period = float(row["period"])
+    first = float(row.get("first_beat") or 0.0)
+    down = int(row.get("downbeat_index") or 0)
+    bars = int(row.get("bars") or 0)
+    beats = decode_beats(row.get("beats_ms")) if row.get("kind") == "beats" else None
+    phrases = _loads(row.get("phrases_json"), [])
+    sections = _loads(row.get("sections_json"), [])
+    mix = _loads(row.get("mix_json"), {}) or {}
+    changes = [int(p[0]) for p in phrases if isinstance(p, list) and len(p) >= 3 and p[2]]
+    if factor == 2.0:
+        new_period, new_first, new_down, new_bars = period / 2.0, first, 2 * down, 2 * bars
+        if beats:
+            gaps = [b - a for a, b in zip(beats, beats[1:], strict=False)] or [period]
+            beats = [t for a, gap in zip(beats, gaps + [gaps[-1]], strict=True) for t in (a, a + gap / 2.0)]
+
+        def to_bar(b: float, up: bool = False) -> int:
+            return int(2 * b)
+    else:
+        parity = down % 2
+        # pair the bars so the most section changes fall on a new bar line
+        odd = sum(1 for c in changes if c % 2)
+        shift = 1 if odd > len(changes) - odd else 0
+        new_period, new_first = period * 2.0, first + parity * period
+        new_down = (down + 4 * shift - parity) // 2
+        new_bars = max(0, (bars - shift) // 2)
+        if beats:
+            beats = beats[parity::2]
+            new_first = beats[0] if beats else new_first
+
+        def to_bar(b: float, up: bool = False) -> int:
+            half = (b - shift) / 2.0
+            return int(math.ceil(half) if up else math.floor(half))
+
+    def clamp(b: int) -> int:
+        return max(0, min(new_bars, b))
+
+    new_sections = []
+    for i, part in enumerate(sections):
+        if not isinstance(part, list) or len(part) < 4:
+            continue
+        start = 0 if i == 0 else clamp(to_bar(part[1]))
+        end = new_bars if i == len(sections) - 1 else clamp(to_bar(part[2]))
+        if end > start:
+            new_sections.append([part[0], start, end, part[3]])
+    new_changes = sorted({to_bar(c) for c in changes if 0 < to_bar(c) < new_bars})
+    new_mix = {}
+    for side in ("in", "out"):
+        region = mix.get(side)
+        if isinstance(region, list) and len(region) >= 4:
+            start, end = clamp(to_bar(region[0])), clamp(to_bar(region[1], up=True))
+            new_mix[side] = [start, end, region[2], region[3]] if end > start else None
+        else:
+            new_mix[side] = region
+    if beats:
+        first_down = beats[new_down] if 0 <= new_down < len(beats) else new_first + new_down * new_period
+    else:
+        first_down = new_first + new_down * new_period
+    return {
+        "bpm": round(float(row.get("bpm") or 60.0 / period) * factor, 3), "period": new_period,
+        "first_beat": round(new_first, 4), "downbeat_index": int(new_down), "first_downbeat": round(first_down, 4),
+        "bars": int(new_bars), "beats_ms": encode_beats(beats) if beats else row.get("beats_ms"),
+        "phrases_json": json.dumps(phrases_from(new_changes, new_bars), separators=(",", ":")),
+        "sections_json": json.dumps(new_sections, separators=(",", ":")),
+        "mix_json": json.dumps(new_mix, separators=(",", ":")),
+    }
+
+
+def apply_override(database, track_id: str, target: Optional[float]) -> bool:
+    """Put a track's done grid at the octave of a person's BPM now (the ×2 /
+    ÷2 route). True when the grid changed."""
+    row = get(database, track_id)
+    if not row or int(row.get("grid_version") or 0) < GRID_VERSION:
+        return False  # none yet, or an old one the sweep redoes (and follows)
+    values = follow_override(row, target)
+    if values:
+        _save(database, track_id, values)
+    return bool(values)
+
+
+def requeue(database, track_id: str) -> None:
+    """Find this track's grid again from the audio (its BPM went back to the
+    measured one): the sweep's top-up redoes it."""
+    with closing(database._get_connection()) as conn:
+        conn.execute("UPDATE track_grid SET grid_version = 0 WHERE track_id = ?", (str(track_id),))
+        conn.commit()
 
 
 def mark(database, track_id: str, status: str, reason: Optional[str], *, version: int = GRID_VERSION,
@@ -332,6 +498,7 @@ def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]
     return out
 
 
-__all__ = ["BEAT_CONFIDENT", "DOWNBEAT_CONFIDENT", "ERROR_RETRY_SECONDS", "counts", "current", "decode_beats", "encode_beats",
-           "fail_leftover_analyzing", "get", "grid_of", "mark", "pending_ids", "public", "public_entry", "save_result",
+__all__ = ["BEAT_CONFIDENT", "DOWNBEAT_CONFIDENT", "ERROR_RETRY_SECONDS", "apply_override", "counts", "current",
+           "decode_beats", "encode_beats", "fail_leftover_analyzing", "follow_override", "get", "grid_of", "mark",
+           "octave_factor", "pending_ids", "public", "public_entry", "requeue", "rescale", "save_result",
            "scoped_rows"]

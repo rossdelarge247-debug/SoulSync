@@ -128,7 +128,7 @@ def test_a_profile_is_needed(client, monkeypatch):
 def test_track_rows_lookup(client):
     body = client.post("/api/library/dj/tracks", json={"track_ids": ["1", "9", "nope", 3]}).get_json()
     one = body["tracks"]["1"]
-    assert one == {"bpm": 124.0, "bpm_source": "analysis", "key": "8A", "key_name": "Am", "key_long": "A minor",
+    assert one == {"bpm": 124.0, "bpm_source": "analysis", "bpm_tag": None, "key": "8A", "key_name": "Am", "key_long": "A minor",
                    "key_source": "analysis", "key_confidence": 0.8, "key_uncertain": False, "energy": 7,
                    "analyzed": True, "skipped": None}
     # not analysed yet: the BPM enrichment found

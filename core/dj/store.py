@@ -5,8 +5,15 @@ Which value is kept, and why (``*_source`` says which won):
 
 * **BPM:** the file's own tag, else the BPM enrichment found (``tracks.bpm``:
   Beatport, Deezer, Tidal or HiFi at import, or the BPM Backfill job), else
-  analysis. A tag or a label's figure was set by a person or the label;
-  analysis can lock onto half or double the beat.
+  analysis. A tag or a label's figure was set by a person or the label. One
+  exception: a tag or enrichment at half the analysis's tempo, where the
+  analysis chose the fast octave (core/sample/tempo.py: drum and bass tagged
+  87, analysed 174), is the same tempo, and the analysis's octave is kept.
+* **The BPM shown** (``_BPM_SQL`` and ``public``) is, first, the one a person
+  set with ×2 or ÷2 (``bpm_override``, ``bpm_source`` ``override``: no
+  analysis ever undoes it); then the beat grid's measured BPM once the track
+  has a grid at this version (``grid``: HANDOFF 300, tags no longer win over
+  a measured grid); then the value above.
 * **Key:** the file's own tag (in any spelling, kept in canonical form), else
   analysis, with its confidence.
 * **Energy:** analysis only; nothing else gives one.
@@ -22,6 +29,7 @@ from contextlib import closing
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from core.dj.camelot import BPM_TOLERANCE, bpm_relation, bpm_windows, compatible_keys, fold_bpm, parse_key
+from core.dj.grid import GRID_VERSION
 from utils.logging_config import get_logger
 
 logger = get_logger("dj.store")
@@ -54,6 +62,14 @@ def decide(*, tag_bpm=None, tag_key=None, enrichment_bpm=None,
         out["bpm"], out["bpm_source"] = round(enrichment, 1), "enrichment"
     elif out["analyzed_bpm"]:
         out["bpm"], out["bpm_source"] = out["analyzed_bpm"], "analysis"
+    # drum and bass tagged (or enriched) 87 that the analysis found at 174:
+    # the same tempo, at the analysis's octave (it never halves a tag)
+    from core.sample.tempo import is_fast
+
+    heard = out["analyzed_bpm"]
+    if (out["bpm_source"] in ("tag", "enrichment") and heard and is_fast(heard)
+            and abs(out["bpm"] * 2 - heard) / heard <= 0.04):
+        out["bpm"], out["bpm_source"] = heard, "analysis"
 
     tkey = parse_key(tag_key)
     if tkey:
@@ -172,18 +188,38 @@ def track_row(database, track_id: str) -> Optional[Dict[str, Any]]:
 
 # ── shaping for the routes ───────────────────────────────────────────────────
 
+def _positive(value) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 and number == number and number != float("inf") else None
+
+
 def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Dict[str, Any]]:
-    """One track's DJ data for the page: ``{bpm, bpm_source, key, key_name,
-    key_long, key_source, key_confidence, key_uncertain, energy, analyzed}``.
-    A track analysis hasn't reached yet still shows the BPM enrichment found."""
+    """One track's DJ data for the page: ``{bpm, bpm_source, bpm_tag, key,
+    key_name, key_long, key_source, key_confidence, key_uncertain, energy,
+    analyzed}``. A track analysis hasn't reached yet still shows the BPM
+    enrichment found.
+
+    The BPM is the person's ×2 / ÷2 (``override``), else the grid's measured
+    one (``grid``, when the row carries ``grid_bpm``: a done grid at this
+    version), else the tag, enrichment or analysis. ``bpm_tag`` is the
+    file's tag when another value is shown (300's "Tagged 123")."""
     row = row or {}
-    bpm = row.get("bpm")
-    source = row.get("bpm_source")
+    bpm = _positive(row.get("bpm"))
+    source = row.get("bpm_source") if bpm is not None else None
     if bpm is None and enrichment_bpm:
-        try:
-            bpm, source = round(float(enrichment_bpm), 1), "enrichment"
-        except (TypeError, ValueError):
-            bpm = None
+        bpm = _positive(enrichment_bpm)
+        if bpm is not None:
+            bpm, source = round(bpm, 1), "enrichment"
+    tag = bpm if source == "tag" else None
+    grid_bpm = _positive(row.get("grid_bpm"))
+    if grid_bpm is not None:
+        bpm, source = round(grid_bpm, 2), "grid"
+    override = _positive(row.get("bpm_override"))
+    if override is not None:
+        bpm, source = round(override, 2), "override"
     key = parse_key(row.get("musical_key")) if row.get("musical_key") else None
     skipped = row.get("error") if row.get("status") == "skipped" else None
     if bpm is None and key is None and row.get("energy") is None and not skipped:
@@ -191,6 +227,7 @@ def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Di
     conf = row.get("key_confidence")
     return {
         "bpm": bpm, "bpm_source": source,
+        "bpm_tag": tag if (tag is not None and source != "tag") else None,
         "key": key["camelot"] if key else None,
         "key_name": key["name"] if key else None,
         "key_long": key["long"] if key else None,
@@ -216,8 +253,8 @@ def lookup(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
             chunk = ids[start:start + 250]
             marks = ",".join("?" * len(chunk))
             rows = conn.execute(
-                f"SELECT t.id AS tid, t.bpm AS enrichment_bpm, d.* FROM tracks t "
-                f"LEFT JOIN track_dj d ON d.track_id = t.id WHERE t.id IN ({marks}) AND {where}",
+                f"SELECT t.id AS tid, t.bpm AS enrichment_bpm, {_GRID_BPM} AS grid_bpm, d.* FROM tracks t "
+                f"LEFT JOIN track_dj d ON d.track_id = t.id {_GRID_JOIN} WHERE t.id IN ({marks}) AND {where}",
                 chunk + params).fetchall()
             for r in rows:
                 shaped = public(dict(r), enrichment_bpm=r["enrichment_bpm"])
@@ -230,7 +267,12 @@ def lookup(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
 
 SORTS = ("bpm", "key", "energy", "title", "artist", "recent")
 
-_BPM_SQL = "COALESCE(d.bpm, NULLIF(t.bpm, 0))"
+#: the grid's measured BPM, from a done grid at this version (HANDOFF 300);
+#: every query that uses it or _BPM_SQL joins the grid as ``g`` (_GRID_JOIN)
+_GRID_BPM = f"CASE WHEN g.status = 'done' AND g.grid_version >= {int(GRID_VERSION)} THEN g.bpm END"
+_GRID_JOIN = "LEFT JOIN track_grid g ON g.track_id = t.id"
+#: the BPM shown: a person's ×2 / ÷2, the measured grid, the DJ data, enrichment
+_BPM_SQL = f"COALESCE(d.bpm_override, {_GRID_BPM}, d.bpm, NULLIF(t.bpm, 0))"
 
 
 def _scope(database, alias: str = "t") -> Tuple[str, List[Any]]:
@@ -258,8 +300,8 @@ def _track_select() -> str:
     return (f"SELECT t.id AS id, t.title AS title, t.duration AS duration, t.file_path AS file_path, "
             f"t.bitrate AS bitrate, t.album_id AS album_id, t.artist_id AS artist_id, t.bpm AS enrichment_bpm, "
             f"COALESCE(NULLIF(t.track_artist, ''), ar.name) AS artist_name, al.title AS album_title, "
-            f"al.thumb_url AS album_thumb, {_BPM_SQL} AS eff_bpm, d.* "
-            f"FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id "
+            f"al.thumb_url AS album_thumb, {_BPM_SQL} AS eff_bpm, {_GRID_BPM} AS grid_bpm, d.* "
+            f"FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id {_GRID_JOIN} "
             f"LEFT JOIN artists ar ON ar.id = t.artist_id LEFT JOIN albums al ON al.id = t.album_id ")
 
 
@@ -328,7 +370,7 @@ def browse(database, *, bpm_min=None, bpm_max=None, key: str = "", q: str = "", 
     }[sort]
     limit = max(1, min(200, int(limit or 50)))
     page = max(1, int(page or 1))
-    base = (f"FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id "
+    base = (f"FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id {_GRID_JOIN} "
             f"LEFT JOIN artists ar ON ar.id = t.artist_id LEFT JOIN albums al ON al.id = t.album_id "
             f"WHERE {' AND '.join(clauses)}")
     with closing(database._get_connection()) as conn:
@@ -438,5 +480,88 @@ def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None,
             "reason": None if matches else "none", "within": within}
 
 
-__all__ = ["KEY_CONFIDENT", "SORTS", "browse", "counts", "decide", "fail_leftover_analyzing", "get", "lookup",
-           "mark", "mix_keys", "mixes_with", "pending_ids", "public", "requeue", "save", "track_row"]
+# ── a person's ×2 or ÷2 ───────────────────────────────────────────────────────
+
+#: what the BPM route does to each track
+TEMPO_ACTIONS = {"double": 2.0, "halve": 0.5, "reset": None}
+#: a BPM a person can set by ×2 or ÷2 stays within this
+OVERRIDE_RANGE = (40.0, 300.0)
+#: the most tracks one request changes
+MAX_TEMPO_TRACKS = 500
+
+
+def set_tempo(database, track_ids: Iterable[str], action: str, *,
+              profile_id: Optional[int] = None) -> Dict[str, Any]:
+    """Double, halve or reset the BPM of the caller's tracks (``action``
+    ``double``, ``halve`` or ``reset``), only those in their library scope
+    (``_scope``, as every DJ read). The value is kept as ``bpm_override``,
+    which analysis never writes, so no later analysis undoes it; each
+    track's grid follows it at once (grid_store.apply_override: doubled or
+    halved, no decode) and whenever it's found again. ``reset`` clears it
+    and has the grid found again from the audio.
+
+    ``{"changed": {id: bpm | None}, "skipped": {id: reason}, "found": n}``;
+    reasons ``no_bpm`` (nothing to double yet), ``out_of_range`` (it would
+    leave 40-300) and ``not_set`` (reset with nothing set). Ids outside the
+    caller's library aren't in the answer."""
+    from core.dj import grid_store
+
+    if action not in TEMPO_ACTIONS:
+        raise ValueError("action must be double, halve or reset")
+    factor = TEMPO_ACTIONS[action]
+    ids = list(dict.fromkeys(str(t) for t in track_ids if t not in (None, "")))[:MAX_TEMPO_TRACKS]
+    changed: Dict[str, Optional[float]] = {}
+    skipped: Dict[str, str] = {}
+    if not ids:
+        return {"changed": changed, "skipped": skipped, "found": 0}
+    where, params = _scope(database)
+    rows = []
+    with closing(database._get_connection()) as conn:
+        for start in range(0, len(ids), 250):
+            chunk = ids[start:start + 250]
+            marks = ",".join("?" * len(chunk))
+            # "?" placeholders, the fixed grid fragments and the library
+            # scope's fixed fragment are formatted in; every value is bound
+            rows.extend(dict(r) for r in conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
+                f"SELECT t.id AS tid, {_BPM_SQL} AS eff_bpm, d.bpm_override AS bpm_override, "
+                f"d.track_id AS has_row FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id {_GRID_JOIN} "
+                f"WHERE t.id IN ({marks}) AND {where}", chunk + params).fetchall())
+        now = time.time()
+        for r in rows:
+            tid = str(r["tid"])
+            if factor is None:
+                if r["bpm_override"] is None:
+                    skipped[tid] = "not_set"
+                    continue
+                conn.execute("UPDATE track_dj SET bpm_override = NULL, bpm_override_at = ?, bpm_override_by = ? "
+                             "WHERE track_id = ?", (now, profile_id, tid))
+                changed[tid] = None
+                continue
+            current = _positive(r["eff_bpm"])
+            if current is None:
+                skipped[tid] = "no_bpm"
+                continue
+            target = round(current * factor, 2)
+            if not OVERRIDE_RANGE[0] <= target <= OVERRIDE_RANGE[1]:
+                skipped[tid] = "out_of_range"
+                continue
+            conn.execute("INSERT INTO track_dj (track_id, bpm_override, bpm_override_at, bpm_override_by) "
+                         "VALUES (?, ?, ?, ?) ON CONFLICT(track_id) DO UPDATE SET "
+                         "bpm_override = excluded.bpm_override, bpm_override_at = excluded.bpm_override_at, "
+                         "bpm_override_by = excluded.bpm_override_by", (tid, target, now, profile_id))
+            changed[tid] = target
+        conn.commit()
+    for tid, target in changed.items():
+        try:
+            if target is None:
+                grid_store.requeue(database, tid)
+            else:
+                grid_store.apply_override(database, tid, target)
+        except Exception as exc:  # noqa: BLE001 - the BPM is kept; the grid follows on its next analysis
+            logger.warning("grid didn't follow the BPM for track %s: %s", tid, exc)
+    return {"changed": changed, "skipped": skipped, "found": len(rows)}
+
+
+__all__ = ["KEY_CONFIDENT", "MAX_TEMPO_TRACKS", "SORTS", "TEMPO_ACTIONS", "browse", "counts", "decide",
+           "fail_leftover_analyzing", "get", "lookup", "mark", "mix_keys", "mixes_with", "pending_ids", "public",
+           "requeue", "save", "set_tempo", "track_row"]

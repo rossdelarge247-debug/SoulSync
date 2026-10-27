@@ -853,6 +853,10 @@ class MusicDatabase:
             # sections and mix regions (core/dj/grid_store.py)
             self._add_track_grid_table(cursor)
 
+            # The tempo's octave (drum and bass at 174, not 87): the DJ data
+            # and grids it can't change move to the new versions undecoded
+            self._promote_settled_tempos(cursor)
+
             # Per-user curation signals read back off the media server —
             # what people deliberately CHOSE about a track (favourited,
             # rated, added to a playlist), as opposed to play_count which
@@ -3872,6 +3876,11 @@ class MusicDatabase:
         ('error', 'TEXT'),
         ('tags_written', 'TEXT'),          # e.g. "bpm,key"
         ('tags_written_at', 'REAL'),
+        # a person's ×2 or ÷2 (core/dj/store.py set_tempo): shown before any
+        # measured BPM and never written by analysis, so none undoes it
+        ('bpm_override', 'REAL'),
+        ('bpm_override_at', 'REAL'),
+        ('bpm_override_by', 'INTEGER'),    # the profile that set it
     )
 
     def _add_track_dj_table(self, cursor):
@@ -4062,6 +4071,38 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_grid_version ON track_grid (grid_version)")
             if self._migration_step_ok():
                 self._record_migration(cursor, 'track_grid_v1')
+
+    def _promote_settled_tempos(self, cursor):
+        """One-time, for the tempo-octave fix (analyzer v5, grid v3;
+        core/sample/tempo.py): the new rule only ever changes a tempo read at
+        70–100 or 140–200, so a track whose analysis read 100–140 would come
+        out the same, bit for bit. Those rows move to the new versions
+        without a decode; the rest (and any row that didn't finish) are
+        analysed again by the sweep. Rows the sweep wouldn't decode at the
+        old version either (an error, too long to analyse) keep their state.
+        A grid too short to have one can't change either; one with no beat
+        and no tempo kept is redone (its tempo may have been one that
+        changes). Marker-gated; a re-run is a no-op (it only moves v4 and v2
+        rows, and the marker stops it anyway)."""
+        with self._migration_step(cursor, 'promote_settled_tempos'):
+            cursor.execute("SELECT value FROM metadata WHERE key = 'dj_tempo_octave_v5' LIMIT 1")
+            if cursor.fetchone():
+                return
+            cursor.execute(
+                "UPDATE track_dj SET dj_analyzer_version = 5 WHERE dj_analyzer_version = 4 AND ("
+                " (status = 'done' AND ((analyzed_bpm >= 100 AND analyzed_bpm < 140) OR analyzed_bpm IS NULL))"
+                " OR status IN ('error', 'skipped'))")
+            dj = cursor.rowcount
+            cursor.execute(
+                "UPDATE track_grid SET grid_version = 3 WHERE grid_version = 2 AND ("
+                " (status IN ('done', 'none') AND bpm >= 100 AND bpm < 140)"
+                " OR (status = 'none' AND reason = 'too_short')"
+                " OR status IN ('error', 'skipped', 'unreachable'))")
+            grids = cursor.rowcount
+            self._mark_step_done(cursor, 'dj_tempo_octave_v5', 'true')
+            self._record_migration(cursor, 'dj_tempo_octave_v5')
+            if dj or grids:
+                logger.info("Tempo octave: %s DJ rows and %s grids need no new analysis", dj, grids)
 
     def _migrate_id_columns_to_text(self, cursor):
         """Migrate ID columns from INTEGER to TEXT to support both Plex (int) and Jellyfin (GUID) IDs"""
