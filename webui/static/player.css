@@ -2014,3 +2014,39 @@ button.ss-player-radio-heard {
 .ss-player-rtray-action > .ss-player-radio-add { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ss-player-rtray-controls:has([data-player-sleep][aria-pressed='true']) .ss-player-rtray-addmore { display: none; }
 .ss-player-rtray-addmore { white-space: pre; }
+
+/* ── auto-mix (stage C; 26a–26f): src/features/automix ───────────────────
+   Mix now beside Next; the bar's middle while it counts down, mixes or
+   crossfades in a mix's place; the record's two tracks and the lanes in the
+   waveform's place while it mixes; a cyan mark where the mix will start;
+   and Up next's gaps, each with its chip. #media-player[data-automix] is
+   counting, mixing or fallback. */
+.ss-player-automix-mixnow { display: inline-flex; flex: none; }
+.ss-player-automix-mixnow:empty,
+.ss-player-automix-record:empty,
+.ss-player-automix-deck:empty { display: none; }
+.ss-player-automix-bar { display: none; flex: 1 1 auto; min-width: 0; }
+.ss-player[data-automix] .ss-player-automix-bar:not(:empty) { display: flex; }
+.ss-player[data-automix] .ss-player-bar .ss-player-centre > [data-player-elapsed],
+.ss-player[data-automix] .ss-player-bar .ss-player-centre > .ss-player-wave,
+.ss-player[data-automix] .ss-player-bar .ss-player-centre > [data-player-total] { display: none; }
+.ss-player-automix-deck { width: 100%; }
+.ss-player-deck:has([data-automix-lanes]) > .ss-player-wave--deck { display: none; }
+.ss-player[data-automix='mixing'] .ss-player-record-top:has(~ .ss-player-automix-record:not(:empty)) { display: none; }
+.ss-player-automix-record { margin: 0 0 4px; }
+.ss-player-wave[data-automix-mark]::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--automix-at);
+    width: 2px;
+    border-radius: 1px;
+    background: var(--ss-deck-b);
+    pointer-events: none;
+}
+.np-queue-gap:empty { display: none; }
+.np-queue-gap + .np-queue-item { border-top: 0; }
+@media (max-width: 768px) {
+    .ss-player-mini .ss-player-automix-mixnow { display: none; }
+}

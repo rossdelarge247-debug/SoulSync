@@ -1,0 +1,429 @@
+/* Auto-mix in the player (26a–26h): the gaps' chips, Mix now, the countdown,
+   the handover (record, lanes, bar) and Player settings → Between tracks. */
+
+.textButton {
+  min-height: 32px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.textButton:hover {
+  text-decoration: underline;
+}
+
+.textButton:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.chipWhen {
+  margin-left: auto;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.askSave {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--ss-radius-control);
+  background: rgba(var(--ss-accent-rgb), 0.08);
+}
+
+.askSave p {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.askButtons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── a gap in Up next (26a, 26b): 40px, the chip and its line ── */
+.gap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px 0 44px;
+  min-width: 0;
+}
+
+.gap > span {
+  min-width: 0;
+}
+
+.gap [data-dimmed] {
+  min-width: 0;
+}
+
+/* ── Mix now (26a) ── */
+.mixNow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-control-fill);
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mixNow svg {
+  width: 18px;
+  height: 18px;
+  color: var(--ss-deck-b);
+}
+
+.mixNow:hover:not([aria-disabled='true']) {
+  background: var(--ss-control-fill-hover);
+}
+
+.mixNow[aria-disabled='true'] {
+  color: var(--ss-disabled-text);
+  cursor: default;
+}
+
+.mixNow[aria-disabled='true'] svg {
+  color: var(--ss-disabled-text);
+}
+
+.mixNow:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+}
+
+.mixNowBar {
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+/* ── the bar's middle (26e) ── */
+.bar {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.barWords {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.barWords strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barMeta {
+  overflow: hidden;
+  color: var(--ss-text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.handoverBar {
+  display: flex;
+  flex: 0 1 160px;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 80px;
+}
+
+.handoverBar span {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.handoverBar span i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+
+.handoverBar span:first-child i {
+  margin-left: auto;
+  background: var(--ss-deck-a);
+}
+
+.handoverBar span:last-child i {
+  background: var(--ss-deck-b);
+}
+
+.barActions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.fallback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ss-text-secondary);
+}
+
+.fallback i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ss-warning);
+}
+
+.fallback span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── the record (26d, 26f) ── */
+.record {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  margin: 0;
+  color: var(--ss-deck-b);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.deckLine {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0 6px 12px;
+  border-left: 3px solid var(--ss-deck-a);
+}
+
+.deckLine[data-deck='a'] {
+  opacity: 0.62;
+}
+
+.deckLine[data-deck='b'] {
+  border-left-color: var(--ss-deck-b);
+}
+
+.deckLine strong {
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deckLine span {
+  overflow: hidden;
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── the lanes on one bar ruler, in the waveform's place (26d) ── */
+.deck {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.lanes {
+  display: block;
+  width: 100%;
+  height: 84px;
+}
+
+.deckMeta {
+  margin: 0;
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+}
+
+.deckActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.countdown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--ss-deck-b-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-deck-b-fill);
+}
+
+.countdown strong {
+  font-weight: 600;
+}
+
+.countdown span {
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
+}
+
+/* ── Player settings → Between tracks (26h) ── */
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+.settingsHead {
+  margin: 0;
+}
+
+.settingsHead p {
+  margin: 2px 0 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 4px 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--ss-surface-card-border);
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-surface-card);
+  color: var(--ss-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card:hover {
+  background: var(--ss-hover-wash);
+}
+
+.card[aria-checked='true'] {
+  border-color: var(--ss-selected-border);
+  background: var(--ss-selected-fill);
+}
+
+.card:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+}
+
+.radio {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: 2px solid var(--ss-text-meta);
+  border-radius: 50%;
+}
+
+.card[aria-checked='true'] .radio {
+  border-color: rgb(var(--ss-accent-light-rgb));
+  box-shadow: inset 0 0 0 3px #141416;
+  background: rgb(var(--ss-accent-light-rgb));
+}
+
+.card strong {
+  font-weight: 600;
+}
+
+.card small {
+  grid-column: 2;
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.row > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.row small {
+  color: var(--ss-text-meta);
+  font-size: 13px;
+}
+
+.note {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.phoneNote {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--ss-radius-control);
+  background: rgba(var(--ss-warning-rgb), 0.08);
+  color: var(--ss-text-secondary);
+  font-size: 14px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .gap {
+    padding-left: 8px;
+  }
+
+  .handoverBar {
+    display: none;
+  }
+}
