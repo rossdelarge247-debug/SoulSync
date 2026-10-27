@@ -192,14 +192,23 @@ def decode(path: str, start: float, dur: float, rate: int, *, owner: object = No
         # ffmpeg's complaints go to a file, not a pipe nobody reads while it
         # runs: a damaged file can print far more than a pipe holds, and
         # ffmpeg would stop until the deadline (gauntlet re-review N1)
-        errors = tempfile.TemporaryFile()
+        # Where no temporary file can be made (a read-only or full temp
+        # directory), the complaints are dropped rather than the window
+        # refused: they're only for the log
+        errors = None
+        try:
+            errors = tempfile.TemporaryFile()
+        except OSError as exc:
+            logger.debug("no temporary file for ffmpeg's errors, dropping them: %s", exc)
         try:
             # an argument list, no shell: ffmpeg's own path, a library file's
             # path from the database (never from the request) and numbers
             # parse_args has already checked
-            proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=errors)  # nosemgrep: dangerous-subprocess-use-audit
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                    stderr=errors if errors is not None else subprocess.DEVNULL)  # nosemgrep: dangerous-subprocess-use-audit
         except OSError as exc:  # ffmpeg vanished or can't run
-            errors.close()
+            if errors is not None:
+                errors.close()
             raise WindowError(f"ffmpeg couldn't start: {exc}") from exc
         try:
             os.setpriority(os.PRIO_PROCESS, proc.pid, NICE)
@@ -226,8 +235,10 @@ def decode(path: str, start: float, dur: float, rate: int, *, owner: object = No
             view.release()  # the buffer can be trimmed once nothing points into it
             proc.stdout.read()  # anything past the window (a frame's rounding)
             code = proc.wait()
-            errors.seek(0)
-            err = errors.read(300)
+            err = b""
+            if errors is not None:
+                errors.seek(0)
+                err = errors.read(300)
         finally:
             timer.cancel()
             if proc.poll() is None:
@@ -235,7 +246,8 @@ def decode(path: str, start: float, dur: float, rate: int, *, owner: object = No
                 proc.wait()
             if proc.stdout is not None:
                 proc.stdout.close()
-            errors.close()
+            if errors is not None:
+                errors.close()
         if late.is_set():
             raise WindowError("decoding took too long")
         if code != 0:
