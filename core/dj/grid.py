@@ -44,7 +44,8 @@ import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 #: bump when the analysis changes: the sweep redoes every track's grid
-GRID_VERSION = 1
+#: (2: the sixteenth check, below, for syncopated breaks)
+GRID_VERSION = 2
 
 SR = 22050
 HOP = 256            # 11.6 ms a frame
@@ -127,6 +128,8 @@ def _features(y) -> Dict[str, Any]:
     low = freqs < 160.0
     env = flux.mean(axis=0)
     env_low = flux[low].mean(axis=0)
+    # the snare and clap's band (their body and crack, under the hats)
+    env_mid = flux[(freqs >= 160.0) & (freqs < 2500.0)].mean(axis=0)
     # RMS per frame from the signal itself (dB, peak-normalised)
     rms = np.zeros(n_frames)
     for start in range(0, n_frames, CHUNK_FRAMES):
@@ -136,14 +139,14 @@ def _features(y) -> Dict[str, Any]:
             block = np.concatenate([block, np.zeros(count * HOP - len(block), np.float32)])
         rms[start:start + count] = np.sqrt(np.mean(np.square(block.reshape(count, HOP)), axis=1))
     rms_db = 20.0 * np.log10(np.maximum(rms, 1e-6))
-    env, env_low = _detrend(env), _detrend(env_low)
-    # one scale for both, from the whole spectrum's attacks: a track without
+    env, env_low, env_mid = _detrend(env), _detrend(env_low), _detrend(env_mid)
+    # one scale for all, from the whole spectrum's attacks: a track without
     # low attacks (a pad, a voice) keeps a small low-band envelope instead
     # of having its noise blown up to the size of a kick
     scale = float(np.percentile(env, 99)) if env.size else 0.0
     if scale > 0:
-        env, env_low = env / scale, env_low / scale
-    return {"mel_db": mel_db, "chroma": chroma, "env": env, "env_low": env_low,
+        env, env_low, env_mid = env / scale, env_low / scale, env_mid / scale
+    return {"mel_db": mel_db, "chroma": chroma, "env": env, "env_low": env_low, "env_mid": env_mid,
             "rms_db": rms_db, "n_frames": n_frames, "duration": len(y) / SR}
 
 
@@ -494,6 +497,66 @@ def _drifting_beats(env, period: float, duration: float):
     return beats[(beats >= -0.02) & (beats < duration)], tracked
 
 
+#: the sixteenth check's weight on the backbeat (a snare on two and four)
+#: beside the kicks on the beat, and how much better another sixteenth must
+#: score to move the grid there; under AMBIGUOUS_MARGIN the grid's
+#: confidence is cut so the planner crossfades (gauntlet L4 of stage A)
+BACKBEAT_WEIGHT = 1.5
+SHIFT_MARGIN = 1.15
+AMBIGUOUS_MARGIN = 1.15
+AMBIGUOUS_FACTOR = 0.6
+#: a grid the check moved (a break) is kept, for its bars and phrases, but
+#: under the planner's bar for beat-matching (0.5) until the check has been
+#: proven on real breaks: such a pair crossfades
+BREAK_CONFIDENCE = 0.45
+
+
+def sixteenth_check(feat, beats) -> Tuple[int, float]:
+    """Which of the four sixteenths the beat is really on: ``(shift, margin)``,
+    the shift in sixteenths (0–3) from ``beats`` and how far its score leads
+    the next best (a ratio).
+
+    The comb follows the kick, which is right for four-on-the-floor music
+    and wrong for a syncopated break: an Amen-style break puts more kicks on
+    the "and"s than on the beat, so the comb locks half a beat or a
+    sixteenth off. What says where the beat is in a break is the backbeat:
+    a snare on two and four and not on one and three. So each sixteenth's
+    beats are scored on the kick there (the low band) and on how much the
+    snare's band differs between the beats in turn (the backbeat), each as
+    a share of its best sixteenth over a two-beat cycle; hats on every "and"
+    and a kick on every beat don't alternate, so they don't sway it."""
+    import numpy as np
+
+    beats = np.asarray(beats, dtype=np.float64)
+    if len(beats) < 16 or "env_mid" not in feat:
+        return 0, float("inf")
+    spacing = np.diff(beats)
+    spacing = np.append(spacing, spacing[-1])
+    radius = float(min(0.035, 0.1 * float(np.median(spacing))))
+    low_env, mid_env = feat["env_low"], feat["env_mid"]
+    n = len(beats) - len(beats) % 2
+    low = np.zeros(8)
+    mid = np.zeros(8)
+    for k in range(8):
+        # sixteenth k of a two-beat cycle: beat (k // 4) of each pair, k % 4 sixteenths on
+        at = beats[k // 4:n:2] + (k % 4) * spacing[k // 4:n:2] / 4.0
+        low[k] = float(np.mean(_peak_near(low_env, at, radius)[0]))
+        mid[k] = float(np.mean(_peak_near(mid_env, at, radius)[0]))
+    if low.max() <= 0:
+        return 0, float("inf")
+    low = low / low.max()
+    mid = mid / mid.max() if mid.max() > 0 else mid
+    scores = np.array([(low[c] + low[c + 4]) / 2.0 + BACKBEAT_WEIGHT * abs(mid[c + 4] - mid[c])
+                       for c in range(4)])
+    order = np.argsort(scores)[::-1]
+    best, second = int(order[0]), int(order[1])
+    if best != 0 and scores[best] < SHIFT_MARGIN * scores[0]:
+        best, second = 0, best  # not clearly better: the comb's beat stays
+    other = max(float(scores[c]) for c in range(4) if c != best)
+    margin = float(scores[best]) / other if other > 0 else float("inf")
+    return best, margin
+
+
 def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[str, Any]:
     """The grid: ``{kind: constant | beats | none, bpm, period, first_beat,
     beats (times), confidence}``.
@@ -542,14 +605,31 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
         # centre the grid on the on-beat onsets (the phase vector leans
         # toward the louder ones)
         first = float(first + np.median(res_on))
+        shift, margin = sixteenth_check(feat, first + np.arange(0, int((duration - first) / period) + 1) * period)
+        if shift:
+            # a break: the beat is a sixteenth (or an eighth) from the kicks'
+            # line; centred on the onsets found there
+            first += shift * period / 4.0
+            res = _residuals(times, period, first)
+            near = (np.abs(res) < 0.06 * period) & (weights >= np.median(weights))
+            if near.any():
+                first = float(first + np.median(res[near]))
+        first %= period
         if first > period - 0.02:
             first -= period  # a beat right at the start: keep it
         beats = first + np.arange(0, int((duration - first) / period) + 1) * period
         beats = beats[(beats >= -0.02) & (beats < duration)]
-        hits = _hit_rate(env, beats, active_mask(beats))
+        # a break's beats are told by the whole spectrum (its snares), not the kick
+        hits = _hit_rate(feat["env"] if shift else env, beats, active_mask(beats))
         steady = max(0.0, min(1.0, 1.0 - max(0.0, mad_ms - 3.0) / 15.0))
+        confidence = hits * (0.6 + 0.4 * steady)
+        if shift:
+            confidence = min(confidence, BREAK_CONFIDENCE)
+        if margin < AMBIGUOUS_MARGIN:
+            confidence *= AMBIGUOUS_FACTOR  # not sure which sixteenth: crossfade
         return {"kind": "constant", "bpm": round(60.0 / period, 3), "period": period, "first_beat": float(beats[0]),
-                "beats": beats, "confidence": round(hits * (0.6 + 0.4 * steady), 3),
+                "beats": beats, "confidence": round(confidence, 3), "sixteenth": shift,
+                "sixteenth_margin": round(min(margin, 99.0), 2),
                 "mad_ms": round(mad_ms, 1), "drift_ms": round(drift_ms, 1), "alignment": round(strength, 3)}
     # a drifting tempo: librosa's tracked beats give each onset its beat
     # number; the beats with a clear onset are kept where the onset is, and
@@ -569,9 +649,19 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
     # pulled onto its onset: pulled beats would score themselves
     tracked = np.asarray(tracked, dtype=np.float64)
     hits = _hit_rate(env, tracked, active_mask(tracked))
+    confidence = hits * 0.8
+    shift, margin = sixteenth_check(feat, beats)
+    if shift:
+        gaps = np.append(np.diff(beats), np.diff(beats)[-1])
+        beats = beats + shift * gaps / 4.0
+        beats = beats[beats < duration]
+        confidence = min(_hit_rate(feat["env"], beats, active_mask(beats)) * 0.8, BREAK_CONFIDENCE)
+    if margin < AMBIGUOUS_MARGIN:
+        confidence *= AMBIGUOUS_FACTOR
     period = float(np.median(np.diff(beats)))
     return {"kind": "beats", "bpm": round(60.0 / period, 3), "period": period, "first_beat": float(beats[0]),
-            "beats": beats, "confidence": round(hits * 0.8, 3), "mad_ms": round(mad_ms, 1),
+            "beats": beats, "confidence": round(confidence, 3), "sixteenth": shift,
+            "sixteenth_margin": round(min(margin, 99.0), 2), "mad_ms": round(mad_ms, 1),
             "drift_ms": round(drift_ms, 1), "alignment": round(strength, 3)}
 
 

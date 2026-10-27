@@ -134,3 +134,68 @@ def write_wav(path, y) -> str:
 
     sf.write(str(path), y, SR, subtype="PCM_16")
     return str(path)
+
+
+def _snare(level: float, seed: int) -> np.ndarray:
+    """A snare: a short body tone and a burst of noise."""
+    n = int(0.18 * SR)
+    t = np.arange(n) / SR
+    body = np.sin(2 * np.pi * 190.0 * t) * np.exp(-t / 0.04)
+    return level * (0.6 * body + _noise(n, 0.05, seed, 1.0, highpass=False) * 0.7)
+
+
+#: drum patterns on a grid of sixteenths (0–15 in a bar; two bars where the
+#: pattern takes two): "K" kick, "S" snare (loud), "s" ghost snare, "h" a
+#: closed hat or ride. An Amen-style break (the kick on the one and the "and"
+#: of one, and on the "and" and "a" of three; the snare on two and four with
+#: the syncopated ones between) and a two-step garage beat (the kick on the
+#: one and the "a" of two, the snare on two and four, shuffled hats).
+PATTERNS = {
+    "amen": (
+        {0: "K", 2: "K", 4: "S", 7: "s", 9: "s", 10: "K", 11: "K", 12: "S", 15: "s"},
+        {0: "K", 2: "K", 4: "S", 7: "s", 9: "s", 10: "K", 11: "K", 12: "S", 15: "s"},
+        {0: "K", 2: "K", 4: "S", 7: "s", 9: "s", 10: "K", 14: "S"},
+        {1: "s", 2: "K", 3: "K", 4: "S", 7: "s", 9: "s", 10: "K", 14: "S"},
+    ),
+    "two_step": (
+        {0: "K", 4: "S", 7: "K", 10: "K", 12: "S"},
+        {0: "K", 4: "S", 11: "K", 12: "S", 14: "s"},
+    ),
+}
+
+
+def break_track(bpm: float = 165.0, bars: int = 64, *, pattern: str = "amen", lead_in: float = 0.0,
+                tail: float = 1.0, root: int = 57, seed: int = 5,
+                swing: float = 0.0) -> Tuple[np.ndarray, Dict[str, object]]:
+    """A syncopated drum track with a bass and a chord a bar: ``(y, truth)``
+    as dance_track's. ``swing`` delays the off sixteenths by that share of a
+    sixteenth (two-step's shuffle)."""
+    bars = int(bars)
+    beat = 60.0 / bpm
+    beats = lead_in + np.arange(bars * 4) * beat
+    last = beats[-1] + beat
+    y = np.zeros(int((last + tail) * SR))
+    rng = np.random.RandomState(seed)
+    progression = (0, -4, 3, -2)
+    six = beat / 4
+    for b in range(bars):
+        start = beats[b * 4]
+        chord_root = root + progression[b % 4]
+        for interval in (0, 3, 7):
+            _add(y, start, _tone(chord_root + interval, 4 * beat, 0.04, attack=0.03))
+        _add(y, start, _tone(chord_root - 24, 2 * beat, 0.2, harmonics=3, attack=0.004))
+        hits = PATTERNS[pattern][b % len(PATTERNS[pattern])]
+        for step in range(16):
+            at = start + step * six + (swing * six if step % 2 else 0.0)
+            # a ride on every eighth, a softer hat on the sixteenths between
+            _add(y, at, _noise(int(0.04 * SR), 0.01, int(rng.randint(1e6)), 0.12 if step % 2 == 0 else 0.05))
+            kind = hits.get(step)
+            if kind == "K":
+                _add(y, at, _kick(0.9))
+            elif kind == "S":
+                _add(y, at, _snare(0.8, int(rng.randint(1e6))))
+            elif kind == "s":
+                _add(y, at, _snare(0.55, int(rng.randint(1e6))))
+    y = y / max(1e-9, float(np.max(np.abs(y)))) * 0.9
+    return y.astype(np.float32), {"beats": beats, "downbeats": beats[::4], "section_bars": [0], "bars": bars,
+                                  "bpm": bpm}
