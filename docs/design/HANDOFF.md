@@ -331,7 +331,7 @@ Ross's idea, pitched for exploration and not decided: a **set builder / mix expl
 - **The handover to the player:** what happens to the rail's mix when you press Play (it becomes Up next with Auto mix on, or plays as a set).
 
 **Dev's notes on the idea:**
-- Placing B against A's sections is the planner's blend window chosen by hand (the engine supports it). **Rearranging a track's own sections** (a re-edit: moving its drop before its breakdown) is a different, much bigger tool; leave it out unless Design sees a light way in.
+- Placing B against A's sections is the planner's blend window chosen by hand (the engine supports it). **Rearranging a track's own sections** (a re-edit: moving its drop before its breakdown) is out: Ross doesn't want it (27 October). Sections move only against the other track.
 - Laptop and desktop only, as Brief E.
 - The rail opens over the list, so the collapsed height needs to leave at least about ten rows visible at 1280 × 800.
 
