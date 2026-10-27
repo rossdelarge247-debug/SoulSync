@@ -127,19 +127,69 @@ def _no_grid(track: Dict[str, Any], name: str) -> Tuple[str, str]:
     return ("no_beat" if reason in ("no_beat", "too_short") else reason), f"{name} {words}"
 
 
-def _phrase_bars(track: Dict[str, Any], grid: Grid, end_bar: int) -> List[Tuple[int, int]]:
-    """``[(bar, level)]``: the phrases, carried on every 8 bars past the
-    analysed part (a track over 10 minutes) up to ``end_bar``."""
-    out = [(int(p["bar"]), int(p.get("level") or 8)) for p in track.get("phrases") or []]
-    if not out:
-        out = [(0, 32)]
-    last_anchor = max((p["bar"] for p in track.get("phrases") or [] if p.get("section")), default=out[0][0])
-    bar = out[-1][0] + 8
-    while bar <= end_bar:
-        k = bar - last_anchor
-        out.append((bar, 32 if k % 32 == 0 else 16 if k % 16 == 0 else 8))
-        bar += 8
-    return out
+class _Phrases:
+    """A track's phrases as ``(bar, level)``: the stored ones (at most a few
+    dozen: they cover the analysed 10 minutes), carried on every 8 bars from
+    the last section change past them. The carried-on ones are worked out by
+    arithmetic, never listed, so a track's stated length costs nothing."""
+
+    def __init__(self, track: Dict[str, Any]) -> None:
+        stored = sorted((int(p["bar"]), int(p.get("level") or 8)) for p in track.get("phrases") or [])
+        self.stored = stored or [(0, 32)]
+        self.anchor = max((int(p["bar"]) for p in track.get("phrases") or [] if p.get("section")),
+                          default=self.stored[0][0])
+        self.last = self.stored[-1][0]
+
+    def level(self, bar: int) -> int:
+        for b, lv in self.stored:
+            if b == bar:
+                return lv
+        k = bar - self.anchor
+        return 32 if k % 32 == 0 else 16 if k % 16 == 0 else 8
+
+    def latest(self, limit: int) -> Optional[Tuple[int, int]]:
+        """The last phrase at or before bar ``limit``."""
+        if limit > self.last:
+            bar = self.anchor + 8 * ((limit - self.anchor) // 8)
+            if bar > self.last:
+                return bar, self.level(bar)
+        found = [p for p in self.stored if p[0] <= limit]
+        return found[-1] if found else None
+
+    def first(self, start: int, limit: int) -> Optional[Tuple[int, int]]:
+        """The first phrase from bar ``start`` to bar ``limit``."""
+        found = [p for p in self.stored if start <= p[0] <= limit]
+        if found:
+            return found[0]
+        low = max(start, self.last + 1)
+        bar = self.anchor + 8 * (-((self.anchor - low) // 8))  # the first on the 8-bar line at or after low
+        return (bar, self.level(bar)) if bar <= limit else None
+
+
+#: a track longer than this is never analysed (core/dj/worker.py MAX_SECONDS:
+#: "too long to analyse"), so a stated length past it isn't believed
+MAX_TRACK_SECONDS = 30 * 60.0
+
+
+def _length(track: Dict[str, Any]) -> Optional[float]:
+    """The track's length in seconds, as far as it can be believed: the
+    library's ``tracks.duration`` is whatever the file or server said, so it
+    is kept to MAX_TRACK_SECONDS, and to the analysed length (plus a
+    second) when the whole track was analysed."""
+    try:
+        duration = float(track.get("duration_s") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(duration) or duration <= 0:
+        return None
+    duration = min(duration, MAX_TRACK_SECONDS)
+    analysed = track.get("analysed_s")
+    if analysed and not track.get("truncated"):
+        try:
+            duration = min(duration, float(analysed) + 1.0)
+        except (TypeError, ValueError):
+            pass
+    return duration
 
 
 def _end_bar(track: Dict[str, Any], grid: Grid) -> Tuple[int, bool]:
@@ -148,9 +198,9 @@ def _end_bar(track: Dict[str, Any], grid: Grid) -> Tuple[int, bool]:
     region = track.get("mix_out")
     if region and not track.get("truncated"):
         return int(region["end_bar"]), True
-    duration = track.get("duration_s")
+    duration = _length(track)
     if duration:
-        return int(math.floor(grid.bar_at(float(duration) - 0.05))), False
+        return int(math.floor(grid.bar_at(duration - 0.05))), False
     return int(track.get("bars") or 0), not track.get("truncated")
 
 
@@ -164,26 +214,25 @@ def _first_section(track: Dict[str, Any], kind: str, last: bool = False) -> Opti
 def _out_point(track: Dict[str, Any], grid: Grid, style: str, bars: int) -> Dict[str, Any]:
     """Where the outgoing track's mix starts: a phrase boundary."""
     end_bar, known = _end_bar(track, grid)
-    phrases = _phrase_bars(track, grid, end_bar)
+    phrases = _Phrases(track)
     region = track.get("mix_out")
     region_start = int(region["start_bar"]) if region and known else None
     if style == "drop_swap":
         breakdown = _first_section(track, "breakdown", last=True)
-        bar = int(breakdown["start_bar"]) if breakdown else None
-        level = next((lv for b, lv in phrases if b == bar), 8)
-        if bar is not None:
-            return {"bar": bar, "level": level, "in_outro": False, "known": True,
+        if breakdown is not None:
+            bar = int(breakdown["start_bar"])
+            return {"bar": bar, "level": phrases.level(bar), "in_outro": False, "known": True,
                     "confidence": float(breakdown.get("confidence") or 0.5)}
-    fits = [(b, lv) for b, lv in phrases if b + bars <= end_bar]
-    if not fits:
-        fits = [(max(0, end_bar - max(bars, 1)), 8)]
+    limit = end_bar - bars  # the last bar a window of ``bars`` can start on
+    latest = phrases.latest(limit)
+    if latest is None:
+        latest = (max(0, end_bar - max(bars, 1)), 8)
+    bar, level = latest
     if style in ("cut", "echo_out") and region_start is not None:
         # on the outro's first phrase: the outgoing track's own ending is skipped
-        at_or_after = [(b, lv) for b, lv in fits if b >= region_start]
-        bar, level = at_or_after[0] if at_or_after else fits[-1]
-    else:
-        # the latest phrase that still fits: the mix ends where the outro does
-        bar, level = fits[-1]
+        first = phrases.first(region_start, limit)
+        if first is not None:
+            bar, level = first
     in_outro = region_start is not None and bar >= region_start
     # the window reaches into the outro (a long blend starts before it and
     # ends with it): the outro's confidence; a window that never does, less
@@ -265,8 +314,8 @@ def _crossfade(out_t, in_t, code: str, reason: str, base: Dict[str, Any]) -> Dic
     region = out_t.get("mix_out") if out_t.get("analyzed") else None
     if region and not out_t.get("truncated"):
         start = float(region["start"])
-    elif out_t.get("duration_s"):
-        start = max(0.0, float(out_t["duration_s"]) - CROSSFADE_S)
+    elif _length(out_t):
+        start = max(0.0, _length(out_t) - CROSSFADE_S)
     in_start = 0.0
     if in_t.get("analyzed") and in_t.get("mix_in"):
         in_start = float(in_t["mix_in"]["start"])
