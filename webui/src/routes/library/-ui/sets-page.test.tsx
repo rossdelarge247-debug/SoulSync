@@ -729,7 +729,9 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
       });
       const wrap = chip.parentElement!;
       expect(wrap).toHaveAttribute('data-dimmed');
-      expect(wrap).toHaveTextContent('DJ mix is off: plays straight on (Play as a mix plays this)');
+      expect(wrap).toHaveTextContent(
+        'Auto mix is off: plays straight on (Play as a mix plays this)',
+      );
       localStorage.setItem('soulsync-between-tracks', 'dj');
       act(() => refreshPrefs());
       await waitFor(() => expect(wrap).not.toHaveAttribute('data-dimmed'));
