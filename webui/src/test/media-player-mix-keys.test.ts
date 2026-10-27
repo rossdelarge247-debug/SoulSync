@@ -15,11 +15,13 @@ import { extractFunction } from './vanilla-extract';
 const source = readFileSync(resolve(process.cwd(), 'static/media-player.js'), 'utf8');
 const fn = extractFunction('handlePlayerKeyboardShortcuts', source);
 const action = extractFunction('npLetterKeyAction', source);
+const automixFn = extractFunction('npAutomix', source);
 const table = /const NP_LETTER_KEYS = \{[\s\S]*?\n\};/.exec(source)![0];
 
 let mute: ReturnType<typeof vi.fn>;
 let next: ReturnType<typeof vi.fn>;
 let mixKey: ReturnType<typeof vi.fn>;
+let automixKey: ReturnType<typeof vi.fn>;
 
 function handler() {
   return new Function(
@@ -30,6 +32,7 @@ function handler() {
     `const audioPlayer = null, npQueue = [{ id: '2' }], npVolumePercent = 50, currentTrack = { id: '1' };
      const npSetVolume = () => {}, togglePlayback = () => {}, playPreviousInQueue = () => {};
      ${table}
+     ${automixFn}
      ${action}
      ${fn}
      return { handle: handlePlayerKeyboardShortcuts, table: NP_LETTER_KEYS };`,
@@ -48,21 +51,46 @@ beforeEach(() => {
   next = vi.fn();
   mixKey = vi.fn(() => true);
   (window as unknown as { SoulSyncMix?: unknown }).SoulSyncMix = { key: mixKey };
+  automixKey = vi.fn(() => true);
+  (window as unknown as { SoulSyncAutomix?: unknown }).SoulSyncAutomix = { key: automixKey };
 });
 
 afterEach(() => {
   delete (window as unknown as { SoulSyncMix?: unknown }).SoulSyncMix;
+  delete (window as unknown as { SoulSyncAutomix?: unknown }).SoulSyncAutomix;
 });
 
 describe('the table (one place for 287)', () => {
-  it('maps M, ⇧M, N, ⇧N and A, and nothing else', () => {
+  it('maps M, ⇧M, N, ⇧N, A and X, and nothing else', () => {
     expect(handler().table).toEqual({
       M: ['mix:M', 'mute'],
       '⇧M': ['mute'],
       N: ['mix:N', 'next'],
       '⇧N': ['next'],
       A: ['mix:A'],
+      X: ['automix:X'],
     });
+  });
+
+  it('x: Mix now through auto-mix only, and left to the page when it doesn’t act (26a)', () => {
+    const { handle } = handler();
+    const ev = key('x');
+    handle(ev);
+    expect(automixKey).toHaveBeenCalledWith('X');
+    expect(mixKey).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(true);
+    automixKey.mockReturnValue(false);
+    const ev2 = key('X');
+    handle(ev2);
+    expect(ev2.defaultPrevented).toBe(false);
+    // ⇧X isn't bound, and without auto-mix loaded nothing happens
+    automixKey.mockClear();
+    handle(key('X', { shiftKey: true }));
+    expect(automixKey).not.toHaveBeenCalled();
+    delete (window as unknown as { SoulSyncAutomix?: unknown }).SoulSyncAutomix;
+    const ev3 = key('x');
+    handle(ev3);
+    expect(ev3.defaultPrevented).toBe(false);
   });
 
   it.each([
@@ -125,12 +153,15 @@ it('leaves text fields, dialogs, menus and modified keys alone', () => {
     handle(key('a'));
     handle(key('m'));
     handle(key('n'));
+    handle(key('x'));
   }
   document.body.focus();
+  handle(key('x', { ctrlKey: true }));
   handle(key('a', { ctrlKey: true }));
   handle(key('m', { metaKey: true }));
   handle(key('n', { altKey: true }));
   expect(mixKey).not.toHaveBeenCalled();
+  expect(automixKey).not.toHaveBeenCalled();
   expect(mute).not.toHaveBeenCalled();
   expect(next).not.toHaveBeenCalled();
 });

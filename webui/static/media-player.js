@@ -719,6 +719,8 @@ async function startAudioPlayback(isCurrent = () => true, signal, handoff = null
                 if (typeof npVolumePercent !== 'undefined') {
                     audioPlayer.volume = (typeof npMuted !== 'undefined' && npMuted) ? 0 : npVolumePercent / 100;
                 }
+                // ...or back to it over 3 s, after one that matched loudness
+                if (opts.settleFrom > 0 && opts.settleFrom < 1) npSettleVolume(opts.settleFrom);
 
                 return { status: 'played' }; // HTMLMediaElement.play acknowledged playback.
 
@@ -1062,6 +1064,10 @@ function _npLyricsInit() {
 }
 
 function onAudioEnded() {
+    // Auto-mix (DJ mix) owns the advance while its decks play the mix: this
+    // element was only keeping time under them, muted (src/features/automix),
+    // so its end is no one's business, and the player is still playing
+    if (npAutomixOwnsAdvance()) return;
     // Handle audio playback completion
     console.log('🏁 Audio playback ended');
     setPlayingState(false);
@@ -1654,8 +1660,16 @@ function npSetAutoDownload(on) {
 
 function npSetCrossfade(on) {
     npCrossfadeOn = Boolean(on);
-    try { localStorage.setItem('soulsync-crossfade', npCrossfadeOn ? '1' : '0'); } catch (e) {}
+    try {
+        localStorage.setItem('soulsync-crossfade', npCrossfadeOn ? '1' : '0');
+        // the "…" menu's Crossfade is Between tracks' Smart crossfade (26h);
+        // turning it off leaves DJ mix alone
+        const was = npBetweenTracks();
+        if (npCrossfadeOn) localStorage.setItem(NP_BETWEEN_KEY, 'smart');
+        else if (was === 'smart') localStorage.setItem(NP_BETWEEN_KEY, 'off');
+    } catch (e) {}
     npNotify('settings');
+    if (typeof renderNpQueue === 'function') renderNpQueue();
 }
 
 // The tray took the Now Playing modal's place: "open" expands the player,
@@ -1884,6 +1898,7 @@ function npStopHandoff(xa) {
 // call when no crossfade is active (no-op).
 function npCancelCrossfade() {
     if (npXfadeTimer) { clearInterval(npXfadeTimer); npXfadeTimer = null; }
+    if (typeof npSettleTimer !== 'undefined' && npSettleTimer) { clearInterval(npSettleTimer); npSettleTimer = null; }
     if (npXfadeAudio) { try { npXfadeAudio.pause(); } catch (_) {} npXfadeAudio.src = ''; npXfadeAudio.volume = 0; npXfadeAudio = null; }
     // A skip while the main player was still catching up: the handed-off
     // audio would otherwise play on underneath the new track.
@@ -1895,8 +1910,30 @@ function npCancelCrossfade() {
     npXfadeMainVol = null;
 }
 
+// Player settings → Between tracks (26h): 'off', 'smart' (the crossfade,
+// smarter where the tracks are analysed) or 'dj' (auto-mix). Kept per
+// browser; before it existed, the crossfade's own switch said which.
+const NP_BETWEEN_KEY = 'soulsync-between-tracks';
+function npBetweenTracks() {
+    try {
+        const v = localStorage.getItem(NP_BETWEEN_KEY);
+        if (v === 'off' || v === 'smart' || v === 'dj') return v;
+    } catch (e) { /* storage unavailable */ }
+    return npCrossfadeOn ? 'smart' : 'off';
+}
+
+// src/features/automix (window.SoulSyncAutomix) when it's loaded
+function npAutomix() {
+    const a = window.SoulSyncAutomix;
+    return a && typeof a === 'object' ? a : null;
+}
+function npAutomixOwnsAdvance() {
+    try { const a = npAutomix(); return Boolean(a && a.ownsAdvance && a.ownsAdvance()); } catch (e) { return false; }
+}
+
 function npCrossfadeTick() {
-    if (!npCrossfadeOn || npXfadeActive || npRepeatMode === 'one') return;
+    const djMix = npBetweenTracks() === 'dj';
+    if ((!npCrossfadeOn && !djMix) || npXfadeActive || npRepeatMode === 'one') return;
     // "Sleep at end of track" means stop at the end of THIS track — don't
     // start fading the next one in underneath the sleep.
     if (typeof npSleepEndOfTrack !== 'undefined' && npSleepEndOfTrack) return;
@@ -1906,8 +1943,7 @@ function npCrossfadeTick() {
     if (npShuffleOn) return;
     if (!audioPlayer || !audioPlayer.duration || !isFinite(audioPlayer.duration)) return;
     const remaining = audioPlayer.duration - audioPlayer.currentTime;
-    const xfSecs = npCrossfadeSeconds();
-    if (xfSecs <= 0 || remaining > xfSecs || remaining <= 0.2) return;
+    if (remaining <= 0.2) return;
 
     // Determine the sequential next track (crossfade never shuffles — see bail
     // above; repeat-all's wrap is also a hard cut, next is undefined at tail).
@@ -1915,24 +1951,48 @@ function npCrossfadeTick() {
     const next = npQueue[nextIdx];
     if (!next || !next.is_library || !next.file_path) return; // only library→library
 
-    npStartCrossfade(nextIdx, next);
+    // Smart crossfade and DJ mix's fallback (26h, 26e): where the two tracks
+    // are analysed, auto-mix says when it starts (on a downbeat, past the
+    // silence at the end), where the next one starts and how loud. None:
+    // the plain crossfade, as it always was; DJ mix with none doesn't
+    // crossfade (its decks mix, or the track plays to its end).
+    let hint = null;
+    try {
+        const a = npAutomix();
+        hint = a && a.crossfade ? a.crossfade(currentTrack, next, nextIdx) : null;
+    } catch (e) { hint = null; }
+    if (djMix && !hint) return;
+    if (hint && hint.skip) return; // an album in order stays gapless
+    const xfSecs = hint && hint.seconds > 0 ? hint.seconds : npCrossfadeSeconds();
+    if (xfSecs <= 0) return;
+    const startAt = hint && Number.isFinite(hint.startAt) ? hint.startAt : audioPlayer.duration - xfSecs;
+    if (audioPlayer.currentTime < startAt) return;
+
+    npStartCrossfade(nextIdx, next, hint);
 }
 
-function npStartCrossfade(nextIdx, next) {
+// hint (optional, from auto-mix): {seconds, inAt, gain}: how long, where the
+// next track starts, and its level against this one's (0–1)
+function npStartCrossfade(nextIdx, next, hint = null) {
     npXfadeActive = true;
     const xa = document.getElementById('audio-player-xfade');
     if (!xa) { npXfadeActive = false; return; }
     npXfadeAudio = xa;
 
-    const targetVol = audioPlayer.volume; // fade the new track up to current level
-    npXfadeMainVol = targetVol;            // remember to restore on abort
+    const fullVol = audioPlayer.volume;   // the level the player goes back to
+    const gain = hint && hint.gain > 0 && hint.gain < 1 ? hint.gain : 1;
+    const targetVol = fullVol * gain;      // fade the new track up to this one's loudness
+    npXfadeMainVol = fullVol;              // remember to restore on abort
     // Pass the server song id so a streamed (un-mounted) Navidrome track can
     // crossfade-preload via the server stream API too (#809).
     const _xfTid = next.id ? `&track_id=${encodeURIComponent(next.id)}` : '';
-    xa.src = `/stream/library-audio?path=${encodeURIComponent(next.file_path)}${_xfTid}&t=${Date.now()}`;
+    // a start past the silence at its head (a media fragment: the element
+    // seeks there itself once it knows the file)
+    const _xfAt = hint && hint.inAt > 0.05 ? `#t=${Number(hint.inAt).toFixed(2)}` : '';
+    xa.src = `/stream/library-audio?path=${encodeURIComponent(next.file_path)}${_xfTid}&t=${Date.now()}${_xfAt}`;
     xa.volume = 0;
     xa.play().then(() => {
-        const fadeMs = npCrossfadeSeconds() * 1000;
+        const fadeMs = (hint && hint.seconds > 0 ? hint.seconds : npCrossfadeSeconds()) * 1000;
         const step = 60; // ms between volume steps
         const steps = Math.max(1, Math.floor(fadeMs / step));
         let n = 0;
@@ -1947,7 +2007,7 @@ function npStartCrossfade(nextIdx, next) {
             if (t >= 1) {
                 clearInterval(npXfadeTimer);
                 npXfadeTimer = null;
-                npFinishCrossfade(nextIdx, targetVol);
+                npFinishCrossfade(nextIdx, fullVol, gain);
             }
         }, step);
     }).catch(() => {
@@ -1959,7 +2019,7 @@ function npStartCrossfade(nextIdx, next) {
     });
 }
 
-function npFinishCrossfade(nextIdx, restoreVol) {
+function npFinishCrossfade(nextIdx, restoreVol, gain = 1) {
     // The crossfade audio has fully faded in; promote the queue index and let
     // the normal play path take over so all the usual state (track info, art,
     // visualizer, server stream_state) is set for the now-current track.
@@ -1974,9 +2034,26 @@ function npFinishCrossfade(nextIdx, restoreVol) {
     // stops. Stopping it here and loading from zero played the six seconds
     // you had just heard a second time, which is what "the song resets"
     // meant. Any way the load can fail, the second audio goes quiet with it.
-    playQueueItem(nextIdx, { handoff: xa }).then((result) => {
+    playQueueItem(nextIdx, { handoff: xa, settleFrom: gain }).then((result) => {
         if (!result || result.status !== 'played') npStopHandoff(xa);
     }).catch(() => npStopHandoff(xa));
+}
+
+// After a crossfade that came in at the last track's loudness (Smart
+// crossfade), the player goes back to its own level over 3 s, not at once.
+let npSettleTimer = null;
+function npSettleVolume(fromGain) {
+    if (npSettleTimer) { clearInterval(npSettleTimer); npSettleTimer = null; }
+    if (!audioPlayer || !(fromGain > 0 && fromGain < 1)) return;
+    const steps = 30;
+    let n = 0;
+    const level = () => (npMuted ? 0 : npVolumePercent / 100);
+    audioPlayer.volume = Math.min(1, level() * fromGain);
+    npSettleTimer = setInterval(() => {
+        n++;
+        audioPlayer.volume = Math.min(1, level() * (fromGain + (1 - fromGain) * Math.min(1, n / steps)));
+        if (n >= steps) { clearInterval(npSettleTimer); npSettleTimer = null; }
+    }, 100);
 }
 
 function npResetAmbientGlow() {
@@ -2140,6 +2217,8 @@ function clearQueue() {
 }
 
 function playNextInQueue() {
+    // while auto-mix is mixing, Next cuts to the track coming in where it is
+    try { const a = npAutomix(); if (a && a.next && a.next()) return; } catch (e) { /* the player's own next */ }
     if (npQueue.length === 0) {
         // Radio with an empty queue (e.g. cleared mid-session): a skip should
         // re-seed from the current track, not go dead.
@@ -2179,6 +2258,8 @@ function playNextInQueue() {
 }
 
 function playPreviousInQueue() {
+    // a mix or its countdown stops first: the track going out plays on here
+    try { const a = npAutomix(); if (a && a.previous) a.previous(); } catch (e) { /* the player's own previous */ }
     // If more than 3 seconds in, restart current track
     if (audioPlayer && audioPlayer.currentTime > 3) {
         audioPlayer.currentTime = 0;
@@ -2230,6 +2311,9 @@ async function playQueueItem(index, options = {}) {
     let releaseSetup;
     if (index < 0 || index >= npQueue.length) return { status: 'empty' };
     if (npLoadingQueueItem) return { status: 'busy' }; // Prevent race condition from double-advance
+    // Auto-mix lets go of a mix it's playing for any other load (a skip, a
+    // row clicked); its own hand-back passes options.automix
+    try { const a = npAutomix(); if (a && a.beforeLoad) a.beforeLoad(index, options); } catch (e) { /* never block playback */ }
     // Manual skip / row-click during a crossfade: tear down the stray fade so it
     // can't fire npFinishCrossfade on top of this change. No-op for the
     // legitimate handoff (npFinishCrossfade already cleared the flag first).
@@ -2378,7 +2462,8 @@ async function playQueueItem(index, options = {}) {
             if (!result.success) throw new Error(result.error || 'Failed to start playback');
             // Re-apply repeat-one loop property
             if (audioPlayer) audioPlayer.loop = (npRepeatMode === 'one');
-            const playback = await startAudioPlayback(isCurrent, signal, options.handoff || null);
+            const playback = await startAudioPlayback(isCurrent, signal, options.handoff || null, null,
+                { settleFrom: options.settleFrom });
             if (playback?.status !== 'played') {
                 if (playback?.status === 'superseded') return playback;
                 throw new Error(playback?.error || 'Playback did not start');
@@ -2491,6 +2576,12 @@ function renderNpQueue() {
 
     if (emptyEl) emptyEl.classList.add('hidden');
     listEl.innerHTML = '';
+
+    // DJ mix (26a): a transition chip in each gap from the playing track on;
+    // src/features/automix fills the gaps (it hears npNotify('queue') below)
+    let gaps = false;
+    try { const a = npAutomix(); gaps = Boolean(a && a.gapsWanted && a.gapsWanted()); } catch (e) { gaps = false; }
+    const gapFrom = Math.max(0, npQueueIndex);
 
     let firstUpNext = true;
     npQueue.forEach((track, i) => {
@@ -2606,6 +2697,14 @@ function renderNpQueue() {
         item.appendChild(actions);
 
         listEl.appendChild(item);
+        if (gaps && i >= gapFrom && i < npQueue.length - 1) {
+            const gap = document.createElement('div');
+            gap.className = 'np-queue-gap';
+            gap.dataset.automixGap = String(i);
+            gap.setAttribute('role', 'listitem');
+            gap.setAttribute('aria-label', `Transition into ${npQueue[i + 1].title || 'the next track'}`);
+            listEl.appendChild(gap);
+        }
     });
 
     npUpdateUpNext();
@@ -2853,13 +2952,15 @@ function handlePlayerKeyboardShortcuts(event) {
             event.preventDefault();
             npSetVolume(npVolumePercent - 5);
             break;
-        // 24a: M, N and A through NP_LETTER_KEYS (below the handler)
+        // 24a: M, N, A and X through NP_LETTER_KEYS (below the handler)
         case 'm':
         case 'M':
         case 'n':
         case 'N':
         case 'a':
-        case 'A': {
+        case 'A':
+        case 'x':
+        case 'X': {
             if (event.ctrlKey || event.metaKey || event.altKey) return;
             const actions = NP_LETTER_KEYS[(event.shiftKey ? '⇧' : '') + event.key.toUpperCase()];
             if (!actions) return;
@@ -2894,20 +2995,26 @@ function handlePlayerKeyboardShortcuts(event) {
 // the working set; src/features/mix/mix-host.tsx), which act only while the
 // playing track has a working Mix tab; "mute" and "next" are the player's
 // own. Ross answered 287: mute and next move to ⇧M / ⇧N, which always mute
-// and skip; plain M and N still do where there's no Mix tab. X is reserved
-// for Mix now (auto-mix, 26c): not bound yet.
+// and skip; plain M and N still do where there's no Mix tab. X is Mix now
+// (26a, auto-mix stage C: src/features/automix): it acts only with DJ mix
+// on and a next track it can mix into, else the key is the page's.
 const NP_LETTER_KEYS = {
     'M': ['mix:M', 'mute'],
     '⇧M': ['mute'],
     'N': ['mix:N', 'next'],
     '⇧N': ['next'],
     'A': ['mix:A'],
+    'X': ['automix:X'],
 };
 
 // true when the action acted (the key is then the page's no more)
 function npLetterKeyAction(action) {
     if (action.startsWith('mix:')) {
         return Boolean(window.SoulSyncMix && window.SoulSyncMix.key(action.slice(4)));
+    }
+    if (action.startsWith('automix:')) {
+        const a = npAutomix();
+        return Boolean(a && a.key && a.key(action.slice(8)));
     }
     if (action === 'mute') {
         handleNpMuteToggle();   // works whether or not the modal is open
@@ -3881,6 +3988,9 @@ window.SoulSyncPlayer = {
             autoDownload: npAutoDownloadQueue,
             crossfade: npCrossfadeOn,
             crossfadeSeconds: npCrossfadeSeconds(),
+            between: npBetweenTracks(),
+            crossfading: npXfadeActive,
+            playbackRate: audioPlayer ? audioPlayer.playbackRate : 1,
             context: npPlayContext,
             volume: npVolumePercent,
             muted: npMuted,
@@ -3920,7 +4030,25 @@ window.SoulSyncPlayer = {
     toggleMute: () => handleNpMuteToggle(),
     toggleShuffle: () => handleNpShuffle(),
     cycleRepeat: () => handleNpRepeat(),
-    playIndex: (index) => playQueueItem(index),
+    playIndex: (index, options) => playQueueItem(index, options || {}),
+    /** auto-mix: a crossfade into the queue's index now (DJ mix's fallback, Mix now on one) */
+    crossfadeInto(index, hint) {
+        const next = npQueue[index];
+        if (!next || !next.is_library || !next.file_path || npXfadeActive) return false;
+        npStartCrossfade(index, next, hint || null);
+        return true;
+    },
+    /** auto-mix: put a track straight after the playing one, quietly; its index */
+    insertNext(track) {
+        const at = Math.max(0, npQueueIndex + 1);
+        npQueue.splice(at, 0, npPrepareQueueTrack(track));
+        renderNpQueue();
+        updateNpPrevNextButtons();
+        return at;
+    },
+    /** Up next again (auto-mix's chips changed, or the setting) */
+    renderQueue: () => renderNpQueue(),
+    persistQueue: () => npPersistQueue(),
     remove: (index) => removeFromQueue(index),
     move: (from, to) => npReorderQueue(from, to),
     clearQueue: () => clearQueue(),
