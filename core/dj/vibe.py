@@ -127,13 +127,42 @@ def request_body(seed: Dict[str, Any], candidates: List[Dict[str, Any]],
     return body
 
 
+#: the top-level domains a bare domain is recognised by: the common ones,
+#: leaving out those that are everyday words or names ("am": will.i.am;
+#: "no", "at", "be", "my", "id", "so", "to", "it", "is", "in")
+_TLDS = ("com", "net", "org", "info", "biz", "io", "co", "me", "tv", "fm", "ly", "gg", "cc", "ws", "xyz", "app",
+         "dev", "ai", "sh", "link", "click", "site", "online", "store", "shop", "top", "club", "live", "life",
+         "world", "fun", "news", "page", "blog", "cloud", "pro", "mobi", "name", "tk", "ml", "ga", "cf", "gq",
+         "ru", "su", "cn", "uk", "de", "fr", "nl", "eu", "es", "pl", "se", "fi", "dk", "ch", "cz", "pt", "gr",
+         "ro", "hu", "ua", "tr", "jp", "kr", "hk", "tw", "sg", "vn", "ph", "au", "nz", "ca", "us", "mx", "br",
+         "ar", "cl", "za", "ng", "ke", "ir", "pk", "bd", "onion")
+_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_ANY_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_TLD_RE = "|".join(sorted(set(_TLDS), key=len, reverse=True))
+
 #: a link or an address in the AI's note: it's dropped (a title can steer the
 #: note, so it never carries somewhere to go or someone to write to). A bare
-#: domain counts (``evil.com``: a name, a dot and two or more letters), but
-#: not a number (``124.5``) or a one-letter abbreviation (``e.g.``)
-_LINKISH = re.compile(r"://|\bwww\.|[^\s@]+@[^\s@]+\.[^\s@]+"
-                      r"|(?<![\w@.-])[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*\.[a-z]{2,24}(?![\w-])",
-                      re.IGNORECASE)
+#: domain counts (gauntlet L10): a name, a dot, a lowercase letter starting a
+#: known top-level domain, nothing word-like after (``evil.com``,
+#: ``mixes.example.co.uk``, ``EVIL.cOm``), or the same all in capitals
+#: (``EVIL.COM``). A capital straight after the dot is a sentence or a name,
+#: not a domain (gauntlet L-d): ``Mr.Oizo``, ``Vol.II``, ``energy.Then``;
+#: nor are ``will.i.am``, ``124.5`` or ``e.g.``
+_LINKISH = re.compile(
+    r"://|\bwww\.|[^\s@]+@[^\s@]+\.[^\s@]+"
+    rf"|(?<![\w@.-]){_ANY_LABEL}(?:\.{_ANY_LABEL})*\.(?=[a-z])(?i:{_TLD_RE})(?![\w-])"
+    rf"|(?<![\w@.-]){_LABEL.upper()}(?:\.{_LABEL.upper()})*\.(?:{_TLD_RE.upper()})(?![\w-])")
+
+#: dots written another way, so they can't hide a domain: fullwidth,
+#: ideographic and halfwidth ideographic full stops, and "[.]" or "(.)"
+_DOTS = (("\uff0e", "."), ("\u3002", "."), ("\uff61", "."), ("[.]", "."), ("(.)", "."), ("[dot]", "."))
+
+
+def _linkish(line: str) -> bool:
+    folded = line
+    for odd, dot in _DOTS:
+        folded = folded.replace(odd, dot)
+    return bool(_LINKISH.search(folded))
 
 
 def clean_line(raw: Any) -> str:
@@ -148,7 +177,7 @@ def clean_line(raw: Any) -> str:
     text = "".join(" " if c.isspace() else c for c in raw[:MAX_LINE * 4]
                    if c.isspace() or unicodedata.category(c)[0] != "C")
     line = " ".join(text.split())[:MAX_LINE].strip()
-    if not line or _LINKISH.search(line):
+    if not line or _linkish(line):
         return ""
     return line
 

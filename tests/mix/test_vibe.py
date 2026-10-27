@@ -287,6 +287,23 @@ def test_l3_the_ais_note_is_cleaned_and_drops_links(raw, shown):
     assert vibe.clean_line(raw) == shown
 
 
+@pytest.mark.parametrize("raw", [
+    "Then will.i.am lifts it", "Mr.Oizo into Pt.II", "Builds energy.Then drops", "Into Vol.II next",
+    "St.Germain vibes", "Keeps it deep (Sasha vs.Digweed)", "BPM 124.Steady", "Ends at 8A.Then 9A",
+    "e.g. Night Ferry", "U.K. garage", "No.1 hit", "track.mp3 is the one", "a hard 4x4.Groove",
+])
+def test_l_d_ordinary_text_with_dots_is_kept(raw):
+    assert vibe.clean_line(raw) == raw
+
+
+@pytest.mark.parametrize("raw", [
+    "Then evil.com", "EVIL.COM next", "EVIL.cOm/x", "evil\uff0ecom", "evil\u3002com", "evil\uff61com",
+    "evil[.]com", "evil(.)com", "evil.c\u200bom", "xn--80ak6aa92e.com", "mixes.example.co.uk",
+])
+def test_l_d_domains_in_any_spelling_are_dropped(raw):
+    assert vibe.clean_line(raw) == ""
+
+
 def test_l3_a_note_with_a_link_is_not_sent_to_the_page(client, ai):
     ai["provider"].line = "Play these, then visit www.example.com"
     assert _vibe(client).get_json()["vibe"]["line"] == ""
