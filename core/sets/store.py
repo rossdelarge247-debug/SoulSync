@@ -626,14 +626,20 @@ def _next_rows(rows: List[Dict[str, Any]]) -> Dict[int, Optional[Dict[str, Any]]
 def reset_changed_joins(before: List[Dict[str, Any]], after: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """``after`` with the transition reset to Auto (RESET_TRANSITION) on every
     row whose next track changed from one track to another: its style and
-    length described a join that isn't there any more (gauntlet L5). A row
-    that had no next track (the last), or no chosen transition, is left."""
+    length described a join that isn't there any more (gauntlet L5). The
+    next rows are compared by their track, not as rows: a new row holding the
+    track that already came next keeps the join (L8). A row that had no next
+    track (the last), or no chosen transition, is left."""
     was, now = _next_rows(before), _next_rows(after)
     reset = clean_transition(RESET_TRANSITION)
     out = []
     for row in after:
         old_next = was.get(id(row))
-        if row.get("transition") and old_next is not None and now.get(id(row)) is not old_next:
+        new_next = now.get(id(row))
+        # the next *track* decides (gauntlet L8): the same track added again
+        # straight after a row that already led into it is the same join
+        if (row.get("transition") and old_next is not None
+                and str((new_next or {}).get("track_id") or "") != str(old_next.get("track_id") or "")):
             row = {**row, "transition": reset}
         out.append(row)
     return out

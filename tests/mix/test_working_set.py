@@ -182,6 +182,20 @@ def test_l5_a_row_whose_next_track_changed_goes_back_to_auto():
     assert sets_store.read_transition(auto16) == {"style": "auto", "bars": 16}
 
 
+def test_l8_adding_the_track_that_already_comes_next_keeps_the_join():
+    long = sets_store.clean_transition({"style": "long_blend", "bars": 32})
+    rows = [_r("1", transition=long), _r("2", transition=long), _r("3")]
+    # "Add again": a second 2 straight after 1, which already led into 2
+    placed = sets_store.insert_keeping_locked(rows, 0, [_r("2")])
+    out = sets_store.reset_changed_joins(rows, placed)
+    assert [r["track_id"] for r in out] == ["1", "2", "2", "3"]
+    assert out[0]["transition"] == long  # still 1 into 2: the same join
+    assert out[2]["transition"] == long  # the old 2 still goes into 3
+    # a different track in between is still a new join
+    other = sets_store.reset_changed_joins(rows, sets_store.insert_keeping_locked(rows, 0, [_r("9")]))
+    assert other[0]["transition"] == sets_store.clean_transition(sets_store.RESET_TRANSITION)
+
+
 @pytest.mark.gauntlet
 def test_l5_add_after_keeps_locked_rows_and_resets_the_changed_joins(client):
     rows = [{"track_id": "1", "state": "owned", "transition": {"style": "long_blend", "bars": 32}},
