@@ -168,6 +168,17 @@ def test_a_transition_is_kept_as_style_and_bars(sent, kept):
     assert store.clean_transition(sent) == kept
 
 
+def test_a_sets_playable_rows_carry_their_file_for_play_as_a_mix(client, db):
+    """UX-1: Play as a mix queues the rows whose files are here, so the set's
+    view hands each playable row its file_path (as DJ browse does); a row whose
+    file is missing still carries none."""
+    set_id, _ = _make(client, "3", "5", "4")
+    _sql(db, "UPDATE tracks SET file_path = '' WHERE id = '5'")
+    rows = client.get(f"/api/sets/{set_id}").get_json()["rows"]
+    assert rows[0]["track"]["file_path"] and rows[2]["track"]["file_path"]
+    assert rows[1]["track"] is None and "file_path" not in (rows[1]["gone_track"] or {})
+
+
 def test_a_file_gone_missing_keeps_its_place_and_values(client, db):
     """28e: the row keeps its number, its title and values (at 62% on the
     page), the step is worked out around it, and Export leaves it out."""

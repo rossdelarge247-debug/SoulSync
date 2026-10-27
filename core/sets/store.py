@@ -282,9 +282,9 @@ def view(database, rows: List[Dict[str, Any]], *, fix_art=None) -> Dict[str, Any
     gone = _without_file(database, [i for i in dict.fromkeys(ids) if i not in found], fix_art)
     out = []
     for row in rows:
+        # the track keeps its file_path, as DJ browse's rows do for the same
+        # caller and scope: Play and Play as a mix queue it (UX-1)
         track = found.get(row.get("track_id") or "")
-        if track is not None:
-            track = {k: v for k, v in track.items() if k != "file_path"}
         # a row whose track can't be reached now keeps its state and its id
         # (it comes back when the file does); the page shows it as File
         # missing (28e), with its values when the library still has its row
