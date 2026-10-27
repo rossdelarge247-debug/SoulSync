@@ -144,6 +144,34 @@ describe('the table (one place for 287)', () => {
   });
 });
 
+describe('[gauntlet L1] a page that claims letters keeps them', () => {
+  afterEach(() => {
+    delete document.documentElement.dataset.letterKeys;
+  });
+
+  it('X and A go to the page (the Import inbox) and not to the player', () => {
+    const { handle } = handler();
+    document.documentElement.dataset.letterKeys = 'jkadx';
+    const x = key('x');
+    handle(x);
+    expect(automixKey).not.toHaveBeenCalled();
+    expect(x.defaultPrevented).toBe(false);
+    handle(key('a'));
+    expect(mixKey).not.toHaveBeenCalled();
+    // shifted letters, M and N stay the player's
+    handle(key('M', { shiftKey: true }));
+    expect(mute).toHaveBeenCalledTimes(1);
+    handle(key('n'));
+    expect(mixKey).toHaveBeenCalledWith('N');
+  });
+
+  it('once the page lets go, they’re the player’s again', () => {
+    const { handle } = handler();
+    handle(key('x'));
+    expect(automixKey).toHaveBeenCalledWith('X');
+  });
+});
+
 it('leaves text fields, dialogs, menus and modified keys alone', () => {
   document.body.innerHTML =
     '<input id="i"><div role="dialog" data-open><button id="d">x</button></div><div class="ss-player-menu"><button id="m">x</button></div>';

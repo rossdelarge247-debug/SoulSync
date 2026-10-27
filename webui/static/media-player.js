@@ -173,6 +173,7 @@ function npSetPreviewBadge(on) {
 }
 
 function clearTrack() {
+    if (typeof npAutomixStop === 'function') npAutomixStop();
     // Clear track state
     currentTrack = null;
     window.__ssCurrentTrack = null;
@@ -305,6 +306,7 @@ function setLoadingProgress(percentage) {
 let _streamLock = false;
 
 async function startStream(searchResult) {
+    if (typeof npAutomixStop === 'function') npAutomixStop();
     // Start streaming a track - handles same track toggle and new track streaming
     try {
         // Prevent multiple concurrent stream starts (rapid clicking)
@@ -614,6 +616,7 @@ async function updateStreamStatus() {
 // poller (updateStreamStatus) exclusively.)
 
 async function startAudioPlayback(isCurrent = () => true, signal, handoff = null, sourceUrl = null, opts = {}) {
+    if (typeof npAutomixStop === 'function') npAutomixStop();
     // Start HTML5 audio playback of the streamed file with enhanced state management
     // `handoff` is the crossfade's second audio, still playing the track this
     // player is about to load; the player joins it where it is, then it stops.
@@ -772,6 +775,7 @@ async function startAudioPlayback(isCurrent = () => true, signal, handoff = null
 }
 
 async function stopStream() {
+    if (typeof npAutomixStop === 'function') npAutomixStop();
     // Stop streaming and clean up all state
     try {
         // Stop status polling
@@ -1927,11 +1931,21 @@ function npAutomix() {
     const a = window.SoulSyncAutomix;
     return a && typeof a === 'object' ? a : null;
 }
+// Anything that loads other audio than the queue's next row (a station, a
+// search result's stream, a podcast, Stop): auto-mix lets its decks go first,
+// so a frozen mix can't come back over it (gauntlet H2). Its own hand-back
+// is ignored there.
+function npAutomixStop() {
+    try { const a = npAutomix(); if (a && a.stop) a.stop(); } catch (e) { /* never block playback */ }
+}
 function npAutomixOwnsAdvance() {
     try { const a = npAutomix(); return Boolean(a && a.ownsAdvance && a.ownsAdvance()); } catch (e) { return false; }
 }
 
 function npCrossfadeTick() {
+    // auto-mix's decks own the advance (DJ mix, or a set played as a mix
+    // whatever the setting): no plain crossfade on top of them (gauntlet H3)
+    if (typeof npAutomixOwnsAdvance === 'function' && npAutomixOwnsAdvance()) return;
     const djMix = npBetweenTracks() === 'dj';
     if ((!npCrossfadeOn && !djMix) || npXfadeActive || npRepeatMode === 'one') return;
     // "Sleep at end of track" means stop at the end of THIS track — don't
@@ -2915,6 +2929,14 @@ function handlePlayerKeyboardShortcuts(event) {
 
     // Leave the keys to any dialog that's open (the visuals handle their own)
     if (event.defaultPrevented) return;
+    // a page with its own single-letter keys claims them while it's open
+    // (html[data-letter-keys], e.g. the Import inbox's j k a d x): those
+    // letters are the page's there; Space, the arrows and shifted keys stay
+    // the player's
+    const claimed = document.documentElement && document.documentElement.dataset
+        ? (document.documentElement.dataset.letterKeys || '') : '';
+    if (claimed && !event.shiftKey && typeof event.key === 'string' && event.key.length === 1 &&
+        claimed.toLowerCase().includes(event.key.toLowerCase())) return;
     const otherModals = document.querySelectorAll('.modal-overlay:not(.hidden):not(#np-modal-overlay)');
     if (otherModals.length > 0) return;
     if (document.activeElement?.closest?.('[role="dialog"][data-open], .ss-player-menu')) return;
@@ -3869,6 +3891,7 @@ document.addEventListener('visibilitychange', () => {
 // episode again is play / pause. item: {kind: 'podcast'|'audiobook', id, src,
 // title, subtitle, album, artUrl, durationHint, chapters, chaptersUrl}.
 async function npPlayMedia(item) {
+    if (typeof npAutomixStop === 'function') npAutomixStop();
     if (!item || !item.src) return { status: 'empty' };
     if (currentTrack && currentTrack.media_id && item.id && currentTrack.media_id === item.id
             && audioPlayer && audioPlayer.src) {
@@ -3907,6 +3930,7 @@ window.playMedia = npPlayMedia;
 // the player's audio runs through the Web Audio graph (EQ, visuals), which
 // stays silent for another site's audio without it.
 async function npPlayRadio(item) {
+    if (typeof npAutomixStop === 'function') npAutomixStop();
     if (!item || !item.src || !audioPlayer) return { status: 'empty' };
     window.cancelPendingPlayback();
     npCancelCrossfade();
@@ -4043,9 +4067,17 @@ window.SoulSyncPlayer = {
     insertNext(track) {
         const at = Math.max(0, npQueueIndex + 1);
         npQueue.splice(at, 0, npPrepareQueueTrack(track));
-        renderNpQueue();
+        renderNpQueue();   // saves the queue and says so ('queue')
         updateNpPrevNextButtons();
+        npPersistQueue();
         return at;
+    },
+    /** auto-mix: move a queued row to straight after the playing one; its index */
+    moveNext(index) {
+        const at = Math.max(0, npQueueIndex + 1);
+        if (index !== at) npReorderQueue(index, at);
+        npPersistQueue();
+        return Math.max(0, npQueueIndex + 1);
     },
     /** Up next again (auto-mix's chips changed, or the setting) */
     renderQueue: () => renderNpQueue(),

@@ -50,10 +50,18 @@ describe('Between tracks', () => {
   });
 });
 
-function tickHarness(opts: { between?: string; crossfadeOn?: boolean; hint?: unknown }) {
+function tickHarness(opts: {
+  between?: string;
+  crossfadeOn?: boolean;
+  hint?: unknown;
+  owns?: () => boolean;
+}) {
   const started: unknown[] = [];
   const crossfade = vi.fn(() => opts.hint ?? null);
-  (window as unknown as { SoulSyncAutomix: unknown }).SoulSyncAutomix = { crossfade };
+  (window as unknown as { SoulSyncAutomix: unknown }).SoulSyncAutomix = {
+    crossfade,
+    ownsAdvance: opts.owns ?? (() => false),
+  };
   localStorage.setItem('soulsync-between-tracks', opts.between ?? 'smart');
   const audioPlayer = { duration: 300, currentTime: 0 };
   const tick = new Function(
@@ -67,7 +75,7 @@ function tickHarness(opts: { between?: string; crossfadeOn?: boolean; hint?: unk
      const npQueue = [{ id: '1', is_library: true, file_path: '/a' }, { id: '2', is_library: true, file_path: '/b' }];
      const npCrossfadeSeconds = () => 6;
      const npStartCrossfade = (i, next, hint) => started.push({ i, id: next.id, hint });
-     ${pick('npBetweenTracks', 'npAutomix', 'npCrossfadeTick')}
+     ${pick('npBetweenTracks', 'npAutomix', 'npAutomixOwnsAdvance', 'npCrossfadeTick')}
      return npCrossfadeTick;`,
   )(window, localStorage, audioPlayer, started) as () => void;
   return {
@@ -127,6 +135,58 @@ describe('the crossfade’s timing', () => {
     const h = tickHarness({ between: 'off', crossfadeOn: false, hint: { startAt: 1 } });
     h.at(299);
     expect(h.started).toHaveLength(0);
+  });
+});
+
+describe('[gauntlet H3] a set played as a mix, with Smart crossfade on', () => {
+  it('no plain crossfade over the decks while they own the advance; as before once they let go', () => {
+    let owns = true;
+    const h = tickHarness({ between: 'smart', hint: { startAt: 280, inAt: 1 }, owns: () => owns });
+    h.at(280.5);
+    h.at(294.5);
+    h.at(299.5);
+    expect(h.started).toHaveLength(0);
+    expect(h.crossfade).not.toHaveBeenCalled();
+    owns = false;
+    h.at(294.6);
+    expect(h.started).toHaveLength(1);
+  });
+});
+
+describe('[gauntlet H2] every loader that isn’t the queue’s tells auto-mix first', () => {
+  it.each([
+    'clearTrack',
+    'startStream',
+    'stopStream',
+    'npPlayMedia',
+    'npPlayRadio',
+    'startAudioPlayback',
+  ])('%s calls the stop hook before anything else', (name) => {
+    const body = extractFunction(name, source);
+    const first = body
+      .slice(body.indexOf(') {') + 3)
+      .trim()
+      .split('\n')[0];
+    expect(first).toContain('npAutomixStop()');
+  });
+
+  it('the hook reaches auto-mix, and never throws into playback', () => {
+    const stop = vi.fn();
+    const run = new Function(
+      'window',
+      `${pick('npAutomix', 'npAutomixStop')} return npAutomixStop;`,
+    )(window) as () => void;
+    (window as unknown as { SoulSyncAutomix: unknown }).SoulSyncAutomix = { stop };
+    run();
+    expect(stop).toHaveBeenCalledTimes(1);
+    (window as unknown as { SoulSyncAutomix: unknown }).SoulSyncAutomix = {
+      stop: () => {
+        throw new Error('gone');
+      },
+    };
+    expect(() => run()).not.toThrow();
+    delete (window as unknown as { SoulSyncAutomix?: unknown }).SoulSyncAutomix;
+    expect(() => run()).not.toThrow();
   });
 });
 
