@@ -204,8 +204,8 @@ def decode(path: str, start: float, dur: float, rate: int, *, owner: object = No
             # an argument list, no shell: ffmpeg's own path, a library file's
             # path from the database (never from the request) and numbers
             # parse_args has already checked
-            proc = subprocess.Popen(args, stdout=subprocess.PIPE,
-                                    stderr=errors if errors is not None else subprocess.DEVNULL)  # nosemgrep: dangerous-subprocess-use-audit
+            stderr = errors if errors is not None else subprocess.DEVNULL
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=stderr)  # nosemgrep: dangerous-subprocess-use-audit
         except OSError as exc:  # ffmpeg vanished or can't run
             if errors is not None:
                 errors.close()
