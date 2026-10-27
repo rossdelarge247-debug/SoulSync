@@ -6,9 +6,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import type { AnalysisEntry } from '@/features/dj/analysis.api';
 import type { DjBrowseResponse, DjTrack } from '@/features/dj/dj.api';
 
 import { apiClient, readJson } from '@/app/api-client';
+import { AnalysisProgress, useAnalysis, useAutoAnalyse } from '@/features/dj/analysis-progress';
 
 import { fetchGrids, fetchPlan, fetchWindow, type Plan } from '../loader';
 import {
@@ -76,10 +78,13 @@ function TrackSearch({
   label,
   chosen,
   onPick,
+  progress = null,
 }: {
   label: string;
   chosen: DjTrack | null;
   onPick: (t: DjTrack) => void;
+  /** the picked track's place in the analysis (analyse on demand) */
+  progress?: AnalysisEntry | null;
 }) {
   const [q, setQ] = useState('');
   const [found, setFound] = useState<DjTrack[]>([]);
@@ -105,6 +110,9 @@ function TrackSearch({
           ? `${chosen.title} · ${chosen.artist_name} · ${chosen.dj?.bpm ?? '?'} BPM · ${chosen.dj?.key ?? '?'}`
           : 'None yet'}
       </p>
+      {chosen ? (
+        <AnalysisProgress entry={progress} block label={`Analysis of ${chosen.title}`} />
+      ) : null}
       <input
         className={styles.input}
         aria-label={`Find the ${label.toLowerCase()}`}
@@ -199,6 +207,9 @@ export default function AutomixLab() {
   const [prefs, setPrefs] = useState<CuePrefs>(() => readCuePrefs(browserStore(), support.device));
   const [devices, setDevices] = useState<{ id: string; label: string }[]>([]);
   const live = session.current?.status.stage === 'playing';
+  // analyse on demand: a track picked here jumps the queue, and shows its step
+  useAutoAnalyse([outTrack?.id, inTrack?.id]);
+  const progressOf = useAnalysis([outTrack?.id, inTrack?.id]);
   useTicker(live || session.current?.status.stage === 'loading');
 
   useEffect(() => {
@@ -290,8 +301,18 @@ export default function AutomixLab() {
         the engine before it&rsquo;s in Up next; not a page anyone else sees.
       </p>
       <div className={styles.picks}>
-        <TrackSearch label="Outgoing track" chosen={outTrack} onPick={setOut} />
-        <TrackSearch label="Incoming track" chosen={inTrack} onPick={setIn} />
+        <TrackSearch
+          label="Outgoing track"
+          chosen={outTrack}
+          onPick={setOut}
+          progress={outTrack ? progressOf[outTrack.id] : null}
+        />
+        <TrackSearch
+          label="Incoming track"
+          chosen={inTrack}
+          onPick={setIn}
+          progress={inTrack ? progressOf[inTrack.id] : null}
+        />
       </div>
       <div className={styles.row}>
         <label>

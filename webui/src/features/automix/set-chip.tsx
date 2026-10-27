@@ -10,6 +10,8 @@ import { useState } from 'react';
 
 import type { Step, Transition } from '@/features/sets/sets.api';
 
+import { useAnalysis } from '@/features/dj/analysis-progress';
+
 import { TransitionChip } from './mix-chip';
 import { AUTO_CHOICE, planFor, planKey, type Choice } from './plans';
 import { usePrefs } from './prefs';
@@ -58,6 +60,10 @@ export function SetStepChip({
         ? 'Smart crossfade is on: plays as a crossfade (Play as a mix plays this)'
         : 'DJ mix is off: plays straight on (Play as a mix plays this)';
   const data = plan.isError ? null : (plan.data ?? null);
+  // Waiting: the track it waits for shows its step (the set's page asks for them)
+  const waitingId =
+    data?.status === 'waiting' ? (data.waiting_for === 'from' ? fromId : toId) : null;
+  const progress = useAnalysis([waitingId]);
   return (
     <TransitionChip
       transition={transition}
@@ -67,6 +73,7 @@ export function SetStepChip({
       plan={data}
       autoPlan={choice.style === 'auto' ? data : (auto.data ?? null)}
       dimmed={dimmed}
+      progress={waitingId ? (progress[waitingId] ?? null) : null}
       onOpenChange={setOpen}
       onChange={onChange}
     />

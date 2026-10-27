@@ -111,3 +111,70 @@ describe('[gauntlet lab] the chip with every plan status', () => {
     ).toBe("Static Bloom isn't analysed yet");
   });
 });
+
+describe('analyse on demand: a Waiting chip shows its track in the analysis', () => {
+  it('the bar and step of the track it waits for, and no Analyse now while it is in line', () => {
+    render(
+      <TransitionChip
+        transition={null}
+        step={{ kind: 'smooth', reason: '' }}
+        from="Night Ferry"
+        to="Static Bloom"
+        onChange={() => {}}
+        plan={waiting()}
+        progress={{ state: 'working', step: 'grid', percent: 60 }}
+        analyse={() => {}}
+      />,
+    );
+    const bar = screen.getByRole('progressbar', { name: 'Analysis of Static Bloom' });
+    expect(bar).toHaveAttribute('aria-valuenow', '60');
+    expect(screen.getByText('Finding the beat grid · 60%')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Analyse now' })).toBeNull();
+  });
+
+  it('"2nd in line" and "Waiting for the library drive" in its place', () => {
+    const { rerender } = render(
+      <TransitionChip
+        transition={null}
+        step={{ kind: 'smooth', reason: '' }}
+        from="Night Ferry"
+        to="Static Bloom"
+        onChange={() => {}}
+        plan={waiting()}
+        progress={{ state: 'queued', position: 2, asked_for: true }}
+      />,
+    );
+    expect(screen.getByText('2nd in line')).toBeInTheDocument();
+    rerender(
+      <TransitionChip
+        transition={null}
+        step={{ kind: 'smooth', reason: '' }}
+        from="Night Ferry"
+        to="Static Bloom"
+        onChange={() => {}}
+        plan={waiting()}
+        progress={{ state: 'waiting', reason: 'drive_away', position: 1, asked_for: true }}
+      />,
+    );
+    expect(screen.getByText('Waiting for the library drive')).toBeInTheDocument();
+  });
+
+  it('not in any line: Analyse now, for anyone', () => {
+    let asked = 0;
+    render(
+      <TransitionChip
+        transition={null}
+        step={{ kind: 'smooth', reason: '' }}
+        from="Night Ferry"
+        to="Static Bloom"
+        onChange={() => {}}
+        plan={waiting({ reason: 'not_analyzed' })}
+        progress={{ state: 'waiting', reason: 'not_queued', position: null, asked_for: false }}
+        analyse={() => (asked += 1)}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Analyse now' }));
+    expect(asked).toBe(1);
+    expect(document.querySelector('[data-analysis-progress]')).toBeNull();
+  });
+});

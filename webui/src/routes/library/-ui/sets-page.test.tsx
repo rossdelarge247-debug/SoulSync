@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { refreshPrefs } from '@/features/automix/prefs';
+import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { resetMixesForTests } from '@/features/dj/mixes-store';
 import { resetDraftsForTests } from '@/features/sets/draft-store';
 import { createTestQueryClient } from '@/test/query-client';
@@ -58,6 +59,8 @@ type Row = { track_id: string | null; title: string | null; locked?: boolean };
 /** 28e: ids whose file has gone (File missing), and ids not analysed yet */
 let GONE = new Set<string>();
 let WORKING = new Set<string>();
+/** analyse on demand: the progress route's tracks */
+let PROGRESS: Record<string, unknown> = {};
 
 function view(rows: Row[]) {
   const out = rows.map((r) => {
@@ -184,6 +187,9 @@ beforeEach(() => {
   holdNextPut = null;
   GONE = new Set();
   WORKING = new Set();
+  PROGRESS = {};
+  resetAnalysisRequests();
+  analysisStore.reset();
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -255,6 +261,21 @@ beforeEach(() => {
       } else if (path === '/api/sets/7/playlist') answer = { success: true, playlist_id: 12 };
       else if (path === '/api/sets/wanted/remove') answer = { success: true, removed: true };
       else if (path === '/api/sets/view') answer = view((body as { tracks: Row[] }).tracks);
+      else if (path === '/api/library/dj/progress')
+        answer = { success: true, tracks: PROGRESS, sweep: { running: false } };
+      else if (path === '/api/library/dj/analyse')
+        answer = {
+          success: true,
+          asked: 3,
+          queued: 1,
+          already_queued: 0,
+          already_done: 2,
+          cant: 0,
+          over_limit: 0,
+          limit: 200,
+          yours: 1,
+          started: true,
+        };
       else if (path === '/api/sets/swap')
         answer = {
           success: true,
@@ -754,6 +775,37 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
     );
     for (const step of document.querySelectorAll('[data-step="unknown"]'))
       expect(step.querySelector('button')).toBeNull();
+  });
+
+  it('analyse on demand: opening a set asks for its tracks, and a row being worked out shows its step', async () => {
+    WORKING = new Set(['2']);
+    PROGRESS = { '2': { state: 'working', step: 'phrases', percent: 85 } };
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    await waitFor(() =>
+      expect(sent.filter((c) => c.path === '/api/library/dj/analyse')[0]?.body).toEqual({
+        track_ids: ['1', '2', '3'],
+      }),
+    );
+    const row = (await screen.findByText('Finding phrases and sections · 85%')).closest('li')!;
+    expect(within(row).getByText('Being worked out')).toBeTruthy();
+    expect(
+      within(row).getByRole('progressbar', { name: 'Analysis of Foghorn Study' }),
+    ).toHaveAttribute('aria-valuenow', '85');
+    // the set's "…": Analyse these, saying how many and that done ones are skipped
+    fireEvent.click(screen.getByRole('button', { name: 'More for Sunday Set' }));
+    const item = await screen.findByRole('menuitem', { name: 'Analyse these' });
+    expect(item.textContent).toContain('3 tracks · ones already done are skipped');
+    fireEvent.click(item);
+    await waitFor(() =>
+      expect(sent.filter((c) => c.path === '/api/library/dj/analyse')).toHaveLength(2),
+    );
+    await waitFor(() =>
+      expect(window.showToast).toHaveBeenCalledWith(
+        '1 track will be analysed next. 2 tracks already done are skipped.',
+        'success',
+      ),
+    );
   });
 
   it('a set row’s "…" keeps 24a’s order, then the set’s own', async () => {

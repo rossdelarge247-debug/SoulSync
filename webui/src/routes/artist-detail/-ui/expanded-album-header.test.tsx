@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resetAnalysisRequests } from '@/features/dj/analysis.api';
+import { HttpResponse, http, server } from '@/test/msw';
+
 import type { EnhancedAlbum } from '../-artist-detail.enhanced';
 
 import { getAlbumTrackRows } from '../-artist-detail.enhanced-album';
@@ -457,5 +460,72 @@ describe('a hand-tagged album', () => {
     await waitFor(() =>
       expect(window.showToast).toHaveBeenCalledWith(expect.stringContaining('Unlocked'), 'success'),
     );
+  });
+});
+
+describe('Analyse these (analyse on demand)', () => {
+  const WITH_FILES: EnhancedAlbum = {
+    ...ALBUM,
+    tracks: [
+      { id: 1, duration: 300_000, track_number: 1, file_path: '/m/1.flac' },
+      { id: 2, duration: 300_000, track_number: 2, file_path: '/m/2.flac' },
+      { id: 3, duration: 300_000, track_number: 3 },
+    ] as EnhancedAlbum['tracks'],
+  };
+
+  it("anyone can ask for the album's tracks with a file; the toast says how many", async () => {
+    resetAnalysisRequests();
+    const asked: unknown[] = [];
+    const toast = vi.fn();
+    window.showToast = toast;
+    server.use(
+      http.post('/api/library/dj/analyse', async ({ request }) => {
+        asked.push(await request.json());
+        return HttpResponse.json(
+          {
+            success: true,
+            asked: 2,
+            queued: 2,
+            already_queued: 0,
+            already_done: 0,
+            cant: 0,
+            over_limit: 0,
+            limit: 200,
+            yours: 2,
+            started: true,
+          },
+          { status: 202 },
+        );
+      }),
+      http.post('/api/library/dj/progress', () =>
+        HttpResponse.json({ success: true, tracks: {}, sweep: { running: true } }),
+      ),
+    );
+    try {
+      renderHeader(WITH_FILES, false);
+      openMore();
+      const item = document.querySelector('.enhanced-analyse-album-btn') as HTMLElement;
+      expect(item.textContent).toContain('Analyse these');
+      expect(item.getAttribute('title')).toContain('2 tracks · ones already done are skipped');
+      fireEvent.click(item);
+      await waitFor(() => expect(asked).toEqual([{ track_ids: ['1', '2'] }]));
+      await waitFor(() =>
+        expect(toast).toHaveBeenCalledWith('2 tracks will be analysed next.', 'success'),
+      );
+    } finally {
+      window.showToast = undefined;
+    }
+  });
+
+  it("sits in an admin's More menu too, before Report issue", () => {
+    renderHeader(WITH_FILES);
+    openMore();
+    const keys = [
+      ...document.querySelectorAll('.enhanced-analyse-album-btn, .enhanced-report-issue-btn'),
+    ];
+    expect(keys.map((n) => n.classList.contains('enhanced-analyse-album-btn'))).toEqual([
+      true,
+      false,
+    ]);
   });
 });

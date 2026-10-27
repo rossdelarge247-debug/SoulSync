@@ -11,13 +11,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DjInfo } from '@/features/dj/dj.api';
 import type { Step, ViewRow } from '@/features/sets/sets.api';
 
+import { useAnalysis, useAutoAnalyse } from '@/features/dj/analysis-progress';
+import { requestAnalysis, requestAnalysisQuietly } from '@/features/dj/analysis.api';
 import { playTrackNext } from '@/features/dj/dj-actions';
-import {
-  DJ_QUERY_KEY,
-  djStatusQueryOptions,
-  djTracksQueryOptions,
-  postDjJob,
-} from '@/features/dj/dj.api';
+import { DJ_QUERY_KEY, djStatusQueryOptions, djTracksQueryOptions } from '@/features/dj/dj.api';
 import {
   MIX_SET_CHANGED,
   SETS_QUERY_KEY,
@@ -295,6 +292,8 @@ export function useMixModel(subject: TrackSubject | null, profileId: number | nu
     async (track: { id: string; title: string }, opts: { again?: boolean } = {}) => {
       setBusy(true);
       try {
+        // analyse on demand: a track going into the working set jumps the queue
+        requestAnalysisQuietly([track.id]);
         if (!workingSet) {
           const name = workingSetName();
           await startWorkingSet(name, [track.id]);
@@ -356,12 +355,16 @@ export function useMixModel(subject: TrackSubject | null, profileId: number | nu
   else if (subject) primaryLabel = `Add ${subject.title || 'this track'} to a new mix set`;
 
   const status = useQuery({ ...djStatusQueryOptions(), retry: false, enabled: Boolean(subject) });
+  // analyse on demand: a track opened in the Mix tab jumps the queue (any
+  // profile; the server skips one that's done), and its progress shows
+  useAutoAnalyse([subjectId]);
+  const progressOf = useAnalysis([subjectId, seed?.id]);
   const [analysing, setAnalysing] = useState(false);
   const analyse = useCallback(async () => {
     if (!subjectId) return;
     setAnalysing(true);
     try {
-      await postDjJob('start', subjectId);
+      await requestAnalysis([subjectId], { force: true });
       setWaiting(true);
       void qc.invalidateQueries({ queryKey: [...DJ_QUERY_KEY, 'tracks'] });
     } catch (err) {
@@ -416,8 +419,12 @@ export function useMixModel(subject: TrackSubject | null, profileId: number | nu
     addPlaying,
     addTrack,
     playNext,
-    canAnalyse: Boolean(status.data?.can_start),
+    // anyone can ask for their own tracks now (analyse on demand)
+    canAnalyse: Boolean(status.data) && status.data?.settings.analyze !== false,
     pending: status.data?.counts.pending ?? null,
+    /** where the playing track and the matches' seed are in the analysis */
+    progress: subjectId ? (progressOf[subjectId] ?? null) : null,
+    seedProgress: seed?.id ? (progressOf[seed.id] ?? null) : null,
     analysing: analysing || waiting,
     analyse,
   };

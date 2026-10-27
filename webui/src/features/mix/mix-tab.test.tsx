@@ -9,6 +9,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 
@@ -95,6 +96,9 @@ interface World {
   added: unknown[];
   started: unknown[];
   vibes: number;
+  /** analyse on demand: what was asked for, and each track's progress */
+  analysed: unknown[];
+  progress: Record<string, unknown>;
 }
 
 function viewRow(t: ReturnType<typeof track>, transition: unknown = null) {
@@ -175,6 +179,34 @@ function serve() {
     http.post('/api/library/dj/start', async ({ request }) => {
       world.started.push(await request.json());
       return HttpResponse.json({ success: true, job: null }, { status: 202 });
+    }),
+    http.post('/api/library/dj/analyse', async ({ request }) => {
+      world.analysed.push(await request.json());
+      return HttpResponse.json(
+        {
+          success: true,
+          asked: 1,
+          queued: 1,
+          already_queued: 0,
+          already_done: 0,
+          cant: 0,
+          over_limit: 0,
+          limit: 200,
+          yours: 1,
+          started: true,
+        },
+        { status: 202 },
+      );
+    }),
+    http.post('/api/library/dj/progress', async ({ request }) => {
+      const ids = ((await request.json()) as { track_ids: string[] }).track_ids;
+      const tracks: Record<string, unknown> = {};
+      for (const id of ids) if (world.progress[id]) tracks[id] = world.progress[id];
+      return HttpResponse.json({
+        success: true,
+        tracks,
+        sweep: { running: false, held: false, analyze: true, in_line: 0, yours: 0, current: null },
+      });
     }),
     http.get('/api/ai/status', () =>
       HttpResponse.json({ success: true, configured: true, ...world.ai }),
@@ -330,7 +362,11 @@ beforeEach(() => {
     added: [],
     started: [],
     vibes: 0,
+    analysed: [],
+    progress: {},
   };
+  resetAnalysisRequests();
+  analysisStore.reset();
   serve();
   shell();
 });
@@ -475,16 +511,43 @@ describe('while the set plays (29b)', () => {
 });
 
 describe("29d's states", () => {
-  it('not analysed yet: Analyse this one now', async () => {
+  it('not analysed yet: asked for at once (any profile), its step shows', async () => {
     world.mixes['1'] = {
       ...answer(track('1', 'Night Ferry', 'Tidewater', null), []),
       reason: 'not_analyzed',
     };
+    world.progress['1'] = { state: 'working', step: 'grid', percent: 60 };
     const mix = await openMix();
     expect(await mix.findByText('Night Ferry is being worked out')).toBeInTheDocument();
+    // opening it asked for it: analyse on demand, not the admins' /start
+    await waitFor(() => expect(world.analysed).toEqual([{ track_ids: ['1'] }]));
+    expect(world.started).toEqual([]);
+    const bars = await mix.findAllByRole('progressbar', { name: 'Analysis of Night Ferry' });
+    expect(bars[0]).toHaveAttribute('aria-valuenow', '60');
+    expect(mix.getAllByText('Finding the beat grid · 60%').length).toBeGreaterThan(0);
+    // in line, so no "tracks ahead" and no button
+    expect(mix.queryByText(/\(12 tracks ahead\)/)).toBeNull();
+    expect(mix.queryByRole('button', { name: 'Analyse this one now' })).toBeNull();
+  });
+
+  it('not in any line: Analyse this one now asks again', async () => {
+    world.mixes['1'] = {
+      ...answer(track('1', 'Night Ferry', 'Tidewater', null), []),
+      reason: 'not_analyzed',
+    };
+    world.progress['1'] = {
+      state: 'waiting',
+      reason: 'not_queued',
+      position: null,
+      asked_for: false,
+    };
+    const mix = await openMix();
+    expect(await mix.findByText('Night Ferry is being worked out')).toBeInTheDocument();
+    await waitFor(() => expect(world.analysed).toHaveLength(1));
     expect(mix.getByText(/\(12 tracks ahead\)/)).toBeInTheDocument();
-    fireEvent.click(mix.getByRole('button', { name: 'Analyse this one now' }));
-    await waitFor(() => expect(world.started).toEqual([{ track_id: '1' }]));
+    fireEvent.click(await mix.findByRole('button', { name: 'Analyse this one now' }));
+    await waitFor(() => expect(world.analysed).toHaveLength(2));
+    expect(world.analysed[1]).toEqual({ track_ids: ['1'] });
   });
 
   it('nothing fits: Widen the search asks for 10% and any key', async () => {

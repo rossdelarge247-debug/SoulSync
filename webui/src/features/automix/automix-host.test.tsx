@@ -8,6 +8,11 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  DJ_ANALYSED_EVENT,
+  analysisStore,
+  resetAnalysisRequests,
+} from '@/features/dj/analysis.api';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 
@@ -38,6 +43,9 @@ function track(id: string, title: string) {
 }
 
 let queue: Record<string, unknown>[];
+/** analyse on demand: what the host asked for, and the progress route's tracks */
+let asked: unknown[] = [];
+let progress: Record<string, unknown> = {};
 let audio: {
   currentTime: number;
   duration: number;
@@ -109,7 +117,32 @@ beforeEach(() => {
   (window as unknown as { SoulSyncPlayer: unknown }).SoulSyncPlayer = player;
   localStorage.setItem('soulsync-between-tracks', 'dj');
   refreshPrefs();
+  resetAnalysisRequests();
+  analysisStore.reset();
+  asked = [];
+  progress = {};
   server.use(
+    http.post('*/api/library/dj/analyse', async ({ request }) => {
+      asked.push(await request.json());
+      return HttpResponse.json(
+        {
+          success: true,
+          asked: 3,
+          queued: 1,
+          already_queued: 0,
+          already_done: 2,
+          cant: 0,
+          over_limit: 0,
+          limit: 200,
+          yours: 1,
+          started: true,
+        },
+        { status: 202 },
+      );
+    }),
+    http.post('*/api/library/dj/progress', () =>
+      HttpResponse.json({ success: true, tracks: progress, sweep: { running: true } }),
+    ),
     http.get('*/api/library/dj/plan', ({ request }) => {
       const u = new URL(request.url);
       const style = u.searchParams.get('style') ?? 'auto';
@@ -254,6 +287,103 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
     expect(window.SoulSyncAutomix?.key('Q')).toBe(false);
     expect(window.SoulSyncAutomix?.key('X')).toBe(true);
     await waitFor(() => expect(window.SoulSyncAutomix?.view().manual).toBe(true));
+  });
+});
+
+describe('analyse on demand in Up next', () => {
+  const waitingFor2 = () =>
+    server.use(
+      http.get('*/api/library/dj/plan', ({ request }) => {
+        const u = new URL(request.url);
+        const waits = u.searchParams.get('to') === '2' || u.searchParams.get('from') === '2';
+        return HttpResponse.json({
+          success: true,
+          plan: waits
+            ? {
+                status: 'waiting',
+                style: null,
+                bars: null,
+                waiting_for: u.searchParams.get('to') === '2' ? 'to' : 'from',
+                reason: 'not_analyzed',
+                why: 'Waiting for the analysis',
+                styles: [],
+                key: { from: '8A', to: null, relation: null },
+                tempo: null,
+              }
+            : {
+                status: 'ok',
+                style: 'long_blend',
+                bars: 32,
+                beatmatch: true,
+                why: '8A → 9A, +2 BPM: the keys mix and the tempo is close',
+                pair: '8A → 9A, +2 BPM',
+                key: { from: '8A', to: '9A', relation: 'up' },
+                tempo: { relation: 'same', rate: 0.98, speed_change_ok: true },
+                out: { start: 278.2, bar: 140 },
+                in: { start: 0.2, bar: 0 },
+                length_s: 62,
+                styles: [],
+              },
+        });
+      }),
+    );
+
+  it("with DJ mix on, the queue's coming tracks jump the analysis queue", async () => {
+    mount();
+    await waitFor(() => expect(asked).toEqual([{ track_ids: ['1', '2', '3'] }]));
+  });
+
+  it('with DJ mix off nothing is asked for', async () => {
+    localStorage.setItem('soulsync-between-tracks', 'smart');
+    refreshPrefs();
+    mount();
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    expect(asked).toEqual([]);
+  });
+
+  it('a Waiting chip shows the step of the track it waits for', async () => {
+    waitingFor2();
+    progress = { '2': { state: 'working', step: 'key', percent: 35 } };
+    mount();
+    const bar = await screen.findAllByRole('progressbar', { name: 'Analysis of Static Bloom' });
+    expect(bar[0]).toHaveAttribute('aria-valuenow', '35');
+    expect(screen.getAllByText('Working out the key · 35%').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Analyse now' })).toBeNull();
+  });
+
+  it('once it is analysed, the pair is planned again', async () => {
+    // a pair no other test planned (the shared controller keeps its answers)
+    queue = [track('7', 'Sand Script'), track('2', 'Static Bloom')];
+    waitingFor2();
+    mount();
+    await waitFor(() => expect(window.SoulSyncAutomix?.view().plan?.status).toBe('waiting'));
+    server.use(
+      http.get('*/api/library/dj/plan', () =>
+        HttpResponse.json({
+          success: true,
+          plan: {
+            status: 'ok',
+            style: 'long_blend',
+            bars: 32,
+            beatmatch: true,
+            why: 'the keys mix',
+            pair: '8A → 9A',
+            key: { from: '8A', to: '9A', relation: 'up' },
+            tempo: { relation: 'same', rate: 0.98, speed_change_ok: true },
+            out: { start: 278.2, bar: 140 },
+            in: { start: 0.2, bar: 0 },
+            length_s: 62,
+            styles: [],
+          },
+        }),
+      ),
+    );
+    act(() => {
+      window.dispatchEvent(new CustomEvent(DJ_ANALYSED_EVENT, { detail: { ids: ['2'] } }));
+    });
+    await waitFor(() => expect(window.SoulSyncAutomix?.view().plan?.status).toBe('ok'));
   });
 });
 

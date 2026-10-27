@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { HttpResponse, http, server } from '@/test/msw';
 
 import { CUE_WHY_NOT } from '../outputs';
@@ -241,5 +242,58 @@ describe('[gauntlet lab] a waiting pair on the page', () => {
     expect(s.status.words).toBe("Waiting for Night Ferry's beat grid · being analysed");
     expect(fetchGrids).not.toHaveBeenCalled();
     expect(fetchWindow).not.toHaveBeenCalled();
+  });
+});
+
+describe('analyse on demand in the lab', () => {
+  it('a picked track jumps the analysis queue, and shows its step', async () => {
+    resetAnalysisRequests();
+    analysisStore.reset();
+    const asked: unknown[] = [];
+    server.use(
+      http.get('*/api/library/dj/browse', () =>
+        HttpResponse.json({
+          tracks: [{ ...track('5', 'Sand Script', 0, ''), dj: null }],
+          total: 1,
+          page: 1,
+          limit: 8,
+          has_more: false,
+          sort: 'title',
+        }),
+      ),
+      http.post('*/api/library/dj/analyse', async ({ request }) => {
+        asked.push(await request.json());
+        return HttpResponse.json(
+          {
+            success: true,
+            asked: 1,
+            queued: 1,
+            already_queued: 0,
+            already_done: 0,
+            cant: 0,
+            over_limit: 0,
+            limit: 200,
+            yours: 1,
+            started: true,
+          },
+          { status: 202 },
+        );
+      }),
+      http.post('*/api/library/dj/progress', () =>
+        HttpResponse.json({
+          success: true,
+          tracks: { '5': { state: 'working', step: 'tempo', percent: 20 } },
+          sweep: { running: true },
+        }),
+      ),
+    );
+    render(<AutomixLab />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find the outgoing track' }), {
+      target: { value: 'sand' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: /Sand Script/ }));
+    await waitFor(() => expect(asked).toEqual([{ track_ids: ['5'] }]));
+    expect(await screen.findByText('Finding the tempo · 20%')).toBeInTheDocument();
+    analysisStore.reset();
   });
 });

@@ -155,7 +155,14 @@ export interface EngineLike {
 }
 
 export interface AutomixServices {
-  plan(from: string, to: string, choice: Choice, lean: AutomixPrefs['lean']): Promise<PairPlan>;
+  /** the pair's plan; `fresh` asks the server again rather than a kept answer */
+  plan(
+    from: string,
+    to: string,
+    choice: Choice,
+    lean: AutomixPrefs['lean'],
+    fresh?: boolean,
+  ): Promise<PairPlan>;
   grids(ids: string[]): Promise<Record<string, ApiGrid>>;
   window(ctx: BaseAudioContext, id: string, start: number, dur: number): Promise<DeckData>;
   /** the engine on the player's audio graph (made once), or null where it can't be */
@@ -402,6 +409,8 @@ interface Pending {
   plan: PairPlan | null;
   planning: boolean;
   planError: string | null;
+  /** a track it waited for was analysed: the next plan is asked afresh */
+  replan?: boolean;
   /** the plan the decks play: the planner's, or Mix now's */
   effective: PairPlan | null;
   grids: Record<string, ApiGrid> | null;
@@ -533,6 +542,20 @@ export class AutomixController {
 
   /** The player said something changed (`ss:player`). */
   poke(): void {
+    this.tick();
+  }
+
+  /**
+   * A track finished its analysis (analyse on demand): a plan that was
+   * waiting for it is asked again, so the pair can be mixed after all.
+   */
+  replanWaiting(): void {
+    const p = this.pending;
+    if (p && p.plan?.status === 'waiting' && !p.planning) {
+      p.plan = null;
+      p.planError = null;
+      p.replan = true;
+    }
     this.tick();
   }
 
@@ -783,7 +806,12 @@ export class AutomixController {
   private async fetchPlan(p: Pending): Promise<void> {
     p.planning = true;
     try {
-      const plan = await this.svc.plan(p.fromId, p.toId, p.choice, this.svc.prefs().lean);
+      const fresh = p.replan === true;
+      p.replan = false;
+      const lean = this.svc.prefs().lean;
+      const plan = fresh
+        ? await this.svc.plan(p.fromId, p.toId, p.choice, lean, true)
+        : await this.svc.plan(p.fromId, p.toId, p.choice, lean);
       if (this.pending !== p) return;
       p.plan = plan;
       if (p.wantNow) {

@@ -31,6 +31,12 @@
   white-space: nowrap;
 }
 
+/* Waiting (26g): the bar and step of the track the plan waits for, beside
+   the chip's line (analyse on demand; DESIGN-SYSTEM "Analysis progress") */
+.chipProgress {
+  flex: 0 1 auto;
+}
+
 .askSave {
   margin-top: 12px;
   padding: 10px 12px;

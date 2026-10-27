@@ -18,8 +18,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 
+import type { AnalysisEntry } from '@/features/dj/analysis.api';
 import type { Step, StepKind, Transition, TransitionStyle } from '@/features/sets/sets.api';
 
+import { AnalysisProgress } from '@/features/dj/analysis-progress';
+import { pending } from '@/features/dj/analysis.format';
 import { TRANSITION_BARS } from '@/features/sets/sets.api';
 import { chipWords, transitionOf, whoChose } from '@/features/sets/sets.format';
 import sets from '@/features/sets/sets.module.css';
@@ -57,8 +60,10 @@ export interface TransitionChipProps {
   dimmed?: string | null;
   /** the first gap's "in 2:58" (Design's 249) */
   when?: string | null;
-  /** Waiting's Analyse now (admins) */
+  /** Waiting's Analyse now, while the track isn't in line yet */
   analyse?: (() => void) | null;
+  /** Waiting: where the track it waits for is in the analysis (its bar and step) */
+  progress?: AnalysisEntry | null;
   /** asked after a change in Up next while a set plays (26i) */
   saveTo?: { name: string; save: (t: Transition) => Promise<void> } | null;
   /** the phone's short reason (26b) */
@@ -97,6 +102,7 @@ export function TransitionChip({
   dimmed = null,
   when = null,
   analyse = null,
+  progress = null,
   saveTo = null,
   compact = false,
   floating = false,
@@ -133,6 +139,8 @@ export function TransitionChip({
   }
   const words = plan ? planWords(plan, t) : chipWords(t);
   const who = whoChose(t);
+  // the track it waits for is in line or being worked out: its bar shows
+  const inLine = pending(progress) && (progress?.state !== 'waiting' || progress.position !== null);
   const tone = toneOf(plan, step);
   const meta = dimmed
     ? dimmed
@@ -159,7 +167,7 @@ export function TransitionChip({
       </button>
       <span className={sets.chipWho} data-chip-who="">
         {meta}
-        {plan?.status === 'waiting' && analyse ? (
+        {plan?.status === 'waiting' && analyse && !inLine ? (
           <>
             {' · '}
             <button type="button" className={styles.textButton} onClick={analyse}>
@@ -168,6 +176,14 @@ export function TransitionChip({
           </>
         ) : null}
       </span>
+      {plan?.status === 'waiting' && inLine ? (
+        <AnalysisProgress
+          entry={progress}
+          compact
+          className={styles.chipProgress}
+          label={`Analysis of ${plan.waiting_for === 'from' ? from : to}`}
+        />
+      ) : null}
       {when ? <span className={styles.chipWhen}>{when}</span> : null}
       {open ? (
         <TransitionPicker

@@ -1059,3 +1059,22 @@ describe('[gauntlet lab] every plan status, as the server sends it', () => {
     expect(mixNowPlan(serverWaiting(), GA, [], 30, 300)).toBeNull();
   });
 });
+
+describe('analyse on demand: a waiting pair', () => {
+  it('is planned again, afresh, once a track it waits for is analysed', async () => {
+    const h = harness({ plan: serverWaiting() });
+    await at(h, 100);
+    expect(h.plan).toHaveBeenCalledTimes(1);
+    expect(h.ctl.getView().plan?.status).toBe('waiting');
+    h.plan.mockImplementation(async () => okPlan());
+    h.ctl.replanWaiting();
+    await flush();
+    expect(h.plan).toHaveBeenCalledTimes(2);
+    expect(h.plan).toHaveBeenLastCalledWith('1', '2', AUTO_CHOICE, 'auto', true);
+    expect(h.ctl.getView().plan?.status).toBe('ok');
+    // a pair already planned isn't asked again
+    h.ctl.replanWaiting();
+    await flush();
+    expect(h.plan).toHaveBeenCalledTimes(2);
+  });
+});

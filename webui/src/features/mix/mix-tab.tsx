@@ -17,6 +17,8 @@ import type { ViewRow } from '@/features/sets/sets.api';
 
 import { Button } from '@/components/form';
 import { LoadingState, Notice } from '@/components/primitives';
+import { AnalysisProgress } from '@/features/dj/analysis-progress';
+import { entryWords, pending } from '@/features/dj/analysis.format';
 import { addTrackToPlaylist, playTrackNext } from '@/features/dj/dj-actions';
 import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
 import { EnergyMeter } from '@/features/dj/energy-meter';
@@ -217,15 +219,27 @@ function KeyAndBpm({ model, long }: { model: MixModel; long: boolean }) {
 
 function NotAnalysedLine({ model }: { model: MixModel }) {
   const dj = model.dj;
+  const entry = model.progress;
+  // in line or being worked out (its beat grid too): the bar and its step
+  if (pending(entry) && (entry?.state !== 'waiting' || entry.position !== null)) {
+    return (
+      <div className={styles.analyse}>
+        <AnalysisProgress
+          entry={entry}
+          label={`Analysis of ${model.subject?.title || 'this track'}`}
+        />
+      </div>
+    );
+  }
   if (model.djLoading || (dj?.bpm && dj?.key && dj?.energy)) return null;
   if (dj?.skipped) return <p className={styles.analyse}>Not analysed: {dj.skipped}.</p>;
   if (dj?.analyzed) return null;
   return (
     <p className={styles.analyse} aria-live="polite">
-      Not analysed yet
-      {model.analysing ? (
+      {entry?.state === 'waiting' ? entryWords(entry) : 'Not analysed yet'}
+      {model.analysing && !entry ? (
         ' · working it out now…'
-      ) : model.canAnalyse ? (
+      ) : model.canAnalyse && entry?.state !== 'failed' ? (
         <>
           {' · '}
           <button type="button" className={styles.textButton} onClick={() => void model.analyse()}>
@@ -541,13 +555,16 @@ export function MatchesBody({ model, place }: { model: MixModel; place: RowPlace
         </StateCard>
       );
     }
-    const ahead = model.pending ? ` (${model.pending.toLocaleString()} tracks ahead)` : '';
+    const entry = model.seedProgress;
+    const inLine = pending(entry) && (entry?.state !== 'waiting' || entry.position !== null);
+    const ahead =
+      model.pending && !inLine ? ` (${model.pending.toLocaleString()} tracks ahead)` : '';
     return (
       <StateCard
         tone="info"
         title={`${title} is being worked out`}
         action={
-          model.canAnalyse && seed.id === model.subject?.id ? (
+          model.canAnalyse && seed.id === model.subject?.id && !inLine ? (
             <button
               type="button"
               className={styles.stateAction}
@@ -561,6 +578,7 @@ export function MatchesBody({ model, place }: { model: MixModel; place: RowPlace
       >
         BPM, key and energy are worked out in the background{ahead}. Matches show once it&apos;s
         done.
+        {inLine ? <AnalysisProgress entry={entry} block label={`Analysis of ${title}`} /> : null}
       </StateCard>
     );
   }

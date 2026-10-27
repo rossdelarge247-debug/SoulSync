@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
+import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { resetMixesForTests } from '@/features/dj/mixes-store';
 import { resetDriveStatus } from '@/features/drives/drive-status';
 import { createTestQueryClient } from '@/test/query-client';
@@ -125,6 +126,9 @@ const MIXES = {
 let requested: { url: string; method: string }[] = [];
 let exported: unknown[] = [];
 let driveAway = false;
+/** analyse on demand: what was asked for, and the progress route's tracks */
+let analysed: unknown[] = [];
+let progressTracks: Record<string, unknown> = {};
 
 const DRIVE = {
   success: true,
@@ -152,6 +156,10 @@ beforeEach(() => {
   window.playNext = vi.fn();
   requested = [];
   exported = [];
+  analysed = [];
+  progressTracks = {};
+  resetAnalysisRequests();
+  analysisStore.reset();
   driveAway = false;
   resetDriveStatus();
   vi.stubGlobal(
@@ -168,7 +176,24 @@ beforeEach(() => {
       else if (u.pathname.endsWith('/api/stars/count'))
         body = { success: true, count: 48, missing: 1 };
       else if (u.pathname.endsWith('/api/stars/status')) body = { success: true, tracks: {} };
-      else if (u.pathname.endsWith('/api/library/dj/traktor/export')) {
+      else if (u.pathname.endsWith('/api/library/dj/progress'))
+        body = { success: true, tracks: progressTracks, sweep: { running: false } };
+      else if (u.pathname.endsWith('/api/library/dj/analyse')) {
+        const raw = input instanceof Request ? await input.text() : (init?.body as string);
+        analysed.push(JSON.parse(raw));
+        body = {
+          success: true,
+          asked: 2,
+          queued: 1,
+          already_queued: 0,
+          already_done: 1,
+          cant: 0,
+          over_limit: 0,
+          limit: 200,
+          yours: 1,
+          started: true,
+        };
+      } else if (u.pathname.endsWith('/api/library/dj/traktor/export')) {
         const raw = input instanceof Request ? await input.text() : (init?.body as string);
         const sent: unknown = JSON.parse(raw);
         exported.push(sent);
@@ -427,6 +452,7 @@ describe('Library → Tracks', () => {
       'Star all',
       'Add to playlist…',
       'Start a set from these',
+      'Analyse theseTick tracks to select them',
       'Clear the selection',
     ]);
     // nothing picked: they all wait
@@ -454,6 +480,38 @@ describe('Library → Tracks', () => {
       duration_ms: 276000,
     });
   });
+  it('analyse on demand: a row in line shows its step, and the selection can Analyse these', async () => {
+    progressTracks = {
+      '3': { state: 'working', step: 'grid', percent: 60 },
+      '2': { state: 'queued', position: 1240, asked_for: false },
+    };
+    renderPage();
+    await screen.findByText('Static Bloom');
+    const row = (await screen.findByText('Finding the beat grid · 60%')).closest('li')!;
+    expect(within(row).getByText('Not yet')).toBeTruthy();
+    expect(within(row).getByRole('progressbar', { name: 'Analysis of Not yet' })).toHaveAttribute(
+      'aria-valuenow',
+      '60',
+    );
+    // the sweep's own order isn't shown on a row: only asked-for tracks and the one working
+    expect(screen.queryByText(/1,240th in line/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Not yet' }));
+    const bar = screen.getByRole('toolbar', { name: 'Selected tracks' });
+    fireEvent.click(within(bar).getByRole('button', { name: 'More actions for the selection' }));
+    const item = await screen.findByRole('menuitem', { name: 'Analyse these' });
+    expect(item.textContent).toContain('2 tracks · ones already done are skipped');
+    fireEvent.click(item);
+    await waitFor(() => expect(analysed).toEqual([{ track_ids: ['1', '3'] }]));
+    await waitFor(() =>
+      expect(window.showToast).toHaveBeenCalledWith(
+        '1 track will be analysed next. 1 track already done is skipped.',
+        'success',
+      ),
+    );
+  });
+
   it('Start a set from these opens a draft with the picked tracks, in the order picked', async () => {
     window.localStorage.clear();
     const { router } = renderPage();

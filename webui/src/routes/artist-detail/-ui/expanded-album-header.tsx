@@ -1,5 +1,8 @@
 import { useState } from 'react';
 
+import { requestAnalysis } from '@/features/dj/analysis.api';
+import { analyseTheseHint, analyseTheseWords } from '@/features/dj/analysis.format';
+
 import type { EnhancedAlbum, EnhancedTrack } from '../-artist-detail.enhanced';
 
 import {
@@ -19,7 +22,7 @@ import {
 import { redownloadAlbumFlow } from '../-artist-detail.redownload';
 import { refreshReorganizeQueue, reorganizeStateForAlbum } from '../-artist-detail.reorganize';
 import { analyzeAlbumReplayGainRequest } from '../-artist-detail.tags-rg';
-import { ActionMenu } from './action-menu';
+import { ActionMenu, type ActionMenuItem } from './action-menu';
 import { AlbumUpgradeModal } from './album-upgrade-modal';
 import { ArtPicker } from './art-picker';
 import { BatchTagPreviewModal } from './batch-tag-preview-modal';
@@ -76,6 +79,35 @@ interface Props {
  * whole row above is a toggle and a bubbling click would fold the panel.
  */
 /** set when the user tagged this album by hand from basic search */
+/**
+ * "Analyse these" (analyse on demand): the album's tracks with a file jump
+ * the DJ sweep's queue; the toast says how many, and that ones already done
+ * are skipped. Any profile (its own library's tracks).
+ */
+function analyseItem(album: EnhancedAlbum): ActionMenuItem | null {
+  const ids = (album.tracks ?? [])
+    .filter((t) => (t as { file_path?: string }).file_path)
+    .map((t) => String(t.id));
+  if (!ids.length) return null;
+  return {
+    key: 'analyse',
+    className: 'enhanced-analyse-album-btn',
+    label: 'Analyse these',
+    title: `BPM, key, energy and the beat grid for ${analyseTheseHint(ids.length)}`,
+    onSelect: () => {
+      void requestAnalysis(ids.slice(0, 500), { force: true })
+        .then((answer) => {
+          if (!answer) return;
+          const said = analyseTheseWords(answer);
+          window.showToast?.(said.words, said.tone);
+        })
+        .catch((error: unknown) =>
+          window.showToast?.(error instanceof Error ? error.message : "That didn't work.", 'error'),
+        );
+    },
+  };
+}
+
 function isHandTagged(album: { metadata_locked?: unknown }): boolean {
   return Number(album.metadata_locked) === 1;
 }
@@ -289,23 +321,41 @@ export function ExpandedAlbumHeader({
             />
           ) : (
             // Reporting an issue is open to every user, not just admins.
-            <button
-              type="button"
-              className="enhanced-report-issue-btn lib-btn quiet"
-              title="Report a problem with this album"
-              onClick={(e) => {
-                e.stopPropagation();
-                window.showReportIssueModal?.(
-                  'album',
-                  album.id,
-                  String(album.title || ''),
-                  artistName,
-                );
-              }}
-            >
-              <FlagIcon />
-              <span>Report issue</span>
-            </button>
+            <>
+              {analyseItem(album) ? (
+                <ActionMenu
+                  items={[analyseItem(album)!]}
+                  trigger={(t) => (
+                    <button
+                      type="button"
+                      className="lib-btn icon lib-more"
+                      title="More actions"
+                      aria-label="More album actions"
+                      {...t}
+                    >
+                      <MoreIcon />
+                    </button>
+                  )}
+                />
+              ) : null}
+              <button
+                type="button"
+                className="enhanced-report-issue-btn lib-btn quiet"
+                title="Report a problem with this album"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.showReportIssueModal?.(
+                    'album',
+                    album.id,
+                    String(album.title || ''),
+                    artistName,
+                  );
+                }}
+              >
+                <FlagIcon />
+                <span>Report issue</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -536,6 +586,7 @@ function AdminAlbumActions({
                 },
               ]
             : []),
+          ...(analyseItem(album) ? [analyseItem(album)!] : []),
           {
             key: 'report',
             className: 'enhanced-report-issue-btn',

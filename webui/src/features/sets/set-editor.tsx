@@ -19,6 +19,13 @@ import { Button, TextInput } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 import { SetStepChip } from '@/features/automix/set-chip';
 import { playSetAsMix } from '@/features/automix/set-play';
+import { AnalysisProgress, useAnalysis, useAutoAnalyse } from '@/features/dj/analysis-progress';
+import { requestAnalysis, type AnalysisEntry } from '@/features/dj/analysis.api';
+import {
+  analyseTheseHint,
+  analyseTheseWords,
+  pending as pendingAnalysis,
+} from '@/features/dj/analysis.format';
 import { addTrackToPlaylist, playTrackNext } from '@/features/dj/dj-actions';
 import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
 import { KeyChip } from '@/features/dj/key-chip';
@@ -335,8 +342,11 @@ function Row({
   setName,
   drag,
   step,
+  progress = null,
 }: {
   step: Step | null;
+  /** where its track is in the analysis (analyse on demand) */
+  progress?: AnalysisEntry | null;
   row: ViewRow;
   index: number;
   /** its number in the set (a track whose file is missing keeps one), or null */
@@ -506,6 +516,14 @@ function Row({
               {second ? ` · ${second}` : ''}
             </span>
           )}
+          {track && pendingAnalysis(progress) ? (
+            <AnalysisProgress
+              entry={progress}
+              block
+              compact={phone}
+              label={`Analysis of ${title}`}
+            />
+          ) : null}
           {shown ? <NoteLine note={row.note} title={title} onSave={onNote} /> : null}
         </span>
         {phone || !shown ? null : (
@@ -953,6 +971,34 @@ export function SetEditor({
   };
 
   const trackIds = viewRows.filter((r) => r.track).map((r) => r.track!.id);
+  // analyse on demand: a set's tracks jump the queue while it's open (the
+  // server skips those done), and each row being worked out shows its step
+  useAutoAnalyse(trackIds.slice(0, 500));
+  const progressOf = useAnalysis(
+    viewRows.filter((r) => r.track && beingWorkedOut(r.track)).map((r) => r.track!.id),
+  );
+  const analyseThese = () => {
+    void requestAnalysis(trackIds.slice(0, 500), { force: true })
+      .then((answer) => {
+        if (!answer) return;
+        const said = analyseTheseWords(answer);
+        window.showToast?.(said.words, said.tone);
+      })
+      .catch((error: unknown) =>
+        window.showToast?.(error instanceof Error ? error.message : "That didn't work.", 'error'),
+      );
+  };
+  // 4: "Analyse these", saying how many and that ones already done are skipped
+  const analyseEntry = trackIds.length
+    ? [
+        {
+          key: 'analyse',
+          label: 'Analyse these',
+          reason: analyseTheseHint(trackIds.length),
+          onSelect: analyseThese,
+        },
+      ]
+    : [];
   const leftOut = viewRows
     .filter((r) => !r.track)
     .map((r) => ({ title: r.title ?? '', artist: r.artist ?? '' }));
@@ -1098,6 +1144,7 @@ export function SetEditor({
             entries={
               source.kind === 'draft'
                 ? [
+                    ...analyseEntry,
                     {
                       key: 'discard',
                       label: 'Discard this draft',
@@ -1106,6 +1153,7 @@ export function SetEditor({
                     },
                   ]
                 : [
+                    ...analyseEntry,
                     ...(playlistId
                       ? [
                           {
@@ -1274,6 +1322,7 @@ export function SetEditor({
                 nextId={nextRow?.id ? String(nextRow.id) : null}
                 setName={name.trim() || initial.name}
                 drag={dragFor(index)}
+                progress={row.track ? (progressOf[String(row.track.id)] ?? null) : null}
               />
             );
           })}

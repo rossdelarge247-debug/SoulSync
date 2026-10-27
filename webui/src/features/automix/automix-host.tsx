@@ -25,7 +25,13 @@ import { createPortal, flushSync } from 'react-dom';
 
 import type { Transition } from '@/features/sets/sets.api';
 
-import { postDjJob, DJ_QUERY_KEY } from '@/features/dj/dj.api';
+import { useAnalysis } from '@/features/dj/analysis-progress';
+import {
+  DJ_ANALYSED_EVENT,
+  requestAnalysis,
+  requestAnalysisQuietly,
+} from '@/features/dj/analysis.api';
+import { DJ_QUERY_KEY } from '@/features/dj/dj.api';
 import { Engine } from '@/features/engine/engine';
 import { looksLikePhone } from '@/features/engine/lifecycle';
 import { fetchGrids, fetchWindow } from '@/features/engine/loader';
@@ -129,7 +135,12 @@ let shared: AutomixController | null = null;
 function controllerFor(qc: QueryClient): AutomixController {
   if (shared) return shared;
   shared = new AutomixController(port, {
-    plan: (from, to, choice) => qc.fetchQuery(planQuery(qc, from, to, choice)),
+    plan: (from, to, choice, _lean, fresh) =>
+      qc.fetchQuery(
+        fresh
+          ? { ...planQuery(qc, from, to, choice), staleTime: 0 }
+          : planQuery(qc, from, to, choice),
+      ),
     grids: (ids) => fetchGrids(ids),
     window: (ctx, id, start, dur) => fetchWindow(ctx, id, start, dur),
     async engine() {
@@ -257,6 +268,15 @@ function GapChip({
     ...planQuery(qc, fromId, toId, AUTO_CHOICE),
     enabled: ok && open && choice.style !== 'auto',
   });
+  // Waiting (26g): the track the plan waits for shows its step and bar
+  const waitsFor =
+    ok && plan.data?.status === 'waiting'
+      ? plan.data.waiting_for === 'from'
+        ? fromId
+        : toId
+      : null;
+  const progressOf = useAnalysis([waitsFor]);
+  const progress = waitsFor ? (progressOf[waitsFor] ?? null) : null;
   if (!ok) return null;
   const fromTitle = from.title || 'this track';
   const toTitle = to.title || 'the next track';
@@ -296,17 +316,15 @@ function GapChip({
       compact={phone}
       floating
       onOpenChange={setOpen}
-      analyse={
-        profile?.isAdmin
-          ? () => {
-              void postDjJob('start', waitingId)
-                .then(() => qc.invalidateQueries({ queryKey: [...DJ_QUERY_KEY] }))
-                .catch((e: unknown) =>
-                  window.showToast?.(e instanceof Error ? e.message : "That didn't work.", 'error'),
-                );
-            }
-          : null
-      }
+      progress={progress}
+      // anyone can ask for their own tracks now (analyse on demand)
+      analyse={() => {
+        void requestAnalysis([waitingId], { force: true })
+          .then(() => qc.invalidateQueries({ queryKey: [...DJ_QUERY_KEY, 'status'] }))
+          .catch((e: unknown) =>
+            window.showToast?.(e instanceof Error ? e.message : "That didn't work.", 'error'),
+          );
+      }}
       saveTo={
         set
           ? {
@@ -344,7 +362,29 @@ export function AutomixHost() {
   const prefs = usePrefs();
   const phone = usePhone();
   const [slots, setSlots] = useState<Slots>(() => findSlots());
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
+
+  // analyse on demand: with DJ mix on (or a set played as a mix), the queue's
+  // coming tracks jump the analysis queue, so their chips stop Waiting; the
+  // server skips the ones already done, and each is asked once in a while
+  useEffect(() => {
+    const st = port.state();
+    if (st.shuffle) return;
+    const dj = prefs.between === 'dj';
+    const from = Math.max(0, st.index);
+    const ids = st.queue
+      .slice(from, from + 50)
+      .filter((t) => mixable(t) && (dj || Boolean(t.mix_set)))
+      .map((t) => String(t.id));
+    if (ids.length > 1) requestAnalysisQuietly(ids);
+  }, [tick, prefs.between]);
+
+  // a track finished its analysis: a pair waiting for it is planned again
+  useEffect(() => {
+    const again = () => ctl.replanWaiting();
+    window.addEventListener(DJ_ANALYSED_EVENT, again);
+    return () => window.removeEventListener(DJ_ANALYSED_EVENT, again);
+  }, [ctl]);
 
   useEffect(() => {
     ctl.start();
