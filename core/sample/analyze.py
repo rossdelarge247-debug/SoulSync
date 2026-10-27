@@ -23,7 +23,11 @@ logger = get_logger("sample.analyze")
 # analyzed at the current version.
 # v3: adds the musical key.
 # v4: adds energy (core/sample/energy.py), for the library's DJ data.
-ANALYZER_VERSION = 4
+# v5: the tempo's octave (core/sample/tempo.py): drum and bass is 174, not 87.
+#     Only readings at 70-100 or 140-200 can change; the DJ data's rows at
+#     v4 outside them are promoted without a decode (database/music_database.py
+#     ``_promote_settled_tempos``).
+ANALYZER_VERSION = 5
 
 # Analysis runs at 22050 Hz (librosa's canonical rate): ~4x fewer samples
 # through the STFT than 44.1k source audio, with no measurable BPM loss
@@ -185,10 +189,15 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
         for t in librosa.frames_to_time(peak_frames, sr=_ANALYSIS_SR)
     ]
 
-    tempo_raw, _ = librosa.beat.beat_track(
+    tempo_raw, beat_frames = librosa.beat.beat_track(
         onset_envelope=onset_envelope, sr=_ANALYSIS_SR
     )
     bpm = round(float(np.atleast_1d(tempo_raw)[0]), 1)
+    # 87 or 174: the octave from the file's genre, the range and where the
+    # backbeat is, not librosa's lean towards 120 (core/sample/tempo.py)
+    from .tempo import analysis_tempo
+
+    bpm, _why = analysis_tempo(file_path, y, _ANALYSIS_SR, bpm, beat_frames)
 
     from .energy import detect_energy
     from .key import detect_key
