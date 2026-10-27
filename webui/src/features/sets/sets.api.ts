@@ -265,13 +265,18 @@ export function setsListQueryOptions(profileId: number) {
   });
 }
 
+/** One saved set as the page reads it (its rows, steps and revision). */
+export function fetchSet(id: number): Promise<SetView & { set: SavedSet }> {
+  return call<SetView & { set: SavedSet }>(apiClient.get(`sets/${id}`, opts));
+}
+
 export function setQueryOptions(profileId: number, id: number) {
   return queryOptions({
     queryKey: [...SETS_QUERY_KEY, 'set', profileId, id] as const,
     // another tab or device may have changed it (the page takes it when it
     // has nothing unsaved; otherwise its next save says so)
     refetchOnWindowFocus: true,
-    queryFn: () => call<SetView & { set: SavedSet }>(apiClient.get(`sets/${id}`, opts)),
+    queryFn: () => fetchSet(id),
   });
 }
 

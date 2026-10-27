@@ -1,8 +1,9 @@
 import { createMemoryHistory } from '@tanstack/react-router';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
+import { refreshPrefs } from '@/features/automix/prefs';
 import { resetMixesForTests } from '@/features/dj/mixes-store';
 import { resetDraftsForTests } from '@/features/sets/draft-store';
 import { createTestQueryClient } from '@/test/query-client';
@@ -317,7 +318,43 @@ beforeEach(() => {
         };
       else if (path === '/api/sets/wanted')
         answer = { success: true, added: 1, already: 0, refused: [] };
-      else if (path.startsWith('/api/drives/status'))
+      else if (path === '/api/library/dj/plan') {
+        // stage A's planner, enough for 26a's picker: Auto picks a long blend
+        const style = u.searchParams.get('style') || 'auto';
+        const chosen = style === 'auto' ? 'long_blend' : style;
+        const bars = Number(u.searchParams.get('bars')) || (chosen === 'long_blend' ? 32 : 16);
+        answer = {
+          success: true,
+          plan: {
+            status: 'ok',
+            style: chosen,
+            bars: chosen === 'cut' ? null : bars,
+            requested: style,
+            chosen_by: style === 'auto' ? 'auto' : 'you',
+            why: style === 'auto' ? '6A → 7A, +1 BPM: the keys mix and the tempo is close' : null,
+            pair: '6A → 7A, +1 BPM',
+            key: { from: '6A', to: '7A', relation: 'up' },
+            tempo: {
+              relation: 'same',
+              rate: 0.99,
+              speed_change_ok: true,
+              from_bpm: 118,
+              to_bpm: 119,
+            },
+            out: { start: 300, bar: 140 },
+            in: { start: 0.2, bar: 0 },
+            styles: [
+              { style: 'long_blend', label: 'Long blend', available: true, why: null },
+              {
+                style: 'drop_swap',
+                label: 'Drop swap',
+                available: false,
+                why: 'no drop found in Foghorn Study',
+              },
+            ],
+          },
+        };
+      } else if (path.startsWith('/api/drives/status'))
         answer = { success: true, library_away: false, away: [], folders: {} };
       return new Response(JSON.stringify(answer), {
         status,
@@ -621,19 +658,16 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
   it('each known step ends with its chip; picking a style and length saves {style, bars}', async () => {
     renderPage('/library?view=sets&set=7');
     await screen.findByDisplayValue('Sunday Set');
+    // the chip names Auto's pick once the pair is planned (26i)
     const chip = await screen.findByRole('button', {
-      name: 'Transition from Lowtide Hymn to Foghorn Study: Auto, auto. Change it',
+      name: 'Transition from Lowtide Hymn to Foghorn Study: Long blend · 32 bars, auto. Change it',
     });
     expect(chip.closest('[data-step]')!.getAttribute('data-step')).toBe('smooth');
     fireEvent.click(chip);
     const picker = screen.getByRole('dialog', { name: 'How Lowtide Hymn goes into Foghorn Study' });
-    expect(
-      within(picker)
-        .getAllByRole('radio')
-        .slice(0, 8)
-        .map((r) => r.textContent),
-    ).toEqual([
-      'AutoAuto-mix picks when it plays',
+    const radios = within(picker).getAllByRole('radio').slice(0, 8);
+    expect(radios.map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Auto: Long blend',
       'Long blend',
       'Short blend',
       'Bass swap',
@@ -642,6 +676,12 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
       'Filter sweep',
       'Drop swap',
     ]);
+    // the pair and why, Auto naming its pick, a style the pair can't do listed with why (26a)
+    expect(picker).toHaveTextContent('6A → 7A, +1 BPM: the keys mix and the tempo is close');
+    expect(radios[0]).toHaveAccessibleDescription('Chosen as the keys mix and the tempo is close');
+    expect(radios[1]).toHaveAccessibleDescription('32 bars, the EQ handed over slowly');
+    expect(radios[7]).toHaveAttribute('aria-disabled', 'true');
+    expect(radios[7]).toHaveAccessibleDescription('Needs a drop: none found in Foghorn Study');
     fireEvent.click(within(picker).getByRole('radio', { name: 'Bass swap' }));
     fireEvent.click(within(picker).getByRole('radio', { name: '32 bars' }));
     fireEvent.click(within(picker).getByRole('button', { name: 'Done' }));
@@ -653,6 +693,30 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
     await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
     const put = calls('/api/sets/7', 'PUT')[0].body as { tracks: { transition: unknown }[] };
     expect(put.tracks[0].transition).toEqual({ style: 'bass_swap', bars: 32 });
+  });
+
+  it('with DJ mix off a set keeps its chips, dimmed, saying what plays instead (26g, 26i)', async () => {
+    localStorage.setItem('soulsync-between-tracks', 'off');
+    refreshPrefs();
+    try {
+      renderPage('/library?view=sets&set=7');
+      await screen.findByDisplayValue('Sunday Set');
+      const chip = await screen.findByRole('button', {
+        name: 'Transition from Lowtide Hymn to Foghorn Study: Long blend · 32 bars, auto. Change it',
+      });
+      const wrap = chip.parentElement!;
+      expect(wrap).toHaveAttribute('data-dimmed');
+      expect(wrap).toHaveTextContent('DJ mix is off: plays straight on (Play as a mix plays this)');
+      localStorage.setItem('soulsync-between-tracks', 'dj');
+      act(() => refreshPrefs());
+      await waitFor(() => expect(wrap).not.toHaveAttribute('data-dimmed'));
+      expect(wrap).toHaveTextContent('auto · 6A → 7A, +1 BPM');
+      // 28e: a saved set plays with its chips
+      expect(screen.getByRole('button', { name: 'Play as a mix' })).toBeTruthy();
+    } finally {
+      localStorage.removeItem('soulsync-between-tracks');
+      refreshPrefs();
+    }
   });
 
   it('a file gone missing keeps its place, number and values, at 62% with its tag (28e)', async () => {

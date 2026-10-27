@@ -17,6 +17,8 @@ import { apiClient, readJson } from '@/app/api-client';
 import { DialogBody, DialogFooter, DialogFrame, DialogHeader } from '@/components/dialog';
 import { Button, TextInput } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
+import { SetStepChip } from '@/features/automix/set-chip';
+import { playSetAsMix } from '@/features/automix/set-play';
 import { addTrackToPlaylist, playTrackNext } from '@/features/dj/dj-actions';
 import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
 import { KeyChip } from '@/features/dj/key-chip';
@@ -33,7 +35,7 @@ import type { SetRow, SetView, Step, Transition, ViewRow } from './sets.api';
 
 import { clearDraft, readDraft, writeDraft } from './draft-store';
 import { EnergyGraph } from './energy-graph';
-import { NoteLine, TransitionChip } from './mix-set-parts';
+import { NoteLine } from './mix-set-parts';
 import {
   MIX_SET_CHANGED,
   SETS_QUERY_KEY,
@@ -329,6 +331,7 @@ function Row({
   onNote,
   onTransition,
   nextTitle,
+  nextId,
   setName,
   drag,
   step,
@@ -352,6 +355,8 @@ function Row({
   onTransition: (next: Transition) => void;
   /** the next playing track's title, for the chip's words */
   nextTitle: string;
+  /** and its id, for the pair's plan (26i) */
+  nextId: string | null;
   setName: string;
   drag: {
     onGrip: () => void;
@@ -435,11 +440,13 @@ function Row({
       : null;
   const chip =
     track && step && step.kind !== 'unknown' ? (
-      <TransitionChip
+      <SetStepChip
         transition={row.transition}
         step={step}
         from={title}
         to={nextTitle}
+        fromId={track.id ? String(track.id) : null}
+        toId={nextId}
         onChange={onTransition}
       />
     ) : null;
@@ -1060,6 +1067,20 @@ export function SetEditor({
           >
             Export to Traktor…
           </Button>
+          {source.kind === 'saved' ? (
+            // 28e: plays with its chips, DJ mix for this play whatever the setting
+            <Button
+              size="lg"
+              variant="secondary"
+              disabled={!trackIds.length}
+              disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
+              onClick={() =>
+                void playSetAsMix({ id: source.id, name: name.trim() || initial.name }, viewRows)
+              }
+            >
+              Play as a mix
+            </Button>
+          ) : null}
           {source.kind === 'draft' ? (
             <Button
               size="lg"
@@ -1228,7 +1249,8 @@ export function SetEditor({
             // 28e: a track whose file is missing keeps its number
             const n = row.track || row.unreachable ? ++number : null;
             const step = steps[index];
-            const next = viewRows.slice(index + 1).find((r) => r.track)?.track?.title ?? '';
+            const nextRow = viewRows.slice(index + 1).find((r) => r.track)?.track ?? null;
+            const next = nextRow?.title ?? '';
             return (
               <Row
                 key={`${row.track_id ?? row.title}-${index}`}
@@ -1249,6 +1271,7 @@ export function SetEditor({
                 onNote={(note) => update(index, { note })}
                 onTransition={(transition) => update(index, { transition })}
                 nextTitle={next}
+                nextId={nextRow?.id ? String(nextRow.id) : null}
                 setName={name.trim() || initial.name}
                 drag={dragFor(index)}
               />
