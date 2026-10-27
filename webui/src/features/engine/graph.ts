@@ -35,6 +35,17 @@ export interface EngineGraph {
 }
 
 const MAX_ECHO_S = 2;
+const LIMIT_DB = -1;
+const LIMIT_RATIO = 20;
+
+/**
+ * The makeup gain (dB) a DynamicsCompressorNode with a hard knee adds by
+ * itself (the Web Audio spec: the inverse of the curve's gain at 0 dBFS,
+ * to the power 0.6). Measured in an OfflineAudioContext to match.
+ */
+export function makeupDb(thresholdDb: number, ratio: number): number {
+  return -0.6 * thresholdDb * (1 - 1 / ratio);
+}
 
 function deckChain(ctx: BaseAudioContext, id: DeckId, master: AudioNode, cueBus: AudioNode) {
   const trim = ctx.createGain();
@@ -140,13 +151,18 @@ export function buildGraph(
   let limiter: DynamicsCompressorNode | null = null;
   if (opts.limiter !== false) {
     limiter = ctx.createDynamicsCompressor();
-    // only peaks over -1 dBFS (two full decks summed), as near transparent as it gets
-    limiter.threshold.value = -1;
-    limiter.knee.value = 1;
-    limiter.ratio.value = 20;
+    // only peaks over -1 dBFS (two full decks summed). A hard knee, so the
+    // makeup gain every DynamicsCompressorNode adds (the spec's) is exactly
+    // known, and taken back off: below the threshold the engine plays at
+    // the player's level
+    limiter.threshold.value = LIMIT_DB;
+    limiter.knee.value = 0;
+    limiter.ratio.value = LIMIT_RATIO;
     limiter.attack.value = 0.002;
     limiter.release.value = 0.2;
-    master.connect(limiter).connect(out);
+    const unmakeup = ctx.createGain();
+    unmakeup.gain.value = Math.pow(10, -makeupDb(LIMIT_DB, LIMIT_RATIO) / 20);
+    master.connect(limiter).connect(unmakeup).connect(out);
   } else {
     master.connect(out);
   }

@@ -221,3 +221,39 @@ describe('beat sync, rendered (OfflineAudioContext)', () => {
     expect(m.max).toBeGreaterThan(0.012);
   }, 120000);
 });
+
+describe('the engine’s level (the limiter’s makeup gain taken back)', () => {
+  it('plays a deck below the limit at exactly its own level, and holds a hot one under 0 dBFS', async () => {
+    const level = async (amp: number) => {
+      const n = 2 * SR;
+      const ctx = new OfflineAudioContext({ numberOfChannels: 1, length: n, sampleRate: SR });
+      const tap = ctx.createGain();
+      tap.connect(ctx.destination);
+      const engine = await Engine.create({
+        context: ctx as unknown as BaseAudioContext,
+        workletUrl: WORKLET_PATH,
+        tap: tap as unknown as AudioNode,
+        watch: false,
+      });
+      const left = new Float32Array(3 * SR);
+      for (let i = 0; i < left.length; i++) left[i] = amp * Math.sin((2 * Math.PI * 440 * i) / SR);
+      engine.load('A', prepareDeck(asBuffer({ left, right: left.slice() }), 0));
+      engine.play('A', 0, 0);
+      await engine.sync();
+      const out = (await ctx.startRendering()).getChannelData(0);
+      let e = 0;
+      let peak = 0;
+      for (let i = SR; i < n; i++) {
+        e += out[i] * out[i];
+        peak = Math.max(peak, Math.abs(out[i]));
+      }
+      engine.dispose();
+      return { db: 20 * Math.log10(Math.sqrt(e / SR) / (amp / Math.SQRT2)), peak };
+    };
+    const quiet = await level(0.1);
+    console.info(`level, a -20 dBFS deck through the engine: ${quiet.db.toFixed(3)} dB`);
+    expect(Math.abs(quiet.db)).toBeLessThan(0.05);
+    const hot = await level(1.6); // two full decks summed
+    expect(hot.peak).toBeLessThan(1.0);
+  }, 120000);
+});
