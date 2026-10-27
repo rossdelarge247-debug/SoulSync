@@ -13,7 +13,7 @@ import io
 import os
 import shutil
 import subprocess
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from utils.logging_config import get_logger
 
@@ -131,7 +131,8 @@ def decode_mono(file_path: str, max_seconds: Optional[float] = None) -> Tuple[An
 
 
 def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
-                  keep_audio: bool = False) -> Dict[str, Any]:
+                  keep_audio: bool = False,
+                  on_step: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
     """Full analysis for one track: BPM, onset times, duration, key, energy.
 
     Returns {"bpm": float, "onsets": [seconds...], "duration_s": float,
@@ -151,6 +152,9 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
     analysis rate, so the DJ job finds the beat grid (core/dj/grid.py) from
     the same decode; the caller takes it out before keeping the result.
 
+    ``on_step`` is told each step as it starts (``read``, ``tempo``,
+    ``key``, ``energy``): the DJ job's progress (core/dj/progress.py).
+
     Performance: the audio is downsampled to 22050 Hz once, and the onset
     envelope is computed ONCE and shared with beat tracking (beat_track's
     internal onset_strength used to double the STFT cost). Measured on a
@@ -159,6 +163,11 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
     librosa = _load_librosa()
     import numpy as np
 
+    def reached(name: str) -> None:
+        if on_step is not None:
+            on_step(name)
+
+    reached("read")
     mono, sr = decode_mono_at(file_path, _ANALYSIS_SR, max_seconds=max_seconds)
     duration_s = float(len(mono) / sr)
     truncated = bool(max_seconds) and duration_s >= float(max_seconds) - 0.05
@@ -168,6 +177,7 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
         if sr != _ANALYSIS_SR
         else mono
     )
+    reached("tempo")
     onset_envelope = librosa.onset.onset_strength(y=y, sr=_ANALYSIS_SR)
     peak_frames = librosa.util.peak_pick(onset_envelope, **_PEAK_PICK_KWARGS)
     onsets = [
@@ -183,12 +193,16 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
     from .energy import detect_energy
     from .key import detect_key
 
+    reached("key")
+    key = detect_key(y, _ANALYSIS_SR)
+    reached("energy")
+    energy = detect_energy(y, _ANALYSIS_SR, len(onsets))
     result = {
         "bpm": bpm,
         "onsets": onsets,
         "duration_s": round(duration_s, 3),
-        "key": detect_key(y, _ANALYSIS_SR),
-        "energy": detect_energy(y, _ANALYSIS_SR, len(onsets)),
+        "key": key,
+        "energy": energy,
         "truncated": truncated,
         "analyzer_version": ANALYZER_VERSION,
     }

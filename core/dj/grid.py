@@ -960,10 +960,13 @@ def _mix_regions(sections: List[List[Any]], kick, n_bars: int, truncated: bool):
 
 # ── the whole analysis ───────────────────────────────────────────────────────
 
-def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bool = False) -> Dict[str, Any]:
+def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bool = False,
+                  on_step=None) -> Dict[str, Any]:
     """Everything above for one track's decoded audio (mono). Returns the
     compact form the store keeps (``status`` ``done``, or ``none`` with a
-    ``reason``: ``too_short`` or ``no_beat``)."""
+    ``reason``: ``too_short`` or ``no_beat``). ``on_step`` is told
+    ``phrases`` when the beats are found and the bars' sections are next
+    (the DJ job's progress, core/dj/progress.py)."""
     import numpy as np
 
     y = np.asarray(y, dtype=np.float32)
@@ -996,6 +999,8 @@ def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bo
            "beats": [round(float(b), 4) for b in beats] if grid["kind"] == "beats" else None}
     if n_bars < 8:
         return {**out, "phrases": phrases_from([], n_bars), "sections": [], "mix_in": None, "mix_out": None}
+    if on_step is not None:
+        on_step("phrases")
     bar_starts = beats[first:first + (n_bars + 1) * 4:4]
     if len(bar_starts) < n_bars + 1:
         bar_starts = np.append(bar_starts, bar_starts[-1] + 4 * grid["period"])
