@@ -13,14 +13,16 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Move your music folders to another drive | Built | [below](#move-your-music-folders-to-another-drive) |
 | AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
 | DJ area: BPM, key and mixing (Traktor Pro 3) | Building (stage 1: Built; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
-| Famous mixes and AI set suggestions | Sets 1: Building · Sets 2: Ready for Dev after 240–246 | [below](#famous-mixes-and-ai-set-suggestions) |
+| Famous mixes and AI set suggestions | Sets 1: Built · Sets 2: Ready for Dev | [below](#famous-mixes-and-ai-set-suggestions) |
 | Lyrics centre stage, timed to the words | Ready for Design (step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
-| Star tracks and mix sets | Building (Mix tab: Building) | [below](#star-tracks-and-mix-sets) |
+| Star tracks and mix sets | Built (Mix tab: Built) | [below](#star-tracks-and-mix-sets) |
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
-| Auto-mix: beat-matched transitions in Up next | Auto-mix: Building (stage C) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
+| Auto-mix: beat-matched transitions in Up next | Built (stages A–C) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
 | Data visualiser: the decoded audio as numbers and bits | Ready for Design | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
 | Privacy: a VPN for Soulseek and torrents, and a privacy check | Exploring | [below](#privacy-a-vpn-for-soulseek-and-torrents-and-a-privacy-check) |
 | Reach SYNCHRO.S from anywhere with Tailscale | Exploring | [below](#reach-synchros-from-anywhere-with-tailscale) |
+| DJ now: a compact DJ mode in the playing panel | Drawn (E1 chosen) | [below](#dj-now-a-compact-dj-mode-in-the-playing-panel) |
+| A playlist into a set for mixing (Order for mixing) | Ready for Design | [below](#a-playlist-into-a-set-for-mixing-order-for-mixing) |
 
 ---
 
@@ -974,3 +976,65 @@ Once SYNCHRO.S and slskd move to the **new media centre** at home, reach them fr
 
 - **Settled with Ross, 26 October:** the media centre runs **macOS**, and the phone is **Android**. The guide covers Tailscale on macOS (Dev picks the macOS variant that keeps running with nobody logged in, which matters on a media centre, and checks how it reaches Docker Desktop's containers), the Android app, and the laptop. SYNCHRO.S is installed on Android as a web app from Chrome.
 - **For Design** (once it's Ready): does SYNCHRO.S need to show "you're connected from away" anywhere, for example to suggest a lower streaming quality?
+
+---
+
+## A playlist into a set for mixing (Order for mixing)
+
+**Status:** Ready for Design · raised by Ross, 2026-10-27 · direction and defaults approved by Ross the same day ("hell yeaaah"). Built with Sets 2, after DJ now (step 5 of Design's 27 October order), since it shares Swap and the AI's parts.
+
+### The problem
+
+A Spotify playlist (or any playlist) is in the order someone liked, not an order that mixes. Turning it into a set means analysing every track, then reordering by hand for keys, tempo and energy, then finding replacements for the pairs that never fit.
+
+### What Ross wants
+
+One flow from a playlist's "…": **Make a set for mixing**.
+1. **Import:** the playlist becomes a set, matched against the library.
+2. **Analyse:** tracks without DJ data or a beat grid are queued (analysis on demand, Brief A's indicator).
+3. **Order for mixing:** SYNCHRO.S suggests a better order for harmonic mixing, tempo and an energy shape, and says why.
+4. **Optimise:** swaps for the pairs that still clash; optionally ask the AI.
+5. **Mix it:** Play as a mix, or open it in DJ now.
+
+### What the app gives today (Dev checked)
+
+- **Playlists are mirrored** from Spotify (and Tidal, Deezer, YouTube, local) into SYNCHRO.S, so the flow reads the stored copy: no extra Spotify calls, and it works while Spotify is throttled.
+- **Matching a tracklist against the library** and **Want the missing** (famous mixes, Sets 1).
+- **Analyse these** on a playlist's "…" (analysis on demand, `feat/analyse-now`).
+- **Sets:** steps marked Smooth/Jump with their reason, the energy graph, Lock, Move, Export to Traktor, Save as a set, Play as a mix (Sets 1, stars and sets, auto-mix stage C).
+- **Swap** with alternatives that fit both neighbours, and the AI's Ask again (Sets 2, approved, not built).
+- **The pair planner** (auto-mix stage A), which says whether two tracks beat-match and how.
+
+### What's new
+
+1. **Order for mixing:** a code-driven optimiser (no AI needed). It orders the tracks so each step is as smooth as possible (key on the Camelot wheel, tempo, energy) and the set follows a chosen energy shape. Locked rows stay where they are (pin an opener or a closer). For up to a couple of hundred tracks it should answer in a second or two (a heuristic search, not an exhaustive one). A tempo octave counts as compatible (87 ↔ 174) once the drum and bass BPM fix lands.
+2. **Energy shapes:** Build up · Peak in the middle · Waves · Keep the energy level (Dev's suggestion; Design to name and draw them).
+3. **Before and after:** the playlist's order beside the suggestion, with the counts ("14 jumps → 3 jumps"), both energy curves, and each move explained ("Static Bloom after Night Ferry: 8A → 9A, same tempo"). **Use this order**, **Keep mine**, or take changes one at a time.
+4. **What it can't fix:** "These two always clash: swap one?" with Swap's suggestions, and "Ask the AI for a better fit" where the AI is on.
+5. **Then mix it:** Play as a mix, or open it in DJ now.
+
+### Defaults (Ross, 27 October)
+
+- **The playlist is never changed.** The set is a copy; "Save this order as a new playlist" is offered.
+- **Missing tracks** keep their place, greyed out, with Want it; they're skipped when it plays.
+- **Members** can do it with their own playlists, for tracks in their own library.
+
+### States Design needs to draw
+
+1. The entry: the playlist's "…" and its header ("Make a set for mixing"), and on a set's page ("Order for mixing").
+2. Importing and matching ("You own 41 of 48"), the missing ones with Want it.
+3. Analysing before it can order: Brief A's indicator for the set ("12 of 48 aren't ready to mix · Analyse them now"), ordering what's ready meanwhile, or waiting.
+4. The energy-shape picker.
+5. Before and after at 1440: both orders, both curves, the counts, the reasons; Use this order, Keep mine, one at a time; Undo.
+6. Clashes left: the swap prompt with Swap's suggestions; the AI's line, thinking, and off.
+7. Locked rows held while the rest moves.
+8. Done: the set with its new order, Play as a mix and Open in DJ now.
+9. The phone (390): the before and after as one list with a toggle.
+10. A playlist of 300 or more tracks (a limit, or ordering a chosen part).
+
+### Questions for Design
+
+1. Is "Order for mixing" a step in the import, or a tool on any set (both)?
+2. The names of the energy shapes, and whether a person can draw their own curve.
+3. How a person takes some suggested moves and not others without losing track.
+
