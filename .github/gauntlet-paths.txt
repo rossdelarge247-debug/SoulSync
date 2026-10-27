@@ -87,6 +87,11 @@ core/dj/store.py
 core/dj/grid.py
 core/dj/grid_store.py
 core/dj/planner.py
+# Auto-mix stage B: the window route's decoder (runs ffmpeg on a library
+# file for a caller, with caps on length, end and how many at once; the route
+# and its scope check are in api/dj.py above, the kids guard in
+# api/content_guard.py below)
+core/dj/window.py
 
 ## Database migrations and schema
 database/**

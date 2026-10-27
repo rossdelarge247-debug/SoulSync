@@ -53,6 +53,11 @@ GET  /api/library/dj/plan?from=<id>&to=<id>&style=&bars=
     while either isn't analysed. ``style`` one of auto (the default),
     long_blend, short_blend, bass_swap, cut, echo_out, filter_sweep,
     drop_swap; ``bars`` 2, 4, 8, 16 or 32.
+GET  /api/library/dj/window/<track_id>?start=&dur=&rate=
+    Auto-mix stage B: a stretch of the track as 16-bit stereo WAV for the
+    browser's two-deck engine (core/dj/window.py; ``dur`` at most 180 s,
+    ``rate`` 44100 or 48000), decoded as the analysis decodes it. 429 while
+    two windows are decoding.
 POST /api/library/dj/mixes/<track_id>/vibe
     Vibe (29a): the ranked top 20 re-ordered for feel by the AI provider
     (core/dj/vibe.py); 403 with ``code`` when the AI is off for this profile
@@ -389,6 +394,57 @@ def dj_plan():
         logger.error("DJ plan failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
     return jsonify({"success": True, "from": out_id, "to": in_id, "plan": result})
+
+
+@bp.route("/api/library/dj/window/<track_id>", methods=["GET"])
+def dj_window(track_id: str):
+    """Auto-mix stage B: a stretch of one library track as 16-bit stereo WAV
+    for the browser's two-deck engine (core/dj/window.py): ``start`` and
+    ``dur`` in seconds (at most 180), ``rate`` 44100 or 48000. Decoded from
+    the file's start, as the analysis decodes it, so the grid's seconds and
+    the samples agree. 404 outside the caller's library or when the file
+    can't be opened, 429 while two windows are decoding."""
+    if get_current_profile_id() is None:
+        return _no_profile()
+    from core.dj import grid_store, store, window
+
+    tid = str(track_id)[:128]
+    try:
+        start, dur, rate = window.parse_args(request.args.get("start"), request.args.get("dur"),
+                                             request.args.get("rate"))
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    try:
+        found = grid_store.scoped_rows(get_database(), [tid])
+        row = store.track_row(get_database(), tid) if tid in found else None
+    except Exception as exc:  # noqa: BLE001
+        logger.error("DJ window failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    if row is None:
+        return jsonify({"success": False, "error": "That track isn't in your library"}), 404
+    from core.sample.worker import resolve_track_file
+
+    path = resolve_track_file(str(row.get("file_path") or "")) if row.get("file_path") else None
+    if not path:
+        return jsonify({"success": False, "error": "SYNCHRO.S can't open that track's file"}), 404
+    try:
+        data = window.decode(path, start, dur, rate)
+    except window.Busy:
+        response = jsonify({"success": False, "error": "busy"})
+        response.status_code = 429
+        response.headers["Retry-After"] = "1"
+        return response
+    except FileNotFoundError:
+        return jsonify({"success": False, "error": "SYNCHRO.S can't open that track's file"}), 404
+    except window.WindowError as exc:
+        return jsonify({"success": False, "error": f"Couldn't decode that track: {exc}"}), 422
+    from flask import Response
+
+    response = Response(data, mimetype="audio/wav")
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Window-Start"] = f"{start:.6f}"
+    response.headers["X-Window-Rate"] = str(rate)
+    return response
 
 
 #: Vibe's request body: a set id and a flag fit in far less
