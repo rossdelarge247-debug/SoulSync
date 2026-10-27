@@ -799,8 +799,10 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
     const item = await screen.findByRole('menuitem', { name: 'Analyse these' });
     expect(item.textContent).toContain('3 tracks · ones already done are skipped');
     fireEvent.click(item);
-    await waitFor(() =>
-      expect(sent.filter((c) => c.path === '/api/library/dj/analyse')).toHaveLength(2),
+    await waitFor(
+      () => expect(sent.filter((c) => c.path === '/api/library/dj/analyse')).toHaveLength(2),
+      // asks are a second apart (the server takes one a second a profile)
+      { timeout: 4000 },
     );
     await waitFor(() =>
       expect(window.showToast).toHaveBeenCalledWith(

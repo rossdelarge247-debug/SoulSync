@@ -546,7 +546,8 @@ describe("29d's states", () => {
     await waitFor(() => expect(world.analysed).toHaveLength(1));
     expect(mix.getByText(/\(12 tracks ahead\)/)).toBeInTheDocument();
     fireEvent.click(await mix.findByRole('button', { name: 'Analyse this one now' }));
-    await waitFor(() => expect(world.analysed).toHaveLength(2));
+    // asks are a second apart (the server takes one a second a profile)
+    await waitFor(() => expect(world.analysed).toHaveLength(2), { timeout: 4000 });
     expect(world.analysed[1]).toEqual({ track_ids: ['1'] });
   });
 
