@@ -1022,12 +1022,15 @@ def _dj_job_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
     ref: Dict[str, Any] = {"job_id": int(row["id"])}
     # beat grids that couldn't be found, on their own: those tracks still
     # count as done, since their BPM, key and energy were kept
+    # (a finished run keeps them in its note; nothing is counted per row)
     grid_failed, grids_paused = 0, False
     try:
-        from core.dj.worker import GRIDS_PAUSED, grid_failed_count
+        from core.dj.worker import grid_note
 
-        grid_failed = int(live.get("grid_failed") or 0) if live else grid_failed_count(ctx.conn, row)
-        grids_paused = bool(live.get("grids_paused")) if live else row.get("note") == GRIDS_PAUSED
+        if live:
+            grid_failed, grids_paused = int(live.get("grid_failed") or 0), bool(live.get("grids_paused"))
+        else:
+            grid_failed, grids_paused = grid_note(row.get("note"))
     except Exception as exc:  # noqa: BLE001 - no DJ module: no grids
         logger.debug("grid failures unreadable: %s", exc)
     grid_words = ""

@@ -428,7 +428,7 @@ def test_l3_grid_errors_alone_never_end_the_sweep(db):
     assert state["status"] == "done" and state["done"] == n and state["failed"] == 0
     assert state["grid_failed"] == worker.MAX_GRID_ERRORS_IN_A_ROW and state["grids_paused"] is True
     assert calls == [True] * worker.MAX_GRID_ERRORS_IN_A_ROW + [False] * 5
-    assert state["note"] == worker.GRIDS_PAUSED
+    assert state["note"] == f"grids_paused:{worker.MAX_GRID_ERRORS_IN_A_ROW}"
 
 
 def test_l3_activity_counts_grid_failures_apart(db):
@@ -459,3 +459,63 @@ def test_l3_a_dj_failure_still_counts_toward_its_own_stop(db):
     job.start(db, 1, background=False)
     state = worker.public_state(db, job)
     assert state["status"] == "failed" and state["failed"] == worker.MAX_ERRORS_IN_A_ROW
+
+
+# ── after the stage B gauntlet review ────────────────────────────────────────
+
+@pytest.mark.gauntlet
+def test_review_m1_paused_top_ups_go_by_without_a_rest_or_a_save(db):
+    """Once 25 grids in a row have failed, each remaining top-up is
+    ``grid_paused``: nothing was decoded, so the sweep neither rests nor
+    saves for it, and counts it done so the run reaches its total (a 50k
+    library at GRID_VERSION 2 no longer "runs" for hours doing nothing)."""
+    n = worker.MAX_GRID_ERRORS_IN_A_ROW + 40
+    for i in range(1, n + 1):
+        _track(db, f"p{i}", f"T{i}", f"/m/p{i}.flac")
+
+    def process(d, t, **kw):
+        store.save(d, t, {"status": "done", "dj_analyzer_version": worker.analyzer_version()})
+        if not kw.get("find_grid"):
+            return "grid_paused"
+        grid_store.mark(d, t, "error", "bad frame")
+        return "grid_error"
+
+    job = worker.DjAnalysisJob(process=process, busy=lambda d: None, away=lambda: False,
+                               settings=lambda: {"analyze": True, "write_tags": False, "overwrite_tags": False},
+                               sleep_floor=0.5, rest_factor=0)
+    waits = []
+    job._stop.wait = lambda t=None: (waits.append(t), False)[1]
+    saves = []
+    real_save = job._save
+    job._save = lambda d, final=False: (saves.append(final), real_save(d, final=final))[1]
+    job.start(db, 1, background=False)
+    state = worker.public_state(db, job)
+    assert len(waits) == worker.MAX_GRID_ERRORS_IN_A_ROW  # a rest only after a real decode
+    assert saves.count(False) == worker.MAX_GRID_ERRORS_IN_A_ROW and saves.count(True) == 1
+    assert state["status"] == "done" and state["done"] == state["total"] == n
+    assert state["grid_failed"] == worker.MAX_GRID_ERRORS_IN_A_ROW and state["grids_paused"] is True
+    assert job._state["grids_waiting"] == 40
+
+
+def test_review_l7_a_runs_grid_failures_are_its_own_and_cost_no_query(db):
+    """Activity reads a finished run's grid failures from its note, so a
+    run from before (no such note) shows none, whatever grid rows were
+    marked while it ran, and nothing is counted over track_grid per row."""
+    from core.activity import feed
+
+    _sweep(db, "done_grid_error", 3)
+    row = worker.last_run(db)
+    assert row["note"] == "grids:3"
+    assert worker.grid_note(row["note"]) == (3, False)
+    assert worker.grid_note("grids_paused:25") == (25, True)
+    assert worker.grid_note("restart") == (0, False) and worker.grid_note(None) == (0, False)
+    # a run from before this change: grid errors marked during it aren't its
+    old = {**row, "note": None}
+
+    class Ctx:
+        conn = None  # nothing may be queried
+
+    item = feed._dj_job_item(Ctx(), old)
+    assert "beat grid" not in item["detail"]
+    item = feed._dj_job_item(Ctx(), row)
+    assert "No beat grid found for 3 tracks" in item["detail"]
