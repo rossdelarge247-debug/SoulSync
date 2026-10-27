@@ -849,6 +849,10 @@ class MusicDatabase:
             # The Mix tab's working set: one per profile (core/sets/working.py)
             self._add_dj_working_sets_table(cursor)
 
+            # Auto-mix stage A: each track's beat grid, downbeats, phrases,
+            # sections and mix regions (core/dj/grid_store.py)
+            self._add_track_grid_table(cursor)
+
             # Per-user curation signals read back off the media server —
             # what people deliberately CHOSE about a track (favourited,
             # rated, added to a playlist), as opposed to play_count which
@@ -2176,6 +2180,7 @@ class MusicDatabase:
         'dj_sets_v1':                ('table', 'dj_sets'),
         'track_stars_v1':            ('table', 'track_stars'),
         'dj_working_sets_v1':        ('table', 'dj_working_sets'),
+        'track_grid_v1':             ('table', 'track_grid'),
         'similar_artists_rematch':  ('table', '_similar_artists_rematch_applied'),
         'beatport_positional_purged': ('table', '_beatport_positional_purged'),
     }
@@ -4009,6 +4014,54 @@ class MusicDatabase:
                         cursor.execute(f"ALTER TABLE dj_working_sets ADD COLUMN {name} {plain}")
             if self._migration_step_ok():
                 self._record_migration(cursor, 'dj_working_sets_v1')
+
+    #: Auto-mix stage A (core/dj/grid.py, core/dj/grid_store.py): one row per
+    #: library track, keyed like track_dj by the text track id. Compact: a
+    #: steady track keeps its grid as the first beat and the period, and only
+    #: a track whose tempo drifts keeps its beats (``beats_ms``: the first
+    #: beat and the gaps after it, in ms). Bars count from the first downbeat.
+    _TRACK_GRID_COLUMNS = (
+        ('grid_version', 'INTEGER'),
+        ('analyzed_at', 'REAL'),
+        ('source_sig', 'TEXT'),            # size:mtime of the file analysed
+        ('status', 'TEXT'),                # done | none | analyzing | error | unreachable | skipped
+        ('reason', 'TEXT'),                # none: too_short | no_beat; else the error
+        ('kind', 'TEXT'),                  # constant | beats
+        ('bpm', 'REAL'),
+        ('period', 'REAL'),                # seconds a beat
+        ('first_beat', 'REAL'),
+        ('downbeat_index', 'INTEGER'),     # which beat is bar 0's one
+        ('first_downbeat', 'REAL'),
+        ('beat_confidence', 'REAL'),
+        ('downbeat_confidence', 'REAL'),
+        ('meter', 'TEXT'),                 # 4/4 | not_4_4
+        ('bars', 'INTEGER'),
+        ('beats_ms', 'TEXT'),              # drifting tracks only
+        ('phrases_json', 'TEXT'),          # [[bar, level, section], ...]
+        ('sections_json', 'TEXT'),         # [[label, start_bar, end_bar, confidence], ...]
+        ('mix_json', 'TEXT'),              # {"in": [...], "out": [...]}
+        ('analysed_s', 'REAL'),
+        ('truncated', 'INTEGER'),
+        ('level_db', 'REAL'),
+        ('replaygain_db', 'REAL'),
+    )
+
+    def _add_track_grid_table(self, cursor):
+        """The beat grid table and its index. Only adds (atomic=False): a
+        failure is an ERROR naming the step, in schema_health, and the step
+        runs again on the next start."""
+        with self._migration_step(cursor, 'add_track_grid', atomic=False):
+            columns = ",\n".join(f"    {name} {kind}" for name, kind in self._TRACK_GRID_COLUMNS)
+            cursor.execute(f"CREATE TABLE IF NOT EXISTS track_grid (\n    track_id TEXT PRIMARY KEY,\n{columns}\n)")
+            cursor.execute("PRAGMA table_info(track_grid)")
+            have = {row[1] for row in cursor.fetchall()}
+            for name, kind in self._TRACK_GRID_COLUMNS:
+                if name not in have:
+                    with self._migration_step(cursor, f"add track_grid.{name}"):
+                        cursor.execute(f"ALTER TABLE track_grid ADD COLUMN {name} {kind}")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_grid_version ON track_grid (grid_version)")
+            if self._migration_step_ok():
+                self._record_migration(cursor, 'track_grid_v1')
 
     def _migrate_id_columns_to_text(self, cursor):
         """Migrate ID columns from INTEGER to TEXT to support both Plex (int) and Jellyfin (GUID) IDs"""
