@@ -274,6 +274,12 @@ def test_l4_an_infinite_order_from_the_ai_is_no_error(client, ai):
     ("Visit www.example.com", ""),
     ("Write to someone@example.com", ""),
     ("ftp://files", ""),
+    ("Then try evil.com for more", ""),
+    ("EVIL.COM has the rest", ""),
+    ("see mixes.example.co.uk", ""),
+    ("night-ferry.club", ""),
+    ("Warm first, 124.5 BPM, e.g. Night Ferry. Then up.", "Warm first, 124.5 BPM, e.g. Night Ferry. Then up."),
+    ("Ends at 8A.", "Ends at 8A."),
     (None, ""),
     (42, ""),
 ])

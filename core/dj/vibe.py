@@ -128,15 +128,19 @@ def request_body(seed: Dict[str, Any], candidates: List[Dict[str, Any]],
 
 
 #: a link or an address in the AI's note: it's dropped (a title can steer the
-#: note, so it never carries somewhere to go or someone to write to)
-_LINKISH = re.compile(r"://|\bwww\.|[^\s@]+@[^\s@]+\.[^\s@]+", re.IGNORECASE)
+#: note, so it never carries somewhere to go or someone to write to). A bare
+#: domain counts (``evil.com``: a name, a dot and two or more letters), but
+#: not a number (``124.5``) or a one-letter abbreviation (``e.g.``)
+_LINKISH = re.compile(r"://|\bwww\.|[^\s@]+@[^\s@]+\.[^\s@]+"
+                      r"|(?<![\w@.-])[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*\.[a-z]{2,24}(?![\w-])",
+                      re.IGNORECASE)
 
 
 def clean_line(raw: Any) -> str:
     """The AI's note, safe to show as its note: control and format
     characters (bidi overrides, zero-width marks) dropped, spaces collapsed,
-    cut to MAX_LINE; nothing at all when it holds a link or an email
-    address (gauntlet L3)."""
+    cut to MAX_LINE; nothing at all when it holds a link, a bare domain or
+    an email address (gauntlet L3, L10)."""
     if not isinstance(raw, str):
         return ""
     # whitespace controls become spaces; every other control or format
