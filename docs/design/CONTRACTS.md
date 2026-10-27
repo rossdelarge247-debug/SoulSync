@@ -995,6 +995,32 @@ Built on `feat/automix-b`. The browser's engine that plays a stage A plan on two
 
 **The lab** (`/automix-lab`): the dev harness. Admins only, and only in a development build or with `?lab=1`; anyone else gets the unknown page. It uses the routes above and the stage A ones; nothing new on the server.
 
+### Auto-mix stage C: auto-mix in Up next (`webui/src/features/automix/`, `static/media-player.js`; BACKLOG "Auto-mix: beat-matched transitions in Up next"; boards 26a–26i)
+
+Built on `feat/automix-c`. **No new route:** the browser drives stage A's `GET /api/library/dj/plan` and `POST /api/library/dj/grids`, stage B's `GET /api/library/dj/window/<id>`, the player's own `/api/library/play` and `/stream/*`, the waveform's `GET /api/library/tracks/<id>/peaks` (Smart crossfade's silences), `POST /api/library/dj/start` (Waiting's Analyse now, admins) and Sets' `GET`/`PUT /api/sets/<id>` (Save it to the set too). Two changes on the server side of stage B: the window decode no longer fails where no temporary file can be made (`core/dj/window.py`: ffmpeg's errors go to `DEVNULL` then), and the browser gives a window request 90 s (`loader.FETCH_TIMEOUT_MS`, the body included) before it lets the tab's line move on.
+
+**Kept per browser** (`localStorage`; read by `static/media-player.js` too where noted):
+- `soulsync-between-tracks`: `off`, `smart` or `dj` (Player settings → Between tracks, 26h; media-player.js). With no key it's read from `soulsync-crossfade` (`1` → `smart`, else `off`); Smart crossfade keeps `soulsync-crossfade` at `1`, so the "…" menu's Crossfade and the setting agree (the menu's switch turns Smart crossfade on or off and leaves DJ mix alone).
+- `soulsync-dj-auto`: `0` turns Mix automatically off (on by default).
+- `soulsync-dj-lean`: `long` or `short` leans Auto (26h's "Style when Auto can choose"); none, Auto's own pick. The lean moves Auto's short blend to a long blend (or back) where the pair's plan lists it available; the chip still says "auto".
+
+**The queue** (`npQueue` items, saved with the queue in `soulsync-np-queue`) gains two optional fields: `automix: {style, bars}`, the chip chosen in Up next for the gap after this item (it lasts for this queue; 283's rule: it's the row's), and `mix_set: {id, name, row, transition}`, set by a mix set's Play as a mix (28e): the set's row and its saved chip. A pair whose two items are rows of one set in order plays with DJ mix whatever the setting; its chip is the Up next choice, else the set's, else Auto.
+
+**`window.SoulSyncAutomix`** (made by `AutomixHost` in the router's root; media-player.js asks it when it's there and plays as before when it isn't):
+- `gapsWanted()`: Up next draws a gap (`[data-automix-gap="<index>"]`, `role="listitem"`, "Transition into <title>") after each row from the playing one on; true with DJ mix on (not on shuffle), or while the queue holds a set played as a mix;
+- `ownsAdvance()`: true while the decks play a mix (and while the player takes the incoming track back); `onAudioEnded` and the crossfade leave the advance alone then;
+- `crossfade(current, next, index)`: the crossfade's hint or null. `{skip: true}` (an album in order: same `album_id`, next `track_number`); `{startAt, inAt, gain, seconds}`: where the fade starts (track seconds), where the next track starts (a media fragment `#t=`), its level against the outgoing one (0–1; the player then goes back to its own level over 3 s) and how long. Null with Smart crossfade: the plain crossfade, as before; null with DJ mix: no crossfade (the decks mix, or the track plays to its end);
+- `beforeLoad(index, options)`: any load that isn't auto-mix's own (`options.automix`) lets the decks go;
+- `next()`: true when it acted (Next while mixing cuts to the incoming track where it is); `previous()`: lets the decks go first;
+- `key('X')`: Mix now, true when it acted (`NP_LETTER_KEYS` `X: ['automix:X']`);
+- `view()`: what the chips and the handover draw (`controller.ts` `AutomixView`).
+
+**`window.SoulSyncPlayer`** gains `playIndex(index, options)` (`options.handoff`, any object with `currentTime`, `pause()`, `src` and `volume`: the player joins it where it is, as after a crossfade; `options.automix`), `crossfadeInto(index, hint)`, `insertNext(track)` (no toast; its index), `renderQueue()`, `persistQueue()`, and in `state()`: `between`, `crossfading`, `playbackRate`.
+
+**The hand-over** (`controller.ts`): with DJ mix on, for the playing track and the next (library tracks with files, not shuffle, repeat one or the sleep timer's end of track), the pair is planned with its chip's style; about 45 s before `out.start` both grids and windows are fetched (the loader's line, one at a time); two bars (at least 3 s) before it, on the player's AudioContext, deck A starts where the element will be 0.12 s ahead, the element fades out over 80 ms and plays on muted (it keeps time for the bar, the record, lyrics and the Media Session), and `engine.mix` schedules the plan with `t0` at `out.start`; when the mix is over and deck B's rate is back to 1 (or 8 s from its window's end) the player loads the incoming track with deck B as its hand-off, and the decks unload. Pause suspends the context as the listener's (`Engine.setPaused`, `LifecycleWatch.setPaused`: not an interruption); a seek cancels a countdown (the element is unmuted where it was sent) or finishes a mix over one bar; a queue edit that changes the next track, or DJ mix turned off, cancels a countdown. The decks' level is the player's volume (linear, as the element's). Needs AudioWorklet, which browsers give a secure page only (https, or `localhost`); elsewhere `mixSupport()` says why, DJ mix is listed disabled with it, and pairs crossfade.
+
+**`TransitionChip`** moves to `features/automix/mix-chip.tsx` (`features/sets/mix-set-parts.tsx` re-exports it), shared by Up next and a set's step lines (26i, `SetStepChip`), with the plan's words and states (26g).
+
 ### Spotify pause (rate limits): the `spotify` slice of `/status`, `POST /api/spotify/rate-limit/clear`
 
 When Spotify answers "too many requests", SYNCHRO.S stops calling it for a while. The `spotify` slice of every `/status` frame (the `ss:service-status` event) says so:
