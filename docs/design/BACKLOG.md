@@ -18,6 +18,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Star tracks and mix sets | Building (Mix tab: Building) | [below](#star-tracks-and-mix-sets) |
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
 | Auto-mix: beat-matched transitions in Up next | Auto-mix: Building (stage C) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
+| Analyse on demand, with progress | Building | [below](#analyse-on-demand-with-progress) |
 | Data visualiser: the decoded audio as numbers and bits | Ready for Design | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
 | Privacy: a VPN for Soulseek and torrents, and a privacy check | Exploring | [below](#privacy-a-vpn-for-soulseek-and-torrents-and-a-privacy-check) |
 | Reach SYNCHRO.S from anywhere with Tailscale | Exploring | [below](#reach-synchros-from-anywhere-with-tailscale) |
@@ -933,3 +934,24 @@ Once SYNCHRO.S and slskd move to the **new media centre** at home, reach them fr
 
 - **Settled with Ross, 26 October:** the media centre runs **macOS**, and the phone is **Android**. The guide covers Tailscale on macOS (Dev picks the macOS variant that keeps running with nobody logged in, which matters on a media centre, and checks how it reaches Docker Desktop's containers), the Android app, and the laptop. SYNCHRO.S is installed on Android as a web app from Chrome.
 - **For Design** (once it's Ready): does SYNCHRO.S need to show "you're connected from away" anywhere, for example to suggest a lower streaming quality?
+
+---
+
+## Analyse on demand, with progress
+
+**Status:** Building · raised by Ross, 2026-10-27 · built on `feat/analyse-now` (`HANDOFF.md`, "Dev, analyse on demand of 27 October"; routes in `CONTRACTS.md`, "Analyse on demand"; the interim indicator in `DESIGN-SYSTEM.md`, "Analysis progress").
+
+### The problem
+
+The DJ sweep works through the whole library in its own order, gently, so a track Ross needs now (just added to a set, queued with Auto mix, open in the Mix tab) could wait hours behind thousands of others, and nothing said where it was.
+
+### What Ross wants
+
+- A track that isn't analysed (no BPM, key and energy, or no beat grid at the current `GRID_VERSION`) jumps the queue when it's added to a mix set or the working set, queued in Up next with Auto mix (or Play as a mix), opened in the Mix tab, picked in the auto-mix lab, or asked for with "Analyse these" (Tracks' selection, an album, a playlist, a set). If the sweep isn't running it starts for them. Gentle as ever: one track at a time, low CPU priority, the usual rests; asked-for tracks don't wait for downloads or imports, but do wait while the library's drive is away, saying so.
+- Every profile, for its own library's tracks, with a limit (200 in line a profile, one request a second).
+- Visible progress: each track's step and percentage (reading the audio, the tempo, the key, the energy, writing tags, the beat grid, phrases and sections), its place in line, or what it waits for; a small bar and a line of text wherever such a track shows. Done tracks fill in by themselves.
+
+### Questions for Design
+
+325–331 in `HANDOFF.md`: the final indicator, where it lives on each surface, and the words.
+
