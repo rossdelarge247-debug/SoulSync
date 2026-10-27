@@ -102,6 +102,10 @@ class JobRunning(RuntimeError):
     """A sweep is already going."""
 
 
+class Held(RuntimeError):
+    """A person's Stop holds the sweeps: an automatic ask waits for a Start."""
+
+
 class _Abort(RuntimeError):
     """Something every track would hit (librosa missing): end the sweep."""
 
@@ -599,16 +603,17 @@ class DjAnalysisJob:
         self._asked_by: Dict[str, set] = {}
         #: the running sweep's tracks (counted in its total)
         self._queued: set = set()
-        #: where the sweep is in its own order: the list, each id's place, the
-        #: next place, and every track it has taken
-        self._ids: List[str] = []
+        #: where the sweep is in its own order: each id's place, the next
+        #: place, and every track it has taken
         self._sweep_pos: Dict[str, int] = {}
         self._index = 0
         self._seen: set = set()
-        #: the sweep found nothing left: a track asked for now starts the next
-        self._closing = False
-        #: who asked for the track being analysed (empty: the sweep's own)
-        self._current_askers: set = set()
+        #: asked-for tracks taken once already in this run and let in again
+        #: (one more try; a second ask is reported as ``taken``)
+        self._retried: set = set()
+        #: a run's thread is finishing (its row being saved): no new run starts
+        #: until it has, and then it starts the next itself if tracks wait
+        self._tail = False
 
     # -- reading --
 
@@ -654,8 +659,17 @@ class DjAnalysisJob:
         added: List[str] = []
         already = 0
         over = 0
+        taken = 0
         running = bool(self._state and self._state.get("status") == "running")
         for track_id in ids:
+            if running and track_id in self._seen and track_id not in self._asked_by:
+                # this run took it already and it still needs analysis (put
+                # back, or it failed): one more try, then it's said, not queued
+                if track_id in self._retried:
+                    taken += 1
+                    continue
+                self._retried.add(track_id)
+                self._seen.discard(track_id)
             asked = self._asked_by.get(track_id)
             if asked is not None and pid in asked:
                 already += 1
@@ -674,7 +688,7 @@ class DjAnalysisJob:
             if running and track_id not in self._queued:
                 self._queued.add(track_id)
                 self._state["total"] = int(self._state.get("total") or 0) + 1
-        return {"added": added, "already": already, "over": over, "yours": mine}
+        return {"added": added, "already": already, "over": over, "yours": mine, "taken": taken}
 
     def prioritise(self, track_id: str, profile_id: Optional[int] = None) -> bool:
         """"Analyse it now" while a sweep runs: the track goes next. False
@@ -689,13 +703,18 @@ class DjAnalysisJob:
             return True
 
     def ask(self, database, ids: List[str], profile_id: int, *,
-            limit: int = PRIORITY_PER_PROFILE) -> Dict[str, Any]:
+            limit: int = PRIORITY_PER_PROFILE, explicit: bool = True) -> Dict[str, Any]:
         """Analyse on demand: ``ids`` (tracks that need analysis, already
         checked to be in the caller's library) go in the asked-for line, and a
         sweep starts for them when none runs. ``{added, already, over,
-        yours, limit, started}``."""
+        yours, limit, started, taken}``. While a person's Stop holds the
+        sweeps, only a person's own ask (``explicit``: "Analyse these", a
+        lab pick, Analyse now) goes in; an automatic one (a page asking for
+        what it shows) raises ``Held``."""
         clean = list(dict.fromkeys(str(i) for i in ids if i not in (None, "")))
         with self._lock:
+            if self.held and not explicit:
+                raise Held("Analysis is stopped: automatic asks wait for a Start.")
             result = self._enqueue_locked(clean, profile_id, limit)
             running = bool(self._state and self._state.get("status") == "running")
             want_start = bool(self._priority) and not running
@@ -725,8 +744,7 @@ class DjAnalysisJob:
                         places[track_id] = (in_line + pos - self._index + 1, False)
             pid = int(profile_id) if profile_id is not None else None
             yours = sum(1 for t in self._priority if pid in self._asked_by.get(t, ())) if pid is not None else 0
-            return {"live": live, "places": places, "in_line": in_line,
-                    "askers": set(self._current_askers), "yours": yours, "held": self.held}
+            return {"live": live, "places": places, "in_line": in_line, "yours": yours, "held": self.held}
 
     def _next(self, ids: List[str], *, peek: bool = False) -> Optional[Tuple[str, bool]]:
         """The next track: the asked-for line first, then the sweep's order,
@@ -743,7 +761,7 @@ class DjAnalysisJob:
                 if not peek:
                     self._priority.pop(0)
                     self._seen.add(first)
-                    self._current_askers = self._asked_by.pop(first, set())
+                    self._asked_by.pop(first, None)
                 return first, True
             while self._index < len(ids):
                 track_id = ids[self._index]
@@ -753,10 +771,7 @@ class DjAnalysisJob:
                 if not peek:
                     self._index += 1
                     self._seen.add(track_id)
-                    self._current_askers = set()
                 return track_id, False
-            if not peek:
-                self._closing = True
             return None
 
     def _ordered(self, ids: List[str]):
@@ -782,31 +797,38 @@ class DjAnalysisJob:
         """Start a sweep over every track that needs DJ data (``first``, a
         track a person asked for, goes first), or with ``priority_only`` over
         the asked-for line alone. None when there's nothing to do (no row is
-        written then)."""
-        from core.dj import store
+        written then).
+
+        The library's work list is read before the lock is taken (it can be
+        a long query), and whether a run is going is checked again after."""
+        from core.dj import grid_store, store
+
+        def busy() -> bool:
+            if self._state and self._state.get("status") == "running":
+                return True
+            # a run's thread still saving its end: it starts the next itself
+            return self._tail and threading.current_thread() is not self._thread
 
         with self._lock:
-            if self._state and self._state.get("status") == "running":
+            if busy():
+                raise JobRunning("Already working out BPM, key and energy.")
+        ids: List[str] = []
+        if not priority_only:
+            retry = time.time() - (0 if manual else UNREACHABLE_RETRY_SECONDS)
+            ids = store.pending_ids(database, analyzer_version(), retry_unreachable_before=retry)
+            # then the top-up: tracks with their DJ data but no grid yet
+            have = set(ids)
+            ids += [i for i in grid_store.pending_ids(database, analyzer_version(),
+                                                      retry_unreachable_before=retry)
+                    if i not in have]
+        with self._lock:
+            if busy():
                 raise JobRunning("Already working out BPM, key and energy.")
             if manual:
                 self.held = False
-            if priority_only:
-                ids: List[str] = []
-            else:
-                retry = time.time() - (0 if manual else UNREACHABLE_RETRY_SECONDS)
-                ids = store.pending_ids(database, analyzer_version(), retry_unreachable_before=retry)
-                # then the top-up: tracks with their DJ data but no grid yet
-                from core.dj import grid_store
-
-                have = set(ids)
-                ids += [i for i in grid_store.pending_ids(database, analyzer_version(),
-                                                          retry_unreachable_before=retry)
-                        if i not in have]
             if first is not None and str(first) in ids:
                 ids.remove(str(first))
                 ids.insert(0, str(first))
-            from core.dj import grid_store
-
             # a track a crash left mid-analysis is an error, whatever happens next
             store.fail_leftover_analyzing(database)
             grid_store.fail_leftover_analyzing(database)
@@ -814,12 +836,10 @@ class DjAnalysisJob:
             if not work:
                 return None
             self._queued = set(work)
-            self._ids = list(ids)
             self._sweep_pos = {t: i for i, t in enumerate(ids)}
             self._index = 0
             self._seen = set()
-            self._closing = False
-            self._current_askers = set()
+            self._retried = set()
             self._stop.clear()
             started = _now()
             with closing(database._get_connection()) as conn:
@@ -879,9 +899,10 @@ class DjAnalysisJob:
             if self._state is not None:
                 self._state[field] = int(self._state.get(field) or 0) + 1
 
-    def _save(self, database, *, final: bool = False) -> None:
-        with self._lock:
-            state = dict(self._state or {})
+    def _save(self, database, *, final: bool = False, state: Optional[Dict[str, Any]] = None) -> None:
+        if state is None:
+            with self._lock:
+                state = dict(self._state or {})
         if not state:
             return
         try:
@@ -1041,22 +1062,30 @@ class DjAnalysisJob:
             if self._state is not None:
                 self._state.update(status=status, note=note, finished_at=_now(), current=None, waiting=None,
                                    step=None, step_mode=None, asked_for=False)
-            self._closing = False
             if status != "done":
                 # stopped (a person, or the setting turned off) or failed: the
                 # asked-for line isn't kept waiting for a sweep that won't come
                 self._priority.clear()
                 self._asked_by.clear()
-            again = list(self._priority)
-            askers = sorted({p for t in again for p in self._asked_by.get(t, ()) if p})
-        self._save(database, final=True)
-        with self._lock:
-            state = dict(self._state or {})
+            # this run's own end, saved below even if a request lands meanwhile:
+            # no new run starts until it's saved (``_tail``; review L1)
+            final_state = dict(self._state or {})
+            self._tail = True
+        try:
+            self._save(database, final=True, state=final_state)
+        finally:
+            with self._lock:
+                self._tail = False
+                # the line was emptied above unless the run was done: what's
+                # in it now was asked for while the end was being saved
+                again = list(self._priority)
+                askers = sorted({p for t in again for p in self._asked_by.get(t, ()) if p})
         logger.info("[Library] DJ analysis %s: %s done, %s failed, %s unreachable, %s tagged", status,
-                    state.get("done"), state.get("failed"), state.get("unreachable"), state.get("tags_written"))
+                    final_state.get("done"), final_state.get("failed"), final_state.get("unreachable"),
+                    final_state.get("tags_written"))
         if again:
-            # tracks were asked for as this sweep found nothing left: the next
-            # starts for them (a sweep's own end, so the line never waits)
+            # tracks were asked for as this run ended: the next starts for them
+            # (a run's own end, so the line never waits)
             try:
                 self.start(database, askers[0] if askers else 1, manual=False, priority_only=True)
             except JobRunning:
@@ -1120,9 +1149,10 @@ def last_run(database) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
-def public_state(database, job: DjAnalysisJob = JOB, *, now: Optional[int] = None) -> Optional[Dict[str, Any]]:
+def public_state(database, job: Optional[DjAnalysisJob] = None, *,
+                 now: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """The running sweep, else the last one (``recent`` within a day)."""
-    live = job.live()
+    live = (job or JOB).live()
     if live:
         return {k: live.get(k) for k in ("id", "status", "total", "done", "failed", "unreachable", "skipped",
                                          "tags_written", "started_at", "waiting", "current", "grid_failed",

@@ -25,12 +25,14 @@ that doesn't need it, where the outgoing track has enough to work with:
 
 * the outgoing track has a grid, even one not trusted for a beat-match (a
   break held at 0.45, not 4/4): **echo out** on its outro (``status: ok``);
-* no grid but a known BPM (and length): a **cut** on its bar (``status:
-  cut``): the player itself ends the outgoing track on a bar boundary,
-  counted from the file's start at that BPM, and starts the next track; no
-  decks are needed, so its phase is a best effort;
-* neither: **play on** (``status: play_on``): the outgoing track plays to its
-  end and the next one starts, as with no transition.
+* no grid going out (no beat, too short, too long, unreadable): **play on**
+  (``status: play_on``): the outgoing track plays to its end and the next one
+  starts, as with no transition. Nothing without a grid is ever cut by
+  counting bars at a BPM (the review's M4: that cut ambient and classical
+  endings early). ``status: cut`` stays in the plan's shape for Design's
+  302 (a cut on the outgoing grid's last phrase), the next step;
+* one album's tracks in their order (the same album, the next track
+  number): **play on**, so an album stays gapless.
 
 ``fallback`` keeps the move and the short reason (``{kind, code, reason}``)
 for the picker's details; nothing says "crossfade".
@@ -64,9 +66,6 @@ CLOSE_GAP = 0.03
 #: below these the grid or the downbeat isn't trusted
 BEAT_CONFIDENT = 0.5
 DOWNBEAT_CONFIDENT = 0.3
-#: a cut without a grid: the last whole bar at the track's BPM that ends at
-#: least this long before its end (the next track then starts at once)
-CUT_TAIL_BARS = 1
 
 STYLE_WORDS = {"long_blend": "Long blend", "short_blend": "Short blend", "bass_swap": "Bass swap", "cut": "Cut",
                "echo_out": "Echo out", "filter_sweep": "Filter sweep", "drop_swap": "Drop swap",
@@ -323,30 +322,24 @@ def _pair_words(out_t, in_t, tempo) -> str:
     return keys
 
 
-def _without_grid(out_t, in_t, code: str, reason: str, base: Dict[str, Any],
-                  out_bpm: Optional[float]) -> Dict[str, Any]:
-    """The outgoing track has no grid: a cut on its bar when its BPM (and
-    length) are known, else play on. Never a crossfade."""
-    try:
-        bpm = float(out_bpm) if out_bpm else 0.0
-    except (TypeError, ValueError):
-        bpm = 0.0
-    length = _length(out_t)
-    if bpm > 0 and math.isfinite(bpm) and length:
-        bar_s = 4 * 60.0 / bpm
-        bars = math.floor((length - CUT_TAIL_BARS * bar_s) / bar_s)
-        if bars >= 1:
-            start = round(bars * bar_s, 3)
-            return {**base, "status": "cut", "style": "cut", "label": STYLE_WORDS["cut"], "bars": None,
-                    "beatmatch": False, "why": f"Cut: {reason}",
-                    "fallback": {"kind": "cut", "code": code, "reason": reason},
-                    "note": f"A cut on the bar, counted at {bpm:g} BPM: there's no beat grid to place it.",
-                    "out": {"start": start, "bar": None, "end": start, "in_outro": False, "confidence": 0.2},
-                    "in": {"start": 0.0, "bar": None, "how": "start", "confidence": 0.2},
-                    "length_s": 0.0, "confidence": 0.2}
+def _play_on(code: str, reason: str, base: Dict[str, Any]) -> Dict[str, Any]:
+    """No transition: the outgoing track plays to its end and the next one
+    starts. Never a crossfade, and never a cut by bar count."""
     return {**base, "status": "play_on", "style": None, "bars": None, "beatmatch": False,
             "why": f"Plays on: {reason}", "fallback": {"kind": "play_on", "code": code, "reason": reason},
             "note": None, "length_s": 0.0, "confidence": 0.0}
+
+
+def _album_in_order(out_t: Dict[str, Any], in_t: Dict[str, Any]) -> bool:
+    """One album's tracks one after the other in its own order."""
+    a, b = out_t.get("album_id"), in_t.get("album_id")
+    if a in (None, "") or str(a) != str(b if b is not None else ""):
+        return False
+    try:
+        n, m = int(out_t.get("track_number")), int(in_t.get("track_number"))
+    except (TypeError, ValueError):
+        return False
+    return n > 0 and m == n + 1
 
 
 def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
@@ -372,6 +365,9 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
         "key": {"from": out_t.get("key"), "to": in_t.get("key"), "relation": key},
         "pair": _pair_words(out_t, in_t, tempo),
     }
+    if _album_in_order(out_t, in_t):
+        # an album played in its order stays gapless: no transition at all
+        return {**_play_on("album_in_order", "one album's tracks in their order", base), "styles": []}
     for track, which in ((out_t, "from"), (in_t, "to")):
         if not track.get("analyzed") and track.get("reason") in (None, "not_analyzed", "analyzing"):
             return {**base, "status": "waiting", "style": None, "waiting_for": which,
@@ -392,8 +388,8 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
                        "why": available[s]} for s in STYLES[1:]]
     fallback = None
     if out_grid is None:
-        # nowhere to put the one: a cut on the bar if its BPM is known, else play on
-        return _without_grid(out_t, in_t, out_problem[0], out_problem[1], base, out_bpm)
+        # nowhere to put the one: it plays on (never cut by counting bars)
+        return _play_on(out_problem[0], out_problem[1], base)
     if out_problem is not None:
         # a grid, but not one to beat-match on (a break held under 0.5, not
         # 4/4): echo out needs no beat-match, only the outgoing track's beats

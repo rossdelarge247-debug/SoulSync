@@ -1044,7 +1044,10 @@ def _dj_job_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
               grid_words)
     if live is not None:
         detail = _sentence(_many(total, "track"), f"{done:,} done", _DJ_WAITING.get(live.get("waiting") or "", ""))
-        ref["stop_path"] = _DJ_STOP
+        # Stop is an admin's (POST /api/library/dj/stop is admin-only): a
+        # member's own run shows no Stop that would only be refused
+        if getattr(getattr(ctx, "viewer", None), "is_admin", False):
+            ref["stop_path"] = _DJ_STOP
         # the row's bar and the track it's on come from the progress route
         # (core/dj/ondemand.py), which names only the viewer's own tracks
         ref["dj_progress"] = True

@@ -139,12 +139,15 @@ def classify(row: Dict[str, Any], dj_version: int) -> Dict[str, Any]:
     return {"needs": False, "failed": None}
 
 
-def ask(database, ids: Iterable[Any], profile_id: int, *, job=None) -> Dict[str, Any]:
+def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bool = True) -> Dict[str, Any]:
     """Put the caller's tracks that need analysis in the asked-for line.
     ``{asked, queued, already_queued, already_done, cant, over_limit, limit,
     yours, started}``: ``asked`` counts the ids in the caller's library,
     ``already_done`` those with nothing to do, ``cant`` those that failed
-    and would fail again, ``over_limit`` those past the profile's room."""
+    and would fail again (or that this run took already and asked again),
+    ``over_limit`` those past the profile's room. ``explicit`` is a person's
+    own ask; while a Stop holds the sweeps an automatic one raises
+    ``worker.Held``."""
     from core.dj import worker
 
     job = job or worker.JOB
@@ -160,11 +163,12 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None) -> Dict[str,
             cant += 1
         else:
             done += 1
-    result = job.ask(database, needs, int(profile_id)) if needs else {
+    result = job.ask(database, needs, int(profile_id), explicit=explicit) if needs else {
         "added": [], "already": 0, "over": 0, "yours": job.queue_snapshot([], profile_id)["yours"],
-        "limit": worker.PRIORITY_PER_PROFILE, "started": False}
+        "limit": worker.PRIORITY_PER_PROFILE, "started": False, "taken": 0}
     return {"asked": len(rows), "queued": len(result["added"]), "already_queued": result["already"],
-            "already_done": done, "cant": cant, "over_limit": result["over"], "limit": result["limit"],
+            "already_done": done, "cant": cant + int(result.get("taken") or 0), "over_limit": result["over"],
+            "limit": result["limit"],
             "yours": result["yours"], "started": bool(result["started"])}
 
 

@@ -488,7 +488,7 @@ def test_review_m1_paused_top_ups_go_by_without_a_rest_or_a_save(db):
     job._stop.wait = lambda t=None: (waits.append(t), False)[1]
     saves = []
     real_save = job._save
-    job._save = lambda d, final=False: (saves.append(final), real_save(d, final=final))[1]
+    job._save = lambda d, final=False, **kw: (saves.append(final), real_save(d, final=final, **kw))[1]
     job.start(db, 1, background=False)
     state = worker.public_state(db, job)
     assert len(waits) == worker.MAX_GRID_ERRORS_IN_A_ROW  # a rest only after a real decode

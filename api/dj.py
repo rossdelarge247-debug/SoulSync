@@ -68,9 +68,12 @@ POST /api/library/dj/analyse
     [...]}`` (up to 500) or ``{playlist_id}`` (its rows matched to the
     library). Those that need analysis go in the asked-for line in front of
     the sweep (at most 200 a profile) and a sweep starts for them when none
-    runs (core/dj/ondemand.py). JSON only, body at most 64 KB; one request a
-    second a profile (429 ``rate_limited`` with ``Retry-After``); 409 ``off``
-    while analysis is switched off.
+    runs (core/dj/ondemand.py). ``reason``: ``asked`` (a person's own ask)
+    or ``auto`` (the default: a page asking for what it shows); while a
+    person's Stop holds the sweeps an automatic ask is 409 ``held``. JSON
+    only, body at most 64 KB; one request a second a profile (429
+    ``rate_limited`` with ``Retry-After``); 409 ``off`` while analysis is
+    switched off.
 POST /api/library/dj/progress
     ``{track_ids: [...]}`` (up to 500; may be empty) -> ``{tracks: {id:
     {state, …}}, sweep}``: where each of the caller's tracks is (``done``,
@@ -179,6 +182,10 @@ def dj_status():
         logger.error("DJ status failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
     admin = bool(_is_admin())
+    if job and not admin and job.get("current") is not None:
+        # the track being worked on may be another profile's: admins only
+        # (the progress route names it only for a caller whose library holds it)
+        job = {**job, "current": None}
     return _no_store({"success": True, "settings": worker.settings_state(), "counts": counts, "grids": grids,
                       "job": job,
                       "held": worker.JOB.held, "analyzer_version": worker.analyzer_version(),
@@ -333,7 +340,8 @@ def _track_for_plan(entry: dict, track_id: str, *, with_beats: bool = True) -> d
 
     shaped = grid_store.public_entry(entry, track_id, with_beats=with_beats)
     return {**shaped, "dj_bpm": entry.get("bpm"), "key": entry.get("key"), "duration_s": entry.get("duration_s"),
-            "title": entry.get("title")}
+            "title": entry.get("title"), "album_id": entry.get("album_id"),
+            "track_number": entry.get("track_number")}
 
 
 @bp.route("/api/library/dj/grid/<track_id>", methods=["GET"])
@@ -561,24 +569,22 @@ def dj_analyse():
     from core.dj import ondemand, worker
 
     database = get_database()
+    # a person's own ask ("Analyse these", a lab pick, Analyse now) or a
+    # page's automatic one (what it shows): only the first passes a Stop
+    reason = body.get("reason", "auto")
+    if reason not in ("asked", "auto"):
+        return jsonify({"success": False, "error": "reason must be asked or auto"}), 400
+    playlist = None
     if "playlist_id" in body:
-        raw = body.get("playlist_id")
-        if isinstance(raw, bool) or not isinstance(raw, int) or not 0 < raw < 10 ** 15:
+        playlist = body.get("playlist_id")
+        if isinstance(playlist, bool) or not isinstance(playlist, int) or not 0 < playlist < 10 ** 15:
             return jsonify({"success": False, "error": "playlist_id is needed"}), 400
-        from core.dj import traktor
-
-        try:
-            found = traktor.playlist_tracks(database, raw, None if _is_admin() else pid)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Analyse: playlist unreadable: %s", exc, exc_info=True)
-            return jsonify({"success": False, "error": "Couldn't read your library"}), 500
-        if found is None:
-            return jsonify({"success": False, "error": "Playlist not found"}), 404
-        ids = list(dict.fromkeys(str(t["id"]) for t, _title, _artist in found["rows"] if t))[:ondemand.MAX_IDS]
+        ids: list = []
     else:
         ids, bad = _ids_from(body)
         if bad is not None:
             return bad
+    # the limit before any reading (a playlist's rows are read next)
     if not ondemand.ASK_LIMIT.allow(int(pid)):
         response = jsonify({"success": False, "code": "rate_limited",
                             "error": "One request a second: try again in a moment."})
@@ -588,8 +594,22 @@ def dj_analyse():
     if not worker.settings_state().get("analyze", True):
         return jsonify({"success": False, "code": "off",
                         "error": "Working out BPM, key and energy is off in Settings → Library."}), 409
+    if playlist is not None:
+        from core.dj import traktor
+
+        try:
+            found = traktor.playlist_tracks(database, playlist, None if _is_admin() else pid)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Analyse: playlist unreadable: %s", exc, exc_info=True)
+            return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+        if found is None:
+            return jsonify({"success": False, "error": "Playlist not found"}), 404
+        ids = list(dict.fromkeys(str(t["id"]) for t, _title, _artist in found["rows"] if t))[:ondemand.MAX_IDS]
     try:
-        result = ondemand.ask(database, ids, int(pid))
+        result = ondemand.ask(database, ids, int(pid), explicit=reason == "asked")
+    except worker.Held:
+        return jsonify({"success": False, "code": "held",
+                        "error": "Working out BPM, key and energy is stopped; ask for these to go on."}), 409
     except Exception as exc:  # noqa: BLE001
         logger.error("Analyse on demand failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500

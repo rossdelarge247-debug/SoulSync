@@ -476,12 +476,188 @@ def test_the_analyzer_says_each_step_as_it_starts(tmp_path):
     assert seen == ["read", "tempo", "key", "energy"]
 
 
-def test_activity_offers_the_progress_while_it_runs(db, monkeypatch):
+def test_activity_offers_the_progress_while_it_runs_and_stop_to_admins_only(db, monkeypatch):
     from core.activity import feed
 
     job = _job()
     job._state = {"id": 1, "status": "running", "total": 3, "done": 1, "failed": 0, "waiting": None,
                   "tags_written": 0, "unreachable": 0}
     monkeypatch.setattr(worker, "JOB", job)
-    item = feed._dj_job_item(None, {"id": 1, "started_at": 0, "status": "running", "total": 3, "done": 1})
+
+    class Viewer:
+        def __init__(self, admin):
+            self.is_admin = admin
+
+    class Ctx:
+        def __init__(self, admin):
+            self.viewer = Viewer(admin)
+
+    row = {"id": 1, "started_at": 0, "status": "running", "total": 3, "done": 1}
+    item = feed._dj_job_item(Ctx(True), row)
     assert item["ref"]["dj_progress"] is True and item["ref"]["stop_path"] == "library/dj/stop"
+    # a member's own run: no Stop that POST /api/library/dj/stop (admins) would refuse
+    member = feed._dj_job_item(Ctx(False), row)
+    assert member["ref"]["dj_progress"] is True and "stop_path" not in member["ref"]
+
+
+# ── the review's fixes ───────────────────────────────────────────────────────
+
+def test_m1_while_stopped_automatic_asks_are_refused_and_a_persons_ask_goes_in(client, db):
+    client.job.held = True
+    auto = client.post("/api/library/dj/analyse", json={"track_ids": ["2"]})
+    assert auto.status_code == 409 and auto.get_json()["code"] == "held"
+    also_auto = client.post("/api/library/dj/analyse", json={"track_ids": ["2"], "reason": "auto"})
+    assert also_auto.status_code == 409
+    assert client.job.running() is False and store.get(db, "2") is None
+    assert client.post("/api/library/dj/analyse", json={"track_ids": ["2"], "reason": "x"}).status_code == 400
+    asked = client.post("/api/library/dj/analyse", json={"track_ids": ["2"], "reason": "asked"})
+    assert asked.status_code == 202 and asked.get_json()["started"] is True
+    client.job.join(5)
+    assert store.get(db, "2")["status"] == "done" and client.job.held is True
+    # nothing to do while held is no refusal (it's quiet either way)
+    assert client.post("/api/library/dj/analyse", json={"track_ids": ["1"]}).status_code == 202
+
+
+def test_l1_a_request_as_a_run_saves_its_end_leaves_its_row_done(db):
+    """The review's repro: an ask lands between the run's last state and its
+    final save. The row stays done; the asked-for track still runs."""
+    order = []
+    job = _job(process=_done_process(order))
+    real_save = job._save
+    hit = {}
+
+    def save(database, *, final=False, state=None):
+        if final and not hit:
+            hit["x"] = True
+            # from a request's thread, as a real ask comes
+            t = threading.Thread(target=lambda: hit.__setitem__("started", job.ask(database, ["3"], 2)["started"]))
+            t.start()
+            t.join(5)
+        return real_save(database, final=final, state=state)
+
+    job._save = save
+    job.ask(db, ["2"], 2)
+    job.join(5)
+    deadline = time.time() + 5
+    while (job.running() or order != ["2", "3"]) and time.time() < deadline:
+        time.sleep(0.02)
+        job.join(1)
+    conn = db._get_connection()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, status, note, done, total FROM library_jobs WHERE kind = ? ORDER BY id",
+        (worker.KIND,)).fetchall()]
+    conn.close()
+    assert hit["started"] is False  # the finishing run takes it
+    assert rows[0]["status"] == "done" and rows[0]["note"] is None and rows[0]["done"] == 1, rows
+    assert order == ["2", "3"] and rows[-1]["status"] == "done"
+
+
+def test_l1_a_persons_ask_as_a_stopped_run_saves_its_end_starts_the_next(db):
+    """A run stopped by a person: a person's ask that lands while its end is
+    being saved isn't left waiting in a line no run will take."""
+    order = []
+    done = _done_process(order)
+    box = {}
+
+    def process(d, t, **kw):
+        if t == "2":
+            box["job"].stop()  # a person's Stop while it works
+        return done(d, t, **kw)
+
+    job = box["job"] = _job(process=process)
+    real_save = job._save
+    hit = {}
+
+    def save(database, *, final=False, state=None):
+        if final and not hit:
+            hit["x"] = True
+            t = threading.Thread(target=lambda: hit.__setitem__("started", job.ask(database, ["3"], 2)["started"]))
+            t.start()
+            t.join(5)
+        return real_save(database, final=final, state=state)
+
+    job._save = save
+    job.ask(db, ["2", "5"], 2)
+    job.join(5)
+    deadline = time.time() + 5
+    while (job.running() or "3" not in order) and time.time() < deadline:
+        time.sleep(0.02)
+        job.join(1)
+    assert hit["started"] is False  # the finishing run starts the next itself
+    # 5 went with the Stop; 3, asked for after it, is analysed; the hold stays
+    assert order == ["2", "3"] and job.held is True
+
+
+def test_l5_a_track_this_run_took_already_gets_one_more_try_then_is_said(db):
+    job = _job()
+    job._state = {"status": "running", "total": 2}
+    job._seen = {"2"}
+    first = job.ask(db, ["2"], 2)
+    assert first["added"] == ["2"] and first["taken"] == 0
+    assert job._next([], peek=True) == ("2", True)  # it will be taken again
+    job._next([])
+    again = job.ask(db, ["2"], 2)
+    assert again["added"] == [] and again["taken"] == 1
+
+
+def test_l8_the_library_is_read_without_holding_the_jobs_lock(db, monkeypatch):
+    job = _job()
+    seen = {}
+    real = store.pending_ids
+
+    def pending(*a, **k):
+        seen["locked"] = job._lock.locked()
+        return real(*a, **k)
+
+    monkeypatch.setattr(store, "pending_ids", pending)
+    job.start(db, 1, manual=False)
+    job.join(5)
+    assert seen["locked"] is False
+
+
+def test_l7_status_names_the_current_track_to_admins_only(client, db):
+    gate = threading.Event()
+    reached = threading.Event()
+
+    def slow(d, t, **kw):
+        reached.set()
+        gate.wait(3)
+        _finish(d, t)
+        return "done"
+
+    client.job._process = slow
+    client.state["admin"] = True
+    client.post("/api/library/dj/analyse", json={"track_ids": ["2"], "reason": "asked"})
+    assert reached.wait(3)
+    try:
+        assert client.get("/api/library/dj/status").get_json()["job"]["current"] == "2"
+        client.state["admin"] = False
+        assert client.get("/api/library/dj/status").get_json()["job"]["current"] is None
+    finally:
+        gate.set()
+        client.job.join(5)
+
+
+def test_the_playlist_path_is_rate_limited_before_its_rows_are_read(client, monkeypatch):
+    from core.dj import traktor
+
+    clock = {"t": 100.0}
+    monkeypatch.setattr(ondemand, "ASK_LIMIT", ondemand.RateLimit(every=1.0, clock=lambda: clock["t"]))
+    reads = []
+    monkeypatch.setattr(traktor, "playlist_tracks",
+                        lambda d, pid, owner: reads.append(pid) or {"name": "P", "over": 0, "rows": []})
+    assert client.post("/api/library/dj/analyse", json={"playlist_id": 9}).status_code == 202
+    res = client.post("/api/library/dj/analyse", json={"playlist_id": 9})
+    assert res.status_code == 429 and reads == [9]  # refused before reading again
+
+
+def test_a_chunked_body_past_the_cap_is_refused(client):
+    """No Content-Length (chunked): the body is still read only to the cap."""
+    import io
+
+    big = b'{"track_ids": ["' + b"x" * (70 * 1024) + b'"]}'
+    for path in ("/api/library/dj/analyse", "/api/library/dj/progress"):
+        res = client.post(path, input_stream=io.BytesIO(big), content_type="application/json",
+                          headers={"Transfer-Encoding": "chunked"},
+                          environ_overrides={"wsgi.input_terminated": True})
+        assert res.status_code == 413, path

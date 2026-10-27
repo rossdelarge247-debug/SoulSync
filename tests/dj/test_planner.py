@@ -180,21 +180,35 @@ def test_an_outgoing_grid_not_to_beat_match_on_still_echoes_out():
     assert p["out"]["start"] is not None and p["in"]["start"] is not None
 
 
-def test_an_outgoing_track_without_a_grid_cuts_on_its_bar_or_plays_on():
-    none_row = {"grid_version": GRID_VERSION, "status": "none", "reason": "no_beat", "beat_confidence": 0.1}
-    # its BPM is known (a tag): a cut on the last whole bar a bar before the end
-    cut = planner.plan(_track(none_row, title="Ambient One", duration_s=200.0, dj_bpm=120.0),
-                       _track(_row(124.0), tid="2"))
-    assert cut["status"] == "cut" and cut["style"] == "cut" and cut["beatmatch"] is False
-    assert cut["out"]["start"] == pytest.approx(198.0) and cut["in"]["start"] == 0.0
-    assert cut["fallback"] == {"kind": "cut", "code": "no_beat", "reason": "Ambient One has no steady beat"}
-    # no BPM: it plays on to its end, no transition
-    on = planner.plan(_track(none_row, title="Ambient One", duration_s=200.0), _track(_row(124.0), tid="2"))
-    assert on["status"] == "play_on" and on["style"] is None and "out" not in on
-    assert on["fallback"]["kind"] == "play_on" and on["why"] == "Plays on: Ambient One has no steady beat"
-    assert "crossfade" not in json.dumps([cut, on]).lower()
+def test_an_outgoing_track_without_a_grid_plays_on_never_cut_by_bar_count():
+    """Review M4: a BPM tag on a track the grid found no beat in (ambient,
+    classical) isn't a bar to cut on: it plays on, whatever its BPM."""
+    for reason in ("no_beat", "too_short"):
+        none_row = {"grid_version": GRID_VERSION, "status": "none", "reason": reason, "beat_confidence": 0.1}
+        for bpm in (120.0, None):
+            p = planner.plan(_track(none_row, title="Ambient One", duration_s=200.0, dj_bpm=bpm),
+                             _track(_row(124.0), tid="2"))
+            assert p["status"] == "play_on" and p["style"] is None and "out" not in p, (reason, bpm)
+            assert p["fallback"]["kind"] == "play_on"
+    on = planner.plan(_track({"grid_version": GRID_VERSION, "status": "none", "reason": "no_beat"},
+                             title="Ambient One", duration_s=200.0, dj_bpm=120.0), _track(_row(124.0), tid="2"))
+    assert on["why"] == "Plays on: Ambient One has no steady beat"
+    assert "crossfade" not in json.dumps(on).lower()
     # too long, unreadable and missing files go through the sweep for real in
     # test_grid_review_fixes.py (M1)
+
+
+def test_one_albums_tracks_in_their_order_play_on():
+    out = {**_track(_row(124.0)), "album_id": "10", "track_number": 3}
+    nxt = {**_track(_row(126.0), tid="2"), "album_id": "10", "track_number": 4}
+    p = planner.plan(out, nxt)
+    assert p["status"] == "play_on" and p["fallback"]["code"] == "album_in_order"
+    # out of order, another album, or no numbers: planned as ever
+    assert planner.plan(out, {**nxt, "track_number": 7})["status"] == "ok"
+    assert planner.plan(out, {**nxt, "album_id": "11"})["status"] == "ok"
+    assert planner.plan({**out, "track_number": None}, nxt)["status"] == "ok"
+    # even before either is analysed: an album in order never waits for a grid
+    assert planner.plan(out, {**_track(None, tid="2"), "album_id": "10", "track_number": 4})["status"] == "play_on"
 
 
 def test_not_four_four_going_out_echoes_out():
