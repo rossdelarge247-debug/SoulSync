@@ -279,16 +279,17 @@ describe('asking', () => {
         HttpResponse.json({ success: true, tracks: {}, sweep: { running: false } }),
       ),
     );
-    // automatic: no error, nothing said, and not asked again in a while
-    expect(await requestAnalysis(['4'])).toBeNull();
+    // automatic: no error, nothing said
     expect(await requestAnalysis(['4'])).toBeNull();
     expect(bodies).toEqual([{ track_ids: ['4'], reason: 'auto' }]);
-    // a person's ask (Analyse these, Analyse now, a lab pick) says so and goes in
-    const got = await requestAnalysis(['4'], { force: true });
-    expect(got?.queued).toBe(1);
-    expect(bodies[1]).toEqual({ track_ids: ['4'], reason: 'asked' });
-    const lab = await requestAnalysis(['5'], { reason: 'asked' });
+    // [re-review 7] turned away, it's forgotten: a lab pick of it (asked,
+    // not forced) goes in
+    const lab = await requestAnalysis(['4'], { reason: 'asked' });
     expect(lab?.queued).toBe(1);
+    expect(bodies[1]).toEqual({ track_ids: ['4'], reason: 'asked' });
+    // a person's ask (Analyse these, Analyse now) says so and goes in
+    const got = await requestAnalysis(['5'], { force: true });
+    expect(got?.queued).toBe(1);
     expect(bodies[2]).toEqual({ track_ids: ['5'], reason: 'asked' });
   });
 
@@ -493,6 +494,48 @@ describe('the poll', () => {
     sweep.unmount();
   }, 10_000);
 
+  it('[re-review 1] the sweep’s own order far down the line polls slowly; asked-for, near or working fast', async () => {
+    const answers: Record<string, unknown>[] = [
+      // a library mid-sweep: rows deep in the sweep's own order, or waiting with a place
+      {
+        '1': { state: 'queued', position: 840, asked_for: false },
+        '2': { state: 'waiting', reason: 'download', position: 1200, asked_for: false },
+      },
+      { '1': { state: 'queued', position: 3, asked_for: false } },
+      { '1': { state: 'queued', position: 40, asked_for: true } },
+      { '1': { state: 'working', step: 'read', percent: 5 } },
+    ];
+    let which = 0;
+    let polls = 0;
+    server.use(
+      http.post('/api/library/dj/progress', () => {
+        polls += 1;
+        return HttpResponse.json({
+          success: true,
+          tracks: answers[which],
+          sweep: { running: true, total: 2000, done: 10, current: null },
+        });
+      }),
+    );
+    const wait = (ms: number) =>
+      act(async () => {
+        await new Promise((r) => setTimeout(r, ms));
+      });
+    const view = render(<Rows ids={['1', '2']} />);
+    await waitFor(() => expect(polls).toBe(1));
+    await wait(1800);
+    expect(polls).toBe(1);
+    view.unmount();
+    for (const i of [1, 2, 3]) {
+      analysisStore.reset();
+      which = i;
+      polls = 0;
+      const v = render(<Rows ids={['1']} />);
+      await waitFor(() => expect(polls).toBeGreaterThanOrEqual(2), { timeout: 4000 });
+      v.unmount();
+    }
+  }, 20_000);
+
   it('[review M3] finishes are gathered, and only what shows those tracks is read again', async () => {
     let polls = 0;
     server.use(
@@ -523,6 +566,8 @@ describe('the poll', () => {
       ['automix', 'plan', '1', '2', 'auto', 0, 'auto'],
       ['sets', 'set', 1, 3],
       ['sets', 'famous', 'x'],
+      ['sets', 'join', '7', '1'],
+      ['sets', 'join', '2', '1'],
     ];
     for (const k of keys) qc.setQueryData(k, { x: 1 });
     const finished: string[][] = [];
@@ -544,6 +589,7 @@ describe('the poll', () => {
         ['dj', 'browse', 1, {}],
         ['automix', 'plan', '7', '9', 'auto', 0, 'auto'],
         ['sets', 'set', 1, 3],
+        ['sets', 'join', '7', '1'],
       ]);
       // 8 finishes on the next poll; its refresh waits out the few seconds
       await waitFor(() => expect(polls).toBeGreaterThanOrEqual(3), { timeout: 4000 });

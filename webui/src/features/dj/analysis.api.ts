@@ -188,8 +188,10 @@ async function send(batch: Waiter[], reason: AnalyseReason): Promise<void> {
         continue;
       }
       if (error instanceof AnalyseError && error.status === 409 && error.code === 'held') {
-        // an admin's Stop holds the sweeps: nothing to say, and these
-        // aren't asked for again until the memory runs out
+        // an admin's Stop holds the sweeps: nothing to say. They're
+        // forgotten, so a person's ask for them later (a lab pick) goes
+        // (re-review 7); a page asks once per showing anyway
+        for (const id of ids) asked.delete(id);
         for (const w of batch) w.resolve(null);
         return;
       }
@@ -299,13 +301,25 @@ function namesOne(k: readonly unknown[], ids: Set<string>): boolean {
     return false;
   }
   if (k[0] === 'automix' && k[1] === 'plan') return ids.has(idPart(k[2])) || ids.has(idPart(k[3]));
+  // the Mix tab's join step: the set's last track into the playing one
+  if (k[0] === 'sets' && k[1] === 'join') return k.slice(2).some((v) => ids.has(idPart(v)));
   return false;
 }
 
+/** within this place in line, a track the sweep reaches on its own is close */
+const NEAR = 5;
+
+/**
+ * A track worth the fast poll: being worked out, or in line because someone
+ * asked for it, or near the front. The sweep's own order (thousands of rows
+ * mid-sweep, waiting for downloads for hours) polls slowly (re-review 1).
+ */
 function active(e: AnalysisEntry | undefined): boolean {
   if (!e) return false;
-  if (e.state === 'working' || e.state === 'queued') return true;
-  return e.state === 'waiting' && e.position !== null;
+  if (e.state === 'working') return true;
+  if (e.state === 'queued') return e.asked_for || e.position <= NEAR;
+  if (e.state === 'waiting' && e.position !== null) return e.asked_for || e.position <= NEAR;
+  return false;
 }
 
 class AnalysisStore {
