@@ -107,7 +107,6 @@ beforeEach(() => {
     }),
     audio: () => audio,
     playIndex: vi.fn(async () => ({ status: 'played' })),
-    crossfadeInto: vi.fn(() => true),
     insertNext: vi.fn(() => 1),
     renderQueue: vi.fn(() => drawQueue()),
     persistQueue: vi.fn(),

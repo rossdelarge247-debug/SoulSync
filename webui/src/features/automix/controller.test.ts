@@ -205,7 +205,6 @@ interface Harness {
   prefs: AutomixPrefs;
   player: PlayerPort & {
     playIndex: ReturnType<typeof vi.fn>;
-    crossfadeInto: ReturnType<typeof vi.fn>;
     insertNext: ReturnType<typeof vi.fn>;
     moveNext: ReturnType<typeof vi.fn>;
   };
@@ -246,7 +245,6 @@ function harness(
     state: () => st,
     audio: () => el as unknown as HTMLAudioElement,
     playIndex: vi.fn(async () => ({ status: 'played' })),
-    crossfadeInto: vi.fn(() => true),
     insertNext: vi.fn((t: QueueTrack) => {
       queue.splice(st.index + 1, 0, t);
       return st.index + 1;
@@ -382,7 +380,6 @@ describe('loading and taking over', () => {
     await at(h, OUT - 0.1);
     expect(engine.plays).toHaveLength(0);
     expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toBeNull();
-    expect(h.player.crossfadeInto).not.toHaveBeenCalled();
     expect(h.player.playIndex).not.toHaveBeenCalled();
   });
 });
@@ -412,7 +409,6 @@ describe('a page that can’t run the decks (plain http on another address)', ()
     expect(v.mixNowWhy).toBe(why);
     expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toBeNull();
     await at(h, 299);
-    expect(h.player.crossfadeInto).not.toHaveBeenCalled();
     expect(h.player.playIndex).not.toHaveBeenCalled();
   });
 });
@@ -619,7 +615,6 @@ describe('Mix now', () => {
     expect(on.ctl.mixNow()).toBe(false);
     await vi.advanceTimersByTimeAsync(10);
     expect(on.player.playIndex).not.toHaveBeenCalled();
-    expect(on.player.crossfadeInto).not.toHaveBeenCalled();
   });
 
   it('isn’t offered with DJ mix off, nor while paused', async () => {
@@ -643,8 +638,9 @@ describe('no crossfade (Ross, 27 October)', () => {
       expect(h.ctl.mixNow()).toBeTypeOf('boolean');
       await at(h, 299);
       await vi.advanceTimersByTimeAsync(1000);
-      // the port has no crossfade any more; the spy stays as a tripwire
-      expect(h.player.crossfadeInto).not.toHaveBeenCalled();
+      // the port has no crossfade any more (PlayerPort): the only way to
+      // the next track is playIndex, and only as the plan's own cut
+      for (const call of h.player.playIndex.mock.calls) expect(call[1]).toEqual({ automix: true });
     }
     const off = harness({ prefs: { between: 'off' } });
     await at(off, 100);
@@ -716,7 +712,6 @@ describe('no crossfade (Ross, 27 October)', () => {
     for (const t of [100, 250, OUT, 299]) await at(h, t);
     await vi.advanceTimersByTimeAsync(1000);
     expect(h.player.playIndex).not.toHaveBeenCalled();
-    expect(h.player.crossfadeInto).not.toHaveBeenCalled();
     expect(h.window).not.toHaveBeenCalled();
     expect(h.ctl.ownsAdvance()).toBe(false);
   });
