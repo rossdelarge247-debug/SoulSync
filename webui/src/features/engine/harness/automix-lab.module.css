@@ -177,8 +177,8 @@
 }
 
 .source[aria-checked='true'] {
-  border-color: transparent;
-  background: rgb(var(--ss-accent-rgb) / 0.22);
+  border-color: rgba(var(--ss-accent-rgb), 0.6);
+  background: rgba(var(--ss-accent-rgb), 0.18);
 }
 
 .source:disabled {
