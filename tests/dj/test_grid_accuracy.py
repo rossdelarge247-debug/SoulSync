@@ -228,3 +228,75 @@ def test_a_long_drift_still_keeps_its_beats_and_long_noise_still_has_none():
     assert _beat_errors(r, beats[beats < 599.0]).max() < 0.010
     noise = np.random.default_rng(0).standard_normal(SR * 600).astype(np.float32)
     assert grid.analyze_audio(noise, SR, truncated=True)["status"] == "none"
+
+
+# ── syncopated breaks (stage A's re-review, L4) ──────────────────────────────
+
+BREAKS = [dict(bpm=165.0), dict(bpm=136.0), dict(bpm=172.0, hint=False), dict(bpm=160.0, lead_in=0.5)]
+
+
+@pytest.mark.parametrize("case", BREAKS, ids=[f"{c['bpm']}bpm" for c in BREAKS])
+def test_an_amen_style_break_is_on_the_beat_not_on_the_kicks(case):
+    """An Amen-style break puts more kicks on the "and"s than on the beat:
+    the kick comb alone locked half a beat (or a sixteenth) off, at up to
+    0.51 confidence, which the planner would have beat-matched. The
+    backbeat (the snare on two and four) puts it back on the beat, and a
+    break's grid stays under the planner's bar, so the pair crossfades."""
+    from core.dj import grid_store
+
+    from .grid_fixtures import break_track
+
+    y, truth = break_track(case["bpm"], lead_in=case.get("lead_in", 0.0))
+    r = grid.analyze_audio(y, SR, bpm_hint=None if case.get("hint") is False else case["bpm"])
+    assert r["status"] == "done", r
+    errors = _beat_errors(r, truth["beats"])
+    assert np.median(errors) < 0.004 and errors.max() < 0.005, f"worst beat {errors.max() * 1000:.1f} ms"
+    assert grid.MIN_BEAT_CONFIDENCE <= r["beat_confidence"] < grid_store.BEAT_CONFIDENT
+
+
+def test_a_break_falls_back_to_a_crossfade_in_the_planner():
+    from core.dj import planner
+
+    from .grid_fixtures import break_track
+    from .test_planner import _row, _track
+
+    y, _ = break_track(165.0)
+    r = grid.analyze_audio(y, SR, bpm_hint=165.0)
+    incoming = _track(_row(165.0, first=r["first_downbeat"], conf=r["beat_confidence"]), title="Amen", tid="2")
+    p = planner.plan(_track(_row(165.0)), incoming, style="long_blend")
+    assert p["status"] == "crossfade" and p["fallback"]["code"] == "low_confidence"
+    assert p["fallback"]["reason"] == "Amen has no steady beat"
+
+
+@pytest.mark.parametrize("case", [dict(fn="dance", bpm=124.0), dict(fn="dance", bpm=128.0, lead_in=0.37),
+                                  dict(fn="two_step", bpm=132.0), dict(fn="two_step", bpm=134.0, swing=0.25)],
+                         ids=["house124", "house128", "two_step132", "two_step134_swung"])
+def test_four_on_the_floor_and_two_step_stay_within_4_ms(case):
+    """The sixteenth check never moves a grid that's on the beat: the kick
+    on every beat (and two-step's kick on the one with the snare on two and
+    four) scores far ahead of every other sixteenth."""
+    from .grid_fixtures import break_track
+
+    if case["fn"] == "dance":
+        y, truth = dance_track(case["bpm"], lead_in=case.get("lead_in", 0.0))
+    else:
+        y, truth = break_track(case["bpm"], pattern="two_step", swing=case.get("swing", 0.0))
+    r = grid.analyze_audio(y, SR, bpm_hint=case["bpm"])
+    assert r["status"] == "done"
+    assert _beat_errors(r, truth["beats"]).max() < 0.004
+
+
+def test_the_sixteenth_check_scores():
+    """On a club track the beat leads every other sixteenth by a wide
+    margin; on a break the check moves the comb's grid half a beat."""
+    from .grid_fixtures import break_track
+
+    y, truth = dance_track(124.0)
+    feat = grid._features(y)
+    shift, margin = grid.sixteenth_check(feat, truth["beats"])
+    assert shift == 0 and margin > 2.0
+    y, truth = break_track(165.0)
+    feat = grid._features(y)
+    off = np.asarray(truth["beats"]) + 60.0 / 165.0 / 2  # the kicks' line, half a beat on
+    shift, margin = grid.sixteenth_check(feat, off)
+    assert shift == 2 and margin > grid.AMBIGUOUS_MARGIN

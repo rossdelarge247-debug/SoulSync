@@ -433,7 +433,8 @@ describe('automations list', () => {
     ).toBeInTheDocument();
     expect(within(card(4)).getByText('Send a Discord message')).toBeInTheDocument();
     expect(
-      within(card(4)).getByText(/^Every 6 hours · next at \d\d:\d\d · 2 steps$/),
+      // "next tomorrow at …" once the next run is past midnight (the suite runs in Los Angeles time)
+      within(card(4)).getByText(/^Every 6 hours · next (tomorrow )?at \d\d:\d\d · 2 steps$/),
     ).toBeInTheDocument();
     expect(within(card(4)).getByText('On')).toBeInTheDocument();
     expect(within(card(6)).getByText('Paused')).toBeInTheDocument();

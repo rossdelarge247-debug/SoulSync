@@ -206,7 +206,10 @@ def test_m3_a_whole_track_is_kept_to_its_analysed_length():
 
 # ── L-a: grid failures count, and are tried again ────────────────────────────
 
-def test_l_a_grid_failures_count_toward_the_run_of_failures(db):
+def test_l_a_grid_failures_are_counted_on_their_own(db):
+    """(Changed by the re-review's L3.) A grid that fails is counted as a
+    grid failure; the track is done, since its DJ data was kept, and a run
+    of them never ends the sweep for BPM and key."""
     for i in range(1, worker.MAX_ERRORS_IN_A_ROW + 4):
         _track(db, i, f"T{i}", f"/m/{i}.flac")
     job = worker.DjAnalysisJob(process=lambda d, t, **kw: "grid_error", busy=lambda d: None, away=lambda: False,
@@ -214,7 +217,8 @@ def test_l_a_grid_failures_count_toward_the_run_of_failures(db):
                                sleep_floor=0, rest_factor=0)
     job.start(db, 1, background=False)
     state = worker.public_state(db, job)
-    assert state["status"] == "failed" and state["failed"] == worker.MAX_ERRORS_IN_A_ROW
+    assert state["status"] == "done" and state["failed"] == 0
+    assert state["done"] == worker.MAX_ERRORS_IN_A_ROW + 3
 
 
 def test_l_a_a_failed_grid_is_tried_again_after_a_week_but_not_a_crash(db):
@@ -298,3 +302,220 @@ def test_l_e_levels_are_finite_and_damaged_samples_are_silence():
     r = grid.analyze_audio(y, SR)
     assert r["status"] == "done" and r["bpm"] == pytest.approx(124.0, abs=0.02)
     assert np.isfinite(r["level_db"])
+
+
+# ── the stage A re-review: L1, L2, L3 ────────────────────────────────────────
+
+def _wav(tmp_path, name="t.wav"):
+    path = tmp_path / name
+    path.write_bytes(b"RIFF" + b"x" * 60)
+    return str(path)
+
+
+def _analysis(**_kw):
+    return {"bpm": 124.0, "onsets": [0.5], "duration_s": 220.0, "key": {"name": "A minor", "confidence": 0.9},
+            "energy": 6, "analyzer_version": 1, "truncated": False}
+
+
+def test_l1_a_failed_decode_doesnt_hold_back_the_grid_of_a_later_analysis(db, tmp_path):
+    """The DJ decode failed, so its grid row said error too; it was stamped
+    with the file, so when the analysis later worked the grid looked current
+    and waited a week. It isn't stamped now, and a full analysis that works
+    looks for a grid an error row stands for at once (also for rows stamped
+    before the fix)."""
+    path = _wav(tmp_path)
+    _track(db, "11", "Brass Tide", path)
+
+    def broken(_p):
+        raise RuntimeError("couldn't decode a frame")
+
+    assert worker.process_track(db, "11", resolve=lambda s: s, analyze=broken) == "error"
+    row = grid_store.get(db, "11")
+    assert row["status"] == "error" and row["source_sig"] is None
+    found = []
+
+    def finds(p, **kw):
+        found.append(p)
+        return _grid()
+
+    assert worker.process_track(db, "11", resolve=lambda s: s, analyze=lambda p: _analysis(),
+                                analyze_grid=finds) == "done"
+    assert found == [path] and grid_store.get(db, "11")["status"] == "done"
+
+
+def test_l1_an_error_grid_stamped_before_the_fix_is_found_again(db, tmp_path):
+    from core.sample.store import source_signature
+
+    path = _wav(tmp_path)
+    _track(db, "12", "Copper Sky", path)
+    store.mark(db, "12", "error", "couldn't decode", worker.analyzer_version())
+    grid_store.mark(db, "12", "error", "couldn't decode", source_sig=source_signature(path))
+    found = []
+    assert worker.process_track(db, "12", resolve=lambda s: s, analyze=lambda p: _analysis(),
+                                analyze_grid=lambda p, **kw: found.append(p) or _grid()) == "done"
+    assert found == [path] and grid_store.get(db, "12")["status"] == "done"
+    # a crash's error isn't tried again: it could crash again
+    grid_store.mark(db, "12", "error", "SYNCHRO.S stopped while finding this track's beats; skipped",
+                    source_sig=source_signature(path))
+    store.mark(db, "12", "error", "again", worker.analyzer_version())
+    found.clear()
+    worker.process_track(db, "12", resolve=lambda s: s, analyze=lambda p: _analysis(),
+                         analyze_grid=lambda p, **kw: found.append(p) or _grid())
+    assert found == []
+
+
+@pytest.mark.gauntlet
+def test_l2_a_finished_row_replaces_the_keepers_unfinished_one(db):
+    """When a scan folds an old track row into the keeper, the keeper's own
+    DJ data and grid stay, unless they aren't finished (an error, still
+    waiting) and the old ones are: then the old ones replace them."""
+    _analysed(db, "21")
+    _track(db, "210", "Keeper", "/m/210.flac")
+    store.mark(db, "210", "error", "couldn't decode", worker.analyzer_version())
+    grid_store.mark(db, "210", "error", "couldn't decode")
+    _analysed(db, "22")
+    _track(db, "220", "Keeper done", "/m/220.flac")
+    store.save(db, "220", {"bpm": 128.0, "status": "done", "dj_analyzer_version": worker.analyzer_version()})
+    grid_store.save_result(db, "220", _grid(128.0), source_sig=None)
+    _track(db, "23", "Old, failed", "/m/23.flac")
+    store.mark(db, "23", "error", "gone", worker.analyzer_version())
+    grid_store.mark(db, "23", "error", "gone")
+    _track(db, "230", "Keeper analysing", "/m/230.flac")
+    store.mark(db, "230", "analyzing", None, worker.analyzer_version())
+    conn = db._get_connection()
+    try:
+        for old, keeper in (("21", "210"), ("22", "220"), ("23", "230")):
+            db._absorb_track_row(conn.cursor(), old, keeper, [])
+        conn.commit()
+    finally:
+        conn.close()
+    assert store.get(db, "210")["status"] == "done" and store.get(db, "210")["bpm"] == 124.0
+    assert grid_store.get(db, "210")["status"] == "done"
+    assert store.get(db, "220")["bpm"] == 128.0 and grid_store.get(db, "220")["bpm"] == 128.0  # its own stay
+    assert store.get(db, "230")["status"] == "analyzing"  # an unfinished old row never replaces anything
+    assert grid_store.get(db, "230")["status"] == "error"  # the keeper had none: the old one follows
+    for old in ("21", "22", "23"):
+        assert store.get(db, old) is None and grid_store.get(db, old) is None
+
+
+def _sweep(db, outcome, count):
+    for i in range(1, count + 1):
+        _track(db, f"s{i}", f"T{i}", f"/m/s{i}.flac")
+    calls = []
+
+    def process(d, t, **kw):
+        calls.append(kw.get("find_grid"))
+        store.save(d, t, {"status": "done", "dj_analyzer_version": worker.analyzer_version()})
+        if not kw.get("find_grid"):
+            return "done"
+        grid_store.mark(d, t, "error", "bad frame")
+        return outcome
+
+    job = worker.DjAnalysisJob(process=process, busy=lambda d: None, away=lambda: False,
+                               settings=lambda: {"analyze": True, "write_tags": False, "overwrite_tags": False},
+                               sleep_floor=0, rest_factor=0)
+    job.start(db, 1, background=False)
+    return job, calls
+
+
+def test_l3_grid_errors_alone_never_end_the_sweep(db):
+    """A run of grid failures stops only the looking for grids: BPM, key and
+    energy carry on for every track; each such track counts as done, with a
+    separate grid-failed count, and the run says the grids wait."""
+    n = worker.MAX_GRID_ERRORS_IN_A_ROW + 5
+    job, calls = _sweep(db, "done_grid_error", n)
+    state = worker.public_state(db, job)
+    assert state["status"] == "done" and state["done"] == n and state["failed"] == 0
+    assert state["grid_failed"] == worker.MAX_GRID_ERRORS_IN_A_ROW and state["grids_paused"] is True
+    assert calls == [True] * worker.MAX_GRID_ERRORS_IN_A_ROW + [False] * 5
+    assert state["note"] == f"grids_paused:{worker.MAX_GRID_ERRORS_IN_A_ROW}"
+
+
+def test_l3_activity_counts_grid_failures_apart(db):
+    from core.activity import feed
+
+    job, _ = _sweep(db, "done_grid_error", 3)
+    row = worker.last_run(db)
+    conn = db._get_connection()
+    try:
+        class Ctx:
+            pass
+
+        ctx = Ctx()
+        ctx.conn = conn
+        item = feed._dj_job_item(ctx, row)
+    finally:
+        conn.close()
+    assert "3 tracks" in item["detail"] and "No beat grid found for 3 tracks" in item["detail"]
+    assert "couldn't be analysed" not in item["detail"] and item["status"] == "warning"
+
+
+def test_l3_a_dj_failure_still_counts_toward_its_own_stop(db):
+    for i in range(1, worker.MAX_ERRORS_IN_A_ROW + 4):
+        _track(db, i, f"T{i}", f"/m/{i}.flac")
+    job = worker.DjAnalysisJob(process=lambda d, t, **kw: "error", busy=lambda d: None, away=lambda: False,
+                               settings=lambda: {"analyze": True, "write_tags": False, "overwrite_tags": False},
+                               sleep_floor=0, rest_factor=0)
+    job.start(db, 1, background=False)
+    state = worker.public_state(db, job)
+    assert state["status"] == "failed" and state["failed"] == worker.MAX_ERRORS_IN_A_ROW
+
+
+# ── after the stage B gauntlet review ────────────────────────────────────────
+
+@pytest.mark.gauntlet
+def test_review_m1_paused_top_ups_go_by_without_a_rest_or_a_save(db):
+    """Once 25 grids in a row have failed, each remaining top-up is
+    ``grid_paused``: nothing was decoded, so the sweep neither rests nor
+    saves for it, and counts it done so the run reaches its total (a 50k
+    library at GRID_VERSION 2 no longer "runs" for hours doing nothing)."""
+    n = worker.MAX_GRID_ERRORS_IN_A_ROW + 40
+    for i in range(1, n + 1):
+        _track(db, f"p{i}", f"T{i}", f"/m/p{i}.flac")
+
+    def process(d, t, **kw):
+        store.save(d, t, {"status": "done", "dj_analyzer_version": worker.analyzer_version()})
+        if not kw.get("find_grid"):
+            return "grid_paused"
+        grid_store.mark(d, t, "error", "bad frame")
+        return "grid_error"
+
+    job = worker.DjAnalysisJob(process=process, busy=lambda d: None, away=lambda: False,
+                               settings=lambda: {"analyze": True, "write_tags": False, "overwrite_tags": False},
+                               sleep_floor=0.5, rest_factor=0)
+    waits = []
+    job._stop.wait = lambda t=None: (waits.append(t), False)[1]
+    saves = []
+    real_save = job._save
+    job._save = lambda d, final=False: (saves.append(final), real_save(d, final=final))[1]
+    job.start(db, 1, background=False)
+    state = worker.public_state(db, job)
+    assert len(waits) == worker.MAX_GRID_ERRORS_IN_A_ROW  # a rest only after a real decode
+    assert saves.count(False) == worker.MAX_GRID_ERRORS_IN_A_ROW and saves.count(True) == 1
+    assert state["status"] == "done" and state["done"] == state["total"] == n
+    assert state["grid_failed"] == worker.MAX_GRID_ERRORS_IN_A_ROW and state["grids_paused"] is True
+    assert job._state["grids_waiting"] == 40
+
+
+def test_review_l7_a_runs_grid_failures_are_its_own_and_cost_no_query(db):
+    """Activity reads a finished run's grid failures from its note, so a
+    run from before (no such note) shows none, whatever grid rows were
+    marked while it ran, and nothing is counted over track_grid per row."""
+    from core.activity import feed
+
+    _sweep(db, "done_grid_error", 3)
+    row = worker.last_run(db)
+    assert row["note"] == "grids:3"
+    assert worker.grid_note(row["note"]) == (3, False)
+    assert worker.grid_note("grids_paused:25") == (25, True)
+    assert worker.grid_note("restart") == (0, False) and worker.grid_note(None) == (0, False)
+    # a run from before this change: grid errors marked during it aren't its
+    old = {**row, "note": None}
+
+    class Ctx:
+        conn = None  # nothing may be queried
+
+    item = feed._dj_job_item(Ctx(), old)
+    assert "beat grid" not in item["detail"]
+    item = feed._dj_job_item(Ctx(), row)
+    assert "No beat grid found for 3 tracks" in item["detail"]

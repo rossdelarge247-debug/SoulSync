@@ -1020,9 +1020,28 @@ def _dj_job_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
     tagged = int((live.get("tags_written") if live else row.get("found_releases")) or 0)
     away = int((live.get("unreachable") if live else row.get("found_artists")) or 0)
     ref: Dict[str, Any] = {"job_id": int(row["id"])}
+    # beat grids that couldn't be found, on their own: those tracks still
+    # count as done, since their BPM, key and energy were kept
+    # (a finished run keeps them in its note; nothing is counted per row)
+    grid_failed, grids_paused = 0, False
+    try:
+        from core.dj.worker import grid_note
+
+        if live:
+            grid_failed, grids_paused = int(live.get("grid_failed") or 0), bool(live.get("grids_paused"))
+        else:
+            grid_failed, grids_paused = grid_note(row.get("note"))
+    except Exception as exc:  # noqa: BLE001 - no DJ module: no grids
+        logger.debug("grid failures unreadable: %s", exc)
+    grid_words = ""
+    if grid_failed:
+        grid_words = f"No beat grid found for {_many(grid_failed, 'track')}"
+        if grids_paused:
+            grid_words += ", so the rest wait for the next run"
     extras = (f"{_many(failed, 'track')} couldn't be analysed" if failed else "",
               f"{_many(away, 'file')} weren't there" if away else "",
-              f"BPM and key written into {_many(tagged, 'file')}" if tagged else "")
+              f"BPM and key written into {_many(tagged, 'file')}" if tagged else "",
+              grid_words)
     if live is not None:
         detail = _sentence(_many(total, "track"), f"{done:,} done", _DJ_WAITING.get(live.get("waiting") or "", ""))
         ref["stop_path"] = _DJ_STOP
@@ -1033,7 +1052,7 @@ def _dj_job_item(ctx: _Ctx, row: Dict[str, Any]) -> Dict[str, Any]:
     if status == "running":
         status = "stopped"  # its thread is gone: a restart cut it off
     if status == "done":
-        detail, tone = _sentence(_many(total, "track"), *extras), ("warning" if failed else "ok")
+        detail, tone = _sentence(_many(total, "track"), *extras), ("warning" if failed or grid_failed else "ok")
     elif status == "stopped":
         why = " when SYNCHRO.S restarted" if row.get("note") == "restart" else ""
         detail, tone = _sentence(f"Stopped after {done:,} of {_many(total, 'track')}{why}", *extras), "warning"

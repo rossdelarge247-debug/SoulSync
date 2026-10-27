@@ -1115,13 +1115,13 @@ describe('the "…" menu keeps what the old page did', () => {
     await waitFor(() => expect(callsTo('/api/library/albums/remove')).toHaveLength(1));
     expect(JSON.parse(callsTo('/api/library/albums/remove')[0].body)).toEqual({ plan_id: 'p1' });
     // the done state follows the remove's answer and a refetch; give a busy
-    // CI runner longer than findBy's default second
+    // CI runner longer than findBy's default second (5 s still missed once)
     expect(
       await screen.findByText('Removed Pale Harbour from your library', undefined, {
-        timeout: 5000,
+        timeout: 12000,
       }),
     ).toBeInTheDocument();
-  });
+  }, 30000);
 
   it('lets More filters choose what the page lists, as the old filter bar did', async () => {
     renderArtist();

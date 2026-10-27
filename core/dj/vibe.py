@@ -129,13 +129,15 @@ def request_body(seed: Dict[str, Any], candidates: List[Dict[str, Any]],
 
 #: the top-level domains a bare domain is recognised by: the common ones,
 #: leaving out those that are everyday words or names ("am": will.i.am;
-#: "no", "at", "be", "my", "id", "so", "to", "it", "is", "in")
+#: "no", "at", "be", "my", "id", "so", "it", "is", "in"). "to" is in: link
+#: shorteners and file hosts use it, and "Builds.To" (a capital after the
+#: dot) still reads as text
 _TLDS = ("com", "net", "org", "info", "biz", "io", "co", "me", "tv", "fm", "ly", "gg", "cc", "ws", "xyz", "app",
          "dev", "ai", "sh", "link", "click", "site", "online", "store", "shop", "top", "club", "live", "life",
          "world", "fun", "news", "page", "blog", "cloud", "pro", "mobi", "name", "tk", "ml", "ga", "cf", "gq",
          "ru", "su", "cn", "uk", "de", "fr", "nl", "eu", "es", "pl", "se", "fi", "dk", "ch", "cz", "pt", "gr",
          "ro", "hu", "ua", "tr", "jp", "kr", "hk", "tw", "sg", "vn", "ph", "au", "nz", "ca", "us", "mx", "br",
-         "ar", "cl", "za", "ng", "ke", "ir", "pk", "bd", "onion")
+         "ar", "cl", "za", "ng", "ke", "ir", "pk", "bd", "onion", "edu", "gov", "to", "lol")
 _LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _ANY_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 _TLD_RE = "|".join(sorted(set(_TLDS), key=len, reverse=True))

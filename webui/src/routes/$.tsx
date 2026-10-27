@@ -1,10 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 
 import { openDriveMove } from '@/features/drives/move-flow';
+import { labAllowed } from '@/features/engine/harness/lab-gate';
 import { ModuleOffPage, useModuleStates } from '@/features/modules/module-gate';
 import { moduleForPath } from '@/features/modules/modules.helpers';
-import { LegacyRouteController } from '@/platform/shell/route-controllers';
+import { LegacyRouteController, useProfile } from '@/platform/shell/route-controllers';
 import { resolveShellPageFromPath } from '@/platform/shell/route-manifest';
 
 export const Route = createFileRoute('/$')({
@@ -28,11 +29,32 @@ function MoveLink() {
   return null;
 }
 
+// auto-mix stage B's bench, loaded only when it's opened
+const AutomixLab = lazy(() => import('@/features/engine/harness/automix-lab'));
+
+/**
+ * /automix-lab: the two-deck engine's harness (HANDOFF "Dev, auto-mix stage
+ * B"). Admins only, in a development build or with `?lab=1`; for anyone
+ * else it's an unknown page, as before.
+ */
+function AutomixLabGate({ pathname }: { pathname: string }) {
+  const profile = useProfile();
+  if (!labAllowed(Boolean(profile?.isAdmin), import.meta.env.DEV, window.location.search)) {
+    return <LegacyRouteController pathname={pathname} />;
+  }
+  return (
+    <Suspense fallback={null}>
+      <AutomixLab />
+    </Suspense>
+  );
+}
+
 function LegacyFallbackRouteComponent() {
   const { _splat } = Route.useParams();
   const pathname = `/${_splat}`;
   const { data: modules } = useModuleStates();
   if (pathname === '/move') return <MoveLink />;
+  if (pathname === '/automix-lab') return <AutomixLabGate pathname={pathname} />;
   // A video page bookmarked while the Video module is off: video-side.js
   // stays on the music side, so say why instead of showing nothing. Shell
   // pages (/chat) keep the legacy route, which shows its own notice.

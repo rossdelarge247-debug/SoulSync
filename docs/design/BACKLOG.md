@@ -17,7 +17,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Lyrics centre stage, timed to the words | Ready for Design (step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
 | Star tracks and mix sets | Building (Mix tab: Building) | [below](#star-tracks-and-mix-sets) |
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
-| Auto-mix: beat-matched transitions in Up next | Auto-mix: Building (stage A) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
+| Auto-mix: beat-matched transitions in Up next | Auto-mix: Building (stage B) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
 | Data visualiser: the decoded audio as numbers and bits | Ready for Design | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
 | Privacy: a VPN for Soulseek and torrents, and a privacy check | Exploring | [below](#privacy-a-vpn-for-soulseek-and-torrents-and-a-privacy-check) |
 | Reach SYNCHRO.S from anywhere with Tailscale | Exploring | [below](#reach-synchros-from-anywhere-with-tailscale) |
@@ -725,7 +725,7 @@ Actions:
 
 ## Auto-mix: beat-matched transitions in Up next
 
-**Status:** Auto-mix: Building (stage A) · raised by Ross, 2026-10-24 · direction approved by Ross the same day · drawn by Design as `Auto-mix (Up next, decks).dc.html` (26a–26j) and approved by Ross. Built in three stages: **A**, the server's analysis and the pair planner, on `feat/automix-a` (`HANDOFF.md`, "Dev, auto-mix stage A of 27 October"; routes in `CONTRACTS.md`, "Auto-mix stage A"); **B**, the browser's two-deck engine with time-stretch; **C**, auto-mix itself (the chips, Mix now, the setting). **Built with DJ stage 3's decks**, which use the same engine: two decks with EQ and effects on Web Audio. Auto-mix is that engine driven automatically, so the decks come first and auto-mix sits on top. Mix sets then play as a continuous mix.
+**Status:** Auto-mix: Building (stage B) · raised by Ross, 2026-10-24 · direction approved by Ross the same day · drawn by Design as `Auto-mix (Up next, decks).dc.html` (26a–26j) and approved by Ross. Built in three stages: **A**, the server's analysis and the pair planner, on `feat/automix-a` (`HANDOFF.md`, "Dev, auto-mix stage A of 27 October"; routes in `CONTRACTS.md`, "Auto-mix stage A"); **B**, the browser's two-deck engine with time-stretch, on `feat/automix-b` (`HANDOFF.md`, "Dev, auto-mix stage B of 27 October"; `CONTRACTS.md`, "Auto-mix stage B"; heard at `/automix-lab`, admins, `?lab=1`); **C**, auto-mix itself (the chips, Mix now, the setting). **Built with DJ stage 3's decks**, which use the same engine: two decks with EQ and effects on Web Audio. Auto-mix is that engine driven automatically, so the decks come first and auto-mix sits on top. Mix sets then play as a continuous mix.
 
 ### What Ross wants
 
