@@ -11194,11 +11194,17 @@ class MusicDatabase:
         except Exception as e:  # noqa: BLE001 - the table may predate this install
             logger.debug("track_stars repoint skipped: %s", e)
         # the DJ data and the beat grid follow it too (core/dj): the keeper's
-        # own rows stay as they are; the old id's are never left behind for
-        # a later track that reuses the id
-        for table, columns in (("track_dj", self._TRACK_DJ_COLUMNS), ("track_grid", self._TRACK_GRID_COLUMNS)):
+        # own rows stay as they are, unless they aren't finished (an error,
+        # still analysing) and the old ones are, which then replace them; the
+        # old id's are never left behind for a later track that reuses the id
+        for table, columns, finished in (("track_dj", self._TRACK_DJ_COLUMNS, ("done",)),
+                                         ("track_grid", self._TRACK_GRID_COLUMNS, ("done", "none"))):
             names = ", ".join(name for name, _ in columns)
             try:
+                kept = cursor.execute(f"SELECT status FROM {table} WHERE track_id = ?", (keeper_id,)).fetchone()
+                moving = cursor.execute(f"SELECT status FROM {table} WHERE track_id = ?", (old_id,)).fetchone()
+                if kept is not None and moving is not None and kept[0] not in finished and moving[0] in finished:
+                    cursor.execute(f"DELETE FROM {table} WHERE track_id = ?", (keeper_id,))
                 cursor.execute(f"INSERT OR IGNORE INTO {table} (track_id, {names}) "
                                f"SELECT ?, {names} FROM {table} WHERE track_id = ?", (keeper_id, old_id))
                 cursor.execute(f"DELETE FROM {table} WHERE track_id = ?", (old_id,))
