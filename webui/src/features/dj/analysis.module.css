@@ -1,0 +1,66 @@
+/*
+ * The interim analysis indicator (DESIGN-SYSTEM "Analysis progress",
+ * analyse on demand): a small bar beside a status line, "Finding the beat
+ * grid · 60%" or "2nd in line". Claude Design will draw the final one; this
+ * keeps to the tokens and Tracks' own analysis bar (153): 4px high,
+ * accent-light on a 12% white track, the words 14px in meta grey.
+ */
+.progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  flex: none;
+  width: 64px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.progress[data-compact] .bar {
+  width: 40px;
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: rgb(var(--ss-accent-light-rgb));
+  transition: width 400ms ease-out;
+}
+
+.words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress[data-state='working'] .words {
+  color: var(--ss-text-secondary, var(--ss-text-meta));
+}
+
+.progress[data-state='failed'] .words {
+  color: var(--ss-text-meta);
+}
+
+/* a block of its own under a title (the Mix tab, a set's row, Activity) */
+.block {
+  display: flex;
+  margin-top: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar > span {
+    transition: none;
+  }
+}

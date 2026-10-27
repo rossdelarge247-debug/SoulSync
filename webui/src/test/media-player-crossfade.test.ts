@@ -5,19 +5,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { extractFunction } from './vanilla-extract';
 
 /**
- * The crossfade handoff, run through the REAL functions. When the fade ends
+ * The loader's handoff, run through the REAL functions (there's no crossfade
+ * any more; a second audio handed to playQueueItem still joins). When the fade ends
  * the second audio is mid-song; the main player must join it there, not
  * start the song again from zero, and the second audio must stop once the
  * main player is playing (or as soon as the load fails).
  */
 const source = readFileSync(resolve(process.cwd(), 'static/media-player.js'), 'utf8');
-const functions = [
-  'startAudioPlayback',
-  'playQueueItem',
-  'npStopHandoff',
-  'npCancelCrossfade',
-  'npFinishCrossfade',
-]
+const functions = ['startAudioPlayback', 'playQueueItem', 'npStopHandoff', 'npCancelCrossfade']
   .map((name) => extractFunction(name, source))
   .join('\n');
 
@@ -61,7 +56,17 @@ function harness(options: { serverFails?: boolean } = {}) {
     const stopStream = async () => {};
     ${functions}
     return {
-      finish: (restoreVol) => npFinishCrossfade(1, restoreVol),
+      // what a caller handing over a second audio does (the crossfade that
+      // did is gone: Ross, 27 October); the loader's handoff option stays
+      finish: (restoreVol) => {
+        npXfadeAudio = null;
+        npXfadeActive = false;
+        npXfadeMainVol = null;
+        audioPlayer.volume = restoreVol;
+        playQueueItem(1, { handoff: xa }).then((result) => {
+          if (!result || result.status !== 'played') npStopHandoff(xa);
+        }).catch(() => npStopHandoff(xa));
+      },
       cancel: () => npCancelCrossfade(),
       state: () => ({ npXfadeHandoff, npXfadeActive, npQueueIndex }),
     };

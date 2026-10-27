@@ -49,7 +49,8 @@ GET  /api/library/dj/plan?from=<id>&to=<id>&style=&bars=
     The pair planner (core/dj/planner.py): where the outgoing track's mix
     starts (a phrase in its outro), where the incoming one starts (its
     intro's downbeat), the tempo ratio, whether it can be beat-matched, Auto's
-    pick and why, or the crossfade fallback with its reason; ``waiting``
+    pick and why, or a move that needs no beat-match (echo out, a cut on
+    the bar, play on) with its reason, never a crossfade; ``waiting``
     while either isn't analysed. ``style`` one of auto (the default),
     long_blend, short_blend, bass_swap, cut, echo_out, filter_sweep,
     drop_swap; ``bars`` 2, 4, 8, 16 or 32.
@@ -62,6 +63,23 @@ POST /api/library/dj/mixes/<track_id>/vibe
     Vibe (29a): the ranked top 20 re-ordered for feel by the AI provider
     (core/dj/vibe.py); 403 with ``code`` when the AI is off for this profile
     or at its limit, 429 ``busy``. Counts against the profile's AI usage.
+POST /api/library/dj/analyse
+    Analyse on demand (any profile, its own library's tracks): ``{track_ids:
+    [...]}`` (up to 500) or ``{playlist_id}`` (its rows matched to the
+    library). Those that need analysis go in the asked-for line in front of
+    the sweep (at most 200 a profile) and a sweep starts for them when none
+    runs (core/dj/ondemand.py). ``reason``: ``asked`` (a person's own ask)
+    or ``auto`` (the default: a page asking for what it shows); while a
+    person's Stop holds the sweeps an automatic ask is 409 ``held``. JSON
+    only, body at most 64 KB; one request a second a profile (429
+    ``rate_limited`` with ``Retry-After``); 409 ``off`` while analysis is
+    switched off.
+POST /api/library/dj/progress
+    ``{track_ids: [...]}`` (up to 500; may be empty) -> ``{tracks: {id:
+    {state, …}}, sweep}``: where each of the caller's tracks is (``done``,
+    ``queued`` with its place, ``working`` with its step and percent,
+    ``waiting`` with why, ``failed`` with why) and the sweep's own state.
+    JSON only, body at most 64 KB. Cheap enough to poll every second or two.
 GET  /api/library/dj/traktor/settings
     The Settings → Library → Traktor Pro 3 card (21b): the Mac path for the
     library folder, the export folder and its state, Traktor's collection
@@ -164,6 +182,10 @@ def dj_status():
         logger.error("DJ status failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
     admin = bool(_is_admin())
+    if job and not admin and job.get("current") is not None:
+        # the track being worked on may be another profile's: admins only
+        # (the progress route names it only for a caller whose library holds it)
+        job = {**job, "current": None}
     return _no_store({"success": True, "settings": worker.settings_state(), "counts": counts, "grids": grids,
                       "job": job,
                       "held": worker.JOB.held, "analyzer_version": worker.analyzer_version(),
@@ -318,7 +340,9 @@ def _track_for_plan(entry: dict, track_id: str, *, with_beats: bool = True) -> d
 
     shaped = grid_store.public_entry(entry, track_id, with_beats=with_beats)
     return {**shaped, "dj_bpm": entry.get("bpm"), "key": entry.get("key"), "duration_s": entry.get("duration_s"),
-            "title": entry.get("title")}
+            "title": entry.get("title"), "album_id": entry.get("album_id"),
+            "track_number": entry.get("track_number"), "disc_number": entry.get("disc_number"),
+            "disc_last": entry.get("disc_last")}
 
 
 @bp.route("/api/library/dj/grid/<track_id>", methods=["GET"])
@@ -510,6 +534,111 @@ def dj_mixes_vibe(track_id: str):
                         "error": "The AI couldn't order these. Code's order stands."}), 502
     return _no_store({"success": True, **found, "matches": answer["matches"][:limit],
                       "vibe": {"line": answer["line"], "usage": answer["usage"]}})
+
+
+# ── Analyse on demand, and each track's progress ─────────────────────────────
+
+#: the body of /analyse and /progress: 500 ids fit well under it
+MAX_ANALYSE_BODY = 64 * 1024
+
+
+def _ids_from(body: dict):
+    """``track_ids`` from a JSON body: a list of up to 500 ids, or a 400."""
+    from core.dj import ondemand
+
+    raw = body.get("track_ids")
+    if not isinstance(raw, list):
+        return None, (jsonify({"success": False, "error": "track_ids must be a list"}), 400)
+    if len(raw) > ondemand.MAX_IDS:
+        return None, (jsonify({"success": False, "error": f"At most {ondemand.MAX_IDS} tracks at a time"}), 400)
+    return list(dict.fromkeys(str(t)[:128] for t in raw
+                              if isinstance(t, (str, int)) and not isinstance(t, bool) and str(t))), None
+
+
+@bp.route("/api/library/dj/analyse", methods=["POST"])
+def dj_analyse():
+    """Analyse on demand: the caller's tracks that need it jump the queue."""
+    pid = get_current_profile_id()
+    if pid is None:
+        return _no_profile()
+    body, refused = _read_json_capped(MAX_ANALYSE_BODY)
+    if refused is not None:
+        return refused
+    # JSON only: a form or text/plain POST from another site needs no preflight
+    if not request.is_json or not isinstance(body, dict):
+        return jsonify({"success": False, "error": "Send it as JSON"}), 400
+    from core.dj import ondemand, worker
+
+    database = get_database()
+    # a person's own ask ("Analyse these", a lab pick, Analyse now) or a
+    # page's automatic one (what it shows): only the first passes a Stop
+    reason = body.get("reason", "auto")
+    if reason not in ("asked", "auto"):
+        return jsonify({"success": False, "error": "reason must be asked or auto"}), 400
+    playlist = None
+    if "playlist_id" in body:
+        playlist = body.get("playlist_id")
+        if isinstance(playlist, bool) or not isinstance(playlist, int) or not 0 < playlist < 10 ** 15:
+            return jsonify({"success": False, "error": "playlist_id is needed"}), 400
+        ids: list = []
+    else:
+        ids, bad = _ids_from(body)
+        if bad is not None:
+            return bad
+    # the limit before any reading (a playlist's rows are read next)
+    if not ondemand.ASK_LIMIT.allow(int(pid)):
+        response = jsonify({"success": False, "code": "rate_limited",
+                            "error": "One request a second: try again in a moment."})
+        response.status_code = 429
+        response.headers["Retry-After"] = "1"
+        return response
+    if not worker.settings_state().get("analyze", True):
+        return jsonify({"success": False, "code": "off",
+                        "error": "Working out BPM, key and energy is off in Settings → Library."}), 409
+    if playlist is not None:
+        from core.dj import traktor
+
+        try:
+            found = traktor.playlist_tracks(database, playlist, None if _is_admin() else pid)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Analyse: playlist unreadable: %s", exc, exc_info=True)
+            return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+        if found is None:
+            return jsonify({"success": False, "error": "Playlist not found"}), 404
+        ids = list(dict.fromkeys(str(t["id"]) for t, _title, _artist in found["rows"] if t))[:ondemand.MAX_IDS]
+    try:
+        result = ondemand.ask(database, ids, int(pid), explicit=reason == "asked")
+    except worker.Held:
+        return jsonify({"success": False, "code": "held",
+                        "error": "Working out BPM, key and energy is stopped; ask for these to go on."}), 409
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Analyse on demand failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    return _no_store({"success": True, **result}, 202)
+
+
+@bp.route("/api/library/dj/progress", methods=["POST"])
+def dj_progress():
+    """Where each of the caller's tracks is in the analysis, and the sweep."""
+    pid = get_current_profile_id()
+    if pid is None:
+        return _no_profile()
+    body, refused = _read_json_capped(MAX_ANALYSE_BODY)
+    if refused is not None:
+        return refused
+    if not request.is_json or not isinstance(body, dict):
+        return jsonify({"success": False, "error": "Send it as JSON"}), 400
+    ids, bad = _ids_from(body)
+    if bad is not None:
+        return bad
+    from core.dj import ondemand
+
+    try:
+        answer = ondemand.progress(get_database(), ids, int(pid))
+    except Exception as exc:  # noqa: BLE001
+        logger.error("DJ progress failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    return _no_store({"success": True, **answer})
 
 
 # ── Export to Traktor (stage 2a) ──────────────────────────────────────────────

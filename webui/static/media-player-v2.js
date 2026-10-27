@@ -3722,14 +3722,6 @@ function npv2WireTransport() {
     try {
         const preset = document.getElementById('np-v2-eq-preset');
         if (preset) preset.addEventListener('change', () => npv2SetEqPreset(preset.value));
-        const xfade = document.getElementById('np-v2-xfade-secs');
-        if (xfade) {
-            xfade.value = npv2GetG('crossfade-secs', '6');
-            xfade.addEventListener('change', () => {
-                npv2SetG('crossfade-secs', xfade.value);
-                npv2Toast('Crossfade: ' + xfade.value + 's', 'success');
-            });
-        }
         const spd = document.getElementById('np-v2-speed-select');
         if (spd) {
             spd.value = String(NPV2.speed);

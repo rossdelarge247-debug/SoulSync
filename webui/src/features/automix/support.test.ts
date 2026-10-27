@@ -7,9 +7,9 @@ describe('can this page run the decks', () => {
     const worklet = function AudioWorkletNode() {};
     expect(mixSupport({ isSecureContext: true, AudioWorkletNode: worklet })).toBeNull();
     expect(mixSupport({ isSecureContext: false, AudioWorkletNode: worklet })).toMatch(
-      /^DJ mix needs SYNCHRO.S on https/,
+      /^Auto mix needs SYNCHRO.S on https/,
     );
-    expect(mixSupport({ isSecureContext: true })).toBe("This browser can't run DJ mix's decks");
+    expect(mixSupport({ isSecureContext: true })).toBe("This browser can't run Auto mix's decks");
     expect(mixSupport(null)).toBeNull();
   });
 });

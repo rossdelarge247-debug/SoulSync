@@ -479,3 +479,47 @@ describe('MirroredDetailModal — Export to Traktor… (21a)', () => {
     expect(dialog.textContent).toContain("Left out: “Three” isn't a file in your library.");
   });
 });
+
+describe('MirroredDetailModal — Analyse these (analyse on demand)', () => {
+  it('asks for the playlist by its id and says how many, skipping ones already done', async () => {
+    const asked: unknown[] = [];
+    const toast = vi.fn();
+    window.showToast = toast;
+    server.use(
+      http.post('/api/library/dj/analyse', async ({ request }) => {
+        asked.push(await request.json());
+        return HttpResponse.json(
+          {
+            success: true,
+            asked: 5,
+            queued: 3,
+            already_queued: 0,
+            already_done: 2,
+            cant: 0,
+            over_limit: 0,
+            limit: 200,
+            yours: 3,
+            started: true,
+          },
+          { status: 202 },
+        );
+      }),
+    );
+    try {
+      renderModal({ name: 'Late night', source: 'soulsync', tracks: [] });
+      openMore();
+      const item = screen.getByRole('menuitem', { name: /Analyse these/ });
+      expect(item.textContent).toContain('ones already done are skipped');
+      fireEvent.click(item);
+      await waitFor(() => expect(asked).toEqual([{ playlist_id: 3, reason: 'asked' }]));
+      await waitFor(() =>
+        expect(toast).toHaveBeenCalledWith(
+          '3 tracks will be analysed next. 2 tracks already done are skipped.',
+          'success',
+        ),
+      );
+    } finally {
+      window.showToast = undefined;
+    }
+  });
+});

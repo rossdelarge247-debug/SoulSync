@@ -18,15 +18,11 @@ import type { AutomixPrefs } from './prefs';
 import {
   AutomixController,
   LEAD_BARS,
-  albumInOrder,
   PRELOAD_S,
   choiceOf,
   mixNowPlan,
   mixable,
   playedAsMix,
-  smartCrossfade,
-  soundEnds,
-  soundStarts,
   type EngineLike,
   type PlayerPort,
   type PlayerSnapshotLike,
@@ -209,7 +205,6 @@ interface Harness {
   prefs: AutomixPrefs;
   player: PlayerPort & {
     playIndex: ReturnType<typeof vi.fn>;
-    crossfadeInto: ReturnType<typeof vi.fn>;
     insertNext: ReturnType<typeof vi.fn>;
     moveNext: ReturnType<typeof vi.fn>;
   };
@@ -227,7 +222,6 @@ function harness(
     plan?: PairPlan;
     prefs?: Partial<AutomixPrefs>;
     support?: string;
-    peaks?: (id: string) => Promise<number[] | null | 'pending'>;
   } = {},
 ): Harness {
   engine = new FakeEngine();
@@ -251,7 +245,6 @@ function harness(
     state: () => st,
     audio: () => el as unknown as HTMLAudioElement,
     playIndex: vi.fn(async () => ({ status: 'played' })),
-    crossfadeInto: vi.fn(() => true),
     insertNext: vi.fn((t: QueueTrack) => {
       queue.splice(st.index + 1, 0, t);
       return st.index + 1;
@@ -276,7 +269,6 @@ function harness(
     grids,
     window,
     engine: async () => engine,
-    peaks: opts.peaks ?? (async () => null),
     prefs: () => prefs,
     support: () => opts.support ?? null,
   });
@@ -309,7 +301,7 @@ afterEach(() => {
 
 describe('the pair that’s next', () => {
   it('with DJ mix off nothing is planned, loaded or taken over', async () => {
-    const h = harness({ prefs: { between: 'smart' } });
+    const h = harness({ prefs: { between: 'off' } });
     await at(h, OUT - 2);
     expect(h.plan).not.toHaveBeenCalled();
     expect(h.window).not.toHaveBeenCalled();
@@ -381,13 +373,14 @@ describe('loading and taking over', () => {
     expect(h.el.paused).toBe(false);
   });
 
-  it('windows that didn’t come in time: the mix is missed and a crossfade takes its place', async () => {
+  it('windows that didn’t come in time: the mix is missed and the track plays on (no crossfade)', async () => {
     const h = harness();
     h.window.mockImplementation(() => new Promise(() => undefined));
     await at(h, OUT - 40);
     await at(h, OUT - 0.1);
     expect(engine.plays).toHaveLength(0);
-    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toEqual({ seconds: 6 });
+    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toBeNull();
+    expect(h.player.playIndex).not.toHaveBeenCalled();
   });
 });
 
@@ -405,8 +398,8 @@ async function intoTheMix(h: Harness) {
 }
 
 describe('a page that can’t run the decks (plain http on another address)', () => {
-  it('nothing loads, Mix now isn’t offered, and the pair crossfades saying why', async () => {
-    const why = 'DJ mix needs SYNCHRO.S on https';
+  it('nothing loads, Mix now isn’t offered, saying why, and the pair plays on', async () => {
+    const why = 'Auto mix needs SYNCHRO.S on https';
     const h = harness({ support: why });
     await at(h, OUT - 30);
     expect(h.window).not.toHaveBeenCalled();
@@ -414,10 +407,9 @@ describe('a page that can’t run the decks (plain http on another address)', ()
     expect(v.unsupported).toBe(why);
     expect(v.canMixNow).toBe(false);
     expect(v.mixNowWhy).toBe(why);
-    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toEqual({ seconds: 6 });
-    h.st.crossfading = true;
-    h.ctl.poke();
-    expect(h.ctl.getView().fallback).toBe(why);
+    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toBeNull();
+    await at(h, 299);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
   });
 });
 
@@ -612,21 +604,17 @@ describe('Mix now', () => {
     expect(v.barsToGo).toBeGreaterThan(0);
   });
 
-  it('a pair that can’t be beat-matched crossfades now (26e)', async () => {
-    const h = harness({
-      plan: okPlan({
-        status: 'crossfade',
-        style: 'crossfade',
-        bars: null,
-        fallback: { kind: 'crossfade', code: 'tempo_gap', reason: 'the tempos are 9.7% apart' },
-        out: { start: 250 },
-        in: { start: 4 },
-        length_s: 6,
-      }),
-    });
+  it('a cut plan cuts now; a pair that plays on has nothing to mix (never a crossfade)', async () => {
+    const h = harness({ plan: cutPlan() });
     await at(h, 30);
     expect(h.ctl.mixNow()).toBe(true);
-    expect(h.player.crossfadeInto).toHaveBeenCalledWith(1, { seconds: 6, inAt: 4 });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+    const on = harness({ plan: playOnPlan() });
+    await at(on, 30);
+    expect(on.ctl.mixNow()).toBe(false);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(on.player.playIndex).not.toHaveBeenCalled();
   });
 
   it('isn’t offered with DJ mix off, nor while paused', async () => {
@@ -641,144 +629,91 @@ describe('Mix now', () => {
   });
 });
 
-describe('the crossfade’s hint (media-player.js)', () => {
-  it('DJ mix: a pair that can’t beat-match crossfades at the plan’s place, at matched loudness', async () => {
-    const h = harness({
-      plan: okPlan({
-        status: 'crossfade',
-        style: 'crossfade',
-        bars: null,
-        fallback: { kind: 'crossfade', code: 'no_beat', reason: 'Sand Script has no steady beat' },
-        out: { start: 250 },
-        in: { start: 3.5 },
-        length_s: 6,
-      }),
-    });
-    await at(h, 100);
-    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toEqual({
-      startAt: 250,
-      seconds: 6,
-      inAt: 3.5,
-      gain: undefined,
-    });
+describe('no crossfade (Ross, 27 October)', () => {
+  it('the player is never asked to crossfade, whatever the plan or the setting', async () => {
+    for (const plan of [okPlan(), cutPlan(), playOnPlan(), serverWaiting()]) {
+      const h = harness({ plan });
+      await at(h, 100);
+      expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toBeNull();
+      expect(h.ctl.mixNow()).toBeTypeOf('boolean');
+      await at(h, 299);
+      await vi.advanceTimersByTimeAsync(1000);
+      // the port has no crossfade any more (PlayerPort): the only way to
+      // the next track is playIndex, and only as the plan's own cut
+      for (const call of h.player.playIndex.mock.calls) expect(call[1]).toEqual({ automix: true });
+    }
+    const off = harness({ prefs: { between: 'off' } });
+    await at(off, 100);
+    expect(off.ctl.crossfade(off.st.queue[0], off.st.queue[1])).toBeNull();
+    expect(off.plan).not.toHaveBeenCalled();
   });
 
-  it('DJ mix: a track still being analysed crossfades; a beat-matched pair is the decks’', async () => {
-    const waiting = harness({
-      plan: okPlan({
-        status: 'waiting',
-        style: null,
-        bars: null,
-        out: { start: null },
-        in: { start: 0 },
-      }),
-    });
-    await at(waiting, 100);
-    expect(waiting.ctl.crossfade(waiting.st.queue[0], waiting.st.queue[1])).toEqual({ seconds: 6 });
-    const ok = harness();
-    await at(ok, 100);
-    expect(ok.ctl.crossfade(ok.st.queue[0], ok.st.queue[1])).toBeNull();
-  });
-
-  it('DJ mix with Mix automatically off: tracks play to their end', async () => {
-    const h = harness({
-      prefs: { auto: false },
-      plan: okPlan({
-        status: 'waiting',
-        style: null,
-        bars: null,
-        out: { start: null },
-        in: { start: 0 },
-      }),
-    });
-    await at(h, 100);
-    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toBeNull();
-  });
-
-  it('Smart crossfade: not on an album in order; else the sums once it knows', async () => {
-    const h = harness({ prefs: { between: 'smart' } });
-    // worked out late in the track only (L3)
-    expect(h.ctl.crossfade(track('1', 'One'), track('2', 'Two'))).toBeNull();
-    await flush();
-    expect(h.grids).not.toHaveBeenCalled();
+  it('a cut plan ends the outgoing track on its bar and starts the next, no decks', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 200);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    expect(h.ctl.getView().stage).toBe('cut');
+    await at(h, 249);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
     h.el.advance(250);
-    const a = track('1', 'One', { album_id: 7, track_number: 3 });
-    expect(h.ctl.crossfade(a, track('2', 'Two', { album_id: 7, track_number: 4 }))).toEqual({
-      skip: true,
-    });
-    // the same album out of order, or without its numbers, crossfades
-    expect(albumInOrder(a, track('2', 'Two', { album_id: 7, track_number: 9 }))).toBe(false);
-    expect(
-      albumInOrder(track('1', 'One', { album_id: 7 }), track('2', 'Two', { album_id: 7 })),
-    ).toBe(false);
-    expect(h.ctl.crossfade(a, track('2', 'Two', { album_id: 8 }))).toBeNull();
-    await flush();
-    const hint = h.ctl.crossfade(a, track('2', 'Two', { album_id: 8 }));
-    // a grid, no peaks: on the downbeat before 300 - 6, louder next track turned down
-    expect(hint?.startAt).toBeLessThanOrEqual(294);
-    expect(hint?.startAt).toBeGreaterThan(292);
-    expect(hint?.gain).toBeCloseTo(Math.pow(10, -2 / 20), 6);
-  });
-});
-
-describe('[gauntlet L1b] Smart crossfade’s waveforms', () => {
-  // the sound ends at 285 s of 300: the fade starts 6 s before it
-  const ending = [...Array.from({ length: 19 }, () => 1), 0];
-
-  it('looked for in the last two minutes, and a waveform still being worked out is asked again', async () => {
-    let ready = false;
-    const peaks = vi.fn(async (id: string) => (id === '1' && !ready ? 'pending' : ending));
-    const h = harness({ prefs: { between: 'smart' }, peaks });
-    const a = track('1', 'One');
-    const b = track('2', 'Two');
-    h.el.advance(175); // 125 s left: not yet
-    expect(h.ctl.crossfade(a, b)).toBeNull();
-    await flush();
-    expect(peaks).not.toHaveBeenCalled();
-    h.el.advance(185); // 115 s left
-    expect(h.ctl.crossfade(a, b)).toBeNull();
-    await flush();
-    expect(peaks).toHaveBeenCalledTimes(2);
-    // meanwhile: the grid's downbeat before 300 - 6, not a final "no waveform"
-    const before = h.ctl.crossfade(a, b);
-    expect(before?.startAt).toBeGreaterThan(292);
-    ready = true;
-    await vi.advanceTimersByTimeAsync(10_000);
-    await flush();
-    expect(peaks).toHaveBeenCalledTimes(3);
-    expect(peaks).toHaveBeenLastCalledWith('1');
-    const after = h.ctl.crossfade(a, b);
-    expect(after?.startAt).toBeLessThan(281);
-    expect(after?.startAt).toBeGreaterThan(276);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(h.player.playIndex).toHaveBeenCalledTimes(1);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+    expect(engine.plays).toHaveLength(0);
+    expect(h.window).not.toHaveBeenCalled();
   });
 
-  it('asked again twice at most', async () => {
-    const peaks = vi.fn(async (id: string) => (id === '1' ? 'pending' : ending) as 'pending');
-    const h = harness({ prefs: { between: 'smart' }, peaks });
-    h.el.advance(200);
-    h.ctl.crossfade(track('1', 'One'), track('2', 'Two'));
-    await flush();
-    await vi.advanceTimersByTimeAsync(60_000);
-    await flush();
-    expect(peaks.mock.calls.filter(([id]) => id === '1')).toHaveLength(3);
-    expect(h.ctl.crossfade(track('1', 'One'), track('2', 'Two'))?.startAt).toBeGreaterThan(292);
+  it('[review L2] a pause while a cut is set: no cut while paused, set again once it plays on', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 249);
+    h.el.pause();
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    await h.el.play();
+    await at(h, 249.9);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(h.player.playIndex).toHaveBeenCalledTimes(1);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
   });
-});
 
-describe('Smart crossfade’s sums', () => {
-  it('ends where the sound does (at most 15 s early) and starts the next past its silence', () => {
-    const peaks = [0, 0, 0.5, 1, 0.8, 0.6, 0.4, 0.2, 0.01, 0];
-    expect(soundEnds(peaks)).toBeCloseTo(0.8, 6);
-    expect(soundStarts(peaks)).toBeCloseTo(0.2, 6);
-    const hint = smartCrossfade(
-      { gridA: null, apiA: null, apiB: null, peaksA: peaks, peaksB: [0, 1, 1, 1], durB: 8 },
-      100,
-      6,
-    );
-    // the sound ends at 80 s, but never more than 15 s early: 85 - 6
-    expect(hint?.startAt).toBeCloseTo(79, 6);
-    expect(hint?.inAt).toBeCloseTo(1.95, 6);
-    expect(hint?.gain).toBeUndefined();
+  it('[review L2] the wait for a cut is in the track’s seconds at its playback rate', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    h.el.playbackRate = 2;
+    await at(h, 249);
+    // a second of the track at double speed is half a second of the clock
+    await vi.advanceTimersByTimeAsync(400);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    h.el.advance(250);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(h.player.playIndex).toHaveBeenCalledTimes(1);
+    // slower: it doesn't fire early, and a timer that finds the track short
+    // of its bar sets it again
+    const slow = harness({ plan: cutPlan(250) });
+    slow.el.playbackRate = 0.5;
+    await at(slow, 249);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(slow.player.playIndex).not.toHaveBeenCalled();
+    slow.el.advance(250);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(slow.player.playIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('with Mix automatically off a cut waits for Mix now', async () => {
+    const manual = harness({ plan: cutPlan(250), prefs: { auto: false } });
+    await at(manual, 249.5);
+    manual.el.advance(251);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(manual.player.playIndex).not.toHaveBeenCalled();
+  });
+
+  it('a pair that plays on: nothing happens, the track plays to its end', async () => {
+    const h = harness({ plan: playOnPlan() });
+    for (const t of [100, 250, OUT, 299]) await at(h, t);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    expect(h.window).not.toHaveBeenCalled();
+    expect(h.ctl.ownsAdvance()).toBe(false);
   });
 });
 
@@ -866,8 +801,8 @@ describe('[gauntlet H1] the element is never left muted', () => {
     expect(h.el.volume).toBeCloseTo(0.7, 6);
     expect(engine.unloaded).toEqual(expect.arrayContaining(['A', 'B']));
     expect(h.ctl.ownsAdvance()).toBe(false);
-    // and it crossfades at the end instead
-    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toEqual({ seconds: 6 });
+    // and it plays on to its end (no crossfade)
+    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toBeNull();
   });
 
   it('the last line: muted with no mix held, the next play unmutes it', async () => {
@@ -1015,6 +950,36 @@ function serverWaiting(over: Partial<PairPlan> = {}): PairPlan {
   };
 }
 
+// no crossfade (core/dj/planner.py): a cut on the bar with no grid going
+// out, or play on
+function cutPlan(start = 250): PairPlan {
+  const { out: _o, in: _i, ...rest } = okPlan();
+  return {
+    ...rest,
+    status: 'cut',
+    style: 'cut',
+    bars: null,
+    beatmatch: false,
+    fallback: { kind: 'cut', code: 'no_beat', reason: 'Night Ferry has no steady beat' },
+    out: { start, bar: null, end: start },
+    in: { start: 0, bar: null },
+    length_s: 0,
+  };
+}
+
+function playOnPlan(): PairPlan {
+  const { out: _o, in: _i, ...rest } = okPlan();
+  return {
+    ...rest,
+    status: 'play_on',
+    style: null,
+    bars: null,
+    beatmatch: false,
+    length_s: 0,
+    fallback: { kind: 'play_on', code: 'no_beat', reason: 'Night Ferry has no steady beat' },
+  };
+}
+
 describe('[gauntlet lab] every plan status, as the server sends it', () => {
   it('waiting (no out, no in): planned, ticked to the end, Mix now and the view never throw', async () => {
     const h = harness({ plan: serverWaiting() });
@@ -1025,37 +990,43 @@ describe('[gauntlet lab] every plan status, as the server sends it', () => {
     expect(h.ctl.getView().stage).not.toBe('mixing');
     expect(h.ctl.ownsAdvance()).toBe(false);
     expect(() => h.ctl.key('X')).not.toThrow();
-    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toEqual({ seconds: 6 });
+    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toBeNull();
     expect(h.window).not.toHaveBeenCalled();
     expect(h.el.muted).toBe(false);
   });
 
-  it('crossfade with no outgoing start: crossfades at the player’s own place', async () => {
-    const { out: _o, ...rest } = okPlan();
-    const h = harness({
-      plan: {
-        ...rest,
-        status: 'crossfade',
-        style: 'crossfade',
-        bars: null,
-        beatmatch: false,
-        out: { start: null, bar: null, end: null },
-        in: { start: 1.5, bar: null },
-        length_s: 6,
-        fallback: { kind: 'crossfade', code: 'no_beat', reason: 'no steady beat' },
-      },
-    });
-    for (const t of [100, 250, 295]) {
-      await at(h, t);
-      expect(() => h.ctl.getView()).not.toThrow();
+  it('cut and play_on (no decks): ticked to the end, Mix now and the view never throw', async () => {
+    for (const plan of [cutPlan(250), playOnPlan()]) {
+      const h = harness({ plan });
+      for (const t of [100, 250, 295]) {
+        await at(h, t);
+        expect(() => h.ctl.getView()).not.toThrow();
+      }
+      expect(h.ctl.ownsAdvance()).toBe(false);
+      expect(h.window).not.toHaveBeenCalled();
     }
-    const hint = h.ctl.crossfade(h.st.queue[0], h.st.queue[1]);
-    expect(hint?.startAt).toBeUndefined();
-    expect(hint?.inAt).toBe(1.5);
-    expect(h.ctl.ownsAdvance()).toBe(false);
   });
 
   it('Mix now on a plan with no places: nothing moved', () => {
     expect(mixNowPlan(serverWaiting(), GA, [], 30, 300)).toBeNull();
+  });
+});
+
+describe('analyse on demand: a waiting pair', () => {
+  it('is planned again, afresh, once a track it waits for is analysed', async () => {
+    const h = harness({ plan: serverWaiting() });
+    await at(h, 100);
+    expect(h.plan).toHaveBeenCalledTimes(1);
+    expect(h.ctl.getView().plan?.status).toBe('waiting');
+    h.plan.mockImplementation(async () => okPlan());
+    h.ctl.replanWaiting();
+    await flush();
+    expect(h.plan).toHaveBeenCalledTimes(2);
+    expect(h.plan).toHaveBeenLastCalledWith('1', '2', AUTO_CHOICE, 'auto', true);
+    expect(h.ctl.getView().plan?.status).toBe('ok');
+    // a pair already planned isn't asked again
+    h.ctl.replanWaiting();
+    await flush();
+    expect(h.plan).toHaveBeenCalledTimes(2);
   });
 });

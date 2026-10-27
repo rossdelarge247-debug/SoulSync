@@ -12,8 +12,9 @@ import { Button } from '@/components/form';
  *   to the outgoing track, Finish now, and Watch it on Decks (disabled
  *   until Decks is built). Before it starts, the countdown with Cancel;
  * - **BarStatus** (the collapsed bar's middle, 26e): counting down in bars
- *   with Cancel, mixing with both titles and a two-line handover bar, or
- *   the fallback's status line;
+ *   with Cancel, or mixing with both titles and a two-line handover bar
+ *   (no crossfade status: a pair that can't be beat-matched echoes out,
+ *   cuts or plays on, quietly);
  * - **MixNowButton** (26a): beside Next, which still cuts; key X.
  */
 import type { AutomixView, HandoverLanes } from './controller';
@@ -36,9 +37,11 @@ function clock(seconds: number): string {
 function styleWords(view: AutomixView): string {
   const t = view.transition;
   const plan = view.plan;
-  const style = (t?.style ?? plan?.style ?? 'auto') as keyof typeof STYLE_LABELS;
+  const raw = t?.style ?? plan?.style ?? 'auto';
+  // the engine's own finish of a mix the system cut off (Design's 252)
+  if (raw === 'crossfade') return 'Finishing the mix';
+  const style = raw as keyof typeof STYLE_LABELS;
   const label = STYLE_LABELS[style] ?? t?.label ?? 'Mix';
-  if (style === 'crossfade') return 'Crossfade';
   const bars = t?.bars || plan?.bars;
   return style === 'cut' || !bars ? label : `${label} · ${bars} bars`;
 }
@@ -77,9 +80,8 @@ export function MixNowButton({
   compact?: boolean;
 }) {
   if (!view.dj) return null;
-  // the countdown has its own Cancel in Mix now's place, and a crossfade
-  // in a mix's place its status line (26e)
-  if (view.barsToGo !== null || view.fallback !== null) return null;
+  // the countdown has its own Cancel in Mix now's place (26e)
+  if (view.barsToGo !== null) return null;
   if (['counting', 'mixing', 'settling', 'handback', 'back', 'rejoin'].includes(view.stage))
     return null;
   const disabled = !view.canMixNow;
@@ -103,19 +105,6 @@ export function MixNowButton({
 }
 
 export function BarStatus({ view, actions }: { view: AutomixView; actions: HandoverActions }) {
-  if (view.fallback) {
-    return (
-      <div className={styles.bar} data-automix-bar="fallback">
-        <p className={styles.fallback} role="status">
-          <i aria-hidden="true" />
-          <span>
-            Couldn&apos;t beat-match: crossfading{' '}
-            <span className={styles.barMeta}>· {view.fallback}</span>
-          </span>
-        </p>
-      </div>
-    );
-  }
   const t = view.transition;
   const counting = view.stage === 'counting' || (!t && view.barsToGo !== null);
   if (counting) {

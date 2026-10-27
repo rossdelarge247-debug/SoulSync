@@ -12736,7 +12736,7 @@
                         <button type="button" class="ss-player-text-btn" data-player-view-close>Back to Up next</button>
                     </div>
                     <div class="ss-player-view-body">
-                        <!-- Between tracks: Off / Smart crossfade / DJ mix (26h):
+                        <!-- Between tracks: Off / Auto mix (26h; no crossfade):
                              src/features/automix/between-tracks.tsx -->
                         <div id="ss-between-tracks-settings"></div>
                         <p class="ss-player-section">Playback</p>
@@ -12749,16 +12749,6 @@
                                 <option value="1.5">1.5×</option>
                                 <option value="1.75">1.75×</option>
                                 <option value="2">2×</option>
-                            </select>
-                        </label>
-                        <label class="ss-player-setting"><span>Crossfade length<small>How much two library tracks overlap with Smart crossfade.</small></span>
-                            <select class="ss-player-select" id="np-v2-xfade-secs">
-                                <option value="0">Off</option>
-                                <option value="2">2 seconds</option>
-                                <option value="4">4 seconds</option>
-                                <option value="6">6 seconds</option>
-                                <option value="10">10 seconds</option>
-                                <option value="15">15 seconds</option>
                             </select>
                         </label>
                         <label class="ss-player-setting"><span>Keep the screen awake<small>While music plays with the tray or the visuals open.</small></span>
@@ -12941,7 +12931,6 @@
             <!-- a library track with its file: 24a's "Add to mix set…" -->
             <button type="button" class="ss-player-menu-item" data-player-menu="mixset" aria-haspopup="dialog" hidden>Add to mix set…</button>
             <p class="ss-player-menu-label" data-player-menu-head>Playback</p>
-            <button type="button" class="ss-player-menu-item" data-player-menu="crossfade" aria-pressed="false" data-player-menu-music>Crossfade <span class="ss-player-menu-state" data-player-crossfade-state>Off</span></button>
             <button type="button" class="ss-player-menu-item" data-player-menu="speed" aria-expanded="false" aria-controls="ss-player-speed-list" data-player-menu-music>Speed <span class="ss-player-menu-state" data-player-speed-state>1.0×</span></button>
             <div class="ss-player-choices" id="ss-player-speed-list" role="radiogroup" aria-label="Speed" hidden></div>
             <button type="button" class="ss-player-menu-item" id="np-v2-eq-btn" aria-pressed="false">Equalizer <span class="ss-player-menu-state" data-player-eq-state>Off</span></button>

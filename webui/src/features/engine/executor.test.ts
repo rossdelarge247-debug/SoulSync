@@ -230,7 +230,7 @@ describe('interruptions (Design 252)', () => {
     expect(tr.state().phase).toBe('cancelled');
   });
 
-  it('finishes with a short crossfade once sound is back from a cut-off mix', () => {
+  it('finishes with a cut once sound is back from a cut-off mix (Design 308)', () => {
     const { port, tr } = setup();
     const clock = tr.beatClock;
     port.time = clock.timeAt(30);
@@ -240,12 +240,15 @@ describe('interruptions (Design 252)', () => {
     const events: string[] = [];
     tr.on((e) => events.push(e.type));
     tr.onLifecycle({ kind: 'resumed', reason: 'interrupted', forMs: 40000 });
-    expect(events).toContain('crossfaded');
-    const end = port.time + LOOKAHEAD + 2;
+    expect(events).toContain('cut');
+    expect(events).not.toContain('crossfaded');
+    expect(tr.state().phase).toBe('done');
+    // a cut, not a 2-second crossfade: the incoming track is all there is
+    // a moment after sound is back
+    const end = port.time + LOOKAHEAD + 0.05;
     expect(port.value('B', 'xf', end)).toBeCloseTo(1, 6);
     expect(port.value('A', 'xf', end)).toBeCloseTo(0, 6);
     expect(port.value('B', 'low', end)).toBeCloseTo(0, 6);
-    expect(biggestStep(port, port.time, end + 1).step).toBeLessThan(0.05);
   });
 
   it('on a phone, a hidden page finishes the mix over one bar before the lock stops it', () => {

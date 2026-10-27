@@ -500,14 +500,14 @@ def _drifting_beats(env, period: float, duration: float):
 #: the sixteenth check's weight on the backbeat (a snare on two and four)
 #: beside the kicks on the beat, and how much better another sixteenth must
 #: score to move the grid there; under AMBIGUOUS_MARGIN the grid's
-#: confidence is cut so the planner crossfades (gauntlet L4 of stage A)
+#: confidence is cut so the planner won't beat-match (gauntlet L4 of stage A)
 BACKBEAT_WEIGHT = 1.5
 SHIFT_MARGIN = 1.15
 AMBIGUOUS_MARGIN = 1.15
 AMBIGUOUS_FACTOR = 0.6
 #: a grid the check moved (a break) is kept, for its bars and phrases, but
 #: under the planner's bar for beat-matching (0.5) until the check has been
-#: proven on real breaks: such a pair crossfades
+#: proven on real breaks: such a pair echoes out
 BREAK_CONFIDENCE = 0.45
 
 
@@ -626,7 +626,7 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
         if shift:
             confidence = min(confidence, BREAK_CONFIDENCE)
         if margin < AMBIGUOUS_MARGIN:
-            confidence *= AMBIGUOUS_FACTOR  # not sure which sixteenth: crossfade
+            confidence *= AMBIGUOUS_FACTOR  # not sure which sixteenth: no beat-match
         return {"kind": "constant", "bpm": round(60.0 / period, 3), "period": period, "first_beat": float(beats[0]),
                 "beats": beats, "confidence": round(confidence, 3), "sixteenth": shift,
                 "sixteenth_margin": round(min(margin, 99.0), 2),
@@ -960,10 +960,13 @@ def _mix_regions(sections: List[List[Any]], kick, n_bars: int, truncated: bool):
 
 # ── the whole analysis ───────────────────────────────────────────────────────
 
-def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bool = False) -> Dict[str, Any]:
+def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bool = False,
+                  on_step=None) -> Dict[str, Any]:
     """Everything above for one track's decoded audio (mono). Returns the
     compact form the store keeps (``status`` ``done``, or ``none`` with a
-    ``reason``: ``too_short`` or ``no_beat``)."""
+    ``reason``: ``too_short`` or ``no_beat``). ``on_step`` is told
+    ``phrases`` when the beats are found and the bars' sections are next
+    (the DJ job's progress, core/dj/progress.py)."""
     import numpy as np
 
     y = np.asarray(y, dtype=np.float32)
@@ -996,6 +999,8 @@ def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bo
            "beats": [round(float(b), 4) for b in beats] if grid["kind"] == "beats" else None}
     if n_bars < 8:
         return {**out, "phrases": phrases_from([], n_bars), "sections": [], "mix_in": None, "mix_out": None}
+    if on_step is not None:
+        on_step("phrases")
     bar_starts = beats[first:first + (n_bars + 1) * 4:4]
     if len(bar_starts) < n_bars + 1:
         bar_starts = np.append(bar_starts, bar_starts[-1] + 4 * grid["period"])

@@ -9,6 +9,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 
@@ -95,6 +96,9 @@ interface World {
   added: unknown[];
   started: unknown[];
   vibes: number;
+  /** analyse on demand: what was asked for, and each track's progress */
+  analysed: unknown[];
+  progress: Record<string, unknown>;
 }
 
 function viewRow(t: ReturnType<typeof track>, transition: unknown = null) {
@@ -175,6 +179,34 @@ function serve() {
     http.post('/api/library/dj/start', async ({ request }) => {
       world.started.push(await request.json());
       return HttpResponse.json({ success: true, job: null }, { status: 202 });
+    }),
+    http.post('/api/library/dj/analyse', async ({ request }) => {
+      world.analysed.push(await request.json());
+      return HttpResponse.json(
+        {
+          success: true,
+          asked: 1,
+          queued: 1,
+          already_queued: 0,
+          already_done: 0,
+          cant: 0,
+          over_limit: 0,
+          limit: 200,
+          yours: 1,
+          started: true,
+        },
+        { status: 202 },
+      );
+    }),
+    http.post('/api/library/dj/progress', async ({ request }) => {
+      const ids = ((await request.json()) as { track_ids: string[] }).track_ids;
+      const tracks: Record<string, unknown> = {};
+      for (const id of ids) if (world.progress[id]) tracks[id] = world.progress[id];
+      return HttpResponse.json({
+        success: true,
+        tracks,
+        sweep: { running: false, held: false, analyze: true, in_line: 0, yours: 0, current: null },
+      });
     }),
     http.get('/api/ai/status', () =>
       HttpResponse.json({ success: true, configured: true, ...world.ai }),
@@ -330,7 +362,11 @@ beforeEach(() => {
     added: [],
     started: [],
     vibes: 0,
+    analysed: [],
+    progress: {},
   };
+  resetAnalysisRequests();
+  analysisStore.reset();
   serve();
   shell();
 });
@@ -475,16 +511,99 @@ describe('while the set plays (29b)', () => {
 });
 
 describe("29d's states", () => {
-  it('not analysed yet: Analyse this one now', async () => {
+  it('[review M1, M2] asks and watches only while the tab is shown, not for a track merely playing', async () => {
     world.mixes['1'] = {
       ...answer(track('1', 'Night Ferry', 'Tidewater', null), []),
       reason: 'not_analyzed',
     };
+    world.progress['1'] = { state: 'queued', position: 3, asked_for: true };
+    const polled: string[][] = [];
+    server.use(
+      http.post('/api/library/dj/progress', async ({ request }) => {
+        const ids = ((await request.json()) as { track_ids: string[] }).track_ids;
+        polled.push(ids);
+        return HttpResponse.json({
+          success: true,
+          tracks: { '1': world.progress['1'] },
+          sweep: { running: true, held: false, analyze: true, in_line: 1, yours: 1, current: null },
+        });
+      }),
+    );
+    const tray = document.getElementById('ss-player-tray')!;
+    tray.hidden = true;
+    mount();
+    const pause = () =>
+      act(async () => {
+        await new Promise((r) => setTimeout(r, 400));
+      });
+    await pause();
+    // the tray is shut: nothing asked, nothing watched
+    expect(world.analysed).toEqual([]);
+    expect(polled).toEqual([]);
+    // Now playing with the tray open: still nothing
+    act(() => {
+      tray.hidden = false;
+    });
+    await pause();
+    expect(world.analysed).toEqual([]);
+    expect(polled).toEqual([]);
+    // the Mix tab shown: asked for (automatically), and watched
+    fireEvent.click(
+      await within(document.querySelector<HTMLElement>('[data-player-modes="music"]')!).findByRole(
+        'tab',
+        { name: 'Mix' },
+      ),
+    );
+    await waitFor(() => expect(world.analysed).toEqual([{ track_ids: ['1'], reason: 'auto' }]));
+    await waitFor(() => expect(polled.flat()).toContain('1'));
+    // the tray shut again: the watch stops, so the poll does
+    act(() => {
+      tray.hidden = true;
+    });
+    await waitFor(() => expect(analysisStore.scheduled).toBe(false));
+    const seen = polled.length;
+    await pause();
+    expect(polled).toHaveLength(seen);
+  });
+
+  it('not analysed yet: asked for at once (any profile), its step shows', async () => {
+    world.mixes['1'] = {
+      ...answer(track('1', 'Night Ferry', 'Tidewater', null), []),
+      reason: 'not_analyzed',
+    };
+    world.progress['1'] = { state: 'working', step: 'grid', percent: 60 };
     const mix = await openMix();
     expect(await mix.findByText('Night Ferry is being worked out')).toBeInTheDocument();
+    // opening it asked for it: analyse on demand, not the admins' /start
+    await waitFor(() => expect(world.analysed).toEqual([{ track_ids: ['1'], reason: 'auto' }]));
+    expect(world.started).toEqual([]);
+    const bars = await mix.findAllByRole('progressbar', { name: 'Analysis of Night Ferry' });
+    expect(bars[0]).toHaveAttribute('aria-valuenow', '60');
+    expect(mix.getAllByText('Finding the beat grid · 60%').length).toBeGreaterThan(0);
+    // in line, so no "tracks ahead" and no button
+    expect(mix.queryByText(/\(12 tracks ahead\)/)).toBeNull();
+    expect(mix.queryByRole('button', { name: 'Analyse this one now' })).toBeNull();
+  });
+
+  it('not in any line: Analyse this one now asks again', async () => {
+    world.mixes['1'] = {
+      ...answer(track('1', 'Night Ferry', 'Tidewater', null), []),
+      reason: 'not_analyzed',
+    };
+    world.progress['1'] = {
+      state: 'waiting',
+      reason: 'not_queued',
+      position: null,
+      asked_for: false,
+    };
+    const mix = await openMix();
+    expect(await mix.findByText('Night Ferry is being worked out')).toBeInTheDocument();
+    await waitFor(() => expect(world.analysed).toHaveLength(1));
     expect(mix.getByText(/\(12 tracks ahead\)/)).toBeInTheDocument();
-    fireEvent.click(mix.getByRole('button', { name: 'Analyse this one now' }));
-    await waitFor(() => expect(world.started).toEqual([{ track_id: '1' }]));
+    fireEvent.click(await mix.findByRole('button', { name: 'Analyse this one now' }));
+    // asks are a second apart (the server takes one a second a profile)
+    await waitFor(() => expect(world.analysed).toHaveLength(2), { timeout: 4000 });
+    expect(world.analysed[1]).toEqual({ track_ids: ['1'], reason: 'asked' });
   });
 
   it('nothing fits: Widen the search asks for 10% and any key', async () => {
@@ -624,6 +743,38 @@ describe('Visuals: the drawer (29b)', () => {
     expect(window.SoulSyncMix!.drawerOpen()).toBe(true);
     fireEvent.keyDown(drawer, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Mix' })).toBeNull());
+  });
+
+  it('M opens it in the visuals panel’s place: one panel at a time', async () => {
+    setTrayMode('now');
+    const visuals = { open: true, panelOpen: () => visuals.open, closePanel: vi.fn() };
+    visuals.closePanel.mockImplementation(() => {
+      visuals.open = false;
+    });
+    (window as unknown as Record<string, unknown>).SoulSyncVisuals = visuals;
+    try {
+      mount();
+      const overlay = document.getElementById('np-modal-overlay')!;
+      act(() => overlay.classList.remove('hidden'));
+      const button = document.getElementById('np-v2-visuals-mix-btn')!;
+      await waitFor(() => expect(button.hidden).toBe(false));
+      act(() => {
+        expect(window.SoulSyncMix!.key('M')).toBe(true);
+      });
+      expect(await screen.findByRole('region', { name: 'Mix' })).toBeInTheDocument();
+      // the panel closed, so it isn't left open under the drawer for the next
+      // click on Visuals to close
+      expect(visuals.closePanel).toHaveBeenCalledTimes(1);
+      expect(visuals.open).toBe(false);
+      // and M again closes the drawer without touching the panel
+      act(() => {
+        expect(window.SoulSyncMix!.key('M')).toBe(true);
+      });
+      await waitFor(() => expect(screen.queryByRole('region', { name: 'Mix' })).toBeNull());
+      expect(visuals.closePanel).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (window as unknown as Record<string, unknown>).SoulSyncVisuals;
+    }
   });
 });
 

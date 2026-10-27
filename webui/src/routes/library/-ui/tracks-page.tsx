@@ -4,6 +4,9 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { Button, TextInput } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
+import { AnalysisProgress, useAnalysis } from '@/features/dj/analysis-progress';
+import { requestAnalysis, type AnalysisEntry } from '@/features/dj/analysis.api';
+import { analyseTheseHint, analyseTheseWords, inLine } from '@/features/dj/analysis.format';
 import { addTrackToPlaylist, playlistTrack, playTrackNext } from '@/features/dj/dj-actions';
 import {
   DJ_PAGE_SIZE,
@@ -137,8 +140,11 @@ function TrackRow({
   selecting = false,
   checked = false,
   onToggle,
+  progress = null,
 }: {
   track: DjTrack;
+  /** in line or being worked out (analyse on demand): its bar and step */
+  progress?: AnalysisEntry | null;
   phone: boolean;
   /** selection mode (21a): a checkbox takes the art's place */
   selecting?: boolean;
@@ -256,6 +262,14 @@ function TrackRow({
             {dj?.skipped ? <> · {sentenceCase(dj.skipped)}</> : null}
           </span>
         )}
+        {inLine(progress ?? undefined) ? (
+          <AnalysisProgress
+            entry={progress}
+            block
+            compact={phone}
+            label={`Analysis of ${track.title}`}
+          />
+        ) : null}
       </div>
       {phone ? null : (
         <>
@@ -533,6 +547,20 @@ export function TracksPage({
   // what the key filter covered, as the server read it ("8A, 7A, 9A or 8B")
   const keys = pages[0]?.keys ?? (key ? [key] : []);
 
+  // analyse on demand: the rows in line or being worked out show their step
+  const progressOf = useAnalysis(tracks.slice(0, 500).map((t) => t.id));
+  const analysePicked = () => {
+    void requestAnalysis(picked.slice(0, 500), { force: true })
+      .then((answer) => {
+        if (!answer) return;
+        const said = analyseTheseWords(answer);
+        window.showToast?.(said.words, said.tone);
+      })
+      .catch((error: unknown) =>
+        window.showToast?.(error instanceof Error ? error.message : "That didn't work.", 'error'),
+      );
+  };
+
   // a running analysis fills rows in: refresh the list when it moves on
   const done = status.data?.job?.status === 'running' ? status.data.job.done : null;
   useEffect(() => {
@@ -797,6 +825,7 @@ export function TracksPage({
                 selecting={selecting}
                 checked={selecting && picked.includes(track.id)}
                 onToggle={() => toggle(track.id)}
+                progress={progressOf[track.id] ?? null}
               />
             ))}
           </ul>
@@ -897,6 +926,15 @@ export function TracksPage({
               label: 'Start a set from these',
               disabled: !picked.length,
               onSelect: () => startSet(),
+            },
+            {
+              key: 'analyse',
+              label: 'Analyse these',
+              disabled: !picked.length,
+              reason: picked.length
+                ? analyseTheseHint(Math.min(picked.length, 500))
+                : 'Tick tracks to select them',
+              onSelect: () => analysePicked(),
             },
             {
               key: 'clear',

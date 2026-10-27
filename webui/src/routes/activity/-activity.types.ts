@@ -26,6 +26,9 @@ export interface ActivityRef {
   /** A library job's id, and while it runs the route that stops it (under /api/). */
   job_id?: number;
   stop_path?: string;
+  /** The running DJ analysis: its bar and the track it's on come from
+   *  POST /api/library/dj/progress (analyse on demand). */
+  dj_progress?: boolean;
   [key: string]: unknown;
 }
 

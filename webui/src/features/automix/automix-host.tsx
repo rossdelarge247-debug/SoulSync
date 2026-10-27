@@ -9,7 +9,7 @@
  * - `[data-automix-slot="mixnow-bar"]` / `="mixnow-deck"`: Mix now, beside
  *   Next in the bar and in the tray;
  * - `[data-automix-slot="bar"]`: the bar's middle while it counts down,
- *   mixes or crossfades in a mix's place (26e);
+ *   or mixes (26e);
  * - `[data-automix-slot="record"]` / `="deck"`: the handover in the tray's
  *   record and in the waveform's place (26d; the phone's sheet, 26f).
  *
@@ -25,14 +25,19 @@ import { createPortal, flushSync } from 'react-dom';
 
 import type { Transition } from '@/features/sets/sets.api';
 
-import { postDjJob, DJ_QUERY_KEY } from '@/features/dj/dj.api';
+import { useAnalysis } from '@/features/dj/analysis-progress';
+import {
+  DJ_ANALYSED_EVENT,
+  requestAnalysis,
+  requestAnalysisQuietly,
+} from '@/features/dj/analysis.api';
+import { DJ_QUERY_KEY } from '@/features/dj/dj.api';
 import { Engine } from '@/features/engine/engine';
 import { looksLikePhone } from '@/features/engine/lifecycle';
 import { fetchGrids, fetchWindow } from '@/features/engine/loader';
 import workletUrl from '@/features/engine/worklet/deck-processor.js?url';
 import { SETS_QUERY_KEY } from '@/features/sets/sets.api';
 import { useProfile } from '@/platform/shell/route-controllers';
-import { appURL } from '@/platform/url-base';
 
 import styles from './automix.module.css';
 import { BetweenTracksSettings } from './between-tracks';
@@ -108,7 +113,6 @@ const port: PlayerPort = {
   audio: () => playerApi()?.audio() ?? null,
   playIndex: (index, options) =>
     playerApi()?.playIndex(index, options) ?? Promise.resolve({ status: 'failed' }),
-  crossfadeInto: (index, hint) => Boolean(playerApi()?.crossfadeInto(index, hint)),
   insertNext: (track) => playerApi()?.insertNext(track) ?? -1,
   moveNext: (index) => playerApi()?.moveNext?.(index) ?? index,
   renderQueue: () => playerApi()?.renderQueue(),
@@ -129,7 +133,12 @@ let shared: AutomixController | null = null;
 function controllerFor(qc: QueryClient): AutomixController {
   if (shared) return shared;
   shared = new AutomixController(port, {
-    plan: (from, to, choice) => qc.fetchQuery(planQuery(qc, from, to, choice)),
+    plan: (from, to, choice, _lean, fresh) =>
+      qc.fetchQuery(
+        fresh
+          ? { ...planQuery(qc, from, to, choice), staleTime: 0 }
+          : planQuery(qc, from, to, choice),
+      ),
     grids: (ids) => fetchGrids(ids),
     window: (ctx, id, start, dur) => fetchWindow(ctx, id, start, dur),
     async engine() {
@@ -142,16 +151,6 @@ function controllerFor(qc: QueryClient): AutomixController {
         tap: g.analyser,
         phone: looksLikePhone(typeof navigator === 'object' ? navigator : null),
       });
-    },
-    async peaks(id) {
-      const res = await fetch(appURL(`/api/library/tracks/${encodeURIComponent(id)}/peaks`), {
-        credentials: 'same-origin',
-      });
-      // 202: the server is still working the waveform out; asked again later
-      if (res.status === 202) return 'pending';
-      if (!res.ok) return null;
-      const body = (await res.json()) as { peaks?: number[] | null };
-      return Array.isArray(body.peaks) ? body.peaks : null;
     },
     prefs: getPrefs,
     support: () => mixSupport(),
@@ -257,6 +256,15 @@ function GapChip({
     ...planQuery(qc, fromId, toId, AUTO_CHOICE),
     enabled: ok && open && choice.style !== 'auto',
   });
+  // Waiting (26g): the track the plan waits for shows its step and bar
+  const waitsFor =
+    ok && plan.data?.status === 'waiting'
+      ? plan.data.waiting_for === 'from'
+        ? fromId
+        : toId
+      : null;
+  const progressOf = useAnalysis([waitsFor]);
+  const progress = waitsFor ? (progressOf[waitsFor] ?? null) : null;
   if (!ok) return null;
   const fromTitle = from.title || 'this track';
   const toTitle = to.title || 'the next track';
@@ -271,15 +279,17 @@ function GapChip({
   )
     live = { kind: 'counting', bars: view.barsToGo, onCancel: () => ctl.cancel() };
   const set = from.mix_set && to.mix_set && from.mix_set.id === to.mix_set.id ? from.mix_set : null;
-  // a page that can't run the decks: the pair crossfades, saying why
+  // a page that can't run the decks: the pair plays on (no crossfade, no
+  // chip; Mix now and Between tracks say why). A cut needs no decks.
   const data =
     plan.data && view.unsupported && plan.data.status === 'ok'
       ? {
           ...plan.data,
-          status: 'crossfade',
-          style: 'crossfade',
-          length_s: 6,
-          fallback: { kind: 'crossfade', code: 'unsupported', reason: view.unsupported },
+          status: 'play_on',
+          style: null,
+          out: undefined,
+          in: undefined,
+          fallback: { kind: 'play_on', code: 'unsupported', reason: view.unsupported },
         }
       : (plan.data ?? null);
   const waitingId = data?.waiting_for === 'from' ? fromId : toId;
@@ -296,17 +306,15 @@ function GapChip({
       compact={phone}
       floating
       onOpenChange={setOpen}
-      analyse={
-        profile?.isAdmin
-          ? () => {
-              void postDjJob('start', waitingId)
-                .then(() => qc.invalidateQueries({ queryKey: [...DJ_QUERY_KEY] }))
-                .catch((e: unknown) =>
-                  window.showToast?.(e instanceof Error ? e.message : "That didn't work.", 'error'),
-                );
-            }
-          : null
-      }
+      progress={progress}
+      // anyone can ask for their own tracks now (analyse on demand)
+      analyse={() => {
+        void requestAnalysis([waitingId], { force: true })
+          .then(() => qc.invalidateQueries({ queryKey: [...DJ_QUERY_KEY, 'status'] }))
+          .catch((e: unknown) =>
+            window.showToast?.(e instanceof Error ? e.message : "That didn't work.", 'error'),
+          );
+      }}
       saveTo={
         set
           ? {
@@ -344,7 +352,29 @@ export function AutomixHost() {
   const prefs = usePrefs();
   const phone = usePhone();
   const [slots, setSlots] = useState<Slots>(() => findSlots());
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
+
+  // analyse on demand: with DJ mix on (or a set played as a mix), the queue's
+  // coming tracks jump the analysis queue, so their chips stop Waiting; the
+  // server skips the ones already done, and each is asked once in a while
+  useEffect(() => {
+    const st = port.state();
+    if (st.shuffle) return;
+    const dj = prefs.between === 'dj';
+    const from = Math.max(0, st.index);
+    const ids = st.queue
+      .slice(from, from + 50)
+      .filter((t) => mixable(t) && (dj || Boolean(t.mix_set)))
+      .map((t) => String(t.id));
+    if (ids.length > 1) requestAnalysisQuietly(ids);
+  }, [tick, prefs.between]);
+
+  // a track finished its analysis: a pair waiting for it is planned again
+  useEffect(() => {
+    const again = () => ctl.replanWaiting();
+    window.addEventListener(DJ_ANALYSED_EVENT, again);
+    return () => window.removeEventListener(DJ_ANALYSED_EVENT, again);
+  }, [ctl]);
 
   useEffect(() => {
     ctl.start();
@@ -399,13 +429,11 @@ export function AutomixHost() {
   useEffect(() => {
     const root = document.getElementById('media-player');
     const stage =
-      view.fallback !== null
-        ? 'fallback'
-        : view.stage === 'counting' || (view.barsToGo !== null && !view.transition)
-          ? 'counting'
-          : ['mixing', 'settling', 'handback', 'back'].includes(view.stage)
-            ? 'mixing'
-            : null;
+      view.stage === 'counting' || (view.barsToGo !== null && !view.transition)
+        ? 'counting'
+        : ['mixing', 'settling', 'handback', 'back'].includes(view.stage)
+          ? 'mixing'
+          : null;
     if (root) {
       if (stage) root.dataset.automix = stage;
       else delete root.dataset.automix;
@@ -435,18 +463,12 @@ export function AutomixHost() {
   );
 
   const st = port.state();
-  const crossfadeSeconds = (st as { crossfadeSeconds?: number }).crossfadeSeconds ?? 6;
   const handing = ['counting', 'mixing', 'settling', 'handback', 'back'].includes(view.stage);
   const counting = view.barsToGo !== null && !view.transition;
 
   return (
     <>
-      {slots.settings
-        ? createPortal(
-            <BetweenTracksSettings crossfadeSeconds={crossfadeSeconds} />,
-            slots.settings,
-          )
-        : null}
+      {slots.settings ? createPortal(<BetweenTracksSettings />, slots.settings) : null}
       {prefs.between === 'dj' || st.queue.some((t) => t.mix_set)
         ? slots.gaps.map((gap) => {
             const index = Number(gap.dataset.automixGap);
@@ -469,7 +491,7 @@ export function AutomixHost() {
       {slots.mixNowDeck
         ? createPortal(<MixNowButton view={view} onMixNow={actions.mixNow} />, slots.mixNowDeck)
         : null}
-      {slots.bar && (handing || counting || view.fallback)
+      {slots.bar && (handing || counting)
         ? createPortal(<BarStatus view={view} actions={actions} />, slots.bar)
         : null}
       {slots.record && handing ? createPortal(<HandoverRecord view={view} />, slots.record) : null}
@@ -485,21 +507,18 @@ export function AutomixHost() {
 function LiveWords({ view }: { view: AutomixView }) {
   const [words, setWords] = useState('');
   const key =
-    view.fallback !== null
-      ? `fallback:${view.fallback}`
-      : view.stage === 'counting'
-        ? `counting:${view.pair?.toId}`
-        : view.stage === 'mixing'
-          ? `mixing:${view.pair?.toId}`
-          : view.stage === 'back'
-            ? `back:${view.pair?.fromId}`
-            : '';
+    view.stage === 'counting'
+      ? `counting:${view.pair?.toId}`
+      : view.stage === 'mixing'
+        ? `mixing:${view.pair?.toId}`
+        : view.stage === 'back'
+          ? `back:${view.pair?.fromId}`
+          : '';
   useEffect(() => {
     if (!key) return;
     const to = view.pair?.toTitle || 'the next track';
     const from = view.pair?.fromTitle || 'this track';
-    if (key.startsWith('fallback')) setWords(`Couldn't beat-match: crossfading. ${view.fallback}`);
-    else if (key.startsWith('counting')) setWords(`Mixing into ${to} on the next phrase`);
+    if (key.startsWith('counting')) setWords(`Mixing into ${to} on the next phrase`);
     else if (key.startsWith('mixing')) setWords(`Mixing ${from} into ${to}`);
     else if (key.startsWith('back')) setWords(`Back to ${from}`);
     // the words are read once for each change of what's happening

@@ -18,6 +18,7 @@ import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } fro
 import { createRoot } from 'react-dom/client';
 
 import { StatusTag } from '@/components/primitives';
+import { requestAnalysisQuietly } from '@/features/dj/analysis.api';
 import { starStore } from '@/features/stars/stars-store';
 import { appURL } from '@/platform/url-base';
 import { usePopoverDismiss } from '@/routes/sync/-ui/use-popover-dismiss';
@@ -349,6 +350,8 @@ function Picker({ request }: { request: Request }) {
         again,
       );
       closeAddToMixSet();
+      // analyse on demand: a track in a mix set jumps the analysis queue
+      requestAnalysisQuietly(done.added.map((a) => a.track_id));
       if (!done.added.length) {
         window.showToast?.(`Already in ${done.name}. Nothing was added.`, 'info');
         return;
@@ -389,6 +392,7 @@ function Picker({ request }: { request: Request }) {
         })),
       });
       closeAddToMixSet();
+      requestAnalysisQuietly(ok.map((t) => t.id));
       announce(
         addedWords({
           title: ok.length === 1 ? ok[0].title : null,

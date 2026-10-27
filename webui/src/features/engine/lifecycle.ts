@@ -1,6 +1,7 @@
 /**
  * Whether Web Audio is really playing (Design's 252, 26f: "a locked phone
- * can stop the mix halfway. SYNCHRO.S crossfades if that happens").
+ * can stop the mix halfway"; Design's 308: SYNCHRO.S cuts to the next
+ * track once the sound is back).
  *
  * Three signs, any of which says the mix can't be trusted to carry on:
  * - the AudioContext's `statechange`: `suspended`, Safari's `interrupted`
@@ -15,7 +16,7 @@
  * throttled background tab's timers don't matter; a suspended context does,
  * because nothing at all is heard until it resumes. LifecycleWatch only
  * reports; executor.ts decides (it cancels a countdown, and finishes a mix
- * that was cut off with a short crossfade once sound is back).
+ * that was cut off with a cut once sound is back).
  */
 
 export type InterruptReason = 'suspended' | 'interrupted' | 'closed' | 'hidden' | 'stalled';

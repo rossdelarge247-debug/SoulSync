@@ -595,9 +595,8 @@ describe('the "…" menu and Visuals while a station plays', () => {
     expect(visuals.hidden).toBe(false);
     expect(visuals.getAttribute('aria-disabled')).toBeNull();
     expect(visuals.getAttribute('aria-keyshortcuts')).toBe('F');
-    // a live stream has no speed, loop, crossfade, lyrics, details or queue
+    // a live stream has no speed, loop, lyrics, details or queue
     for (const sel of [
-      '[data-player-menu="crossfade"]',
       '[data-player-menu="speed"]',
       '#np-v2-ab-btn',
       '[data-player-menu="lyrics"]',

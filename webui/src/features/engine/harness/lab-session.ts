@@ -12,10 +12,13 @@ import type { Plan } from '../loader';
 
 import { Engine, type DeckData } from '../engine';
 import { isPlaced, type Transition } from '../executor';
-import { gridFromApi, relativeTrimDb, type ApiGrid } from '../grid';
+import { gridFromApi, relativeTrimDb, type ApiGrid, type BeatGrid } from '../grid';
+
+type BeatGridLike = Pick<BeatGrid, 'beatAt' | 'period'>;
 import { looksLikePhone } from '../lifecycle';
 import { correction, onsets } from '../refine';
 import { windowsFor, type Windows } from '../windows';
+import { MAX_SAMPLES, type RunRecord, type RunSample } from './mix-report';
 
 export { windowsFor, type Windows };
 
@@ -79,7 +82,17 @@ export class LabSession {
   transition: Transition | null = null;
   windows: Windows | null = null;
   status: LabStatus = { stage: 'idle', words: '' };
+  /** what the engine did in the last run, for the mix report (mix-report.ts) */
+  run: RunRecord | null = null;
   private onChange: () => void;
+  private sampler: ReturnType<typeof setInterval> | null = null;
+  private beatMap: {
+    a0: number;
+    b0: number;
+    per: number;
+    gridA: BeatGridLike;
+    gridB: BeatGridLike;
+  } | null = null;
 
   constructor(request: LabRequest, deps: LabDeps, onChange: () => void = () => {}) {
     this.request = request;
@@ -156,6 +169,35 @@ export class LabSession {
       const startAt = engine.context.currentTime + 0.4;
       engine.play('A', startAt, w.aFrom);
       const t0 = startAt + (w.outStart - w.aFrom);
+      // what the report keeps: the correction every 4 beats, then a sample
+      // of the decks four times a second while it plays
+      let corrections: { beat: number; ms: number }[] | null = null;
+      this.beatMap = null;
+      if (gridA && gridB && plan.out.bar != null && plan.in.bar != null && plan.bars) {
+        const per = { same: 1, half: 0.5, double: 2 }[plan.tempo?.relation ?? 'same'];
+        this.beatMap = {
+          a0: gridA.barBeat(plan.out.bar),
+          b0: gridB.barBeat(plan.in.bar),
+          per,
+          gridA,
+          gridB,
+        };
+        if (fix) {
+          corrections = [];
+          for (let beat = 0; beat <= plan.bars * 4; beat += 4)
+            corrections.push({ beat, ms: Math.round(fix(beat) * 100000) / 100 });
+        }
+      }
+      this.run = {
+        started_at: startAt,
+        t0,
+        sample_rate: engine.context.sampleRate,
+        windows: { a: { ...w.a }, b: { ...w.b }, aFrom: w.aFrom, outStart: w.outStart },
+        key_lock: r.keyLock,
+        correction: corrections,
+        samples: [],
+        end: null,
+      };
       this.transition = engine.mix({
         plan,
         from: 'A',
@@ -168,12 +210,67 @@ export class LabSession {
         keyLock: r.keyLock ? 'always' : 'auto',
       });
       this.say('playing', '');
+      this.startSampling();
     } catch (e) {
       this.say('error', e instanceof Error ? e.message : String(e));
     }
   }
 
+  /** One look at the decks now (four a second while the mix plays). */
+  sample(): RunSample | null {
+    const engine = this.engine;
+    const run = this.run;
+    if (!engine || !run) return null;
+    const st = this.transition?.state() ?? null;
+    const now = engine.context.currentTime;
+    const posA = engine.position('A', now);
+    const posB = engine.position('B', now);
+    const repA = engine.report('A')?.report.p ?? null;
+    const repB = engine.report('B')?.report.p ?? null;
+    const ms = (x: number | null, y: number | null) =>
+      x != null && y != null ? Math.round((x - y) * 100000) / 100 : null;
+    let beatDriftMs: number | null = null;
+    const m = this.beatMap;
+    if (m && st?.beatmatch && posA != null && posB != null && now >= run.t0) {
+      // both decks on one count of master beats: the incoming deck's beat
+      // less the outgoing one's, as time on the outgoing grid
+      const phiA = m.gridA.beatAt(posA) - m.a0;
+      const phiB = (m.gridB.beatAt(posB) - m.b0) / m.per;
+      beatDriftMs = Math.round((phiB - phiA) * m.gridA.period * 100000) / 100;
+    }
+    const sample: RunSample = {
+      t: Math.round(now * 1000) / 1000,
+      phase: st?.phase ?? null,
+      bar: st?.bar ?? null,
+      rates: st?.rates ?? null,
+      modes: st?.modes ?? null,
+      pos: { a: posA, b: posB },
+      reported: { a: repA, b: repB },
+      reportDriftMs: { a: ms(repA, posA), b: ms(repB, posB) },
+      beatDriftMs,
+    };
+    if (run.samples.length < MAX_SAMPLES) run.samples.push(sample);
+    if (st && (st.phase === 'done' || st.phase === 'cancelled') && !run.end)
+      run.end = { phase: st.phase, at: sample.t };
+    return sample;
+  }
+
+  private startSampling(): void {
+    this.stopSampling();
+    if (typeof setInterval !== 'function') return;
+    this.sampler = setInterval(() => {
+      const s = this.sample();
+      if (!s || this.run?.end) this.stopSampling();
+    }, 250);
+  }
+
+  private stopSampling(): void {
+    if (this.sampler) clearInterval(this.sampler);
+    this.sampler = null;
+  }
+
   stop(): void {
+    this.stopSampling();
     this.engine?.dispose();
     this.engine = null;
     this.transition = null;

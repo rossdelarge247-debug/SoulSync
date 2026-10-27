@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
 
 import { Spinner, StatusTag } from '@/components/primitives';
+import { SweepProgress, useAnalysisSweep } from '@/features/dj/analysis-progress';
 import { copyText } from '@/routes/setup-check/-setup-check.clipboard';
 
 import type { DayGroup } from '../-activity.helpers';
@@ -118,6 +119,7 @@ function TimelineRow({
           {item.detail || item.retry_at ? (
             <span className={styles.detail}>{detailWithRetry(item)}</span>
           ) : null}
+          {item.ref?.dj_progress && item.status === 'running' ? <DjSweepLine /> : null}
         </div>
         <div className={styles.action}>
           {action?.type === 'log' ? (
@@ -148,6 +150,17 @@ function TimelineRow({
       {logOpen ? <LogPanel id={logId} item={item} /> : null}
     </li>
   );
+}
+
+/**
+ * The running DJ analysis (analyse on demand): its overall bar and the track
+ * it's on with its step ("1,240 of 4,980 tracks · Static Bloom · Finding the
+ * beat grid · 60%"), read every second or two while the row shows. A track
+ * outside your library isn't named.
+ */
+function DjSweepLine() {
+  const sweep = useAnalysisSweep();
+  return <SweepProgress sweep={sweep} />;
 }
 
 /** A one-click POST on a row: Retry now, or Stop for a running library job. */

@@ -2,10 +2,12 @@
  * Player settings → Between tracks (26h): how one track gives way to the
  * next, kept per browser like the player's other settings.
  *
- * - `between`: `off` (each track plays to its end; gapless albums stay
- *   gapless), `smart` (the player's crossfade, smarter where the tracks are
- *   analysed: on a downbeat, past the silence, at even loudness) or `dj`
- *   (auto-mix: beat-matched, on the phrase, in each pair's style);
+ * - `between`: `off` (plain playback: each track plays to its end; gapless
+ *   albums stay gapless) or `dj`, shown as **Auto mix** (beat-matched, on
+ *   the phrase, in each pair's style; a pair that can't be beat-matched
+ *   echoes out, cuts on the bar or plays on). There's no crossfade (Ross,
+ *   27 October): a stored `smart`, and the player's old crossfade switch
+ *   (`soulsync-crossfade` on), read as `off` and are written back so;
  * - `auto`: Mix automatically. Off, DJ mix waits for Mix now and tracks
  *   play to their end;
  * - `lean`: Auto's lean ("Style when Auto can choose"): `auto` keeps its own
@@ -14,13 +16,11 @@
  *
  * Storage keys (code identifiers, not shown): `soulsync-between-tracks`
  * (read by static/media-player.js too), `soulsync-dj-auto`, `soulsync-dj-lean`.
- * Before this setting the crossfade's own switch (`soulsync-crossfade`)
- * said which, so with no key it's read from there; Smart crossfade keeps
- * that switch on, so the "…" menu's Crossfade and this setting agree.
+ * The crossfade's switch (`soulsync-crossfade`) is kept at `0`.
  */
 import { useSyncExternalStore } from 'react';
 
-export type BetweenTracks = 'off' | 'smart' | 'dj';
+export type BetweenTracks = 'off' | 'dj';
 export type Lean = 'auto' | 'long' | 'short';
 
 export interface AutomixPrefs {
@@ -59,10 +59,20 @@ function write(key: string, value: string): void {
   }
 }
 
-export function readPrefs(): AutomixPrefs {
+/**
+ * No crossfade any more: Smart crossfade (`smart`) and the player's old
+ * crossfade switch both become Off, written back once so the player
+ * (static/media-player.js) reads the same.
+ */
+export function migratePrefs(): void {
   const b = read(BETWEEN_KEY);
-  const between: BetweenTracks =
-    b === 'off' || b === 'smart' || b === 'dj' ? b : read(CROSSFADE_KEY) === '1' ? 'smart' : 'off';
+  if (b !== null && b !== 'off' && b !== 'dj') write(BETWEEN_KEY, 'off');
+  if (read(CROSSFADE_KEY) === '1') write(CROSSFADE_KEY, '0');
+}
+
+export function readPrefs(): AutomixPrefs {
+  migratePrefs();
+  const between: BetweenTracks = read(BETWEEN_KEY) === 'dj' ? 'dj' : 'off';
   const l = read(LEAN_KEY);
   return {
     between,
@@ -75,7 +85,6 @@ const listeners = new Set<() => void>();
 let snapshot: AutomixPrefs = readPrefs();
 
 interface PlayerLike {
-  setCrossfade?: (on: boolean) => void;
   renderQueue?: () => void;
 }
 
@@ -87,12 +96,8 @@ export function setPrefs(patch: Partial<AutomixPrefs>): void {
   const next = { ...snapshot, ...patch };
   if (patch.between) {
     write(BETWEEN_KEY, patch.between);
-    // the player's crossfade is Smart crossfade
-    const p = player();
-    if (p?.setCrossfade) p.setCrossfade(patch.between === 'smart');
-    else write(CROSSFADE_KEY, patch.between === 'smart' ? '1' : '0');
-    // setCrossfade(false) leaves DJ mix's key alone; say it again
-    write(BETWEEN_KEY, patch.between);
+    // the player's crossfade stays off, whatever is chosen
+    write(CROSSFADE_KEY, '0');
   }
   if (patch.auto !== undefined) write(AUTO_KEY, patch.auto ? '1' : '0');
   if (patch.lean) write(LEAN_KEY, patch.lean);
@@ -102,7 +107,7 @@ export function setPrefs(patch: Partial<AutomixPrefs>): void {
   player()?.renderQueue?.();
 }
 
-/** Read again (the "…" menu's Crossfade changed it from the player's side). */
+/** Read again (another tab, or the player's side, changed it). */
 export function refreshPrefs(): void {
   const next = readPrefs();
   if (
