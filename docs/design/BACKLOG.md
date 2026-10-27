@@ -808,7 +808,7 @@ Dev picks the libraries after checking their licences: some beat and structure m
 
 ## DJ now: a compact DJ mode in the playing panel
 
-**Status:** Exploring · raised by Ross, 2026-10-27 · **laptop and desktop only** (nothing on the phone) · Design's Brief E (`HANDOFF.md`, "UX review of the DJ features, and Briefs A–E"). It replaces the separate Decks plan: full Decks (21e, 26j) is DJ now expanded, built on auto-mix's engine (stage B).
+**Status:** Drawn, E1 chosen by Ross (27 October): the tray's third mode, Now playing · Mix · DJ (`DJ now (Brief E, options).dc.html`, 35a–35q, 36a–36b; HANDOFF, "Design's Briefs A–E and answers 260–324, and Ross's yes"); built as step 5 of Design's 27 October order · raised by Ross, 2026-10-27 · **laptop and desktop only** (nothing on the phone) · Design's Brief E (`HANDOFF.md`, "UX review of the DJ features, and Briefs A–E"). It replaces the separate Decks plan: full Decks (21e, 26j) is DJ now expanded, built on auto-mix's engine (stage B).
 
 ### The problem
 
