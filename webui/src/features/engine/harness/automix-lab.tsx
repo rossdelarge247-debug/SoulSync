@@ -6,11 +6,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { AnalysisEntry } from '@/features/dj/analysis.api';
-import type { DjBrowseResponse, DjTrack } from '@/features/dj/dj.api';
+import type { DjTrack } from '@/features/dj/dj.api';
 
-import { apiClient, readJson } from '@/app/api-client';
-import { AnalysisProgress, useAnalysis, useAutoAnalyse } from '@/features/dj/analysis-progress';
+import { useAutoAnalyse } from '@/features/dj/analysis-progress';
 
 import { fetchGrids, fetchPlan, fetchWindow, type Plan } from '../loader';
 import {
@@ -26,6 +24,7 @@ import { STYLE_WORDS, type Style } from '../score';
 import workletUrl from '../worklet/deck-processor.js?url';
 import styles from './automix-lab.module.css';
 import { LabSession, waitingWords, type LabDeps } from './lab-session';
+import { TrackPicker } from './track-picker';
 
 interface PlayerHooks {
   audioGraph?: () => { context: AudioContext; analyser: AnalyserNode } | null;
@@ -73,65 +72,6 @@ const STYLE_CHOICES: (Style | 'auto')[] = [
   'filter_sweep',
   'drop_swap',
 ];
-
-function TrackSearch({
-  label,
-  chosen,
-  onPick,
-  progress = null,
-}: {
-  label: string;
-  chosen: DjTrack | null;
-  onPick: (t: DjTrack) => void;
-  /** the picked track's place in the analysis (analyse on demand) */
-  progress?: AnalysisEntry | null;
-}) {
-  const [q, setQ] = useState('');
-  const [found, setFound] = useState<DjTrack[]>([]);
-  useEffect(() => {
-    if (q.trim().length < 2) {
-      setFound([]);
-      return;
-    }
-    const timer = setTimeout(() => {
-      readJson<DjBrowseResponse>(
-        apiClient.get('library/dj/browse', { searchParams: { q, limit: 8, sort: 'title' } }),
-      )
-        .then((r) => setFound(r.tracks))
-        .catch(() => setFound([]));
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [q]);
-  return (
-    <fieldset className={styles.pick}>
-      <legend>{label}</legend>
-      <p className={styles.chosen}>
-        {chosen
-          ? `${chosen.title} · ${chosen.artist_name} · ${chosen.dj?.bpm ?? '?'} BPM · ${chosen.dj?.key ?? '?'}`
-          : 'None yet'}
-      </p>
-      {chosen ? (
-        <AnalysisProgress entry={progress} block label={`Analysis of ${chosen.title}`} />
-      ) : null}
-      <input
-        className={styles.input}
-        aria-label={`Find the ${label.toLowerCase()}`}
-        placeholder="Find a track in your library"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
-      <ul className={styles.results}>
-        {found.map((t) => (
-          <li key={t.id}>
-            <button type="button" className={styles.result} onClick={() => onPick(t)}>
-              {t.title} · {t.artist_name} · {t.dj?.bpm ?? '?'} · {t.dj?.key ?? '?'}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </fieldset>
-  );
-}
 
 const seconds = (v: number | null | undefined) =>
   typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : '?';
@@ -213,9 +153,8 @@ export default function AutomixLab() {
   const [prefs, setPrefs] = useState<CuePrefs>(() => readCuePrefs(browserStore(), support.device));
   const [devices, setDevices] = useState<{ id: string; label: string }[]>([]);
   const live = session.current?.status.stage === 'playing';
-  // analyse on demand: a track picked here jumps the queue, and shows its step
+  // analyse on demand: a track picked here jumps the queue (the pickers show its step)
   useAutoAnalyse([outTrack?.id, inTrack?.id]);
-  const progressOf = useAnalysis([outTrack?.id, inTrack?.id]);
   useTicker(live || session.current?.status.stage === 'loading');
 
   useEffect(() => {
@@ -294,10 +233,13 @@ export default function AutomixLab() {
   const pos = (d: 'A' | 'B') => engine?.position(d)?.toFixed(2) ?? '—';
   const ready = Boolean(outTrack && inTrack && outTrack.id !== inTrack.id);
   // the plan shown is this pair's and it's waiting: nothing to play yet
+  const thisPair = planFor === keyOf(request());
   const waitingWhy =
-    plan?.status === 'waiting' && planFor === keyOf(request())
-      ? waitingWords(plan, { from: outTrack?.title, to: inTrack?.title })
-      : null;
+    plan?.status === 'waiting' && thisPair
+      ? `${waitingWords(plan, { from: outTrack?.title, to: inTrack?.title })}: Play the mix waits for it.`
+      : (plan?.status === 'play_on' || plan?.status === 'cut') && thisPair
+        ? `Nothing for the decks: ${plan.status === 'cut' ? 'the player cuts on the bar' : 'it plays on'} (${plan.fallback?.reason ?? 'no beat grid'}).`
+        : null;
 
   return (
     <main className={styles.lab}>
@@ -307,17 +249,13 @@ export default function AutomixLab() {
         the engine before it&rsquo;s in Up next; not a page anyone else sees.
       </p>
       <div className={styles.picks}>
-        <TrackSearch
-          label="Outgoing track"
-          chosen={outTrack}
-          onPick={setOut}
-          progress={outTrack ? progressOf[outTrack.id] : null}
-        />
-        <TrackSearch
+        <TrackPicker label="Outgoing track" deck="out" chosen={outTrack} onPick={setOut} />
+        <TrackPicker
           label="Incoming track"
+          deck="in"
           chosen={inTrack}
           onPick={setIn}
-          progress={inTrack ? progressOf[inTrack.id] : null}
+          outgoing={outTrack}
         />
       </div>
       <div className={styles.row}>
@@ -401,7 +339,7 @@ export default function AutomixLab() {
       ) : null}
       {waitingWhy !== null ? (
         <p id="automix-lab-waiting" className={styles.lead}>
-          {waitingWhy}: Play the mix waits for it.
+          {waitingWhy}
         </p>
       ) : null}
       {plan ? (

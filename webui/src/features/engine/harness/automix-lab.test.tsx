@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
@@ -21,6 +21,12 @@ const track = (id: string, title: string, bpm: number, key: string) => ({
   image_url: null,
   dj: { bpm, key, analyzed: true },
 });
+
+/** A deck's picker: Search, its fallback source. */
+function searchIn(deck: 'outgoing' | 'incoming') {
+  const group = screen.getByRole('radiogroup', { name: `Pick the ${deck} track from` });
+  fireEvent.click(within(group).getByRole('radio', { name: 'Search' }));
+}
 
 describe('the auto-mix lab page', () => {
   it('finds two tracks, shows their plan, and says why a second output is impossible here', async () => {
@@ -67,14 +73,16 @@ describe('the auto-mix lab page', () => {
     expect(screen.getByRole('radio', { name: /On another output/ })).toBeDisabled();
     const play = screen.getByRole('button', { name: 'Play the mix' });
     expect(play).toBeDisabled();
+    searchIn('outgoing');
     fireEvent.change(screen.getByRole('textbox', { name: 'Find the outgoing track' }), {
       target: { value: 'night' },
     });
-    fireEvent.click(await screen.findByRole('button', { name: /Night Ferry/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Night Ferry' }));
+    searchIn('incoming');
     fireEvent.change(screen.getByRole('textbox', { name: 'Find the incoming track' }), {
       target: { value: 'static' },
     });
-    fireEvent.click(await screen.findByRole('button', { name: /Static Bloom/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Static Bloom' }));
     expect(play).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Show the plan' }));
     await waitFor(() =>
@@ -196,14 +204,16 @@ describe('[gauntlet lab] a waiting pair on the page', () => {
   }
   async function pick() {
     render(<AutomixLab />);
+    searchIn('outgoing');
     fireEvent.change(screen.getByRole('textbox', { name: 'Find the outgoing track' }), {
       target: { value: 'night' },
     });
-    fireEvent.click(await screen.findByRole('button', { name: /Night Ferry/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Night Ferry' }));
+    searchIn('incoming');
     fireEvent.change(screen.getByRole('textbox', { name: 'Find the incoming track' }), {
       target: { value: 'static' },
     });
-    fireEvent.click(await screen.findByRole('button', { name: /Static Bloom/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Static Bloom' }));
   }
 
   it('shows the plan without breaking, and Play the mix waits, saying why', async () => {
@@ -288,12 +298,13 @@ describe('analyse on demand in the lab', () => {
       ),
     );
     render(<AutomixLab />);
+    searchIn('outgoing');
     fireEvent.change(screen.getByRole('textbox', { name: 'Find the outgoing track' }), {
       target: { value: 'sand' },
     });
-    fireEvent.click(await screen.findByRole('button', { name: /Sand Script/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Pick Sand Script' }));
     await waitFor(() => expect(asked).toEqual([{ track_ids: ['5'] }]));
-    expect(await screen.findByText('Finding the tempo · 20%')).toBeInTheDocument();
+    expect((await screen.findAllByText('Finding the tempo · 20%')).length).toBeGreaterThan(0);
     analysisStore.reset();
   });
 });
