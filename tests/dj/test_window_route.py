@@ -211,6 +211,7 @@ def test_a_failed_decode_releases_its_slot(tmp_path, monkeypatch):
     def fails(*a, **k):
         return subprocess.CompletedProcess(a, 1, b"", b"Invalid data")
 
+    monkeypatch.setattr("core.sample.analyze.ffmpeg_bin", lambda: "ffmpeg")  # installed or not
     monkeypatch.setattr(subprocess, "run", fails)
     for _ in range(window.MAX_RUNNING + 2):
         with pytest.raises(window.WindowError):
@@ -227,9 +228,23 @@ def test_a_slow_decode_hits_its_deadline(tmp_path, monkeypatch):
         assert k["timeout"] == window.TIMEOUT_S
         raise subprocess.TimeoutExpired(a, k["timeout"])
 
+    monkeypatch.setattr("core.sample.analyze.ffmpeg_bin", lambda: "ffmpeg")  # installed or not
     monkeypatch.setattr(subprocess, "run", slow)
     with pytest.raises(window.WindowError, match="too long"):
         window.decode(str(f), 0.0, 5.0, 48000)
+
+
+def test_without_ffmpeg_a_window_says_so(tmp_path, monkeypatch):
+    def missing():
+        raise RuntimeError("ffmpeg isn't installed, so mp3/m4a/opus files can't be decoded")
+
+    f = tmp_path / "t.flac"
+    f.write_bytes(b"x")
+    monkeypatch.setattr("core.sample.analyze.ffmpeg_bin", missing)
+    with pytest.raises(window.WindowError, match="isn't installed"):
+        window.decode(str(f), 0.0, 5.0, 48000)
+    assert window._slots.acquire(blocking=False)  # the slot came back
+    window._slots.release()
 
 
 def test_the_wav_header_says_its_length():
