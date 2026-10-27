@@ -22,6 +22,13 @@ vi.mock('@/platform/shell/route-controllers', () => ({
 }));
 // jsdom has no AudioWorklet: the decks' support is the browser's, tested on its own
 vi.mock('./support', () => ({ mixSupport: () => null }));
+const saved = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock('./set-play', async (original) => ({
+  ...(await original<typeof import('./set-play')>()),
+  saveTransitionToSet: async (...args: unknown[]) => {
+    saved.calls.push(args);
+  },
+}));
 
 function track(id: string, title: string) {
   return { id, title, artist: 'Tidewater', file_path: `/m/${id}.flac`, is_library: true } as Record<
@@ -149,8 +156,7 @@ afterEach(() => {
   refreshPrefs();
 });
 
-function mount() {
-  const qc = createTestQueryClient();
+function mount(qc = createTestQueryClient()) {
   return render(
     <QueryClientProvider client={qc}>
       <AutomixHost />
@@ -204,6 +210,26 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
     await screen.findByRole('button', {
       name: 'Transition from Night Ferry to Static Bloom: Echo out · 8 bars, your choice. Change it',
     });
+  });
+
+  it('[gauntlet L2] a transition saved to its set: the set’s page reads it again', async () => {
+    const mixSet = { id: 9, name: 'Sunday Set', row: 0, transition: null };
+    queue[0].mix_set = mixSet;
+    queue[1].mix_set = { ...mixSet, row: 1 };
+    const qc = createTestQueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    mount(qc);
+    fireEvent.click(
+      await screen.findByRole('button', { name: /^Transition from Night Ferry to Static Bloom/ }),
+    );
+    const picker = await screen.findByRole('dialog', {
+      name: 'How Night Ferry goes into Static Bloom',
+    });
+    fireEvent.click(within(picker).getByRole('radio', { name: 'Echo out' }));
+    fireEvent.click(await within(picker).findByRole('button', { name: 'Save to Sunday Set' }));
+    await within(picker).findByText('Saved to Sunday Set.');
+    expect(saved.calls).toHaveLength(1);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['sets', 'set', 1, 9] });
   });
 
   it('no chips with DJ mix off; they come with it', async () => {

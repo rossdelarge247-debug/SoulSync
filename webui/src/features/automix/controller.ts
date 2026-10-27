@@ -120,6 +120,8 @@ export interface PlayerPort {
   ): Promise<{ status: string } | undefined>;
   crossfadeInto(index: number, hint: CrossfadeHint | null): boolean;
   insertNext(track: QueueTrack): number;
+  /** move a queued row to straight after the playing one; its new index */
+  moveNext?(index: number): number;
   renderQueue(): void;
 }
 
@@ -428,6 +430,15 @@ export class AutomixController {
   private view: AutomixView = EMPTY_VIEW;
   private readonly listeners = new Set<() => void>();
   private boundEl: HTMLAudioElement | null = null;
+  /**
+   * Every timeout and fade the decks' hand-overs start, and the session
+   * they belong to: letting go clears them all and moves the session on,
+   * so a late one can never mute the element over the next track
+   * (gauntlet H1).
+   */
+  private readonly timeouts = new Set<unknown>();
+  private readonly intervals = new Set<unknown>();
+  private session = 0;
   private readonly smart = new Map<string, SmartData | 'loading' | null>();
 
   constructor(player: PlayerPort, services: AutomixServices) {
@@ -496,16 +507,17 @@ export class AutomixController {
 
   // ── running ──
 
+  private started = false;
+
   /** Start listening (the host calls it once). */
   start(): void {
-    if (this.ticker !== null) return;
-    this.ticker = this.timers.setInterval(() => this.tick(), TICK_MS);
+    this.started = true;
     this.tick();
   }
 
   stop(): void {
-    if (this.ticker !== null) this.timers.clearInterval(this.ticker);
-    this.ticker = null;
+    this.started = false;
+    this.stopTicker();
     this.letGo();
     this.unbind();
   }
@@ -515,6 +527,81 @@ export class AutomixController {
     this.tick();
   }
 
+  /**
+   * The 120 ms tick runs only while it has something to watch: DJ mix on, a
+   * set played as a mix in the queue, or the decks holding a mix (L3).
+   * Otherwise the player's own events ('ss:player') are enough.
+   */
+  private wantTicks(): boolean {
+    if (!this.started) return false;
+    if (!this.released || this.transition) return true;
+    if (this.svc.prefs().between === 'dj') return true;
+    return this.player.state().queue.some((t) => t?.mix_set);
+  }
+
+  private keepTicking(): void {
+    if (this.wantTicks()) {
+      if (this.ticker === null) this.ticker = this.timers.setInterval(() => this.tick(), TICK_MS);
+    } else this.stopTicker();
+  }
+
+  private stopTicker(): void {
+    if (this.ticker !== null) this.timers.clearInterval(this.ticker);
+    this.ticker = null;
+  }
+
+  /** A timeout of this session's: cleared when the decks let go, and never run after. */
+  private later(fn: () => void, ms: number): void {
+    const session = this.session;
+    const id = this.timers.setTimeout(() => {
+      this.timeouts.delete(id);
+      if (session !== this.session) return;
+      fn();
+    }, ms);
+    this.timeouts.add(id);
+  }
+
+  /** An interval of this session's (a fade): the same. */
+  private every(fn: (stop: () => void) => void, ms: number): void {
+    const session = this.session;
+    const id = this.timers.setInterval(() => {
+      if (session !== this.session) {
+        stop();
+        return;
+      }
+      fn(stop);
+    }, ms);
+    const stop = () => {
+      this.timers.clearInterval(id);
+      this.intervals.delete(id);
+    };
+    this.intervals.add(id);
+  }
+
+  private clearTimers(): void {
+    for (const id of this.timeouts) this.timers.clearTimeout(id);
+    for (const id of this.intervals) this.timers.clearInterval(id);
+    this.timeouts.clear();
+    this.intervals.clear();
+    this.session++;
+  }
+
+  /**
+   * The last line of defence (H1): whenever the decks aren't holding a mix,
+   * the element is the player's, so it's never left muted or faded out.
+   */
+  private freeElement(): void {
+    if (this.engineOwns() && !this.released) return;
+    const el = this.player.audio();
+    if (!el) return;
+    if (el.muted) el.muted = false;
+    if (this.fadedOut && el.volume < this.level()) el.volume = this.level();
+    this.fadedOut = false;
+  }
+
+  /** the element was faded down by a hand-over (its volume is put back with it) */
+  private fadedOut = false;
+
   private bind(el: HTMLAudioElement | null): void {
     if (el === this.boundEl) return;
     this.unbind();
@@ -523,6 +610,8 @@ export class AutomixController {
     el.addEventListener('pause', this.onPause);
     el.addEventListener('play', this.onPlay);
     el.addEventListener('seeking', this.onSeeking);
+    el.addEventListener('loadstart', this.onLoad);
+    el.addEventListener('emptied', this.onLoad);
   }
 
   private unbind(): void {
@@ -531,6 +620,8 @@ export class AutomixController {
     el.removeEventListener('pause', this.onPause);
     el.removeEventListener('play', this.onPlay);
     el.removeEventListener('seeking', this.onSeeking);
+    el.removeEventListener('loadstart', this.onLoad);
+    el.removeEventListener('emptied', this.onLoad);
     this.boundEl = null;
   }
 
@@ -575,6 +666,8 @@ export class AutomixController {
   private tick(): void {
     const el = this.player.audio();
     this.bind(el);
+    this.keepTicking();
+    this.freeElement();
     this.followVolume();
     if (this.engineOwns()) {
       this.tickEngine();
@@ -798,12 +891,12 @@ export class AutomixController {
     const steps = 6;
     let n = 0;
     el.volume = Math.max(0, Math.min(1, from));
-    const id = this.timers.setInterval(
-      () => {
+    this.every(
+      (stop) => {
         n++;
         el.volume = Math.max(0, Math.min(1, from + ((to - from) * n) / steps));
         if (n >= steps) {
-          this.timers.clearInterval(id);
+          stop();
           after?.();
         }
       },
@@ -832,19 +925,30 @@ export class AutomixController {
     this.master = 0;
     this.fadeMaster(this.level(), T, FADE_S);
     const level = this.level();
-    this.timers.setTimeout(
+    let mixing: TransitionLike | null = null;
+    // only while this mix holds the decks (H1): never after a Next, a row,
+    // a station or a failed start
+    const ours = () => !this.released && mixing !== null && this.transition === mixing;
+    this.later(
       () => {
+        if (!ours()) return;
+        this.fadedOut = true;
         this.fadeElement(el, level, 0, () => {
+          if (!ours()) {
+            this.freeElement();
+            return;
+          }
           // the element goes on, muted: it keeps time for the bar and the record
           el.muted = true;
           el.volume = level;
+          this.fadedOut = false;
         });
       },
       Math.max(0, (T - ctx.currentTime) * 1000),
     );
     const t0 = T + ((plan.out.start ?? from) - from);
     try {
-      this.transition = engine.mix({
+      mixing = engine.mix({
         plan,
         from: 'A',
         to: 'B',
@@ -854,12 +958,16 @@ export class AutomixController {
         trimDb: d.trimDb,
         correction: d.fix,
       });
+      this.transition = mixing;
     } catch (e) {
-      // nothing scheduled: the element carries on
+      // nothing scheduled: the element carries on, unmuted, at its level
+      this.clearTimers();
       engine.unload('A');
       engine.unload('B');
       this.released = true;
-      el.muted = false;
+      this.transition = null;
+      this.fadedOut = true;
+      this.freeElement();
       p.missed = e instanceof Error ? e.message : String(e);
       return;
     }
@@ -873,6 +981,13 @@ export class AutomixController {
     const p = this.pending;
     if (!t || !engine || !p) return;
     if (this.handing || this.stage === 'rejoin') return;
+    // the player isn't on the outgoing track any more (a station, a stream,
+    // something that didn't go through the queue): the decks let go (H2)
+    const now = this.player.state();
+    if (!now.track || idOf(now.track) !== p.fromId || (now.kind && now.kind !== 'library')) {
+      this.hardStop();
+      return;
+    }
     const s = t.state();
     if (s.phase === 'counting') {
       this.stage = 'counting';
@@ -935,7 +1050,7 @@ export class AutomixController {
       this.fadeMaster(0, now + 0.01, 0.06);
       engine.stop('B', Math.round((now + 0.1) * engine.sampleRate));
       engine.stop('A', Math.round((now + 0.1) * engine.sampleRate));
-      this.timers.setTimeout(() => this.letGo(), 200);
+      this.later(() => this.letGo(), 200);
     };
     const handoff: HandoffLike = {
       get currentTime() {
@@ -955,9 +1070,7 @@ export class AutomixController {
         /* the deck's level is the master's */
       },
     };
-    const st = this.player.state();
-    let idx = st.queue.indexOf(p.to);
-    if (idx < 0) idx = this.player.insertNext(p.to);
+    const idx = this.placeIncoming(p);
     this.own++;
     try {
       if (el) {
@@ -977,10 +1090,33 @@ export class AutomixController {
       this.own--;
     }
     if (!stopped && result?.status !== 'played') {
-      // the player moved on some other way (a failed load skips on): the
-      // deck stops once it does, or after a moment
-      this.timers.setTimeout(stop, 1500);
+      // the player moved on some other way (another load superseded it, a
+      // failed load skips on): the deck stops now, not over what plays
+      stop();
     }
+  }
+
+  /**
+   * Where the incoming track is, straight after the playing one (M1): moved
+   * there if an edit moved it, found by its id in the next few rows if it
+   * was removed and added again, put back only when it's gone.
+   */
+  private placeIncoming(p: Pending): number {
+    const st = this.player.state();
+    const next = st.index + 1;
+    if (st.queue[next] === p.to) return next;
+    let at = st.queue.indexOf(p.to);
+    if (at < 0) {
+      for (let i = next; i < Math.min(st.queue.length, next + 4); i++) {
+        if (idOf(st.queue[i]) === p.toId) {
+          at = i;
+          break;
+        }
+      }
+    }
+    if (at < 0) return this.player.insertNext(p.to);
+    if (at === next) return next;
+    return this.player.moveNext ? this.player.moveNext(at) : at;
   }
 
   /**
@@ -1000,6 +1136,9 @@ export class AutomixController {
       return;
     }
     const level = this.level();
+    const session = this.session;
+    // let go of meanwhile (a Next, a station): nothing more to do here
+    const gone = () => session !== this.session;
     this.own++;
     try {
       if (precise) {
@@ -1010,16 +1149,19 @@ export class AutomixController {
           el.pause();
           el.currentTime = target;
           await seeked(el, 1500, this.timers);
+          if (gone()) return;
           const now = engine.position('A');
           if (now === null) break;
           const wait = target - now - 0.03;
           if (wait < 0) continue;
-          await new Promise<void>((r) => this.timers.setTimeout(r, wait * 1000));
+          await new Promise<void>((r) => this.timers.setTimeout(r, Math.min(3000, wait * 1000)));
+          if (gone()) return;
           break;
         }
         el.volume = 0;
         el.muted = false;
         await el.play().catch(() => undefined);
+        if (gone()) return;
       } else {
         el.volume = 0;
         el.muted = false;
@@ -1032,11 +1174,12 @@ export class AutomixController {
     } finally {
       this.own--;
     }
-    this.timers.setTimeout(() => this.letGo(true), 250);
+    this.later(() => this.letGo(true), 250);
   }
 
   /** Let the decks go (their windows with them); `keep` keeps the pair's flags. */
   private letGo(keep = false): void {
+    this.clearTimers();
     const engine = this.engine;
     if (engine && !this.released) {
       try {
@@ -1051,14 +1194,16 @@ export class AutomixController {
     if (this.paused) {
       engine?.setPaused(false);
       this.paused = false;
+      // the context was suspended for a Pause: whatever plays next needs it
+      const ctx = engine?.context as AudioContext | undefined;
+      if (ctx && typeof ctx.resume === 'function') void ctx.resume().catch(() => undefined);
     }
     this.master = 0;
     this.released = true;
     this.transition = null;
     this.lanes = null;
     this.handing = false;
-    const el = this.player.audio();
-    if (el && el.muted) el.muted = false;
+    this.freeElement();
     if (keep && this.pending) this.pending.decks = null;
     else this.pending = null;
     this.stage = 'idle';
@@ -1216,7 +1361,19 @@ export class AutomixController {
       el.muted = false;
       el.volume = this.level();
     }
+    this.fadedOut = false;
     this.letGo();
+  }
+
+  /**
+   * Other audio than the queue's next row is loading (a station, a stream,
+   * a podcast, Stop: media-player.js's loaders say so): the decks let go
+   * at once (H2). auto-mix's own hand-back is ignored here.
+   */
+  otherAudio(): void {
+    if (this.handing) return;
+    if (this.transition || !this.released) this.hardStop();
+    else if (this.pending) this.pending = null;
   }
 
   /** X (24a): Mix now, when DJ mix is on and there's a pair it can mix. */
@@ -1241,6 +1398,7 @@ export class AutomixController {
   };
 
   private readonly onPlay = () => {
+    this.freeElement();
     if (this.own || !this.paused) return;
     const engine = this.engine;
     if (!engine) return;
@@ -1252,6 +1410,12 @@ export class AutomixController {
     };
     if (typeof ctx.resume === 'function') void ctx.resume().then(done, done);
     else done();
+  };
+
+  /** The element loads something no one told us about while the decks hold a mix (H2). */
+  private readonly onLoad = () => {
+    if (this.own || this.handing) return;
+    if (this.transition && !this.released) this.hardStop();
   };
 
   private readonly onSeeking = () => {
@@ -1327,6 +1491,10 @@ export class AutomixController {
     const key = `${a}|${b}`;
     const data = this.smart.get(key);
     if (data === undefined) {
+      // worked out in the last minute of the track, not at its start (L3)
+      const el = this.player.audio();
+      const left = el && Number.isFinite(el.duration) ? el.duration - el.currentTime : Infinity;
+      if (!(left <= 60)) return null;
       this.smart.set(key, 'loading');
       void this.loadSmart(key, a, b, next.duration ?? null);
       return null;

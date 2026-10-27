@@ -211,6 +211,7 @@ interface Harness {
     playIndex: ReturnType<typeof vi.fn>;
     crossfadeInto: ReturnType<typeof vi.fn>;
     insertNext: ReturnType<typeof vi.fn>;
+    moveNext: ReturnType<typeof vi.fn>;
   };
   plan: ReturnType<typeof vi.fn>;
   window: ReturnType<typeof vi.fn>;
@@ -246,7 +247,15 @@ function harness(
     audio: () => el as unknown as HTMLAudioElement,
     playIndex: vi.fn(async () => ({ status: 'played' })),
     crossfadeInto: vi.fn(() => true),
-    insertNext: vi.fn(() => 1),
+    insertNext: vi.fn((t: QueueTrack) => {
+      queue.splice(st.index + 1, 0, t);
+      return st.index + 1;
+    }),
+    moveNext: vi.fn((i: number) => {
+      const [t] = queue.splice(i, 1);
+      queue.splice(st.index + 1, 0, t);
+      return st.index + 1;
+    }),
     renderQueue: vi.fn(),
   };
   const plan = vi.fn(async () => opts.plan ?? okPlan());
@@ -681,6 +690,11 @@ describe('the crossfade’s hint (media-player.js)', () => {
 
   it('Smart crossfade: not on an album in order; else the sums once it knows', async () => {
     const h = harness({ prefs: { between: 'smart' } });
+    // worked out in the track's last minute only (L3)
+    expect(h.ctl.crossfade(track('1', 'One'), track('2', 'Two'))).toBeNull();
+    await flush();
+    expect(h.grids).not.toHaveBeenCalled();
+    h.el.advance(250);
     const a = track('1', 'One', { album_id: 7, track_number: 3 });
     expect(h.ctl.crossfade(a, track('2', 'Two', { album_id: 7, track_number: 4 }))).toEqual({
       skip: true,
@@ -749,5 +763,186 @@ describe('the chips’ choices', () => {
     await at(h, 100);
     expect(h.plan).toHaveBeenCalled();
     expect(h.ctl.getView().dj).toBe(true);
+  });
+});
+
+// ── after the gauntlet review ──────────────────────────────────────────────
+
+async function takenOver(h: Harness) {
+  await at(h, OUT - 40);
+  const lead = Math.max(3, LEAD_BARS * 4 * GA.period);
+  await at(h, OUT - lead + 0.2);
+  expect(h.ctl.ownsAdvance()).toBe(true);
+}
+
+describe('[gauntlet H1] the element is never left muted', () => {
+  it.each([0, 50, 150])(
+    'a row clicked %i ms after the decks take over: the element unmuted at its level, no deck audio',
+    async (ms) => {
+      const h = harness();
+      await takenOver(h);
+      await vi.advanceTimersByTimeAsync(ms);
+      h.ctl.beforeLoad(2, {});
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(h.el.muted).toBe(false);
+      expect(h.el.volume).toBeCloseTo(0.7, 6);
+      expect(engine.unloaded).toEqual(expect.arrayContaining(['A', 'B']));
+      expect(engine.gain.value).toBe(0);
+      expect(h.ctl.ownsAdvance()).toBe(false);
+    },
+  );
+
+  it.each([0, 50, 150])('Next %i ms after the takeover: the same', async (ms) => {
+    const h = harness();
+    await takenOver(h);
+    await vi.advanceTimersByTimeAsync(ms);
+    expect(h.ctl.next()).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.el.muted).toBe(false);
+    expect(h.el.volume).toBeCloseTo(0.7, 6);
+  });
+
+  it('mix() throwing leaves the element unmuted at its level, and the decks empty', async () => {
+    const h = harness();
+    engine.mix = () => {
+      throw new Error('no worklet');
+    };
+    await at(h, OUT - 40);
+    const lead = Math.max(3, LEAD_BARS * 4 * GA.period);
+    await at(h, OUT - lead + 0.2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.el.muted).toBe(false);
+    expect(h.el.volume).toBeCloseTo(0.7, 6);
+    expect(engine.unloaded).toEqual(expect.arrayContaining(['A', 'B']));
+    expect(h.ctl.ownsAdvance()).toBe(false);
+    // and it crossfades at the end instead
+    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toEqual({ seconds: 6 });
+  });
+
+  it('the last line: muted with no mix held, the next play unmutes it', async () => {
+    const h = harness();
+    await at(h, 100);
+    h.el.muted = true;
+    await h.el.play();
+    expect(h.el.muted).toBe(false);
+  });
+});
+
+describe('[gauntlet H2] audio that doesn’t go through the queue stops the decks', () => {
+  async function mixing(h: Harness) {
+    await takenOver(h);
+    await vi.advanceTimersByTimeAsync(400);
+    const t0 = engine.inputs[0].t0;
+    engine.port.time = t0 + 2;
+    h.ctl.poke();
+    await flush();
+    expect(h.ctl.getView().stage).toBe('mixing');
+    return t0;
+  }
+
+  it('a station started mid-mix (the loaders’ stop hook): decks gone, element unmuted, the station never replaced', async () => {
+    const h = harness();
+    const t0 = await mixing(h);
+    h.ctl.otherAudio();
+    h.st.track = { id: null, title: 'Radio Paradise', kind: 'radio' };
+    h.st.kind = 'radio';
+    expect(h.el.muted).toBe(false);
+    expect(h.ctl.ownsAdvance()).toBe(false);
+    engine.port.time = t0 + 32 * 4 * GA.period + 5;
+    h.ctl.poke();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    expect(engine.unloaded).toEqual(expect.arrayContaining(['A', 'B']));
+  });
+
+  it('the same without the hook: the playing track isn’t the outgoing one any more', async () => {
+    const h = harness();
+    const t0 = await mixing(h);
+    h.st.track = { id: null, title: 'Radio Paradise', kind: 'radio' };
+    h.st.kind = 'radio';
+    h.ctl.poke();
+    expect(h.el.muted).toBe(false);
+    engine.port.time = t0 + 32 * 4 * GA.period + 5;
+    h.ctl.poke();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+  });
+
+  it('…or the element loading something no one said', async () => {
+    const h = harness();
+    await mixing(h);
+    h.el.dispatchEvent(new Event('loadstart'));
+    expect(h.ctl.ownsAdvance()).toBe(false);
+    expect(h.el.muted).toBe(false);
+  });
+
+  it('its own hand-back isn’t stopped by the loaders’ hook', async () => {
+    const h = harness();
+    const t0 = await mixing(h);
+    h.player.playIndex.mockImplementation(async () => {
+      h.ctl.otherAudio(); // stopStream inside playQueueItem
+      return { status: 'played' };
+    });
+    engine.port.time = t0 + 32 * 4 * GA.period + 1;
+    h.ctl.poke();
+    await flush();
+    expect(h.player.playIndex).toHaveBeenCalledTimes(1);
+    expect(engine.unloaded).toEqual([]);
+  });
+});
+
+describe('[gauntlet M1] the incoming track goes straight after the playing one', () => {
+  async function finished(h: Harness, edit: () => void) {
+    await takenOver(h);
+    await vi.advanceTimersByTimeAsync(400);
+    const t0 = engine.inputs[0].t0;
+    edit();
+    engine.port.time = t0 + 32 * 4 * GA.period + 1;
+    h.ctl.poke();
+    await flush();
+  }
+
+  it('moved down the queue mid-mix: moved back, no row skipped', async () => {
+    const h = harness();
+    await finished(h, () => {
+      const [b] = h.st.queue.splice(1, 1);
+      h.st.queue.push(b);
+    });
+    expect(h.player.moveNext).toHaveBeenCalledWith(2);
+    expect(h.player.playIndex.mock.calls[0][0]).toBe(1);
+    expect(h.st.queue.map((t) => t.id)).toEqual(['1', '2', '3']);
+  });
+
+  it('removed and added again (a new row, the same track): no duplicate', async () => {
+    const h = harness();
+    await finished(h, () => {
+      h.st.queue.splice(1, 1);
+      h.st.queue.splice(2, 0, track('2', 'Static Bloom'));
+    });
+    expect(h.player.insertNext).not.toHaveBeenCalled();
+    expect(h.st.queue.map((t) => t.id)).toEqual(['1', '2', '3']);
+    expect(h.player.playIndex.mock.calls[0][0]).toBe(1);
+  });
+
+  it('removed altogether: put back once, straight after', async () => {
+    const h = harness();
+    await finished(h, () => void h.st.queue.splice(1, 1));
+    expect(h.player.insertNext).toHaveBeenCalledTimes(1);
+    expect(h.st.queue.map((t) => t.id)).toEqual(['1', '2', '3']);
+    expect(h.player.playIndex.mock.calls[0][0]).toBe(1);
+  });
+});
+
+describe('[gauntlet L3] the tick runs only while there is something to watch', () => {
+  it('no interval with DJ mix off; one with it on', async () => {
+    const spy = vi.spyOn(globalThis, 'setInterval');
+    const off = harness({ prefs: { between: 'off' } });
+    off.ctl.start();
+    expect(spy).not.toHaveBeenCalledWith(expect.any(Function), 120);
+    off.ctl.stop();
+    const on = harness();
+    on.ctl.start();
+    expect(spy).toHaveBeenCalledWith(expect.any(Function), 120);
+    on.ctl.stop();
   });
 });

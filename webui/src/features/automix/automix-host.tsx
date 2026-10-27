@@ -30,6 +30,7 @@ import { Engine } from '@/features/engine/engine';
 import { looksLikePhone } from '@/features/engine/lifecycle';
 import { fetchGrids, fetchWindow } from '@/features/engine/loader';
 import workletUrl from '@/features/engine/worklet/deck-processor.js?url';
+import { SETS_QUERY_KEY } from '@/features/sets/sets.api';
 import { useProfile } from '@/platform/shell/route-controllers';
 import { appURL } from '@/platform/url-base';
 
@@ -69,6 +70,8 @@ declare global {
         index?: number,
       ): CrossfadeHint | null;
       beforeLoad(index: number, options?: { automix?: boolean }): void;
+      /** other audio than the queue's next row is loading: the decks let go (H2) */
+      stop(): void;
       next(): boolean;
       previous(): void;
       key(k: string): boolean;
@@ -77,7 +80,8 @@ declare global {
   }
 }
 
-interface PlayerApi extends PlayerPort {
+interface PlayerApi extends Omit<PlayerPort, 'moveNext'> {
+  moveNext?: (index: number) => number;
   audioGraph?: () => { context: AudioContext; analyser: AnalyserNode } | null;
   persistQueue?: () => void;
 }
@@ -106,6 +110,7 @@ const port: PlayerPort = {
     playerApi()?.playIndex(index, options) ?? Promise.resolve({ status: 'failed' }),
   crossfadeInto: (index, hint) => Boolean(playerApi()?.crossfadeInto(index, hint)),
   insertNext: (track) => playerApi()?.insertNext(track) ?? -1,
+  moveNext: (index) => playerApi()?.moveNext?.(index) ?? index,
   renderQueue: () => playerApi()?.renderQueue(),
 };
 
@@ -306,6 +311,10 @@ function GapChip({
               name: set.name,
               save: async (t) => {
                 await saveTransitionToSet(set, String(from.id), String(to.id), t);
+                // the set's page reads it again (L2)
+                void qc.invalidateQueries({
+                  queryKey: [...SETS_QUERY_KEY, 'set', profile?.profileId ?? 0, set.id],
+                });
                 for (const q of st.queue)
                   if (q.mix_set?.id === set.id && q.mix_set.row === set.row)
                     q.mix_set = { ...q.mix_set, transition: { style: t.style, bars: t.bars } };
@@ -365,6 +374,7 @@ export function AutomixHost() {
       ownsAdvance: () => ctl.ownsAdvance(),
       crossfade: (current, next) => ctl.crossfade(current, next),
       beforeLoad: (index, options) => ctl.beforeLoad(index, options),
+      stop: () => ctl.otherAudio(),
       next: () => ctl.next(),
       previous: () => ctl.previous(),
       key: (k) => ctl.key(k),
