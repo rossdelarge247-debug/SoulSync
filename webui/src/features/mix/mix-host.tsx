@@ -123,6 +123,25 @@ function isAvailable(subject: MixSubject): boolean {
   return subject.kind !== 'none';
 }
 
+/**
+ * The Visuals drawer opens or closes, from the header's Mix button or M. One
+ * panel at a time on the right (29b): opening it closes the visuals' own
+ * panel. M used to open the drawer over an open panel, so the panel stayed
+ * open underneath, and the next click on Visuals closed both.
+ */
+function toggleDrawer(): void {
+  const open = !getMixState().drawer;
+  if (open) {
+    const visuals = (
+      window as unknown as {
+        SoulSyncVisuals?: { panelOpen?: () => boolean; closePanel?: () => void };
+      }
+    ).SoulSyncVisuals;
+    if (visuals?.panelOpen?.()) visuals.closePanel?.();
+  }
+  setDrawer(open);
+}
+
 /** The keys' actions, against the latest model. */
 function keyAction(
   key: string,
@@ -140,7 +159,7 @@ function keyAction(
   if (subject.kind !== 'track') return false;
   if (k === 'M') {
     if (visualsOpen) {
-      setDrawer(!getMixState().drawer);
+      toggleDrawer();
       return true;
     }
     const chrome = (window as unknown as { SoulSyncPlayerChrome?: ChromeLike })
@@ -229,17 +248,7 @@ export function MixTabHost() {
     button.hidden = !trackSubject;
     button.setAttribute('aria-pressed', drawerShown ? 'true' : 'false');
     button.setAttribute('aria-expanded', drawerShown ? 'true' : 'false');
-    const toggle = () => {
-      const open = !getMixState().drawer;
-      // one panel at a time on the right: the visuals' own closes
-      const visuals = (
-        window as unknown as {
-          SoulSyncVisuals?: { panelOpen?: () => boolean; closePanel?: () => void };
-        }
-      ).SoulSyncVisuals;
-      if (open && visuals?.panelOpen?.()) visuals.closePanel?.();
-      setDrawer(open);
-    };
+    const toggle = () => toggleDrawer();
     button.addEventListener('click', toggle);
     const panel = slots.visualsPanelButton;
     const closeMine = () => setDrawer(false);

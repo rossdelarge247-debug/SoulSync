@@ -1567,16 +1567,25 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
   for (const more of root.querySelectorAll<HTMLElement>('[data-player-more]'))
     on(more, 'click', (e) => openMenu(menu, e.currentTarget as HTMLElement));
   if (menu) {
+    // The legacy switches (EQ, A–B, radio, auto-download, clear played,
+    // shortcuts) run their own handlers and the menu follows them. It listens
+    // in the capture phase: static/media-player-v2.js's handlers stop the
+    // click from bubbling, so a bubbling listener here never heard EQ, A–B or
+    // the shortcuts, and Equalizer went on saying "Off" after a click.
+    on(
+      menu,
+      'click',
+      (e) => {
+        const el = e.target as HTMLElement;
+        if (el.closest('[data-player-menu]')) return;
+        if (el.closest('button')?.id === 'np-v2-shorts-btn') closeMenus(false);
+        view.setTimeout(drawMenu, 0);
+      },
+      { capture: true },
+    );
     on(menu, 'click', (e) => {
       const target = (e.target as HTMLElement).closest<HTMLElement>('[data-player-menu]');
-      if (!target) {
-        // the legacy switches (EQ, A–B, radio, auto-download, clear played,
-        // shortcuts) run their own handlers; the menu just follows them
-        const legacy = (e.target as HTMLElement).closest('button');
-        if (legacy && legacy.id === 'np-v2-shorts-btn') closeMenus(false);
-        view.setTimeout(drawMenu, 0);
-        return;
-      }
+      if (!target) return;
       const anchor =
         menuOpener ?? visible(root!.querySelectorAll<HTMLElement>('[data-player-more]'));
       switch (target.dataset.playerMenu) {
