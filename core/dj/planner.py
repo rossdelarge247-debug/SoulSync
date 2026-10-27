@@ -17,8 +17,23 @@ out, filter sweep, drop swap, or auto) and a length in bars, it works out:
   change will do (within 3%) or it needs a time-stretch;
 * **whether it can be beat-matched:** not over about an 8% gap, nor when
   either grid isn't confident (or isn't 4/4). Blends, bass swap, filter sweep
-  and drop swap need it, and fall back to a crossfade with the reason; cut
-  and echo out don't.
+  and drop swap need it; cut and echo out don't.
+
+**No crossfade** (Ross, 27 October: "we either mix auto or manual or
+nothing"). When a pair can't be beat-matched the plan quietly takes a DJ move
+that doesn't need it, where the outgoing track has enough to work with:
+
+* the outgoing track has a grid, even one not trusted for a beat-match (a
+  break held at 0.45, not 4/4): **echo out** on its outro (``status: ok``);
+* no grid but a known BPM (and length): a **cut** on its bar (``status:
+  cut``): the player itself ends the outgoing track on a bar boundary,
+  counted from the file's start at that BPM, and starts the next track; no
+  decks are needed, so its phase is a best effort;
+* neither: **play on** (``status: play_on``): the outgoing track plays to its
+  end and the next one starts, as with no transition.
+
+``fallback`` keeps the move and the short reason (``{kind, code, reason}``)
+for the picker's details; nothing says "crossfade".
 
 **Auto** follows BACKLOG and 26a: a compatible key (the same, ±1 on the
 wheel or the relative major/minor) and a BPM within 3% give a long blend (32
@@ -49,12 +64,13 @@ CLOSE_GAP = 0.03
 #: below these the grid or the downbeat isn't trusted
 BEAT_CONFIDENT = 0.5
 DOWNBEAT_CONFIDENT = 0.3
-#: a crossfade's length when there's nothing to line up (26h: 6 s)
-CROSSFADE_S = 6.0
+#: a cut without a grid: the last whole bar at the track's BPM that ends at
+#: least this long before its end (the next track then starts at once)
+CUT_TAIL_BARS = 1
 
 STYLE_WORDS = {"long_blend": "Long blend", "short_blend": "Short blend", "bass_swap": "Bass swap", "cut": "Cut",
                "echo_out": "Echo out", "filter_sweep": "Filter sweep", "drop_swap": "Drop swap",
-               "crossfade": "Crossfade", "auto": "Auto"}
+               "auto": "Auto"}
 
 
 class PlanError(ValueError):
@@ -307,24 +323,30 @@ def _pair_words(out_t, in_t, tempo) -> str:
     return keys
 
 
-def _crossfade(out_t, in_t, code: str, reason: str, base: Dict[str, Any]) -> Dict[str, Any]:
-    """A plain crossfade: no beats to line up. It starts at the outgoing
-    track's outro when one is known, else 6 s before its end."""
-    start = None
-    region = out_t.get("mix_out") if out_t.get("analyzed") else None
-    if region and not out_t.get("truncated"):
-        start = float(region["start"])
-    elif _length(out_t):
-        start = max(0.0, _length(out_t) - CROSSFADE_S)
-    in_start = 0.0
-    if in_t.get("analyzed") and in_t.get("mix_in"):
-        in_start = float(in_t["mix_in"]["start"])
-    return {**base, "status": "crossfade", "style": "crossfade", "bars": None, "beatmatch": False,
-            "why": f"Couldn't beat-match: {reason}", "fallback": {"kind": "crossfade", "code": code, "reason": reason},
-            "out": {"start": round(start, 3) if start is not None else None, "bar": None, "end": None,
-                    "in_outro": bool(region), "confidence": 0.3},
-            "in": {"start": round(in_start, 3), "bar": None, "how": "crossfade", "confidence": 0.3},
-            "length_s": CROSSFADE_S, "confidence": 0.3}
+def _without_grid(out_t, in_t, code: str, reason: str, base: Dict[str, Any],
+                  out_bpm: Optional[float]) -> Dict[str, Any]:
+    """The outgoing track has no grid: a cut on its bar when its BPM (and
+    length) are known, else play on. Never a crossfade."""
+    try:
+        bpm = float(out_bpm) if out_bpm else 0.0
+    except (TypeError, ValueError):
+        bpm = 0.0
+    length = _length(out_t)
+    if bpm > 0 and math.isfinite(bpm) and length:
+        bar_s = 4 * 60.0 / bpm
+        bars = math.floor((length - CUT_TAIL_BARS * bar_s) / bar_s)
+        if bars >= 1:
+            start = round(bars * bar_s, 3)
+            return {**base, "status": "cut", "style": "cut", "label": STYLE_WORDS["cut"], "bars": None,
+                    "beatmatch": False, "why": f"Cut: {reason}",
+                    "fallback": {"kind": "cut", "code": code, "reason": reason},
+                    "note": f"A cut on the bar, counted at {bpm:g} BPM: there's no beat grid to place it.",
+                    "out": {"start": start, "bar": None, "end": start, "in_outro": False, "confidence": 0.2},
+                    "in": {"start": 0.0, "bar": None, "how": "start", "confidence": 0.2},
+                    "length_s": 0.0, "confidence": 0.2}
+    return {**base, "status": "play_on", "style": None, "bars": None, "beatmatch": False,
+            "why": f"Plays on: {reason}", "fallback": {"kind": "play_on", "code": code, "reason": reason},
+            "note": None, "length_s": 0.0, "confidence": 0.0}
 
 
 def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
@@ -368,21 +390,32 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
     available = _availability(out_t, in_t, beat_ok)
     base["styles"] = [{"style": s, "label": STYLE_WORDS[s], "available": available[s] is None,
                        "why": available[s]} for s in STYLES[1:]]
+    fallback = None
+    if out_grid is None:
+        # nowhere to put the one: a cut on the bar if its BPM is known, else play on
+        return _without_grid(out_t, in_t, out_problem[0], out_problem[1], base, out_bpm)
     if out_problem is not None:
-        # nowhere to put the one: whatever the style, a plain crossfade
-        return _crossfade(out_t, in_t, out_problem[0], out_problem[1], base)
-    if style == "auto":
+        # a grid, but not one to beat-match on (a break held under 0.5, not
+        # 4/4): echo out needs no beat-match, only the outgoing track's beats
+        chosen = "echo_out"
+        why = f"Echo out: {out_problem[1]}"
+        fallback = {"kind": "echo_out", "code": out_problem[0], "reason": out_problem[1]}
+    elif style == "auto":
         chosen, why = _auto(tempo, key, in_problem, in_t)
         why = f"{base['pair']}: {why}"
     else:
         chosen, why = style, None
         if available[style] is not None:
             if style in NEEDS_BEATMATCH and beat_ok is not None:
-                return _crossfade(out_t, in_t, beat_ok[0], beat_ok[1], base)
-            # a drop swap without a drop: Auto's choice instead, saying why
-            chosen, auto_why = _auto(tempo, key, in_problem, in_t)
-            why = f"{STYLE_WORDS[style]}: {available[style]}, so {STYLE_WORDS[chosen].lower()} ({auto_why})"
-    length = 0 if chosen == "cut" else (bars if (bars and style != "auto") else DEFAULT_BARS[chosen])
+                # the style needs a beat-match the pair can't have: echo out
+                chosen = "echo_out"
+                why = f"{STYLE_WORDS[style]}: {beat_ok[1]}, so echo out"
+                fallback = {"kind": "echo_out", "code": beat_ok[0], "reason": beat_ok[1]}
+            else:
+                # a drop swap without a drop: Auto's choice instead, saying why
+                chosen, auto_why = _auto(tempo, key, in_problem, in_t)
+                why = f"{STYLE_WORDS[style]}: {available[style]}, so {STYLE_WORDS[chosen].lower()} ({auto_why})"
+    length = 0 if chosen == "cut" else (bars if (bars and style == chosen) else DEFAULT_BARS[chosen])
     out_pt = _out_point(out_t, out_grid, chosen, length)
     if in_grid is not None:
         in_pt = _in_point(in_t, in_grid, chosen, max(length, 1))
@@ -404,7 +437,7 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
     elif not out_pt["known"]:
         note = f"Only the first 10 minutes of {out_name} were analysed: its ending is estimated."
     return {**base, "status": "ok", "style": chosen, "label": STYLE_WORDS[chosen], "bars": length or None,
-            "beatmatch": beatmatch, "why": why, "fallback": None, "note": note,
+            "beatmatch": beatmatch, "why": why, "fallback": fallback, "note": note,
             "out": {"start": round(start, 3), "end": round(end, 3), "bar": out_pt["bar"],
                     "end_bar": out_pt["bar"] + length, "phrase_level": out_pt["level"],
                     "in_outro": out_pt["in_outro"], "confidence": out_pt["confidence"]},

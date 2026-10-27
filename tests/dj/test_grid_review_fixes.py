@@ -117,11 +117,12 @@ def test_m1_the_sweep_through_to_the_plan_falls_back_with_the_reason(db, client,
     assert shaped == {"track_id": "2", "analyzed": False, "reason": reason}
     # into it: a blend falls back with the reason; out of it, whatever the style
     plan = client.get("/api/library/dj/plan?from=1&to=2&style=long_blend").get_json()["plan"]
-    assert plan["status"] == "crossfade" and plan["fallback"]["reason"] == words
+    assert plan["style"] == "echo_out" and plan["fallback"]["reason"] == words
     cut = client.get("/api/library/dj/plan?from=1&to=2&style=cut").get_json()["plan"]
     assert cut["status"] == "ok" and cut["style"] == "cut"  # the outgoing grid is enough for a cut
     out_of = client.get("/api/library/dj/plan?from=2&to=1").get_json()["plan"]
-    assert out_of["status"] == "crossfade" and out_of["fallback"]["reason"] == words
+    # no grid and no BPM going out: it plays on, never a crossfade
+    assert out_of["status"] == "play_on" and out_of["fallback"]["reason"] == words
     # and it isn't on the grid sweep's list
     assert "2" not in grid_store.pending_ids(db, worker.analyzer_version(), retry_unreachable_before=0)
 
@@ -139,7 +140,7 @@ def test_m1_a_track_that_failed_before_grids_existed_says_why_too(db, client, st
     body = client.post("/api/library/dj/grids", json={"track_ids": ["3"]}).get_json()
     assert body["grids"]["3"]["reason"] == reason
     plan = client.get("/api/library/dj/plan?from=1&to=3&style=short_blend").get_json()["plan"]
-    assert plan["status"] == "crossfade"
+    assert plan["style"] == "echo_out" and plan["fallback"]["kind"] == "echo_out"
 
 
 def test_m1_a_track_not_reached_yet_still_waits(db, client):
@@ -159,7 +160,7 @@ def test_m2_noise_gets_no_grid_and_the_plan_says_so(db, client):
     grid_store.save_result(db, "5", grid.analyze_audio(noise, SR), source_sig=None)
     assert client.get("/api/library/dj/grid/5").get_json()["grid"]["reason"] == "no_beat"
     plan = client.get("/api/library/dj/plan?from=1&to=5&style=long_blend").get_json()["plan"]
-    assert plan["status"] == "crossfade" and plan["fallback"]["reason"] == "Static has no steady beat"
+    assert plan["style"] == "echo_out" and plan["fallback"]["reason"] == "Static has no steady beat"
 
 
 # ── M3: a stated length costs nothing ────────────────────────────────────────

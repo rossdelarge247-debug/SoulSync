@@ -49,7 +49,8 @@ GET  /api/library/dj/plan?from=<id>&to=<id>&style=&bars=
     The pair planner (core/dj/planner.py): where the outgoing track's mix
     starts (a phrase in its outro), where the incoming one starts (its
     intro's downbeat), the tempo ratio, whether it can be beat-matched, Auto's
-    pick and why, or the crossfade fallback with its reason; ``waiting``
+    pick and why, or a move that needs no beat-match (echo out, a cut on
+    the bar, play on) with its reason, never a crossfade; ``waiting``
     while either isn't analysed. ``style`` one of auto (the default),
     long_blend, short_blend, bass_swap, cut, echo_out, filter_sweep,
     drop_swap; ``bars`` 2, 4, 8, 16 or 32.
