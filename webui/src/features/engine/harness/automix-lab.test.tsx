@@ -81,3 +81,22 @@ describe('the auto-mix lab page', () => {
     expect(screen.getByText(/154.95 s \(bar 80\)/)).toBeInTheDocument();
   });
 });
+
+describe('the lab without storage', () => {
+  it('still opens where reading localStorage throws', () => {
+    const real = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('blocked', 'SecurityError');
+      },
+    });
+    try {
+      render(<AutomixLab />);
+      expect(screen.getByRole('heading', { name: 'Auto-mix lab' })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: /Split one output/ })).toBeChecked();
+    } finally {
+      if (real) Object.defineProperty(window, 'localStorage', real);
+    }
+  });
+});

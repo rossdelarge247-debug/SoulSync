@@ -35,6 +35,15 @@ const player = () => (window as unknown as { SoulSyncPlayer?: PlayerHooks }).Sou
 
 let ownContext: AudioContext | null = null;
 
+/** This browser's storage, or none where reading it throws (blocked site data, some private windows). */
+export function browserStore(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 const deps: LabDeps = {
   fetchPlan,
   fetchGrids,
@@ -171,7 +180,7 @@ export default function AutomixLab() {
   const session = useRef<LabSession | null>(null);
   const cue = useRef<CueRouter | null>(null);
   const support = useMemo(() => cueSupport(cueEnv(window)), []);
-  const [prefs, setPrefs] = useState<CuePrefs>(() => readCuePrefs(localStorage, support.device));
+  const [prefs, setPrefs] = useState<CuePrefs>(() => readCuePrefs(browserStore(), support.device));
   const [devices, setDevices] = useState<{ id: string; label: string }[]>([]);
   const live = session.current?.status.stage === 'playing';
   useTicker(live || session.current?.status.stage === 'loading');
@@ -235,7 +244,7 @@ export default function AutomixLab() {
 
   const choosePrefs = async (next: CuePrefs) => {
     setPrefs(next);
-    saveCuePrefs(localStorage, next);
+    saveCuePrefs(browserStore(), next);
     if (cue.current) await cue.current.apply(next);
   };
 
