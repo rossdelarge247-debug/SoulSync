@@ -52,9 +52,8 @@ describe('Between tracks', () => {
 
 function tickHarness(opts: { between?: string; crossfadeOn?: boolean; hint?: unknown }) {
   const started: unknown[] = [];
-  (window as unknown as { SoulSyncAutomix: unknown }).SoulSyncAutomix = {
-    crossfade: vi.fn(() => opts.hint ?? null),
-  };
+  const crossfade = vi.fn(() => opts.hint ?? null);
+  (window as unknown as { SoulSyncAutomix: unknown }).SoulSyncAutomix = { crossfade };
   localStorage.setItem('soulsync-between-tracks', opts.between ?? 'smart');
   const audioPlayer = { duration: 300, currentTime: 0 };
   const tick = new Function(
@@ -73,6 +72,7 @@ function tickHarness(opts: { between?: string; crossfadeOn?: boolean; hint?: unk
   )(window, localStorage, audioPlayer, started) as () => void;
   return {
     started,
+    crossfade,
     at(t: number) {
       audioPlayer.currentTime = t;
       tick();
@@ -87,6 +87,12 @@ describe('the crossfade’s timing', () => {
     expect(h.started).toHaveLength(0);
     h.at(294.1);
     expect(h.started).toEqual([{ i: 1, id: '2', hint: null }]);
+    // auto-mix is asked about the queue's own rows (they have the file and the chip)
+    expect(h.crossfade).toHaveBeenCalledWith(
+      { id: '1', is_library: true, file_path: '/a' },
+      { id: '2', is_library: true, file_path: '/b' },
+      1,
+    );
   });
 
   it('Smart crossfade: where auto-mix says, with its hint', () => {

@@ -1959,7 +1959,8 @@ function npCrossfadeTick() {
     let hint = null;
     try {
         const a = npAutomix();
-        hint = a && a.crossfade ? a.crossfade(currentTrack, next, nextIdx) : null;
+        // the queue's own row for the playing track (it has the file and the chip)
+        hint = a && a.crossfade ? a.crossfade(npQueue[npQueueIndex] || currentTrack, next, nextIdx) : null;
     } catch (e) { hint = null; }
     if (djMix && !hint) return;
     if (hint && hint.skip) return; // an album in order stays gapless
