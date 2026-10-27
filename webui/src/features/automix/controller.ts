@@ -36,9 +36,10 @@
  * (a row, Previous, a page's Play) lets the mix go; a queue edit that
  * changes the next track cancels a countdown (a mix in progress finishes
  * into its track, which is put back after the playing one if it was
- * removed); a context the system suspends cancels a countdown and finishes
- * a mix with a 2 s crossfade when sound is back, and a phone's page going
- * hidden finishes the mix over one bar (executor.ts, Design's 252).
+ * removed); a context the system suspends cancels a countdown (the track
+ * plays out straight on) and finishes a mix with a cut to the next track
+ * when sound is back, and a phone's page going hidden finishes the mix
+ * over one bar (executor.ts, Design's 252 and 308).
  *
  * No crossfade (Ross, 27 October: "we either mix auto or manual or
  * nothing"): a pair that can't be beat-matched echoes out on the decks (its
@@ -132,7 +133,6 @@ export interface PlayerPort {
     index: number,
     options: { handoff?: HandoffLike; automix?: boolean },
   ): Promise<{ status: string } | undefined>;
-  crossfadeInto(index: number, hint: CrossfadeHint | null): boolean;
   insertNext(track: QueueTrack): number;
   /** move a queued row to straight after the playing one; its new index */
   moveNext?(index: number): number;
@@ -1505,9 +1505,9 @@ export class AutomixController {
   // ── the player's crossfade: never (Ross, 27 October) ──
 
   /**
-   * media-player.js asks on every timeupdate whether to crossfade. There's
-   * no crossfade any more: with Auto mix the decks mix, a cut ends the track
-   * on its bar, or the track plays to its end; Off is plain playback.
+   * There's no crossfade any more, and media-player.js no longer asks: with
+   * Auto mix the decks mix, a cut ends the track on its bar, or the track
+   * plays to its end; Off is plain playback. Kept on the window API, null.
    */
   crossfade(_current: QueueTrack | null, _next: QueueTrack | null): CrossfadeHint | null {
     return null;
@@ -1516,21 +1516,25 @@ export class AutomixController {
   /**
    * A `cut` plan: at `at` (the outgoing track's seconds) the player starts
    * the next track. Set once a pair, a moment ahead, on the session's own
-   * timer, so a Next, a row or a seek in between lets it go.
+   * timer, so a Next, a row or a seek in between lets it go. The wait is
+   * in the track's seconds at its playback rate; a pause, a seek back or a
+   * slower rate in between sets it again on the tick when it comes round.
    */
   private setCut(p: Pending, at: number): void {
     const el = this.player.audio();
     if (!el) return;
     p.cutSet = true;
-    const wait = Math.max(0, (at - el.currentTime) * 1000);
+    const rate = el.playbackRate && el.playbackRate > 0 ? el.playbackRate : 1;
+    const wait = Math.max(0, ((at - el.currentTime) / rate) * 1000);
     this.later(() => {
       if (this.pending !== p || p.cancelled) return;
       const st = this.player.state();
       const toIndex = st.queue.indexOf(p.to);
       const now = this.player.audio();
-      if (toIndex < 0 || !now || now.paused || idOf(st.queue[st.index]) !== p.fromId) return;
-      if (now.currentTime < at - 0.25) {
-        // the listener sought back: set it again when it comes round
+      if (toIndex < 0 || !now || idOf(st.queue[st.index]) !== p.fromId) return;
+      if (now.paused || now.currentTime < at - 0.25) {
+        // paused, sought back, or slower than it was: set it again on the
+        // tick once it plays on and comes round
         p.cutSet = false;
         return;
       }

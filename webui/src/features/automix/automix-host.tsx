@@ -113,7 +113,6 @@ const port: PlayerPort = {
   audio: () => playerApi()?.audio() ?? null,
   playIndex: (index, options) =>
     playerApi()?.playIndex(index, options) ?? Promise.resolve({ status: 'failed' }),
-  crossfadeInto: (index, hint) => Boolean(playerApi()?.crossfadeInto(index, hint)),
   insertNext: (track) => playerApi()?.insertNext(track) ?? -1,
   moveNext: (index) => playerApi()?.moveNext?.(index) ?? index,
   renderQueue: () => playerApi()?.renderQueue(),

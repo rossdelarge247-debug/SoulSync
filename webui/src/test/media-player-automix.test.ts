@@ -2,12 +2,8 @@
  * The player's side of auto-mix (stage C), through the REAL functions of
  * static/media-player.js:
  *
- * - the crossfade asks auto-mix for a hint: Smart crossfade starts where it
- *   says (a downbeat, past the silence), the next track past its own
- *   silence and at the last one's loudness, then back to its own level;
- *   with none it's the plain crossfade, exactly as before; DJ mix with none
- *   doesn't crossfade (its decks mix, or the track plays to its end); an
- *   album in order stays gapless;
+ * - no crossfade (Ross, 27 October): the player has none left to start;
+ * - a load handed a quieter second audio goes back to its own level;
  * - 'ended' leaves the advance to auto-mix while its decks play;
  * - Up next draws a gap after each row from the playing one while DJ mix is
  *   on, and none without it;
@@ -51,106 +47,14 @@ describe('Between tracks', () => {
   });
 });
 
-function tickHarness(opts: {
-  between?: string;
-  crossfadeOn?: boolean;
-  hint?: unknown;
-  owns?: () => boolean;
-}) {
-  const started: unknown[] = [];
-  const crossfade = vi.fn(() => opts.hint ?? null);
-  (window as unknown as { SoulSyncAutomix: unknown }).SoulSyncAutomix = {
-    crossfade,
-    ownsAdvance: opts.owns ?? (() => false),
-  };
-  localStorage.setItem('soulsync-between-tracks', opts.between ?? 'smart');
-  const audioPlayer = { duration: 300, currentTime: 0 };
-  const tick = new Function(
-    'window',
-    'localStorage',
-    'audioPlayer',
-    'started',
-    `const NP_BETWEEN_KEY = 'soulsync-between-tracks';
-     let npCrossfadeOn = ${opts.crossfadeOn ?? true}, npXfadeActive = false, npRepeatMode = 'off',
-       npSleepEndOfTrack = false, npShuffleOn = false, npQueueIndex = 0, currentTrack = { id: '1' };
-     const npQueue = [{ id: '1', is_library: true, file_path: '/a' }, { id: '2', is_library: true, file_path: '/b' }];
-     const npCrossfadeSeconds = () => 6;
-     const npStartCrossfade = (i, next, hint) => started.push({ i, id: next.id, hint });
-     ${pick('npBetweenTracks', 'npAutomix', 'npAutomixOwnsAdvance', 'npCrossfadeTick')}
-     return npCrossfadeTick;`,
-  )(window, localStorage, audioPlayer, started) as () => void;
-  return {
-    started,
-    crossfade,
-    at(t: number) {
-      audioPlayer.currentTime = t;
-      tick();
-    },
-  };
-}
-
-describe('the crossfade’s timing', () => {
-  it('plain, with no hint: the last 6 s, as it always was', () => {
-    const h = tickHarness({});
-    h.at(293.9);
-    expect(h.started).toHaveLength(0);
-    h.at(294.1);
-    expect(h.started).toEqual([{ i: 1, id: '2', hint: null }]);
-    // auto-mix is asked about the queue's own rows (they have the file and the chip)
-    expect(h.crossfade).toHaveBeenCalledWith(
-      { id: '1', is_library: true, file_path: '/a' },
-      { id: '2', is_library: true, file_path: '/b' },
-      1,
-    );
-  });
-
-  it('Smart crossfade: where auto-mix says, with its hint', () => {
-    const hint = { startAt: 280.5, inAt: 1.2, gain: 0.8 };
-    const h = tickHarness({ hint });
-    h.at(280);
-    expect(h.started).toHaveLength(0);
-    h.at(280.6);
-    expect(h.started).toEqual([{ i: 1, id: '2', hint }]);
-  });
-
-  it('an album in order stays gapless', () => {
-    const h = tickHarness({ hint: { skip: true } });
-    h.at(299);
-    expect(h.started).toHaveLength(0);
-  });
-
-  it('DJ mix: no hint, no crossfade (the decks mix, or it plays to its end); a fallback’s does', () => {
-    const none = tickHarness({ between: 'dj', crossfadeOn: false });
-    none.at(299.5);
-    expect(none.started).toHaveLength(0);
-    const fallback = tickHarness({
-      between: 'dj',
-      crossfadeOn: false,
-      hint: { startAt: 250, seconds: 6, inAt: 3 },
-    });
-    fallback.at(250.1);
-    expect(fallback.started).toHaveLength(1);
-  });
-
-  it('Off: nothing', () => {
-    const h = tickHarness({ between: 'off', crossfadeOn: false, hint: { startAt: 1 } });
-    h.at(299);
-    expect(h.started).toHaveLength(0);
-  });
-});
-
-describe('[gauntlet H3] a set played as a mix, with Smart crossfade on', () => {
-  it('no plain crossfade over the decks while they own the advance; as before once they let go', () => {
-    let owns = true;
-    const h = tickHarness({ between: 'smart', hint: { startAt: 280, inAt: 1 }, owns: () => owns });
-    h.at(280.5);
-    h.at(294.5);
-    h.at(299.5);
-    expect(h.started).toHaveLength(0);
-    expect(h.crossfade).not.toHaveBeenCalled();
-    owns = false;
-    h.at(294.6);
-    expect(h.started).toHaveLength(1);
+describe('no crossfade (Ross, 27 October)', () => {
+  it('the player has no crossfade left to start: no tick, no start, no window API', () => {
+    for (const name of ['npCrossfadeTick', 'npStartCrossfade', 'npFinishCrossfade'])
+      expect(source).not.toMatch(new RegExp(`function ${name}\\b`));
+    expect(source).not.toMatch(/addEventListener\('timeupdate', npCrossfadeTick\)/);
+    expect(source).not.toMatch(/\bcrossfadeInto\s*\(/);
+    const v2 = readFileSync(resolve(process.cwd(), 'static/media-player-v2.js'), 'utf8');
+    expect(v2).not.toMatch(/np-v2-xfade-secs/);
   });
 });
 
@@ -232,42 +136,8 @@ describe('[gauntlet M1b] moveNext: the incoming row straight after the playing o
   });
 });
 
-describe('the crossfade with a hint', () => {
+describe('the level after a load handed a second audio', () => {
   beforeEach(() => vi.useFakeTimers());
-
-  it('starts the next track past its silence and at the last one’s loudness, then settles', async () => {
-    const finished: unknown[] = [];
-    const xa = {
-      src: '',
-      volume: 1,
-      play: vi.fn(async () => {}),
-      pause: vi.fn(),
-    };
-    const audioPlayer = { volume: 0.5 };
-    const start = new Function(
-      'document',
-      'audioPlayer',
-      'finished',
-      `let npXfadeActive = false, npXfadeAudio = null, npXfadeMainVol = null, npXfadeTimer = null;
-       const npCrossfadeSeconds = () => 6;
-       const npFinishCrossfade = (i, vol, gain) => finished.push({ i, vol, gain });
-       ${pick('npStartCrossfade')}
-       return npStartCrossfade;`,
-    )({ getElementById: () => xa }, audioPlayer, finished) as (
-      i: number,
-      next: unknown,
-      hint: unknown,
-    ) => void;
-    start(1, { id: '2', file_path: '/m/b.flac' }, { inAt: 1.234, gain: 0.8, seconds: 2 });
-    expect(xa.src).toMatch(
-      /^\/stream\/library-audio\?path=%2Fm%2Fb\.flac&track_id=2&t=\d+#t=1\.23$/,
-    );
-    await vi.advanceTimersByTimeAsync(2100);
-    // the new track came up to 80% of the player's level, the old one down
-    expect(xa.volume).toBeCloseTo(0.4, 6);
-    expect(audioPlayer.volume).toBe(0);
-    expect(finished).toEqual([{ i: 1, vol: 0.5, gain: 0.8 }]);
-  });
 
   it('back to the player’s own level over 3 s', async () => {
     const audioPlayer = { volume: 0 };

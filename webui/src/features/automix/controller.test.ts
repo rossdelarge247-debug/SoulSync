@@ -640,6 +640,11 @@ describe('no crossfade (Ross, 27 October)', () => {
       const h = harness({ plan });
       await at(h, 100);
       expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toBeNull();
+      expect(h.ctl.mixNow()).toBeTypeOf('boolean');
+      await at(h, 299);
+      await vi.advanceTimersByTimeAsync(1000);
+      // the port has no crossfade any more; the spy stays as a tripwire
+      expect(h.player.crossfadeInto).not.toHaveBeenCalled();
     }
     const off = harness({ prefs: { between: 'off' } });
     await at(off, 100);
@@ -661,6 +666,41 @@ describe('no crossfade (Ross, 27 October)', () => {
     expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
     expect(engine.plays).toHaveLength(0);
     expect(h.window).not.toHaveBeenCalled();
+  });
+
+  it('[review L2] a pause while a cut is set: no cut while paused, set again once it plays on', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 249);
+    h.el.pause();
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    await h.el.play();
+    await at(h, 249.9);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(h.player.playIndex).toHaveBeenCalledTimes(1);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+  });
+
+  it('[review L2] the wait for a cut is in the track’s seconds at its playback rate', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    h.el.playbackRate = 2;
+    await at(h, 249);
+    // a second of the track at double speed is half a second of the clock
+    await vi.advanceTimersByTimeAsync(400);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    h.el.advance(250);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(h.player.playIndex).toHaveBeenCalledTimes(1);
+    // slower: it doesn't fire early, and a timer that finds the track short
+    // of its bar sets it again
+    const slow = harness({ plan: cutPlan(250) });
+    slow.el.playbackRate = 0.5;
+    await at(slow, 249);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(slow.player.playIndex).not.toHaveBeenCalled();
+    slow.el.advance(250);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(slow.player.playIndex).toHaveBeenCalledTimes(1);
   });
 
   it('with Mix automatically off a cut waits for Mix now', async () => {
