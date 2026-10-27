@@ -22,6 +22,11 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 338. ~~**No crossfade in Auto mix:** is a cut with no grid worth keeping, and should Up next say anything for a play-on?~~ **Answered by Design's 302** (the moves that replace the crossfade). Its rule is built in a later round; until then nothing without a reliable grid is cut by bar count: a track with no beat found, or too short for one, plays on, as do one album's tracks in their order.
 339. ~~**What stays crossfade-like:** the engine's 2-second finish of a mix the system cut off; keep, or end that mix at once?~~ **Answered by Design's 308:** if a call or the lock stops the sound, SYNCHRO.S cuts to the next track when it's back: the mix finishes with a cut, not a 2-second crossfade, and an interrupted countdown plays out straight on. Built (the Gauntlet review, below).
 
+**Dev's questions for Design, Spotify throttling (27 October)** (Log, "Dev, Spotify throttling of 27 October")
+341. Spotify pause (12a–12d): from an hour on, the title and sentences now say when it ends ("Spotify asked us to wait 15 h, until 21:40"); the tags stay short. Should every wait say the clock time, and where on the boards?
+342. A sign-in during Spotify's wait now succeeds with "Spotify is connected. Spotify asked us to wait until 21:40…" and Connections shows the pause. Does "connected, but paused" want its own state on the Spotify card?
+343. Settings → Connections → Spotify: the redirect URI's problem ("Spotify no longer accepts localhost…") is said when Authenticate is clicked. Should the field say it as you type, under the URI?
+
 **Design's questions for Dev, 27 October** (Dev answers each with the build step it belongs to)
 325. Brief A: can the sweep publish queue_position as an ordinal that updates when members' tracks jump the line, and the reason each track is in line (you asked · added to a set · the sweep)? 31b shows both.
 326. Brief A: step times per track (31b's "1.2 s") — are they cheap to publish, or should the popover show only the step?
@@ -33,6 +38,59 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 332. Brief E: taking over mid-mix needs the automation to hold without a jump (takeover()). Does handBack() resume from the held values or from the plan's curve? 35f assumes the held values.
 
 ## Log
+
+### 2026-10-27: Dev, Spotify throttling of 27 October
+
+Built on `fix/spotify-gentle` from `integration` (17cea646). Ross: "spotify just won't connect / throttle constantly" (Spotify had answered 429 with a Retry-After of about 15 hours), then "things hang for ages in the UI… Spotify is permanently throttled, no connection to playlists". Both are the same problem: SYNCHRO.S asked Spotify for too much, ignored some of Spotify's answers, forgot the rest on a restart or a reconnect, and waited for Spotify inside web requests. **Gauntlet:** `core/spotify_client.py` (already on the list) and the new `core/spotify_gate.py` (added under Outbound HTTP); the new tests are marked `gauntlet` and described in `docs/GAUNTLET.md`. No new route or table. SYNCHRO.S is the name shown; code keeps SoulSync's.
+
+**The audit: every Spotify Web API call, with the defaults before this change** (a library of about 10k tracks, 50 playlists, 800 artists, 1,000 albums, 100 watched artists; the pace was 350 ms between decorated calls, about 171 a minute, shared by everything)
+
+| Call | Trigger | How often | Requests per run | ≈ requests/hour |
+|---|---|---|---|---|
+| Enrichment worker: `search_artists/albums/tracks`, `get_artist_albums` (every page, to tell same-name artists apart), `get_album_tracks`, `get_album`, `get_track_details`, credits backfill | background thread | continuous, 1.5 s between items, 500 items a day (kept in memory: every restart started a fresh 500) | 2–5 per item | ≈1,500 in 20–40 min after midnight or a restart (2,000–4,000/h while it runs), then 0 |
+| Watchlist scan: one discography page per artist (all pages on a full-discography lookback), `get_album` per new release, `search_artists` for unmatched | automation, every 24 h | daily | 150–250 | ≈1,500/h for ~8 min; ≈8/h averaged |
+| Sync page: `current_user_playlists` (1–2 pages), liked-songs count, `current_user` | page load (no cache) | each visit | 3–4 | a few |
+| Open or sync a playlist: `playlist` + `/items` pages (100 each) | person; mirrored-playlist schedules | each sync | 1 + tracks/100; all 50 ≈ 100–150 | per sync |
+| Liked Songs: `current_user_saved_tracks`, 50 a page | person, mirror sync | each sync | ≈200 for 10k, **back to back, unpaced**, and a 429 there set no pause | 200 in about a minute |
+| Discovery of a ListenBrainz/YouTube/Beatport/Tidal playlist: 1–3 searches per track, "extended" at limit 50 | person, pipeline automations | per playlist | 100–150 per 50 tracks; dev-mode apps refuse limit 50 (400), one wasted request per track | per run |
+| Artist page: `artist` (30-day cache), discography pages (30-day cache), `artist_top_tracks` | page load | each visit | 1–6; top tracks is gone for dev-mode apps (403, uncached, every visit) | a few |
+| Search: tracks, artists, albums | person | each search | 3 (7-day cache) | a few |
+| Discover → Your artists / Your albums: followed artists, saved albums | page load when stale, background thread | rarely | 1 per 50 | ~0 |
+| Look for releases you don't have | person | per run | a discography per artist, 1/s | per run |
+| Sign-in check `current_user` | 15-minute cache | 4/h | 1 | 4 |
+| Token refresh (accounts.spotify.com) | any call with an expired token; the worker reloads every 30 s while Spotify is unavailable | — | 1 | up to 120/h with a refused refresh token, forever |
+| `/status` (5 s), Home (30 s), other polls | browser | — | 0: event-driven, nothing reaches Spotify | 0 |
+
+Idle, SYNCHRO.S asked Spotify for 5–20 requests an hour; with the enrichment burst, a liked-songs sync and a watchlist scan landing together, well over 3,000 an hour, at a pace already at the ceiling people measure for Spotify's rolling 30-second window (Spotify publishes no number; development-mode apps get less).
+
+**Why it was throttled constantly**
+1. **The pause lived in memory.** Restarting the container (what you do when Spotify "won't connect") forgot Spotify's Retry-After and gave enrichment a fresh 500: every job fired into a limit that was still on, and Spotify answered with a longer wait. Repeat, and a few minutes becomes 15 hours.
+2. **Reconnecting, Disconnect and "Try again now" cleared Spotify's own wait** and the cooldown after it, so background jobs stampeded the moment the button was pressed.
+3. **Many 429s set no pause at all.** Nine methods swallow their errors (your playlists, a playlist's tracks, Liked Songs, saved albums, the count, your profile, audio features, the artists batch, the user id), and routes call `client.sp` directly; their 429s were logged and the next request went straight out. Pages of Liked Songs, playlists and saved albums weren't paced at all.
+4. **Wasted requests on what Spotify took away** from development-mode apps in February 2026: the several-ids lookups, an artist's top tracks, search pages over 10 (and audio features since 2024), each refused every time.
+
+**Why the UI hung** (gunicorn: 1 worker × 8 threads, `gthread`, timeout 120 s). Inside web requests: the decorator slept through any Retry-After up to a minute, up to three times (≈3 min a request), 5–7 s without a header, 2 + 4 + 8 s on a 502/503; the pacing slept *while holding one process-wide lock*, so every Spotify call in every thread queued behind it (2–3 s a call for up to 45 minutes after a pause, a background backlog in the same queue as your page); long paginations ran inside the request; the token refresh had no timeout; and spotipy's interactive sign-in (it binds 127.0.0.1:8888 and waits, or reads stdin) was one missing token away. Eight such requests (a page firing four Spotify-backed calls, twice) and every thread sleeps: nothing answers, static files included. Nothing slept a 3,600-s Retry-After (that was already a pause); the hangs were the short ones, the shared lock and the paginations.
+
+**Why it wouldn't connect**
+1. **During a pause, signing in "failed".** The callback exchanged the code, then checked the sign-in by asking Spotify, which the pause refuses, so it said "SYNCHRO.S could not confirm an authenticated Spotify session" and Connections showed not connected, for the whole 15 hours.
+2. **The callback refreshed the old token instead of using the new code** (`get_access_token(code)` checks the saved token first, refreshes it if expired, and returns that). Spotify now expires a refresh token six months after sign-in; once it's refused (`invalid_grant`), every sign-in failed until Disconnect.
+3. **Redirect URI:** the defaults are right (`http://127.0.0.1:8888/callback`, which Docker Desktop on a Mac reaches through the published port), but in Docker the Authenticate button showed manual steps telling a Mac browser to change `127.0.0.1` to `localhost`, and nothing checked the configured URI, so a `localhost` one (Spotify refuses it since 2025) only failed on Spotify's page.
+
+**What changed**
+- **One gate for every request** (`GatedSpotifySession` in `core/spotify_client.py`, pieces in `core/spotify_gate.py`): spotipy's session, so every request is covered, pages and routes' direct `client.sp` calls included. A token bucket (one request a second, a burst of 15, `spotify.min_api_interval` overrides) whose last 5 tokens are a person's; background work also has an hourly share (1,200, `spotify.background_requests_per_hour`) and goes one request at a time, so a 429 never meets a volley already in flight; it waits in short jittered steps. Any 429 pauses everyone for exactly Spotify's Retry-After (else the estimate ladder) and empties the bucket.
+- **Web requests never wait on Spotify:** while paused, the gate refuses at once (`SpotifyRateLimitError`), unsent; a person's request waits at most 2 s for the budget, else answers busy (`SpotifyBusyError`) and the caller falls back to your other sources; the decorator never sleeps on a 429 (background jobs retry a 502/503 twice); every request has connect/read timeouts of 4/10 s; `/api/spotify/playlists` and `/api/spotify/playlist/<id>` answer "Spotify asked us to wait until 21:40. Your other sources carry on meanwhile." (429) or show the last list Spotify gave.
+- **The pause is stored** (`spotify_rate_limit`, top level of the config, so a Settings save can't round-trip it) and read back after a restart, cooldown included; it belongs to the client id that earned it (a new Spotify app isn't paused by the old one's wait). Enrichment's daily count is stored too (`spotify_enrichment_budget`).
+- **Reconnect, Disconnect and Try again now:** signing in or disconnecting no longer lifts a wait Spotify asked for (our own estimate is cleared); "Try again now" lets your own requests go at once but background jobs still cool down and ease in. A sign-in during a pause says "Spotify is connected. Spotify asked us to wait until 21:40, so SYNCHRO.S starts using it then".
+- **Sign-in:** every SpotifyOAuth is `make_spotify_oauth` (`GentleSpotifyOAuth`): 10 s timeouts, never the interactive sign-in, one refresh at a time, a failed refresh waits 1, 2, 4… up to 60 minutes, and a refresh token Spotify refuses is never tried again ("Spotify sign-in expired… Authenticate again"). All three callbacks (8008, 8888, a profile's) exchange the new code (`check_cache=False`).
+- **Redirect URI:** `redirect_uri_problem()` applies Spotify's rules (https, or http only for 127.0.0.1 / [::1]; never `localhost`); Authenticate shows the problem and the URI to use instead of sending you to Spotify's error. A browser on the same computer goes straight to Spotify (no manual steps, no switch to `localhost`).
+- **Fewer requests:** the Sync page's list, liked-songs count and profile are reused for 2–10 minutes; an endpoint Spotify refuses with 403/404 for this app (top tracks, the artists batch, audio features) isn't asked again for a day; search drops to pages of 10 after Spotify refuses 50 once. The several-ids endpoints aren't an option for development-mode apps (Spotify removed them in February 2026); metadata caching was already there (30 days for artists, albums and tracks, 7 for searches) and is unchanged.
+- **The pause in words** (`spotify-pause.ts`): from an hour on, the title and sentences say when it ends: "Spotify asked us to wait 15 h, until 21:40 (after reading your liked songs)"; tags stay short ("Paused by Spotify · 15 h"). The legacy Settings card uses the same view.
+
+**Left as is, and why:** the opt-in "Spotify (no auth)" source and the public playlist fallback (used when Spotify answers "Premium required") read Spotify's web player, not the Web API; this change adds nothing of the kind and never falls back to them while paused. Whether to keep them is Ross's call (Spotify's terms don't allow scraping).
+
+**For Ross:** register exactly `http://127.0.0.1:8888/callback` in the Spotify dashboard (and nothing with `localhost`), with the same value in Settings → Connections → Spotify, and click Authenticate from a browser on the Mac (http://127.0.0.1:8008). From another device it needs an https address. Development mode needs Premium on the app owner's account and allows five users (add yours under User Management). After the update, the first 429 records Spotify's wait for good; there's no need to restart or reconnect to get past it.
+
+**Checks:** ruff; pytest on `tests/test_spotify_gentle.py` (new, `gauntlet`), `tests/test_spotify_rate_limit.py` (the decorator's tests now say it never sleeps; "Try again now" keeps the cooldown) and the 174 test files that touch the Spotify client, worker, registry or routes; `pytest -m gauntlet`; Bandit and Semgrep (the pinned versions and rules) on the changed files, nothing new above Low; `tsc --noEmit`, `npm run check`, `npm run build`, vitest on `features/spotify-pause` and `routes/dashboard`.
 
 ### 2026-10-27: Dev, analyse on demand of 27 October
 
