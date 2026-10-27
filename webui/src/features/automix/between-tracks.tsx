@@ -123,7 +123,7 @@ export function BetweenTracksSettings() {
       {phone ? (
         <p className={styles.phoneNote} role="note">
           On a phone, keep the screen on while it mixes; a locked iPhone can stop the sound. If it
-          does, SYNCHRO.S finishes the mix quickly once the sound is back.
+          does, SYNCHRO.S cuts to the next track when it&apos;s back.
         </p>
       ) : null}
     </section>

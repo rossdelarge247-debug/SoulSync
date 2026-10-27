@@ -12,10 +12,11 @@
  * - takeover(): every control stops where it is, nothing jumps (250), the
  *   two decks stay on the beat at the tempo they're at; handBack() lets it
  *   finish from where the controls are;
- * - an interruption (252): a countdown is cancelled (the player crossfades
- *   as it always has); a mix that was cut off finishes with a short
- *   crossfade once sound is back, and on a phone a page that's hidden
- *   finishes over one bar at once, before the lock stops it.
+ * - an interruption (252, 308): a countdown is cancelled (the track plays
+ *   out straight on); a mix that was cut off finishes with a cut to the
+ *   incoming track once sound is back (Design's 308: a cut, not a 2-second
+ *   crossfade), and on a phone a page that's hidden finishes over one bar
+ *   at once, before the lock stops it.
  *
  * Roles: the score's "A" is the outgoing deck, "B" the incoming one; which
  * physical deck each is (Decks' A and B) is the transition's `from` / `to`.
@@ -132,7 +133,7 @@ export interface TransitionState {
 export type TransitionEvent =
   | { type: 'phase'; phase: Phase }
   | { type: 'interrupted'; reason: string }
-  | { type: 'crossfaded'; reason: string };
+  | { type: 'cut'; reason: string };
 
 /** Within this, a plain speed change (pitch moves) will do: the planner's 3%. */
 export const SPEED_CHANGE_OK = 0.03;
@@ -140,8 +141,11 @@ export const SPEED_CHANGE_OK = 0.03;
 const SETTLE_BARS = 4;
 /** Back is offered while the outgoing track has this many bars left after the bar back. */
 const BACK_LEFT_BARS = 4;
-/** A mix cut off by an interruption ends with a crossfade this long once sound is back. */
-export const INTERRUPTED_CROSSFADE_S = 2;
+/**
+ * A mix cut off by an interruption ends with a cut once sound is back
+ * (Design's 308); the controls move over this long, so the cut doesn't click.
+ */
+export const INTERRUPTED_CUT_S = 0.01;
 
 const PER_MASTER = { same: 1, half: 0.5, double: 2 } as const;
 
@@ -500,8 +504,13 @@ export class Transition {
     this.finishNow(Math.max(1, Math.ceil(left / 4)));
   }
 
-  /** The mix was cut off (252): finish with a plain crossfade over `seconds` from now. */
-  crossfadeNow(seconds = INTERRUPTED_CROSSFADE_S, reason = 'interrupted'): void {
+  /**
+   * The mix was cut off (252, 308): once sound is back, a cut to the
+   * incoming track from now (its controls in a moment, the outgoing deck
+   * stopped); the incoming deck goes back to its own tempo without a jump.
+   */
+  cutNow(reason = 'interrupted'): void {
+    const seconds = INTERRUPTED_CUT_S;
     const sr = this.port.sampleRate;
     const t = this.port.now() + LOOKAHEAD;
     this.moveTo(FINISHED, t, seconds);
@@ -518,7 +527,7 @@ export class Transition {
     this.port.stop(this.input.from, this.frame(t + seconds) + 1024);
     this.endAt = t + seconds;
     this.setPhase('done');
-    this.emit({ type: 'crossfaded', reason });
+    this.emit({ type: 'cut', reason });
   }
 
   /** What to do about an interruption (lifecycle.ts). */
@@ -543,7 +552,7 @@ export class Transition {
     } else if (this.interruptedMix) {
       this.interruptedMix = false;
       this.phaseOverride = null;
-      this.crossfadeNow(INTERRUPTED_CROSSFADE_S, e.reason);
+      this.cutNow(e.reason);
     }
   }
 
