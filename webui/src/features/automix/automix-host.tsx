@@ -336,10 +336,14 @@ export function AutomixHost() {
     const onPlayer = (e: Event) => {
       const reason = (e as CustomEvent<{ reason?: string }>).detail?.reason;
       if (reason === 'settings') refreshPrefs();
-      const next = findSlots();
-      flushSync(() => {
-        setSlots((prev) => (sameSlots(prev, next) ? prev : next));
-        if (reason === 'queue' || reason === 'track' || reason === 'init') setTick((n) => n + 1);
+      // Up next was just drawn again: fill its new gaps before the browser
+      // paints (a microtask, so never inside React's own render or effects)
+      queueMicrotask(() => {
+        const next = findSlots();
+        flushSync(() => {
+          setSlots((prev) => (sameSlots(prev, next) ? prev : next));
+          if (reason === 'queue' || reason === 'track' || reason === 'init') setTick((n) => n + 1);
+        });
       });
       ctl.poke();
     };
