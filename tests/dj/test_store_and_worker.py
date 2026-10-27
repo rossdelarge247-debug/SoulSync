@@ -169,6 +169,10 @@ def _job(process, *, busy=None, away=None, settings=None):
 
 def _fake_process(db, track_id, **_kw):
     store.save(db, track_id, {"status": "done", "dj_analyzer_version": worker.analyzer_version(), "bpm": 120.0})
+    # and its grid (found no beat), so the grid top-up has nothing left either
+    from core.dj import grid_store
+
+    grid_store.save_result(db, track_id, {"status": "none", "reason": "too_short"}, source_sig=None)
     return "done"
 
 
@@ -306,17 +310,29 @@ def test_a_sweep_cut_off_by_a_restart_reads_as_stopped(db):
 
 
 def test_the_scheduler_starts_an_automatic_sweep(db, monkeypatch):
+    """No wall-clock polling: the test waits on the scheduler's own call to
+    start (which returns once the sweep's thread exists), then joins that
+    thread. Under load it takes longer, never fails for it."""
     _track(db, 1, "T1", "/m/1.flac")
     job = _job(_fake_process)
+    started = threading.Event()
+    real_start = job.start
+
+    def start(*args, **kwargs):
+        try:
+            return real_start(*args, **kwargs)
+        finally:
+            started.set()
+
+    monkeypatch.setattr(job, "start", start)
     monkeypatch.setattr(worker, "JOB", job)
     monkeypatch.setattr(worker, "settings_state", lambda: {"analyze": True, "write_tags": False,
                                                            "overwrite_tags": False})
     try:
-        assert worker.start_scheduler(lambda: db, first_delay=0, interval=60) is True
-        deadline = time.time() + 5
-        while time.time() < deadline and not _runs(db):
-            time.sleep(0.02)
-        job.join(5)
+        assert worker.start_scheduler(lambda: db, first_delay=0, interval=3600) is True
+        assert started.wait(120), "the scheduler never started a sweep"
+        job.join(120)
+        assert not job.running()
         assert _runs(db) and _runs(db)[0]["status"] == "done"
         assert worker.start_scheduler(lambda: db) is False  # already running
     finally:

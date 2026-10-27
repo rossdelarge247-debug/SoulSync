@@ -182,6 +182,20 @@ def test_l5_a_row_whose_next_track_changed_goes_back_to_auto():
     assert sets_store.read_transition(auto16) == {"style": "auto", "bars": 16}
 
 
+def test_l8_adding_the_track_that_already_comes_next_keeps_the_join():
+    long = sets_store.clean_transition({"style": "long_blend", "bars": 32})
+    rows = [_r("1", transition=long), _r("2", transition=long), _r("3")]
+    # "Add again": a second 2 straight after 1, which already led into 2
+    placed = sets_store.insert_keeping_locked(rows, 0, [_r("2")])
+    out = sets_store.reset_changed_joins(rows, placed)
+    assert [r["track_id"] for r in out] == ["1", "2", "2", "3"]
+    assert out[0]["transition"] == long  # still 1 into 2: the same join
+    assert out[2]["transition"] == long  # the old 2 still goes into 3
+    # a different track in between is still a new join
+    other = sets_store.reset_changed_joins(rows, sets_store.insert_keeping_locked(rows, 0, [_r("9")]))
+    assert other[0]["transition"] == sets_store.clean_transition(sets_store.RESET_TRANSITION)
+
+
 @pytest.mark.gauntlet
 def test_l5_add_after_keeps_locked_rows_and_resets_the_changed_joins(client):
     rows = [{"track_id": "1", "state": "owned", "transition": {"style": "long_blend", "bars": 32}},
@@ -200,6 +214,33 @@ def test_l5_add_after_keeps_locked_rows_and_resets_the_changed_joins(client):
     assert tr["3"] == {"style": "auto", "bars": 16}   # was into 4, now into 2
     assert tr["2"] == {"style": "auto", "bars": 16}   # a cut into 3, now into 4
     assert tr["8"] == {"style": "auto", "bars": None}
+
+
+def test_l9_placed_says_where_the_tracks_really_went():
+    assert sets_store.placed_as(0, [1, 2], 5) == "after"
+    assert sets_store.placed_as(0, [2], 4) == "later"
+    assert sets_store.placed_as(0, [3], 4) == "end"
+    assert sets_store.placed_as(0, [1, 3], 6) == "split"
+    assert sets_store.placed_as(3, [4], 5) == "after"  # after the last row is after it
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("locks, add, placed, order", [
+    ((False, False, False), ["8"], "after", ["1", "8", "2", "3"]),
+    ((False, True, False), ["8"], "later", ["1", "2", "8", "3"]),
+    ((False, True, True), ["8"], "end", ["1", "2", "3", "8"]),
+    ((False, False, True), ["8", "9"], "split", ["1", "8", "3", "9", "2"]),
+])
+def test_l9_the_add_answer_does_not_say_after_when_locked_rows_moved_them(client, locks, add, placed, order):
+    rows = [{"track_id": tid, "state": "owned", "locked": lock}
+            for tid, lock in zip(("1", "2", "3"), locks, strict=True)]
+    set_id = client.post("/api/sets", json={"name": "Locks", "kind": "hand", "tracks": rows}).get_json()["id"]
+    body = client.post(f"/api/sets/{set_id}/tracks",
+                       json={"track_ids": add, "after": {"track_id": "1", "number": 1}}).get_json()
+    assert body["placed"] == placed
+    assert _rows(client, set_id) == order
+    numbers = {a["track_id"]: a["number"] for a in body["added"]}
+    assert all(order[numbers[t] - 1] == t for t in add)
 
 
 @pytest.mark.gauntlet

@@ -9,7 +9,13 @@ import time
 import pytest
 from flask import Flask, g
 
-from core.dj import store, worker
+from core.dj import grid_store, store, worker
+
+
+def _no_grid(db, track_id):
+    """A grid row (found no beat) beside a fake job's DJ row: the track is
+    fully analysed, so the sweep's grid top-up has nothing to do."""
+    grid_store.save_result(db, track_id, {"status": "none", "reason": "too_short"}, source_sig=None)
 
 
 def _sql(db, sql, params=()):
@@ -47,6 +53,7 @@ def db(tmp_path, monkeypatch):
         store.save(database, tid, {"bpm": bpm, "bpm_source": "analysis", "musical_key": key,
                                    "key_source": "analysis", "key_confidence": 0.8, "energy": energy,
                                    "status": "done", "dj_analyzer_version": worker.analyzer_version()})
+        _no_grid(database, tid)
     # enrichment knows a BPM for a track analysis hasn't reached yet
     _sql(database, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, bpm) "
                    "VALUES ('9', '10', '1', 'Not yet', '/m/9.flac', 128)")
@@ -64,7 +71,8 @@ def client(db, monkeypatch):
     monkeypatch.setattr(pc, "is_admin_request", lambda: state["admin"])
     job = worker.DjAnalysisJob(busy=lambda d: None, away=lambda: False, sleep_floor=0, rest_factor=0,
                                process=lambda d, t, **kw: (store.save(d, t, {
-                                   "status": "done", "dj_analyzer_version": worker.analyzer_version()}), "done")[1],
+                                   "status": "done", "dj_analyzer_version": worker.analyzer_version()}),
+                                   _no_grid(d, t), "done")[2],
                                settings=lambda: {"analyze": True, "write_tags": False, "overwrite_tags": False})
     monkeypatch.setattr(worker, "JOB", job)
     app = Flask(__name__)

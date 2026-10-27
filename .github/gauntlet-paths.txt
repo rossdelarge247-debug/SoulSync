@@ -80,6 +80,13 @@ core/stars/**
 core/dj/ranking.py
 core/dj/vibe.py
 core/dj/store.py
+# Auto-mix stage A: each track's beat grid, phrases and sections (the
+# analysis decodes library files in the background sweep, the store's reads
+# are scoped to the caller's library, and the planner feeds the grid and plan
+# routes in api/dj.py above)
+core/dj/grid.py
+core/dj/grid_store.py
+core/dj/planner.py
 
 ## Database migrations and schema
 database/**

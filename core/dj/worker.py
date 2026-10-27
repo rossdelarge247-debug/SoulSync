@@ -29,6 +29,14 @@ carries on where it stopped and a new analyzer version redoes the library. A
 file that isn't there (an unplugged drive, a moved folder) is marked
 ``unreachable``, not failed, and asked again a day later.
 
+Auto-mix stage A: the same decode also gives each track's beat grid,
+downbeats, phrases, sections and mix regions (core/dj/grid.py, kept in
+``track_grid`` by core/dj/grid_store.py). A track whose BPM, key and energy
+are already done at this version isn't analysed again: the sweep only decodes
+it for the grid (the "top-up", for tracks analysed before grids existed or
+before a new ``GRID_VERSION``), using its BPM as the tempo to look near. A
+grid that fails or finds no beat never costs the track its DJ data.
+
 Each sweep is a ``library_jobs`` row (kind ``dj_analysis``), which Activity
 shows with progress and Stop, like "Look for releases you don't have". The
 scheduler starts a sweep a couple of minutes after boot and then looks for
@@ -191,7 +199,73 @@ def _default_resolve(stored: str) -> Optional[str]:
 def _default_analyze(path: str) -> Dict[str, Any]:
     from core.sample.analyze import analyze_track
 
-    return analyze_track(path, max_seconds=DECODE_SECONDS)
+    # the decoded audio comes back too, for the beat grid: one decode a track
+    return analyze_track(path, max_seconds=DECODE_SECONDS, keep_audio=True)
+
+
+def _default_grid(path: str, *, audio=None, bpm_hint: Optional[float] = None) -> Dict[str, Any]:
+    """The beat grid, phrases and sections (core/dj/grid.py) from the audio
+    the analysis decoded, or from a decode of its own (the same 10 minutes)
+    when the DJ data came from Sample Studio or is already done."""
+    from core.dj.grid import SR, analyze_audio
+
+    if audio is None:
+        from core.sample.analyze import decode_mono_at
+
+        audio = decode_mono_at(path, SR, max_seconds=DECODE_SECONDS)
+    y, rate = audio
+    truncated = len(y) / float(rate) >= DECODE_SECONDS - 0.05
+    return analyze_audio(y, rate, bpm_hint=bpm_hint, truncated=truncated)
+
+
+def _replaygain_db(path: str) -> Optional[float]:
+    """The file's ReplayGain track gain in dB, when it has one."""
+    try:
+        from core.replaygain import read_replaygain_tags
+
+        raw = read_replaygain_tags(path).get("track_gain")
+    except Exception:  # noqa: BLE001 - no tag is fine
+        return None
+    if not raw:
+        return None
+    try:
+        value = float(str(raw).lower().replace("db", "").strip())
+    except ValueError:
+        return None
+    return round(value, 2) if -60.0 < value < 60.0 else None
+
+
+def _mark_both(database, track_id: str, status: str, reason: str, version: int, *,
+               source_sig: Optional[str] = None) -> None:
+    """A track that couldn't be analysed (``error``, ``unreachable``,
+    ``skipped``) has no grid for the same reason: its grid row says so, so
+    the planner falls back with that reason instead of waiting for a grid
+    that will never come (gauntlet M1)."""
+    from core.dj import grid_store, store
+
+    store.mark(database, track_id, status, reason, version)
+    grid_store.mark(database, track_id, status, reason, source_sig=source_sig)
+
+
+def _find_grid(database, track_id: str, path: str, sig: Optional[str], *, audio, bpm_hint,
+               analyze_grid: Callable[..., Dict[str, Any]]) -> str:
+    """Find and keep one track's grid: ``done`` (whatever it found, a grid or
+    ``none``) or ``error``. A provisional ``analyzing`` row goes first, so a
+    decode that takes the process down is skipped at the next start."""
+    from core.dj import grid_store
+
+    grid_store.mark(database, track_id, "analyzing", None, source_sig=sig)
+    try:
+        result = analyze_grid(path, audio=audio, bpm_hint=bpm_hint)
+    except ImportError as exc:
+        grid_store.mark(database, track_id, "stale", "analysis isn't available", version=0)
+        raise _Abort(str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - one bad file never stops the sweep
+        logger.info("Beat grid failed for track %s: %s", track_id, exc)
+        grid_store.mark(database, track_id, "error", str(exc), source_sig=sig)
+        return "error"
+    grid_store.save_result(database, track_id, result, source_sig=sig, replaygain_db=_replaygain_db(path))
+    return "done"
 
 
 def _too_long(path: str) -> bool:
@@ -286,8 +360,12 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
                   write_tags: bool = False, overwrite_tags: bool = False,
                   notify: Callable[[int], None] = _notify_rescan,
                   may_write: Callable[[], bool] = lambda: True,
-                  library_roots: Callable[[], List[str]] = library_roots) -> str:
-    """Analyse one library track and keep its DJ data. Returns ``done``
+                  library_roots: Callable[[], List[str]] = library_roots,
+                  analyze_grid: Callable[..., Dict[str, Any]] = _default_grid) -> str:
+    """Analyse one library track and keep its DJ data and its beat grid
+    (a track whose DJ data is already done for this file only gets its grid:
+    the top-up). ``grid_error``, ``done_grid_error`` or ``tagged_grid_error``
+    when the grid failed (the DJ data is kept). Returns ``done``
     (``tagged`` when BPM or key went into the file too), ``unreachable``,
     ``skipped`` (too long), ``error``, ``deferred`` (a drive move or a tag
     write started before the file could be written: back in the queue) or
@@ -297,20 +375,39 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
     from core.dj.tags import read_dj_tags, write_dj_tags
     from core.sample.store import source_signature
 
+    from core.dj import grid_store
+
     version = analyzer_version()
     row = store.track_row(database, track_id)
     if not row or not row.get("file_path"):
-        store.mark(database, track_id, "error", "the track has no file", version)
+        _mark_both(database, track_id, "error", "the track has no file", version)
         return "error"
+    dj_row = store.get(database, track_id)
+    # BPM, key and energy already done at this version: only the grid is due
+    top_up = bool(dj_row and dj_row.get("status") == "done"
+                  and int(dj_row.get("dj_analyzer_version") or 0) >= version)
     stored = str(row["file_path"])
     path = resolve(stored)
     if not path or not os.path.isfile(path):
-        store.mark(database, track_id, "unreachable", f"SYNCHRO.S can't open {stored}", version)
+        if top_up:
+            grid_store.mark(database, track_id, "unreachable", f"SYNCHRO.S can't open {stored}")
+        else:
+            _mark_both(database, track_id, "unreachable", f"SYNCHRO.S can't open {stored}", version)
         return "unreachable"
     if _too_long(path):
-        store.mark(database, track_id, "skipped", TOO_LONG, version)
+        if top_up:
+            grid_store.mark(database, track_id, "skipped", TOO_LONG)
+        else:
+            _mark_both(database, track_id, "skipped", TOO_LONG, version)
         return "skipped"
     sig = source_signature(path)
+    if top_up and dj_row.get("source_sig") == sig:
+        if not grid_store.current(grid_store.get(database, track_id), sig):
+            found = _find_grid(database, track_id, path, sig, audio=None, bpm_hint=dj_row.get("bpm"),
+                               analyze_grid=analyze_grid)
+            if found == "error":
+                return "grid_error"
+        return "done"
     tags = read_dj_tags(path)
     analysis = _reuse_sample_analysis(track_id, sig, version)
     if analysis is None:
@@ -323,11 +420,14 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
             raise _Abort(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - one bad file never stops the sweep
             logger.info("DJ analysis failed for track %s: %s", track_id, exc)
-            store.mark(database, track_id, "error", str(exc), version)
+            _mark_both(database, track_id, "error", str(exc), version, source_sig=sig)
             return "error"
+        audio = analysis.pop("audio", None)
         if not analysis.get("truncated"):
             # a whole-file result is Sample Studio's too; a partial one isn't
             _share_with_sample_studio(track_id, analysis, sig)
+    else:
+        audio = None
 
     if overwrite_tags and write_tags:
         values = store.decide(enrichment_bpm=row.get("bpm"), analysis=analysis)
@@ -370,7 +470,15 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
     if written:
         values.update(tags_written=",".join(written), tags_written_at=time.time())
     store.save(database, track_id, values)
-    return "tagged" if written else "done"
+    grid_failed = False
+    if not grid_store.current(grid_store.get(database, track_id), sig):
+        grid_failed = _find_grid(database, track_id, path, sig, audio=audio, bpm_hint=values.get("bpm"),
+                                 analyze_grid=analyze_grid) == "error"
+    del audio
+    outcome = "tagged" if written else "done"
+    # the DJ data is kept either way; a failed grid still counts as a failure
+    # for the sweep (its run of failures, Activity's count)
+    return f"{outcome}_grid_error" if grid_failed else outcome
 
 
 # ── the sweep ────────────────────────────────────────────────────────────────
@@ -509,7 +617,14 @@ class DjAnalysisJob:
                 self.held = False
             retry = time.time() - (0 if manual else UNREACHABLE_RETRY_SECONDS)
             ids = store.pending_ids(database, analyzer_version(), retry_unreachable_before=retry)
+            # then the top-up: tracks with their DJ data but no grid yet
+            from core.dj import grid_store
+
+            have = set(ids)
+            ids += [i for i in grid_store.pending_ids(database, analyzer_version(), retry_unreachable_before=retry)
+                    if i not in have]
             store.fail_leftover_analyzing(database)
+            grid_store.fail_leftover_analyzing(database)
             if first is not None and str(first) in ids:
                 ids.remove(str(first))
                 ids.insert(0, str(first))
@@ -627,7 +742,16 @@ class DjAnalysisJob:
                 finally:
                     self._in_track.clear()
                 took = time.monotonic() - started
-                if outcome in ("done", "tagged"):
+                if outcome in ("grid_error", "done_grid_error", "tagged_grid_error"):
+                    # the beat grid failed (the DJ data, if any, is kept)
+                    errors_in_a_row += 1
+                    self._bump("failed")
+                    if outcome == "tagged_grid_error":
+                        self._bump("tags_written")
+                    if errors_in_a_row >= MAX_ERRORS_IN_A_ROW:
+                        status, note = "failed", f"{MAX_ERRORS_IN_A_ROW} tracks in a row couldn't be analysed"
+                        break
+                elif outcome in ("done", "tagged"):
                     errors_in_a_row = 0
                     self._bump("done")
                     if outcome == "tagged":

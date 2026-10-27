@@ -192,7 +192,7 @@ export function addToWorkingSet(
   setId: number,
   trackIds: string[],
   opts2: { again?: boolean; after?: { track_id: string; number: number } | null } = {},
-): Promise<AddedToSet & { placed: 'after' | 'end' }> {
+): Promise<AddedToSet & { placed: 'after' | 'later' | 'split' | 'end' }> {
   return call(
     apiClient.post(`sets/${setId}/tracks`, {
       ...opts,

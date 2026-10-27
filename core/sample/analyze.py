@@ -130,7 +130,8 @@ def decode_mono(file_path: str, max_seconds: Optional[float] = None) -> Tuple[An
     return mono, sr
 
 
-def analyze_track(file_path: str, max_seconds: Optional[float] = None) -> Dict[str, Any]:
+def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
+                  keep_audio: bool = False) -> Dict[str, Any]:
     """Full analysis for one track: BPM, onset times, duration, key, energy.
 
     Returns {"bpm": float, "onsets": [seconds...], "duration_s": float,
@@ -145,6 +146,10 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None) -> Dict[s
     the result covers part of the file, and ``duration_s`` and the onsets
     only that part. Sample Studio's own analysis passes no limit, so a track
     opened there is analysed whole.
+
+    ``keep_audio`` adds ``"audio": (samples, rate)``, the decoded mono at the
+    analysis rate, so the DJ job finds the beat grid (core/dj/grid.py) from
+    the same decode; the caller takes it out before keeping the result.
 
     Performance: the audio is downsampled to 22050 Hz once, and the onset
     envelope is computed ONCE and shared with beat tracking (beat_track's
@@ -178,7 +183,7 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None) -> Dict[s
     from .energy import detect_energy
     from .key import detect_key
 
-    return {
+    result = {
         "bpm": bpm,
         "onsets": onsets,
         "duration_s": round(duration_s, 3),
@@ -187,6 +192,9 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None) -> Dict[s
         "truncated": truncated,
         "analyzer_version": ANALYZER_VERSION,
     }
+    if keep_audio:
+        result["audio"] = (y, _ANALYSIS_SR)
+    return result
 
 
 def warm_dsp() -> None:
