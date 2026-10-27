@@ -908,6 +908,74 @@ Built on `feat/mix-tab`. Code: `core/dj/ranking.py` (the tab's order), `core/dj/
 
 **In the browser** (`src/features/mix/mix-store.ts`): the tray's mode (Now playing · Mix) per browser in `localStorage` `soulsync.player.tray-mode` (`now` / `mix`). Vibe, Suggest from, More like this and Widen aren't kept. The host sets `#media-player[data-tray-mode="mix"]` and `html[data-mix-available]` (the tray is 500px then) for `static/player.css`. **Keys** (static/media-player.js's one handler, so S's guard holds: not in text fields, dialogs or menus): `window.SoulSyncMix.key('A' | 'N' | 'M')` → true when the Mix tab acted; where there's no Mix tab (a podcast, a book, a preview, a station not playing one of yours, nothing playing) M still mutes and N skips; **⇧M always mutes and ⇧N always skips** (Ross, HANDOFF 287). The bindings are one table, `NP_LETTER_KEYS` in `static/media-player.js`. X is reserved for Mix now (26c) and not bound. In Visuals, Escape closes the Mix drawer before the visuals (`window.SoulSyncMix.drawerOpen()`, `closeDrawer()`).
 
+### Auto-mix stage A: beat grids and the pair planner (`/api/library/dj/grid*`, `/api/library/dj/plan`; BACKLOG "Auto-mix: beat-matched transitions in Up next"; boards 26a–26j)
+
+Built on `feat/automix-a`. Server only: the analysis the browser's two-deck engine (stage B) and auto-mix (stage C) will use. Code: `core/dj/grid.py` (the analysis), `core/dj/grid_store.py` (the `track_grid` table and its shapes), `core/dj/planner.py` (the pair planner), `core/dj/worker.py` (the sweep), the routes in `api/dj.py`. Every route needs a profile (401 `profile_required`) and reads the caller's library scope, like the other DJ routes; a track outside it is 404 "That track isn't in your library".
+
+**One track's grid** (`GET /api/library/dj/grid/<track_id>` → `{success, grid}`). Times are seconds from the start of the file; bars count from the first downbeat (bar 0):
+
+```json
+{"track_id": "981", "analyzed": true, "version": 1, "bpm": 124.0,
+ "grid": {"kind": "constant", "first_beat": 0.112, "period": 0.483871, "beats": null, "confidence": 0.86,
+          "steady": true, "confident": true},
+ "downbeats": {"first": 0.112, "beat_index": 0, "beats_per_bar": 4, "meter": "4/4", "confidence": 0.9,
+               "uncertain": false, "note": null},
+ "bars": 112,
+ "phrases": [{"bar": 0, "time": 0.112, "level": 16, "section": false},
+             {"bar": 16, "time": 31.079, "level": 32, "section": true}, "…"],
+ "sections": [{"kind": "intro", "start_bar": 0, "end_bar": 16, "start": 0.112, "end": 31.079, "confidence": 0.9},
+              {"kind": "main", "…": "…"}, {"kind": "breakdown", "…": "…"}, {"kind": "drop", "…": "…"},
+              {"kind": "outro", "…": "…"}],
+ "mix_in": {"start_bar": 0, "end_bar": 16, "start": 0.112, "end": 31.079, "bars": 16, "confidence": 0.9, "how": "intro"},
+ "mix_out": {"start_bar": 96, "end_bar": 112, "start": 185.919, "end": 216.886, "bars": 16, "confidence": 0.9,
+             "how": "outro"},
+ "loudness": {"replaygain_db": -7.2, "level_db": -8.9, "source": "replaygain"},
+ "analysed_s": 217.4, "truncated": false}
+```
+
+- `grid.kind`: `constant` (a steady tempo: beat *i* is at `first_beat + i × period`; nearly every dance track) or `beats` (the tempo drifts: `grid.beats` lists every beat). `confidence` 0–1; `confident` is ≥ 0.5, the planner's bar for beat-matching. `bpm` is the grid's, to a hundredth; it can be more exact than the DJ data's `bpm` (a tag's whole number, or the first analysis, which works in whole frames).
+- `downbeats`: bar *b* starts at beat `beat_index + 4b`. 4/4 is assumed; `meter` is `not_4_4` when the accents fall in threes; `uncertain` (and a `note` in words) when it isn't 4/4 or the confidence is under 0.3.
+- `phrases`: every 8 bars from each section change (and counted back from the first one, so a track that opens on a pickup bar keeps its phrases on the music's). `level` 32, 16 or 8 by how many bars from its change it falls; `section` where the change itself is.
+- `sections[].kind`: `intro`, `outro`, `breakdown`, `drop` or `main`, best effort, each with a confidence. A track over 10 minutes is analysed for its first 10 (`truncated`): no outro then, and `mix_out` is null.
+- `mix_in` / `mix_out`: where the incoming track can come in and the outgoing go out. `how`: `intro` / `outro` (steady drums there), `beat_only` (a stretch with the kick near that end, no intro or outro found), `edge` (just the first or last 8 bars, a low confidence). Vocals aren't detected.
+- `loudness`: the file's ReplayGain track gain when it has one, else `level_db`, the analysed RMS level of the loudest half (dBFS).
+
+Not analysed yet, or no grid: `{"track_id", "analyzed": false, "reason"}` with `reason` one of `not_analyzed` (also a grid from an older analysis version), `analyzing`, `no_beat` (with `beat_confidence`), `too_short` (under 20 s), `too_long` (skipped, as for BPM and key), `unreachable`, `error`.
+
+**`POST /api/library/dj/grids`** `{track_ids: [...], beats?: true}` (up to 50, more is 400; body at most 8 KB, 413 past it, `_read_json_capped`) → `{grids: {<id>: grid}}`: the same shape for a queue's tracks, without a drifting track's `grid.beats` unless `beats: true`. Ids outside the caller's library are left out; repeats once.
+
+**`GET /api/library/dj/plan?from=<id>&to=<id>&style=<style>&bars=<n>`** → `{success, from, to, plan}`: how `from` hands over to `to`. `style` is one of Sets' transition styles: `auto` (the default), `long_blend`, `short_blend`, `bass_swap`, `cut`, `echo_out`, `filter_sweep`, `drop_swap`; `bars` 2, 4, 8, 16 or 32 (ASCII digits; anything else is 400). Without `bars` each style has its length: long blend 32, short blend 8, bass swap 16, filter sweep 16, drop swap 16, echo out 4, cut none (it's on the one). Auto uses its pick's own length.
+
+```json
+{"status": "ok", "style": "long_blend", "label": "Long blend", "bars": 32, "requested": "auto", "chosen_by": "auto",
+ "why": "8A → 9A, +2 BPM: the keys mix and the tempo is close", "pair": "8A → 9A, +2 BPM",
+ "beatmatch": true, "fallback": null, "note": null, "confidence": 0.86,
+ "tempo": {"from_bpm": 124.0, "to_bpm": 126.0, "relation": "same", "gap_pct": 1.6, "rate": 0.98413,
+           "speed_change_ok": true},
+ "key": {"from": "8A", "to": "9A", "relation": "up"},
+ "out": {"start": 154.951, "end": 216.886, "bar": 80, "end_bar": 112, "phrase_level": 16, "in_outro": false,
+         "confidence": 0.9},
+ "in": {"start": 0.2, "bar": 0, "how": "intro", "confidence": 0.9},
+ "length_s": 61.935,
+ "styles": [{"style": "long_blend", "label": "Long blend", "available": true, "why": null},
+            {"style": "drop_swap", "label": "Drop swap", "available": false, "why": "no drop found in Brass Tide"}, "…"]}
+```
+
+- `out.start`: where the outgoing track's mix starts, in its own seconds: a phrase boundary late enough that the window (`bars`) ends where its outro does; echo out and cut go at the outro's first phrase; drop swap at its last breakdown. "in 2:58" is `out.start` less the playback position. Past the analysed 10 minutes, the phrases carry on to the track's length (`note` says the ending is estimated).
+- `in.start`: where the incoming track starts: its intro's first downbeat with steady drums (moved back onto its phrase when that's a bar or two before); for drop swap, `bars` before its first drop.
+- `tempo.rate`: the incoming track's playback rate to match the outgoing tempo (half and double time count: `relation`); `speed_change_ok` within 3% (a plain speed change will do; beyond it, a time-stretch).
+- `beatmatch`: the two play together on the beat (blends, bass swap, filter sweep, drop swap). Not over an 8% gap, nor when either grid isn't confident or isn't 4/4.
+- **Auto** (BACKLOG, 26a): a key that mixes (the same, ±1, the relative) and a BPM within 3% → long blend; within 8%, or a key not known → short blend; a key clash → cut when the next track opens on steady drums, else echo out; a gap over 8%, or a next track without a grid it can trust, → echo out.
+- **The fallback:** `status: "crossfade"`, `style: "crossfade"`, `fallback: {kind: "crossfade", code, reason}` and `why: "Couldn't beat-match: <reason>"`, when a style that needs a beat-match can't have one (`code` `tempo_gap`, `low_confidence`, `not_4_4`, `no_beat`, `too_long`, `unreachable`, `error`; `reason` like "the tempos are 9.7% apart" or "Sand Script has no steady beat"), and always when the outgoing track has no grid it can trust. It starts at the outgoing outro, or 6 s before its end; `length_s` 6.
+- A style the pair can't do stays in `styles` with `available: false` and `why` (26a's picker); asked for anyway, the plan is Auto's pick with `why` saying so ("Drop swap: no drop found in Brass Tide, so long blend (…)").
+- `status: "waiting"` (`waiting_for`: `from` or `to`, `reason` `not_analyzed` or `analyzing`) while either track has no grid yet: 26g's "Waiting" chip.
+
+**`GET /api/library/dj/status`** gains `grids: {done, no_beat, pending}` (install-wide, like `counts`).
+
+**The analysis** (in the DJ sweep, above): a new track's grid comes from the same decode as its BPM, key and energy (one decode a track: the first 10 minutes, mono at 22050 Hz). A track whose DJ data is already done for this file isn't analysed again: the sweep decodes it once more for the grid alone (the **top-up**, for libraries analysed before stage A or a new `GRID_VERSION`), with its known BPM as where to look. The same priority, rests, waits and Stop apply; a provisional `analyzing` grid row precedes each decode (one left by a crash becomes an error). A grid that fails or finds no beat never costs the track its DJ data. Measured: about 1 s of analysis for a 9-minute track on two cores, about 200 MB at its peak.
+
+**Storage:** the table `track_grid` (`track_id` TEXT key; `grid_version`, `analyzed_at`, `source_sig`, `status`, `reason`, `kind`, `bpm`, `period`, `first_beat`, `downbeat_index`, `first_downbeat`, `beat_confidence`, `downbeat_confidence`, `meter`, `bars`, `beats_ms`, `phrases_json`, `sections_json`, `mix_json`, `analysed_s`, `truncated`, `level_db`, `replaygain_db`; index on `grid_version`), added by `_add_track_grid_table` (ledger `track_grid_v1`; only adds, `atomic=False`). A steady track's row is about 0.4 KB (phrases, sections and regions in bars, as compact JSON); only a drifting track keeps its beats, in `beats_ms` as the first beat and each gap after it in milliseconds (about 4 bytes a beat, 2–5 KB a track).
+
 ### Spotify pause (rate limits): the `spotify` slice of `/status`, `POST /api/spotify/rate-limit/clear`
 
 When Spotify answers "too many requests", SYNCHRO.S stops calling it for a while. The `spotify` slice of every `/status` frame (the `ss:service-status` event) says so:
