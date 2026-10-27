@@ -158,6 +158,8 @@ export class LabSession {
       this.windows = w;
       this.say('loading', 'Loading both tracks…');
       const engine = await this.ensureEngine();
+      // asked for together, fetched one after the other (the loader's line:
+      // the server decodes one window a profile)
       const [deckA, deckB] = await Promise.all([
         this.deps.fetchWindow(engine.context, r.from, w.a.start, w.a.dur),
         this.deps.fetchWindow(engine.context, r.to, w.b.start, w.b.dur),
