@@ -1624,3 +1624,25 @@ def _no_pooled_db_connections_across_tests():
     mdb = sys.modules.get('database.music_database')
     if mdb is not None:
         mdb.close_pooled_connections()
+
+
+@pytest.fixture(autouse=True)
+def _spotify_gate_per_test(monkeypatch):
+    """Start every test with Spotify unpaused and a full request budget, and
+    keep the pause out of storage.
+
+    The Spotify gate (core/spotify_client.py) is process-wide and its pause is
+    stored so a restart keeps it. In the suite that would carry one test's 429
+    into every later test in the same worker (and into the shared test
+    config). Tests of the stored pause give it their own store.
+    """
+    import sys
+    sc = sys.modules.get('core.spotify_client')
+    if sc is not None:
+        sc._reset_for_tests()
+        monkeypatch.setattr(sc, '_state_store_get', lambda: None)
+        monkeypatch.setattr(sc, '_state_store_set', lambda value: None)
+    yield
+    sc = sys.modules.get('core.spotify_client')
+    if sc is not None:
+        sc._reset_for_tests()

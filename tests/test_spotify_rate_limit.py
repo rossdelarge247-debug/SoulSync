@@ -241,7 +241,9 @@ class TestEscalationLadder:
         self._limit()
         sc._clear_rate_limit(keep_history=True)
         assert sc._get_rate_limit_info() is None
-        assert sc._get_post_ban_cooldown_remaining() == 0
+        # a person's requests go now; background jobs still cool down first
+        # (they used to fire at once, into a limit that was often still on)
+        assert sc._get_post_ban_cooldown_remaining() == 600
         self._limit()
         assert sc._get_rate_limit_info()["retry_after"] == 1200
 
@@ -366,28 +368,40 @@ class TestDecorator:
         assert info["retry_after"] == 3600 and info["source"] == "spotify"
         assert calls == [1]
 
-    def test_short_retry_after_is_slept_through(self, clock):
+    def test_short_retry_after_pauses_everyone_and_nobody_sleeps(self, clock):
+        # A short Retry-After used to be slept through in the caller's own
+        # thread, up to three times: in a web request that held one of
+        # gunicorn's 8 threads for up to three minutes.
         fn, calls = self._decorated([_spotify_error(headers={"Retry-After": "2"})])
-        assert fn() == "ok"
-        assert calls == [1, 1]
-        assert 3 in clock.slept  # Retry-After + 1
-        assert sc._get_rate_limit_info() is None
-
-    def test_no_header_retries_once_then_estimates(self, clock):
-        fn, calls = self._decorated([_spotify_error(headers={}), _spotify_error(headers={})])
-        with pytest.raises(spotipy.SpotifyException):
+        with pytest.raises(sc.SpotifyRateLimitError):
             fn()
-        assert calls == [1, 1]
+        assert calls == [1]
+        assert clock.slept == []
+        info = sc._get_rate_limit_info()
+        assert info["retry_after"] == 2 and info["source"] == "spotify"
+
+    def test_no_header_pauses_on_the_estimate_at_once(self, clock):
+        fn, calls = self._decorated([_spotify_error(headers={})])
+        with pytest.raises(sc.SpotifyRateLimitError):
+            fn()
+        assert calls == [1]
+        assert clock.slept == []
         info = sc._get_rate_limit_info()
         assert info["retry_after"] == 600 and info["source"] == "estimate"
 
-    def test_still_limited_after_waiting_as_asked_estimates(self, clock):
-        errs = [_spotify_error(headers={"Retry-After": "1"}) for _ in range(4)]
-        fn, calls = self._decorated(errs)
-        with pytest.raises(spotipy.SpotifyException):
-            fn()
-        assert len(calls) == 4
-        assert sc._get_rate_limit_info()["retry_after"] == 600
+    def test_a_server_error_is_retried_by_background_jobs_only(self, clock):
+        from flask import Flask
+
+        fn, calls = self._decorated([_spotify_error(status=503, msg="bad gateway")])
+        assert fn() == "ok"  # background: waits a moment and tries again
+        assert calls == [1, 1] and len(clock.slept) == 1 and 2 <= clock.slept[0] <= 3
+
+        fn, calls = self._decorated([_spotify_error(status=503, msg="bad gateway")])
+        clock.slept.clear()
+        with Flask(__name__).test_request_context("/api/x"):
+            with pytest.raises(spotipy.SpotifyException):
+                fn()  # a person's request answers at once
+        assert calls == [1] and clock.slept == []
 
 
 # ── which feature ────────────────────────────────────────────────────────

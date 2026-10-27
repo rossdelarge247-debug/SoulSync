@@ -365,17 +365,17 @@ def get_spotify_client_for_profile(profile_id: Optional[int] = None):
         from core.spotify_client import (
             SPOTIFY_OAUTH_SCOPE,
             SpotifyClient,
+            make_spotify_oauth,
             make_spotipy_client,
             normalize_spotify_oauth_config,
         )
-        from spotipy.oauth2 import SpotifyOAuth
 
         normalized_creds = normalize_spotify_oauth_config({
             "client_id": client_id,
             "client_secret": client_secret,
             "redirect_uri": redirect_uri,
         })
-        auth_manager = SpotifyOAuth(
+        auth_manager = make_spotify_oauth(
             client_id=normalized_creds.get("client_id", client_id),
             client_secret=normalized_creds.get("client_secret", client_secret),
             redirect_uri=normalized_creds.get("redirect_uri", redirect_uri),

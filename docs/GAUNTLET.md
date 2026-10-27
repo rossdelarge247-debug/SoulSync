@@ -131,6 +131,13 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **Only fixed hosts are ever asked:** whatever is searched or opened, every request goes to MixesDB's API or Discogs' API (or through the MusicBrainz client, which refuses an id that isn't an MBID); a pasted MixesDB link is read for its page title only, and a link to any other host is search text.
   - **A redirect or a huge answer is a source down:** redirects aren't followed, and an answer over 2 MB is cut off while it streams.
 
+- **Spotify's limits** (`tests/test_spotify_gentle.py`; `core/spotify_client.py` and `core/spotify_gate.py` are on the list as outbound HTTP), against a fake Spotify on 127.0.0.1 with real spotipy and sockets:
+  - **One 429 pauses everyone:** twelve threads asking at once send one request; Spotify's 429 with `Retry-After: 3600` pauses every caller for exactly that long, and nothing else is sent, a method that swallows its errors included.
+  - **A page never waits on Spotify:** with Spotify answering 429 and an hour's Retry-After, `/api/spotify/playlists` answers within a second ("Spotify asked us to wait until 21:40"), eight pages at once too; a short Retry-After is a short pause, never a sleep in the request's thread.
+  - **The pause survives a restart:** a 15-hour wait read back after a restart has the same end; a pause that ended while it was down still has background jobs cool down; it belongs to the app (client id) that earned it; signing in again doesn't lift Spotify's own wait.
+  - **The budget:** a person's request never waits more than 2 s for the budget (it answers busy instead) and never at all while paused; background jobs leave the last tokens to people, have an hourly share and wait in jittered steps.
+  - **Token refresh:** a refresh token Spotify refuses (`invalid_grant`) is tried once and never again; a failed refresh waits a minute before the next try; six threads needing a refresh share one; the callback exchanges the new code instead of refreshing the old token; the interactive sign-in never runs on the server.
+
 When you write a test for a new way a change could lose data, tag it `gauntlet` too.
 
 ## How to read the results

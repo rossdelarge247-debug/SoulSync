@@ -46,7 +46,6 @@ def test_spotify_404_with_status_digits_does_not_trigger_global_ban_or_retry(mon
     monkeypatch.setattr(spotify, '_set_global_rate_limit', lambda *a, **kw: bans.append((a, kw)))
     monkeypatch.setattr(spotify, '_is_globally_rate_limited', lambda: False)
     monkeypatch.setattr(spotify, '_get_min_api_interval', lambda: 0)
-    monkeypatch.setattr(spotify, '_last_api_call_time', 0)
 
     assert spotify._detect_and_set_rate_limit(error) is False
     calls = []

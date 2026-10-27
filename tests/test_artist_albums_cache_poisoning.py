@@ -34,7 +34,6 @@ def _client(monkeypatch, pages):
     fake.next.side_effect = pages[1:]
     client.sp = fake
     monkeypatch.setattr(client, 'is_spotify_authenticated', lambda: True)
-    monkeypatch.setattr(sc, '_last_api_call_time', 0)
     store_calls = []
     cache = MagicMock()
     cache.get_entity.return_value = None

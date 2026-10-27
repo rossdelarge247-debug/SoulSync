@@ -25,7 +25,7 @@ class TestSpotifyOAuthIntegration(unittest.TestCase):
     @patch('core.metadata.registry.get_spotify_client')
     @patch('core.metadata.registry._profile_spotify_credentials_provider')
     @patch('core.metadata.registry._get_config_value')
-    @patch('spotipy.oauth2.SpotifyOAuth')
+    @patch('core.spotify_client.make_spotify_oauth')  # every SpotifyOAuth is built by it
     @patch('core.spotify_client.normalize_spotify_oauth_config')
     def test_get_spotify_client_for_profile_uses_normalized_config(self, mock_normalize, mock_spotify_oauth, mock_get_config, mock_creds_provider, mock_get_global):
         # Set up mock config values
@@ -55,8 +55,9 @@ class TestSpotifyOAuthIntegration(unittest.TestCase):
             })
 
             # Assert that SpotifyOAuth was initialized with the normalized config
-            mock_spotify_oauth.assert_called_once()
-            args, kwargs = mock_spotify_oauth.call_args
+            profile_calls = [c for c in mock_spotify_oauth.call_args_list if c.kwargs.get('state') == 'profile_2']
+            self.assertEqual(len(profile_calls), 1)
+            kwargs = profile_calls[0].kwargs
             self.assertEqual(kwargs['client_id'], "cleaned_client_id")
             self.assertEqual(kwargs['client_secret'], "cleaned_client_secret")
             self.assertEqual(kwargs['redirect_uri'], "http://example.com/callback")
@@ -65,7 +66,7 @@ class TestSpotifyOAuthIntegration(unittest.TestCase):
     @patch('core.metadata.registry.get_spotify_client')
     @patch('core.metadata.registry._profile_spotify_credentials_provider')
     @patch('core.metadata.registry._get_config_value')
-    @patch('spotipy.oauth2.SpotifyOAuth')
+    @patch('core.spotify_client.make_spotify_oauth')  # every SpotifyOAuth is built by it
     @patch('core.spotify_client.normalize_spotify_oauth_config')
     def test_get_spotify_client_for_profile_handles_no_config(self, mock_normalize, mock_spotify_oauth, mock_get_config, mock_creds_provider, mock_get_global):
         # Simulate no spotify config
