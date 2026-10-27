@@ -625,6 +625,38 @@ describe('Visuals: the drawer (29b)', () => {
     fireEvent.keyDown(drawer, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Mix' })).toBeNull());
   });
+
+  it('M opens it in the visuals panel’s place: one panel at a time', async () => {
+    setTrayMode('now');
+    const visuals = { open: true, panelOpen: () => visuals.open, closePanel: vi.fn() };
+    visuals.closePanel.mockImplementation(() => {
+      visuals.open = false;
+    });
+    (window as unknown as Record<string, unknown>).SoulSyncVisuals = visuals;
+    try {
+      mount();
+      const overlay = document.getElementById('np-modal-overlay')!;
+      act(() => overlay.classList.remove('hidden'));
+      const button = document.getElementById('np-v2-visuals-mix-btn')!;
+      await waitFor(() => expect(button.hidden).toBe(false));
+      act(() => {
+        expect(window.SoulSyncMix!.key('M')).toBe(true);
+      });
+      expect(await screen.findByRole('region', { name: 'Mix' })).toBeInTheDocument();
+      // the panel closed, so it isn't left open under the drawer for the next
+      // click on Visuals to close
+      expect(visuals.closePanel).toHaveBeenCalledTimes(1);
+      expect(visuals.open).toBe(false);
+      // and M again closes the drawer without touching the panel
+      act(() => {
+        expect(window.SoulSyncMix!.key('M')).toBe(true);
+      });
+      await waitFor(() => expect(screen.queryByRole('region', { name: 'Mix' })).toBeNull());
+      expect(visuals.closePanel).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (window as unknown as Record<string, unknown>).SoulSyncVisuals;
+    }
+  });
 });
 
 describe('the phone (29c)', () => {

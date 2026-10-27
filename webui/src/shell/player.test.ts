@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { extractFunction } from '../test/vanilla-extract';
 import { bootPlayer, type PlayerChrome, type PlayerEngine, type PlayerSnapshot } from './player';
 import { PLAYER_STATE_KEY } from './player-state';
 
@@ -650,6 +651,44 @@ describe('the record (HANDOFF 47, board 9d)', () => {
     expect(state('[data-player-speed-state]')).toBe('1.25×');
     expect(state('[data-player-eq-state]')).toBe('Off');
     expect(state('[data-player-radio-state]')).toBe('On');
+    delete window.npV2;
+  });
+
+  it('Equalizer says what its click did, through the legacy handler that stops the click', async () => {
+    // the REAL wiring from static/media-player-v2.js: its click handlers call
+    // stopPropagation, which is what hid EQ's clicks from the menu
+    const v2 = readFileSync(resolve(process.cwd(), 'static/media-player-v2.js'), 'utf8');
+    const NPV2 = { eq: { on: false, preset: 'Flat' }, speed: 1 };
+    const setEqOn = vi.fn((on: boolean) => {
+      NPV2.eq.on = on;
+    });
+    const stubs = new Proxy({ NPV2, npv2SetEqOn: setEqOn } as Record<string, unknown>, {
+      has: (_t, k) => typeof k === 'string' && /^(npv2|NPV2)/.test(k),
+      get: (t, k) => (typeof k === 'string' && k in t ? t[k] : () => '6'),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const wire = new Function(
+      'stubs',
+      `with (stubs) { ${extractFunction('npv2WireTransport', v2)}\nreturn npv2WireTransport; }`,
+    )(stubs) as () => void;
+    window.npV2 = { getSpeed: () => 1, getEq: () => ({ ...NPV2.eq }) };
+    boot(fakeEngine(snapshot()));
+    wire();
+    await flush();
+    $('[data-player-more]').click();
+    await flush();
+    const eq = $('#np-v2-eq-btn');
+    const value = () => $('[data-player-eq-state]').textContent;
+    expect(value()).toBe('Off');
+    eq.click();
+    expect(setEqOn).toHaveBeenCalledWith(true);
+    await flush();
+    expect(value()).toBe('Flat');
+    expect($('#ss-player-menu').hidden).toBe(false);
+    eq.click();
+    await flush();
+    expect(setEqOn).toHaveBeenLastCalledWith(false);
+    expect(value()).toBe('Off');
     delete window.npV2;
   });
 });
