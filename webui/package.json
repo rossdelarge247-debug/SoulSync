@@ -43,6 +43,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^29.0.2",
     "msw": "^2.14.2",
+    "node-web-audio-api": "^2.2.0",
     "oxfmt": "^0.47.0",
     "oxlint": "^1.62.0",
     "oxlint-tsgolint": "^0.22.1",
