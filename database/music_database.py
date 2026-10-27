@@ -11201,10 +11201,12 @@ class MusicDatabase:
                                          ("track_grid", self._TRACK_GRID_COLUMNS, ("done", "none"))):
             names = ", ".join(name for name, _ in columns)
             try:
-                kept = cursor.execute(f"SELECT status FROM {table} WHERE track_id = ?", (keeper_id,)).fetchone()
-                moving = cursor.execute(f"SELECT status FROM {table} WHERE track_id = ?", (old_id,)).fetchone()
+                # `table` is one of the two names above; the ids are bound parameters
+                status_sql = f"SELECT status FROM {table} WHERE track_id = ?"  # nosec B608
+                kept = cursor.execute(status_sql, (keeper_id,)).fetchone()
+                moving = cursor.execute(status_sql, (old_id,)).fetchone()
                 if kept is not None and moving is not None and kept[0] not in finished and moving[0] in finished:
-                    cursor.execute(f"DELETE FROM {table} WHERE track_id = ?", (keeper_id,))
+                    cursor.execute(f"DELETE FROM {table} WHERE track_id = ?", (keeper_id,))  # nosec B608
                 cursor.execute(f"INSERT OR IGNORE INTO {table} (track_id, {names}) "
                                f"SELECT ?, {names} FROM {table} WHERE track_id = ?", (keeper_id, old_id))
                 cursor.execute(f"DELETE FROM {table} WHERE track_id = ?", (old_id,))
