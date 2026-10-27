@@ -4,7 +4,7 @@ Decisions and questions between Design and Dev, newest first. Design's entries c
 
 ## Open questions for Design
 
-Questions 1–28 were answered in Design's session of 22 October, 29–57 in its evening pass, 58–82 on 23 October and 83–95 that afternoon; all are built. Design answered **100–106, 110–112, 120–125, 130–134, 140–148 and 150–154 on 24 October** (`Start here - Design notes 2026-10-24.dc.html`, boards 16a–21f; the hand-off's "Build order for Dev, 24 October"), so they're out of this list. Phase A of that order is built ("Dev, phase A of 24 October, and answers 160–168" below): 105, 111, 121, 123, 124, 130 (nothing to build), 143, 145, 146, 148, 150, 153, 154 and 14i's title. What those answers left to build waits for its phase: **Phase B** (on Ross's yes): 141 "Stations" and the labelled Collapse, 147 the Sleep timer for radio, DJ stage 1's 17a–17e (151's key chips and energy bars, 152's docked Mixes panel), 101 and 103's MilkDrop curated default, "Every preset" and "Yours N" (18a, 18b), 120 and 122's drive-move boards (19a, 19b), 142 Recent stations on the server; **Phase C** (after Dev's answers 160–168, which are in that entry): AudD every track per station (20b, 165), host paths in the Remove list (125, 160; **built in phase C1**, below), every service modal on 15a's frame (132, built: "Dev, phase C2" below); **Phase D**: DJ stages 2 and 3 (21a–21f). 100, 102, 104, 106, 110, 112, 131, 133, 134, 140, 144 needed nothing. **170–236 were answered by Design in its 24 October evening notes** (`Start here - Design notes 2026-10-24 (evening).dc.html`, boards 23a–23d in `Answers 170-236.dc.html`; the hand-off's "Build order for Dev, 24 October evening"), so they're out of this list. Phase E built the small answers and Ross's two yeses (172, 174, 181, 214, 223, 224, 230, 232, 234; "Dev, phase E of 24 October" below); 170, 171, 173, 180, 182–186, 200–203, 211–213, 220–222, 231, 233, 235 and 236 needed nothing ("as built"). One part waits for its phase: 175's "Split one output" (23b) is built in the engine with auto-mix stage B, and its control waits for the Decks page; 232's "Start a set from these" is built with Sets 1 ("Dev, Sets 1 of 24 October"). Of Design's own questions for Dev from 240, Sets 1 answers 240, 244 and 245 (in that entry); the rest are answered with Sets 2. New questions for Design are numbered from 325 (phase E's are 270–273; Sets 1's are 260–269, 274 and 275; stars and mix sets' are 276–286; the Mix tab's are 288–299; auto-mix stage A's are 300–304; auto-mix stage B's are 305–311; auto-mix stage C's are 312–324; 287 was answered by Ross on 26 October, below). Of Design's auto-mix questions for Dev (247–252), stage A answers 249 ("Dev, auto-mix stage A of 27 October") and stage B answers 250–252 ("Dev, auto-mix stage B of 27 October"); stage C builds 249's "in 2:58" and the waveform's mark, and 252's behaviour, in the player ("Dev, auto-mix stage C of 27 October"); 247 and 248 are Versions' (25a). 261 (an empty set) and 269 (the Away tag) are answered by 28g and 28e and built ("Dev, stars and mix sets of 26 October"). Answer on the canvas, naming the board, as before.
+Questions 1–28 were answered in Design's session of 22 October, 29–57 in its evening pass, 58–82 on 23 October and 83–95 that afternoon; all are built. Design answered **100–106, 110–112, 120–125, 130–134, 140–148 and 150–154 on 24 October** (`Start here - Design notes 2026-10-24.dc.html`, boards 16a–21f; the hand-off's "Build order for Dev, 24 October"), so they're out of this list. Phase A of that order is built ("Dev, phase A of 24 October, and answers 160–168" below): 105, 111, 121, 123, 124, 130 (nothing to build), 143, 145, 146, 148, 150, 153, 154 and 14i's title. What those answers left to build waits for its phase: **Phase B** (on Ross's yes): 141 "Stations" and the labelled Collapse, 147 the Sleep timer for radio, DJ stage 1's 17a–17e (151's key chips and energy bars, 152's docked Mixes panel), 101 and 103's MilkDrop curated default, "Every preset" and "Yours N" (18a, 18b), 120 and 122's drive-move boards (19a, 19b), 142 Recent stations on the server; **Phase C** (after Dev's answers 160–168, which are in that entry): AudD every track per station (20b, 165), host paths in the Remove list (125, 160; **built in phase C1**, below), every service modal on 15a's frame (132, built: "Dev, phase C2" below); **Phase D**: DJ stages 2 and 3 (21a–21f). 100, 102, 104, 106, 110, 112, 131, 133, 134, 140, 144 needed nothing. **170–236 were answered by Design in its 24 October evening notes** (`Start here - Design notes 2026-10-24 (evening).dc.html`, boards 23a–23d in `Answers 170-236.dc.html`; the hand-off's "Build order for Dev, 24 October evening"), so they're out of this list. Phase E built the small answers and Ross's two yeses (172, 174, 181, 214, 223, 224, 230, 232, 234; "Dev, phase E of 24 October" below); 170, 171, 173, 180, 182–186, 200–203, 211–213, 220–222, 231, 233, 235 and 236 needed nothing ("as built"). One part waits for its phase: 175's "Split one output" (23b) is built in the engine with auto-mix stage B, and its control waits for the Decks page; 232's "Start a set from these" is built with Sets 1 ("Dev, Sets 1 of 24 October"). Of Design's own questions for Dev from 240, Sets 1 answers 240, 244 and 245 (in that entry); the rest are answered with Sets 2. **Briefs A–E from the UX review of 27 October** (Log, "UX review of the DJ features, and Briefs A–E") are open for Design. New questions for Design are numbered from 325 (phase E's are 270–273; Sets 1's are 260–269, 274 and 275; stars and mix sets' are 276–286; the Mix tab's are 288–299; auto-mix stage A's are 300–304; auto-mix stage B's are 305–311; auto-mix stage C's are 312–324; 287 was answered by Ross on 26 October, below). Of Design's auto-mix questions for Dev (247–252), stage A answers 249 ("Dev, auto-mix stage A of 27 October") and stage B answers 250–252 ("Dev, auto-mix stage B of 27 October"); stage C builds 249's "in 2:58" and the waveform's mark, and 252's behaviour, in the player ("Dev, auto-mix stage C of 27 October"); 247 and 248 are Versions' (25a). 261 (an empty set) and 269 (the Away tag) are answered by 28g and 28e and built ("Dev, stars and mix sets of 26 October"). Answer on the canvas, naming the board, as before.
 
 **Later (Ross: not yet)**
 31. The first-run setup flow in the design system.
@@ -90,6 +90,223 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 275. (After the gauntlet review) Locked rows now hold their places in the editor: their grip is faded with "Locked in its place", their Move up, Move down and Move… are disabled ("Move… (unlock it first)"), and moving another row never shifts them (a drop on a locked row's place lands on the nearest free place). 22c only says Lock keeps a track for "Ask again". Right?
 
 ## Log
+
+### 2026-10-27: UX review of the DJ features, and Briefs A–E for Design
+
+A usability review of everything built for the DJ area (Sets 1, stars and mix sets, the Mix tab, auto-mix stages A–C and the lab), run in a browser at 1440 and 390 with a library of real, analysed tracks, against 24a's model and WCAG 2.2 AA. Ross accepted all 31 findings (27 October). **Dev** fixes the Dev-tagged ones: UX-1 (Play as a mix never played a set) is fixed on `fix/play-as-mix`; UX-2, 4 and 5 and the lab's sources (UX-14) are being built on `feat/analyse-now` with analysis on demand; the rest follow in a Dev fix round. **Design** has the five briefs below, which cover the Design-tagged findings (UX-3, 10, 11, 14, 25) and Ross's "DJ now" (BACKLOG, "DJ now").
+
+**Ross's decisions that shape the briefs (27 October)**
+- No crossfading at all: Between tracks is **Off / Auto mix**. A pair that can't be beat-matched quietly uses echo out or a cut, or plays straight on; nothing says "crossfade". So the open questions that assume a crossfade (302 and 304's fallback, 308's 2-second crossfade when a phone cuts a mix off, 316's Cancel, 320's line and 322) need answering against that: a cut, an echo out or straight on.
+- Tracks are analysed on demand where they'll be mixed, with a small progress bar and a line naming the step.
+- Drag and drop for mix sets, Up next and the DJ panels.
+- DJ now is laptop and desktop only, and full Decks is DJ now expanded.
+
+**The 31 findings**
+
+| # | Severity | Finding | Tag |
+|---|---|---|---|
+| UX-1 | Blocker | Play as a mix never plays a set | Dev. |
+| UX-2 | Major | Analysis is reported as in progress when nothing is running | Dev. |
+| UX-3 | Major | You can't follow analysis | Design. |
+| UX-4 | Major | Analysis isn't triggered where a track will be mixed; members can't trigger it | Dev. |
+| UX-5 | Major | "Analysed" means two different things | Dev. |
+| UX-6 | Major | Up next at 1440 cuts off the reason and "Analyse now" | Dev. |
+| UX-7 | Major | A, and the Mix tab's primary button, add a duplicate when the track is already in the working set | Dev. |
+| UX-8 | Major | No undo for set edits | Dev. |
+| UX-9 | Major | Mix now fails silently when the decks can't start | Dev. |
+| UX-10 | Major | Drag and drop missing between DJ surfaces and on touch | Design. |
+| UX-11 | Major | No clear home for mixing | Design. |
+| UX-12 | Major | You can't tell whether a mix is beat-matched, or why it isn't | Dev. |
+| UX-13 | Major | The DJ mix setting is buried | Dev (placement with Brief C). |
+| UX-14 | Major | The auto-mix lab is hard to use as it stands | Design. |
+| UX-15 | Minor | The countdown floods the polite live region and is silent on Cancel | Dev. |
+| UX-16 | Minor | Phone touch targets under 44px in the DJ controls | Dev. |
+| UX-17 | Minor | Vibe switches on even when the AI is off | Dev. |
+| UX-18 | Minor | Famous mix says it searches sources it won't search, and tells members to do admin things | Dev. |
+| UX-19 | Minor | An empty draft points to a path that can't reach it | Dev. |
+| UX-20 | Minor | Names drift | Dev. |
+| UX-21 | Minor | "DJ mix is off: plays straight on (Play as a mix plays this)" repeats on every step | Dev. |
+| UX-22 | Minor | The style picker clips off-screen | Dev. |
+| UX-23 | Minor | Tracks' selection bar is cramped at 1440 | Dev. |
+| UX-24 | Minor | The "New here? Click for setup help!" nudge sits above sheets and bars | Dev. |
+| UX-25 | Minor | Tracks rows' accent ▶ means "Play next" | Design. |
+| UX-26 | Minor | The phone Set view mislabels a missing file and shows "— — BPM" | Dev. |
+| UX-27 | Minor | Keyboard reordering is silent, and long lists are tab-heavy | Dev. |
+| UX-28 | Minor | No main landmark; set headers become extra banners | Dev (app-wide). |
+| UX-29 | Polish | A set's chip doesn't show "auto" or "yours" on screen | Dev. |
+| UX-30 | Polish | Move… asks for a bare number | Dev. |
+| UX-31 | Polish | The lab looks unfinished and shows others a blank page | Dev. |
+
+**The three concerns behind the briefs**
+1. **Analysis you can't see:** "Analysing" showed while nothing ran, a track can have BPM and key but no grid and still read "analysed", and nothing queues a track when it's added where it'll be mixed.
+2. **Drag and drop:** only Up next and a set's own list reorder by dragging; nothing moves between surfaces, and touch has no path.
+3. **How the DJ pieces fit:** the docked Mixes panel and the Mix tab rank the same thing two ways, the working set is invisible outside the Mix tab, and the DJ mix setting sits in the player's "…" only.
+
+**Briefs for Design** (draw every state named; answer on the canvas, naming the board, as before)
+
+#### Brief A · The analysis indicator (concern 1; UX-2, 3, 4, 5, 12)
+
+**Goal.** At any moment a person can see whether a track is **ready to mix** (it has a beat grid), what's being analysed now, which step it's on and how far along, and can ask for it from where they are. Members can prioritise their own tracks.
+
+**Engine truth.**
+- One sweep at a time. Per track the steps are:
+  1. reading audio;
+  2. tempo;
+  3. key;
+  4. energy;
+  5. beat grid;
+  6. phrases and sections.
+- The sweep waits for downloads, imports, a drive that's away, a drive move or tag writing. An admin can stop it.
+- A track can have BPM and key but no grid. Auto-mix needs the grid.
+- Dev would publish `{track_id, title, step, queue_position}`.
+
+**Where it lives.**
+1. A global indicator: the topbar's running count with a popover (the Activity sheet on a phone).
+2. Tracks: the line and per-row markers.
+3. A set's page: per-row states and "3 tracks aren't ready to mix · Analyse them now".
+4. The Mix tab header and the phone sheet.
+5. Every Up next chip.
+6. The lab's pickers.
+7. Brief E's DJ panel.
+
+**The pattern.** A 4px bar plus one line, "Analysing Canopy · beat grid (5 of 6)". The words carry the meaning. The popover holds a six-step checklist.
+
+**States to draw.**
+1. Ready to mix.
+2. BPM and key only (no grid).
+3. Not analysed, sweep idle ("next sweep in about 25 min" + Analyse now / Analyse this).
+4. Queued ("3rd in line").
+5. In progress, at each of the six steps.
+6. Waiting, for each reason.
+7. Stopped by an admin.
+8. Failed (unreadable) and skipped (too long), with what still works: "won't auto-mix; plays straight on".
+9. No steady beat: "Can't be beat-matched".
+10. Done, announced once, with the chip turning from Waiting to its style.
+11. A set with 12 of 40 not ready ("Analyse all 12").
+12. The member's view.
+13. Phone (390): a compact indicator in the sheet header and a two-line chip.
+14. Reduced motion: a static bar.
+
+**Triggers.** Adding to a set, the working set, Up next with DJ mix on, Play as a mix, the lab and the Brief E panel each queue the track first, and say so once ("Added · analysing, 2nd in line").
+
+#### Brief B · Drag and drop across the DJ area (concern 2; UX-10)
+
+**Goal.** Build and adjust sets and the queue by dragging, as in Traktor or Rekordbox, with equal keyboard and touch paths.
+
+**Sources:** Tracks rows (and a multi-selection), Search's library tracks, album and artist track rows, Mix tab matches, the Mixes panel, Up next rows, a set's rows.
+
+**Targets:**
+- a set's list (insert between rows, with the new steps' Smooth/Jump previewed on the insertion line);
+- a set in the sidebar or Your sets (append);
+- the working-set strip (append, or after the playing track while a set plays);
+- Up next (insert at a place, or Play next at the top);
+- a transition gap (insert there, previewing both new chips);
+- Brief E's DJ panel (cue as next; laptop and desktop only).
+
+**States to draw (desktop, 1440).**
+1. Rest (grip on hover and focus).
+2. Lifted ghost (title, key, BPM, a count for many).
+3. A valid hover for each target type.
+4. The insertion line with a step preview.
+5. An invalid target with its reason (file missing, not in the library, a locked row's place, a set you can't edit, mid-mix "can't replace the incoming track").
+6. A duplicate ("In it already · #4 · drop to add again").
+7. Auto-scroll near the edges.
+8. Drop, then a toast with Undo.
+9. Locked rows holding while others flow around them.
+
+**Phone (390).**
+1. Long-press lift.
+2. Drag within a list.
+3. Drop onto a bottom "Send to…" tray (the working set, Up next, Other sets, DJ panel).
+4. Cancel.
+5. A "Move" mode with ▲▼ as the non-drag path.
+
+**Keyboard.**
+1. Space to pick up.
+2. Arrows to move, with live announcements.
+3. Enter to drop, Escape to cancel.
+4. "Send to…" in "…" for cross-surface moves.
+
+Draw the focus on the lifted row.
+
+**Constraints:**
+- Library tracks with their file only.
+- One drop is one undoable step.
+- A stale drop gets the existing "changed elsewhere" Notice.
+
+#### Brief C · Where to go for what (concern 3; UX-11, 13, 20)
+
+**Goal.** Make 24a's model visible: **Sets** (things you keep), **Now and next** (the player: Up next, the Mix tab, auto-mix) and **Decks** (by hand; see Brief E for the compact bridge).
+
+**Explore.**
+1. **One "Mixes well with".** The docked panel either becomes the Mix tab following a chosen track, or goes. It needs one ranking, one wording and one set of actions (Play next, Add to the working set, More like this).
+2. **The working set outside the Mix tab:** a tag and "Make this my working set" on set pages and in Your sets, and the sidebar's Sets row showing the working set's name.
+3. **A set's page header:** Play, Play as a mix (auto-mix for this play), Export and the working-set control.
+4. **Between tracks (Off / Auto mix; Smart crossfade goes, Ross 27 October):** one control, reachable from Up next's header, the Mix tab and Settings → Library (DJ), not only from the player's "…".
+5. **A glossary pass** (set or mix set, Add to set or Add to mix set…, the analysis words, together with Brief A).
+6. **Links between Sets, the Mix tab, the lab and Decks.**
+
+**States to draw:**
+- the tray at 1440 with Mix and Up next together;
+- the phone sheet reduced from three levels ("Now playing" title, "‹ Now playing", Mix/Set) to two;
+- a first-run state ("Start a set to mix into");
+- a set playing as a mix: "Track 4 of 12" in the tray, the set's page highlighting the playing row, and Add inserting after it.
+
+#### Brief D · The row's primary action (UX-25)
+
+Should the visible row button be **Play** (audition now) or **Play next**, and how do their icons differ? Draw Tracks rows at rest, on hover and on focus, the phone row, and Up next's "play next" icon. Use one icon set across Tracks, Listening history, the Mix tab and Search.
+
+#### Brief E · "DJ now": a compact DJ mode in the playing panel (Ross's request; UX-12, UX-14)
+
+**Goal.** Without leaving what's playing, see the outgoing and incoming tracks side by side with their sections, beat grids locked and the blend zone. Choose the next track by dragging it in or picking from candidates. Let auto-mix drive it, or take over live. Expand it to full Decks.
+
+**How it fits.**
+- **Desktop:** a third mode of the tray, Now playing · Mix · **DJ** (or Mix grows into it). Alternatively, the waveform's place expands into DJ when a transition is armed.
+- **Show** its relation to Up next (the next track is Up next's first row) and to the working set.
+- **Laptop and desktop only** (Ross, 27 October). Nothing on the phone: the phone keeps today's handover view.
+
+**Content.**
+1. **Dual waveforms on one bar ruler:**
+   - the outgoing lane above, the incoming below, aligned on the phrase;
+   - section bands (intro, main, breakdown, drop, outro) from the grid;
+   - downbeats and phrase ticks;
+   - "beats locked" / "phrase-aligned" badges;
+   - the shaded blend window with the style's lanes (bass swap point, filter, echo);
+   - the playhead;
+   - tempo and key for each, with the stretch percentage.
+
+   This is the beat-match verdict UX-12 lacks. State "won't beat-match: <why>" in place when it applies.
+2. **Next-track candidates:** Up next's next, Mixes well with (code ranking, then Vibe/AI), the working set, other sets, playlists and starred. Each shows readiness (Brief A) and the step it would make (Smooth/Jump). Drag in or tap "Cue next".
+3. **Auto vs live:**
+   - Auto shows the plan and moves the controls by itself, each marked "auto" (26j).
+   - Touching any control takes over: the card turns to "You're mixing", and the automation holds without a jump.
+   - Hand back lets auto finish.
+   - Draw: idle with the next cued, counting down, mixing on auto, mixing taken over, handed back, and a pair that can't be auto-mixed ("plays straight on, or take it by hand").
+4. **Controls (live):**
+   - crossfader;
+   - per-deck volume;
+   - three-band EQ with kills;
+   - a filter (HP/LP on one knob);
+   - an echo / effects send;
+   - Sync on and off, nudge, a cue point and a loop for the outgoing deck;
+   - headphones (23b) where available.
+
+ 5. **Expand to full Decks:** the same lanes grown into 21e's two decks, with continuity (what you touched stays touched).
+6. **Drag and drop into the panel:** from any source in Brief B. Drop on the incoming lane to cue, or on the blend zone to change the style. Invalid drops (not ready, missing file) explain why and offer Analyse now.
+7. **Accessibility:**
+   - lanes have text equivalents ("bar 12 of 32 · bass swaps at 16 · 0:23 left");
+   - controls are real sliders with values;
+   - announce once per state (UX-15).
+
+**States to draw:**
+- 1440: idle, cued, auto mixing, taken over, handed back, can't be beat-matched, analysing the incoming track;
+- the smallest laptop width the tray supports (1280), as well as 1440;
+- a drag hovering the panel;
+- Vibe or AI candidates thinking, and the AI off.
+
+**Constraints:**
+- No crossfade style (Ross: auto, manual or nothing). The crossfader stays as a hand control; nothing is labelled a crossfade transition.
+- Respect the engine: windows, not whole tracks, and the per-profile decode cap.
 
 ### 2026-10-27: Dev, auto-mix stage C of 27 October
 

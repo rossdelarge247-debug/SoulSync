@@ -725,7 +725,7 @@ Actions:
 
 ## Auto-mix: beat-matched transitions in Up next
 
-**Status:** Auto-mix: Building (stage C) · raised by Ross, 2026-10-24 · direction approved by Ross the same day · drawn by Design as `Auto-mix (Up next, decks).dc.html` (26a–26j) and approved by Ross. Built in three stages: **A**, the server's analysis and the pair planner, on `feat/automix-a` (`HANDOFF.md`, "Dev, auto-mix stage A of 27 October"; routes in `CONTRACTS.md`, "Auto-mix stage A"); **B**, the browser's two-deck engine with time-stretch, on `feat/automix-b` (`HANDOFF.md`, "Dev, auto-mix stage B of 27 October"; `CONTRACTS.md`, "Auto-mix stage B"; heard at `/automix-lab`, admins, `?lab=1`); **C**, auto-mix itself (the chips, Mix now, the setting, the handover view, Smart crossfade, a set played as a mix), on `feat/automix-c` (`HANDOFF.md`, "Dev, auto-mix stage C of 27 October"; `CONTRACTS.md`, "Auto-mix stage C"). Decks (21e, 26j: watching auto-mix drive the decks, taking over, Hand back) comes after. **Built with DJ stage 3's decks**, which use the same engine: two decks with EQ and effects on Web Audio. Auto-mix is that engine driven automatically, so the decks come first and auto-mix sits on top. Mix sets then play as a continuous mix.
+**Status:** Auto-mix: Built (stages A–C; analysis on demand building on `feat/analyse-now`) · raised by Ross, 2026-10-24 · direction approved by Ross the same day · drawn by Design as `Auto-mix (Up next, decks).dc.html` (26a–26j) and approved by Ross. Built in three stages: **A**, the server's analysis and the pair planner, on `feat/automix-a` (`HANDOFF.md`, "Dev, auto-mix stage A of 27 October"; routes in `CONTRACTS.md`, "Auto-mix stage A"); **B**, the browser's two-deck engine with time-stretch, on `feat/automix-b` (`HANDOFF.md`, "Dev, auto-mix stage B of 27 October"; `CONTRACTS.md`, "Auto-mix stage B"; heard at `/automix-lab`, admins, `?lab=1`); **C**, auto-mix itself (the chips, Mix now, the setting, the handover view, Smart crossfade, a set played as a mix), on `feat/automix-c` (`HANDOFF.md`, "Dev, auto-mix stage C of 27 October"; `CONTRACTS.md`, "Auto-mix stage C"). Decks (21e, 26j: watching auto-mix drive the decks, taking over, Hand back) comes after. **Built with DJ stage 3's decks**, which use the same engine: two decks with EQ and effects on Web Audio. Auto-mix is that engine driven automatically, so the decks come first and auto-mix sits on top. Mix sets then play as a continuous mix.
 
 ### What Ross wants
 
@@ -802,6 +802,40 @@ Dev picks the libraries after checking their licences: some beat and structure m
 ### Settled with Ross
 
 - 24 October: yes to both the transitions and the styles, built with the DJ stage 3 decks.
+- 27 October: **no crossfading at all** ("we either mix auto or manual or nothing"). Between tracks becomes **Off / Auto mix**; Smart crossfade leaves the interface. A pair that can't be beat-matched quietly uses echo out or a cut, or plays straight on, and nothing says "crossfade".
+- 27 October: tracks are analysed **on demand** when they're added where they'll be mixed (a set, the working set, Up next with DJ mix on, Play as a mix, the lab, DJ now), with a small progress bar and a line naming the step. Members can ask for their own tracks.
+- 27 October: yes to a mix report export and to the side-by-side view (now "DJ now", below).
+
+## DJ now: a compact DJ mode in the playing panel
+
+**Status:** Exploring · raised by Ross, 2026-10-27 · **laptop and desktop only** (nothing on the phone) · Design's Brief E (`HANDOFF.md`, "UX review of the DJ features, and Briefs A–E"). It replaces the separate Decks plan: full Decks (21e, 26j) is DJ now expanded, built on auto-mix's engine (stage B).
+
+### The problem
+
+Auto-mix runs out of sight. You can't see the two tracks side by side, which sections will be blended, or whether the beats are locked, so a mix that falls back to a cut or plays straight on looks the same as a good one (UX-12). Choosing what comes next means leaving the player, and taking over means a separate Decks page that isn't built yet.
+
+### What Ross wants
+
+From the playing panel, without leaving what's playing:
+1. Drag another track into the panel, or pick from candidates (Mixes well with, the working set, other sets, playlists, starred, the AI).
+2. See both tracks' waveforms and data together: sections, beat grids locked, and the blend zone.
+3. Let auto-mix run it, or tweak it live: crossfader, EQ, filters and effects.
+4. Expand it into full Decks.
+
+No crossfade style (auto, manual or nothing).
+
+### What the app gives today (Dev checked)
+
+- The engine (stage B): two decks with time-stretch, EQ, filter and echo lanes, driven by the pair planner's plan. Windows, not whole tracks; a per-profile decode cap.
+- The handover view in the tray while a mix runs (stage C): both tracks, two lanes on one ruler, Back and Finish now.
+- The plan per pair (`/api/library/dj/plan`): the blend window, the style, the bass swap bar and why a pair can't be beat-matched.
+- Mixes well with's ranking, sets, the working set and stars.
+
+### Questions for Design
+
+Brief E in `HANDOFF.md` holds the states to draw.
+
+---
 
 ---
 
