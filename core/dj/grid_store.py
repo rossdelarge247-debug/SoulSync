@@ -130,22 +130,37 @@ def fail_leftover_analyzing(database) -> int:
 
 # ── the sweep's top-up list ──────────────────────────────────────────────────
 
+#: a grid that failed (not one left by a crash) is tried again after this long
+ERROR_RETRY_SECONDS = 7 * 24 * 3600.0
+
+#: the grid is due: none yet, an older version, a different file than the DJ
+#: data's (a reused id, a replaced file), unreachable a while, or failed a
+#: week ago. Shared by pending_ids and counts so the two agree.
+_DUE_SQL = ("(g.track_id IS NULL OR COALESCE(g.grid_version, 0) < ? "
+            " OR (g.status IN ('done', 'none') AND g.source_sig IS NOT d.source_sig) "
+            " OR (g.status = 'unreachable' AND COALESCE(g.analyzed_at, 0) < ?) "
+            " OR (g.status = 'error' AND COALESCE(g.analyzed_at, 0) < ? "
+            "     AND COALESCE(g.reason, '') NOT LIKE 'SYNCHRO.S stopped%'))")
+
+
 def pending_ids(database, dj_version: int, *, retry_unreachable_before: Optional[float] = None,
-                limit: int = 100000) -> List[str]:
-    """Tracks whose DJ data is done at ``dj_version`` and that have no grid
-    at GRID_VERSION yet (the top-up: tracks analysed before grids existed,
-    or before a new grid version). A grid ``unreachable`` comes back once
-    it's older than ``retry_unreachable_before``."""
+                retry_errors_before: Optional[float] = None, limit: int = 100000) -> List[str]:
+    """Tracks whose DJ data is done at ``dj_version`` and whose grid is due
+    (the top-up: tracks analysed before grids existed or before a new grid
+    version; a grid kept for another file than the DJ data's, as when an id
+    is reused). A grid ``unreachable`` comes back once it's older than
+    ``retry_unreachable_before``; one that failed once it's older than
+    ``retry_errors_before`` (a week by default; never one a crash left)."""
     retry = float(retry_unreachable_before) if retry_unreachable_before is not None else -1.0
+    errors = (float(retry_errors_before) if retry_errors_before is not None
+              else time.time() - ERROR_RETRY_SECONDS)
     with closing(database._get_connection()) as conn:
         rows = conn.execute(
             "SELECT t.id FROM tracks t JOIN track_dj d ON d.track_id = t.id "
             "LEFT JOIN track_grid g ON g.track_id = t.id "
             "WHERE t.file_path IS NOT NULL AND t.file_path != '' AND d.status = 'done' "
-            "AND COALESCE(d.dj_analyzer_version, 0) >= ? AND ("
-            "  g.track_id IS NULL OR COALESCE(g.grid_version, 0) < ? "
-            "  OR (g.status = 'unreachable' AND COALESCE(g.analyzed_at, 0) < ?)) "
-            "ORDER BY t.rowid LIMIT ?", (int(dj_version), GRID_VERSION, retry, int(limit))).fetchall()
+            f"AND COALESCE(d.dj_analyzer_version, 0) >= ? AND {_DUE_SQL} "
+            "ORDER BY t.rowid LIMIT ?", (int(dj_version), GRID_VERSION, retry, errors, int(limit))).fetchall()
     return [str(r[0]) for r in rows]
 
 
@@ -157,10 +172,10 @@ def counts(database) -> Dict[str, int]:
         row = conn.execute(
             "SELECT SUM(CASE WHEN g.grid_version >= ? AND g.status = 'done' THEN 1 ELSE 0 END) AS done, "
             "SUM(CASE WHEN g.grid_version >= ? AND g.status = 'none' THEN 1 ELSE 0 END) AS no_beat, "
-            "SUM(CASE WHEN d.status = 'done' AND (g.track_id IS NULL OR COALESCE(g.grid_version, 0) < ?) "
-            "    THEN 1 ELSE 0 END) AS pending "
+            f"SUM(CASE WHEN d.status = 'done' AND {_DUE_SQL} THEN 1 ELSE 0 END) AS pending "
             "FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id LEFT JOIN track_grid g ON g.track_id = t.id "
-            "WHERE t.file_path IS NOT NULL AND t.file_path != ''", (GRID_VERSION,) * 3).fetchone()
+            "WHERE t.file_path IS NOT NULL AND t.file_path != ''",
+            (GRID_VERSION, GRID_VERSION, GRID_VERSION, -1.0, time.time() - ERROR_RETRY_SECONDS)).fetchone()
     return {"done": int(row["done"] or 0), "no_beat": int(row["no_beat"] or 0), "pending": int(row["pending"] or 0)}
 
 
@@ -198,14 +213,22 @@ _REASONS = {None: "not_analyzed", "analyzing": "analyzing", "error": "error", "u
             "skipped": "too_long"}
 
 
-def public(row: Optional[Dict[str, Any]], track_id: str, *, with_beats: bool = True) -> Dict[str, Any]:
+def public(row: Optional[Dict[str, Any]], track_id: str, *, with_beats: bool = True,
+           dj_status: Optional[str] = None) -> Dict[str, Any]:
     """One track's grid for the page and the engine: the tempo and grid,
     downbeats, phrases, sections, the mix-in and mix-out regions and how sure
     each is, the loudness; or ``analyzed: false`` with ``reason``
     (``not_analyzed``, ``analyzing``, ``too_short``, ``no_beat``,
     ``too_long``, ``unreachable``, ``error``). Times are seconds from the
-    file's start; bars count from the first downbeat."""
+    file's start; bars count from the first downbeat.
+
+    ``dj_status`` is the track's DJ row status: a track whose BPM and key
+    couldn't be worked out (skipped, error, unreachable) before grids
+    existed has no grid row, and says why instead of ``not_analyzed``,
+    which would wait for ever (gauntlet M1)."""
     track_id = str(track_id)
+    if row is None and dj_status in ("skipped", "error", "unreachable"):
+        row = {"grid_version": GRID_VERSION, "status": dj_status}
     status = (row or {}).get("status")
     stale = row is not None and int(row.get("grid_version") or 0) < GRID_VERSION
     if row is None or stale or status != "done":
@@ -260,11 +283,16 @@ def public(row: Optional[Dict[str, Any]], track_id: str, *, with_beats: bool = T
     }
 
 
+def public_entry(entry: Dict[str, Any], track_id: str, *, with_beats: bool = True) -> Dict[str, Any]:
+    """``public`` for one of ``scoped_rows``' entries."""
+    return public(entry.get("grid"), track_id, with_beats=with_beats, dj_status=entry.get("dj_status"))
+
+
 def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
     """For each id in the caller's library (the DJ routes' scope), its grid
     row (None when there's none yet) beside the track's duration, DJ BPM,
-    key and title: ``{id: {"grid": row | None, "duration_s", "bpm", "key",
-    "title"}}``. Ids
+    key, title and DJ status: ``{id: {"grid": row | None, "duration_s",
+    "bpm", "key", "title", "dj_status"}}``. Ids
     outside the library aren't in the answer."""
     from core.dj.store import _BPM_SQL, _scope
 
@@ -281,7 +309,7 @@ def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]
             # formatted in; every value is a bound parameter
             rows = conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
                 f"SELECT t.id AS tid, t.title AS track_title, t.duration AS duration, {_BPM_SQL} AS eff_bpm, "
-                f"d.musical_key AS musical_key, "
+                f"d.musical_key AS musical_key, d.status AS dj_status, "
                 f"g.* FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id "
                 f"LEFT JOIN track_grid g ON g.track_id = t.id WHERE t.id IN ({marks}) AND {where}",
                 chunk + params).fetchall()
@@ -294,10 +322,10 @@ def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]
                     duration_s = None
                 out[str(r["tid"])] = {"grid": r if r.get("track_id") else None, "duration_s": duration_s,
                                       "bpm": r.get("eff_bpm"), "key": r.get("musical_key"),
-                                      "title": r.get("track_title")}
+                                      "title": r.get("track_title"), "dj_status": r.get("dj_status")}
     return out
 
 
-__all__ = ["BEAT_CONFIDENT", "DOWNBEAT_CONFIDENT", "counts", "current", "decode_beats", "encode_beats",
-           "fail_leftover_analyzing", "get", "grid_of", "mark", "pending_ids", "public", "save_result",
+__all__ = ["BEAT_CONFIDENT", "DOWNBEAT_CONFIDENT", "ERROR_RETRY_SECONDS", "counts", "current", "decode_beats", "encode_beats",
+           "fail_leftover_analyzing", "get", "grid_of", "mark", "pending_ids", "public", "public_entry", "save_result",
            "scoped_rows"]

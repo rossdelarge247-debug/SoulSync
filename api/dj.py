@@ -311,7 +311,7 @@ def _track_for_plan(entry: dict, track_id: str, *, with_beats: bool = True) -> d
     public grid with the DJ data's BPM and key, the length and the title."""
     from core.dj import grid_store
 
-    shaped = grid_store.public(entry.get("grid"), track_id, with_beats=with_beats)
+    shaped = grid_store.public_entry(entry, track_id, with_beats=with_beats)
     return {**shaped, "dj_bpm": entry.get("bpm"), "key": entry.get("key"), "duration_s": entry.get("duration_s"),
             "title": entry.get("title")}
 
@@ -330,7 +330,7 @@ def dj_grid(track_id: str):
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
     if tid not in found:
         return jsonify({"success": False, "error": "That track isn't in your library"}), 404
-    return jsonify({"success": True, "grid": grid_store.public(found[tid]["grid"], tid)})
+    return jsonify({"success": True, "grid": grid_store.public_entry(found[tid], tid)})
 
 
 @bp.route("/api/library/dj/grids", methods=["POST"])
@@ -355,7 +355,7 @@ def dj_grids():
         logger.error("DJ grids failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
     with_beats = body.get("beats") is True
-    return jsonify({"success": True, "grids": {i: grid_store.public(found[i]["grid"], i, with_beats=with_beats)
+    return jsonify({"success": True, "grids": {i: grid_store.public_entry(found[i], i, with_beats=with_beats)
                                                for i in ids if i in found}})
 
 

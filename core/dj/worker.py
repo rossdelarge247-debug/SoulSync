@@ -235,6 +235,18 @@ def _replaygain_db(path: str) -> Optional[float]:
     return round(value, 2) if -60.0 < value < 60.0 else None
 
 
+def _mark_both(database, track_id: str, status: str, reason: str, version: int, *,
+               source_sig: Optional[str] = None) -> None:
+    """A track that couldn't be analysed (``error``, ``unreachable``,
+    ``skipped``) has no grid for the same reason: its grid row says so, so
+    the planner falls back with that reason instead of waiting for a grid
+    that will never come (gauntlet M1)."""
+    from core.dj import grid_store, store
+
+    store.mark(database, track_id, status, reason, version)
+    grid_store.mark(database, track_id, status, reason, source_sig=source_sig)
+
+
 def _find_grid(database, track_id: str, path: str, sig: Optional[str], *, audio, bpm_hint,
                analyze_grid: Callable[..., Dict[str, Any]]) -> str:
     """Find and keep one track's grid: ``done`` (whatever it found, a grid or
@@ -352,7 +364,8 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
                   analyze_grid: Callable[..., Dict[str, Any]] = _default_grid) -> str:
     """Analyse one library track and keep its DJ data and its beat grid
     (a track whose DJ data is already done for this file only gets its grid:
-    the top-up). Returns ``done``
+    the top-up). ``grid_error``, ``done_grid_error`` or ``tagged_grid_error``
+    when the grid failed (the DJ data is kept). Returns ``done``
     (``tagged`` when BPM or key went into the file too), ``unreachable``,
     ``skipped`` (too long), ``error``, ``deferred`` (a drive move or a tag
     write started before the file could be written: back in the queue) or
@@ -367,7 +380,7 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
     version = analyzer_version()
     row = store.track_row(database, track_id)
     if not row or not row.get("file_path"):
-        store.mark(database, track_id, "error", "the track has no file", version)
+        _mark_both(database, track_id, "error", "the track has no file", version)
         return "error"
     dj_row = store.get(database, track_id)
     # BPM, key and energy already done at this version: only the grid is due
@@ -379,19 +392,21 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
         if top_up:
             grid_store.mark(database, track_id, "unreachable", f"SYNCHRO.S can't open {stored}")
         else:
-            store.mark(database, track_id, "unreachable", f"SYNCHRO.S can't open {stored}", version)
+            _mark_both(database, track_id, "unreachable", f"SYNCHRO.S can't open {stored}", version)
         return "unreachable"
     if _too_long(path):
         if top_up:
             grid_store.mark(database, track_id, "skipped", TOO_LONG)
         else:
-            store.mark(database, track_id, "skipped", TOO_LONG, version)
+            _mark_both(database, track_id, "skipped", TOO_LONG, version)
         return "skipped"
     sig = source_signature(path)
     if top_up and dj_row.get("source_sig") == sig:
         if not grid_store.current(grid_store.get(database, track_id), sig):
-            _find_grid(database, track_id, path, sig, audio=None, bpm_hint=dj_row.get("bpm"),
-                       analyze_grid=analyze_grid)
+            found = _find_grid(database, track_id, path, sig, audio=None, bpm_hint=dj_row.get("bpm"),
+                               analyze_grid=analyze_grid)
+            if found == "error":
+                return "grid_error"
         return "done"
     tags = read_dj_tags(path)
     analysis = _reuse_sample_analysis(track_id, sig, version)
@@ -405,7 +420,7 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
             raise _Abort(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - one bad file never stops the sweep
             logger.info("DJ analysis failed for track %s: %s", track_id, exc)
-            store.mark(database, track_id, "error", str(exc), version)
+            _mark_both(database, track_id, "error", str(exc), version, source_sig=sig)
             return "error"
         audio = analysis.pop("audio", None)
         if not analysis.get("truncated"):
@@ -455,11 +470,15 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
     if written:
         values.update(tags_written=",".join(written), tags_written_at=time.time())
     store.save(database, track_id, values)
+    grid_failed = False
     if not grid_store.current(grid_store.get(database, track_id), sig):
-        _find_grid(database, track_id, path, sig, audio=audio, bpm_hint=values.get("bpm"),
-                   analyze_grid=analyze_grid)
+        grid_failed = _find_grid(database, track_id, path, sig, audio=audio, bpm_hint=values.get("bpm"),
+                                 analyze_grid=analyze_grid) == "error"
     del audio
-    return "tagged" if written else "done"
+    outcome = "tagged" if written else "done"
+    # the DJ data is kept either way; a failed grid still counts as a failure
+    # for the sweep (its run of failures, Activity's count)
+    return f"{outcome}_grid_error" if grid_failed else outcome
 
 
 # ── the sweep ────────────────────────────────────────────────────────────────
@@ -723,7 +742,16 @@ class DjAnalysisJob:
                 finally:
                     self._in_track.clear()
                 took = time.monotonic() - started
-                if outcome in ("done", "tagged"):
+                if outcome in ("grid_error", "done_grid_error", "tagged_grid_error"):
+                    # the beat grid failed (the DJ data, if any, is kept)
+                    errors_in_a_row += 1
+                    self._bump("failed")
+                    if outcome == "tagged_grid_error":
+                        self._bump("tags_written")
+                    if errors_in_a_row >= MAX_ERRORS_IN_A_ROW:
+                        status, note = "failed", f"{MAX_ERRORS_IN_A_ROW} tracks in a row couldn't be analysed"
+                        break
+                elif outcome in ("done", "tagged"):
                     errors_in_a_row = 0
                     self._bump("done")
                     if outcome == "tagged":

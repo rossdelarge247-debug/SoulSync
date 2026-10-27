@@ -11193,6 +11193,17 @@ class MusicDatabase:
             cursor.execute("DELETE FROM track_stars WHERE track_id = ?", (old_id,))
         except Exception as e:  # noqa: BLE001 - the table may predate this install
             logger.debug("track_stars repoint skipped: %s", e)
+        # the DJ data and the beat grid follow it too (core/dj): the keeper's
+        # own rows stay as they are; the old id's are never left behind for
+        # a later track that reuses the id
+        for table, columns in (("track_dj", self._TRACK_DJ_COLUMNS), ("track_grid", self._TRACK_GRID_COLUMNS)):
+            names = ", ".join(name for name, _ in columns)
+            try:
+                cursor.execute(f"INSERT OR IGNORE INTO {table} (track_id, {names}) "
+                               f"SELECT ?, {names} FROM {table} WHERE track_id = ?", (keeper_id, old_id))
+                cursor.execute(f"DELETE FROM {table} WHERE track_id = ?", (old_id,))
+            except Exception as e:  # noqa: BLE001 - the table may predate this install
+                logger.debug("%s repoint skipped: %s", table, e)
         try:
             # a set whose row moves counts on, so a page holding the old id
             # gets a conflict (or takes the change) rather than saving it back

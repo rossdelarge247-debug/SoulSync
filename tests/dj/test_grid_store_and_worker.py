@@ -236,7 +236,8 @@ def test_a_grid_that_fails_keeps_the_dj_data(db, tmp_path):
         raise RuntimeError("bad frame")
 
     out = worker.process_track(db, "5", resolve=lambda p: path, analyze=lambda p: _analysis(), analyze_grid=broken)
-    assert out == "done" and store.get(db, "5")["status"] == "done"
+    # the DJ data is kept; the sweep still counts the failure (gauntlet L-a)
+    assert out == "done_grid_error" and store.get(db, "5")["status"] == "done"
     row = grid_store.get(db, "5")
     assert row["status"] == "error" and row["reason"] == "bad frame"
     assert grid_store.public(row, "5")["reason"] == "error"

@@ -174,11 +174,8 @@ def test_an_outgoing_track_without_a_grid_always_crossfades():
     p = planner.plan(_track(none_row, title="Ambient One", duration_s=200.0), _track(_row(124.0), tid="2"))
     assert p["status"] == "crossfade" and p["fallback"]["reason"] == "Ambient One has no steady beat"
     assert p["out"]["start"] == pytest.approx(194.0)  # 6 s before its end
-    too_long = {"grid_version": GRID_VERSION, "status": "skipped", "reason": "too long to analyse"}
-    q = planner.plan(_track(_row(124.0)), _track(too_long, title="A Mix", tid="2"), style="cut")
-    assert q["status"] == "ok" and q["style"] == "cut"  # the outgoing grid is enough for a cut
-    r = planner.plan(_track(_row(124.0)), _track(too_long, title="A Mix", tid="2"), style="long_blend")
-    assert r["fallback"]["reason"] == "A Mix is too long to analyse"
+    # too long, unreadable and missing files go through the sweep for real in
+    # test_grid_review_fixes.py (M1)
 
 
 def test_not_four_four_crossfades():
