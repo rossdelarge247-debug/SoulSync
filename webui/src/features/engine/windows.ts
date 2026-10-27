@@ -8,6 +8,7 @@
  */
 
 import type { DeckData } from './engine';
+import type { PlacedPlan } from './executor';
 import type { BeatGrid } from './grid';
 import type { Plan } from './loader';
 
@@ -27,7 +28,7 @@ export const MAX = 180;
 
 /** The stretches of the two tracks a transition needs, with room to finish or go back. */
 export function windowsFor(
-  plan: Plan,
+  plan: Plan & PlacedPlan,
   gridA: BeatGrid | null,
   gridB: BeatGrid | null,
   prerollBars: number,

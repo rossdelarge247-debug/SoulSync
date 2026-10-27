@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { LOOKAHEAD } from './automation';
-import { Transition, type PlanLike, type TransitionInput } from './executor';
+import { Transition, type PlacedPlan, type TransitionInput } from './executor';
 import { BeatGrid } from './grid';
 import { FINISHED, PARAM_NAMES, WENT_BACK, type DeckId, type ParamName } from './score';
 import { FakePort } from './testing';
@@ -10,7 +10,7 @@ const SR = 48000;
 const A = new BeatGrid({ period: 60 / 124, firstBeat: 0.5 });
 const B = new BeatGrid({ period: 60 / 126, firstBeat: 0.2 });
 
-function plan(over: Partial<PlanLike> = {}): PlanLike {
+function plan(over: Partial<PlacedPlan> = {}): PlacedPlan {
   return {
     status: 'ok',
     style: 'long_blend',

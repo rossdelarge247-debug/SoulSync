@@ -62,9 +62,22 @@ export interface PlanLike {
   why?: string | null;
   fallback?: { kind: string; code: string; reason: string } | null;
   tempo?: { relation: 'same' | 'half' | 'double'; rate: number; speed_change_ok: boolean } | null;
-  out: { start: number | null; bar?: number | null; end?: number | null; end_bar?: number | null };
-  in: { start: number; bar?: number | null };
+  /** absent on a `waiting` plan; `start` may be null on a `crossfade` one */
+  out?: { start: number | null; bar?: number | null; end?: number | null; end_bar?: number | null };
+  /** absent on a `waiting` plan */
+  in?: { start: number; bar?: number | null };
   length_s?: number | null;
+}
+
+/** A plan with both places (an `ok` or `crossfade` one): what the executor and the windows need. */
+export type PlacedPlan = PlanLike & {
+  out: NonNullable<PlanLike['out']>;
+  in: NonNullable<PlanLike['in']>;
+};
+
+/** Whether a plan says where the mix goes: a `waiting` plan doesn't. */
+export function isPlaced<P extends PlanLike>(plan: P | null | undefined): plan is P & PlacedPlan {
+  return Boolean(plan && plan.status !== 'waiting' && plan.out && plan.in);
 }
 
 export interface DeckPort {
@@ -82,7 +95,7 @@ export interface DeckPort {
 export type KeyLock = 'auto' | 'always';
 
 export interface TransitionInput {
-  plan: PlanLike;
+  plan: PlacedPlan;
   from: DeckId;
   to: DeckId;
   gridA: BeatGrid | null;

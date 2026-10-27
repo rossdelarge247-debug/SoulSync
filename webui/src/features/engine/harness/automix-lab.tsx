@@ -23,7 +23,7 @@ import {
 import { STYLE_WORDS, type Style } from '../score';
 import workletUrl from '../worklet/deck-processor.js?url';
 import styles from './automix-lab.module.css';
-import { LabSession, type LabDeps } from './lab-session';
+import { LabSession, waitingWords, type LabDeps } from './lab-session';
 
 interface PlayerHooks {
   audioGraph?: () => { context: AudioContext; analyser: AnalyserNode } | null;
@@ -125,20 +125,35 @@ function TrackSearch({
   );
 }
 
-function PlanSummary({ plan }: { plan: Plan }) {
+const seconds = (v: number | null | undefined) =>
+  typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : '?';
+
+/**
+ * The plan as the server said it. Every status reads safely: a `waiting`
+ * plan has no places, a `crossfade` one may have no outgoing start.
+ */
+export function PlanSummary({
+  plan,
+  titles = {},
+}: {
+  plan: Plan;
+  titles?: { from?: string; to?: string };
+}) {
+  const waiting = plan.status === 'waiting';
   return (
     <dl className={styles.plan}>
       <dt>Plan</dt>
       <dd>
-        {plan.status === 'ok' ? (plan.label ?? plan.style) : plan.status}{' '}
+        {plan.status === 'ok' ? (plan.label ?? plan.style ?? 'ok') : plan.status}{' '}
         {plan.bars ? `· ${plan.bars} bars` : ''} {plan.chosen_by ? `(${plan.chosen_by})` : ''}
       </dd>
       <dt>Why</dt>
-      <dd>{plan.why ?? '—'}</dd>
+      <dd>{waiting ? waitingWords(plan, titles) : (plan.why ?? '—')}</dd>
       <dt>Out / in</dt>
       <dd>
-        {plan.out.start?.toFixed(2) ?? '?'} s (bar {plan.out.bar ?? '—'}) →{' '}
-        {plan.in.start.toFixed(2)} s (bar {plan.in.bar ?? '—'})
+        {plan.out || plan.in
+          ? `${seconds(plan.out?.start)} s (bar ${plan.out?.bar ?? '—'}) → ${seconds(plan.in?.start)} s (bar ${plan.in?.bar ?? '—'})`
+          : '—'}
       </dd>
       <dt>Tempo</dt>
       <dd>
@@ -175,6 +190,7 @@ export default function AutomixLab() {
   const [keyLock, setKeyLock] = useState(false);
   const [correct, setCorrect] = useState(true);
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [planFor, setPlanFor] = useState('');
   const [error, setError] = useState('');
   const [, force] = useState(0);
   const session = useRef<LabSession | null>(null);
@@ -201,13 +217,18 @@ export default function AutomixLab() {
     prerollBars: preroll,
     keyLock,
     correct,
+    titles: { from: outTrack?.title, to: inTrack?.title },
   });
+  const keyOf = (r: { from: string; to: string; style: string; bars?: number }) =>
+    `${r.from}|${r.to}|${r.style}|${r.bars ?? ''}`;
 
   const askPlan = async () => {
     setError('');
     try {
-      const s = new LabSession(request(), deps);
+      const r = request();
+      const s = new LabSession(r, deps);
       setPlan(await s.planOnly());
+      setPlanFor(keyOf(r));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -218,10 +239,12 @@ export default function AutomixLab() {
     session.current?.stop();
     cue.current?.dispose();
     cue.current = null;
-    const s = new LabSession(request(), deps, () => force((x) => x + 1));
+    const r = request();
+    const s = new LabSession(r, deps, () => force((x) => x + 1));
     session.current = s;
     await s.start();
     setPlan(s.plan);
+    setPlanFor(keyOf(r));
     if (s.status.stage === 'error') setError(s.status.words);
   };
 
@@ -253,6 +276,11 @@ export default function AutomixLab() {
   const engine = session.current?.engine ?? null;
   const pos = (d: 'A' | 'B') => engine?.position(d)?.toFixed(2) ?? '—';
   const ready = Boolean(outTrack && inTrack && outTrack.id !== inTrack.id);
+  // the plan shown is this pair's and it's waiting: nothing to play yet
+  const waitingWhy =
+    plan?.status === 'waiting' && planFor === keyOf(request())
+      ? waitingWords(plan, { from: outTrack?.title, to: inTrack?.title })
+      : null;
 
   return (
     <main className={styles.lab}>
@@ -321,7 +349,8 @@ export default function AutomixLab() {
         <button
           type="button"
           className={styles.primary}
-          disabled={!ready}
+          disabled={!ready || waitingWhy !== null}
+          aria-describedby={waitingWhy !== null ? 'automix-lab-waiting' : undefined}
           onClick={() => void play()}
         >
           Play the mix
@@ -343,7 +372,14 @@ export default function AutomixLab() {
       {session.current?.status.stage === 'loading' ? (
         <p className={styles.lead}>{session.current.status.words}</p>
       ) : null}
-      {plan ? <PlanSummary plan={plan} /> : null}
+      {waitingWhy !== null ? (
+        <p id="automix-lab-waiting" className={styles.lead}>
+          {waitingWhy}: Play the mix waits for it.
+        </p>
+      ) : null}
+      {plan ? (
+        <PlanSummary plan={plan} titles={{ from: outTrack?.title, to: inTrack?.title }} />
+      ) : null}
       {st ? (
         <section className={styles.live} aria-live="polite">
           <p className={styles.state}>

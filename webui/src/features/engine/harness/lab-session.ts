@@ -8,10 +8,10 @@
  * and the output device follow), pausing the player first.
  */
 
-import type { Transition } from '../executor';
 import type { Plan } from '../loader';
 
 import { Engine, type DeckData } from '../engine';
+import { isPlaced, type Transition } from '../executor';
 import { gridFromApi, relativeTrimDb, type ApiGrid } from '../grid';
 import { looksLikePhone } from '../lifecycle';
 import { correction, onsets } from '../refine';
@@ -29,6 +29,29 @@ export interface LabRequest {
   keyLock: boolean;
   /** line the beats up from the audio too (refine.ts) */
   correct: boolean;
+  /** the two tracks' titles, for the words */
+  titles?: { from?: string; to?: string };
+}
+
+const WAITING_REASONS: Record<string, string> = {
+  analyzing: 'being analysed',
+  not_analyzed: 'not analysed yet',
+};
+
+/**
+ * What a `waiting` plan is waiting for, in words: "Waiting for Night
+ * Ferry's beat grid · being analysed".
+ */
+export function waitingWords(
+  plan: Pick<Plan, 'waiting_for' | 'reason'>,
+  titles: { from?: string; to?: string } = {},
+): string {
+  const which = plan.waiting_for === 'from' || plan.waiting_for === 'to' ? plan.waiting_for : null;
+  const fallback =
+    which === 'from' ? 'the outgoing track' : which === 'to' ? 'the incoming track' : 'a track';
+  const name = (which && titles[which]) || fallback;
+  const reason = WAITING_REASONS[plan.reason ?? ''] ?? 'not analysed yet';
+  return `Waiting for ${name}'s beat grid · ${reason}`;
 }
 
 export interface LabDeps {
@@ -96,11 +119,8 @@ export class LabSession {
     try {
       this.say('loading', 'Asking for the plan…');
       const plan = await this.planOnly();
-      if (plan.status === 'waiting') {
-        this.say(
-          'error',
-          `Not analysed yet (${plan.waiting_for ?? 'a track'}): run the DJ analysis first.`,
-        );
+      if (!isPlaced(plan)) {
+        this.say('error', waitingWords(plan, r.titles));
         return;
       }
       this.grids = await this.deps.fetchGrids([r.from, r.to]);

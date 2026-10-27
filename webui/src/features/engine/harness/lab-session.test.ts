@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { PlacedPlan } from '../executor';
 import type { Plan } from '../loader';
 
 import { BeatGrid } from '../grid';
@@ -9,7 +10,7 @@ import { windowsFor } from './lab-session';
 const A = new BeatGrid({ period: 60 / 124, firstBeat: 0.5 });
 const B = new BeatGrid({ period: 60 / 126, firstBeat: 0.2 });
 
-function plan(over: Partial<Plan> = {}): Plan {
+function plan(over: Partial<Plan & PlacedPlan> = {}): Plan & PlacedPlan {
   return {
     status: 'ok',
     style: 'long_blend',
