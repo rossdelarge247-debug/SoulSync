@@ -835,6 +835,13 @@ No crossfade style (auto, manual or nothing).
 
 Brief E in `HANDOFF.md` holds the states to draw.
 
+**Where it lives is open (Ross, 27 October: "I want options").** Brief E's options in `HANDOFF.md`:
+- **E1:** a mode of the playing panel.
+- **E2:** Ross's set builder / mix explorer rail, pulled down from the top of Tracks, Albums and Artists, with a Build row for assembling a mix or adding to a set, A and B transport rows synced on the grid, and B's sections dragged against A's and locked.
+- Any others Design proposes.
+
+Whichever wins replaces the docked Mixes panel and the working-set strip, so there are fewer places to mix, not more.
+
 ---
 
 ---
