@@ -126,6 +126,31 @@ describe('the mix report', () => {
         src: 'x',
       }),
     ).toEqual({ a: '[path left out]', b: '[path left out]', c: '[path left out]', d: '8A → 9A' });
+    // [review L6] spaces, C:/, a share, one file at the root, and inside a sentence
+    const L = '[path left out]';
+    expect(
+      scrub({
+        spaces: '/music/Ross/Saltmarsh/Lantern/01 Static Bloom.flac',
+        forward: 'C:/Users/ross/Music/x.mp3',
+        unc: '\\\\nas\\music\\Ross\\01 Static Bloom.flac',
+        root: '/x.flac',
+        relative: 'Music/Ross/Lantern/01.flac',
+        sentence: "Couldn't read /music/Ross/Lantern/01 Static Bloom.flac: no such file",
+        windows: 'Open C:\\Music\\Ross Album\\x.mp3 failed',
+        home: 'at ~/Music/x.flac, then',
+        keep: ['8A → 9A', '1/2 speed', 'half or double', 'BPM 124.0', 'Night Ferry'],
+      }),
+    ).toEqual({
+      spaces: L,
+      forward: L,
+      unc: L,
+      root: L,
+      relative: L,
+      sentence: `Couldn't read ${L}: no such file`,
+      windows: `Open ${L} failed`,
+      home: `at ${L}, then`,
+      keep: ['8A → 9A', '1/2 speed', 'half or double', 'BPM 124.0', 'Night Ferry'],
+    });
     expect(
       gridSummary({ track_id: '3', analyzed: false, reason: 'no_beat' } as ApiGrid &
         Record<string, unknown>),

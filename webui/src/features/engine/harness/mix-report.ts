@@ -82,7 +82,25 @@ export interface Environment {
 }
 
 const PATH_KEYS = new Set(['file_path', 'path', 'src', 'url', 'image_url', 'folder', 'stored']);
-const LOOKS_LIKE_PATH = /^(?:[a-z]:\\|\/(?:[^/\s]+\/)+[^/\s]*$|file:)/i;
+// a path anywhere in a string: a drive (C:\ or C:/), a share (\\nas\x), a
+// file: URL, an absolute path of two parts or more (spaces allowed in its
+// folders, and in its last part up to an extension), /x.flac, or a
+// relative one with two separators or more (Music/Ross/x.flac)
+const NAME = String.raw`[^\s\\/:*?"<>|,;()[\]{}]+`;
+const DIRS = String.raw`(?:${NAME}(?: ${NAME})*[\\/])`;
+const LAST = String.raw`(?:${NAME}(?: ${NAME})*?\.[a-z0-9]{1,5}\b|${NAME})`;
+const PATH_IN_TEXT = new RegExp(
+  [
+    String.raw`file:\S+`,
+    String.raw`\\\\${NAME}[\\/]${DIRS}*${LAST}?`,
+    String.raw`\b[a-z]:[\\/]${DIRS}*${LAST}?`,
+    String.raw`(?<![\w.~])~?\/${DIRS}+${LAST}?`,
+    String.raw`(?<![\w.~])\/${NAME}\.[a-z0-9]{1,5}\b`,
+    String.raw`(?<![\w.])${NAME}[\\/]${DIRS}+${LAST}`,
+  ].join('|'),
+  'gi',
+);
+const LEFT_OUT = '[path left out]';
 
 /** A deep copy without anything that could carry a file path. */
 export function scrub<T>(value: T): T {
@@ -95,8 +113,7 @@ export function scrub<T>(value: T): T {
     }
     return out as T;
   }
-  if (typeof value === 'string' && LOOKS_LIKE_PATH.test(value.trim()))
-    return '[path left out]' as unknown as T;
+  if (typeof value === 'string') return value.replace(PATH_IN_TEXT, LEFT_OUT) as unknown as T;
   return value;
 }
 
