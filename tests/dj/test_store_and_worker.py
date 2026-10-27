@@ -169,6 +169,10 @@ def _job(process, *, busy=None, away=None, settings=None):
 
 def _fake_process(db, track_id, **_kw):
     store.save(db, track_id, {"status": "done", "dj_analyzer_version": worker.analyzer_version(), "bpm": 120.0})
+    # and its grid (found no beat), so the grid top-up has nothing left either
+    from core.dj import grid_store
+
+    grid_store.save_result(db, track_id, {"status": "none", "reason": "too_short"}, source_sig=None)
     return "done"
 
 
