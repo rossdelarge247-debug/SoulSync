@@ -148,9 +148,10 @@ def _guard_play():
         fp, tid = data.get("file_path"), data.get("track_id")
     elif path == "/stream/library-audio":
         fp, tid = request.args.get("path"), request.args.get("track_id")
-    elif request.method == "GET" and _PLAYER_TRACK.match(path):
+    elif request.method in ("GET", "HEAD") and _PLAYER_TRACK.match(path):
+        # HEAD runs the GET route (Flask), so it's guarded the same
         fp, tid = None, _PLAYER_TRACK.match(path).group(1)
-    elif request.method == "GET" and _DJ_WINDOW.match(path):
+    elif request.method in ("GET", "HEAD") and _DJ_WINDOW.match(path):
         fp, tid = None, _DJ_WINDOW.match(path).group(1)
     else:
         return None
