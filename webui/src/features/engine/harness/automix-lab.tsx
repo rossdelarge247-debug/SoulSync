@@ -24,6 +24,7 @@ import { STYLE_WORDS, type Style } from '../score';
 import workletUrl from '../worklet/deck-processor.js?url';
 import styles from './automix-lab.module.css';
 import { LabSession, waitingWords, type LabDeps } from './lab-session';
+import { buildMixReport, downloadJson, environment, reportFileName } from './mix-report';
 import { TrackPicker } from './track-picker';
 
 interface PlayerHooks {
@@ -204,6 +205,50 @@ export default function AutomixLab() {
     if (s.status.stage === 'error') setError(s.status.words);
   };
 
+  // "Download a mix report" (Ross, 27 October): made here, from what the
+  // lab has (mix-report.ts); the last run's measurements when it was this pair
+  const [reporting, setReporting] = useState(false);
+  const downloadReport = async () => {
+    if (!outTrack || !inTrack) return;
+    setReporting(true);
+    setError('');
+    try {
+      const r = request();
+      const s = session.current;
+      const sameRun = Boolean(s && s.request.from === r.from && s.request.to === r.to);
+      const thePlan =
+        (sameRun ? s?.plan : null) ??
+        (planFor === keyOf(r) ? plan : null) ??
+        (await deps.fetchPlan(r.from, r.to, r.style, r.bars));
+      const grids =
+        sameRun && s && Object.keys(s.grids).length
+          ? s.grids
+          : await deps.fetchGrids([r.from, r.to]);
+      const from = { id: outTrack.id, title: outTrack.title, artist: outTrack.artist_name };
+      const to = { id: inTrack.id, title: inTrack.title, artist: inTrack.artist_name };
+      const report = buildMixReport({
+        from,
+        to,
+        request: {
+          style: r.style,
+          bars: r.bars,
+          prerollBars: r.prerollBars,
+          keyLock: r.keyLock,
+          correct: r.correct,
+        },
+        plan: thePlan,
+        grids,
+        run: sameRun ? (s?.run ?? null) : null,
+        env: environment(s?.engine?.context ?? null),
+      });
+      downloadJson(reportFileName(from, to), report);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReporting(false);
+    }
+  };
+
   const ensureCue = async (): Promise<CueRouter> => {
     if (cue.current) return cue.current;
     const s = session.current ?? new LabSession(request(), deps, () => force((x) => x + 1));
@@ -327,6 +372,15 @@ export default function AutomixLab() {
           onClick={() => session.current?.stop()}
         >
           Stop
+        </button>
+        <button
+          type="button"
+          className={styles.button}
+          disabled={!ready || reporting}
+          title="The pair's grids and plan, and what the engine measured in the last run: no audio, no file paths"
+          onClick={() => void downloadReport()}
+        >
+          {reporting ? 'Making the report…' : 'Download a mix report'}
         </button>
       </div>
       {error ? (
