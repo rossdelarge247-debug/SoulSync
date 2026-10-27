@@ -6,7 +6,7 @@
  * The player (static/media-player.js) plays every track on its `<audio>`
  * element as it always has. With DJ mix on, for the pair that's next (the
  * playing track and the one after it, both library tracks with their
- * files), this:
+ * files), this (DJ mix is shown as Auto mix; the stored value keeps `dj`):
  *
  * 1. plans the pair (`GET /api/library/dj/plan` with the chip's style);
  * 2. about 45 s before the plan's `out.start`, fetches both tracks' grids
@@ -40,8 +40,17 @@
  * a mix with a 2 s crossfade when sound is back, and a phone's page going
  * hidden finishes the mix over one bar (executor.ts, Design's 252).
  *
- * DJ mix off, a podcast, an audiobook, radio, a stream, shuffle or repeat
- * one: nothing here runs, and the player plays as it always has.
+ * No crossfade (Ross, 27 October: "we either mix auto or manual or
+ * nothing"): a pair that can't be beat-matched echoes out on the decks (its
+ * plan says so), cuts on the outgoing track's bar (a `cut` plan: the player
+ * starts the next track there, no decks), or plays on to its end with no
+ * transition (a `play_on` plan, a page that can't run the decks, a mix that
+ * missed its windows). The engine's own 2 s finish of a mix the system cut
+ * off stays: it ends a mix already playing.
+ *
+ * Auto mix off (Between tracks: Off), a podcast, an audiobook, radio, a
+ * stream, shuffle or repeat one: nothing here runs, and the player plays as
+ * it always has.
  */
 
 import type { BeatClock, Knot } from '@/features/engine/clock';
@@ -167,11 +176,6 @@ export interface AutomixServices {
   window(ctx: BaseAudioContext, id: string, start: number, dur: number): Promise<DeckData>;
   /** the engine on the player's audio graph (made once), or null where it can't be */
   engine(): Promise<EngineLike | null>;
-  /**
-   * a track's waveform (200 peaks), for Smart crossfade's silences;
-   * 'pending' while the server is still working it out (its 202)
-   */
-  peaks(id: string): Promise<number[] | null | 'pending'>;
   prefs(): AutomixPrefs;
   /** why this page can't run the decks (support.ts), or null */
   support?: () => string | null;
@@ -196,7 +200,9 @@ export type Stage =
   | 'handback'
   | 'back'
   | 'rejoin'
-  | 'fallback';
+  /** a pair that can't be beat-matched and has no grid going out: the
+   *  player cuts on the bar (no decks) */
+  | 'cut';
 
 export interface Lane {
   /** 0–1 levels, one per step of the ruler */
@@ -233,7 +239,7 @@ export interface AutomixView {
   } | null;
   plan: PairPlan | null;
   planError: string | null;
-  /** why the windows didn't load (the fallback says it when the mix is missed) */
+  /** why the windows didn't load (the track then plays on) */
   loadError: string | null;
   /** seconds to `out.start` (the first chip's "in 2:58") */
   inSeconds: number | null;
@@ -246,8 +252,6 @@ export interface AutomixView {
   /** where the ruler's playhead is (φ), while it mixes */
   phi: number | null;
   lanes: HandoverLanes | null;
-  /** the fallback's reason, while a crossfade plays in a mix's place (26e) */
-  fallback: string | null;
   canMixNow: boolean;
   mixNowWhy: string | null;
   /** the incoming deck's tempo change against its own (26d: "124.0 (−1.6%)") */
@@ -270,7 +274,6 @@ const EMPTY_VIEW: AutomixView = {
   transition: null,
   phi: null,
   lanes: null,
-  fallback: null,
   canMixNow: false,
   mixNowWhy: null,
   incomingBpm: null,
@@ -294,6 +297,8 @@ const FADE_S = 0.08;
 /** how far ahead the decks start, past the context's time */
 const AHEAD_S = 0.12;
 const TICK_MS = 120;
+/** a cut on the bar is set this long ahead, on a timer, rather than by the tick */
+const CUT_LOOKAHEAD_S = 2;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -423,8 +428,8 @@ interface Pending {
   cancelled: boolean;
   missed: string | null;
   wentBack: boolean;
-  /** the crossfade in the mix's place was started */
-  crossfaded: boolean;
+  /** a cut on the bar (a `cut` plan) was set for this pair */
+  cutSet: boolean;
 }
 
 // ── the controller ─────────────────────────────────────────────────────────
@@ -457,7 +462,6 @@ export class AutomixController {
   private readonly timeouts = new Set<unknown>();
   private readonly intervals = new Set<unknown>();
   private session = 0;
-  private readonly smart = new Map<string, SmartData | 'loading' | null>();
 
   constructor(player: PlayerPort, services: AutomixServices) {
     this.player = player;
@@ -510,7 +514,6 @@ export class AutomixController {
       t?.canGoBack,
       next.phi === null ? '' : Math.round(next.phi * 8),
       next.lanes ? 1 : 0,
-      next.fallback,
       next.canMixNow,
       next.mixNowWhy,
       next.incomingBpm ? next.incomingBpm.bpm.toFixed(1) : '',
@@ -742,7 +745,7 @@ export class AutomixController {
         cancelled: false,
         missed: null,
         wentBack: false,
-        crossfaded: false,
+        cutSet: false,
       };
     }
     const p = this.pending;
@@ -754,14 +757,28 @@ export class AutomixController {
       this.emit();
       return;
     }
-    if (st.crossfading && (p.plan.status !== 'ok' || p.missed)) {
-      p.crossfaded = true;
-      this.stage = 'fallback';
+    // a cut on the bar (no grid going out, its BPM known): the player itself
+    // ends the outgoing track there and starts the next; no decks, no fade
+    if (p.plan.status === 'cut') {
+      this.stage = 'cut';
+      const at = p.plan.out?.start;
+      const armedCut = p.manual || p.forced || prefs.auto;
+      if (
+        armedCut &&
+        !p.cancelled &&
+        !p.cutSet &&
+        el &&
+        !el.paused &&
+        at != null &&
+        el.currentTime >= at - CUT_LOOKAHEAD_S
+      )
+        this.setCut(p, at);
       this.emit();
       return;
     }
     this.stage = p.decks ? 'ready' : p.loading ? 'loading' : 'planned';
-    // a page that can't run the decks: every pair crossfades, saying why
+    // a page that can't run the decks: every pair plays on (Ross: no
+    // crossfade), and Mix now says why
     const unsupported = this.svc.support?.() ?? null;
     if (unsupported && p.plan.status === 'ok' && !p.missed) p.missed = unsupported;
     if (p.plan.status !== 'ok' || p.cancelled || p.missed || p.wentBack || !el) {
@@ -1281,18 +1298,17 @@ export class AutomixController {
     }
     const el = this.player.audio();
     if (!el) return false;
-    if (p.plan.status !== 'ok') {
-      // waiting or a crossfade: a crossfade now (26e's fallback line says why)
-      const hint: CrossfadeHint = {
-        seconds: p.plan.length_s ?? 6,
-        inAt: p.plan.status === 'crossfade' ? (p.plan.in?.start ?? 0) : 0,
-      };
-      if (this.player.crossfadeInto(pair.toIndex, hint)) {
-        p.crossfaded = true;
-        this.stage = 'fallback';
-      }
+    if (p.plan.status === 'cut') {
+      // a cut, now: the next track straight in (no decks needed)
+      this.setCut(p, el.currentTime);
       this.emit();
       return true;
+    }
+    if (p.plan.status !== 'ok') {
+      // waiting, or a pair that plays on: nothing to mix (never a crossfade)
+      p.manual = false;
+      this.emit();
+      return false;
     }
     void this.armNow(p, el);
     return true;
@@ -1321,13 +1337,8 @@ export class AutomixController {
       Number.isFinite(el.duration) ? el.duration : 0,
     );
     if (!moved) {
-      // no room left for a mix: a crossfade now
-      const st = this.player.state();
-      const toIndex = st.queue.indexOf(p.to);
-      if (toIndex >= 0 && this.player.crossfadeInto(toIndex, { seconds: 6 })) {
-        p.missed = 'too near the end to mix';
-        p.crossfaded = true;
-      }
+      // no room left for a mix: the track plays on to its end (no crossfade)
+      p.missed = 'too near the end to mix';
       this.emit();
       return;
     }
@@ -1491,127 +1502,40 @@ export class AutomixController {
     }
   };
 
-  // ── the crossfade's hint (media-player.js asks on every timeupdate) ──
+  // ── the player's crossfade: never (Ross, 27 October) ──
 
-  crossfade(current: QueueTrack | null, next: QueueTrack | null): CrossfadeHint | null {
-    if (this.engineOwns() || !current || !next) return null;
-    const prefs = this.svc.prefs();
-    const dj = mixable(current) && mixable(next) ? this.djFor(current, next) : { on: false };
-    if (dj.on) {
-      const p = this.pending;
-      if (!p || p.to !== next || idOf(p.from) !== idOf(current)) return null;
-      if (p.cancelled) return null;
-      if (!prefs.auto && !p.manual && !p.forced) return null;
-      if (!p.plan || p.plan.status === 'waiting') return { seconds: 6 };
-      if (p.plan.status === 'crossfade') {
-        const gain = gainFromTrim(this.smartTrim(p));
-        return {
-          startAt: p.plan.out?.start ?? undefined,
-          seconds: p.plan.length_s ?? 6,
-          inAt: p.plan.in?.start ?? 0,
-          gain,
-        };
-      }
-      if (p.missed || p.wentBack) return { seconds: 6 };
-      return null;
-    }
-    if (prefs.between !== 'smart') return null;
-    return this.smartHint(current, next);
-  }
-
-  private smartTrim(p: Pending): number {
-    return p.grids ? relativeTrimDb(p.grids[p.fromId] ?? null, p.grids[p.toId] ?? null) : 0;
+  /**
+   * media-player.js asks on every timeupdate whether to crossfade. There's
+   * no crossfade any more: with Auto mix the decks mix, a cut ends the track
+   * on its bar, or the track plays to its end; Off is plain playback.
+   */
+  crossfade(_current: QueueTrack | null, _next: QueueTrack | null): CrossfadeHint | null {
+    return null;
   }
 
   /**
-   * Smart crossfade (26h): the player's crossfade, on a downbeat where the
-   * outgoing track has a grid, past the silence at its end and the next
-   * one's start (from their waveforms), at the outgoing track's loudness
-   * where both are analysed; not between tracks of one album in order.
-   * Worked out once a pair, in the background; until then (or with nothing
-   * known) the plain crossfade.
+   * A `cut` plan: at `at` (the outgoing track's seconds) the player starts
+   * the next track. Set once a pair, a moment ahead, on the session's own
+   * timer, so a Next, a row or a seek in between lets it go.
    */
-  private smartHint(current: QueueTrack, next: QueueTrack): CrossfadeHint | null {
-    if (albumInOrder(current, next)) return { skip: true };
-    const a = idOf(current);
-    const b = idOf(next);
-    if (!a || !b || !mixable(current) || !mixable(next)) return null;
-    const key = `${a}|${b}`;
-    const data = this.smart.get(key);
-    if (data === undefined) {
-      // worked out in the track's last two minutes, not at its start (L3),
-      // leaving time for a waveform the server has still to work out
-      const el = this.player.audio();
-      const left = el && Number.isFinite(el.duration) ? el.duration - el.currentTime : Infinity;
-      if (!(left <= SMART_LEAD_S)) return null;
-      this.smart.set(key, 'loading');
-      void this.loadSmart(key, a, b, next.duration ?? null);
-      return null;
-    }
-    if (data === 'loading' || data === null) return null;
+  private setCut(p: Pending, at: number): void {
     const el = this.player.audio();
-    const duration = el && Number.isFinite(el.duration) ? el.duration : 0;
-    const seconds = this.player.state().crossfadeSeconds ?? 6;
-    return smartCrossfade(data, duration, seconds);
-  }
-
-  private async loadSmart(key: string, a: string, b: string, durB: number | null): Promise<void> {
-    try {
-      const [grids, pa, pb] = await Promise.all([
-        this.svc.grids([a, b]).catch(() => ({}) as Record<string, ApiGrid>),
-        this.svc.peaks(a).catch(() => null),
-        this.svc.peaks(b).catch(() => null),
-      ]);
-      this.smart.set(key, {
-        gridA: gridFromApi(grids[a]),
-        apiA: grids[a] ?? null,
-        apiB: grids[b] ?? null,
-        peaksA: pa === 'pending' ? null : pa,
-        peaksB: pb === 'pending' ? null : pb,
-        // the next track's length: the queue's, else its analysis's when it was analysed whole
-        durB:
-          durB && durB > 0
-            ? durB
-            : grids[b] && !grids[b].truncated
-              ? (grids[b].analysed_s ?? null)
-              : null,
-      });
-      // a waveform still being worked out isn't "none": asked again (L1)
-      if (pa === 'pending' || pb === 'pending')
-        this.retrySmartPeaks(key, pa === 'pending' ? a : null, pb === 'pending' ? b : null, 1);
-    } catch {
-      this.smart.set(key, null);
-    }
-    if (this.smart.size > 40) {
-      const first = this.smart.keys().next().value;
-      if (first !== undefined) this.smart.delete(first);
-    }
-  }
-
-  /** a pending waveform asked for again, twice at most, well before the fade */
-  private retrySmartPeaks(key: string, a: string | null, b: string | null, attempt: number): void {
-    if (attempt > SMART_PEAK_RETRIES) return;
-    this.timers.setTimeout(() => {
-      void (async () => {
-        const held = this.smart.get(key);
-        if (!held || typeof held !== 'object') return;
-        const [pa, pb] = await Promise.all([
-          a ? this.svc.peaks(a).catch(() => null) : null,
-          b ? this.svc.peaks(b).catch(() => null) : null,
-        ]);
-        const d = this.smart.get(key);
-        if (!d || typeof d !== 'object') return;
-        if (Array.isArray(pa)) d.peaksA = pa;
-        if (Array.isArray(pb)) d.peaksB = pb;
-        if (pa === 'pending' || pb === 'pending')
-          this.retrySmartPeaks(
-            key,
-            pa === 'pending' ? a : null,
-            pb === 'pending' ? b : null,
-            attempt + 1,
-          );
-      })();
-    }, SMART_PEAK_RETRY_MS);
+    if (!el) return;
+    p.cutSet = true;
+    const wait = Math.max(0, (at - el.currentTime) * 1000);
+    this.later(() => {
+      if (this.pending !== p || p.cancelled) return;
+      const st = this.player.state();
+      const toIndex = st.queue.indexOf(p.to);
+      const now = this.player.audio();
+      if (toIndex < 0 || !now || now.paused || idOf(st.queue[st.index]) !== p.fromId) return;
+      if (now.currentTime < at - 0.25) {
+        // the listener sought back: set it again when it comes round
+        p.cutSet = false;
+        return;
+      }
+      void this.player.playIndex(toIndex, { automix: true });
+    }, wait);
   }
 
   /** the pair's plan with its places, or null (a waiting plan has none) */
@@ -1709,21 +1633,13 @@ export class AutomixController {
     }
     let phi: number | null = null;
     if (t && this.engine) phi = t.beatClock.beatAt(this.engine.context.currentTime);
-    let fallback: string | null = null;
-    if (p && (this.stage === 'fallback' || st.crossfading)) {
-      if (p.plan?.status === 'crossfade') fallback = p.plan.fallback?.reason ?? 'no steady beat';
-      else if (p.missed) fallback = p.missed;
-      else if (p.plan?.status === 'waiting')
-        fallback = `${p.to.title || 'the next track'} is still being analysed`;
-    }
     const dj = Boolean(p);
     let canMixNow = false;
     let mixNowWhy: string | null = null;
     const unsupported = this.svc.support?.() ?? null;
-    if (!dj) mixNowWhy = prefs.between === 'dj' ? 'Nothing up next to mix into' : 'DJ mix is off';
+    if (!dj) mixNowWhy = prefs.between === 'dj' ? 'Nothing up next to mix into' : 'Auto mix is off';
     else if (unsupported) mixNowWhy = unsupported;
     else if (this.engineOwns()) mixNowWhy = 'Mixing now';
-    else if (st.crossfading) mixNowWhy = 'Crossfading now';
     else if (!el || el.paused) mixNowWhy = 'Play first';
     else {
       canMixNow = true;
@@ -1747,102 +1663,12 @@ export class AutomixController {
       transition: ts,
       phi,
       lanes: this.lanes,
-      fallback,
       canMixNow,
       mixNowWhy,
       incomingBpm,
       unsupported: this.svc.support?.() ?? null,
     };
   }
-}
-
-// ── Smart crossfade's sums ──────────────────────────────────────────────────
-
-/** One album's tracks one after the other in its own order: gapless, no crossfade (26h). */
-export function albumInOrder(current: QueueTrack, next: QueueTrack): boolean {
-  if (current.album_id === null || current.album_id === undefined || current.album_id === '')
-    return false;
-  if (String(current.album_id) !== String(next.album_id ?? '')) return false;
-  const a = Number(current.track_number);
-  const b = Number(next.track_number);
-  return Number.isFinite(a) && Number.isFinite(b) && a > 0 && b === a + 1;
-}
-
-/** Smart crossfade looks at the pair in the track's last two minutes */
-const SMART_LEAD_S = 120;
-/** a waveform the server is still working out: asked again this often, this many times */
-const SMART_PEAK_RETRY_MS = 10_000;
-const SMART_PEAK_RETRIES = 2;
-
-interface SmartData {
-  gridA: BeatGrid | null;
-  apiA: ApiGrid | null;
-  apiB: ApiGrid | null;
-  peaksA: number[] | null;
-  peaksB: number[] | null;
-  durB: number | null;
-}
-
-/** Quieter than this (of the loudest peak) is silence. */
-const SILENT = 0.03;
-
-function gainFromTrim(db: number): number | undefined {
-  if (!(db < -0.5)) return undefined;
-  return Math.max(0.35, Math.pow(10, db / 20));
-}
-
-/** Where a waveform's sound ends (fraction of the track), or null. */
-export function soundEnds(peaks: number[] | null | undefined): number | null {
-  if (!peaks?.length) return null;
-  const top = Math.max(...peaks);
-  if (!(top > 0)) return null;
-  for (let i = peaks.length - 1; i >= 0; i--)
-    if (peaks[i] / top >= SILENT) return (i + 1) / peaks.length;
-  return null;
-}
-
-/** Where a waveform's sound starts (fraction of the track), or null. */
-export function soundStarts(peaks: number[] | null | undefined): number | null {
-  if (!peaks?.length) return null;
-  const top = Math.max(...peaks);
-  if (!(top > 0)) return null;
-  for (let i = 0; i < peaks.length; i++) if (peaks[i] / top >= SILENT) return i / peaks.length;
-  return null;
-}
-
-/**
- * Smart crossfade for a pair: the fade ends where the outgoing track's
- * sound does (at most 15 s early), starts on the downbeat just before where
- * it would otherwise (within 2 s), the next track starts where its sound
- * does (up to 8 s in), and comes in at the outgoing track's loudness.
- */
-export function smartCrossfade(
-  data: SmartData,
-  duration: number,
-  seconds: number,
-): CrossfadeHint | null {
-  if (!(duration > 0) || !(seconds > 0)) return null;
-  let end = duration;
-  const ends = soundEnds(data.peaksA);
-  if (ends !== null) end = Math.max(duration - 15, Math.min(duration, ends * duration));
-  let startAt = end - seconds;
-  if (data.gridA) {
-    const g = data.gridA;
-    const beat = g.beatAt(startAt);
-    const bar = Math.floor((beat - g.downbeatIndex) / 4);
-    const t = g.barTime(bar);
-    if (startAt - t >= 0 && startAt - t < 2) startAt = t;
-  }
-  let inAt: number | undefined;
-  const starts = soundStarts(data.peaksB);
-  const durB = data.durB;
-  if (starts !== null && durB && starts * durB > 0.3 && starts * durB <= 8)
-    inAt = Math.max(0, starts * durB - 0.05);
-  const gain = gainFromTrim(relativeTrimDb(data.apiA, data.apiB));
-  const hint: CrossfadeHint = { startAt: Math.max(0, startAt) };
-  if (inAt !== undefined) hint.inAt = inAt;
-  if (gain !== undefined) hint.gain = gain;
-  return hint;
 }
 
 function seeked(

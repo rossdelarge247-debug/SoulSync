@@ -1,6 +1,7 @@
 /**
- * Player settings → Between tracks (26h): Off / Smart crossfade / DJ mix as
- * radio cards, then Mix automatically and Auto's lean (with DJ mix), the
+ * Player settings → Between tracks (26h): Off / Auto mix as radio cards
+ * (no crossfade: Ross, 27 October), then Mix automatically and Auto's lean
+ * (with Auto mix; the stored value is still `dj`), the
  * note on what always plays as Off, and on a phone the screen-on warning,
  * said here rather than promised away (Design's 252; HANDOFF 308).
  */
@@ -29,13 +30,12 @@ function useNarrow(): boolean {
   return narrow;
 }
 
-export function BetweenTracksSettings({ crossfadeSeconds = 6 }: { crossfadeSeconds?: number }) {
+export function BetweenTracksSettings() {
   const prefs = usePrefs();
   const id = useId();
   const narrow = useNarrow();
   const phone =
     narrow || looksLikePhone(typeof navigator === 'object' ? (navigator as Navigator) : null);
-  const secs = crossfadeSeconds > 0 ? crossfadeSeconds : 6;
   const unsupported = mixSupport();
   const cards: { value: BetweenTracks; title: string; line: string; short: string }[] = [
     {
@@ -45,15 +45,9 @@ export function BetweenTracksSettings({ crossfadeSeconds = 6 }: { crossfadeSecon
       short: 'Each track plays to its end.',
     },
     {
-      value: 'smart',
-      title: 'Smart crossfade',
-      line: `A ${secs} s crossfade that skips silence at the ends and evens out loudness. Not on albums played in order.`,
-      short: `${secs} s, silence skipped, loudness evened.`,
-    },
-    {
       value: 'dj',
-      title: 'DJ mix',
-      line: "Matches tempo, lines up the beats and mixes on a phrase, in the style each pair's chip says. Best on electronic music with clean intros and outros.",
+      title: 'Auto mix',
+      line: "Matches tempo, lines up the beats and mixes on a phrase, in the style each pair's chip says. A pair that can't be beat-matched echoes out, cuts on the bar or plays on. Best on electronic music with clean intros and outros.",
       short: 'Beat-matched, on the phrase.',
     },
   ];
@@ -67,7 +61,7 @@ export function BetweenTracksSettings({ crossfadeSeconds = 6 }: { crossfadeSecon
       </div>
       <div className={styles.cards} role="radiogroup" aria-labelledby={`${id}-head`}>
         {cards.map((c) => {
-          // DJ mix on a page that can't run the decks: listed, with why
+          // Auto mix on a page that can't run the decks: listed, with why
           const off = c.value === 'dj' && unsupported !== null;
           return (
             <button
@@ -95,7 +89,7 @@ export function BetweenTracksSettings({ crossfadeSeconds = 6 }: { crossfadeSecon
               <small id={`${id}-auto-why`}>
                 {prefs.auto
                   ? 'Each pair mixes on its own, in its chip’s style.'
-                  : 'Off: DJ mix waits for Mix now, and tracks play to their end.'}
+                  : 'Off: Auto mix waits for Mix now, and tracks play to their end.'}
               </small>
             </span>
             <LabelledSwitch
@@ -123,13 +117,13 @@ export function BetweenTracksSettings({ crossfadeSeconds = 6 }: { crossfadeSecon
         </>
       ) : null}
       <p className={styles.note}>
-        Podcasts, audiobooks and radio always play as Off. A track still being analysed crossfades
-        until it&apos;s done.
+        Podcasts, audiobooks and radio always play as Off. A track still being analysed plays on
+        until it&apos;s done; it&apos;s analysed first.
       </p>
       {phone ? (
         <p className={styles.phoneNote} role="note">
           On a phone, keep the screen on while it mixes; a locked iPhone can stop the sound. If it
-          does, SYNCHRO.S finishes the mix with a short crossfade once the sound is back.
+          does, SYNCHRO.S finishes the mix quickly once the sound is back.
         </p>
       ) : null}
     </section>

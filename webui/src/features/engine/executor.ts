@@ -53,7 +53,8 @@ import {
 
 /** The planner's answer, as much of it as the engine reads. */
 export interface PlanLike {
-  /** 'ok', 'crossfade' or 'waiting' */
+  /** 'ok', 'waiting', 'cut' (the player cuts on the bar: no decks) or
+   *  'play_on' (no transition); no plan crossfades (CONTRACTS, stage A) */
   status: string;
   style: string | null;
   label?: string;
@@ -62,7 +63,7 @@ export interface PlanLike {
   why?: string | null;
   fallback?: { kind: string; code: string; reason: string } | null;
   tempo?: { relation: 'same' | 'half' | 'double'; rate: number; speed_change_ok: boolean } | null;
-  /** absent on a `waiting` plan; `start` may be null on a `crossfade` one */
+  /** absent on a `waiting` or `play_on` plan */
   out?: { start: number | null; bar?: number | null; end?: number | null; end_bar?: number | null };
   /** absent on a `waiting` plan */
   in?: { start: number; bar?: number | null };

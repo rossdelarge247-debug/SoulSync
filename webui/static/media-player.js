@@ -1610,8 +1610,15 @@ function npSetRadioMode(enabled, options = {}) {
 // live in the record's "…" menu now), the buffering state, the keyboard and
 // the Media Session. The chrome itself boots from src/shell/player.ts.
 function initExpandedPlayer() {
-    // Crossfade (real dual-audio crossfade for library tracks), kept per browser
-    try { npCrossfadeOn = localStorage.getItem('soulsync-crossfade') === '1'; } catch (e) {}
+    // No crossfade (Ross, 27 October: "we either mix auto or manual or
+    // nothing"): Between tracks is Off or Auto mix. A stored Smart crossfade
+    // ('smart') and the old crossfade switch both become Off, once.
+    npCrossfadeOn = false;
+    try {
+        if (localStorage.getItem('soulsync-crossfade') === '1') localStorage.setItem('soulsync-crossfade', '0');
+        const between = localStorage.getItem('soulsync-between-tracks');
+        if (between !== null && between !== 'off' && between !== 'dj') localStorage.setItem('soulsync-between-tracks', 'off');
+    } catch (e) { /* storage unavailable */ }
 
     const queueClearBtn = document.getElementById('np-queue-clear');
     if (queueClearBtn) queueClearBtn.addEventListener('click', () => { clearQueue(); });
@@ -1662,15 +1669,13 @@ function npSetAutoDownload(on) {
     npNotify('settings');
 }
 
+// Kept for anything that still calls it: there's no crossfade any more, so
+// it only ever turns it off (Between tracks is Off or Auto mix).
 function npSetCrossfade(on) {
-    npCrossfadeOn = Boolean(on);
+    npCrossfadeOn = false;
+    void on;
     try {
-        localStorage.setItem('soulsync-crossfade', npCrossfadeOn ? '1' : '0');
-        // the "…" menu's Crossfade is Between tracks' Smart crossfade (26h);
-        // turning it off leaves DJ mix alone
-        const was = npBetweenTracks();
-        if (npCrossfadeOn) localStorage.setItem(NP_BETWEEN_KEY, 'smart');
-        else if (was === 'smart') localStorage.setItem(NP_BETWEEN_KEY, 'off');
+        localStorage.setItem('soulsync-crossfade', '0');
     } catch (e) {}
     npNotify('settings');
     if (typeof renderNpQueue === 'function') renderNpQueue();
@@ -1914,16 +1919,15 @@ function npCancelCrossfade() {
     npXfadeMainVol = null;
 }
 
-// Player settings → Between tracks (26h): 'off', 'smart' (the crossfade,
-// smarter where the tracks are analysed) or 'dj' (auto-mix). Kept per
-// browser; before it existed, the crossfade's own switch said which.
+// Player settings → Between tracks (26h): 'off' (plain playback) or 'dj'
+// (shown as Auto mix). Kept per browser; anything else ('smart', from when
+// there was a crossfade) reads as Off.
 const NP_BETWEEN_KEY = 'soulsync-between-tracks';
 function npBetweenTracks() {
     try {
-        const v = localStorage.getItem(NP_BETWEEN_KEY);
-        if (v === 'off' || v === 'smart' || v === 'dj') return v;
+        if (localStorage.getItem(NP_BETWEEN_KEY) === 'dj') return 'dj';
     } catch (e) { /* storage unavailable */ }
-    return npCrossfadeOn ? 'smart' : 'off';
+    return 'off';
 }
 
 // src/features/automix (window.SoulSyncAutomix) when it's loaded
@@ -1965,11 +1969,10 @@ function npCrossfadeTick() {
     const next = npQueue[nextIdx];
     if (!next || !next.is_library || !next.file_path) return; // only library→library
 
-    // Smart crossfade and DJ mix's fallback (26h, 26e): where the two tracks
-    // are analysed, auto-mix says when it starts (on a downbeat, past the
-    // silence at the end), where the next one starts and how loud. None:
-    // the plain crossfade, as it always was; DJ mix with none doesn't
-    // crossfade (its decks mix, or the track plays to its end).
+    // No crossfade any more (Ross, 27 October): Off never gets here
+    // (npCrossfadeOn is always false) and Auto mix's hint is always null
+    // (its decks mix, it cuts on the bar, or the track plays to its end).
+    // Kept so a hint, should one ever come, still has its path.
     let hint = null;
     try {
         const a = npAutomix();

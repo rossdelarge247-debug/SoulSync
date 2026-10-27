@@ -38,7 +38,7 @@ export interface PairPlan extends Plan {
 }
 
 /** The planner's style words (core/dj/planner.py STYLE_WORDS). */
-export const STYLE_LABELS: Record<ChipStyle | 'crossfade', string> = {
+export const STYLE_LABELS: Record<ChipStyle, string> = {
   auto: 'Auto',
   long_blend: 'Long blend',
   short_blend: 'Short blend',
@@ -47,7 +47,6 @@ export const STYLE_LABELS: Record<ChipStyle | 'crossfade', string> = {
   echo_out: 'Echo out',
   filter_sweep: 'Filter sweep',
   drop_swap: 'Drop swap',
-  crossfade: 'Crossfade',
 };
 
 /** 26a's one line a style. */
@@ -106,12 +105,20 @@ export function planKey(from: string, to: string, choice: Choice, lean: Lean) {
   return ['automix', 'plan', from, to, choice.style, choice.bars ?? 0, lean] as const;
 }
 
-/** "Long blend · 32 bars", "Cut", "Crossfade · 6 s", "Waiting". */
+/**
+ * A pair that plays straight on (no grid and no BPM going out, or a page
+ * that can't run the decks): no chip at all in Up next, no transition.
+ */
+export function playsOn(plan: PairPlan | null | undefined): boolean {
+  return plan?.status === 'play_on';
+}
+
+/** "Long blend · 32 bars", "Cut", "Echo out · 4 bars", "Waiting"; never a crossfade. */
 export function planWords(plan: PairPlan | null | undefined, choice: Choice): string {
   if (!plan) return choiceWords(choice);
   if (plan.status === 'waiting') return 'Waiting';
-  if (plan.status === 'crossfade' || plan.style === 'crossfade')
-    return `Crossfade · ${Math.round(plan.length_s ?? 6)} s`;
+  if (plan.status === 'cut') return STYLE_LABELS.cut;
+  if (plan.status === 'play_on') return 'Plays on';
   const style = (plan.style ?? 'auto') as ChipStyle;
   const label = STYLE_LABELS[style] ?? plan.label ?? 'Auto';
   return style === 'cut' || !plan.bars ? label : `${label} · ${plan.bars} bars`;
@@ -161,8 +168,7 @@ export function chipWhy(
       ? `${title} isn't analysed yet`
       : `${title} is being analysed`;
   }
-  if (plan.status === 'crossfade')
-    return `couldn't beat-match: ${plan.fallback?.reason ?? 'no steady beat'}`;
+  if (plan.status === 'play_on') return 'plays on';
   const pair = plan.pair ?? '';
   const clash = plan.key?.relation === 'clash' ? ', keys clash' : '';
   return [who, `${pair}${clash}`].filter(Boolean).join(' · ');
@@ -173,7 +179,7 @@ export function chipWhyShort(plan: PairPlan | null | undefined, choice: Choice):
   const who = choice.style === 'auto' ? 'auto' : 'yours';
   if (!plan) return who;
   if (plan.status === 'waiting') return 'being analysed';
-  if (plan.status === 'crossfade') return "can't match";
+  if (plan.status === 'play_on') return 'plays on';
   if (plan.key?.relation === 'clash') return `${who} · keys clash`;
   const pair = plan.pair?.split(',')[0] ?? '';
   return [who, pair].filter(Boolean).join(' · ');
@@ -184,18 +190,19 @@ export function autoLine(plan: PairPlan | null | undefined): { name: string; why
   if (!plan) return { name: 'Auto', why: 'Picks a style from the keys and tempos' };
   if (plan.status === 'waiting')
     return { name: 'Auto', why: 'Picks once both tracks are analysed' };
-  if (plan.status === 'crossfade')
-    return {
-      name: 'Auto: Crossfade',
-      why: `Couldn't beat-match: ${plan.fallback?.reason ?? 'no steady beat'}`,
-    };
+  if (plan.status === 'play_on')
+    return { name: 'Auto: plays on', why: plan.fallback?.reason ?? 'Nothing to mix on' };
   const label = STYLE_LABELS[(plan.style ?? 'auto') as ChipStyle] ?? plan.label ?? 'Auto';
   const reason = (plan.why ?? '').split(': ').slice(1).join(': ');
-  const why = plan.leaned
-    ? `Leaning to ${label.toLowerCase()}s (Player settings)`
-    : reason
-      ? `Chosen because ${reason}`
-      : 'Chosen for this pair';
+  // a move that needs no beat-match, taken because the pair can't have one:
+  // the short reason is the picker's detail (never a "crossfade" warning)
+  const why = plan.fallback
+    ? `No beat-match: ${plan.fallback.reason}`
+    : plan.leaned
+      ? `Leaning to ${label.toLowerCase()}s (Player settings)`
+      : reason
+        ? `Chosen because ${reason}`
+        : 'Chosen for this pair';
   return { name: `Auto: ${label}`, why };
 }
 

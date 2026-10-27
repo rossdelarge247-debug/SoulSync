@@ -54,11 +54,7 @@ export function SetStepChip({
     retry: false,
   });
   const dimmed =
-    prefs.between === 'dj'
-      ? null
-      : prefs.between === 'smart'
-        ? 'Smart crossfade is on: plays as a crossfade (Play as a mix plays this)'
-        : 'DJ mix is off: plays straight on (Play as a mix plays this)';
+    prefs.between === 'dj' ? null : 'Auto mix is off: plays straight on (Play as a mix plays this)';
   const data = plan.isError ? null : (plan.data ?? null);
   // Waiting: the track it waits for shows its step (the set's page asks for them)
   const waitingId =

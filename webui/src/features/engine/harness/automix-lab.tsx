@@ -138,7 +138,7 @@ const seconds = (v: number | null | undefined) =>
 
 /**
  * The plan as the server said it. Every status reads safely: a `waiting`
- * plan has no places, a `crossfade` one may have no outgoing start.
+ * or `play_on` plan has no places, a `cut` one has no bars (no grid).
  */
 export function PlanSummary({
   plan,
@@ -152,7 +152,13 @@ export function PlanSummary({
     <dl className={styles.plan}>
       <dt>Plan</dt>
       <dd>
-        {plan.status === 'ok' ? (plan.label ?? plan.style ?? 'ok') : plan.status}{' '}
+        {plan.status === 'ok'
+          ? (plan.label ?? plan.style ?? 'ok')
+          : plan.status === 'cut'
+            ? 'Cut on the bar (the player, no decks)'
+            : plan.status === 'play_on'
+              ? 'Plays on (no transition)'
+              : plan.status}{' '}
         {plan.bars ? `· ${plan.bars} bars` : ''} {plan.chosen_by ? `(${plan.chosen_by})` : ''}
       </dd>
       <dt>Why</dt>

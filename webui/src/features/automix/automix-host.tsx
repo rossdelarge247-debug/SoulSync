@@ -38,7 +38,6 @@ import { fetchGrids, fetchWindow } from '@/features/engine/loader';
 import workletUrl from '@/features/engine/worklet/deck-processor.js?url';
 import { SETS_QUERY_KEY } from '@/features/sets/sets.api';
 import { useProfile } from '@/platform/shell/route-controllers';
-import { appURL } from '@/platform/url-base';
 
 import styles from './automix.module.css';
 import { BetweenTracksSettings } from './between-tracks';
@@ -153,16 +152,6 @@ function controllerFor(qc: QueryClient): AutomixController {
         tap: g.analyser,
         phone: looksLikePhone(typeof navigator === 'object' ? navigator : null),
       });
-    },
-    async peaks(id) {
-      const res = await fetch(appURL(`/api/library/tracks/${encodeURIComponent(id)}/peaks`), {
-        credentials: 'same-origin',
-      });
-      // 202: the server is still working the waveform out; asked again later
-      if (res.status === 202) return 'pending';
-      if (!res.ok) return null;
-      const body = (await res.json()) as { peaks?: number[] | null };
-      return Array.isArray(body.peaks) ? body.peaks : null;
     },
     prefs: getPrefs,
     support: () => mixSupport(),
@@ -439,13 +428,11 @@ export function AutomixHost() {
   useEffect(() => {
     const root = document.getElementById('media-player');
     const stage =
-      view.fallback !== null
-        ? 'fallback'
-        : view.stage === 'counting' || (view.barsToGo !== null && !view.transition)
-          ? 'counting'
-          : ['mixing', 'settling', 'handback', 'back'].includes(view.stage)
-            ? 'mixing'
-            : null;
+      view.stage === 'counting' || (view.barsToGo !== null && !view.transition)
+        ? 'counting'
+        : ['mixing', 'settling', 'handback', 'back'].includes(view.stage)
+          ? 'mixing'
+          : null;
     if (root) {
       if (stage) root.dataset.automix = stage;
       else delete root.dataset.automix;
@@ -475,18 +462,12 @@ export function AutomixHost() {
   );
 
   const st = port.state();
-  const crossfadeSeconds = (st as { crossfadeSeconds?: number }).crossfadeSeconds ?? 6;
   const handing = ['counting', 'mixing', 'settling', 'handback', 'back'].includes(view.stage);
   const counting = view.barsToGo !== null && !view.transition;
 
   return (
     <>
-      {slots.settings
-        ? createPortal(
-            <BetweenTracksSettings crossfadeSeconds={crossfadeSeconds} />,
-            slots.settings,
-          )
-        : null}
+      {slots.settings ? createPortal(<BetweenTracksSettings />, slots.settings) : null}
       {prefs.between === 'dj' || st.queue.some((t) => t.mix_set)
         ? slots.gaps.map((gap) => {
             const index = Number(gap.dataset.automixGap);
@@ -509,7 +490,7 @@ export function AutomixHost() {
       {slots.mixNowDeck
         ? createPortal(<MixNowButton view={view} onMixNow={actions.mixNow} />, slots.mixNowDeck)
         : null}
-      {slots.bar && (handing || counting || view.fallback)
+      {slots.bar && (handing || counting)
         ? createPortal(<BarStatus view={view} actions={actions} />, slots.bar)
         : null}
       {slots.record && handing ? createPortal(<HandoverRecord view={view} />, slots.record) : null}
@@ -525,21 +506,18 @@ export function AutomixHost() {
 function LiveWords({ view }: { view: AutomixView }) {
   const [words, setWords] = useState('');
   const key =
-    view.fallback !== null
-      ? `fallback:${view.fallback}`
-      : view.stage === 'counting'
-        ? `counting:${view.pair?.toId}`
-        : view.stage === 'mixing'
-          ? `mixing:${view.pair?.toId}`
-          : view.stage === 'back'
-            ? `back:${view.pair?.fromId}`
-            : '';
+    view.stage === 'counting'
+      ? `counting:${view.pair?.toId}`
+      : view.stage === 'mixing'
+        ? `mixing:${view.pair?.toId}`
+        : view.stage === 'back'
+          ? `back:${view.pair?.fromId}`
+          : '';
   useEffect(() => {
     if (!key) return;
     const to = view.pair?.toTitle || 'the next track';
     const from = view.pair?.fromTitle || 'this track';
-    if (key.startsWith('fallback')) setWords(`Couldn't beat-match: crossfading. ${view.fallback}`);
-    else if (key.startsWith('counting')) setWords(`Mixing into ${to} on the next phrase`);
+    if (key.startsWith('counting')) setWords(`Mixing into ${to} on the next phrase`);
     else if (key.startsWith('mixing')) setWords(`Mixing ${from} into ${to}`);
     else if (key.startsWith('back')) setWords(`Back to ${from}`);
     // the words are read once for each change of what's happening

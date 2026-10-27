@@ -20,7 +20,7 @@ import type { AutomixView } from './controller';
 
 import { AutomixHost } from './automix-host';
 import { BarStatus, HandoverDeck, HandoverRecord } from './handover';
-import { refreshPrefs } from './prefs';
+import { readPrefs, refreshPrefs } from './prefs';
 
 vi.mock('@/platform/shell/route-controllers', () => ({
   useProfile: () => ({ profileId: 1, isAdmin: true }),
@@ -266,7 +266,7 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
   });
 
   it('no chips with DJ mix off; they come with it', async () => {
-    localStorage.setItem('soulsync-between-tracks', 'smart');
+    localStorage.setItem('soulsync-between-tracks', 'off');
     refreshPrefs();
     mount();
     await act(async () => {
@@ -334,7 +334,7 @@ describe('analyse on demand in Up next', () => {
   });
 
   it('with DJ mix off nothing is asked for', async () => {
-    localStorage.setItem('soulsync-between-tracks', 'smart');
+    localStorage.setItem('soulsync-between-tracks', 'off');
     refreshPrefs();
     mount();
     await act(async () => {
@@ -388,16 +388,13 @@ describe('analyse on demand in Up next', () => {
 });
 
 describe('Player settings → Between tracks (26h)', () => {
-  it('Off / Smart crossfade / DJ mix; DJ mix adds Mix automatically and Auto’s lean', async () => {
+  it('Off / Auto mix (no crossfade); Auto mix adds Mix automatically and Auto’s lean', async () => {
     mount();
     const group = await screen.findByRole('radiogroup', { name: 'Between tracks' });
     const cards = within(group).getAllByRole('radio');
-    expect(cards.map((c) => c.querySelector('strong')?.textContent)).toEqual([
-      'Off',
-      'Smart crossfade',
-      'DJ mix',
-    ]);
-    expect(cards[2]).toHaveAttribute('aria-checked', 'true');
+    expect(cards.map((c) => c.querySelector('strong')?.textContent)).toEqual(['Off', 'Auto mix']);
+    expect(cards[1]).toHaveAttribute('aria-checked', 'true');
+    expect(group.textContent).not.toMatch(/crossfade/i);
     expect(screen.getByRole('switch', { name: 'Mix automatically' })).toHaveAttribute(
       'aria-checked',
       'true',
@@ -405,20 +402,19 @@ describe('Player settings → Between tracks (26h)', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Mix automatically' }));
     expect(localStorage.getItem('soulsync-dj-auto')).toBe('0');
     expect(
-      screen.getByText('Off: DJ mix waits for Mix now, and tracks play to their end.'),
+      screen.getByText('Off: Auto mix waits for Mix now, and tracks play to their end.'),
     ).toBeTruthy();
     fireEvent.change(screen.getByRole('combobox', { name: /Style when Auto can choose/ }), {
       target: { value: 'long' },
     });
     expect(localStorage.getItem('soulsync-dj-lean')).toBe('long');
-    fireEvent.click(cards[1]);
-    expect(player.setCrossfade).toHaveBeenCalledWith(true);
-    expect(localStorage.getItem('soulsync-between-tracks')).toBe('smart');
+    fireEvent.click(cards[0]);
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('off');
+    expect(localStorage.getItem('soulsync-crossfade')).toBe('0');
     expect(screen.queryByRole('switch', { name: 'Mix automatically' })).toBeNull();
     expect(screen.getByText(/Podcasts, audiobooks and radio always play as Off/)).toBeTruthy();
-    fireEvent.click(cards[0]);
-    expect(player.setCrossfade).toHaveBeenLastCalledWith(false);
-    expect(localStorage.getItem('soulsync-between-tracks')).toBe('off');
+    fireEvent.click(cards[1]);
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
     localStorage.removeItem('soulsync-dj-auto');
     localStorage.removeItem('soulsync-dj-lean');
   });
@@ -469,7 +465,6 @@ function view(over: Partial<AutomixView> = {}): AutomixView {
       a: { levels: new Float32Array(160).fill(0.6) },
       b: { levels: new Float32Array(160).fill(0.4) },
     },
-    fallback: null,
     canMixNow: false,
     mixNowWhy: 'Mixing now',
     incomingBpm: { bpm: 124, pct: -1.6 },
@@ -515,7 +510,7 @@ describe('the handover (26d–26f)', () => {
     expect(back).toHaveAccessibleDescription('Too near the end of Night Ferry to go back');
   });
 
-  it('the bar: counting down in bars with Cancel; mixing with both titles; the fallback’s line', () => {
+  it('the bar: counting down in bars with Cancel; mixing with both titles; no crossfade line', () => {
     const { rerender } = render(
       <BarStatus
         view={view({ stage: 'planned', transition: null, lanes: null, barsToGo: 6 })}
@@ -529,18 +524,24 @@ describe('the handover (26d–26f)', () => {
     expect(screen.getByText('Night Ferry → Static Bloom')).toBeTruthy();
     expect(screen.getByText('Mixing · bar 12 of 32')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
-    rerender(
-      <BarStatus
-        view={view({
-          stage: 'fallback',
-          transition: null,
-          fallback: 'Sand Script has no steady beat',
-        })}
-        actions={actions}
-      />,
-    );
-    expect(screen.getByRole('status')).toHaveTextContent(
-      "Couldn't beat-match: crossfading · Sand Script has no steady beat",
-    );
+    rerender(<BarStatus view={view({ stage: 'cut', transition: null })} actions={actions} />);
+    expect(document.body.textContent).not.toMatch(/crossfad/i);
+  });
+});
+
+describe('no crossfade: the stored setting moves on (Ross, 27 October)', () => {
+  it('Smart crossfade and the old crossfade switch become Off; DJ mix is Auto mix', () => {
+    localStorage.setItem('soulsync-between-tracks', 'smart');
+    localStorage.setItem('soulsync-crossfade', '1');
+    expect(readPrefs().between).toBe('off');
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('off');
+    expect(localStorage.getItem('soulsync-crossfade')).toBe('0');
+    localStorage.removeItem('soulsync-between-tracks');
+    localStorage.setItem('soulsync-crossfade', '1');
+    expect(readPrefs().between).toBe('off');
+    expect(localStorage.getItem('soulsync-crossfade')).toBe('0');
+    localStorage.setItem('soulsync-between-tracks', 'dj');
+    expect(readPrefs().between).toBe('dj');
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
   });
 });

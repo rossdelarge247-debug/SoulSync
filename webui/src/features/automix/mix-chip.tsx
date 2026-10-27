@@ -86,7 +86,6 @@ const DEFAULT_LENGTH: Partial<Record<TransitionStyle, number>> = {
 
 function toneOf(plan: PairPlan | null | undefined, step: Pick<Step, 'kind'>): Tone {
   if (plan?.status === 'waiting') return 'wait';
-  if (plan?.status === 'crossfade') return 'warn';
   return step.kind;
 }
 
@@ -137,7 +136,10 @@ export function TransitionChip({
       </span>
     );
   }
-  const words = plan ? planWords(plan, t) : chipWords(t);
+  // a straight play-on (no grid and no BPM going out): Up next shows no
+  // chip; a set's chip keeps its own choice, saying it plays on
+  if (plan?.status === 'play_on' && floating) return null;
+  const words = plan && plan.status !== 'play_on' ? planWords(plan, t) : chipWords(t);
   const who = whoChose(t);
   // the track it waits for is in line or being worked out: its bar shows
   const inLine = pending(progress) && (progress?.state !== 'waiting' || progress.position !== null);

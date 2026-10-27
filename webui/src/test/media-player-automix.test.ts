@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 describe('Between tracks', () => {
-  it('its own key, else the crossfade’s switch', () => {
+  it('Auto mix (dj) or Off: Smart crossfade and the old crossfade switch read as Off', () => {
     const read = new Function(
       'localStorage',
       'on',
@@ -38,7 +38,8 @@ describe('Between tracks', () => {
     );
     const store = (v: string | null) => ({ getItem: () => v });
     expect(read(store(null), false)).toBe('off');
-    expect(read(store(null), true)).toBe('smart');
+    expect(read(store(null), true)).toBe('off');
+    expect(read(store('smart'), false)).toBe('off');
     expect(read(store('dj'), true)).toBe('dj');
     expect(read(store('nonsense'), false)).toBe('off');
     const throws = {
@@ -46,7 +47,7 @@ describe('Between tracks', () => {
         throw new Error('blocked');
       },
     };
-    expect(read(throws, true)).toBe('smart');
+    expect(read(throws, true)).toBe('off');
   });
 });
 
