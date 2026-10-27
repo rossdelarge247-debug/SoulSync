@@ -331,15 +331,29 @@ def _play_on(code: str, reason: str, base: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _album_in_order(out_t: Dict[str, Any], in_t: Dict[str, Any]) -> bool:
-    """One album's tracks one after the other in its own order."""
+    """One album's tracks one after the other in its own order: track n into
+    n + 1 on the same disc, or a disc's last track into the next disc's first
+    (a disc not known is disc 1)."""
     a, b = out_t.get("album_id"), in_t.get("album_id")
     if a in (None, "") or str(a) != str(b if b is not None else ""):
         return False
     try:
         n, m = int(out_t.get("track_number")), int(in_t.get("track_number"))
+        d = int(out_t.get("disc_number") or 1)
+        e = int(in_t.get("disc_number") or 1)
     except (TypeError, ValueError):
         return False
-    return n > 0 and m == n + 1
+    if n <= 0:
+        return False
+    if d == e:
+        return m == n + 1
+    if e != d + 1 or m != 1:
+        return False
+    try:
+        last = int(out_t.get("disc_last"))
+    except (TypeError, ValueError):
+        return False
+    return n == last
 
 
 def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",

@@ -596,6 +596,10 @@ def test_l5_a_track_this_run_took_already_gets_one_more_try_then_is_said(db):
     assert first["added"] == ["2"] and first["taken"] == 0
     assert job._next([], peek=True) == ("2", True)  # it will be taken again
     job._next([])
+    # while it's being worked out, asking again is already in line (re-review 5)
+    working = job.ask(db, ["2"], 2)
+    assert working["added"] == [] and working["already"] == 1 and working["taken"] == 0
+    job._state["current"] = None  # its second try is over
     again = job.ask(db, ["2"], 2)
     assert again["added"] == [] and again["taken"] == 1
 
@@ -661,3 +665,147 @@ def test_a_chunked_body_past_the_cap_is_refused(client):
                           headers={"Transfer-Encoding": "chunked"},
                           environ_overrides={"wsgi.input_terminated": True})
         assert res.status_code == 413, path
+
+
+# ── the second review round ──────────────────────────────────────────────────
+
+def test_re_review_8_the_plan_route_reads_disc_numbers(client, db):
+    # 2 and 3 on disc 1 (tracks 1 and 2), 5 on disc 2 track 1, 6 on disc 2 track 3
+    _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, duration) "
+             "VALUES ('6', '10', '1', 'Sixth', '/m/6.flac', 240000)")
+    for tid, disc, no in (("2", 1, 1), ("3", 1, 2), ("5", 2, 1), ("6", 2, 3)):
+        _sql(db, "UPDATE tracks SET disc_number = ?, track_number = ? WHERE id = ?", (disc, no, tid))
+
+    def plan(a, b):
+        r = client.get(f"/api/library/dj/plan?from={a}&to={b}")
+        assert r.status_code == 200, r.get_json()
+        return r.get_json()["plan"]
+
+    assert plan("2", "3")["fallback"]["code"] == "album_in_order"
+    # the last of disc 1 into the first of disc 2
+    assert plan("3", "5")["fallback"]["code"] == "album_in_order"
+    # disc 1's first into disc 2's first: not in order
+    assert (plan("2", "5").get("fallback") or {}).get("code") != "album_in_order"
+    assert (plan("5", "6").get("fallback") or {}).get("code") != "album_in_order"
+
+
+def test_re_review_4_a_persons_ask_after_stop_during_the_last_track_still_runs(db):
+    """Stop pressed while track 2 is mid-analysis; a person's ask for 3 lands
+    before it finishes. It's in line, and it runs once the stopped run ends."""
+    order = []
+    gate = threading.Event()
+    reached = threading.Event()
+    done = _done_process(order)
+
+    def process(d, t, **kw):
+        if t == "2":
+            reached.set()
+            gate.wait(5)
+        return done(d, t, **kw)
+
+    job = _job(process=process)
+    job.ask(db, ["2"], 2)
+    assert reached.wait(5)
+    assert job.stop(by_person=True)
+    res = job.ask(db, ["3"], 2, explicit=True)
+    gate.set()
+    deadline = time.time() + 5
+    while (job.running() or "3" not in order) and time.time() < deadline:
+        time.sleep(0.02)
+        job.join(1)
+    assert res["added"] == ["3"]
+    assert order == ["2", "3"] and job.held is True
+
+
+def test_re_review_4_a_run_stopped_by_the_setting_still_drops_its_line(db):
+    order = []
+    gate = threading.Event()
+    reached = threading.Event()
+    done = _done_process(order)
+    prefs = {"analyze": True, "write_tags": False, "overwrite_tags": False}
+
+    def process(d, t, **kw):
+        if t == "2":
+            reached.set()
+            gate.wait(5)
+        return done(d, t, **kw)
+
+    job = _job(process=process, settings=lambda: prefs)
+    job.ask(db, ["2", "3"], 2)
+    assert reached.wait(5)
+    prefs["analyze"] = False
+    gate.set()
+    job.join(5)
+    time.sleep(0.2)
+    job.join(5)
+    assert order == ["2"] and job._priority == [] and not job.running()
+
+
+def test_re_review_5_asking_for_the_track_being_worked_out_doesnt_run_it_twice(db):
+    order = []
+    gate = threading.Event()
+    reached = threading.Event()
+    done = _done_process(order)
+
+    def process(d, t, **kw):
+        if t == "2" and not reached.is_set():
+            reached.set()
+            gate.wait(5)
+        return done(d, t, **kw)
+
+    job = _job(process=process)
+    job.ask(db, ["2"], 2)
+    assert reached.wait(5)
+    # another profile (or the Mix tab) asks for the track being worked on
+    res = job.ask(db, ["2"], 3)
+    assert res["added"] == [] and res["already"] == 1 and res["taken"] == 0
+    gate.set()
+    job.join(5)
+    conn = db._get_connection()
+    row = dict(conn.execute("SELECT total, done FROM library_jobs ORDER BY id DESC LIMIT 1").fetchone())
+    conn.close()
+    assert order == ["2"]
+    assert row["done"] <= row["total"]
+
+
+def test_re_review_5_done_never_passes_total(db):
+    job = _job()
+    job._state = {"status": "running", "total": 1, "done": 1, "failed": 0}
+    job._bump("done")
+    assert job._state["done"] == 2 and job._state["total"] == 2
+
+
+def test_re_review_6_a_stop_while_the_scheduler_reads_the_library_holds_its_sweep(db, monkeypatch):
+    """The scheduler saw held False; while start() read the library a person
+    stopped a run (held True). No automatic sweep starts."""
+    job = _job()
+    real = store.pending_ids
+    box = {}
+
+    def pending(*a, **k):
+        if "x" not in box:
+            box["x"] = True
+            gate = threading.Event()
+            reached = threading.Event()
+
+            def process(d, t, **kw):
+                reached.set()
+                gate.wait(5)
+                _finish(d, t)
+                return "done"
+
+            job._process = process
+            job.ask(db, ["5"], 2, explicit=True)
+            assert reached.wait(5)
+            job.stop(by_person=True)
+            gate.set()
+            job.join(5)
+            time.sleep(0.2)
+            job._process = _done_process(box.setdefault("order", []))
+        return real(*a, **k)
+
+    monkeypatch.setattr(store, "pending_ids", pending)
+    assert not job.held
+    state = job.start(db, 1, manual=False)  # what the scheduler calls
+    job.join(5)
+    assert job.held is True and state is None and not box.get("order")

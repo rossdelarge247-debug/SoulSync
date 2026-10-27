@@ -661,7 +661,13 @@ class DjAnalysisJob:
         over = 0
         taken = 0
         running = bool(self._state and self._state.get("status") == "running")
+        current = (self._state or {}).get("current") if running else None
         for track_id in ids:
+            if running and track_id == current:
+                # being worked out right now: already as good as asked for
+                # (queued again it would run twice; re-review 5)
+                already += 1
+                continue
             if running and track_id in self._seen and track_id not in self._asked_by:
                 # this run took it already and it still needs analysis (put
                 # back, or it failed): one more try, then it's said, not queued
@@ -762,6 +768,7 @@ class DjAnalysisJob:
                     self._priority.pop(0)
                     self._seen.add(first)
                     self._asked_by.pop(first, None)
+                    self._taking_locked(first)
                 return first, True
             while self._index < len(ids):
                 track_id = ids[self._index]
@@ -771,8 +778,15 @@ class DjAnalysisJob:
                 if not peek:
                     self._index += 1
                     self._seen.add(track_id)
+                    self._taking_locked(track_id)
                 return track_id, False
             return None
+
+    def _taking_locked(self, track_id: str) -> None:
+        """The track just taken is the current one from this moment (the lock
+        is held), so an ask for it in between isn't queued again."""
+        if self._state is not None:
+            self._state["current"] = track_id
 
     def _ordered(self, ids: List[str]):
         """The sweep's tracks, with any asked-for track taken first, once each."""
@@ -824,6 +838,10 @@ class DjAnalysisJob:
         with self._lock:
             if busy():
                 raise JobRunning("Already working out BPM, key and energy.")
+            if not manual and not priority_only and self.held:
+                # a person's Stop came while the library was read: the
+                # automatic sweep waits for a Start (re-review 6)
+                return None
             if manual:
                 self.held = False
             if first is not None and str(first) in ids:
@@ -898,6 +916,11 @@ class DjAnalysisJob:
         with self._lock:
             if self._state is not None:
                 self._state[field] = int(self._state.get(field) or 0) + 1
+                # what's counted never passes the total (a sweep's percent
+                # stays within 100; re-review 5)
+                counted = sum(int(self._state.get(k) or 0) for k in ("done", "failed", "unreachable", "skipped"))
+                if counted > int(self._state.get("total") or 0):
+                    self._state["total"] = counted
 
     def _save(self, database, *, final: bool = False, state: Optional[Dict[str, Any]] = None) -> None:
         if state is None:
@@ -1058,13 +1081,19 @@ class DjAnalysisJob:
             grid_failed = int((self._state or {}).get("grid_failed") or 0)
         if note is None and (paused or grid_failed):
             note = f"{GRIDS_PAUSED if paused else GRIDS_NOTE}:{grid_failed}"
+        try:
+            switched_off = not self._settings().get("analyze", True)
+        except Exception:  # noqa: BLE001 - unreadable settings: as if off
+            switched_off = True
         with self._lock:
             if self._state is not None:
                 self._state.update(status=status, note=note, finished_at=_now(), current=None, waiting=None,
                                    step=None, step_mode=None, asked_for=False)
-            if status != "done":
-                # stopped (a person, or the setting turned off) or failed: the
-                # asked-for line isn't kept waiting for a sweep that won't come
+            if status == "failed" or switched_off:
+                # failed, or the setting turned off: the asked-for line isn't
+                # kept waiting for a sweep that won't come. A person's Stop
+                # emptied it already, and what a person asked for since (an
+                # automatic ask is refused while held) runs next (re-review 4)
                 self._priority.clear()
                 self._asked_by.clear()
             # this run's own end, saved below even if a request lands meanwhile:

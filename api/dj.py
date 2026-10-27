@@ -341,7 +341,8 @@ def _track_for_plan(entry: dict, track_id: str, *, with_beats: bool = True) -> d
     shaped = grid_store.public_entry(entry, track_id, with_beats=with_beats)
     return {**shaped, "dj_bpm": entry.get("bpm"), "key": entry.get("key"), "duration_s": entry.get("duration_s"),
             "title": entry.get("title"), "album_id": entry.get("album_id"),
-            "track_number": entry.get("track_number")}
+            "track_number": entry.get("track_number"), "disc_number": entry.get("disc_number"),
+            "disc_last": entry.get("disc_last")}
 
 
 @bp.route("/api/library/dj/grid/<track_id>", methods=["GET"])

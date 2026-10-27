@@ -211,6 +211,25 @@ def test_one_albums_tracks_in_their_order_play_on():
     assert planner.plan(out, {**_track(None, tid="2"), "album_id": "10", "track_number": 4})["status"] == "play_on"
 
 
+def test_re_review_8_album_order_counts_the_disc():
+    out = {**_track(_row(124.0)), "album_id": "10", "track_number": 3, "disc_number": 1, "disc_last": 12}
+    nxt = {**_track(_row(126.0), tid="2"), "album_id": "10", "track_number": 4, "disc_number": 1}
+    assert planner.plan(out, nxt)["status"] == "play_on"
+    # disc 1 track 3 into disc 2 track 4 isn't in order
+    assert planner.plan(out, {**nxt, "disc_number": 2})["status"] == "ok"
+    # a disc's last track into the next disc's first is
+    last = {**out, "track_number": 12}
+    first = {**nxt, "track_number": 1, "disc_number": 2}
+    p = planner.plan(last, first)
+    assert p["status"] == "play_on" and p["fallback"]["code"] == "album_in_order"
+    # not its last track, two discs on, or the last not known: planned as ever
+    assert planner.plan({**last, "track_number": 11}, first)["status"] == "ok"
+    assert planner.plan(last, {**first, "disc_number": 3})["status"] == "ok"
+    assert planner.plan({**last, "disc_last": None}, first)["status"] == "ok"
+    # no disc on either: disc 1, as before
+    assert planner.plan({**out, "disc_number": None}, {**nxt, "disc_number": None})["status"] == "play_on"
+
+
 def test_not_four_four_going_out_echoes_out():
     p = planner.plan(_track(_row(150.0, meter="not_4_4", dconf=0.1), title="Sweet Waltz"),
                      _track(_row(150.0), tid="2"))

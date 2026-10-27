@@ -310,7 +310,9 @@ def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]
             # formatted in; every value is a bound parameter
             rows = conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
                 f"SELECT t.id AS tid, t.title AS track_title, t.duration AS duration, {_BPM_SQL} AS eff_bpm, "
-                f"t.album_id AS track_album_id, t.track_number AS track_no, "
+                f"t.album_id AS track_album_id, t.track_number AS track_no, t.disc_number AS disc_no, "
+                f"(SELECT MAX(t2.track_number) FROM tracks t2 WHERE t2.album_id = t.album_id "
+                f"AND COALESCE(t2.disc_number, 1) = COALESCE(t.disc_number, 1)) AS disc_last, "
                 f"d.musical_key AS musical_key, d.status AS dj_status, "
                 f"g.* FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id "
                 f"LEFT JOIN track_grid g ON g.track_id = t.id WHERE t.id IN ({marks}) AND {where}",
@@ -325,7 +327,8 @@ def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]
                 out[str(r["tid"])] = {"grid": r if r.get("track_id") else None, "duration_s": duration_s,
                                       "bpm": r.get("eff_bpm"), "key": r.get("musical_key"),
                                       "title": r.get("track_title"), "dj_status": r.get("dj_status"),
-                                      "album_id": r.get("track_album_id"), "track_number": r.get("track_no")}
+                                      "album_id": r.get("track_album_id"), "track_number": r.get("track_no"),
+                                      "disc_number": r.get("disc_no"), "disc_last": r.get("disc_last")}
     return out
 
 
