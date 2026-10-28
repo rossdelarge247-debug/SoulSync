@@ -80,6 +80,10 @@ class _ExplodingOrchestrator:
     async def _make_request(self, *args, **kwargs):
         raise RuntimeError("simulated slskd hiccup")
 
+    async def get_soulseek_transfers(self, *args, **kwargs):
+        # the monitor reads slskd's list through the shared copy now
+        raise RuntimeError("simulated slskd hiccup")
+
 
 def _seed_old_downloading_task(tasks, batches):
     now = time.time()

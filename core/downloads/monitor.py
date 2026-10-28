@@ -82,6 +82,9 @@ _STREAMING_SOURCE_NAMES = frozenset((
 # otherwise one slskd hiccup cancels healthy downloads and blacklists
 # their peers via used_sources.
 _LIVE_TRANSFERS_FETCH_FAILED = object()
+# How long ticks are skipped while slskd doesn't answer its downloads list
+# (a busy or restarting slskd) before the monitor goes on without it.
+SLSKD_UNANSWERED_GRACE_SECONDS = 180.0
 
 
 def _resolve_download_source(username):
@@ -140,6 +143,11 @@ def _replace_slow_download(task_id, batch_id, download_id, username, filename,
         # anything else is still holding the peer's slot.
         try:
             for _ in range(3):
+                # a read made now, not the shared copy from up to 2 s ago
+                # (gauntlet L3): this is checking that the cancel landed
+                _slsk = download_orchestrator.client('soulseek') if hasattr(download_orchestrator, 'client') else None
+                if _slsk is not None and hasattr(_slsk, 'invalidate_transfers_snapshot'):
+                    _slsk.invalidate_transfers_snapshot()
                 rows = run_async(download_orchestrator.get_all_downloads())
                 still_active = any(
                     row.username == username and row.id == download_id
@@ -500,6 +508,8 @@ class WebUIDownloadMonitor:
         self.monitor_thread = None
         self.monitored_batches = set()
         self._lock = threading.Lock()
+        # when slskd's list stopped coming (None while it answers)
+        self._slskd_unanswered_since = None
         # Generation counter: bumped on every stop/shutdown and every fresh
         # start. The loop captures its generation at start and exits when it
         # no longer matches, so a thread stuck mid-tick across a restart can
@@ -759,6 +769,23 @@ class WebUIDownloadMonitor:
                 # the shared copy of slskd's list (at most one read per 2 s
                 # for every poller, SoulseekClient.get_transfers_snapshot)
                 transfers_data = run_async(download_orchestrator.get_soulseek_transfers())
+                _unreachable = getattr(_slsk, 'unreachable_backoff_active', None)
+                if transfers_data is None and not (callable(_unreachable) and _unreachable() is True):
+                    # slskd didn't answer: the list is unknown, not empty.
+                    # (Not when slskd refuses connections outright: that's
+                    # slskd down, handled as before.)
+                    # Read as empty, every download over 90 s looked stuck
+                    # and was restarted with its peer blacklisted. Skip the
+                    # tick, but only for a while: with slskd gone for good the
+                    # old handling (retry, fall back to another source) resumes.
+                    now = time.time()
+                    since = getattr(self, '_slskd_unanswered_since', None)
+                    if since is None:
+                        since = self._slskd_unanswered_since = now
+                    if now - since < SLSKD_UNANSWERED_GRACE_SECONDS:
+                        return _LIVE_TRANSFERS_FETCH_FAILED
+                elif transfers_data is not None:
+                    self._slskd_unanswered_since = None
             if transfers_data:
                 for user_data in transfers_data:
                     username = user_data.get('username', 'Unknown')

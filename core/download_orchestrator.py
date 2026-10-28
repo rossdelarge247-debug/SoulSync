@@ -269,6 +269,39 @@ class DownloadOrchestrator:
 
         return False
 
+    async def check_connection_within(self, budget: float) -> Optional[bool]:
+        """``check_connection`` for /status, each source given ``budget``
+        seconds of its own and the hybrid sources checked side by side, so a
+        slow torrent client can't use up slskd's time (gauntlet M3).
+
+        True when a source answered that it's reachable, False when every
+        source answered and none is, ``None`` when none is reachable and at
+        least one didn't answer in time: not known either way."""
+        async def _one(client) -> Optional[bool]:
+            try:
+                return bool(await asyncio.wait_for(client.check_connection(), budget))
+            except asyncio.TimeoutError:
+                return None
+            except Exception:
+                return False
+
+        client = self._client(self.mode)
+        if client and self.mode != 'hybrid':
+            return await _one(client)
+        if self.mode == 'hybrid':
+            sources = self.hybrid_order if self.hybrid_order else self.registry.names()
+            clients = [(s, c) for s in sources if (c := self._client(s))]
+            answers = await asyncio.gather(*(_one(c) for _, c in clients))
+            logger.info(
+                "Hybrid connection check: %s",
+                " | ".join(f"{s}={'ok' if ok else ('no answer' if ok is None else 'fail')}"
+                           for (s, _), ok in zip(clients, answers, strict=True)),
+            )
+            if any(a is True for a in answers):
+                return True
+            return None if any(a is None for a in answers) else False
+        return False
+
     def _normalize_source_name(self, name: str) -> Optional[str]:
         """Convert a possibly-aliased source name (e.g. legacy
         ``'deezer_dl'``) to the canonical registry name (``'deezer'``).

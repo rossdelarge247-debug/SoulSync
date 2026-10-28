@@ -23,6 +23,16 @@ def _conn():
     return base, ({"X-API-Key": key} if key else {})
 
 
+def _list_changed() -> None:
+    """slskd's downloads list changed (or may have: a request that timed out
+    can still have landed): the music side's shared copy of it is out of date
+    (core/soulseek_client.py, get_transfers_snapshot)."""
+    import sys
+    music = sys.modules.get("core.soulseek_client")   # not loaded: no copy to drop
+    if music is not None:
+        music.invalidate_all_transfer_snapshots()
+
+
 def start_download(username: str, filename: str, size_bytes: int = 0) -> dict:
     """Ask slskd to download one file from a user. Returns {ok[, error]}."""
     base, headers = _conn()
@@ -36,6 +46,8 @@ def start_download(username: str, filename: str, size_bytes: int = 0) -> dict:
         return {"ok": True}
     except Exception as e:   # noqa: BLE001 - surface any slskd/network failure to the caller
         return {"ok": False, "error": str(e)}
+    finally:
+        _list_changed()
 
 
 def list_downloads() -> list:
@@ -110,6 +122,8 @@ def cancel_download(username: str, filename: str) -> dict:
         return {"ok": True}
     except Exception as e:   # noqa: BLE001 - surface the failure; the row is marked cancelled anyway
         return {"ok": False, "error": str(e)}
+    finally:
+        _list_changed()
 
 
 def eta_seconds(transfer: dict) -> int | None:

@@ -247,3 +247,227 @@ def test_downloads_page_without_live_rows_does_not_read_the_list(clean_tasks):
     st.build_unified_downloads_response(100, _deps(lambda: calls.append(1) or {}))
 
     assert calls == []
+
+
+# ── gauntlet review ──────────────────────────────────────────────────────────
+
+def test_h1_reads_on_throwaway_loops_leave_nothing_behind():
+    """gauntlet H1 (the reviewer's leak_mem.py): the in-flight table kept one
+    entry per event loop, and the finished task in it held its loop and its
+    whole list; the Clients tab (asyncio.run every 10 s), audiobooks and
+    streaming prepare each made a new loop per read. ~4.5 MB a call."""
+    import gc
+    import json
+    import tracemalloc
+
+    files = [{"id": "%032x" % i, "filename": "Music\\Artist %d\\Album\\%02d - Track.flac" % (i, i % 20),
+              "state": "Completed, Succeeded", "size": 30_000_000, "bytesTransferred": 30_000_000}
+             for i in range(3000)]
+    payload = json.dumps([{"username": "u", "directories": [{"directory": "d", "files": files}]}])
+    client = _client()
+
+    async def fake(method, endpoint, **kw):
+        return json.loads(payload)
+
+    client._make_request = fake
+    state = client._transfers_state()
+
+    for _ in range(3):                                 # warm up
+        client.invalidate_transfers_snapshot()
+        asyncio.run(client.get_transfers_snapshot())
+    gc.collect()
+    tracemalloc.start()
+    before = tracemalloc.get_traced_memory()[0]
+    for _ in range(40):
+        client.invalidate_transfers_snapshot()      # as when the copy is over 2 s old
+        asyncio.run(client.get_transfers_snapshot())
+    gc.collect()
+    grown = tracemalloc.get_traced_memory()[0] - before
+    tracemalloc.stop()
+
+    assert state["reads"] == {}
+    # one list is ~1.2 MB here; forty kept would be ~50 MB
+    assert grown < 5_000_000, grown
+
+
+def test_h1_a_stale_read_left_running_on_a_closing_loop_leaves_no_entry():
+    client, slskd = _client(), _Slskd(delay=0.5)
+    client._make_request = slskd
+    run_async(client.get_transfers_snapshot())
+    time.sleep(0.05)
+
+    async def stale_reader():
+        return await client.get_transfers_snapshot(max_age=0.01, stale_ok=30)
+
+    assert asyncio.run(stale_reader()) == LIST         # the loop closes with its read pending
+    assert client._transfers_state()["reads"] == {} or all(
+        task.done() for _, task in client._transfers_state()["reads"].values())
+    run_async(client.get_transfers_snapshot(max_age=5))
+    assert all(not task.done() for _, task in client._transfers_state()["reads"].values())
+
+
+def test_m1_a_reader_after_a_change_does_not_join_the_read_before_it():
+    """gauntlet M1 (the reviewer's probe_snapshot.py): a 1 s read starts, an
+    enqueue lands at 0.2 s, a reader starting after the enqueue must get the
+    list with the new transfer, not join the read that started before it."""
+    client = _client()
+    server = {"files": ["old"]}
+    reads = {"n": 0}
+
+    async def fake(method, endpoint, **kw):
+        if method == "GET":
+            reads["n"] += 1
+            seen = list(server["files"])            # slskd builds it as asked
+            await asyncio.sleep(1.0)
+            return [{"username": "u", "directories": [{"files": [{"filename": f} for f in seen]}]}]
+        server["files"] = server["files"] + ["new"]
+        client.invalidate_transfers_snapshot()
+        return {}
+
+    client._make_request = fake
+    got = {}
+    first = threading.Thread(target=lambda: got.setdefault("a", run_async(client.get_transfers_snapshot())))
+    first.start()
+    time.sleep(0.2)
+    run_async(client._make_request("POST", "transfers/downloads/u"))
+    got["b"] = run_async(client.get_transfers_snapshot())
+    first.join(5)
+
+    def names(d):
+        return [f["filename"] for f in d[0]["directories"][0]["files"]]
+
+    assert names(got["b"]) == ["old", "new"]
+    assert names(got["a"]) == ["old"]
+    assert reads["n"] == 2
+
+
+@pytest.mark.parametrize("method, endpoint, drops", [
+    ("POST", "transfers/downloads/peer", True),
+    ("DELETE", "transfers/downloads/peer/abc", True),
+    ("POST", "transfers/peer/enqueue", True),
+    ("POST", "users/peer/downloads", True),
+    ("POST", "users/peer/enqueue", True),
+    ("POST", "users/peer/directory", False),           # a folder browse changes nothing
+    ("POST", "searches", False),
+    ("GET", "transfers/downloads", False),
+])
+def test_l5_which_requests_drop_the_copy(method, endpoint, drops):
+    assert sc._changes_transfers(method, endpoint) is drops
+
+
+def test_l5_a_post_that_times_out_still_drops_the_copy():
+    """slskd may have taken the enqueue even though its answer never came."""
+    client, slskd = _client(), _Slskd()
+    client._make_request = slskd
+    run_async(client.get_transfers_snapshot())
+
+    class _Session:
+        def request(self, *a, **kw):
+            class _Cm:
+                async def __aenter__(self):
+                    raise asyncio.TimeoutError("slskd hung")
+
+                async def __aexit__(self, *a):
+                    return None
+            return _Cm()
+
+        async def close(self):
+            return None
+
+    with patch("aiohttp.ClientSession", return_value=_Session()):
+        assert run_async(sc.SoulseekClient._make_request(
+            client, "POST", "users/peer/enqueue", json=[{"filename": "x"}])) is None
+    run_async(client.get_transfers_snapshot())
+    assert slskd.reads == 2
+
+
+def test_l5_the_video_downloader_drops_the_music_sides_copy(monkeypatch):
+    from core.video import slskd_download as vd
+
+    client, slskd = _client(), _Slskd()
+    client._make_request = slskd
+    run_async(client.get_transfers_snapshot())
+    monkeypatch.setattr(vd, "_conn", lambda: ("http://slskd", {}))
+
+    class _Ok:
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(vd.requests, "post", lambda *a, **kw: _Ok())
+    assert vd.start_download("peer", "a.mkv", 10) == {"ok": True}
+
+    run_async(client.get_transfers_snapshot())
+    assert slskd.reads == 2
+
+
+def test_l3_the_album_cancel_confirmation_reads_slskd_each_time(monkeypatch):
+    """gauntlet L3: the confirm loop re-read the copy from before the cancel
+    (under 2 s old), so a transfer that had stopped still looked active and
+    the album was given up."""
+    from unittest.mock import AsyncMock
+
+    client = _client()
+    states = iter(["InProgress", "Completed, Cancelled"])
+
+    async def fake(method, endpoint, **kw):
+        assert method == "GET"
+        return [{"username": "peer", "directories": [{"files": [
+            {"id": "1", "filename": "d\\a.flac", "state": next(states, "Completed, Cancelled")}]}]}]
+
+    client._make_request = fake
+    monkeypatch.setattr(sc, "get_poll_interval", lambda: 0.01)
+    key = ("peer", "d\\a.flac")
+    with patch.object(client, "cancel_download", AsyncMock(return_value=True)):
+        assert client._cancel_album_pending([key], {key: type("T", (), {"filename": "a.flac"})()}) is True
+
+
+# ── the monitor ──────────────────────────────────────────────────────────────
+
+class _Orch:
+    def __init__(self, answers, unreachable=False):
+        self.answers = list(answers)
+        self.slsk = type("S", (), {"base_url": "http://slskd",
+                                   "unreachable_backoff_active": lambda _s: unreachable})()
+        self.engine = type("E", (), {"get_all_downloads": self._none})()
+
+    async def _none(self, exclude=()):
+        return []
+
+    def client(self, name):
+        return self.slsk
+
+    async def get_soulseek_transfers(self, *a, **kw):
+        return self.answers.pop(0)
+
+
+def _monitor(monkeypatch, orch):
+    from core.downloads import monitor as dm
+    monkeypatch.setattr(dm.config_manager, "get", lambda key, default=None:
+                        "soulseek" if key == "download_source.mode" else default)
+    monkeypatch.setattr(dm, "download_orchestrator", orch)
+    mon = dm.WebUIDownloadMonitor()
+    mon.monitoring = True
+    return dm, mon
+
+
+def test_monitor_reads_no_answer_from_slskd_as_unknown_for_a_while(monkeypatch):
+    """A busy slskd that doesn't answer its list isn't "no transfers": the
+    tick is skipped (every download over 90 s used to be restarted as stuck,
+    its peer blacklisted), up to SLSKD_UNANSWERED_GRACE_SECONDS."""
+    dm, mon = _monitor(monkeypatch, _Orch([None, None, LIST]))
+
+    assert mon._get_live_transfers() is dm._LIVE_TRANSFERS_FETCH_FAILED
+    mon._slskd_unanswered_since -= dm.SLSKD_UNANSWERED_GRACE_SECONDS + 1
+    assert mon._get_live_transfers() == {}             # past the grace: as before
+    assert mon._get_live_transfers() != {}             # slskd answers again
+    assert mon._slskd_unanswered_since is None
+
+
+def test_monitor_handles_slskd_refusing_connections_as_before(monkeypatch):
+    dm, mon = _monitor(monkeypatch, _Orch([None], unreachable=True))
+    assert mon._get_live_transfers() == {}
+
+
+def test_monitor_empty_list_is_not_a_failure(monkeypatch):
+    dm, mon = _monitor(monkeypatch, _Orch([[]]))
+    assert mon._get_live_transfers() == {}
