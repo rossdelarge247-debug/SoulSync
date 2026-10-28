@@ -370,8 +370,10 @@ def gather_artist_image_candidates(artist_name: str, source_ids: Optional[dict] 
     from concurrent.futures import wait as _wait_futures
 
     pool = _candidate_pool()
+    from core.spotify_client import spotify_context
+    one = spotify_context(_one)  # the pool threads are this caller's request
     future_by_source = {
-        source: pool.submit(_one, source)
+        source: pool.submit(one, source)
         for source in sources
     }
     done, not_done = _wait_futures(

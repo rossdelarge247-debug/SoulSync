@@ -550,6 +550,52 @@ describe('SpotifyTab', () => {
     );
   });
 
+  it('while Spotify waits, the last list it gave says so (X-Spotify-Stale)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify([SPOTIFY_ROW]), { headers: { 'X-Spotify-Stale': '1' } }),
+      ),
+    );
+    render(<SpotifyTab registerRows={() => {}} />);
+    await waitFor(() => expect(screen.getByText('Road Trip')).toBeInTheDocument());
+    expect(screen.getByRole('status').textContent).toBe(
+      'Spotify asked us to wait, so this is the last list it gave.',
+    );
+  });
+
+  it('a fresh list has no note', async () => {
+    responder = (url) => (url === '/api/spotify/playlists' ? [SPOTIFY_ROW] : {});
+    render(<SpotifyTab registerRows={() => {}} />);
+    await waitFor(() => expect(screen.getByText('Road Trip')).toBeInTheDocument());
+    expect(screen.queryByText(/the last list it gave/)).toBeNull();
+  });
+
+  it('a pause with no list says the wait, not "No Spotify playlists found"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: 'Spotify asked us to wait until 21:40. Your other sources carry on meanwhile.',
+            }),
+            {
+              status: 429,
+            },
+          ),
+      ),
+    );
+    render(<SpotifyTab registerRows={() => {}} />);
+    await waitFor(() =>
+      expect(
+        screen.getByText(/❌ Error: Spotify asked us to wait until 21:40/),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText('No Spotify playlists found.')).toBeNull();
+  });
+
   it('opens details, closes through React on download, and can reopen them', async () => {
     const openDownloadMissingModal = vi.fn(() => {
       const modal = document.querySelector<HTMLElement>('#playlist-details-modal');
@@ -562,7 +608,7 @@ describe('SpotifyTab', () => {
     await waitFor(() => expect(screen.getByText('Road Trip')).toBeInTheDocument());
     fireEvent.click(document.querySelector('#action-btn-p1') as Element);
     await waitFor(() => expect(document.querySelector('#playlist-details-modal')).not.toBeNull());
-    expect(calls.some((c) => c.url === '/api/spotify/playlist/p1')).toBe(true);
+    expect(calls.some((c) => c.url === '/api/spotify/playlist/p1?async=1')).toBe(true);
 
     fireEvent.click(screen.getByText('📥 Download Missing Tracks'));
     expect(openDownloadMissingModal).toHaveBeenCalledWith('p1');

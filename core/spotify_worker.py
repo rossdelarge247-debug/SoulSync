@@ -94,6 +94,10 @@ class SpotifyWorker:
         self.daily_budget = 500
         self._daily_items_processed = 0
         self._daily_date = date.today()
+        # The day's count survives a restart: it lived in memory, so every
+        # restart handed the worker a fresh 500 items (Spotify throttling,
+        # 27 October).
+        self._load_daily_budget()
 
         logger.info("Spotify background worker initialized")
 
@@ -193,6 +197,25 @@ class SpotifyWorker:
 
     # ── Daily budget ──────────────────────────────────────────────────
 
+    _BUDGET_KEY = 'spotify_enrichment_budget'
+
+    def _load_daily_budget(self):
+        try:
+            from core.settings import config_manager
+            stored = config_manager.get(self._BUDGET_KEY, None)
+            if isinstance(stored, dict) and stored.get('date') == date.today().isoformat():
+                self._daily_items_processed = max(0, int(stored.get('used') or 0))
+        except Exception as e:
+            logger.debug("read stored enrichment budget: %s", e)
+
+    def _save_daily_budget(self):
+        try:
+            from core.settings import config_manager
+            config_manager.set(self._BUDGET_KEY, {
+                'date': self._daily_date.isoformat(), 'used': self._daily_items_processed})
+        except Exception as e:
+            logger.debug("store enrichment budget: %s", e)
+
     def _increment_daily_budget(self):
         """Increment the daily processed counter, resetting on a new calendar day."""
         today = date.today()
@@ -200,6 +223,9 @@ class SpotifyWorker:
             self._daily_items_processed = 0
             self._daily_date = today
         self._daily_items_processed += 1
+        # every tenth item, and the last one: a restart loses at most nine
+        if self._daily_items_processed % 10 == 0 or self._daily_items_processed >= self.daily_budget:
+            self._save_daily_budget()
 
     def _is_daily_budget_exhausted(self) -> bool:
         today = date.today()
@@ -315,6 +341,18 @@ class SpotifyWorker:
                     logger.debug(f"Post-ban cooldown active ({cooldown}s left), sleeping...")
                     interruptible_sleep(self._stop_event, min(cooldown, 60))
                     continue
+
+                # Background work's hourly share of Spotify's budget: wait here,
+                # between items, rather than run out half way through one (a
+                # request that can't get budget gives up, and the item would
+                # be marked as not found).
+                if not free_serving:
+                    from core.spotify_client import spotify_background_wait
+                    budget_wait = spotify_background_wait()
+                    if budget_wait > 0:
+                        logger.debug(f"Background Spotify budget spent, sleeping {int(budget_wait)}s...")
+                        interruptible_sleep(self._stop_event, min(budget_wait, 60))
+                        continue
 
                 # Auth guard — check if Spotify client is configured (no API call).
                 # We intentionally avoid calling is_spotify_authenticated() here

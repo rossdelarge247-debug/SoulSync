@@ -1,8 +1,17 @@
+import requests
 import spotipy
+from requests.adapters import HTTPAdapter
 from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
+try:
+    from spotipy.exceptions import SpotifyOauthError
+except ImportError:  # a stubbed spotipy (some tests install one)
+    SpotifyOauthError = getattr(spotipy.oauth2, 'SpotifyOauthError', Exception)
 from typing import Dict, List, Optional, Any
+import atexit
 import email.utils
+import json
 import math
+import os
 import random
 import re
 import time
@@ -16,6 +25,15 @@ from utils.logging_config import get_logger
 from core.settings import config_manager
 from core.metadata.artist_album_cache import get_cached_artist_album_items, store_artist_album_items
 from core.metadata.cache import get_metadata_cache
+from core.spotify_gate import (
+    LOOPBACK_REDIRECT_URI,
+    BACKGROUND_WAIT_STEP,
+    DEFAULT_BACKGROUND_PER_HOUR,
+    INTERACTIVE_MAX_WAIT,
+    RefreshBackoff,
+    RollingCounter,
+    TokenBucket,
+)
 
 logger = get_logger("spotify_client")
 
@@ -89,10 +107,14 @@ def _upgrade_spotify_image_url(url: str) -> str:
         return url
     return re.sub(r'(/image/ab67616d)0000[0-9a-f]{4}', r'\g<1>000082c1', url)
 
-# Global rate limiting variables
-_last_api_call_time = 0
-_api_call_lock = threading.Lock()
-MIN_API_INTERVAL = 0.35  # Default: 350ms between API calls (~171/min, under Spotify's ~180/min limit)
+# Pacing. Every request to the Web API, pages included, goes through ONE
+# process-wide gate (GatedSpotifySession below): a token bucket refilling at
+# one request per MIN_API_INTERVAL, with a burst for a page's handful of calls
+# and the last tokens kept for a person's own requests. It used to be 350 ms
+# between decorated calls only (~171/min, right at the ceiling people measure
+# for Spotify's rolling 30-second window), with the pages of liked songs,
+# playlists and saved albums fetched back to back, unpaced.
+MIN_API_INTERVAL = 1.0  # one request a second sustained (≈60/min); spotify.min_api_interval overrides
 
 
 def _request_scoped_free_opt_in() -> bool:
@@ -137,10 +159,42 @@ def _get_min_api_interval():
         interval += random.uniform(0, interval * _POST_BAN_JITTER)
     return interval
 
-# Request queuing for burst handling
-import queue
-_request_queue = queue.Queue()
-_queue_processor_running = False
+
+def _background_hourly_budget() -> int:
+    """Background requests (enrichment, scans, auto-sync) a rolling hour may
+    spend; a person's own requests aren't counted against it."""
+    try:
+        val = config_manager.get('spotify.background_requests_per_hour', None)
+        if val is not None:
+            return max(60, int(val))
+    except Exception as e:
+        logger.debug("get background_requests_per_hour setting: %s", e)
+    return DEFAULT_BACKGROUND_PER_HOUR
+
+
+# Read the clock through the module's ``time`` at call time, so a test's fake
+# clock drives the gate too.
+# In-process budgets run on the monotonic clock (a clock change can't empty
+# or overfill them); the stored pause uses wall time, as it must survive a
+# restart.
+_bucket = TokenBucket(rate=lambda: 1.0 / max(0.05, _get_min_api_interval()),
+                      now=lambda: time.monotonic())
+_background_counter = RollingCounter(now=lambda: time.monotonic())
+_refresh_backoff = RefreshBackoff(now=lambda: time.monotonic())
+_refresh_lock = threading.Lock()
+_background_slot = threading.Lock()
+
+# Connect and read timeouts for every Web API request: no page waits on a
+# stalled connection for longer than this.
+_REQUEST_TIMEOUT = (4, 10)
+# A background job waits for the budget at most this long per request (then
+# gives up; jobs look at spotify_background_wait() between items instead).
+_BACKGROUND_MAX_WAIT = 300.0
+# A job a person is waiting for (a playlist load) waits at most this long.
+_PERSON_JOB_MAX_WAIT = 30.0
+# The longest pause taken from a Retry-After: anything longer is a garbled
+# header or a date far in the future, and is treated as a day's estimate.
+_MAX_SPOTIFY_PAUSE = 24 * 3600
 
 # Global rate-limit pause state. When Spotify answers 429 we stop calling it
 # until the pause ends: for exactly as long as its Retry-After header says
@@ -156,9 +210,18 @@ _rate_limit_hit_count = 0    # Estimate ladder step (1 = first guess); see estim
 _rate_limit_last_until = 0   # When the previous pause ended, for escalation (survives "Try again now")
 _rate_limit_cooldown_len = 0  # Length of the post-pause cooldown that follows this pause
 _rate_limit_end_logged = False
+_rate_limit_client_id = None  # the Spotify app (client id) the pause belongs to
 
-# Threshold: if Retry-After exceeds this, pause globally instead of sleeping
-_LONG_RATE_LIMIT_THRESHOLD = 60  # seconds
+# The pause survives a restart. It lived only in memory, so restarting the
+# container (the usual reaction to "Spotify won't connect") forgot Spotify's
+# Retry-After: every job fired at once into a limit that was still on, and
+# Spotify answered with a longer wait. Stored at the top level of the config
+# (not under ``spotify``) so a Settings save never round-trips a stale copy.
+_STATE_KEY = 'spotify_rate_limit'
+_state_loaded = False
+# Which Spotify app is configured now (set by SpotifyClient._setup_client). A
+# pause is Spotify's answer to one app; a different app isn't paused by it.
+_active_client_id = None
 
 # After a pause ends, background jobs (enrichment worker, watchlist and
 # following scans, mirrored-playlist auto-sync, discography lookups) keep
@@ -268,28 +331,41 @@ def post_ban_pacing_interval(seconds_since_end: Optional[float], cooldown_len: f
     return max(base_interval, slow - (slow - base_interval) * (into_ramp / _POST_BAN_RAMP))
 
 
+def _whole_seconds(value: float) -> Optional[int]:
+    if value != value or value in (float('inf'), float('-inf')):  # nan, inf
+        return None
+    try:
+        return max(0, int(math.ceil(value)))
+    except (OverflowError, ValueError):
+        return None
+
+
 def parse_retry_after(value, now: Optional[float] = None) -> Optional[int]:
-    """A Retry-After header value (seconds, or an HTTP date) as whole seconds."""
+    """A Retry-After header value (seconds, or an HTTP date) as whole seconds.
+    None for anything that isn't one (garbage, nan, inf)."""
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return max(0, int(math.ceil(value)))
+        return _whole_seconds(float(value))
     text = str(value).strip()
     if not text:
         return None
     try:
-        return max(0, int(math.ceil(float(text))))
-    except ValueError:
+        return _whole_seconds(float(text))
+    except (ValueError, OverflowError):
         pass
     try:
         when = email.utils.parsedate_to_datetime(text)
-    except (TypeError, ValueError, IndexError):
+    except (TypeError, ValueError, IndexError, OverflowError):
         return None
     if when is None:
         return None
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
-    return max(0, int(math.ceil(when.timestamp() - (time.time() if now is None else now))))
+    try:
+        return _whole_seconds(when.timestamp() - (time.time() if now is None else now))
+    except (OverflowError, ValueError, OSError):
+        return None
 
 
 def _header_value(headers, name: str):
@@ -339,8 +415,291 @@ def is_rate_limit_error(exception) -> bool:
     return "429" in text or "rate limit" in text or "too many requests" in text
 
 
-def _no_retry_session():
-    """A requests session whose adapter never retries on its own.
+class SpotifyRateLimitError(Exception):
+    """Spotify is paused (its Retry-After, or our estimate): no request was sent.
+
+    Carries ``http_status`` 429 so code that reads the status treats it as the
+    rate limit it is."""
+    http_status = 429
+
+    def __init__(self, retry_after, endpoint=None):
+        self.retry_after = retry_after
+        self.endpoint = endpoint
+        super().__init__(f"Spotify rate limited for {retry_after}s (triggered by {endpoint})")
+
+
+class SpotifyBusyError(Exception):
+    """A person's request found the request budget spent by other requests and
+    didn't wait more than INTERACTIVE_MAX_WAIT for it: it answers now (the
+    caller falls back to another source) instead of holding a web thread."""
+
+    def __init__(self, endpoint=None):
+        self.endpoint = endpoint
+        super().__init__("Spotify's request budget is in use; try again in a moment")
+
+
+_endpoint_context = threading.local()
+
+
+def _current_endpoint() -> str:
+    return getattr(_endpoint_context, 'name', None) or 'spotify_request'
+
+
+# Who is asking. A person's own request (a Flask request, or a thread marked
+# with spotify_interactive()) waits at most INTERACTIVE_MAX_WAIT; a job a
+# person started and is watching (spotify_person_job(): loading a playlist's
+# tracks) waits a little longer and isn't counted against the background
+# hourly share; everything else is background work.
+_interactive_context = threading.local()
+
+
+@contextmanager
+def spotify_interactive():
+    """Mark this thread's Spotify calls as a person's own, outside a Flask
+    request (the OAuth callback server on the callback port, a pool thread a
+    web request waits on)."""
+    previous = getattr(_interactive_context, 'on', False)
+    _interactive_context.on = True
+    try:
+        yield
+    finally:
+        _interactive_context.on = previous
+
+
+@contextmanager
+def spotify_person_job():
+    """Mark this thread's Spotify calls as a job a person started and is
+    waiting for (a playlist load): paced like background work, so pages keep
+    their share, but not held to the background hourly share."""
+    previous = getattr(_interactive_context, 'person_job', False)
+    _interactive_context.person_job = True
+    try:
+        yield
+    finally:
+        _interactive_context.person_job = previous
+
+
+def spotify_context(fn):
+    """Wrap ``fn`` for a thread pool so it runs as the submitting thread would:
+    a pool thread a web request waits on is still that person's request (it
+    has no Flask request context of its own, so it would count as background
+    work and could wait behind the background budget)."""
+    interactive = _is_interactive_request()
+    person_job = getattr(_interactive_context, 'person_job', False)
+
+    @wraps(fn)
+    def run(*args, **kwargs):
+        if interactive:
+            with spotify_interactive():
+                return fn(*args, **kwargs)
+        if person_job:
+            with spotify_person_job():
+                return fn(*args, **kwargs)
+        return fn(*args, **kwargs)
+    return run
+
+
+def _is_interactive_request() -> bool:
+    """A person's own request (a Flask request on this thread), as opposed to
+    a background job. Background threads never have a request context."""
+    if getattr(_interactive_context, 'on', False):
+        return True
+    try:
+        from flask import has_request_context
+        return bool(has_request_context())
+    except Exception:
+        return False
+
+
+def _caller_kind() -> str:
+    if _is_interactive_request():
+        return 'interactive'
+    if getattr(_interactive_context, 'person_job', False):
+        return 'person'
+    return 'background'
+
+
+# Background waits end early when this is set (shutdown), and never last
+# longer than _BACKGROUND_MAX_WAIT for one request.
+_gate_cancel = threading.Event()
+_background_budget_lock = threading.Lock()
+_REAL_SLEEP = time.sleep
+
+
+def _wait_cancellable(seconds: float) -> None:
+    """Sleep, waking at once when cancel_spotify_waits() is called. (Under a
+    test's fake clock, its sleep, so the clock moves.)"""
+    if time.sleep is _REAL_SLEEP:
+        _gate_cancel.wait(seconds)
+    else:
+        time.sleep(seconds)
+
+
+def cancel_spotify_waits() -> None:
+    """Wake every background request waiting for the budget: it gives up at
+    once. (A person's request waits at most INTERACTIVE_MAX_WAIT anyway.)"""
+    _gate_cancel.set()
+
+
+def spotify_background_wait(headroom: int = 10) -> float:
+    """Seconds until background work has ``headroom`` requests of its hourly
+    share free again (0: go ahead). Jobs look at this between items, so an
+    item never starts that would run out of budget half way."""
+    budget = _background_hourly_budget()
+    return _background_counter.seconds_until_below(max(1, budget - headroom))
+
+
+# A profile with its own Spotify app (legacy) is paused by its own 429s, not
+# the shared app's, and vice versa: client id -> when its pause ends.
+_other_app_pauses: Dict[str, float] = {}
+
+
+def _is_other_app(client_id: Optional[str]) -> bool:
+    return bool(client_id and _active_client_id and client_id != _active_client_id)
+
+
+def _other_app_pause_left(client_id: str) -> int:
+    _ensure_state_loaded()
+    until = _other_app_pauses.get(client_id, 0)
+    return max(0, int(math.ceil(until - time.time())))
+
+
+def _gate_before_request(endpoint: str, client_id: Optional[str] = None,
+                         kind: Optional[str] = None) -> None:
+    """Wait for, or refuse, one Web API request. Never sends anything, and
+    never holds a lock while it waits.
+
+    - Spotify paused: SpotifyRateLimitError at once, for everyone.
+    - Background work while cooling down after a pause: SpotifyRateLimitError.
+    - A person's request: a token within INTERACTIVE_MAX_WAIT, else
+      SpotifyBusyError. A web request never sleeps longer than that here.
+    - A job a person is waiting for: tokens above the reserve, for up to
+      _PERSON_JOB_MAX_WAIT per request, else SpotifyBusyError.
+    - Background work: tokens above the reserve and under the hourly share,
+      in short jittered steps, looking at the pause again after each step;
+      after _BACKGROUND_MAX_WAIT (or cancel_spotify_waits()) it gives up with
+      SpotifyRateLimitError.
+    """
+    kind = kind or _caller_kind()
+    interactive = kind == 'interactive'
+    limit = {'interactive': INTERACTIVE_MAX_WAIT, 'person': _PERSON_JOB_MAX_WAIT}.get(kind, _BACKGROUND_MAX_WAIT)
+    deadline = time.monotonic() + limit
+    other_app = _is_other_app(client_id)
+    while True:
+        if other_app:
+            left = _other_app_pause_left(client_id)
+            if left > 0:
+                raise SpotifyRateLimitError(left, endpoint)
+        elif _is_globally_rate_limited():
+            info = _get_rate_limit_info() or {}
+            raise SpotifyRateLimitError(info.get('remaining_seconds', 0), endpoint)
+        if interactive:
+            wait = _bucket.take(True)
+        else:
+            if kind == 'background' and not other_app:
+                cooldown = _get_post_ban_cooldown_remaining()
+                if cooldown > 0:
+                    raise SpotifyRateLimitError(cooldown, endpoint)
+            # The hourly share's check, the token and the count are one step,
+            # so waiters released together can't overshoot the share.
+            with _background_budget_lock:
+                wait = 0.0
+                if kind == 'background':
+                    wait = _background_counter.seconds_until_below(_background_hourly_budget())
+                if wait <= 0:
+                    wait = _bucket.take(False)
+                    if wait <= 0 and kind == 'background':
+                        _background_counter.add()
+        if wait <= 0:
+            return
+        if _gate_cancel.is_set() or time.monotonic() + wait > deadline:
+            if kind == 'background':
+                raise SpotifyRateLimitError(int(math.ceil(wait)), endpoint)
+            raise SpotifyBusyError(endpoint)
+        if interactive:
+            time.sleep(wait)
+        else:
+            step = min(wait, BACKGROUND_WAIT_STEP)
+            _wait_cancellable(step + random.uniform(0, step * 0.25))
+
+
+def _gate_after_response(response, endpoint: str, client_id: Optional[str] = None) -> None:
+    """A 429 pauses every Spotify call: exactly Spotify's Retry-After when it
+    sends one (at most a day), else the estimate ladder. Whatever was left in
+    the bucket was a guess that turned out too generous, so it's emptied."""
+    if getattr(response, 'status_code', None) != 429:
+        return
+    _bucket.drain()
+    retry_after = parse_retry_after(_header_value(getattr(response, 'headers', None), 'Retry-After'))
+    if _is_other_app(client_id):
+        seconds = min(retry_after, _MAX_SPOTIFY_PAUSE) if retry_after is not None else _BASE_UNKNOWN_BAN
+        _ensure_state_loaded()
+        with _rate_limit_lock:
+            _other_app_pauses[client_id] = time.time() + max(1, seconds)
+            snapshot = _snapshot_locked()
+            seq = _next_store_seq()
+        _persist(snapshot, seq)  # kept across a restart, like the account's pause
+        logger.warning(f"Spotify paused a profile's own app for {seconds}s (triggered by {endpoint})")
+        return
+    if retry_after is not None:
+        _set_global_rate_limit(retry_after, endpoint, has_real_header=True)
+    else:
+        _set_global_rate_limit(None, endpoint, has_real_header=False)
+
+
+class GatedSpotifySession(requests.Session):
+    """The requests session spotipy sends every Web API request through.
+
+    One gate for the whole process: the pause, the budget and the 429 all live
+    here, so a request made by any feature (a decorated method, a page of a
+    paginated read, a route calling ``client.sp`` directly) is paced and
+    obeys Retry-After the same way. Mounted on a plain HTTPAdapter that never
+    retries by itself (see _no_retry_session), with connect and read timeouts.
+    ``client_id`` is the Spotify app the requests are for (its pause).
+    """
+
+    def __init__(self, client_id: Optional[str] = None):
+        super().__init__()
+        self.client_id = client_id
+        adapter = HTTPAdapter(max_retries=0)
+        self.mount('https://', adapter)
+        self.mount('http://', adapter)
+
+    def request(self, method, url, *args, **kwargs):
+        endpoint = _current_endpoint()
+        kind = _caller_kind()
+        # Wait for the budget first, holding nothing.
+        _gate_before_request(endpoint, self.client_id, kind)
+        if kind == 'interactive':
+            return self._send(endpoint, method, url, *args, **kwargs)
+        # Then background requests go out one at a time, so when Spotify
+        # answers 429 there's no volley already in flight behind it: the next
+        # one looks at the pause again before it's sent. The slot is held for
+        # the request only (its timeouts bound it), never while waiting.
+        with _background_slot:
+            if _is_other_app(self.client_id):
+                left = _other_app_pause_left(self.client_id)
+                if left > 0:
+                    raise SpotifyRateLimitError(left, endpoint)
+            elif _is_globally_rate_limited():
+                raise SpotifyRateLimitError((_get_rate_limit_info() or {}).get('remaining_seconds', 0), endpoint)
+            return self._send(endpoint, method, url, *args, **kwargs)
+
+    def _send(self, endpoint, method, url, *args, **kwargs):
+        if kwargs.get('timeout') is None:
+            kwargs['timeout'] = _REQUEST_TIMEOUT
+        try:
+            from core.api_call_tracker import api_call_tracker
+            api_call_tracker.record_call('spotify', endpoint=endpoint)
+        except Exception as e:
+            logger.debug("api_call_tracker record_call: %s", e)
+        response = super().request(method, url, *args, **kwargs)
+        _gate_after_response(response, endpoint, self.client_id)
+        return response
+
+
+def _no_retry_session(client_id: Optional[str] = None):
+    """A requests session whose adapter never retries on its own, behind the gate.
 
     spotipy 2.26 builds its session with urllib3 Retry(total=retries,
     status=status_retries, status_forcelist=(429, 500, 502, 503, 504)). Even
@@ -352,25 +711,19 @@ def _no_retry_session():
     HTTPAdapter (Retry(0), no forcelist) hands the 429 back as a response, so
     spotipy raises the HTTPError branch with ``headers=response.headers``.
     """
-    import requests
-    from requests.adapters import HTTPAdapter
-
-    session = requests.Session()
-    adapter = HTTPAdapter(max_retries=0)
-    session.mount('https://', adapter)
-    session.mount('http://', adapter)
-    return session
+    return GatedSpotifySession(client_id)
 
 
-def make_spotipy_client(auth_manager=None, *, requests_timeout=15, **kwargs) -> "spotipy.Spotify":
-    """Build a spotipy client whose 429s reach us with Spotify's Retry-After.
+def make_spotipy_client(auth_manager=None, *, requests_timeout=_REQUEST_TIMEOUT, **kwargs) -> "spotipy.Spotify":
+    """Build a spotipy client whose requests go through the gate and whose 429s
+    reach us with Spotify's Retry-After.
 
-    No internal retries (the rate_limited decorator and the global pause
-    handle them) and requests_timeout=15 so no request hangs indefinitely.
+    No internal retries and no sleeping (the gate and the global pause handle
+    429s), and a connect/read timeout so no request hangs.
     """
     return spotipy.Spotify(
         auth_manager=auth_manager,
-        requests_session=_no_retry_session(),
+        requests_session=_no_retry_session(getattr(auth_manager, 'client_id', None)),
         retries=0,
         status_retries=0,
         requests_timeout=requests_timeout,
@@ -378,12 +731,91 @@ def make_spotipy_client(auth_manager=None, *, requests_timeout=15, **kwargs) -> 
     )
 
 
-class SpotifyRateLimitError(Exception):
-    """Raised when Spotify API calls are blocked due to active global rate limit ban."""
-    def __init__(self, retry_after, endpoint=None):
-        self.retry_after = retry_after
-        self.endpoint = endpoint
-        super().__init__(f"Spotify rate limited for {retry_after}s (triggered by {endpoint})")
+# ── sign-in (OAuth) ───────────────────────────────────────────────────────
+
+class SpotifySignInExpired(SpotifyOauthError):
+    """No usable refresh: a person has to Authenticate again."""
+
+
+def make_spotify_oauth(client_id, client_secret, redirect_uri, scope=SPOTIFY_OAUTH_SCOPE, **kwargs):
+    """The SpotifyOAuth every sign-in, callback and client uses."""
+    return GentleSpotifyOAuth(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+        scope=scope,
+        **kwargs,
+    )
+
+
+class GentleSpotifyOAuth(SpotifyOAuth):
+    """SpotifyOAuth for a server.
+
+    - Short timeouts on the token endpoint (spotipy's default is none, so a
+      stalled refresh held a web thread indefinitely).
+    - Never the interactive sign-in: spotipy falls back to it when no token
+      is cached (it binds 127.0.0.1:<redirect port> and waits for a browser,
+      or reads stdin). On a server that's a hung thread; here it's an error
+      that says to Authenticate in Settings.
+    - Refresh with backoff: one refresh at a time; a failed refresh isn't
+      retried for a minute, then 2, 4… up to an hour; a refresh token Spotify
+      rejects (``invalid_grant``: revoked, or past the six months Spotify now
+      gives one) isn't retried at all until a new sign-in saves a new token.
+      It used to be retried on every API call.
+    """
+
+    def __init__(self, *args, requests_timeout=10, open_browser=False, **kwargs):
+        super().__init__(*args, requests_timeout=requests_timeout, open_browser=open_browser, **kwargs)
+
+    def get_auth_response(self, open_browser=None):
+        raise SpotifySignInExpired(
+            "Spotify needs signing in: Settings → Connections → Spotify → Authenticate")
+
+    def refresh_access_token(self, refresh_token):
+        with _refresh_lock:
+            # Another thread may have refreshed while this one waited: any
+            # unexpired saved token will do (Spotify may have rotated the
+            # refresh token, so it needn't match the one this thread holds).
+            try:
+                cached = self.cache_handler.get_cached_token()
+            except Exception:
+                cached = None
+            if (cached and cached.get('access_token') and cached.get('expires_at')
+                    and not self.is_token_expired(cached)):
+                return cached
+            wait = _refresh_backoff.wait(refresh_token)
+            if wait > 0:
+                if _refresh_backoff.is_dead(refresh_token):
+                    raise SpotifySignInExpired(
+                        "Spotify's sign-in has expired: Settings → Connections → Spotify → Authenticate")
+                raise SpotifyOauthError(f"Spotify token refresh failed recently; next try in {int(wait)}s")
+            try:
+                token_info = super().refresh_access_token(refresh_token)
+            except SpotifyOauthError as e:
+                dead = getattr(e, 'error', None) == 'invalid_grant'
+                delay = _refresh_backoff.failed(refresh_token, dead=dead)
+                if dead:
+                    logger.warning("Spotify refused the saved sign-in (invalid_grant: revoked or expired). "
+                                   "Not retrying; Authenticate again in Settings → Connections.")
+                    raise SpotifySignInExpired(str(e), error=e.error,
+                                               error_description=getattr(e, 'error_description', None)) from e
+                logger.warning(f"Spotify token refresh failed ({e}); next try in {int(delay)}s")
+                raise
+            except Exception as e:  # network: timeout, connection refused
+                delay = _refresh_backoff.failed(refresh_token)
+                logger.warning(f"Spotify token refresh failed ({type(e).__name__}); next try in {int(delay)}s")
+                raise SpotifyOauthError(f"Spotify token refresh failed: {type(e).__name__}") from e
+            _refresh_backoff.succeeded(refresh_token)
+            return token_info
+
+
+def spotify_sign_in_expired(cache_handler) -> bool:
+    """The saved token's refresh was refused by Spotify (needs Authenticate)."""
+    try:
+        token = cache_handler.get_cached_token() if cache_handler else None
+    except Exception:
+        return False
+    return bool(token and _refresh_backoff.is_dead(token.get('refresh_token')))
 
 
 def _publish_rate_limit_status():
@@ -401,6 +833,248 @@ def _publish_rate_limit_status():
         logger.debug("publish_spotify_status set rate limit: %s", e)
 
 
+# ── the pause, kept across restarts ───────────────────────────────────────
+
+# The test suite keeps the stored state in memory (conftest sets this before
+# anything imports this module), so one test's 429 never reaches the shared
+# test config, whenever this module happens to be imported.
+_MEMORY_STORE: Optional[Dict[str, Any]] = {} if os.environ.get('SOULSYNC_SPOTIFY_STATE_IN_MEMORY') else None
+
+
+def _state_store_get():
+    if _MEMORY_STORE is not None:
+        return _MEMORY_STORE.get(_STATE_KEY)
+    return config_manager.get(_STATE_KEY, None)
+
+
+def _state_store_set(value) -> None:
+    if _MEMORY_STORE is not None:
+        _MEMORY_STORE[_STATE_KEY] = value
+        return
+    config_manager.set(_STATE_KEY, value)
+
+
+def _snapshot_locked() -> Optional[Dict[str, Any]]:
+    now = time.time()
+    others = {cid: until for cid, until in _other_app_pauses.items() if until > now}
+    if _rate_limit_until <= 0 and _rate_limit_last_until <= 0 and not others:
+        return None
+    return {
+        'other_apps': others,
+        'until': _rate_limit_until,
+        'retry_after': _rate_limit_retry_after,
+        'endpoint': _rate_limit_endpoint,
+        'set_at': _rate_limit_set_at,
+        'source': _rate_limit_source,
+        'feature': _rate_limit_feature,
+        'hit_count': _rate_limit_hit_count,
+        'last_until': _rate_limit_last_until,
+        'cooldown_len': _rate_limit_cooldown_len,
+        'client_id': _rate_limit_client_id,
+    }
+
+
+class _StoreWriter:
+    """Writes stored Spotify state on one background thread.
+
+    A write is the whole config to SQLite (with a busy timeout and retries),
+    so it must never happen in the thread that just got a 429, which may be
+    a web request. Writes are coalesced per key, latest wins by sequence
+    number: two 429s close together can't store the older pause last.
+    """
+
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._pending: Dict[str, Any] = {}   # key -> (seq, value)
+        self._written: Dict[str, int] = {}   # key -> last seq written
+        self._busy = False
+        self._thread: Optional[threading.Thread] = None
+
+    def put(self, key: str, seq: int, value) -> None:
+        with self._cond:
+            current = self._pending.get(key)
+            if current is None or seq >= current[0]:
+                self._pending[key] = (seq, value)
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._run, name="SpotifyStateWriter", daemon=True)
+                self._thread.start()
+            self._cond.notify_all()
+
+    def _run(self):
+        while True:
+            with self._cond:
+                while not self._pending:
+                    self._busy = False
+                    self._cond.notify_all()
+                    self._cond.wait()
+                key, (seq, value) = next(iter(self._pending.items()))
+                del self._pending[key]
+                if seq < self._written.get(key, -1):
+                    continue
+                self._busy = True
+            try:
+                _STORE_SETTERS[key](value)
+            except Exception as e:
+                logger.debug("store Spotify state %s: %s", key, e)
+            with self._cond:
+                self._written[key] = max(seq, self._written.get(key, -1))
+
+    def discard(self) -> None:
+        with self._cond:
+            self._pending.clear()
+
+    def flush(self, timeout: float = 5.0) -> bool:
+        """Wait until everything put so far is written (tests, shutdown)."""
+        end = time.monotonic() + timeout
+        with self._cond:
+            while self._pending or self._busy:
+                left = end - time.monotonic()
+                if left <= 0:
+                    return False
+                self._cond.wait(left)
+        return True
+
+
+# The last list of playlists Spotify gave, shown while it asks us to wait.
+# Kept in the database's metadata table, not the app config: it changes with
+# every fetch, isn't a setting, and never appears in settings or exports.
+_PLAYLISTS_KEY = 'spotify_last_playlists'
+
+
+def _playlists_store_get():
+    if _MEMORY_STORE is not None:
+        return _MEMORY_STORE.get(_PLAYLISTS_KEY)
+    from database.music_database import get_database
+    raw = get_database().get_metadata(_PLAYLISTS_KEY)
+    return json.loads(raw) if raw else None
+
+
+def _playlists_store_set(value) -> None:
+    if _MEMORY_STORE is not None:
+        _MEMORY_STORE[_PLAYLISTS_KEY] = value
+        return
+    from database.music_database import get_database
+    get_database().set_metadata(_PLAYLISTS_KEY, json.dumps(value) if value is not None else '')
+
+
+_last_playlists_stored: Optional[str] = None  # what was last written, to skip a rewrite of the same
+
+
+def remember_last_playlists(account: Optional[str], rows: List[Dict[str, Any]]) -> None:
+    """Keep the account's list for a pause, written only when it changed."""
+    global _last_playlists_stored
+    fingerprint = json.dumps([account, rows], sort_keys=True, default=str)
+    if fingerprint == _last_playlists_stored:
+        return
+    _last_playlists_stored = fingerprint
+    _store_writer.put('playlists', _next_store_seq(), {'account': account, 'at': time.time(), 'rows': rows})
+
+
+def forget_last_playlists() -> None:
+    """A sign-in (perhaps another account) or Disconnect: the list isn't theirs."""
+    global _last_playlists_stored
+    _last_playlists_stored = None
+    _store_writer.put('playlists', _next_store_seq(), None)
+
+
+_STORE_SETTERS = {
+    'pause': lambda value: _state_store_set(value),
+    'playlists': lambda value: _playlists_store_set(value),
+}
+_store_writer = _StoreWriter()
+_store_seq = 0
+_store_seq_lock = threading.Lock()
+
+
+def _next_store_seq() -> int:
+    global _store_seq
+    with _store_seq_lock:
+        _store_seq += 1
+        return _store_seq
+
+
+def _persist(snapshot, seq: Optional[int] = None) -> None:
+    """Store the pause, on the writer thread (never in this one)."""
+    _store_writer.put('pause', _next_store_seq() if seq is None else seq, snapshot)
+
+
+def _flush_persist(timeout: float = 5.0) -> bool:
+    return _store_writer.flush(timeout)
+
+
+def _at_exit() -> None:
+    cancel_spotify_waits()
+    _store_writer.flush(2.0)
+
+
+atexit.register(_at_exit)
+
+
+def _ensure_state_loaded() -> None:
+    """Read the pause a previous run left, once per process. Under the lock,
+    so a 429 seen while it loads can't be overwritten by older stored state."""
+    global _state_loaded, _rate_limit_until, _rate_limit_retry_after, _rate_limit_endpoint
+    global _rate_limit_set_at, _rate_limit_source, _rate_limit_feature, _rate_limit_hit_count
+    global _rate_limit_last_until, _rate_limit_cooldown_len, _rate_limit_client_id
+    if _state_loaded:
+        return
+    left = 0.0
+    with _rate_limit_lock:
+        if _state_loaded:
+            return
+        try:
+            stored = _state_store_get()
+        except Exception as e:
+            logger.debug("read stored Spotify pause: %s", e)
+            stored = None
+        _state_loaded = True
+        if not isinstance(stored, dict):
+            return
+        try:
+            now = time.time()
+            for cid, other_until in (stored.get('other_apps') or {}).items():
+                other_until = min(float(other_until), now + _MAX_SPOTIFY_PAUSE)
+                if other_until > max(now, _other_app_pauses.get(cid, 0)):
+                    _other_app_pauses[cid] = other_until
+            until = float(stored.get('until') or 0)
+            # a garbled store can't pause Spotify for longer than a day
+            until = min(until, now + _MAX_SPOTIFY_PAUSE)
+            if until <= _rate_limit_until:
+                return  # a pause set in this process is newer
+            _rate_limit_until = until
+            _rate_limit_retry_after = int(stored.get('retry_after') or 0)
+            _rate_limit_endpoint = stored.get('endpoint')
+            _rate_limit_set_at = float(stored.get('set_at') or 0)
+            _rate_limit_source = stored.get('source')
+            _rate_limit_feature = stored.get('feature')
+            _rate_limit_hit_count = int(stored.get('hit_count') or 0)
+            _rate_limit_last_until = min(float(stored.get('last_until') or 0), now + _MAX_SPOTIFY_PAUSE)
+            _rate_limit_cooldown_len = int(stored.get('cooldown_len') or 0)
+            _rate_limit_client_id = stored.get('client_id')
+            left = _rate_limit_until - now
+        except (TypeError, ValueError, OverflowError) as e:
+            logger.debug("stored Spotify pause unreadable: %s", e)
+            return
+    if left > 0:
+        logger.warning(f"Spotify pause carried over from before the restart: {int(left)}s left")
+
+
+def _pause_applies_locked() -> bool:
+    """A pause belongs to the Spotify app that earned it."""
+    return not (_rate_limit_client_id and _active_client_id
+                and _rate_limit_client_id != _active_client_id)
+
+
+def set_active_client_id(client_id: Optional[str]) -> None:
+    global _active_client_id
+    client_id = client_id or None
+    if client_id != _active_client_id:
+        # another app: what the old one learned about endpoints doesn't apply
+        _gone_endpoints.clear()
+        _gone_failures.clear()
+    _active_client_id = client_id
+
+
 def _set_global_rate_limit(retry_after_seconds, endpoint_name, has_real_header=False):
     """Pause every Spotify call.
 
@@ -408,19 +1082,36 @@ def _set_global_rate_limit(retry_after_seconds, endpoint_name, has_real_header=F
     however long. Without one, ``retry_after_seconds`` is ignored and the
     estimate ladder decides (estimated_pause_seconds): 10 minutes first,
     doubling for each repeat within an hour of the previous pause ending.
+    The pause is stored, so a restart keeps it.
     """
     global _rate_limit_until, _rate_limit_retry_after, _rate_limit_endpoint, _rate_limit_set_at
     global _rate_limit_hit_count, _rate_limit_last_until, _rate_limit_source, _rate_limit_feature
-    global _rate_limit_cooldown_len, _rate_limit_end_logged
+    global _rate_limit_cooldown_len, _rate_limit_end_logged, _rate_limit_client_id
+    _ensure_state_loaded()
     feature = current_spotify_feature()
     with _rate_limit_lock:
         now = time.time()
+        if _rate_limit_client_id and _active_client_id and _rate_limit_client_id != _active_client_id:
+            # another app's history: this app's ladder starts afresh
+            _rate_limit_hit_count = 0
+            _rate_limit_last_until = 0
+        active = now < _rate_limit_until and _pause_applies_locked()
+        seconds = None
         if has_real_header and retry_after_seconds is not None:
-            seconds = max(1, int(math.ceil(float(retry_after_seconds))))
+            try:
+                seconds = max(1, int(math.ceil(float(retry_after_seconds))))
+            except (TypeError, ValueError, OverflowError):
+                seconds = None
+        if seconds is not None and seconds > _MAX_SPOTIFY_PAUSE:
+            # a garbled header or a date years ahead: wait a day, as a guess
+            logger.warning(f"Spotify's Retry-After of {seconds}s is past a day; pausing for a day")
+            seconds = _MAX_SPOTIFY_PAUSE
+            source = 'estimate'
+        elif seconds is not None:
             source = 'spotify'
         else:
             source = 'estimate'
-            if now < _rate_limit_until:
+            if active:
                 # Already paused: a request that was in flight when the pause
                 # began. It's the same episode, not a repeat.
                 return
@@ -434,8 +1125,9 @@ def _set_global_rate_limit(retry_after_seconds, endpoint_name, has_real_header=F
                 )
 
         new_until = now + seconds
-        # Only update if this extends the existing pause
-        if new_until <= _rate_limit_until:
+        # Only a later end changes anything. The same 429 seen twice (the gate,
+        # then the method that made the request) lands within a second or two.
+        if active and new_until <= _rate_limit_until + 2:
             return
         _rate_limit_until = new_until
         _rate_limit_last_until = new_until
@@ -446,6 +1138,7 @@ def _set_global_rate_limit(retry_after_seconds, endpoint_name, has_real_header=F
         _rate_limit_feature = feature
         _rate_limit_cooldown_len = post_ban_cooldown_length(seconds)
         _rate_limit_end_logged = False
+        _rate_limit_client_id = _active_client_id
         logger.warning(
             f"GLOBAL RATE LIMIT ACTIVATED: {seconds}s pause "
             f"({'Retry-After from Spotify' if source == 'spotify' else 'estimate, no Retry-After'}; "
@@ -453,6 +1146,9 @@ def _set_global_rate_limit(retry_after_seconds, endpoint_name, has_real_header=F
             f"triggered by {endpoint_name}{f' during {feature}' if feature else ''}"
         )
         escalation_step = _rate_limit_hit_count
+        snapshot = _snapshot_locked()
+        seq = _next_store_seq()
+    _persist(snapshot, seq)
     # Record event for debug diagnostics
     try:
         from core.api_call_tracker import api_call_tracker
@@ -471,8 +1167,9 @@ def _set_global_rate_limit(retry_after_seconds, endpoint_name, has_real_header=F
 def _is_globally_rate_limited():
     """Check if the global rate limit pause is active."""
     global _rate_limit_end_logged
+    _ensure_state_loaded()
     with _rate_limit_lock:
-        if _rate_limit_until <= 0:
+        if _rate_limit_until <= 0 or not _pause_applies_locked():
             return False
         if time.time() >= _rate_limit_until:
             if not _rate_limit_end_logged:
@@ -483,7 +1180,7 @@ def _is_globally_rate_limited():
 
 
 def _seconds_since_pause_ended_locked(now: float) -> Optional[float]:
-    if _rate_limit_until <= 0 or now < _rate_limit_until:
+    if _rate_limit_until <= 0 or now < _rate_limit_until or not _pause_applies_locked():
         return None
     return now - _rate_limit_until
 
@@ -496,6 +1193,7 @@ def _is_in_post_ban_cooldown():
 
 def _get_post_ban_cooldown_remaining():
     """Get remaining seconds in post-ban cooldown, or 0 if not in cooldown."""
+    _ensure_state_loaded()
     with _rate_limit_lock:
         since = _seconds_since_pause_ended_locked(time.time())
         if since is None:
@@ -503,20 +1201,11 @@ def _get_post_ban_cooldown_remaining():
         return max(0, int(math.ceil(_rate_limit_cooldown_len - since)))
 
 
-def _is_interactive_request() -> bool:
-    """A person's own request (a Flask request on this thread), as opposed to
-    a background job. Background threads never have a request context."""
-    try:
-        from flask import has_request_context
-        return bool(has_request_context())
-    except Exception:
-        return False
-
-
 def _get_rate_limit_info():
     """Get current rate limit pause details. Returns None if not paused."""
+    _ensure_state_loaded()
     with _rate_limit_lock:
-        if _rate_limit_until <= 0:
+        if _rate_limit_until <= 0 or not _pause_applies_locked():
             return None
         now = time.time()
         remaining = _rate_limit_until - now
@@ -537,42 +1226,117 @@ def _get_rate_limit_info():
         }
 
 
-def _clear_rate_limit(keep_history: bool = False):
-    """Clear the local pause AND the post-pause cooldown.
+def describe_pause_until(info: Optional[Dict[str, Any]], now: Optional[float] = None) -> str:
+    """"Spotify asked us to wait until 21:40" ("… until tomorrow 09:12"), for
+    a request that answers at once instead of waiting. Local clock."""
+    if not info:
+        return "Spotify is available"
+    from datetime import datetime as _dt
+    try:
+        until = _dt.fromtimestamp(float(info.get('expires_at') or 0))
+        today = _dt.fromtimestamp(time.time() if now is None else now).date()
+        days = (until.date() - today).days
+        clock = until.strftime('%H:%M')
+        when = clock if days <= 0 else f"tomorrow {clock}" if days == 1 else until.strftime('%a %d %b %H:%M')
+    except (TypeError, ValueError, OverflowError, OSError):
+        return "Spotify asked us to wait" if info.get('source') == 'spotify' else "Spotify is paused to be safe"
+    if (info.get('source') or 'estimate') == 'spotify':
+        return f"Spotify asked us to wait until {when}"
+    return f"Spotify is paused until {when} to be safe"
 
-    Disconnect/reconnect forget everything. "Try again now" passes
-    ``keep_history=True`` so the estimate ladder remembers this episode: if
+
+def _clear_rate_limit(keep_history: bool = False):
+    """Clear the local pause.
+
+    Disconnect-and-forget (``keep_history=False``) clears everything.
+    "Try again now" passes ``keep_history=True``: the pause ends now for a
+    person's requests, but background jobs still wait out the cooldown and
+    ease back in (they used to fire straight away, into a limit that was
+    often still on), and the estimate ladder remembers this episode: if
     Spotify is still limiting, the next estimate is longer, not 10 minutes
     again.
     """
     global _rate_limit_until, _rate_limit_retry_after, _rate_limit_endpoint, _rate_limit_set_at
     global _rate_limit_hit_count, _rate_limit_last_until, _rate_limit_source, _rate_limit_feature
-    global _rate_limit_cooldown_len, _rate_limit_end_logged
+    global _rate_limit_cooldown_len, _rate_limit_end_logged, _rate_limit_client_id, _state_loaded
+    _state_loaded = True  # what's stored is replaced below
     with _rate_limit_lock:
+        now = time.time()
         if keep_history and _rate_limit_until > 0:
-            _rate_limit_last_until = time.time()
-        _rate_limit_until = 0
-        _rate_limit_retry_after = 0
+            if now < _rate_limit_until:
+                _rate_limit_until = now
+                _rate_limit_last_until = now
+            # the cooldown (length kept) now counts from the end just set
+        else:
+            _rate_limit_until = 0
+            _rate_limit_cooldown_len = 0
+            _rate_limit_client_id = None
+        _rate_limit_retry_after = 0 if not keep_history else _rate_limit_retry_after
         _rate_limit_endpoint = None
         _rate_limit_set_at = 0
         _rate_limit_source = None
         _rate_limit_feature = None
-        _rate_limit_cooldown_len = 0
-        _rate_limit_end_logged = False
+        _rate_limit_end_logged = keep_history
         if not keep_history:
             _rate_limit_hit_count = 0
             _rate_limit_last_until = 0
-    logger.info("Global rate limit pause cleared (including post-pause cooldown)")
+        snapshot = _snapshot_locked()
+        seq = _next_store_seq()
+    _persist(snapshot, seq)
+    logger.info("Spotify pause cleared" + (" (background jobs still wait out the cooldown)" if keep_history else ""))
     try:
         from core.metadata.status import publish_spotify_status
 
         publish_spotify_status(
             rate_limited=False,
             rate_limit=None,
-            post_ban_cooldown=None,
+            post_ban_cooldown=_get_post_ban_cooldown_remaining() or None,
         )
     except Exception as e:
         logger.debug("publish_spotify_status clear rate limit: %s", e)
+
+
+def release_pause_after_sign_in() -> bool:
+    """A new sign-in (or a disconnect) doesn't lift a wait Spotify asked for:
+    Spotify's limit is on the app, not the token, so clearing it only sent
+    every job back into it. Our own estimate is cleared the "Try again now"
+    way (background jobs still cool down). Returns True when a pause is
+    still on."""
+    info = _get_rate_limit_info()
+    if info and info.get('source') == 'spotify':
+        return True
+    if info:
+        _clear_rate_limit(keep_history=True)
+    return False
+
+
+def _reset_for_tests() -> None:
+    """Forget every pause, budget and refresh failure without touching storage."""
+    global _last_playlists_stored
+    _store_writer.flush(2.0)
+    _store_writer.discard()
+    _last_playlists_stored = None
+    if _MEMORY_STORE is not None:
+        _MEMORY_STORE.clear()
+    global _rate_limit_until, _rate_limit_retry_after, _rate_limit_endpoint, _rate_limit_set_at
+    global _rate_limit_hit_count, _rate_limit_last_until, _rate_limit_source, _rate_limit_feature
+    global _rate_limit_cooldown_len, _rate_limit_end_logged, _rate_limit_client_id, _state_loaded
+    global _bucket, _background_counter, _active_client_id
+    with _rate_limit_lock:
+        _rate_limit_until = _rate_limit_retry_after = _rate_limit_set_at = 0
+        _rate_limit_hit_count = _rate_limit_last_until = _rate_limit_cooldown_len = 0
+        _rate_limit_endpoint = _rate_limit_source = _rate_limit_feature = _rate_limit_client_id = None
+        _rate_limit_end_logged = False
+        _state_loaded = True
+        _active_client_id = None
+    _bucket = TokenBucket(rate=lambda: 1.0 / max(0.05, _get_min_api_interval()),
+                          now=lambda: time.monotonic(), start=_bucket.capacity)
+    _background_counter = RollingCounter(now=lambda: time.monotonic())
+    _refresh_backoff.clear()
+    _other_app_pauses.clear()
+    _gone_endpoints.clear()
+    _gone_failures.clear()
+    _gate_cancel.clear()
 
 
 def _detect_and_set_rate_limit(exception, endpoint_name="unknown"):
@@ -581,8 +1345,13 @@ def _detect_and_set_rate_limit(exception, endpoint_name="unknown"):
     Spotify's Retry-After (now reaching us, see make_spotipy_client) is obeyed
     exactly. Without one (including spotipy's "Max Retries" error, from a
     client built some other way) the pause is an estimate from the ladder,
-    starting at 10 minutes, never a flat 4 hours.
+    starting at 10 minutes, never a flat 4 hours. Our own refusal while
+    paused (SpotifyRateLimitError) is already the pause, not a new one.
     Returns True if a rate limit was detected."""
+    if isinstance(exception, SpotifyRateLimitError):
+        return True
+    if isinstance(exception, SpotifyBusyError):
+        return False
     if not is_rate_limit_error(exception):
         return False
     retry_after = retry_after_from_exception(exception)
@@ -605,83 +1374,56 @@ def _is_premium_required_error(exception) -> bool:
 
 
 def rate_limited(func):
-    """Decorator to enforce rate limiting on Spotify API calls with retry and backoff"""
+    """Names the call for the gate (what set off a pause) and turns a 429 into
+    the global pause. Never sleeps on a 429.
+
+    Pacing and the pause are the gate's (GatedSpotifySession), for every
+    request. A 429 here pauses Spotify for everyone, for exactly Spotify's
+    Retry-After (or the estimate), and raises SpotifyRateLimitError: nobody
+    sleeps through it in their own thread. That used to happen for any
+    Retry-After up to a minute, up to three times, in web requests too, which
+    held gunicorn's 8 threads and froze the UI. Background jobs retry a 502 or
+    503 twice with backoff; a person's request doesn't wait for that.
+    """
     @wraps(func)
     def wrapper(*args, **kwargs):
-        global _last_api_call_time
-
-        # Pre-flight check: if globally rate limited, don't even attempt the API call.
-        # Let the method body run so its internal is_spotify_authenticated() check
-        # returns False and iTunes fallback logic can execute.
-        if _is_globally_rate_limited():
-            return func(*args, **kwargs)
-
-        max_retries = 3          # short Retry-Afters we sleep through
-        no_header_retries = 1    # without a Retry-After, one careful retry, then estimate
-
-        for attempt in range(max_retries + 1):
-            # Re-check ban before each retry — a previous attempt may have triggered one
+        previous = getattr(_endpoint_context, 'name', None)
+        _endpoint_context.name = func.__name__
+        try:
+            # Paused: let the method body run so its is_spotify_authenticated()
+            # check returns False and its fallback (cache, other sources) runs;
+            # any request it still makes is refused by the gate, unsent.
             if _is_globally_rate_limited():
-                raise SpotifyRateLimitError(0, func.__name__)
-
-            # Enforce minimum interval between API calls (configurable via
-            # settings, slower and jittered while easing back in after a pause)
-            _interval = _get_min_api_interval()
-            with _api_call_lock:
-                current_time = time.time()
-                time_since_last_call = current_time - _last_api_call_time
-
-                if time_since_last_call < _interval:
-                    sleep_time = _interval - time_since_last_call
-                    time.sleep(sleep_time)
-
-                _last_api_call_time = time.time()
-
-            from core.api_call_tracker import api_call_tracker
-            api_call_tracker.record_call('spotify', endpoint=func.__name__)
-
-            try:
                 return func(*args, **kwargs)
-            except SpotifyRateLimitError:
-                raise  # Don't retry our own ban errors
-            except Exception as e:
-                error_str = str(e).lower()
-                status = http_error_status(e)
-                is_rate_limit = is_rate_limit_error(e)
-                is_server_error = (status in (502, 503) if status is not None
-                                   else "502" in error_str or "503" in error_str)
 
-                if is_rate_limit:
-                    retry_after = retry_after_from_exception(e)
-
-                    # A long Retry-After: pause globally for exactly that long
-                    if retry_after is not None and retry_after > _LONG_RATE_LIMIT_THRESHOLD:
-                        _set_global_rate_limit(retry_after, func.__name__, has_real_header=True)
-                        raise SpotifyRateLimitError(retry_after, func.__name__) from e
-
-                    if retry_after is not None:
-                        delay = retry_after + 1
-                        can_retry = attempt < max_retries
-                    else:
-                        delay = 5.0 + random.uniform(0, 2.0)
-                        can_retry = attempt < no_header_retries
-
-                    if can_retry:
-                        logger.warning(f"Spotify rate limit hit, retrying in {delay:.0f}s (attempt {attempt + 1}): {func.__name__}")
+            retries = 0 if _is_interactive_request() else 2
+            for attempt in range(retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except (SpotifyRateLimitError, SpotifyBusyError):
+                    raise
+                except Exception as e:
+                    if is_rate_limit_error(e):
+                        _detect_and_set_rate_limit(e, func.__name__)
+                        info = _get_rate_limit_info() or {}
+                        raise SpotifyRateLimitError(
+                            info.get('remaining_seconds', retry_after_from_exception(e) or 0),
+                            func.__name__) from e
+                    status = http_error_status(e)
+                    text = str(e).lower()
+                    is_server_error = (status in (502, 503) if status is not None
+                                       else "502" in text or "503" in text)
+                    if is_server_error and attempt < retries:
+                        delay = 2.0 * (2 ** attempt) + random.uniform(0, 1.0)  # 2, 4 (+ jitter)
+                        logger.warning(f"Spotify server error, retrying in {delay:.0f}s "
+                                       f"(attempt {attempt + 1}/{retries}): {func.__name__}")
                         time.sleep(delay)
                         continue
-                    # Still limited after waiting as asked, or no Retry-After
-                    # twice: pause on an estimate (10 min first, escalating).
-                    _set_global_rate_limit(None, func.__name__, has_real_header=False)
-
-                elif is_server_error and attempt < max_retries:
-                    delay = 2.0 * (2 ** attempt)  # 2, 4, 8
-                    logger.warning(f"Spotify server error, retrying in {delay:.0f}s (attempt {attempt + 1}/{max_retries}): {func.__name__}")
-                    time.sleep(delay)
-                    continue
-
-                raise
+                    raise
+        finally:
+            _endpoint_context.name = previous
     return wrapper
+
 
 @dataclass
 class Track:
@@ -817,9 +1559,65 @@ class Playlist:
             total_tracks=(playlist_data.get('tracks') or playlist_data.get('items') or {}).get('total', 0)
         )
 
+# Endpoints Spotify has taken away from development-mode apps (February 2026:
+# the several-ids lookups, an artist's top tracks; audio features since 2024)
+# refuse every request. Asking again is a wasted request, so a refusal that
+# is about the endpoint is remembered for a day: a 403 whose message says the
+# endpoint isn't available, or 403s for three different ids within an hour.
+# A 404 (one id that doesn't exist), Premium lapsing and "user not
+# registered" (the whole app) never mark an endpoint gone. Forgotten when the
+# app changes or someone signs in again.
+_GONE_FOR = 24 * 3600
+_GONE_DISTINCT_IDS = 3
+_GONE_WINDOW = 3600
+_gone_endpoints: Dict[str, float] = {}
+_gone_failures: Dict[str, Dict[str, float]] = {}   # endpoint -> {id: when}
+_GONE_WORDS = ('deprecated', 'no longer', 'not available', 'unavailable', 'not supported',
+               'unsupported', 'removed', 'not allowed for this app', 'restricted')
+_APP_WIDE_WORDS = ('premium', 'not registered', 'user may not be registered', 'developer.spotify.com/dashboard')
+# Search's page size: 50 for extended-quota apps, 10 for development-mode
+# apps since February 2026 (a larger limit is refused with a 400).
+_search_limit_cap = 50
+
+
+def _endpoint_gone(name: str) -> bool:
+    until = _gone_endpoints.get(name)
+    return bool(until and time.time() < until)
+
+
+def forget_gone_endpoints() -> None:
+    """A new sign-in or app: ask every endpoint again."""
+    _gone_endpoints.clear()
+    _gone_failures.clear()
+
+
+def _note_gone_endpoint(name: str, exception, item_id: Optional[str] = None) -> bool:
+    """Remember a refusal that's about the endpoint, not one id or the app.
+    True when ``name`` is now marked gone."""
+    if http_error_status(exception) != 403:
+        return False
+    text = str(exception).lower()
+    if _is_premium_required_error(exception) or any(w in text for w in _APP_WIDE_WORDS):
+        return False
+    now = time.time()
+    if any(w in text for w in _GONE_WORDS):
+        marked = True
+    else:
+        seen = {k: t for k, t in _gone_failures.get(name, {}).items() if now - t < _GONE_WINDOW}
+        seen[str(item_id or f"?{len(seen)}")] = now
+        _gone_failures[name] = seen
+        marked = len(seen) >= _GONE_DISTINCT_IDS
+    if marked:
+        _gone_endpoints[name] = now + _GONE_FOR
+        _gone_failures.pop(name, None)
+        logger.info(f"Spotify refuses {name} for this app: not asking again for a day")
+    return marked
+
+
 def describe_spotify_unavailable(*, configured: bool, rate_limited: bool,
                                  ban_seconds_left: int = 0, in_cooldown: bool = False,
-                                 cooldown_seconds_left: int = 0, has_token: bool = True) -> str:
+                                 cooldown_seconds_left: int = 0, has_token: bool = True,
+                                 sign_in_expired: bool = False) -> str:
     """Human reason Spotify can't serve a request right now.
 
     ``is_spotify_authenticated()`` returns False for five distinct reasons, but
@@ -840,6 +1638,8 @@ def describe_spotify_unavailable(*, configured: bool, rate_limited: bool,
         return "Spotify post-ban cooldown (not a logout)"
     if not has_token:
         return "Spotify not connected — no saved token; re-authenticate in Settings"
+    if sign_in_expired:
+        return "Spotify sign-in expired (Spotify refused the saved token) — Authenticate again in Settings → Connections"
     return "Spotify auth check failed (token refresh may have failed — see debug log)"
 
 
@@ -858,7 +1658,74 @@ class SpotifyClient:
         self._auth_cached_result: Optional[bool] = None
         self._auth_cache_time: float = 0
         self._AUTH_CACHE_TTL = 900  # 15 minutes — auth status doesn't change mid-session
+        self._short_cache: Dict[str, Any] = {}
         self._setup_client()
+
+    # A page that lists your playlists asked Spotify for the list, the liked
+    # songs count and your profile on every load. They change rarely, so a
+    # load within a couple of minutes reuses them; while Spotify is paused the
+    # last good list is shown rather than an empty page.
+    _SHORT_TTL = {'playlists': 120, 'saved_count': 120, 'user_info': 600}
+
+    def _short_cache_get(self, key: str):
+        entry = getattr(self, '_short_cache', {}).get(key)
+        if entry and time.time() - entry[0] < self._SHORT_TTL.get(key, 60):
+            return entry[1]
+        return None
+
+    def _short_cache_put(self, key: str, value) -> None:
+        if not hasattr(self, '_short_cache'):
+            self._short_cache = {}
+        self._short_cache[key] = (time.time(), value)
+        if key == 'playlists':
+            self._short_cache['playlists_last_good'] = (time.time(), value)
+            if self._publishes_account:
+                # small, and kept so a restart during a long wait still shows them
+                rows = [{'id': p.id, 'name': p.name, 'description': p.description, 'owner': p.owner,
+                         'public': p.public, 'collaborative': p.collaborative,
+                         'total_tracks': p.total_tracks} for p in value]
+                remember_last_playlists(self.user_id, rows)
+
+    def _short_cache_clear(self) -> None:
+        if hasattr(self, '_short_cache'):
+            self._short_cache.clear()
+
+    def last_known_playlists(self):
+        """The last list of playlists Spotify gave, and when (or (None, None)):
+        this run's, else the stored one (the account's own client only)."""
+        entry = getattr(self, '_short_cache', {}).get('playlists_last_good')
+        if entry:
+            return entry[1], entry[0]
+        if not self._publishes_account:
+            return None, None
+        try:
+            stored = _playlists_store_get()
+            if isinstance(stored, dict) and self.user_id and stored.get('account') \
+                    and stored.get('account') != self.user_id:
+                return None, None  # another account's
+            if isinstance(stored, dict) and isinstance(stored.get('rows'), list):
+                rows = [Playlist(id=r['id'], name=r.get('name', ''), description=r.get('description'),
+                                 owner=r.get('owner', ''), public=bool(r.get('public')),
+                                 collaborative=bool(r.get('collaborative')), tracks=[],
+                                 total_tracks=int(r.get('total_tracks') or 0))
+                        for r in stored['rows'] if isinstance(r, dict) and r.get('id')]
+                return rows, float(stored.get('at') or 0)
+        except Exception as e:
+            logger.debug("read stored Spotify playlists: %s", e)
+        return None, None
+
+    def _search_official(self, query: str, search_type: str, limit: int):
+        """sp.search at the largest page this app may ask for."""
+        global _search_limit_cap
+        try:
+            return self.sp.search(q=query, type=search_type, limit=min(limit, _search_limit_cap))
+        except spotipy.SpotifyException as e:
+            if (e.http_status == 400 and 'limit' in str(e).lower()
+                    and _search_limit_cap > 10 and limit > 10):
+                _search_limit_cap = 10
+                logger.info("Spotify search refused a page over 10 (development-mode app): using 10")
+                return self.sp.search(q=query, type=search_type, limit=10)
+            raise
 
     def _remember_account(self, **seen: Any) -> None:
         """What a request already made saw of the account, for /status's
@@ -1050,13 +1917,16 @@ class SpotifyClient:
             # unauthenticating" daily, wolf39us). The handler imports the
             # legacy file once if the store is empty.
             from core.spotify_token_cache import DatabaseTokenCache
-            auth_manager = SpotifyOAuth(
+            auth_manager = make_spotify_oauth(
                 client_id=config['client_id'],
                 client_secret=config['client_secret'],
-                redirect_uri=config.get('redirect_uri', "http://127.0.0.1:8888/callback"),
+                redirect_uri=config.get('redirect_uri') or LOOPBACK_REDIRECT_URI,
                 scope=SPOTIFY_OAUTH_SCOPE,
                 cache_handler=DatabaseTokenCache(config_manager)
             )
+            # the pause belongs to this app (a pause another app earned doesn't apply)
+            if self._publishes_account:
+                set_active_client_id(config['client_id'])
             
             # No internal retries, so a 429 reaches us with Spotify's
             # Retry-After instead of spotipy's header-less "Max Retries"
@@ -1232,6 +2102,12 @@ class SpotifyClient:
             me = probe.current_user()
             result = True
             self._remember_account(name=(me or {}).get("display_name") or (me or {}).get("id"))
+        except SpotifyBusyError:
+            # The budget was busy for a moment: that says nothing about the
+            # sign-in, so don't remember an answer for 15 minutes.
+            with self._auth_cache_lock:
+                previous = self._auth_cached_result
+            return bool(previous) if previous is not None else self._has_cached_oauth_token()
         except Exception as e:
             error_str = str(e)
             # Rate limit means we ARE authenticated — just throttled.
@@ -1295,6 +2171,9 @@ class SpotifyClient:
         except Exception:
             has_token = True  # unknown → don't wrongly claim "not connected"
         rl = _get_rate_limit_info() if _is_globally_rate_limited() else None
+        expired = False
+        if self.sp is not None and has_token:
+            expired = spotify_sign_in_expired(getattr(self.sp.auth_manager, 'cache_handler', None))
         return describe_spotify_unavailable(
             configured=self.sp is not None,
             rate_limited=_is_globally_rate_limited(),
@@ -1302,23 +2181,29 @@ class SpotifyClient:
             in_cooldown=_is_in_post_ban_cooldown(),
             cooldown_seconds_left=_get_post_ban_cooldown_remaining() or 0,
             has_token=has_token,
+            sign_in_expired=expired,
         )
 
     def disconnect(self):
         """Disconnect Spotify: clear client, delete cache, invalidate auth cache, clear rate limit"""
-        import os
         self.sp = None
         self.user_id = None
         self._invalidate_auth_cache()
-        _clear_rate_limit()
+        self._short_cache_clear()
+        forget_gone_endpoints()
+        forget_last_playlists()  # not this account's any more
+        # A wait Spotify asked for stays (it's on the app, not the sign-in):
+        # disconnect-and-reconnect used to clear it and send every job back
+        # into the limit. Our own estimate is cleared.
+        still_paused = release_pause_after_sign_in()
         try:
             from core.metadata.status import publish_spotify_status
 
             publish_spotify_status(
                 connected=False,
                 authenticated=False,
-                rate_limited=False,
-                rate_limit=None,
+                rate_limited=still_paused,
+                rate_limit=_get_rate_limit_info() if still_paused else None,
                 post_ban_cooldown=None,
             )
         except Exception as e:
@@ -1362,6 +2247,8 @@ class SpotifyClient:
                 self.user_id = user_info['id']
                 logger.info(f"Successfully authenticated with Spotify as {user_info['display_name']}")
                 return True
+            except (SpotifyRateLimitError, SpotifyBusyError):
+                raise  # paused or busy: the caller answers that, not "no playlists"
             except Exception as e:
                 logger.error(f"Failed to fetch user info: {e}")
                 return False
@@ -1394,14 +2281,7 @@ class SpotifyClient:
                     playlists.append(playlist)
                 
                 if results['next']:
-                    with _api_call_lock:
-                        elapsed = time.time() - _last_api_call_time
-                        _pi = _get_min_api_interval()
-                        if elapsed < _pi:
-                            time.sleep(_pi - elapsed)
-                        globals()['_last_api_call_time'] = time.time()
-                    from core.api_call_tracker import api_call_tracker
-                    api_call_tracker.record_call('spotify', endpoint='get_user_playlists_page')
+                    # the next page is paced by the gate (GatedSpotifySession)
                     results = self.sp.next(results)
                 else:
                     results = None
@@ -1420,12 +2300,16 @@ class SpotifyClient:
             logger.error("Spotify request skipped — %s", self._auth_unavailable_reason())
             return []
         
+        cached = self._short_cache_get('playlists')
+        if cached is not None:
+            return list(cached)
+
         if not self._ensure_user_id():
             logger.error("Failed to get user ID")
             return []
-        
+
         playlists = []
-        
+
         try:
             # Fetch all playlists using pagination
             limit = 50  # Maximum allowed by Spotify API
@@ -1477,9 +2361,16 @@ class SpotifyClient:
                 offset += limit
             
             logger.info(f"Retrieved {len(playlists)} total playlist metadata")
+            self._short_cache_put('playlists', list(playlists))
             return playlists
 
+        except (SpotifyRateLimitError, SpotifyBusyError):
+            # Paused or busy part way: a partial list would read as "these are
+            # all your playlists". The caller says Spotify is paused instead.
+            raise
         except Exception as e:
+            if is_rate_limit_error(e):
+                raise  # a 429 part way: the decorator makes it the pause
             logger.error(f"Error fetching user playlists metadata: {e}")
             # Return partial results if we crashed mid-way but have some data
             if playlists:
@@ -1605,12 +2496,16 @@ class SpotifyClient:
             logger.error("Spotify request skipped — %s", self._auth_unavailable_reason())
             return 0
 
+        cached = self._short_cache_get('saved_count')
+        if cached is not None:
+            return cached
         try:
             # Just fetch first page to get the total count
             results = self.sp.current_user_saved_tracks(limit=1)
             if results and 'total' in results:
                 total_count = results['total']
                 logger.info(f"User has {total_count} saved tracks")
+                self._short_cache_put('saved_count', total_count)
                 return total_count
             return 0
         except Exception as e:
@@ -1789,14 +2684,7 @@ class SpotifyClient:
                         tracks.append(track)
 
                 if results['next']:
-                    with _api_call_lock:
-                        elapsed = time.time() - _last_api_call_time
-                        _pi = _get_min_api_interval()
-                        if elapsed < _pi:
-                            time.sleep(_pi - elapsed)
-                        globals()['_last_api_call_time'] = time.time()
-                    from core.api_call_tracker import api_call_tracker
-                    api_call_tracker.record_call('spotify', endpoint='get_playlist_tracks_page')
+                    # the next page is paced by the gate (GatedSpotifySession)
                     results = self.sp.next(results)
                 else:
                     results = None
@@ -1909,15 +2797,7 @@ class SpotifyClient:
                 after = cursors.get('after')
                 if not after:
                     break
-                # Throttle pagination
-                _pi = _get_min_api_interval()
-                with _api_call_lock:
-                    elapsed = time.time() - _last_api_call_time
-                    if elapsed < _pi:
-                        time.sleep(_pi - elapsed)
-                    globals()['_last_api_call_time'] = time.time()
-                from core.api_call_tracker import api_call_tracker
-                api_call_tracker.record_call('spotify', endpoint='get_followed_artists_page')
+                # the next page is paced by the gate (GatedSpotifySession)
 
             logger.info(f"Retrieved {len(artists)} followed artists from Spotify")
             return artists
@@ -1966,7 +2846,7 @@ class SpotifyClient:
 
         if use_spotify:
             try:
-                results = self.sp.search(q=query, type='track', limit=effective_limit)
+                results = self._search_official(query, 'track', effective_limit)
                 tracks = []
                 raw_items = results['tracks']['items']
 
@@ -2048,7 +2928,7 @@ class SpotifyClient:
         if use_spotify:
             try:
                 search_query = f'artist:{query}' if len(query.strip()) <= 4 else query
-                results = self.sp.search(q=search_query, type='artist', limit=min(limit, 10))
+                results = self._search_official(search_query, 'artist', min(limit, 10))
                 artists = []
                 raw_items = results['artists']['items']
 
@@ -2138,7 +3018,7 @@ class SpotifyClient:
 
         if use_spotify:
             try:
-                results = self.sp.search(q=query, type='album', limit=min(limit, 10))
+                results = self._search_official(query, 'album', min(limit, 10))
                 albums = []
                 raw_items = results['albums']['items']
 
@@ -2277,7 +3157,7 @@ class SpotifyClient:
         if cached:
             return cached
 
-        if not self.is_spotify_authenticated():
+        if _endpoint_gone('audio_features') or not self.is_spotify_authenticated():
             return None
 
         try:
@@ -2288,7 +3168,8 @@ class SpotifyClient:
             return result
 
         except Exception as e:
-            logger.error(f"Error fetching track features: {e}")
+            if not _note_gone_endpoint('audio_features', e, track_id):
+                logger.error(f"Error fetching track features: {e}")
             return None
     
     @rate_limited
@@ -2370,14 +3251,7 @@ class SpotifyClient:
                 # Fetch remaining pages if they exist — throttle pagination
                 next_page = first_page
                 while next_page.get('next'):
-                    with _api_call_lock:
-                        elapsed = time.time() - _last_api_call_time
-                        _pi = _get_min_api_interval()
-                        if elapsed < _pi:
-                            time.sleep(_pi - elapsed)
-                        globals()['_last_api_call_time'] = time.time()
-                    from core.api_call_tracker import api_call_tracker
-                    api_call_tracker.record_call('spotify', endpoint='get_album_tracks_page')
+                    # the next page is paced by the gate (GatedSpotifySession)
                     next_page = self.sp.next(next_page)
                     if next_page and 'items' in next_page:
                         all_tracks.extend(next_page['items'])
@@ -2478,15 +3352,7 @@ class SpotifyClient:
 
                     # Get next batch if available — throttle pagination to respect rate limits
                     if results['next']:
-                        # Enforce same rate limit as decorated calls
-                        with _api_call_lock:
-                            elapsed = time.time() - _last_api_call_time
-                            _pi = _get_min_api_interval()
-                            if elapsed < _pi:
-                                time.sleep(_pi - elapsed)
-                            globals()['_last_api_call_time'] = time.time()
-                        from core.api_call_tracker import api_call_tracker
-                        api_call_tracker.record_call('spotify', endpoint='get_artist_albums_page')
+                        # the next page is paced by the gate (GatedSpotifySession)
                         results = self.sp.next(results)
                         pages_fetched += 1
                     else:
@@ -2552,8 +3418,14 @@ class SpotifyClient:
         if not self.is_spotify_authenticated():
             return None
 
+        cached = self._short_cache_get('user_info')
+        if cached is not None:
+            return cached
         try:
-            return self.sp.current_user()
+            info = self.sp.current_user()
+            if info:
+                self._short_cache_put('user_info', info)
+            return info
         except Exception as e:
             logger.error(f"Error fetching user info: {e}")
             return None
@@ -2627,13 +3499,14 @@ class SpotifyClient:
         """
         if not artist_id:
             return []
-        if not self.is_spotify_authenticated():
+        if _endpoint_gone('artist_top_tracks') or not self.is_spotify_authenticated():
             return []
         try:
             result = self.sp.artist_top_tracks(artist_id, country=country)
         except Exception as e:
             _detect_and_set_rate_limit(e, 'get_artist_top_tracks')
-            logger.warning(f"Spotify artist_top_tracks failed for {artist_id}: {e}")
+            if not _note_gone_endpoint('artist_top_tracks', e, artist_id):
+                logger.warning(f"Spotify artist_top_tracks failed for {artist_id}: {e}")
             return []
         if not result:
             return []
@@ -2650,9 +3523,10 @@ class SpotifyClient:
         cache = get_metadata_cache()
         found, missing = cache.get_entities_batch('spotify', 'artist', artist_ids)
 
-        if missing and self.is_spotify_authenticated():
+        if missing and not _endpoint_gone('artists_batch') and self.is_spotify_authenticated():
             try:
-                # Spotify batch endpoint accepts up to 50 IDs
+                # Spotify batch endpoint accepts up to 50 IDs (extended-quota
+                # apps; development-mode apps lost it in February 2026)
                 for i in range(0, len(missing), 50):
                     chunk = missing[i:i + 50]
                     batch_result = self.sp.artists(chunk)
@@ -2662,6 +3536,8 @@ class SpotifyClient:
                             cache.store_entity('spotify', 'artist', aid, artist_data)
                             found[aid] = artist_data
             except Exception as e:
-                logger.error(f"Error in batch artist fetch: {e}")
+                _detect_and_set_rate_limit(e, 'get_artists_batch')
+                if not _note_gone_endpoint('artists_batch', e, ','.join(missing[:50])):
+                    logger.error(f"Error in batch artist fetch: {e}")
 
         return found

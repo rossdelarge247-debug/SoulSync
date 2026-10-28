@@ -20,7 +20,7 @@ logger = get_logger("api_call_tracker")
 
 # Known rate limits per service (calls/minute)
 RATE_LIMITS = {
-    'spotify': 171,       # MIN_API_INTERVAL=0.35s → ~171/min
+    'spotify': 60,        # the gate's pace: one request a second (core/spotify_client.py MIN_API_INTERVAL)
     'itunes': 20,         # MIN_API_INTERVAL=3.0s → ~20/min
     # core.deezer_throttle: 40 per 5s shared across every Deezer caller. The old
     # 60 described a decorator that two of the busiest paths bypassed entirely,

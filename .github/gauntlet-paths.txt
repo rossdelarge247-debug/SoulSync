@@ -133,6 +133,9 @@ web_server.py
 ## Outbound HTTP
 # core/security/** above holds the outbound guard (outbound.py)
 core/*_client.py
+# The Spotify gate: the request budget, the pause every Spotify request obeys
+# (kept across restarts), token-refresh backoff and the redirect-URI rules
+core/spotify_gate.py
 # Library → Sets' tracklist sources (core/sets/sources.py, in core/sets/**
 # above): MixesDB's wiki API and Discogs (fixed hosts, deadlines, size caps);
 # MusicBrainz goes through its client above

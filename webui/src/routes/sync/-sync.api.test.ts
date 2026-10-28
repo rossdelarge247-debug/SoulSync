@@ -678,7 +678,7 @@ describe("the account tabs' track endpoints (1861, 2557)", () => {
     await fetchSpotifyPlaylistTracks('p1');
     await fetchDeezerArlPlaylistTracks('7');
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'GET /api/spotify/playlist/p1',
+      'GET /api/spotify/playlist/p1?async=1',
       'GET /api/deezer/arl-playlist/7?async=1',
       'GET /api/deezer/playlist-load/arl-job-7',
     ]);
@@ -687,6 +687,55 @@ describe("the account tabs' track endpoints (1861, 2557)", () => {
   it('passes the backend error through for the caller to throw on', async () => {
     stubFetch({ error: 'playlist not found' });
     expect((await fetchSpotifyPlaylistTracks('p1')).error).toBe('playlist not found');
+  });
+
+  it('a Spotify playlist loads as a job the page polls (no web request holds Spotify)', async () => {
+    const urls: string[] = [];
+    let polls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        urls.push(url);
+        if (url === '/api/spotify/playlist/p1?async=1') {
+          return new Response(JSON.stringify({ pending: true, job_id: 'sp-1' }), { status: 202 });
+        }
+        polls += 1;
+        return new Response(
+          JSON.stringify(
+            polls < 2
+              ? { status: 'running' }
+              : { status: 'complete', playlist: { name: 'Road Trip', tracks: [] } },
+          ),
+        );
+      }),
+    );
+    const detail = await fetchSpotifyPlaylistTracks('p1', 1);
+    expect(detail.name).toBe('Road Trip');
+    expect(urls).toEqual([
+      '/api/spotify/playlist/p1?async=1',
+      '/api/spotify/playlist-load/sp-1',
+      '/api/spotify/playlist-load/sp-1',
+    ]);
+  });
+
+  it('a paused Spotify says so instead of loading', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: 'Spotify asked us to wait until 21:40. Your other sources carry on meanwhile.',
+              rate_limited: true,
+            }),
+            { status: 429 },
+          ),
+      ),
+    );
+    expect((await fetchSpotifyPlaylistTracks('p1', 1)).error).toMatch(
+      /^Spotify asked us to wait until 21:40/,
+    );
+    await expect(fetchSpotifyPlaylists()).rejects.toThrow(/^Spotify asked us to wait until 21:40/);
   });
 });
 

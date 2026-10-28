@@ -487,9 +487,11 @@ def gather_album_art_candidates(
 
     # Fan out the CAA/MusicBrainz path and every single-cover source concurrently — a picker click
     # shouldn't wait for them in series (that was ~15s of sequential network). Total ≈ slowest call.
+    from core.spotify_client import spotify_context
+    safe = spotify_context(_safe)  # the pool threads are this person's request
     with ThreadPoolExecutor(max_workers=len(srcs) + 1) as ex:
-        caa_future = None if caa_candidates is not None else ex.submit(_safe, _caa_candidates_for, meta)
-        single_futures = [(s, ex.submit(_safe, lookup, s)) for s in srcs]
+        caa_future = None if caa_candidates is not None else ex.submit(safe, _caa_candidates_for, meta)
+        single_futures = [(s, ex.submit(safe, lookup, s)) for s in srcs]
         caa = caa_candidates if caa_candidates is not None else (caa_future.result() or [])
         singles = [(s, f.result()) for s, f in single_futures]
 

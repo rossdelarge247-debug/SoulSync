@@ -135,6 +135,8 @@ def test_profile_spotify_client_is_cached_per_profile(monkeypatch):
 
     monkeypatch.setattr("core.spotify_client.SpotifyClient", FakeSpotifyClient)
     monkeypatch.setattr(sys.modules["spotipy"].oauth2, "SpotifyOAuth", FakeOAuth)
+    # every SpotifyOAuth is built by make_spotify_oauth (Spotify throttling, 27 October)
+    monkeypatch.setattr("core.spotify_client.make_spotify_oauth", lambda *a, **k: FakeOAuth(*a, **k))
     monkeypatch.setattr(sys.modules["spotipy"], "Spotify", FakeSpotify)
     metadata_registry.register_profile_spotify_credentials_provider(lambda profile_id: creds_by_profile.get(profile_id))
 
@@ -171,6 +173,8 @@ def test_clear_cached_profile_spotify_client_only_affects_one_profile(monkeypatc
 
     monkeypatch.setattr("core.spotify_client.SpotifyClient", FakeSpotifyClient)
     monkeypatch.setattr(sys.modules["spotipy"].oauth2, "SpotifyOAuth", FakeOAuth)
+    # every SpotifyOAuth is built by make_spotify_oauth (Spotify throttling, 27 October)
+    monkeypatch.setattr("core.spotify_client.make_spotify_oauth", lambda *a, **k: FakeOAuth(*a, **k))
     monkeypatch.setattr(sys.modules["spotipy"], "Spotify", FakeSpotify)
     metadata_registry.register_profile_spotify_credentials_provider(lambda profile_id: creds_by_profile.get(profile_id))
 

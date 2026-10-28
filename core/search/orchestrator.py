@@ -431,12 +431,17 @@ def stream_metadata_source(source_name: str, query: str, client,
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    from core.spotify_client import spotify_context
+
+    # spotify_context: the pool threads are this person's search, not
+    # background work (Spotify's gate gives a person's requests priority)
+    search_kind = spotify_context(sources.search_kind)
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {
-            executor.submit(sources.search_kind, client, query, 'artists', source_name, prefer_free): 'artists',
-            executor.submit(sources.search_kind, client, query, 'albums', source_name, prefer_free): 'albums',
-            executor.submit(sources.search_kind, client, query, 'tracks', source_name, prefer_free): 'tracks',
-            executor.submit(sources.search_kind, client, query, 'playlists', source_name, prefer_free): 'playlists',
+            executor.submit(search_kind, client, query, 'artists', source_name, prefer_free): 'artists',
+            executor.submit(search_kind, client, query, 'albums', source_name, prefer_free): 'albums',
+            executor.submit(search_kind, client, query, 'tracks', source_name, prefer_free): 'tracks',
+            executor.submit(search_kind, client, query, 'playlists', source_name, prefer_free): 'playlists',
         }
         for future in as_completed(futures):
             kind = futures[future]

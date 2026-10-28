@@ -46,8 +46,11 @@ export interface SpotifyPauseView {
   timeLeftExact: string;
   /** For a status pill or dot title: "Spotify paused · 12 min". */
   short: string;
-  /** The headline: "Spotify asked us to wait 12 min (after checking an artist's albums)". */
+  /** The headline: "Spotify asked us to wait 12 min (after checking an artist's albums)".
+   *  An hour or more also says when: "Spotify asked us to wait 15 h, until 21:40 (after …)". */
   sentence: string;
+  /** When it's over, on the local clock: "21:40", "tomorrow 09:12" (null while easing). */
+  backAt: string | null;
   /** What it means for the person. */
   detail: string;
 
@@ -135,6 +138,20 @@ export function lengthWords(seconds: number | null | undefined): string {
   return m ? `${hours} ${mins}` : hours;
 }
 
+/** "21:40", or "tomorrow 09:12", or "Thu 09:12": when a wait that ends at
+ *  `endMs` is over, on the local clock (24-hour, as the server says it). */
+export function formatBackAt(endMs: number, nowMs: number): string {
+  const end = new Date(endMs);
+  const now = new Date(nowMs);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const clock = `${pad(end.getHours())}:${pad(end.getMinutes())}`;
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(end) - day(now)) / 86_400_000);
+  if (days <= 0) return clock;
+  if (days === 1) return `tomorrow ${clock}`;
+  return `${end.toLocaleDateString(undefined, { weekday: 'short' })} ${clock}`;
+}
+
 function capitalise(text: string): string {
   return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
@@ -151,19 +168,30 @@ function setOffBy(rl: SpotifyRateLimit): string {
   return capitalise(trigger);
 }
 
+/** From an hour on, a countdown alone is hard to plan around, so the
+ *  sentences also say when it's over. */
+const SAY_WHEN_FROM_SECONDS = 3600;
+
 /**
  * The view for a Spotify status slice, `elapsedSeconds` after it arrived
  * (so a page can count down between pushes). Null when Spotify isn't paused.
+ * `nowMs` is the clock (for "until 21:40").
  */
 export function spotifyPauseView(
   status: SpotifyPauseStatus | null | undefined,
   elapsedSeconds = 0,
+  nowMs: number = Date.now(),
 ): SpotifyPauseView | null {
   const rl = status?.rate_limit;
   if (status?.rate_limited && rl) {
     const remaining = Math.max(0, (rl.remaining_seconds ?? 0) - elapsedSeconds);
     if (remaining > 0) {
-      const t = formatWait(remaining);
+      const backAt = formatBackAt(nowMs + remaining * 1000, nowMs);
+      const t =
+        remaining >= SAY_WHEN_FROM_SECONDS
+          ? `${formatWait(remaining)}, until ${backAt}`
+          : formatWait(remaining);
+      const tShort = formatWait(remaining);
       const trigger = rl.trigger?.trim() || 'a Spotify request';
       const after = rl.trigger ? ` (after ${rl.trigger})` : '';
       const fromSpotify = rl.source === 'spotify';
@@ -178,9 +206,10 @@ export function spotifyPauseView(
         kind: 'paused',
         fromSpotify,
         remainingSeconds: remaining,
-        timeLeft: t,
+        timeLeft: tShort,
         timeLeftExact: formatWaitExact(remaining),
-        short: `Spotify paused · ${t}`,
+        backAt,
+        short: `Spotify paused · ${tShort}`,
         sentence: fromSpotify
           ? `Spotify asked us to wait ${t}${after}`
           : `Paused Spotify for ${t} to be safe${after}`,
@@ -189,8 +218,8 @@ export function spotifyPauseView(
           : 'Spotify didn’t say how long to wait, so this is SYNCHRO.S’s estimate. It gets longer if Spotify keeps saying no. Until then, Spotify features use your other sources.',
         title: fromSpotify ? `Spotify asked us to wait ${t}` : `Paused Spotify for ${t} to be safe`,
         tone: 'warning',
-        tag: fromSpotify ? `Paused by Spotify · ${t}` : `Paused to be safe · ${t}`,
-        tileTag: `Paused · ${t}`,
+        tag: fromSpotify ? `Paused by Spotify · ${tShort}` : `Paused to be safe · ${tShort}`,
+        tileTag: `Paused · ${tShort}`,
         body: fromSpotify
           ? `${lead} That time came from Spotify, so SYNCHRO.S waits exactly that long. ${STILL_WORKS_LONG}`
           : `${guess} ${STILL_WORKS}`,
@@ -223,6 +252,7 @@ export function spotifyPauseView(
       remainingSeconds: cooldown,
       timeLeft: t,
       timeLeftExact: formatWaitExact(cooldown),
+      backAt: null,
       short: `Spotify easing back in · ${t}`,
       sentence: `Spotify is back. Background jobs wait ${t} more`,
       detail:

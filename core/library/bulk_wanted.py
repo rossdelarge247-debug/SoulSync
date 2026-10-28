@@ -25,6 +25,7 @@ calling thread.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait as wait_futures
 from typing import Any, Callable, Dict, List, Optional
 
 from core.library.release_index import norm_title
@@ -33,6 +34,8 @@ from utils.logging_config import get_logger
 logger = get_logger("library.bulk_wanted")
 
 FETCH_THREADS = 4
+#: the longest a request waits for its lookups (the rest are reported as not found in time)
+FETCH_DEADLINE = 90.0
 
 
 def _default_fetch(release: Dict[str, Any]) -> Dict[str, Any]:
@@ -112,9 +115,27 @@ def add_releases(
             for release in to_fetch:
                 fetched[release["id"]] = fetch(release)
         else:
-            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="bulk-wanted") as pool:
-                for release, result in zip(to_fetch, pool.map(fetch, to_fetch), strict=True):
-                    fetched[release["id"]] = result
+            # The pool threads are this person's request (Spotify's gate gives
+            # it a person's priority rather than background pacing), and the
+            # request waits at most FETCH_DEADLINE for them: a release not
+            # looked up by then is reported as not found in time.
+            from core.spotify_client import spotify_context
+            fetch_here = spotify_context(fetch)
+            pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="bulk-wanted")
+            try:
+                futures = {pool.submit(fetch_here, release): release for release in to_fetch}
+                done, _late = wait_futures(futures, timeout=FETCH_DEADLINE)
+                for future, release in futures.items():
+                    if future in done:
+                        try:
+                            fetched[release["id"]] = future.result()
+                        except Exception as exc:  # noqa: BLE001 - one release, reported below
+                            fetched[release["id"]] = {"success": False, "error": str(exc)}
+                    else:
+                        fetched[release["id"]] = {"success": False,
+                                                  "error": "Its tracks weren't found in time; try it again"}
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
 
     for release in to_fetch:
         result = fetched.get(release["id"]) or {}
