@@ -197,3 +197,35 @@ def test_l6_widening_never_cuts_the_keys_that_mix(client, monkeypatch):
     # the closest of the keys that mix are read first; another key can't push them out
     assert _ids(body) == ["8", "4"]
     assert {m["key_relation"] for m in body["matches"]} == {"same"}
+
+
+# ── step 3 (Brief C's tray, 33b; Design's 297) ────────────────────────────────
+
+def test_each_match_says_the_step_a_set_would_make(client):
+    by_id = {m["id"]: m for m in _mix(client)["matches"]}
+    assert {m["step"] for m in by_id.values()} <= {"smooth", "jump", "unknown"}
+    # same key, 1 BPM apart: smooth; one step on the wheel and 4 BPM apart: a jump (22c, 289)
+    assert by_id["8"]["step"] == "smooth"
+    assert by_id["3"]["step"] == "jump"
+
+
+def _score(relation, heading, delta):
+    return ranking._base({"key_relation": relation, "bpm_relation": "same", "bpm_diff_pct": 0.0}) \
+        + ranking.energy_push(heading, delta)
+
+
+@pytest.mark.parametrize("heading,against,keeps", [("up", -2, 1), ("down", 2, -1)])
+def test_297_with_a_set_working_direction_weighs_more_than_a_key_step(heading, against, keeps):
+    # a same-key track that turns the set back drops below the same key and
+    # the relative key that keep its way; a key a step round the wheel still
+    # follows it (harmonic fit isn't thrown away)
+    turning = _score("same", heading, against)
+    assert turning > _score("same", heading, keeps)
+    assert turning > _score("relative", heading, keeps)
+    assert turning < _score("up", heading, keeps)
+    # but harmonic fit still leads where neither turns back
+    assert _score("same", heading, 0) < _score("relative", heading, 0) < _score("up", heading, 0)
+
+
+def test_297_without_a_working_set_harmonic_fit_leads_as_before():
+    assert _score("same", None, -2) < _score("relative", None, 1)

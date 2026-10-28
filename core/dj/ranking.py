@@ -18,7 +18,8 @@ leads and the others decide among near-equals:
 
 Each match keeps the store's fields and gains ``reason`` ("Same key · +2%
 BPM · energy ↑1", the step's words), ``reason_short`` (the phone's line,
-29c) and ``signals`` (what moved it). Nothing here is sent anywhere.
+29c), ``step`` (``smooth``, ``jump`` or ``unknown``: the step a set would
+make, 22c's rule, which 33b shows first) and ``signals`` (what moved it). Nothing here is sent anywhere.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 from core.dj import store as dj_store
+from core.sets import steps
 from utils.logging_config import get_logger
 
 logger = get_logger("dj.ranking")
@@ -47,8 +49,13 @@ PLAYED_TODAY = 8.0       # played in the last two days
 PLAYED_THIS_WEEK = 3.0   # in the last seven
 STYLE_WEIGHT = 5.0       # times the share of genres in common
 SAME_ARTIST = 1.0
-WITH_THE_SET = 3.0       # energy keeps going the set's way
-AGAINST_THE_SET = 3.0    # ... or turns back (plus one per step)
+WITH_THE_SET = 4.0       # energy keeps going the set's way
+# ... or turns back, plus this per step of energy. Design's 297: with a set
+# working, direction weighs more than a key step, so a same-key track that
+# turns a rising set down drops below the same and the relative key keeping
+# its way; a key a step round the wheel still follows it.
+AGAINST_THE_SET = 8.0
+AGAINST_PER_STEP = 2.0
 
 RECENT_DAYS = 7
 TODAY_DAYS = 2
@@ -266,9 +273,9 @@ def energy_push(heading: Optional[str], delta: Optional[int]) -> float:
     if delta is None:
         return 0.0
     if heading == "up":
-        return -WITH_THE_SET if delta > 0 else (0.0 if delta == 0 else AGAINST_THE_SET + abs(delta))
+        return -WITH_THE_SET if delta > 0 else (0.0 if delta == 0 else AGAINST_THE_SET + AGAINST_PER_STEP * abs(delta))
     if heading == "down":
-        return -WITH_THE_SET if delta < 0 else (0.0 if delta == 0 else AGAINST_THE_SET + abs(delta))
+        return -WITH_THE_SET if delta < 0 else (0.0 if delta == 0 else AGAINST_THE_SET + AGAINST_PER_STEP * abs(delta))
     if heading == "steady":
         return float(abs(delta))
     # no set, or one too short to say: a gentle preference for a small change
@@ -341,7 +348,10 @@ def rank(database, track_id: str, *, profile_id: int, set_id: Any = None, limit:
         score -= STYLE_WEIGHT * close["share"]
         if close["same_artist"]:
             score -= SAME_ARTIST
-        match = {**match, **reasons(match, seed_dj), "starred": match["id"] in starred,
+        # the step a set would make (22c's rule, core/sets/steps.py): Smooth
+        # or Jump beside the reason (33b: "Smooth · same key, +4 BPM")
+        step_kind = steps.step(seed_dj, match.get("dj") or {}).get("kind", "unknown")
+        match = {**match, **reasons(match, seed_dj), "step": step_kind, "starred": match["id"] in starred,
                  "signals": {"starred": match["id"] in starred, "played": recent, "energy_delta": delta,
                              "style": close["share"], "shared_genres": close["shared"],
                              "same_artist": close["same_artist"]}}
