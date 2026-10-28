@@ -366,6 +366,10 @@ The image runs as a non-root user with `PUID` / `PGID` / `UMASK` support, and bu
 | `8888` | Spotify OAuth callback |
 | `8889` | Tidal OAuth callback |
 
+### Soulseek and torrents through a VPN (optional)
+
+`docker-compose.vpn.yml` runs slskd, and qBittorrent if you use torrents, behind Proton VPN in a [Gluetun](https://github.com/qdm12/gluetun) container, with a kill switch (if the VPN drops, they have no connection) and Proton's forwarded port. SYNCHRO.S itself stays off the VPN, and **Setup check → Privacy** says whether it's all working. See [Support/VPN.md](Support/VPN.md).
+
 ### Release channels
 
 | Channel | Image | What it is |
