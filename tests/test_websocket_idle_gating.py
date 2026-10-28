@@ -205,6 +205,8 @@ def test_download_status_loop_skips_slskd_poll_with_no_clients(monkeypatch):
 def test_download_status_loop_fetches_with_a_connected_client(monkeypatch):
     fake_fetch = MagicMock(return_value={})
     monkeypatch.setattr(web_server, "get_cached_transfer_data", fake_fetch)
+    monkeypatch.setattr(web_server, "_build_batch_status_data", MagicMock(return_value={}))
+    monkeypatch.setitem(web_server.download_batches, "batch-1", {"queue": []})
 
     fake_emit = MagicMock()
     monkeypatch.setattr(web_server.socketio, "emit", fake_emit)
@@ -213,3 +215,20 @@ def test_download_status_loop_fetches_with_a_connected_client(monkeypatch):
     _run_one_tick(web_server._emit_download_status_loop)
 
     fake_fetch.assert_called_once()
+
+
+def test_download_status_loop_skips_slskd_with_no_batches(monkeypatch):
+    """UI latency of 27 October: with a tab open and nothing queued, this loop
+    still read slskd's whole downloads list every 2 s (27 a minute) to push
+    status for no batch at all."""
+    fake_fetch = MagicMock(return_value={})
+    monkeypatch.setattr(web_server, "get_cached_transfer_data", fake_fetch)
+    fake_emit = MagicMock()
+    monkeypatch.setattr(web_server.socketio, "emit", fake_emit)
+    monkeypatch.setattr(web_server, "download_batches", {})
+
+    web_server._connected_sids.add("sid-1")
+    _run_one_tick(web_server._emit_download_status_loop)
+
+    fake_fetch.assert_not_called()
+    fake_emit.assert_not_called()

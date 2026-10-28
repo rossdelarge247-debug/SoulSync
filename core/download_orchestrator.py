@@ -269,6 +269,39 @@ class DownloadOrchestrator:
 
         return False
 
+    async def check_connection_within(self, budget: float) -> Optional[bool]:
+        """``check_connection`` for /status, each source given ``budget``
+        seconds of its own and the hybrid sources checked side by side, so a
+        slow torrent client can't use up slskd's time (gauntlet M3).
+
+        True when a source answered that it's reachable, False when every
+        source answered and none is, ``None`` when none is reachable and at
+        least one didn't answer in time: not known either way."""
+        async def _one(client) -> Optional[bool]:
+            try:
+                return bool(await asyncio.wait_for(client.check_connection(), budget))
+            except asyncio.TimeoutError:
+                return None
+            except Exception:
+                return False
+
+        client = self._client(self.mode)
+        if client and self.mode != 'hybrid':
+            return await _one(client)
+        if self.mode == 'hybrid':
+            sources = self.hybrid_order if self.hybrid_order else self.registry.names()
+            clients = [(s, c) for s in sources if (c := self._client(s))]
+            answers = await asyncio.gather(*(_one(c) for _, c in clients))
+            logger.info(
+                "Hybrid connection check: %s",
+                " | ".join(f"{s}={'ok' if ok else ('no answer' if ok is None else 'fail')}"
+                           for (s, _), ok in zip(clients, answers, strict=True)),
+            )
+            if any(a is True for a in answers):
+                return True
+            return None if any(a is None for a in answers) else False
+        return False
+
     def _normalize_source_name(self, name: str) -> Optional[str]:
         """Convert a possibly-aliased source name (e.g. legacy
         ``'deezer_dl'``) to the canonical registry name (``'deezer'``).
@@ -632,6 +665,24 @@ class DownloadOrchestrator:
         if not soulseek:
             raise RuntimeError("Soulseek client not available (failed to initialize)")
         return await soulseek._make_request(method, endpoint, **kwargs)
+
+    async def get_soulseek_transfers(self, max_age: Optional[float] = None, stale_ok: float = 0.0,
+                                     display: bool = False, with_answer: bool = False):
+        """slskd's downloads list from the Soulseek client's shared copy
+        (``SoulseekClient.get_transfers_snapshot``), so the pollers that read
+        it don't each ask slskd. ``None`` without a Soulseek client or when
+        slskd didn't answer."""
+        soulseek = self.client('soulseek')
+        if not soulseek or not hasattr(soulseek, 'get_transfers_snapshot'):
+            return (None, False) if with_answer else None
+        kwargs = {'stale_ok': stale_ok}
+        if display:
+            kwargs['display'] = True
+        if with_answer:
+            kwargs['with_answer'] = True
+        if max_age is not None:
+            kwargs['max_age'] = max_age
+        return await soulseek.get_transfers_snapshot(**kwargs)
 
     async def _make_direct_request(self, method: str, endpoint: str, **kwargs):
         """

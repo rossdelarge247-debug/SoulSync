@@ -170,6 +170,10 @@ class StatusDeps:
     # gives rows their artist photo + a library cover when the task had none
     # (core/downloads/row_art.py). mutates the items in place.
     attach_row_art: Optional[Callable[[list], None]] = None
+    # The live transfers for SHOWING progress (the Downloads page): may hold
+    # slskd's list from before an enqueue or cancel. Never for decisions.
+    # Falls back to get_cached_transfer_data.
+    get_display_transfer_data: Optional[Callable[[], dict]] = None
 
 
 # Streaming sources the engine fallback applies to. Soulseek goes through
@@ -864,6 +868,16 @@ def build_unified_downloads_response(limit: int, deps: StatusDeps) -> dict:
     # like 4929, and cancels prune the queue, so "Track {index} of {len}"
     # printed nonsense (#1183: "Track 4930 of 2").
     batch_positions = {}
+    # The live transfer list, read once and BEFORE tasks_lock: it can mean a
+    # read of slskd's downloads list, and holding tasks_lock across that
+    # stopped the download monitor, every worker and /status for as long as
+    # slskd took to answer (once per downloading row, too).
+    live_lookup = {}
+    if any((t or {}).get('status') in ('downloading', 'searching', 'queued')
+           for t in list(download_tasks.values())):
+        # progress only: the display copy is fine here (gauntlet N3)
+        read = deps.get_display_transfer_data or deps.get_cached_transfer_data
+        live_lookup = read() or {}
     with tasks_lock:
         for task_id, task in download_tasks.items():
             track_info = task.get('track_info') or {}
@@ -928,7 +942,7 @@ def build_unified_downloads_response(limit: int, deps: StatusDeps) -> dict:
                 task_username = task.get('username') or track_info.get('username')
                 if task_filename and task_username:
                     lookup_key = deps.make_context_key(task_username, task_filename)
-                    live_info = deps.get_cached_transfer_data().get(lookup_key)
+                    live_info = live_lookup.get(lookup_key)
                     if live_info:
                         progress = live_info.get('percentComplete', progress)
 
