@@ -346,23 +346,59 @@ def _plain(value: Any) -> str:
     return text.strip()[:60]
 
 
-def _default_local_networks() -> List[ipaddress.IPv4Network]:
-    """The networks SYNCHRO.S's own container sits on (Linux's routing table:
-    the routes with no gateway). Inside Docker that's the compose network."""
-    nets: List[ipaddress.IPv4Network] = []
+#: Docker's embedded DNS server. A container on a user-defined Docker network
+#: (a compose network) has it in /etc/resolv.conf; with host networking or
+#: outside Docker, names come from the home network's DNS instead.
+DOCKER_DNS = "127.0.0.11"
+
+#: Docker's own first default address pool (172.17.0.0/16 … 172.31.0.0/16).
+#: A home network almost never uses it; it's where Docker puts compose
+#: networks unless told otherwise.
+_DOCKER_POOL = ipaddress.ip_network("172.16.0.0/12")
+
+
+def _default_routes() -> Tuple[List[Tuple[ipaddress.IPv4Network, str]], set]:
+    """``([(network, interface)], {interfaces carrying the default route})``
+    from Linux's routing table: the directly connected networks (no gateway)
+    and which interface the default route leaves through."""
+    nets: List[Tuple[ipaddress.IPv4Network, str]] = []
+    default_ifaces: set = set()
+    with open("/proc/net/route", encoding="ascii", errors="replace") as fh:
+        next(fh, None)
+        for line in fh:
+            parts = line.split()
+            if len(parts) < 8 or parts[0] == "lo":
+                continue
+            if parts[1] == "00000000":
+                default_ifaces.add(parts[0])
+                continue
+            if parts[2] != "00000000":
+                continue
+            dest = ipaddress.IPv4Address(int(parts[1], 16).to_bytes(4, "little"))
+            mask = ipaddress.IPv4Address(int(parts[7], 16).to_bytes(4, "little"))
+            nets.append((ipaddress.IPv4Network(f"{dest}/{mask}", strict=False), parts[0]))
+    return nets, default_ifaces
+
+
+def _default_local_networks() -> List[Tuple[ipaddress.IPv4Network, bool]]:
+    """The networks SYNCHRO.S's own container sits on, each with whether the
+    default route (the way to the internet) leaves through it."""
     try:
-        with open("/proc/net/route", encoding="ascii", errors="replace") as fh:
-            next(fh, None)
-            for line in fh:
-                parts = line.split()
-                if len(parts) < 8 or parts[0] == "lo" or parts[2] != "00000000" or parts[1] == "00000000":
-                    continue
-                dest = ipaddress.IPv4Address(int(parts[1], 16).to_bytes(4, "little"))
-                mask = ipaddress.IPv4Address(int(parts[7], 16).to_bytes(4, "little"))
-                nets.append(ipaddress.IPv4Network(f"{dest}/{mask}", strict=False))
+        nets, default_ifaces = _default_routes()
     except (OSError, ValueError):
         return []
-    return nets
+    return [(net, iface in default_ifaces) for net, iface in nets]
+
+
+def _default_docker_dns() -> bool:
+    """Does this container ask Docker's embedded DNS for names?"""
+    try:
+        with open("/etc/resolv.conf", encoding="utf-8", errors="replace") as fh:
+            servers = [line.split()[1] for line in fh
+                       if line.strip().startswith("nameserver") and len(line.split()) > 1]
+    except OSError:
+        return False
+    return DOCKER_DNS in servers
 
 
 def _is_service_name(host: str) -> bool:
@@ -374,19 +410,32 @@ def _same_network(ctx, service_url: str, gluetun_url: str) -> Tuple[Optional[boo
     """Is the service at ``service_url`` inside Gluetun's network, judged from
     the two addresses SYNCHRO.S uses?
 
-    True only when both are Docker service names (one label, not an address)
-    that lead to the same private address on a network SYNCHRO.S's own
-    container is on: then they are one container's network. False when both
-    are such names and lead to different containers there. Anything else (a
-    LAN address, a name with a dot, the Docker host, a NAS publishing both
-    ports) proves nothing either way: None."""
+    True only when all of these hold:
+
+    * both are Docker service names (one label, not an address), and they
+      differ (``slskd`` and ``gluetun``): one name used for both proves nothing;
+    * SYNCHRO.S asks Docker's embedded DNS (127.0.0.11) for names, so they are
+      Docker's names, not the home network's (not so with host networking or
+      outside Docker);
+    * every address of the service's name is one of Gluetun's, on a network
+      SYNCHRO.S's own container is on and not the home network: a network that
+      carries SYNCHRO.S's default route counts only inside Docker's own
+      address pool (172.16.0.0/12), since with macvlan or ipvlan it's the LAN.
+
+    False when two such names lead to separate addresses there (the service has
+    its own container). Anything else is None: it proves nothing either way."""
     a = (urlparse(service_url).hostname or "").lower()
     b = (urlparse(gluetun_url).hostname or "").lower()
     if not _is_service_name(a) or not _is_service_name(b):
         return None, "an address that could be any machine's"
+    if a == b:
+        return None, "one name for both, which doesn't show they share a network"
+    docker_dns = getattr(ctx, "docker_dns", None) or _default_docker_dns
     resolve = getattr(ctx, "resolve_host", None) or _default_resolve
     local = getattr(ctx, "local_networks", None) or _default_local_networks
     try:
+        if not docker_dns():
+            return None, "SYNCHRO.S doesn't use Docker's own name server, so names could be the home network's"
         ips_a, ips_b = set(resolve(a)), set(resolve(b))
         nets = list(local())
     except Exception:  # noqa: BLE001 - a name that doesn't resolve says nothing either way
@@ -397,14 +446,19 @@ def _same_network(ctx, service_url: str, gluetun_url: str) -> Tuple[Optional[boo
             addr = ipaddress.ip_address(ip)
         except ValueError:
             return False
-        return addr.is_private and not addr.is_loopback and any(addr in n for n in nets)
+        if not addr.is_private or addr.is_loopback:
+            return False
+        for net, carries_default in nets:
+            if addr in net:
+                return (not carries_default) or (net.version == 4 and net.subnet_of(_DOCKER_POOL))
+        return False
 
-    ours_a = {ip for ip in ips_a if on_docker_network(ip)}
-    ours_b = {ip for ip in ips_b if on_docker_network(ip)}
-    if not ours_a or not ours_b or ours_a != ips_a or ours_b != ips_b:
-        return None, "not on SYNCHRO.S's Docker network"
-    if ours_a & ours_b:
+    if not ips_a or not ips_b or not all(on_docker_network(ip) for ip in ips_a | ips_b):
+        return None, "not on a Docker network of SYNCHRO.S's own"
+    if ips_a <= ips_b:
         return True, "same container as Gluetun"
+    if ips_a & ips_b:
+        return None, "the name leads to more than one container"
     return False, "its own container, not Gluetun's"
 
 
@@ -456,7 +510,8 @@ def read_slskd(ctx, gluetun_url: str) -> Optional[Service]:
     # network_mode: host) and Gluetun publishing 8000 looks just the same.
     s.inside, s.how = _same_network(ctx, url, gluetun_url)
     if s.inside is None and s.integration_loopback:
-        s.how = "slskd's own Gluetun integration answers, but that doesn't show where its traffic goes"
+        s.how = ((s.how + "; ") if s.how else "") + (
+            "slskd's own Gluetun integration answers, but that doesn't show where its traffic goes")
     return s
 
 
@@ -721,6 +776,9 @@ def verdict(f: Facts) -> Dict[str, Any]:
         state, tone = NO_VPN, sc.ERROR
         headline = (f"{_names(outside)} {_verb(outside, 'doesn', 'don')}'t go through the VPN: "
                     f"{_verb(outside, 'it shows', 'they show')} your home IP")
+    elif not g.up and suspect:
+        state, tone = VPN_DOWN, sc.ERROR
+        headline = "VPN is down, and slskd looked signed in to Soulseek for a moment: check again in a minute"
     elif not g.up:
         state, tone = VPN_DOWN, sc.ERROR
         headline = f"VPN is down: {subject} {_verb(services, 'is', 'are')} stopped until it's back"

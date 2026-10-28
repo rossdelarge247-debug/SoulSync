@@ -224,8 +224,11 @@ class SetupCheckContext:
     resolve_host: Optional[Callable[[str], Sequence[str]]] = None
     home_ip_fetch: Optional[Callable[[], str]] = None
     torrent_listen_port: Optional[Callable[[str], Optional[int]]] = None
-    # the networks SYNCHRO.S's own container is on (privacy check)
+    # the networks SYNCHRO.S's own container is on, each with whether the
+    # default route leaves through it, and whether it asks Docker's embedded
+    # DNS for names (privacy check)
     local_networks: Optional[Callable[[], Sequence[Any]]] = None
+    docker_dns: Optional[Callable[[], bool]] = None
     _mounts: Optional[List[Tuple[str, str, str, str]]] = field(default=None, repr=False)
 
     def cfg(self, key: str, default: Any = None) -> Any:

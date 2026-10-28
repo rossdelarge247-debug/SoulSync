@@ -19,8 +19,8 @@ from core import privacy_check as pc
 from core import setup_check as sc
 
 GLUETUN = "http://gluetun:8000"
-SLSKD = "http://gluetun:5030"
-QBIT = "http://gluetun:8080"
+SLSKD = "http://slskd:5030"
+QBIT = "http://qbittorrent:8080"
 VPN_IP = "185.65.134.10"
 HOME_IP = "81.2.69.160"
 
@@ -79,11 +79,11 @@ SAME_HOST = {"gluetun": ["172.20.0.5"], "slskd": ["172.20.0.5"], "qbittorrent": 
 OWN_HOSTS = {"gluetun": ["172.20.0.5"], "slskd": ["172.20.0.9"], "qbittorrent": ["172.20.0.5"]}
 
 
-DOCKER_NET = [ipaddress.ip_network("172.20.0.0/16")]
+DOCKER_NET = [(ipaddress.ip_network("172.20.0.0/16"), True)]  # a compose network, carrying the default route
 
 
 def make_ctx(*, routes, cfg=None, hosts=SAME_HOST, torrent_port=51234, home=None, home_calls=None,
-             nets=DOCKER_NET):
+             nets=DOCKER_NET, docker_dns=True):
     config = {
         "privacy.gluetun_url": GLUETUN,
         "privacy.gluetun_api_key": "k3y",
@@ -109,7 +109,8 @@ def make_ctx(*, routes, cfg=None, hosts=SAME_HOST, torrent_port=51234, home=None
 
     return sc.SetupCheckContext(get=lambda k, d=None: config.get(k, d), http=FakeHttp(routes), env={},
                                 read_mountinfo=lambda: "", resolve_host=resolve, home_ip_fetch=fetch_home,
-                                torrent_listen_port=lambda kind: torrent_port, local_networks=lambda: nets)
+                                torrent_listen_port=lambda kind: torrent_port, local_networks=lambda: nets,
+                                docker_dns=lambda: docker_dns)
 
 
 @pytest.fixture(autouse=True)
@@ -250,6 +251,8 @@ def test_signed_in_once_while_down_is_only_check_again(monkeypatch):
     monkeypatch.setattr(pc, "_sleep", sign_out)
     report = pc.run_privacy_check(ctx)
     assert report["state"] == pc.VPN_DOWN
+    assert report["headline"] == ("VPN is down, and slskd looked signed in to Soulseek for a moment: "
+                                  "check again in a minute")
     assert rows(report)["privacy.kill_switch"]["status"] == sc.WARNING
 
 
@@ -294,8 +297,85 @@ def test_slskd_reaching_gluetun_on_loopback_is_not_proof():
 def test_service_names_off_our_docker_network_prove_nothing():
     # single-label names, but resolving to a LAN machine, not SYNCHRO.S's Docker network
     ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes()},
-                   hosts={"gluetun": ["192.168.1.10"]}, cfg={"torrent_client.type": ""})
+                   hosts={"gluetun": ["192.168.1.10"], "slskd": ["192.168.1.10"]}, cfg={"torrent_client.type": ""})
     assert pc.run_privacy_check(ctx)["state"] == pc.NOT_CONFIRMED
+
+
+# H1, second round: names must be Docker's, different, and lead to Gluetun only
+
+LAN = [(ipaddress.ip_network("192.168.1.0/24"), True)]   # the home network, carrying the default route
+
+
+@pytest.mark.gauntlet
+def test_case_a_host_or_macvlan_networking_lan_names_are_not_proof():
+    """SYNCHRO.S with host networking (or macvlan/ipvlan, Unraid br0, Synology):
+    the LAN is a directly connected route, and two LAN names for one machine
+    (slskd outside the VPN on it, Gluetun's 8000 published) mustn't read as
+    one container."""
+    hosts = {"tower": ["192.168.1.10"], "nas": ["192.168.1.10"]}
+    for dns in (True, False):
+        ctx = make_ctx(routes={**gluetun_routes(base="http://nas:8000"),
+                               **slskd_routes(integration=False, base="http://tower:5030")},
+                       hosts=hosts, nets=LAN, docker_dns=dns,
+                       cfg={"soulseek.slskd_url": "http://tower:5030", "privacy.gluetun_url": "http://nas:8000",
+                            "torrent_client.type": ""})
+        report = pc.run_privacy_check(ctx)
+        assert report["state"] == pc.NOT_CONFIRMED and report["tone"] == sc.WARNING
+        assert report["services"][0]["inside"] is None
+
+
+def test_case_a_same_name_for_both_is_not_proof():
+    hosts = {"tower": ["172.20.0.5"]}
+    ctx = make_ctx(routes={**gluetun_routes(base="http://tower:8000"),
+                           **slskd_routes(integration=False, base="http://tower:5030")},
+                   hosts=hosts, cfg={"soulseek.slskd_url": "http://tower:5030",
+                                     "privacy.gluetun_url": "http://tower:8000", "torrent_client.type": ""})
+    report = pc.run_privacy_check(ctx)
+    assert report["state"] == pc.NOT_CONFIRMED
+    assert "one name for both" in report["services"][0]["how"]
+
+
+def test_gluetun_name_for_slskd_is_amber():
+    ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes(base="http://gluetun:5030")},
+                   cfg={"soulseek.slskd_url": "http://gluetun:5030", "torrent_client.type": ""})
+    assert pc.run_privacy_check(ctx)["state"] == pc.NOT_CONFIRMED
+
+
+def test_without_dockers_name_server_names_prove_nothing():
+    ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes()}, docker_dns=False, cfg={"torrent_client.type": ""})
+    assert pc.run_privacy_check(ctx)["state"] == pc.NOT_CONFIRMED
+
+
+def test_a_docker_network_that_isnt_the_default_route_counts():
+    nets = [(ipaddress.ip_network("192.168.48.0/20"), False), (ipaddress.ip_network("192.168.1.0/24"), True)]
+    hosts = {"gluetun": ["192.168.48.3"], "slskd": ["192.168.48.3"], "qbittorrent": ["192.168.48.3"]}
+    ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes()}, hosts=hosts, nets=nets)
+    assert pc.run_privacy_check(ctx)["state"] == pc.PROTECTED
+
+
+@pytest.mark.gauntlet
+def test_case_b_a_name_with_several_containers_is_not_proof():
+    """An old slskd container still on the shared network answers to the name
+    too: some of its addresses aren't Gluetun's."""
+    hosts = {"gluetun": ["172.20.0.5"], "slskd": ["172.20.0.5", "172.20.0.9"], "qbittorrent": ["172.20.0.5"]}
+    ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes()}, hosts=hosts, cfg={"torrent_client.type": ""})
+    report = pc.run_privacy_check(ctx)
+    assert report["state"] == pc.NOT_CONFIRMED and report["tone"] == sc.WARNING
+    assert "more than one container" in report["services"][0]["how"]
+
+
+def test_default_route_reader_marks_the_default_interface(tmp_path, monkeypatch):
+    table = ("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+             "eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
+             "eth0\t0001A8C0\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n"
+             "eth1\t000014AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n")
+    path = tmp_path / "route"
+    path.write_text(table)
+    real_open = open
+    monkeypatch.setattr("builtins.open", lambda f, *a, **k: real_open(path if f == "/proc/net/route" else f, *a, **k))
+    nets = pc._default_local_networks()
+    assert (ipaddress.ip_network("192.168.1.0/24"), True) in nets
+    assert (ipaddress.ip_network("172.20.0.0/16"), False) in nets
 
 
 # M1: a service SYNCHRO.S can't see is never green
