@@ -79,7 +79,7 @@ SAME_HOST = {"gluetun": ["172.20.0.5"], "slskd": ["172.20.0.5"], "qbittorrent": 
 OWN_HOSTS = {"gluetun": ["172.20.0.5"], "slskd": ["172.20.0.9"], "qbittorrent": ["172.20.0.5"]}
 
 
-DOCKER_NET = [(ipaddress.ip_network("172.20.0.0/16"), True)]  # a compose network, carrying the default route
+DOCKER_NET = [(ipaddress.ip_network("172.20.0.0/16"), True, "veth")]  # a compose network, carrying the default route
 
 
 def make_ctx(*, routes, cfg=None, hosts=SAME_HOST, torrent_port=51234, home=None, home_calls=None,
@@ -303,7 +303,7 @@ def test_service_names_off_our_docker_network_prove_nothing():
 
 # H1, second round: names must be Docker's, different, and lead to Gluetun only
 
-LAN = [(ipaddress.ip_network("192.168.1.0/24"), True)]   # the home network, carrying the default route
+LAN = [(ipaddress.ip_network("192.168.1.0/24"), True, "macvlan")]   # the home network, carrying the default route
 
 
 @pytest.mark.gauntlet
@@ -347,10 +347,39 @@ def test_without_dockers_name_server_names_prove_nothing():
 
 
 def test_a_docker_network_that_isnt_the_default_route_counts():
-    nets = [(ipaddress.ip_network("192.168.48.0/20"), False), (ipaddress.ip_network("192.168.1.0/24"), True)]
+    nets = [(ipaddress.ip_network("192.168.48.0/20"), False, "veth"),
+            (ipaddress.ip_network("192.168.1.0/24"), True, "macvlan")]
     hosts = {"gluetun": ["192.168.48.3"], "slskd": ["192.168.48.3"], "qbittorrent": ["192.168.48.3"]}
     ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes()}, hosts=hosts, nets=nets)
     assert pc.run_privacy_check(ctx)["state"] == pc.PROTECTED
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("driver", ["macvlan", "ipvlan", ""])
+def test_case_a3_a_lan_inside_dockers_pool_on_macvlan_is_not_proof(driver):
+    """A home network numbered inside 172.16.0.0/12, reached over macvlan or
+    ipvlan (or an interface that can't be told), with Docker's DNS forwarding
+    LAN names: not green."""
+    nets = [(ipaddress.ip_network("172.20.0.0/16"), True, driver)]
+    hosts = {"tower": ["172.20.0.10"], "nas": ["172.20.0.10"]}
+    ctx = make_ctx(routes={**gluetun_routes(base="http://nas:8000"),
+                           **slskd_routes(integration=False, base="http://tower:5030")},
+                   hosts=hosts, nets=nets,
+                   cfg={"soulseek.slskd_url": "http://tower:5030", "privacy.gluetun_url": "http://nas:8000",
+                        "torrent_client.type": ""})
+    report = pc.run_privacy_check(ctx)
+    assert report["state"] == pc.NOT_CONFIRMED and report["services"][0]["inside"] is None
+
+
+def test_the_amber_advice_explains_a_192_168_docker_network():
+    nets = [(ipaddress.ip_network("192.168.48.0/20"), True, "veth")]
+    hosts = {"gluetun": ["192.168.48.3"], "slskd": ["192.168.48.3"]}
+    ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes()}, hosts=hosts, nets=nets,
+                   cfg={"torrent_client.type": ""})
+    report = pc.run_privacy_check(ctx)
+    assert report["state"] == pc.NOT_CONFIRMED
+    fix = rows(report)["privacy.kill_switch"]["fix"]
+    assert "docker network inspect soulsync-network" in fix and "gluetun:" not in fix
 
 
 @pytest.mark.gauntlet
@@ -373,9 +402,14 @@ def test_default_route_reader_marks_the_default_interface(tmp_path, monkeypatch)
     path.write_text(table)
     real_open = open
     monkeypatch.setattr("builtins.open", lambda f, *a, **k: real_open(path if f == "/proc/net/route" else f, *a, **k))
+    monkeypatch.setattr(pc, "_interface_driver", lambda name: {"eth0": "macvlan", "eth1": "veth"}[name])
     nets = pc._default_local_networks()
-    assert (ipaddress.ip_network("192.168.1.0/24"), True) in nets
-    assert (ipaddress.ip_network("172.20.0.0/16"), False) in nets
+    assert (ipaddress.ip_network("192.168.1.0/24"), True, "macvlan") in nets
+    assert (ipaddress.ip_network("172.20.0.0/16"), False, "veth") in nets
+
+
+def test_an_interface_that_cant_be_read_has_no_driver():
+    assert pc._interface_driver("no-such-if0") == ""
 
 
 # M1: a service SYNCHRO.S can't see is never green

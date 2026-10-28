@@ -380,14 +380,42 @@ def _default_routes() -> Tuple[List[Tuple[ipaddress.IPv4Network, str]], set]:
     return nets, default_ifaces
 
 
-def _default_local_networks() -> List[Tuple[ipaddress.IPv4Network, bool]]:
+def _interface_driver(name: str) -> str:
+    """The kernel driver behind a network interface (``veth`` for a container
+    on a Docker bridge, ``macvlan`` / ``ipvlan`` for one on the home network),
+    asked with ethtool's GDRVINFO, which needs no privileges. ``""`` when it
+    can't be told."""
+    import array
+    import fcntl
+    import struct
+    buf = array.array("B", struct.pack("I", 3) + b"\0" * 192)   # ETHTOOL_GDRVINFO
+    addr, _ = buf.buffer_info()
+    ifr = struct.pack("16sP", name.encode("ascii", "replace")[:15], addr)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        fcntl.ioctl(sock.fileno(), 0x8946, ifr)                    # SIOCETHTOOL
+    except OSError:
+        return ""
+    finally:
+        sock.close()
+    return buf[4:36].tobytes().split(b"\0")[0].decode("ascii", "replace")
+
+
+def _default_local_networks() -> List[Tuple[ipaddress.IPv4Network, bool, str]]:
     """The networks SYNCHRO.S's own container sits on, each with whether the
-    default route (the way to the internet) leaves through it."""
+    default route (the way to the internet) leaves through it and the driver
+    of the interface it's on."""
     try:
         nets, default_ifaces = _default_routes()
     except (OSError, ValueError):
         return []
-    return [(net, iface in default_ifaces) for net, iface in nets]
+    drivers: Dict[str, str] = {}
+    out = []
+    for net, iface in nets:
+        if iface not in drivers:
+            drivers[iface] = _interface_driver(iface)
+        out.append((net, iface in default_ifaces, drivers[iface]))
+    return out
 
 
 def _default_docker_dns() -> bool:
@@ -420,7 +448,8 @@ def _same_network(ctx, service_url: str, gluetun_url: str) -> Tuple[Optional[boo
     * every address of the service's name is one of Gluetun's, on a network
       SYNCHRO.S's own container is on and not the home network: a network that
       carries SYNCHRO.S's default route counts only inside Docker's own
-      address pool (172.16.0.0/12), since with macvlan or ipvlan it's the LAN.
+      address pool (172.16.0.0/12) and on a Docker bridge (a ``veth``
+      interface), since with macvlan or ipvlan it's the LAN.
 
     False when two such names lead to separate addresses there (the service has
     its own container). Anything else is None: it proves nothing either way."""
@@ -448,9 +477,16 @@ def _same_network(ctx, service_url: str, gluetun_url: str) -> Tuple[Optional[boo
             return False
         if not addr.is_private or addr.is_loopback:
             return False
-        for net, carries_default in nets:
+        for entry in nets:
+            net, carries_default = entry[0], entry[1]
+            driver = entry[2] if len(entry) > 2 else ""
             if addr in net:
-                return (not carries_default) or (net.version == 4 and net.subnet_of(_DOCKER_POOL))
+                if not carries_default:
+                    return True
+                # the way to the internet: only a Docker bridge (a veth
+                # interface) in Docker's own pool; macvlan or ipvlan is the
+                # home network whatever its range
+                return driver == "veth" and net.version == 4 and net.subnet_of(_DOCKER_POOL)
         return False
 
     if not ips_a or not ips_b or not all(on_docker_network(ip) for ip in ips_a | ips_b):
@@ -755,8 +791,10 @@ def verdict(f: Facts) -> Dict[str, Any]:
                        f"SYNCHRO.S can't prove that {who} {_verb(unsure, 'is', 'are')} inside Gluetun's network from "
                        "the address it uses, so it can't confirm the kill switch.",
                        "Point SYNCHRO.S at them by the names the VPN file gives Gluetun: `http://slskd:5030` for slskd "
-                       "and `http://qbittorrent:8080` for qBittorrent (or `http://gluetun:…`). A LAN address, the "
-                       "Docker host or a name with a dot can't show which network a service is on.", CATEGORY))
+                       "and `http://qbittorrent:8080` for qBittorrent. A LAN address, the Docker host or a name with "
+                       "a dot can't show which network a service is on. If `docker network inspect soulsync-network` "
+                       "shows a 192.168.x subnet, SYNCHRO.S can't tell it from a home network, so this stays amber: "
+                       "that's expected.", CATEGORY))
     else:
         extra = (" slskd also leaves Soulseek whenever Gluetun says the VPN is down."
                  if slskd is not None and slskd.vpn_integration else "")
