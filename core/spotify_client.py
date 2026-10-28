@@ -9,6 +9,7 @@ except ImportError:  # a stubbed spotipy (some tests install one)
 from typing import Dict, List, Optional, Any
 import atexit
 import email.utils
+import json
 import math
 import os
 import random
@@ -521,10 +522,22 @@ def _caller_kind() -> str:
 # Background waits end early when this is set (shutdown), and never last
 # longer than _BACKGROUND_MAX_WAIT for one request.
 _gate_cancel = threading.Event()
+_background_budget_lock = threading.Lock()
+_REAL_SLEEP = time.sleep
+
+
+def _wait_cancellable(seconds: float) -> None:
+    """Sleep, waking at once when cancel_spotify_waits() is called. (Under a
+    test's fake clock, its sleep, so the clock moves.)"""
+    if time.sleep is _REAL_SLEEP:
+        _gate_cancel.wait(seconds)
+    else:
+        time.sleep(seconds)
 
 
 def cancel_spotify_waits() -> None:
-    """Wake every request waiting for the budget: it gives up at once."""
+    """Wake every background request waiting for the budget: it gives up at
+    once. (A person's request waits at most INTERACTIVE_MAX_WAIT anyway.)"""
     _gate_cancel.set()
 
 
@@ -546,6 +559,7 @@ def _is_other_app(client_id: Optional[str]) -> bool:
 
 
 def _other_app_pause_left(client_id: str) -> int:
+    _ensure_state_loaded()
     until = _other_app_pauses.get(client_id, 0)
     return max(0, int(math.ceil(until - time.time())))
 
@@ -586,14 +600,17 @@ def _gate_before_request(endpoint: str, client_id: Optional[str] = None,
                 cooldown = _get_post_ban_cooldown_remaining()
                 if cooldown > 0:
                     raise SpotifyRateLimitError(cooldown, endpoint)
-            wait = 0.0
-            if kind == 'background':
-                wait = _background_counter.seconds_until_below(_background_hourly_budget())
-            if wait <= 0:
-                wait = _bucket.take(False)
+            # The hourly share's check, the token and the count are one step,
+            # so waiters released together can't overshoot the share.
+            with _background_budget_lock:
+                wait = 0.0
+                if kind == 'background':
+                    wait = _background_counter.seconds_until_below(_background_hourly_budget())
+                if wait <= 0:
+                    wait = _bucket.take(False)
+                    if wait <= 0 and kind == 'background':
+                        _background_counter.add()
         if wait <= 0:
-            if kind == 'background':
-                _background_counter.add()
             return
         if _gate_cancel.is_set() or time.monotonic() + wait > deadline:
             if kind == 'background':
@@ -603,7 +620,7 @@ def _gate_before_request(endpoint: str, client_id: Optional[str] = None,
             time.sleep(wait)
         else:
             step = min(wait, BACKGROUND_WAIT_STEP)
-            time.sleep(step + random.uniform(0, step * 0.25))
+            _wait_cancellable(step + random.uniform(0, step * 0.25))
 
 
 def _gate_after_response(response, endpoint: str, client_id: Optional[str] = None) -> None:
@@ -616,7 +633,12 @@ def _gate_after_response(response, endpoint: str, client_id: Optional[str] = Non
     retry_after = parse_retry_after(_header_value(getattr(response, 'headers', None), 'Retry-After'))
     if _is_other_app(client_id):
         seconds = min(retry_after, _MAX_SPOTIFY_PAUSE) if retry_after is not None else _BASE_UNKNOWN_BAN
-        _other_app_pauses[client_id] = time.time() + max(1, seconds)
+        _ensure_state_loaded()
+        with _rate_limit_lock:
+            _other_app_pauses[client_id] = time.time() + max(1, seconds)
+            snapshot = _snapshot_locked()
+            seq = _next_store_seq()
+        _persist(snapshot, seq)  # kept across a restart, like the account's pause
         logger.warning(f"Spotify paused a profile's own app for {seconds}s (triggered by {endpoint})")
         return
     if retry_after is not None:
@@ -833,9 +855,12 @@ def _state_store_set(value) -> None:
 
 
 def _snapshot_locked() -> Optional[Dict[str, Any]]:
-    if _rate_limit_until <= 0 and _rate_limit_last_until <= 0:
+    now = time.time()
+    others = {cid: until for cid, until in _other_app_pauses.items() if until > now}
+    if _rate_limit_until <= 0 and _rate_limit_last_until <= 0 and not others:
         return None
     return {
+        'other_apps': others,
         'until': _rate_limit_until,
         'retry_after': _rate_limit_retry_after,
         'endpoint': _rate_limit_endpoint,
@@ -910,20 +935,46 @@ class _StoreWriter:
         return True
 
 
+# The last list of playlists Spotify gave, shown while it asks us to wait.
+# Kept in the database's metadata table, not the app config: it changes with
+# every fetch, isn't a setting, and never appears in settings or exports.
 _PLAYLISTS_KEY = 'spotify_last_playlists'
 
 
 def _playlists_store_get():
     if _MEMORY_STORE is not None:
         return _MEMORY_STORE.get(_PLAYLISTS_KEY)
-    return config_manager.get(_PLAYLISTS_KEY, None)
+    from database.music_database import get_database
+    raw = get_database().get_metadata(_PLAYLISTS_KEY)
+    return json.loads(raw) if raw else None
 
 
 def _playlists_store_set(value) -> None:
     if _MEMORY_STORE is not None:
         _MEMORY_STORE[_PLAYLISTS_KEY] = value
         return
-    config_manager.set(_PLAYLISTS_KEY, value)
+    from database.music_database import get_database
+    get_database().set_metadata(_PLAYLISTS_KEY, json.dumps(value) if value is not None else '')
+
+
+_last_playlists_stored: Optional[str] = None  # what was last written, to skip a rewrite of the same
+
+
+def remember_last_playlists(account: Optional[str], rows: List[Dict[str, Any]]) -> None:
+    """Keep the account's list for a pause, written only when it changed."""
+    global _last_playlists_stored
+    fingerprint = json.dumps([account, rows], sort_keys=True, default=str)
+    if fingerprint == _last_playlists_stored:
+        return
+    _last_playlists_stored = fingerprint
+    _store_writer.put('playlists', _next_store_seq(), {'account': account, 'at': time.time(), 'rows': rows})
+
+
+def forget_last_playlists() -> None:
+    """A sign-in (perhaps another account) or Disconnect: the list isn't theirs."""
+    global _last_playlists_stored
+    _last_playlists_stored = None
+    _store_writer.put('playlists', _next_store_seq(), None)
 
 
 _STORE_SETTERS = {
@@ -981,6 +1032,10 @@ def _ensure_state_loaded() -> None:
             return
         try:
             now = time.time()
+            for cid, other_until in (stored.get('other_apps') or {}).items():
+                other_until = min(float(other_until), now + _MAX_SPOTIFY_PAUSE)
+                if other_until > max(now, _other_app_pauses.get(cid, 0)):
+                    _other_app_pauses[cid] = other_until
             until = float(stored.get('until') or 0)
             # a garbled store can't pause Spotify for longer than a day
             until = min(until, now + _MAX_SPOTIFY_PAUSE)
@@ -1257,8 +1312,10 @@ def release_pause_after_sign_in() -> bool:
 
 def _reset_for_tests() -> None:
     """Forget every pause, budget and refresh failure without touching storage."""
+    global _last_playlists_stored
     _store_writer.flush(2.0)
     _store_writer.discard()
+    _last_playlists_stored = None
     if _MEMORY_STORE is not None:
         _MEMORY_STORE.clear()
     global _rate_limit_until, _rate_limit_retry_after, _rate_limit_endpoint, _rate_limit_set_at
@@ -1627,7 +1684,7 @@ class SpotifyClient:
                 rows = [{'id': p.id, 'name': p.name, 'description': p.description, 'owner': p.owner,
                          'public': p.public, 'collaborative': p.collaborative,
                          'total_tracks': p.total_tracks} for p in value]
-                _store_writer.put('playlists', _next_store_seq(), {'at': time.time(), 'rows': rows})
+                remember_last_playlists(self.user_id, rows)
 
     def _short_cache_clear(self) -> None:
         if hasattr(self, '_short_cache'):
@@ -1643,6 +1700,9 @@ class SpotifyClient:
             return None, None
         try:
             stored = _playlists_store_get()
+            if isinstance(stored, dict) and self.user_id and stored.get('account') \
+                    and stored.get('account') != self.user_id:
+                return None, None  # another account's
             if isinstance(stored, dict) and isinstance(stored.get('rows'), list):
                 rows = [Playlist(id=r['id'], name=r.get('name', ''), description=r.get('description'),
                                  owner=r.get('owner', ''), public=bool(r.get('public')),
@@ -2131,7 +2191,7 @@ class SpotifyClient:
         self._invalidate_auth_cache()
         self._short_cache_clear()
         forget_gone_endpoints()
-        _store_writer.put('playlists', _next_store_seq(), None)  # not this account's any more
+        forget_last_playlists()  # not this account's any more
         # A wait Spotify asked for stays (it's on the app, not the sign-in):
         # disconnect-and-reconnect used to clear it and send every job back
         # into the limit. Our own estimate is cleared.

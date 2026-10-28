@@ -596,12 +596,18 @@ class TestPoolThreadsAndTheSlot:
     @pytest.fixture
     def waiting_background_job(self, fake_spotify):
         _FakeSpotify.status, _FakeSpotify.headers_out, _FakeSpotify.body = 200, {}, {"ok": True}
+        # The hourly share is spent, and frees up in about a minute: inside the
+        # 5-minute cap, so the job really waits (holding the slot, it would
+        # block everything behind it for that minute).
+        aged = time.monotonic() - 3540
         for _ in range(sc._background_hourly_budget()):
-            sc._background_counter.add()  # the hourly share is spent
+            sc._background_counter._events.append(aged)
+        assert 50 < sc._background_counter.seconds_until_below(sc._background_hourly_budget()) < 70
         url = fake_spotify + "me"
         job = threading.Thread(target=lambda: _swallow(lambda: sc.GatedSpotifySession().get(url)), daemon=True)
         job.start()
-        time.sleep(0.3)  # it's waiting for budget now
+        time.sleep(0.3)
+        assert job.is_alive()  # it's waiting for budget now
         yield url
         sc.cancel_spotify_waits()
         job.join(15)
@@ -1012,3 +1018,213 @@ class TestBusy:
             with pytest.raises(sc.SpotifyBusyError):
                 sc._gate_before_request("search_tracks")
         assert sum(clock.slept) <= gate.INTERACTIVE_MAX_WAIT
+
+
+# ── the second review round (re-review of 94ee570f..0cd6027c) ────────────
+
+
+class TestEmptyRedirectSetting:
+    """1: an empty setting signs in with the 127.0.0.1 default, both ways."""
+
+    def test_end_to_end(self, monkeypatch):
+        import web_server
+        from urllib.parse import parse_qs, urlparse
+        from core.security import session_profile as _sp
+        _resolve = _sp.resolve_session_profile
+        monkeypatch.setattr(_sp, "resolve_session_profile", lambda **kw: _resolve(**{**kw, "profile_count": 1}))
+        cfg = {"client_id": "id", "client_secret": "s", "redirect_uri": ""}
+        monkeypatch.setattr(sc.config_manager, "get_spotify_config", lambda: dict(cfg))
+        monkeypatch.setattr(web_server.config_manager, "get_spotify_config", lambda: dict(cfg))
+        client = sc.SpotifyClient()
+        assert client.sp.auth_manager.redirect_uri == gate.LOOPBACK_REDIRECT_URI
+        monkeypatch.setattr(web_server, "get_spotify_client", lambda: client)
+        monkeypatch.setattr(web_server, "add_activity_item", lambda *a, **k: None)
+        monkeypatch.setattr(web_server, "clear_cached_metadata_client", lambda *a: None)
+        monkeypatch.setattr(web_server, "spotify_enrichment_worker", None)
+        web_server.app.config["TESTING"] = True
+        http = web_server.app.test_client()
+
+        r = http.get("/auth/spotify", headers={"Host": "127.0.0.1:8008"})
+        assert r.status_code == 302
+        sent = parse_qs(urlparse(r.headers["Location"]).query)["redirect_uri"][0]
+        assert sent == gate.LOOPBACK_REDIRECT_URI
+
+        exchanged = []
+
+        class _Auth:
+            def get_access_token(self, code, check_cache=True):
+                return {"access_token": "fresh"}
+
+        def make(**kw):
+            exchanged.append(kw["redirect_uri"])
+            return _Auth()
+
+        monkeypatch.setattr("core.spotify_client.make_spotify_oauth", make)
+        monkeypatch.setattr(client, "is_spotify_authenticated", lambda: True)
+        r = http.get("/callback?code=abc")
+        assert r.status_code == 200
+        assert exchanged == [sent]  # the same URI both ways, or Spotify refuses the exchange
+
+
+class TestLastListIsNotASetting:
+    """2: the last playlist list lives in the metadata table, per account."""
+
+    @pytest.fixture
+    def metadata(self, monkeypatch):
+        rows, writes = {}, []
+
+        class _Db:
+            def get_metadata(self, key):
+                return rows.get(key)
+
+            def set_metadata(self, key, value):
+                writes.append(key)
+                rows[key] = value
+
+        monkeypatch.setattr(sc, "_MEMORY_STORE", None)
+        monkeypatch.setattr("database.music_database.get_database", lambda: _Db())
+        return rows, writes
+
+    def _playlists(self):
+        return [sc.Playlist(id="p1", name="Sunday", description=None, owner="Ross", public=False,
+                            collaborative=False, tracks=[], total_tracks=3)]
+
+    def test_stored_outside_the_config_and_only_when_changed(self, metadata, monkeypatch):
+        rows, writes = metadata
+        config_writes = []
+        monkeypatch.setattr(sc.config_manager, "set", lambda key, value: config_writes.append(key))
+        client = _client_for("http://127.0.0.1:9/v1/")
+        client._publishes_account = True
+        client._short_cache_put("playlists", self._playlists())
+        client._short_cache_put("playlists", self._playlists())  # the same list again
+        assert sc._flush_persist()
+        assert writes == ["spotify_last_playlists"]
+        assert not [k for k in config_writes if "playlist" in k]
+        stored = json.loads(rows["spotify_last_playlists"])
+        assert stored["account"] == "me" and stored["rows"][0]["id"] == "p1"
+
+    def test_another_account_never_sees_it(self, metadata):
+        client = _client_for("http://127.0.0.1:9/v1/")
+        client._publishes_account = True
+        client._short_cache_put("playlists", self._playlists())
+        assert sc._flush_persist()
+        other = _client_for("http://127.0.0.1:9/v1/")
+        other._publishes_account = True
+        other.user_id = "someone-else"
+        assert other.last_known_playlists() == (None, None)
+        same = _client_for("http://127.0.0.1:9/v1/")
+        same._publishes_account = True
+        assert [p.id for p in same.last_known_playlists()[0]] == ["p1"]
+
+    def test_forgotten_on_a_sign_in(self, metadata, sign_in):
+        rows, _writes = metadata
+        via, _used = sign_in
+        client = _client_for("http://127.0.0.1:9/v1/")
+        client._publishes_account = True
+        client._short_cache_put("playlists", self._playlists())
+        assert sc._flush_persist() and rows["spotify_last_playlists"]
+        via("8008", "code=xyz")
+        assert sc._flush_persist() and not rows["spotify_last_playlists"]
+
+    def test_never_in_settings_or_an_export(self, metadata):
+        import web_server
+        client = _client_for("http://127.0.0.1:9/v1/")
+        client._publishes_account = True
+        client._short_cache_put("playlists", self._playlists())
+        assert sc._flush_persist()
+        assert "spotify_last_playlists" not in json.dumps(web_server.config_manager.redacted_config())
+
+
+@gauntlet
+class TestBudgetEdges:
+    """5: the hourly share can't be overshot; cancel wakes waiters at once."""
+
+    def test_waiters_released_together_dont_overshoot(self, monkeypatch):
+        monkeypatch.setattr(sc, "_background_hourly_budget", lambda: 5)
+        monkeypatch.setattr(sc, "_BACKGROUND_MAX_WAIT", 0.5)
+        for _ in range(4):
+            sc._background_counter.add()
+        passed, start = [], threading.Barrier(8)
+
+        def go():
+            start.wait()
+            try:
+                sc._gate_before_request("get_album")
+                passed.append(1)
+            except sc.SpotifyRateLimitError:
+                pass
+
+        threads = [threading.Thread(target=go) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        assert len(passed) == 1 and sc._background_counter.count() == 5
+
+    def test_cancel_wakes_a_waiter_at_once(self, monkeypatch):
+        monkeypatch.setattr(sc, "_get_base_api_interval", lambda: 60.0)  # a token a minute
+        sc._bucket.drain()
+        out = {}
+
+        def wait():
+            started = time.monotonic()
+            try:
+                sc._gate_before_request("get_album")
+            except sc.SpotifyRateLimitError:
+                out["gave_up_after"] = time.monotonic() - started
+
+        t = threading.Thread(target=wait)
+        t.start()
+        time.sleep(0.3)
+        sc.cancel_spotify_waits()
+        t.join(5)
+        assert out["gave_up_after"] < 1.5
+
+    def test_another_apps_pause_survives_a_restart(self, clock, monkeypatch):
+        box = {}
+        monkeypatch.setattr(sc, "_state_store_get", lambda: box.get("v"))
+        monkeypatch.setattr(sc, "_state_store_set", lambda v: box.__setitem__("v", v))
+        sc.set_active_client_id("shared-app")
+        sc._gate_after_response(types.SimpleNamespace(status_code=429, headers={"Retry-After": "600"}),
+                                "search_tracks", client_id="own-app")
+        assert sc._flush_persist()
+        sc._reset_for_tests()
+        sc._state_loaded = False
+        sc.set_active_client_id("shared-app")
+        assert 590 <= sc._other_app_pause_left("own-app") <= 600
+        assert not sc._is_globally_rate_limited()
+
+    def test_finished_loads_are_pruned_on_a_poll(self, web, monkeypatch):
+        import web_server
+        http, _client = web
+        with web_server.spotify_playlist_load_lock:
+            web_server.spotify_playlist_load_jobs["old"] = {
+                "status": "complete", "updated_at": time.time() - 7200, "profile_id": None}
+        http.get("/api/spotify/playlist-load/whatever")
+        assert "old" not in web_server.spotify_playlist_load_jobs
+
+
+class TestBulkWantedInARequest:
+    """3: Wanted's bulk add looks releases up as the person's request, with a cap."""
+
+    def test_lookups_are_the_persons_and_late_ones_are_reported(self, monkeypatch):
+        from flask import Flask
+        from core.library import bulk_wanted as bw
+        monkeypatch.setattr(bw, "FETCH_DEADLINE", 0.5)
+        seen = []
+
+        def fetch(release):
+            seen.append(sc._is_interactive_request())
+            if release["id"] == "slow":
+                time.sleep(2)
+            return {"success": False, "error": "no tracks"}
+
+        releases = [{"id": i, "title": i, "artist_name": "A", "kind": "missing", "state": "missing"}
+                    for i in ("a", "b", "slow")]
+        with Flask(__name__).test_request_context("/api/wishlist/bulk", method="POST"):
+            started = time.monotonic()
+            result = bw.add_releases(None, releases, profile_id=1, fetch=fetch)
+            assert time.monotonic() - started < 1.5
+        assert all(seen) and len(seen) == 3
+        late = [r for r in result["results"] if r["id"] == "slow"][0]
+        assert "in time" in late["message"]

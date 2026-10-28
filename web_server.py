@@ -5905,7 +5905,7 @@ def auth_spotify_export():
         auth_manager = make_spotify_oauth(
             client_id=cfg['client_id'],
             client_secret=cfg['client_secret'],
-            redirect_uri=cfg.get('redirect_uri', 'http://127.0.0.1:8888/callback'),
+            redirect_uri=cfg.get('redirect_uri') or 'http://127.0.0.1:8888/callback',
             scope=SPOTIFY_EXPORT_SCOPE,
             cache_handler=DatabaseTokenCache(config_manager),
             show_dialog=True,
@@ -6143,8 +6143,9 @@ def _finish_spotify_sign_in(auth_code, state, where="port 8008"):
     validation runs as a person's request (someone is looking at the page).
     """
     global spotify_client
-    from core.spotify_client import forget_gone_endpoints, spotify_interactive
+    from core.spotify_client import forget_gone_endpoints, forget_last_playlists, spotify_interactive
     forget_gone_endpoints()  # a new sign-in: ask every endpoint again
+    forget_last_playlists()  # perhaps another account: the stored list isn't theirs
     profile_id_from_state = None
     if state and str(state).startswith('profile_'):
         try:
@@ -6198,7 +6199,10 @@ def _finish_spotify_sign_in(auth_code, state, where="port 8008"):
 
             # Global callback (admin)
             config = normalize_spotify_oauth_config(config_manager.get_spotify_config())
-            configured_uri = config.get('redirect_uri', "http://127.0.0.1:8888/callback")
+            # The same URI /auth/spotify sent (the client's: the setting, or the
+            # 127.0.0.1 default when it's empty): Spotify refuses a mismatch.
+            from core.spotify_gate import LOOPBACK_REDIRECT_URI
+            configured_uri = config.get('redirect_uri') or LOOPBACK_REDIRECT_URI
             logger.info(f"Using redirect_uri for token exchange: {configured_uri}")
 
             # Write the freshly-exchanged token to the SAME store the client reads
@@ -8616,9 +8620,7 @@ def manual_search_for_task(task_id):
             total = 0
             max_workers = min(8, max(1, len(sources_to_query)))
             with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix='manual-search') as executor:
-                from core.spotify_client import spotify_context
-                search_one = spotify_context(_search_one)  # this person's search, not background work
-                futures = [executor.submit(search_one, name) for name in sources_to_query]
+                futures = [executor.submit(_search_one, name) for name in sources_to_query]
                 for future in as_completed(futures):
                     src_name, tracks, error = future.result()
                     if error is not None:
@@ -12340,9 +12342,7 @@ def _inspect_sources_stream(track_obj, quality_profile_id, *, log_tag='Inspector
 
     def generate_stream():
         with ThreadPoolExecutor(max_workers=4) as pool:
-            from core.spotify_client import spotify_context
-            search_one_source = spotify_context(_search_one_source)  # this person's search
-            futures = {pool.submit(search_one_source, name, client): name for name, client in download_clients.items()}
+            futures = {pool.submit(_search_one_source, name, client): name for name, client in download_clients.items()}
             for future in as_completed(futures):
                 source_name = futures[future]
                 try:
@@ -20329,6 +20329,7 @@ def _run_spotify_playlist_load_job(job_id, client, playlist_id):
 
 @app.route('/api/spotify/playlist-load/<job_id>', methods=['GET'])
 def get_spotify_playlist_load_status(job_id):
+    _prune_spotify_playlist_load_jobs()
     with spotify_playlist_load_lock:
         state = spotify_playlist_load_jobs.get(job_id)
         if not state or state.get('profile_id') != get_current_profile_id():
