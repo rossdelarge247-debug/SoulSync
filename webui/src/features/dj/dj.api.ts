@@ -114,8 +114,9 @@ export interface DjStatus {
     unreachable: number;
     pending: number;
   };
-  /** beat grids: how many tracks are ready to mix, found no beat, are still to do */
-  grids?: { done: number; no_beat: number; pending: number };
+  /** beat grids: how many are worked out, how many of those are ready to mix
+   *  (a steady beat in 4/4: the planner's own rule), found no beat, are still to do */
+  grids?: { done: number; ready?: number; no_beat: number; pending: number };
   job: DjJob | null;
   held: boolean;
   can_start: boolean;

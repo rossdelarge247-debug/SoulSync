@@ -151,6 +151,7 @@ export function useMixModel(
   const qc = useQueryClient();
   const state = useMixState();
   const subjectId = subject?.id ?? null;
+  const subjectTitle = subject?.title ?? null;
 
   // a new playing track: More like this and Widen start over
   const lastSubject = useRef(subjectId);
@@ -400,10 +401,19 @@ export function useMixModel(
   /** Cancel (31c): this profile's ask for the track leaves the line. */
   const cancelAnalyse = useCallback(() => {
     if (!subjectId) return;
-    cancelAnalysis([subjectId]).catch((err: unknown) =>
-      window.showToast?.(err instanceof Error ? err.message : "That didn't work.", 'error'),
-    );
-  }, [subjectId]);
+    cancelAnalysis([subjectId])
+      .then((answer) => {
+        // it started, or the ask wasn't yours after all (review L4)
+        if (!answer.withdrawn)
+          window.showToast?.(
+            `Nothing to cancel: ${subjectTitle || 'it'} isn't in line on your ask any more.`,
+            'info',
+          );
+      })
+      .catch((err: unknown) =>
+        window.showToast?.(err instanceof Error ? err.message : "That didn't work.", 'error'),
+      );
+  }, [subjectId, subjectTitle]);
 
   const playNext = useCallback((match: MixMatch) => {
     playTrackNext(match);

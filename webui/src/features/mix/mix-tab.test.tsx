@@ -612,6 +612,31 @@ describe("29d's states", () => {
     expect(world.analysed[1]).toEqual({ track_ids: ['1'], reason: 'asked', source: 'mix' });
   });
 
+  it("[review L4] Cancel only for your own ask, and it says so when there's nothing to take out", async () => {
+    world.mixes['1'] = {
+      ...answer(track('1', 'Night Ferry', 'Tidewater', null), []),
+      reason: 'not_analyzed',
+    };
+    // in line on someone else's ask (or the sweep's): nothing of yours to cancel
+    world.progress['1'] = { state: 'queued', position: 3, asked_for: true, yours: false };
+    const mix = await openMix();
+    await waitFor(() => expect(world.analysed).toHaveLength(1));
+    await waitFor(() => expect(mixSlot().querySelector('[data-analysis-line]')).not.toBeNull());
+    expect(mixSlot().querySelector('[data-analysis-line]')).toHaveTextContent(/3rd/);
+    expect(mix.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    world.progress['1'] = { state: 'queued', position: 3, asked_for: true, yours: true };
+    analysisStore.pollSoon();
+    fireEvent.click(await mix.findByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(world.analysed).toHaveLength(2), { timeout: 4000 });
+    expect(world.analysed[1]).toEqual({ track_ids: ['1'], cancel: true, reason: 'asked' });
+    // the answer took nothing out (it had just started): say so
+    await waitFor(() =>
+      expect(toasts).toContain(
+        "Nothing to cancel: Night Ferry isn't in line on your ask any more.",
+      ),
+    );
+  });
+
   it('nothing fits: Widen the search asks for 10% and any key', async () => {
     world.mixes['1'] = answer(FERRY, []);
     world.mixes['1:wide'] = { ...answer(FERRY, [MATCHES[0]]), wide: true, within: 10 };

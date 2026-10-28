@@ -230,12 +230,23 @@ function useJustReady(
   entry: AnalysisEntry | null | undefined,
   title: string | null | undefined,
 ): boolean {
-  const before = useRef<AnalysisEntry | null | undefined>(entry);
+  // what this track was last time: another track (the Mix tab moved on to
+  // one that's ready already) starts over and says nothing (review L1)
+  const before = useRef<{ id: string | null | undefined; entry: AnalysisEntry | null | undefined }>(
+    { id, entry },
+  );
   const timer = useRef<number | null>(null);
   const [held, setHeld] = useState(false);
   useEffect(() => {
-    const was = before.current;
-    before.current = entry;
+    const last = before.current;
+    before.current = { id, entry };
+    if (last.id !== id) {
+      if (timer.current) window.clearTimeout(timer.current);
+      timer.current = null;
+      setHeld(false);
+      return;
+    }
+    const was = last.entry;
     if (!was || !pending(was) || !isReady(entry)) return;
     if (was.state === 'waiting' && was.position === null) return;
     setHeld(true);
@@ -567,7 +578,7 @@ export function AnalysisPanel({
   const counts = status.data;
   const readyLine =
     counts?.grids && counts.counts.tracks
-      ? `${counts.grids.done.toLocaleString('en-GB')} of ${counts.counts.tracks.toLocaleString('en-GB')} ready to mix`
+      ? `${(counts.grids.ready ?? counts.grids.done).toLocaleString('en-GB')} of ${counts.counts.tracks.toLocaleString('en-GB')} ready to mix`
       : '';
   const n = inLineCount(sweep).toLocaleString('en-GB');
   let heading: string;

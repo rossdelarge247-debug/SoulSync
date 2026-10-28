@@ -20,7 +20,7 @@
  * (CONTRACTS "Auto-mix stage C").
  */
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 
 import type { Transition } from '@/features/sets/sets.api';
@@ -355,6 +355,8 @@ export function AutomixHost() {
   const phone = usePhone();
   const [slots, setSlots] = useState<Slots>(() => findSlots());
   const [tick, setTick] = useState(0);
+  /** the pair last asked for as Up next's next transition */
+  const soonAsked = useRef<string | null>(null);
 
   // analyse on demand: with DJ mix on (or a set played as a mix), the queue's
   // coming tracks jump the analysis queue, so their chips stop Waiting; the
@@ -368,8 +370,22 @@ export function AutomixHost() {
       .slice(from, from + 50)
       .filter((t) => mixable(t) && (dj || Boolean(t.mix_set)))
       .map((t) => String(t.id));
+    if (ids.length < 2) return;
+    // the next transition's pair goes ahead of every other ask, so a
+    // member's long Analyse mine doesn't hold up the mix (review L10); asked
+    // once each time the pair changes, whatever was asked before
+    const pair = ids.slice(0, 2);
+    const key = pair.join(',');
+    if (soonAsked.current !== key) {
+      soonAsked.current = key;
+      requestAnalysis(pair, { force: true, reason: 'auto', source: 'up_next', soon: true }).catch(
+        () => {
+          soonAsked.current = null;
+        },
+      );
+    }
     // "Up next" is why they're in line (the popover's words, HANDOFF 325)
-    if (ids.length > 1) requestAnalysisQuietly(ids, 'auto', { source: 'up_next' });
+    if (ids.length > 2) requestAnalysisQuietly(ids.slice(2), 'auto', { source: 'up_next' });
   }, [tick, prefs.between]);
 
   // the player's Added toast (Play next, Add to queue) says once where a

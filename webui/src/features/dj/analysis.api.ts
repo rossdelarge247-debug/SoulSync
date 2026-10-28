@@ -66,12 +66,19 @@ export type AnalysisEntry =
       /** full (one decode for everything) or grid (only the beat grid was due) */
       mode?: 'full' | 'grid' | null;
     } & Readiness)
-  | ({ state: 'queued'; position: number; asked_for: boolean } & Readiness)
+  | ({
+      state: 'queued';
+      position: number;
+      asked_for: boolean;
+      /** you asked for it: your Cancel takes it out of line */
+      yours?: boolean;
+    } & Readiness)
   | ({
       state: 'waiting';
       reason: AnalysisWait;
       position: number | null;
       asked_for: boolean;
+      yours?: boolean;
     } & Readiness)
   | ({ state: 'failed'; reason: AnalysisFail; duration?: number | null } & Readiness);
 
@@ -162,6 +169,8 @@ export interface AnalyseAnswer {
   working?: boolean;
   /** Analyse mine: how many of yours moved to the front */
   moved?: number;
+  /** Cancel: how many of your asks left the line */
+  withdrawn?: number;
 }
 
 export class AnalyseError extends Error {
@@ -184,6 +193,8 @@ export interface AnalyseExtras {
   set_id?: number;
   /** Try again (admins): failed tracks are asked for again */
   retry?: boolean;
+  /** Up next's next transition (two tracks at most): ahead of every other ask */
+  soon?: boolean;
 }
 
 /** One request: the tracks (or a playlist) in the asked-for line. */
@@ -258,7 +269,7 @@ interface Waiter {
 
 /** Asks gathered together go in one request only when they say the same why. */
 function batchKey(w: Waiter): string {
-  return `${w.reason}|${w.extras.source ?? ''}|${w.extras.set_id ?? ''}|${w.extras.retry ? 1 : 0}`;
+  return `${w.reason}|${w.extras.source ?? ''}|${w.extras.set_id ?? ''}|${w.extras.retry ? 1 : 0}|${w.extras.soon ? 1 : 0}`;
 }
 
 const asked = new Map<string, number>();
@@ -348,6 +359,7 @@ export function requestAnalysis(
     source,
     setId,
     retry = false,
+    soon = false,
   }: {
     force?: boolean;
     reason?: AnalyseReason;
@@ -356,6 +368,8 @@ export function requestAnalysis(
     setId?: number | null;
     /** Try again (admins) */
     retry?: boolean;
+    /** Up next's next transition: goes ahead of other asks (Brief A review, L10) */
+    soon?: boolean;
   } = {},
 ): Promise<AnalyseAnswer | null> {
   const why: AnalyseReason = reason ?? (force ? 'asked' : 'auto');
@@ -363,6 +377,7 @@ export function requestAnalysis(
     source: source ?? (why === 'asked' ? 'asked' : undefined),
     ...(setId ? { set_id: setId } : {}),
     ...(retry ? { retry: true } : {}),
+    ...(soon ? { soon: true } : {}),
   };
   const t = now();
   const wanted = [
@@ -596,12 +611,20 @@ class AnalysisStore {
     return this.timer !== null;
   }
 
+  /** How long the waiting poll was set to wait, in ms (for tests). */
+  get delay(): number | null {
+    return this.timer !== null ? this.lastDelay : null;
+  }
+
+  private lastDelay = 0;
+
   pollSoon(): void {
     this.schedule(60);
   }
 
   private schedule(ms: number): void {
     if (this.timer) clearTimeout(this.timer);
+    this.lastDelay = ms;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.poll();

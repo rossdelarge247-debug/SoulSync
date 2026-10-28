@@ -289,7 +289,8 @@ describe('Library → Tracks', () => {
   });
 
   it("Brief A (31c): the page's line names the track and its step, and how much is ready to mix", async () => {
-    statusBody = { ...STATUS, grids: { done: 1, no_beat: 0, pending: 1 } };
+    // a grid worked out but not ready to mix (no steady beat) isn't counted
+    statusBody = { ...STATUS, grids: { done: 2, ready: 1, no_beat: 0, pending: 1 } };
     progressSweep = {
       running: true,
       held: false,
@@ -310,6 +311,31 @@ describe('Library → Tracks', () => {
     // the bar fills by step, 3 of 6; Stop lives in the topbar's popover now
     expect(line.querySelector('[data-step="3"]')).not.toBeNull();
     expect(within(line as HTMLElement).queryByRole('button')).toBeNull();
+  });
+
+  it('[review M2] a whole-library sweep polls the page slowly; its own rows working, fast', async () => {
+    progressSweep = {
+      running: true,
+      held: false,
+      analyze: true,
+      id: 4,
+      total: 4980,
+      done: 10,
+      percent: 0,
+      waiting: null,
+      in_line: 0,
+      yours: 0,
+      left: 4970,
+      current: { step: 'key', percent: 35, asked_for: false, track_id: '99', title: 'Elsewhere' },
+    };
+    progressTracks = { '1': { state: 'done' }, '2': { state: 'done' } };
+    renderPage();
+    await screen.findByText(/Analysing Elsewhere/);
+    await waitFor(() => expect(analysisStore.delay).toBe(20_000));
+    // one of the page's rows is being analysed: the page follows it fast
+    progressTracks = { '1': { state: 'working', step: 'read', percent: 5 } };
+    analysisStore.pollSoon();
+    await waitFor(() => expect(analysisStore.delay).toBe(1_500));
   });
 
   it('idle: Analyse all (an admin’s) starts a sweep over what isn’t ready', async () => {

@@ -330,9 +330,15 @@ describe('analyse on demand in Up next', () => {
 
   it("with DJ mix on, the queue's coming tracks jump the analysis queue", async () => {
     mount();
-    // "Up next" is why they're in line (the popover's words, Brief A)
-    await waitFor(() =>
-      expect(asked).toEqual([{ track_ids: ['1', '2', '3'], reason: 'auto', source: 'up_next' }]),
+    // "Up next" is why they're in line (the popover's words, Brief A); the
+    // next transition's pair goes ahead of every other ask (review L10)
+    await waitFor(
+      () =>
+        expect(asked).toEqual([
+          { track_ids: ['1', '2'], reason: 'auto', source: 'up_next', soon: true },
+          { track_ids: ['3'], reason: 'auto', source: 'up_next' },
+        ]),
+      { timeout: 3000 },
     );
   });
 

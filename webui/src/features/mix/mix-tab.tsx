@@ -231,8 +231,10 @@ function NotAnalysedLine({ model, phone = false }: { model: MixModel; phone?: bo
   const n = inLineCount(sweep);
   const meta = phone && n ? `${n.toLocaleString('en-GB')} in line` : null;
   if (entry && !isReady(entry)) {
+    // Cancel only takes out your own ask (review L4)
     const queued =
-      entry.state === 'queued' || (entry.state === 'waiting' && entry.position !== null);
+      (entry.state === 'queued' || (entry.state === 'waiting' && entry.position !== null)) &&
+      Boolean(entry.yours);
     return (
       <AnalysisLine
         size="line"

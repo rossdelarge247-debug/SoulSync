@@ -814,7 +814,8 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
       .getByText('Analysing Foghorn Study · phrases and sections (6 of 6) · 1 more in this set')
       .closest('[data-analysis-line]')!;
     expect(
-      within(line as HTMLElement).getByRole('button', { name: /^Analyse (all 2|mine)$/ }),
+      // "Analyse all 1": the one being analysed isn't asked for again (review L11)
+      within(line as HTMLElement).getByRole('button', { name: /^Analyse (all 1|mine)$/ }),
     ).toBeTruthy();
     // the warning Notice counts what isn't ready, by kind
     expect(

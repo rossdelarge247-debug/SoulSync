@@ -144,6 +144,7 @@ describe('activity route', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     analysisStore.reset();
     window.SoulSyncWebShellBridge = undefined;
     window.showToast = undefined;
@@ -420,55 +421,77 @@ describe('activity route', () => {
 
   // ── analyse on demand: the DJ row's bar ───────────────────────────────────
 
-  it('the running DJ analysis shows its bar and the track it is on, with its step', async () => {
-    const DJ = item({
-      id: 'library-job:3',
-      kind: 'library',
-      status: 'running',
-      title: 'Working out BPM, key and energy',
-      detail: '3 tracks · 1 done',
-      link: '/library?view=tracks',
-      ref: { job_id: 3, stop_path: 'library/dj/stop', dj_progress: true },
-    });
-    mockFeed(() => response({ items: [DJ], running_count: 1 }));
-    server.use(
-      http.post('/api/library/dj/progress', () =>
-        HttpResponse.json({
-          success: true,
-          tracks: {},
-          sweep: {
-            running: true,
-            held: false,
-            analyze: true,
-            id: 3,
-            total: 3,
-            done: 1,
-            percent: 33,
-            waiting: null,
-            in_line: 1,
-            yours: 1,
-            current: {
-              step: 'grid',
-              percent: 60,
-              asked_for: true,
-              track_id: '7',
-              title: 'Static Bloom',
+  it.each([
+    ['a phone', true],
+    ['a wider screen', false],
+  ])(
+    'the running DJ analysis shows its bar and the track it is on, with its step (%s)',
+    async (_, phone) => {
+      // the analysis sheet (31f) is a phone's: elsewhere it isn't mounted (review L7)
+      vi.stubGlobal(
+        'matchMedia',
+        vi.fn((query: string) => ({
+          matches: phone && query.includes('768'),
+          media: query,
+          addEventListener: () => undefined,
+          removeEventListener: () => undefined,
+        })),
+      );
+      const DJ = item({
+        id: 'library-job:3',
+        kind: 'library',
+        status: 'running',
+        title: 'Working out BPM, key and energy',
+        detail: '3 tracks · 1 done',
+        link: '/library?view=tracks',
+        ref: { job_id: 3, stop_path: 'library/dj/stop', dj_progress: true },
+      });
+      mockFeed(() => response({ items: [DJ], running_count: 1 }));
+      server.use(
+        http.post('/api/library/dj/progress', () =>
+          HttpResponse.json({
+            success: true,
+            tracks: {},
+            sweep: {
+              running: true,
+              held: false,
+              analyze: true,
+              id: 3,
+              total: 3,
+              done: 1,
+              percent: 33,
+              waiting: null,
+              in_line: 1,
+              yours: 1,
+              current: {
+                step: 'grid',
+                percent: 60,
+                asked_for: true,
+                track_id: '7',
+                title: 'Static Bloom',
+              },
             },
-          },
-        }),
-      ),
-    );
-    await renderPage();
-    // Brief A's line: the track and its step, the bar filled to it, and the sweep's progress
-    const words = await screen.findByText(
-      'Analysing Static Bloom · beat grid (5 of 6) · Finding beats · 1 of 3',
-    );
-    expect(words.closest('[data-analysis-line]')!.querySelector('[data-step="5"]')).not.toBeNull();
-    // the phone's popover (31f) heads the page: the checklist and the line
-    const sheet = document.querySelector('[data-analysis-panel][data-variant="sheet"]')!;
-    expect(sheet).toHaveTextContent('Analysing Static Bloom');
-    expect(sheet).toHaveTextContent('beat grid (5 of 6) · 1 in line');
-  });
+          }),
+        ),
+      );
+      await renderPage();
+      // Brief A's line: the track and its step, the bar filled to it, and the sweep's progress
+      const words = await screen.findByText(
+        'Analysing Static Bloom · beat grid (5 of 6) · Finding beats · 1 of 3',
+      );
+      expect(
+        words.closest('[data-analysis-line]')!.querySelector('[data-step="5"]'),
+      ).not.toBeNull();
+      // the phone's popover (31f) heads the page: the checklist and the line
+      const sheet = document.querySelector('[data-analysis-panel][data-variant="sheet"]');
+      if (!phone) {
+        expect(sheet).toBeNull();
+        return;
+      }
+      expect(sheet).toHaveTextContent('Analysing Static Bloom');
+      expect(sheet).toHaveTextContent('beat grid (5 of 6) · 1 in line');
+    },
+  );
 
   // ── retry ─────────────────────────────────────────────────────────────────
 

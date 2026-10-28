@@ -197,7 +197,8 @@ function SetAnalysisLine({
       window.showToast?.(error instanceof Error ? error.message : "That didn't work.", 'error'),
     );
   };
-  // only failed ones left to ask for: an admin's Try again
+  // "Analyse all N" counts what the ask takes, not the one being analysed
+  // nor a settled can't (review L11); only failed ones left: Try again
   const retryOnly = askable.every((id) => progressOf[id]?.state === 'failed');
   const action = askable.length
     ? {
@@ -205,7 +206,7 @@ function SetAnalysisLine({
           ? retryOnly
             ? 'Try again'
             : working
-              ? `Analyse all ${notReady.length.toLocaleString()}`
+              ? `Analyse all ${askable.length.toLocaleString()}`
               : 'Analyse them now'
           : 'Analyse mine',
         onClick: ask,

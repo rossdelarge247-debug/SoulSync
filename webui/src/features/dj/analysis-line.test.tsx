@@ -401,6 +401,24 @@ describe('the line (31a), in every state', () => {
     expect(screen.getByText('Ready to mix · beat grid and phrases')).toBeInTheDocument();
   });
 
+  it("switching to a track that's ready already says nothing (review L1)", () => {
+    const line = (entry: AnalysisEntry, title: string, id: string) => (
+      <QueryClientProvider client={createTestQueryClient()}>
+        <AnalysisViewerContext.Provider value={{ admin: false }}>
+          <AnalysisLine size="line" entry={entry} title={title} trackId={id} hideWhenReady />
+        </AnalysisViewerContext.Provider>
+      </QueryClientProvider>
+    );
+    const { rerender, container } = render(
+      line({ state: 'queued', position: 2, asked_for: true, ready: false }, 'Night Ferry', 'A'),
+    );
+    rerender(line({ state: 'done', ready: true, bpm_key: true }, 'Canopy', 'B'));
+    expect(document.querySelector('[data-analysis-live]')?.textContent ?? '').not.toContain(
+      'ready to mix',
+    );
+    expect(container.querySelector('[data-analysis-line]')).toBeNull();
+  });
+
   it('14 reduced motion: the bar is also six cells, lit to the step (no fill animation)', () => {
     view(
       <AnalysisLine
@@ -475,8 +493,11 @@ describe('the topbar count and its popover (31b, 31c)', () => {
     const pill = await screen.findByRole('button', { name: 'Analysing · 14 in line' });
     expect(pill).toHaveAttribute('data-tone', 'running');
     expect(pill.closest('.ss-topbar-end')).not.toBeNull();
-    // the count alone polls at the slow pace, and never asks for the line
+    // the count alone polls at the slow pace (20 s while the sweep runs), and
+    // never asks for the line
     expect(progressBodies.every((b) => !b.line)).toBe(true);
+    await waitFor(() => expect(analysisStore.delay).toBe(20_000));
+    expect(progressBodies).toHaveLength(1);
     fireEvent.click(pill);
     const dialog = screen.getByRole('dialog', { name: 'Analysis' });
     expect(within(dialog).getByText('Analysing Canopy')).toBeInTheDocument();

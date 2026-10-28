@@ -598,12 +598,13 @@ export function TracksPage({
 
   const s = status.data;
   const running = s?.job?.status === 'running';
-  // the page's line (Brief A, 31c): the sweep's step and how much is ready to mix
-  // the page shows the sweep's step: read it as Activity's row does
-  const sweep = useAnalysisSweep(true, { fast: true });
+  // the page's line (Brief A, 31c): the sweep's step and how much is ready to
+  // mix. Read at the slow pace: the poll goes fast only while the page's own
+  // rows are being analysed, asked for or near the front (review M2)
+  const sweep = useAnalysisSweep(true, { fast: false });
   const readyLine =
     s?.grids && s.counts.tracks
-      ? `${s.grids.done.toLocaleString()} of ${s.counts.tracks.toLocaleString()} ready to mix`
+      ? `${(s.grids.ready ?? s.grids.done).toLocaleString()} of ${s.counts.tracks.toLocaleString()} ready to mix`
       : null;
   const toDo = s ? s.counts.pending + (s.grids?.pending ?? 0) : 0;
   const idleLine = !s?.counts.tracks
