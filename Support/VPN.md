@@ -40,8 +40,27 @@ Treat the key like a password: anyone with it can use your Proton VPN.
 ## Step 2: fill in the settings file
 
 1. In Finder, open your `~/SoulSync` folder. Copy `docker-compose.vpn.yml` and `vpn.env.example` from the SYNCHRO.S download into it. For torrents, also copy **one** of the qBittorrent files:
-   - `docker-compose.vpn-qbittorrent.yml` if you don't run qBittorrent yet: it adds one, run through the VPN;
-   - `docker-compose.vpn-qbittorrent-existing.yml` if your `docker-compose.yml` already has a `qbittorrent` service: it moves that one into the VPN and leaves its image, folders and settings alone. The service must be called `qbittorrent`, and its web page must be on port 8080 inside the container (`WEBUI_PORT=8080`, the linuxserver image's default). Its own `ports:` go: gluetun publishes 8080 for the web page, and its peer port goes through the VPN.
+   - `docker-compose.vpn-qbittorrent-existing.yml` if your `docker-compose.yml` already has a `qbittorrent` service: it moves that one into the VPN and leaves its image, folders and settings alone. The service must be called `qbittorrent`, and its web page must be on port 8080 inside the container (`WEBUI_PORT=8080`, the linuxserver image's default). Its own `ports:` go: gluetun publishes 8080 for the web page, and its peer port goes through the VPN. Settings that can't go with gluetun's network (`networks`, `hostname`, `dns`, `dns_search`, `dns_opt`, `extra_hosts`, `mac_address`, `links`, `domainname`) are dropped.
+   - `docker-compose.vpn-qbittorrent.yml` only if you don't run qBittorrent yet: it adds one, run through the VPN.
+
+   > **Already run qBittorrent? Use the `-existing` file, never the other one.** Over a `qbittorrent` service in your `docker-compose.yml`, `docker-compose.vpn-qbittorrent.yml` replaces its image, its `/config` (settings, the torrent list, the password) and its `/downloads` (the save path).
+
+   **qBittorrent on another network** (for example an `arr` network shared with Sonarr and Radarr): moving it into gluetun's network takes it off that one, so Sonarr and Radarr lose it. Put gluetun on that network too, with the name `qbittorrent`, so they keep reaching it at `http://qbittorrent:8080`. Make a file `docker-compose.vpn-local.yml` next to the others (change `arr` to your network's name, as `docker-compose.yml` names it under `networks:`):
+
+   ```yaml
+   services:
+     gluetun:
+       networks:
+         default:
+           aliases:
+             - slskd
+             - qbittorrent
+         arr:
+           aliases:
+             - qbittorrent
+   ```
+
+   and add `:docker-compose.vpn-local.yml` to the end of the `COMPOSE_FILE` line in step 2.
 2. Open Terminal and go to the folder:
 
    ```sh
@@ -68,7 +87,7 @@ Treat the key like a password: anyone with it can use your Proton VPN.
    - `GLUETUN_API_KEY=` the key from step 3;
    - `SERVER_COUNTRIES=` the country (or countries, separated by commas) you want;
    - `PORT_FORWARDING=true` on Proton Plus or higher. **On Proton Free, or until you know your plan, set `PORT_FORWARDING=false`**: with `true`, gluetun only uses Proton's P2P servers, which Free can't use, so it wouldn't connect;
-   - keep exactly **one** `COMPOSE_FILE=` line without a `#`: the first (slskd only), or, for torrents, the one that names the qBittorrent file you copied in step 1. If your `.env` already had a `COMPOSE_FILE` line, keep only the new one.
+   - keep exactly **one** `COMPOSE_FILE=` line without a `#`. The one shown is for an existing qBittorrent; for slskd only, or a new qBittorrent, swap the `#` to the line you need. If your `.env` already had a `COMPOSE_FILE` line, keep only the new one.
 
    Save and close.
 
@@ -131,7 +150,7 @@ What the card can say:
 
 **"Port … isn't the one slskd listens on".** slskd follows the port by itself within a few seconds; run the check again. If it stays, check slskd is version 0.25 or later (slskd's web page shows the version) and that `docker compose config` shows `SLSKD_VPN: "true"` under slskd. For qBittorrent, check the *Bypass authentication for clients on localhost* tick.
 
-**"Not using a VPN" or "kill switch not confirmed".** Run `docker compose config` and check slskd (and qbittorrent) has `network_mode: service:gluetun`. If `COMPOSE_FILE` isn't in `.env`, add it (see `vpn.env.example`). In SYNCHRO.S, slskd's address should be `http://slskd:5030` and qBittorrent's `http://qbittorrent:8080` (or `http://gluetun:…`): names on the Docker network are the only addresses that show which network a service is on. A LAN address (`http://192.168.1.10:5030`), `localhost`, `host.docker.internal` or a name with a dot can't, so the card stays amber with them.
+**"Not using a VPN" or "kill switch not confirmed".** Run `docker compose config` and check slskd (and qbittorrent) has `network_mode: service:gluetun`. If `COMPOSE_FILE` isn't in `.env`, add it (see `vpn.env.example`). In SYNCHRO.S, slskd's address should be `http://slskd:5030` and qBittorrent's `http://qbittorrent:8080`: SYNCHRO.S proves they're inside gluetun's network when those names and `gluetun` (the card's address) lead to the same container on its Docker network. The card stays amber with anything that can't show that: `http://gluetun:5030` (one name for both), a LAN address (`http://192.168.1.10:5030`), `localhost`, `host.docker.internal`, a name with a dot, or SYNCHRO.S itself running with host networking or on the home network (macvlan, as Unraid's br0 or Synology often do).
 
 **"SYNCHRO.S can't reach slskd".** If gluetun was restarted on its own, the services in its network lost their connection. Run `docker compose up -d --force-recreate slskd qbittorrent` (leave out `qbittorrent` if you don't run it).
 

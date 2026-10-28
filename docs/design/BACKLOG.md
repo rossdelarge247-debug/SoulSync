@@ -961,7 +961,7 @@ Dev's note: as far as Dev knows, Malwarebytes Privacy VPN doesn't offer port for
 
 - ~~**For Ross:** Proton VPN or Malwarebytes, once port forwarding is checked?~~ **Settled with Ross, 28 October:** Proton VPN with port forwarding, for Soulseek and torrents.
 - **For Ross (28 October):** which Proton plan (port forwarding needs Plus or higher; until then `PORT_FORWARDING=false`)? Which torrent client, if any (the VPN file ships qBittorrent; Transmission and Deluge get the check but set their port by hand)?
-- **For Design:** the Privacy card was built without boards, in the Setup check style; questions 358–363 in `HANDOFF.md`. Where else the VPN state shows (the slskd tile, Activity) is 361.
+- **For Design:** the Privacy card was built without boards, in the Setup check style; questions 368–373 in `HANDOFF.md`. Where else the VPN state shows (the slskd tile, Activity) is 371.
 
 ---
 

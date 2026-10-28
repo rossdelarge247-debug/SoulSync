@@ -153,7 +153,7 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **Admins only:** a non-admin's `GET /api/setup/privacy` and `PUT /api/setup/privacy/settings` are refused (403) before anything is read or saved.
   - **The home address look-up never runs when it's off,** and when it's on it's one call to the fixed service at most once an hour (once every five minutes after a failure), through the outbound guard.
   - **Addresses stay out of shareable text:** no row's sentence or the headline holds the VPN's or the home connection's IP, and no row holds a port number, so "Copy for a bug report" and the Assistant's summary never carry them; only the admin-only privacy route does.
-  - **Never green without proof:** a LAN address, a name with a dot, the Docker host, a NAS publishing both ports, or slskd's own Gluetun integration at 127.0.0.1 leaves the kill switch "not confirmed"; only Docker service names on SYNCHRO.S's own Docker network that lead to Gluetun's container prove it.
+  - **Never green without proof:** a LAN address, a name with a dot, the Docker host, a NAS publishing both ports, or slskd's own Gluetun integration at 127.0.0.1 leaves the kill switch "not confirmed"; only two different Docker service names, resolved by Docker's own DNS, whose addresses are all Gluetun's on a Docker network of SYNCHRO.S's own (not the home network, as with host networking or macvlan), prove it; a name that also leads to another container doesn't.
   - **The deadline holds:** a source slower than the run's deadline is cut off and reads as "didn't answer in time", never as fine.
 
 When you write a test for a new way a change could lose data, tag it `gauntlet` too.
