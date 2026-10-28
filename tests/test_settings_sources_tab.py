@@ -711,6 +711,8 @@ def test_the_library_tab_speaks_one_card_language():
     assert titles == [
         # files & folders
         "Folders", "Organization",
+        # DJ: Between tracks, BPM/key/energy and Traktor (UX-13, 33e)
+        "DJ",
         # processing
         "Post-Processing", "Import", "Filtering",
         # your library
