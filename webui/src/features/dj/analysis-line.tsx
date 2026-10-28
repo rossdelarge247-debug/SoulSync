@@ -492,6 +492,21 @@ export function SweepLine({
 }) {
   const viewer = useAnalysisViewer();
   const entry = sweepEntry(sweep);
+  if (entry?.state === 'working' && !sweep?.current) {
+    // resting between tracks: what's left, no step to show
+    const n = inLineCount(sweep);
+    return (
+      <Line
+        size="line"
+        entry={null}
+        sentence={n ? `Analysing · ${n.toLocaleString('en-GB')} in line` : 'Analysing'}
+        tone="running"
+        extra={extra}
+        action={action ?? false}
+        className={className}
+      />
+    );
+  }
   if (!entry) {
     if (!idle) return null;
     return (

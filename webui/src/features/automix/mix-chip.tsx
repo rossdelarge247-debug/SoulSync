@@ -151,8 +151,13 @@ export function TransitionChip({
         ? chipWhyShort(plan, t)
         : chipWhy(plan, t, to, from)
       : who;
+  // a phone's Waiting chip is two lines (31e): the chip, then its analysis
+  const twoLine = compact && plan?.status === 'waiting' && inLine;
   return (
-    <span className={sets.chipWrap} data-dimmed={dimmed ? '' : undefined}>
+    <span
+      className={twoLine ? `${sets.chipWrap} ${styles.twoLine}` : sets.chipWrap}
+      data-dimmed={dimmed ? '' : undefined}
+    >
       <button
         ref={ref}
         type="button"

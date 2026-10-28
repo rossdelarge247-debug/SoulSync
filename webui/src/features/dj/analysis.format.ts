@@ -434,9 +434,12 @@ export function countView(
   if (sweep.running) {
     if (sweep.waiting && sweep.waiting !== 'held')
       return { tone: 'warning', words: waitWords(sweep.waiting, sweep, viewer), running: true };
+    const n = inLineCount(sweep);
+    const title = sweep.current?.title;
     return {
       tone: 'running',
-      words: `Analysing · ${count(inLineCount(sweep))} in line`,
+      // the last one: "Analysing Canopy" rather than "0 in line"
+      words: n ? `Analysing · ${count(n)} in line` : title ? `Analysing ${title}` : 'Analysing',
       running: true,
     };
   }
@@ -554,6 +557,7 @@ export function notReadyNotice(entries: (AnalysisEntry | null | undefined)[]): s
   let unread = 0;
   let cant = 0;
   let notYet = 0;
+  let tooLong = 0;
   for (const e of entries) {
     if (!e || isReady(e)) continue;
     if (
@@ -563,11 +567,12 @@ export function notReadyNotice(entries: (AnalysisEntry | null | undefined)[]): s
     )
       inLineN += 1;
     else if (e.state === 'done' && e.beat) cant += 1;
+    else if (e.state === 'failed' && e.reason === 'too_long') tooLong += 1;
     else if (e.state === 'failed') unread += 1;
     else if (e.bpm_key) bpmKey += 1;
     else notYet += 1;
   }
-  const total = inLineN + bpmKey + unread + cant + notYet;
+  const total = inLineN + bpmKey + unread + cant + notYet + tooLong;
   if (!total) return '';
   const be = (n: number, one: string, many: string) => `${count(n)} ${n === 1 ? one : many}`;
   const parts: string[] = [];
@@ -576,6 +581,7 @@ export function notReadyNotice(entries: (AnalysisEntry | null | undefined)[]): s
   if (notYet) parts.push(be(notYet, "isn't analysed yet", "aren't analysed yet"));
   if (cant) parts.push(`${count(cant)} can't be beat-matched`);
   if (unread) parts.push(`${count(unread)} couldn't be read`);
+  if (tooLong) parts.push(be(tooLong, 'is too long to analyse', 'are too long to analyse'));
   const list =
     parts.length > 1 ? `${parts.slice(0, -1).join(', ')}, ${parts[parts.length - 1]}` : parts[0];
   const one = total === 1;

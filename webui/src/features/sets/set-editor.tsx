@@ -197,12 +197,16 @@ function SetAnalysisLine({
       window.showToast?.(error instanceof Error ? error.message : "That didn't work.", 'error'),
     );
   };
+  // only failed ones left to ask for: an admin's Try again
+  const retryOnly = askable.every((id) => progressOf[id]?.state === 'failed');
   const action = askable.length
     ? {
         label: viewer.admin
-          ? working
-            ? `Analyse all ${notReady.length.toLocaleString()}`
-            : 'Analyse them now'
+          ? retryOnly
+            ? 'Try again'
+            : working
+              ? `Analyse all ${notReady.length.toLocaleString()}`
+              : 'Analyse them now'
           : 'Analyse mine',
         onClick: ask,
       }

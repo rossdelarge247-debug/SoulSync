@@ -344,6 +344,19 @@ describe("the words (Brief A, 31a's states)", () => {
       "4 tracks aren't ready to mix: 2 are in line, 1 has BPM and key only, 1 couldn't be read. Play as a mix plays them straight on until they are.",
     );
     expect(notReadyNotice([{ state: 'done', ready: true }])).toBe('');
+    // a track too long to analyse isn't "couldn't be read"
+    expect(
+      notReadyNotice([
+        { state: 'failed', reason: 'too_long' },
+        { state: 'done', beat: 'no_beat' },
+      ]),
+    ).toBe(
+      "2 tracks aren't ready to mix: 1 can't be beat-matched, 1 is too long to analyse. Play as a mix plays them straight on until they are.",
+    );
+    // the last one in line: named, not "0 in line"
+    expect(countView({ ...SWEEP, in_line: 0, left: 0 } as never, admin)?.words).toBe(
+      'Analysing Canopy',
+    );
     expect(isReady({ state: 'done' })).toBe(true);
     expect(isReady({ state: 'done', ready: false })).toBe(false);
   });

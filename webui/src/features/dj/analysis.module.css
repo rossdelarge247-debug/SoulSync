@@ -212,9 +212,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 6px under the top bar's edge (the 44px pill sits in its 64px, 31b) */
 .popover {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 16px);
   right: 0;
   z-index: 1000003;
   width: 420px;

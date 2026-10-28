@@ -33,6 +33,8 @@
 .pick,
 .outputs {
   display: grid;
+  /* a picker beside a taller one keeps its rows at their height */
+  align-content: start;
   gap: 8px;
   margin: 0;
   padding: 12px;

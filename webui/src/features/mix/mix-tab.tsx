@@ -289,7 +289,6 @@ export function ThisTrack({ model, mode }: { model: MixModel; mode: TrayMode }) 
         </span>
       </div>
       <EnergyMeter energy={model.dj?.energy} variant="steps" label />
-      <NotAnalysedLine model={model} />
     </>
   );
 }
@@ -674,6 +673,9 @@ export function MatchesColumn({ model }: { model: MixModel }) {
   useEffect(() => setRefused(false), [model.vibe.reason]);
   return (
     <>
+      {/* 31c: the Mix tab's header line while the playing track isn't ready,
+          with 29d's card under it in place of the matches */}
+      <NotAnalysedLine model={model} />
       <div className={styles.head}>
         <h3 className={styles.headTitle}>Mixes well with</h3>
         <span className={styles.spacer} />
