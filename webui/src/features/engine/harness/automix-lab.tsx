@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DjTrack } from '@/features/dj/dj.api';
 
-import { useAutoAnalyse } from '@/features/dj/analysis-progress';
+import { useAutoAnalyse } from '@/features/dj/analysis-line';
 
 import { fetchGrids, fetchPlan, fetchWindow, type Plan } from '../loader';
 import {
@@ -156,7 +156,7 @@ export default function AutomixLab() {
   const live = session.current?.status.stage === 'playing';
   // analyse on demand: a track picked here jumps the queue (the pickers show
   // its step); a pick is a person asking, so it goes in even while held
-  useAutoAnalyse([outTrack?.id, inTrack?.id], true, 'asked');
+  useAutoAnalyse([outTrack?.id, inTrack?.id], true, 'asked', { source: 'lab' });
   useTicker(live || session.current?.status.stage === 'loading');
 
   useEffect(() => {

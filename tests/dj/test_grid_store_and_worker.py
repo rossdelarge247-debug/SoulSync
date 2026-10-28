@@ -296,7 +296,7 @@ def test_the_top_up_list_and_the_sweep_take_analysed_tracks_without_a_grid(db):
     _sql(db, "UPDATE track_grid SET grid_version = 0 WHERE track_id = '3'")
     store.save(db, "4", {"status": "error", "dj_analyzer_version": v})           # its DJ data failed: not due
     assert grid_store.pending_ids(db, v) == ["1", "3"]
-    assert grid_store.counts(db) == {"done": 1, "no_beat": 0, "pending": 2}
+    assert grid_store.counts(db) == {"done": 1, "ready": 1, "no_beat": 0, "pending": 2}
     seen = []
 
     def process(d, t, **kw):

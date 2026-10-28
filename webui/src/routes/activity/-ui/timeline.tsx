@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
 
 import { Spinner, StatusTag } from '@/components/primitives';
-import { SweepProgress, useAnalysisSweep } from '@/features/dj/analysis-progress';
+import { SweepLine, useAnalysisSweep } from '@/features/dj/analysis-line';
+import { sweepProgressWords } from '@/features/dj/analysis.format';
 import { copyText } from '@/routes/setup-check/-setup-check.clipboard';
 
 import type { DayGroup } from '../-activity.helpers';
@@ -153,14 +154,20 @@ function TimelineRow({
 }
 
 /**
- * The running DJ analysis (analyse on demand): its overall bar and the track
- * it's on with its step ("1,240 of 4,980 tracks · Static Bloom · Finding the
- * beat grid · 60%"), read every second or two while the row shows. A track
- * outside your library isn't named.
+ * The running DJ analysis (Brief A's line): the track it's on and its step,
+ * the bar filled by step, and the sweep's progress ("Analysing Canopy ·
+ * beat grid (5 of 6) · Finding beats · 1,240 of 4,980"), read every second
+ * or two while the row shows. A track outside your library isn't named.
  */
 function DjSweepLine() {
   const sweep = useAnalysisSweep();
-  return <SweepProgress sweep={sweep} />;
+  return (
+    <SweepLine
+      sweep={sweep}
+      extra={sweep ? sweepProgressWords(sweep) || null : null}
+      className={styles.djLine}
+    />
+  );
 }
 
 /** A one-click POST on a row: Retry now, or Stop for a running library job. */

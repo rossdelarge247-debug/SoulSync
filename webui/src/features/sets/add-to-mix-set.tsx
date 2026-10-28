@@ -18,7 +18,8 @@ import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } fro
 import { createRoot } from 'react-dom/client';
 
 import { StatusTag } from '@/components/primitives';
-import { requestAnalysisQuietly } from '@/features/dj/analysis.api';
+import { askForAdded } from '@/features/dj/analysis.api';
+import { addedAnalysisWords } from '@/features/dj/analysis.format';
 import { starStore } from '@/features/stars/stars-store';
 import { appURL } from '@/platform/url-base';
 import { usePopoverDismiss } from '@/routes/sync/-ui/use-popover-dismiss';
@@ -146,10 +147,20 @@ export function setHref(id: number): string {
   return appURL(`/library?view=sets&set=${id}`);
 }
 
-/** The toast, then the set's page on Open it (6 s, 28a). */
-function announce(words: string, id: number): void {
+/**
+ * The toast, then the set's page on Open it (6 s, 28a). A track going in
+ * jumps the analysis line, and the toast says where it is, once:
+ * "Added Canopy to Sunday Set · #7 · analysing, 2nd in line" (Brief A,
+ * 31b, 31d); a track ready to mix says only where it went.
+ */
+async function announce(
+  words: string,
+  id: number,
+  asking: ReturnType<typeof askForAdded> | null = null,
+): Promise<void> {
   window.dispatchEvent(new CustomEvent(MIX_SET_CHANGED, { detail: { id } }));
-  window.showToast?.(words, 'success', null, {
+  const analysing = addedAnalysisWords(asking ? await asking : null);
+  window.showToast?.(analysing ? `${words} · ${analysing}` : words, 'success', null, {
     action: { label: 'Open it', run: () => window.location.assign(setHref(id)) },
   });
 }
@@ -350,8 +361,13 @@ function Picker({ request }: { request: Request }) {
         again,
       );
       closeAddToMixSet();
-      // analyse on demand: a track in a mix set jumps the analysis queue
-      requestAnalysisQuietly(done.added.map((a) => a.track_id));
+      // analyse on demand: a track in a set jumps the analysis queue
+      const asking = done.added.length
+        ? askForAdded(
+            done.added.map((a) => a.track_id),
+            { source: 'set', setId: done.id },
+          )
+        : null;
       if (!done.added.length) {
         window.showToast?.(`Already in ${done.name}. Nothing was added.`, 'info');
         return;
@@ -360,7 +376,7 @@ function Picker({ request }: { request: Request }) {
         done.added.length === 1
           ? (ok.find((t) => t.id === done.added[0].track_id)?.title ?? null)
           : null;
-      announce(
+      void announce(
         addedWords({
           title,
           count: done.added.length,
@@ -368,6 +384,7 @@ function Picker({ request }: { request: Request }) {
           first: done.added[0].number,
         }),
         done.id,
+        asking,
       );
     } catch (err) {
       setBusy(false);
@@ -392,8 +409,7 @@ function Picker({ request }: { request: Request }) {
         })),
       });
       closeAddToMixSet();
-      requestAnalysisQuietly(ok.map((t) => t.id));
-      announce(
+      void announce(
         addedWords({
           title: ok.length === 1 ? ok[0].title : null,
           count: ok.length,
@@ -401,6 +417,10 @@ function Picker({ request }: { request: Request }) {
           first: 1,
         }),
         made.id,
+        askForAdded(
+          ok.map((t) => t.id),
+          { source: 'set', setId: made.id },
+        ),
       );
     } catch (err) {
       setBusy(false);

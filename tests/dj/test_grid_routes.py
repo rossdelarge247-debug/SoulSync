@@ -163,4 +163,4 @@ def test_a_plan_with_a_bad_query_is_refused(client, query):
 
 def test_status_counts_the_grids(client, db):
     body = client.get("/api/library/dj/status").get_json()
-    assert body["grids"] == {"done": 3, "no_beat": 0, "pending": 0}
+    assert body["grids"] == {"done": 3, "ready": 3, "no_beat": 0, "pending": 0}

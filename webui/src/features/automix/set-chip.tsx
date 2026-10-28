@@ -10,7 +10,7 @@ import { useState } from 'react';
 
 import type { Step, Transition } from '@/features/sets/sets.api';
 
-import { useAnalysis } from '@/features/dj/analysis-progress';
+import { useAnalysis } from '@/features/dj/analysis-line';
 
 import { TransitionChip } from './mix-chip';
 import { AUTO_CHOICE, planFor, planKey, type Choice } from './plans';

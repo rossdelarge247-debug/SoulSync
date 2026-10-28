@@ -2051,9 +2051,25 @@ function npSetPlayContext(text) {
     npNotify('context');
 }
 
+// The Added toast says once where a track is in the analysis line, when Auto
+// mix is on and it isn't ready to mix (Brief A, 31b): "Playing next ·
+// analysing, 2nd in line". The words come from the React side
+// (window.ssAnalysisToastWords, the automix host); without it, or when the
+// track is ready, the toast says what it always did.
+function npQueueToast(words, track) {
+    const ask = window.ssAnalysisToastWords;
+    if (typeof ask !== 'function' || !track || track.id === undefined || track.id === null) {
+        showToast(words, 'success');
+        return;
+    }
+    Promise.resolve(ask([track.id]))
+        .then(more => showToast(more ? `${words} · ${more}` : words, 'success'))
+        .catch(() => showToast(words, 'success'));
+}
+
 function addToQueue(track) {
     npQueue.push(npPrepareQueueTrack(track));
-    showToast('Added to queue', 'success');
+    npQueueToast('Added to queue', track);
     renderNpQueue();
     updateNpPrevNextButtons();
     npScheduleQueuePrefetch();
@@ -2071,7 +2087,7 @@ function playNext(track) {
         return;
     }
     npQueue.splice(npQueueIndex + 1, 0, npPrepareQueueTrack(track));
-    showToast('Playing next', 'success');
+    npQueueToast('Playing next', track);
     renderNpQueue();
     updateNpPrevNextButtons();
     npScheduleQueuePrefetch();

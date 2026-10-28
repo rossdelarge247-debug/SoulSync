@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button, OptionButton } from '@/components/form';
 import { EmptyState, LoadingState, Notice, Skeleton } from '@/components/primitives';
+import { AnalysisSheet } from '@/features/dj/analysis-line';
 import { useModuleOff } from '@/features/modules/module-gate';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
@@ -25,6 +26,7 @@ import {
   runningLabel,
   widerRange,
 } from '../-activity.helpers';
+import { PHONE_QUERY, useMediaQuery } from '../../automations/-ui/use-narrow';
 import styles from './activity-page.module.css';
 import { LinkButton } from './link-button';
 import { NeedsYou } from './needs-you';
@@ -36,6 +38,9 @@ const routeApi = getRouteApi('/activity');
 export function ActivityPage() {
   useReactPageShell('activity');
   const { isAdmin } = useProfile();
+  // the analysis sheet is a phone's (31f): elsewhere it isn't mounted, so it
+  // watches nothing (review L7)
+  const phone = useMediaQuery(PHONE_QUERY);
   const search = routeApi.useSearch();
   const navigate = routeApi.useNavigate();
   const show: ActivityShow = search.show ?? 'all';
@@ -100,6 +105,14 @@ export function ActivityPage() {
           </span>
         ) : null}
       </header>
+
+      {/* a phone's popover for the analysis (Brief A, 31f): the topbar's count
+          has no room there, so its panel heads Activity while something is analysed */}
+      {phone ? (
+        <div className={styles.analysisSheet}>
+          <AnalysisSheet />
+        </div>
+      ) : null}
 
       <div className={styles.controls} data-tour="activity-controls">
         <div className={styles.filters} role="group" aria-label="Show">

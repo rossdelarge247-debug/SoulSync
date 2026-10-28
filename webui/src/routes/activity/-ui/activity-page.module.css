@@ -636,3 +636,22 @@
     animation: none;
   }
 }
+
+/* the analysis panel (Brief A, 31f): on a phone only; the desktop's is the topbar's popover */
+.analysisSheet {
+  display: none;
+}
+
+.analysisSheet:empty {
+  display: none !important;
+}
+
+.djLine {
+  margin-top: 8px;
+}
+
+@media (max-width: 768px) {
+  .analysisSheet {
+    display: block;
+  }
+}

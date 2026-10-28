@@ -21,7 +21,7 @@ import { createPortal } from 'react-dom';
 import type { AnalysisEntry } from '@/features/dj/analysis.api';
 import type { Step, StepKind, Transition, TransitionStyle } from '@/features/sets/sets.api';
 
-import { AnalysisProgress } from '@/features/dj/analysis-progress';
+import { AnalysisLine } from '@/features/dj/analysis-line';
 import { pending } from '@/features/dj/analysis.format';
 import { TRANSITION_BARS } from '@/features/sets/sets.api';
 import { chipWords, transitionOf, whoChose } from '@/features/sets/sets.format';
@@ -151,8 +151,13 @@ export function TransitionChip({
         ? chipWhyShort(plan, t)
         : chipWhy(plan, t, to, from)
       : who;
+  // a phone's Waiting chip is two lines (31e): the chip, then its analysis
+  const twoLine = compact && plan?.status === 'waiting' && inLine;
   return (
-    <span className={sets.chipWrap} data-dimmed={dimmed ? '' : undefined}>
+    <span
+      className={twoLine ? `${sets.chipWrap} ${styles.twoLine}` : sets.chipWrap}
+      data-dimmed={dimmed ? '' : undefined}
+    >
       <button
         ref={ref}
         type="button"
@@ -168,7 +173,8 @@ export function TransitionChip({
         {words}
       </button>
       <span className={sets.chipWho} data-chip-who="">
-        {meta}
+        {/* Waiting with its track in line (31c, 31e): the chip's line is the analysis */}
+        {plan?.status === 'waiting' && inLine ? null : meta}
         {plan?.status === 'waiting' && analyse && !inLine ? (
           <>
             {' · '}
@@ -179,11 +185,11 @@ export function TransitionChip({
         ) : null}
       </span>
       {plan?.status === 'waiting' && inLine ? (
-        <AnalysisProgress
+        <AnalysisLine
+          size="marker"
           entry={progress}
-          compact
+          title={compact ? null : plan.waiting_for === 'from' ? from : to}
           className={styles.chipProgress}
-          label={`Analysis of ${plan.waiting_for === 'from' ? from : to}`}
         />
       ) : null}
       {when ? <span className={styles.chipWhen}>{when}</span> : null}

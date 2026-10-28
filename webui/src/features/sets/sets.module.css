@@ -1560,3 +1560,18 @@ textarea.pasteText,
     display: none;
   }
 }
+
+/* the set's analysis line (Brief A, 31b): with the head, 440px at most */
+.setAnalysis {
+  width: 100%;
+  max-width: 440px;
+  margin-top: 8px;
+}
+
+.notReady {
+  margin-top: 12px;
+}
+
+.rowMarker {
+  margin-top: 4px;
+}

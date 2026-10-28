@@ -20,17 +20,19 @@
  * (CONTRACTS "Auto-mix stage C").
  */
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 
 import type { Transition } from '@/features/sets/sets.api';
 
-import { useAnalysis } from '@/features/dj/analysis-progress';
+import { useAnalysis } from '@/features/dj/analysis-line';
 import {
   DJ_ANALYSED_EVENT,
+  askForAdded,
   requestAnalysis,
   requestAnalysisQuietly,
 } from '@/features/dj/analysis.api';
+import { addedAnalysisWords } from '@/features/dj/analysis.format';
 import { DJ_QUERY_KEY } from '@/features/dj/dj.api';
 import { Engine } from '@/features/engine/engine';
 import { looksLikePhone } from '@/features/engine/lifecycle';
@@ -309,7 +311,7 @@ function GapChip({
       progress={progress}
       // anyone can ask for their own tracks now (analyse on demand)
       analyse={() => {
-        void requestAnalysis([waitingId], { force: true })
+        void requestAnalysis([waitingId], { force: true, source: 'up_next' })
           .then(() => qc.invalidateQueries({ queryKey: [...DJ_QUERY_KEY, 'status'] }))
           .catch((e: unknown) =>
             window.showToast?.(e instanceof Error ? e.message : "That didn't work.", 'error'),
@@ -353,6 +355,8 @@ export function AutomixHost() {
   const phone = usePhone();
   const [slots, setSlots] = useState<Slots>(() => findSlots());
   const [tick, setTick] = useState(0);
+  /** the pair last asked for as Up next's next transition */
+  const soonAsked = useRef<string | null>(null);
 
   // analyse on demand: with DJ mix on (or a set played as a mix), the queue's
   // coming tracks jump the analysis queue, so their chips stop Waiting; the
@@ -366,8 +370,40 @@ export function AutomixHost() {
       .slice(from, from + 50)
       .filter((t) => mixable(t) && (dj || Boolean(t.mix_set)))
       .map((t) => String(t.id));
-    if (ids.length > 1) requestAnalysisQuietly(ids);
+    if (ids.length < 2) return;
+    // the next transition's pair goes ahead of every other ask, so a
+    // member's long Analyse mine doesn't hold up the mix (review L10); asked
+    // once each time the pair changes, whatever was asked before
+    const pair = ids.slice(0, 2);
+    const key = pair.join(',');
+    if (soonAsked.current !== key) {
+      soonAsked.current = key;
+      // turned away (a Stop holds the sweeps: null) or failed: asked again
+      // as soon next time, so after Resume the pair still goes first (re-review L10)
+      requestAnalysis(pair, { force: true, reason: 'auto', source: 'up_next', soon: true })
+        .then((answer) => {
+          if (answer === null && soonAsked.current === key) soonAsked.current = null;
+        })
+        .catch(() => {
+          if (soonAsked.current === key) soonAsked.current = null;
+        });
+    }
+    // "Up next" is why they're in line (the popover's words, HANDOFF 325)
+    if (ids.length > 2) requestAnalysisQuietly(ids.slice(2), 'auto', { source: 'up_next' });
   }, [tick, prefs.between]);
+
+  // the player's Added toast (Play next, Add to queue) says once where a
+  // track is in the analysis line while Auto mix is on (Brief A, 31b)
+  useEffect(() => {
+    const dj = prefs.between === 'dj';
+    window.ssAnalysisToastWords = (ids) =>
+      dj
+        ? askForAdded(ids, { source: 'up_next' }).then((a) => addedAnalysisWords(a))
+        : Promise.resolve('');
+    return () => {
+      delete window.ssAnalysisToastWords;
+    };
+  }, [prefs.between]);
 
   // a track finished its analysis: a pair waiting for it is planned again
   useEffect(() => {

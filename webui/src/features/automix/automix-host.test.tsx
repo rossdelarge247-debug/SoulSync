@@ -330,7 +330,49 @@ describe('analyse on demand in Up next', () => {
 
   it("with DJ mix on, the queue's coming tracks jump the analysis queue", async () => {
     mount();
-    await waitFor(() => expect(asked).toEqual([{ track_ids: ['1', '2', '3'], reason: 'auto' }]));
+    // "Up next" is why they're in line (the popover's words, Brief A); the
+    // next transition's pair goes ahead of every other ask (review L10)
+    await waitFor(
+      () =>
+        expect(asked).toEqual([
+          { track_ids: ['1', '2'], reason: 'auto', source: 'up_next', soon: true },
+          { track_ids: ['3'], reason: 'auto', source: 'up_next' },
+        ]),
+      { timeout: 3000 },
+    );
+  });
+
+  it('[re-review L10] a pair turned away by a Stop goes as soon again after it', async () => {
+    let held = true;
+    server.use(
+      http.post('*/api/library/dj/analyse', async ({ request }) => {
+        asked.push(await request.json());
+        if (held)
+          return HttpResponse.json(
+            { success: false, code: 'held', error: 'Analysis is stopped' },
+            { status: 409 },
+          );
+        return HttpResponse.json({ success: true, asked: 2, queued: 2 }, { status: 202 });
+      }),
+    );
+    mount();
+    await waitFor(() => expect(asked).toHaveLength(2), { timeout: 3000 });
+    // Resume: the next drawing of Up next asks for the same pair as soon again
+    held = false;
+    asked = [];
+    act(() => {
+      window.dispatchEvent(new CustomEvent('ss:player', { detail: { reason: 'queue' } }));
+    });
+    await waitFor(
+      () =>
+        expect(asked).toContainEqual({
+          track_ids: ['1', '2'],
+          reason: 'auto',
+          source: 'up_next',
+          soon: true,
+        }),
+      { timeout: 3000 },
+    );
   });
 
   it('with DJ mix off nothing is asked for', async () => {
@@ -343,13 +385,14 @@ describe('analyse on demand in Up next', () => {
     expect(asked).toEqual([]);
   });
 
-  it('a Waiting chip shows the step of the track it waits for', async () => {
+  it('a Waiting chip shows the step of the track it waits for (31c)', async () => {
     waitingFor2();
     progress = { '2': { state: 'working', step: 'key', percent: 35 } };
     mount();
-    const bar = await screen.findAllByRole('progressbar', { name: 'Analysis of Static Bloom' });
-    expect(bar[0]).toHaveAttribute('aria-valuenow', '35');
-    expect(screen.getAllByText('Working out the key · 35%').length).toBeGreaterThan(0);
+    // the chip's line is the analysis: the bar (3 of 6) and the step, named
+    const words = await screen.findAllByText('Analysing Static Bloom · key (3 of 6)');
+    const marker = words[0]!.closest('[data-analysis-marker]')!;
+    expect(marker.querySelector('[data-step="3"]')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Analyse now' })).toBeNull();
   });
 

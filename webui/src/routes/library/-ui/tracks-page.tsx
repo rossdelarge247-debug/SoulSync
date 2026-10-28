@@ -4,9 +4,19 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { Button, TextInput } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
-import { AnalysisProgress, useAnalysis } from '@/features/dj/analysis-progress';
+import {
+  AnalysisLine,
+  SweepLine,
+  useAnalysis,
+  useAnalysisSweep,
+} from '@/features/dj/analysis-line';
 import { requestAnalysis, type AnalysisEntry } from '@/features/dj/analysis.api';
-import { analyseTheseHint, analyseTheseWords, inLine } from '@/features/dj/analysis.format';
+import {
+  analyseTheseHint,
+  analyseTheseWords,
+  heldWords,
+  nextSweepWords,
+} from '@/features/dj/analysis.format';
 import { addTrackToPlaylist, playlistTrack, playTrackNext } from '@/features/dj/dj-actions';
 import {
   DJ_PAGE_SIZE,
@@ -18,8 +28,6 @@ import {
 } from '@/features/dj/dj.api';
 import {
   CAMELOT_KEYS,
-  analysisLine,
-  analysisProgress,
   bpmNumber,
   bpmTitle,
   filterCountLine,
@@ -63,8 +71,6 @@ const SORT_LABELS: Record<TrackSort, string> = {
   artist: 'Artist',
   recent: 'Recently added',
 };
-
-const ANALYSIS_PREFIX = 'BPM, key and energy: ';
 
 /** Why a member can't set a shared track's BPM (the menus' second line). */
 const SHARED_TEMPO_WORDS = 'Only an admin can change a shared track’s BPM';
@@ -282,14 +288,8 @@ function TrackRow({
             {dj?.skipped ? <> · {sentenceCase(dj.skipped)}</> : null}
           </span>
         )}
-        {inLine(progress ?? undefined) ? (
-          <AnalysisProgress
-            entry={progress}
-            block
-            compact={phone}
-            label={`Analysis of ${track.title}`}
-          />
-        ) : null}
+        {/* the row's marker (31c): two words for any track not ready to mix */}
+        <AnalysisLine size="marker" entry={progress} className={styles.rowMarker} />
       </div>
       {phone ? null : (
         <>
@@ -598,14 +598,26 @@ export function TracksPage({
 
   const s = status.data;
   const running = s?.job?.status === 'running';
-  const fullLine = s ? analysisLine(s) : '';
-  // 17c: the phone drops the bar and the line's lead-in
-  const line =
-    phone && fullLine.startsWith(ANALYSIS_PREFIX)
-      ? fullLine.slice(ANALYSIS_PREFIX.length)
-      : fullLine;
-  // 153: the 120px bar counts what's done, beside the words
-  const progress = s && !phone ? analysisProgress(s) : null;
+  // the page's line (Brief A, 31c): the sweep's step and how much is ready to
+  // mix. Read at the slow pace: the poll goes fast only while the page's own
+  // rows are being analysed, asked for or near the front (review M2)
+  const sweep = useAnalysisSweep(true, { fast: false });
+  const readyLine =
+    s?.grids && s.counts.tracks
+      ? `${(s.grids.ready ?? s.grids.done).toLocaleString()} of ${s.counts.tracks.toLocaleString()} ready to mix`
+      : null;
+  const toDo = s ? s.counts.pending + (s.grids?.pending ?? 0) : 0;
+  const idleLine = !s?.counts.tracks
+    ? null
+    : !s.settings.analyze
+      ? 'Analysis is off in Settings → Library'
+      : s.held && toDo
+        ? heldWords(sweep, { admin: isAdmin })
+        : toDo
+          ? ['Analysis idle', nextSweepWords(sweep?.next_in)].filter(Boolean).join(' · ')
+          : s.job?.recent
+            ? `All ${s.counts.tracks.toLocaleString()} tracks are ready to mix`
+            : null;
   const clearFilters = () => go({ q: '', bpm: '', key: '', starred: '' });
   // a member's picks all in the shared library: nothing they can set
   const pickedAllShared = !isAdmin && allShared(picked, tracks);
@@ -705,44 +717,22 @@ export function TracksPage({
         </div>
       </header>
 
-      {line ? (
-        <div className={styles.analysis}>
-          {progress ? (
-            <span
-              className={styles.analysisBar}
-              role="progressbar"
-              aria-label="BPM, key and energy worked out"
-              aria-valuemin={0}
-              aria-valuemax={progress.total}
-              aria-valuenow={progress.done}
-            >
-              <span style={{ width: `${(100 * progress.done) / progress.total}%` }} />
-            </span>
-          ) : null}
-          <span className={styles.analysisWords} aria-live="polite">
-            {line}
-          </span>
-          {s?.can_stop && running ? (
-            <button
-              type="button"
-              className={styles.textButton}
-              disabled={job.isPending}
-              onClick={() => job.mutate('stop')}
-            >
-              Stop
-            </button>
-          ) : s?.can_start && !running && s.counts.pending > 0 && s.settings.analyze ? (
-            <button
-              type="button"
-              className={styles.textButton}
-              disabled={job.isPending}
-              onClick={() => job.mutate('start')}
-            >
-              Start now
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      <SweepLine
+        sweep={sweep}
+        extra={readyLine && (running || idleLine !== readyLine) ? readyLine : null}
+        idle={idleLine}
+        className={styles.analysisLine}
+        action={
+          // Analyse all (an admin's, 31c): a full sweep, or Resume after a Stop
+          s?.can_start && !running && toDo > 0 && s.settings.analyze
+            ? {
+                label: s.held ? 'Resume' : 'Analyse all',
+                onClick: () => job.mutate('start'),
+                disabled: job.isPending,
+              }
+            : false
+        }
+      />
 
       <div className={styles.toolbar}>
         {/* 24a: Starred is a filter here, with its count, not a page of its own */}

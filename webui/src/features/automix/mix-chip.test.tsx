@@ -128,9 +128,11 @@ describe('analyse on demand: a Waiting chip shows its track in the analysis', ()
         analyse={() => {}}
       />,
     );
-    const bar = screen.getByRole('progressbar', { name: 'Analysis of Static Bloom' });
-    expect(bar).toHaveAttribute('aria-valuenow', '60');
-    expect(screen.getByText('Finding the beat grid · 60%')).toBeInTheDocument();
+    // 31c: the chip's line is the analysis, the bar filled to the step (5 of 6)
+    const words = screen.getByText('Analysing Static Bloom · beat grid (5 of 6)');
+    expect(
+      words.closest('[data-analysis-marker]')!.querySelector('[data-step="5"]'),
+    ).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Analyse now' })).toBeNull();
   });
 
@@ -146,7 +148,7 @@ describe('analyse on demand: a Waiting chip shows its track in the analysis', ()
         progress={{ state: 'queued', position: 2, asked_for: true }}
       />,
     );
-    expect(screen.getByText('2nd in line')).toBeInTheDocument();
+    expect(screen.getByText('In line · 2nd')).toBeInTheDocument();
     rerender(
       <TransitionChip
         transition={null}
@@ -158,7 +160,7 @@ describe('analyse on demand: a Waiting chip shows its track in the analysis', ()
         progress={{ state: 'waiting', reason: 'drive_away', position: 1, asked_for: true }}
       />,
     );
-    expect(screen.getByText('Waiting for the library drive')).toBeInTheDocument();
+    expect(screen.getByText("Waiting · the drive's away")).toBeInTheDocument();
   });
 
   it('not in any line: Analyse now, for anyone', () => {

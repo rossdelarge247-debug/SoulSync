@@ -129,6 +129,8 @@ let driveAway = false;
 /** analyse on demand: what was asked for, and the progress route's tracks */
 let analysed: unknown[] = [];
 let progressTracks: Record<string, unknown> = {};
+let progressSweep: Record<string, unknown> = { running: false };
+let statusBody: Record<string, unknown> = {};
 
 const DRIVE = {
   success: true,
@@ -158,6 +160,8 @@ beforeEach(() => {
   exported = [];
   analysed = [];
   progressTracks = {};
+  progressSweep = { running: false };
+  statusBody = STATUS;
   resetAnalysisRequests();
   analysisStore.reset();
   driveAway = false;
@@ -171,13 +175,13 @@ beforeEach(() => {
       const u = new URL(url, 'http://x');
       let body: unknown = { success: true };
       if (u.pathname.endsWith('/api/library/dj/browse')) body = BROWSE;
-      else if (u.pathname.endsWith('/api/library/dj/status')) body = STATUS;
+      else if (u.pathname.endsWith('/api/library/dj/status')) body = statusBody;
       else if (u.pathname.endsWith('/api/library/dj/mixes/1')) body = MIXES;
       else if (u.pathname.endsWith('/api/stars/count'))
         body = { success: true, count: 48, missing: 1 };
       else if (u.pathname.endsWith('/api/stars/status')) body = { success: true, tracks: {} };
       else if (u.pathname.endsWith('/api/library/dj/progress'))
-        body = { success: true, tracks: progressTracks, sweep: { running: false } };
+        body = { success: true, tracks: progressTracks, sweep: progressSweep };
       else if (u.pathname.endsWith('/api/library/dj/analyse')) {
         const raw = input instanceof Request ? await input.text() : (init?.body as string);
         analysed.push(JSON.parse(raw));
@@ -284,17 +288,80 @@ describe('Library → Tracks', () => {
     await waitFor(() => expect(browseParams().get('key')).toBe('11A'));
   });
 
-  it('says how far the analysis has got, with Stop', async () => {
+  it("Brief A (31c): the page's line names the track and its step, and how much is ready to mix", async () => {
+    // a grid worked out but not ready to mix (no steady beat) isn't counted
+    statusBody = { ...STATUS, grids: { done: 2, ready: 1, no_beat: 0, pending: 1 } };
+    progressSweep = {
+      running: true,
+      held: false,
+      analyze: true,
+      id: 4,
+      total: 3,
+      done: 1,
+      percent: 33,
+      waiting: null,
+      in_line: 0,
+      yours: 0,
+      left: 1,
+      current: { step: 'key', percent: 35, asked_for: false, track_id: '3', title: 'Canopy' },
+    };
     renderPage();
-    await screen.findByText('BPM, key and energy: 2 of 3 tracks done');
-    // 153: the 120px bar counts what's done
-    const bar = screen.getByRole('progressbar', { name: 'BPM, key and energy worked out' });
-    expect(bar.getAttribute('aria-valuenow')).toBe('2');
-    expect(bar.getAttribute('aria-valuemax')).toBe('3');
-    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    const words = await screen.findByText('Analysing Canopy · key (3 of 6) · 1 of 3 ready to mix');
+    const line = words.closest('[data-analysis-line]')!;
+    // the bar fills by step, 3 of 6; Stop lives in the topbar's popover now
+    expect(line.querySelector('[data-step="3"]')).not.toBeNull();
+    expect(within(line as HTMLElement).queryByRole('button')).toBeNull();
+  });
+
+  it('[review M2] a whole-library sweep polls the page slowly; its own rows working, fast', async () => {
+    progressSweep = {
+      running: true,
+      held: false,
+      analyze: true,
+      id: 4,
+      total: 4980,
+      done: 10,
+      percent: 0,
+      waiting: null,
+      in_line: 0,
+      yours: 0,
+      left: 4970,
+      current: { step: 'key', percent: 35, asked_for: false, track_id: '99', title: 'Elsewhere' },
+    };
+    progressTracks = { '1': { state: 'done' }, '2': { state: 'done' } };
+    renderPage();
+    await screen.findByText(/Analysing Elsewhere/);
+    await waitFor(() => expect(analysisStore.delay).toBe(20_000));
+    // one of the page's rows is being analysed: the page follows it fast
+    progressTracks = { '1': { state: 'working', step: 'read', percent: 5 } };
+    analysisStore.pollSoon();
+    await waitFor(() => expect(analysisStore.delay).toBe(1_500));
+  });
+
+  it('idle: Analyse all (an admin’s) starts a sweep over what isn’t ready', async () => {
+    statusBody = {
+      ...STATUS,
+      grids: { done: 1, no_beat: 0, pending: 1 },
+      job: { ...STATUS.job, status: 'done', recent: true },
+    };
+    progressSweep = {
+      running: false,
+      held: false,
+      analyze: true,
+      in_line: 0,
+      yours: 0,
+      next_in: 1500,
+      current: null,
+    };
+    renderPage();
+    const words = await screen.findByText(
+      'Analysis idle · next sweep in about 25 min · 1 of 3 ready to mix',
+    );
+    const line = words.closest('[data-analysis-line]') as HTMLElement;
+    fireEvent.click(within(line).getByRole('button', { name: 'Analyse all' }));
     await waitFor(() =>
       expect(
-        requested.some((r) => r.url.endsWith('/api/library/dj/stop') && r.method === 'POST'),
+        requested.some((r) => r.url.endsWith('/api/library/dj/start') && r.method === 'POST'),
       ).toBe(true),
     );
   });
@@ -491,14 +558,14 @@ describe('Library → Tracks', () => {
     };
     renderPage();
     await screen.findByText('Static Bloom');
-    const row = (await screen.findByText('Finding the beat grid · 60%')).closest('li')!;
+    // the row's marker (31c): the bar and the step while it's analysed
+    const row = (await screen.findByText('Analysing · beat grid (5 of 6)')).closest('li')!;
     expect(within(row).getByText('Not yet')).toBeTruthy();
-    expect(within(row).getByRole('progressbar', { name: 'Analysis of Not yet' })).toHaveAttribute(
-      'aria-valuenow',
-      '60',
-    );
-    // the sweep's own order isn't shown on a row: only asked-for tracks and the one working
-    expect(screen.queryByText(/1,240th in line/)).toBeNull();
+    expect(row.querySelector('[data-analysis-marker] [data-step="5"]')).not.toBeNull();
+    // the sweep's own order isn't shown as a place: the row says what it has (HANDOFF 334)
+    expect(screen.queryByText(/1,240th/)).toBeNull();
+    const queued = screen.getByText('Night Ferry').closest('li')!;
+    expect(within(queued).getByText('Not analysed')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Select' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Static Bloom' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Not yet' }));
@@ -507,7 +574,9 @@ describe('Library → Tracks', () => {
     const item = await screen.findByRole('menuitem', { name: 'Analyse these' });
     expect(item.textContent).toContain('2 tracks · ones already done are skipped');
     fireEvent.click(item);
-    await waitFor(() => expect(analysed).toEqual([{ track_ids: ['1', '3'], reason: 'asked' }]));
+    await waitFor(() =>
+      expect(analysed).toEqual([{ track_ids: ['1', '3'], reason: 'asked', source: 'asked' }]),
+    );
     await waitFor(() =>
       expect(window.showToast).toHaveBeenCalledWith(
         '1 track will be analysed next. 1 track already done is skipped.',

@@ -11,8 +11,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DjInfo } from '@/features/dj/dj.api';
 import type { Step, ViewRow } from '@/features/sets/sets.api';
 
-import { useAnalysis, useAutoAnalyse } from '@/features/dj/analysis-progress';
-import { requestAnalysis, requestAnalysisQuietly } from '@/features/dj/analysis.api';
+import { useAnalysis, useAutoAnalyse } from '@/features/dj/analysis-line';
+import { askForAdded, cancelAnalysis, requestAnalysis } from '@/features/dj/analysis.api';
+import { addedAnalysisWords } from '@/features/dj/analysis.format';
 import { playTrackNext } from '@/features/dj/dj-actions';
 import { DJ_QUERY_KEY, djStatusQueryOptions, djTracksQueryOptions } from '@/features/dj/dj.api';
 import {
@@ -150,6 +151,7 @@ export function useMixModel(
   const qc = useQueryClient();
   const state = useMixState();
   const subjectId = subject?.id ?? null;
+  const subjectTitle = subject?.title ?? null;
 
   // a new playing track: More like this and Widen start over
   const lastSubject = useRef(subjectId);
@@ -296,13 +298,21 @@ export function useMixModel(
     async (track: { id: string; title: string }, opts: { again?: boolean } = {}) => {
       setBusy(true);
       try {
-        // analyse on demand: a track going into the working set jumps the queue
-        requestAnalysisQuietly([track.id]);
+        // analyse on demand: a track going into the working set jumps the
+        // queue, and the toast says where it is in line, once (31b)
+        const asking = askForAdded([track.id], { source: 'set', setId: workingSet?.id ?? null });
+        const said = async () => {
+          const words = addedAnalysisWords(await asking);
+          return words ? ` · ${words}` : '';
+        };
         if (!workingSet) {
           const name = workingSetName();
           await startWorkingSet(name, [track.id]);
           refreshSet();
-          window.showToast?.(`Started ${name} with ${track.title || 'the track'} · #1`, 'success');
+          window.showToast?.(
+            `Started ${name} with ${track.title || 'the track'} · #1${await said()}`,
+            'success',
+          );
           return 1;
         }
         // while the set plays, a match goes in straight after the playing track (29b)
@@ -321,7 +331,7 @@ export function useMixModel(
           return null;
         }
         window.showToast?.(
-          `Added ${track.title || 'the track'} to ${done.name} · #${number}`,
+          `Added ${track.title || 'the track'} to ${done.name} · #${number}${await said()}`,
           'success',
         );
         return number;
@@ -362,14 +372,14 @@ export function useMixModel(
   // analyse on demand: a track opened in the Mix tab jumps the queue (any
   // profile; the server skips one that's done), and its progress shows;
   // only while the tab is shown, so a track merely playing asks nothing
-  useAutoAnalyse([subjectId], shown);
+  useAutoAnalyse([subjectId], shown, 'auto', { source: 'mix' });
   const progressOf = useAnalysis([subjectId, seed?.id], shown);
   const [analysing, setAnalysing] = useState(false);
   const analyse = useCallback(async () => {
     if (!subjectId) return;
     setAnalysing(true);
     try {
-      await requestAnalysis([subjectId], { force: true });
+      await requestAnalysis([subjectId], { force: true, source: 'mix' });
       setWaiting(true);
       void qc.invalidateQueries({ queryKey: [...DJ_QUERY_KEY, 'tracks'] });
     } catch (err) {
@@ -387,6 +397,23 @@ export function useMixModel(
       void qc.invalidateQueries({ queryKey: [...DJ_QUERY_KEY, 'tracks'] });
     }
   }, [waiting, reason, qc]);
+
+  /** Cancel (31c): this profile's ask for the track leaves the line. */
+  const cancelAnalyse = useCallback(() => {
+    if (!subjectId) return;
+    cancelAnalysis([subjectId])
+      .then((answer) => {
+        // it started, or the ask wasn't yours after all (review L4)
+        if (!answer.withdrawn)
+          window.showToast?.(
+            `Nothing to cancel: ${subjectTitle || 'it'} isn't in line on your ask any more.`,
+            'info',
+          );
+      })
+      .catch((err: unknown) =>
+        window.showToast?.(err instanceof Error ? err.message : "That didn't work.", 'error'),
+      );
+  }, [subjectId, subjectTitle]);
 
   const playNext = useCallback((match: MixMatch) => {
     playTrackNext(match);
@@ -431,6 +458,7 @@ export function useMixModel(
     progress: subjectId ? (progressOf[subjectId] ?? null) : null,
     seedProgress: seed?.id ? (progressOf[seed.id] ?? null) : null,
     analysing: analysing || waiting,
+    cancelAnalyse,
     analyse,
   };
 }
