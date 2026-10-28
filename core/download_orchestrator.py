@@ -666,7 +666,8 @@ class DownloadOrchestrator:
             raise RuntimeError("Soulseek client not available (failed to initialize)")
         return await soulseek._make_request(method, endpoint, **kwargs)
 
-    async def get_soulseek_transfers(self, max_age: Optional[float] = None, stale_ok: float = 0.0):
+    async def get_soulseek_transfers(self, max_age: Optional[float] = None, stale_ok: float = 0.0,
+                                     display: bool = False):
         """slskd's downloads list from the Soulseek client's shared copy
         (``SoulseekClient.get_transfers_snapshot``), so the pollers that read
         it don't each ask slskd. ``None`` without a Soulseek client or when
@@ -674,9 +675,12 @@ class DownloadOrchestrator:
         soulseek = self.client('soulseek')
         if not soulseek or not hasattr(soulseek, 'get_transfers_snapshot'):
             return None
-        if max_age is None:
-            return await soulseek.get_transfers_snapshot(stale_ok=stale_ok)
-        return await soulseek.get_transfers_snapshot(max_age=max_age, stale_ok=stale_ok)
+        kwargs = {'stale_ok': stale_ok}
+        if display:
+            kwargs['display'] = True
+        if max_age is not None:
+            kwargs['max_age'] = max_age
+        return await soulseek.get_transfers_snapshot(**kwargs)
 
     async def _make_direct_request(self, method: str, endpoint: str, **kwargs):
         """

@@ -170,6 +170,10 @@ class StatusDeps:
     # gives rows their artist photo + a library cover when the task had none
     # (core/downloads/row_art.py). mutates the items in place.
     attach_row_art: Optional[Callable[[list], None]] = None
+    # The live transfers for SHOWING progress (the Downloads page): may hold
+    # slskd's list from before an enqueue or cancel. Never for decisions.
+    # Falls back to get_cached_transfer_data.
+    get_display_transfer_data: Optional[Callable[[], dict]] = None
 
 
 # Streaming sources the engine fallback applies to. Soulseek goes through
@@ -871,7 +875,9 @@ def build_unified_downloads_response(limit: int, deps: StatusDeps) -> dict:
     live_lookup = {}
     if any((t or {}).get('status') in ('downloading', 'searching', 'queued')
            for t in list(download_tasks.values())):
-        live_lookup = deps.get_cached_transfer_data() or {}
+        # progress only: the display copy is fine here (gauntlet N3)
+        read = deps.get_display_transfer_data or deps.get_cached_transfer_data
+        live_lookup = read() or {}
     with tasks_lock:
         for task_id, task in download_tasks.items():
             track_info = task.get('track_info') or {}

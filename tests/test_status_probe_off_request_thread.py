@@ -49,7 +49,7 @@ def stale_status(ws, monkeypatch):
     yield
     # let probe threads started by the test finish before the next test
     deadline = time.time() + 10
-    while time.time() < deadline and any(e[0].is_alive() for e in list(ws._status_probes_running.values())):
+    while time.time() < deadline and any(r.thread.is_alive() for r in list(ws._status_probes_running.values())):
         time.sleep(0.05)
 
 
@@ -362,3 +362,126 @@ def test_l8_the_dashboard_speed_is_a_read_of_now(ws, monkeypatch, slskd_up):
     ws._build_system_stats()
 
     assert seen and seen[0].get("stale_ok", 0) == 0 and seen[0]["timeout"] == 3
+
+
+
+# ── gauntlet review, second round ────────────────────────────────────────────
+
+def test_n2_a_hung_slskd_is_connected_only_for_a_while_after_its_last_answer(ws, monkeypatch, stale_status):
+    """Every check of a hung slskd ends "no answer" and used to keep the last
+    True for good. Now: kept up to STATUS_UNKNOWN_KEEP_SECONDS after the last
+    real answer, then not connected; connected again once it answers."""
+    source = _Source(0.0, True)
+    orch = _Orchestrator(sources={"soulseek": source})
+    monkeypatch.setattr(ws, "download_orchestrator", orch)
+    monkeypatch.setattr(ws, "STATUS_SLSKD_PROBE_SECONDS", 0.2)
+    monkeypatch.setattr(ws, "STATUS_UNKNOWN_KEEP_SECONDS", 1.0)
+    monkeypatch.setattr(ws, "STATUS_RETRY_SECONDS", 0.0)
+    monkeypatch.setattr(ws, "STATUS_CACHE_TTL", 0.0)
+    client = ws.app.test_client()
+
+    assert client.get("/status").get_json()["soulseek"]["connected"] is True     # a real answer
+    source.delay = 5                                                              # slskd hangs
+    client.get("/status")
+    _wait_for_probe(ws)
+    assert ws._status_cache["soulseek"]["connected"] is True                      # within the minute
+    time.sleep(1.1)
+    client.get("/status")
+    _wait_for_probe(ws)
+    assert ws._status_cache["soulseek"]["connected"] is False                     # then not connected
+    source.delay = 0.0                                                            # slskd is back
+    client.get("/status")
+    _wait_for_probe(ws)
+    assert ws._status_cache["soulseek"]["connected"] is True
+
+
+def test_l7_a_check_that_never_returns_is_given_up_on_and_its_answer_ignored(ws, monkeypatch, stale_status):
+    """Round-one L7 follow-up: a media-server check that never returned
+    blocked every later check, so /status said "not connected" until a
+    restart. Past STATUS_PROBE_ABANDON_SECONDS a new check starts; the old
+    one's answer, if it comes, is ignored."""
+    release = threading.Event()
+    calls = []
+
+    class _Engine:
+        def is_connected(self):
+            calls.append(1)
+            if len(calls) == 1:
+                release.wait(10)
+                return False                      # the stuck check's late, wrong answer
+            return True
+
+    monkeypatch.setattr(ws, "download_orchestrator", _Orchestrator(delay=0.0))
+    monkeypatch.setattr(ws, "media_server_engine", _Engine())
+    monkeypatch.setattr(ws, "STATUS_PROBE_WAIT_SECONDS", 0.05)
+    monkeypatch.setattr(ws, "STATUS_MEDIA_PROBE_SECONDS", 0.1)
+    monkeypatch.setattr(ws, "STATUS_PROBE_ABANDON_SECONDS", 0.3)
+    try:
+        ws.app.test_client().get("/status")
+        time.sleep(0.4)
+        ws.app.test_client().get("/status")       # past the cap: a second check
+        deadline = time.time() + 3
+        while time.time() < deadline and ws._status_cache["media_server"]["connected"] is not True:
+            time.sleep(0.05)
+        assert len(calls) == 2
+        assert ws._status_cache["media_server"]["connected"] is True
+    finally:
+        release.set()
+    time.sleep(0.2)
+    assert ws._status_cache["media_server"]["connected"] is True   # the late False was ignored
+
+
+def test_n5_the_overrun_report_does_not_overwrite_a_published_answer(ws, monkeypatch, stale_status):
+    """The overrun report and the check's own answer raced: a check that had
+    just published True could be overwritten with False."""
+    hold = threading.Event()
+    monkeypatch.setattr(ws, "STATUS_MEDIA_PROBE_SECONDS", 0.1)
+
+    def probe(run):
+        ws._publish_status_probe("media_server", run, lambda: ws._status_cache.__setitem__(
+            "media_server", {"connected": True, "response_time": 1, "type": "plex"}))
+        hold.wait(5)                              # still alive after publishing
+
+    try:
+        ws._start_status_probe("media_server", probe, budget=0.1,
+                               on_overrun=lambda: ws._media_probe_overran("plex"))
+        time.sleep(0.3)
+        ws._start_status_probe("media_server", probe, budget=0.1,
+                               on_overrun=lambda: ws._media_probe_overran("plex"))
+        assert ws._status_cache["media_server"]["connected"] is True
+    finally:
+        hold.set()
+
+
+def test_n4_waiters_never_get_an_old_lookup(ws, monkeypatch, slskd_up):
+    """When the build failed or ran past their wait, waiters were handed the
+    cache at any age."""
+    release = threading.Event()
+    monkeypatch.setitem(ws.transfer_data_cache, "data", {"old::row": {"state": "InProgress"}})
+    monkeypatch.setitem(ws.transfer_data_cache, "last_update", time.time() - 600)
+    monkeypatch.setattr(ws, "SLSKD_LIST_REQUEST_WAIT_SECONDS", 0.1)
+    monkeypatch.setattr(ws, "DOWNLOAD_CLIENTS_WAIT_SECONDS", 0.1)
+
+    def slow_build(display=False):
+        release.wait(5)
+        return None                               # and it fails
+
+    monkeypatch.setattr(ws, "_build_transfer_lookup", slow_build)
+    owner = threading.Thread(target=ws.get_cached_transfer_data)
+    owner.start()
+    time.sleep(0.05)
+    try:
+        assert ws.get_cached_transfer_data() == {}
+    finally:
+        release.set()
+        owner.join(5)
+
+
+def test_n3_the_downloads_page_reads_the_display_lookup(ws, monkeypatch):
+    deps = ws._build_status_deps()
+    seen = []
+    monkeypatch.setattr(ws, "get_cached_transfer_data", lambda display=False: seen.append(display) or {})
+    deps = ws._build_status_deps()
+    deps.get_display_transfer_data()
+    deps.get_cached_transfer_data()
+    assert seen == [True, False]

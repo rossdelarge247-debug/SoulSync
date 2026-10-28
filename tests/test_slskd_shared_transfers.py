@@ -424,14 +424,18 @@ def test_l3_the_album_cancel_confirmation_reads_slskd_each_time(monkeypatch):
 # ── the monitor ──────────────────────────────────────────────────────────────
 
 class _Orch:
-    def __init__(self, answers, unreachable=False):
+    def __init__(self, answers, unreachable=False, answered=False, engine_rows=None):
         self.answers = list(answers)
         self.slsk = type("S", (), {"base_url": "http://slskd",
-                                   "unreachable_backoff_active": lambda _s: unreachable})()
-        self.engine = type("E", (), {"get_all_downloads": self._none})()
+                                   "unreachable_backoff_active": lambda _s: unreachable,
+                                   "last_transfers_failure_was_an_answer": lambda _s: answered})()
+        rows = engine_rows or []
 
-    async def _none(self, exclude=()):
-        return []
+        async def _rows(exclude=()):
+            return list(rows)
+
+        self.engine = type("E", (), {})()
+        self.engine.get_all_downloads = _rows
 
     def client(self, name):
         return self.slsk
@@ -439,38 +443,82 @@ class _Orch:
     async def get_soulseek_transfers(self, *a, **kw):
         return self.answers.pop(0)
 
+    async def cancel_download(self, *a, **kw):
+        raise AssertionError("nothing should be cancelled")
 
-def _monitor(monkeypatch, orch):
+
+def _monitor(monkeypatch, orch, mode="soulseek"):
     from core.downloads import monitor as dm
     monkeypatch.setattr(dm.config_manager, "get", lambda key, default=None:
-                        "soulseek" if key == "download_source.mode" else default)
+                        mode if key == "download_source.mode" else
+                        (["youtube", "soulseek"] if key == "download_source.hybrid_order" else default))
     monkeypatch.setattr(dm, "download_orchestrator", orch)
+    monkeypatch.setattr(dm, "_make_context_key", lambda u, f: f"{u}::{f}")
     mon = dm.WebUIDownloadMonitor()
     mon.monitoring = True
     return dm, mon
 
 
 def test_monitor_reads_no_answer_from_slskd_as_unknown_for_a_while(monkeypatch):
-    """A busy slskd that doesn't answer its list isn't "no transfers": the
-    tick is skipped (every download over 90 s used to be restarted as stuck,
-    its peer blacklisted), up to SLSKD_UNANSWERED_GRACE_SECONDS."""
-    dm, mon = _monitor(monkeypatch, _Orch([None, None, LIST]))
+    """A busy slskd that doesn't answer its list isn't "no transfers": its
+    tasks get no stuck/error decision (they'd be restarted, peers
+    blacklisted), up to SLSKD_UNANSWERED_GRACE_SECONDS per episode."""
+    dm, mon = _monitor(monkeypatch, _Orch([None, None, LIST, None]))
 
-    assert mon._get_live_transfers() is dm._LIVE_TRANSFERS_FETCH_FAILED
+    assert mon._get_live_transfers() == {} and mon._slskd_list_unknown is True
     mon._slskd_unanswered_since -= dm.SLSKD_UNANSWERED_GRACE_SECONDS + 1
-    assert mon._get_live_transfers() == {}             # past the grace: as before
-    assert mon._get_live_transfers() != {}             # slskd answers again
-    assert mon._slskd_unanswered_since is None
+    assert mon._get_live_transfers() == {} and mon._slskd_list_unknown is False   # past the grace
+    assert mon._get_live_transfers() != {} and mon._slskd_unanswered_since is None
+    mon._get_live_transfers()                           # a new episode: its own grace
+    assert mon._slskd_list_unknown is True
 
 
 def test_monitor_handles_slskd_refusing_connections_as_before(monkeypatch):
     dm, mon = _monitor(monkeypatch, _Orch([None], unreachable=True))
-    assert mon._get_live_transfers() == {}
+    assert mon._get_live_transfers() == {} and mon._slskd_list_unknown is False
+
+
+def test_monitor_handles_an_error_answer_as_before(monkeypatch):
+    """slskd answered (401, 500): it's there, so it isn't "unknown"."""
+    dm, mon = _monitor(monkeypatch, _Orch([None], answered=True))
+    assert mon._get_live_transfers() == {} and mon._slskd_list_unknown is False
 
 
 def test_monitor_empty_list_is_not_a_failure(monkeypatch):
     dm, mon = _monitor(monkeypatch, _Orch([[]]))
-    assert mon._get_live_transfers() == {}
+    assert mon._get_live_transfers() == {} and mon._slskd_list_unknown is False
+
+
+def test_n1_hybrid_slskd_not_answering_still_finishes_a_youtube_download(monkeypatch):
+    """gauntlet N1: the unknown slskd list skipped the whole tick, so YouTube,
+    Tidal and torrent tasks got no completion pass for up to 180 s."""
+    from core.download_plugins.types import DownloadStatus
+
+    yt = DownloadStatus(id="yt-1", filename="Song.mp3", username="youtube", state="Completed, Succeeded",
+                        progress=100.0, size=10, transferred=10, speed=0)
+    dm, mon = _monitor(monkeypatch, _Orch([None], engine_rows=[yt]), mode="hybrid")
+    tasks, batches = {}, {}
+    monkeypatch.setattr(dm, "download_tasks", tasks)
+    monkeypatch.setattr(dm, "download_batches", batches)
+    monkeypatch.setattr(dm, "tasks_lock", threading.Lock())
+    old = time.time() - 600
+    tasks["yt"] = {"track_info": {"name": "Song"}, "username": "youtube", "filename": "Song.mp3",
+                   "download_id": "yt-1", "status": "downloading", "status_change_time": old}
+    tasks["sl"] = {"track_info": {"name": "Other"}, "username": "peer", "filename": "d\\o.flac",
+                   "download_id": "sl-1", "status": "downloading", "status_change_time": old}
+    batches["b1"] = {"queue": ["yt", "sl"]}
+    mon.monitored_batches.add("b1")
+    submitted = []
+    monkeypatch.setattr(dm, "_post_processing_pool",
+                        lambda: type("P", (), {"submit": lambda _s, fn, *a: submitted.append(a)})())
+    monkeypatch.setattr(mon, "_validate_worker_counts", lambda: None)
+
+    mon._check_all_downloads()
+
+    assert tasks["yt"]["status"] == "post_processing"           # completed within the tick
+    assert submitted == [("yt", "b1")]
+    assert tasks["sl"]["status"] == "downloading"               # no decision without slskd's list
+    assert "used_sources" not in tasks["sl"] and "stuck_retry_count" not in tasks["sl"]
 
 
 def test_a_request_thread_does_not_queue_behind_a_read_under_way():
@@ -489,3 +537,69 @@ def test_a_request_thread_does_not_queue_behind_a_read_under_way():
     got, waited, first = run_async(scenario())
     assert got is None and waited < 0.2
     assert first == LIST and slskd.reads == 1
+
+
+def test_n3_progress_keeps_the_last_list_through_an_enqueue():
+    """gauntlet N3: after an enqueue dropped the copy, request threads got
+    nothing until the next read landed, so progress rows blinked out (and a
+    burst of enqueues could keep them empty). A display reader gets the last
+    list slskd sent; a reader for decisions still doesn't."""
+    client, slskd = _client(), _Slskd()
+    client._make_request = slskd
+    run_async(client.get_transfers_snapshot())
+    client.invalidate_transfers_snapshot()              # an enqueue
+    slskd.delay = 1.0
+
+    async def scenario():
+        reading = asyncio.ensure_future(client.get_transfers_snapshot())   # the monitor
+        await asyncio.sleep(0.05)
+        shown = await client.get_transfers_snapshot(stale_ok=30, display=True)
+        decided = await client.get_transfers_snapshot(stale_ok=30)
+        return shown, decided, await reading
+
+    shown, decided, fresh = run_async(scenario())
+    assert shown == LIST and decided is None and fresh == LIST
+
+
+def test_n1_an_error_answer_is_told_from_no_answer():
+    client = _client()
+
+    class _Response:
+        status = 500
+        headers = {}
+        reason = "Server Error"
+
+        async def text(self):
+            return "boom"
+
+    class _Cm:
+        async def __aenter__(self):
+            return _Response()
+
+        async def __aexit__(self, *a):
+            return None
+
+    class _Session:
+        def request(self, *a, **kw):
+            return _Cm()
+
+        async def close(self):
+            return None
+
+    with patch("aiohttp.ClientSession", return_value=_Session()):
+        assert run_async(client.get_transfers_snapshot()) is None
+    assert client.last_transfers_failure_was_an_answer() is True
+
+    class _Hung(_Session):
+        def request(self, *a, **kw):
+            class _T:
+                async def __aenter__(self):
+                    raise asyncio.TimeoutError("slskd hung")
+
+                async def __aexit__(self, *a):
+                    return None
+            return _T()
+
+    with patch("aiohttp.ClientSession", return_value=_Hung()):
+        assert run_async(client.get_transfers_snapshot()) is None
+    assert client.last_transfers_failure_was_an_answer() is False

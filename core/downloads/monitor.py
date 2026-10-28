@@ -82,8 +82,9 @@ _STREAMING_SOURCE_NAMES = frozenset((
 # otherwise one slskd hiccup cancels healthy downloads and blacklists
 # their peers via used_sources.
 _LIVE_TRANSFERS_FETCH_FAILED = object()
-# How long ticks are skipped while slskd doesn't answer its downloads list
-# (a busy or restarting slskd) before the monitor goes on without it.
+# How long Soulseek tasks get no stuck/error decision while slskd doesn't
+# answer its downloads list (busy, hung, restarting); other sources' tasks are
+# handled every tick regardless. After this the old handling resumes.
 SLSKD_UNANSWERED_GRACE_SECONDS = 180.0
 
 
@@ -592,6 +593,7 @@ class WebUIDownloadMonitor:
             # healthy downloads and blacklist their peers. Skip this tick.
             logger.debug("Monitor: live-transfer poll failed, skipping this tick's retry/completion pass")
             return
+        slskd_unknown = bool(getattr(self, '_slskd_list_unknown', False))
 
         # Track tasks with exhausted retries to handle after releasing lock
         exhausted_tasks = []  # List of (batch_id, task_id) tuples
@@ -622,7 +624,17 @@ class WebUIDownloadMonitor:
                     # Check for timeouts and errors - retries handled directly in _should_retry_task
                     # If _should_retry_task returns True, it means retries were exhausted
                     retry_exhausted = False
-                    if not release_recoverable:
+                    # slskd didn't answer its list this tick: its tasks aren't
+                    # in the lookup because nobody knows, not because they're
+                    # gone, so no stuck/error decision for them (they'd be
+                    # restarted with their peer blacklisted). Every other
+                    # source's tasks are handled as usual (gauntlet N1).
+                    slskd_unknown_task = (
+                        slskd_unknown
+                        and _resolve_download_source(
+                            task.get('username') or (task.get('track_info') or {}).get('username')) == 'soulseek'
+                    )
+                    if not release_recoverable and not slskd_unknown_task:
                         retry_exhausted = self._should_retry_task(task_id, task, live_transfers_lookup, current_time, deferred_ops)
                     # Collect exhausted tasks to handle outside lock (prevents deadlock)
                     if retry_exhausted:
@@ -764,28 +776,13 @@ class WebUIDownloadMonitor:
 
             # Get Soulseek downloads from API
             transfers_data = None
+            self._slskd_list_unknown = False
             _slsk = download_orchestrator.client('soulseek') if download_orchestrator and hasattr(download_orchestrator, 'client') else None
             if soulseek_active and _slsk and _slsk.base_url:
                 # the shared copy of slskd's list (at most one read per 2 s
                 # for every poller, SoulseekClient.get_transfers_snapshot)
                 transfers_data = run_async(download_orchestrator.get_soulseek_transfers())
-                _unreachable = getattr(_slsk, 'unreachable_backoff_active', None)
-                if transfers_data is None and not (callable(_unreachable) and _unreachable() is True):
-                    # slskd didn't answer: the list is unknown, not empty.
-                    # (Not when slskd refuses connections outright: that's
-                    # slskd down, handled as before.)
-                    # Read as empty, every download over 90 s looked stuck
-                    # and was restarted with its peer blacklisted. Skip the
-                    # tick, but only for a while: with slskd gone for good the
-                    # old handling (retry, fall back to another source) resumes.
-                    now = time.time()
-                    since = getattr(self, '_slskd_unanswered_since', None)
-                    if since is None:
-                        since = self._slskd_unanswered_since = now
-                    if now - since < SLSKD_UNANSWERED_GRACE_SECONDS:
-                        return _LIVE_TRANSFERS_FETCH_FAILED
-                elif transfers_data is not None:
-                    self._slskd_unanswered_since = None
+                self._slskd_list_unknown = self._slskd_unanswered(_slsk, transfers_data)
             if transfers_data:
                 for user_data in transfers_data:
                     username = user_data.get('username', 'Unknown')
@@ -851,6 +848,26 @@ class WebUIDownloadMonitor:
                 logger.error(f"Monitor: Could not fetch live transfers: {e}")
             return _LIVE_TRANSFERS_FETCH_FAILED
     
+    def _slskd_unanswered(self, slsk, transfers_data) -> bool:
+        """Whether slskd's list is unknown this tick: slskd didn't answer at
+        all (busy, hung), for up to SLSKD_UNANSWERED_GRACE_SECONDS of one such
+        episode. Not when it answered (the list, or an error such as 401 or
+        500: slskd is there, handled as before) or refuses connections (slskd
+        down, handled as before)."""
+        if transfers_data is not None:
+            self._slskd_unanswered_since = None
+            return False
+        answered = getattr(slsk, 'last_transfers_failure_was_an_answer', None)
+        unreachable = getattr(slsk, 'unreachable_backoff_active', None)
+        if (callable(answered) and answered() is True) or (callable(unreachable) and unreachable() is True):
+            self._slskd_unanswered_since = None
+            return False
+        now = time.time()
+        since = getattr(self, '_slskd_unanswered_since', None)
+        if since is None:
+            since = self._slskd_unanswered_since = now
+        return now - since < SLSKD_UNANSWERED_GRACE_SECONDS
+
     def _should_retry_task(self, task_id, task, live_transfers_lookup, current_time, deferred_ops):
         """
         Determine if a task should be retried due to timeout (matches GUI logic).

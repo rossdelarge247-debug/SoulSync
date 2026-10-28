@@ -14,6 +14,7 @@ import requests
 import socket
 import subprocess
 import platform
+import itertools
 import threading
 import time
 import uuid
@@ -2380,22 +2381,32 @@ SLSKD_LIST_STALE_OK_SECONDS = 30.0
 DOWNLOAD_CLIENTS_WAIT_SECONDS = 10.0
 
 
-def _slskd_transfers(*, stale_ok=0.0, timeout=None):
+def _slskd_transfers(*, stale_ok=0.0, timeout=None, display=False):
     """slskd's downloads list from the Soulseek client's shared copy
     (``SoulseekClient.get_transfers_snapshot``): one read per 2 s for every
     poller instead of one each. ``None`` when slskd didn't answer, or didn't
-    within ``timeout`` seconds (the read carries on for the others)."""
+    within ``timeout`` seconds (the read carries on for the others).
+    ``display``: progress only, never decisions (it may be the list from
+    before an enqueue or cancel)."""
     if not download_orchestrator:
         return None
     try:
-        return run_async(download_orchestrator.get_soulseek_transfers(stale_ok=stale_ok),
-                         timeout=timeout)
+        if display:
+            call = download_orchestrator.get_soulseek_transfers(stale_ok=stale_ok, display=True)
+        else:
+            call = download_orchestrator.get_soulseek_transfers(stale_ok=stale_ok)
+        return run_async(call, timeout=timeout)
     except AsyncCallTimeout:
         logger.debug("slskd's downloads list took over %ss; going on without it", timeout)
         return None
 
 
-def get_cached_transfer_data():
+# A waiter never gets a transfer lookup older than this (gauntlet N4: when a
+# build failed or ran long, waiters got the cache at any age).
+TRANSFER_CACHE_MAX_AGE_SECONDS = 15.0
+
+
+def get_cached_transfer_data(display=False):
     """
     Get transfer data with caching to reduce API calls when multiple modals are active.
     Returns a lookup dictionary for efficient transfer matching.
@@ -2405,36 +2416,45 @@ def get_cached_transfer_data():
     own. The lock only guards the cache itself, never the build: building
     reads slskd and the other download clients, and a request thread holding
     the lock across that used to queue every other caller behind a slow slskd.
+
+    ``display=True`` is for showing progress only (the Downloads page): its
+    slskd rows may come from the last list slskd sent even after an enqueue or
+    cancel dropped the shared copy, so rows don't blink out while the next
+    read is under way (gauntlet N3). Status decisions use ``display=False``.
     """
     cache = transfer_data_cache
+    data_key, time_key, build_key = (('display_data', 'display_last_update', 'display_building')
+                                     if display else ('data', 'last_update', 'building'))
     with cache['update_lock']:
-        if (time.time() - cache['last_update']) < cache['cache_duration']:
-            return cache['data']
-        building = cache.get('building')
+        if (time.time() - cache.get(time_key, 0)) < cache['cache_duration']:
+            return cache.get(data_key, {})
+        building = cache.get(build_key)
         if building is None:
-            building = cache['building'] = threading.Event()
+            building = cache[build_key] = threading.Event()
             owner = True
         else:
             owner = False
     if not owner:
         building.wait(SLSKD_LIST_REQUEST_WAIT_SECONDS + DOWNLOAD_CLIENTS_WAIT_SECONDS)
         with cache['update_lock']:
-            return cache['data']
+            if time.time() - cache.get(time_key, 0) <= TRANSFER_CACHE_MAX_AGE_SECONDS:
+                return cache.get(data_key, {})
+            return {}
     try:
-        live_transfers_lookup = _build_transfer_lookup()
+        live_transfers_lookup = _build_transfer_lookup(display=display)
         if live_transfers_lookup is None:
             return {}
         with cache['update_lock']:
-            cache['data'] = live_transfers_lookup
-            cache['last_update'] = time.time()
+            cache[data_key] = live_transfers_lookup
+            cache[time_key] = time.time()
         return live_transfers_lookup
     finally:
         with cache['update_lock']:
-            cache['building'] = None
+            cache[build_key] = None
         building.set()
 
 
-def _build_transfer_lookup():
+def _build_transfer_lookup(display=False):
     """The live transfers of every download client, keyed for matching tasks:
     slskd's from the shared copy, the rest from the download engine. ``None``
     when the build failed (the cache then isn't updated)."""
@@ -2452,7 +2472,8 @@ def _build_transfer_lookup():
         _slsk = download_orchestrator.client("soulseek") if download_orchestrator else None
         if not soulseek_known_down and _slsk and _slsk.base_url:
             transfers_data = _slskd_transfers(stale_ok=SLSKD_LIST_STALE_OK_SECONDS,
-                                              timeout=SLSKD_LIST_REQUEST_WAIT_SECONDS)
+                                              timeout=SLSKD_LIST_REQUEST_WAIT_SECONDS,
+                                              display=display)
         for transfer in _flatten_slskd_transfers(transfers_data):
             key = _make_context_key(transfer.get('username'), transfer.get('filename', ''))
             live_transfers_lookup[key] = transfer
@@ -3662,54 +3683,108 @@ STATUS_MEDIA_PROBE_SECONDS = 20.0
 # after the full STATUS_CACHE_TTL (gauntlet M3: a disconnected slskd switches
 # off every slskd read, so a wrong "down" shouldn't last two minutes).
 STATUS_RETRY_SECONDS = 15.0
+# With no answer, the last known slskd state is kept this long after the last
+# real answer, then it's "not connected" (gauntlet N2: a hung slskd could stay
+# "connected" for good, every check ending without an answer).
+STATUS_UNKNOWN_KEEP_SECONDS = 60.0
+# A check still running after this long is given up on and a new one may start
+# (its answer, if it ever comes, is ignored); at most this many given-up checks
+# are left running per kind (gauntlet L7: a media-server check that never
+# returned, e.g. a standalone library on a hung network mount, blocked every
+# later check until a restart).
+STATUS_PROBE_ABANDON_SECONDS = 120.0
+STATUS_PROBE_MAX_ABANDONED = 2
 _status_probes_lock = threading.Lock()
-_status_probes_running: dict = {}   # name -> (thread, started at, overrun reported)
+_status_probes_running: dict = {}    # name -> the current _StatusProbe
+_status_probes_abandoned: dict = {}  # name -> [_StatusProbe given up on]
+_status_probe_ids = itertools.count(1)
+_download_source_answered_at = 0.0   # when a slskd check last got a real answer
 
 
-def _start_status_probe(name, probe, *, budget=None, on_overrun=None):
-    """Run ``probe`` on its own thread unless one for ``name`` is running.
-    Returns the thread it started, or ``None``. When the running one has gone
-    past ``budget`` seconds, ``on_overrun`` is called once (no second thread
-    is started; a new check can start once that one ends)."""
+class _StatusProbe:
+    """One run of a /status check. Only the current run of its kind may
+    publish (``_publish_status_probe``), and only once; the overrun report
+    only applies while it's current and hasn't published (gauntlet N5)."""
+
+    __slots__ = ('id', 'thread', 'started', 'done', 'overrun_reported')
+
+    def __init__(self):
+        self.id = next(_status_probe_ids)
+        self.thread = None
+        self.started = time.time()
+        self.done = False
+        self.overrun_reported = False
+
+
+def _publish_status_probe(name, run, publish):
+    """Apply ``publish()`` if ``run`` is still the current check of ``name``."""
     with _status_probes_lock:
-        running = _status_probes_running.get(name)
-        if running is not None and running[0].is_alive():
-            thread, started, reported = running
-            if (budget is not None and on_overrun is not None and not reported
-                    and time.time() - started > budget):
-                _status_probes_running[name] = (thread, started, True)
+        if _status_probes_running.get(name) is run and not run.done:
+            publish()
+            run.done = True
+
+
+def _start_status_probe(name, probe, *, budget=None, on_overrun=None, abandon_after=None):
+    """Run ``probe(run)`` on its own thread unless a check of ``name`` is
+    running. Returns the thread it started, or ``None``. When the running one
+    has gone past ``budget`` seconds, ``on_overrun`` is called once; past
+    ``abandon_after`` (default STATUS_PROBE_ABANDON_SECONDS) it's given up on
+    and a new one starts."""
+    if abandon_after is None:
+        abandon_after = STATUS_PROBE_ABANDON_SECONDS
+    with _status_probes_lock:
+        current = _status_probes_running.get(name)
+        if current is not None and current.thread.is_alive() and not current.done:
+            age = time.time() - current.started
+            if (budget is not None and on_overrun is not None and not current.overrun_reported
+                    and age > budget):
+                current.overrun_reported = True
                 try:
                     on_overrun()
                 except Exception as e:  # noqa: BLE001 - reporting must not fail /status
                     logger.debug("status probe %s overrun report failed: %s", name, e)
-            return None
+            abandoned = [r for r in _status_probes_abandoned.get(name, []) if r.thread.is_alive()]
+            _status_probes_abandoned[name] = abandoned
+            if age <= abandon_after or len(abandoned) >= STATUS_PROBE_MAX_ABANDONED:
+                return None
+            logger.warning("status check %s still running after %.0fs; starting another", name, age)
+            abandoned.append(current)
+
+        run = _StatusProbe()
 
         def _run():
             try:
-                probe()
+                probe(run)
             except Exception as e:  # noqa: BLE001 - a probe must never kill its thread loudly
                 logger.debug("status probe %s failed: %s", name, e)
             finally:
                 with _status_probes_lock:
-                    entry = _status_probes_running.get(name)
-                    if entry is not None and entry[0] is threading.current_thread():
+                    if _status_probes_running.get(name) is run:
                         _status_probes_running.pop(name, None)
 
-        thread = threading.Thread(target=_run, name=f"status-probe-{name}", daemon=True)
-        _status_probes_running[name] = (thread, time.time(), False)
-        thread.start()
-        return thread
+        run.thread = threading.Thread(target=_run, name=f"status-probe-{name}", daemon=True)
+        _status_probes_running[name] = run
+        run.thread.start()
+        return run.thread
 
 
-def _probe_media_server(active_server):
+def _probe_media_server(active_server, run=None):
     started = time.time()
     connected = media_server_engine.is_connected() if media_server_engine else False
-    _status_cache['media_server'] = {
-        'connected': connected,
-        'response_time': round((time.time() - started) * 1000, 1),
-        'type': active_server
-    }
-    _status_cache_timestamps['media_server'] = time.time()
+    finished = time.time()
+
+    def publish():
+        _status_cache['media_server'] = {
+            'connected': connected,
+            'response_time': round((finished - started) * 1000, 1),
+            'type': active_server
+        }
+        _status_cache_timestamps['media_server'] = finished
+
+    if run is None:
+        publish()
+    else:
+        _publish_status_probe('media_server', run, publish)
 
 
 def _media_probe_overran(active_server):
@@ -3720,7 +3795,7 @@ def _media_probe_overran(active_server):
     }
 
 
-def _probe_download_source(download_mode, hybrid_order, source_cache_key):
+def _probe_download_source(download_mode, hybrid_order, source_cache_key, run=None):
     soulseek_relevant = (download_mode == 'soulseek' or
                         (download_mode == 'hybrid' and 'soulseek' in hybrid_order))
 
@@ -3759,24 +3834,37 @@ def _probe_download_source(download_mode, hybrid_order, source_cache_key):
         soulseek_response_time = 0
 
     unknown = soulseek_status is None
-    if unknown:
-        # no answer in time: not known either way. Keep what we knew (for
-        # the same source selection) and ask again soon.
-        previous = _status_cache.get('soulseek') or {}
-        same_sources = previous.get('source_cache_key') == source_cache_key
-        soulseek_status = bool(previous.get('connected')) if same_sources else False
-    _status_cache['soulseek'] = {
-        'connected': soulseek_status,
-        'response_time': round(soulseek_response_time, 1),
-        'source_cache_key': source_cache_key,
-    }
-    now = time.time()
-    if soulseek_status and not unknown:
-        _status_cache_timestamps['soulseek'] = now
+
+    def publish():
+        global _download_source_answered_at
+        status = soulseek_status
+        now = time.time()
+        if unknown:
+            # no answer in time: not known either way. Keep what we knew (for
+            # the same source selection) for up to STATUS_UNKNOWN_KEEP_SECONDS
+            # after the last real answer, then say not connected.
+            previous = _status_cache.get('soulseek') or {}
+            same_sources = previous.get('source_cache_key') == source_cache_key
+            recent = now - _download_source_answered_at <= STATUS_UNKNOWN_KEEP_SECONDS
+            status = bool(previous.get('connected')) if (same_sources and recent) else False
+        else:
+            _download_source_answered_at = now
+        _status_cache['soulseek'] = {
+            'connected': status,
+            'response_time': round(soulseek_response_time, 1),
+            'source_cache_key': source_cache_key,
+        }
+        if status and not unknown:
+            _status_cache_timestamps['soulseek'] = now
+        else:
+            # down, or no answer: ask again after STATUS_RETRY_SECONDS, not
+            # the full STATUS_CACHE_TTL
+            _status_cache_timestamps['soulseek'] = now - STATUS_CACHE_TTL + STATUS_RETRY_SECONDS
+
+    if run is None:
+        publish()
     else:
-        # down, or no answer: ask again after STATUS_RETRY_SECONDS, not the
-        # full STATUS_CACHE_TTL
-        _status_cache_timestamps['soulseek'] = now - STATUS_CACHE_TTL + STATUS_RETRY_SECONDS
+        _publish_status_probe('download_source', run, publish)
 
 
 @app.route('/status')
@@ -3797,7 +3885,7 @@ def get_status():
         probes = []
         if current_time - _status_cache_timestamps['media_server'] > STATUS_CACHE_TTL:
             probes.append(_start_status_probe('media_server',
-                                              lambda: _probe_media_server(active_server),
+                                              lambda run: _probe_media_server(active_server, run),
                                               budget=STATUS_MEDIA_PROBE_SECONDS,
                                               on_overrun=lambda: _media_probe_overran(active_server)))
 
@@ -3812,7 +3900,7 @@ def get_status():
                 _status_cache['soulseek'].get('source_cache_key') != source_cache_key):
             probes.append(_start_status_probe(
                 'download_source',
-                lambda: _probe_download_source(download_mode, hybrid_order, source_cache_key)))
+                lambda run: _probe_download_source(download_mode, hybrid_order, source_cache_key, run)))
 
         deadline = time.time() + STATUS_PROBE_WAIT_SECONDS
         for probe_thread in probes:
@@ -17482,6 +17570,7 @@ def _build_status_deps():
             _run_post_processing_worker, task_id, batch_id
         ),
         get_cached_transfer_data=get_cached_transfer_data,
+        get_display_transfer_data=lambda: get_cached_transfer_data(display=True),
         download_orchestrator=download_orchestrator,
         run_async=run_async,
         on_download_completed=_on_download_completed,

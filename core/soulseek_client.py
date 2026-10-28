@@ -1,5 +1,6 @@
 import requests
 import asyncio
+import contextvars
 import threading
 import aiohttp
 import json
@@ -92,6 +93,14 @@ _SEARCH_QUIET_POLLS = 5
 # a read younger than this is reused, and readers that arrive while a read is
 # in flight wait for that one instead of starting their own.
 TRANSFERS_FRESH_SECONDS = 2.0
+# Whether the last _make_request in this task got an HTTP answer from slskd
+# (its status code) or none at all (None: timed out, refused, failed). Both
+# come back from _make_request as None; a reader of the downloads list needs
+# to tell "slskd said no" (401, 500: slskd is there) from "slskd didn't
+# answer" (the list is unknown). Context-local, so concurrent requests on the
+# shared loop don't see each other's.
+_SLSKD_ANSWER: contextvars.ContextVar = contextvars.ContextVar('slskd_answer', default=None)
+
 # every client that keeps a copy, so a change made elsewhere (the video
 # downloader enqueues with plain requests) can drop them all
 _TRANSFER_CLIENTS: "weakref.WeakSet" = weakref.WeakSet()
@@ -247,6 +256,7 @@ class SoulseekClient(DownloadSourcePlugin):
         
         url = f"{self.base_url}/api/v0/{endpoint}"
         changes_transfers = _changes_transfers(method, endpoint)
+        _SLSKD_ANSWER.set(None)
         
         # Create a fresh session for each thread/event loop to avoid conflicts.
         # Bounded timeout (issue #499) prevents the worker thread from
@@ -267,6 +277,7 @@ class SoulseekClient(DownloadSourcePlugin):
                 **kwargs
             ) as response:
                 response_text = await response.text()
+                _SLSKD_ANSWER.set(response.status)
                 # any answer at all means slskd is up again
                 self._conn_failures = 0
 
@@ -1131,6 +1142,12 @@ class SoulseekClient(DownloadSourcePlugin):
                 # throwaway loops (asyncio.run in the Clients tab, audiobooks,
                 # streaming prepare) leaked a list per call.
                 'reads': {},
+                # the last list slskd sent, kept through invalidations: for
+                # showing progress only, never for decisions (gauntlet N3)
+                'last_known': None,      # (time.monotonic(), list)
+                # the last read that failed: did slskd answer (an error
+                # status) or not at all? (gauntlet N1)
+                'last_failure_answered': False,
             })
         _TRANSFER_CLIENTS.add(self)
         return state
@@ -1144,8 +1161,14 @@ class SoulseekClient(DownloadSourcePlugin):
             state['generation'] += 1
             state['snapshot'] = None
 
+    def last_transfers_failure_was_an_answer(self) -> bool:
+        """When the last read of the downloads list came back ``None``: was
+        that slskd answering with an error (401, 500: it's there, treat as
+        before) rather than not answering at all (the list is unknown)?"""
+        return bool(self._transfers_state().get('last_failure_answered'))
+
     async def get_transfers_snapshot(self, max_age: float = TRANSFERS_FRESH_SECONDS,
-                                     stale_ok: float = 0.0):
+                                     stale_ok: float = 0.0, display: bool = False):
         """slskd's downloads list (``GET transfers/downloads``, as slskd sends
         it), read at most once per ``max_age`` seconds for the whole process.
 
@@ -1155,7 +1178,10 @@ class SoulseekClient(DownloadSourcePlugin):
         copy at most that many seconds old takes it straight away and leaves
         the read to refresh it, and one that finds a read already under way
         doesn't wait for it (it gets that copy, or ``None``): what a request
-        thread wants, so a slow slskd never holds a browser request. ``max_age=0`` always waits for a read
+        thread wants, so a slow slskd never holds a browser request. With
+        ``display`` as well, such a reader may get the last list slskd sent
+        even after a change dropped the copy: for showing progress only,
+        never for decisions. ``max_age=0`` always waits for a read
         that starts now. ``None`` when slskd didn't answer (as
         ``_make_request``). The list is shared: read it, don't change it."""
         if not self.base_url:
@@ -1179,13 +1205,23 @@ class SoulseekClient(DownloadSourcePlugin):
                     # time: a request thread doesn't queue behind it (with
                     # slskd hung each Downloads poll waited its full limit)
                     fresh_enough = snapshot is not None and now - snapshot[0] <= stale_ok
-                    return snapshot[1] if fresh_enough else None
+                    if fresh_enough:
+                        return snapshot[1]
+                    # ``display``: progress bars may show the last list slskd
+                    # sent, even one from before a change (gauntlet N3)
+                    known = state['last_known']
+                    if display and known is not None and now - known[0] <= stale_ok:
+                        return known[1]
+                    return None
             else:
                 read = loop.create_task(self._read_transfers(generation))
                 reads[loop] = (generation, read)
                 read.add_done_callback(lambda task, lp=loop: self._forget_read(lp, task))
             if stale_ok and snapshot is not None and now - snapshot[0] <= stale_ok:
                 return snapshot[1]
+            known = state['last_known']
+            if display and stale_ok and known is not None and now - known[0] <= stale_ok:
+                return known[1]
         # shielded: a caller giving up (run_async's timeout) doesn't cancel
         # the read the others are waiting on
         return await asyncio.shield(read)
@@ -1200,11 +1236,14 @@ class SoulseekClient(DownloadSourcePlugin):
     async def _read_transfers(self, generation: int):
         try:
             data = await self._make_request('GET', 'transfers/downloads')
-            if data is not None:
-                state = self._transfers_state()
-                with state['lock']:
+            state = self._transfers_state()
+            with state['lock']:
+                if data is not None:
+                    state['last_known'] = (time.monotonic(), data)
                     if state['generation'] == generation:
                         state['snapshot'] = (time.monotonic(), data)
+                else:
+                    state['last_failure_answered'] = _SLSKD_ANSWER.get() is not None
             return data
         finally:
             # leave the table as the read ends, not only when its done
