@@ -51,6 +51,26 @@ export interface MixState {
 
 export const MODE_STORAGE_KEY = 'soulsync.player.tray-mode';
 export const VIBE_STORAGE_KEY = 'soulsync.mix.vibe';
+
+/** The retired Mixes panel's keys (step 3): let go of once, in each browser. */
+export const RETIRED_STORAGE_KEYS = {
+  local: ['soulsync.dj.mixes.follow'],
+  session: ['soulsync.dj.mixes.seed'],
+} as const;
+
+let retiredForgotten = false;
+
+/** Take the retired Mixes panel's keys out of this browser (once a page load). */
+export function forgetRetiredKeys(): void {
+  if (retiredForgotten) return;
+  retiredForgotten = true;
+  try {
+    for (const key of RETIRED_STORAGE_KEYS.local) window.localStorage.removeItem(key);
+    for (const key of RETIRED_STORAGE_KEYS.session) window.sessionStorage.removeItem(key);
+  } catch {
+    /* storage refused: nothing kept to forget */
+  }
+}
 /** More like this keeps at most this many steps back */
 const MAX_CHAIN = 20;
 
@@ -193,6 +213,7 @@ export function resetMixForTests(): void {
     /* nothing kept */
   }
   loaded = false;
+  retiredForgotten = false;
   state = INITIAL;
   for (const l of listeners) l();
 }

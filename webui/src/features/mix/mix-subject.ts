@@ -147,9 +147,20 @@ export interface QueueView {
 
 type QueueEntry = {
   id?: string | number | null;
+  kind?: string | null;
+  media_src?: string | null;
+  is_library?: boolean;
   mix_set?: { id?: number; name?: string; row?: number } | null;
   from_set?: { id?: number; name?: string; row?: number } | null;
 };
+
+const NOT_LIBRARY_KINDS = new Set(['radio', 'podcast', 'audiobook']);
+
+function isLibraryEntry(entry: QueueEntry): boolean {
+  if (entry.media_src) return false;
+  if (entry.kind && NOT_LIBRARY_KINDS.has(entry.kind)) return false;
+  return entry.is_library !== false;
+}
 
 function fromOf(entry: QueueEntry | undefined): QueueFrom | null {
   const m = entry?.mix_set ?? null;
@@ -175,7 +186,11 @@ export function readQueue(): QueueView {
       }
     ).SoulSyncPlayer?.state?.();
     const queue = st?.queue ?? [];
-    const ids = queue.map((q) => (q?.id === null || q?.id === undefined ? '' : String(q.id)));
+    // a station, an episode, a book or a stream that isn't a library file has
+    // no library id here, whatever id it carries (gauntlet review L1)
+    const ids = queue.map((q) =>
+      q?.id === null || q?.id === undefined || !isLibraryEntry(q) ? '' : String(q.id),
+    );
     const index = typeof st?.index === 'number' ? st.index : -1;
     const rest = queue.slice(Math.max(0, index + 1));
     const names = new Set(rest.map((q) => fromOf(q)?.name ?? ''));

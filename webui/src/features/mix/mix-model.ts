@@ -58,15 +58,37 @@ export interface PlayingInSet {
   asMix?: boolean;
 }
 
+/**
+ * The row of a set that's playing: the queue's mark says which row it was
+ * queued as, but the set may have changed since (a row removed or moved
+ * above it), so it's the row with the playing track nearest that mark
+ * (gauntlet review M3); -1 when the track isn't in the set any more.
+ */
+export function playingRowIndex(
+  rows: { track_id?: string | number | null }[],
+  mark: number,
+  playingId: string | null | undefined,
+): number {
+  if (!playingId) return -1;
+  let best = -1;
+  rows.forEach((row, i) => {
+    if (String(row.track_id ?? '') !== playingId) return;
+    if (best < 0 || Math.abs(i - mark) < Math.abs(best - mark)) best = i;
+  });
+  return best;
+}
+
 /** The playing row from the queue's own mark (294: a queue started from a set says which). */
 export function playingFromQueue(
   rows: ViewRow[],
   steps: (Step | null)[],
   playingId: string,
-  from: QueueFrom,
+  queued: QueueFrom,
 ): PlayingInSet | null {
-  const row = rows[from.row];
-  if (!row || String(row.track_id ?? '') !== playingId) return null;
+  const at = playingRowIndex(rows, queued.row, playingId);
+  if (at < 0) return null;
+  const from = { ...queued, row: at };
+  const row = rows[at];
   const numbers = rowNumbers(rows);
   const total = numbers.filter((n) => n !== null).length;
   let next: ViewRow | null = null;
@@ -306,9 +328,12 @@ export function useMixModel(
   const ai = useQuery({ ...aiStatusQueryOptions(), retry: false, enabled: Boolean(subject) });
   const aiReason = ai.data && !ai.data.can_use ? ai.data.reason : null;
   const vibeWanted = state.vibe && Boolean(seed) && !aiReason;
+  // gauntlet review L4: Vibe is remembered per browser (Design's 296), but it
+  // asks the AI only once the AI says it can be used, and only while the Mix
+  // tab is shown: a track merely playing with Vibe left on spends nothing
   const vibe = useQuery({
     ...vibeQueryOptions(seed?.id ?? '', mixQ),
-    enabled: vibeWanted && Boolean(mix.data?.matches.length),
+    enabled: vibeWanted && shown && ai.data?.can_use === true && Boolean(mix.data?.matches.length),
   });
   const vibeError = vibe.error instanceof MixError ? vibe.error : null;
   const matches: MixMatch[] =

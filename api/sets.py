@@ -19,7 +19,8 @@ POST   /api/sets/holding             {track_ids}: the picker's sets, newest chan
                                      the number the next track takes and where these already are.
 GET    /api/sets/working             The Mix tab's working set (one per profile), or null.
 PUT    /api/sets/working             {set_id | null}: choose one of your sets, or none.
-POST   /api/sets/working/start       {name, track_ids}: a new mix set of these, made the working set.
+POST   /api/sets/working/start       {name, track_ids}: a new mix set of these, made the working set
+                                     ({id, tracks: how many went in, working}).
 POST   /api/sets/view                Rows -> library tracks, steps and the meta line (drafts).
 GET    /api/sets/swap                Alternatives that fit both neighbours (Swap).
 GET    /api/sets/sources             Each tracklist source's set-up state.
@@ -353,11 +354,14 @@ def working_start():
     database = get_database()
     try:
         set_id = working.start(database, pid, body.get("name"), ids)
+        saved = store.get_set(database, pid, set_id)
     except store.SetError as exc:
         return _bad(str(exc))
     except Exception as exc:  # noqa: BLE001
         return _failed("start", exc)
-    return _ok({"id": set_id, "working": working.get(database, pid)}, 201)
+    # how many went in (tracks not in the library, or without a file, don't)
+    count = len(saved["rows"]) if saved else 0
+    return _ok({"id": set_id, "tracks": count, "working": working.get(database, pid)}, 201)
 
 
 @bp.route("/api/sets/holding", methods=["POST"])

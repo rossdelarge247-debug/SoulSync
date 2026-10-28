@@ -197,9 +197,9 @@ export function SwapPanel({
   useEffect(() => {
     const root = document.documentElement;
     const docked = window.matchMedia?.('(min-width: 1100px)').matches ?? true;
-    root.dataset.mixesPanel = docked ? 'docked' : 'over';
+    root.dataset.sidePanel = docked ? 'docked' : 'over';
     return () => {
-      delete root.dataset.mixesPanel;
+      delete root.dataset.sidePanel;
     };
   }, []);
   useEffect(() => {

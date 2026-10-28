@@ -479,6 +479,107 @@ describe('the tray in Mix (29a)', () => {
     expect(world.added).toEqual([{ track_ids: ['1'], again: false }]);
   });
 
+  it('[gauntlet L3] the matches\' "…": Make a playlist from these… and Export these to Traktor…', async () => {
+    const made: unknown[] = [];
+    const previewed: unknown[] = [];
+    server.use(
+      http.post('/api/user-playlists', async ({ request }) => {
+        made.push(await request.json());
+        return HttpResponse.json({ success: true, id: 12, added: 3 }, { status: 201 });
+      }),
+      http.post('/api/library/dj/traktor/export', async ({ request }) => {
+        previewed.push(await request.json());
+        return HttpResponse.json({ success: false, error: 'stop here' }, { status: 400 });
+      }),
+    );
+    const mix = await openMix();
+    await mix.findByText(MATCHES[0].title);
+    fireEvent.click(mix.getByRole('button', { name: 'More for these matches' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Make a playlist from these…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Make a playlist from these' });
+    expect(within(dialog).getByDisplayValue('Mixes with Night Ferry')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Make playlist (3)' }));
+    await waitFor(() => expect(made).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    fireEvent.click(mix.getByRole('button', { name: 'More for these matches' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Export these to Traktor…' }));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    // the track the matches follow, then the matches as shown
+    await waitFor(() => expect(previewed).toHaveLength(1));
+    expect(previewed[0]).toMatchObject({
+      action: 'preview',
+      source: 'tracks',
+      track_ids: ['1', ...MATCHES.map((m) => String(m.id))],
+      name: 'Mixes with Night Ferry',
+    });
+  });
+
+  it("[gauntlet L3] the retired Mixes panel's keys are let go of", async () => {
+    window.localStorage.setItem('soulsync.dj.mixes.follow', 'off');
+    window.sessionStorage.setItem('soulsync.dj.mixes.seed', '{"id":"1"}');
+    mount();
+    await waitFor(() => expect(window.localStorage.getItem('soulsync.dj.mixes.follow')).toBeNull());
+    expect(window.sessionStorage.getItem('soulsync.dj.mixes.seed')).toBeNull();
+  });
+
+  it("[gauntlet L1] Save Up next as a set: library tracks only, the server's count, one save at a time", async () => {
+    let release: (() => void) | null = null;
+    server.use(
+      http.post('/api/sets/working/start', async ({ request }) => {
+        world.started.push(await request.json());
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return HttpResponse.json(
+          {
+            success: true,
+            id: 9,
+            tracks: 2,
+            working: { id: 9, name: 'Set from', kind: 'hand', revision: 0 },
+          },
+          { status: 201 },
+        );
+      }),
+    );
+    world.queue = [
+      { id: '1' },
+      { id: '5' },
+      { id: 'st-1', kind: 'radio' } as never,
+      { id: '6' },
+      { id: 'ep-2', media_src: 'https://x/ep.mp3' } as never,
+    ];
+    const mix = await openMix();
+    const save = await mix.findByRole('button', { name: 'Save Up next as a set' });
+    fireEvent.click(save);
+    const busy = await mix.findByRole('button', { name: 'Saving Up next…' });
+    expect(busy).toBeDisabled();
+    fireEvent.click(busy);
+    await waitFor(() => expect(world.started).toHaveLength(1));
+    expect((world.started[0] as { track_ids: string[] }).track_ids).toEqual(['5', '6']);
+    act(() => release!());
+    await waitFor(() => expect(toasts.some((t) => t.startsWith('Saved Up next as'))).toBe(true));
+    expect(toasts.find((t) => t.startsWith('Saved Up next as'))).toMatch(
+      / · 2 tracks · your working set$/,
+    );
+    expect(world.started).toHaveLength(1);
+  });
+
+  it('[gauntlet L1] a longer Up next is cut to the first 500, and says so', async () => {
+    world.queue = [
+      { id: '1' },
+      ...Array.from({ length: 520 }, (_v, k) => ({ id: String(100 + k) })),
+    ];
+    const mix = await openMix();
+    fireEvent.click(await mix.findByRole('button', { name: 'Save Up next as a set' }));
+    await waitFor(() => expect(world.started).toHaveLength(1));
+    expect((world.started[0] as { track_ids: string[] }).track_ids).toHaveLength(500);
+    await waitFor(() =>
+      expect(toasts.find((t) => t.startsWith('Saved Up next as'))).toMatch(
+        /\(the first 500: a set holds 500\)/,
+      ),
+    );
+  });
+
   it('with no working set: the card, and A starts "Set from …" with the track', async () => {
     world.working = null;
     const mix = await openMix();
@@ -745,6 +846,38 @@ describe('Vibe', () => {
     ).getAllByRole('listitem');
     expect(rows[0]).toHaveTextContent('Undertow');
     expect(world.vibes).toBe(1);
+  });
+});
+
+describe('[gauntlet L4] Vibe, remembered, spends the AI only when it should', () => {
+  const pause = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 400));
+    });
+
+  it('asks the AI only once the Mix tab is shown', async () => {
+    world.ai = { can_use: true, reason: null };
+    window.localStorage.setItem('soulsync.mix.vibe', 'on');
+    mount();
+    await pause();
+    // Vibe left on, a track playing, the tray in Now playing: nothing spent
+    expect(world.vibes).toBe(0);
+    fireEvent.click(
+      await within(document.querySelector<HTMLElement>('[data-player-modes="music"]')!).findByRole(
+        'tab',
+        { name: 'Mix' },
+      ),
+    );
+    await waitFor(() => expect(world.vibes).toBe(1));
+  });
+
+  it('never asks while the AI is off, Mix tab shown or not', async () => {
+    world.ai = { can_use: false, reason: 'not_configured' };
+    window.localStorage.setItem('soulsync.mix.vibe', 'on');
+    const mix = await openMix();
+    await mix.findByRole('list', { name: 'Tracks that mix well with Night Ferry' });
+    await pause();
+    expect(world.vibes).toBe(0);
   });
 });
 

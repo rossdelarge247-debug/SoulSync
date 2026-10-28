@@ -26,12 +26,15 @@ import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
 import { KeyChip } from '@/features/dj/key-chip';
 import { RowPlay, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
+import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { MIX_SET_CHANGED, setsListQueryOptions } from '@/features/sets/sets.api';
 import { StarButton, useStar } from '@/features/stars/star-button';
+import { MoreMenu } from '@/routes/library/-ui/parts';
 
 import type { MixModel } from './mix-model';
 import type { MixMatch } from './mix.api';
 
+import { MakePlaylistDialog } from './make-playlist-dialog';
 import {
   DJ_MODE_READY,
   backToPlaying,
@@ -857,6 +860,47 @@ function KeysLine({ model }: { model: MixModel }) {
   );
 }
 
+/**
+ * The matches' "…" (gauntlet review L3): what the retired Mixes panel's foot
+ * did, so nothing Ross had is lost. "Make a playlist from these…" (17b) and
+ * "Export these to Traktor…" take the track the matches follow and the
+ * matches as shown (Vibe's order when it's on).
+ */
+function MatchesMore({ model }: { model: MixModel }) {
+  const [making, setMaking] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const seed = model.mix.data?.track ?? null;
+  const matches = model.matches;
+  if (!matches.length) return null;
+  const name = `Mixes with ${seed?.title || 'this track'}`;
+  const ids = [...(seed ? [String(seed.id)] : []), ...matches.map((m) => String(m.id))];
+  return (
+    <>
+      <MoreMenu
+        label="More for these matches"
+        entries={[
+          {
+            key: 'playlist',
+            label: 'Make a playlist from these…',
+            onSelect: () => setMaking(true),
+          },
+          { key: 'traktor', label: 'Export these to Traktor…', onSelect: () => setExporting(true) },
+        ]}
+      />
+      {making ? (
+        <MakePlaylistDialog seed={seed} matches={matches} onClose={() => setMaking(false)} />
+      ) : null}
+      {exporting ? (
+        <TraktorExportDialog
+          from={{ source: 'tracks', track_ids: ids, name }}
+          name={name}
+          onClose={() => setExporting(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
 export function MatchesColumn({ model }: { model: MixModel }) {
   const [refused, setRefused] = useState(false);
   useEffect(() => setRefused(false), [model.vibe.reason]);
@@ -871,6 +915,7 @@ export function MatchesColumn({ model }: { model: MixModel }) {
         <span className={styles.spacer} />
         {model.following === 'chain' ? null : <SuggestFrom model={model} />}
         <VibeSwitch model={model} onRefused={() => setRefused(true)} />
+        <MatchesMore model={model} />
       </div>
       <MatchesBody model={model} place="tray" />
       <Foot model={model} refused={refused} place="tray" />
@@ -933,26 +978,51 @@ function FirstRun({ model, phone = false }: { model: MixModel; phone?: boolean }
   );
 }
 
-/** "Save as a set" (Brief E's Build row, folded in here, 33a): Up next's tracks as a new set. */
+/** A set holds at most this many tracks (the server's MAX_ROWS). */
+const SET_MAX_TRACKS = 500;
+
+/**
+ * "Save as a set" (Brief E's Build row, folded in here, 33a): Up next's
+ * library tracks as a new set. Gauntlet review L1: the toast says how many
+ * the server put in, a longer Up next is cut to the first 500 (and says so),
+ * and the button waits while it saves.
+ */
 function SaveUpNext({ model }: { model: MixModel }) {
+  const [saving, setSaving] = useState(false);
   const ids = model.upNextIds;
   if (ids.length < 2 || model.queueFrom) return null;
   const save = async () => {
+    if (saving) return;
     const name = workingSetName();
+    const sent = ids.slice(0, SET_MAX_TRACKS);
+    setSaving(true);
     try {
-      await startWorkingSet(name, ids);
+      const made = await startWorkingSet(name, sent);
       window.dispatchEvent(new CustomEvent(MIX_SET_CHANGED, { detail: {} }));
+      const count = typeof made.tracks === 'number' ? made.tracks : sent.length;
+      const cut =
+        ids.length > SET_MAX_TRACKS
+          ? ` (the first ${SET_MAX_TRACKS}: a set holds ${SET_MAX_TRACKS})`
+          : '';
       window.showToast?.(
-        `Saved Up next as ${name} · ${ids.length} tracks · your working set`,
+        `Saved Up next as ${name} · ${count} ${count === 1 ? 'track' : 'tracks'}${cut} · your working set`,
         'success',
       );
     } catch (err) {
       window.showToast?.(err instanceof Error ? err.message : "The set wasn't made.", 'error');
+    } finally {
+      setSaving(false);
     }
   };
   return (
-    <button type="button" className={styles.textButton} onClick={() => void save()}>
-      Save Up next as a set
+    <button
+      type="button"
+      className={styles.textButton}
+      onClick={() => void save()}
+      disabled={saving}
+      aria-busy={saving || undefined}
+    >
+      {saving ? 'Saving Up next…' : 'Save Up next as a set'}
     </button>
   );
 }
@@ -1456,6 +1526,7 @@ function MixTabPhone({ model }: { model: MixModel }) {
       <div className={styles.head}>
         <h3 className={`${styles.headTitle} ${styles.spacer}`}>Mixes well with</h3>
         <VibeSwitch model={model} large onRefused={() => setRefused(true)} />
+        <MatchesMore model={model} />
       </div>
       <BackRow model={model} />
       <MatchesBody model={model} place="sheet" />

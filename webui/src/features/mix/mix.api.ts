@@ -183,7 +183,7 @@ export function chooseWorkingSet(setId: number | null): Promise<WorkingSet | nul
 export function startWorkingSet(
   name: string,
   trackIds: string[],
-): Promise<{ id: number; working: WorkingSet | null }> {
+): Promise<{ id: number; tracks?: number; working: WorkingSet | null }> {
   return call(
     apiClient.post('sets/working/start', { ...opts, json: { name, track_ids: trackIds } }),
   );

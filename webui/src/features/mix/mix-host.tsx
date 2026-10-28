@@ -24,7 +24,7 @@ import { playTrackNext } from '@/features/dj/dj-actions';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import { useMixModel, type MixModel } from './mix-model';
-import { getMixState, setDrawer, setTrayMode, useMixState } from './mix-store';
+import { forgetRetiredKeys, getMixState, setDrawer, setTrayMode, useMixState } from './mix-store';
 import { useMixSubject, type MixSubject } from './mix-subject';
 import { MixDrawer, MixSheet, MixTray, ModesSwitch, PreviewTray, RecordKeyLine } from './mix-tab';
 import { mixQueryOptions } from './mix.api';
@@ -208,6 +208,8 @@ function keyAction(
 }
 
 export function MixTabHost() {
+  // gauntlet review L3: the retired Mixes panel's keys go, once
+  useEffect(() => forgetRetiredKeys(), []);
   const subject = useMixSubject();
   const { profileId } = useProfile();
   const state = useMixState();

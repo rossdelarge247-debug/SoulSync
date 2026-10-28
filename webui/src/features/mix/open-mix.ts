@@ -6,8 +6,10 @@
  * track's own matches one press away. Its one ranking, words and actions
  * are the Mix tab's.
  *
- * With nothing playing there's no tray to open: the track is played (as
- * Play would) and Mix opens on it, so its matches are the playing track's.
+ * With nothing at all in the player there's no tray to open: the track is
+ * played (as Play would) and Mix opens on it, so its matches are the playing
+ * track's. With a station, an episode or a book in the player it isn't
+ * stopped for this (gauntlet review M1): Mix opens following the track.
  */
 import { readPlayingTrack } from '@/features/dj/playing-track';
 
@@ -30,6 +32,18 @@ function expand(): void {
 /** How long to wait for a track asked to play before giving up on opening the tray. */
 const START_WAIT_MS = 8_000;
 
+/** Anything in the player at all: a track, a station, an episode, a book. */
+function playerHasSomething(): boolean {
+  try {
+    const st = (
+      window as unknown as { SoulSyncPlayer?: { state?: () => { track: unknown } } }
+    ).SoulSyncPlayer?.state?.();
+    return Boolean(st?.track);
+  } catch {
+    return false;
+  }
+}
+
 export function openMixWith(seed: ChainStep, opts: { play?: (() => void) | null } = {}): void {
   const playing = readPlayingTrack();
   if (playing) {
@@ -37,6 +51,11 @@ export function openMixWith(seed: ChainStep, opts: { play?: (() => void) | null 
       backToPlaying();
       setTrayMode('mix');
     } else followTrack(seed);
+    expand();
+    return;
+  }
+  if (playerHasSomething()) {
+    followTrack(seed);
     expand();
     return;
   }
