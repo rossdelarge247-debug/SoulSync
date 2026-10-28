@@ -134,7 +134,7 @@ Built on `feat/step3-tray` from `integration` (d9a6635b): step 3 of Design's bui
 **The UX review's findings in this step**
 - **UX-6:** a gap's line wraps to two lines in Up next (the whole sentence on its title), "Analyse now" comes before the reason so a cut never hides it, and "in 2:58" never gives way.
 - **UX-7:** A and the primary never add a repeat unasked: a track already in the working set says "Already in Sunday Set · #4 · Add again" in the set card (Add again is a quiet text button), and A shows a neutral toast ("… is in Sunday Set already, as #4. Nothing was added.").
-- **UX-8:** on a set's page, Remove from set, Move (up, down, Move…, a drop) and Swap each put up a toast with **Undo** for 6 s (the shared toast's action; its timer is 6 s for an action now), which puts the rows back, notes and chips included, and the autosave saves that. See 382 for the Mix tab's Add and Add to set….
+- **UX-8:** on a set's page, Remove from set, Move (up, down, Move…, a drop) and Swap each put up a toast with **Undo** for 10 s (the shared toast's action, used once), which undoes that one edit on the rows as they are then, and the autosave saves that (after the gauntlet review, below). See 382 for the Mix tab's Add and Add to set….
 - **UX-9:** a mix that couldn't start (the decks didn't load, no grid going out, too near the end) says so in the bar's middle and the tray's deck for 12 s: "Couldn't start the mix · the tracks didn't load in time · Night Ferry plays on straight" with **Try again**; said once in the player's one polite region (UX-15's); Mix now's title keeps the reason. The controller's view gains `failed` (not for a seek past a cut or a page that can't run the decks, which say so elsewhere).
 - **UX-11:** Brief C itself (one Mixes well with, the working set on set pages, Your sets and the sidebar).
 - **UX-13 (and Ross's 28 October addition):** **Settings → Library → DJ is its own folded section** on the Library tab ("DJ", "Between tracks, BPM, key and energy, beat grids"), after Organization, holding Between tracks, BPM, key and energy and Traktor Pro 3 (they were inside Organization's music panel). Every "Settings → Library → DJ" (Player settings, the https note, the setup check's browser row, the Mix tab's keys line, the Traktor dialog) goes through `openDjSettings` (`features/dj/dj-settings-link.ts`): Library, the section expanded, scrolled to, and the card focused; **`/settings?tab=library&section=dj`** does the same (`static/settings.js` `requestSettingsSection`, `openSettingsSection`). Tested with the real `index.html` and `settings.js`.
@@ -143,8 +143,8 @@ Built on `feat/step3-tray` from `integration` (d9a6635b): step 3 of Design's bui
 - **UX-23:** Tracks' selection bar says its reason once (the primary's) and its labels don't wrap; the help tip no longer covers it (UX-24).
 - **UX-24:** the "New here? Click for setup help!" tip sits under dialogs and sheets (z-index 8000, not 999999), rides above the player with the floating buttons, and steps away while the tray, the phone's sheet, a dialog or the selection bar is open.
 - **UX-26:** the phone's Set view: a missing file says File missing and "Skipped when played"; with neither BPM nor key the header says "— BPM" once.
-- **UX-27:** a set's moves, removes and swaps are said once in the page's polite region ("Undertow moved to 1 of 4"); Up next's Move to the top says "… moved to the top: it plays next". A roving-tabindex row grid is left for Brief B's keyboard model (step 4), which redefines the rows' keys.
-- **UX-28:** the routed content is the page's one `<main>` (`index.html`; the docs and chat views' own `<main>`s are `<div>`s now), and a set's head is a `<div>`, not a second banner.
+- **UX-27:** a set's moves, removes and swaps are said once, through the toast's polite live region ("Undertow moved to 1 of 4. Undo is in the notice."), and "Undone: …" in the page's own; Up next's Move to the top says "… moved to the top: it plays next". A roving-tabindex row grid is left for Brief B's keyboard model (step 4), which redefines the rows' keys.
+- **UX-28:** the routed content is the page's one `<main>` (`index.html`; the docs and chat views' own `<main>`s are `<div>`s now, and after the gauntlet review the auto-mix lab's, the Auto-Sync boards' and the setup flow's too), and a set's head is a `<div>`, not a second banner.
 - **UX-30:** Move… lists places by neighbour: "To the top", "After Night Ferry", …, the current place marked.
 - **UX-31:** the lab tells anyone but an admin "This page is for admins" instead of a blank page, and its disabled "Play the mix" is the neutral disabled button (its primary is accent-light with dark text). Its nav and the rest wait for step 5, where its pair test becomes DJ now's Preview (33a).
 
@@ -155,7 +155,22 @@ Built on `feat/step3-tray` from `integration` (d9a6635b): step 3 of Design's bui
 - **DJ now** (Brief E, step 5): the DJ mode, key D, the bar's DJ button, "Open DJ now", the lab's nav.
 - **UX-8 beyond a set's page:** the Mix tab's Add and Add to set…'s toast write to the server at once; an Undo there needs a route that takes the added row out (382).
 - **UX-27's row grid** (fewer tab stops per row): with Brief B's keyboard model.
-- The Mixes panel's "Make a playlist…" from matches and its Camelot wheel went with it; a selection on Tracks still makes a playlist.
+- The Mixes panel's Camelot wheel went with it. Its "Make a playlist…" and "Export to Traktor…" are back in the Mix tab's matches "…" (the gauntlet review, below).
+
+**Gauntlet review.** An independent review of the branch (with browser probes) found these; each is fixed and has a test.
+- **H1, Undo put back an old copy:** Undo restored the rows as they were before the edit, so anything since (a track the Mix tab added, a newer copy the autosave had taken from the server) was saved over. Undo is now the inverse of the one edit on the rows as they are (a removed row back after the row that was before it, a moved row back to its place, a swap's fields back), by the row's track rather than the copy (`features/sets/undo-rows.ts`); if the row has gone it says "Can't undo: that track isn't in the set any more" and changes nothing. The toast's Undo works once and closes the toast, stays 10 s, isn't dropped as a repeat when two have the same words, and is said through a polite live region (`#toast-live`).
+- **H2, a double-click on Play put the track in twice:** a second press within 400 ms is the same press (a double-click no longer plays and then pauses); asking for the track that's playing or loading puts nothing in (a paused one plays on); a Play while another track is loading takes back what it put in. A row's double-click doesn't play on the playing row or on a phone.
+- **M1:** "Mixes well with…" with a station, an episode or a book playing opens Mix following the track instead of stopping it to play the track.
+- **M2:** removing the working set (its page or Your sets) has the sidebar, the Mix tab and Your sets read the working set again.
+- **M3:** a set's playing row (the green ▶, "Playing · N of M") is the row with the playing track nearest the queue's mark, so a row removed or moved above it doesn't move the mark; the Mix tab's "track 4 of 12" reads it the same way.
+- **M4:** Play after a reload (a restored queue with nothing loaded) goes in where the queue is and plays, instead of going on the end.
+- **M5:** UX-28's last `<main>`s (above), with a test that renders them inside the page's.
+- **L1:** "Save Up next as a set" says the server's count (`POST /api/sets/working/start` now answers `tracks`), cuts a longer Up next to the first 500 and says so, waits while it saves, and leaves out stations, episodes and books by their kind.
+- **L2:** the playing row's button is "Resume …" while paused (Brief D's rows and Up next).
+- **L3:** the matches' "…" has Make a playlist from these… (17b's dialog) and Export these to Traktor… (the track the matches follow, then the matches as shown); the retired panel's CSS is gone, Swap's panel says `data-side-panel`, and the panel's `soulsync.dj.mixes.*` keys are taken out of the browser once.
+- **L4:** Vibe, remembered, asks the AI only once the AI says it can be used and only while the Mix tab is shown.
+- **L6:** a "Settings → Library → DJ" request isn't used up by the tab Settings shows first.
+- **L7:** the Sets page's file comment is back at its top.
 
 **New questions for Design:** 374–385 (Open questions, "From step 3 of 28 October").
 
