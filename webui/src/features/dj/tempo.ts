@@ -29,6 +29,18 @@ const SKIP_WORDS: Record<TempoSkip, string> = {
   not_yours: 'another profile’s track',
 };
 
+/**
+ * Every picked track is one this page has loaded and is shared (a member's
+ * Double / Halve would change none of them). A pick that isn't loaded any
+ * more (the list was filtered since) isn't known to be shared: the items
+ * stay on, and the server's answer says what it skipped.
+ */
+export function allShared(picked: string[], tracks: { id: string; shared?: boolean }[]): boolean {
+  if (!picked.length) return false;
+  const byId = new Map(tracks.map((t) => [t.id, t]));
+  return picked.every((id) => byId.get(id)?.shared === true);
+}
+
 /** The most tracks one change sends (the server's own limit). */
 export const TEMPO_MAX_TRACKS = 500;
 

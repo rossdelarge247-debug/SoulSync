@@ -32,7 +32,7 @@ import { EnergyMeter } from '@/features/dj/energy-meter';
 import { KeyChip } from '@/features/dj/key-chip';
 import { keyLongName } from '@/features/dj/key-colour';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
-import { useSetTempo } from '@/features/dj/tempo';
+import { allShared, useSetTempo } from '@/features/dj/tempo';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { awayWords } from '@/features/drives/drives.format';
@@ -608,10 +608,7 @@ export function TracksPage({
   const progress = s && !phone ? analysisProgress(s) : null;
   const clearFilters = () => go({ q: '', bpm: '', key: '', starred: '' });
   // a member's picks all in the shared library: nothing they can set
-  const pickedAllShared =
-    !isAdmin &&
-    picked.length > 0 &&
-    tracks.filter((t) => picked.includes(t.id)).every((t) => t.shared);
+  const pickedAllShared = !isAdmin && allShared(picked, tracks);
   const pickedTracks = () => {
     const byId = new Map(tracks.map((t) => [t.id, t]));
     return picked.map((id) => byId.get(id)).filter((t): t is DjTrack => Boolean(t));

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { bpmTitle } from './dj.format';
-import { tempoWords } from './tempo';
+import { allShared, tempoWords } from './tempo';
 import { trackMenu } from './track-menu';
 
 describe('the words for Double BPM / Halve BPM', () => {
@@ -36,6 +36,20 @@ describe('the words for Double BPM / Halve BPM', () => {
     expect(tempoWords('double', { changed: ids, skipped: {} }, 620).words).toBe(
       'Doubled the BPM of 500 tracks · only the first 500 of 620 picked; pick the rest and change them again',
     );
+  });
+
+  it('only says “only an admin” when every pick is known to be shared (review N5)', () => {
+    const tracks = [
+      { id: '1', shared: true },
+      { id: '2', shared: false },
+      { id: '3', shared: true },
+    ];
+    expect(allShared(['1', '3'], tracks)).toBe(true);
+    expect(allShared(['1', '2'], tracks)).toBe(false);
+    expect(allShared([], tracks)).toBe(false);
+    // picked ids this page no longer has loaded (filtered since): not known
+    expect(allShared(['8', '9'], tracks)).toBe(false);
+    expect(allShared(['1', '9'], tracks)).toBe(false);
   });
 
   it('the BPM’s title names its source and the tag under it', () => {
