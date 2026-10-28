@@ -1,8 +1,3 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-
-import { Button } from '@/components/form';
-import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 /**
  * Library → Sets (/library?view=sets; boards 22a–22i, states 22r–22s): the
  * set planner. Its two ways in are tabs, "Suggest a set" (the AI's, Sets 2:
@@ -10,11 +5,16 @@ import { Notice, Skeleton, StatusTag } from '@/components/primitives';
  * starts one by hand; Your sets lists what's saved. `set` in the URL picks
  * the page: a saved set's id, `draft`, `famous` or `paste`.
  */
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+
+import { Button } from '@/components/form';
+import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 import { useWorkingSet } from '@/features/mix/mix.api';
 import { readDraft, useDraft, writeDraft } from '@/features/sets/draft-store';
 import { Sparkline } from '@/features/sets/energy-graph';
 import { FamousSearch, PasteTracklist } from '@/features/sets/famous-mix';
-import { RemoveSetDialog, WorkingSetToggle } from '@/features/sets/set-actions';
+import { RemoveSetDialog, WorkingSetToggle, afterSetRemoved } from '@/features/sets/set-actions';
 import { SetEditor } from '@/features/sets/set-editor';
 import {
   deleteSet,
@@ -235,6 +235,7 @@ export function SetsPage({ search, go }: { search: LibrarySearch; go: Go }) {
   const { profileId, isAdmin } = useProfile();
   const phone = usePhone();
   const list = useQuery({ ...setsListQueryOptions(profileId), retry: false });
+  const queryClient = useQueryClient();
   const draft = useDraft(profileId);
   const page = search.set;
   const [removing, setRemoving] = useState<SetListItem | null>(null);
@@ -366,6 +367,8 @@ export function SetsPage({ search, go }: { search: LibrarySearch; go: Go }) {
           deleteSet(s.id)
             .then(() => {
               window.showToast?.(`Removed ${s.name}. Its playlist stays.`, 'success');
+              // M2: the sidebar and the Mix tab let go of it if it was working
+              afterSetRemoved(queryClient);
               void list.refetch();
             })
             .catch((err: unknown) =>

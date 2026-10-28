@@ -14,8 +14,13 @@ declare global {
       message: string,
       type?: string,
       durationOrContext?: number | string | null,
-      /** static/downloads.js: `action` adds a link-style button after the words */
-      opts?: { journal?: boolean; action?: { label: string; run: () => void } } | null,
+      /** static/downloads.js: `action` adds a one-use button after the words, said
+       *  through a polite live region; `ms` keeps an action's notice up longer than 6 s */
+      opts?: {
+        journal?: boolean;
+        ms?: number;
+        action?: { label: string; run: () => void };
+      } | null,
     ) => void;
     /** core.js: the latest server-side active music download count from the status push. */
     __soulsyncMusicActiveDownloads?: number;

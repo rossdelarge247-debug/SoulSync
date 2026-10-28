@@ -12,7 +12,7 @@
  * - **Duplicate** (262): a copy of the set's rows, saved as "Sunday Set
  *   (copy)", opened.
  */
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
 import { DialogBody, DialogFooter, DialogFrame, DialogHeader } from '@/components/dialog';
@@ -28,6 +28,17 @@ import styles from './sets.module.css';
 /** Tell every place that shows the working set to read it again. */
 export function workingSetChanged(): void {
   window.dispatchEvent(new CustomEvent(MIX_SET_CHANGED, { detail: {} }));
+}
+
+/**
+ * A set was removed (gauntlet review M2): if it was the working set, the
+ * server has none now, so the sidebar's note, the Mix tab and Your sets read
+ * it again rather than keep its name.
+ */
+export function afterSetRemoved(qc: QueryClient): void {
+  void qc.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'working'] });
+  void qc.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'list'] });
+  workingSetChanged();
 }
 
 /** Make a set the working set, or (with null) have none. */

@@ -40,6 +40,7 @@ import { usePlayingTrack } from '@/features/dj/playing-track';
 import { PlayGlyph, RowPlay, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
+import { playingRowIndex } from '@/features/mix/mix-model';
 import { useQueueFrom } from '@/features/mix/mix-subject';
 import { StarButton } from '@/features/stars/star-button';
 import { useProfile } from '@/platform/shell/route-controllers';
@@ -55,6 +56,7 @@ import { NoteLine } from './mix-set-parts';
 import {
   RemoveSetDialog,
   WorkingSetToggle,
+  afterSetRemoved,
   chooseWorking,
   duplicateSet,
   useIsWorking,
@@ -84,6 +86,10 @@ import {
 } from './sets.format';
 import styles from './sets.module.css';
 import { SwapPanel, TrackSheet, trackMeta } from './swap-panel';
+import { undoMove, undoRemove, undoSwap } from './undo-rows';
+
+/** what a swap changes, so its Undo puts exactly those back */
+const SWAP_FIELDS = ['track_id', 'artist', 'title', 'state', 'version', 'want'] as const;
 
 function usePhone(): boolean {
   const query = '(max-width: 640px)';
@@ -631,7 +637,7 @@ function Row({
       data-locked={held ? 'true' : undefined}
       data-playing={playing ? 'true' : undefined}
       data-row-play-host=""
-      {...rowPlayHandlers(phone ? null : onPlay)}
+      {...rowPlayHandlers(phone ? null : onPlay, playing)}
       draggable={drag.armed}
       onDragStart={drag.onDragStart}
       onDragOver={drag.onDragOver}
@@ -1132,53 +1138,70 @@ export function SetEditor({
   const rowTitle = (index: number) =>
     viewRows[index]?.track?.title ?? rows[index]?.title ?? 'The track';
   /**
-   * UX-8: a remove, a move or a swap says so with Undo (the toast's 6 s),
-   * which puts the rows back as they were, notes and chips included; the
-   * autosave saves that too. UX-27: each is said once to a screen reader.
+   * UX-8: a remove, a move or a swap says so with Undo for 10 s. Undo is the
+   * inverse edit on the rows as they are now (gauntlet review H1), so a track
+   * added since (the Mix tab, another window) stays; it's used once, and if
+   * the row it would act on has gone it says so and changes nothing. UX-27:
+   * the toast's live region says the edit once; Undo's result is said here.
    */
-  const undoable = (words: string, before: SetRow[]) => {
-    setAnnounce(words);
+  const undoable = (words: string, inverse: (cur: SetRow[]) => SetRow[] | null) => {
     window.showToast?.(words, 'success', null, {
+      ms: 10_000,
       action: {
         label: 'Undo',
         run: () => {
-          setRows(before);
+          const next = inverse(rowsNow.current);
+          if (!next) {
+            setAnnounce(`Can't undo: that track isn't in the set any more`);
+            window.showToast?.("Can't undo: that track isn't in the set any more", 'info');
+            return;
+          }
+          setRows(next);
           setAnnounce(`Undone: ${words}`);
         },
       },
     });
   };
   const remove = (index: number) => {
-    const before = rows;
+    const removed = rows[index];
+    if (!removed) return;
+    const prev = index > 0 ? rows[index - 1] : null;
     const title = rowTitle(index);
     setRows((cur) => cur.filter((_r, i) => i !== index));
     setSwap(null);
     setSheet(null);
-    undoable(`Removed ${title} from ${name.trim() || initial.name}`, before);
+    undoable(`Removed ${title} from ${name.trim() || initial.name}`, (cur) =>
+      undoRemove(cur, removed, index, prev),
+    );
   };
   const moveTo = (from: number, to: number) => {
     if (rows[from]?.locked) {
       window.showToast?.('That track is locked in its place. Unlock it to move it.', 'info');
       return;
     }
-    const before = rows;
+    const moved = rows[from];
     const title = rowTitle(from);
     const next = moveRow(rows, from, to);
     setRows(next);
-    const at = next.indexOf(rows[from]);
-    if (at !== from) undoable(`${title} moved to ${at + 1} of ${next.length}`, before);
+    const at = next.indexOf(moved);
+    if (at !== from)
+      undoable(`${title} moved to ${at + 1} of ${next.length}`, (cur) =>
+        undoMove(cur, moved, at, from),
+      );
   };
   const use = (index: number, track: DjTrack) => {
-    undoable(`Swapped ${rowTitle(index)} for ${track.title}`, rows);
+    const was = rows[index];
+    if (!was) return;
+    const swappedIn = { track_id: track.id, artist: track.artist_name, title: track.title };
     update(index, {
-      track_id: track.id,
-      artist: track.artist_name,
-      title: track.title,
+      ...swappedIn,
       state: 'owned',
       version: null,
       want: 'yours',
     });
-    window.showToast?.(`${track.title} is in place ${index + 1}`, 'success');
+    undoable(`Swapped ${rowTitle(index)} for ${track.title}`, (cur) =>
+      undoSwap(cur, swappedIn, index, was, SWAP_FIELDS),
+    );
   };
 
   const save = async () => {
@@ -1208,7 +1231,7 @@ export function SetEditor({
     if (source.kind !== 'saved') return;
     try {
       await deleteSet(source.id);
-      void queryClient.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'list'] });
+      afterSetRemoved(queryClient);
       window.showToast?.(`Removed ${source.name}. Its playlist stays.`, 'success');
       onDeleted();
     } catch (err) {
@@ -1305,8 +1328,12 @@ export function SetEditor({
   const numberOfRow: (number | null)[] = [];
   let numberedCount = 0;
   for (const r of viewRows) numberOfRow.push(r.track || r.unreachable ? ++numberedCount : null);
+  // M3: the row with the playing track nearest the queue's mark (rows above
+  // it may have been removed or moved since it was queued)
   const playingRow =
-    source.kind === 'saved' && queueFrom && queueFrom.id === source.id ? queueFrom.row : -1;
+    source.kind === 'saved' && queueFrom && queueFrom.id === source.id
+      ? playingRowIndex(rows, queueFrom.row, playingNow?.id)
+      : -1;
   const playingNumber =
     playingRow >= 0 && viewRows[playingRow]?.track ? (numberOfRow[playingRow] ?? null) : null;
   // 353: "all ready to mix" sits in the meta line once every track is
