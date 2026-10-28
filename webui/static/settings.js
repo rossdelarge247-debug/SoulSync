@@ -1227,11 +1227,14 @@ function requestSettingsSection(section) {
 }
 
 // Expand a folded section ([data-settings-section]) and scroll it into view.
-function openSettingsSection(section) {
+// With a tab, only a section on that tab: a request for Library's DJ isn't
+// used up by the tab Settings opens on first (gauntlet review L6).
+function openSettingsSection(section, tab) {
     const head = section
         ? document.querySelector(`#settings-page .settings-section-header[data-settings-section="${CSS.escape(section)}"]`)
         : null;
     if (!head) return false;
+    if (tab && head.dataset.stg && head.dataset.stg !== tab) return false;
     const body = head.nextElementSibling;
     // what the header's own click does, without toggling one that's open
     head.classList.remove('collapsed');
@@ -1278,7 +1281,7 @@ function switchSettingsTab(tab) {
         const section = _requestedSettingsSection;
         // after this function has laid the tab out (it re-folds collapsed bodies)
         setTimeout(() => {
-            if (typeof openSettingsSection === 'function' && openSettingsSection(section)) _requestedSettingsSection = null;
+            if (typeof openSettingsSection === 'function' && openSettingsSection(section, tab)) _requestedSettingsSection = null;
         }, 0);
     }
     // Update tab bar

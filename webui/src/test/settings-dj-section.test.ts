@@ -97,6 +97,19 @@ describe('Settings → Library → DJ', () => {
     expect(body().classList.contains('collapsed')).toBe(true);
   });
 
+  it('[gauntlet L6] another tab shown first does not use the request up', () => {
+    const nav = load('/settings?tab=library&section=dj');
+    // startup shows the default tab before the asked one
+    nav.switchSettingsTab('connections');
+    vi.runAllTimers();
+    expect(body().classList.contains('collapsed')).toBe(true);
+    expect(head().scrollIntoView).not.toHaveBeenCalled();
+    nav.switchSettingsTab('library');
+    vi.runAllTimers();
+    expect(body().classList.contains('collapsed')).toBe(false);
+    expect(head().scrollIntoView).toHaveBeenCalled();
+  });
+
   it('a link asks for the section before going to Settings (requestSettingsSection)', () => {
     const nav = load('/settings');
     nav.requestSettingsSection('dj');
