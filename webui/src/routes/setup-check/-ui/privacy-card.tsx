@@ -203,6 +203,27 @@ export function PrivacyCard() {
 
   const tone = headlineTone(report);
   const notSetUp = report.state === 'not_set_up';
+  if (notSetUp && !report.servicesConfigured) {
+    // nothing goes peer to peer: one quiet line, the settings folded away
+    return (
+      <section
+        className={styles.privacyCard}
+        aria-labelledby="privacy-title"
+        data-testid="privacy-card"
+        data-state="nothing_to_check"
+      >
+        <div className={styles.privacyHead}>
+          <h2 id="privacy-title" className={styles.privacyTitle}>
+            Privacy
+          </h2>
+          <span className={styles.privacyHeadNote}>
+            Soulseek and torrents aren’t set up, so there’s nothing to check.
+          </span>
+        </div>
+        <SettingsForm settings={report.settings} open={false} />
+      </section>
+    );
+  }
   return (
     <section
       className={styles.privacyCard}

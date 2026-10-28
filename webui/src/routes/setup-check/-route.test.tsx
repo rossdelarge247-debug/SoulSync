@@ -93,6 +93,7 @@ const NOT_SET_UP = {
   tone: 'skipped',
   headline: 'The privacy check isn’t set up',
   configured: false,
+  services_configured: true,
   rows: [],
   settings: { gluetun_url: '', api_key_set: false, home_ip_lookup: false },
   vpn: null,
@@ -105,8 +106,9 @@ const PROTECTED = {
   state: 'protected',
   tone: 'ok',
   headline:
-    'Soulseek and torrents go through Proton VPN (Netherlands) · port 51234 forwarded · if the VPN drops, they stop',
+    'slskd and qBittorrent go through Proton VPN (Netherlands) · port 51234 forwarded · if the VPN drops, they stop',
   configured: true,
+  services_configured: true,
   rows: [
     {
       id: 'privacy.vpn',
@@ -119,7 +121,7 @@ const PROTECTED = {
       id: 'privacy.port',
       title: 'Forwarded port',
       status: 'ok',
-      detail: 'Port 51234 is forwarded and slskd and qBittorrent listen on it.',
+      detail: 'A port is forwarded and slskd and qBittorrent listen on it.',
       fix: '',
     },
   ],
@@ -140,7 +142,7 @@ const VPN_DOWN = {
   ...PROTECTED,
   state: 'vpn_down',
   tone: 'error',
-  headline: 'VPN is down: Soulseek and torrents are stopped until it’s back',
+  headline: 'VPN is down: slskd and qBittorrent are stopped until it’s back',
   rows: [
     {
       id: 'privacy.vpn',
@@ -537,6 +539,37 @@ describe('setup check route', () => {
 
       await screen.findByText('Media server connection');
       expect(groupHeadings().some((h) => h?.startsWith('Privacy'))).toBe(false);
+    });
+
+    it('folds to one line when neither Soulseek nor a torrent client is set up', async () => {
+      mockSetupCheckApi();
+      mockPrivacy({ ...NOT_SET_UP, services_configured: false });
+      renderPage();
+
+      const card = await screen.findByTestId('privacy-card');
+      expect(card).toHaveAttribute('data-state', 'nothing_to_check');
+      expect(card).toHaveTextContent(
+        'Soulseek and torrents aren’t set up, so there’s nothing to check.',
+      );
+      expect(card).not.toHaveTextContent('Support/VPN.md');
+      expect(within(card).getByLabelText('Gluetun’s control address')).not.toBeVisible();
+    });
+
+    it('is amber, not green, when the kill switch isn’t confirmed', async () => {
+      mockSetupCheckApi();
+      mockPrivacy({
+        ...PROTECTED,
+        state: 'not_confirmed',
+        tone: 'warning',
+        headline:
+          'slskd goes through Proton VPN (Netherlands) · port 51234 forwarded · kill switch not confirmed',
+      });
+      renderPage();
+
+      const card = await screen.findByTestId('privacy-card');
+      await within(card).findByText(/kill switch not confirmed/);
+      expect(card).toHaveAttribute('data-state', 'not_confirmed');
+      expect(within(card).getByRole('status')).toHaveTextContent('Warning');
     });
 
     it('isn’t shown to a non-admin', async () => {

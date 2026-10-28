@@ -21,6 +21,8 @@ export type PrivacyState =
   | 'not_using_vpn'
   | 'no_port'
   | 'port_mismatch'
+  | 'service_unreachable'
+  | 'not_confirmed'
   | 'protected';
 
 export interface PrivacySettings {
@@ -35,6 +37,8 @@ export interface PrivacyReport {
   tone: CheckStatus;
   headline: string;
   configured: boolean;
+  /** Soulseek or a torrent client is set up, so there's something to check */
+  servicesConfigured: boolean;
   rows: SetupCheckResult[];
   settings: PrivacySettings;
   vpn: {
@@ -69,6 +73,7 @@ interface RawReport {
   tone?: string;
   headline?: string;
   configured?: boolean;
+  services_configured?: boolean;
   rows?: Array<Partial<SetupCheckResult>>;
   settings?: RawSettings;
   vpn?: {
@@ -100,6 +105,8 @@ const STATES: readonly PrivacyState[] = [
   'not_using_vpn',
   'no_port',
   'port_mismatch',
+  'service_unreachable',
+  'not_confirmed',
   'protected',
 ];
 
@@ -124,6 +131,7 @@ export function normalizePrivacy(raw: RawReport): PrivacyReport {
     tone: toStatus(raw.tone),
     headline: String(raw.headline ?? ''),
     configured: raw.configured === true,
+    servicesConfigured: raw.services_configured !== false,
     rows: (raw.rows ?? []).map((row, index) => ({
       id: String(row.id ?? `privacy-${index}`),
       title: String(row.title ?? 'Privacy'),
