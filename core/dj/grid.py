@@ -47,8 +47,11 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 #: (2: the sixteenth check, below, for syncopated breaks; 3: the tempo's
 #: octave, ``_octave`` below: drum and bass is 174, not 87. Grids at 100-140
 #: BPM can't change, and are promoted without a decode by
-#: database/music_database.py ``_promote_settled_tempos``)
-GRID_VERSION = 3
+#: database/music_database.py ``_promote_settled_tempos``; 4: a kick on every
+#: beat keeps the grid on it, and the beat's confidence is counted where the
+#: drums play (Ross's report of 28 October). Grids ready to mix at 3 are
+#: promoted undecoded by ``_promote_ready_grids``)
+GRID_VERSION = 4
 
 SR = 22050
 HOP = 256            # 11.6 ms a frame
@@ -296,25 +299,54 @@ def _index_beats(times, period: float):
     return idx
 
 
-def _hit_rate(env, beats, active) -> float:
-    """Of the beats where the track is playing, how many have an onset on
-    them (within ±35 ms) at least a quarter the size of the track's big
-    ones (a pad's shimmer isn't a beat), times how much louder the beats
-    are than the half-beats between them."""
+#: the drums play in at least this share of a track's playing beats for its
+#: hit rate to count in full (fewer: a beat only now and then)
+DRUM_SHARE = 0.4
+
+
+def _hit_rate(env, beats, active, contrast_env=None) -> float:
+    """Of the beats where the drums play, how many have an onset on them
+    (within ±35 ms) at least a quarter the size of the track's big ones (a
+    pad's shimmer isn't a beat), times how much louder the beats are than
+    the half-beats between them.
+
+    "Where the drums play" is the bars with an onset on two of their beats
+    or more: a drumless intro, a breakdown or a vocal break isn't a beat
+    the grid missed (Ross's report of 28 October: real tracks' long intros
+    and breakdowns pulled their confidence under the planner's bar). A
+    track whose drums play in under DRUM_SHARE of it counts for less."""
     import numpy as np
 
+    beats = np.asarray(beats, dtype=np.float64)
     if len(beats) == 0:
         return 0.0
     peaks, _ = _peak_near(env, beats, 0.035)
-    off = _interp(env, np.asarray(beats) + 0.5 * float(np.median(np.diff(beats))) if len(beats) > 1 else beats)
-    on = peaks[active] if active is not None and active.any() else peaks
-    if on.size == 0:
-        return 0.0
     big = float(np.median(np.sort(peaks)[-max(1, len(peaks) // 10):]))
     threshold = max(0.08, float(np.percentile(env, 75)), 0.25 * big)
-    hits = float(np.mean(on >= threshold))
+    hit = peaks >= threshold
+    playing = (np.ones(len(beats), dtype=bool) if active is None or not np.any(active)
+               else np.asarray(active, dtype=bool))
+    drums = hit.copy()
+    whole = len(beats) // 4 * 4
+    if whole:
+        drums[:whole] = np.repeat(hit[:whole].reshape(-1, 4).sum(axis=1) >= 2, 4)
+    use = playing & drums
+    if not use.any():
+        return 0.0
+    share = float(use.sum()) / float(playing.sum())
+    hits = float(np.mean(hit[use])) * min(1.0, share / DRUM_SHARE)
     # an onset on the beat louder than off it: the grid is on the beat, not between
-    contrast = float(np.mean(peaks)) / (float(np.mean(off)) + 1e-6)
+    gap = float(np.median(np.diff(beats))) if len(beats) > 1 else 0.0
+    if contrast_env is None:
+        off = _interp(env, beats[use] + 0.5 * gap)
+        contrast = float(np.mean(peaks[use])) / (float(np.mean(off)) + 1e-6)
+    else:
+        # against the three sixteenths between, on another envelope (four on
+        # the floor under a rolling bass: the low band's half-beat is the bass)
+        on = _peak_near(contrast_env, beats[use], 0.035)[0]
+        between = np.mean([_peak_near(contrast_env, beats[use] + k * gap / 4.0, 0.035)[0] for k in (1, 2, 3)],
+                          axis=0)
+        contrast = float(np.mean(on)) / (float(np.mean(between)) + 1e-6)
     return hits * min(1.0, max(0.0, (contrast - 0.8) / 1.2))
 
 
@@ -573,6 +605,37 @@ AMBIGUOUS_FACTOR = 0.6
 BREAK_CONFIDENCE = 0.45
 
 
+#: four on the floor: in the bars where the drums play, the quietest beat's
+#: low-band onset is at least this share of the loudest's (the median bar).
+#: A break or drum and bass leaves a beat of every bar without a kick (0.00
+#: on every generated one); generated house with a rolling bass as loud as
+#: its kick measures 0.19 to 0.65
+FLOOR_EVENNESS = 0.12
+
+
+def four_on_the_floor(feat, beats) -> bool:
+    """A kick on every beat of the bar where the drums play (house, techno),
+    not a break's kick on some beats only: the low band's onset on each beat,
+    the quietest of each bar's four against its loudest."""
+    import numpy as np
+
+    beats = np.asarray(beats, dtype=np.float64)
+    if len(beats) < 16 or "env_low" not in feat:
+        return False
+    radius = float(min(0.035, 0.1 * float(np.median(np.diff(beats)))))
+    on = _peak_near(feat["env_low"], beats, radius)[0]
+    bars = on[:len(on) // 4 * 4].reshape(-1, 4)
+    loudest = bars.max(axis=1)
+    top = float(np.percentile(loudest, 90))
+    if top <= 0:
+        return False
+    drumming = loudest >= 0.3 * top
+    if int(drumming.sum()) < 4:
+        return False
+    evenness = bars[drumming].min(axis=1) / loudest[drumming]
+    return float(np.median(evenness)) >= FLOOR_EVENNESS
+
+
 def sixteenth_check(feat, beats) -> Tuple[int, float]:
     """Which of the four sixteenths the beat is really on: ``(shift, margin)``,
     the shift in sixteenths (0–3) from ``beats`` and how far its score leads
@@ -649,16 +712,31 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
     if hinted and scanned and scan_strength > 1.5 * strength and not _octave_of(scanned, hinted):
         scanned = _octave(feat, times, weights, scanned, hinted=False)
         period, first, strength = _steady_grid(times, weights, 60.0 / scanned)
-    res = _residuals(times, period, first)
-    # the onsets on the beat (within an eighth of it; a sixteenth or a
-    # swung eighth isn't the beat), the louder half of them
-    on_beat = (np.abs(res) < 0.125 * period) & (weights >= np.median(weights))
-    res_on = res[on_beat]
-    mad_ms = 1000 * float(np.median(np.abs(res_on - np.median(res_on)))) if res_on.size else 1e3
-    window = min(24, max(4, res_on.size // 6))
-    running = (np.convolve(res_on, np.ones(window) / window, mode="valid")
-               if res_on.size >= window else res_on)
-    drift_ms = 1000 * float(np.max(np.abs(running - np.median(res_on)))) if running.size else 1e3
+
+    def spread(at: float):
+        res = _residuals(times, period, at)
+        # the onsets on the beat (within an eighth of it; a sixteenth or a
+        # swung eighth isn't the beat), the louder half of them
+        on_beat = (np.abs(res) < 0.125 * period) & (weights >= np.median(weights))
+        res_on = res[on_beat]
+        mad = 1000 * float(np.median(np.abs(res_on - np.median(res_on)))) if res_on.size else 1e3
+        window = min(24, max(4, res_on.size // 6))
+        running = (np.convolve(res_on, np.ones(window) / window, mode="valid")
+                   if res_on.size >= window else res_on)
+        drift = 1000 * float(np.max(np.abs(running - np.median(res_on)))) if running.size else 1e3
+        return res_on, mad, drift
+
+    res_on, mad_ms, drift_ms = spread(first)
+    if not (mad_ms <= STEADY_MAD_MS and drift_ms <= STEADY_DRIFT_MS):
+        # the comb can settle between a kick and a rolling bass as loud on
+        # the sixteenths after it: the onsets a sixteenth away may line up
+        # (Ross's report of 28 October); the sixteenth check then says which
+        # of them is the beat
+        for k in (1, 2, 3):
+            at = first + k * period / 4.0
+            tried = spread(at)
+            if tried[1] <= STEADY_MAD_MS and tried[2] <= STEADY_DRIFT_MS and tried[1] < mad_ms:
+                first, (res_on, mad_ms, drift_ms) = at, tried
     rms_frames = feat["rms_db"]
     loud = float(np.percentile(rms_frames, 95))
 
@@ -684,20 +762,26 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
             first -= period  # a beat right at the start: keep it
         beats = first + np.arange(0, int((duration - first) / period) + 1) * period
         beats = beats[(beats >= -0.02) & (beats < duration)]
+        # moved onto a kick on every beat: the comb had followed a rolling
+        # bass between the kicks, and this is four on the floor, not a break
+        # (Ross's report of 28 October: such house was "no steady beat")
+        floor = bool(shift) and four_on_the_floor(feat, beats)
+        broken = bool(shift) and not floor
         # a break's beats are told by the whole spectrum (its snares), not the kick
-        hits = _hit_rate(feat["env"] if shift else env, beats, active_mask(beats))
-        if not shift and _fast_backbeat(feat, beats):
+        hits = _hit_rate(feat["env"] if broken else env, beats, active_mask(beats),
+                         contrast_env=feat["env"] if floor else None)
+        if not broken and _fast_backbeat(feat, beats):
             # drum and bass: every other beat is a snare, not a kick
             hits = max(hits, _hit_rate(feat["env"], beats, active_mask(beats)))
         steady = max(0.0, min(1.0, 1.0 - max(0.0, mad_ms - 3.0) / 15.0))
         confidence = hits * (0.6 + 0.4 * steady)
-        if shift:
+        if broken:
             confidence = min(confidence, BREAK_CONFIDENCE)
         if margin < AMBIGUOUS_MARGIN:
             confidence *= AMBIGUOUS_FACTOR  # not sure which sixteenth: no beat-match
         return {"kind": "constant", "bpm": round(60.0 / period, 3), "period": period, "first_beat": float(beats[0]),
                 "beats": beats, "confidence": round(confidence, 3), "sixteenth": shift,
-                "sixteenth_margin": round(min(margin, 99.0), 2),
+                "sixteenth_margin": round(min(margin, 99.0), 2), "four_on_the_floor": floor,
                 "mad_ms": round(mad_ms, 1), "drift_ms": round(drift_ms, 1), "alignment": round(strength, 3)}
     # a drifting tempo: librosa's tracked beats give each onset its beat
     # number; the beats with a clear onset are kept where the onset is, and

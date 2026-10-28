@@ -487,6 +487,30 @@ def test_try_again_is_an_admins_and_asks_a_failed_track_again(client, db):
     assert tracks["6"]["ready"] is True and tracks["7"]["ready"] is True
 
 
+def test_analyse_again_is_an_admins_and_finds_a_done_tracks_grid_again(client, db):
+    """Ross's report of 28 October: grids that said "no steady beat" were
+    done, so asking for them again did nothing. Analyse again (an admin's)
+    finds the grid again; BPM and key stay."""
+    _dj_done(db, "7")
+    grid_store.save_result(db, "7", {"status": "none", "reason": "no_beat", "beat_confidence": 0.05},
+                           source_sig=None)
+    body = client.post("/api/library/dj/analyse", json={"track_ids": ["7"], "reason": "asked"}).get_json()
+    assert body["already_done"] == 1 and body["queued"] == 0
+    # a member can't, nor can an automatic ask
+    assert client.post("/api/library/dj/analyse",
+                       json={"track_ids": ["7"], "reason": "asked", "again": True}).status_code == 403
+    client.state.update(profile=1, admin=True)
+    assert client.post("/api/library/dj/analyse", json={"track_ids": ["7"], "again": True}).status_code == 403
+    client.gate.set()
+    body = client.post("/api/library/dj/analyse",
+                       json={"track_ids": ["7"], "reason": "asked", "again": True}).get_json()
+    assert body["queued"] == 1 and body["already_done"] == 0
+    client.job.join(5)
+    assert store.get(db, "7")["bpm"] == 124.0
+    tracks = client.post("/api/library/dj/progress", json={"track_ids": ["7"]}).get_json()["tracks"]
+    assert tracks["7"]["state"] == "done" and tracks["7"]["ready"] is True
+
+
 def test_join_waits_for_a_next_run_made_but_not_yet_started():
     """A run's end starts the next run's thread; a join that lands between
     the thread being made and started used to raise (a flaky test)."""
@@ -520,7 +544,8 @@ def test_m1_ready_to_mix_is_the_planners_own_rule(db, monkeypatch):
     for t in ("1", "2", "3", "4"):
         trusted = planner._trust(grid_store.public(grid_store.get(db, t), t), "X") is None
         assert tracks[t]["ready"] is trusted, t
-    assert tracks["1"]["beat"] == "no_beat" and tracks["2"]["beat"] == "not_4_4"
+    # found, but not sure enough: not "no steady beat" (Ross's report of 28 October)
+    assert tracks["1"]["beat"] == "unsure" and tracks["2"]["beat"] == "not_4_4"
     assert tracks["3"]["ready"] is True and tracks["4"]["ready"] is True
     counts = grid_store.counts(db)
     assert counts["done"] == 4 and counts["ready"] == 2

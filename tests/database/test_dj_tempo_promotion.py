@@ -52,7 +52,7 @@ def _as_before_the_fix(path):
         _q(path, "INSERT INTO track_grid (track_id, status, bpm, reason, grid_version) VALUES (?, ?, ?, ?, 2)",
            (tid, status, bpm, reason))
     _q(path, "INSERT INTO track_dj (track_id, status, analyzed_bpm, dj_analyzer_version) VALUES ('12', 'done', 124, 3)")
-    _q(path, "DELETE FROM metadata WHERE key = 'dj_tempo_octave_v5'")
+    _q(path, "DELETE FROM metadata WHERE key IN ('dj_tempo_octave_v5', 'dj_grid_v4')")
     _q(path, "DELETE FROM schema_migrations WHERE name = 'dj_tempo_octave_v5'")
 
 
@@ -60,13 +60,14 @@ def test_only_what_the_rule_can_change_is_analysed_again(tmp_path):
     path = tmp_path / "music.db"
     _as_before_the_fix(path)
     _reopen(path)
-    assert (ANALYZER_VERSION, GRID_VERSION) == (5, 3)
+    assert (ANALYZER_VERSION, GRID_VERSION) == (5, 4)
     dj = dict(_q(path, "SELECT track_id, dj_analyzer_version FROM track_dj"))
     assert {t for t, v in dj.items() if v == 5} == {"1", "4", "5", "6", "7", "9"}
     assert {t for t, v in dj.items() if v != 5} == {"2", "3", "8", "10", "11", "12"}
     grids = dict(_q(path, "SELECT track_id, grid_version FROM track_grid"))
-    assert {t for t, v in grids.items() if v == 3} == {"1", "4", "5", "7", "8"}
-    assert {t for t, v in grids.items() if v != 3} == {"2", "3", "6", "9"}
+    # (then grid v4's step: of those, the ones ready to mix or not to decode go on to 4)
+    assert {t for t, v in grids.items() if v >= 3} == {"1", "4", "5", "7", "8"}
+    assert {t for t, v in grids.items() if v < 3} == {"2", "3", "6", "9"}
     assert _q(path, "SELECT 1 FROM schema_migrations WHERE name = 'dj_tempo_octave_v5'")
 
 
@@ -92,7 +93,8 @@ def test_the_sweep_sees_only_the_ambiguous_tracks(tmp_path):
              "VALUES ('1', 'done', 124.0, 4, 's'), ('2', 'done', 86.1, 4, 's')")
     _q(path, "INSERT INTO track_grid (track_id, status, bpm, grid_version, source_sig) "
              "VALUES ('1', 'done', 124.0, 2, 's'), ('2', 'done', 86.0, 2, 's')")
-    _q(path, "DELETE FROM metadata WHERE key = 'dj_tempo_octave_v5'")
+    _q(path, "UPDATE track_grid SET beat_confidence = 0.9, meter = '4/4'")  # ready to mix: on to v4 too
+    _q(path, "DELETE FROM metadata WHERE key IN ('dj_tempo_octave_v5', 'dj_grid_v4')")
     db = _reopen(path)
     assert store.pending_ids(db, ANALYZER_VERSION) == ["2"]
     assert grid_store.pending_ids(db, ANALYZER_VERSION) == []  # 2's grid comes with its analysis
@@ -119,7 +121,7 @@ def _fresh_with(path, sql_rows):
     MusicDatabase(str(path))
     for sql, params in sql_rows:
         _q(path, sql, params)
-    _q(path, "DELETE FROM metadata WHERE key = 'dj_tempo_octave_v5'")
+    _q(path, "DELETE FROM metadata WHERE key IN ('dj_tempo_octave_v5', 'dj_grid_v4')")
     _q(path, "DELETE FROM schema_migrations WHERE name = 'dj_tempo_octave_v5'")
 
 

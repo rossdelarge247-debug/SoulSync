@@ -858,6 +858,12 @@ class MusicDatabase:
             # and grids it can't change move to the new versions undecoded
             self._promote_settled_tempos(cursor)
 
+            # Grid v4 (Ross's report of 28 October: house read as a break,
+            # drumless intros counted against the beat): the grids it can't
+            # change (ready to mix already) move to v4 undecoded; the rest
+            # are found again by the sweep
+            self._promote_ready_grids(cursor)
+
             # Per-user curation signals read back off the media server —
             # what people deliberately CHOSE about a track (favourited,
             # rated, added to a playlist), as opposed to play_count which
@@ -4128,6 +4134,32 @@ class MusicDatabase:
             if dj or grids or sample:
                 logger.info("Tempo octave: %s DJ rows, %s Sample Studio analyses and %s grids need no new "
                             "analysis", dj, sample, grids)
+
+    def _promote_ready_grids(self, cursor):
+        """One-time, for grid v4 (core/dj/grid.py: a kick on every beat keeps
+        the grid on it, and the beat's confidence is counted where the drums
+        play). A grid at v3 that's ready to mix already (a beat confidence
+        of 0.5 or more, in 4/4: core/dj/grid.py ``beatmatch_problem``) comes
+        out the same or surer, so it moves to v4 without a decode; so do
+        rows the sweep wouldn't decode at v3 either (too short, an error,
+        too long, unreachable). Everything else, a grid that found no beat,
+        one under the ready bar and one with no confidence stored, is
+        analysed again by the sweep: it was judged by the rule this fixes.
+        Marker-gated; it only ever moves v3 rows."""
+        with self._migration_step(cursor, 'promote_ready_grids'):
+            cursor.execute("SELECT value FROM metadata WHERE key = 'dj_grid_v4' LIMIT 1")
+            if cursor.fetchone():
+                return
+            cursor.execute(
+                "UPDATE track_grid SET grid_version = 4 WHERE grid_version = 3 AND ("
+                " (status = 'done' AND COALESCE(beat_confidence, 0) >= 0.5 AND COALESCE(meter, '4/4') = '4/4')"
+                " OR (status = 'none' AND reason = 'too_short')"
+                " OR status IN ('error', 'skipped', 'unreachable'))")
+            grids = cursor.rowcount
+            self._mark_step_done(cursor, 'dj_grid_v4', 'true')
+            self._record_migration(cursor, 'dj_grid_v4')
+            if grids:
+                logger.info("Beat grids v4: %s grids need no new analysis", grids)
 
     def _migrate_id_columns_to_text(self, cursor):
         """Migrate ID columns from INTEGER to TEXT to support both Plex (int) and Jellyfin (GUID) IDs"""

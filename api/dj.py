@@ -83,7 +83,9 @@ POST /api/library/dj/analyse
     ``{track_ids, cancel: true}`` takes the caller's own asks for them out
     of the line (the Mix tab's Cancel). ``retry: true`` with ``reason:
     "asked"`` (admins; 403 otherwise) asks again for tracks whose analysis
-    or beat grid failed (Try again). JSON
+    or beat grid failed (Try again); ``again: true`` likewise (admins, a
+    person's ask) finds the beat grid again for tracks already analysed too
+    (Analyse again). JSON
     only, body at most 64 KB; one request a second a profile (429
     ``rate_limited`` with ``Retry-After``); 409 ``off`` while analysis is
     switched off.
@@ -652,6 +654,10 @@ def dj_analyse():
     retry = body.get("retry") is True
     if retry and (reason != "asked" or not _is_admin()):
         return jsonify({"success": False, "error": "Only an admin can ask for a failed track again"}), 403
+    # Analyse again (an admin's): a track already analysed has its beat grid found again
+    again = body.get("again") is True
+    if again and (reason != "asked" or not _is_admin()):
+        return jsonify({"success": False, "error": "Only an admin can ask for a track to be analysed again"}), 403
     # Up next's next transition (the next two with Auto mix on): first in line
     soon = body.get("soon") is True
     if soon and source != "up_next":
@@ -710,7 +716,7 @@ def dj_analyse():
         ids = list(dict.fromkeys(str(t["id"]) for t, _title, _artist in found["rows"] if t))[:ondemand.MAX_IDS]
     try:
         result = ondemand.ask(database, ids, int(pid), explicit=reason == "asked", source=source, set_id=set_id,
-                              retry=retry, soon=soon)
+                              retry=retry, soon=soon, again=again)
     except worker.Held:
         return jsonify({"success": False, "code": "held",
                         "error": "Working out BPM, key and energy is stopped; ask for these to go on."}), 409
