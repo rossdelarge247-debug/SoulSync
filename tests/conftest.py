@@ -61,6 +61,10 @@ if not _os.environ.get('SOULSYNC_TEST_DB_READY'):
     _os.environ['SOULSYNC_TEST_DB_READY'] = '1'
     _atexit.register(lambda: _shutil.rmtree(_TEST_DB_DIR, ignore_errors=True))
 
+# The Spotify gate's stored pause stays in memory for the suite, whenever
+# core.spotify_client is first imported (it reads this at import).
+_os.environ.setdefault('SOULSYNC_SPOTIFY_STATE_IN_MEMORY', '1')
+
 # The image cache has the same hazard as the DBs, and it sits OUTSIDE the
 # READY block on purpose: a test file that sets DATABASE_PATH + READY itself
 # skips the block above, and it must still not touch storage/image_cache.
@@ -1640,8 +1644,6 @@ def _spotify_gate_per_test(monkeypatch):
     sc = sys.modules.get('core.spotify_client')
     if sc is not None:
         sc._reset_for_tests()
-        monkeypatch.setattr(sc, '_state_store_get', lambda: None)
-        monkeypatch.setattr(sc, '_state_store_set', lambda value: None)
     yield
     sc = sys.modules.get('core.spotify_client')
     if sc is not None:

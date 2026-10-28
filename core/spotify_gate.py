@@ -152,7 +152,7 @@ def redirect_uri_problem(uri: Optional[str]) -> Optional[str]:
     an IP literal (``http://127.0.0.1:PORT/...`` or ``http://[::1]:PORT/...``);
     ``localhost`` isn't accepted. Pure.
     """
-    text = (uri or "").strip()
+    text = (uri or "").strip().strip('"').strip("'")
     if not text:
         return f"No redirect URI is set. Use {LOOPBACK_REDIRECT_URI}."
     try:
@@ -162,8 +162,12 @@ def redirect_uri_problem(uri: Optional[str]) -> Optional[str]:
     host = (parsed.hostname or "").lower()
     if parsed.scheme not in ("http", "https") or not host:
         return "The redirect URI must start with http:// or https:// and name a host."
+    try:
+        port_number = parsed.port
+    except ValueError:
+        return "The redirect URI's port isn't a number."
     if host == "localhost" or host.endswith(".localhost"):
-        port = f":{parsed.port}" if parsed.port else ""
+        port = f":{port_number}" if port_number else ""
         fixed = f"{parsed.scheme}://127.0.0.1{port}{parsed.path or '/callback'}"
         return (f"Spotify no longer accepts “localhost” in a redirect URI. Use {fixed} "
                 f"here and in your Spotify app's settings.")

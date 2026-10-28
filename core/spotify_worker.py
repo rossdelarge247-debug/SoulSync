@@ -342,6 +342,18 @@ class SpotifyWorker:
                     interruptible_sleep(self._stop_event, min(cooldown, 60))
                     continue
 
+                # Background work's hourly share of Spotify's budget: wait here,
+                # between items, rather than run out half way through one (a
+                # request that can't get budget gives up, and the item would
+                # be marked as not found).
+                if not free_serving:
+                    from core.spotify_client import spotify_background_wait
+                    budget_wait = spotify_background_wait()
+                    if budget_wait > 0:
+                        logger.debug(f"Background Spotify budget spent, sleeping {int(budget_wait)}s...")
+                        interruptible_sleep(self._stop_event, min(budget_wait, 60))
+                        continue
+
                 # Auth guard — check if Spotify client is configured (no API call).
                 # We intentionally avoid calling is_spotify_authenticated() here
                 # because it makes an API probe that can re-trigger rate limits

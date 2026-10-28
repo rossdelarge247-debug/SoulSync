@@ -45,7 +45,7 @@ class _Clock:
 def clock(monkeypatch):
     c = _Clock()
     monkeypatch.setattr(sc, "time", types.SimpleNamespace(
-        time=c.time, sleep=c.sleep, strftime=real_time.strftime, localtime=real_time.localtime))
+        time=c.time, monotonic=c.time, sleep=c.sleep, strftime=real_time.strftime, localtime=real_time.localtime))
     sc._clear_rate_limit()
     yield c
     sc._clear_rate_limit()

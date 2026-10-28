@@ -249,7 +249,10 @@ def search_all_sources(query: TrackQuery,
                 if not _search_slots.acquire(blocking=False):
                     continue  # Saturated by slow requests; do not grow a queue.
                 try:
-                    future = _search_pool.submit(_search_one_source, name, client, query, clean_title, deadline)
+                    from core.spotify_client import spotify_context
+                    # the pool thread is this caller's search (a person's, from a page)
+                    future = _search_pool.submit(spotify_context(_search_one_source),
+                                                 name, client, query, clean_title, deadline)
                 except Exception:
                     _search_slots.release()
                     raise

@@ -211,12 +211,16 @@ def search_source(query: str, client, source_name: Optional[str] = None,
     healthy empty result (M16).
     """
     results: dict[str, Any] = {"artists": [], "albums": [], "tracks": [], "playlists": []}
+    from core.spotify_client import spotify_context
+
+    # the pool threads are this person's search (Spotify's gate: see spotify_context)
+    search_kind_raw = spotify_context(_search_kind_raw)
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {
-            executor.submit(_search_kind_raw, client, query, "artists", source_name, prefer_free): "artists",
-            executor.submit(_search_kind_raw, client, query, "albums", source_name, prefer_free): "albums",
-            executor.submit(_search_kind_raw, client, query, "tracks", source_name, prefer_free): "tracks",
-            executor.submit(_search_kind_raw, client, query, "playlists", source_name, prefer_free): "playlists",
+            executor.submit(search_kind_raw, client, query, "artists", source_name, prefer_free): "artists",
+            executor.submit(search_kind_raw, client, query, "albums", source_name, prefer_free): "albums",
+            executor.submit(search_kind_raw, client, query, "tracks", source_name, prefer_free): "tracks",
+            executor.submit(search_kind_raw, client, query, "playlists", source_name, prefer_free): "playlists",
         }
         failed_kinds = 0
         for future in as_completed(futures):
