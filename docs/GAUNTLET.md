@@ -137,6 +137,11 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **The pause survives a restart:** a 15-hour wait read back after a restart has the same end; a pause that ended while it was down still has background jobs cool down; it belongs to the app (client id) that earned it; signing in again doesn't lift Spotify's own wait.
   - **The budget:** a person's request never waits more than 2 s for the budget (it answers busy instead) and never at all while paused; background jobs leave the last tokens to people, have an hourly share and wait in jittered steps.
   - **Token refresh:** a refresh token Spotify refuses (`invalid_grant`) is tried once and never again; a failed refresh waits a minute before the next try; six threads needing a refresh share one; the callback exchanges the new code instead of refreshing the old token; the interactive sign-in never runs on the server.
+  - **Nothing waits holding the gate:** with the background hourly share spent and a job waiting for it, a web request's pool thread (`spotify_context`) answers in under 2 s and a playlist load a person is waiting for isn't held behind it; a background request gives up after 5 minutes instead of an hour.
+  - **Sign-ins go where they belong:** on both callbacks (8008 and 8888), `state=profile_N` is exchanged into that profile's token and never the account's; a profile with no app to finish with is refused.
+  - **A playlist loads as a job:** `?async=1` answers at once and the job finishes; while paused it says so without starting one.
+  - **Storing is off the request thread:** a slow store doesn't hold the thread that got the 429, and the newest pause is the one stored.
+  - **Bounds:** any Retry-After (`inf`, `nan`, `1e400`, a 2099 date, 999999999999) pauses for at most a day and the answer still says when; a garbled stored pause is cut to a day.
 
 When you write a test for a new way a change could lose data, tag it `gauntlet` too.
 
