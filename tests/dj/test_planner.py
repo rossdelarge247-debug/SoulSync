@@ -211,7 +211,10 @@ def test_302_only_the_incoming_ready_echoes_out_by_time_at_the_outgoing_end():
         assert p["status"] == "ok" and p["style"] == "echo_out" and p["beatmatch"] is False, code
         assert p["fallback"] == {"kind": "echo_out", "code": code, "reason": words}
         assert p["why"] == f"Couldn't beat-match: echo out · {words}"
-        assert p["out"]["start"] == pytest.approx(240.0) and p["out"]["bar"] is None
+        # a second before the end: the decoded length where the whole track
+        # was analysed (240 s here), else the library's (241 s)
+        end = float(row["analysed_s"]) if row.get("analysed_s") else 241.0
+        assert p["out"]["start"] == pytest.approx(end - 1.0) and p["out"]["bar"] is None
         assert p["in"]["bar"] == 0 and p["in"]["start"] == pytest.approx(0.2, abs=1e-3)
     # a BPM set by hand that the grid doesn't match
     hand = planner.plan({"track_id": "1", "analyzed": False, "reason": "bpm_mismatch", "title": "Hand",
@@ -385,3 +388,36 @@ def test_the_styles_match_the_sets_transitions():
 
     assert planner.STYLES == TRANSITION_STYLES
     assert planner.BARS == TRANSITION_BARS
+
+
+# ── step 2's Gauntlet review (the reviewer's probe1.py, as tests) ────────────
+
+def test_review_m3_a_cut_on_an_unsure_one_says_so():
+    p = planner.plan(_track(_row(124.0, dconf=0.1)), _track(_row(140.0), tid="2", title="B"))
+    assert p["status"] == "cut" and p["unsure_bars"] is True
+    assert p["note"].startswith("Not sure where the bars start")
+    sure = planner.plan(_track(_row(124.0)), _track(_row(140.0), tid="2", title="B"))
+    assert sure["unsure_bars"] is False and sure["note"] is None
+
+
+def test_review_m1_the_echo_by_time_sits_on_the_decoded_length_not_the_librarys():
+    row = {"grid_version": GRID_VERSION, "status": "none", "reason": "no_beat", "analysed_s": 121.0, "truncated": 0}
+    pub = grid_store.public(row, "9")
+    assert pub["analysed_s"] == 121.0 and pub["truncated"] is False
+    for library in (100.0, 121.0, 400.0):
+        p = planner.plan({**pub, "title": "Sand", "duration_s": library, "key": "8A"}, _track(_row(124.0), tid="2"))
+        assert p["style"] == "echo_out" and p["out"]["start"] == pytest.approx(120.0), library
+    # cut short by the analysis (over 10 minutes): the library's length, as before
+    long_row = {**row, "analysed_s": 600.0, "truncated": 1}
+    p = planner.plan({**grid_store.public(long_row, "9"), "title": "Sand", "duration_s": 700.0},
+                     _track(_row(124.0), tid="2"))
+    assert p["out"]["start"] == pytest.approx(699.0)
+
+
+def test_review_a_ready_track_with_no_outro_region_says_so():
+    p = planner.plan(_track(_row(124.0, mix_out=None), duration_s=240), _track(_row(140.0), tid="2"))
+    assert p["status"] == "play_on" and p["fallback"]["code"] == "no_outro"
+    assert p["fallback"]["reason"] == "Night Ferry has no outro to cut on"
+    trunc = planner.plan(_track(_row(124.0, truncated=True, mix_out=None), duration_s=900),
+                         _track(_row(140.0), tid="2"))
+    assert trunc["fallback"]["code"] == "end_not_analysed"

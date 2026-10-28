@@ -232,6 +232,21 @@ def _length(track: Dict[str, Any]) -> Optional[float]:
     return duration
 
 
+def _echo_length(track: Dict[str, Any]) -> Optional[float]:
+    """Where 302's echo out by time is placed from: the decoded length when
+    the whole track was analysed (the library's duration can be another
+    file's, or the tags' guess), else the believable length."""
+    analysed = track.get("analysed_s")
+    if analysed and not track.get("truncated"):
+        try:
+            value = float(analysed)
+        except (TypeError, ValueError):
+            value = 0.0
+        if math.isfinite(value) and value > 0:
+            return min(value, MAX_TRACK_SECONDS)
+    return _length(track)
+
+
 def _end_bar(track: Dict[str, Any], grid: Grid) -> Tuple[int, bool]:
     """The last bar the outgoing track can mix through, and whether it's
     known (False: past the analysed part, from the track's length)."""
@@ -385,14 +400,22 @@ def _fallback(out_t: Dict[str, Any], in_t: Dict[str, Any], out_grid: Optional[Gr
         end_bar, known = _end_bar(out_t, out_grid)
         last = _Phrases(out_t).latest(end_bar) if known else None
         if last is None or last[0] <= 0:
-            # its ending wasn't analysed: no phrase there to trust
-            return _play_on("end_not_analysed", f"the end of {out_name} wasn't analysed", base)
+            if out_t.get("truncated"):
+                # its ending wasn't analysed: no phrase there to trust
+                return _play_on("end_not_analysed", f"the end of {out_name} wasn't analysed", base)
+            # analysed whole, but no mix-out region (or no phrase in it)
+            return _play_on("no_outro", f"{out_name} has no outro to cut on", base)
         bar, level = last
         start = round(out_grid.bar(bar), 3)
         region = out_t.get("mix_out") or {}
+        # 304 for the cut (step 2's review M3): it still lands on a beat, but
+        # an unsure "one" may put it off the phrase, which the chip says
+        unsure = float((out_t.get("downbeats") or {}).get("confidence") or 0) < DOWNBEAT_CONFIDENT
         return {**base, "status": "cut", "style": "cut", "label": STYLE_WORDS["cut"], "bars": None,
                 "beatmatch": False, "why": _couldnt("cut", reason),
-                "fallback": {"kind": "cut", "code": code, "reason": reason}, "note": None,
+                "fallback": {"kind": "cut", "code": code, "reason": reason},
+                "note": "Not sure where the bars start: the cut may not land on the phrase." if unsure else None,
+                "unsure_bars": unsure,
                 "out": {"start": start, "end": start, "bar": int(bar), "end_bar": int(bar), "phrase_level": int(level),
                         "in_outro": bool(region) and bar >= int(region.get("start_bar") or 0),
                         "confidence": round(float(region.get("confidence") or 0.5), 2)},
@@ -400,7 +423,7 @@ def _fallback(out_t: Dict[str, Any], in_t: Dict[str, Any], out_grid: Optional[Gr
                 "in": {"start": 0.0, "bar": None, "how": "start", "confidence": 0.2},
                 "length_s": 0.0, "confidence": 0.5}
     if out_problem is not None and out_problem[0] in _ECHO_CODES and in_grid is not None and in_problem is None:
-        length = _length(out_t)
+        length = _echo_length(out_t)
         if length and length > ECHO_END_S + 4:
             in_pt = _in_point(in_t, in_grid, "echo_out", DEFAULT_BARS["echo_out"])
             start = round(length - ECHO_END_S, 3)
