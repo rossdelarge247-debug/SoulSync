@@ -1,0 +1,45 @@
+# Optional, with docker-compose.vpn.yml: the qbittorrent service ALREADY in
+# your docker-compose.yml runs through the VPN. Its image, folders and
+# settings stay as they are; only its network changes: it moves into Gluetun's,
+# its own published ports go (Gluetun publishes 8080 for its web page; its
+# peer port goes through the VPN). The service must be called qbittorrent and
+# its web page must be on port 8080 inside the container (WEBUI_PORT=8080).
+# Support/VPN.md, step 2.
+#
+# COMPOSE_FILE=docker-compose.yml:docker-compose.vpn.yml:docker-compose.vpn-qbittorrent-existing.yml
+
+services:
+  gluetun:
+    environment:
+      # qBittorrent's listening port follows Proton's forwarded port (Gluetun's
+      # own example). Needs "Bypass authentication for clients on localhost"
+      # ticked in qBittorrent → Options → Web UI, and qBittorrent's web page on
+      # port 8080 inside the container.
+      - >-
+        VPN_PORT_FORWARDING_UP_COMMAND=/bin/sh -c 'wget -O- -nv --tries=5 --retry-connrefused
+        --post-data "json={\"listen_port\":{{PORT}},\"current_network_interface\":\"{{VPN_INTERFACE}}\",\"random_port\":false,\"upnp\":false}"
+        http://127.0.0.1:8080/api/v2/app/setPreferences'
+      - >-
+        VPN_PORT_FORWARDING_DOWN_COMMAND=/bin/sh -c 'wget -O- -nv --tries=5 --retry-connrefused
+        --post-data "json={\"listen_port\":0,\"current_network_interface\":\"lo\"}"
+        http://127.0.0.1:8080/api/v2/app/setPreferences'
+    ports:
+      # qBittorrent's web page and API (its peer port goes through the VPN, not here)
+      - "8080:8080"
+    networks:
+      default:
+        aliases:
+          - slskd
+          - qbittorrent
+
+  qbittorrent:
+    network_mode: "service:gluetun"
+    ports: !reset []
+    networks: !reset null
+    hostname: !reset null
+    dns: !reset []
+    extra_hosts: !reset []
+    depends_on:
+      gluetun:
+        condition: service_started
+        restart: true
