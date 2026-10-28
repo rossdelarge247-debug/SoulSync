@@ -14,10 +14,20 @@ Response (always 200 when the run itself worked, whatever it found)::
      "summary": {"ok": n, "warning": n, "error": n, "skipped": n},
      "checks": [{"id", "title", "status", "detail", "fix", "category", "data"?}, ...],
      "scope": "all|local", "ran_at": <unix time>, "duration_ms": n}
+
+GET /api/setup/privacy - the privacy check alone (core/privacy_check.py): is
+the VPN up, which address peers see, the forwarded port, the kill switch.
+Admin-only: it holds the VPN's and the home connection's IP addresses.
+
+PUT /api/setup/privacy/settings - Gluetun's control address and key, and
+whether the home address may be looked up (one call to an outside service,
+cached for an hour). Admin-only, JSON, 4 KB at most. The key is never sent
+back, only whether one is set.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from contextlib import closing
@@ -31,6 +41,9 @@ from utils.logging_config import get_logger
 logger = get_logger("api.setup_check")
 
 SETUP_CHECK_PATH = "/api/setup/check"
+PRIVACY_PATH = "/api/setup/privacy"
+PRIVACY_SETTINGS_PATH = "/api/setup/privacy/settings"
+PRIVACY_BODY_LIMIT = 4096
 
 bp = Blueprint("setup_check", __name__)
 
@@ -93,8 +106,89 @@ def run_setup_check():
     return response
 
 
+def _no_store(payload, status=200):
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "no-store"
+    return response, status
+
+
+@bp.route(PRIVACY_PATH, methods=["GET"])
+@admin_only
+def run_privacy_check():
+    from core import privacy_check
+    try:
+        report = privacy_check.run_privacy_check()
+    except Exception as exc:  # noqa: BLE001 - the check contains its own failures; this is a bug
+        logger.error("privacy check failed: %s", exc, exc_info=True)
+        return _no_store({"success": False, "error": "The privacy check couldn't run"}, 500)
+    return _no_store({"success": True, **report})
+
+
+def _read_json_capped(limit: int):
+    """``(body, None)`` or ``(None, response)``; reads at most ``limit + 1``
+    bytes even without a Content-Length."""
+    too_big = _no_store({"success": False, "error": "That request is too big"}, 413)
+    if request.content_length is not None and request.content_length > limit:
+        return None, too_big
+    raw = request.stream.read(limit + 1)
+    if len(raw) > limit:
+        return None, too_big
+    if not request.is_json or not raw:
+        return None, None
+    try:
+        return json.loads(raw), None
+    except ValueError:
+        return None, None
+
+
+@bp.route(PRIVACY_SETTINGS_PATH, methods=["PUT"])
+@admin_only
+def save_privacy_settings():
+    from core import privacy_check
+    from core.settings import config_manager
+
+    body, refused = _read_json_capped(PRIVACY_BODY_LIMIT)
+    if refused is not None:
+        return refused
+    if not isinstance(body, dict):
+        return _no_store({"success": False, "error": "Send the settings as JSON"}, 400)
+    updates = {}
+    if "gluetun_url" in body:
+        raw = body.get("gluetun_url")
+        url = privacy_check.clean_control_url(raw) if isinstance(raw, (str, type(None))) else None
+        if url is None:
+            return _no_store({"success": False, "field": "gluetun_url",
+                              "error": "Type Gluetun's control address with http:// and its port, like "
+                                       "http://gluetun:8000, with nothing after the port."}, 400)
+        updates[privacy_check.SETTING_URL] = url
+    if "api_key" in body:
+        key = body.get("api_key")
+        if not isinstance(key, str) or len(key.strip()) > 256 or any(c.isspace() or ord(c) < 33 for c in key.strip()):
+            return _no_store({"success": False, "field": "api_key",
+                              "error": "The key is the GLUETUN_API_KEY from your .env: letters and numbers, "
+                                       "no spaces."}, 400)
+        key = key.strip()
+        if key:
+            updates[privacy_check.SETTING_KEY] = key
+        else:
+            try:
+                config_manager.clear_secret(privacy_check.SETTING_KEY)
+            except KeyError:
+                pass
+    if "home_ip_lookup" in body:
+        if not isinstance(body.get("home_ip_lookup"), bool):
+            return _no_store({"success": False, "field": "home_ip_lookup", "error": "home_ip_lookup is true or false"},
+                             400)
+        updates[privacy_check.SETTING_HOME_LOOKUP] = body["home_ip_lookup"]
+        if not body["home_ip_lookup"]:
+            privacy_check.forget_home_address()
+    for key, value in updates.items():
+        config_manager.set(key, value)
+    return _no_store({"success": True, "settings": privacy_check.settings_state(setup_check.build_context())})
+
+
 def create_blueprint():
     return bp
 
 
-__all__ = ["SETUP_CHECK_PATH", "configure", "create_blueprint", "feature_in_use", "video_paths_from_db"]
+__all__ = ["SETUP_CHECK_PATH", "PRIVACY_PATH", "PRIVACY_SETTINGS_PATH", "configure", "create_blueprint", "feature_in_use", "video_paths_from_db"]

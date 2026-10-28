@@ -218,6 +218,12 @@ class SetupCheckContext:
     # the live SoulseekClient, so its own check_connection() can be reused
     soulseek_client: Optional[Callable[[], Any]] = None
     run_coroutine: Callable[[Any, float], Any] = _default_run_coroutine
+    # the privacy check's seams (core/privacy_check.py): host name -> its
+    # addresses, the one home-address look-up, a torrent client type -> its
+    # listening port; None uses the real ones
+    resolve_host: Optional[Callable[[str], Sequence[str]]] = None
+    home_ip_fetch: Optional[Callable[[], str]] = None
+    torrent_listen_port: Optional[Callable[[str], Optional[int]]] = None
     _mounts: Optional[List[Tuple[str, str, str, str]]] = field(default=None, repr=False)
 
     def cfg(self, key: str, default: Any = None) -> Any:
@@ -1398,6 +1404,12 @@ def _tasks(ctx: SetupCheckContext, include_network: bool) -> Tuple[List[_Task], 
                   lambda: check_slskd_download_folder(ctx), True),
             _Task(_MEDIA_CONN_ID, _MEDIA_CONN_TITLE, _MEDIA_CAT, lambda: check_media_server(ctx), True),
         ]
+        # the privacy rows only once a VPN set-up is configured (Gluetun's
+        # control address); the Setup check page's Privacy card says how
+        if ctx.cfg_str("privacy.gluetun_url", ""):
+            from core import privacy_check
+            tasks.append(_Task("privacy.vpn", "VPN for Soulseek and torrents", privacy_check.CATEGORY,
+                               lambda: privacy_check.check_rows(ctx), True))
     else:
         # settings only, so it's cheap enough here; the Setup check dot polls
         # this scope and should show that downloads can't reach the Library

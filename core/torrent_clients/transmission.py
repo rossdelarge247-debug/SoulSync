@@ -182,6 +182,15 @@ class TransmissionAdapter:
                 return None
         return None
 
+    def listen_port(self) -> Optional[int]:
+        """The port Transmission listens on for peers (``peer-port``), or
+        None when it can't be read. Read-only."""
+        data = self._rpc('session-get', {'fields': ['peer-port']})
+        port = (data or {}).get('peer-port')
+        if isinstance(port, bool) or not isinstance(port, int):
+            return None
+        return port if 0 < port < 65536 else None
+
     async def add_torrent(
         self,
         url_or_magnet: str,

@@ -165,6 +165,19 @@ class DelugeAdapter:
             logger.error("Deluge %s call failed: %s", method, e)
             return None
 
+    def listen_port(self) -> Optional[int]:
+        """The first of Deluge's ``listen_ports``, or None when it can't be
+        read. Read-only."""
+        if self._ensure_session_sync() is None:
+            return None
+        ports = self._rpc_sync('core.get_config_value', ['listen_ports'])
+        if not isinstance(ports, list) or not ports:
+            return None
+        port = ports[0]
+        if isinstance(port, bool) or not isinstance(port, int):
+            return None
+        return port if 0 < port < 65536 else None
+
     async def add_torrent(
         self,
         url_or_magnet: str,
