@@ -28,6 +28,16 @@ describe('the words for Double BPM / Halve BPM', () => {
     });
   });
 
+  it('says a shared track is an admin’s, and when only the first 500 were sent (review L3, L7)', () => {
+    expect(tempoWords('double', { changed: { '1': 174 }, skipped: { '2': 'shared' } }).words).toBe(
+      'Doubled the BPM of 1 track · 1 not changed: only an admin changes a shared track’s BPM',
+    );
+    const ids = Object.fromEntries(Array.from({ length: 500 }, (_v, i) => [String(i), 174]));
+    expect(tempoWords('double', { changed: ids, skipped: {} }, 620).words).toBe(
+      'Doubled the BPM of 500 tracks · only the first 500 of 620 picked; pick the rest and change them again',
+    );
+  });
+
   it('the BPM’s title names its source and the tag under it', () => {
     expect(bpmTitle({ bpm: 174.01, bpm_source: 'grid', bpm_tag: 87 })).toBe(
       '174 BPM, measured from the beats · Tagged 87',

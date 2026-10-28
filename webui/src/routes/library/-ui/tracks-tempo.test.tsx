@@ -205,6 +205,44 @@ describe('Double BPM / Halve BPM', () => {
     );
   });
 
+  it('a member can’t set a shared track’s BPM: both items say why (review L3)', async () => {
+    window.SoulSyncWebShellBridge = createShellBridge({
+      getCurrentProfileContext: vi.fn(() => ({ profileId: 2, isAdmin: false })),
+    });
+    browse = {
+      ...browse,
+      tracks: [
+        { ...browse.tracks[0]!, shared: true } as (typeof browse.tracks)[number],
+        browse.tracks[1]!,
+      ],
+    };
+    renderPage();
+    await openRowMenu('Night Ferry');
+    for (const name of ['Double BPM', 'Halve BPM']) {
+      const item = screen.getByRole('menuitem', { name: new RegExp(name) });
+      expect(item).toHaveAttribute('aria-disabled', 'true');
+      expect(item.textContent).toBe(`${name}Only an admin can change a shared track’s BPM`);
+    }
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    // their own library's track is theirs to set
+    await openRowMenu('Low Tide');
+    expect(screen.getByRole('menuitem', { name: 'Halve BPM' })).not.toHaveAttribute(
+      'aria-disabled',
+    );
+  });
+
+  it('an admin sets a shared track’s BPM', async () => {
+    browse = {
+      ...browse,
+      tracks: [{ ...browse.tracks[0]!, shared: true } as (typeof browse.tracks)[number]],
+    };
+    renderPage();
+    await openRowMenu('Night Ferry');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Double BPM' }));
+    await waitFor(() => expect(posted).toEqual([{ track_ids: ['1'], action: 'double' }]));
+  });
+
   it('says the server’s reason when it refuses', async () => {
     answer = { success: false, error: "That track isn't in your library" };
     renderPage();

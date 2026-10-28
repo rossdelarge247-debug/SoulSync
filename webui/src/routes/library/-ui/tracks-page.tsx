@@ -66,6 +66,9 @@ const SORT_LABELS: Record<TrackSort, string> = {
 
 const ANALYSIS_PREFIX = 'BPM, key and energy: ';
 
+/** Why a member can't set a shared track's BPM (the menus' second line). */
+const SHARED_TEMPO_WORDS = 'Only an admin can change a shared track’s BPM';
+
 function usePhone(): boolean {
   const query = '(max-width: 640px)';
   const [phone, setPhone] = useState(
@@ -109,6 +112,7 @@ function moreEntries(
     phone,
     star,
     setTempo,
+    canSetTempo,
   }: {
     artist: string | null;
     album: string | null;
@@ -117,6 +121,8 @@ function moreEntries(
     phone: boolean;
     star: ReturnType<typeof useStar>;
     setTempo: ReturnType<typeof useSetTempo>;
+    /** a member can't set a shared track's BPM: why, or null */
+    canSetTempo: string | null;
   },
 ): SheetAction[] {
   const missing = Boolean(track.file_missing);
@@ -133,6 +139,7 @@ function moreEntries(
       tempo: {
         bpm: track.dj?.bpm ?? null,
         overridden: track.dj?.bpm_source === 'override',
+        blocked: canSetTempo,
         onSet: (action) => void setTempo([track.id], action),
       },
       artistHref: artist,
@@ -176,6 +183,7 @@ function TrackRow({
   const [sheet, setSheet] = useState(false);
   const star = useStar(track.id);
   const setTempo = useSetTempo();
+  const { isAdmin } = useProfile();
   const missing = Boolean(track.file_missing);
   const entries = moreEntries(track, {
     artist,
@@ -184,6 +192,7 @@ function TrackRow({
     phone,
     star,
     setTempo,
+    canSetTempo: track.shared && !isAdmin ? SHARED_TEMPO_WORDS : null,
     anchor: () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
   });
   const key = dj?.key ? (
@@ -503,7 +512,7 @@ export function TracksPage({
 }) {
   const awayId = useId();
   const away = awayDrive ? { id: awayId, words: awayWords(awayDrive) } : undefined;
-  const { profileId } = useProfile();
+  const { profileId, isAdmin } = useProfile();
   const phone = usePhone();
   const queryClient = useQueryClient();
   const setTempo = useSetTempo();
@@ -598,6 +607,11 @@ export function TracksPage({
   // 153: the 120px bar counts what's done, beside the words
   const progress = s && !phone ? analysisProgress(s) : null;
   const clearFilters = () => go({ q: '', bpm: '', key: '', starred: '' });
+  // a member's picks all in the shared library: nothing they can set
+  const pickedAllShared =
+    !isAdmin &&
+    picked.length > 0 &&
+    tracks.filter((t) => picked.includes(t.id)).every((t) => t.shared);
   const pickedTracks = () => {
     const byId = new Map(tracks.map((t) => [t.id, t]));
     return picked.map((id) => byId.get(id)).filter((t): t is DjTrack => Boolean(t));
@@ -938,14 +952,16 @@ export function TracksPage({
             {
               key: 'double',
               label: 'Double BPM',
-              disabled: !picked.length,
-              onSelect: () => void setTempo(picked.slice(0, 500), 'double'),
+              disabled: !picked.length || pickedAllShared,
+              reason: pickedAllShared ? SHARED_TEMPO_WORDS : undefined,
+              onSelect: () => void setTempo(picked, 'double'),
             },
             {
               key: 'halve',
               label: 'Halve BPM',
-              disabled: !picked.length,
-              onSelect: () => void setTempo(picked.slice(0, 500), 'halve'),
+              disabled: !picked.length || pickedAllShared,
+              reason: pickedAllShared ? SHARED_TEMPO_WORDS : undefined,
+              onSelect: () => void setTempo(picked, 'halve'),
             },
             {
               key: 'set',

@@ -25,7 +25,12 @@ const SKIP_WORDS: Record<TempoSkip, string> = {
   no_bpm: 'no BPM yet',
   out_of_range: `it would leave ${TEMPO_MIN}–${TEMPO_MAX} BPM`,
   not_set: 'not set by hand',
+  shared: 'only an admin changes a shared track’s BPM',
+  not_yours: 'another profile’s track',
 };
+
+/** The most tracks one change sends (the server's own limit). */
+export const TEMPO_MAX_TRACKS = 500;
 
 function tracks(n: number): string {
   return n === 1 ? '1 track' : `${n.toLocaleString()} tracks`;
@@ -38,6 +43,8 @@ function tracks(n: number): string {
 export function tempoWords(
   action: TempoAction,
   answer: Pick<DjBpmResponse, 'changed' | 'skipped'>,
+  /** how many were picked, when more than one change sends */
+  picked = 0,
 ): { words: string; tone: 'success' | 'error' } {
   const changed = Object.entries(answer.changed);
   const skipped = Object.values(answer.skipped);
@@ -63,6 +70,8 @@ export function tempoWords(
     const why = [...new Set(skipped.map((s) => SKIP_WORDS[s] ?? s))].join(', ');
     words += ` · ${skipped.length.toLocaleString()} not changed: ${why}`;
   }
+  if (picked > TEMPO_MAX_TRACKS)
+    words += ` · only the first ${TEMPO_MAX_TRACKS} of ${picked.toLocaleString()} picked; pick the rest and change them again`;
   return { words, tone: 'success' };
 }
 
@@ -76,8 +85,10 @@ export function useSetTempo(): (ids: string[], action: TempoAction) => Promise<v
     async (ids: string[], action: TempoAction) => {
       if (!ids.length) return;
       try {
-        const answer = await postDjBpm(ids, action);
-        const said = tempoWords(action, answer);
+        // the server takes 500 at a time (and one change a second): the
+        // rest are said in the toast, not sent quietly or dropped quietly
+        const answer = await postDjBpm(ids.slice(0, TEMPO_MAX_TRACKS), action);
+        const said = tempoWords(action, answer, ids.length);
         window.showToast?.(said.words, said.tone);
         await queryClient.invalidateQueries({ queryKey: DJ_QUERY_KEY });
       } catch (error) {

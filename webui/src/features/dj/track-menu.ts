@@ -51,6 +51,8 @@ export function trackMenu(
     tempo?: {
       bpm: number | null;
       overridden?: boolean;
+      /** why the person can't set it (a member, a shared track), or null */
+      blocked?: string | null;
       onSet: (action: TempoAction) => void;
     } | null;
     artistHref?: string | null;
@@ -86,28 +88,30 @@ export function trackMenu(
   if (opts.addToPlaylist)
     entries.push({ key: 'playlist', label: 'Add to playlist…', onSelect: opts.addToPlaylist });
   if (opts.tempo?.bpm && !track.fileMissing) {
-    const { bpm, onSet, overridden } = opts.tempo;
+    const { bpm, onSet, overridden, blocked } = opts.tempo;
     const tooFast = bpm * 2 > TEMPO_MAX;
     const tooSlow = bpm / 2 < TEMPO_MIN;
     entries.push({
       key: 'double',
       label: 'Double BPM',
       onSelect: () => onSet('double'),
-      disabled: tooFast,
-      reason: tooFast ? `It would be over ${TEMPO_MAX} BPM` : undefined,
+      disabled: Boolean(blocked) || tooFast,
+      reason: blocked || (tooFast ? `It would be over ${TEMPO_MAX} BPM` : undefined),
     });
     entries.push({
       key: 'halve',
       label: 'Halve BPM',
       onSelect: () => onSet('halve'),
-      disabled: tooSlow,
-      reason: tooSlow ? `It would be under ${TEMPO_MIN} BPM` : undefined,
+      disabled: Boolean(blocked) || tooSlow,
+      reason: blocked || (tooSlow ? `It would be under ${TEMPO_MIN} BPM` : undefined),
     });
     if (overridden)
       entries.push({
         key: 'measured',
         label: 'Use the measured BPM',
         onSelect: () => onSet('reset'),
+        disabled: Boolean(blocked),
+        reason: blocked || undefined,
       });
   }
   if (opts.artistHref) {

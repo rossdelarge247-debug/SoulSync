@@ -52,6 +52,8 @@ export interface DjTrack {
   starred?: boolean;
   /** browse with the Starred filter: a starred track whose file is gone */
   file_missing?: boolean;
+  /** in everyone's library (no owner): only an admin sets its BPM by hand */
+  shared?: boolean;
 }
 
 export type KeyRelation = 'same' | 'up' | 'down' | 'relative';
@@ -216,7 +218,7 @@ export function djMixesQueryOptions(trackId: string, within = 6) {
 }
 
 export type TempoAction = 'double' | 'halve' | 'reset';
-export type TempoSkip = 'no_bpm' | 'out_of_range' | 'not_set';
+export type TempoSkip = 'no_bpm' | 'out_of_range' | 'not_set' | 'shared' | 'not_yours';
 
 export interface DjBpmResponse {
   success?: boolean;
