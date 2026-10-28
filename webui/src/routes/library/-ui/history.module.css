@@ -238,9 +238,19 @@
   background: var(--ss-surface-card);
 }
 
-/* music rows: the star's column before Play and "…" (28a; reserved, so rows don't shift) */
+/* music rows: the star's 44px column before Play, Play next and "…" (34b,
+   278; reserved, so rows don't shift) */
 .row[data-music] {
-  grid-template-columns: 72px 48px minmax(0, 1fr) 200px 32px 100px;
+  grid-template-columns: 72px 48px minmax(0, 1fr) 200px 44px 144px;
+}
+
+/* what the player has loaded: a green wash and title (34a) */
+.row[data-playing='true'] {
+  background: rgba(var(--ss-success-rgb), 0.06);
+}
+
+.row[data-playing='true'] .title {
+  color: var(--ss-success);
 }
 
 .starCell {

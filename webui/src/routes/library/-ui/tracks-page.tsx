@@ -17,7 +17,13 @@ import {
   heldWords,
   nextSweepWords,
 } from '@/features/dj/analysis.format';
-import { addTrackToPlaylist, playlistTrack, playTrackNext } from '@/features/dj/dj-actions';
+import {
+  addTrackToPlaylist,
+  playDjTrackNow,
+  playerTrack,
+  playlistTrack,
+  playTrackNext,
+} from '@/features/dj/dj-actions';
 import {
   DJ_PAGE_SIZE,
   DJ_QUERY_KEY,
@@ -40,10 +46,12 @@ import { EnergyMeter } from '@/features/dj/energy-meter';
 import { KeyChip } from '@/features/dj/key-chip';
 import { keyLongName } from '@/features/dj/key-colour';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
+import { PlayingGlyph, RowPlay, rowPlayHandlers } from '@/features/dj/row-play';
 import { allShared, useSetTempo } from '@/features/dj/tempo';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { awayWords } from '@/features/drives/drives.format';
+import { useWorkingSet } from '@/features/mix/mix.api';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { openAddToMixSet } from '@/features/sets/add-to-mix-set';
 import { readDraft, writeDraft } from '@/features/sets/draft-store';
@@ -59,7 +67,7 @@ import { TRACK_SORTS, pick, type TrackSort } from '../-library.types';
 import { ActionSheet, type SheetAction } from './action-sheet';
 import hs from './history.module.css';
 import ls from './library.module.css';
-import { ChevronDown, FilterField, MoreIcon, MoreMenu, PlayIcon, plural } from './parts';
+import { ChevronDown, FilterField, MoreIcon, MoreMenu, plural } from './parts';
 import { SelectionBar } from './selection-bar';
 import styles from './tracks.module.css';
 
@@ -119,6 +127,7 @@ function moreEntries(
     star,
     setTempo,
     canSetTempo,
+    working,
   }: {
     artist: string | null;
     album: string | null;
@@ -129,6 +138,8 @@ function moreEntries(
     setTempo: ReturnType<typeof useSetTempo>;
     /** a member can't set a shared track's BPM: why, or null */
     canSetTempo: string | null;
+    /** the working set's name, for the phone's "Add to set…" line (34c) */
+    working?: string | null;
   },
 ): SheetAction[] {
   const missing = Boolean(track.file_missing);
@@ -141,6 +152,16 @@ function moreEntries(
       playNext: missing
         ? null
         : { onSelect: () => playTrackNext(track), disabled: Boolean(away), reason: away?.words },
+      // 277: appends without jumping the queue
+      addToUpNext: missing
+        ? null
+        : {
+            onSelect: () => window.addToQueue?.(playerTrack(track)),
+            disabled: Boolean(away),
+            reason: away?.words,
+          },
+      play: missing || away ? null : () => playDjTrackNow(track),
+      working,
       addToPlaylist: missing ? null : () => addTrackToPlaylist(track, anchor()),
       tempo: {
         bpm: track.dj?.bpm ?? null,
@@ -189,7 +210,8 @@ function TrackRow({
   const [sheet, setSheet] = useState(false);
   const star = useStar(track.id);
   const setTempo = useSetTempo();
-  const { isAdmin } = useProfile();
+  const { isAdmin, profileId } = useProfile();
+  const working = useWorkingSet(phone ? profileId : null);
   const missing = Boolean(track.file_missing);
   const entries = moreEntries(track, {
     artist,
@@ -199,6 +221,7 @@ function TrackRow({
     star,
     setTempo,
     canSetTempo: track.shared && !isAdmin ? SHARED_TEMPO_WORDS : null,
+    working: working?.name ?? null,
     anchor: () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
   });
   const key = dj?.key ? (
@@ -218,6 +241,19 @@ function TrackRow({
       data-file-missing={missing ? 'true' : undefined}
       data-playing={playing ? 'true' : undefined}
       data-selected={selecting && checked ? 'true' : undefined}
+      data-row-play-host=""
+      {...rowPlayHandlers(missing || away || selecting ? null : () => playDjTrackNow(track))}
+      onClick={
+        // 34c: on a phone a tap on the row plays (its links and "…" keep theirs)
+        phone && !missing && !away && !selecting
+          ? (event) => {
+              if ((event.target as HTMLElement).closest('a, button, input, [role="dialog"]'))
+                return;
+              if (playing) return;
+              playDjTrackNow(track);
+            }
+          : undefined
+      }
     >
       {selecting ? (
         <span className={styles.check}>
@@ -228,9 +264,14 @@ function TrackRow({
           />
         </span>
       ) : (
-        <span className={hs.art} aria-hidden="true">
+        <span className={`${hs.art} ${styles.artWrap}`} aria-hidden="true">
           {track.image_url && !failed ? (
             <img src={track.image_url} alt="" loading="lazy" onError={() => setFailed(true)} />
+          ) : null}
+          {playing ? (
+            <span className={styles.nowBars}>
+              <PlayingGlyph />
+            </span>
           ) : null}
         </span>
       )}
@@ -302,24 +343,23 @@ function TrackRow({
           </span>
         </>
       )}
+      {phone ? null : (
+        // Brief D (34a): Play is the one visible button, Play next beside it
+        // on hover and focus; Playing (green) on the playing row
+        <RowPlay
+          title={track.title}
+          playing={playing}
+          hidden={missing}
+          disabled={away ?? null}
+          onPlay={() => playDjTrackNow(track)}
+          onPlayNext={() => playTrackNext(track)}
+          className={styles.playCell}
+        />
+      )}
       <span className={styles.starCell}>
         <StarButton id={track.id} title={track.title} />
       </span>
       <div className={styles.actions}>
-        {/* 28d: the phone's row has the star and "…"; Play next is in the sheet */}
-        {phone || missing ? null : (
-          <button
-            type="button"
-            className={hs.play}
-            aria-label={`Play ${track.title} next`}
-            title={away ? undefined : 'Play next, after the current track'}
-            aria-disabled={away ? 'true' : undefined}
-            aria-describedby={away?.id}
-            onClick={away ? undefined : () => playTrackNext(track)}
-          >
-            <PlayIcon />
-          </button>
-        )}
         {phone ? (
           <>
             <button
@@ -818,6 +858,7 @@ export function TracksPage({
               <span className={styles.headBpm}>BPM</span>
               <span>Key</span>
               <span>Energy</span>
+              <span />
               <span />
               <span />
             </div>

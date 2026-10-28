@@ -6,7 +6,7 @@ import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { refreshPrefs } from '@/features/automix/prefs';
 import { saveTransitionToDraft } from '@/features/automix/set-play';
 import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
-import { resetMixesForTests } from '@/features/dj/mixes-store';
+import { resetMixForTests } from '@/features/mix/mix-store';
 import { readDraft, resetDraftsForTests, writeDraft } from '@/features/sets/draft-store';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
@@ -387,7 +387,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  resetMixesForTests();
+  resetMixForTests();
   vi.unstubAllGlobals();
   delete window.SoulSyncWebShellBridge;
   delete window.showLibraryDownloadsSection;

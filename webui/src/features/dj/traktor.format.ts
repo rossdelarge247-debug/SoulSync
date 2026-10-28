@@ -55,8 +55,8 @@ export function leftOutLines(
     if (reason === 'no_mac_path') {
       lines.push(
         admin
-          ? "SYNCHRO.S doesn't know where your music is on the Mac yet. Set it in Settings → Library → Traktor Pro 3."
-          : "SYNCHRO.S doesn't know where your music is on the Mac yet. An admin sets it in Settings → Library → Traktor Pro 3.",
+          ? "SYNCHRO.S doesn't know where your music is on the Mac yet. Set it in Settings → Library → DJ."
+          : "SYNCHRO.S doesn't know where your music is on the Mac yet. An admin sets it in Settings → Library → DJ.",
       );
       continue;
     }

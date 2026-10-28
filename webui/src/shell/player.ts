@@ -1490,6 +1490,14 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     on(t, 'click', () => openSheet(t));
   on(root.querySelector('[data-player-sheet-close]'), 'click', () => closeSheet(true));
   on(scrim, 'click', () => closeSheet(true));
+  // a swipe down closes the sheet from any tab (33d, 291): from its head, or
+  // anywhere while the sheet is scrolled to its top
+  if (tray)
+    bindSheetSwipe(
+      tray,
+      () => sheetOpen,
+      () => closeSheet(true),
+    );
 
   // transport (the visuals overlay carries its own copy)
   for (const b of all<HTMLButtonElement>('[data-player-action]')) {
@@ -1808,4 +1816,44 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
   draw();
   drawWaves();
   return chrome;
+}
+
+/** How far down a finger has to travel to close the sheet, and how straight. */
+export const SHEET_SWIPE_PX = 72;
+
+/**
+ * A swipe down on the phone's sheet closes it (33d, 291): one that starts on
+ * the sheet's head, or anywhere while the sheet is scrolled to its top, and
+ * travels at least SHEET_SWIPE_PX more down than sideways. Not from a
+ * slider, a field or the waveform (they take drags of their own).
+ */
+export function bindSheetSwipe(
+  sheet: HTMLElement,
+  isOpen: () => boolean,
+  close: () => void,
+): () => void {
+  let start: { x: number; y: number } | null = null;
+  const onStart = (e: TouchEvent) => {
+    start = null;
+    if (!isOpen() || e.touches.length !== 1) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('input, textarea, select, [role="slider"], [data-player-wave]')) return;
+    const fromHead = Boolean(target?.closest('[data-player-sheet-head]'));
+    if (!fromHead && sheet.scrollTop > 0) return;
+    start = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const onEnd = (e: TouchEvent) => {
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dy = t.clientY - start.y;
+    const dx = Math.abs(t.clientX - start.x);
+    start = null;
+    if (dy >= SHEET_SWIPE_PX && dy > dx * 1.5) close();
+  };
+  sheet.addEventListener('touchstart', onStart, { passive: true });
+  sheet.addEventListener('touchend', onEnd, { passive: true });
+  return () => {
+    sheet.removeEventListener('touchstart', onStart);
+    sheet.removeEventListener('touchend', onEnd);
+  };
 }

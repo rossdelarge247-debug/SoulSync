@@ -5,13 +5,11 @@ import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 
 import type { DjTrack } from './dj.api';
 
-/** Queue a library track after the current one (the player says "Playing next"). */
-export function playTrackNext(track: DjTrack): void {
-  if (!window.playNext) {
-    window.showToast?.("The player isn't ready yet. Try again in a moment.", 'error');
-    return;
-  }
-  window.playNext({
+import { playTrackNow } from './row-play';
+
+/** A library track as the player's queue takes it. */
+export function playerTrack(track: DjTrack): Record<string, unknown> {
+  return {
     id: track.id,
     title: track.title,
     artist: track.artist_name,
@@ -22,7 +20,21 @@ export function playTrackNext(track: DjTrack): void {
     image_url: track.image_url,
     bitrate: track.bitrate,
     duration: track.duration_ms ? Math.round(track.duration_ms / 1000) : undefined,
-  });
+  };
+}
+
+/** Queue a library track after the current one (the player says "Playing next"). */
+export function playTrackNext(track: DjTrack): void {
+  if (!window.playNext) {
+    window.showToast?.("The player isn't ready yet. Try again in a moment.", 'error');
+    return;
+  }
+  window.playNext(playerTrack(track));
+}
+
+/** Play a library track now (Brief D's Play): the player cuts to it. */
+export function playDjTrackNow(track: DjTrack): void {
+  playTrackNow(playerTrack(track));
 }
 
 /** A library track as the playlist routes take it. */

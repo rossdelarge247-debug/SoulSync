@@ -3,8 +3,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
-import { resetMixesForTests } from '@/features/dj/mixes-store';
 import { resetDriveStatus } from '@/features/drives/drive-status';
+import { resetMixForTests } from '@/features/mix/mix-store';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
@@ -115,7 +115,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  resetMixesForTests();
+  resetMixForTests();
   vi.unstubAllGlobals();
   delete window.SoulSyncWebShellBridge;
 });
@@ -150,6 +150,7 @@ describe('Double BPM / Halve BPM', () => {
     await openRowMenu('Elsewhere');
     expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
       'Play next',
+      'Add to Up next',
       'Mixes well with…',
       'Add to set…',
       'Add to playlist…',

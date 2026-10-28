@@ -1,0 +1,72 @@
+/* The row's primary button (Brief D, 34a–34c). Play white at 86%, never
+   the accent; Playing green; Play next on the row's hover and focus, its
+   place kept so nothing shifts. A row opts in with [data-row-play-host]. */
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.slot,
+.button {
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  flex: none;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ss-radius-control);
+  background: transparent;
+  color: var(--ss-text-secondary);
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.button:hover {
+  background: var(--ss-hover-wash);
+  color: var(--ss-text);
+}
+
+.button:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+.button[data-kind='playing'] {
+  background: rgba(var(--ss-success-rgb), 0.1);
+  color: var(--ss-success);
+}
+
+/* disabled-neutral while the library's drive is away (123) */
+.button[aria-disabled='true'] {
+  color: var(--ss-disabled-text);
+  background: transparent;
+  cursor: not-allowed;
+}
+
+/* Play next: on the row's hover and focus (and always where the row asks) */
+@media (hover: hover) {
+  .button[data-kind='next']:not([data-always]) {
+    opacity: 0;
+    transition: opacity var(--ss-motion) var(--ss-ease);
+  }
+
+  :global([data-row-play-host]):is(:hover, :focus-within) .button[data-kind='next'] {
+    opacity: 1;
+  }
+}
+
+/* touch screens without hover: Play next stays in the "…" only */
+@media (hover: none) {
+  .button[data-kind='next']:not([data-always]) {
+    visibility: hidden;
+  }
+}

@@ -197,7 +197,7 @@ declare global {
     playTrackList?: (
       tracks: unknown[],
       contextName?: string,
-      options?: { isCurrent: () => boolean },
+      options?: { isCurrent?: () => boolean; startIndex?: number },
     ) =>
       | void
       | { status: string; error?: string }
@@ -955,6 +955,10 @@ declare global {
     openModulesSettings?: () => void;
     /** settings.js: the tab Settings opens on next (once). */
     requestSettingsTab?: (tab: string) => void;
+    /** static/settings.js: open this section with its tab (/settings?…&section=dj) */
+    requestSettingsSection?: (section: string) => void;
+    /** static/settings.js: expand a folded section and scroll to it; false when it isn't there */
+    openSettingsSection?: (section: string) => boolean;
     /** Settings -> AI, from anywhere (src/shell/ai-settings.ts). */
     openAiSettings?: () => void;
     /** src/shell/radio-settings.ts: Settings → Radio (build e). */

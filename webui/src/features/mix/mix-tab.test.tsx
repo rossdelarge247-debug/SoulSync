@@ -65,6 +65,7 @@ function match(t: ReturnType<typeof track>, reason: string, short: string, starr
     bpm_diff_pct: 1.6,
     reason,
     reason_short: short,
+    step: 'smooth',
     starred,
     signals: {
       starred,
@@ -301,6 +302,9 @@ function shell(): void {
         <div class="ss-player-record"><div class="ss-player-modes" data-player-modes="music"></div><p>Record</p></div>
         <div class="ss-player-record ss-player-rtray-record"><div class="ss-player-modes" data-player-modes="radio"></div></div>
         <div class="ss-player-mix" data-player-mix hidden></div>
+        <div data-player-modes="sheet"></div>
+        <span data-player-keyline></span>
+        <span data-player-upnext-from></span>
       </div>
     </section>
     <div id="np-modal-overlay" class="hidden">
@@ -401,12 +405,15 @@ describe('the tray in Mix (29a)', () => {
     expect(window.localStorage.getItem(MODE_STORAGE_KEY)).toBe('mix');
     expect(mixSlot().hidden).toBe(false);
     expect(await mix.findByRole('region', { name: 'Mixes well with' })).toBeInTheDocument();
-    expect(mix.getByRole('region', { name: 'The working set' })).toBeInTheDocument();
-    // this track: key chip, BPM, the ten-step meter, the star
-    expect(mix.getByText('A minor')).toBeInTheDocument();
-    expect(mix.getByText('124 BPM')).toBeInTheDocument();
-    expect(await mix.findByText('Energy 6 of 10')).toBeInTheDocument();
-    expect(mix.getByRole('meter', { name: 'Energy' })).toHaveAttribute('aria-valuenow', '6');
+    // 33b: the right column is Up next itself, so Mix draws two columns, not a working-set one
+    expect(mix.queryByRole('region', { name: 'The working set' })).toBeNull();
+    // the record at 56px under the set card: "Tidewater · 8A · 124 · E6"
+    const record = document.querySelector<HTMLElement>('[data-mix-record]')!;
+    await waitFor(() => expect(record).toHaveTextContent('E6'));
+    expect(record).toHaveTextContent('Night Ferry');
+    expect(record).toHaveTextContent('Tidewater · 8A · 124 · E6');
+    // the switch: Now playing · Mix; DJ waits for DJ now (step 5)
+    expect(mix.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Now playing', 'Mix']);
     fireEvent.click(mix.getByRole('tab', { name: 'Now playing' }));
     expect(root().dataset.trayMode).toBeUndefined();
     expect(mixSlot().hidden).toBe(true);
@@ -418,10 +425,15 @@ describe('the tray in Mix (29a)', () => {
     const rows = within(list).getAllByRole('listitem');
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveTextContent('Static Bloom · Saltmarsh');
-    expect(rows[0]).toHaveTextContent('One step on the wheel · +1.6% BPM · energy ↑1');
+    // 33b: the step first, then the reason
+    expect(rows[0]).toHaveTextContent('Smooth · one step on the wheel · +1.6% BPM · energy ↑1');
     expect(within(rows[0]).getByRole('img', { name: 'starred' })).toBeInTheDocument();
+    expect(within(rows[0]).getByRole('img', { name: 'BPM and key only' })).toBeInTheDocument();
     // the working set's tracks are asked to be left out
     expect(world.asked).toContain('1:set3');
+    // 34b: Play and Play next both shown; "Add as #3" says where it goes (293)
+    expect(within(rows[0]).getByRole('button', { name: 'Play Static Bloom' })).toBeInTheDocument();
+    expect(within(rows[0]).getByRole('button', { name: /as #3$/ })).toHaveTextContent('Add as #3');
     fireEvent.click(within(rows[0]).getByRole('button', { name: 'Play Static Bloom next' }));
     expect(playNext).toHaveBeenCalledWith(
       expect.objectContaining({ id: '5', title: 'Static Bloom' }),
@@ -430,6 +442,10 @@ describe('the tray in Mix (29a)', () => {
     expect(
       await mix.findByRole('list', { name: 'Tracks that mix well with Static Bloom' }),
     ).toBeInTheDocument();
+    // "Following Static Bloom · Back to Night Ferry" in the head (33b)
+    expect(document.querySelector('[data-mix-following]')).toHaveTextContent(
+      'FollowingStatic BloomBack to Night Ferry',
+    );
     fireEvent.click(mix.getByRole('button', { name: 'Back to Night Ferry' }));
     expect(
       await mix.findByRole('list', { name: 'Tracks that mix well with Night Ferry' }),
@@ -449,8 +465,7 @@ describe('the tray in Mix (29a)', () => {
 
   it('adds the playing track to the working set, then says "✓ Added · #7"', async () => {
     const mix = await openMix();
-    // the strip: the set's last tracks, then the playing one, and the join
-    expect(await mix.findByText('now')).toBeInTheDocument();
+    // the set card (33b): the working set, and the join
     expect(
       await mix.findByText(
         (_t, el) =>
@@ -458,7 +473,7 @@ describe('the tray in Mix (29a)', () => {
           /Night Ferry would follow Undertow: Smooth · 8B → 8A, \+4 BPM/.test(el.textContent ?? ''),
       ),
     ).toBeInTheDocument();
-    const add = mix.getByRole('button', { name: 'Add Night Ferry to Sunday Set' });
+    const add = mix.getByRole('button', { name: 'Add Night Ferry as #3' });
     fireEvent.click(add);
     expect(await mix.findByRole('button', { name: '✓ Added · #7' })).toBeInTheDocument();
     expect(world.added).toEqual([{ track_ids: ['1'], again: false }]);
@@ -467,8 +482,11 @@ describe('the tray in Mix (29a)', () => {
   it('with no working set: the card, and A starts "Set from …" with the track', async () => {
     world.working = null;
     const mix = await openMix();
-    expect(await mix.findByText('Start a set to collect tracks')).toBeInTheDocument();
-    expect(mix.getByRole('button', { name: 'Add Night Ferry to a new set' })).toBeInTheDocument();
+    // first run (33e): "Start a set to mix into", and no other primary (292)
+    expect(await mix.findByText('Start a set to mix into')).toBeInTheDocument();
+    expect(mix.getByRole('button', { name: 'New set with Night Ferry' })).toBeInTheDocument();
+    expect(mix.getByRole('button', { name: 'Choose a set…' })).toBeInTheDocument();
+    expect(document.querySelector('[data-mix-primary]')).toBeNull();
     let acted = false;
     act(() => {
       acted = window.SoulSyncMix!.key('A');
@@ -494,9 +512,13 @@ describe('while the set plays (29b)', () => {
     const mix = await openMix();
     expect(await mix.findByText('Playing Sunday Set · track 2 of 3')).toBeInTheDocument();
     expect(mix.getByText('Long blend · 32 bars')).toBeInTheDocument();
-    expect(mix.getByRole('button', { name: 'Night Ferry is #2 in Sunday Set' })).toBeDisabled();
+    // the set card replaces the strip and the primary while the set plays
+    expect(document.querySelector('[data-mix-primary]')).toBeNull();
+    expect(
+      mix.getByText(/Add inserts after the playing track while the set plays/),
+    ).toBeInTheDocument();
     const list = await mix.findByRole('list', { name: 'Tracks that mix well with Night Ferry' });
-    fireEvent.click(within(list).getAllByRole('button', { name: /^Add .* to Sunday Set$/ })[1]);
+    fireEvent.click(within(list).getAllByRole('button', { name: /to Sunday Set as #3$/ })[1]);
     await waitFor(() => expect(world.added).toHaveLength(1));
     // the direction is read up to where Add puts tracks (gauntlet L6)
     expect(world.setAts).toContain('2');
@@ -816,16 +838,32 @@ describe('the phone (29c)', () => {
     }));
     vi.stubGlobal('matchMedia', mm);
     try {
-      const mix = await openMix();
-      expect(await mix.findByRole('tab', { name: 'Set' })).toBeInTheDocument();
+      mount();
+      // 33d: one tab row under the handle, Now playing · Mix · Set; no back row
+      const head = within(document.querySelector<HTMLElement>('[data-player-modes="sheet"]')!);
+      expect((await head.findAllByRole('tab')).map((t) => t.textContent)).toEqual([
+        'Now playing',
+        'Mix',
+        'Set',
+      ]);
+      expect(document.querySelector('[data-player-modes="music"]')!.childElementCount).toBe(0);
+      fireEvent.click(head.getByRole('tab', { name: 'Mix' }));
+      await waitFor(() => expect(root().dataset.trayMode).toBe('mix'));
+      const mix = within(mixSlot());
+      expect(mix.queryByText('‹ Now playing')).toBeNull();
       const list = await mix.findByRole('list', { name: 'Tracks that mix well with Night Ferry' });
-      expect(list).toHaveTextContent('step · +1.6% · ↑1');
+      expect(list).toHaveTextContent('Smooth · step · +1.6% · ↑1');
+      // a row has Play and the "…" (Play next, Add as #3, More like this)
+      expect(within(list).getByRole('button', { name: 'Play Static Bloom' })).toBeInTheDocument();
       expect(
-        mix.getByText('More like this is in each row’s long-press.'.replace('’', "'")),
+        within(list).getByRole('button', { name: 'More for Static Bloom' }),
       ).toBeInTheDocument();
-      fireEvent.click(mix.getByRole('tab', { name: 'Set' }));
+      expect(mix.getByRole('button', { name: 'Add Night Ferry as #3' })).toBeInTheDocument();
+      fireEvent.click(head.getByRole('tab', { name: 'Set' }));
       expect(await mix.findByRole('list', { name: "Sunday Set's tracks" })).toBeInTheDocument();
-      expect(mix.getByRole('button', { name: 'Add Night Ferry · as #3' })).toBeInTheDocument();
+      expect(head.getByRole('tab', { name: 'Set' })).toHaveAttribute('aria-selected', 'true');
+      fireEvent.click(head.getByRole('tab', { name: 'Now playing' }));
+      expect(root().dataset.trayMode).toBeUndefined();
     } finally {
       vi.unstubAllGlobals();
     }

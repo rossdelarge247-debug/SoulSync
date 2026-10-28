@@ -385,24 +385,34 @@ describe('Listening history on a phone (15d, HANDOFF 94)', () => {
     window.matchMedia = original;
   });
 
-  it('music rows carry Play (the first filled, the rest ghosts) and "…", and drop the album', async () => {
-    renderPage();
-    await screen.findByText('Static Bloom');
-    const row = (title: string) => screen.getByText(title).closest('li')!;
-    const bloom = row('Static Bloom');
-    expect(bloom.getAttribute('data-actions')).toBe('2');
-    // the meta line drops the album on a phone; the time ends it
-    expect(within(bloom).queryByRole('link', { name: 'Lantern' })).toBeNull();
-    expect(bloom.textContent).toContain('Saltmarsh · FLAC 24/96 · 4:36 · 14:02');
-    const firstPlay = within(bloom).getByRole('button', { name: 'Play Static Bloom next' });
-    const otherPlay = within(row('Night Ferry (Dub)')).getByRole('button', {
-      name: 'Play Night Ferry (Dub) next',
-    });
-    expect(firstPlay.className).toMatch(/play/);
-    expect(firstPlay.className).not.toMatch(/ghostPlay/);
-    expect(otherPlay.className).toMatch(/ghostPlay/);
-    // a gone track has neither
-    expect(row('Orchard Sodium').getAttribute('data-actions')).toBeNull();
+  it('music rows: a tap plays (34c), "…" holds Play next, and the album is dropped', async () => {
+    const insertNext = vi.fn(() => 1);
+    const playIndex = vi.fn();
+    (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer = {
+      state: () => ({ track: { id: '99' }, queue: [], index: -1 }),
+      audio: () => null,
+      renderQueue: () => {},
+      insertNext,
+      playIndex,
+    };
+    try {
+      renderPage();
+      await screen.findByText('Static Bloom');
+      const row = (title: string) => screen.getByText(title).closest('li')!;
+      const bloom = row('Static Bloom');
+      // the meta line drops the album on a phone; the time ends it
+      expect(within(bloom).queryByRole('link', { name: 'Lantern' })).toBeNull();
+      expect(bloom.textContent).toContain('Saltmarsh · FLAC 24/96 · 4:36 · 14:02');
+      // no Play button on the phone's row: the row itself plays
+      expect(within(bloom).queryByRole('button', { name: /^Play / })).toBeNull();
+      fireEvent.click(within(bloom).getByText('Static Bloom'));
+      expect(insertNext).toHaveBeenCalledWith(expect.objectContaining({ title: 'Static Bloom' }));
+      expect(playIndex).toHaveBeenCalledWith(1);
+      // a gone track has no "…"
+      expect(within(row('Orchard Sodium')).queryByRole('button', { name: /More for/ })).toBeNull();
+    } finally {
+      delete (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer;
+    }
   });
 
   it('"…" opens the action sheet: Unstar first, then 24a’s order (154, 28d)', async () => {

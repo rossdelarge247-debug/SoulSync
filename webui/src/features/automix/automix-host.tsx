@@ -8,9 +8,11 @@
  * - `#ss-between-tracks-settings`: Player settings → Between tracks, the
  *   small control and the way to the rest (33e replaces 26h's cards);
  * - `[data-automix-slot="menu-between"]`: the same control in the player's "…";
- * - `[data-automix-slot="upnext-head"]`: Up next's head: Between tracks, and
- *   with Auto mix off "Auto mix is off: tracks play straight on · Turn it
- *   on", once (320, UX-21);
+ * - `[data-automix-slot="list-head"]`: Between tracks in Up next's header,
+ *   beside its tabs (33b, 36a; the label "Between tracks" shows in Mix);
+ * - `[data-automix-slot="upnext-head"]`: over Up next's rows, with Auto mix
+ *   off, "Auto mix is off: tracks play straight on · Turn it on", once
+ *   (320, UX-21);
  * - `#ss-https-note`: Settings → Connections points at https (312);
  * - `[data-automix-gap]`: Up next's gaps (static/media-player.js makes one
  *   after each row from the playing one on, while DJ mix is on): the chip;
@@ -192,6 +194,7 @@ interface Slots {
   https: HTMLElement | null;
   menu: HTMLElement | null;
   upnextHead: HTMLElement | null;
+  listHead: HTMLElement | null;
   gaps: HTMLElement[];
   bar: HTMLElement | null;
   record: HTMLElement | null;
@@ -209,6 +212,7 @@ function findSlots(): Slots {
     https: document.getElementById('ss-https-note'),
     menu: q('[data-automix-slot="menu-between"]'),
     upnextHead: q('[data-automix-slot="upnext-head"]'),
+    listHead: q('[data-automix-slot="list-head"]'),
     gaps: Array.from(document.querySelectorAll<HTMLElement>('[data-automix-gap]')),
     bar: q('[data-automix-slot="bar"]'),
     record: q('[data-automix-slot="record"]'),
@@ -226,6 +230,7 @@ function sameSlots(a: Slots, b: Slots): boolean {
     a.https === b.https &&
     a.menu === b.menu &&
     a.upnextHead === b.upnextHead &&
+    a.listHead === b.listHead &&
     a.bar === b.bar &&
     a.record === b.record &&
     a.deck === b.deck &&
@@ -564,12 +569,17 @@ export function AutomixHost() {
       {slots.settings ? createPortal(<PlayerSettingsBetween />, slots.settings) : null}
       {slots.https ? createPortal(<HttpsNote />, slots.https) : null}
       {slots.menu ? createPortal(<BetweenTracksSwitch showLabel />, slots.menu) : null}
+      {slots.listHead && anyMixable && !st.shuffle
+        ? createPortal(<BetweenTracksSwitch showLabel />, slots.listHead)
+        : null}
       {slots.upnextHead && anyMixable && !st.shuffle
         ? createPortal(
             <div className={styles.upnextHead} data-upnext-head="">
-              <div className={styles.upnextHeadRow}>
-                <BetweenTracksSwitch showLabel />
-              </div>
+              {slots.listHead ? null : (
+                <div className={styles.upnextHeadRow}>
+                  <BetweenTracksSwitch showLabel />
+                </div>
+              )}
               {offPairs ? <AutoMixOffLine /> : null}
               <AutoGoneNotice />
             </div>,

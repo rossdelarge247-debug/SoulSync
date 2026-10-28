@@ -172,7 +172,8 @@ export function analysisLine(status: AnalysisStatus): string {
     const rest = counts.tracks - counts.analyzed;
     return `${n(counts.analyzed)} of ${n(counts.tracks)} tracks have BPM, key and energy · ${n(rest)} couldn't be analysed`;
   }
-  if (!status.settings.analyze) return `${done} · working them out is off in Settings → Library`;
+  if (!status.settings.analyze)
+    return `${done} · working them out is off in Settings → Library → DJ`;
   if (status.held) return `${done} · stopped until you start it again`;
   return `${done} · the rest are worked out in the background`;
 }

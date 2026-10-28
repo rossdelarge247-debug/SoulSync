@@ -1209,6 +1209,41 @@ function requestSettingsTab(tab) {
     _requestedSettingsTab = tab || null;
 }
 
+// A section of a tab to open with it: /settings?tab=library&section=dj, or
+// requestSettingsSection('dj') before navigating here (the "Settings →
+// Library → DJ" links, UX-13). Used up when its tab is shown.
+let _requestedSettingsSection = (function () {
+    try {
+        const path = window.SoulSyncURL?.strip(window.location.pathname) ?? window.location.pathname;
+        if (path.replace(/\/+$/, '') !== '/settings') return null;
+        return new URLSearchParams(window.location.search).get('section');
+    } catch (e) {
+        return null;
+    }
+})();
+
+function requestSettingsSection(section) {
+    _requestedSettingsSection = section || null;
+}
+
+// Expand a folded section ([data-settings-section]) and scroll it into view.
+function openSettingsSection(section) {
+    const head = section
+        ? document.querySelector(`#settings-page .settings-section-header[data-settings-section="${CSS.escape(section)}"]`)
+        : null;
+    if (!head) return false;
+    const body = head.nextElementSibling;
+    // what the header's own click does, without toggling one that's open
+    head.classList.remove('collapsed');
+    if (body) {
+        body.classList.remove('collapsed');
+        body.style.display = '';
+    }
+    head.setAttribute('aria-expanded', 'true');
+    head.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    return true;
+}
+
 function takeRequestedSettingsTab() {
     const tab = _requestedSettingsTab;
     const known = !!tab && Array.from(document.querySelectorAll('#settings-page .stg-tab'))
@@ -1239,6 +1274,13 @@ function switchSettingsTab(tab) {
     if (search) search.value = '';
     if (results) results.hidden = true;
     if (tab === 'library') document.dispatchEvent(new CustomEvent('soulsync:library-settings-shown'));
+    if (typeof _requestedSettingsSection !== 'undefined' && _requestedSettingsSection) {
+        const section = _requestedSettingsSection;
+        // after this function has laid the tab out (it re-folds collapsed bodies)
+        setTimeout(() => {
+            if (typeof openSettingsSection === 'function' && openSettingsSection(section)) _requestedSettingsSection = null;
+        }, 0);
+    }
     // Update tab bar
     document.querySelectorAll('#settings-page .stg-tab').forEach(t => {
         const active = t.dataset.tab === tab;

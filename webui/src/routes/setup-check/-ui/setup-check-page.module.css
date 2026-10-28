@@ -704,3 +704,23 @@
   font-size: 14px;
   color: var(--danger-light);
 }
+
+/* "Settings → Library → DJ" in a row's sentence: an inline link-styled button (UX-13) */
+.inlineLink {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  cursor: pointer;
+}
+
+.inlineLink:hover {
+  text-decoration: underline;
+}
+
+.inlineLink:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+}

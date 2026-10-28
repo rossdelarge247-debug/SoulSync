@@ -219,10 +219,11 @@
   min-width: 0;
 }
 
+/* Brief D (34a): Play and Play next (92px, reserved), the star, the "…" */
 .head,
 .row {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 64px 64px 96px 32px 92px;
+  grid-template-columns: 48px minmax(0, 1fr) 64px 64px 96px 92px 32px 44px;
   gap: 12px;
   align-items: center;
 }
@@ -270,9 +271,17 @@
   background: var(--ss-selected-fill);
 }
 
-/* what the player has loaded (17a's first row) */
+/* what the player has loaded: a green wash and a green title (34a) */
 .row[data-playing='true'] {
-  background: rgba(var(--ss-accent-rgb), 0.1);
+  background: rgba(var(--ss-success-rgb), 0.06);
+}
+
+.row[data-playing='true'] .text > :first-child {
+  color: var(--ss-success);
+}
+
+.playCell {
+  justify-self: end;
 }
 
 .text {
@@ -312,17 +321,7 @@
   background: transparent;
 }
 
-@media (hover: hover) {
-  .actions {
-    opacity: 0;
-    transition: opacity var(--ss-motion) var(--ss-ease);
-  }
-
-  .row:hover .actions,
-  .row:focus-within .actions {
-    opacity: 1;
-  }
-}
+/* the "…" stays at rest (34a); only Play next waits for hover and focus */
 
 /* ── the phone (17c) ─────────────────────────────────────────────────── */
 
@@ -477,4 +476,25 @@
 .missingTag {
   margin-left: 8px;
   vertical-align: middle;
+}
+
+/* 34c: on a phone the playing row's art holds the three green bars */
+.nowBars {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .row[data-playing='true'] .nowBars {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(var(--ss-success-rgb), 0.12);
+    color: var(--ss-success);
+  }
+
+  .row[data-playing='true'] .artWrap {
+    position: relative;
+  }
 }

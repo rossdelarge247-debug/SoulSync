@@ -211,7 +211,7 @@ export function TraktorExportDialog({
                       openTraktorSettings();
                     }}
                   >
-                    Open Settings → Library → Traktor Pro 3
+                    Open Settings → Library → DJ
                   </button>
                 ) : null}
               </div>

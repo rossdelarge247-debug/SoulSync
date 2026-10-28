@@ -7455,45 +7455,6 @@
                                                     already have, run the <em>Artist NFO Backfill</em> repair job.
                                                 </div>
                                             </div>
-                                            <!-- Settings → Library → DJ: Between tracks, Off / Auto mix (33e;
-                                                 replaces 26h's cards in Player settings; kept per browser):
-                                                 src/features/automix/between-tracks.tsx -->
-                                            <div class="settings-group" data-stg="library" id="dj-between-tracks-group">
-                                                <div id="ss-between-tracks-library"></div>
-                                            </div>
-                                            <div class="settings-group" data-stg="library" id="dj-settings-group">
-                                                <h3>BPM, key and energy</h3>
-                                                <label class="toggle-row">
-                                                    <input type="checkbox" id="dj-analysis">
-                                                    <span>Work out BPM, key and energy</span>
-                                                </label>
-                                                <div class="help-text" style="margin-top: 6px;">
-                                                    SYNCHRO.S listens to every track in your library, one at a
-                                                    time in the background, and works out its tempo, its key
-                                                    (shown in Camelot notation, like 8A) and an energy level
-                                                    from 1 to 10. It goes gently: it pauses while a download or
-                                                    an import is running, and Activity shows how far it has got,
-                                                    with Stop. A BPM or key already in a file's tags, or from
-                                                    your metadata source, is kept.
-                                                </div>
-                                                <label class="toggle-row" style="margin-top: 10px;">
-                                                    <input type="checkbox" id="dj-write-tags">
-                                                    <span>Write BPM and key into the files' tags</span>
-                                                </label>
-                                                <div class="help-text" style="margin-top: 6px;">
-                                                    So Traktor, Rekordbox, Serato and Mixxx read them. Only
-                                                    files that have no BPM or key get one; a value already in a
-                                                    file stays. A key SYNCHRO.S isn't sure of is never written.
-                                                </div>
-                                                <label class="toggle-row" style="margin-top: 10px;">
-                                                    <input type="checkbox" id="dj-overwrite-tags">
-                                                    <span>Also replace a BPM or key already in a file</span>
-                                                </label>
-                                                <div class="help-text" style="margin-top: 6px;">
-                                                    Off unless you want SYNCHRO.S's own values everywhere,
-                                                    including over what another app wrote.
-                                                </div>
-                                            </div>
 
                                         </div>
                                         <div id="organization-audiobooks-panel" role="tabpanel"
@@ -8362,6 +8323,62 @@
 
 
 
+                                    <!-- Settings → Library → DJ (33e; UX-13, Ross 28 Oct): its own section,
+                                         so "Settings → Library → DJ" is a place you can find. Every link to it
+                                         (Player settings, the https notes, the Mix tab, the setup check) opens
+                                         this tab with the section expanded and scrolled into view, as does
+                                         /settings?tab=library&section=dj (static/settings.js
+                                         openSettingsSection; src/features/dj/dj-settings-link.ts) -->
+                                    <div class="settings-section-header collapsed" data-stg="library" data-settings-section="dj"
+                                        id="settings-dj-header"
+                                        onclick="this.classList.toggle('collapsed'); const b=this.nextElementSibling; b.classList.toggle('collapsed'); b.style.display=b.classList.contains('collapsed')?'none':''; this.setAttribute('aria-expanded', String(!b.classList.contains('collapsed')))"
+                                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"
+                                        role="button" tabindex="0" aria-expanded="false" aria-controls="settings-dj-section">
+                                        <span class="settings-section-arrow">&#9660;</span>
+                                        <h3>DJ</h3>
+                                        <span class="settings-section-hint">Between tracks, BPM, key and energy, beat grids</span>
+                                    </div>
+                                    <div class="settings-section-body collapsed" data-stg="library" id="settings-dj-section">
+                                        <!-- Settings → Library → DJ: Between tracks, Off / Auto mix (33e;
+                                             replaces 26h's cards in Player settings; kept per browser):
+                                             src/features/automix/between-tracks.tsx -->
+                                        <div class="settings-group" data-stg="library" id="dj-between-tracks-group">
+                                            <div id="ss-between-tracks-library"></div>
+                                        </div>
+                                        <div class="settings-group" data-stg="library" id="dj-settings-group">
+                                            <h3>BPM, key and energy</h3>
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="dj-analysis">
+                                                <span>Work out BPM, key and energy</span>
+                                            </label>
+                                            <div class="help-text" style="margin-top: 6px;">
+                                                SYNCHRO.S listens to every track in your library, one at a
+                                                time in the background, and works out its tempo, its key
+                                                (shown in Camelot notation, like 8A) and an energy level
+                                                from 1 to 10. It goes gently: it pauses while a download or
+                                                an import is running, and Activity shows how far it has got,
+                                                with Stop. A BPM or key already in a file's tags, or from
+                                                your metadata source, is kept.
+                                            </div>
+                                            <label class="toggle-row" style="margin-top: 10px;">
+                                                <input type="checkbox" id="dj-write-tags">
+                                                <span>Write BPM and key into the files' tags</span>
+                                            </label>
+                                            <div class="help-text" style="margin-top: 6px;">
+                                                So Traktor, Rekordbox, Serato and Mixxx read them. Only
+                                                files that have no BPM or key get one; a value already in a
+                                                file stays. A key SYNCHRO.S isn't sure of is never written.
+                                            </div>
+                                            <label class="toggle-row" style="margin-top: 10px;">
+                                                <input type="checkbox" id="dj-overwrite-tags">
+                                                <span>Also replace a BPM or key already in a file</span>
+                                            </label>
+                                            <div class="help-text" style="margin-top: 6px;">
+                                                Off unless you want SYNCHRO.S's own values everywhere,
+                                                including over what another app wrote.
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div class="stg-cardgroup" data-stg="library">
                                         <span class="stg-cardgroup-label">Processing</span>
                                         <span class="stg-cardgroup-sub">What happens to a file after it arrives</span>
@@ -12577,12 +12594,13 @@
 
         <!-- ── the tray (desktop) / the sheet (phones, 4j) ── -->
         <div class="ss-player-tray" id="ss-player-tray" role="region" aria-label="Now playing" hidden>
-            <div class="ss-player-sheet-head">
-                <span class="ss-player-sheet-handle" aria-hidden="true"></span>
-                <div class="ss-player-sheet-row">
-                    <span class="ss-player-sheet-title">Now playing</span>
-                    <button type="button" class="ss-player-ghost" data-player-sheet-close>Close</button>
-                </div>
+            <div class="ss-player-sheet-head" data-player-sheet-head>
+                <!-- the handle closes the sheet (a press, or a swipe down from any tab;
+                     src/shell/player.ts), so the sheet needs no Close row (291) -->
+                <button type="button" class="ss-player-sheet-handle" data-player-sheet-close aria-label="Close"><span aria-hidden="true"></span></button>
+                <!-- the phone's one tab row (33d, 291): Now playing · Mix · Set under the
+                     handle, no title and no back row; src/features/mix/mix-host.tsx -->
+                <div class="ss-player-sheet-modes" data-player-modes="sheet"></div>
             </div>
 
             <!-- radio (4j): the station's card, Add, auto-add and Heard, in place of
@@ -12620,8 +12638,13 @@
                     <span class="ss-player-tag" data-player-quality hidden></span>
                     <a class="ss-player-link" data-player-album href="#" hidden>Open album</a>
                 </div>
-                <div class="ss-player-record-controls">
+                <!-- the key line (36a, 279): key · BPM · energy, ready to mix, and the
+                     star beside it; src/features/mix/mix-host.tsx fills it -->
+                <div class="ss-player-record-keyline">
+                    <span class="ss-player-record-keyline-text" data-player-keyline></span>
                     <span class="ss-player-star-slot" data-player-star="record"></span>
+                </div>
+                <div class="ss-player-record-controls">
                     <button type="button" class="ss-player-btn ss-player-btn--outline" data-player-record="playlist" aria-label="Add to playlist" title="Add to playlist" hidden>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h12M3 12h12M3 18h7M18 14v6M15 17h6"/></svg>
                     </button>
@@ -12697,7 +12720,11 @@
                         <button type="button" role="tab" class="ss-player-option np-v2-tab" id="ss-player-tab-queue" data-npv2-tab="queue" aria-controls="np-queue-panel" aria-selected="true">Up next <span class="ss-player-count" data-player-upnext-count>0</span></button>
                         <button type="button" role="tab" class="ss-player-option np-v2-tab" id="ss-player-tab-recent" data-npv2-tab="history" aria-controls="np-v2-history-panel" aria-selected="false">Recent</button>
                     </div>
+                    <!-- in Mix (33b) the column is Up next itself: "8 from Sunday Set" (294) -->
+                    <span class="ss-player-list-from" data-player-upnext-from></span>
                     <span class="ss-player-spacer"></span>
+                    <!-- Between tracks in Up next's header (33b, 36a): src/features/automix -->
+                    <span class="ss-player-list-between" data-automix-slot="list-head"></span>
                     <button type="button" class="ss-player-text-btn" id="np-queue-clear" data-player-clear>Clear</button>
                     <button type="button" class="ss-player-ghost ss-player-collapse" data-player-toggle aria-expanded="true" aria-controls="ss-player-tray">Collapse
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>

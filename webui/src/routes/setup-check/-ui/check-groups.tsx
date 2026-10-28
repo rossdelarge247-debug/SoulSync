@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/form';
 import { Badge, type BadgeTone } from '@/components/primitives';
 import { mixSupport } from '@/features/automix/support';
+import { openDjSettings } from '@/features/dj/dj-settings-link';
 
 import type { CheckGroup, CheckStatus, SetupCheckResult } from '../-setup-check.types';
 
@@ -219,7 +220,16 @@ export function BrowserInfo({
                 ? /https/.test(why)
                   ? 'Over plain http from another computer, Auto mix can only cut on the phrase or play straight on: its blends and echo outs need SYNCHRO.S on https, or opened on its own computer (localhost). Settings → Connections says how.'
                   : "This browser can't run Auto mix's decks, so Auto mix can only cut on the phrase or play straight on here. A current Chrome, Edge, Firefox or Safari can."
-                : 'Auto mix can run in this browser: SYNCHRO.S is on https here, or open on its own computer.'}
+                : 'Auto mix can run in this browser: SYNCHRO.S is on https here, or open on its own computer.'}{' '}
+              Between tracks is chosen in{' '}
+              <button
+                type="button"
+                className={styles.inlineLink}
+                onClick={() => openDjSettings('between')}
+              >
+                Settings → Library → DJ
+              </button>
+              .
             </p>
           </div>
         </li>

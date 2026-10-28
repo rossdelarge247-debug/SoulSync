@@ -3184,6 +3184,9 @@ function npv2ClearPlayed() {
 }
 
 function npv2DecorateQueueRow(item) {
+    // Brief D (34b): Up next's own "Move to the top" (media-player.js) is its
+    // Play next now; the old Play-next decoration isn't added.
+    if (item && item.querySelector('.np-queue-item-top')) return;
     try {
         if (!item || item.hasAttribute('data-npv2-decorated')) return;
         const actions = item.querySelector('.np-queue-item-actions');

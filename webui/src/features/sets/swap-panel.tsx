@@ -17,7 +17,6 @@ import { LoadingState, Notice } from '@/components/primitives';
 import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
 import djStyles from '@/features/dj/dj.module.css';
 import { KeyChip } from '@/features/dj/key-chip';
-import { closeMixes } from '@/features/dj/mixes-store';
 import { useStar } from '@/features/stars/star-button';
 import { showsStar, starStore } from '@/features/stars/stars-store';
 
@@ -196,8 +195,6 @@ export function SwapPanel({
   const row = rows[index];
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    // one panel at a time in that place: the Mixes panel closes for it
-    closeMixes();
     const root = document.documentElement;
     const docked = window.matchMedia?.('(min-width: 1100px)').matches ?? true;
     root.dataset.mixesPanel = docked ? 'docked' : 'over';
