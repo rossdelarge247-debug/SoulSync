@@ -706,6 +706,7 @@ function Row({
             {/* 34b: Play (the set from here), Play next (this one track, outside the set) */}
             <RowPlay
               title={title}
+              playing={playing}
               hidden={!track || !onPlay}
               onPlay={() => onPlay?.()}
               onPlayNext={track ? () => playTrackNext(track) : null}

@@ -521,7 +521,11 @@ html[data-mix-available] .ss-player-tray { height: 500px; }
 .ss-player-list-from { display: none; color: var(--ss-text-meta); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ss-player[data-tray-mode='mix'] .ss-player-list-from:not(:empty) { display: inline; }
 .ss-player-list-between:empty { display: none; }
-.ss-player-list-between { display: inline-flex; align-items: center; margin-right: 4px; }
+/* Between tracks keeps to the header's row while there's room (36a), and
+   takes a row of its own at the right under the tabs when there isn't (the
+   360px column at 1440); Clear and Collapse stay on the first row */
+.ss-player-list-head { flex-wrap: wrap; row-gap: 8px; }
+.ss-player-list-between { order: 5; display: inline-flex; align-items: center; justify-content: flex-end; margin-left: auto; }
 /* the label "Between tracks" is Mix's (33b); Now playing draws the control alone (36a) */
 .ss-player-list-between [data-between-label] { display: none; }
 .ss-player[data-tray-mode='mix'] .ss-player-list-between [data-between-label] { display: inline; }

@@ -850,7 +850,7 @@ function KeysLine({ model }: { model: MixModel }) {
     <p className={styles.keys}>
       {lead}Keys: A add · N play the top match next · M Now playing
       {DJ_MODE_READY ? ' · D DJ' : ''}. Style and key lock:{' '}
-      <button type="button" className={styles.textButton} onClick={() => openDjSettings('between')}>
+      <button type="button" className={styles.inlineLink} onClick={() => openDjSettings('between')}>
         Settings → Library → DJ
       </button>
     </p>
@@ -969,7 +969,6 @@ function SaveUpNext({ model }: { model: MixModel }) {
 export function SetCard({ model }: { model: MixModel }) {
   const p = model.playing;
   const ws = model.workingSet;
-  const sets = useQuery({ ...setsListQueryOptions(model.profileId ?? 0), retry: false });
   if (p) {
     const nextTitle = p.next?.track?.title || p.next?.title || '';
     const name = p.set?.name ?? ws?.name ?? 'the set';
@@ -995,7 +994,6 @@ export function SetCard({ model }: { model: MixModel }) {
     );
   }
   if (!ws) return model.workingLoading ? null : <FirstRun model={model} />;
-  const mine = sets.data?.find((s) => s.id === ws.id);
   const step = model.joinStep;
   const lead =
     model.last && model.subject && String(model.last.track_id) !== model.subject.id
@@ -1008,9 +1006,6 @@ export function SetCard({ model }: { model: MixModel }) {
         <span className={styles.headMeta}>Working set</span>
         <WorkingPicker model={model} />
       </div>
-      {mine ? (
-        <p className={styles.setCardMeta}>{setMetaWords(mine.tracks, mine.seconds)}</p>
-      ) : null}
       {already !== null ? (
         // UX-7: nothing is added unasked; Add again is a quiet choice
         <p className={styles.setCardLine} data-mix-already="">
@@ -1018,7 +1013,7 @@ export function SetCard({ model }: { model: MixModel }) {
           {' · '}
           <button
             type="button"
-            className={styles.textButton}
+            className={styles.inlineLink}
             disabled={model.busy}
             onClick={() => void model.addPlaying({ again: true })}
           >

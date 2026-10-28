@@ -425,6 +425,8 @@
   width: auto;
   max-width: 100%;
   min-width: 0;
+  /* as wide as the name, so its tags sit beside it (33c) */
+  field-sizing: content;
   padding: 2px 0;
   border: 0;
   border-bottom: 1px solid transparent;

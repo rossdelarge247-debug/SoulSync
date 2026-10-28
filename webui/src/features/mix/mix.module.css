@@ -1257,3 +1257,23 @@
     min-height: 44px;
   }
 }
+
+/* a link inside a sentence (the keys line's "Settings → Library → DJ") */
+.inlineLink {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  cursor: pointer;
+}
+
+.inlineLink:hover {
+  text-decoration: underline;
+}
+
+.inlineLink:focus-visible {
+  outline: 2px solid rgb(var(--ss-accent-light-rgb));
+  outline-offset: 2px;
+}
