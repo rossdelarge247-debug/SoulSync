@@ -511,6 +511,23 @@ def test_analyse_again_is_an_admins_and_finds_a_done_tracks_grid_again(client, d
     assert tracks["7"]["state"] == "done" and tracks["7"]["ready"] is True
 
 
+def test_analyse_again_says_in_line_and_leaves_the_grid_until_it_is_taken(client, db):
+    """M2: nothing is wiped when asked; the track says it's in line."""
+    _dj_done(db, "7")
+    grid_store.save_result(db, "7", {"status": "none", "reason": "no_beat", "beat_confidence": 0.05},
+                           source_sig=None)
+    client.state.update(profile=1, admin=True)
+    # the gate stays shut: the line doesn't move
+    body = client.post("/api/library/dj/analyse",
+                       json={"track_ids": ["7"], "reason": "asked", "again": True}).get_json()
+    assert body["queued"] == 1
+    assert grid_store.get(db, "7")["status"] == "none"  # not marked yet
+    tracks = client.post("/api/library/dj/progress", json={"track_ids": ["7"]}).get_json()["tracks"]
+    assert tracks["7"]["state"] in ("queued", "working")
+    client.gate.set()
+    client.job.join(5)
+
+
 def test_join_waits_for_a_next_run_made_but_not_yet_started():
     """A run's end starts the next run's thread; a join that lands between
     the thread being made and started used to raise (a flaky test)."""

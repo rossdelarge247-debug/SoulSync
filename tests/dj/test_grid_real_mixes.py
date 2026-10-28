@@ -61,3 +61,71 @@ def test_noise_and_a_pad_still_have_no_beat():
     pad, _ = dance_track(120.0, (("pad", 24),))
     r = grid.analyze_audio(pad, SR, bpm_hint=120.0)
     assert r["status"] == "none" or r["beat_confidence"] < BEAT_CONFIDENT
+
+
+# ── the gauntlet review of 28 October (H2, M1, L4): an off-beat bass ─────────
+
+from .grid_fixtures import DNB, FOUR, HALF_TIME, OFF_BEAT_BASS, pattern_track  # noqa: E402
+
+
+def _grid(y, bpm):
+    return grid.beat_grid(grid._features(y), bpm)
+
+
+def _phase_ms(g, beats, bpm):
+    period = 60.0 / bpm
+    off = (g["first_beat"] - float(beats[0])) % period
+    return 1000 * min(off, period - off)
+
+
+@pytest.mark.parametrize("level", [0.8, 1.5])
+def test_house_with_an_off_beat_bass_and_a_clap_is_ready_on_its_kick(level):
+    # H2: the most common house bassline, on the "and", as loud as the kick or
+    # louder; the clap on two and four says which line is the beat
+    y, beats = pattern_track(124.0, 64, FOUR, bass=OFF_BEAT_BASS, bass_level=level, claps=True)
+    g = _grid(y, 124.0)
+    assert g["kind"] == "constant" and g["four_on_the_floor"] and g["backbeat"]
+    assert g["confidence"] >= BEAT_CONFIDENT
+    assert _phase_ms(g, beats, 124.0) < 15
+
+
+@pytest.mark.parametrize("kw", [
+    {"bass_level": 0.5, "drumless_bars": 40},  # a long bass-only intro: the comb took the bass, at 0.98
+    {"bass_level": 0.5, "drumless_bars": 16},
+    {"bass_level": 0.8},                       # as loud as the kick in the low band
+])
+def test_a_kick_and_an_off_beat_bass_with_no_backbeat_are_never_trusted_to_beat_match(kw):
+    # M1: with no clap or snare to tell the kick from an off-beat bass as
+    # regular and as loud as it, the grid may be an eighth off (it was, at
+    # 0.98): it's kept (cuts and the bars still use it) but under the bar
+    y, _ = pattern_track(124.0, 64, FOUR, bass=OFF_BEAT_BASS, **kw)
+    g = _grid(y, 124.0)
+    assert g["kind"] == "constant" and g["unsure_phase"]
+    assert g["confidence"] < BEAT_CONFIDENT
+
+
+@pytest.mark.parametrize("pattern,bpm,kw,most", [
+    (DNB, 174.0, {}, None),
+    (DNB, 174.0, {"bass": OFF_BEAT_BASS, "bass_level": 0.4}, grid.BREAK_CONFIDENCE),
+    (HALF_TIME, 140.0, {"bass": OFF_BEAT_BASS, "bass_level": 0.5, "snare_low": 1.5}, grid.BREAK_CONFIDENCE),
+])
+def test_breaks_drum_and_bass_and_half_time_are_as_they_were(pattern, bpm, kw, most):
+    y, beats = pattern_track(bpm, 64, pattern, **kw)
+    g = _grid(y, bpm)
+    assert not g["four_on_the_floor"] and not g["unsure_phase"]
+    assert _phase_ms(g, beats, bpm) < 15
+    if most is not None:
+        assert g["confidence"] <= most
+
+
+def test_drum_and_bass_with_a_bass_on_every_beat_isnt_four_on_the_floor():
+    # L4: the bass makes every beat even in the low band; the snare on every
+    # other beat says it's drum and bass
+    import numpy as np
+
+    y, beats = pattern_track(174.0, 64, DNB, bass=(0, 4, 8, 12), bass_level=0.3)
+    feat = grid._features(y)
+    assert grid._low_line(feat, np.asarray(beats))[0] >= grid.FLOOR_EVENNESS
+    assert not grid.four_on_the_floor(feat, np.asarray(beats))
+    g = grid.beat_grid(feat, 174.0)
+    assert g["confidence"] >= BEAT_CONFIDENT and _phase_ms(g, beats, 174.0) < 15

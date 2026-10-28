@@ -2193,6 +2193,7 @@ class MusicDatabase:
         'dj_working_sets_v1':        ('table', 'dj_working_sets'),
         'track_grid_v1':             ('table', 'track_grid'),
         'dj_tempo_octave_v5':        ('flag', 'dj_tempo_octave_v5'),
+        'dj_grid_v4':                ('flag', 'dj_grid_v4'),
         'similar_artists_rematch':  ('table', '_similar_artists_rematch_applied'),
         'beatport_positional_purged': ('table', '_beatport_positional_purged'),
     }
@@ -4137,14 +4138,19 @@ class MusicDatabase:
 
     def _promote_ready_grids(self, cursor):
         """One-time, for grid v4 (core/dj/grid.py: a kick on every beat keeps
-        the grid on it, and the beat's confidence is counted where the drums
-        play). A grid at v3 that's ready to mix already (a beat confidence
-        of 0.5 or more, in 4/4: core/dj/grid.py ``beatmatch_problem``) comes
-        out the same or surer, so it moves to v4 without a decode; so do
+        the grid on it, the beat's confidence is counted where the drums
+        play, and a kick with an off-beat bass as loud as it and no backbeat
+        isn't trusted). A grid at v3 that's ready to mix already (a beat
+        confidence of 0.5 or more, in 4/4: core/dj/grid.py
+        ``beatmatch_problem``) moves to v4 as it is, without a decode, as do
         rows the sweep wouldn't decode at v3 either (too short, an error,
-        too long, unreachable). Everything else, a grid that found no beat,
-        one under the ready bar and one with no confidence stored, is
-        analysed again by the sweep: it was judged by the rule this fixes.
+        too long, unreachable). That keeps the library from being decoded
+        again whole; the cost is that v4 would hold back a few of those
+        ready grids (an off-beat bass as loud as the kick, no clap or snare:
+        possibly a beat off; the gauntlet review's M1, L2), which Analyse
+        again finds anew. Everything else, a grid that found no beat, one
+        under the ready bar and one with no confidence stored, is analysed
+        again by the sweep: it was judged by the rule this fixes.
         Marker-gated; it only ever moves v3 rows."""
         with self._migration_step(cursor, 'promote_ready_grids'):
             cursor.execute("SELECT value FROM metadata WHERE key = 'dj_grid_v4' LIMIT 1")

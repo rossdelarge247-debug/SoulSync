@@ -212,13 +212,6 @@ def _retry(database, track_id: str, failed: str) -> None:
         grid_store.mark(database, track_id, "stale", "asked to try again", version=0)
 
 
-def _grid_again(database, track_id: str) -> None:
-    """Analyse again: the track's grid is out of date, so the sweep finds it again."""
-    from core.dj import grid_store
-
-    grid_store.mark(database, track_id, "stale", "asked to analyse again", version=0)
-
-
 def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bool = True,
         source: Optional[str] = None, set_id: Optional[int] = None, retry: bool = False,
         soon: bool = False, again: bool = False) -> Dict[str, Any]:
@@ -242,6 +235,7 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
     rows = _rows(database, [str(i) for i in ids])
     version = worker.analyzer_version()
     needs: List[str] = []
+    again_ids: List[str] = []
     done = cant = 0
     if (retry or again) and not explicit:
         raise ValueError("Try again is a person's own ask")
@@ -255,9 +249,11 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
             _retry(database, track_id, state["failed"])
             state = {"needs": True, "failed": None}
         elif again and not state["needs"] and not state["failed"]:
-            # done already: its grid is found again (BPM, key and energy stay)
-            _grid_again(database, track_id)
-            state = {"needs": True, "failed": None}
+            # done already: its grid is found again when the line takes it
+            # (BPM, key and energy stay); one with no room in line keeps it
+            again_ids.append(track_id)
+            needs.append(track_id)
+            continue
         if state["needs"]:
             needs.append(track_id)
         elif state["failed"]:
@@ -269,7 +265,7 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
         # its own tier all the same (re-review L10)
         job.set_soon(int(profile_id), [])
     result = job.ask(database, needs, int(profile_id), explicit=explicit, source=source,
-                     set_id=set_id, soon=soon) if needs else {
+                     set_id=set_id, soon=soon, **({"again": again_ids} if again_ids else {})) if needs else {
         "added": [], "already": 0, "over": 0, "yours": job.queue_snapshot([], profile_id)["yours"],
         "limit": worker.PRIORITY_PER_PROFILE, "started": False, "taken": 0}
     # where the first of them now is, for the Added toast's "analysing, 2nd
@@ -488,7 +484,9 @@ def progress(database, ids: Iterable[Any], profile_id: Optional[int], *, job=Non
             continue
         place = snapshot["places"].get(track_id)
         state = classify(row, version)
-        if place is not None and (state["needs"] or state["failed"] == "unreachable"):
+        # in line to be analysed again (Analyse again) counts as in line too
+        again = track_id in (snapshot.get("again") or ())
+        if place is not None and (state["needs"] or state["failed"] == "unreachable" or again):
             position, asked_for, yours = place
             # ``yours``: this caller asked for it, so its Cancel does something (L4)
             entry: Dict[str, Any] = {"state": "queued", "position": position, "asked_for": asked_for,
