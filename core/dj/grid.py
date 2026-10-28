@@ -236,8 +236,9 @@ def _estimate_bpm(env) -> Optional[float]:
 def _tempo(env, bpm_hint: Optional[float]) -> Optional[float]:
     """The tempo to look near: the hint (the DJ data's BPM: a tag, enrichment
     or the first analysis) when there is one, else the envelope's own,
-    folded into 70–180. The grid search then finds the exact period within
-    4% of it."""
+    folded into 70–200 (the tempo rule's bands, core/sample/tempo.py: a
+    hardcore or gabber tag at 180–200 is kept, not halved). The grid search
+    then finds the exact period within 4% of it."""
     bpm = None
     if bpm_hint:
         try:
@@ -250,7 +251,7 @@ def _tempo(env, bpm_hint: Optional[float]) -> Optional[float]:
         return None
     while bpm < 70:
         bpm *= 2
-    while bpm >= 180:
+    while bpm >= 200:
         bpm /= 2
     return bpm
 

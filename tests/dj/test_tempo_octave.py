@@ -158,6 +158,7 @@ def test_grids_at_100_to_140_are_scored_as_before(made):
     (["Drum & Bass"], "fast"), (["drum'n'bass"], "fast"), (["Drum n Bass"], "fast"), (["DnB"], "fast"),
     (["D&B"], "fast"), (["Jungle"], "fast"), (["Liquid Funk"], "fast"), (["Neurofunk"], "fast"),
     (["Footwork / Juke"], "fast"), (["Breakcore"], "fast"), (["Dubstep"], "half"), (["Trap"], "half"),
+    (["drum-n-bass"], "fast"), (["Drum_n_Bass"], "fast"), (["Drum-and-Bass"], "fast"),  # review L1
     (["Hip-Hop"], "slow"), (["R&B"], "slow"), (["Dub"], "slow"), (["Electronic", "Drum & Bass"], "fast"),
     (["Hip-Hop", "Drum & Bass"], None), (["House"], None), (["Soulful House"], None), ([], None),
     ("Drum & Bass", "fast"), (None, None),
@@ -169,6 +170,11 @@ def test_genre_families(genres, family):
 @pytest.mark.parametrize("bpm,kwargs,want", [
     (174.0, {}, (174.0, "kept")),                                       # a fast reading stands
     (180.0, {"genres": ["Hip Hop"]}, (90.0, "genre")),                  # unless the genre is slow
+    (150.0, {"genres": ["Soul"], "evidence": {"vote": "fast"}}, (150.0, "backbeat")),  # and the backbeat agrees
+    (174.0, {"evidence": {"vote": "fast"}}, (174.0, "backbeat")),       # evidence it's fast
+    (174.0, {"genres": ["Drum & Bass"]}, (174.0, "genre")),
+    (80.0, {"genres": ["Reggae"], "evidence": {"vote": "fast"}}, (160.0, "backbeat")),
+    (80.0, {"genres": ["Reggae"], "evidence": {"vote": "slow"}}, (80.0, "genre")),
     (87.0, {"genres": ["Drum & Bass"]}, (174.0, "genre")),
     (70.0, {"genres": ["Dubstep"]}, (140.0, "genre")),
     (85.0, {"genres": ["Dubstep"]}, (85.0, "kept")),                    # 170 isn't a dubstep tempo
@@ -216,3 +222,83 @@ def test_a_skipped_beat_doesnt_turn_a_slow_backbeat_fast():
     tracked = np.delete(times, 64)  # the tracker skipped one
     said = tempo.backbeat(env, fps, tracked)
     assert said["vote"] == "slow", said
+
+
+# ── the independent review's cases (fix/dnb-bpm, round 2) ─────────────────────
+
+def _analyse(tmp_path, name, y, genre=None):
+    import soundfile as sf
+
+    path = tmp_path / f"{name}.flac"
+    sf.write(str(path), y, 22050, format="FLAC", subtype="PCM_16")
+    if genre:
+        from mutagen.flac import FLAC
+
+        tags = FLAC(str(path))
+        tags["genre"] = genre
+        tags.save()
+    return analyze.analyze_track(str(path))
+
+
+SLOW_TAGGED = [  # (name, true BPM, pattern, hats, seed): read at double by librosa
+    ("boombap_72", 72.0, "boombap", "16", 16), ("boombap_76", 76.0, "boombap", "8", 17),
+    ("ballad_75_k1s3", 75.0, "k1s3", "8", 3),
+]
+
+
+@pytest.mark.parametrize("name,truth,pattern,hats,seed", SLOW_TAGGED)
+def test_a_correct_slow_tag_stands_when_the_double_isnt_evidence(tmp_path, name, truth, pattern, hats, seed):
+    # review H1: librosa reads these at 144-152 ("kept"); the tag at half must win
+    from core.dj import grid, store
+
+    from .tempo_fixtures import BOOM_BAP
+
+    pat = BOOM_BAP if pattern == "boombap" else ({0: "K", 8: "S"},)
+    y, _ = drum_track(truth, int(30 * truth / 240), pat, hats=hats, bass="boom", pad=0.4, seed=seed)
+    result = _analyse(tmp_path, name, y)
+    assert result["tempo_basis"] not in tempo.EVIDENCE, result
+    kept = store.decide(tag_bpm=truth, analysis=result)
+    assert (kept["bpm"], kept["bpm_source"]) == (truth, "tag")
+    # the grid looks near the tag (the sweep's hint) and stays slow
+    assert _near(grid.analyze_audio(y, 22050, bpm_hint=kept["bpm"])["bpm"], truth, 0.02)
+
+
+def test_a_half_time_tag_takes_the_analysiss_octave_only_with_evidence(made):
+    from core.dj import store
+
+    truth, result, _ = made["dnb_174"]
+    assert result["tempo_basis"] == "backbeat"
+    taken = store.decide(enrichment_bpm=87.0, analysis=result)
+    assert taken["bpm_source"] == "analysis" and _near(taken["bpm"], truth)
+    assert taken["analyzed_bpm_basis"] == "backbeat"
+    for basis in ("kept", "range", None):
+        assert store.decide(tag_bpm=87.0, analysis={**result, "tempo_basis": basis})["bpm"] == 87.0
+
+
+@pytest.mark.parametrize("bpm", (185.0, 195.0, 199.0))
+def test_a_hint_at_180_to_200_is_kept_not_halved(bpm):
+    # review M1: a hardcore or gabber tag (or Beatport's exact value) at 180-200
+    from core.dj import grid
+
+    from .tempo_fixtures import _house
+
+    four, _ = _house(bpm, int(30 * bpm / 240))
+    dnb, _ = drum_track(bpm, int(30 * bpm / 240), ({0: "K", 4: "S", 10: "K", 12: "S"},), hats="8", bass="reese",
+                        seed=12)
+    for y in (four, dnb):
+        found = grid.analyze_audio(y, 22050, bpm_hint=bpm)
+        assert found["status"] == "done" and _near(found["bpm"], bpm, 0.01), found.get("bpm")
+
+
+@pytest.mark.parametrize("bpm,genre", ((150.0, "Soul"), (160.0, "Reggae"), (148.0, "Rap")))
+def test_a_slow_genre_doesnt_halve_a_backbeat_at_the_fast_tempo(tmp_path, bpm, genre):
+    # review M3: a straight backbeat at 148-160 tagged with a slow genre
+    from core.dj import grid
+
+    from .tempo_fixtures import STRAIGHT_100
+
+    y, _ = drum_track(bpm, int(30 * bpm / 240), STRAIGHT_100, hats="8", bass="boom", pad=0.5, seed=19)
+    result = _analyse(tmp_path, f"{genre}_{bpm:.0f}", y, genre)
+    assert _near(result["bpm"], bpm) and result["tempo_basis"] == "backbeat", result
+    # the analysis and the grid agree
+    assert _near(grid.analyze_audio(y, 22050, bpm_hint=result["bpm"])["bpm"], bpm, 0.01)

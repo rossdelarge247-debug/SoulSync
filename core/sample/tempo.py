@@ -89,8 +89,9 @@ _FAMILIES = (("fast", FAST_GENRES), ("half", HALF_GENRES), ("slow", SLOW_GENRES)
 
 def _normal(text: str) -> str:
     text = str(text).lower()
-    text = re.sub(r"\s*&\s*|\s+'?n'?\s+|'n'", " and ", text)
+    # punctuation first, so "drum-n-bass" and "Drum_n_Bass" read as words
     text = re.sub(r"[-_/.,;:+()\[\]]", " ", text)
+    text = re.sub(r"\s*&\s*|\s+'?n'?\s+|'n'", " and ", text)
     return " " + re.sub(r"\s+", " ", text).strip() + " "
 
 
@@ -219,17 +220,31 @@ def choose(bpm: float, *, evidence: Optional[Dict[str, Any]] = None, genres: Opt
     """The tempo in its octave and why: ``(bpm, reason)``, the reason one of
     ``unambiguous``, ``kept``, ``genre``, ``range`` or ``backbeat``.
     ``evidence`` is ``backbeat``'s answer (or None); ``use_range`` False for
-    a reading that has already been through this rule (the grid's hint)."""
+    a reading that has already been through this rule (the grid's hint).
+
+    Only ``genre`` and ``backbeat`` on a fast result are evidence that the
+    track is fast (``EVIDENCE``); ``kept`` (the tracker said so) and
+    ``range`` (under 78) aren't, so a tag at half such a reading stands
+    (core/dj/store.py ``decide``)."""
     value = float(bpm)
     family = genre_family(genres)
     if is_fast(value):
+        fast_vote = bool(evidence) and evidence.get("vote") == "fast"
         if family == "slow" and is_slow(value / 2):
-            return value / 2, "genre"
-        return value, "kept"
+            # a slow genre halves it, unless the backbeat says it's fast
+            # (soul or reggae at 150 with a snare on two and four)
+            return (value, "backbeat") if fast_vote else (value / 2, "genre")
+        if family == "fast" or (family == "half" and 125.0 <= value < 160.0):
+            return value, "genre"
+        return (value, "backbeat") if fast_vote else (value, "kept")
     if not is_slow(value):
         return value, "unambiguous"
     double = value * 2
     if family == "slow":
+        # a slow genre keeps it slow, unless the backbeat is at the double
+        # (reggae or rap at 160 with a snare on two and four)
+        if evidence and evidence.get("vote") == "fast":
+            return double, "backbeat"
         return value, "genre"
     if family == "fast":
         return double, "genre"
@@ -279,11 +294,17 @@ def snare_envelope(y, sr: int, hop: int = 512):
     return np.maximum(0.0, flux - local)
 
 
+#: the reasons that are evidence a fast result really is fast
+EVIDENCE = ("genre", "backbeat")
+
+
 def analysis_tempo(path: Optional[str], y, sr: int, bpm: float, beat_frames, hop: int = 512) -> Tuple[float, str]:
     """The analysis's tempo (librosa's reading ``bpm`` and its tracked beats,
-    as frames of ``hop`` samples) in its octave: the genre from the file's
-    tag, the range, then the backbeat, measured only when they haven't
-    decided. A reading at 100–140 comes back exactly as it went in."""
+    as frames of ``hop`` samples) in its octave, and why (``choose``'s
+    reason): the genre from the file's tag and the range first, then the
+    backbeat, measured only when they haven't decided (and for a fast
+    reading, so a fast result says whether the backbeat confirmed it). A
+    reading at 100–140 comes back exactly as it went in."""
     import numpy as np
 
     folded = _fold(bpm)
@@ -291,19 +312,21 @@ def analysis_tempo(path: Optional[str], y, sr: int, bpm: float, beat_frames, hop
         return bpm, "unambiguous"
     genres = file_genres(path)
     chosen, why = choose(folded, genres=genres)
-    if why != "kept" or not is_slow(folded):
+    # a slow genre asks the backbeat too: it decides only when that agrees
+    slow_genre = why == "genre" and genre_family(genres) == "slow"
+    if why != "kept" and not slow_genre:
         return round(chosen, 1), why
     if beat_frames is None:
-        return round(folded, 1), "kept"
+        return round(chosen, 1), why
     beats = np.asarray(beat_frames, dtype=np.float64) * hop / float(sr)
     if beats.size < MIN_BEATS // 2:
-        return round(folded, 1), "kept"
-    # the beats at the fast reading: the tracked ones and the halfway points
-    fast = np.sort(np.concatenate([beats, (beats[:-1] + beats[1:]) / 2.0]))
+        return round(chosen, 1), why
+    # the beats at the fast reading: as tracked, or with the halfway points
+    fast = beats if is_fast(folded) else np.sort(np.concatenate([beats, (beats[:-1] + beats[1:]) / 2.0]))
     evidence = backbeat(snare_envelope(y, sr, hop), sr / hop, fast)
     chosen, why = choose(folded, evidence=evidence, genres=genres)
     return round(chosen, 1), why
 
 
-__all__ = ["BACKBEAT_LEAD", "BACKBEAT_MIN", "FAST_BAND", "PREFER_MIN", "SLOW_BAND", "ambiguous", "analysis_tempo",
+__all__ = ["BACKBEAT_LEAD", "BACKBEAT_MIN", "EVIDENCE", "FAST_BAND", "PREFER_MIN", "SLOW_BAND", "ambiguous", "analysis_tempo",
            "backbeat", "choose", "file_genres", "genre_family", "is_fast", "is_slow", "snare_envelope"]

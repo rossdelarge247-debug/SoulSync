@@ -141,7 +141,7 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
 
     Returns {"bpm": float, "onsets": [seconds...], "duration_s": float,
              "key": {"name", "confidence"} | None, "energy": 1-10 | None,
-             "truncated": bool, "analyzer_version": int}.
+             "truncated": bool, "tempo_basis": str, "analyzer_version": int}.
 
     The audio is decoded straight to mono at the analysis rate (ffmpeg
     resamples as it reads), so memory is about 88 KB a second of audio
@@ -197,7 +197,7 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
     # backbeat is, not librosa's lean towards 120 (core/sample/tempo.py)
     from .tempo import analysis_tempo
 
-    bpm, _why = analysis_tempo(file_path, y, _ANALYSIS_SR, bpm, beat_frames)
+    bpm, tempo_basis = analysis_tempo(file_path, y, _ANALYSIS_SR, bpm, beat_frames)
 
     from .energy import detect_energy
     from .key import detect_key
@@ -213,6 +213,9 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
         "key": key,
         "energy": energy,
         "truncated": truncated,
+        # why the tempo is in its octave (core/sample/tempo.py choose):
+        # only "genre" or "backbeat" let a fast result win over a tag at half
+        "tempo_basis": tempo_basis,
         "analyzer_version": ANALYZER_VERSION,
     }
     if keep_audio:

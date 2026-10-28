@@ -101,7 +101,9 @@ POST /api/library/dj/traktor/export
     written with Traktor's top rating (``RANKING="255"``); the preview's
     ``starred`` counts them. Code: core/dj/traktor.py.
 POST /api/library/dj/bpm
-    Double BPM / Halve BPM (any profile, its own library's tracks):
+    Double BPM / Halve BPM (an admin, any track in its scope; a member, the
+    tracks of its own library only, 403 ``shared`` for shared ones; one
+    change a second a profile, 429 ``rate_limited``):
     ``{track_ids: [...] (up to 500), action: double | halve | reset}``. The
     BPM shown is doubled or halved and kept as the person's (``bpm_source``
     ``override``), which no later analysis undoes; each track's grid
@@ -945,6 +947,18 @@ def traktor_export():
 
 #: the BPM route's body: 500 ids fit well under it
 MAX_BPM_BODY = 64 * 1024
+#: one change a second a profile, as /analyse (its own count, so the two
+#: don't hold each other up)
+_BPM_LIMIT = None
+
+
+def _bpm_limit():
+    global _BPM_LIMIT
+    if _BPM_LIMIT is None:
+        from core.dj import ondemand
+
+        _BPM_LIMIT = ondemand.RateLimit()
+    return _BPM_LIMIT
 
 
 @bp.route("/api/library/dj/bpm", methods=["POST"])
@@ -971,11 +985,21 @@ def dj_bpm():
         return jsonify({"success": False, "error": f"At most {store.MAX_TEMPO_TRACKS} tracks at a time"}), 400
     ids = list(dict.fromkeys(str(t)[:128] for t in raw
                              if isinstance(t, (str, int)) and not isinstance(t, bool) and str(t)))
+    if not _bpm_limit().allow(int(pid)):
+        response = jsonify({"success": False, "code": "rate_limited",
+                            "error": "One change a second: try again in a moment."})
+        response.status_code = 429
+        response.headers["Retry-After"] = "1"
+        return response
     database = get_database()
     try:
-        result = store.set_tempo(database, ids, action, profile_id=int(pid))
+        result = store.set_tempo(database, ids, action, profile_id=int(pid), is_admin=bool(_is_admin()))
         if not result["found"]:
             return jsonify({"success": False, "error": "That track isn't in your library"}), 404
+        if not result["changed"] and result["skipped"] and all(
+                why in ("shared", "not_yours") for why in result["skipped"].values()):
+            return jsonify({"success": False, "code": "shared",
+                            "error": "Only an admin can change the BPM of a track in the shared library."}), 403
         tracks = store.lookup(database, list(result["changed"]))
     except Exception as exc:  # noqa: BLE001
         logger.error("Setting the BPM failed: %s", exc, exc_info=True)

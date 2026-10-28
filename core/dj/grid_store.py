@@ -31,18 +31,24 @@ BEAT_CONFIDENT = 0.5
 _FIELDS = ("grid_version", "analyzed_at", "source_sig", "status", "reason", "kind", "bpm", "period",
            "first_beat", "downbeat_index", "first_downbeat", "beat_confidence", "downbeat_confidence", "meter",
            "bars", "beats_ms", "phrases_json", "sections_json", "mix_json", "analysed_s", "truncated",
-           "level_db", "replaygain_db")
+           "level_db", "replaygain_db", "measured_json")
 
 
-def _save(database, track_id: str, values: Dict[str, Any]) -> None:
+def _write(conn, track_id: str, values: Dict[str, Any]) -> None:
     fields = [f for f in _FIELDS if f in values]
+    if not fields:
+        return
     cols = ", ".join(["track_id"] + fields)
     marks = ", ".join("?" * (len(fields) + 1))
     updates = ", ".join(f"{f} = excluded.{f}" for f in fields)
+    conn.execute(f"INSERT INTO track_grid ({cols}) VALUES ({marks}) "
+                 f"ON CONFLICT(track_id) DO UPDATE SET {updates}",
+                 [str(track_id)] + [values[f] for f in fields])
+
+
+def _save(database, track_id: str, values: Dict[str, Any]) -> None:
     with closing(database._get_connection()) as conn:
-        conn.execute(f"INSERT INTO track_grid ({cols}) VALUES ({marks}) "
-                     f"ON CONFLICT(track_id) DO UPDATE SET {updates}",
-                     [str(track_id)] + [values[f] for f in fields])
+        _write(conn, track_id, values)
         conn.commit()
 
 
@@ -74,8 +80,11 @@ def save_result(database, track_id: str, result: Dict[str, Any], *, source_sig: 
                 replaygain_db: Optional[float] = None) -> None:
     """Keep one analysis (core/dj/grid.analyze_audio's result). A track
     whose BPM a person set (×2 or ÷2, ``track_dj.bpm_override``) keeps it: a
-    grid found at the other octave is rescaled to it (``rescale``), so no
-    later analysis undoes the person's choice."""
+    grid found at the other octave is rescaled to it (``follow_override``),
+    the measured one kept beside it, so no later analysis undoes the
+    person's choice. The person's BPM is read and the grid written in one
+    transaction, so a ×2 or a reset landing during the save is never lost
+    (it's applied to this grid, or this grid waits for it)."""
     done = result.get("status") == "done"
     mix = {"in": result.get("mix_in"), "out": result.get("mix_out")} if done else None
     values = {
@@ -96,17 +105,24 @@ def save_result(database, track_id: str, result: Dict[str, Any], *, source_sig: 
         "mix_json": json.dumps(mix, separators=(",", ":")) if done else None,
         "analysed_s": result.get("analysed_s"), "truncated": 1 if result.get("truncated") else 0,
         "level_db": result.get("level_db"), "replaygain_db": replaygain_db,
+        "measured_json": None,
     }
-    if done:
-        values.update(follow_override(values, _override(database, track_id)))
-    _save(database, track_id, values)
+    with closing(database._get_connection()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if done:
+                values.update(follow_override(values, _override(conn, track_id)))
+            _write(conn, track_id, values)
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
 
 
 # ── a person's ×2 or ÷2 (track_dj.bpm_override) ───────────────────────────────
 
-def _override(database, track_id: str) -> Optional[float]:
-    with closing(database._get_connection()) as conn:
-        row = conn.execute("SELECT bpm_override FROM track_dj WHERE track_id = ?", (str(track_id),)).fetchone()
+def _override(conn, track_id: str) -> Optional[float]:
+    row = conn.execute("SELECT bpm_override FROM track_dj WHERE track_id = ?", (str(track_id),)).fetchone()
     try:
         value = float(row[0]) if row and row[0] is not None else None
     except (TypeError, ValueError):
@@ -134,21 +150,40 @@ def octave_factor(grid_bpm, target) -> Optional[float]:
     return None
 
 
+def measured(row: Dict[str, Any]) -> Dict[str, Any]:
+    """The grid as the analysis measured it: the row itself, or, when a
+    person's BPM rescaled it, the measured values kept in ``measured_json``."""
+    kept = _loads(row.get("measured_json"), None)
+    if isinstance(kept, dict) and kept.get("period"):
+        return {**row, **{k: kept.get(k) for k in _RESCALED}, "measured_json": None}
+    return {**row, "measured_json": None}
+
+
 def follow_override(row: Dict[str, Any], target: Optional[float]) -> Dict[str, Any]:
     """The values that put a done grid row at the octave of ``target`` (a
-    person's BPM): ``{}`` when there's none, it's already there, or it isn't
-    an octave away."""
-    if target is None or row.get("status") != "done":
+    person's BPM, or None for none): always worked out from the measured
+    grid, never from an earlier rescale, so ÷2 then ×2 is the measured grid
+    again exactly. With no target, or one at the measured grid's own tempo
+    or not an octave of it, the measured grid comes back (``{}`` when the
+    row is it already). A rescaled row keeps the measured values in
+    ``measured_json``."""
+    if row.get("status") != "done":
         return {}
-    factor = octave_factor(row.get("bpm"), target)
+    base = measured(row)
+    restore = {k: base.get(k) for k in _RESCALED} if row.get("measured_json") else {}
+    if restore:
+        restore["measured_json"] = None
+    factor = octave_factor(base.get("bpm"), target) if target is not None else None
     if factor is None or factor == 1.0:
-        return {}
-    out = dict(row)
-    while factor not in (1.0, None):
+        return restore
+    out = dict(base)
+    while factor != 1.0:
         step = 2.0 if factor > 1 else 0.5
         out.update(rescale(out, step))
         factor /= step
-    return {k: out[k] for k in _RESCALED if k in out}
+    values = {k: out[k] for k in _RESCALED if k in out}
+    values["measured_json"] = json.dumps({k: base.get(k) for k in _RESCALED}, separators=(",", ":"))
+    return values
 
 
 #: what rescale changes
@@ -241,24 +276,19 @@ def rescale(row: Dict[str, Any], factor: float) -> Dict[str, Any]:
     }
 
 
-def apply_override(database, track_id: str, target: Optional[float]) -> bool:
-    """Put a track's done grid at the octave of a person's BPM now (the ×2 /
-    ÷2 route). True when the grid changed."""
-    row = get(database, track_id)
+def apply_override(conn, track_id: str, target: Optional[float]) -> bool:
+    """Put a track's done grid at the octave of a person's BPM (``target``),
+    or back to the measured one (None), on ``conn``, inside the caller's
+    transaction (core/dj/store.py ``set_tempo``). No decode either way.
+    True when the grid changed. A grid from an older version is left: the
+    sweep finds it again, and follows the person's BPM as it saves it."""
+    row = conn.execute("SELECT * FROM track_grid WHERE track_id = ?", (str(track_id),)).fetchone()
+    row = dict(row) if row else None
     if not row or int(row.get("grid_version") or 0) < GRID_VERSION:
-        return False  # none yet, or an old one the sweep redoes (and follows)
+        return False
     values = follow_override(row, target)
-    if values:
-        _save(database, track_id, values)
+    _write(conn, track_id, values)
     return bool(values)
-
-
-def requeue(database, track_id: str) -> None:
-    """Find this track's grid again from the audio (its BPM went back to the
-    measured one): the sweep's top-up redoes it."""
-    with closing(database._get_connection()) as conn:
-        conn.execute("UPDATE track_grid SET grid_version = 0 WHERE track_id = ?", (str(track_id),))
-        conn.commit()
 
 
 def mark(database, track_id: str, status: str, reason: Optional[str], *, version: int = GRID_VERSION,
@@ -268,7 +298,7 @@ def mark(database, track_id: str, status: str, reason: Optional[str], *, version
     _save(database, track_id, {"grid_version": int(version), "analyzed_at": time.time(), "status": status,
                                "reason": (reason or "")[:300] or None, "source_sig": source_sig,
                                "kind": None, "beats_ms": None, "phrases_json": None, "sections_json": None,
-                               "mix_json": None})
+                               "mix_json": None, "measured_json": None})
 
 
 def get(database, track_id: str) -> Optional[Dict[str, Any]]:
@@ -450,8 +480,17 @@ def public(row: Optional[Dict[str, Any]], track_id: str, *, with_beats: bool = T
 
 
 def public_entry(entry: Dict[str, Any], track_id: str, *, with_beats: bool = True) -> Dict[str, Any]:
-    """``public`` for one of ``scoped_rows``' entries."""
-    return public(entry.get("grid"), track_id, with_beats=with_beats, dj_status=entry.get("dj_status"))
+    """``public`` for one of ``scoped_rows``' entries. A grid that doesn't
+    sit at a person's BPM (×2 / ÷2; one that isn't an octave of it can't be
+    rescaled) is no grid to mix on: ``analyzed: false``, reason
+    ``bpm_mismatch``, so the planner plays on or echoes out rather than
+    beat-matching a tempo the person said is wrong. The BPM shown is the
+    person's either way."""
+    shaped = public(entry.get("grid"), track_id, with_beats=with_beats, dj_status=entry.get("dj_status"))
+    override = entry.get("bpm_override")
+    if override and shaped.get("analyzed") and octave_factor(shaped.get("bpm"), override) != 1.0:
+        return {"track_id": str(track_id), "analyzed": False, "reason": "bpm_mismatch"}
+    return shaped
 
 
 def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
@@ -479,7 +518,7 @@ def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]
                 f"t.album_id AS track_album_id, t.track_number AS track_no, t.disc_number AS disc_no, "
                 f"(SELECT MAX(t2.track_number) FROM tracks t2 WHERE t2.album_id = t.album_id "
                 f"AND COALESCE(t2.disc_number, 1) = COALESCE(t.disc_number, 1)) AS disc_last, "
-                f"d.musical_key AS musical_key, d.status AS dj_status, "
+                f"d.musical_key AS musical_key, d.status AS dj_status, d.bpm_override AS dj_bpm_override, "
                 f"g.* FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id "
                 f"LEFT JOIN track_grid g ON g.track_id = t.id WHERE t.id IN ({marks}) AND {where}",
                 chunk + params).fetchall()
@@ -494,11 +533,12 @@ def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]
                                       "bpm": r.get("eff_bpm"), "key": r.get("musical_key"),
                                       "title": r.get("track_title"), "dj_status": r.get("dj_status"),
                                       "album_id": r.get("track_album_id"), "track_number": r.get("track_no"),
-                                      "disc_number": r.get("disc_no"), "disc_last": r.get("disc_last")}
+                                      "disc_number": r.get("disc_no"), "disc_last": r.get("disc_last"),
+                                      "bpm_override": r.get("dj_bpm_override")}
     return out
 
 
 __all__ = ["BEAT_CONFIDENT", "DOWNBEAT_CONFIDENT", "ERROR_RETRY_SECONDS", "apply_override", "counts", "current",
            "decode_beats", "encode_beats", "fail_leftover_analyzing", "follow_override", "get", "grid_of", "mark",
-           "octave_factor", "pending_ids", "public", "public_entry", "requeue", "rescale", "save_result",
+           "measured", "octave_factor", "pending_ids", "public", "public_entry", "rescale", "save_result",
            "scoped_rows"]

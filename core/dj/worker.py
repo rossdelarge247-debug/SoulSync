@@ -493,8 +493,11 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
         # into a file, where DJ software would trust it
         confident = values["key_source"] != "analysis" or (values["key_confidence"] or 0) >= store.KEY_CONFIDENT
         progress.step("tags")
-        result = write_dj_tags(path, bpm=values["bpm"], key_name=values["key_name"] if confident else None,
-                               overwrite=overwrite_tags)
+        # a person's Double / Halve BPM is the one written, never the measured
+        # one under it (it's read now: one set during the analysis counts)
+        override = (store.get(database, track_id) or {}).get("bpm_override")
+        result = write_dj_tags(path, bpm=override or values["bpm"],
+                               key_name=values["key_name"] if confident else None, overwrite=overwrite_tags)
         written = list(result.get("written") or [])
         if result.get("error") and not written:
             logger.info("BPM and key not written into %s: %s", path, result["error"])

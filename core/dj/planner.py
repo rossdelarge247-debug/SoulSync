@@ -132,7 +132,8 @@ def _trust(track: Dict[str, Any], name: str) -> Optional[Tuple[str, str]]:
 
 
 _NO_GRID_WORDS = {"too_long": "is too long to analyse", "unreachable": "can't be opened",
-                  "error": "couldn't be analysed"}
+                  "error": "couldn't be analysed",
+                  "bpm_mismatch": "has a BPM set by hand that its beat grid doesn't match"}
 
 
 def _no_grid(track: Dict[str, Any], name: str) -> Tuple[str, str]:

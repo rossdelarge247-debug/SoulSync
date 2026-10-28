@@ -6,6 +6,7 @@ BPM column arrives on an install that had DJ data before it."""
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 
 import pytest
@@ -111,3 +112,71 @@ def test_an_install_with_dj_data_gets_the_bpm_override_columns(tmp_path):
     columns = {r[1] for r in _q(path, "PRAGMA table_info(track_dj)")}
     assert {"bpm_override", "bpm_override_at", "bpm_override_by"} <= columns
     assert _q(path, "SELECT bpm, bpm_override FROM track_dj WHERE track_id = '1'") == [(174.0, None)]
+
+
+def _fresh_with(path, sql_rows):
+    """A database as the previous release left it, then this release's start."""
+    MusicDatabase(str(path))
+    for sql, params in sql_rows:
+        _q(path, sql, params)
+    _q(path, "DELETE FROM metadata WHERE key = 'dj_tempo_octave_v5'")
+    _q(path, "DELETE FROM schema_migrations WHERE name = 'dj_tempo_octave_v5'")
+
+
+def test_a_grid_is_promoted_only_when_its_hint_was_at_100_to_140_too(tmp_path):
+    # review L2: a grid searches within 4% of its hint, so a hint at 96-99.9
+    # can land at 100 or more, and the new rule would test that hint at double
+    path = tmp_path / "music.db"
+    rows = []
+    for tid, hint, found in (("1", 98.0, 101.0), ("2", 120.0, 121.0), ("3", None, 124.0), ("4", 172.0, 104.0),
+                             ("5", 139.9, 139.0)):
+        rows.append(("INSERT INTO track_dj (track_id, status, bpm, analyzed_bpm, dj_analyzer_version) "
+                     "VALUES (?, 'done', ?, ?, 4)", (tid, hint, hint)))
+        rows.append(("INSERT INTO track_grid (track_id, status, bpm, grid_version) VALUES (?, 'done', ?, 2)",
+                     (tid, found)))
+    _fresh_with(path, rows)
+    _reopen(path)
+    grids = dict(_q(path, "SELECT track_id, grid_version FROM track_grid"))
+    assert {t for t, v in grids.items() if v == 3} == {"2", "3", "5"}
+
+
+def test_sample_studios_own_analyses_at_100_to_140_are_promoted_too(tmp_path):
+    # review L9: its rows keep the raw reading; one that folds into 100-140
+    # (halved above 200, doubled under 60) can't change
+    path = tmp_path / "music.db"
+    rows = [("INSERT INTO sample_analysis (track_id, bpm, analyzer_version) VALUES (?, ?, 4)", (tid, bpm))
+            for tid, bpm in (("1", 124.0), ("2", 230.0), ("3", 55.0), ("4", 87.0), ("5", 174.0), ("6", 200.0),
+                             ("7", 62.0))]
+    rows.append(("INSERT INTO sample_analysis (track_id, bpm, analyzer_version) VALUES ('8', 124.0, 3)", ()))
+    _fresh_with(path, rows)
+    _reopen(path)
+    versions = dict(_q(path, "SELECT track_id, analyzer_version FROM sample_analysis"))
+    assert {t for t, v in versions.items() if v == 5} == {"1", "2", "3"}
+    assert versions["8"] == 3  # an older version is analysed again anyway
+
+
+def test_a_failed_promotion_rolls_back_says_so_and_runs_again(tmp_path, caplog):
+    # review L8, as track_grid's own migration test: the step fails loudly
+    # (an ERROR naming it, schema_health), nothing is half done, and it runs
+    # again at the next start
+    path = tmp_path / "music.db"
+    _fresh_with(path, [
+        ("INSERT INTO track_dj (track_id, status, analyzed_bpm, bpm, dj_analyzer_version) "
+         "VALUES ('1', 'done', 120, 120, 4)", ()),
+        ("INSERT INTO track_grid (track_id, status, bpm, grid_version) VALUES ('1', 'done', 120, 2)", ()),
+        ("CREATE TRIGGER boom BEFORE UPDATE OF grid_version ON track_grid BEGIN SELECT RAISE(ABORT, 'boom'); END",
+         ()),
+    ])
+    with caplog.at_level(logging.ERROR):
+        db = _reopen(path)
+    health = db.schema_health()
+    assert not health["ok"] and any("promote_settled_tempos" in f["step"] for f in health["failed_steps"])
+    assert any("promote_settled_tempos" in r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR)
+    assert _q(path, "SELECT dj_analyzer_version FROM track_dj") == [(4,)]  # rolled back whole
+    assert not _q(path, "SELECT 1 FROM metadata WHERE key = 'dj_tempo_octave_v5'")
+    _q(path, "DROP TRIGGER boom")
+    db = _reopen(path)
+    assert db.schema_health()["ok"]
+    assert _q(path, "SELECT dj_analyzer_version FROM track_dj") == [(5,)]
+    assert _q(path, "SELECT grid_version FROM track_grid") == [(3,)]
+    assert _q(path, "SELECT 1 FROM schema_migrations WHERE name = 'dj_tempo_octave_v5'")

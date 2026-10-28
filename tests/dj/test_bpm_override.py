@@ -46,7 +46,8 @@ def db(tmp_path, monkeypatch):
 
 def _dj(db, tid, bpm, source="analysis", key="8A"):
     store.save(db, tid, {"bpm": bpm, "bpm_source": source, "musical_key": key, "key_source": "tag",
-                         "analyzed_bpm": bpm, "status": "done", "dj_analyzer_version": worker.analyzer_version()})
+                         "analyzed_bpm": bpm, "status": "done", "dj_analyzer_version": worker.analyzer_version(),
+                         "source_sig": "sig"})
 
 
 def _result(bpm=87.0, *, bars=16, kind="constant", downbeat=0, sections=(("intro", 0, 8), ("main", 8, 16)),
@@ -75,15 +76,19 @@ def _shown(db, tid):
 
 # ── which BPM is shown ───────────────────────────────────────────────────────
 
-def test_a_half_time_tag_or_enrichment_takes_the_analysiss_octave():
-    a = {"bpm": 172.2}
-    assert (store.decide(tag_bpm=87, analysis=a)["bpm"], store.decide(tag_bpm=87, analysis=a)["bpm_source"]) == \
-        (172.2, "analysis")
-    enriched = store.decide(enrichment_bpm=70, analysis={"bpm": 140.0})
+def test_a_half_time_tag_or_enrichment_takes_the_analysiss_octave_only_with_evidence():
+    a = {"bpm": 172.2, "tempo_basis": "backbeat"}
+    taken = store.decide(tag_bpm=87, analysis=a)
+    assert (taken["bpm"], taken["bpm_source"], taken["analyzed_bpm_basis"]) == (172.2, "analysis", "backbeat")
+    enriched = store.decide(enrichment_bpm=70, analysis={"bpm": 140.0, "tempo_basis": "genre"})
     assert (enriched["bpm"], enriched["bpm_source"]) == (140.0, "analysis")
+    # the tracker's own fast reading, or the range's, is no evidence: the tag
+    # stands (review H1: a boom-bap track tagged 72 that librosa reads at 144)
+    for basis in ("kept", "range", None):
+        assert store.decide(tag_bpm=72, analysis={"bpm": 143.6, "tempo_basis": basis})["bpm"] == 72.0
     # a tag is never halved, and one that isn't an octave away stands
-    assert store.decide(tag_bpm=174, analysis={"bpm": 87.0})["bpm"] == 174.0
-    assert store.decide(tag_bpm=124, analysis={"bpm": 172.0})["bpm_source"] == "tag"
+    assert store.decide(tag_bpm=174, analysis={"bpm": 87.0, "tempo_basis": "kept"})["bpm"] == 174.0
+    assert store.decide(tag_bpm=124, analysis={"bpm": 172.0, "tempo_basis": "backbeat"})["bpm_source"] == "tag"
     assert store.decide(tag_bpm=62, analysis={"bpm": 124.0})["bpm_source"] == "tag"  # 124 isn't ambiguous
 
 
@@ -138,29 +143,35 @@ def test_double_doubles_what_is_shown_and_the_grid_exactly(db):
     assert public["bpm"] == 174.0 and public["sections"][1]["start"] == pytest.approx(before.bar(8), abs=1e-3)
 
 
-def test_halve_then_double_gives_the_grid_back(db):
+_EXACT = ("bpm", "period", "first_beat", "downbeat_index", "first_downbeat", "bars", "beats_ms", "phrases_json",
+          "sections_json", "mix_json", "measured_json")
+
+
+@pytest.mark.parametrize("kind", ("constant", "beats"))
+@pytest.mark.parametrize("downbeat", (0, 1, 2, 3))
+@pytest.mark.parametrize("changes", ((8, 24), (9, 25), (9, 24)))
+def test_halve_then_double_gives_the_measured_grid_back_exactly(db, kind, downbeat, changes):
+    # review M2: every rescale is worked out from the grid as measured (kept
+    # beside it), never from an earlier rescale, so odd section changes and
+    # an odd downbeat come back exactly
     _dj(db, "1", 174.0)
-    for kind in ("constant", "beats"):
-        original = _grid(db, "1", bpm=174.0, kind=kind, downbeat=3, bars=32,
-                         sections=(("intro", 0, 8), ("main", 8, 24), ("outro", 24, 32)))
-        store.set_tempo(db, ["1"], "halve", profile_id=1)
-        half = grid_store.get(db, "1")
-        assert half["bpm"] == pytest.approx(87.0, abs=0.01) and half["bars"] == 16
-        # the downbeat's beats are kept (3 is odd: the odd ones), the one stays the one
-        assert half["first_downbeat"] == pytest.approx(original["first_downbeat"], abs=1e-3)
-        if kind == "beats":
-            assert grid_store.decode_beats(half["beats_ms"]) == grid_store.decode_beats(original["beats_ms"])[1::2]
-        store.set_tempo(db, ["1"], "double", profile_id=1)
+    sections = (("intro", 0, changes[0]), ("main", changes[0], changes[1]), ("outro", changes[1], 32))
+    original = _grid(db, "1", bpm=174.0, kind=kind, downbeat=downbeat, bars=32, sections=sections)
+    for steps in (("halve", "double"), ("halve", "reset"), ("halve", "halve", "double", "double")):
+        for action in steps:
+            store.set_tempo(db, ["1"], action, profile_id=1)
         back = grid_store.get(db, "1")
-        assert back["bpm"] == pytest.approx(174.0, abs=0.01)
-        for field in ("bars", "sections_json", "mix_json", "phrases_json"):
-            assert back[field] == original[field], field
-        assert grid_store.grid_of(back).bar(5) == pytest.approx(grid_store.grid_of(original).bar(5), abs=2e-3)
-        if kind == "beats":
-            got, want = grid_store.decode_beats(back["beats_ms"]), grid_store.decode_beats(original["beats_ms"])
-            # the beat before the downbeat's first odd one went with the halving
-            assert got[:len(want) - 1] == pytest.approx(want[1:], abs=0.002)
+        assert {k: back[k] for k in _EXACT} == {k: original[k] for k in _EXACT}, steps
         store.set_tempo(db, ["1"], "reset", profile_id=1)
+    half = (store.set_tempo(db, ["1"], "halve", profile_id=1), grid_store.get(db, "1"))[1]
+    assert half["bpm"] == pytest.approx(87.0, abs=0.01) and half["measured_json"]
+    # the one stays on a bar line: bar 0's, or bar 1's when the bars pair
+    # from there (most section changes on odd bars)
+    pair_from = 1 if sum(c % 2 for c in changes) > len(changes) / 2 else 0
+    assert half["first_downbeat"] == pytest.approx(grid_store.grid_of(original).bar(pair_from), abs=2e-3)
+    if kind == "beats":
+        parity = downbeat % 2
+        assert grid_store.decode_beats(half["beats_ms"]) == grid_store.decode_beats(original["beats_ms"])[parity::2]
 
 
 def test_halving_pairs_the_bars_so_section_changes_stay_on_a_bar_line(db):
@@ -186,14 +197,84 @@ def test_what_cant_be_changed_is_said(db):
         store.set_tempo(db, ["1"], "triple")
 
 
-def test_reset_goes_back_to_the_measured_bpm_and_finds_the_grid_again(db):
+def test_reset_puts_the_measured_grid_back_without_a_decode(db):
+    # review M4: no requeue, so no gap with no grid (or for ever, analysis off)
     _dj(db, "1", 87.0)
-    _grid(db, "1", bpm=87.0)
+    measured = _grid(db, "1", bpm=87.0, downbeat=1, sections=(("intro", 0, 9), ("main", 9, 16)))
     store.set_tempo(db, ["1"], "double", profile_id=1)
+    assert grid_store.get(db, "1")["bpm"] == pytest.approx(174.0)
     assert store.set_tempo(db, ["1"], "reset", profile_id=1)["changed"] == {"1": None}
     assert store.get(db, "1")["bpm_override"] is None
-    assert _shown(db, "1")["bpm"] == 87.0 and _shown(db, "1")["bpm_source"] == "analysis"
-    assert "1" in grid_store.pending_ids(db, worker.analyzer_version())
+    assert _shown(db, "1")["bpm"] == 87.0 and _shown(db, "1")["bpm_source"] == "grid"
+    back = grid_store.get(db, "1")
+    assert {k: back[k] for k in _EXACT} == {k: measured[k] for k in _EXACT}
+    assert back["grid_version"] == GRID_VERSION and "1" not in grid_store.pending_ids(db, worker.analyzer_version())
+
+
+def test_a_grid_that_isnt_an_octave_of_the_persons_bpm_isnt_mixed_on(db):
+    # review L6: the BPM shown is the person's; the planner doesn't beat-match
+    # a grid that disagrees with it
+    from core.dj import planner
+
+    _dj(db, "1", 87.0)
+    _dj(db, "3", 124.0)
+    _grid(db, "3", bpm=124.0)
+    store.set_tempo(db, ["1"], "double", profile_id=1)  # 174, before any grid
+    _grid(db, "1", bpm=120.0)  # a later analysis finds another tempo altogether
+    assert _shown(db, "1")["bpm"] == 174.0 and _shown(db, "1")["bpm_source"] == "override"
+    found = grid_store.scoped_rows(db, ["1", "3"])
+    shaped = grid_store.public_entry(found["1"], "1")
+    assert shaped == {"track_id": "1", "analyzed": False, "reason": "bpm_mismatch"}
+    out_t = {**shaped, "bpm": found["1"]["bpm"], "title": "Night Ferry"}
+    in_t = {**grid_store.public_entry(found["3"], "3"), "bpm": 124.0, "title": "Elsewhere"}
+    plan = planner.plan(out_t, in_t)
+    assert plan["status"] == "play_on" and plan["fallback"]["code"] == "bpm_mismatch"
+    assert "set by hand" in plan["why"]
+
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("action,want", (("double", 174.0), ("reset", 87.0)))
+def test_a_change_during_a_grid_save_is_never_lost(db, monkeypatch, action, want):
+    # review L5: the person's BPM is read and the grid written in one
+    # transaction; a ×2 (or a reset) sent while the sweep saves a grid waits
+    # for it and then applies to the grid just saved
+    import threading
+
+    _dj(db, "1", 87.0)
+    if action == "reset":
+        _grid(db, "1", bpm=87.0)
+        store.set_tempo(db, ["1"], "double", profile_id=1)
+    real = grid_store.follow_override
+    seen = {}
+
+    def during_the_save(row, target):
+        thread = threading.Thread(target=lambda: seen.update(out=store.set_tempo(db, ["1"], action, profile_id=1)))
+        thread.start()
+        thread.join(0.5)
+        seen["waited"] = thread.is_alive()  # the change waits for the save's transaction
+        seen["thread"] = thread
+        return real(row, target)
+
+    monkeypatch.setattr(grid_store, "follow_override", during_the_save)
+    grid_store.save_result(db, "1", _result(bpm=87.0), source_sig="sig")
+    seen["thread"].join(10)
+    monkeypatch.setattr(grid_store, "follow_override", real)
+    assert seen["waited"] and seen["out"]["changed"]
+    row = grid_store.get(db, "1")
+    assert row["bpm"] == pytest.approx(want, abs=0.01)
+    assert _shown(db, "1")["bpm"] == pytest.approx(want, abs=0.01)
+
+
+@pytest.mark.gauntlet
+def test_a_grid_saved_after_a_change_follows_it(db):
+    # the other order: the change first, then the sweep's save
+    _dj(db, "1", 87.0)
+    store.set_tempo(db, ["1"], "double", profile_id=1)
+    grid_store.save_result(db, "1", _result(bpm=87.0), source_sig="sig")
+    row = grid_store.get(db, "1")
+    assert row["bpm"] == pytest.approx(174.0) and json.loads(row["measured_json"])["bpm"] == 87.0
+    store.set_tempo(db, ["1"], "reset", profile_id=1)
+    assert grid_store.get(db, "1")["bpm"] == pytest.approx(87.0)
 
 
 @pytest.mark.gauntlet
@@ -211,8 +292,12 @@ def test_no_later_analysis_undoes_a_persons_bpm(db, tmp_path):
     analysis = {"bpm": 86.1, "onsets": [], "duration_s": 2.0, "key": {"name": "A minor", "confidence": 0.9},
                 "energy": 6, "analyzer_version": worker.analyzer_version(), "truncated": False}
     out = worker.process_track(db, "2", resolve=lambda p: path, analyze=lambda p: dict(analysis),
-                               analyze_grid=grid_at_half_time)
-    assert out == "done"
+                               analyze_grid=grid_at_half_time, write_tags=True,
+                               library_roots=lambda: [str(tmp_path)])
+    assert out == "tagged"
+    from core.dj.tags import read_dj_tags
+
+    assert read_dj_tags(path)["bpm"] == 174  # the person's BPM goes into the file, not the measured 86
     shown = _shown(db, "2")
     assert (shown["bpm"], shown["bpm_source"]) == (174.0, "override")
     row = grid_store.get(db, "2")
@@ -234,7 +319,10 @@ def client(db, monkeypatch):
 
     for tid, bpm in (("1", 87.0), ("3", 172.0), ("4", 86.0)):
         _dj(db, tid, bpm)
+    from core.dj import ondemand
+
     dj_api.configure(get_database_=lambda: db)
+    monkeypatch.setattr(dj_api, "_BPM_LIMIT", ondemand.RateLimit(every=0))
     state = {"profile": 2, "admin": False, "scope": "shared"}
     monkeypatch.setattr(pc, "is_admin_request", lambda: state["admin"])
     app = Flask(__name__)
@@ -262,6 +350,7 @@ def _post(client, **body):
 
 
 def test_double_and_halve_through_the_route(client, db):
+    client.state["admin"] = True
     res = _post(client, track_ids=["1", "3"], action="double")
     body = res.get_json()
     assert res.status_code == 200 and body["success"]
@@ -273,17 +362,44 @@ def test_double_and_halve_through_the_route(client, db):
 
 
 @pytest.mark.gauntlet
-def test_a_member_only_changes_tracks_in_their_own_library(client, db):
-    # profile 7's own library holds track 4; the shared library is everyone else's
-    assert _post(client, track_ids=["4"], action="double").status_code == 404
-    body = _post(client, track_ids=["4", "1"], action="double").get_json()
-    assert body["changed"] == {"1": 174.0} and "4" not in body["skipped"] and "4" not in body["tracks"]
-    assert store.get(db, "4")["bpm_override"] is None
+def test_a_member_changes_only_their_own_librarys_tracks(client, db):
+    # review L3: the override is per track, for everyone: a shared track's is
+    # an admin's to set; a member sets their own library's
+    res = _post(client, track_ids=["1"], action="double")
+    assert res.status_code == 403 and res.get_json()["code"] == "shared"
+    assert "admin" in res.get_json()["error"] and store.get(db, "1")["bpm_override"] is None
+    assert _post(client, track_ids=["4"], action="double").status_code == 404  # not in their scope at all
     # profile 7 on its own library changes track 4 and can't reach the shared ones
     client.state.update(profile=7, scope=7)
     assert _post(client, track_ids=["1"], action="reset").status_code == 404
     assert _post(client, track_ids=["4"], action="double").get_json()["changed"] == {"4": 172.0}
-    assert store.get(db, "1")["bpm_override"] == 174.0
+    # an admin changes a shared track
+    client.state.update(profile=1, scope="shared", admin=True)
+    assert _post(client, track_ids=["1"], action="double").get_json()["changed"] == {"1": 174.0}
+    # a mixed batch (everything in scope): a member's own is changed, a shared one said
+    from core.library_scope import reset_library_scope, set_library_scope
+
+    token = set_library_scope(None)
+    try:
+        out = store.set_tempo(db, ["1", "4"], "halve", profile_id=7, is_admin=False)
+        assert out["changed"] == {"4": 86.0} and out["skipped"] == {"1": "shared"}
+        assert store.set_tempo(db, ["4"], "reset", profile_id=2, is_admin=False)["skipped"] == {"4": "not_yours"}
+    finally:
+        reset_library_scope(token)
+
+
+@pytest.mark.gauntlet
+def test_the_route_allows_one_change_a_second(client, monkeypatch):
+    # review L4, as /analyse
+    import api.dj as dj_api
+    from core.dj import ondemand
+
+    client.state["admin"] = True
+    monkeypatch.setattr(dj_api, "_BPM_LIMIT", ondemand.RateLimit(every=1.0))
+    assert _post(client, track_ids=["1"], action="double").status_code == 200
+    res = _post(client, track_ids=["1"], action="halve")
+    assert res.status_code == 429 and res.headers["Retry-After"] == "1"
+    assert res.get_json()["code"] == "rate_limited"
 
 
 @pytest.mark.gauntlet
