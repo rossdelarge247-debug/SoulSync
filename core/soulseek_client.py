@@ -1153,8 +1153,9 @@ class SoulseekClient(DownloadSourcePlugin):
         flight on its event loop (one started since the list last changed) or
         starts one, and waits for it. With ``stale_ok``, a reader that has a
         copy at most that many seconds old takes it straight away and leaves
-        the read to refresh it: what a request thread wants, so a slow slskd
-        never holds a browser request. ``max_age=0`` always waits for a read
+        the read to refresh it, and one that finds a read already under way
+        doesn't wait for it (it gets that copy, or ``None``): what a request
+        thread wants, so a slow slskd never holds a browser request. ``max_age=0`` always waits for a read
         that starts now. ``None`` when slskd didn't answer (as
         ``_make_request``). The list is shared: read it, don't change it."""
         if not self.base_url:
@@ -1173,6 +1174,12 @@ class SoulseekClient(DownloadSourcePlugin):
             entry = reads.get(loop)
             if entry is not None and entry[0] == generation and max_age > 0:
                 read = entry[1]
+                if stale_ok:
+                    # a read is already under way and slskd is taking its
+                    # time: a request thread doesn't queue behind it (with
+                    # slskd hung each Downloads poll waited its full limit)
+                    fresh_enough = snapshot is not None and now - snapshot[0] <= stale_ok
+                    return snapshot[1] if fresh_enough else None
             else:
                 read = loop.create_task(self._read_transfers(generation))
                 reads[loop] = (generation, read)

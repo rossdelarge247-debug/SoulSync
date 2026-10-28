@@ -471,3 +471,21 @@ def test_monitor_handles_slskd_refusing_connections_as_before(monkeypatch):
 def test_monitor_empty_list_is_not_a_failure(monkeypatch):
     dm, mon = _monitor(monkeypatch, _Orch([[]]))
     assert mon._get_live_transfers() == {}
+
+
+def test_a_request_thread_does_not_queue_behind_a_read_under_way():
+    """Re-measure after the review: with slskd hung and the copy older than
+    30 s, every Downloads poll waited its full 5 s for the same read."""
+    client, slskd = _client(), _Slskd(delay=1.0)
+    client._make_request = slskd
+
+    async def scenario():
+        first = asyncio.ensure_future(client.get_transfers_snapshot())   # the monitor
+        await asyncio.sleep(0.05)
+        started = time.monotonic()
+        got = await client.get_transfers_snapshot(stale_ok=30)          # a request thread
+        return got, time.monotonic() - started, await first
+
+    got, waited, first = run_async(scenario())
+    assert got is None and waited < 0.2
+    assert first == LIST and slskd.reads == 1
