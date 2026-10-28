@@ -211,7 +211,7 @@ def test_noise_through_the_planner_falls_back():
            "beat_confidence": r.get("beat_confidence")}
     assert grid_store.public(row, "2")["reason"] == "no_beat"
     p = planner.plan(_track(_row(124.0)), _track(row, title="Static", tid="2"), style="long_blend")
-    assert p["style"] == "echo_out" and p["fallback"]["reason"] == "Static has no steady beat"
+    assert p["status"] == "cut" and p["fallback"]["reason"] == "Static has no steady beat"
 
 
 @pytest.mark.gauntlet
@@ -254,7 +254,7 @@ def test_an_amen_style_break_is_on_the_beat_not_on_the_kicks(case):
     assert grid.MIN_BEAT_CONFIDENCE <= r["beat_confidence"] < grid_store.BEAT_CONFIDENT
 
 
-def test_a_break_echoes_out_in_the_planner():
+def test_a_break_is_not_beat_matched_in_the_planner():
     from core.dj import planner
 
     from .grid_fixtures import break_track
@@ -264,7 +264,8 @@ def test_a_break_echoes_out_in_the_planner():
     r = grid.analyze_audio(y, SR, bpm_hint=165.0)
     incoming = _track(_row(165.0, first=r["first_downbeat"], conf=r["beat_confidence"]), title="Amen", tid="2")
     p = planner.plan(_track(_row(165.0)), incoming, style="long_blend")
-    assert p["style"] == "echo_out" and p["fallback"]["code"] == "low_confidence"
+    # held under 0.5 (311): not beat-matched; the outgoing track is ready, so 302's cut
+    assert p["status"] == "cut" and p["fallback"]["code"] == "low_confidence"
     assert p["fallback"]["reason"] == "Amen has no steady beat"
 
 
