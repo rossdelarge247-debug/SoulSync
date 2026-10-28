@@ -821,6 +821,7 @@ class MusicDatabase:
                 ("sample_analysis", "key_confidence", "REAL"),
                 ("sample_analysis", "source_sig", "TEXT"),
                 ("sample_analysis", "energy", "REAL"),
+                ("sample_analysis", "tempo_basis", "TEXT"),
                 ("sample_stems", "source_sig", "TEXT"),
                 ("sample_stash", "normalize", "TEXT"),
                 ("sample_stash", "fade_ms", "REAL"),
@@ -852,6 +853,10 @@ class MusicDatabase:
             # Auto-mix stage A: each track's beat grid, downbeats, phrases,
             # sections and mix regions (core/dj/grid_store.py)
             self._add_track_grid_table(cursor)
+
+            # The tempo's octave (drum and bass at 174, not 87): the DJ data
+            # and grids it can't change move to the new versions undecoded
+            self._promote_settled_tempos(cursor)
 
             # Per-user curation signals read back off the media server —
             # what people deliberately CHOSE about a track (favourited,
@@ -2181,6 +2186,7 @@ class MusicDatabase:
         'track_stars_v1':            ('table', 'track_stars'),
         'dj_working_sets_v1':        ('table', 'dj_working_sets'),
         'track_grid_v1':             ('table', 'track_grid'),
+        'dj_tempo_octave_v5':        ('flag', 'dj_tempo_octave_v5'),
         'similar_artists_rematch':  ('table', '_similar_artists_rematch_applied'),
         'beatport_positional_purged': ('table', '_beatport_positional_purged'),
     }
@@ -3843,7 +3849,8 @@ class MusicDatabase:
                     key_name TEXT,
                     key_confidence REAL,
                     source_sig TEXT,
-                    energy REAL
+                    energy REAL,
+                    tempo_basis TEXT
                 )
             """)
             self._copy_rows_for_rebuild(cursor, "sample_analysis", "sample_analysis_text",
@@ -3872,6 +3879,13 @@ class MusicDatabase:
         ('error', 'TEXT'),
         ('tags_written', 'TEXT'),          # e.g. "bpm,key"
         ('tags_written_at', 'REAL'),
+        # a person's ×2 or ÷2 (core/dj/store.py set_tempo): shown before any
+        # measured BPM and never written by analysis, so none undoes it
+        ('bpm_override', 'REAL'),
+        ('bpm_override_at', 'REAL'),
+        ('bpm_override_by', 'INTEGER'),    # the profile that set it
+        ('analyzed_bpm_basis', 'TEXT'),    # why the analysis chose its octave (core/sample/tempo.py)
+        ('bpm_tag_written', 'REAL'),       # a BPM written into the file from a person's ×2 / ÷2 (ignored as a tag)
     )
 
     def _add_track_dj_table(self, cursor):
@@ -4044,6 +4058,9 @@ class MusicDatabase:
         ('truncated', 'INTEGER'),
         ('level_db', 'REAL'),
         ('replaygain_db', 'REAL'),
+        # the grid as measured, kept while a person's ×2 / ÷2 rescales it
+        # (core/dj/grid_store.py follow_override), so a reset puts it back
+        ('measured_json', 'TEXT'),
     )
 
     def _add_track_grid_table(self, cursor):
@@ -4062,6 +4079,55 @@ class MusicDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_track_grid_version ON track_grid (grid_version)")
             if self._migration_step_ok():
                 self._record_migration(cursor, 'track_grid_v1')
+
+    def _promote_settled_tempos(self, cursor):
+        """One-time, for the tempo-octave fix (analyzer v5, grid v3;
+        core/sample/tempo.py): the new rule only ever changes a tempo read at
+        70–100 or 140–200, so a track whose analysis read 100–140 comes out
+        the same. Those rows move to the new versions without a decode; the
+        rest (and any row that didn't finish) are analysed again by the
+        sweep. Rows the sweep wouldn't decode at the old version either (an
+        error, too long to analyse) keep their state.
+
+        - DJ data (``track_dj``) read at 100–140, or with no tempo.
+        - Sample Studio's own rows (``sample_analysis``, the raw reading)
+          whose reading folds into 100–140 (it is halved above 200 and
+          doubled under 60, as the DJ data keeps it), so opening one in
+          Sample Studio doesn't decode it again.
+        - Grids at 100–140 **found from a hint at 100–140** (the DJ data's
+          BPM, the tempo the grid looked near), or from no hint: a grid
+          searches within 4% of its hint, so a hint at 96–99.9 can land at
+          100 and would be tested at double now. Grids too short to have a
+          tempo, and failed, too long or unreachable ones, keep their state.
+
+        Marker-gated; a re-run is a no-op (it only moves v4 and v2 rows, and
+        the marker stops it anyway)."""
+        with self._migration_step(cursor, 'promote_settled_tempos'):
+            cursor.execute("SELECT value FROM metadata WHERE key = 'dj_tempo_octave_v5' LIMIT 1")
+            if cursor.fetchone():
+                return
+            cursor.execute(
+                "UPDATE track_dj SET dj_analyzer_version = 5 WHERE dj_analyzer_version = 4 AND ("
+                " (status = 'done' AND ((analyzed_bpm >= 100 AND analyzed_bpm < 140) OR analyzed_bpm IS NULL))"
+                " OR status IN ('error', 'skipped'))")
+            dj = cursor.rowcount
+            cursor.execute(
+                "UPDATE sample_analysis SET analyzer_version = 5 WHERE analyzer_version = 4 AND ("
+                " (bpm >= 100 AND bpm < 140) OR (bpm > 200 AND bpm < 280) OR (bpm >= 50 AND bpm < 60))")
+            sample = cursor.rowcount
+            cursor.execute(
+                "UPDATE track_grid SET grid_version = 3 WHERE grid_version = 2 AND ("
+                " (status IN ('done', 'none') AND bpm >= 100 AND bpm < 140 AND NOT EXISTS ("
+                "   SELECT 1 FROM track_dj d WHERE d.track_id = track_grid.track_id"
+                "   AND d.bpm IS NOT NULL AND (d.bpm < 100 OR d.bpm >= 140)))"
+                " OR (status = 'none' AND reason = 'too_short')"
+                " OR status IN ('error', 'skipped', 'unreachable'))")
+            grids = cursor.rowcount
+            self._mark_step_done(cursor, 'dj_tempo_octave_v5', 'true')
+            self._record_migration(cursor, 'dj_tempo_octave_v5')
+            if dj or grids or sample:
+                logger.info("Tempo octave: %s DJ rows, %s Sample Studio analyses and %s grids need no new "
+                            "analysis", dj, sample, grids)
 
     def _migrate_id_columns_to_text(self, cursor):
         """Migrate ID columns from INTEGER to TEXT to support both Plex (int) and Jellyfin (GUID) IDs"""

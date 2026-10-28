@@ -87,6 +87,10 @@ core/dj/store.py
 core/dj/grid.py
 core/dj/grid_store.py
 core/dj/planner.py
+# The tempo's octave (drum and bass at 174, not 87): the rule the sweep's
+# analysis and the grid run on every library file (it reads each file's genre
+# tag); a person's Double / Halve BPM is in api/dj.py and core/dj/store.py above
+core/sample/tempo.py
 # Auto-mix stage B: the window route's decoder (runs ffmpeg on a library
 # file for a caller, with caps on length, end and how many at once; the route
 # and its scope check are in api/dj.py above, the kids guard in

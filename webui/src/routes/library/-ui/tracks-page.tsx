@@ -32,6 +32,7 @@ import { EnergyMeter } from '@/features/dj/energy-meter';
 import { KeyChip } from '@/features/dj/key-chip';
 import { keyLongName } from '@/features/dj/key-colour';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
+import { allShared, useSetTempo } from '@/features/dj/tempo';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
 import { awayWords } from '@/features/drives/drives.format';
@@ -65,6 +66,9 @@ const SORT_LABELS: Record<TrackSort, string> = {
 
 const ANALYSIS_PREFIX = 'BPM, key and energy: ';
 
+/** Why a member can't set a shared track's BPM (the menus' second line). */
+const SHARED_TEMPO_WORDS = 'Only an admin can change a shared track’s BPM';
+
 function usePhone(): boolean {
   const query = '(max-width: 640px)';
   const [phone, setPhone] = useState(
@@ -93,9 +97,10 @@ function artistHref(track: DjTrack): string | null {
 
 /**
  * The "…" (24a's one order): Play next, Mixes well with…, Add to mix set…,
- * Add to playlist…, Open artist, Open album; on a phone Star comes first
- * (28d). A starred track whose file is gone (the Starred filter) has only
- * what still makes sense.
+ * Add to playlist…, Double BPM, Halve BPM (Use the measured BPM after
+ * either), Open artist, Open album; on a phone Star comes first (28d). A
+ * starred track whose file is gone (the Starred filter) has only what still
+ * makes sense.
  */
 function moreEntries(
   track: DjTrack,
@@ -106,6 +111,8 @@ function moreEntries(
     anchor,
     phone,
     star,
+    setTempo,
+    canSetTempo,
   }: {
     artist: string | null;
     album: string | null;
@@ -113,6 +120,9 @@ function moreEntries(
     anchor: () => HTMLElement | null | undefined;
     phone: boolean;
     star: ReturnType<typeof useStar>;
+    setTempo: ReturnType<typeof useSetTempo>;
+    /** a member can't set a shared track's BPM: why, or null */
+    canSetTempo: string | null;
   },
 ): SheetAction[] {
   const missing = Boolean(track.file_missing);
@@ -126,6 +136,12 @@ function moreEntries(
         ? null
         : { onSelect: () => playTrackNext(track), disabled: Boolean(away), reason: away?.words },
       addToPlaylist: missing ? null : () => addTrackToPlaylist(track, anchor()),
+      tempo: {
+        bpm: track.dj?.bpm ?? null,
+        overridden: track.dj?.bpm_source === 'override',
+        blocked: canSetTempo,
+        onSet: (action) => void setTempo([track.id], action),
+      },
       artistHref: artist,
       albumHref: album,
     },
@@ -166,6 +182,8 @@ function TrackRow({
   const [failed, setFailed] = useState(false);
   const [sheet, setSheet] = useState(false);
   const star = useStar(track.id);
+  const setTempo = useSetTempo();
+  const { isAdmin } = useProfile();
   const missing = Boolean(track.file_missing);
   const entries = moreEntries(track, {
     artist,
@@ -173,6 +191,8 @@ function TrackRow({
     away,
     phone,
     star,
+    setTempo,
+    canSetTempo: track.shared && !isAdmin ? SHARED_TEMPO_WORDS : null,
     anchor: () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
   });
   const key = dj?.key ? (
@@ -492,9 +512,10 @@ export function TracksPage({
 }) {
   const awayId = useId();
   const away = awayDrive ? { id: awayId, words: awayWords(awayDrive) } : undefined;
-  const { profileId } = useProfile();
+  const { profileId, isAdmin } = useProfile();
   const phone = usePhone();
   const queryClient = useQueryClient();
+  const setTempo = useSetTempo();
   const playingId = usePlayingTrackId();
   const sort = pick(search.sort, TRACK_SORTS);
   const withMix = search.key.endsWith(':mix');
@@ -586,6 +607,8 @@ export function TracksPage({
   // 153: the 120px bar counts what's done, beside the words
   const progress = s && !phone ? analysisProgress(s) : null;
   const clearFilters = () => go({ q: '', bpm: '', key: '', starred: '' });
+  // a member's picks all in the shared library: nothing they can set
+  const pickedAllShared = !isAdmin && allShared(picked, tracks);
   const pickedTracks = () => {
     const byId = new Map(tracks.map((t) => [t.id, t]));
     return picked.map((id) => byId.get(id)).filter((t): t is DjTrack => Boolean(t));
@@ -893,7 +916,8 @@ export function TracksPage({
           }
           onPrimary={(anchor) => addPickedToMixSet(anchor)}
           // 28b: Star all; 232: Add to playlist…, Start a set from these
-          // (Library → Sets' draft), then Clear the selection
+          // (Library → Sets' draft), then Clear the selection; Double and
+          // Halve BPM after Add to playlist… (HANDOFF 344)
           menu={[
             ...(phone
               ? [
@@ -920,6 +944,21 @@ export function TracksPage({
                   tracks.filter((t) => picked.includes(t.id)).map(playlistTrack),
                   null,
                 ),
+            },
+            // the picked tracks' BPM at double or half (a half-time read)
+            {
+              key: 'double',
+              label: 'Double BPM',
+              disabled: !picked.length || pickedAllShared,
+              reason: pickedAllShared ? SHARED_TEMPO_WORDS : undefined,
+              onSelect: () => void setTempo(picked, 'double'),
+            },
+            {
+              key: 'halve',
+              label: 'Halve BPM',
+              disabled: !picked.length || pickedAllShared,
+              reason: pickedAllShared ? SHARED_TEMPO_WORDS : undefined,
+              onSelect: () => void setTempo(picked, 'halve'),
             },
             {
               key: 'set',

@@ -376,6 +376,8 @@ describe('Library → Tracks', () => {
       'Mixes well with…',
       'Add to mix set…',
       'Add to playlist…',
+      'Double BPM',
+      'Halve BPM',
       'Open artist',
       'Open album',
     ]);
@@ -451,6 +453,8 @@ describe('Library → Tracks', () => {
     expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
       'Star all',
       'Add to playlist…',
+      'Double BPM',
+      'Halve BPM',
       'Start a set from these',
       'Analyse theseTick tracks to select them',
       'Clear the selection',

@@ -44,8 +44,11 @@ import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 #: bump when the analysis changes: the sweep redoes every track's grid
-#: (2: the sixteenth check, below, for syncopated breaks)
-GRID_VERSION = 2
+#: (2: the sixteenth check, below, for syncopated breaks; 3: the tempo's
+#: octave, ``_octave`` below: drum and bass is 174, not 87. Grids at 100-140
+#: BPM can't change, and are promoted without a decode by
+#: database/music_database.py ``_promote_settled_tempos``)
+GRID_VERSION = 3
 
 SR = 22050
 HOP = 256            # 11.6 ms a frame
@@ -233,8 +236,9 @@ def _estimate_bpm(env) -> Optional[float]:
 def _tempo(env, bpm_hint: Optional[float]) -> Optional[float]:
     """The tempo to look near: the hint (the DJ data's BPM: a tag, enrichment
     or the first analysis) when there is one, else the envelope's own,
-    folded into 70–180. The grid search then finds the exact period within
-    4% of it."""
+    folded into 70–200 (the tempo rule's bands, core/sample/tempo.py: a
+    hardcore or gabber tag at 180–200 is kept, not halved). The grid search
+    then finds the exact period within 4% of it."""
     bpm = None
     if bpm_hint:
         try:
@@ -247,7 +251,7 @@ def _tempo(env, bpm_hint: Optional[float]) -> Optional[float]:
         return None
     while bpm < 70:
         bpm *= 2
-    while bpm >= 180:
+    while bpm >= 200:
         bpm /= 2
     return bpm
 
@@ -419,6 +423,44 @@ def _local_alignment(times, weights, period: float) -> float:
     return float(np.median(found)) if found else 0.0
 
 
+def _octave(feat, times, weights, bpm: float, *, hinted: bool) -> float:
+    """The tempo in its octave (core/sample/tempo.py): a slow reading (70-100)
+    is doubled when the backbeat falls on every other beat of the double
+    (drum and bass's snare on two and four of 174), and, for the grid's own
+    scan, when it's under 78 (dubstep's 70 is 140). A hint (the DJ data's
+    BPM) has already been through that rule or is a tag, so only the
+    backbeat can double it; a fast reading is never halved here."""
+    import numpy as np
+
+    from core.sample import tempo
+
+    if not tempo.is_slow(bpm):
+        return bpm
+    chosen, why = tempo.choose(bpm, use_range=not hinted)
+    if why != "kept":
+        return chosen
+    period, first, _ = _steady_grid(times, weights, 60.0 / (2 * bpm))
+    duration = float(np.max(times)) if times.size else 0.0
+    fast = first + np.arange(0, int(max(0.0, duration - first) / period) + 1) * period
+    evidence = tempo.backbeat(feat["env_mid"], SR / HOP, fast)
+    return tempo.choose(bpm, evidence=evidence, use_range=not hinted)[0]
+
+
+def _fast_backbeat(feat, beats) -> bool:
+    """A grid at 140-200 BPM whose snare falls on every other beat (drum and
+    bass, a break at its own tempo): half its beats are snares, so they're
+    told by the whole spectrum as well as the kick. Never true at 100-140,
+    so those grids score as they always have."""
+    import numpy as np
+
+    from core.sample import tempo
+
+    beats = np.asarray(beats, dtype=np.float64)
+    if beats.size < tempo.MIN_BEATS or not tempo.is_fast(60.0 / float(np.median(np.diff(beats)))):
+        return False
+    return tempo.backbeat(feat["env_mid"], SR / HOP, beats)["vote"] == "fast"
+
+
 def _octave_of(a: float, b: float) -> bool:
     """True when two tempos are the same up to halving or doubling (±4%)."""
     for factor in (0.5, 1.0, 2.0):
@@ -581,8 +623,11 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
     bpm = hinted or scanned or _tempo(env, None)
     if bpm is None:
         return {"kind": "none", "reason": "no_beat", "confidence": 0.0}
+    # 87 or 174: a half-time reading (a hint included) is tested at double
+    bpm = _octave(feat, times, weights, bpm, hinted=bool(hinted))
     period, first, strength = _steady_grid(times, weights, 60.0 / bpm)
     if hinted and scanned and scan_strength > 1.5 * strength and not _octave_of(scanned, hinted):
+        scanned = _octave(feat, times, weights, scanned, hinted=False)
         period, first, strength = _steady_grid(times, weights, 60.0 / scanned)
     res = _residuals(times, period, first)
     # the onsets on the beat (within an eighth of it; a sixteenth or a
@@ -621,6 +666,9 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
         beats = beats[(beats >= -0.02) & (beats < duration)]
         # a break's beats are told by the whole spectrum (its snares), not the kick
         hits = _hit_rate(feat["env"] if shift else env, beats, active_mask(beats))
+        if not shift and _fast_backbeat(feat, beats):
+            # drum and bass: every other beat is a snare, not a kick
+            hits = max(hits, _hit_rate(feat["env"], beats, active_mask(beats)))
         steady = max(0.0, min(1.0, 1.0 - max(0.0, mad_ms - 3.0) / 15.0))
         confidence = hits * (0.6 + 0.4 * steady)
         if shift:
@@ -649,6 +697,8 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
     # pulled onto its onset: pulled beats would score themselves
     tracked = np.asarray(tracked, dtype=np.float64)
     hits = _hit_rate(env, tracked, active_mask(tracked))
+    if _fast_backbeat(feat, tracked):
+        hits = max(hits, _hit_rate(feat["env"], tracked, active_mask(tracked)))
     confidence = hits * 0.8
     shift, margin = sixteenth_check(feat, beats)
     if shift:

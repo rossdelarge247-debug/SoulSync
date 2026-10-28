@@ -115,6 +115,9 @@ def get_analysis(track_id: str) -> Optional[Dict[str, Any]]:
         "key": key,
         "energy": (int(row["energy"]) if "energy" in keys and row["energy"] is not None else None),
         "source_sig": row["source_sig"] if "source_sig" in keys else None,
+        # why the tempo is in its octave (core/sample/tempo.py): the DJ data
+        # reusing this row keeps the evidence (store.decide)
+        "tempo_basis": row["tempo_basis"] if "tempo_basis" in keys else None,
     }
 
 
@@ -143,8 +146,8 @@ def save_analysis(track_id: str, result: Dict[str, Any], source_sig: Optional[st
         conn.execute(
             """INSERT INTO sample_analysis
                    (track_id, bpm, onsets_json, duration_s, analyzed_at, analyzer_version,
-                    key_name, key_confidence, source_sig, energy)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    key_name, key_confidence, source_sig, energy, tempo_basis)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(track_id) DO UPDATE SET
                    bpm = excluded.bpm,
                    onsets_json = excluded.onsets_json,
@@ -154,7 +157,8 @@ def save_analysis(track_id: str, result: Dict[str, Any], source_sig: Optional[st
                    key_name = excluded.key_name,
                    key_confidence = excluded.key_confidence,
                    source_sig = excluded.source_sig,
-                   energy = excluded.energy""",
+                   energy = excluded.energy,
+                   tempo_basis = excluded.tempo_basis""",
             (
                 track_key(track_id),
                 float(result.get("bpm") or 0),
@@ -166,6 +170,7 @@ def save_analysis(track_id: str, result: Dict[str, Any], source_sig: Optional[st
                 float(key["confidence"]) if key.get("confidence") is not None else None,
                 source_sig,
                 (int(result["energy"]) if result.get("energy") is not None else None),
+                result.get("tempo_basis"),
             ),
         )
         conn.commit()
