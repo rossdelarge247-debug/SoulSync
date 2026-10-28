@@ -3849,7 +3849,8 @@ class MusicDatabase:
                     key_name TEXT,
                     key_confidence REAL,
                     source_sig TEXT,
-                    energy REAL
+                    energy REAL,
+                    tempo_basis TEXT
                 )
             """)
             self._copy_rows_for_rebuild(cursor, "sample_analysis", "sample_analysis_text",
