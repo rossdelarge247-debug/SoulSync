@@ -157,7 +157,7 @@ function SearchTrackRow({
       data-star-row={owned ? id : undefined}
       data-row-play-host=""
       data-playing={playing ? 'true' : undefined}
-      {...rowPlayHandlers(owned && !phone ? play : null)}
+      {...rowPlayHandlers(owned && !phone ? play : null, playing)}
       onClick={
         phone && owned
           ? (event) => {

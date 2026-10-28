@@ -2600,8 +2600,8 @@ function renderNpQueue() {
         playBtn.dataset.queueAction = 'play-now';
         if (i === npQueueIndex) {
             playBtn.dataset.kind = 'playing';
-            playBtn.setAttribute('aria-label', `Pause ${track.title || 'track'}`);
-            playBtn.title = 'Playing · press to pause';
+            playBtn.dataset.title = track.title || 'track';
+            npQueuePlayingLabel(playBtn);
             playBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 10h3v10H4zM10 4h3v16h-3zM16 13h3v7h-3z"/></svg>';
             playBtn.onclick = (e) => { e.stopPropagation(); togglePlayback(); };
         } else {
@@ -3962,6 +3962,16 @@ function npLoadingSnapshot() {
     const width = parseFloat(el.querySelector('.loading-progress')?.style.width || '0') || 0;
     return { active: !el.classList.contains('hidden'), text, progress: width };
 }
+
+/** Up next's Playing button: "Pause X" while it plays, "Resume X" while paused (gauntlet review L2). */
+function npQueuePlayingLabel(button) {
+    const title = button.dataset.title || 'track';
+    button.setAttribute('aria-label', isPlaying ? `Pause ${title}` : `Resume ${title}`);
+    button.title = isPlaying ? 'Playing · press to pause' : 'Paused · press to play';
+}
+window.addEventListener('ss:player', () => {
+    document.querySelectorAll('.np-queue-item-playnow[data-kind="playing"]').forEach(npQueuePlayingLabel);
+});
 
 window.SoulSyncPlayer = {
     /** Everything the chrome draws, read fresh each time. */

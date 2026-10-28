@@ -17,7 +17,7 @@
  * the row plays (`rowPlayHandlers`). On a phone a tap on the row plays and
  * Play next is in the sheet (34c), so phone rows don't use these buttons.
  */
-import type { MouseEvent, ReactNode } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 
 import styles from './row-play.module.css';
 
@@ -68,6 +68,39 @@ export function MoveTopGlyph({ size = 18 }: { size?: number }) {
   );
 }
 
+/** Whether the player is paused (not playing) right now. */
+function readPaused(): boolean {
+  try {
+    const st = (
+      window as unknown as { SoulSyncPlayer?: { state?: () => { playing?: boolean } } }
+    ).SoulSyncPlayer?.state?.();
+    return st ? !st.playing : false;
+  } catch {
+    return false;
+  }
+}
+
+/** The player paused, kept current from 'ss:player' (only the playing row asks). */
+function usePlayerPaused(): boolean {
+  const [paused, setPaused] = useState(readPaused);
+  useEffect(() => {
+    const listener = () => setPaused(readPaused());
+    listener();
+    window.addEventListener('ss:player', listener);
+    return () => window.removeEventListener('ss:player', listener);
+  }, []);
+  return paused;
+}
+
+/** "Pause X" while it plays, "Resume X" while it's paused (gauntlet review L2). */
+function PlayingName({ name }: { name: string }) {
+  const paused = usePlayerPaused();
+  return <span className={styles.srOnly}>{paused ? `Resume ${name}` : `Pause ${name}`}</span>;
+}
+
+/** A second press this soon after one is the same press (a double-click). */
+export const REPEAT_MS = 400;
+
 /** Pause or play again: what "Playing" does when pressed. */
 export function togglePlayer(): void {
   try {
@@ -115,6 +148,9 @@ export function RowPlay({
   children,
 }: RowPlayProps) {
   const name = title || 'this track';
+  // gauntlet review H2: the second click of a double-click isn't a second
+  // Play (a duplicate) or, once the row reads Playing, a pause
+  const lastPress = useRef(0);
   if (hidden) {
     return (
       <span className={`${styles.group} ${className ?? ''}`} data-row-play="">
@@ -127,12 +163,15 @@ export function RowPlay({
   const onClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (disabled) return;
-    if (playing) {
-      togglePlayer();
+    if (event.shiftKey && onPlayNext && !playing) {
+      onPlayNext();
       return;
     }
-    if (event.shiftKey && onPlayNext) {
-      onPlayNext();
+    const now = Date.now();
+    if (now - lastPress.current < REPEAT_MS) return;
+    lastPress.current = now;
+    if (playing) {
+      togglePlayer();
       return;
     }
     onPlay();
@@ -143,7 +182,7 @@ export function RowPlay({
         type="button"
         className={styles.button}
         data-kind={playing ? 'playing' : 'play'}
-        aria-label={playing ? `Pause ${name}` : (playLabel ?? `Play ${name}`)}
+        aria-label={playing ? undefined : (playLabel ?? `Play ${name}`)}
         title={
           disabled
             ? undefined
@@ -160,6 +199,7 @@ export function RowPlay({
         data-row-play-button=""
       >
         {playing ? <PlayingGlyph /> : <PlayGlyph />}
+        {playing ? <PlayingName name={name} /> : null}
       </button>
       {onPlayNext !== null ? (
         <button
@@ -187,12 +227,16 @@ export function RowPlay({
 
 /**
  * A double-click anywhere on the row plays it (34a), but not on its links,
- * buttons or fields, which do their own thing.
+ * buttons or fields, which do their own thing; not on the playing row (it's
+ * playing), and not on a phone, where a tap plays (pass null for both).
  */
-export function rowPlayHandlers(play: (() => void) | null): {
+export function rowPlayHandlers(
+  play: (() => void) | null,
+  playing = false,
+): {
   onDoubleClick?: (event: MouseEvent<HTMLElement>) => void;
 } {
-  if (!play) return {};
+  if (!play || playing) return {};
   return {
     onDoubleClick: (event) => {
       const target = event.target as HTMLElement | null;
@@ -203,25 +247,74 @@ export function rowPlayHandlers(play: (() => void) | null): {
   };
 }
 
+type QueueTrack = Record<string, unknown> | null | undefined;
+
+const fileOf = (t: QueueTrack) => String(t?.file_path ?? t?.filename ?? '');
+const idOf = (t: QueueTrack) => String(t?.id ?? '');
+
+/** The same library track: its file, or its id when neither has a file. */
+export function sameTrack(a: QueueTrack, b: QueueTrack): boolean {
+  if (!a || !b) return false;
+  if (fileOf(a) || fileOf(b)) return fileOf(a) !== '' && fileOf(a) === fileOf(b);
+  return idOf(a) !== '' && idOf(a) === idOf(b);
+}
+
+let lastAsk = { key: '', at: 0 };
+
+/** For tests: forget the last Play. */
+export function resetPlayTrackNowForTests(): void {
+  lastAsk = { key: '', at: 0 };
+}
+
+interface Engine {
+  state?: () => {
+    track: QueueTrack;
+    queue?: QueueTrack[];
+    index?: number;
+    playing?: boolean;
+  };
+  insertNext?: (t: Record<string, unknown>) => number;
+  playIndex?: (i: number) => unknown;
+  remove?: (i: number) => unknown;
+  toggle?: () => void;
+}
+
 /**
- * Play a library track now. With something playing it goes in straight
- * after it and the player cuts to it (Up next stays as it was after it);
- * with nothing playing it starts.
+ * Play a library track now. It goes in straight after the playing one and
+ * the player cuts to it (Up next stays as it was after it); with nothing
+ * playing, or a queue restored after a reload, it goes in where the queue
+ * is and starts (gauntlet review M4).
+ *
+ * Gauntlet review H2: asking for the track that's already playing or loading
+ * doesn't put it in again or start it over (a paused one plays on), the same
+ * ask twice within REPEAT_MS is one ask, and a Play while another track is
+ * still loading takes back what it put in.
  */
 export function playTrackNow(track: Record<string, unknown>): void {
-  const engine = (
-    window as unknown as {
-      SoulSyncPlayer?: {
-        state?: () => { track: unknown };
-        insertNext?: (t: Record<string, unknown>) => number;
-        playIndex?: (i: number) => unknown;
-      };
-    }
-  ).SoulSyncPlayer;
+  const key = fileOf(track) || idOf(track);
+  const now = Date.now();
+  if (key && key === lastAsk.key && now - lastAsk.at < REPEAT_MS) return;
+  lastAsk = { key, at: now };
+  const engine = (window as unknown as { SoulSyncPlayer?: Engine }).SoulSyncPlayer;
   try {
-    if (engine?.state?.().track && engine.insertNext && engine.playIndex) {
+    const st = engine?.state?.();
+    if (st) {
+      const index = typeof st.index === 'number' ? st.index : -1;
+      const atIndex = index >= 0 ? st.queue?.[index] : null;
+      if (sameTrack(st.track, track) || sameTrack(atIndex, track)) {
+        if (st.track && !st.playing && sameTrack(st.track, track)) engine?.toggle?.();
+        return;
+      }
+    }
+    if (engine?.insertNext && engine.playIndex) {
       const at = engine.insertNext(track);
-      void engine.playIndex(at);
+      void Promise.resolve(engine.playIndex(at)).then((result) => {
+        if ((result as { status?: string } | undefined)?.status !== 'busy') return;
+        // another track is still loading: this one isn't left in Up next
+        const queued = engine.state?.().queue?.[at];
+        if (sameTrack(queued, track)) engine.remove?.(at);
+        window.showToast?.('A track is still loading. Try again in a moment.', 'info');
+      });
       return;
     }
   } catch {

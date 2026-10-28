@@ -248,7 +248,7 @@ function MusicRow({
       data-history-row={play.id}
       data-playing={playing ? 'true' : undefined}
       data-row-play-host=""
-      {...rowPlayHandlers(gone || away ? null : () => playNow(play))}
+      {...rowPlayHandlers(phone || gone || away ? null : () => playNow(play), playing)}
       onClick={
         // 34c: on a phone a tap on the row plays
         phone && !gone && !away

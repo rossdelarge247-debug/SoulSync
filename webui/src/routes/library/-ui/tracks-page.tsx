@@ -242,7 +242,10 @@ function TrackRow({
       data-playing={playing ? 'true' : undefined}
       data-selected={selecting && checked ? 'true' : undefined}
       data-row-play-host=""
-      {...rowPlayHandlers(missing || away || selecting ? null : () => playDjTrackNow(track))}
+      {...rowPlayHandlers(
+        phone || missing || away || selecting ? null : () => playDjTrackNow(track),
+        playing,
+      )}
       onClick={
         // 34c: on a phone a tap on the row plays (its links and "…" keep theirs)
         phone && !missing && !away && !selecting

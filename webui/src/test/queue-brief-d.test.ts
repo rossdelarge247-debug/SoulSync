@@ -20,11 +20,16 @@ const functions = [
   'npAnnounceQueue',
   'npReorderQueue',
   'npMoveNext',
+  'npQueuePlayingLabel',
 ]
   .map((name) => extractFunction(name, source))
   .join('\n');
 
-let queue: { render: () => void; state: () => { titles: string[]; index: number } };
+let queue: {
+  render: () => void;
+  state: () => { titles: string[]; index: number };
+  setPlaying: (on: boolean) => void;
+};
 let play: ReturnType<typeof vi.fn>;
 let toggle: ReturnType<typeof vi.fn>;
 
@@ -42,12 +47,13 @@ beforeEach(() => {
       { title: 'B', artist: 'Artist', file_path: '/b' },
       { title: 'C', artist: 'Artist', file_path: '/c' },
       { title: 'D', artist: 'Artist', file_path: '/d' }
-    ], npQueueIndex = 1;
+    ], npQueueIndex = 1, isPlaying = true;
     const npQueueStatusLabel = () => '', npUpdateUpNext = () => {}, npPersistQueue = () => {},
       npQueueDragStart = () => {}, npQueueDragOver = () => {}, npQueueDrop = () => {}, npQueueDragEnd = () => {},
       updateNpPrevNextButtons = () => {}, npScheduleQueuePrefetch = () => {}, removeFromQueue = () => {};
     ${functions}
-    return { render: renderNpQueue, state: () => ({ titles: npQueue.map(t => t.title), index: npQueueIndex }) };
+    return { render: renderNpQueue, state: () => ({ titles: npQueue.map(t => t.title), index: npQueueIndex }),
+      setPlaying: (on) => { isPlaying = on; } };
   `,
   )(document, play, toggle);
   queue.render();
@@ -69,6 +75,13 @@ it("the playing row has Playing (three bars) in Play's place, which pauses", () 
   fireEvent.click(pause);
   expect(toggle).toHaveBeenCalledTimes(1);
   expect(play).not.toHaveBeenCalled();
+});
+
+it("[gauntlet L2] paused, the playing row's button says Resume", () => {
+  queue.setPlaying(false);
+  queue.render();
+  expect(screen.getByRole('button', { name: 'Resume B' }).dataset.kind).toBe('playing');
+  expect(screen.queryByRole('button', { name: 'Pause B' })).toBeNull();
 });
 
 it('Move to the top puts a queued row next; the playing row and the next one have none', () => {

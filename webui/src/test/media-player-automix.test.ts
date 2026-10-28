@@ -193,11 +193,11 @@ describe('Up next’s gaps (26a)', () => {
       `let npQueue = [
          { title: 'A', artist: 'X', file_path: '/a' }, { title: 'B', artist: 'X', file_path: '/b' },
          { title: 'C', artist: 'X', file_path: '/c' }, { title: 'D', artist: 'X', file_path: '/d' }
-       ], npQueueIndex = ${index};
+       ], npQueueIndex = ${index}, isPlaying = true;
        const npQueueStatusLabel = () => '', npUpdateUpNext = () => {}, npPersistQueue = () => {},
          npQueueDragStart = () => {}, npQueueDragOver = () => {}, npQueueDrop = () => {}, npQueueDragEnd = () => {},
          playQueueItem = () => {}, formatTime = (s) => String(s);
-       ${pick('npAutomix', 'renderNpQueue', 'npFocusQueueAction')}
+       ${pick('npAutomix', 'renderNpQueue', 'npFocusQueueAction', 'npQueuePlayingLabel')}
        renderNpQueue();`,
     )(document, window);
     return Array.from(document.querySelectorAll<HTMLElement>('[data-automix-gap]'));

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
+import { resetPlayTrackNowForTests } from '@/features/dj/row-play';
 import { resetDriveStatus } from '@/features/drives/drive-status';
 import { getMixState, resetMixForTests } from '@/features/mix/mix-store';
 import { createTestQueryClient } from '@/test/query-client';
@@ -156,6 +157,7 @@ beforeEach(() => {
   window.showLibraryDownloadsSection = vi.fn();
   window.showToast = vi.fn();
   window.playNext = vi.fn();
+  resetPlayTrackNowForTests();
   requested = [];
   exported = [];
   analysed = [];
@@ -413,10 +415,96 @@ describe('Library → Tracks', () => {
       expect(playIndex).toHaveBeenCalledWith(2);
       fireEvent.click(play, { shiftKey: true });
       expect(window.playNext).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
-      // a double-click on the row plays
+      // a double-click on the row plays (a moment later: the same ask twice
+      // within 400 ms is one ask)
       insertNext.mockClear();
+      resetPlayTrackNowForTests();
       fireEvent.doubleClick(within(row).getByText('Static Bloom'));
       expect(insertNext).toHaveBeenCalledTimes(1);
+    } finally {
+      delete w.SoulSyncPlayer;
+    }
+  });
+
+  it('[gauntlet H2] a double-click on Play is one Play, and the playing track is never put in again', async () => {
+    const queue: Record<string, unknown>[] = [{ id: '9', file_path: '/m/9.flac' }];
+    let index = 0;
+    let current: Record<string, unknown> | null = queue[0];
+    let playing = true;
+    const insertNext = vi.fn((t: Record<string, unknown>) => {
+      queue.splice(index + 1, 0, t);
+      return index + 1;
+    });
+    const playIndex = vi.fn((i: number) => {
+      index = i;
+      current = queue[i];
+    });
+    const toggle = vi.fn(() => {
+      playing = !playing;
+    });
+    const w = window as unknown as Record<string, unknown>;
+    w.SoulSyncPlayer = {
+      state: () => ({ track: current, queue, index, playing }),
+      audio: () => null,
+      renderQueue: () => {},
+      insertNext,
+      playIndex,
+      toggle,
+    };
+    try {
+      renderPage();
+      const row = (await screen.findByText('Static Bloom')).closest('li')!;
+      const play = within(row).getByRole('button', { name: 'Play Static Bloom' });
+      // a double-click: click, click, dblclick
+      fireEvent.click(play);
+      fireEvent.click(play);
+      fireEvent.doubleClick(play);
+      fireEvent.doubleClick(within(row).getByText('Static Bloom'));
+      expect(insertNext).toHaveBeenCalledTimes(1);
+      expect(playIndex).toHaveBeenCalledTimes(1);
+      expect(toggle).not.toHaveBeenCalled();
+      // later, asking for it again while it's the playing track: nothing new
+      resetPlayTrackNowForTests();
+      const { playTrackNow } = await import('@/features/dj/row-play');
+      playTrackNow({ id: '1', file_path: current!.file_path });
+      expect(insertNext).toHaveBeenCalledTimes(1);
+      expect(playIndex).toHaveBeenCalledTimes(1);
+      // paused, it plays on (not from the start)
+      playing = false;
+      resetPlayTrackNowForTests();
+      playTrackNow({ id: '1', file_path: current!.file_path });
+      expect(toggle).toHaveBeenCalledTimes(1);
+      expect(playIndex).toHaveBeenCalledTimes(1);
+    } finally {
+      delete w.SoulSyncPlayer;
+    }
+  });
+
+  it('[gauntlet M4] Play after a reload (a restored queue, nothing loaded) goes in and plays, not on the end', async () => {
+    const queue: Record<string, unknown>[] = [
+      { id: '5', file_path: '/m/5.flac' },
+      { id: '6', file_path: '/m/6.flac' },
+    ];
+    const insertNext = vi.fn((t: Record<string, unknown>) => {
+      queue.splice(0, 0, t);
+      return 0;
+    });
+    const playIndex = vi.fn();
+    const w = window as unknown as Record<string, unknown>;
+    w.SoulSyncPlayer = {
+      state: () => ({ track: null, queue, index: -1, playing: false }),
+      audio: () => null,
+      renderQueue: () => {},
+      insertNext,
+      playIndex,
+    };
+    try {
+      renderPage();
+      const row = (await screen.findByText('Static Bloom')).closest('li')!;
+      fireEvent.click(within(row).getByRole('button', { name: 'Play Static Bloom' }));
+      expect(insertNext).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
+      expect(playIndex).toHaveBeenCalledWith(0);
+      expect(window.playNext).not.toHaveBeenCalled();
     } finally {
       delete w.SoulSyncPlayer;
     }
