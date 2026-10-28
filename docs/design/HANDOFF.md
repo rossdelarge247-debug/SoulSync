@@ -93,6 +93,14 @@ Built on `feat/brief-a` from `integration` (1b82f612): step 1 of Design's build 
 - **L11, smaller fixes.** Analyse mine keeps why each track is in line. A set's "Analyse all N" counts the tracks it asks for. A `/progress` call without `line` no longer copies the line under the lock.
 - **Tests.** The topbar's slow pace checks its 20 s interval, the 200 cap has a route-level test, and the join window has its own test.
 
+**Gauntlet review, second round** (a re-review of fa9ad96f..be1e6624, which confirmed M1, M2, L1, L3–L9 and L11 fixed; each item has a test, the reviewer's probes among them):
+- **N1, Up next pairs let a member jump earlier asks.** A pair dropped a tier but kept its place, so it headed its new tier. Each track now gets a number when it enters a tier, and the line sorts by tier, then number. A track that changes tier, up or down, goes to the end of its new tier; Move up's tier stays newest first. The probe (Sam asks 2 and 3, Mira sends four pairs) now puts Mira's earlier pairs behind Sam's asks.
+- **L2, Cancel after a retry.** A track the run has taken leaves the "added by an ask" set, so a Cancel after its retry doesn't take it off the total again.
+- **L10, three gaps.** `soon` with `playlist_id`, `mine` or `cancel` is refused (400). A new pair that needs no analysis still puts the old pair back in its own tier. Up next asks for the pair as `soon` again after a Stop turns it away, so after Resume it still goes first. An ask also keeps the order it was sent in, whatever order the library's rows come back in.
+- **L5, two small fixes.** Move up retries once after a 429's Retry-After. Over the 200 cap it says "You have 200 tracks in line, the most at once: Move up waits until some are done." (409 `over_limit`).
+- **L8.** `join`'s 5 s wait for an unstarted thread counts from finding it unstarted, not from the call.
+- **L6.** The popover's line reads the library in batches of 100, four at most a poll; past that, other libraries' tracks are only counted.
+
 **Left out, and why**
 - "Analyse all" on Tracks' line while a sweep runs: a running sweep already covers the library, and `/start` can't widen a run that's under way; it shows when nothing runs (352).
 - The set's line sits under the head's buttons, not right-aligned beside them: the set's header is redrawn by Brief C (33c) (353).
