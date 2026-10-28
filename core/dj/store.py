@@ -92,7 +92,7 @@ def decide(*, tag_bpm=None, tag_key=None, enrichment_bpm=None,
 
 _FIELDS = ("bpm", "bpm_source", "musical_key", "key_name", "key_source", "key_confidence", "energy",
            "energy_source", "analyzed_bpm", "analyzed_key", "dj_analyzed_at", "dj_analyzer_version", "source_sig",
-           "status", "error", "tags_written", "tags_written_at", "analyzed_bpm_basis")
+           "status", "error", "tags_written", "tags_written_at", "analyzed_bpm_basis", "bpm_tag_written")
 
 
 def save(database, track_id: str, values: Dict[str, Any]) -> None:
@@ -498,7 +498,7 @@ MAX_TEMPO_TRACKS = 500
 
 
 def set_tempo(database, track_ids: Iterable[str], action: str, *,
-              profile_id: Optional[int] = None, is_admin: bool = True) -> Dict[str, Any]:
+              profile_id: Optional[int] = None, is_admin: bool) -> Dict[str, Any]:
     """Double, halve or reset the BPM of the caller's tracks (``action``
     ``double``, ``halve`` or ``reset``), only those in their library scope
     (``_scope``, as every DJ read). The value is kept as ``bpm_override``,

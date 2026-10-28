@@ -302,3 +302,26 @@ def test_a_slow_genre_doesnt_halve_a_backbeat_at_the_fast_tempo(tmp_path, bpm, g
     assert _near(result["bpm"], bpm) and result["tempo_basis"] == "backbeat", result
     # the analysis and the grid agree
     assert _near(grid.analyze_audio(y, 22050, bpm_hint=result["bpm"])["bpm"], bpm, 0.01)
+
+
+def test_the_shared_spectrum_gives_librosas_own_onset_envelope(made):
+    # review N3: the analysis makes one mel spectrogram for its onset envelope
+    # and the octave check; the envelope (so the tempo, so every reading at
+    # 100-140) is exactly what onset_strength(y=y) made before
+    import librosa
+
+    y = made["house_124"][2]
+    mel = librosa.feature.melspectrogram(y=y, sr=22050)
+    shared = librosa.onset.onset_strength(S=librosa.power_to_db(mel), sr=22050)
+    assert np.array_equal(shared, librosa.onset.onset_strength(y=y, sr=22050))
+    assert np.array_equal(tempo.snare_envelope(y, 22050, mel=mel), tempo.snare_envelope(y, 22050))
+
+
+def test_the_octave_check_computes_no_spectrum_of_its_own(made, tmp_path, monkeypatch):
+    import librosa
+
+    calls = []
+    real = librosa.feature.melspectrogram
+    monkeypatch.setattr(librosa.feature, "melspectrogram", lambda *a, **k: calls.append(1) or real(*a, **k))
+    result = analyze.analyze_track(write_wav(tmp_path / "dnb.wav", made["dnb_174"][2]))
+    assert result["tempo_basis"] == "backbeat" and len(calls) == 1

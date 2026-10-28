@@ -38,9 +38,13 @@ The rule, in order:
 
 Measured on the generated fixtures (tests/dj/test_tempo_octave.py), at 30
 seconds and repeated to 10 minutes, the fast backbeat leads the slow one by
-2.7–11.1 times for drum and bass, and by at most 0.94 for everything else:
-hip hop 0.46–0.51, a 100 BPM track 0.58, a kick on every beat under
-off-beat hats 0.82–0.94. ``BACKBEAT_LEAD`` (1.5) sits between.
+2.76–13.3 times for drum and bass, and by at most 0.79 for everything else:
+hip hop 0.47–0.51, a 100 BPM track 0.64–0.65, a kick on every beat under
+off-beat hats 0.67–0.79. ``BACKBEAT_LEAD`` (1.5) sits between.
+
+Cost: the analysis passes the mel spectrogram it makes for its onset
+envelope (``snare_envelope(mel=...)``), so the check adds about 0.05 s of
+CPU for 10 minutes of audio (its own spectrum was about 0.8 s).
 
 What doesn't decide it, and why: how many hats there are (hip hop's
 sixteenths at 90 are drum and bass's eighths at 180), the high band at all
@@ -276,17 +280,21 @@ def file_genres(path: Optional[str]) -> list:
         return []
 
 
-def snare_envelope(y, sr: int, hop: int = 512):
+def snare_envelope(y, sr: int, hop: int = 512, *, mel=None):
     """The onset envelope of the mids (160–2500 Hz: a snare's body, a clap),
     detrended, at ``sr / hop`` frames a second. Not the highs: off-beat hats
     there would read as a backbeat at double the tempo of a track with a
-    kick on every beat."""
+    kick on every beat.
+
+    ``mel`` is a power mel spectrogram of ``y`` already made (librosa's
+    defaults: 0 Hz to ``sr / 2``, any number of bands), as the analysis has
+    for its onset envelope: then no spectrum is computed again."""
     import librosa
     import numpy as np
 
-    mel = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=2048, hop_length=hop, n_mels=64, fmin=30.0,
-                                         fmax=min(11000.0, sr / 2.0))
-    freqs = librosa.mel_frequencies(n_mels=64, fmin=30.0, fmax=min(11000.0, sr / 2.0))
+    if mel is None:
+        mel = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=2048, hop_length=hop)
+    freqs = librosa.mel_frequencies(n_mels=mel.shape[0], fmin=0.0, fmax=sr / 2.0)
     comp = np.log1p(10.0 * np.sqrt(mel[(freqs >= 160.0) & (freqs < 2500.0)]))
     flux = np.maximum(0.0, np.diff(comp, axis=1, prepend=comp[:, :1])).mean(axis=0)
     width = int(0.5 * sr / hop) | 1
@@ -298,7 +306,8 @@ def snare_envelope(y, sr: int, hop: int = 512):
 EVIDENCE = ("genre", "backbeat")
 
 
-def analysis_tempo(path: Optional[str], y, sr: int, bpm: float, beat_frames, hop: int = 512) -> Tuple[float, str]:
+def analysis_tempo(path: Optional[str], y, sr: int, bpm: float, beat_frames, hop: int = 512, *,
+                   mel=None) -> Tuple[float, str]:
     """The analysis's tempo (librosa's reading ``bpm`` and its tracked beats,
     as frames of ``hop`` samples) in its octave, and why (``choose``'s
     reason): the genre from the file's tag and the range first, then the
@@ -323,7 +332,7 @@ def analysis_tempo(path: Optional[str], y, sr: int, bpm: float, beat_frames, hop
         return round(chosen, 1), why
     # the beats at the fast reading: as tracked, or with the halfway points
     fast = beats if is_fast(folded) else np.sort(np.concatenate([beats, (beats[:-1] + beats[1:]) / 2.0]))
-    evidence = backbeat(snare_envelope(y, sr, hop), sr / hop, fast)
+    evidence = backbeat(snare_envelope(y, sr, hop, mel=mel), sr / hop, fast)
     chosen, why = choose(folded, evidence=evidence, genres=genres)
     return round(chosen, 1), why
 

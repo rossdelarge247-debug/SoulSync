@@ -102,7 +102,7 @@ def test_the_override_then_the_grid_then_the_tag(db):
     _sql(db, "UPDATE track_grid SET grid_version = ? WHERE track_id = '1'", (GRID_VERSION - 1,))
     assert _shown(db, "1")["bpm_source"] == "tag"  # an old grid waits for the sweep
     _sql(db, "UPDATE track_grid SET grid_version = ? WHERE track_id = '1'", (GRID_VERSION,))
-    store.set_tempo(db, ["1"], "halve", profile_id=1)
+    store.set_tempo(db, ["1"], "halve", profile_id=1, is_admin=True)
     shown = _shown(db, "1")
     assert (shown["bpm"], shown["bpm_source"], shown["bpm_tag"]) == (87.0, "override", 87.0)
 
@@ -124,7 +124,7 @@ def test_browse_and_mixes_well_with_use_the_bpm_shown(db):
 def test_double_doubles_what_is_shown_and_the_grid_exactly(db):
     _dj(db, "1", 87.0)
     before = grid_store.grid_of(_grid(db, "1", bpm=87.0, downbeat=1))
-    out = store.set_tempo(db, ["1", "1", "nope"], "double", profile_id=3)
+    out = store.set_tempo(db, ["1", "1", "nope"], "double", profile_id=3, is_admin=True)
     assert out == {"changed": {"1": 174.0}, "skipped": {}, "found": 1}
     row = store.get(db, "1")
     assert (row["bpm_override"], row["bpm_override_by"]) == (174.0, 3) and row["bpm"] == 87.0
@@ -159,11 +159,11 @@ def test_halve_then_double_gives_the_measured_grid_back_exactly(db, kind, downbe
     original = _grid(db, "1", bpm=174.0, kind=kind, downbeat=downbeat, bars=32, sections=sections)
     for steps in (("halve", "double"), ("halve", "reset"), ("halve", "halve", "double", "double")):
         for action in steps:
-            store.set_tempo(db, ["1"], action, profile_id=1)
+            store.set_tempo(db, ["1"], action, profile_id=1, is_admin=True)
         back = grid_store.get(db, "1")
         assert {k: back[k] for k in _EXACT} == {k: original[k] for k in _EXACT}, steps
-        store.set_tempo(db, ["1"], "reset", profile_id=1)
-    half = (store.set_tempo(db, ["1"], "halve", profile_id=1), grid_store.get(db, "1"))[1]
+        store.set_tempo(db, ["1"], "reset", profile_id=1, is_admin=True)
+    half = (store.set_tempo(db, ["1"], "halve", profile_id=1, is_admin=True), grid_store.get(db, "1"))[1]
     assert half["bpm"] == pytest.approx(87.0, abs=0.01) and half["measured_json"]
     # the one stays on a bar line: bar 0's, or bar 1's when the bars pair
     # from there (most section changes on odd bars)
@@ -177,7 +177,7 @@ def test_halve_then_double_gives_the_measured_grid_back_exactly(db, kind, downbe
 def test_halving_pairs_the_bars_so_section_changes_stay_on_a_bar_line(db):
     _dj(db, "1", 174.0)
     old = grid_store.grid_of(_grid(db, "1", bpm=174.0, bars=33, sections=(("intro", 0, 9), ("main", 9, 33))))
-    store.set_tempo(db, ["1"], "halve", profile_id=1)
+    store.set_tempo(db, ["1"], "halve", profile_id=1, is_admin=True)
     row = grid_store.get(db, "1")
     new = grid_store.grid_of(row)
     assert json.loads(row["sections_json"]) == [["intro", 0, 4, 0.5], ["main", 4, 16, 0.5]]
@@ -187,23 +187,23 @@ def test_halving_pairs_the_bars_so_section_changes_stay_on_a_bar_line(db):
 
 def test_what_cant_be_changed_is_said(db):
     _dj(db, "1", 160.0)
-    out = store.set_tempo(db, ["1", "3"], "double", profile_id=1)
+    out = store.set_tempo(db, ["1", "3"], "double", profile_id=1, is_admin=True)
     assert out["skipped"] == {"1": "out_of_range", "3": "no_bpm"} and out["changed"] == {}
-    assert store.set_tempo(db, ["1"], "reset", profile_id=1)["skipped"] == {"1": "not_set"}
+    assert store.set_tempo(db, ["1"], "reset", profile_id=1, is_admin=True)["skipped"] == {"1": "not_set"}
     # a track analysis hasn't reached yet doubles what enrichment found, and keeps it
-    assert store.set_tempo(db, ["2"], "double", profile_id=1)["changed"] == {"2": 174.0}
+    assert store.set_tempo(db, ["2"], "double", profile_id=1, is_admin=True)["changed"] == {"2": 174.0}
     assert store.pending_ids(db, worker.analyzer_version()) == ["2", "3", "4"]  # still analysed
     with pytest.raises(ValueError):
-        store.set_tempo(db, ["1"], "triple")
+        store.set_tempo(db, ["1"], "triple", is_admin=True)
 
 
 def test_reset_puts_the_measured_grid_back_without_a_decode(db):
     # review M4: no requeue, so no gap with no grid (or for ever, analysis off)
     _dj(db, "1", 87.0)
     measured = _grid(db, "1", bpm=87.0, downbeat=1, sections=(("intro", 0, 9), ("main", 9, 16)))
-    store.set_tempo(db, ["1"], "double", profile_id=1)
+    store.set_tempo(db, ["1"], "double", profile_id=1, is_admin=True)
     assert grid_store.get(db, "1")["bpm"] == pytest.approx(174.0)
-    assert store.set_tempo(db, ["1"], "reset", profile_id=1)["changed"] == {"1": None}
+    assert store.set_tempo(db, ["1"], "reset", profile_id=1, is_admin=True)["changed"] == {"1": None}
     assert store.get(db, "1")["bpm_override"] is None
     assert _shown(db, "1")["bpm"] == 87.0 and _shown(db, "1")["bpm_source"] == "grid"
     back = grid_store.get(db, "1")
@@ -219,7 +219,7 @@ def test_a_grid_that_isnt_an_octave_of_the_persons_bpm_isnt_mixed_on(db):
     _dj(db, "1", 87.0)
     _dj(db, "3", 124.0)
     _grid(db, "3", bpm=124.0)
-    store.set_tempo(db, ["1"], "double", profile_id=1)  # 174, before any grid
+    store.set_tempo(db, ["1"], "double", profile_id=1, is_admin=True)  # 174, before any grid
     _grid(db, "1", bpm=120.0)  # a later analysis finds another tempo altogether
     assert _shown(db, "1")["bpm"] == 174.0 and _shown(db, "1")["bpm_source"] == "override"
     found = grid_store.scoped_rows(db, ["1", "3"])
@@ -243,12 +243,12 @@ def test_a_change_during_a_grid_save_is_never_lost(db, monkeypatch, action, want
     _dj(db, "1", 87.0)
     if action == "reset":
         _grid(db, "1", bpm=87.0)
-        store.set_tempo(db, ["1"], "double", profile_id=1)
+        store.set_tempo(db, ["1"], "double", profile_id=1, is_admin=True)
     real = grid_store.follow_override
     seen = {}
 
     def during_the_save(row, target):
-        thread = threading.Thread(target=lambda: seen.update(out=store.set_tempo(db, ["1"], action, profile_id=1)))
+        thread = threading.Thread(target=lambda: seen.update(out=store.set_tempo(db, ["1"], action, profile_id=1, is_admin=True)))
         thread.start()
         thread.join(0.5)
         seen["waited"] = thread.is_alive()  # the change waits for the save's transaction
@@ -269,11 +269,11 @@ def test_a_change_during_a_grid_save_is_never_lost(db, monkeypatch, action, want
 def test_a_grid_saved_after_a_change_follows_it(db):
     # the other order: the change first, then the sweep's save
     _dj(db, "1", 87.0)
-    store.set_tempo(db, ["1"], "double", profile_id=1)
+    store.set_tempo(db, ["1"], "double", profile_id=1, is_admin=True)
     grid_store.save_result(db, "1", _result(bpm=87.0), source_sig="sig")
     row = grid_store.get(db, "1")
     assert row["bpm"] == pytest.approx(174.0) and json.loads(row["measured_json"])["bpm"] == 87.0
-    store.set_tempo(db, ["1"], "reset", profile_id=1)
+    store.set_tempo(db, ["1"], "reset", profile_id=1, is_admin=True)
     assert grid_store.get(db, "1")["bpm"] == pytest.approx(87.0)
 
 
@@ -282,7 +282,7 @@ def test_no_later_analysis_undoes_a_persons_bpm(db, tmp_path):
     from .audio_fixtures import dj_track, write_flac
 
     path = write_flac(tmp_path / "2.flac", dj_track(174, 9, True, seconds=2))
-    store.set_tempo(db, ["2"], "double", profile_id=1)  # enrichment's 87, doubled before any analysis
+    store.set_tempo(db, ["2"], "double", profile_id=1, is_admin=True)  # enrichment's 87, doubled before any analysis
     found = {}
 
     def grid_at_half_time(p, *, audio=None, bpm_hint=None):
@@ -421,3 +421,63 @@ def test_the_route_takes_json_only_with_a_capped_body(client, monkeypatch):
 
     monkeypatch.setattr(dj_api, "get_current_profile_id", lambda: None)
     assert _post(client, track_ids=["1"], action="double").status_code == 401
+
+
+@pytest.mark.gauntlet
+def test_a_reset_after_the_tag_was_written_really_goes_back_to_the_measured_bpm(db, tmp_path):
+    # review N2: with "Write BPM and key into files" on, a doubled track's
+    # file gets the person's 174; after "Use the measured BPM" the next
+    # analysis must not read that tag back as the file's own
+    from core.dj.tags import read_dj_tags, write_dj_tags
+
+    from .audio_fixtures import dj_track, write_flac
+
+    path = write_flac(tmp_path / "2.flac", dj_track(174, 9, True, seconds=2))
+    hints = []
+
+    def grid(p, *, audio=None, bpm_hint=None):
+        hints.append(bpm_hint)
+        return _result(bpm=87.0)
+
+    analysis = {"bpm": 86.1, "onsets": [], "duration_s": 2.0, "key": {"name": "A minor", "confidence": 0.9},
+                "energy": 6, "analyzer_version": worker.analyzer_version(), "truncated": False,
+                "tempo_basis": "kept"}
+
+    def analyse_again():
+        _sql(db, "UPDATE track_dj SET dj_analyzer_version = 0 WHERE track_id = '2'")
+        return worker.process_track(db, "2", resolve=lambda p: path, analyze=lambda p: dict(analysis),
+                                    analyze_grid=grid, write_tags=True, library_roots=lambda: [str(tmp_path)])
+
+    store.set_tempo(db, ["2"], "double", profile_id=1, is_admin=True)  # enrichment's 87 -> 174
+    assert analyse_again() == "tagged"
+    assert read_dj_tags(path)["bpm"] == 174 and store.get(db, "2")["bpm_tag_written"] == 174.0
+    store.set_tempo(db, ["2"], "reset", profile_id=1, is_admin=True)
+    assert _shown(db, "2")["bpm"] == pytest.approx(87.0)
+    # the next whole analysis (a new version, a changed file) reads the file again
+    analyse_again()
+    row = store.get(db, "2")
+    assert row["bpm"] != 174.0 and row["bpm_source"] != "tag"
+    assert hints[-1] != 174.0  # the grid looked near the measured tempo
+    assert _shown(db, "2")["bpm"] == pytest.approx(87.0) and _shown(db, "2")["bpm_source"] == "grid"
+    # a BPM someone else puts in the file afterwards is the file's own again
+    write_dj_tags(path, bpm=140, key_name=None, overwrite=True)
+    analyse_again()
+    assert (store.get(db, "2")["bpm"], store.get(db, "2")["bpm_source"]) == (140.0, "tag")
+
+
+def test_set_tempo_says_who_is_asking(db):
+    # review N4: no default that makes a caller an admin
+    with pytest.raises(TypeError):
+        store.set_tempo(db, ["1"], "double", profile_id=1)
+
+
+def test_sample_studios_row_keeps_the_tempos_basis(db):
+    # review N1: the DJ data reusing Sample Studio's analysis keeps the evidence
+    from core.sample import store as sample_store
+
+    sample_store.save_analysis("1", {"bpm": 172.2, "onsets": [], "duration_s": 60.0, "energy": 7,
+                                     "key": {"name": "A minor", "confidence": 0.9}, "tempo_basis": "backbeat",
+                                     "analyzer_version": worker.analyzer_version()}, source_sig="sig")
+    row = worker._reuse_sample_analysis("1", "sig", worker.analyzer_version())
+    assert row["tempo_basis"] == "backbeat"
+    assert store.decide(enrichment_bpm=87.0, analysis=row)["bpm"] == 172.2

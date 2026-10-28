@@ -821,6 +821,7 @@ class MusicDatabase:
                 ("sample_analysis", "key_confidence", "REAL"),
                 ("sample_analysis", "source_sig", "TEXT"),
                 ("sample_analysis", "energy", "REAL"),
+                ("sample_analysis", "tempo_basis", "TEXT"),
                 ("sample_stems", "source_sig", "TEXT"),
                 ("sample_stash", "normalize", "TEXT"),
                 ("sample_stash", "fade_ms", "REAL"),
@@ -3883,6 +3884,7 @@ class MusicDatabase:
         ('bpm_override_at', 'REAL'),
         ('bpm_override_by', 'INTEGER'),    # the profile that set it
         ('analyzed_bpm_basis', 'TEXT'),    # why the analysis chose its octave (core/sample/tempo.py)
+        ('bpm_tag_written', 'REAL'),       # a BPM written into the file from a person's ×2 / ÷2 (ignored as a tag)
     )
 
     def _add_track_dj_table(self, cursor):

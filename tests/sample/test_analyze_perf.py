@@ -25,8 +25,14 @@ def _tone_wav(path, seconds=2.0):
 
 
 def _fake_librosa(calls):
+    # one mel spectrogram, made at the analysis rate, feeds the onset envelope
+    # (and the tempo's octave check: core/sample/tempo.py), so no step computes
+    # a spectrum of its own
+    feature = types.SimpleNamespace(
+        melspectrogram=lambda y, sr: calls.setdefault("mel", ("MEL", y, sr))[0]
+    )
     onset = types.SimpleNamespace(
-        onset_strength=lambda y, sr: calls.setdefault("envelope", ("ENV", y, sr))[0]
+        onset_strength=lambda S, sr: calls.setdefault("envelope", ("ENV", S, sr))[0]
     )
     util = types.SimpleNamespace(
         peak_pick=lambda env, **kw: calls.update(peak_kw=kw) or np.array([10, 20])
@@ -44,8 +50,9 @@ def _fake_librosa(calls):
         return y
 
     return types.SimpleNamespace(
-        onset=onset, util=util, beat=beat,
+        onset=onset, util=util, beat=beat, feature=feature,
         frames_to_time=frames_to_time, resample=resample,
+        power_to_db=lambda S: ("DB", S),
     )
 
 
@@ -67,8 +74,10 @@ def test_analyze_downsamples_and_shares_envelope(tmp_path, monkeypatch):
     result = sample_analyze.analyze_track(str(wav))
 
     assert calls["resample"] == (44100, 22050), calls.get("resample")
-    # onset_strength ran at the analysis rate…
-    assert calls["envelope"][2] == 22050
+    # the one mel spectrogram ran at the analysis rate, and the onset
+    # envelope came from it…
+    assert calls["mel"][2] == 22050
+    assert calls["envelope"][1] == ("DB", "MEL") and calls["envelope"][2] == 22050
     # …and beat_track got THAT envelope instead of raw audio.
     beat_kw = calls["beat_kw"]
     assert "y" not in beat_kw, "beat_track must not receive raw audio"
@@ -91,7 +100,7 @@ def test_analyze_decodes_straight_to_22050_with_ffmpeg(tmp_path, monkeypatch):
     monkeypatch.setattr(sample_analyze, "_load_librosa", lambda: _fake_librosa(calls))
     sample_analyze.analyze_track(str(wav))
     assert "resample" not in calls
-    assert calls["envelope"][2] == 22050
+    assert calls["mel"][2] == 22050
 
 
 def test_analyze_skips_resample_when_already_22050(tmp_path, monkeypatch):

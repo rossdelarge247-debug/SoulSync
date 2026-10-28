@@ -182,7 +182,10 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
         else mono
     )
     reached("tempo")
-    onset_envelope = librosa.onset.onset_strength(y=y, sr=_ANALYSIS_SR)
+    # one mel spectrogram for the onset envelope (exactly what
+    # onset_strength(y=y) would make itself) and the tempo's octave check
+    mel = librosa.feature.melspectrogram(y=y, sr=_ANALYSIS_SR)
+    onset_envelope = librosa.onset.onset_strength(S=librosa.power_to_db(mel), sr=_ANALYSIS_SR)
     peak_frames = librosa.util.peak_pick(onset_envelope, **_PEAK_PICK_KWARGS)
     onsets = [
         round(float(t), 3)
@@ -197,7 +200,8 @@ def analyze_track(file_path: str, max_seconds: Optional[float] = None, *,
     # backbeat is, not librosa's lean towards 120 (core/sample/tempo.py)
     from .tempo import analysis_tempo
 
-    bpm, tempo_basis = analysis_tempo(file_path, y, _ANALYSIS_SR, bpm, beat_frames)
+    bpm, tempo_basis = analysis_tempo(file_path, y, _ANALYSIS_SR, bpm, beat_frames, mel=mel)
+    del mel
 
     from .energy import detect_energy
     from .key import detect_key

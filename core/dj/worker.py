@@ -474,10 +474,17 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
         progress.mode("grid")
         audio = None
 
+    tag_bpm = tags.get("bpm")
+    ours = (dj_row or {}).get("bpm_tag_written")
+    if tag_bpm and ours and int(round(float(tag_bpm))) == int(round(float(ours))):
+        # the file's BPM is one SYNCHRO.S wrote from a person's Double / Halve
+        # BPM, not the file's own: after "Use the measured BPM" it must not
+        # come back as a tag (review N2)
+        tag_bpm = None
     if overwrite_tags and write_tags:
         values = store.decide(enrichment_bpm=row.get("bpm"), analysis=analysis)
     else:
-        values = store.decide(tag_bpm=tags.get("bpm"), tag_key=tags.get("key"), enrichment_bpm=row.get("bpm"),
+        values = store.decide(tag_bpm=tag_bpm, tag_key=tags.get("key"), enrichment_bpm=row.get("bpm"),
                               analysis=analysis)
 
     written: List[str] = []
@@ -499,6 +506,11 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
         result = write_dj_tags(path, bpm=override or values["bpm"],
                                key_name=values["key_name"] if confident else None, overwrite=overwrite_tags)
         written = list(result.get("written") or [])
+        if "bpm" in written:
+            # remember a BPM written from a person's value (whole, as the tag
+            # holds it), so a later analysis knows that tag is ours; one
+            # written from the measured BPM is the file's own from now on
+            values["bpm_tag_written"] = float(int(round(float(override)))) if override else None
         if result.get("error") and not written:
             logger.info("BPM and key not written into %s: %s", path, result["error"])
         if written:
