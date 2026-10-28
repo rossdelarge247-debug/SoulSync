@@ -268,6 +268,8 @@ function TransitionPicker({
   const name = useId();
   const [place, setPlace] = useState<CSSProperties | undefined>(undefined);
   const [ask, setAsk] = useState<Transition | null>(null);
+  // 319: asked once; "Not now" isn't asked again while the picker is open
+  const [declined, setDeclined] = useState(false);
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   usePopoverDismiss({ ref, anchor, onClose });
   useEffect(() => {
@@ -295,7 +297,7 @@ function TransitionPicker({
   }, [anchor]);
   const choose = (next: Transition) => {
     onChange(next);
-    if (saveTo) {
+    if (saveTo && !declined) {
       setAsk(next);
       setSaving('idle');
     }
@@ -317,7 +319,10 @@ function TransitionPicker({
   const known = autoPlan ?? plan;
   const why = new Map((known?.styles ?? []).map((s) => [s.style, s]));
   const head = autoLine(autoPlan);
-  const reason = (known?.why ?? '').includes(': ') ? known!.why! : step.reason;
+  // the pair and why; for 302's move, what stood in the way (Auto's line
+  // below says the whole sentence)
+  const f = fallbackOf(known);
+  const reason = f ? f.reason : (known?.why ?? '').includes(': ') ? known!.why! : step.reason;
   const pickerWhy =
     known?.pair && !reason.startsWith(known.pair) ? `${known.pair}: ${reason}` : reason;
   const body = (
@@ -420,7 +425,14 @@ function TransitionPicker({
               >
                 {saving === 'saving' ? 'Saving…' : `Save to ${saveTo.name}`}
               </button>
-              <button type="button" className={styles.textButton} onClick={() => setAsk(null)}>
+              <button
+                type="button"
+                className={styles.textButton}
+                onClick={() => {
+                  setAsk(null);
+                  setDeclined(true);
+                }}
+              >
                 Not now
               </button>
             </span>

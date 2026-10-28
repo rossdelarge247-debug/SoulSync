@@ -406,14 +406,37 @@
   font-size: 15px;
 }
 
-.rowSelect {
+/* a quiet select, "Auto's own pick ▾" (33e): its own look wins over the
+   legacy Settings page's form styles */
+.selectWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   max-width: 50%;
-  padding: 4px 0;
-  border: 0;
-  background: transparent;
   color: var(--ss-text-tertiary);
-  font: inherit;
+}
+
+.selectWrap::after {
+  content: '▾';
+  margin-left: 4px;
   font-size: 14px;
+  pointer-events: none;
+}
+
+.rowSelect {
+  appearance: none !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 4px 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--ss-text-tertiary) !important;
+  font: inherit;
+  font-size: 14px !important;
   text-align: right;
   cursor: pointer;
 }
@@ -573,7 +596,7 @@
 }
 
 .httpsNote code {
-  font-family: var(--ss-font-mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   font-size: 13px;
 }
 

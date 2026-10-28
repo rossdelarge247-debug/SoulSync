@@ -173,8 +173,9 @@ export function chipWhy(
       : `${title} is being analysed`;
   }
   // 302: what stood in the way (the chip names the move)
+  // (26g's fallback line: no "auto" before it, so the reason fits)
   const f = fallbackOf(plan);
-  if (f) return `${who} · couldn't beat-match: ${f.reason}`;
+  if (f) return `couldn't beat-match: ${f.reason}`;
   if (plan.status === 'play_on')
     return plan.fallback?.code === 'unsupported'
       ? 'Needs https or localhost'

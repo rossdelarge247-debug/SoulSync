@@ -102,26 +102,30 @@ export function BetweenTracksSettings() {
       </div>
       <label className={styles.row}>
         <span>Style when Auto can choose</span>
-        <select
-          className={styles.rowSelect}
-          value={prefs.lean}
-          onChange={(e) => setPrefs({ lean: e.target.value as Lean })}
-        >
-          <option value="auto">Auto&apos;s own pick</option>
-          <option value="long">Long blends</option>
-          <option value="short">Short blends</option>
-        </select>
+        <span className={styles.selectWrap}>
+          <select
+            className={styles.rowSelect}
+            value={prefs.lean}
+            onChange={(e) => setPrefs({ lean: e.target.value as Lean })}
+          >
+            <option value="auto">Auto&apos;s own pick</option>
+            <option value="long">Long blends</option>
+            <option value="short">Short blends</option>
+          </select>
+        </span>
       </label>
       <label className={styles.row}>
         <span>Key lock in DJ now</span>
-        <select
-          className={styles.rowSelect}
-          value={prefs.keyLock ? 'on' : 'off'}
-          onChange={(e) => setPrefs({ keyLock: e.target.value === 'on' })}
-        >
-          <option value="off">Off</option>
-          <option value="on">On</option>
-        </select>
+        <span className={styles.selectWrap}>
+          <select
+            className={styles.rowSelect}
+            value={prefs.keyLock ? 'on' : 'off'}
+            onChange={(e) => setPrefs({ keyLock: e.target.value === 'on' })}
+          >
+            <option value="off">Off</option>
+            <option value="on">On</option>
+          </select>
+        </span>
       </label>
       <p className={styles.note}>
         Not for podcasts, audiobooks or radio. Auto mix needs SYNCHRO.S on https or opened on its
@@ -212,15 +216,22 @@ export function BetweenTracksSwitch({
  * Off, said once at the head of a list (Up next's, a set's), never per step
  * (320, UX-21): "Auto mix is off: tracks play straight on · Turn it on".
  */
-export function AutoMixOffLine({ className }: { className?: string }) {
+export function AutoMixOffLine({
+  className,
+  besideSwitch = false,
+}: {
+  className?: string;
+  /** under the small control, which says "Needs https or localhost" already */
+  besideSwitch?: boolean;
+}) {
   const prefs = usePrefs();
   const unsupported = mixSupport();
   if (prefs.between === 'dj') return null;
   return (
     <p className={[styles.offLine, className].filter(Boolean).join(' ')} data-automix-off="">
       Auto mix is off: tracks play straight on
-      {' · '}
-      {unsupported ? (
+      {unsupported && besideSwitch ? null : ' · '}
+      {unsupported && besideSwitch ? null : unsupported ? (
         <span title={unsupported}>{mixSupportShort(unsupported)}</span>
       ) : (
         <button

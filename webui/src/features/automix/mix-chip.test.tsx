@@ -80,7 +80,7 @@ describe('[gauntlet lab] the chip with every plan status', () => {
       'echo out (no beat-match)',
       echo,
       /Echo out/,
-      "auto · couldn't beat-match: Night Ferry has no steady beat",
+      "couldn't beat-match: Night Ferry has no steady beat",
     ],
     ['ok', ok, /Long blend · 32 bars/, 'auto · 8A → 9A, +2 BPM'],
   ])('%s: its words, compact too, and the picker opens', (_name, plan, words, why) => {
@@ -216,7 +216,7 @@ describe('no crossfade on a chip (Ross, 27 October)', () => {
     expect(named).toHaveAccessibleName(/Straight on/);
     expect(named).toHaveAttribute('data-tone', 'warn');
     expect(
-      screen.getByText("auto · couldn't beat-match: Night Ferry has no steady beat"),
+      screen.getByText("couldn't beat-match: Night Ferry has no steady beat"),
     ).toBeInTheDocument();
     first.unmount();
     // an album in its order plays straight on quietly: no chip in Up next
@@ -300,9 +300,7 @@ describe('no crossfade on a chip (Ross, 27 October)', () => {
     expect(screen.getByRole('button', { name: /^How Night Ferry goes into/ })).toHaveAccessibleName(
       /: Cut, auto/,
     );
-    expect(
-      screen.getByText("auto · couldn't beat-match: the tempos are 9.7% apart"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("couldn't beat-match: the tempos are 9.7% apart")).toBeInTheDocument();
     expect(container.querySelector('[title]')?.getAttribute('title')).toBe(
       "Couldn't beat-match: cutting on the phrase · the tempos are 9.7% apart",
     );
@@ -354,5 +352,36 @@ describe('no crossfade on a chip (Ross, 27 October)', () => {
     expect(container.querySelector('[data-dimmed]')).not.toBeNull();
     expect(container.querySelector('[data-chip-who]')?.textContent).toBe('auto');
     expect(container.textContent).not.toMatch(/Auto mix is off|plays straight on/);
+  });
+});
+
+describe('319: "Save it to the set too?"', () => {
+  it('asks once in place; after Not now it isn’t asked again while the picker is open', () => {
+    let saved = 0;
+    render(
+      <TransitionChip
+        transition={null}
+        step={{ kind: 'smooth', reason: '' }}
+        from="Night Ferry"
+        to="Static Bloom"
+        onChange={() => {}}
+        plan={ok}
+        floating
+        saveTo={{
+          name: 'Sunday Set',
+          save: async () => {
+            saved += 1;
+          },
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^How Night Ferry goes into/ }));
+    const picker = screen.getByRole('dialog');
+    fireEvent.click(within(picker).getByRole('radio', { name: 'Bass swap' }));
+    expect(within(picker).getByRole('group', { name: 'Save it to Sunday Set too?' })).toBeTruthy();
+    fireEvent.click(within(picker).getByRole('button', { name: 'Not now' }));
+    fireEvent.click(within(picker).getByRole('radio', { name: '8 bars' }));
+    expect(within(picker).queryByRole('group', { name: 'Save it to Sunday Set too?' })).toBeNull();
+    expect(saved).toBe(0);
   });
 });

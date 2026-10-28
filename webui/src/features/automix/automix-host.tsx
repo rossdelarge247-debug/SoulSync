@@ -559,7 +559,7 @@ export function AutomixHost() {
               <div className={styles.upnextHeadRow}>
                 <BetweenTracksSwitch showLabel />
               </div>
-              {offPairs ? <AutoMixOffLine /> : null}
+              {offPairs ? <AutoMixOffLine besideSwitch /> : null}
             </div>,
             slots.upnextHead,
           )

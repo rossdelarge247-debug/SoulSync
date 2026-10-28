@@ -76,7 +76,7 @@ describe('the chip’s words (26g)', () => {
     });
     // 302: the chip's line says what stood in the way (26g's fallback shape)
     expect(chipWhy(echo, AUTO_CHOICE, 'x')).toBe(
-      "auto · couldn't beat-match: Sand Script has no steady beat",
+      "couldn't beat-match: Sand Script has no steady beat",
     );
     expect(chipWhyShort(echo, AUTO_CHOICE)).toBe("auto · can't beat-match");
     // an album in its order isn't a failure: it plays straight on, quietly

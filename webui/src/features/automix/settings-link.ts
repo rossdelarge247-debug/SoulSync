@@ -10,6 +10,10 @@ function scrollToCard(): void {
     const card = document.querySelector<HTMLElement>(
       '#ss-between-tracks-library [data-between-tracks]',
     );
+    // it lives in Settings → Library's Organization section: opened if it's folded
+    const body = card?.closest<HTMLElement>('.settings-section-body.collapsed');
+    const head = body?.previousElementSibling as HTMLElement | null | undefined;
+    if (head?.classList.contains('settings-section-header')) head.click();
     if (card && card.offsetParent !== null) {
       card.scrollIntoView({ block: 'start', behavior: 'smooth' });
       card.querySelector<HTMLElement>('[aria-checked="true"]')?.focus({ preventScroll: true });
