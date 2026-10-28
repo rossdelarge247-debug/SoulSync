@@ -189,8 +189,23 @@ def _seconds(duration: Any) -> Optional[int]:
     return int(round(ms / 1000.0)) if ms > 0 else None
 
 
+#: the failures "Try again" (an admin's, 31a state 8) asks about once more
+RETRYABLE = ("error", "no_grid")
+
+
+def _retry(database, track_id: str, failed: str) -> None:
+    """Put a failed track back to be analysed: its DJ row (an error) or its
+    grid row (a grid that failed; the BPM, key and energy stay)."""
+    from core.dj import grid_store, store
+
+    if failed == "error":
+        store.requeue(database, track_id, "asked to try again")
+    else:
+        grid_store.mark(database, track_id, "stale", "asked to try again", version=0)
+
+
 def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bool = True,
-        source: Optional[str] = None, set_id: Optional[int] = None) -> Dict[str, Any]:
+        source: Optional[str] = None, set_id: Optional[int] = None, retry: bool = False) -> Dict[str, Any]:
     """Put the caller's tracks that need analysis in the asked-for line.
     ``{asked, queued, already_queued, already_done, cant, over_limit, limit,
     yours, started}``: ``asked`` counts the ids in the caller's library,
@@ -199,7 +214,8 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
     ``over_limit`` those past the profile's room. ``explicit`` is a person's
     own ask (it goes to the front of the line); while a Stop holds the sweeps
     an automatic one raises ``worker.Held``. ``source`` and ``set_id`` say
-    why (``worker.SOURCES``)."""
+    why (``worker.SOURCES``). ``retry`` (Try again: an admin's own ask)
+    asks again for tracks whose analysis or grid failed."""
     from core.dj import worker
 
     job = job or worker.JOB
@@ -207,8 +223,13 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
     version = worker.analyzer_version()
     needs: List[str] = []
     done = cant = 0
+    if retry and not explicit:
+        raise ValueError("Try again is a person's own ask")
     for track_id, row in rows.items():
         state = classify(row, version)
+        if retry and state["failed"] in RETRYABLE:
+            _retry(database, track_id, state["failed"])
+            state = {"needs": True, "failed": None}
         if state["needs"]:
             needs.append(track_id)
         elif state["failed"]:
@@ -454,6 +475,14 @@ def progress(database, ids: Iterable[Any], profile_id: Optional[int], *, job=Non
                                               admin=admin, line=line)}
 
 
+def withdraw(ids: Iterable[Any], profile_id: int, *, job=None) -> Dict[str, int]:
+    """Cancel (the Mix tab, 31c): this profile's asks for these tracks
+    leave the line; a track someone else asked for stays for them."""
+    from core.dj import worker
+
+    return (job or worker.JOB).withdraw([str(i) for i in ids], int(profile_id))
+
+
 def promote(profile_id: int, *, job=None) -> Dict[str, int]:
     """Analyse mine: this profile's tracks in line go to the front."""
     from core.dj import worker
@@ -462,4 +491,4 @@ def promote(profile_id: int, *, job=None) -> Dict[str, int]:
 
 
 __all__ = ["ASK_EVERY_SECONDS", "ASK_LIMIT", "LINE_SHOWN", "MAX_IDS", "RateLimit", "SHOWN_STEPS", "WAITS", "ask",
-           "classify", "progress", "promote", "readiness"]
+           "classify", "progress", "promote", "readiness", "withdraw"]

@@ -438,3 +438,56 @@ def test_the_ask_says_where_its_tracks_are_for_the_added_toast(client):
     assert body["working"] is True and body["position"] is None
     _finish_all = client.post("/api/library/dj/analyse", json={"track_ids": []}).get_json()
     assert _finish_all["position"] is None and _finish_all["working"] is False
+
+
+# ── Cancel and Try again ─────────────────────────────────────────────────────
+
+def test_cancel_takes_only_the_callers_own_asks_out_of_the_line(client):
+    _busy_on_1(client)
+    client.post("/api/library/dj/analyse", json={"track_ids": ["3", "4"], "source": "mix"})
+    client.state["profile"] = 3
+    client.post("/api/library/dj/analyse", json={"track_ids": ["4"], "source": "up_next"})
+    client.state["profile"] = 2
+    total = client.job.live()["total"]
+    res = client.post("/api/library/dj/analyse", json={"track_ids": ["3", "4", "5"], "cancel": True})
+    assert res.status_code == 200 and res.get_json()["withdrawn"] == 2
+    # 3 leaves the line; 4 stays for Sam
+    assert _line_order(client) == ["4"]
+    assert client.job.live()["total"] == total - 1
+    tracks = client.post("/api/library/dj/progress", json={"track_ids": ["3"]}).get_json()["tracks"]
+    assert tracks["3"]["state"] == "waiting" and tracks["3"]["reason"] == "not_queued"
+    assert client.post("/api/library/dj/analyse", json={"playlist_id": 1, "cancel": True}).status_code == 400
+
+
+def test_try_again_is_an_admins_and_asks_a_failed_track_again(client, db):
+    store.save(db, "6", {"status": "error", "error": "bad file", "dj_analyzer_version": worker.analyzer_version()})
+    _dj_done(db, "7")
+    grid_store.mark(db, "7", "error", "no beats", source_sig=None)
+    body = client.post("/api/library/dj/analyse", json={"track_ids": ["6", "7"], "reason": "asked"}).get_json()
+    assert body["cant"] == 2 and body["queued"] == 0
+    # a member can't, nor can an automatic ask
+    assert client.post("/api/library/dj/analyse",
+                       json={"track_ids": ["6"], "reason": "asked", "retry": True}).status_code == 403
+    client.state.update(profile=1, admin=True)
+    assert client.post("/api/library/dj/analyse", json={"track_ids": ["6"], "retry": True}).status_code == 403
+    client.gate.set()
+    body = client.post("/api/library/dj/analyse",
+                       json={"track_ids": ["6", "7"], "reason": "asked", "retry": True}).get_json()
+    assert body["queued"] == 2 and body["cant"] == 0
+    client.job.join(5)
+    # 7's BPM and key were kept while its grid was looked for again
+    assert store.get(db, "7")["bpm"] == 124.0
+    tracks = client.post("/api/library/dj/progress", json={"track_ids": ["6", "7"]}).get_json()["tracks"]
+    assert tracks["6"]["ready"] is True and tracks["7"]["ready"] is True
+
+
+def test_join_waits_for_a_next_run_made_but_not_yet_started():
+    """A run's end starts the next run's thread; a join that lands between
+    the thread being made and started used to raise (a flaky test)."""
+    job = _job()
+    pending = threading.Thread(target=lambda: None)
+    job._thread = pending
+    job.join(0.05)  # not started: waits, then gives up, without raising
+    threading.Timer(0.02, pending.start).start()
+    job.join(2)
+    assert pending.ident is not None and not pending.is_alive()

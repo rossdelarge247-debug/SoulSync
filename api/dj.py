@@ -75,7 +75,11 @@ POST /api/library/dj/analyse
     ``source`` says why (``asked``, ``set`` with the caller's ``set_id``,
     ``up_next``, ``mix``, ``lab``, ``dj_now``, ``page``), for the line's
     words (Brief A, HANDOFF 325). ``{mine: true, reason: "asked"}`` is
-    Analyse mine: the caller's tracks already in line go to the front. JSON
+    Analyse mine: the caller's tracks already in line go to the front.
+    ``{track_ids, cancel: true}`` takes the caller's own asks for them out
+    of the line (the Mix tab's Cancel). ``retry: true`` with ``reason:
+    "asked"`` (admins; 403 otherwise) asks again for tracks whose analysis
+    or beat grid failed (Try again). JSON
     only, body at most 64 KB; one request a second a profile (429
     ``rate_limited`` with ``Retry-After``); 409 ``off`` while analysis is
     switched off.
@@ -606,6 +610,12 @@ def dj_analyse():
     mine = body.get("mine") is True
     if mine and reason != "asked":
         return jsonify({"success": False, "error": "Analyse mine is a person's own ask"}), 400
+    # Cancel (the Mix tab): the caller's own asks for these tracks leave the line
+    cancel = body.get("cancel") is True
+    # Try again (an admin's): tracks whose analysis or grid failed are asked again
+    retry = body.get("retry") is True
+    if retry and (reason != "asked" or not _is_admin()):
+        return jsonify({"success": False, "error": "Only an admin can ask for a failed track again"}), 403
     playlist = None
     if mine:
         ids: list = []
@@ -628,6 +638,11 @@ def dj_analyse():
     if not worker.settings_state().get("analyze", True):
         return jsonify({"success": False, "code": "off",
                         "error": "Working out BPM, key and energy is off in Settings → Library."}), 409
+    if cancel:
+        if "playlist_id" in body or mine:
+            return jsonify({"success": False, "error": "Cancel names its tracks"}), 400
+        gone = ondemand.withdraw(ids, int(pid))
+        return _no_store({"success": True, **gone}, 200)
     if mine:
         # Analyse mine: the caller's own tracks in line go first
         moved = ondemand.promote(int(pid))
@@ -647,7 +662,8 @@ def dj_analyse():
             return jsonify({"success": False, "error": "Playlist not found"}), 404
         ids = list(dict.fromkeys(str(t["id"]) for t, _title, _artist in found["rows"] if t))[:ondemand.MAX_IDS]
     try:
-        result = ondemand.ask(database, ids, int(pid), explicit=reason == "asked", source=source, set_id=set_id)
+        result = ondemand.ask(database, ids, int(pid), explicit=reason == "asked", source=source, set_id=set_id,
+                              retry=retry)
     except worker.Held:
         return jsonify({"success": False, "code": "held",
                         "error": "Working out BPM, key and energy is stopped; ask for these to go on."}), 409

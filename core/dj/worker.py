@@ -782,6 +782,31 @@ class DjAnalysisJob:
                 self._to_front_locked(track_id, very_front=True)
             return True
 
+    def withdraw(self, ids: List[str], profile_id: int) -> Dict[str, int]:
+        """Cancel: this profile's asks for ``ids`` leave the line; a track
+        nobody else asked for leaves it too. ``{withdrawn}``."""
+        pid = int(profile_id)
+        out = 0
+        with self._lock:
+            for track_id in dict.fromkeys(str(i) for i in ids):
+                askers = self._asked_by.get(track_id)
+                if not askers or pid not in askers:
+                    continue
+                askers.discard(pid)
+                (self._why.get(track_id) or {}).pop(pid, None)
+                out += 1
+                if not askers:
+                    self._priority.remove(track_id)
+                    self._asked_by.pop(track_id, None)
+                    self._front.discard(track_id)
+                    self._why.pop(track_id, None)
+                    if self._state and self._state.get("status") == "running" and track_id in self._queued \
+                            and track_id not in self._sweep_pos:
+                        # asked for only: it no longer counts in this run
+                        self._queued.discard(track_id)
+                        self._state["total"] = max(0, int(self._state.get("total") or 0) - 1)
+            return {"withdrawn": out}
+
     def promote(self, profile_id: int) -> Dict[str, int]:
         """Analyse mine: every track this profile asked for joins the front,
         in the order they were asked. ``{moved, yours}``."""
@@ -1006,6 +1031,13 @@ class DjAnalysisJob:
             thread = self._thread
             if thread is None:
                 return
+            if thread.ident is None:
+                # the next run's thread is made but not started yet (a run's
+                # end starting the next): joining it now would raise
+                if deadline is not None and time.monotonic() >= deadline:
+                    return
+                time.sleep(0.005)
+                continue
             thread.join(None if deadline is None else max(0.0, deadline - time.monotonic()))
             # a run that ended with tracks asked for meanwhile starts the next
             if self._thread is thread or (deadline is not None and time.monotonic() >= deadline):
