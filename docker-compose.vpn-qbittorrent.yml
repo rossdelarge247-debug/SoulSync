@@ -1,6 +1,11 @@
 # Optional, with docker-compose.vpn.yml: a NEW qBittorrent that runs through
-# the VPN. Use docker-compose.vpn-qbittorrent-existing.yml instead if your
-# docker-compose.yml already has a qbittorrent service. Support/VPN.md, step 2.
+# the VPN. Support/VPN.md, step 2.
+#
+# !! ALREADY RUN QBITTORRENT? Don't use this file. Over a qbittorrent service
+# !! in your docker-compose.yml it replaces that service's image, its /config
+# !! (settings, torrents list, password) and its /downloads (save path).
+# !! Use docker-compose.vpn-qbittorrent-existing.yml instead: it only moves
+# !! your qBittorrent into the VPN.
 #
 # COMPOSE_FILE=docker-compose.yml:docker-compose.vpn.yml:docker-compose.vpn-qbittorrent.yml
 
@@ -36,7 +41,12 @@ services:
     networks: !reset null
     hostname: !reset null
     dns: !reset []
+    dns_search: !reset []
+    dns_opt: !reset []
     extra_hosts: !reset []
+    mac_address: !reset null
+    links: !reset []
+    domainname: !reset null
     depends_on:
       gluetun:
         condition: service_started

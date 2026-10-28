@@ -38,7 +38,12 @@ services:
     networks: !reset null
     hostname: !reset null
     dns: !reset []
+    dns_search: !reset []
+    dns_opt: !reset []
     extra_hosts: !reset []
+    mac_address: !reset null
+    links: !reset []
+    domainname: !reset null
     depends_on:
       gluetun:
         condition: service_started
