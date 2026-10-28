@@ -4,7 +4,14 @@ import type { ViewRow } from '@/features/sets/sets.api';
 
 import { readDraft, writeDraft } from '@/features/sets/draft-store';
 
-import { playSetAsMix, saveTransitionToDraft, saveTransitionToSet, setQueue } from './set-play';
+import { playedAsMix, type QueueTrack } from './controller';
+import {
+  playSetAsMix,
+  playSetFromPlaying,
+  saveTransitionToDraft,
+  saveTransitionToSet,
+  setQueue,
+} from './set-play';
 
 function row(id: string | null, file = true, transition: ViewRow['transition'] = null): ViewRow {
   return {
@@ -119,5 +126,52 @@ describe('a draft played as a mix (319)', () => {
     expect(() => saveTransitionToDraft(41, '2', '1', { style: 'cut', bars: null })).toThrow(
       /no longer next to each other/,
     );
+  });
+});
+
+describe("the Mix tab's working set as a mix (Ross's report of 28 October)", () => {
+  const rows = [row('1'), row('2'), row('3'), row('4')];
+  function player(queue: QueueTrack[], index: number) {
+    return {
+      queue,
+      state: () => ({ track: queue[index] ?? null, queue, index }),
+      insertNext: vi.fn((t: QueueTrack) => {
+        queue.splice(index + 1, 0, t);
+        return index + 1;
+      }),
+    };
+  }
+
+  it('from the playing track: the rest of the set goes straight after it, and every pair plays as a mix', async () => {
+    // the playing track was played on its own: nothing up next
+    const p = player([{ id: '1', title: 'T1', file_path: '/m/1.flac' }], 0);
+    const toast = vi.fn();
+    vi.stubGlobal('showToast', toast);
+    expect(await playSetFromPlaying({ id: 5, name: 'Working set' }, rows, p)).toBe('continued');
+    expect(p.queue.map((t) => t.id)).toEqual(['1', '2', '3', '4']);
+    for (let i = 0; i < 3; i++) expect(playedAsMix(p.queue[i], p.queue[i + 1])).toBe(true);
+    expect(toast).toHaveBeenCalledWith('Working set plays next as a mix · 3 tracks', 'success');
+  });
+
+  it('what was up next stays after the set', async () => {
+    const p = player(
+      [
+        { id: '2', title: 'T2', file_path: '/m/2.flac' },
+        { id: '9', title: 'Other' },
+      ],
+      0,
+    );
+    await playSetFromPlaying({ id: 5, name: 'Working set' }, rows, p);
+    expect(p.queue.map((t) => t.id)).toEqual(['2', '3', '4', '9']);
+  });
+
+  it('a playing track not in the set (or nothing playing) plays the set from its start', async () => {
+    const play = vi.fn(async () => ({ status: 'played' }));
+    (window as unknown as { playTrackList: unknown }).playTrackList = play;
+    const p = player([{ id: '7', title: 'T7', file_path: '/m/7.flac' }], 0);
+    expect(await playSetFromPlaying({ id: 5, name: 'Working set' }, rows, p)).toBe('started');
+    expect(play).toHaveBeenCalledTimes(1);
+    expect((play.mock.calls[0] as unknown[])[1]).toBe('Working set · as a mix');
+    expect(await playSetFromPlaying({ id: 5, name: 'Working set' }, rows, null)).toBe('started');
   });
 });

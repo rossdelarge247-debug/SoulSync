@@ -235,11 +235,18 @@ describe("the words (Brief A, 31a's states)", () => {
     expect(line({ state: 'failed', reason: 'no_grid' }).sentence).toBe(
       "No beat grid found · won't auto-mix; plays straight on",
     );
+    // an admin can have its beat grid found again (Ross's report of 28 October)
     expect(line({ state: 'done', ready: false, bpm_key: true, beat: 'no_beat' })).toMatchObject({
       tone: 'warning',
       sentence: "Can't be beat-matched · no steady beat · echo out or cut",
-      action: null,
+      action: 'analyse_again',
     });
+    expect(line({ state: 'done', ready: false, beat: 'no_beat' }, member).action).toBeNull();
+    expect(line({ state: 'done', ready: false, beat: 'too_short' }).action).toBeNull();
+    // a grid found but not sure enough isn't "no steady beat"
+    expect(line({ state: 'done', ready: false, beat: 'unsure' }).sentence).toBe(
+      "Can't be beat-matched · beat grid not sure enough · echo out or cut",
+    );
     expect(line({ state: 'done', ready: false, beat: 'not_4_4' }).sentence).toBe(
       "Can't be beat-matched · not in 4/4 · echo out or cut",
     );

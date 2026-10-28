@@ -1024,6 +1024,84 @@ describe('[gauntlet lab] every plan status, as the server sends it', () => {
   });
 });
 
+describe("Ross's report of 28 October: the queue never stops at a track's end", () => {
+  // every plan a pair can have, and a mix that missed (no windows): the
+  // player's own advance was turned away (or never came), so the controller
+  // starts the next track itself
+  const cases: [string, () => PairPlan, boolean][] = [
+    ['play_on', playOnPlan, false],
+    ['cut', () => cutPlan(250), false],
+    [
+      'echo out by time (out.bar null)',
+      () =>
+        okPlan({
+          style: 'echo_out',
+          bars: 4,
+          beatmatch: false,
+          out: { start: 299, end: 299, bar: null, end_bar: null },
+        }),
+      true,
+    ],
+    ['waiting', serverWaiting, false],
+  ];
+  for (const [name, plan, missed] of cases) {
+    it(`${name}: an ended element moves on to the next track`, async () => {
+      const h = harness({ plan: plan() });
+      if (missed)
+        h.window.mockImplementation(async () => {
+          throw new Error('no window');
+        });
+      h.ctl.start();
+      await at(h, 280);
+      h.el.advance(300);
+      h.el.ended = true;
+      h.el.paused = true;
+      h.ctl.poke();
+      await flush();
+      expect(h.ctl.ownsAdvance()).toBe(false);
+      expect(h.player.playIndex).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(h.player.playIndex).toHaveBeenCalledWith(1, {});
+      h.ctl.stop();
+    });
+  }
+
+  it('a player that moved on itself is left alone', async () => {
+    const h = harness({ plan: playOnPlan() });
+    h.ctl.start();
+    await at(h, 280);
+    h.el.ended = true;
+    h.ctl.poke();
+    // the player's own advance: the next track is the playing one now
+    h.st.index = 1;
+    h.st.track = h.st.queue[1];
+    h.el.ended = false;
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    h.ctl.stop();
+  });
+
+  it("the sleep timer's end of track, repeat one and the last track stay where they are", async () => {
+    for (const change of [
+      (st: PlayerSnapshotLike) => (st.sleep = 'track'),
+      (st: PlayerSnapshotLike) => (st.repeat = 'one'),
+      (st: PlayerSnapshotLike) => {
+        st.index = 2;
+        st.track = st.queue[2];
+      },
+    ]) {
+      const h = harness({ plan: playOnPlan() });
+      change(h.st);
+      h.ctl.start();
+      h.el.ended = true;
+      h.ctl.poke();
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(h.player.playIndex).not.toHaveBeenCalled();
+      h.ctl.stop();
+    }
+  });
+});
+
 describe('analyse on demand: a waiting pair', () => {
   it('is planned again, afresh, once a track it waits for is analysed', async () => {
     const h = harness({ plan: serverWaiting() });
