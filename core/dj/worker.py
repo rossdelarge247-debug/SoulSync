@@ -53,7 +53,7 @@ import sys
 import threading
 import time
 from contextlib import closing
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from utils.logging_config import get_logger
 
@@ -633,6 +633,11 @@ class DjAnalysisJob:
         self._pinned: set = set()
         self._soon_by: Dict[int, List[str]] = {}
         self._explicit: set = set()
+        #: each track's place in its tier: ``(tier, seq)``, the seq given when
+        #: it entered that tier, so one that moves down a tier goes to the end
+        #: of it, never ahead of what was there first (re-review N1)
+        self._placed: Dict[str, Tuple[int, int]] = {}
+        self._seq = 0
         #: why each track is in line, per profile that asked: (source, set id)
         self._why: Dict[str, Dict[int, Tuple[str, Optional[int]]]] = {}
         #: tracks an ask added to this run's total (not in its own order), so a
@@ -696,6 +701,7 @@ class DjAnalysisJob:
         self._soon_by.clear()
         self._explicit.clear()
         self._why.clear()
+        self._placed.clear()
 
     def _forget_locked(self, track_id: str) -> None:
         """A track leaves the line (taken, or nobody asks for it any more)."""
@@ -703,6 +709,7 @@ class DjAnalysisJob:
         self._pinned.discard(track_id)
         self._explicit.discard(track_id)
         self._why.pop(track_id, None)
+        self._placed.pop(track_id, None)
         for held in self._soon_by.values():
             if track_id in held:
                 held.remove(track_id)
@@ -716,10 +723,28 @@ class DjAnalysisJob:
             return 2
         return 3
 
-    def _resort_locked(self) -> None:
-        """Keep the line in tier order; the sort is stable, so each tier
-        keeps its own first-come order (a few hundred tracks at most)."""
-        self._priority.sort(key=self._tier_of)
+    def _stamp_locked(self, track_id: str, tier: int) -> None:
+        self._seq += 1
+        self._placed[track_id] = (tier, self._seq)
+
+    def _resort_locked(self, first: Iterable[str] = ()) -> None:
+        """Keep the line in tier order, first come first served within a
+        tier: a track that changes tier (up or down) goes to the end of its
+        new one, ``first`` (in its order) before the rest. Move up's tier
+        is newest first. A few hundred tracks at most."""
+        for track_id in list(first) + self._priority:
+            if track_id not in self._asked_by:
+                continue
+            tier = self._tier_of(track_id)
+            placed = self._placed.get(track_id)
+            if placed is None or placed[0] != tier:
+                self._stamp_locked(track_id, tier)
+
+        def key(track_id: str) -> Tuple[int, int]:
+            tier, seq = self._placed.get(track_id, (3, 0))
+            return (tier, -seq if tier == 0 else seq)
+
+        self._priority.sort(key=key)
 
     def front(self, track_id: str) -> bool:
         """In front of what pages asked for (shown in the popover)."""
@@ -793,7 +818,7 @@ class DjAnalysisJob:
             # what Up next needs for its next transition goes first; this
             # profile's earlier "soon" tracks go back to their own tier
             self._soon_by[pid] = [t for t in wanted if t in self._asked_by][-SOON_PER_PROFILE:]
-        self._resort_locked()
+        self._resort_locked(self._soon_by.get(pid, []) if soon else wanted)
         return {"added": added, "already": already, "over": over, "yours": mine, "taken": taken}
 
     def prioritise(self, track_id: str, profile_id: Optional[int] = None) -> bool:
@@ -806,11 +831,25 @@ class DjAnalysisJob:
                 return False
             self._enqueue_locked([track_id], profile_id, None, explicit=True, source="asked")
             if track_id in self._asked_by:
-                self._priority.remove(track_id)
-                self._priority.insert(0, track_id)
                 self._pinned.add(track_id)
+                # the last one moved goes first
+                self._stamp_locked(track_id, 0)
                 self._resort_locked()
             return True
+
+    def set_soon(self, profile_id: int, ids: List[str]) -> None:
+        """Up next's next transition is now ``ids`` (tracks already in
+        line, or none: a pair that needs nothing): this profile's earlier
+        pair goes back to its own tier (re-review L10)."""
+        pid = int(profile_id)
+        with self._lock:
+            keep = [t for t in dict.fromkeys(str(i) for i in ids)
+                    if pid in self._asked_by.get(t, ())][-SOON_PER_PROFILE:]
+            if keep:
+                self._soon_by[pid] = keep
+            else:
+                self._soon_by.pop(pid, None)
+            self._resort_locked(keep)
 
     def withdraw(self, ids: List[str], profile_id: int) -> Dict[str, int]:
         """Cancel: this profile's asks for ``ids`` leave the line; a track
@@ -937,6 +976,9 @@ class DjAnalysisJob:
                     self._priority.pop(0)
                     self._seen.add(first)
                     self._forget_locked(first)
+                    # taken: a Cancel after a retry doesn't take it off the
+                    # total again (re-review L2)
+                    self._added_in_run.discard(first)
                     self._taking_locked(first)
                 return first, True
             while self._index < len(ids):
@@ -1071,7 +1113,8 @@ class DjAnalysisJob:
         # a thread made but not started yet (a run's end starting the next):
         # joining it raises; it's waited for, but never for ever (a start
         # that failed leaves it unstarted; review L8)
-        unstarted_until = time.monotonic() + 5.0
+        # the 5 s count from the first time this thread is found unstarted
+        unstarted: Optional[Tuple[threading.Thread, float]] = None
         while True:
             thread = self._thread
             if thread is None:
@@ -1080,7 +1123,9 @@ class DjAnalysisJob:
                 thread.join(None if deadline is None else max(0.0, deadline - time.monotonic()))
             except RuntimeError:
                 now = time.monotonic()
-                if now >= unstarted_until or (deadline is not None and now >= deadline):
+                if unstarted is None or unstarted[0] is not thread:
+                    unstarted = (thread, now + 5.0)
+                if now >= unstarted[1] or (deadline is not None and now >= deadline):
                     return
                 time.sleep(0.005)
                 continue

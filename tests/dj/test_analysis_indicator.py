@@ -699,3 +699,141 @@ def test_the_200_cap_holds_at_the_route(client, db):
                  "VALUES (?, '10', '1', ?, ?, 240000)", (t, f"T{t}", f"/m/{t}.flac"))
     body = client.post("/api/library/dj/analyse", json={"track_ids": many[:205]}).get_json()
     assert body["queued"] == 200 and body["over_limit"] == 5 and body["limit"] == 200
+
+
+# ── the re-review's second round ─────────────────────────────────────────────
+
+def _more_tracks(db, ids):
+    for t in ids:
+        _sql(db, "INSERT OR IGNORE INTO tracks (id, album_id, artist_id, title, file_path, duration) "
+                 "VALUES (?, '10', '1', ?, ?, 240000)", (t, f"T{t}", f"/m/{t}.flac"))
+
+
+def test_n1_soon_pairs_dropped_a_tier_go_to_its_end(client, db):
+    """Sam asks for 2 and 3; Mira sends four Up next pairs (the reviewer's
+    probe): each earlier pair goes to the end of the people's tier, behind
+    Sam's earlier asks, never ahead of them."""
+    _more_tracks(db, ["8", "10", "11"])
+    _busy_on_1(client)
+    client.state["profile"] = 3
+    client.post("/api/library/dj/analyse", json={"track_ids": ["2", "3"], "reason": "asked"})
+    client.state["profile"] = 2
+    for pair in (["4", "5"], ["6", "7"], ["8", "2"], ["10", "11"]):
+        assert client.post("/api/library/dj/analyse",
+                           json={"track_ids": pair, "reason": "asked", "source": "up_next",
+                                 "soon": True}).status_code == 202
+    assert _line_order(client) == ["10", "11", "3", "4", "5", "6", "7", "8", "2"]
+
+
+def test_n1_a_page_ask_never_heads_the_tier_it_drops_to(client, db):
+    _busy_on_1(client)
+    client.state["profile"] = 3
+    client.post("/api/library/dj/analyse", json={"track_ids": ["2"], "source": "set", "set_id": 41})
+    client.state["profile"] = 2
+    client.post("/api/library/dj/analyse", json={"track_ids": ["4", "5"], "source": "up_next", "soon": True})
+    assert _line_order(client) == ["4", "5", "2"]
+    client.post("/api/library/dj/analyse", json={"track_ids": ["6", "7"], "source": "up_next", "soon": True})
+    assert _line_order(client) == ["6", "7", "2", "4", "5"]
+    # Move up stays newest first
+    client.state.update(profile=1, admin=True)
+    client.post("/api/library/dj/start", json={"track_id": "4"})
+    client.post("/api/library/dj/start", json={"track_id": "2"})
+    assert _line_order(client)[:4] == ["2", "4", "6", "7"]
+
+
+def test_l2_cancel_after_a_retry_of_an_ask_added_track_keeps_the_total(db):
+    """The reviewer's sequence: 2 and 3 added to a run by an ask, 2 taken
+    (unreachable), asked again (one more try), then cancelled."""
+    g1, g3, r1, r3 = threading.Event(), threading.Event(), threading.Event(), threading.Event()
+
+    def process(d, t, **kw):
+        if t == "1":
+            r1.set()
+            g1.wait(5)
+            return "done"
+        if t == "3":
+            r3.set()
+            g3.wait(5)
+            return "done"
+        return "unreachable"
+
+    job = _job(process=process)
+    job.ask(db, ["1"], 2)
+    assert r1.wait(3)
+    job.ask(db, ["2", "3"], 2)
+    g1.set()
+    assert r3.wait(3)
+    job.ask(db, ["2"], 2)
+    job.withdraw(["2"], 2)
+    live = job.live()
+    try:
+        assert live["total"] == 3 and live["done"] == 1 and live["unreachable"] == 1 and live["current"] == "3"
+    finally:
+        g3.set()
+        job.join(5)
+
+
+def test_l10_a_new_pair_that_needs_nothing_puts_the_old_pair_back(client, db):
+    _busy_on_1(client)
+    client.state["profile"] = 3
+    client.post("/api/library/dj/analyse", json={"track_ids": ["2"], "reason": "asked"})
+    client.state["profile"] = 2
+    client.post("/api/library/dj/analyse", json={"track_ids": ["4", "5"], "source": "up_next", "soon": True})
+    assert _line_order(client) == ["4", "5", "2"]
+    for t in ("6", "7"):
+        _dj_done(db, t)
+        _grid(db, t)
+    client.post("/api/library/dj/analyse", json={"track_ids": ["6", "7"], "source": "up_next", "soon": True})
+    assert 2 not in client.job._soon_by
+    assert _line_order(client) == ["2", "4", "5"]
+
+
+def test_l10_soon_is_two_tracks_by_id_never_a_playlist(client):
+    for body in ({"playlist_id": 99, "source": "up_next", "soon": True},
+                 {"mine": True, "reason": "asked", "source": "up_next", "soon": True},
+                 {"track_ids": ["4"], "cancel": True, "source": "up_next", "soon": True}):
+        assert client.post("/api/library/dj/analyse", json=body).status_code == 400, body
+
+
+def test_l5_move_up_over_the_200_cap_says_so(client, db):
+    _busy_on_1(client)
+    client.job.ask(db, [str(5000 + i) for i in range(worker.PRIORITY_PER_PROFILE)], 1)
+    client.state.update(profile=1, admin=True)
+    res = client.post("/api/library/dj/start", json={"track_id": "4"})
+    assert res.status_code == 409 and res.get_json()["code"] == "over_limit"
+    assert "200 tracks in line, the most at once" in res.get_json()["error"]
+
+
+def test_l6_the_line_reads_the_library_a_few_batches_a_poll(client, db, monkeypatch):
+    _busy_on_1(client)
+    client.job.ask(db, [str(1000 + i) for i in range(150)], 7, limit=None)  # another library's
+    client.job.ask(db, [str(2000 + i) for i in range(150)], 8, limit=None)
+    client.job.ask(db, [str(3000 + i) for i in range(150)], 9, limit=None)
+    reads = []
+    real = ondemand._rows
+    monkeypatch.setattr(ondemand, "_rows", lambda d, ids: reads.append(len(ids)) or real(d, ids))
+    client.state.update(profile=1, admin=True)
+    sweep = client.post("/api/library/dj/progress", json={"track_ids": [], "line": True}).get_json()["sweep"]
+    assert sweep["line"] == [] and sweep["line_more"] == 450
+    assert len([n for n in reads if n == ondemand.LINE_BATCH]) == ondemand.LINE_BATCHES
+
+
+def test_l8_joins_five_seconds_count_from_the_first_unstarted_join():
+    """A run that ends after 5.5 s having made the next run's thread, which
+    starts half a second later: join waits for it (the 5 s for an unstarted
+    thread count from finding it unstarted, not from the call)."""
+    job = _job()
+    second = threading.Thread(target=lambda: None)
+
+    def run():
+        time.sleep(5.5)
+        job._thread = second
+        threading.Timer(0.5, second.start).start()
+
+    first = threading.Thread(target=run)
+    first.start()
+    job._thread = first
+    t0 = time.monotonic()
+    job.join(None)
+    took = time.monotonic() - t0
+    assert second.ident is not None and 5.9 <= took < 7.0

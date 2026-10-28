@@ -66,6 +66,9 @@ _SHOWN_OF = {"read": "read", "tempo": "tempo", "key": "key", "energy": "energy",
              "grid": "grid", "phrases": "phrases"}
 #: how many of the line's tracks the popover names (the rest are counted)
 LINE_SHOWN = 8
+#: the line is read from the library this many at a time, at most this often a poll
+LINE_BATCH = 100
+LINE_BATCHES = 4
 
 
 class RateLimit:
@@ -231,7 +234,11 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
     done = cant = 0
     if retry and not explicit:
         raise ValueError("Try again is a person's own ask")
-    for track_id, row in rows.items():
+    # in the order asked (Up next's pair, a set's rows), whatever order the
+    # library's rows come back in
+    ordered = [t for t in dict.fromkeys(str(i) for i in ids) if t in rows]
+    for track_id in ordered:
+        row = rows[track_id]
         state = classify(row, version)
         if retry and state["failed"] in RETRYABLE:
             _retry(database, track_id, state["failed"])
@@ -242,6 +249,10 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
             cant += 1
         else:
             done += 1
+    if soon and not needs:
+        # Up next's next pair needs nothing: the earlier pair goes back to
+        # its own tier all the same (re-review L10)
+        job.set_soon(int(profile_id), [])
     result = job.ask(database, needs, int(profile_id), explicit=explicit, source=source,
                      set_id=set_id, soon=soon) if needs else {
         "added": [], "already": 0, "over": 0, "yours": job.queue_snapshot([], profile_id)["yours"],
@@ -320,8 +331,10 @@ def _line(database, snapshot: Dict[str, Any], profile_id: Optional[int], admin: 
     # (an admin's line isn't left empty by tracks of other libraries; L6)
     shown: List[Any] = []
     rows: Dict[str, Dict[str, Any]] = {}
-    for start in range(0, len(eligible), 50):
-        batch = eligible[start:start + 50]
+    # at most LINE_BATCHES reads a poll (a long line of other libraries'
+    # tracks is only counted past that; re-review L6)
+    for start in range(0, min(len(eligible), LINE_BATCH * LINE_BATCHES), LINE_BATCH):
+        batch = eligible[start:start + LINE_BATCH]
         found = _rows(database, [c[1] for c in batch])
         rows.update(found)
         shown.extend(c for c in batch if c[1] in found)

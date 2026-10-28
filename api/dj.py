@@ -263,9 +263,12 @@ def _move_up(database, track_id: str):
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500
     if not (result["queued"] or result["already_queued"]):
         words = ("That track is analysed already." if result["already_done"]
+                 else f"You have {result['limit']:,} tracks in line, the most at once: "
+                      "Move up waits until some are done." if result["over_limit"]
                  else "That track couldn't be analysed: Try again asks for it." if result["cant"]
                  else "That track isn't in your library.")
-        return jsonify({"success": False, "code": "nothing_to_move", "error": words}), 409
+        code = "over_limit" if result["over_limit"] and not result["already_done"] else "nothing_to_move"
+        return jsonify({"success": False, "code": code, "error": words}), 409
     worker.JOB.prioritise(track_id, pid)
     return _no_store({"success": True, "queued": True, "job": worker.public_state(database)}, 202)
 
@@ -652,6 +655,9 @@ def dj_analyse():
     soon = body.get("soon") is True
     if soon and source != "up_next":
         return jsonify({"success": False, "error": "soon is Up next's"}), 400
+    if soon and (mine or cancel or "playlist_id" in body):
+        # two tracks named by id, never a playlist's rows (re-review L10)
+        return jsonify({"success": False, "error": "soon names Up next's two tracks by id"}), 400
     playlist = None
     if mine:
         ids: list = []
