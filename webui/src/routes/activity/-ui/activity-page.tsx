@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button, OptionButton } from '@/components/form';
 import { EmptyState, LoadingState, Notice, Skeleton } from '@/components/primitives';
+import { AnalysisSheet } from '@/features/dj/analysis-line';
 import { useModuleOff } from '@/features/modules/module-gate';
 import { useProfile, useReactPageShell } from '@/platform/shell/route-controllers';
 
@@ -100,6 +101,12 @@ export function ActivityPage() {
           </span>
         ) : null}
       </header>
+
+      {/* a phone's popover for the analysis (Brief A, 31f): the topbar's count
+          has no room there, so its panel heads Activity while something is analysed */}
+      <div className={styles.analysisSheet}>
+        <AnalysisSheet />
+      </div>
 
       <div className={styles.controls} data-tour="activity-controls">
         <div className={styles.filters} role="group" aria-label="Show">

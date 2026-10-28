@@ -114,6 +114,8 @@ export interface DjStatus {
     unreachable: number;
     pending: number;
   };
+  /** beat grids: how many tracks are ready to mix, found no beat, are still to do */
+  grids?: { done: number; no_beat: number; pending: number };
   job: DjJob | null;
   held: boolean;
   can_start: boolean;

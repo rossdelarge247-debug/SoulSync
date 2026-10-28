@@ -1,66 +1,452 @@
 /*
- * The interim analysis indicator (DESIGN-SYSTEM "Analysis progress",
- * analyse on demand): a small bar beside a status line, "Finding the beat
- * grid · 60%" or "2nd in line". Claude Design will draw the final one; this
- * keeps to the tokens and Tracks' own analysis bar (153): 4px high,
- * accent-light on a 12% white track, the words 14px in meta grey.
+ * The analysis indicator (Brief A, 31a–31g; DESIGN-SYSTEM "Analysis
+ * indicator"): the line (a 4px bar over one 14px sentence with an 8px dot
+ * and an action link), the row marker (a dot and two words), the topbar's
+ * count and its popover, and the phone Activity sheet's panel (31f).
+ * The dot says the kind: green ready to mix, white at 40% has data or is in
+ * line, accent-light analysing now, amber waiting / stopped / can't be
+ * beat-matched, red failed.
  */
-.progress {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  max-width: 100%;
-  color: var(--ss-text-meta);
-  font-size: 14px;
-  line-height: 1.3;
-  font-variant-numeric: tabular-nums;
+
+/* ── the dot ─────────────────────────────────────────────────────────── */
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+}
+.dot[data-tone='ready'] {
+  background: var(--ss-success);
+}
+.dot[data-tone='running'] {
+  background: rgb(var(--ss-accent-light-rgb));
+  animation: analysis-pulse 1.6s ease-in-out infinite;
+}
+.dot[data-tone='warning'] {
+  background: var(--ss-warning);
+}
+.dot[data-tone='failed'] {
+  background: var(--ss-danger);
+}
+@keyframes analysis-pulse {
+  50% {
+    opacity: 0.45;
+  }
 }
 
+/* ── the bar: 4px on 10% white, filled by step ───────────────────────── */
 .bar {
-  flex: none;
-  width: 64px;
+  position: relative;
+  display: block;
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.1);
   overflow: hidden;
 }
-
-.progress[data-compact] .bar {
-  width: 40px;
-}
-
-.bar > span {
-  display: block;
-  height: 100%;
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
   border-radius: 2px;
   background: rgb(var(--ss-accent-light-rgb));
   transition: width 400ms ease-out;
 }
+.bar[data-tone='ready'] .fill {
+  background: var(--ss-success);
+}
+/* reduced motion (31g): six cells, one lit a step, no fill animation */
+.cells {
+  display: none;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+  height: 100%;
+}
+.cells > span {
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.cells > span[data-on] {
+  background: rgb(var(--ss-accent-light-rgb));
+}
+.bar[data-tone='ready'] .cells > span[data-on] {
+  background: var(--ss-success);
+}
 
-.words {
+@media (prefers-reduced-motion: reduce) {
+  .bar {
+    background: transparent;
+  }
+  .fill {
+    display: none;
+  }
+  .cells {
+    display: grid;
+  }
+  .dot[data-tone='running'] {
+    animation: none;
+  }
+}
+
+/* ── the line (31a): 36px of bar and sentence ────────────────────────── */
+.line {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-ground-sidebar);
+  border: 1px solid var(--ss-hairline);
+  box-sizing: border-box;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ss-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.sentence {
+  flex: 1;
+  min-width: 0;
+}
+.action {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  color: rgb(var(--ss-accent-light-rgb));
+  cursor: pointer;
+}
+.action:hover:not(:disabled):not([aria-disabled='true']) {
+  text-decoration: underline;
+}
+.action:focus-visible,
+.link:focus-visible,
+.count:focus-visible,
+.ghostButton:focus-visible,
+.sheetButton:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+.action[aria-disabled='true'],
+.action:disabled {
+  color: rgba(255, 255, 255, 0.4);
+  cursor: default;
+}
+.meta {
+  flex: none;
+  font-size: 13px;
+  color: var(--ss-text-meta);
+  white-space: nowrap;
+}
+
+/* ── the row marker (31b, 31c): a dot and two words ──────────────────── */
+.marker {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.markerWords {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ss-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.marker[data-tone='running'] .markerWords {
+  color: var(--ss-text);
+}
+.markerText {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.progress[data-state='working'] .words {
-  color: var(--ss-text-secondary, var(--ss-text-meta));
+/* ── the topbar's count (31b) ────────────────────────────────────────── */
+.countWrap {
+  position: relative;
+  display: inline-flex;
+}
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  max-width: 420px;
+  padding: 0 14px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid var(--ss-control-border);
+  background: transparent;
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--ss-motion) var(--ss-ease),
+    border-color var(--ss-motion) var(--ss-ease);
+}
+.count:hover {
+  background: var(--ss-hover-wash);
+}
+.count[data-running] {
+  border-color: var(--ss-selected-border);
+  background: var(--ss-selected-fill);
+}
+.countWords {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1000003;
+  width: 420px;
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  padding: 16px;
+  border-radius: var(--ss-radius-card);
+  background: var(--ss-ground-note);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+  text-align: left;
 }
 
-.progress[data-state='failed'] .words {
+/* ── the panel: the popover's contents, and the phone's sheet (31f) ──── */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--ss-text);
+}
+.panelHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.panelTitle {
+  font-size: 16px;
+  font-weight: 600;
+}
+.panelSub {
+  font-size: 14px;
+  color: var(--ss-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.checklist li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 36px;
+  font-size: 15px;
+  color: var(--ss-text);
+}
+.checklist li[data-state='todo'] {
   color: var(--ss-text-meta);
 }
-
-/* a block of its own under a title (the Mix tab, a set's row, Activity) */
-.block {
+.ring {
+  justify-self: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--ss-accent-light-rgb));
+  box-sizing: border-box;
+}
+.checklist li[data-state='done'] .ring {
+  background: rgb(var(--ss-accent-light-rgb));
+}
+.checklist li[data-state='todo'] .ring {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+.stepTime {
+  font-size: 13px;
+  color: var(--ss-text-meta);
+  font-variant-numeric: tabular-nums;
+}
+.queue {
   display: flex;
-  margin-top: 4px;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ss-hairline);
+}
+.queueLabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ss-text-meta);
+}
+.queueList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.queueList li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  font-size: 14px;
+  min-width: 0;
+}
+.queueN {
+  flex: none;
+  width: 24px;
+  text-align: right;
+  color: var(--ss-text-meta);
+  font-variant-numeric: tabular-nums;
+}
+.queueTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queueWhy {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ss-text-meta);
+}
+.queueMore {
+  padding-left: 34px;
+  font-size: 14px;
+  color: var(--ss-text-meta);
+  font-variant-numeric: tabular-nums;
+}
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgb(var(--ss-accent-light-rgb));
+  text-decoration: none;
+  cursor: pointer;
+}
+.link:hover {
+  text-decoration: underline;
+}
+.panelFoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ss-hairline);
+}
+.spacer {
+  flex: 1;
+}
+.ghostButton {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid var(--ss-control-border);
+  background: transparent;
+  color: var(--ss-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ghostButton:hover:not(:disabled) {
+  background: var(--ss-hover-wash);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .bar > span {
-    transition: none;
-  }
+/* the phone's Activity sheet (31f): the head is a card, the rows are 44px */
+.panel[data-variant='sheet'] {
+  gap: 14px;
+}
+.panel[data-variant='sheet'] .panelHead {
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(var(--ss-accent-rgb), 0.08);
+  border: 1px solid rgba(var(--ss-accent-rgb), 0.35);
+}
+.panel[data-variant='sheet'] .panelHead:not([data-running]) {
+  background: var(--ss-surface-card);
+  border-color: var(--ss-surface-card-border);
+}
+.panel[data-variant='sheet'] .panelSub {
+  color: var(--ss-text-secondary);
+}
+.panel[data-variant='sheet'] .checklist li {
+  min-height: 44px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.panel[data-variant='sheet'] .queue {
+  gap: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.panel[data-variant='sheet'] .queueLabel {
+  padding-bottom: 6px;
+}
+.panel[data-variant='sheet'] .queueList li {
+  min-height: 44px;
+  font-size: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.panel[data-variant='sheet'] .queueMore {
+  padding-top: 8px;
+}
+.sheetButton {
+  min-height: 48px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid var(--ss-control-border);
+  background: var(--ss-control-fill);
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.sheetButton:hover:not(:disabled) {
+  background: var(--ss-control-fill-hover);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }

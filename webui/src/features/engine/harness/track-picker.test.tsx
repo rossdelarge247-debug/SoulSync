@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { DjTrack } from '@/features/dj/dj.api';
 
+import { AnalysisViewerContext } from '@/features/dj/analysis-line';
 import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { HttpResponse, http, server } from '@/test/msw';
 
@@ -106,6 +107,7 @@ const source = (name: string) => fireEvent.click(screen.getByRole('radio', { nam
 
 describe('a deck’s picker', () => {
   it('starts on the playing track and Up next, each with its BPM, key and analysis state', async () => {
+    progress = { '1': { state: 'done', ready: true, bpm_key: true } };
     const picked = picker('out');
     const sources = within(screen.getByRole('radiogroup', { name: 'Pick the outgoing track from' }))
       .getAllByRole('radio')
@@ -118,7 +120,8 @@ describe('a deck’s picker', () => {
       'Search',
     ]);
     const row = (await screen.findByRole('button', { name: 'Pick Night Ferry' })).closest('li')!;
-    await waitFor(() => expect(row).toHaveTextContent('124 BPM · 8A · Analysed · Playing'));
+    // each row's marker says whether it's ready to mix (31c): the lab shows Ready too
+    await waitFor(() => expect(row).toHaveTextContent('124 BPM · 8A · PlayingReady'));
     expect(
       screen.getByRole('button', { name: 'Pick Static Bloom' }).closest('li'),
     ).toHaveTextContent('Up next');
@@ -129,12 +132,42 @@ describe('a deck’s picker', () => {
     expect(picked[0]?.dj?.bpm).toBe(126);
   });
 
-  it('a track being analysed shows its bar and step', async () => {
+  it('a track being analysed shows its bar and step (31c)', async () => {
     progress = { '2': { state: 'working', step: 'grid', percent: 60 } };
     picker('out');
-    const bar = await screen.findByRole('progressbar', { name: 'Analysis of Static Bloom' });
-    expect(bar).toHaveAttribute('aria-valuenow', '60');
-    expect(screen.getByText('Finding the beat grid · 60%')).toBeInTheDocument();
+    const words = await screen.findByText('Analysing · beat grid (5 of 6)');
+    expect(
+      words.closest('[data-analysis-marker]')!.querySelector('[data-step="5"]'),
+    ).not.toBeNull();
+  });
+
+  it("each row's marker: can't be beat-matched, in line with an admin's Move up (31c)", async () => {
+    progress = {
+      '1': { state: 'done', ready: false, bpm_key: true, beat: 'no_beat' },
+      '2': { state: 'queued', position: 2, asked_for: true },
+    };
+    render(
+      <AnalysisViewerContext.Provider value={{ admin: true }}>
+        <TrackPicker
+          label="Outgoing track"
+          deck="out"
+          chosen={null}
+          onPick={() => {}}
+          outgoing={null}
+        />
+      </AnalysisViewerContext.Provider>,
+    );
+    expect(await screen.findByText("Can't be beat-matched · no steady beat")).toBeInTheDocument();
+    const moved: string[] = [];
+    server.use(
+      http.post('*/api/library/dj/start', async ({ request }) => {
+        moved.push(((await request.json()) as { track_id: string }).track_id);
+        return HttpResponse.json({ success: true, queued: true }, { status: 202 });
+      }),
+    );
+    const row = screen.getByText('In line · 2nd').closest('li')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'Move up' }));
+    await waitFor(() => expect(moved).toEqual(['2']));
   });
 
   it('Recent: your last plays of library tracks, once each', async () => {
@@ -153,7 +186,11 @@ describe('a deck’s picker', () => {
     picker('out');
     source('Recent');
     const row = (await screen.findByRole('button', { name: 'Pick Sand Script' })).closest('li')!;
-    await waitFor(() => expect(row).toHaveTextContent('123 BPM · 7B · Not analysed yet'));
+    progress = {
+      '5': { state: 'waiting', reason: 'not_queued', position: null, asked_for: false },
+    };
+    analysisStore.pollSoon();
+    await waitFor(() => expect(row).toHaveTextContent('123 BPM · 7BNot analysed'));
     expect(screen.getAllByRole('button', { name: /^Pick / })).toHaveLength(1);
   });
 

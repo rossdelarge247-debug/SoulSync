@@ -38,36 +38,13 @@
 
 /* ── the analysis line (153) ─────────────────────────────────────────── */
 
-.analysis {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  color: var(--ss-text-tertiary);
-  font-size: 14px;
+/* the page's analysis line (Brief A, 31c) and each row's marker */
+.analysisLine {
+  max-width: 720px;
 }
 
-/* the analysis's 120px bar, then its words, then Stop or Start now */
-.analysisBar {
-  flex: none;
-  width: 120px;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.12);
-  overflow: hidden;
-}
-
-.analysisBar > span {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  background: rgb(var(--ss-accent-light-rgb));
-}
-
-.analysisWords {
-  flex: 1 1 280px;
-  min-width: 0;
+.rowMarker {
+  margin-top: 4px;
 }
 
 /* Stop / Start now: accent-light words, a 44px target */
@@ -377,10 +354,6 @@
 
   .filter input {
     min-width: 0;
-  }
-
-  .analysis {
-    min-height: 0;
   }
 
   /* nowrap: a wrapping column would stretch each row to the widest one */

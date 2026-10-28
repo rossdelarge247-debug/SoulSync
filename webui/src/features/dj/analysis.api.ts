@@ -19,6 +19,17 @@ import type { QueryClient } from '@tanstack/react-query';
 
 import { apiClient } from '@/app/api-client';
 
+declare global {
+  interface Window {
+    /**
+     * The player's Added toast asks for these words (Brief A, 31b):
+     * "analysing, 2nd in line", or '' (static/media-player.js). Set by the
+     * automix host while Auto mix is on.
+     */
+    ssAnalysisToastWords?: (ids: (string | number)[]) => Promise<string>;
+  }
+}
+
 export type AnalysisStep = 'read' | 'tempo' | 'key' | 'energy' | 'tags' | 'grid' | 'phrases';
 
 export type AnalysisWait =
@@ -33,12 +44,53 @@ export type AnalysisWait =
 
 export type AnalysisFail = 'too_long' | 'unreachable' | 'error' | 'no_grid';
 
+/** Why a track that was analysed can't be beat-matched (Brief A, 31a state 9). */
+export type AnalysisBeat = 'no_beat' | 'too_short' | 'not_4_4';
+
+/**
+ * Every entry says whether the track is ready to mix (a beat grid at this
+ * version) and whether it has BPM and key (Brief A); older answers may lack
+ * them, so they're optional here.
+ */
+interface Readiness {
+  ready?: boolean;
+  bpm_key?: boolean;
+}
+
 export type AnalysisEntry =
-  | { state: 'done' }
-  | { state: 'working'; step: AnalysisStep | null; percent: number }
-  | { state: 'queued'; position: number; asked_for: boolean }
-  | { state: 'waiting'; reason: AnalysisWait; position: number | null; asked_for: boolean }
-  | { state: 'failed'; reason: AnalysisFail };
+  | ({ state: 'done'; beat?: AnalysisBeat } & Readiness)
+  | ({
+      state: 'working';
+      step: AnalysisStep | null;
+      percent: number;
+      /** full (one decode for everything) or grid (only the beat grid was due) */
+      mode?: 'full' | 'grid' | null;
+    } & Readiness)
+  | ({ state: 'queued'; position: number; asked_for: boolean } & Readiness)
+  | ({
+      state: 'waiting';
+      reason: AnalysisWait;
+      position: number | null;
+      asked_for: boolean;
+    } & Readiness)
+  | ({ state: 'failed'; reason: AnalysisFail; duration?: number | null } & Readiness);
+
+/** Why a track is in the asked-for line (HANDOFF 325). */
+export type AnalysisSource = 'asked' | 'set' | 'up_next' | 'mix' | 'lab' | 'dj_now' | 'page';
+
+/** One track of the line as the caller may see it (`/progress` with `line`). */
+export interface AnalysisLineEntry {
+  track_id: string;
+  title: string;
+  artist: string;
+  position: number;
+  source: AnalysisSource;
+  /** "you", another profile's name (admins), or null */
+  by: string | null;
+  /** the caller's own set's name, when it's in line for a set */
+  set_name: string | null;
+  front: boolean;
+}
 
 export interface AnalysisSweep {
   running: boolean;
@@ -52,6 +104,20 @@ export interface AnalysisSweep {
   /** tracks in the asked-for line, and how many of them are yours */
   in_line: number;
   yours: number;
+  /** every one of yours is ahead of the rest ("yours: 2, both next") */
+  yours_first?: boolean;
+  /** the sweep's own tracks still to do after the line */
+  left?: number;
+  /** seconds until the next automatic sweep, or null */
+  next_in?: number | null;
+  /** who stopped it: a name for admins, null for members ("an admin") */
+  held_by?: string | null;
+  held_by_you?: boolean;
+  /** what the sweep waits for, counted where that's cheap */
+  waiting_detail?: { count: number | null; drive: string | null } | null;
+  /** with `line`: the line in order as far as you may see it, and the rest counted */
+  line?: AnalysisLineEntry[];
+  line_more?: number;
   current: {
     step: AnalysisStep | null;
     percent: number | null;
@@ -59,6 +125,12 @@ export interface AnalysisSweep {
     /** only when the track is in your library */
     track_id: string | null;
     title: string | null;
+    artist?: string | null;
+    mode?: 'full' | 'grid' | null;
+    /** each finished step's time in seconds, the step it's on, and how long that has run */
+    times?: Partial<Record<AnalysisStep, number>>;
+    now?: AnalysisStep | null;
+    elapsed?: number | null;
   } | null;
 }
 
@@ -84,6 +156,12 @@ export interface AnalyseAnswer {
   limit: number;
   yours: number;
   started: boolean;
+  /** where the first of them now is in line, for the Added toast ("2nd in line") */
+  position?: number | null;
+  /** one of them is being analysed right now */
+  working?: boolean;
+  /** Analyse mine: how many of yours moved to the front */
+  moved?: number;
 }
 
 export class AnalyseError extends Error {
@@ -100,9 +178,22 @@ export class AnalyseError extends Error {
 /** A person's ask, or an automatic one (the server turns those away while held). */
 export type AnalyseReason = 'asked' | 'auto';
 
+/** Why, and what else, a request says (Brief A). */
+export interface AnalyseExtras {
+  source?: AnalysisSource;
+  set_id?: number;
+  /** Try again (admins): failed tracks are asked for again */
+  retry?: boolean;
+}
+
 /** One request: the tracks (or a playlist) in the asked-for line. */
 export async function postAnalyse(
-  body: ({ track_ids: string[] } | { playlist_id: number }) & { reason: AnalyseReason },
+  body: (
+    | { track_ids: string[] }
+    | { playlist_id: number }
+    | { mine: true }
+    | { track_ids: string[]; cancel: true }
+  ) & { reason: AnalyseReason } & AnalyseExtras,
 ): Promise<AnalyseAnswer> {
   const response = await apiClient.post('library/dj/analyse', {
     json: body,
@@ -124,8 +215,12 @@ export async function postAnalyse(
 /** the server reads up to this many ids a request */
 const PROGRESS_CHUNK = 500;
 
-/** Where these tracks are: one request per 500, put back together. */
-export async function postProgress(ids: string[]): Promise<ProgressAnswer> {
+/** Where these tracks are: one request per 500, put back together. With
+ *  `line`, the sweep also says the line in order (the topbar's popover). */
+export async function postProgress(
+  ids: string[],
+  { line = false }: { line?: boolean } = {},
+): Promise<ProgressAnswer> {
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += PROGRESS_CHUNK)
     chunks.push(ids.slice(i, i + PROGRESS_CHUNK));
@@ -134,7 +229,7 @@ export async function postProgress(ids: string[]): Promise<ProgressAnswer> {
   let last: ProgressAnswer | undefined;
   for (const chunk of chunks) {
     const response = await apiClient.post('library/dj/progress', {
-      json: { track_ids: chunk },
+      json: line ? { track_ids: chunk, line: true } : { track_ids: chunk },
     });
     const part = (await response.json()) as ProgressAnswer;
     Object.assign(tracks, part.tracks ?? {});
@@ -156,8 +251,14 @@ const SPACING_MS = 1_050;
 interface Waiter {
   ids: string[];
   reason: AnalyseReason;
+  extras: AnalyseExtras;
   resolve: (a: AnalyseAnswer | null) => void;
   reject: (e: unknown) => void;
+}
+
+/** Asks gathered together go in one request only when they say the same why. */
+function batchKey(w: Waiter): string {
+  return `${w.reason}|${w.extras.source ?? ''}|${w.extras.set_id ?? ''}|${w.extras.retry ? 1 : 0}`;
 }
 
 const asked = new Map<string, number>();
@@ -172,10 +273,11 @@ function now(): number {
 
 async function send(batch: Waiter[], reason: AnalyseReason): Promise<void> {
   const ids = [...new Set(batch.flatMap((w) => w.ids))].slice(0, 500);
+  const extras = batch[0]?.extras ?? {};
   let tries = 0;
   for (;;) {
     try {
-      const answer = await postAnalyse({ track_ids: ids, reason });
+      const answer = await postAnalyse({ track_ids: ids, reason, ...extras });
       const t = now();
       for (const id of ids) asked.set(id, t);
       for (const w of batch) w.resolve(answer);
@@ -217,10 +319,12 @@ function flush(): void {
     return;
   }
   if (!gathered.length) return;
-  // a person's asks and automatic ones go in separate requests
+  // a person's asks and automatic ones go in separate requests, and so do
+  // asks with a different why (a set, Up next, the Mix tab)
+  const key = batchKey(gathered[0]!);
   const reason = gathered[0]!.reason;
-  const batch = gathered.filter((w) => w.reason === reason);
-  gathered = gathered.filter((w) => w.reason !== reason);
+  const batch = gathered.filter((w) => batchKey(w) === key);
+  gathered = gathered.filter((w) => batchKey(w) !== key);
   lastSent = now();
   sending = send(batch, reason).finally(() => {
     sending = null;
@@ -238,9 +342,28 @@ function flush(): void {
  */
 export function requestAnalysis(
   ids: (string | number | null | undefined)[],
-  { force = false, reason }: { force?: boolean; reason?: AnalyseReason } = {},
+  {
+    force = false,
+    reason,
+    source,
+    setId,
+    retry = false,
+  }: {
+    force?: boolean;
+    reason?: AnalyseReason;
+    /** why it's asked for, for the line's words (HANDOFF 325) */
+    source?: AnalysisSource;
+    setId?: number | null;
+    /** Try again (admins) */
+    retry?: boolean;
+  } = {},
 ): Promise<AnalyseAnswer | null> {
   const why: AnalyseReason = reason ?? (force ? 'asked' : 'auto');
+  const extras: AnalyseExtras = {
+    source: source ?? (why === 'asked' ? 'asked' : undefined),
+    ...(setId ? { set_id: setId } : {}),
+    ...(retry ? { retry: true } : {}),
+  };
   const t = now();
   const wanted = [
     ...new Set(
@@ -253,7 +376,7 @@ export function requestAnalysis(
   // marked at once, so a page drawn twice in a moment asks once
   for (const id of wanted) asked.set(id, t);
   return new Promise<AnalyseAnswer | null>((resolve, reject) => {
-    gathered.push({ ids: wanted, reason: why, resolve, reject });
+    gathered.push({ ids: wanted, reason: why, extras, resolve, reject });
     if (!timer) timer = setTimeout(flush, GATHER_MS);
   });
 }
@@ -262,10 +385,62 @@ export function requestAnalysis(
 export function requestAnalysisQuietly(
   ids: (string | number | null | undefined)[],
   reason: AnalyseReason = 'auto',
+  why: { source?: AnalysisSource; setId?: number | null } = {},
 ): void {
-  requestAnalysis(ids, { reason }).catch(() => {
+  requestAnalysis(ids, { reason, ...why }).catch(() => {
     /* the sweep reaches them anyway; a page shows Not analysed yet */
   });
+}
+
+/**
+ * Ask for tracks just added somewhere they'll be mixed (a set, the working
+ * set), for the Added toast's "analysing, 2nd in line" (31b, 31d): the
+ * answer, or null when it didn't come within a couple of seconds (the
+ * toast then says only where they went).
+ */
+export function askForAdded(
+  ids: (string | number | null | undefined)[],
+  why: { source?: AnalysisSource; setId?: number | null } = {},
+): Promise<AnalyseAnswer | null> {
+  const asking = requestAnalysis(ids, { reason: 'auto', ...why }).catch(() => null);
+  const late = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2_500));
+  return Promise.race([asking, late]);
+}
+
+/**
+ * A person's request that isn't an ask for tracks: Analyse mine (their
+ * tracks in line go first) or Cancel (their asks leave the line). It waits
+ * its turn behind the asks (one request a second a profile).
+ */
+async function sendNow(body: Parameters<typeof postAnalyse>[0]): Promise<AnalyseAnswer> {
+  for (let tries = 0; ; tries += 1) {
+    const wait = lastSent + SPACING_MS - now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    if (sending) await sending.catch(() => undefined);
+    lastSent = now();
+    try {
+      const answer = await postAnalyse(body);
+      analysisStore.pollSoon();
+      return answer;
+    } catch (error) {
+      if (error instanceof AnalyseError && error.status === 429 && tries < MAX_TRIES) {
+        await new Promise((r) => setTimeout(r, (error.retryAfter ?? 1) * 1000 + 50));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+/** Analyse mine: this profile's tracks in line go to the front. */
+export function analyseMine(): Promise<AnalyseAnswer> {
+  return sendNow({ mine: true, reason: 'asked' });
+}
+
+/** Cancel: this profile's asks for these tracks leave the line. */
+export function cancelAnalysis(ids: string[]): Promise<AnalyseAnswer> {
+  for (const id of ids) asked.delete(id);
+  return sendNow({ track_ids: ids.slice(0, 500), cancel: true, reason: 'asked' });
 }
 
 /* ── progress: one poll for the whole page ──────────────────────────── */
@@ -325,6 +500,10 @@ function active(e: AnalysisEntry | undefined): boolean {
 class AnalysisStore {
   private watched = new Map<string, number>();
   private sweepWatchers = 0;
+  /** the topbar's count: read every 20 s, never fast on its own */
+  private summaryWatchers = 0;
+  /** the popover or Activity's sheet: the line in order is wanted */
+  private lineWatchers = 0;
   private entries = new Map<string, AnalysisEntry>();
   private sweepState: AnalysisSweep | null = null;
   private listeners = new Set<() => void>();
@@ -356,8 +535,20 @@ class AnalysisStore {
     return this.sweepState;
   }
 
-  /** Show progress for these tracks (and, with `sweep`, the sweep's own). */
-  watch(ids: string[], { sweep = false }: { sweep?: boolean } = {}): () => void {
+  /**
+   * Show progress for these tracks; with `sweep`, the sweep's own, polled
+   * fast while it runs (Activity's row open, the popover open); with
+   * `summary`, the sweep's state at the slow pace (the topbar's count, on
+   * every page); with `line`, the line in order too.
+   */
+  watch(
+    ids: string[],
+    {
+      sweep = false,
+      summary = false,
+      line = false,
+    }: { sweep?: boolean; summary?: boolean; line?: boolean } = {},
+  ): () => void {
     let fresh = false;
     for (const id of ids) {
       const n = this.watched.get(id) ?? 0;
@@ -368,6 +559,14 @@ class AnalysisStore {
       if (!this.sweepWatchers) fresh = true;
       this.sweepWatchers += 1;
     }
+    if (summary) {
+      if (!this.summaryWatchers && !this.sweepState) fresh = true;
+      this.summaryWatchers += 1;
+    }
+    if (line) {
+      if (!this.lineWatchers) fresh = true;
+      this.lineWatchers += 1;
+    }
     if (fresh) this.pollSoon();
     else if (!this.timer && !this.inFlight) this.schedule(ACTIVE_MS);
     return () => {
@@ -377,11 +576,19 @@ class AnalysisStore {
         else this.watched.delete(id);
       }
       if (sweep) this.sweepWatchers = Math.max(0, this.sweepWatchers - 1);
-      if (!this.watched.size && !this.sweepWatchers && this.timer) {
+      if (summary) this.summaryWatchers = Math.max(0, this.summaryWatchers - 1);
+      if (line) this.lineWatchers = Math.max(0, this.lineWatchers - 1);
+      if (!this.anyone() && this.timer) {
         clearTimeout(this.timer);
         this.timer = null;
       }
     };
+  }
+
+  private anyone(): boolean {
+    return Boolean(
+      this.watched.size || this.sweepWatchers || this.summaryWatchers || this.lineWatchers,
+    );
   }
 
   /** Whether a poll is waiting to run (for tests). */
@@ -411,7 +618,7 @@ class AnalysisStore {
       this.again = true;
       return;
     }
-    if (!this.watched.size && !this.sweepWatchers) return;
+    if (!this.anyone()) return;
     if (typeof document === 'object' && document.hidden) {
       this.schedule(IDLE_MS);
       return;
@@ -420,7 +627,7 @@ class AnalysisStore {
     const ids = [...this.watched.keys()];
     let next = IDLE_MS;
     try {
-      const answer = await postProgress(ids);
+      const answer = await postProgress(ids, { line: this.lineWatchers > 0 });
       const finished: string[] = [];
       for (const id of ids) {
         const was = this.entries.get(id);
@@ -443,9 +650,10 @@ class AnalysisStore {
         void this.qc?.invalidateQueries({ queryKey: ['dj', 'status'] });
       // fast only while a watched track moves, or Activity's sweep row is
       // open while the sweep runs; a sweep elsewhere doesn't speed up pages
+      // (the topbar's count alone never speeds the poll up: review M2)
       if (
         ids.some((id) => active(this.entries.get(id))) ||
-        (this.sweepWatchers > 0 && this.sweepState?.running)
+        ((this.sweepWatchers > 0 || this.lineWatchers > 0) && this.sweepState?.running)
       )
         next = ACTIVE_MS;
       this.emit();
@@ -458,7 +666,7 @@ class AnalysisStore {
       this.again = false;
       next = 60;
     }
-    if (this.watched.size || this.sweepWatchers) this.schedule(next);
+    if (this.anyone()) this.schedule(next);
   }
 
   /**
@@ -505,6 +713,8 @@ class AnalysisStore {
     this.watched.clear();
     this.entries.clear();
     this.sweepWatchers = 0;
+    this.summaryWatchers = 0;
+    this.lineWatchers = 0;
     this.sweepState = null;
     this.inFlight = false;
     this.again = false;

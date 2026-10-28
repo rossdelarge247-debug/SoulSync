@@ -175,6 +175,11 @@
   color: var(--ss-text-meta);
 }
 
+/* the analysis line (Brief A, 31c): the playing track until it's ready to mix */
+.analysisLine {
+  margin: 0;
+}
+
 /* ── Mixes well with ──────────────────────────────────────────────────── */
 
 .head {

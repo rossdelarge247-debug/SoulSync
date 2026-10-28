@@ -554,7 +554,9 @@ describe("29d's states", () => {
         { name: 'Mix' },
       ),
     );
-    await waitFor(() => expect(world.analysed).toEqual([{ track_ids: ['1'], reason: 'auto' }]));
+    await waitFor(() =>
+      expect(world.analysed).toEqual([{ track_ids: ['1'], reason: 'auto', source: 'mix' }]),
+    );
     await waitFor(() => expect(polled.flat()).toContain('1'));
     // the tray shut again: the watch stops, so the poll does
     act(() => {
@@ -575,11 +577,15 @@ describe("29d's states", () => {
     const mix = await openMix();
     expect(await mix.findByText('Night Ferry is being worked out')).toBeInTheDocument();
     // opening it asked for it: analyse on demand, not the admins' /start
-    await waitFor(() => expect(world.analysed).toEqual([{ track_ids: ['1'], reason: 'auto' }]));
+    await waitFor(() =>
+      expect(world.analysed).toEqual([{ track_ids: ['1'], reason: 'auto', source: 'mix' }]),
+    );
     expect(world.started).toEqual([]);
-    const bars = await mix.findAllByRole('progressbar', { name: 'Analysis of Night Ferry' });
-    expect(bars[0]).toHaveAttribute('aria-valuenow', '60');
-    expect(mix.getAllByText('Finding the beat grid · 60%').length).toBeGreaterThan(0);
+    // 31c: the header's line, the bar at its step, "matches follow once it's ready"
+    const words = await mix.findByText(
+      "Analysing Night Ferry · beat grid (5 of 6) · matches follow once it's ready",
+    );
+    expect(words.closest('[data-analysis-line]')!.querySelector('[data-step="5"]')).not.toBeNull();
     // in line, so no "tracks ahead" and no button
     expect(mix.queryByText(/\(12 tracks ahead\)/)).toBeNull();
     expect(mix.queryByRole('button', { name: 'Analyse this one now' })).toBeNull();
@@ -603,7 +609,7 @@ describe("29d's states", () => {
     fireEvent.click(await mix.findByRole('button', { name: 'Analyse this one now' }));
     // asks are a second apart (the server takes one a second a profile)
     await waitFor(() => expect(world.analysed).toHaveLength(2), { timeout: 4000 });
-    expect(world.analysed[1]).toEqual({ track_ids: ['1'], reason: 'asked' });
+    expect(world.analysed[1]).toEqual({ track_ids: ['1'], reason: 'asked', source: 'mix' });
   });
 
   it('nothing fits: Widen the search asks for 10% and any key', async () => {

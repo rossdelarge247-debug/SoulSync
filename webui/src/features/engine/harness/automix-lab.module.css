@@ -193,7 +193,24 @@
 
 .pickRow {
   display: grid;
-  gap: 2px;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: center;
+  gap: 2px 12px;
+}
+
+/* each row's analysis marker (Brief A, 31c): why a plan would wait */
+.pickMarker {
+  min-width: 0;
+}
+
+.chosenLine {
+  margin: 4px 0 8px;
+}
+
+@media (max-width: 768px) {
+  .pickRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .pickRow .result {

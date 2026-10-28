@@ -41,9 +41,12 @@ const SETS = [
   },
 ];
 
+let analyseAnswer: Record<string, unknown> = {};
+
 beforeEach(() => {
   posted = [];
   analysed = [];
+  analyseAnswer = {};
   resetAnalysisRequests();
   workingId = null;
   toast = vi.fn();
@@ -72,6 +75,7 @@ beforeEach(() => {
             limit: 200,
             yours: 0,
             started: false,
+            ...analyseAnswer,
           }),
           {
             status: 200,
@@ -167,8 +171,22 @@ describe('Add to mix set…', () => {
     );
     await waitFor(() => expect(posted.at(-1)?.path).toBe('sets/7/tracks'));
     expect(posted.at(-1)?.body).toEqual({ track_ids: ['4'], again: true });
-    // analyse on demand: a track added to a mix set jumps the analysis queue
-    await waitFor(() => expect(analysed).toEqual([{ track_ids: ['4'], reason: 'auto' }]));
+    // analyse on demand: a track added to a set jumps the analysis queue, for that set
+    await waitFor(() =>
+      expect(analysed).toEqual([{ track_ids: ['4'], reason: 'auto', source: 'set', set_id: 7 }]),
+    );
+  });
+
+  it('Brief A: the Added toast says once where it is in the analysis line (31d)', async () => {
+    analyseAnswer = { queued: 1, position: 2, working: false };
+    render(<AddToMixSetHost />);
+    act(() => openAddToMixSet(one));
+    const dialog = await screen.findByRole('dialog', { name: 'Add Harbour Light to…' });
+    fireEvent.click(await within(dialog).findByRole('button', { name: /Sunday Set/ }));
+    await waitFor(() => expect(toast).toHaveBeenCalledTimes(1));
+    expect(toast.mock.calls[0][0]).toBe(
+      'Added Harbour Light to Sunday Set · #25 · analysing, 2nd in line',
+    );
   });
 
   it('many: the choice opens in place, and a missing file is left out and said (28b)', async () => {

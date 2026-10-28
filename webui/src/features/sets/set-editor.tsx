@@ -19,12 +19,18 @@ import { Button, TextInput } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 import { SetStepChip } from '@/features/automix/set-chip';
 import { playSetAsMix } from '@/features/automix/set-play';
-import { AnalysisProgress, useAnalysis, useAutoAnalyse } from '@/features/dj/analysis-progress';
+import {
+  AnalysisLine,
+  useAnalysis,
+  useAnalysisViewer,
+  useAutoAnalyse,
+} from '@/features/dj/analysis-line';
 import { requestAnalysis, type AnalysisEntry } from '@/features/dj/analysis.api';
 import {
   analyseTheseHint,
   analyseTheseWords,
-  pending as pendingAnalysis,
+  isReady,
+  notReadyNotice,
 } from '@/features/dj/analysis.format';
 import { addTrackToPlaylist, playTrackNext } from '@/features/dj/dj-actions';
 import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
@@ -145,6 +151,114 @@ function SkippedLine() {
         when played: the step goes from the track before to the one after
       </span>
     </div>
+  );
+}
+
+/**
+ * A set's analysis line (31a state 11, 31b): the track being analysed and
+ * how many of the set's own are left ("Analysing Canopy · beat grid (5 of
+ * 6) · 11 more in this set"), or "3 tracks aren't ready to mix", with
+ * "Analyse all 12" (an admin's) or "Analyse mine" (a member's); a ready set
+ * says so quietly.
+ */
+function SetAnalysisLine({
+  ids,
+  progressOf,
+  titleOf,
+  setId,
+}: {
+  ids: string[];
+  progressOf: Record<string, AnalysisEntry>;
+  titleOf: Map<string, string>;
+  setId: number | null;
+}) {
+  const viewer = useAnalysisViewer();
+  const known = ids.filter((id) => progressOf[id]);
+  if (!known.length) return null;
+  const notReady = known.filter((id) => !isReady(progressOf[id]));
+  const working = notReady.find((id) => progressOf[id]?.state === 'working') ?? null;
+  // what an ask can move on: not being analysed now, and not a settled
+  // "can't be beat-matched" (an admin's ask tries a failed one again)
+  const askable = notReady.filter((id) => {
+    const e = progressOf[id]!;
+    if (e.state === 'working') return false;
+    if (e.state === 'done') return false;
+    if (e.state === 'failed') return viewer.admin && e.reason !== 'too_long';
+    return true;
+  });
+  const ask = () => {
+    void requestAnalysis(askable, {
+      force: true,
+      reason: 'asked',
+      source: 'set',
+      setId,
+      retry: viewer.admin && askable.some((id) => progressOf[id]?.state === 'failed'),
+    }).catch((error: unknown) =>
+      window.showToast?.(error instanceof Error ? error.message : "That didn't work.", 'error'),
+    );
+  };
+  const action = askable.length
+    ? {
+        label: viewer.admin
+          ? working
+            ? `Analyse all ${notReady.length.toLocaleString()}`
+            : 'Analyse them now'
+          : 'Analyse mine',
+        onClick: ask,
+      }
+    : false;
+  if (working) {
+    const rest = notReady.length - 1;
+    return (
+      <AnalysisLine
+        size="line"
+        entry={progressOf[working]}
+        title={titleOf.get(working) ?? null}
+        trackId={working}
+        extra={rest ? `${rest.toLocaleString()} more in this set` : null}
+        action={action}
+        className={styles.setAnalysis}
+      />
+    );
+  }
+  if (!notReady.length)
+    return (
+      <AnalysisLine
+        size="line"
+        entry={null}
+        sentence={`Ready to mix · all ${known.length.toLocaleString()} ${known.length === 1 ? 'track' : 'tracks'}`}
+        tone="ready"
+        action={false}
+        className={styles.setAnalysis}
+      />
+    );
+  const n = notReady.length;
+  return (
+    <AnalysisLine
+      size="line"
+      entry={null}
+      sentence={`${n.toLocaleString()} ${n === 1 ? "track isn't" : "tracks aren't"} ready to mix`}
+      tone="neutral"
+      action={action}
+      className={styles.setAnalysis}
+    />
+  );
+}
+
+/** 31b's warning Notice: what isn't ready, by kind. */
+function SetNotReadyNotice({
+  ids,
+  progressOf,
+}: {
+  ids: string[];
+  progressOf: Record<string, AnalysisEntry>;
+}) {
+  const words = notReadyNotice(ids.map((id) => progressOf[id]));
+  if (!words) return null;
+  return (
+    <Notice tone="warning" className={styles.notReady} data-set-not-ready="">
+      {words}
+    </Notice>
   );
 }
 
@@ -496,7 +610,7 @@ function Row({
               <StatusTag tone="warning" className={styles.rowTitleTag}>
                 File missing
               </StatusTag>
-            ) : working ? (
+            ) : working && !progress ? (
               <StatusTag tone="info" className={styles.rowTitleTag}>
                 Being worked out
               </StatusTag>
@@ -516,13 +630,9 @@ function Row({
               {second ? ` · ${second}` : ''}
             </span>
           )}
-          {track && pendingAnalysis(progress) ? (
-            <AnalysisProgress
-              entry={progress}
-              block
-              compact={phone}
-              label={`Analysis of ${title}`}
-            />
+          {/* the row's marker (31b): Ready, In line · 1st, the bar while it's analysed */}
+          {track ? (
+            <AnalysisLine size="marker" entry={progress} showReady className={styles.rowMarker} />
           ) : null}
           {shown ? <NoteLine note={row.note} title={title} onSave={onNote} /> : null}
         </span>
@@ -972,13 +1082,15 @@ export function SetEditor({
 
   const trackIds = viewRows.filter((r) => r.track).map((r) => r.track!.id);
   // analyse on demand: a set's tracks jump the queue while it's open (the
-  // server skips those done), and each row being worked out shows its step
-  useAutoAnalyse(trackIds.slice(0, 500));
-  const progressOf = useAnalysis(
-    viewRows.filter((r) => r.track && beingWorkedOut(r.track)).map((r) => r.track!.id),
+  // server skips those done), and every row says whether it's ready to mix
+  const setId = source.kind === 'saved' ? source.id : null;
+  useAutoAnalyse(trackIds.slice(0, 500), true, 'auto', { source: 'set', setId });
+  const progressOf = useAnalysis(trackIds.slice(0, 500));
+  const titleOf = new Map(
+    viewRows.filter((r) => r.track).map((r) => [String(r.track!.id), r.track!.title || '']),
   );
   const analyseThese = () => {
-    void requestAnalysis(trackIds.slice(0, 500), { force: true })
+    void requestAnalysis(trackIds.slice(0, 500), { force: true, source: 'set', setId })
       .then((answer) => {
         if (!answer) return;
         const said = analyseTheseWords(answer);
@@ -1173,7 +1285,16 @@ export function SetEditor({
             }
           />
         </div>
+        <SetAnalysisLine
+          ids={trackIds.slice(0, 500).map(String)}
+          progressOf={progressOf}
+          titleOf={titleOf}
+          setId={setId}
+        />
       </header>
+
+      {/* 31b: what isn't ready to mix, by kind, and what Play as a mix does meanwhile */}
+      <SetNotReadyNotice ids={trackIds.slice(0, 500).map(String)} progressOf={progressOf} />
 
       {conflict ? (
         <Notice

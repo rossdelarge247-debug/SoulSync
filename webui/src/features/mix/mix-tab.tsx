@@ -17,8 +17,8 @@ import type { ViewRow } from '@/features/sets/sets.api';
 
 import { Button } from '@/components/form';
 import { LoadingState, Notice } from '@/components/primitives';
-import { AnalysisProgress } from '@/features/dj/analysis-progress';
-import { entryWords, pending } from '@/features/dj/analysis.format';
+import { AnalysisLine, SweepLine, useLastSweep } from '@/features/dj/analysis-line';
+import { inLineCount, isReady, pending } from '@/features/dj/analysis.format';
 import { addTrackToPlaylist, playTrackNext } from '@/features/dj/dj-actions';
 import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
 import { EnergyMeter } from '@/features/dj/energy-meter';
@@ -217,37 +217,50 @@ function KeyAndBpm({ model, long }: { model: MixModel; long: boolean }) {
   );
 }
 
-function NotAnalysedLine({ model }: { model: MixModel }) {
-  const dj = model.dj;
+/**
+ * The Mix tab's header line (31c, 31e): the playing track's analysis while
+ * it isn't ready to mix ("Analysing Night Ferry · tempo (2 of 6) · matches
+ * follow once it's ready", Cancel while it's in line), "Night Ferry is
+ * ready to mix" for 4 s, then nothing. On a phone the sheet's line says how
+ * many are in line at its right, and shows a match being analysed too.
+ */
+function NotAnalysedLine({ model, phone = false }: { model: MixModel; phone?: boolean }) {
+  const sweep = useLastSweep();
   const entry = model.progress;
-  // in line or being worked out (its beat grid too): the bar and its step
-  if (pending(entry) && (entry?.state !== 'waiting' || entry.position !== null)) {
+  const title = model.subject?.title ?? null;
+  const n = inLineCount(sweep);
+  const meta = phone && n ? `${n.toLocaleString('en-GB')} in line` : null;
+  if (entry && !isReady(entry)) {
+    const queued =
+      entry.state === 'queued' || (entry.state === 'waiting' && entry.position !== null);
     return (
-      <div className={styles.analyse}>
-        <AnalysisProgress
-          entry={entry}
-          label={`Analysis of ${model.subject?.title || 'this track'}`}
-        />
-      </div>
+      <AnalysisLine
+        size="line"
+        entry={entry}
+        title={title}
+        trackId={model.subject?.id ?? null}
+        extra={entry.state === 'working' && !phone ? "matches follow once it's ready" : null}
+        action={queued ? { label: 'Cancel', onClick: model.cancelAnalyse } : null}
+        meta={meta}
+        className={styles.analysisLine}
+      />
     );
   }
-  if (model.djLoading || (dj?.bpm && dj?.key && dj?.energy)) return null;
-  if (dj?.skipped) return <p className={styles.analyse}>Not analysed: {dj.skipped}.</p>;
-  if (dj?.analyzed) return null;
+  // the phone's sheet: a match being analysed shows in its header (31e)
+  const current = sweep?.current;
+  if (phone && current?.track_id && model.matches.some((m) => m.id === current.track_id))
+    return <SweepLine sweep={sweep} action={false} className={styles.analysisLine} />;
+  // ready: "Night Ferry is ready to mix", once, then nothing
   return (
-    <p className={styles.analyse} aria-live="polite">
-      {entry?.state === 'waiting' ? entryWords(entry) : 'Not analysed yet'}
-      {model.analysing && !entry ? (
-        ' · working it out now…'
-      ) : model.canAnalyse && entry?.state !== 'failed' ? (
-        <>
-          {' · '}
-          <button type="button" className={styles.textButton} onClick={() => void model.analyse()}>
-            Analyse it now
-          </button>
-        </>
-      ) : null}
-    </p>
+    <AnalysisLine
+      size="line"
+      entry={entry}
+      title={title}
+      trackId={model.subject?.id ?? null}
+      hideWhenReady
+      meta={meta}
+      className={styles.analysisLine}
+    />
   );
 }
 
@@ -578,7 +591,6 @@ export function MatchesBody({ model, place }: { model: MixModel; place: RowPlace
       >
         BPM, key and energy are worked out in the background{ahead}. Matches show once it&apos;s
         done.
-        {inLine ? <AnalysisProgress entry={entry} block label={`Analysis of ${title}`} /> : null}
       </StateCard>
     );
   }
@@ -1152,7 +1164,7 @@ function MixTabPhone({ model }: { model: MixModel }) {
           <StarButton id={subject.id} title={subject.title} variant="player" />
         </span>
       </div>
-      <NotAnalysedLine model={model} />
+      <NotAnalysedLine model={model} phone />
       <div className={styles.head}>
         <h3 className={`${styles.headTitle} ${styles.spacer}`}>Mixes well with</h3>
         <VibeSwitch model={model} large onRefused={() => setRefused(true)} />

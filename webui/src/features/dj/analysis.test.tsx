@@ -1,6 +1,6 @@
 /**
  * Analyse on demand in the browser (analysis.api.ts, analysis.format.ts,
- * analysis-progress.tsx): the indicator's words and bar, the batched asking
+ * analysis-line.tsx): Brief A's words for every state, the batched asking
  * (one request at a time, a 429 waited out, a track not asked twice in a
  * while), and the one poll that refreshes a track's data once it's done.
  */
@@ -11,14 +11,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HttpResponse, http, server } from '@/test/msw';
 import { createTestQueryClient } from '@/test/query-client';
 
-import type { AnalyseAnswer, AnalysisEntry } from './analysis.api';
+import type { AnalyseAnswer, AnalysisEntry, AnalysisLineEntry, AnalysisWait } from './analysis.api';
 
-import {
-  AnalysisProgress,
-  SweepProgress,
-  useAnalysis,
-  useAnalysisSweep,
-} from './analysis-progress';
+import { AnalysisLine, useAnalysis, useAnalysisSweep } from './analysis-line';
 import {
   DJ_ANALYSED_EVENT,
   analysisStore,
@@ -27,12 +22,26 @@ import {
   resetAnalysisRequests,
 } from './analysis.api';
 import {
+  addedAnalysisWords,
   analyseTheseHint,
   analyseTheseWords,
-  entryWords,
+  checklist,
+  countView,
+  currentSubline,
   inLine,
+  isReady,
+  lineView,
+  markerView,
+  moreWords,
+  nextSweepWords,
+  notReadyNotice,
   ordinal,
-  sweepWords,
+  readyWords,
+  stepNumber,
+  stepTime,
+  sweepProgressWords,
+  whyWords,
+  yoursWords,
 } from './analysis.format';
 
 const answer = (over: Partial<AnalyseAnswer> = {}): AnalyseAnswer => ({
@@ -58,30 +67,285 @@ afterEach(() => {
   analysisStore.reset();
 });
 
-describe('the words', () => {
-  it('says each state as the indicator shows it', () => {
-    const say = (e: AnalysisEntry) => entryWords(e);
-    expect(say({ state: 'working', step: 'grid', percent: 60 })).toBe(
-      'Finding the beat grid · 60%',
-    );
-    expect(say({ state: 'working', step: 'read', percent: 5 })).toBe('Reading the audio · 5%');
-    expect(say({ state: 'working', step: 'phrases', percent: 85 })).toBe(
-      'Finding phrases and sections · 85%',
-    );
-    expect(say({ state: 'working', step: 'tags', percent: 50 })).toBe('Writing tags · 50%');
-    expect(say({ state: 'queued', position: 1, asked_for: true })).toBe('Next in line');
-    expect(say({ state: 'queued', position: 2, asked_for: true })).toBe('2nd in line');
-    expect(say({ state: 'waiting', reason: 'download', position: 3, asked_for: false })).toBe(
-      'Waiting for downloads',
-    );
-    expect(say({ state: 'waiting', reason: 'drive_away', position: 1, asked_for: true })).toBe(
-      'Waiting for the library drive',
-    );
-    expect(say({ state: 'waiting', reason: 'not_queued', position: null, asked_for: false })).toBe(
+const admin = { admin: true };
+const member = { admin: false };
+const SWEEP = {
+  running: true,
+  held: false,
+  analyze: true,
+  id: 3,
+  total: 4980,
+  done: 1240,
+  percent: 24,
+  waiting: null,
+  in_line: 4,
+  yours: 2,
+  left: 10,
+  next_in: 1500,
+  current: {
+    step: 'grid' as const,
+    percent: 60,
+    asked_for: true,
+    track_id: '7',
+    title: 'Canopy',
+    artist: 'Tidewater',
+    times: { read: 1.2, tempo: 0.8, key: 0.6, energy: 0.3 },
+  },
+};
+
+describe("the words (Brief A, 31a's states)", () => {
+  const line = (e: AnalysisEntry, viewer = admin, sweep: typeof SWEEP | null = SWEEP) =>
+    lineView(e, { title: 'Canopy', viewer, sweep: sweep as never })!;
+
+  it('1 ready, 2 BPM and key only, 3 not analysed: their words, dots and actions', () => {
+    expect(line({ state: 'done', ready: true, bpm_key: true })).toEqual({
+      tone: 'ready',
+      sentence: 'Ready to mix · beat grid and phrases',
+      step: null,
+      action: null,
+    });
+    expect(line({ state: 'done', ready: false, bpm_key: true })).toMatchObject({
+      tone: 'neutral',
+      sentence: 'BPM and key · no beat grid yet',
+      action: 'analyse',
+    });
+    const notYet: AnalysisEntry = {
+      state: 'waiting',
+      reason: 'not_queued',
+      position: null,
+      asked_for: false,
+      bpm_key: false,
+    };
+    expect(line(notYet)).toMatchObject({
+      tone: 'neutral',
+      sentence: 'Not analysed · next sweep in about 25 min',
+      action: 'analyse_now',
+    });
+    // members get Analyse mine (31d)
+    expect(line(notYet, member).action).toBe('analyse_mine');
+    expect(line({ ...notYet, bpm_key: true }, member)).toMatchObject({
+      sentence: 'BPM and key · no beat grid yet',
+      action: 'analyse_mine',
+    });
+    expect(line(notYet, admin, { ...SWEEP, next_in: null } as never).sentence).toBe(
       'Not analysed yet',
     );
-    expect(say({ state: 'failed', reason: 'too_long' })).toBe('Too long to analyse');
-    expect(say({ state: 'failed', reason: 'no_grid' })).toBe('No beat grid found');
+  });
+
+  it('4 in line: an ordinal, Move up for admins, "yours go first" for a member', () => {
+    expect(line({ state: 'queued', position: 3, asked_for: true })).toMatchObject({
+      tone: 'neutral',
+      sentence: 'In line · 3rd',
+      action: 'move_up',
+    });
+    expect(line({ state: 'queued', position: 1, asked_for: true }).action).toBeNull();
+    expect(
+      line({ state: 'queued', position: 1, asked_for: true }, member, {
+        ...SWEEP,
+        yours_first: true,
+      } as never),
+    ).toMatchObject({ sentence: 'In line · 1st · yours go first', action: null });
+  });
+
+  it('5 analysing: each of the six steps, the bar by step', () => {
+    const steps = ['read', 'tempo', 'key', 'energy', 'grid', 'phrases'] as const;
+    expect(steps.map((step) => line({ state: 'working', step, percent: 0 }).sentence)).toEqual([
+      'Analysing Canopy · reading audio (1 of 6)',
+      'Analysing Canopy · tempo (2 of 6)',
+      'Analysing Canopy · key (3 of 6)',
+      'Analysing Canopy · energy (4 of 6)',
+      'Analysing Canopy · beat grid (5 of 6)',
+      'Analysing Canopy · phrases and sections (6 of 6)',
+    ]);
+    expect(steps.map((step) => line({ state: 'working', step, percent: 0 }).step)).toEqual([
+      1, 2, 3, 4, 5, 6,
+    ]);
+    // the tag write is energy's step; none yet is the first
+    expect(stepNumber('tags')).toBe(4);
+    expect(stepNumber(null)).toBe(1);
+    expect(line({ state: 'working', step: 'key', percent: 35 }).tone).toBe('running');
+  });
+
+  it('6 waiting, for each reason, amber; the drive named to admins', () => {
+    const waiting = (reason: AnalysisWait, sweep = SWEEP as never, viewer = admin) =>
+      lineView(
+        { state: 'waiting', reason, position: 2, asked_for: true },
+        { title: 'Canopy', viewer, sweep },
+      )!;
+    const counted = (reason: AnalysisWait, count: number | null, drive: string | null = null) =>
+      ({ ...SWEEP, waiting: reason, waiting_detail: { count, drive } }) as never;
+    expect(waiting('download', counted('download', 3)).sentence).toBe(
+      'Waiting for 3 downloads to finish',
+    );
+    expect(waiting('download').sentence).toBe('Waiting for downloads to finish');
+    expect(waiting('import', counted('import', 42)).sentence).toBe(
+      'Waiting for the import to finish · 42 files',
+    );
+    expect(waiting('drive_away', counted('drive_away', null, 'Music HD'))).toMatchObject({
+      tone: 'warning',
+      sentence: "Waiting for Music HD · it's away",
+      action: 'drives',
+    });
+    expect(waiting('drive_away', SWEEP as never, member)).toMatchObject({
+      sentence: "Waiting for the library's drive · it's away",
+      action: null,
+    });
+    expect(waiting('drive_move')).toMatchObject({
+      sentence: 'Waiting for the move to finish',
+      action: 'open_move',
+    });
+    expect(waiting('tag_write').sentence).toBe('Waiting for tags to be written');
+  });
+
+  it('7 stopped: by name for admins with Resume, "an admin" for members, Resume disabled', () => {
+    const held: AnalysisEntry = {
+      state: 'waiting',
+      reason: 'held',
+      position: null,
+      asked_for: false,
+    };
+    const sweep = { ...SWEEP, running: false, held: true, held_by: 'Ross', in_line: 14 } as never;
+    expect(lineView(held, { viewer: admin, sweep })).toMatchObject({
+      tone: 'warning',
+      sentence: 'Analysis stopped by Ross · 14 in line',
+      action: 'resume',
+      actionDisabled: false,
+    });
+    expect(
+      lineView(held, { viewer: member, sweep: { ...(sweep as object), held_by: null } as never }),
+    ).toMatchObject({
+      sentence: 'Analysis stopped by an admin · 14 in line',
+      action: 'resume',
+      actionDisabled: true,
+    });
+  });
+
+  it('8 failed and skipped say what still works; 9 no steady beat', () => {
+    expect(line({ state: 'failed', reason: 'error' })).toMatchObject({
+      tone: 'failed',
+      sentence: "Couldn't be read · won't auto-mix; plays straight on",
+      action: 'try_again',
+    });
+    expect(line({ state: 'failed', reason: 'error' }, member).action).toBeNull();
+    expect(line({ state: 'failed', reason: 'unreachable' }).action).toBeNull();
+    expect(line({ state: 'failed', reason: 'too_long', duration: 8040 })).toMatchObject({
+      tone: 'neutral',
+      sentence: 'Skipped, 2 h 14 min is too long to analyse · plays straight on',
+    });
+    expect(line({ state: 'failed', reason: 'no_grid' }).sentence).toBe(
+      "No beat grid found · won't auto-mix; plays straight on",
+    );
+    expect(line({ state: 'done', ready: false, bpm_key: true, beat: 'no_beat' })).toMatchObject({
+      tone: 'warning',
+      sentence: "Can't be beat-matched · no steady beat · echo out or cut",
+      action: null,
+    });
+    expect(line({ state: 'done', ready: false, beat: 'not_4_4' }).sentence).toBe(
+      "Can't be beat-matched · not in 4/4 · echo out or cut",
+    );
+    expect(readyWords('Canopy')).toBe('Canopy is ready to mix');
+  });
+
+  it('the row marker: two words, the sweep’s own order says what it has (334)', () => {
+    const mark = (e: AnalysisEntry) => markerView(e, admin)?.words;
+    expect(mark({ state: 'done', ready: true, bpm_key: true })).toBe('Ready');
+    expect(mark({ state: 'done', ready: false, bpm_key: true })).toBe('BPM and key · no grid yet');
+    expect(mark({ state: 'queued', position: 1, asked_for: true })).toBe('In line · 1st');
+    expect(mark({ state: 'queued', position: 1240, asked_for: false })).toBe('Not analysed');
+    expect(mark({ state: 'queued', position: 1240, asked_for: false, bpm_key: true })).toBe(
+      'BPM and key',
+    );
+    expect(mark({ state: 'working', step: 'grid', percent: 60 })).toBe(
+      'Analysing · beat grid (5 of 6)',
+    );
+    expect(markerView({ state: 'working', step: 'key', percent: 35 }, admin, 'Canopy')?.words).toBe(
+      'Analysing Canopy · key (3 of 6)',
+    );
+    expect(mark({ state: 'failed', reason: 'error' })).toBe("Couldn't be read · plays straight on");
+    expect(mark({ state: 'done', beat: 'no_beat' })).toBe("Can't be beat-matched · no steady beat");
+    expect(mark({ state: 'waiting', reason: 'download', position: 2, asked_for: true })).toBe(
+      'Waiting · downloads',
+    );
+  });
+
+  it('the topbar count: running in accent, idle with the next sweep, stopped amber', () => {
+    expect(countView(SWEEP as never, admin)).toEqual({
+      tone: 'running',
+      words: 'Analysing · 14 in line',
+      running: true,
+    });
+    expect(countView({ ...SWEEP, running: false, current: null } as never, admin)).toEqual({
+      tone: 'neutral',
+      words: 'Analysis idle · next sweep in about 25 min',
+      running: false,
+    });
+    expect(
+      countView(
+        { ...SWEEP, running: false, held: true, held_by: 'Ross', in_line: 0 } as never,
+        admin,
+      )?.words,
+    ).toBe('Analysis stopped by Ross');
+    expect(countView({ ...SWEEP, analyze: false } as never, admin)).toBeNull();
+    expect(yoursWords({ ...SWEEP, yours: 2, yours_first: true } as never)).toBe(
+      'yours: 2, both next',
+    );
+  });
+
+  it('the popover: the checklist with times, why each track is in line, the sweep', () => {
+    expect(checklist(SWEEP as never).map((r) => [r.name, r.state, r.time])).toEqual([
+      ['Reading audio', 'done', '1.2 s'],
+      ['Tempo', 'done', '0.8 s'],
+      ['Key', 'done', '0.6 s'],
+      ['Energy', 'done', '0.3 s'],
+      ['Beat grid', 'now', 'now'],
+      ['Phrases and sections', 'todo', ''],
+    ]);
+    expect(stepTime(0.04)).toBe('< 0.1 s');
+    expect(currentSubline(SWEEP as never)).toBe('Tidewater · 5 of 6 · 14 in line after it');
+    expect(sweepProgressWords(SWEEP as never)).toBe('Finding beats · 1,240 of 4,980');
+    const e = (over: Partial<AnalysisLineEntry>): AnalysisLineEntry => ({
+      track_id: '1',
+      title: 'Static Bloom',
+      artist: 'Saltmarsh',
+      position: 1,
+      source: 'asked',
+      by: 'you',
+      set_name: null,
+      front: true,
+      ...over,
+    });
+    expect(whyWords(e({ source: 'set', set_name: 'Sunday Set' }))).toBe(
+      'you added it to Sunday Set',
+    );
+    expect(whyWords(e({ by: 'Mira K.' }))).toBe('Mira asked');
+    expect(whyWords(e({ source: 'up_next' }))).toBe('Up next');
+    expect(whyWords(e({ source: 'set', by: 'Mira K.' }))).toBe("Mira's set");
+    expect(moreWords({ ...SWEEP, line_more: 0 } as never, admin)).toBe(
+      'and 10 more from the sweep',
+    );
+    expect(moreWords({ ...SWEEP, line_more: 3 } as never, member)).toBe('and 13 more in line');
+    expect(nextSweepWords(30)).toBe('next sweep in under a minute');
+    expect(nextSweepWords(5400)).toBe('next sweep in about 1 h 30 min');
+  });
+
+  it('the Added toast says once where it is; a set’s notice counts by kind', () => {
+    expect(addedAnalysisWords(answer({ position: 2 }))).toBe('analysing, 2nd in line');
+    expect(addedAnalysisWords(answer({ working: true }))).toBe('analysing now');
+    expect(addedAnalysisWords(answer({}))).toBe('');
+    expect(
+      notReadyNotice([
+        { state: 'done', ready: true },
+        { state: 'queued', position: 1, asked_for: true },
+        { state: 'working', step: 'grid', percent: 60 },
+        { state: 'waiting', reason: 'not_queued', position: null, asked_for: false, bpm_key: true },
+        { state: 'failed', reason: 'error' },
+      ]),
+    ).toBe(
+      "4 tracks aren't ready to mix: 2 are in line, 1 has BPM and key only, 1 couldn't be read. Play as a mix plays them straight on until they are.",
+    );
+    expect(notReadyNotice([{ state: 'done', ready: true }])).toBe('');
+    expect(isReady({ state: 'done' })).toBe(true);
+    expect(isReady({ state: 'done', ready: false })).toBe(false);
   });
 
   it('counts in English', () => {
@@ -102,16 +366,10 @@ describe('the words', () => {
     ]);
   });
 
-  it('Tracks shows only asked-for tracks in line, and the one being worked out', () => {
+  it('asked-for tracks in line, and the one being worked out', () => {
     expect(inLine({ state: 'queued', position: 4, asked_for: true })).toBe(true);
     expect(inLine({ state: 'queued', position: 1240, asked_for: false })).toBe(false);
     expect(inLine({ state: 'working', step: 'key', percent: 35 })).toBe(true);
-    expect(inLine({ state: 'waiting', reason: 'drive_away', position: 1, asked_for: true })).toBe(
-      true,
-    );
-    expect(inLine({ state: 'waiting', reason: 'held', position: null, asked_for: false })).toBe(
-      false,
-    );
     expect(inLine({ state: 'done' })).toBe(false);
   });
 
@@ -121,88 +379,13 @@ describe('the words', () => {
       words: '9 tracks will be analysed next. 3 tracks already done are skipped.',
       tone: 'success',
     });
-    expect(analyseTheseWords(answer({ asked: 1, queued: 1 })).words).toBe(
-      '1 track will be analysed next.',
-    );
     expect(analyseTheseWords(answer({ asked: 4, already_done: 4 }))).toEqual({
       words: 'All 4 are analysed already.',
       tone: 'info',
     });
-    expect(
-      analyseTheseWords(answer({ asked: 250, queued: 200, over_limit: 50, limit: 200 })).words,
-    ).toBe(
-      '200 tracks will be analysed next. 50 tracks more wait for the usual sweep: you can have 200 in line at once.',
-    );
     expect(analyseTheseWords(answer({ asked: 0 })).words).toBe(
       'None of these are in your library with a file.',
     );
-  });
-
-  it("the sweep's line names the track and its step", () => {
-    expect(
-      sweepWords({
-        running: true,
-        held: false,
-        analyze: true,
-        id: 3,
-        total: 4980,
-        done: 1240,
-        percent: 24,
-        waiting: null,
-        in_line: 2,
-        yours: 2,
-        current: {
-          step: 'grid',
-          percent: 60,
-          asked_for: true,
-          track_id: '7',
-          title: 'Static Bloom',
-        },
-      }),
-    ).toBe('1,240 of 4,980 tracks · Static Bloom · Finding the beat grid · 60%');
-  });
-});
-
-describe('the indicator', () => {
-  it('a bar with its step while working, the place in line while queued, nothing once done', () => {
-    const { rerender } = render(
-      <AnalysisProgress
-        entry={{ state: 'working', step: 'grid', percent: 60 }}
-        label="Analysis of Static Bloom"
-      />,
-    );
-    const bar = screen.getByRole('progressbar', { name: 'Analysis of Static Bloom' });
-    expect(bar).toHaveAttribute('aria-valuenow', '60');
-    expect(bar).toHaveAttribute('aria-valuetext', 'Finding the beat grid · 60%');
-    expect(screen.getByText('Finding the beat grid · 60%')).toBeInTheDocument();
-    rerender(<AnalysisProgress entry={{ state: 'queued', position: 2, asked_for: true }} />);
-    expect(screen.queryByRole('progressbar')).toBeNull();
-    expect(screen.getByText('2nd in line')).toBeInTheDocument();
-    rerender(<AnalysisProgress entry={{ state: 'done' }} />);
-    expect(document.querySelector('[data-analysis-progress]')).toBeNull();
-  });
-
-  it("the sweep's bar for Activity", () => {
-    render(
-      <SweepProgress
-        sweep={{
-          running: true,
-          held: false,
-          analyze: true,
-          id: 1,
-          total: 10,
-          done: 4,
-          percent: 40,
-          waiting: 'download',
-          in_line: 0,
-          yours: 0,
-          current: null,
-        }}
-      />,
-    );
-    const bar = screen.getByRole('progressbar', { name: 'Working out BPM, key and energy' });
-    expect(bar).toHaveAttribute('aria-valuenow', '40');
-    expect(screen.getByText('4 of 10 tracks · Waiting for downloads')).toBeInTheDocument();
   });
 });
 
@@ -231,7 +414,7 @@ describe('asking', () => {
     await requestAnalysis(['1'], { force: true });
     expect(bodies).toEqual([
       { track_ids: ['1', '2', '3'], reason: 'auto' },
-      { track_ids: ['1'], reason: 'asked' },
+      { track_ids: ['1'], reason: 'asked', source: 'asked' },
     ]);
   });
 
@@ -286,11 +469,11 @@ describe('asking', () => {
     // not forced) goes in
     const lab = await requestAnalysis(['4'], { reason: 'asked' });
     expect(lab?.queued).toBe(1);
-    expect(bodies[1]).toEqual({ track_ids: ['4'], reason: 'asked' });
+    expect(bodies[1]).toEqual({ track_ids: ['4'], reason: 'asked', source: 'asked' });
     // a person's ask (Analyse these, Analyse now) says so and goes in
     const got = await requestAnalysis(['5'], { force: true });
     expect(got?.queued).toBe(1);
-    expect(bodies[2]).toEqual({ track_ids: ['5'], reason: 'asked' });
+    expect(bodies[2]).toEqual({ track_ids: ['5'], reason: 'asked', source: 'asked' });
   });
 
   it('a person’s ask and an automatic one gathered together go in separate requests', async () => {
@@ -310,7 +493,7 @@ describe('asking', () => {
     await Promise.all([requestAnalysis(['1']), requestAnalysis(['2'], { force: true })]);
     expect(bodies).toEqual([
       { track_ids: ['1'], reason: 'auto' },
-      { track_ids: ['2'], reason: 'asked' },
+      { track_ids: ['2'], reason: 'asked', source: 'asked' },
     ]);
   });
 
@@ -333,7 +516,7 @@ function Rows({ ids }: { ids: string[] }) {
     <ul>
       {ids.map((id) => (
         <li key={id} data-row={id}>
-          <AnalysisProgress entry={progress[id]} />
+          <AnalysisLine size="line" entry={progress[id]} title={`Track ${id}`} trackId={id} />
         </li>
       ))}
     </ul>
@@ -378,15 +561,24 @@ describe('the poll', () => {
           <Rows ids={['7']} />
         </QueryClientProvider>,
       );
-      expect(await screen.findByText('2nd in line')).toBeInTheDocument();
+      expect(await screen.findByText('In line · 2nd')).toBeInTheDocument();
       expect(
-        await screen.findByText('Reading the audio · 5%', {}, { timeout: 4000 }),
+        await screen.findByText(
+          'Analysing Track 7 · reading audio (1 of 6)',
+          {},
+          { timeout: 4000 },
+        ),
       ).toBeInTheDocument();
       expect(
-        await screen.findByText('Finding the beat grid · 60%', {}, { timeout: 4000 }),
+        await screen.findByText('Analysing Track 7 · beat grid (5 of 6)', {}, { timeout: 4000 }),
       ).toBeInTheDocument();
       await waitFor(() => expect(finished).toEqual([['7']]), { timeout: 4000 });
-      expect(document.querySelector('[data-analysis-progress]')).toBeNull();
+      // done (31a, state 10): the line says it, and the polite live region says it once
+      const said = await screen.findAllByText('Track 7 is ready to mix');
+      expect(said.some((el) => el.closest('[data-analysis-line]'))).toBe(true);
+      expect(document.querySelector('[data-analysis-live]')).toHaveTextContent(
+        'Track 7 is ready to mix',
+      );
       expect(invalidated.length).toBeGreaterThan(0);
       expect(asked[0]).toEqual(['7']);
     } finally {

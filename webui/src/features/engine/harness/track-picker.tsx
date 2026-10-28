@@ -23,8 +23,7 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import type { DjInfo, DjTrack } from '@/features/dj/dj.api';
 
 import { apiClient, readJson } from '@/app/api-client';
-import { AnalysisProgress, useAnalysis } from '@/features/dj/analysis-progress';
-import { entryWords, pending } from '@/features/dj/analysis.format';
+import { AnalysisLine, useAnalysis } from '@/features/dj/analysis-line';
 import { bpmNumber } from '@/features/dj/dj.format';
 
 import styles from './automix-lab.module.css';
@@ -318,7 +317,13 @@ export function TrackPicker({
         {chosen ? `${chosen.title} · ${chosen.artist_name} · ${djWords(chosen.dj)}` : 'None yet'}
       </p>
       {chosen ? (
-        <AnalysisProgress entry={chosenEntry} block label={`Analysis of ${chosen.title}`} />
+        <AnalysisLine
+          size="line"
+          entry={chosenEntry}
+          title={chosen.title}
+          trackId={chosen.id}
+          className={styles.chosenLine}
+        />
       ) : null}
       <div
         className={styles.sources}
@@ -390,14 +395,6 @@ export function TrackPicker({
         {rows.map((r) => {
           const info = djOf(r);
           const entry = progress[r.id];
-          const inLine = pending(entry) && (entry?.state !== 'waiting' || entry.position !== null);
-          const analysis = entry
-            ? entry.state === 'done'
-              ? 'Analysed'
-              : entryWords(entry)
-            : info?.analyzed
-              ? 'Analysed'
-              : 'Not analysed yet';
           return (
             <li key={`${source}-${r.id}`} className={styles.pickRow} data-pick-row={r.id}>
               <button
@@ -411,13 +408,18 @@ export function TrackPicker({
                 </span>
                 <span className={styles.pickMeta}>
                   {djWords(info)}
-                  {inLine ? null : ` · ${analysis}`}
                   {r.note ? ` · ${r.note}` : ''}
                 </span>
               </button>
-              {inLine ? (
-                <AnalysisProgress entry={entry} compact label={`Analysis of ${r.title}`} />
-              ) : null}
+              {/* each row's marker says why a plan would wait (31c) */}
+              <AnalysisLine
+                size="marker"
+                entry={entry}
+                showReady
+                trackId={r.id}
+                moveUp
+                className={styles.pickMarker}
+              />
             </li>
           );
         })}

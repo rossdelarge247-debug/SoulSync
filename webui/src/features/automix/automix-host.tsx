@@ -25,12 +25,14 @@ import { createPortal, flushSync } from 'react-dom';
 
 import type { Transition } from '@/features/sets/sets.api';
 
-import { useAnalysis } from '@/features/dj/analysis-progress';
+import { useAnalysis } from '@/features/dj/analysis-line';
 import {
   DJ_ANALYSED_EVENT,
+  askForAdded,
   requestAnalysis,
   requestAnalysisQuietly,
 } from '@/features/dj/analysis.api';
+import { addedAnalysisWords } from '@/features/dj/analysis.format';
 import { DJ_QUERY_KEY } from '@/features/dj/dj.api';
 import { Engine } from '@/features/engine/engine';
 import { looksLikePhone } from '@/features/engine/lifecycle';
@@ -309,7 +311,7 @@ function GapChip({
       progress={progress}
       // anyone can ask for their own tracks now (analyse on demand)
       analyse={() => {
-        void requestAnalysis([waitingId], { force: true })
+        void requestAnalysis([waitingId], { force: true, source: 'up_next' })
           .then(() => qc.invalidateQueries({ queryKey: [...DJ_QUERY_KEY, 'status'] }))
           .catch((e: unknown) =>
             window.showToast?.(e instanceof Error ? e.message : "That didn't work.", 'error'),
@@ -366,8 +368,22 @@ export function AutomixHost() {
       .slice(from, from + 50)
       .filter((t) => mixable(t) && (dj || Boolean(t.mix_set)))
       .map((t) => String(t.id));
-    if (ids.length > 1) requestAnalysisQuietly(ids);
+    // "Up next" is why they're in line (the popover's words, HANDOFF 325)
+    if (ids.length > 1) requestAnalysisQuietly(ids, 'auto', { source: 'up_next' });
   }, [tick, prefs.between]);
+
+  // the player's Added toast (Play next, Add to queue) says once where a
+  // track is in the analysis line while Auto mix is on (Brief A, 31b)
+  useEffect(() => {
+    const dj = prefs.between === 'dj';
+    window.ssAnalysisToastWords = (ids) =>
+      dj
+        ? askForAdded(ids, { source: 'up_next' }).then((a) => addedAnalysisWords(a))
+        : Promise.resolve('');
+    return () => {
+      delete window.ssAnalysisToastWords;
+    };
+  }, [prefs.between]);
 
   // a track finished its analysis: a pair waiting for it is planned again
   useEffect(() => {

@@ -330,7 +330,10 @@ describe('analyse on demand in Up next', () => {
 
   it("with DJ mix on, the queue's coming tracks jump the analysis queue", async () => {
     mount();
-    await waitFor(() => expect(asked).toEqual([{ track_ids: ['1', '2', '3'], reason: 'auto' }]));
+    // "Up next" is why they're in line (the popover's words, Brief A)
+    await waitFor(() =>
+      expect(asked).toEqual([{ track_ids: ['1', '2', '3'], reason: 'auto', source: 'up_next' }]),
+    );
   });
 
   it('with DJ mix off nothing is asked for', async () => {
@@ -343,13 +346,14 @@ describe('analyse on demand in Up next', () => {
     expect(asked).toEqual([]);
   });
 
-  it('a Waiting chip shows the step of the track it waits for', async () => {
+  it('a Waiting chip shows the step of the track it waits for (31c)', async () => {
     waitingFor2();
     progress = { '2': { state: 'working', step: 'key', percent: 35 } };
     mount();
-    const bar = await screen.findAllByRole('progressbar', { name: 'Analysis of Static Bloom' });
-    expect(bar[0]).toHaveAttribute('aria-valuenow', '35');
-    expect(screen.getAllByText('Working out the key · 35%').length).toBeGreaterThan(0);
+    // the chip's line is the analysis: the bar (3 of 6) and the step, named
+    const words = await screen.findAllByText('Analysing Static Bloom · key (3 of 6)');
+    const marker = words[0]!.closest('[data-analysis-marker]')!;
+    expect(marker.querySelector('[data-step="3"]')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Analyse now' })).toBeNull();
   });
 

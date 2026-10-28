@@ -459,11 +459,15 @@ describe('activity route', () => {
       ),
     );
     await renderPage();
-    const bar = await screen.findByRole('progressbar', { name: 'Working out BPM, key and energy' });
-    expect(bar).toHaveAttribute('aria-valuenow', '33');
-    expect(
-      screen.getByText('1 of 3 tracks · Static Bloom · Finding the beat grid · 60%'),
-    ).toBeInTheDocument();
+    // Brief A's line: the track and its step, the bar filled to it, and the sweep's progress
+    const words = await screen.findByText(
+      'Analysing Static Bloom · beat grid (5 of 6) · Finding beats · 1 of 3',
+    );
+    expect(words.closest('[data-analysis-line]')!.querySelector('[data-step="5"]')).not.toBeNull();
+    // the phone's popover (31f) heads the page: the checklist and the line
+    const sheet = document.querySelector('[data-analysis-panel][data-variant="sheet"]')!;
+    expect(sheet).toHaveTextContent('Analysing Static Bloom');
+    expect(sheet).toHaveTextContent('beat grid (5 of 6) · 1 in line');
   });
 
   // ── retry ─────────────────────────────────────────────────────────────────

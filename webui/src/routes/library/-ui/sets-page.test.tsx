@@ -781,20 +781,47 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
 
   it('analyse on demand: opening a set asks for its tracks, and a row being worked out shows its step', async () => {
     WORKING = new Set(['2']);
-    PROGRESS = { '2': { state: 'working', step: 'phrases', percent: 85 } };
+    PROGRESS = {
+      '1': { state: 'done', ready: true, bpm_key: true },
+      '2': { state: 'working', step: 'phrases', percent: 85 },
+      '3': {
+        state: 'waiting',
+        reason: 'not_queued',
+        position: null,
+        asked_for: false,
+        bpm_key: true,
+      },
+    };
     renderPage('/library?view=sets&set=7');
     await screen.findByDisplayValue('Sunday Set');
     await waitFor(() =>
       expect(sent.filter((c) => c.path === '/api/library/dj/analyse')[0]?.body).toEqual({
         track_ids: ['1', '2', '3'],
         reason: 'auto',
+        source: 'set',
+        set_id: 7,
       }),
     );
-    const row = (await screen.findByText('Finding phrases and sections · 85%')).closest('li')!;
-    expect(within(row).getByText('Being worked out')).toBeTruthy();
+    // Brief A (31b): each row's marker, the bar only on the row being analysed
+    const marker = await screen.findByText('Analysing · phrases and sections (6 of 6)');
+    const row = marker.closest('li')!;
+    expect(row.querySelector('[data-analysis-marker] [data-step="6"]')).not.toBeNull();
+    expect(within(row).queryByText('Being worked out')).toBeNull();
+    expect(screen.getByText('Ready')).toBeTruthy();
+    expect(screen.getByText('BPM and key')).toBeTruthy();
+    // the set's line: the track being analysed and how many of its own are left
+    const line = screen
+      .getByText('Analysing Foghorn Study · phrases and sections (6 of 6) · 1 more in this set')
+      .closest('[data-analysis-line]')!;
     expect(
-      within(row).getByRole('progressbar', { name: 'Analysis of Foghorn Study' }),
-    ).toHaveAttribute('aria-valuenow', '85');
+      within(line as HTMLElement).getByRole('button', { name: /^Analyse (all 2|mine)$/ }),
+    ).toBeTruthy();
+    // the warning Notice counts what isn't ready, by kind
+    expect(
+      screen.getByText(
+        "2 tracks aren't ready to mix: 1 is in line, 1 has BPM and key only. Play as a mix plays them straight on until they are.",
+      ),
+    ).toBeTruthy();
     // the set's "…": Analyse these, saying how many and that done ones are skipped
     fireEvent.click(screen.getByRole('button', { name: 'More for Sunday Set' }));
     const item = await screen.findByRole('menuitem', { name: 'Analyse these' });
