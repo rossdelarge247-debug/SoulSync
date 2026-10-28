@@ -85,17 +85,22 @@ export async function playSetAsMix(
 /** The player as a set played from the playing track needs it (static/media-player.js). */
 interface PlayerLike {
   state(): { track: QueueTrack | null; queue: QueueTrack[]; index: number };
-  insertNext(track: QueueTrack): number;
+  /** the rows straight after the playing one, each once, drawn and saved once */
+  queueAfterPlaying(tracks: QueueTrack[]): number;
 }
+
+/** auto-mix's stages while it holds a mix (controller.ts): the queue isn't touched then */
+const MIXING = new Set(['counting', 'mixing', 'settling', 'handback', 'back', 'rejoin']);
 
 /**
  * Play a set as a mix from the playing track (the Mix tab's working set;
  * Ross's report of 28 October: a working set built in the Mix tab isn't
  * Up next, so the playing track ended and nothing followed). When the
  * playing track is one of the set's rows, it carries its chip and the
- * set's later rows go straight after it, so it plays on into them with
- * no restart; otherwise the set plays from its start (Play as a mix).
- * What was Up next stays after the set. `'continued'`, `'started'` or
+ * set's later rows go straight after it, each once (one already queued
+ * after it moves), so it plays on into them with no restart; otherwise the
+ * set plays from its start (Play as a mix). What was Up next stays after
+ * the set. Not while a mix holds the next row. `'continued'`, `'started'` or
  * `'failed'`.
  */
 export async function playSetFromPlaying(
@@ -119,9 +124,18 @@ export async function playSetFromPlaying(
     window.showToast?.(`${playingTitle(current)} is the last track in ${set.name}.`, 'info');
     return 'failed';
   }
+  // a mix in progress holds the next row (its incoming deck): the queue is
+  // left alone until it's over (the gauntlet review's M3)
+  const stage = (
+    window as unknown as { SoulSyncAutomix?: { view?: () => { stage?: string } } }
+  ).SoulSyncAutomix?.view?.()?.stage;
+  if (stage && MIXING.has(stage)) {
+    window.showToast?.('Mixing now: play the set once the mix is over.', 'info');
+    return 'failed';
+  }
   // the playing row's chip is the set's (Auto mix for this play, 28e)
   current.mix_set = queue[at].mix_set;
-  for (let i = queue.length - 1; i > at; i--) player.insertNext(queue[i]);
+  player.queueAfterPlaying(queue.slice(at + 1));
   const n = queue.length - 1 - at;
   window.showToast?.(
     `${set.name} plays next as a mix · ${n} ${n === 1 ? 'track' : 'tracks'}`,

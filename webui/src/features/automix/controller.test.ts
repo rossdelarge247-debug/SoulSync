@@ -1056,6 +1056,8 @@ describe("Ross's report of 28 October: the queue never stops at a track's end", 
       h.el.advance(300);
       h.el.ended = true;
       h.el.paused = true;
+      // the player's 'ended' handed the advance on, or a load turned it away
+      h.st.advanceOwed = true;
       h.ctl.poke();
       await flush();
       expect(h.ctl.ownsAdvance()).toBe(false);
@@ -1071,12 +1073,29 @@ describe("Ross's report of 28 October: the queue never stops at a track's end", 
     h.ctl.start();
     await at(h, 280);
     h.el.ended = true;
+    h.st.advanceOwed = true;
     h.ctl.poke();
     // the player's own advance: the next track is the playing one now
     h.st.index = 1;
     h.st.track = h.st.queue[1];
     h.el.ended = false;
     await vi.advanceTimersByTimeAsync(3000);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    h.ctl.stop();
+  });
+
+  it("an ended track whose advance the player didn't hand on is left alone (H1: the sleep timer)", async () => {
+    // the real player: the sleep timer's end of track pauses and clears its
+    // flag, so the snapshot says sleep 0 by then; it owes no advance
+    const h = harness({ plan: playOnPlan() });
+    h.ctl.start();
+    await at(h, 280);
+    h.el.ended = true;
+    h.el.paused = true;
+    h.st.sleep = 0;
+    h.st.advanceOwed = false;
+    h.ctl.poke();
+    await vi.advanceTimersByTimeAsync(5000);
     expect(h.player.playIndex).not.toHaveBeenCalled();
     h.ctl.stop();
   });
@@ -1092,6 +1111,7 @@ describe("Ross's report of 28 October: the queue never stops at a track's end", 
     ]) {
       const h = harness({ plan: playOnPlan() });
       change(h.st);
+      h.st.advanceOwed = true;
       h.ctl.start();
       h.el.ended = true;
       h.ctl.poke();

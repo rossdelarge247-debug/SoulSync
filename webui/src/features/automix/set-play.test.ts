@@ -131,12 +131,16 @@ describe('a draft played as a mix (319)', () => {
 
 describe("the Mix tab's working set as a mix (Ross's report of 28 October)", () => {
   const rows = [row('1'), row('2'), row('3'), row('4')];
+  // as media-player.js's npQueueAfterPlaying: the rows next, each once
   function player(queue: QueueTrack[], index: number) {
     return {
       queue,
       state: () => ({ track: queue[index] ?? null, queue, index }),
-      insertNext: vi.fn((t: QueueTrack) => {
-        queue.splice(index + 1, 0, t);
+      queueAfterPlaying: vi.fn((tracks: QueueTrack[]) => {
+        const ids = new Set(tracks.map((t) => String(t.id)));
+        for (let i = queue.length - 1; i > index; i--)
+          if (ids.has(String(queue[i].id))) queue.splice(i, 1);
+        queue.splice(index + 1, 0, ...tracks);
         return index + 1;
       }),
     };
@@ -163,6 +167,39 @@ describe("the Mix tab's working set as a mix (Ross's report of 28 October)", () 
     );
     await playSetFromPlaying({ id: 5, name: 'Working set' }, rows, p);
     expect(p.queue.map((t) => t.id)).toEqual(['2', '3', '4', '9']);
+  });
+
+  it('a set row already up next goes in once, and the queue is touched once', async () => {
+    const p = player(
+      [
+        { id: '2', title: 'T2', file_path: '/m/2.flac' },
+        { id: '4', title: 'T4' },
+        { id: '9', title: 'Other' },
+      ],
+      0,
+    );
+    await playSetFromPlaying({ id: 5, name: 'Working set' }, rows, p);
+    expect(p.queue.map((t) => t.id)).toEqual(['2', '3', '4', '9']);
+    expect(p.queueAfterPlaying).toHaveBeenCalledTimes(1);
+  });
+
+  it('not while a mix holds the next row (its incoming deck keeps its place)', async () => {
+    const p = player(
+      [
+        { id: '1', title: 'T1', file_path: '/m/1.flac' },
+        { id: '9', title: 'In' },
+      ],
+      0,
+    );
+    (window as unknown as { SoulSyncAutomix: unknown }).SoulSyncAutomix = {
+      view: () => ({ stage: 'mixing' }),
+    };
+    const toast = vi.fn();
+    vi.stubGlobal('showToast', toast);
+    expect(await playSetFromPlaying({ id: 5, name: 'Working set' }, rows, p)).toBe('failed');
+    expect(p.queue.map((t) => t.id)).toEqual(['1', '9']);
+    expect(toast).toHaveBeenCalledWith('Mixing now: play the set once the mix is over.', 'info');
+    delete (window as unknown as { SoulSyncAutomix?: unknown }).SoulSyncAutomix;
   });
 
   it('a playing track not in the set (or nothing playing) plays the set from its start', async () => {

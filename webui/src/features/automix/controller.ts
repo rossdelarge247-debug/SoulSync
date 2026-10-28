@@ -123,6 +123,12 @@ export interface PlayerSnapshotLike {
   playbackRate?: number;
   /** the sleep timer: minutes, or 'track' (pause at the end of this one) */
   sleep?: number | 'track';
+  /**
+   * the playing track ended and its advance went to auto-mix or was turned
+   * away by a load in flight (media-player.js's `onAudioEnded`): the next
+   * track is owed. Never set by a stop meant at the end (the sleep timer).
+   */
+  advanceOwed?: boolean;
 }
 
 export interface CrossfadeHint {
@@ -322,9 +328,11 @@ const CUT_LATE_S = 0.25;
 const CUT_LATE_TIMER_S = 1;
 /**
  * The last line of defence for the queue (Ross's report of 28 October): the
- * playing track's element has ended, the decks hold nothing and the player
- * still hasn't moved on after this long (its own 'ended' advance was skipped
- * or turned away): the next track is started here. Never a stopped queue.
+ * playing track's element has ended, the player says the next track is
+ * owed (its own 'ended' advance went to auto-mix, or a load turned it away:
+ * `advanceOwed`), the decks hold nothing and nothing moved on after this
+ * long: the next track is started here. A stop meant at the end (the sleep
+ * timer's end of track) never owes one (the gauntlet review's H1).
  */
 export const STALLED_END_MS = 1500;
 
@@ -783,7 +791,7 @@ export class AutomixController {
     }
     const st = this.player.state();
     const pair = this.pairNow(st);
-    if (this.unstick(el, pair)) return;
+    if (this.unstick(el, pair, st.advanceOwed === true)) return;
     const dj = pair ? this.djFor(pair.from, pair.to) : { on: false, forced: false };
     if (!pair || !dj.on) {
       if (this.pending) this.pending = null;
@@ -904,8 +912,9 @@ export class AutomixController {
   private unstick(
     el: HTMLAudioElement | null,
     pair: { from: QueueTrack; to: QueueTrack; toIndex: number } | null,
+    owed: boolean,
   ): boolean {
-    if (!el || !el.ended || this.handing || !pair || !this.started) {
+    if (!el || !el.ended || !owed || this.handing || !pair || !this.started) {
       this.endedAt = null;
       return false;
     }
