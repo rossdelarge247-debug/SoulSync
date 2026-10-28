@@ -342,6 +342,39 @@ describe('analyse on demand in Up next', () => {
     );
   });
 
+  it('[re-review L10] a pair turned away by a Stop goes as soon again after it', async () => {
+    let held = true;
+    server.use(
+      http.post('*/api/library/dj/analyse', async ({ request }) => {
+        asked.push(await request.json());
+        if (held)
+          return HttpResponse.json(
+            { success: false, code: 'held', error: 'Analysis is stopped' },
+            { status: 409 },
+          );
+        return HttpResponse.json({ success: true, asked: 2, queued: 2 }, { status: 202 });
+      }),
+    );
+    mount();
+    await waitFor(() => expect(asked).toHaveLength(2), { timeout: 3000 });
+    // Resume: the next drawing of Up next asks for the same pair as soon again
+    held = false;
+    asked = [];
+    act(() => {
+      window.dispatchEvent(new CustomEvent('ss:player', { detail: { reason: 'queue' } }));
+    });
+    await waitFor(
+      () =>
+        expect(asked).toContainEqual({
+          track_ids: ['1', '2'],
+          reason: 'auto',
+          source: 'up_next',
+          soon: true,
+        }),
+      { timeout: 3000 },
+    );
+  });
+
   it('with DJ mix off nothing is asked for', async () => {
     localStorage.setItem('soulsync-between-tracks', 'off');
     refreshPrefs();

@@ -255,10 +255,21 @@ export async function postDjBpm(trackIds: string[], action: TempoAction): Promis
  * already runs.
  */
 export async function postDjJob(action: 'start' | 'stop', trackId?: string): Promise<void> {
-  const response = await apiClient.post(`library/dj/${action}`, {
-    throwHttpErrors: false,
-    ...(trackId ? { json: { track_id: trackId } } : {}),
-  });
+  const send = () =>
+    apiClient.post(`library/dj/${action}`, {
+      throwHttpErrors: false,
+      ...(trackId ? { json: { track_id: trackId } } : {}),
+    });
+  let response = await send();
+  if (response.status === 429) {
+    // Move up right after another ask (one a second a profile): once more,
+    // after the server's Retry-After (re-review L5)
+    const after = Number(response.headers.get('Retry-After'));
+    await new Promise((r) =>
+      setTimeout(r, (Number.isFinite(after) && after > 0 ? after : 1) * 1000 + 50),
+    );
+    response = await send();
+  }
   const payload = (await response.json().catch(() => ({}))) as {
     success?: boolean;
     error?: string;

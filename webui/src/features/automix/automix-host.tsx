@@ -378,11 +378,15 @@ export function AutomixHost() {
     const key = pair.join(',');
     if (soonAsked.current !== key) {
       soonAsked.current = key;
-      requestAnalysis(pair, { force: true, reason: 'auto', source: 'up_next', soon: true }).catch(
-        () => {
-          soonAsked.current = null;
-        },
-      );
+      // turned away (a Stop holds the sweeps: null) or failed: asked again
+      // as soon next time, so after Resume the pair still goes first (re-review L10)
+      requestAnalysis(pair, { force: true, reason: 'auto', source: 'up_next', soon: true })
+        .then((answer) => {
+          if (answer === null && soonAsked.current === key) soonAsked.current = null;
+        })
+        .catch(() => {
+          if (soonAsked.current === key) soonAsked.current = null;
+        });
     }
     // "Up next" is why they're in line (the popover's words, HANDOFF 325)
     if (ids.length > 2) requestAnalysisQuietly(ids.slice(2), 'auto', { source: 'up_next' });

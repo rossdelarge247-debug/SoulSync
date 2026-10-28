@@ -343,6 +343,32 @@ describe('the line (31a), in every state', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
+  it('[re-review L5] Move up right after another ask waits out the 429 and goes', async () => {
+    let tries = 0;
+    server.use(
+      http.post('*/api/library/dj/start', async ({ request }) => {
+        tries += 1;
+        if (tries === 1)
+          return HttpResponse.json(
+            { success: false, code: 'rate_limited', error: 'One request a second' },
+            { status: 429, headers: { 'Retry-After': '1' } },
+          );
+        started.push(await request.json());
+        return HttpResponse.json({ success: true, queued: true }, { status: 202 });
+      }),
+    );
+    view(
+      <AnalysisLine
+        size="line"
+        entry={{ state: 'queued', position: 3, asked_for: true }}
+        trackId="7"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Move up' }));
+    await waitFor(() => expect(started).toEqual([{ track_id: '7' }]), { timeout: 3000 });
+    expect(tries).toBe(2);
+  });
+
   it("a page's own words and action: a set's line (31a state 11)", () => {
     const onClick = vi.fn();
     view(
