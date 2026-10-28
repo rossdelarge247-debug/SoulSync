@@ -18,7 +18,7 @@ from core.runtime_state import (
     matched_downloads_context,
     tasks_lock,
 )
-from utils.async_helpers import run_async
+from utils.async_helpers import AsyncCallTimeout, run_async
 from utils.logging_config import get_logger
 
 # Project logger factory so these lines reach app.log (soulsync.* namespace).
@@ -86,6 +86,9 @@ _LIVE_TRANSFERS_FETCH_FAILED = object()
 # answer its downloads list (busy, hung, restarting); other sources' tasks are
 # handled every tick regardless. After this the old handling resumes.
 SLSKD_UNANSWERED_GRACE_SECONDS = 180.0
+# How long a tick waits for slskd's downloads list before counting it as
+# "didn't answer" and going on with the other sources.
+SLSKD_LIST_MONITOR_WAIT_SECONDS = 10.0
 
 
 def _resolve_download_source(username):
@@ -781,8 +784,17 @@ class WebUIDownloadMonitor:
             if soulseek_active and _slsk and _slsk.base_url:
                 # the shared copy of slskd's list (at most one read per 2 s
                 # for every poller, SoulseekClient.get_transfers_snapshot)
-                transfers_data = run_async(download_orchestrator.get_soulseek_transfers())
-                self._slskd_list_unknown = self._slskd_unanswered(_slsk, transfers_data)
+                # Bounded (third round): with slskd hung the read can take
+                # aiohttp's 120 s, and the other sources' completions waited
+                # with it. The read is shielded, so it carries on for the
+                # others; this tick counts it as "didn't answer".
+                try:
+                    transfers_data, answered = run_async(
+                        download_orchestrator.get_soulseek_transfers(with_answer=True),
+                        timeout=SLSKD_LIST_MONITOR_WAIT_SECONDS)
+                except AsyncCallTimeout:
+                    transfers_data, answered = None, False
+                self._slskd_list_unknown = self._slskd_unanswered(_slsk, transfers_data, answered)
             if transfers_data:
                 for user_data in transfers_data:
                     username = user_data.get('username', 'Unknown')
@@ -848,18 +860,18 @@ class WebUIDownloadMonitor:
                 logger.error(f"Monitor: Could not fetch live transfers: {e}")
             return _LIVE_TRANSFERS_FETCH_FAILED
     
-    def _slskd_unanswered(self, slsk, transfers_data) -> bool:
+    def _slskd_unanswered(self, slsk, transfers_data, answered=False) -> bool:
         """Whether slskd's list is unknown this tick: slskd didn't answer at
         all (busy, hung), for up to SLSKD_UNANSWERED_GRACE_SECONDS of one such
         episode. Not when it answered (the list, or an error such as 401 or
         500: slskd is there, handled as before) or refuses connections (slskd
-        down, handled as before)."""
+        down, handled as before). ``answered`` comes with this tick's own
+        read, so no other read's outcome can stand in for it."""
         if transfers_data is not None:
             self._slskd_unanswered_since = None
             return False
-        answered = getattr(slsk, 'last_transfers_failure_was_an_answer', None)
         unreachable = getattr(slsk, 'unreachable_backoff_active', None)
-        if (callable(answered) and answered() is True) or (callable(unreachable) and unreachable() is True):
+        if answered is True or (callable(unreachable) and unreachable() is True):
             self._slskd_unanswered_since = None
             return False
         now = time.time()

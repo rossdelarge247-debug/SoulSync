@@ -485,3 +485,29 @@ def test_n3_the_downloads_page_reads_the_display_lookup(ws, monkeypatch):
     deps.get_display_transfer_data()
     deps.get_cached_transfer_data()
     assert seen == [True, False]
+
+
+def test_l7_at_most_two_given_up_checks_are_left_running(ws, monkeypatch, stale_status):
+    """Third round: the cap. Checks that never return are replaced, but no
+    more than STATUS_PROBE_MAX_ABANDONED are left running behind the current
+    one, so a hung mount can't pile up threads."""
+    release = threading.Event()
+    calls = []
+
+    class _Engine:
+        def is_connected(self):
+            calls.append(1)
+            release.wait(10)
+            return True
+
+    monkeypatch.setattr(ws, "download_orchestrator", _Orchestrator(delay=0.0))
+    monkeypatch.setattr(ws, "media_server_engine", _Engine())
+    monkeypatch.setattr(ws, "STATUS_PROBE_WAIT_SECONDS", 0.01)
+    monkeypatch.setattr(ws, "STATUS_PROBE_ABANDON_SECONDS", 0.1)
+    try:
+        for _ in range(8):
+            ws.app.test_client().get("/status")
+            time.sleep(0.15)
+        assert len(calls) == 1 + ws.STATUS_PROBE_MAX_ABANDONED
+    finally:
+        release.set()

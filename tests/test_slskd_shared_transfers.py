@@ -426,9 +426,9 @@ def test_l3_the_album_cancel_confirmation_reads_slskd_each_time(monkeypatch):
 class _Orch:
     def __init__(self, answers, unreachable=False, answered=False, engine_rows=None):
         self.answers = list(answers)
+        self.answered = answered
         self.slsk = type("S", (), {"base_url": "http://slskd",
-                                   "unreachable_backoff_active": lambda _s: unreachable,
-                                   "last_transfers_failure_was_an_answer": lambda _s: answered})()
+                                   "unreachable_backoff_active": lambda _s: unreachable})()
         rows = engine_rows or []
 
         async def _rows(exclude=()):
@@ -440,8 +440,15 @@ class _Orch:
     def client(self, name):
         return self.slsk
 
-    async def get_soulseek_transfers(self, *a, **kw):
-        return self.answers.pop(0)
+    async def get_soulseek_transfers(self, *a, with_answer=False, **kw):
+        data = self.answers.pop(0)
+        if isinstance(data, Exception):
+            raise data
+        if data == "hang":
+            await asyncio.sleep(30)
+            data = None
+        answered = data is not None or self.answered
+        return (data, answered) if with_answer else data
 
     async def cancel_download(self, *a, **kw):
         raise AssertionError("nothing should be cancelled")
@@ -561,45 +568,105 @@ def test_n3_progress_keeps_the_last_list_through_an_enqueue():
     assert shown == LIST and decided is None and fresh == LIST
 
 
+class _Resp:
+    def __init__(self, status):
+        self.status = status
+        self.headers = {}
+        self.reason = "x"
+
+    async def text(self):
+        return "err"
+
+
+class _Cm:
+    def __init__(self, behaviour):
+        self.behaviour = behaviour
+
+    async def __aenter__(self):
+        if self.behaviour == "timeout":
+            await asyncio.sleep(0.05)
+            raise asyncio.TimeoutError()
+        if self.behaviour == "slow500":
+            await asyncio.sleep(0.3)
+            return _Resp(500)
+        return _Resp(self.behaviour)
+
+    async def __aexit__(self, *a):
+        return None
+
+
+class _Sess:
+    seq: list = []
+
+    def __init__(self, *a, **k):
+        pass
+
+    def request(self, *a, **k):
+        return _Cm(_Sess.seq.pop(0))
+
+    async def close(self):
+        return None
+
+
 def test_n1_an_error_answer_is_told_from_no_answer():
+    import aiohttp
+
+    client = _client()
+    with patch.object(aiohttp, "ClientSession", _Sess):
+        _Sess.seq = [500]
+        assert run_async(client.get_transfers_snapshot(with_answer=True)) == (None, True)
+        _Sess.seq = ["timeout"]
+        assert run_async(client.get_transfers_snapshot(with_answer=True)) == (None, False)
+
+
+def test_third_round_each_reader_gets_its_own_reads_answer():
+    """Third round (the reviewer's answer_flag.py): the flag was one field on
+    the client, so another failed read in the gap could turn the monitor's
+    "no answer" into "answered", and the old handling would restart healthy
+    downloads. The flag now travels with the read's result."""
+    import aiohttp
+
     client = _client()
 
-    class _Response:
-        status = 500
-        headers = {}
-        reason = "Server Error"
+    async def race():
+        _Sess.seq = ["timeout", 201, "slow500"]
+        monitor = asyncio.ensure_future(client.get_transfers_snapshot(with_answer=True))
+        await asyncio.sleep(0.01)
+        await client._make_request("POST", "transfers/downloads/u", json=[])   # a new generation
+        other = asyncio.ensure_future(client.get_transfers_snapshot(with_answer=True))
+        return await monitor, await other
 
-        async def text(self):
-            return "boom"
+    with patch.object(aiohttp, "ClientSession", _Sess):
+        mine, theirs = run_async(race())
 
-    class _Cm:
-        async def __aenter__(self):
-            return _Response()
+    assert mine == (None, False)        # the monitor's own read: no answer
+    assert theirs == (None, True)       # the other read's 500 doesn't change that
 
-        async def __aexit__(self, *a):
-            return None
 
-    class _Session:
-        def request(self, *a, **kw):
-            return _Cm()
+def test_third_round_a_hung_slskd_does_not_hold_the_other_sources_completions(monkeypatch):
+    """The monitor's read had no time limit: with slskd hung each tick waited
+    up to aiohttp's 120 s, and YouTube, Tidal and torrent completions with it."""
+    from core.download_plugins.types import DownloadStatus
 
-        async def close(self):
-            return None
+    yt = DownloadStatus(id="yt-1", filename="Song.mp3", username="youtube", state="Completed, Succeeded",
+                        progress=100.0, size=10, transferred=10, speed=0)
+    dm, mon = _monitor(monkeypatch, _Orch(["hang"], engine_rows=[yt]), mode="hybrid")
+    monkeypatch.setattr(dm, "SLSKD_LIST_MONITOR_WAIT_SECONDS", 0.3)
+    tasks, batches = {}, {}
+    monkeypatch.setattr(dm, "download_tasks", tasks)
+    monkeypatch.setattr(dm, "download_batches", batches)
+    monkeypatch.setattr(dm, "tasks_lock", threading.Lock())
+    tasks["yt"] = {"track_info": {"name": "Song"}, "username": "youtube", "filename": "Song.mp3",
+                   "download_id": "yt-1", "status": "downloading", "status_change_time": time.time() - 600}
+    batches["b1"] = {"queue": ["yt"]}
+    mon.monitored_batches.add("b1")
+    monkeypatch.setattr(dm, "_post_processing_pool",
+                        lambda: type("P", (), {"submit": lambda _s, fn, *a: None})())
+    monkeypatch.setattr(mon, "_validate_worker_counts", lambda: None)
 
-    with patch("aiohttp.ClientSession", return_value=_Session()):
-        assert run_async(client.get_transfers_snapshot()) is None
-    assert client.last_transfers_failure_was_an_answer() is True
+    started = time.time()
+    mon._check_all_downloads()
 
-    class _Hung(_Session):
-        def request(self, *a, **kw):
-            class _T:
-                async def __aenter__(self):
-                    raise asyncio.TimeoutError("slskd hung")
-
-                async def __aexit__(self, *a):
-                    return None
-            return _T()
-
-    with patch("aiohttp.ClientSession", return_value=_Hung()):
-        assert run_async(client.get_transfers_snapshot()) is None
-    assert client.last_transfers_failure_was_an_answer() is False
+    assert time.time() - started < 5
+    assert tasks["yt"]["status"] == "post_processing"
+    assert mon._slskd_list_unknown is True

@@ -667,17 +667,19 @@ class DownloadOrchestrator:
         return await soulseek._make_request(method, endpoint, **kwargs)
 
     async def get_soulseek_transfers(self, max_age: Optional[float] = None, stale_ok: float = 0.0,
-                                     display: bool = False):
+                                     display: bool = False, with_answer: bool = False):
         """slskd's downloads list from the Soulseek client's shared copy
         (``SoulseekClient.get_transfers_snapshot``), so the pollers that read
         it don't each ask slskd. ``None`` without a Soulseek client or when
         slskd didn't answer."""
         soulseek = self.client('soulseek')
         if not soulseek or not hasattr(soulseek, 'get_transfers_snapshot'):
-            return None
+            return (None, False) if with_answer else None
         kwargs = {'stale_ok': stale_ok}
         if display:
             kwargs['display'] = True
+        if with_answer:
+            kwargs['with_answer'] = True
         if max_age is not None:
             kwargs['max_age'] = max_age
         return await soulseek.get_transfers_snapshot(**kwargs)

@@ -1145,9 +1145,6 @@ class SoulseekClient(DownloadSourcePlugin):
                 # the last list slskd sent, kept through invalidations: for
                 # showing progress only, never for decisions (gauntlet N3)
                 'last_known': None,      # (time.monotonic(), list)
-                # the last read that failed: did slskd answer (an error
-                # status) or not at all? (gauntlet N1)
-                'last_failure_answered': False,
             })
         _TRANSFER_CLIENTS.add(self)
         return state
@@ -1161,14 +1158,9 @@ class SoulseekClient(DownloadSourcePlugin):
             state['generation'] += 1
             state['snapshot'] = None
 
-    def last_transfers_failure_was_an_answer(self) -> bool:
-        """When the last read of the downloads list came back ``None``: was
-        that slskd answering with an error (401, 500: it's there, treat as
-        before) rather than not answering at all (the list is unknown)?"""
-        return bool(self._transfers_state().get('last_failure_answered'))
-
     async def get_transfers_snapshot(self, max_age: float = TRANSFERS_FRESH_SECONDS,
-                                     stale_ok: float = 0.0, display: bool = False):
+                                     stale_ok: float = 0.0, display: bool = False,
+                                     with_answer: bool = False):
         """slskd's downloads list (``GET transfers/downloads``, as slskd sends
         it), read at most once per ``max_age`` seconds for the whole process.
 
@@ -1183,9 +1175,20 @@ class SoulseekClient(DownloadSourcePlugin):
         even after a change dropped the copy: for showing progress only,
         never for decisions. ``max_age=0`` always waits for a read
         that starts now. ``None`` when slskd didn't answer (as
-        ``_make_request``). The list is shared: read it, don't change it."""
+        ``_make_request``). The list is shared: read it, don't change it.
+
+        ``with_answer``: returns ``(list or None, answered)`` instead, where
+        ``answered`` says whether slskd answered the read this caller got
+        its result from (an error status such as 401 or 500 counts: slskd is
+        there); ``False`` when it didn't answer at all, or when this caller
+        didn't wait for the read under way. It travels with the result, so
+        another failed read can't change it (third round)."""
+        result = await self._transfers_snapshot(max_age, stale_ok, display)
+        return result if with_answer else result[0]
+
+    async def _transfers_snapshot(self, max_age, stale_ok, display):
         if not self.base_url:
-            return None
+            return None, False
         state = self._transfers_state()
         loop = asyncio.get_running_loop()
         with state['lock']:
@@ -1195,7 +1198,7 @@ class SoulseekClient(DownloadSourcePlugin):
             snapshot = state['snapshot']
             now = time.monotonic()
             if snapshot is not None and now - snapshot[0] <= max_age:
-                return snapshot[1]
+                return snapshot[1], True
             generation = state['generation']
             entry = reads.get(loop)
             if entry is not None and entry[0] == generation and max_age > 0:
@@ -1206,22 +1209,22 @@ class SoulseekClient(DownloadSourcePlugin):
                     # slskd hung each Downloads poll waited its full limit)
                     fresh_enough = snapshot is not None and now - snapshot[0] <= stale_ok
                     if fresh_enough:
-                        return snapshot[1]
+                        return snapshot[1], True
                     # ``display``: progress bars may show the last list slskd
                     # sent, even one from before a change (gauntlet N3)
                     known = state['last_known']
                     if display and known is not None and now - known[0] <= stale_ok:
-                        return known[1]
-                    return None
+                        return known[1], True
+                    return None, False
             else:
                 read = loop.create_task(self._read_transfers(generation))
                 reads[loop] = (generation, read)
                 read.add_done_callback(lambda task, lp=loop: self._forget_read(lp, task))
             if stale_ok and snapshot is not None and now - snapshot[0] <= stale_ok:
-                return snapshot[1]
+                return snapshot[1], True
             known = state['last_known']
             if display and stale_ok and known is not None and now - known[0] <= stale_ok:
-                return known[1]
+                return known[1], True
         # shielded: a caller giving up (run_async's timeout) doesn't cancel
         # the read the others are waiting on
         return await asyncio.shield(read)
@@ -1236,15 +1239,15 @@ class SoulseekClient(DownloadSourcePlugin):
     async def _read_transfers(self, generation: int):
         try:
             data = await self._make_request('GET', 'transfers/downloads')
+            # did slskd answer this read (a list, or an error status)?
+            answered = data is not None or _SLSKD_ANSWER.get() is not None
             state = self._transfers_state()
             with state['lock']:
                 if data is not None:
                     state['last_known'] = (time.monotonic(), data)
                     if state['generation'] == generation:
                         state['snapshot'] = (time.monotonic(), data)
-                else:
-                    state['last_failure_answered'] = _SLSKD_ANSWER.get() is not None
-            return data
+            return data, answered
         finally:
             # leave the table as the read ends, not only when its done
             # callback gets to run (a loop being closed may not run it)
