@@ -51,7 +51,7 @@ import {
   fetchDeezerArlPlaylistTracks,
   fetchDeezerArlPlaylists,
   fetchSpotifyPlaylistTracks,
-  fetchSpotifyPlaylists,
+  fetchSpotifyPlaylistsState,
 } from '../-sync.api';
 import { DEEZER_PLAYLIST_PROGRESS_EVENT, deezerProgressLabel } from '../-sync.events';
 import { AccountDetailsModal } from './account-details-modal';
@@ -120,14 +120,18 @@ export function SpotifyTab({ selectedIds, onToggleSelect, registerRows }: Accoun
   }, [rows]);
   const [placeholder, setPlaceholder] = useState('🔄 Loading playlists...');
   const [refreshing, setRefreshing] = useState(false);
+  const [stale, setStale] = useState(false);
   const [open, setOpen] = useState<OpenDetail | null>(null);
 
   const load = useCallback(async () => {
     setPlaceholder('🔄 Loading playlists...');
     setRows(null);
+    setStale(false);
     setRefreshing(true);
     try {
-      const list = (await fetchSpotifyPlaylists()) as AccountPlaylistRow[];
+      const answer = await fetchSpotifyPlaylistsState();
+      const list = answer.rows as AccountPlaylistRow[];
+      setStale(answer.stale);
       setRows(list);
       // 1612 assigns the whole array; the engine reads it on every download.
       for (const row of list) {
@@ -185,6 +189,11 @@ export function SpotifyTab({ selectedIds, onToggleSelect, registerRows }: Accoun
           {refreshing ? '🔄 Loading...' : '🔄 Refresh'}
         </button>
       </div>
+      {stale && rows && rows.length > 0 ? (
+        <p className="playlist-stale-note" role="status">
+          Spotify asked us to wait, so this is the last list it gave.
+        </p>
+      ) : null}
       <div className="playlist-scroll-container" id="spotify-playlist-container">
         {rows === null || rows.length === 0 ? (
           <div className="playlist-placeholder">{placeholder}</div>

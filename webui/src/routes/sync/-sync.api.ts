@@ -167,19 +167,29 @@ export async function fetchActiveProcesses(): Promise<{
 }
 
 /** GET /api/spotify/playlists (loadSpotifyPlaylists, sync-spotify.js 1598).
- *  While Spotify is paused the server answers 429 with the wait in words
- *  ("Spotify asked us to wait until 21:40…"): that's the error shown, never
+ *  While Spotify is paused the server answers the last list it gave (marked
+ *  `X-Spotify-Stale: 1`, so `stale`), or 429 with the wait in words
+ *  ("Spotify asked us to wait until 21:40…"): that's the error thrown, never
  *  "No Spotify playlists found". */
-export async function fetchSpotifyPlaylists(): Promise<unknown[]> {
+export async function fetchSpotifyPlaylistsState(): Promise<{ rows: unknown[]; stale: boolean }> {
   const response = await fetch('/api/spotify/playlists');
   if (!response.ok) {
-    const error = await readJson<{ error?: string }>(response).catch(
-      () => ({}) as { error?: string },
-    );
-    throw new Error(error.error || 'Failed to fetch Spotify playlists');
+    let message = '';
+    try {
+      message = (await readJson<{ error?: string }>(response)).error ?? '';
+    } catch {
+      message = '';
+    }
+    throw new Error(message || 'Failed to fetch Spotify playlists');
   }
   const data = await readJson<unknown>(response);
-  return Array.isArray(data) ? data : ((data as { playlists?: unknown[] })?.playlists ?? []);
+  const rows = Array.isArray(data) ? data : ((data as { playlists?: unknown[] })?.playlists ?? []);
+  return { rows, stale: response.headers.get('X-Spotify-Stale') === '1' };
+}
+
+/** The rows alone (see fetchSpotifyPlaylistsState). */
+export async function fetchSpotifyPlaylists(): Promise<unknown[]> {
+  return (await fetchSpotifyPlaylistsState()).rows;
 }
 
 /** GET /api/deezer/arl-status (initializeSyncPage deezer tab, 3698). */
