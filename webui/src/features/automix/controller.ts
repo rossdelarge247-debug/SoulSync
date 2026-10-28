@@ -318,6 +318,8 @@ const TICK_MS = 120;
 const CUT_LOOKAHEAD_S = 2;
 /** past its cut point by this much, a cut doesn't happen: the track plays on (H1) */
 const CUT_LATE_S = 0.25;
+/** a cut timer that fires late (a busy page, a faster rate) still cuts up to this late */
+const CUT_LATE_TIMER_S = 1;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -484,6 +486,12 @@ interface Pending {
   wentBack: boolean;
   /** a cut on the bar (a `cut` plan) was set for this pair */
   cutSet: boolean;
+  /** the listener sought past the cut point (a timer that's merely late still cuts) */
+  soughtPast?: boolean;
+  /** each cut timer's number: only the newest acts */
+  cutGen?: number;
+  /** the playback rate the cut's wait was worked out at */
+  cutRate?: number;
   /** 302's echo out by time, placed on the element's own length (M1) */
   byTime?: { base: PairPlan; dur: number; plan: PairPlan & PlacedPlan };
 }
@@ -819,6 +827,11 @@ export class AutomixController {
     if (p.plan.status === 'cut') {
       this.stage = 'cut';
       const at = (p.effective ?? p.plan).out?.start;
+      // the rate changed while the cut waits: its wait is worked out again
+      if (p.cutSet && el && (el.playbackRate || 1) !== p.cutRate && at != null) {
+        p.cutSet = false;
+        if (el.currentTime < at + CUT_LATE_S) this.setCut(p, at);
+      }
       const armedCut = p.manual || p.forced || prefs.auto;
       if (armedCut && !p.cancelled && !p.missed && !p.cutSet && el && !el.paused && at != null) {
         // past its cut point (a plan that came late: Play next, Add to Up
@@ -1434,6 +1447,8 @@ export class AutomixController {
   /** Mix now on a `cut` plan (step 2's review): the next phrase line ahead, else now. */
   private async cutOnNextPhrase(p: Pending, el: HTMLAudioElement): Promise<void> {
     p.cutSet = false;
+    // the automatic cut's timer, if set, is let go (re-review)
+    p.cutGen = (p.cutGen ?? 0) + 1;
     try {
       if (!p.grids) p.grids = await this.svc.grids([p.fromId, p.toId]);
     } catch {
@@ -1610,6 +1625,16 @@ export class AutomixController {
     const el = this.boundEl;
     if (p && el && !this.engineOwns()) {
       const out = (p.effective ?? p.plan)?.out?.start;
+      if ((p.effective ?? p.plan)?.status === 'cut' && out != null) {
+        // a cut needs no windows: any seek back before its point arms it
+        // again, a seek past it is the listener's (re-review)
+        p.soughtPast = el.currentTime >= out + CUT_LATE_S;
+        if (el.currentTime < out) {
+          p.missed = null;
+          p.cutSet = false;
+        }
+        return;
+      }
       // sent back before the mix: it can happen again
       if (out != null && el.currentTime < out - this.leadSeconds(p) - 1) {
         p.missed = null;
@@ -1641,9 +1666,14 @@ export class AutomixController {
     if (!el) return;
     p.cutSet = true;
     const rate = el.playbackRate && el.playbackRate > 0 ? el.playbackRate : 1;
+    p.cutRate = rate;
+    const gen = (p.cutGen = (p.cutGen ?? 0) + 1);
     const wait = Math.max(0, ((at - el.currentTime) / rate) * 1000);
     this.later(() => {
       if (this.pending !== p || p.cancelled) return;
+      // set again since (Mix now moved the cut to the next phrase, the rate
+      // changed): this timer is the old cut's (step 2's re-review)
+      if (gen !== p.cutGen) return;
       const st = this.player.state();
       const toIndex = st.queue.indexOf(p.to);
       const now = this.player.audio();
@@ -1654,8 +1684,13 @@ export class AutomixController {
         p.cutSet = false;
         return;
       }
-      if (now.currentTime >= at + CUT_LATE_S) {
-        // sought past the cut point meanwhile: straight on (H1)
+      if (
+        (p.soughtPast && now.currentTime >= at + CUT_LATE_S) ||
+        now.currentTime >= at + CUT_LATE_TIMER_S
+      ) {
+        // sought past the cut point meanwhile (H1), or so late it's no cut
+        // on the phrase any more: straight on. Merely late (a busy page, a
+        // faster rate) it still cuts (re-review)
         p.cutSet = false;
         p.missed = 'past the cut';
         this.emit();

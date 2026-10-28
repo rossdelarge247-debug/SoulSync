@@ -1240,3 +1240,81 @@ describe("step 2's Gauntlet review (the reviewer's cut.probe.test.ts, as tests)"
     expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
   });
 });
+
+describe("step 2's re-review: the cut's timing (the reviewer's r2.probe.test.ts, as tests)", () => {
+  /** time passing in small steps, the tick and timers alongside */
+  async function play(h: Harness, to: number, step = 0.1) {
+    while (h.el.currentTime < to - 1e-9) {
+      const n = Math.min(to, h.el.currentTime + step);
+      engine.port.time += n - h.el.currentTime;
+      h.el.advance(n);
+      await vi.advanceTimersByTimeAsync(step * 1000);
+      h.ctl.poke();
+      await flush();
+    }
+  }
+
+  it('[re-review 1] a cut timer that fires 400 ms late still cuts (a busy page is no seek)', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await play(h, 248.5);
+    h.el.advance(250.4);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+  });
+
+  it('[re-review 1] a faster rate inside the wait still cuts', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await play(h, 248.05, 0.05);
+    h.el.playbackRate = 1.5;
+    // the controller's own 120 ms tick sees the new rate (poked here)
+    for (let i = 0; i < 20; i++) {
+      h.el.advance(h.el.currentTime + 0.15);
+      await vi.advanceTimersByTimeAsync(100);
+      h.ctl.poke();
+      await flush();
+    }
+    h.ctl.poke();
+    await flush();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.player.playIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('[re-review 1] a seek past the cut while its timer waits is still straight on', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await play(h, 248.5);
+    h.el.currentTime = 260;
+    await vi.advanceTimersByTimeAsync(2000);
+    h.ctl.poke();
+    await flush();
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+  });
+
+  it("[re-review 2] Mix now inside the automatic cut's 2 s lets its timer go: one cut, on the new phrase", async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await play(h, 248.6);
+    h.ctl.mixNow();
+    await flush();
+    const at0 = h.ctl.getView().outStart!;
+    expect(at0).toBeGreaterThan(251);
+    await play(h, 250.1, 0.05);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    await play(h, at0 + 0.3, 0.05);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(h.player.playIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('[re-review 3] a seek back to just before a missed cut arms it again', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 100);
+    h.el.currentTime = 270;
+    h.ctl.poke();
+    await flush();
+    h.el.currentTime = 245;
+    h.ctl.poke();
+    await flush();
+    await play(h, 252);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+  });
+});

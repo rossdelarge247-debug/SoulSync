@@ -113,6 +113,7 @@ What it replaced: echo out wherever the outgoing track had a grid (even one not 
   - **"Add to Up next"** on the artist page's phone actions.
   - **An echo out placed by time counts down in seconds** ("Mixing into Static Bloom in 12 s…"), there being no bars to count.
   - **Mix now on a cut plan** cuts on the outgoing track's next phrase line ahead, counted down, where its grid is ready to mix; else now, as before.
+- **Re-review** (of 13397f6c..18b312d3, which confirmed H1 and M1–M3; three Lows in the cut's timing, each a test from the reviewer's `r2.probe.test.ts`): a cut timer that fires late (a busy page) still cuts up to 1 s late, and only a seek past the point (`soughtPast`, set by the seek itself) makes it straight on; a rate change while it waits works the wait out again; Mix now inside the automatic cut's last 2 s lets that cut's timer go (each timer has a number, `cutGen`; only the newest acts), so it cuts once, on the new phrase; any seek back before a missed cut's point arms it again (a cut needs no windows, so not only before the run-up).
 - **Checks for the round:** ruff; pytest on `tests/dj`, `tests/sets`, `tests/mix` (909 pass) and `-m gauntlet` (485 pass); tsc, `npm run check` (no errors), `npm run build`; vitest on the touched features (149 files, 2,308 tests).
 
 **Left out, and why**
