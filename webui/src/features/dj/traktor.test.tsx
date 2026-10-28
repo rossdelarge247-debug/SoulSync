@@ -94,7 +94,7 @@ describe('the words', () => {
       "2 tracks weren't looked for on disk: too many to look up in one export. Export them in smaller sets.",
     ]);
     expect(leftOutLines({ left_out: [], reasons: { no_mac_path: 3 } }, false)[0]).toContain(
-      'An admin sets it in Settings → Library → Traktor Pro 3.',
+      'An admin sets it in Settings → Library → DJ.',
     );
   });
 
@@ -190,7 +190,7 @@ describe('the confirm (21a)', () => {
     );
     expect(within(dialog).getByText('Nothing here can go to Traktor yet.')).toBeTruthy();
     expect(
-      within(dialog).getByRole('button', { name: 'Open Settings → Library → Traktor Pro 3' }),
+      within(dialog).getByRole('button', { name: 'Open Settings → Library → DJ' }),
     ).toBeTruthy();
   });
 

@@ -27,6 +27,8 @@ html[data-player='tray'][data-mix-available] { --ss-player-h: 500px; }
     html[data-player] :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn) {
         bottom: calc(24px + var(--ss-player-h)) !important;
     }
+    /* UX-24: the first-run "New here?" tip rides with them, above the bar */
+    html[data-player] .helper-first-launch-tip { bottom: calc(34px + var(--ss-player-h)) !important; }
     html[data-player] .toast-container { bottom: calc(104px + var(--ss-player-h)); }
 }
 
@@ -1336,6 +1338,14 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 /* the visuals cover everything, the floating buttons too (and the help's
    first-run "New here?" tip beside them) */
 body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn, .helper-first-launch-tip) { display: none !important; }
+/* UX-24: the "New here? Click for setup help!" tip sits under dialogs and
+   sheets (never at 999999 over them), and steps away while the tray, the
+   phone's sheet, a dialog or Tracks' selection bar is open */
+.helper-first-launch-tip { z-index: 8000 !important; }
+html[data-player='tray'] .helper-first-launch-tip,
+html[data-player-sheet] .helper-first-launch-tip,
+body:has([role='dialog'][data-open]) .helper-first-launch-tip,
+body:has([data-selection-bar]) .helper-first-launch-tip { display: none !important; }
 
 /* the mini bar is phones only */
 .ss-player-mini { display: none; }

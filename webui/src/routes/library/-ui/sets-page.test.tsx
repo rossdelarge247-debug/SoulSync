@@ -1055,3 +1055,60 @@ describe("Brief C's set header (33c), Your sets (33e) and Brief D's rows (34b)",
     expect(tabs.nextElementSibling).toBe(reason);
   });
 });
+
+describe('the UX review on a set (UX-8, UX-19, UX-27, UX-30)', () => {
+  it('UX-8, UX-27: Remove from set says so once with Undo, and Undo puts it back', async () => {
+    const toasts: [string, unknown][] = [];
+    window.showToast = vi.fn((m: string, _t?: string, _c?: unknown, opts?: unknown) => {
+      toasts.push([m, opts]);
+    }) as never;
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const row = document.querySelector<HTMLElement>('[data-set-row="1"]')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'More for Foghorn Study' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove from set' }));
+    await waitFor(() => expect(screen.queryByText('Foghorn Study')).toBeNull());
+    const [words, opts] = toasts.find(([m]) => m.startsWith('Removed'))!;
+    expect(words).toBe('Removed Foghorn Study from Sunday Set');
+    expect(document.querySelector('[data-set-announce]')).toHaveTextContent(words);
+    act(() => (opts as { action: { run: () => void } }).action.run());
+    expect(await screen.findByText('Foghorn Study')).toBeTruthy();
+    expect(document.querySelector('[data-set-announce]')).toHaveTextContent(`Undone: ${words}`);
+  });
+
+  it('UX-30, UX-27: Move… lists places by neighbour and says where it went', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const row = document.querySelector<HTMLElement>('[data-set-row="3"]')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'More for Undertow' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Move…' }));
+    const dialog = await screen.findByRole('dialog');
+    const places = within(dialog)
+      .getAllByRole('radio')
+      .map((r) => r.closest('label')!.textContent);
+    expect(places).toEqual([
+      'To the top',
+      'After Lowtide Hymn',
+      'After Foghorn Study',
+      'After Gravity Wellits place now',
+    ]);
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'To the top' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move here' }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-set-announce]')).toHaveTextContent(
+        'Undertow moved to 1 of 4',
+      ),
+    );
+  });
+
+  it('UX-19: a new set is "Set from Tuesday 27 Oct" everywhere, and an empty draft says where to add', async () => {
+    const { newSetName } = await import('@/features/sets/sets.format');
+    expect(newSetName(new Date(2026, 9, 27))).toBe('Set from Tuesday 27 Oct');
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'New empty set' }));
+    expect(
+      await screen.findByText(/a draft stays in this browser until you save it as a set/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Add to set…, or below/)).toBeNull();
+  });
+});

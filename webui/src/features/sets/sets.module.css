@@ -822,6 +822,49 @@
   font-weight: 600;
 }
 
+/* UX-30: the places by neighbour, a scrolling list of radios */
+.movePlaces {
+  display: flex;
+  flex-direction: column;
+  max-height: 50vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 0;
+}
+
+.movePlaces legend {
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.movePlace {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 8px;
+  border-radius: var(--ss-radius-control);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.movePlace:hover {
+  background: var(--ss-hover-wash);
+}
+
+.movePlace input {
+  width: 18px;
+  height: 18px;
+  accent-color: rgb(var(--ss-accent-light-rgb));
+}
+
+.moveHere {
+  margin-left: auto;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
 .addList,
 .swapList {
   display: flex;
@@ -1760,4 +1803,19 @@ textarea.pasteText,
 /* 320, UX-21: Auto mix off, said once above the list */
 .offLine {
   margin: 0 0 12px;
+}
+
+/* UX-16: on a phone every control in a set's rows and the style picker is a
+   44px target (the chips, the note, the picker's rows and lengths) */
+@media (max-width: 768px) {
+  .chip,
+  .note,
+  .noteInput,
+  .pickerStyle,
+  .pickerBar,
+  .pickerDone,
+  .swapButton,
+  .wantPair button {
+    min-height: 44px;
+  }
 }

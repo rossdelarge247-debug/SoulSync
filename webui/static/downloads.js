@@ -5800,7 +5800,8 @@ function showToast(message, type = 'success', helpSection = null, opts = null) {
             setTimeout(() => { if (container.contains(toast)) container.removeChild(toast); }, 300);
         }
         _notifState.currentToast = null;
-    }, helpSection || action ? 5000 : 3500);
+    // an Undo stays 6 s (Brief B, UX-8); a help link 5 s
+    }, action ? 6000 : helpSection ? 5000 : 3500);
 }
 
 function _escToast(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }

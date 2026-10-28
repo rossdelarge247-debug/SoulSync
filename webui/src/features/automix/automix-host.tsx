@@ -242,6 +242,8 @@ function sameSlots(a: Slots, b: Slots): boolean {
 }
 
 const PHONE_QUERY = '(max-width: 768px)';
+/** how long a mix that couldn't start is said in the bar and the tray (UX-9) */
+export const FAILED_SHOWN_MS = 12_000;
 
 function usePhone(): boolean {
   const [phone, setPhone] = useState(
@@ -546,6 +548,27 @@ export function AutomixHost() {
     [ctl],
   );
 
+  // UX-9: a mix that couldn't start is said in the bar and the tray for 12 s
+  // (then Mix now's title keeps the reason), so it never sits there for good
+  const [failedShown, setFailedShown] = useState<string | null>(null);
+  const failedKey = view.failed ? `${view.pair?.fromId}:${view.pair?.toId}:${view.failed}` : null;
+  useEffect(() => {
+    if (!failedKey) {
+      setFailedShown(null);
+      return;
+    }
+    setFailedShown(failedKey);
+    const t = window.setTimeout(() => setFailedShown(null), FAILED_SHOWN_MS);
+    return () => window.clearTimeout(t);
+  }, [failedKey]);
+  const shownView = failedShown ? view : { ...view, failed: null };
+  useEffect(() => {
+    const root = document.getElementById('media-player');
+    if (!root) return;
+    if (failedShown && !root.dataset.automix) root.dataset.automix = 'failed';
+    else if (!failedShown && root.dataset.automix === 'failed') delete root.dataset.automix;
+  }, [failedShown, view]);
+
   const st = port.state();
   const handing = ['counting', 'mixing', 'settling', 'handback', 'back'].includes(view.stage);
   const counting = view.barsToGo !== null && !view.transition;
@@ -608,12 +631,15 @@ export function AutomixHost() {
       {slots.mixNowDeck
         ? createPortal(<MixNowButton view={view} onMixNow={actions.mixNow} />, slots.mixNowDeck)
         : null}
-      {slots.bar && (handing || counting)
-        ? createPortal(<BarStatus view={view} actions={actions} />, slots.bar)
+      {slots.bar && (handing || counting || shownView.failed)
+        ? createPortal(<BarStatus view={shownView} actions={actions} />, slots.bar)
         : null}
       {slots.record && handing ? createPortal(<HandoverRecord view={view} />, slots.record) : null}
-      {slots.deck && (handing || counting)
-        ? createPortal(<HandoverDeck view={view} actions={actions} phone={phone} />, slots.deck)
+      {slots.deck && (handing || counting || shownView.failed)
+        ? createPortal(
+            <HandoverDeck view={shownView} actions={actions} phone={phone} />,
+            slots.deck,
+          )
         : null}
       {slots.player ? createPortal(<LiveWords view={view} />, slots.player) : null}
     </>
@@ -630,6 +656,7 @@ export function AutomixHost() {
 export function liveKey(view: AutomixView): string {
   const to = view.pair?.toId ?? '';
   if (view.cancelled) return `cancelled:${to}`;
+  if (view.failed) return `failed:${to}`;
   if (view.stage === 'back') return `back:${view.pair?.fromId ?? ''}`;
   if (view.stage === 'mixing') return `mixing:${to}`;
   if (view.stage === 'settling' || view.stage === 'handback') return `done:${to}`;
@@ -651,6 +678,8 @@ export function liveWords(key: string, view: AutomixView): string {
   if (key.startsWith('done')) return `Now playing ${to}`;
   if (key.startsWith('cancelled')) return 'Mix cancelled';
   if (key.startsWith('back')) return `Back to ${from}`;
+  if (key.startsWith('failed'))
+    return `Couldn't start the mix: ${view.failed ?? 'it failed'}. ${from} plays on straight`;
   return '';
 }
 

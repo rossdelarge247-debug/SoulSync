@@ -150,3 +150,10 @@ describe('Settings → Library → DJ', () => {
     }
   });
 });
+
+it('UX-28: the page has one <main> landmark, round the routed content', () => {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const mains = doc.querySelectorAll('main');
+  expect(mains).toHaveLength(1);
+  expect(mains[0].querySelector('#webui-react-root')).not.toBeNull();
+});

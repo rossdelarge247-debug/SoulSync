@@ -146,7 +146,7 @@ describe('the DJ data in words', () => {
         job: null,
       }),
     ).toBe(
-      'BPM, key and energy: 4 of 10 tracks done · working them out is off in Settings → Library',
+      'BPM, key and energy: 4 of 10 tracks done · working them out is off in Settings → Library → DJ',
     );
     expect(
       analysisLine({ ...base, counts: { tracks: 10, analyzed: 4, pending: 6 }, job: null }),

@@ -659,8 +659,8 @@
                     </button>
                 </div>
             </header>
-        <!-- Main Content Area -->
-        <div class="main-content">
+        <!-- Main Content Area: the one <main> landmark (UX-28) -->
+        <main class="main-content" id="main-content">
             <!-- Global particle canvas for page background animations -->
             <canvas id="page-particles-canvas" {% if not initial_particles_enabled or initial_reduce_effects %}
                 style="display: none;" {% endif %}></canvas>
@@ -10967,9 +10967,9 @@
                             </button>
                         </div>
                     </nav>
-                    <main class="docs-content" id="docs-content">
+                    <div class="docs-content" id="docs-content">
                         <!-- Populated by JS -->
-                    </main>
+                    </div>
                     <!-- Right "On this page" TOC injected by docs.js -->
                 </div>
             </div>
@@ -11057,7 +11057,7 @@
                             <!-- bottom-left user panel (Discord's account strip) -->
                             <div class="chat-userpanel" data-chat-userpanel></div>
                         </aside>
-                        <main class="chat-main">
+                        <div class="chat-main">
                             <div class="chat-head" data-chat-head></div>
                             <!-- pinned messages popover (📌 in the room head) + the room
                                  poll — both pure folds over the protocol bus. The poll stays
@@ -11923,7 +11923,7 @@
                                     </div>
                                 </div>
                             </form>
-                        </main>
+                        </div>
                         <div class="chat-rail">
                             <!-- room jukebox (queue/player) — a rail card above the user
                                  list, Discord-activity style. Static skeleton: the player
@@ -11963,7 +11963,7 @@
                  WISHLIST PAGE
                  ═══════════════════════════════════════════════════════════════════ -->
 
-        </div> <!-- /main-content -->
+        </main> <!-- /main-content -->
             <!-- phone only: a tap outside the open sheet closes it -->
             <div class="ss-sheet-catcher" id="ss-sheet-catcher" hidden></div>
             <!-- phone only: Home and the four groups. A group opens its rows as a bottom

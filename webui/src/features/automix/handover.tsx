@@ -126,7 +126,14 @@ export function MixNowButton({
       className={`${styles.mixNow} ${compact ? styles.mixNowBar : ''}`}
       aria-disabled={disabled ? 'true' : undefined}
       aria-keyshortcuts="X"
-      title={disabled ? (view.mixNowWhy ?? undefined) : 'Mix now (X)'}
+      title={
+        disabled
+          ? (view.mixNowWhy ?? undefined)
+          : view.failed
+            ? `Couldn't start the mix: ${view.failed}. Try again (X)`
+            : 'Mix now (X)'
+      }
+      data-failed={view.failed ? '' : undefined}
       data-automix-mixnow=""
       onClick={disabled ? undefined : onMixNow}
     >
@@ -149,9 +156,41 @@ export function MixNowButton({
   );
 }
 
+/**
+ * UX-9: a mix that couldn't start says so, visibly, with Try again; the
+ * track meanwhile plays on straight.
+ */
+export function FailedLine({
+  view,
+  onRetry,
+  className,
+}: {
+  view: AutomixView;
+  onRetry: () => void;
+  className?: string;
+}) {
+  if (!view.failed) return null;
+  return (
+    <div className={className ?? styles.bar} data-automix-failed="">
+      <span className={styles.barWords}>
+        <strong>Couldn&apos;t start the mix</strong>
+        <span className={styles.barMeta}>
+          {view.failed} · {view.pair?.fromTitle || 'the track'} plays on straight
+        </span>
+      </span>
+      <span className={styles.barActions}>
+        <Button size="sm" variant="ghost" onClick={onRetry}>
+          Try again
+        </Button>
+      </span>
+    </div>
+  );
+}
+
 export function BarStatus({ view, actions }: { view: AutomixView; actions: HandoverActions }) {
   const t = view.transition;
   const counting = view.stage === 'counting' || (!t && view.barsToGo !== null);
+  if (view.failed && !counting && !t) return <FailedLine view={view} onRetry={actions.mixNow} />;
   if (counting) {
     return (
       <div className={styles.bar} data-automix-bar="counting">
@@ -358,6 +397,12 @@ export function HandoverDeck({
 }) {
   const t = view.transition;
   const counting = view.stage === 'counting' || (!t && view.barsToGo !== null);
+  if (view.failed && !counting && !t)
+    return (
+      <div className={styles.deck} data-automix-deck="failed">
+        <FailedLine view={view} onRetry={actions.mixNow} className={styles.countdown} />
+      </div>
+    );
   if (counting && !view.lanes) {
     return (
       <div className={styles.deck} data-automix-deck="counting">

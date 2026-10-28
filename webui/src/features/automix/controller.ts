@@ -270,6 +270,12 @@ export interface AutomixView {
   lanes: HandoverLanes | null;
   canMixNow: boolean;
   mixNowWhy: string | null;
+  /**
+   * UX-9: a mix that couldn't start (the decks didn't load, too near the
+   * end, no grid going out): why, said in the bar and the tray with Try
+   * again, and the track plays on straight. Null otherwise.
+   */
+  failed: string | null;
   /** the incoming deck's tempo change against its own (26d: "124.0 (−1.6%)") */
   incomingBpm: { bpm: number; pct: number } | null;
   /** why this page can't run the decks (support.ts), or null */
@@ -293,6 +299,7 @@ const EMPTY_VIEW: AutomixView = {
   lanes: null,
   canMixNow: false,
   mixNowWhy: null,
+  failed: null,
   incomingBpm: null,
   unsupported: null,
 };
@@ -1853,6 +1860,16 @@ export class AutomixController {
       lanes: this.lanes,
       canMixNow,
       mixNowWhy,
+      // a seek past a cut and a page that can't run the decks say so elsewhere
+      failed:
+        p &&
+        !p.cancelled &&
+        !p.wentBack &&
+        p.missed &&
+        p.missed !== 'past the cut' &&
+        p.missed !== unsupported
+          ? p.missed
+          : null,
       incomingBpm,
       unsupported: this.svc.support?.() ?? null,
     };

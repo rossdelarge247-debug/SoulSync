@@ -77,17 +77,31 @@
   min-width: 0;
 }
 
-/* in a gap the chip's line is one line, cut with an ellipsis (26a's meta) */
+/* in a gap the chip's line wraps to two lines at most (UX-6: at 1440 one
+   line cut the reason off), its whole sentence on the title */
 .gap > span {
   flex: 1 1 auto;
   min-width: 0;
 }
 
+.gap {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
 .gap [data-chip-who] {
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
   min-width: 0;
+  line-height: 1.35;
+}
+
+/* "in 2:58" never gives way */
+.gap .chipWhen {
+  flex: none;
 }
 
 /* ── Mix now (26a) ── */
@@ -615,4 +629,16 @@
   font-size: 14px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* UX-16: on a phone Mix now, Cancel, Back, Finish now, Analyse now, Turn it
+   on and the small Between tracks control are 44px targets */
+@media (max-width: 768px) {
+  .mixNow,
+  .textButton,
+  .segment,
+  .deck button,
+  .bar button {
+    min-height: 44px;
+  }
 }

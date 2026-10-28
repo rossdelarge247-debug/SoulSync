@@ -202,16 +202,17 @@ export function TransitionChip({
         {words}
       </button>
       <span className={sets.chipWho} data-chip-who="">
-        {/* Waiting with its track in line (31c, 31e): the chip's line is the analysis */}
-        {plan?.status === 'waiting' && inLine ? null : meta}
+        {/* UX-6: Analyse now comes first, so a cut line never hides it */}
         {plan?.status === 'waiting' && analyse && !inLine ? (
           <>
-            {' · '}
             <button type="button" className={styles.textButton} onClick={analyse}>
               Analyse now
             </button>
+            {meta ? ' · ' : null}
           </>
         ) : null}
+        {/* Waiting with its track in line (31c, 31e): the chip's line is the analysis */}
+        {plan?.status === 'waiting' && inLine ? null : meta}
       </span>
       {plan?.status === 'waiting' && inLine ? (
         <AnalysisLine

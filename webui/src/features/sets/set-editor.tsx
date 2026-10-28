@@ -321,23 +321,41 @@ function LockIcon({ locked }: { locked: boolean }) {
 
 /* ── Move… ─────────────────────────────────────────────────────────────── */
 
+/**
+ * Move… (UX-30): the places by their neighbour, "To the top" and "After
+ * Night Ferry", not a bare number; the current place is marked and chosen.
+ */
 function MoveDialog({
   title,
   from,
-  count,
+  titles,
   onMove,
   onClose,
 }: {
   title: string;
   from: number;
-  count: number;
+  /** every row's title, in order */
+  titles: string[];
   onMove: (to: number) => void;
   onClose: () => void;
 }) {
-  const id = useId();
-  const [value, setValue] = useState(String(from + 1));
-  const n = Number(value);
-  const ok = Number.isInteger(n) && n >= 1 && n <= count;
+  const name = useId();
+  const [to, setTo] = useState(from);
+  // where each choice puts the row: the top, or straight after another row
+  const places = [
+    { key: 'top', label: 'To the top', to: 0 },
+    ...titles.flatMap((t, k) =>
+      k === from
+        ? []
+        : [
+            {
+              key: `after-${k}`,
+              label: `After ${t || 'an unnamed line'}`,
+              to: k < from ? k + 1 : k,
+            },
+          ],
+    ),
+  ].filter((p, k, all) => all.findIndex((q) => q.to === p.to) === k || p.key === 'top');
   return (
     <DialogFrame
       open
@@ -346,19 +364,24 @@ function MoveDialog({
     >
       <DialogHeader title={`Move ${title}`} closeLabel="Close" />
       <DialogBody>
-        <label className={styles.moveLabel} htmlFor={id}>
-          To place (1–{count})
-        </label>
-        <TextInput
-          id={id}
-          inputMode="numeric"
-          value={value}
-          autoFocus
-          onChange={(event) => setValue(event.target.value.replace(/\D/g, '').slice(0, 4))}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && ok) onMove(n - 1);
-          }}
-        />
+        <fieldset className={styles.movePlaces}>
+          <legend className={styles.moveLabel}>Where it goes</legend>
+          {places.map((p) => (
+            <label key={p.key} className={styles.movePlace}>
+              <input
+                type="radio"
+                name={name}
+                checked={to === p.to}
+                onChange={() => setTo(p.to)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') onMove(p.to);
+                }}
+              />
+              <span>{p.label}</span>
+              {p.to === from ? <span className={styles.moveHere}>its place now</span> : null}
+            </label>
+          ))}
+        </fieldset>
       </DialogBody>
       <DialogFooter>
         <Button size="lg" variant="ghost" onClick={onClose}>
@@ -367,9 +390,9 @@ function MoveDialog({
         <Button
           size="lg"
           variant="primary"
-          disabled={!ok}
-          disabledReason={ok ? undefined : `Type a place from 1 to ${count}`}
-          onClick={() => onMove(n - 1)}
+          disabled={to === from}
+          disabledReason={to === from ? 'Choose another place' : undefined}
+          onClick={() => onMove(to)}
         >
           Move here
         </Button>
@@ -875,6 +898,8 @@ export function SetEditor({
   const [moving, setMoving] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
   const [removing, setRemoving] = useState(false);
+  /** UX-27: what a move, a remove or a swap said, once, to a screen reader */
+  const [announce, setAnnounce] = useState('');
   const [hideGaps, setHideGaps] = useState(false);
   const queueFrom = useQueueFrom();
   const working = useIsWorking(source.kind === 'saved' ? source.id : null);
@@ -1103,19 +1128,47 @@ export function SetEditor({
 
   const update = (index: number, patch: Partial<SetRow>) =>
     setRows((cur) => cur.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  const rowTitle = (index: number) =>
+    viewRows[index]?.track?.title ?? rows[index]?.title ?? 'The track';
+  /**
+   * UX-8: a remove, a move or a swap says so with Undo (the toast's 6 s),
+   * which puts the rows back as they were, notes and chips included; the
+   * autosave saves that too. UX-27: each is said once to a screen reader.
+   */
+  const undoable = (words: string, before: SetRow[]) => {
+    setAnnounce(words);
+    window.showToast?.(words, 'success', null, {
+      action: {
+        label: 'Undo',
+        run: () => {
+          setRows(before);
+          setAnnounce(`Undone: ${words}`);
+        },
+      },
+    });
+  };
   const remove = (index: number) => {
+    const before = rows;
+    const title = rowTitle(index);
     setRows((cur) => cur.filter((_r, i) => i !== index));
     setSwap(null);
     setSheet(null);
+    undoable(`Removed ${title} from ${name.trim() || initial.name}`, before);
   };
   const moveTo = (from: number, to: number) => {
     if (rows[from]?.locked) {
       window.showToast?.('That track is locked in its place. Unlock it to move it.', 'info');
       return;
     }
-    setRows((cur) => moveRow(cur, from, to));
+    const before = rows;
+    const title = rowTitle(from);
+    const next = moveRow(rows, from, to);
+    setRows(next);
+    const at = next.indexOf(rows[from]);
+    if (at !== from) undoable(`${title} moved to ${at + 1} of ${next.length}`, before);
   };
   const use = (index: number, track: DjTrack) => {
+    undoable(`Swapped ${rowTitle(index)} for ${track.title}`, rows);
     update(index, {
       track_id: track.id,
       artist: track.artist_name,
@@ -1599,7 +1652,12 @@ export function SetEditor({
         // 28g: an empty set, and the ways to fill it
         <div className={styles.emptyCard}>
           <h2>Nothing in {name.trim() || 'this set'} yet</h2>
-          <p>Add tracks from any track’s “…” → Add to set…, or below. Or let SYNCHRO.S start it:</p>
+          {/* UX-19: a draft lives in this browser, so Add to set… can't reach it */}
+          <p>
+            {source.kind === 'draft'
+              ? 'Add tracks below; a draft stays in this browser until you save it as a set. Or let SYNCHRO.S start it:'
+              : 'Add tracks from any track’s “…” → Add to set…, or below. Or let SYNCHRO.S start it:'}
+          </p>
           <div className={styles.emptyActions}>
             <Button size="lg" variant="secondary" disabled disabledReason={SUGGEST_LATER}>
               Suggest a set…
@@ -1632,6 +1690,9 @@ export function SetEditor({
         </div>
       )}
 
+      <p className={styles.srOnly} role="status" aria-live="polite" data-set-announce="">
+        {announce}
+      </p>
       {rows.length ? (
         <ol className={styles.rows} aria-label={`Tracks in ${name}`}>
           {viewRows.map((row, index) => {
@@ -1721,7 +1782,7 @@ export function SetEditor({
         <MoveDialog
           title={viewRows[moving]?.track?.title ?? viewRows[moving]?.title ?? ''}
           from={moving}
-          count={rows.length}
+          titles={viewRows.map((r) => r.track?.title ?? r.gone_track?.title ?? r.title ?? '')}
           onMove={(to) => {
             moveTo(moving, to);
             setMoving(null);
