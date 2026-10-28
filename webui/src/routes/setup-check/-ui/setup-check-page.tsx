@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/form';
@@ -18,9 +18,11 @@ import {
   groupChecks,
   plural,
 } from '../-setup-check.helpers';
+import { PRIVACY_QUERY_KEY } from '../-setup-check.privacy';
 import { CheckGroups } from './check-groups';
 import { FirstRunSteps } from './first-run-steps';
 import { ClockIcon, ErrorIcon, OkIcon, RefreshIcon, WarningIcon } from './icons';
+import { PrivacyCard } from './privacy-card';
 import styles from './setup-check-page.module.css';
 
 /** The server gives the full run 25 seconds before it reports a check as not finished. */
@@ -51,8 +53,9 @@ function PageHeading({ actions }: { actions?: ReactNode }) {
       <div className={styles.headText}>
         <h1 className={styles.title}>Setup check</h1>
         <p className={styles.subtitle}>
-          Checks your folders, slskd and your media server, and says how to fix anything that’s
-          wrong. Run it again after you change docker-compose or a setting.
+          Checks your folders, slskd, your media server and whether Soulseek and torrents go through
+          the VPN, and says how to fix anything that’s wrong. Run it again after you change
+          docker-compose or a setting.
         </p>
       </div>
       {actions ? <div className={styles.headerActions}>{actions}</div> : null}
@@ -216,6 +219,7 @@ function AdminSetupCheck() {
   const local = useQuery(setupCheckQueryOptions('local', true));
   const full = useQuery(setupCheckQueryOptions('all', true));
   const setupStatus = useQuery(setupStatusQueryOptions(true));
+  const queryClient = useQueryClient();
 
   const running = full.isFetching;
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -241,7 +245,12 @@ function AdminSetupCheck() {
     partial = running;
   }
 
-  const groups = useMemo(() => (report ? groupChecks(report.checks) : []), [report]);
+  // the privacy rows show in the Privacy card, which reads them with the
+  // addresses; they still count in the tiles and the copied report
+  const groups = useMemo(
+    () => (report ? groupChecks(report.checks.filter((c) => c.category !== 'privacy')) : []),
+    [report],
+  );
   const steps = useMemo(
     () => (report ? firstRunSteps(report.checks, report.scope === 'local' && running) : []),
     [report, running],
@@ -251,6 +260,7 @@ function AdminSetupCheck() {
   const rerun = () => {
     void local.refetch();
     void full.refetch();
+    void queryClient.invalidateQueries({ queryKey: PRIVACY_QUERY_KEY });
   };
 
   const copyReport = async () => {
@@ -333,6 +343,7 @@ function AdminSetupCheck() {
       {report ? (
         <div className={styles.results} aria-busy={running}>
           <SummaryTiles report={report} partial={partial} now={now} />
+          <PrivacyCard />
           <CheckGroups groups={groups} onRerun={rerun} rerunning={running} />
         </div>
       ) : !bothFailed ? (

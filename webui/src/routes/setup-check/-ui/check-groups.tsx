@@ -91,7 +91,7 @@ export function FixText({ fix }: { fix: string }) {
   );
 }
 
-function CheckRow({
+export function CheckRow({
   check,
   onRerun,
   rerunning,

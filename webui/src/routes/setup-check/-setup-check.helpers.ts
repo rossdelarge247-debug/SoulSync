@@ -33,12 +33,13 @@ const CATEGORY_LABELS: Record<string, string> = {
   media_server: 'Media server',
   system: 'System',
   radio: 'Internet radio',
+  privacy: 'Privacy (VPN)',
 };
 
-const CATEGORY_ORDER = ['folders', 'downloads', 'media_server', 'system', 'radio'];
+const CATEGORY_ORDER = ['folders', 'downloads', 'privacy', 'media_server', 'system', 'radio'];
 
 /** The checks that only the full run (not `?scope=local`) includes. */
-export const NETWORK_CATEGORIES = new Set(['downloads', 'media_server']);
+export const NETWORK_CATEGORIES = new Set(['downloads', 'media_server', 'privacy']);
 
 export function categoryLabel(category: string): string {
   if (CATEGORY_LABELS[category]) return CATEGORY_LABELS[category];

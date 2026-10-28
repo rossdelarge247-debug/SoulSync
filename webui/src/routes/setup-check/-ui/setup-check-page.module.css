@@ -543,3 +543,159 @@
     gap: 10px;
   }
 }
+
+/* ── Privacy card (the VPN for Soulseek and torrents) ───────────────── */
+/* No Design board yet: built from the group, row and fix-box styles above. */
+
+.privacyCard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 24px;
+  border: 1px solid var(--white-a09);
+  border-radius: var(--radius-lg);
+  background: var(--white-a04);
+}
+
+.privacyHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.privacyTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.privacyHeadNote {
+  font-size: 14px;
+  color: var(--white-a70);
+}
+
+.privacyHeadline {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--white-a10);
+  border-radius: var(--radius-md);
+  background: var(--white-a03);
+}
+
+.privacyHeadline[data-tone='ok'] {
+  border-color: rgba(var(--success-rgb), 0.35);
+  background: rgba(var(--success-rgb), 0.06);
+}
+
+.privacyHeadline[data-tone='ok'] .rowIcon {
+  color: var(--success);
+}
+
+.privacyHeadline[data-tone='warning'] {
+  border-color: rgba(var(--warning-rgb), 0.35);
+  background: rgba(var(--warning-rgb), 0.06);
+}
+
+.privacyHeadline[data-tone='warning'] .rowIcon {
+  color: var(--warning);
+}
+
+.privacyHeadline[data-tone='error'] {
+  border-color: rgba(var(--danger-rgb), 0.4);
+  background: rgba(var(--danger-rgb), 0.08);
+}
+
+.privacyHeadline[data-tone='error'] .rowIcon {
+  color: var(--danger-light);
+}
+
+.privacyHeadline[data-tone='skipped'] .rowIcon {
+  color: var(--white-a60);
+}
+
+.privacyHeadlineText {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.privacyAddresses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.privacyAddresses dt {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--white-a60);
+}
+
+.privacyAddresses dd {
+  margin: 2px 0 0;
+  color: var(--white-a85);
+}
+
+.privacyIntro {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.privacySteps {
+  margin: 0;
+  padding-left: 22px;
+  font-size: 15px;
+  color: var(--white-a80);
+}
+
+.privacySettings {
+  border-top: 1px solid var(--white-a08);
+  padding-top: 12px;
+}
+
+.privacySettingsSummary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.privacyForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 640px;
+  padding-top: 8px;
+}
+
+.privacySwitchRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.privacySwitchText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.privacyError {
+  margin: 0;
+  font-size: 14px;
+  color: var(--danger-light);
+}
