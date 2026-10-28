@@ -117,6 +117,15 @@ core/settings.py
 core/setup_check.py
 api/settings.py
 api/onboarding.py
+# The privacy check (Setup check's Privacy card): admin-only routes that read
+# Gluetun's control server, slskd and the torrent client, save Gluetun's
+# address and key, and make the one optional outside call for the home IP
+core/privacy_check.py
+api/setup_check.py
+# The VPN set-up people add to their compose folder: slskd and the torrent
+# client inside Gluetun's network, its firewall as the kill switch
+docker-compose.vpn*.yml
+vpn.env.example
 
 ## Auth, sessions, profiles and admin gating
 core/security/**

@@ -154,6 +154,8 @@ class ConfigManager:
         'lidarr_download.api_key',
         'prowlarr.api_key',
         'torrent_client.password',
+        # Gluetun's control server key (the privacy check, Setup check)
+        'privacy.gluetun_api_key',
         'usenet_client.api_key',
         'usenet_client.password',
         # Enrichment services

@@ -22,6 +22,46 @@ Admin only. `?scope=local` runs only the fast local checks (folders, folder layo
 
 `status` is one of `ok`, `warning`, `error` (shown as "Problem") or `skipped`.
 
+### Privacy check: `GET /api/setup/privacy`, `PUT /api/setup/privacy/settings` (BACKLOG "Privacy: a VPN for Soulseek and torrents")
+
+Admin only (403 for anyone else): the answer holds the VPN's and the home connection's IP addresses. It reads Gluetun's control server (`/v1/vpn/status`, `/v1/publicip/ip`, `/v1/portforward`), slskd (`/api/v0/options`, `/api/v0/application`) and the torrent client's listening port, all at once, with the setup check's timeouts; the whole run ends within 15 seconds. Nothing is changed anywhere.
+
+```json
+{
+  "success": true,
+  "state": "protected",
+  "tone": "ok",
+  "headline": "slskd and qBittorrent go through Proton VPN (Netherlands) · port 51234 forwarded · if the VPN drops, they stop",
+  "configured": true,
+  "services_configured": true,
+  "rows": [
+    {"id": "privacy.vpn", "title": "VPN", "status": "ok", "detail": "Proton VPN is connected (Netherlands).", "fix": "", "category": "privacy"},
+    {"id": "privacy.address", "title": "The address peers see", "status": "ok", "detail": "…", "fix": "", "category": "privacy"},
+    {"id": "privacy.port", "title": "Forwarded port", "status": "ok", "detail": "A port is forwarded and slskd and qBittorrent listen on it.", "fix": "", "category": "privacy", "data": {"port": 51234, "listen_ports": {"slskd": 51234, "torrent": 51234}}},
+    {"id": "privacy.kill_switch", "title": "Kill switch", "status": "ok", "detail": "…", "fix": "", "category": "privacy"}
+  ],
+  "settings": {"gluetun_url": "http://gluetun:8000", "api_key_set": true, "home_ip_lookup": false, "home_ip_service": "https://api.ipify.org?format=json"},
+  "vpn": {"reachable": true, "status": "running", "up": true, "name": "Proton VPN", "country": "Netherlands", "city": "Amsterdam", "forwarded_port": 51234},
+  "services": [{"key": "slskd", "name": "slskd", "reachable": true, "listen_port": 51234, "inside": true, "how": "same container as Gluetun", "signed_in": true}],
+  "addresses": {"vpn": "185.65.134.10", "home": null, "home_lookup": false, "home_checked_at": null, "home_error": null, "home_service": "https://api.ipify.org?format=json"},
+  "ran_at": 1792570000.0, "duration_ms": 180
+}
+```
+
+- `state`: `not_set_up` (no Gluetun address; `rows` holds one skipped row saying how, `vpn` is `null`), `unreachable` (Gluetun doesn't answer in time, or something else does), `refused` (Gluetun refused the key), `vpn_down`, `leak` (slskd still looked signed in to Soulseek while the VPN was down, in two reads a few seconds apart; or the VPN's address is the home one), `not_using_vpn` (slskd or the torrent client has its own container, outside Gluetun), `service_unreachable` (slskd or the torrent client didn't answer), `no_port`, `port_mismatch`, `not_confirmed` (the VPN works but the kill switch or a listening port couldn't be confirmed), `protected`. `tone` is a setup-check status (`ok`, `warning`, `error`, `skipped`). **Only `protected` is `ok`**: anything the check couldn't see is `warning`, never green.
+- `headline` is the sentence to show; it names only the services it checked ("slskd and qBittorrent go through …"). Rows are setup-check results; **no row's `detail` or `fix` holds an IP address or a port number**, so the copied setup-check report and the Assistant's summary never do. Addresses are only in `addresses`; port numbers in the rows' `data` and in `vpn.forwarded_port`.
+- `services_configured`: Soulseek or a torrent client is set up. With neither (and no Gluetun address), the card folds to one line.
+- Gluetun's control server is asked with redirects off and a 16 KB cap on each answer; an unknown status word reads as `unknown`. The whole run stops waiting at 15 seconds: a source that hasn't answered is `reachable: null`, `how: "didn't answer in time"`, never fine.
+- `vpn.up` is Gluetun's status `running` **and** a public address: Gluetun reports `running` while a tunnel that passes nothing is still being tried, with an empty `public_ip`.
+- `services[].inside`: `true` only when SYNCHRO.S reaches the service and Gluetun by two different Docker service names (one label, not an address; `slskd` and `gluetun`), SYNCHRO.S asks Docker's embedded DNS (127.0.0.11), and every address of the service's name is one of Gluetun's, on a network SYNCHRO.S's own container is on that isn't the home network (the network carrying its default route counts only on a Docker bridge, a `veth` interface, inside 172.16.0.0/12, Docker's own pool); `false` when such names lead to separate containers there; `null` (can't tell) for anything else: one name for both, a LAN address, a name with a dot, the Docker host, a NAS publishing both ports, host networking or macvlan. slskd's own Gluetun integration at 127.0.0.1 is shown in `how` but never counts as proof (slskd on the host with Gluetun's 8000 published looks the same).
+- The home address is looked up only with `home_ip_lookup` on: one `GET https://api.ipify.org?format=json` through the outbound guard, kept for an hour (five minutes after a failure).
+
+`PUT /api/setup/privacy/settings` takes JSON (at most 4 KB; 413 above, 400 for a form) with any of `gluetun_url` (http or https, a host and port, nothing after it; `""` clears it), `api_key` (Gluetun's key, printable ASCII without spaces; `""` removes it; leave it out to keep the saved one) and `home_ip_lookup` (boolean; turning it off forgets the cached address). Every value is checked before any is written: a bad value is 400 with `field`, and nothing changes. Answers `{"success": true, "settings": {…}}` as above; the key is never sent back. Settings: `privacy.gluetun_url`, `privacy.gluetun_api_key` (encrypted at rest, redacted in `GET /api/settings` and the API's `GET /api/v1/settings`), `privacy.home_ip_lookup`, `privacy.vpn_name` (the name in the sentences, "Proton VPN" unless set).
+
+**Setup check:** the four rows (category `privacy`, "Privacy (VPN)") are in the full run once `privacy.gluetun_url` is set; never in `?scope=local`.
+
+Code: `core/privacy_check.py`, `api/setup_check.py`, `webui/src/routes/setup-check` (`-ui/privacy-card.tsx`, `-setup-check.privacy.ts`); the torrent adapters' `listen_port()`. The VPN set-up itself: `docker-compose.vpn.yml` (slskd), `docker-compose.vpn-qbittorrent.yml` (a new qBittorrent) or `docker-compose.vpn-qbittorrent-existing.yml` (the one already in the compose file), `vpn.env.example`, `Support/VPN.md`.
+
 ### Modules: `GET /api/modules`, `PUT /api/modules/<name>`
 
 Each module has `name`, `display_name`, `description`, `enabled`, `default_enabled`, `restart_required`, `restart_reason` and `pages`. To change one, `PUT {"enabled": false}` (admin only). While a module is off, its routes answer `409 module_disabled`.

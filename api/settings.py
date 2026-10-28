@@ -30,6 +30,7 @@ _SENSITIVE_KEYS = {
     "radio.acrcloud_host",
     "radio.acrcloud_access_key",
     "radio.acrcloud_access_secret",
+    "privacy.gluetun_api_key",
 }
 
 

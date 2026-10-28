@@ -1,0 +1,116 @@
+# Optional: Soulseek (slskd) through Proton VPN, with a kill switch.
+#
+# Leave this file out and nothing changes. To use it, follow Support/VPN.md. In short:
+#   1. Copy vpn.env.example's lines into the .env file next to docker-compose.yml
+#      and fill them in (your Proton WireGuard key, and a key for Gluetun's
+#      control server). Never commit .env.
+#   2. The COMPOSE_FILE line in .env makes `docker compose up -d` use this file
+#      on top of docker-compose.yml. slskd must be a service in docker-compose.yml.
+#      For qBittorrent, add one of the two qBittorrent files to that line as well:
+#        docker-compose.vpn-qbittorrent.yml           a new qBittorrent, run by this set-up
+#        docker-compose.vpn-qbittorrent-existing.yml  the qbittorrent service already in
+#                                                     your docker-compose.yml
+#   3. In SYNCHRO.S: Setup check → Privacy, set Gluetun's address
+#      (http://gluetun:8000) and the same GLUETUN_API_KEY.
+#
+# How it works:
+#   * gluetun holds the VPN (Proton VPN over WireGuard) and owns the network.
+#     slskd runs with network_mode "service:gluetun": it has no network of its own.
+#   * Kill switch: Gluetun's firewall drops everything that isn't going through
+#     the VPN tunnel (or to the VPN server, or to this Docker network). If the
+#     VPN drops, slskd has no way out. slskd's own Gluetun integration also signs
+#     out of Soulseek while the VPN is down.
+#   * Forwarded port (Proton Plus or higher): Proton gives a random port that can
+#     change. slskd follows it by itself (SLSKD_VPN_PORT_FORWARDING, slskd 0.25+).
+#   * Only slskd (and qBittorrent with a qBittorrent file) go through the VPN.
+#     SYNCHRO.S itself stays off it: YouTube, usenet, indexer searches, the
+#     streaming services, metadata and Tailscale are as before (Support/VPN.md,
+#     "What the VPN doesn't cover"). SYNCHRO.S reaches slskd through Gluetun,
+#     which answers to the name slskd on this network, so http://slskd:5030
+#     keeps working.
+#
+# Needs Docker Compose 2.24 or later (Docker Desktop 4.27+): `!reset` and
+# `configs: content:` are used below.
+
+services:
+  gluetun:
+    # Pinned: v3.41.3 (July 2026). Update deliberately; read its release notes first.
+    image: qmcgaw/gluetun:v3.41.3
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - TZ=${TZ:-Europe/London}
+      # Proton VPN over WireGuard
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:?Set WIREGUARD_PRIVATE_KEY in .env (see Support/VPN.md)}
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES:-Netherlands}
+      # Port forwarding (NAT-PMP). true needs Proton Plus or higher and a key
+      # made with "NAT-PMP (Port Forwarding)" on; it also limits Gluetun to
+      # Proton's P2P servers. false: downloads still work, fewer people can reach you.
+      - VPN_PORT_FORWARDING=${PORT_FORWARDING:-true}
+      - PORT_FORWARD_ONLY=${PORT_FORWARDING:-true}
+      # The kill switch. On by default in Gluetun; written here so it's never
+      # turned off by accident. Don't change it.
+      - FIREWALL_ENABLED_DISABLING_IT_SHOOTS_YOU_IN_YOUR_FOOT=on
+      # Control server: SYNCHRO.S's privacy check and slskd read it with this
+      # key; the routes it may use are in the gluetun_auth config below.
+      - HTTP_CONTROL_SERVER_ADDRESS=:8000
+    configs:
+      - source: gluetun_auth
+        target: /gluetun/auth/config.toml
+    ports:
+      # slskd's web page and API (the Soulseek port itself goes through the VPN, not here)
+      - "5030:5030"
+      # Gluetun's control server is NOT published: SYNCHRO.S reaches it at
+      # http://gluetun:8000 on this Docker network.
+    networks:
+      default:
+        aliases:
+          - slskd
+    restart: unless-stopped
+
+  slskd:
+    # Everything else about slskd (image, folders, user) stays as docker-compose.yml has it.
+    network_mode: "service:gluetun"
+    # slskd has no ports or network of its own now: they're Gluetun's. These
+    # settings can't go with Gluetun's network, so any in docker-compose.yml go.
+    ports: !reset []
+    networks: !reset null
+    hostname: !reset null
+    dns: !reset []
+    dns_search: !reset []
+    dns_opt: !reset []
+    extra_hosts: !reset []
+    mac_address: !reset null
+    links: !reset []
+    domainname: !reset null
+    depends_on:
+      gluetun:
+        # started, not healthy: a VPN that won't connect must not stop
+        # SYNCHRO.S from starting and saying so. slskd waits for the VPN by
+        # itself, and the firewall blocks it meanwhile.
+        condition: service_started
+        restart: true
+    environment:
+      # slskd's own Gluetun integration (slskd 0.25 or later): it waits for the
+      # VPN before signing in to Soulseek, leaves Soulseek if the VPN drops, and
+      # listens on Proton's forwarded port, following it when it changes.
+      - SLSKD_VPN=true
+      - SLSKD_VPN_PORT_FORWARDING=${PORT_FORWARDING:-true}
+      - SLSKD_VPN_GLUETUN_URL=http://127.0.0.1:8000
+      - SLSKD_VPN_GLUETUN_API_KEY=${GLUETUN_API_KEY:?Set GLUETUN_API_KEY in .env (see Support/VPN.md)}
+
+configs:
+  gluetun_auth:
+    # Gluetun's control server answers only these three questions, and only
+    # with GLUETUN_API_KEY. Nothing here can change or stop the VPN, or read its settings.
+    content: |
+      [[roles]]
+      name = "synchros-and-slskd"
+      routes = ["GET /v1/vpn/status", "GET /v1/publicip/ip", "GET /v1/portforward"]
+      auth = "apikey"
+      apikey = "${GLUETUN_API_KEY:?Set GLUETUN_API_KEY in .env (see Support/VPN.md)}"

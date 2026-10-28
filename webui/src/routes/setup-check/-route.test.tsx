@@ -87,6 +87,109 @@ function report(scope: 'all' | 'local') {
 
 type Calls = Array<'all' | 'local'>;
 
+const NOT_SET_UP = {
+  success: true,
+  state: 'not_set_up',
+  tone: 'skipped',
+  headline: 'The privacy check isn’t set up',
+  configured: false,
+  services_configured: true,
+  rows: [],
+  settings: { gluetun_url: '', api_key_set: false, home_ip_lookup: false },
+  vpn: null,
+  addresses: { vpn: null, home: null, home_lookup: false },
+  ran_at: Date.now() / 1000,
+};
+
+const PROTECTED = {
+  success: true,
+  state: 'protected',
+  tone: 'ok',
+  headline:
+    'slskd and qBittorrent go through Proton VPN (Netherlands) · port 51234 forwarded · if the VPN drops, they stop',
+  configured: true,
+  services_configured: true,
+  rows: [
+    {
+      id: 'privacy.vpn',
+      title: 'VPN',
+      status: 'ok',
+      detail: 'Proton VPN is connected (Netherlands).',
+      fix: '',
+    },
+    {
+      id: 'privacy.port',
+      title: 'Forwarded port',
+      status: 'ok',
+      detail: 'A port is forwarded and slskd and qBittorrent listen on it.',
+      fix: '',
+    },
+  ],
+  settings: { gluetun_url: 'http://gluetun:8000', api_key_set: true, home_ip_lookup: true },
+  vpn: {
+    up: true,
+    status: 'running',
+    name: 'Proton VPN',
+    country: 'Netherlands',
+    city: 'Amsterdam',
+    forwarded_port: 51234,
+  },
+  addresses: { vpn: '185.65.134.10', home: '81.2.69.160', home_lookup: true },
+  ran_at: Date.now() / 1000,
+};
+
+const VPN_DOWN = {
+  ...PROTECTED,
+  state: 'vpn_down',
+  tone: 'error',
+  headline: 'VPN is down: slskd and qBittorrent are stopped until it’s back',
+  rows: [
+    {
+      id: 'privacy.vpn',
+      title: 'VPN',
+      status: 'error',
+      detail: 'Proton VPN isn’t connected (Gluetun says ‘stopped’).',
+      fix: 'Gluetun reconnects by itself. If it stays down, open its log (`docker compose logs gluetun`).',
+    },
+  ],
+  vpn: { ...PROTECTED.vpn, up: false, status: 'stopped', forwarded_port: null },
+  addresses: { vpn: null, home: null, home_lookup: true },
+};
+
+function mockPrivacy(body: object = NOT_SET_UP) {
+  const puts: unknown[] = [];
+  let gets = 0;
+  server.use(
+    http.get('/api/setup/privacy', () => {
+      gets += 1;
+      return HttpResponse.json(body);
+    }),
+    http.put('/api/setup/privacy/settings', async ({ request }) => {
+      const sent = (await request.json()) as Record<string, unknown>;
+      puts.push(sent);
+      if (sent.gluetun_url === 'gluetun:8000') {
+        return HttpResponse.json(
+          {
+            success: false,
+            field: 'gluetun_url',
+            error: 'Type Gluetun’s control address with http://',
+          },
+          { status: 400 },
+        );
+      }
+      return HttpResponse.json({
+        success: true,
+        settings: {
+          gluetun_url: sent.gluetun_url,
+          api_key_set: true,
+          home_ip_lookup: sent.home_ip_lookup,
+        },
+      });
+    }),
+  );
+  return { puts, gets: () => gets };
+}
+
 function mockSetupCheckApi({
   gate,
   setupComplete = true,
@@ -113,6 +216,7 @@ function mockSetupCheckApi({
       return HttpResponse.json(report(scope));
     }),
     http.get('/api/setup/status', () => HttpResponse.json({ setup_complete: setupComplete })),
+    http.get('/api/setup/privacy', () => HttpResponse.json(NOT_SET_UP)),
   );
   return calls;
 }
@@ -316,5 +420,166 @@ describe('setup check route', () => {
     renderPage();
     await screen.findByText('Media server connection');
     expect(screen.queryByRole('heading', { name: 'First-run setup' })).not.toBeInTheDocument();
+  });
+
+  describe('Privacy card', () => {
+    it('says how to set it up when Gluetun’s address isn’t set', async () => {
+      mockSetupCheckApi();
+      mockPrivacy(NOT_SET_UP);
+      renderPage();
+
+      const card = await screen.findByTestId('privacy-card');
+      expect(card).toHaveAttribute('data-state', 'not_set_up');
+      expect(within(card).getByRole('status')).toHaveTextContent('The privacy check isn’t set up');
+      expect(card).toHaveTextContent('everyone they connect to sees your home IP');
+      expect(card).toHaveTextContent('Support/VPN.md');
+      // the settings are open, and the home look-up is off and explained
+      expect(within(card).getByLabelText('Gluetun’s control address')).toBeVisible();
+      const lookup = within(card).getByRole('switch', { name: 'Compare with my home IP' });
+      expect(lookup).toHaveAttribute('aria-checked', 'false');
+      expect(card).toHaveTextContent('api.ipify.org');
+      expect(card).toHaveTextContent('at most once an hour');
+    });
+
+    it('shows the plain-language state, the addresses and the rows when protected', async () => {
+      mockSetupCheckApi();
+      mockPrivacy(PROTECTED);
+      renderPage();
+
+      const card = await screen.findByTestId('privacy-card');
+      await within(card).findByText(PROTECTED.headline);
+      expect(within(card).getByRole('status')).toHaveTextContent('OK');
+      const addresses = within(card).getByTestId('privacy-addresses');
+      expect(addresses).toHaveTextContent('185.65.134.10');
+      expect(addresses).toHaveTextContent('Proton VPN, Amsterdam, Netherlands');
+      expect(addresses).toHaveTextContent('81.2.69.160');
+      expect(within(card).getByText('Forwarded port')).toBeInTheDocument();
+      expect(within(card).getByRole('button', { name: 'Check privacy again' })).toBeEnabled();
+    });
+
+    it('says plainly that downloads are stopped while the VPN is down', async () => {
+      mockSetupCheckApi();
+      mockPrivacy(VPN_DOWN);
+      renderPage();
+
+      const card = await screen.findByTestId('privacy-card');
+      await within(card).findByText(VPN_DOWN.headline);
+      expect(within(card).getByRole('status')).toHaveTextContent('Problem');
+      expect(within(card).queryByTestId('privacy-addresses')).not.toBeInTheDocument();
+      expect(within(card).getByText('How to fix it')).toBeInTheDocument();
+    });
+
+    it('saves the settings and checks again', async () => {
+      mockSetupCheckApi();
+      const api = mockPrivacy(NOT_SET_UP);
+      renderPage();
+
+      const card = await screen.findByTestId('privacy-card');
+      fireEvent.change(within(card).getByLabelText('Gluetun’s control address'), {
+        target: { value: 'http://gluetun:8000' },
+      });
+      fireEvent.change(within(card).getByLabelText('Gluetun key'), {
+        target: { value: 'k3y' },
+      });
+      fireEvent.click(within(card).getByRole('switch', { name: 'Compare with my home IP' }));
+      const before = api.gets();
+      fireEvent.click(within(card).getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(api.puts).toHaveLength(1));
+      expect(api.puts[0]).toEqual({
+        gluetun_url: 'http://gluetun:8000',
+        api_key: 'k3y',
+        home_ip_lookup: true,
+      });
+      await waitFor(() => expect(api.gets()).toBeGreaterThan(before));
+      expect(window.showToast).toHaveBeenCalledWith('Privacy check settings saved', 'success');
+    });
+
+    it('leaves a saved key alone when the field is empty, and shows a field error', async () => {
+      mockSetupCheckApi();
+      const api = mockPrivacy(NOT_SET_UP);
+      renderPage();
+
+      const card = await screen.findByTestId('privacy-card');
+      fireEvent.change(within(card).getByLabelText('Gluetun’s control address'), {
+        target: { value: 'gluetun:8000' },
+      });
+      fireEvent.click(within(card).getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(api.puts).toHaveLength(1));
+      expect(api.puts[0]).toEqual({ gluetun_url: 'gluetun:8000', home_ip_lookup: false });
+      expect(
+        await within(card).findByText('Type Gluetun’s control address with http://'),
+      ).toBeVisible();
+    });
+
+    it('keeps the privacy rows out of the generic groups', async () => {
+      mockSetupCheckApi();
+      mockPrivacy(PROTECTED);
+      server.use(
+        http.get('/api/setup/check', ({ request }) => {
+          const scope =
+            new URL(request.url).searchParams.get('scope') === 'local' ? 'local' : 'all';
+          const body = report(scope);
+          if (scope === 'all') {
+            body.checks = [
+              ...body.checks,
+              {
+                id: 'privacy.vpn',
+                title: 'VPN',
+                status: 'ok',
+                detail: 'Proton VPN is connected (Netherlands).',
+                fix: '',
+                category: 'privacy',
+              },
+            ];
+          }
+          return HttpResponse.json(body);
+        }),
+      );
+      renderPage();
+
+      await screen.findByText('Media server connection');
+      expect(groupHeadings().some((h) => h?.startsWith('Privacy'))).toBe(false);
+    });
+
+    it('folds to one line when neither Soulseek nor a torrent client is set up', async () => {
+      mockSetupCheckApi();
+      mockPrivacy({ ...NOT_SET_UP, services_configured: false });
+      renderPage();
+
+      const card = await screen.findByTestId('privacy-card');
+      expect(card).toHaveAttribute('data-state', 'nothing_to_check');
+      expect(card).toHaveTextContent(
+        'Soulseek and torrents aren’t set up, so there’s nothing to check.',
+      );
+      expect(card).not.toHaveTextContent('Support/VPN.md');
+      expect(within(card).getByLabelText('Gluetun’s control address')).not.toBeVisible();
+    });
+
+    it('is amber, not green, when the kill switch isn’t confirmed', async () => {
+      mockSetupCheckApi();
+      mockPrivacy({
+        ...PROTECTED,
+        state: 'not_confirmed',
+        tone: 'warning',
+        headline:
+          'slskd goes through Proton VPN (Netherlands) · port 51234 forwarded · kill switch not confirmed',
+      });
+      renderPage();
+
+      const card = await screen.findByTestId('privacy-card');
+      await within(card).findByText(/kill switch not confirmed/);
+      expect(card).toHaveAttribute('data-state', 'not_confirmed');
+      expect(within(card).getByRole('status')).toHaveTextContent('Warning');
+    });
+
+    it('isn’t shown to a non-admin', async () => {
+      mockSetupCheckApi();
+      const api = mockPrivacy(PROTECTED);
+      renderPage(false);
+
+      await screen.findByRole('heading', { name: 'Only an admin can run the setup check' });
+      expect(screen.queryByTestId('privacy-card')).not.toBeInTheDocument();
+      expect(api.gets()).toBe(0);
+    });
   });
 });

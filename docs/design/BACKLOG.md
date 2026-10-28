@@ -19,7 +19,7 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
 | Auto-mix: beat-matched transitions in Up next | Built (stages A–C) | [below](#auto-mix-beat-matched-transitions-in-up-next) |
 | Data visualiser: the decoded audio as numbers and bits | Ready for Design | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
-| Privacy: a VPN for Soulseek and torrents, and a privacy check | Exploring | [below](#privacy-a-vpn-for-soulseek-and-torrents-and-a-privacy-check) |
+| Privacy: a VPN for Soulseek and torrents, and a privacy check | Building (VPN file, guide and Privacy card on `feat/privacy-vpn`) | [below](#privacy-a-vpn-for-soulseek-and-torrents-and-a-privacy-check) |
 | Reach SYNCHRO.S from anywhere with Tailscale | Exploring | [below](#reach-synchros-from-anywhere-with-tailscale) |
 | DJ now: a compact DJ mode in the playing panel | Drawn (E1 chosen) | [below](#dj-now-a-compact-dj-mode-in-the-playing-panel) |
 | Analyse on demand, with progress | Built | [below](#analyse-on-demand-with-progress) |
@@ -910,7 +910,15 @@ Beside or under the track's spectrum (EQ) in the player, a view of the data that
 
 ## Privacy: a VPN for Soulseek and torrents, and a privacy check
 
-**Status:** Exploring · raised by Ross, 2026-10-26.
+**Status:** Building · raised by Ross, 2026-10-26 · Ross approved Proton VPN with port forwarding, for both Soulseek and torrents, on 28 October · built on `feat/privacy-vpn` (`HANDOFF.md`, "Dev, privacy (VPN for Soulseek and torrents, the privacy check) of 28 October"; routes in `CONTRACTS.md`, "Privacy check"; the card in `SCREENS.md`; the guide is `Support/VPN.md`).
+
+### What's built (28 October)
+
+- **The VPN files,** opt-in (a `COMPOSE_FILE` line in `.env`): `docker-compose.vpn.yml`, Gluetun v3.41.3 with Proton VPN over WireGuard and NAT-PMP port forwarding, slskd inside Gluetun's network; and for torrents `docker-compose.vpn-qbittorrent.yml` (a new qBittorrent) or `docker-compose.vpn-qbittorrent-existing.yml` (the one already in the compose file); Gluetun's firewall as the kill switch; slskd's own Gluetun integration (slskd 0.25+) following the forwarded port and signing out of Soulseek while the VPN is down; Gluetun's port command for qBittorrent. Secrets go in `.env` (`vpn.env.example`), which git ignores.
+- **Not covered by the VPN:** YouTube (yt-dlp), usenet, indexer searches and SYNCHRO.S's own `.torrent` fetches, the streaming services, metadata, and Transmission, Deluge or aria2 unless put behind Gluetun by hand (`Support/VPN.md`, "What the VPN doesn't cover").
+- **The Privacy card** in Setup check, and four Privacy rows in the full run once it's set up: is the VPN up, which address peers see (compared with the home one only if the person turns that on), the forwarded port and whether slskd and the torrent client listen on it, and the kill switch. Without port forwarding it says "Connected, no forwarded port: downloads work but fewer people can reach you".
+- **DNS** goes through Gluetun's own resolver (DNS over TLS, through the tunnel), so slskd's look-ups don't leak either.
+- **Not yet:** torrent seeding off unless behind the VPN (item 3), the VPN state on the slskd tile and in Activity (Design's question), keys encrypted with a key the person holds (item 4).
 
 ### The problem (Dev's assessment, 26 October)
 
@@ -951,8 +959,9 @@ Dev's note: as far as Dev knows, Malwarebytes Privacy VPN doesn't offer port for
 
 ### Questions
 
-- **For Ross:** Proton VPN or Malwarebytes, once port forwarding is checked?
-- **For Design** (once it's Ready): the privacy row in Setup check, and where the VPN state shows (the slskd tile, Activity).
+- ~~**For Ross:** Proton VPN or Malwarebytes, once port forwarding is checked?~~ **Settled with Ross, 28 October:** Proton VPN with port forwarding, for Soulseek and torrents.
+- **For Ross (28 October):** which Proton plan (port forwarding needs Plus or higher; until then `PORT_FORWARDING=false`)? Which torrent client, if any (the VPN file ships qBittorrent; Transmission and Deluge get the check but set their port by hand)?
+- **For Design:** the Privacy card was built without boards, in the Setup check style; questions 368–373 in `HANDOFF.md`. Where else the VPN state shows (the slskd tile, Activity) is 371.
 
 ---
 
@@ -969,7 +978,7 @@ Once SYNCHRO.S and slskd move to the **new media centre** at home, reach them fr
 - **Tailscale:** a private network between Ross's own devices. Install it on the media centre and on the phone and laptop, and SYNCHRO.S is reachable at a private address (or a name like `synchros.<tailnet>.ts.net`) from anywhere, with no ports opened on the router.
 - **HTTPS:** through Tailscale's own certificates (`tailscale serve`), so the browser has a padlock and the phone can install SYNCHRO.S as a web app.
 - **slskd's own interface** is reachable the same way when needed.
-- **Works with the VPN:** Tailscale carries remote access, and the VPN carries Soulseek traffic. The guide must set them up so they don't fight (e.g. Gluetun only wraps slskd, and Tailscale runs on the host).
+- **Works with the VPN:** Tailscale carries remote access, and the VPN carries Soulseek traffic. The guide must set them up so they don't fight (e.g. Gluetun only wraps slskd, and Tailscale runs on the host). As built (`feat/privacy-vpn`), Gluetun wraps only slskd and qBittorrent; SYNCHRO.S, its port 8008 and the host are untouched, so Tailscale on the host reaches SYNCHRO.S as before.
 - **Playing on the phone away from home:** streaming quality may need a lower setting on mobile data. Check the player's quality options work over Tailscale.
 - **A guide** for the media centre (its OS isn't known yet), the iPhone or Android app, and the laptop.
 

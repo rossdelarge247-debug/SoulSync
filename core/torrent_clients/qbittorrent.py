@@ -69,6 +69,17 @@ _QBIT_STATE_MAP = {
 }
 
 
+def _valid_port(value) -> Optional[int]:
+    """A TCP port number, or None (qBittorrent reports 0 while it isn't listening)."""
+    if isinstance(value, bool):
+        return None
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return None
+    return port if 0 < port < 65536 else None
+
+
 def _map_state(qbit_state: str) -> str:
     """Map qBittorrent's own state name onto the adapter's vocabulary.
 
@@ -190,6 +201,19 @@ class QBittorrentAdapter:
         except Exception as e:
             logger.error("qBittorrent %s %s failed: %s", method, path, e)
             return None
+
+    def listen_port(self) -> Optional[int]:
+        """The port qBittorrent listens on for peers (``listen_port`` in its
+        preferences), or None when it can't be read. Read-only; the privacy
+        check compares it with the VPN's forwarded port."""
+        resp = self._call('GET', '/api/v2/app/preferences')
+        if resp is None or not resp.ok:
+            return None
+        try:
+            port = (resp.json() or {}).get('listen_port')
+        except Exception:  # noqa: BLE001 - not JSON
+            return None
+        return _valid_port(port)
 
     async def add_torrent(
         self,

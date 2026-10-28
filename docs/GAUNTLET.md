@@ -149,6 +149,13 @@ These carry `@pytest.mark.gauntlet` (registered in `pyproject.toml`). Run them l
   - **Storing is off the request thread:** a slow store doesn't hold the thread that got the 429, and the newest pause is the one stored.
   - **Bounds:** any Retry-After (`inf`, `nan`, `1e400`, a 2099 date, 999999999999) pauses for at most a day and the answer still says when; a garbled stored pause is cut to a day.
 
+- **The privacy check** (`tests/test_privacy_check.py`; `core/privacy_check.py` and `api/setup_check.py` are on the list because the routes are admin-only, save Gluetun's address and key, read three local services and may make one outside call; `docker-compose.vpn*.yml` and `vpn.env.example` because they change how a person's slskd and torrent client reach the internet):
+  - **Admins only:** a non-admin's `GET /api/setup/privacy` and `PUT /api/setup/privacy/settings` are refused (403) before anything is read or saved.
+  - **The home address look-up never runs when it's off,** and when it's on it's one call to the fixed service at most once an hour (once every five minutes after a failure), through the outbound guard.
+  - **Addresses stay out of shareable text:** no row's sentence or the headline holds the VPN's or the home connection's IP, and no row holds a port number, so "Copy for a bug report" and the Assistant's summary never carry them; only the admin-only privacy route does.
+  - **Never green without proof:** a LAN address, a name with a dot, the Docker host, a NAS publishing both ports, or slskd's own Gluetun integration at 127.0.0.1 leaves the kill switch "not confirmed"; only two different Docker service names, resolved by Docker's own DNS, whose addresses are all Gluetun's on a Docker network of SYNCHRO.S's own (not the home network, as with host networking or macvlan), prove it; a name that also leads to another container doesn't.
+  - **The deadline holds:** a source slower than the run's deadline is cut off and reads as "didn't answer in time", never as fine.
+
 When you write a test for a new way a change could lose data, tag it `gauntlet` too.
 
 ## How to read the results
