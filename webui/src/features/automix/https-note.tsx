@@ -8,15 +8,24 @@ import { mixSupport } from './support';
 
 export function HttpsNote({ support = mixSupport }: { support?: () => string | null }) {
   const why = support();
+  // plain http from another computer, or a browser without the decks on https
+  const state = !why ? 'secure' : /https/.test(why) ? 'insecure' : 'browser';
   return (
-    <section className={styles.httpsNote} data-https-note={why ? 'insecure' : 'secure'}>
+    <section className={styles.httpsNote} data-https-note={state}>
       <h4 className={styles.settingsTitle}>Opening SYNCHRO.S on https</h4>
-      {why ? (
+      {state === 'insecure' ? (
         <p>
-          This browser reaches SYNCHRO.S over plain http from another computer, so Auto mix
-          can&apos;t run here: browsers only run its decks on a secure page. Open SYNCHRO.S on https
-          (behind a reverse proxy with a certificate, such as Caddy, Traefik or Nginx Proxy
-          Manager), or at <code>localhost</code> on the computer it runs on.
+          This browser reaches SYNCHRO.S over plain http from another computer, so Auto mix can only
+          cut on the phrase or play straight on here: browsers only run its decks, for blends and
+          echo outs, on a secure page. Open SYNCHRO.S on https (behind a reverse proxy with a
+          certificate, such as Caddy, Traefik or Nginx Proxy Manager), or at <code>localhost</code>{' '}
+          on the computer it runs on.
+        </p>
+      ) : state === 'browser' ? (
+        <p>
+          SYNCHRO.S is on a secure page here, but this browser can&apos;t run Auto mix&apos;s decks,
+          so Auto mix can only cut on the phrase or play straight on in it. A current Chrome, Edge,
+          Firefox or Safari can.
         </p>
       ) : (
         <p>

@@ -21,15 +21,27 @@ describe('312: this browser and https', () => {
     expect(row).toHaveTextContent('Auto mix');
     expect(row).toHaveTextContent('Info');
     expect(row).toHaveTextContent(
-      'Auto mix needs SYNCHRO.S on https, or opened on its own computer (localhost).',
+      'Over plain http from another computer, Auto mix can only cut on the phrase or play straight on: its blends and echo outs need SYNCHRO.S on https, or opened on its own computer (localhost).',
     );
     expect(row).toHaveTextContent('Settings → Connections says how.');
     unmount();
+    const browser = render(
+      <BrowserInfo support={() => "This browser can't run Auto mix's decks"} />,
+    );
+    expect(browser.container).toHaveTextContent(/This browser can't run Auto mix's decks/);
+    browser.unmount();
     render(<BrowserInfo support={() => null} />);
     expect(screen.getByText(/Auto mix can run in this browser/)).toBeTruthy();
   });
 
   it('Settings → Connections points at https', () => {
+    const browser = render(<HttpsNote support={() => "This browser can't run Auto mix's decks"} />);
+    expect(browser.container.querySelector('[data-https-note]')).toHaveAttribute(
+      'data-https-note',
+      'browser',
+    );
+    expect(browser.container).not.toHaveTextContent(/plain http/);
+    browser.unmount();
     const { container, unmount } = render(<HttpsNote support={() => 'needs https'} />);
     expect(container.querySelector('[data-https-note]')).toHaveAttribute(
       'data-https-note',

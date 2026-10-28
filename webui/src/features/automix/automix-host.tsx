@@ -50,7 +50,12 @@ import { SETS_QUERY_KEY } from '@/features/sets/sets.api';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import styles from './automix.module.css';
-import { AutoMixOffLine, BetweenTracksSettings, BetweenTracksSwitch } from './between-tracks';
+import {
+  AutoGoneNotice,
+  AutoMixOffLine,
+  BetweenTracksSettings,
+  BetweenTracksSwitch,
+} from './between-tracks';
 import {
   AutomixController,
   choiceOf,
@@ -64,6 +69,7 @@ import {
 import {
   BarStatus,
   HandoverDeck,
+  countWords,
   HandoverRecord,
   MixNowButton,
   type HandoverActions,
@@ -301,7 +307,12 @@ function GapChip({
     view.barsToGo !== null &&
     (view.stage === 'counting' || view.manual || view.barsToGo <= 16)
   )
-    live = { kind: 'counting', bars: view.barsToGo, onCancel: () => ctl.cancel() };
+    live = {
+      kind: 'counting',
+      bars: view.barsToGo,
+      words: countWords(view),
+      onCancel: () => ctl.cancel(),
+    };
   const set = from.mix_set && to.mix_set && from.mix_set.id === to.mix_set.id ? from.mix_set : null;
   // a page that can't run the decks: the pair plays on (no crossfade, no
   // chip; Mix now and Between tracks say why). A cut needs no decks.
@@ -559,7 +570,8 @@ export function AutomixHost() {
               <div className={styles.upnextHeadRow}>
                 <BetweenTracksSwitch showLabel />
               </div>
-              {offPairs ? <AutoMixOffLine besideSwitch /> : null}
+              {offPairs ? <AutoMixOffLine /> : null}
+              <AutoGoneNotice />
             </div>,
             slots.upnextHead,
           )
@@ -620,8 +632,7 @@ export function liveWords(key: string, view: AutomixView): string {
   const to = view.pair?.toTitle || 'the next track';
   const from = view.pair?.fromTitle || 'this track';
   if (key.startsWith('counting')) {
-    const n = view.barsToGo ?? 0;
-    const bars = `${n} bar${n === 1 ? '' : 's'}`;
+    const bars = countWords(view);
     return view.plan?.status === 'cut'
       ? `Cutting to ${to} in ${bars}`
       : `Mixing into ${to} in ${bars}`;

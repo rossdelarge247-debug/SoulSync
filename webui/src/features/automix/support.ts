@@ -17,8 +17,14 @@ export function mixSupport(
   return null;
 }
 
-/** 312's short words for the controls ("Needs https or localhost"), or the browser's own lack. */
+/**
+ * What Auto mix can do on a page that can't run the decks (312, and step 2's
+ * review: one truth everywhere): a cut on the phrase needs no decks, so it
+ * still cuts and plays straight on; blends and echo outs need the decks.
+ */
 export function mixSupportShort(why: string | null): string | null {
   if (!why) return null;
-  return /https/.test(why) ? 'Needs https or localhost' : "This browser can't mix";
+  return /https/.test(why)
+    ? 'Cuts and straight on only here · blends need https or localhost'
+    : "Cuts and straight on only in this browser · it can't run the decks for blends";
 }

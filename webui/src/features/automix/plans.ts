@@ -175,10 +175,13 @@ export function chipWhy(
   // 302: what stood in the way (the chip names the move)
   // (26g's fallback line: no "auto" before it, so the reason fits)
   const f = fallbackOf(plan);
-  if (f) return `couldn't beat-match: ${f.reason}`;
+  if (f)
+    return plan.unsure_bars
+      ? `Not sure where the bars start · couldn't beat-match: ${f.reason}`
+      : `couldn't beat-match: ${f.reason}`;
   if (plan.status === 'play_on')
     return plan.fallback?.code === 'unsupported'
-      ? 'Needs https or localhost'
+      ? 'blends need https or localhost'
       : `plays straight on${plan.fallback?.reason ? ` · ${plan.fallback.reason}` : ''}`;
   // 303 and 304 say why in place, not in silence
   if (plan.shortened) return `${who} · ${plan.shortened}`;
@@ -195,7 +198,7 @@ export function chipWhyShort(plan: PairPlan | null | undefined, choice: Choice):
   if (plan.status === 'waiting') return 'being analysed';
   if (fallbackOf(plan)) return `${who} · can't beat-match`;
   if (plan.status === 'play_on')
-    return plan.fallback?.code === 'unsupported' ? 'Needs https' : 'plays straight on';
+    return plan.fallback?.code === 'unsupported' ? 'needs https' : 'plays straight on';
   if (plan.shortened) return `${who} · ${plan.shortened}`;
   if (plan.unsure_bars) return `${who} · bars unsure`;
   if (plan.key?.relation === 'clash') return `${who} · keys clash`;

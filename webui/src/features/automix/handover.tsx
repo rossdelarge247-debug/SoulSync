@@ -68,13 +68,26 @@ function isCut(view: AutomixView): boolean {
   return view.plan?.status === 'cut';
 }
 
+/**
+ * How far off the countdown is: in bars, or in seconds for 302's echo out
+ * placed by time (no grid going out, so no bars to count: step 2's review).
+ */
+export function countWords(view: AutomixView): string {
+  const plan = view.plan;
+  if (plan?.status === 'ok' && plan.out && plan.out.bar == null) {
+    const s = Math.max(0, Math.ceil(view.inSeconds ?? view.transition?.secondsLeft ?? 0));
+    return `${s} s`;
+  }
+  const n = view.barsToGo ?? 0;
+  return `${n} bar${n === 1 ? '' : 's'}`;
+}
+
 /** "Mixing · bar 12 of 32", or the countdown's words. */
 export function stageWords(view: AutomixView): string {
   const t = view.transition;
   const to = view.pair?.toTitle || 'the next track';
   if (view.stage === 'counting' || (!t && view.barsToGo !== null)) {
-    const n = view.barsToGo ?? 0;
-    const bars = `${n} bar${n === 1 ? '' : 's'}`;
+    const bars = countWords(view);
     return isCut(view) ? `Cutting to ${to} in ${bars}…` : `Mixing into ${to} in ${bars}…`;
   }
   if (view.stage === 'back') return `Back to ${view.pair?.fromTitle || 'the last track'}`;

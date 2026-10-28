@@ -19,7 +19,7 @@ import { createTestQueryClient } from '@/test/query-client';
 import type { AutomixView } from './controller';
 
 import { AutomixHost, liveKey, liveWords } from './automix-host';
-import { BarStatus, HandoverDeck, HandoverRecord, MixNowButton } from './handover';
+import { BarStatus, HandoverDeck, HandoverRecord, MixNowButton, countWords } from './handover';
 import { readPrefs, refreshPrefs } from './prefs';
 
 vi.mock('@/platform/shell/route-controllers', () => ({
@@ -518,7 +518,7 @@ describe('Between tracks, Off / Auto mix, in its places (33e)', () => {
     );
   });
 
-  it('312: disabled with "Needs https or localhost" in each place, and Connections points at https', async () => {
+  it('312, one truth: over http Auto mix is still a choice that cuts and plays straight on, said in each place', async () => {
     support.why = 'Auto mix needs SYNCHRO.S on https, or opened on its own computer';
     localStorage.setItem('soulsync-between-tracks', 'off');
     refreshPrefs();
@@ -527,10 +527,12 @@ describe('Between tracks, Off / Auto mix, in its places (33e)', () => {
       await waitFor(() => expect(document.querySelector('[data-upnext-head]')).not.toBeNull());
       const autos = screen.getAllByRole('radio', { name: /^Auto mix/ });
       expect(autos.length).toBe(4);
-      for (const a of autos) expect(a).toHaveAttribute('aria-disabled', 'true');
-      expect(screen.getAllByText('Needs https or localhost').length).toBeGreaterThanOrEqual(4);
+      for (const a of autos) expect(a).not.toHaveAttribute('aria-disabled');
+      const words = 'Cuts and straight on only here · blends need https or localhost';
+      // the card (as its sentence) and the three small controls
+      expect(screen.getAllByText(new RegExp(words)).length).toBe(4);
       fireEvent.click(autos[0]);
-      expect(localStorage.getItem('soulsync-between-tracks')).toBe('off');
+      expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
       expect(document.querySelector('[data-https-note]')).toHaveAttribute(
         'data-https-note',
         'insecure',
@@ -723,7 +725,7 @@ describe('the handover (26d–26f)', () => {
 });
 
 describe('no crossfade on a page that can’t run the decks', () => {
-  it('Up next shows no chips (the pairs play on), and Mix now says why', async () => {
+  it('Up next says the pairs that need the decks play straight on, and Mix now says why', async () => {
     support.why = 'Auto mix needs SYNCHRO.S on https';
     try {
       mount();
@@ -731,7 +733,11 @@ describe('no crossfade on a page that can’t run the decks', () => {
         await new Promise((r) => setTimeout(r, 300));
       });
       expect(document.querySelector('[data-automix-gap]')).not.toBeNull();
-      expect(screen.queryByRole('button', { name: /^How .+ goes into/ })).toBeNull();
+      // a blend needs the decks: the chip says it plays straight on, and why
+      const chip = await screen.findByRole('button', {
+        name: /^How Night Ferry goes into Static Bloom: Straight on/,
+      });
+      expect(chip.parentElement).toHaveTextContent('blends need https or localhost');
       expect(document.body.textContent).not.toMatch(/crossfad/i);
       await waitFor(() =>
         expect(window.SoulSyncAutomix?.view().mixNowWhy).toBe('Auto mix needs SYNCHRO.S on https'),
@@ -756,5 +762,73 @@ describe('no crossfade: the stored setting moves on (Ross, 27 October)', () => {
     localStorage.setItem('soulsync-between-tracks', 'dj');
     expect(readPrefs().between).toBe('dj');
     expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
+  });
+});
+
+describe('[review] Mix automatically is gone: said once to whoever had it off', () => {
+  it("migrates once, says so in Up next's head with Off and Dismiss, and never again", async () => {
+    localStorage.removeItem('soulsync-dj-auto-migrated');
+    localStorage.removeItem('soulsync-dj-auto-gone');
+    localStorage.setItem('soulsync-dj-auto', '0');
+    refreshPrefs();
+    expect(localStorage.getItem('soulsync-dj-auto')).toBe('1');
+    expect(localStorage.getItem('soulsync-dj-auto-migrated')).toBe('1');
+    mount();
+    const notice = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-automix-auto-gone]');
+      if (!el) throw new Error('not yet');
+      return el;
+    });
+    expect(notice).toHaveTextContent(
+      'Mix automatically is gone: Auto mix now mixes every pair. Choose Off to play tracks straight on.',
+    );
+    fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }));
+    await waitFor(() => expect(document.querySelector('[data-automix-auto-gone]')).toBeNull());
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
+    // something writing the old 0 again later isn't migrated a second time
+    localStorage.setItem('soulsync-dj-auto', '0');
+    refreshPrefs();
+    expect(readPrefs().autoGone).toBe(false);
+  });
+
+  it('Off from the notice turns Auto mix off and closes it', async () => {
+    localStorage.removeItem('soulsync-dj-auto-migrated');
+    localStorage.setItem('soulsync-dj-auto', '0');
+    refreshPrefs();
+    mount();
+    const notice = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-automix-auto-gone]');
+      if (!el) throw new Error('not yet');
+      return el;
+    });
+    fireEvent.click(within(notice).getByRole('button', { name: 'Off' }));
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('off');
+    expect(localStorage.getItem('soulsync-dj-auto-gone')).toBe('0');
+  });
+});
+
+describe('[review] the countdown of an echo out placed by time counts seconds, not bars', () => {
+  it('says "in 12 s" where there are no bars to count', () => {
+    const echo = {
+      status: 'ok',
+      style: 'echo_out',
+      bars: 4,
+      fallback: { kind: 'echo_out', code: 'no_beat', reason: 'Sand Script has no steady beat' },
+      out: { start: 120, bar: null },
+      in: { start: 0.2, bar: 0 },
+    };
+    const v = view({
+      stage: 'planned',
+      transition: null,
+      lanes: null,
+      barsToGo: 6,
+      inSeconds: 11.4,
+      plan: echo,
+    });
+    expect(countWords(v)).toBe('12 s');
+    render(<BarStatus view={v} actions={actions} />);
+    expect(screen.getByText('Mixing into Static Bloom in 12 s…')).toBeTruthy();
+    expect(liveWords('counting:2', v)).toBe('Mixing into Static Bloom in 12 s');
+    expect(countWords(view({ stage: 'counting', barsToGo: 6 }))).toBe('6 bars');
   });
 });

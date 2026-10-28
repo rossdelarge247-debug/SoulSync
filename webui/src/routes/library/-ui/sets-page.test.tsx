@@ -4,9 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { refreshPrefs } from '@/features/automix/prefs';
+import { saveTransitionToDraft } from '@/features/automix/set-play';
 import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { resetMixesForTests } from '@/features/dj/mixes-store';
-import { resetDraftsForTests } from '@/features/sets/draft-store';
+import { readDraft, resetDraftsForTests, writeDraft } from '@/features/sets/draft-store';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
@@ -865,5 +866,31 @@ describe('a set’s page beyond 22c (28e, 28g)', () => {
       'Move…',
       'Remove from set',
     ]);
+  });
+});
+
+describe("[review M2] 319: a chip saved to the draft from Up next survives the draft's next edit", () => {
+  it("the editor takes the draft's new transitions in before it writes again", async () => {
+    const base = { artist: 'Tidewater', state: 'owned' as const, want: 'yours' as const };
+    writeDraft(2, {
+      name: 'Draft',
+      kind: 'hand',
+      rows: [
+        { ...base, track_id: '1', title: 'Night Ferry' },
+        { ...base, track_id: '2', title: 'Static Bloom' },
+      ],
+    });
+    renderPage('/library?view=sets&set=draft');
+    await screen.findByText('Draft · not saved');
+    const name = await screen.findByDisplayValue('Draft');
+    // Up next, with the draft played as a mix: "Save it to Draft too?" → Save
+    act(() => saveTransitionToDraft(2, '1', '2', { style: 'echo_out', bars: 4 }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    // then an edit here
+    fireEvent.change(name, { target: { value: 'Draft two' } });
+    await waitFor(() => expect(readDraft(2)?.name).toBe('Draft two'));
+    expect(readDraft(2)?.rows[0].transition).toEqual({ style: 'echo_out', bars: 4 });
   });
 });

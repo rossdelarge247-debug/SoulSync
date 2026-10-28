@@ -239,3 +239,18 @@ describe("302's fallback words (Design, 27 October; no crossfade)", () => {
     );
   });
 });
+
+describe('[review M3] a cut on an unsure one', () => {
+  it('keeps the amber chip and says "Not sure where the bars start" first', () => {
+    const p = plan({
+      status: 'cut',
+      style: 'cut',
+      bars: null,
+      unsure_bars: true,
+      fallback: { kind: 'cut', code: 'tempo_gap', reason: 'the tempos are 12.9% apart' },
+    });
+    expect(chipWhy(p, AUTO_CHOICE, 'x')).toBe(
+      "Not sure where the bars start · couldn't beat-match: the tempos are 12.9% apart",
+    );
+  });
+});

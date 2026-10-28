@@ -13,8 +13,9 @@
  *   step (320, UX-21): "Auto mix is off: tracks play straight on · Turn it on".
  *
  * Where the browser can't run the decks (plain http on another computer's
- * address: 312) Auto mix is disabled with "Needs https or localhost" in
- * each place.
+ * address: 312) Auto mix is still a choice, since a cut on the phrase needs
+ * no decks, and each place says what it does there: "Cuts and straight on
+ * only here · blends need https or localhost" (step 2's review: one truth).
  */
 import { useId, useRef, type KeyboardEvent } from 'react';
 
@@ -23,7 +24,6 @@ import { setPrefs, usePrefs, type BetweenTracks, type Lean } from './prefs';
 import { mixSupport, mixSupportShort } from './support';
 
 /** 312's short words, wherever Auto mix is disabled for want of a secure page. */
-export const NEEDS_HTTPS = 'Needs https or localhost'; // mixSupportShort's words for a page that isn't secure
 
 const CARDS: { value: BetweenTracks; title: string; line: string }[] = [
   {
@@ -69,13 +69,12 @@ export function BetweenTracksSettings() {
         className={styles.cards}
         role="radiogroup"
         aria-labelledby={`${id}-head`}
-        onKeyDown={(e) =>
-          arrows(e, prefs.between, unsupported === null, (v) => refs.current[v]?.focus())
-        }
+        onKeyDown={(e) => arrows(e, prefs.between, true, (v) => refs.current[v]?.focus())}
       >
         {CARDS.map((c) => {
-          // Auto mix on a page that can't run the decks: listed, with why (312)
-          const off = c.value === 'dj' && unsupported !== null;
+          // Auto mix on a page that can't run the decks (312): still a choice,
+          // since a cut on the phrase needs no decks; its sentence says so
+          const limited = c.value === 'dj' && unsupported !== null;
           const checked = prefs.between === c.value;
           return (
             <button
@@ -86,16 +85,14 @@ export function BetweenTracksSettings() {
               type="button"
               role="radio"
               aria-checked={checked}
-              aria-disabled={off ? 'true' : undefined}
               tabIndex={checked ? 0 : -1}
-              title={off ? (unsupported ?? undefined) : undefined}
+              title={limited ? (unsupported ?? undefined) : undefined}
               className={styles.card}
-              data-unavailable={off ? '' : undefined}
               data-between={c.value}
-              onClick={off ? undefined : () => setPrefs({ between: c.value })}
+              onClick={() => setPrefs({ between: c.value })}
             >
               <strong>{c.title}</strong>
-              <small>{off ? mixSupportShort(unsupported) : c.line}</small>
+              <small>{limited ? `${mixSupportShort(unsupported)}.` : c.line}</small>
             </button>
           );
         })}
@@ -137,8 +134,7 @@ export function BetweenTracksSettings() {
 
 /**
  * The same choice, small (33e): Off · Auto mix as a two-way segmented
- * control. Disabled with "Needs https or localhost" where the decks can't
- * run (312).
+ * control. Where the decks can't run (312) it says what Auto mix does there.
  */
 export function BetweenTracksSwitch({
   label = 'Between tracks',
@@ -175,12 +171,9 @@ export function BetweenTracksSwitch({
         aria-label={showLabel ? undefined : label}
         aria-labelledby={showLabel ? `${id}-label` : undefined}
         aria-describedby={unsupported ? `${id}-why` : undefined}
-        onKeyDown={(e) =>
-          arrows(e, prefs.between, unsupported === null, (v) => refs.current[v]?.focus())
-        }
+        onKeyDown={(e) => arrows(e, prefs.between, true, (v) => refs.current[v]?.focus())}
       >
         {options.map((o) => {
-          const off = o.value === 'dj' && unsupported !== null;
           const checked = prefs.between === o.value;
           return (
             <button
@@ -191,12 +184,10 @@ export function BetweenTracksSwitch({
               type="button"
               role="radio"
               aria-checked={checked}
-              aria-disabled={off ? 'true' : undefined}
               tabIndex={checked ? 0 : -1}
-              title={off ? (unsupported ?? undefined) : undefined}
               className={styles.segment}
               data-between={o.value}
-              onClick={off ? undefined : () => setPrefs({ between: o.value })}
+              onClick={() => setPrefs({ between: o.value })}
             >
               {o.title}
             </button>
@@ -216,32 +207,50 @@ export function BetweenTracksSwitch({
  * Off, said once at the head of a list (Up next's, a set's), never per step
  * (320, UX-21): "Auto mix is off: tracks play straight on · Turn it on".
  */
-export function AutoMixOffLine({
-  className,
-  besideSwitch = false,
-}: {
-  className?: string;
-  /** under the small control, which says "Needs https or localhost" already */
-  besideSwitch?: boolean;
-}) {
+export function AutoMixOffLine({ className }: { className?: string }) {
   const prefs = usePrefs();
-  const unsupported = mixSupport();
   if (prefs.between === 'dj') return null;
   return (
     <p className={[styles.offLine, className].filter(Boolean).join(' ')} data-automix-off="">
       Auto mix is off: tracks play straight on
-      {unsupported && besideSwitch ? null : ' · '}
-      {unsupported && besideSwitch ? null : unsupported ? (
-        <span title={unsupported}>{mixSupportShort(unsupported)}</span>
-      ) : (
-        <button
-          type="button"
-          className={styles.textButton}
-          onClick={() => setPrefs({ between: 'dj' })}
-        >
-          Turn it on
-        </button>
-      )}
+      {' · '}
+      <button
+        type="button"
+        className={styles.textButton}
+        onClick={() => setPrefs({ between: 'dj' })}
+      >
+        Turn it on
+      </button>
+    </p>
+  );
+}
+
+/**
+ * Once, for someone who had 26h's "Mix automatically" off (step 2's review):
+ * it's gone, and Auto mix now mixes every pair. Off, or dismiss.
+ */
+export function AutoGoneNotice() {
+  const prefs = usePrefs();
+  if (!prefs.autoGone || prefs.between !== 'dj') return null;
+  return (
+    <p className={styles.offLine} data-automix-auto-gone="" role="note">
+      Mix automatically is gone: Auto mix now mixes every pair. Choose Off to play tracks straight
+      on.{' '}
+      <button
+        type="button"
+        className={styles.textButton}
+        onClick={() => setPrefs({ between: 'off', autoGone: false })}
+      >
+        Off
+      </button>
+      {' · '}
+      <button
+        type="button"
+        className={styles.textButton}
+        onClick={() => setPrefs({ autoGone: false })}
+      >
+        Dismiss
+      </button>
     </p>
   );
 }

@@ -66,7 +66,7 @@ export function MobileTrackActions({
               <span className="popover-icon">▶</span>Play
             </button>
             <button type="button" onClick={run(onQueue)}>
-              <span className="popover-icon">+</span>Add to Queue
+              <span className="popover-icon">+</span>Add to Up next
             </button>
           </>
         ) : null}

@@ -216,7 +216,9 @@ export function BrowserInfo({
             </div>
             <p className={styles.compactDetail}>
               {why
-                ? 'Auto mix needs SYNCHRO.S on https, or opened on its own computer (localhost). Over plain http from another computer, tracks play straight on. Settings → Connections says how.'
+                ? /https/.test(why)
+                  ? 'Over plain http from another computer, Auto mix can only cut on the phrase or play straight on: its blends and echo outs need SYNCHRO.S on https, or opened on its own computer (localhost). Settings → Connections says how.'
+                  : "This browser can't run Auto mix's decks, so Auto mix can only cut on the phrase or play straight on here. A current Chrome, Edge, Firefox or Safari can."
                 : 'Auto mix can run in this browser: SYNCHRO.S is on https here, or open on its own computer.'}
             </p>
           </div>

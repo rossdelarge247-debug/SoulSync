@@ -611,10 +611,15 @@ describe('Mix now', () => {
     expect(v.barsToGo).toBeGreaterThan(0);
   });
 
-  it('a cut plan cuts now; a pair that plays on has nothing to mix (never a crossfade)', async () => {
+  it('a cut plan with no grid to trust cuts now; a pair that plays on has nothing to mix (never a crossfade)', async () => {
     const h = harness({ plan: cutPlan() });
+    h.grids.mockImplementation(async () => ({
+      '1': { track_id: '1', analyzed: false, reason: 'no_beat' },
+      '2': apiGrid('2', GB, -10),
+    }));
     await at(h, 30);
     expect(h.ctl.mixNow()).toBe(true);
+    await flush();
     await vi.advanceTimersByTimeAsync(10);
     expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
     const on = harness({ plan: playOnPlan() });
@@ -1141,5 +1146,97 @@ describe('step 2 of 28 October: 283, 302, 314, 316, 317', () => {
     // the outgoing window around now + the lead (6 s), not around the end
     expect(firstWindow[1]).toBe('1');
     expect(firstWindow[2]).toBeLessThan(110);
+  });
+});
+
+describe("step 2's Gauntlet review (the reviewer's cut.probe.test.ts, as tests)", () => {
+  it('[review H1] a cut plan that arrives past its cut point never cuts at once: straight on', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    // a track just added to Up next while this one is in its tail
+    h.el.advance(280);
+    h.ctl.poke();
+    await flush();
+    h.ctl.poke();
+    await flush();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    expect(h.ctl.getView().barsToGo).toBeNull();
+  });
+
+  it('[review H1] a seek past the cut point plays on; a seek back before it arms it again', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 100);
+    h.el.currentTime = 270;
+    h.ctl.poke();
+    await flush();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    h.el.currentTime = 200;
+    await at(h, 249);
+    h.el.advance(250);
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+  });
+
+  it('[review H1] a cut already set when the listener seeks past it lets it go', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 249);
+    h.el.advance(270);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+  });
+
+  it("[review M1] an echo out by time sits a second before the element's own end, not the library's", async () => {
+    const plan = okPlan({
+      style: 'echo_out',
+      label: 'Echo out',
+      bars: 4,
+      beatmatch: false,
+      fallback: { kind: 'echo_out', code: 'no_beat', reason: 'Night Ferry has no steady beat' },
+      out: { start: 99, bar: null, end: 99, end_bar: null },
+      in: { start: 0.2, bar: 0 },
+    });
+    const h = harness({ plan });
+    h.grids.mockImplementation(async () => ({
+      '1': { track_id: '1', analyzed: false, reason: 'no_beat' },
+      '2': apiGrid('2', GB, -10),
+    }));
+    h.el.duration = 121;
+    await at(h, 60);
+    expect(h.ctl.getView().outStart).toBeCloseTo(120, 3);
+    for (const t of [80, 100, 110, 116, 117]) await at(h, t);
+    expect(engine.inputs[0]?.plan.out.start).toBeCloseTo(120, 3);
+  });
+
+  it('[review] Mix now on a cut plan cuts on the next phrase line ahead, counted down, not at once', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 100);
+    expect(h.ctl.mixNow()).toBe(true);
+    await flush();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    const v = h.ctl.getView();
+    expect(v.outStart).toBeGreaterThan(100);
+    expect(v.barsToGo).not.toBeNull();
+    // it lands on a phrase line of the outgoing grid
+    const next = GA.barTime(Math.ceil((GA.beatAt(103) - 0) / 4 / 8) * 8);
+    expect(v.outStart).toBeCloseTo(next, 2);
+    await at(h, next - 0.5);
+    h.el.advance(next + 0.01);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+  });
+
+  it('[review] Mix now on a cut plan without a grid to trust cuts now, as before', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    h.grids.mockImplementation(async () => ({
+      '1': { track_id: '1', analyzed: false, reason: 'no_beat' },
+      '2': apiGrid('2', GB, -10),
+    }));
+    await at(h, 100);
+    h.ctl.mixNow();
+    await flush();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
   });
 });

@@ -32,6 +32,8 @@ export interface AutomixPrefs {
   auto: boolean;
   lean: Lean;
   keyLock: boolean;
+  /** "Mix automatically" was off before 33e took it away: say so once (review) */
+  autoGone?: boolean;
 }
 
 export const BETWEEN_KEY = 'soulsync-between-tracks';
@@ -39,6 +41,10 @@ export const AUTO_KEY = 'soulsync-dj-auto';
 export const LEAN_KEY = 'soulsync-dj-lean';
 export const CROSSFADE_KEY = 'soulsync-crossfade';
 export const KEYLOCK_KEY = 'soulsync-dj-keylock';
+/** the 33e migration ran (once per browser) */
+export const AUTO_MIGRATED_KEY = 'soulsync-dj-auto-migrated';
+/** its notice is still to be read: "Mix automatically is gone…" */
+export const AUTO_GONE_KEY = 'soulsync-dj-auto-gone';
 
 /** This browser's storage, or none where reading it throws (blocked site data). */
 function store(): Storage | null {
@@ -74,8 +80,15 @@ export function migratePrefs(): void {
   const b = read(BETWEEN_KEY);
   if (b !== null && b !== 'off' && b !== 'dj') write(BETWEEN_KEY, 'off');
   if (read(CROSSFADE_KEY) === '1') write(CROSSFADE_KEY, '0');
-  // 26h's "Mix automatically" is gone (33e): Auto mix mixes by itself
-  if (read(AUTO_KEY) === '0') write(AUTO_KEY, '1');
+  // 26h's "Mix automatically" is gone (33e): Auto mix mixes by itself. Once
+  // per browser; someone who had it off is told so in Up next's head
+  if (read(AUTO_MIGRATED_KEY) !== '1') {
+    if (read(AUTO_KEY) === '0') {
+      write(AUTO_KEY, '1');
+      write(AUTO_GONE_KEY, '1');
+    }
+    write(AUTO_MIGRATED_KEY, '1');
+  }
 }
 
 export function readPrefs(): AutomixPrefs {
@@ -87,6 +100,7 @@ export function readPrefs(): AutomixPrefs {
     auto: read(AUTO_KEY) !== '0',
     lean: l === 'long' || l === 'short' ? l : 'auto',
     keyLock: read(KEYLOCK_KEY) === '1',
+    autoGone: read(AUTO_GONE_KEY) === '1',
   };
 }
 
@@ -111,6 +125,7 @@ export function setPrefs(patch: Partial<AutomixPrefs>): void {
   if (patch.auto !== undefined) write(AUTO_KEY, patch.auto ? '1' : '0');
   if (patch.lean) write(LEAN_KEY, patch.lean);
   if (patch.keyLock !== undefined) write(KEYLOCK_KEY, patch.keyLock ? '1' : '0');
+  if (patch.autoGone === false) write(AUTO_GONE_KEY, '0');
   snapshot = next;
   for (const fn of listeners) fn();
   // Up next's chips come and go with Auto mix
@@ -124,7 +139,8 @@ export function refreshPrefs(): void {
     next.between === snapshot.between &&
     next.auto === snapshot.auto &&
     next.lean === snapshot.lean &&
-    next.keyLock === snapshot.keyLock
+    next.keyLock === snapshot.keyLock &&
+    next.autoGone === snapshot.autoGone
   )
     return;
   snapshot = next;

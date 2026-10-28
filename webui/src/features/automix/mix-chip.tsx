@@ -47,7 +47,7 @@ import {
 
 export type ChipLive =
   | { kind: 'mixing'; words: string }
-  | { kind: 'counting'; bars: number; onCancel: () => void };
+  | { kind: 'counting'; bars: number; words?: string; onCancel: () => void };
 
 export interface TransitionChipProps {
   transition: Transition | null | undefined;
@@ -130,7 +130,9 @@ export function TransitionChip({
   };
   if (live) {
     const words =
-      live.kind === 'mixing' ? 'Mixing now' : `In ${live.bars} bar${live.bars === 1 ? '' : 's'}`;
+      live.kind === 'mixing'
+        ? 'Mixing now'
+        : `In ${live.words ?? `${live.bars} bar${live.bars === 1 ? '' : 's'}`}`;
     return (
       <span className={sets.chipWrap} data-live={live.kind}>
         {/* visual only: LiveWords says each state once (UX-15) */}
@@ -151,9 +153,17 @@ export function TransitionChip({
   // a quiet play-on (an album in its order, a page that can't run the
   // decks): Up next shows no chip; 302's "plays straight on" names itself;
   // a set's chip keeps its own choice
-  if (plan?.status === 'play_on' && floating && !fallbackOf(plan)) return null;
+  if (
+    plan?.status === 'play_on' &&
+    floating &&
+    !fallbackOf(plan) &&
+    plan.fallback?.code !== 'unsupported'
+  )
+    return null;
   const words =
-    plan && (plan.status !== 'play_on' || fallbackOf(plan)) ? planWords(plan, t) : chipWords(t);
+    plan && (plan.status !== 'play_on' || fallbackOf(plan) || plan.fallback?.code === 'unsupported')
+      ? planWords(plan, t)
+      : chipWords(t);
   const who = whoChose(t);
   // the track it waits for is in line or being worked out: its bar shows
   const inLine = pending(progress) && (progress?.state !== 'waiting' || progress.position !== null);

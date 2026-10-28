@@ -943,6 +943,31 @@ export function SetEditor({
   const flushRef = useRef(flush);
   flushRef.current = flush;
 
+  // 319 (step 2's review M2): a chip saved to this draft from Up next
+  // ("Save it to … too?") is written to the draft in this browser while the
+  // page is open; take its transitions in, so the next edit here doesn't
+  // write the old ones back. Only rows still the same track at the same place.
+  const written = useRef<string>(JSON.stringify(initial.rows));
+  const externalRows = source.kind === 'draft' ? source.draft.rows : null;
+  useEffect(() => {
+    if (!externalRows) return;
+    const theirs = JSON.stringify(externalRows);
+    if (theirs === written.current) return;
+    written.current = theirs;
+    setRows((mine) => {
+      let changed = false;
+      const merged = mine.map((row, i) => {
+        const other = externalRows[i];
+        if (!other || String(other.track_id ?? '') !== String(row.track_id ?? '')) return row;
+        if (JSON.stringify(other.transition ?? null) === JSON.stringify(row.transition ?? null))
+          return row;
+        changed = true;
+        return { ...row, transition: other.transition ?? null };
+      });
+      return changed ? merged : mine;
+    });
+  }, [externalRows]);
+
   // keep the draft in this browser, or save a saved set as it changes
   useEffect(() => {
     if (first.current) {
@@ -950,6 +975,7 @@ export function SetEditor({
       return;
     }
     if (source.kind === 'draft') {
+      written.current = JSON.stringify(rows);
       writeDraft(profileId, { ...source.draft, name, rows });
       return;
     }
