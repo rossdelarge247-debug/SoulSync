@@ -571,6 +571,12 @@ PRIORITY_PER_PROFILE = 200
 #: while the sweep waits (a download), it looks this often for an asked-for
 #: track, which doesn't wait
 PRIORITY_LOOK_SECONDS = 0.5
+#: why a track is in the asked-for line (Brief A, 31b; HANDOFF 325): a
+#: person asked (Analyse these, Analyse now, Analyse mine, Try again), a set
+#: (opened, or a track added to it or to the working set), Up next with Auto
+#: mix on (or a set played as a mix), the Mix tab, the lab, DJ now (Brief E),
+#: or a page that didn't say
+SOURCES = ("asked", "set", "up_next", "mix", "lab", "dj_now", "page")
 
 
 class DjAnalysisJob:
@@ -616,6 +622,14 @@ class DjAnalysisJob:
         #: the asked-for line, in order, and who asked for each track
         self._priority: List[str] = []
         self._asked_by: Dict[str, set] = {}
+        #: the line's front: tracks a person asked for themselves (Analyse
+        #: mine, Analyse now, a lab pick) go before the ones pages asked for,
+        #: so a member's own ask jumps the line (Brief A; HANDOFF 325)
+        self._front: set = set()
+        #: why each track is in line, per profile that asked: (source, set id)
+        self._why: Dict[str, Dict[int, Tuple[str, Optional[int]]]] = {}
+        #: who pressed Stop (a profile id), while it holds
+        self.held_by: Optional[int] = None
         #: the running sweep's tracks (counted in its total)
         self._queued: set = set()
         #: where the sweep is in its own order: each id's place, the next
@@ -665,11 +679,42 @@ class DjAnalysisJob:
 
     # -- the asked-for line --
 
-    def _enqueue_locked(self, ids: List[str], profile_id: Optional[int], limit: Optional[int]) -> Dict[str, Any]:
+    def _clear_line_locked(self) -> None:
+        self._priority.clear()
+        self._asked_by.clear()
+        self._front.clear()
+        self._why.clear()
+
+    def _front_end_locked(self) -> int:
+        """Where the front ends: the first track pages asked for."""
+        for i, t in enumerate(self._priority):
+            if t not in self._front:
+                return i
+        return len(self._priority)
+
+    def _to_front_locked(self, track_id: str, *, very_front: bool = False) -> bool:
+        """Move a track in line to the end of the front (a person's own ask),
+        or to the very front (an admin's Move up). True when it moved."""
+        if track_id not in self._asked_by:
+            return False
+        if track_id in self._front and not very_front:
+            return False
+        before = self._priority.index(track_id)
+        self._priority.remove(track_id)
+        self._front.add(track_id)
+        place = 0 if very_front else self._front_end_locked()
+        self._priority.insert(place, track_id)
+        return place != before
+
+    def _enqueue_locked(self, ids: List[str], profile_id: Optional[int], limit: Optional[int], *,
+                        explicit: bool = False, source: Optional[str] = None,
+                        set_id: Optional[int] = None) -> Dict[str, Any]:
         """Add ``ids`` to the asked-for line (the lock is held). A track
-        already in it keeps its place; one this profile has no room for is
-        ``over``."""
+        already in it keeps its place, unless a person asks for it themselves
+        (``explicit``): then it joins the front. One this profile has no room
+        for is ``over``."""
         pid = int(profile_id) if profile_id is not None else 0
+        why = (source if source in SOURCES else ("asked" if explicit else "page"), set_id)
         mine = sum(1 for t in self._priority if pid in self._asked_by.get(t, ()))
         added: List[str] = []
         already = 0
@@ -694,6 +739,10 @@ class DjAnalysisJob:
             asked = self._asked_by.get(track_id)
             if asked is not None and pid in asked:
                 already += 1
+                if explicit:
+                    # asked again by a person: it jumps to the front, and says so
+                    self._to_front_locked(track_id)
+                    self._why.setdefault(track_id, {})[pid] = why
                 continue
             if limit is not None and mine >= limit:
                 over += 1
@@ -701,10 +750,18 @@ class DjAnalysisJob:
             mine += 1
             if asked is not None:
                 asked.add(pid)
+                self._why.setdefault(track_id, {})[pid] = why
+                if explicit:
+                    self._to_front_locked(track_id)
                 already += 1
                 continue
-            self._priority.append(track_id)
+            if explicit:
+                self._priority.insert(self._front_end_locked(), track_id)
+                self._front.add(track_id)
+            else:
+                self._priority.append(track_id)
             self._asked_by[track_id] = {pid}
+            self._why[track_id] = {pid: why}
             added.append(track_id)
             if running and track_id not in self._queued:
                 self._queued.add(track_id)
@@ -712,31 +769,51 @@ class DjAnalysisJob:
         return {"added": added, "already": already, "over": over, "yours": mine, "taken": taken}
 
     def prioritise(self, track_id: str, profile_id: Optional[int] = None) -> bool:
-        """"Analyse it now" while a sweep runs: the track goes next. False
-        when no sweep runs (start one with ``first`` instead)."""
+        """"Analyse it now" or Move up (an admin's) while a sweep runs: the
+        track goes next, before everything else in line. False when no sweep
+        runs (start one with ``first`` instead)."""
         track_id = str(track_id)
         with self._lock:
             if not self._state or self._state.get("status") != "running":
                 return False
+            if track_id not in self._asked_by:
+                self._enqueue_locked([track_id], profile_id, None, explicit=True)
             if track_id in self._asked_by:
-                return True
-            self._enqueue_locked([track_id], profile_id, None)
+                self._to_front_locked(track_id, very_front=True)
             return True
 
+    def promote(self, profile_id: int) -> Dict[str, int]:
+        """Analyse mine: every track this profile asked for joins the front,
+        in the order they were asked. ``{moved, yours}``."""
+        pid = int(profile_id)
+        moved = 0
+        with self._lock:
+            mine = [t for t in self._priority if pid in self._asked_by.get(t, ())]
+            for track_id in mine:
+                if track_id not in self._front:
+                    self._to_front_locked(track_id)
+                    self._why.setdefault(track_id, {})[pid] = ("asked", None)
+                    moved += 1
+            return {"moved": moved, "yours": len(mine)}
+
     def ask(self, database, ids: List[str], profile_id: int, *,
-            limit: int = PRIORITY_PER_PROFILE, explicit: bool = True) -> Dict[str, Any]:
+            limit: int = PRIORITY_PER_PROFILE, explicit: bool = True, source: Optional[str] = None,
+            set_id: Optional[int] = None) -> Dict[str, Any]:
         """Analyse on demand: ``ids`` (tracks that need analysis, already
         checked to be in the caller's library) go in the asked-for line, and a
         sweep starts for them when none runs. ``{added, already, over,
         yours, limit, started, taken}``. While a person's Stop holds the
         sweeps, only a person's own ask (``explicit``: "Analyse these", a
         lab pick, Analyse now) goes in; an automatic one (a page asking for
-        what it shows) raises ``Held``."""
+        what it shows) raises ``Held``. A person's own ask goes to the front
+        of the line, before what pages asked for; ``source`` and ``set_id``
+        say why each track is there (``SOURCES``)."""
         clean = list(dict.fromkeys(str(i) for i in ids if i not in (None, "")))
         with self._lock:
             if self.held and not explicit:
                 raise Held("Analysis is stopped: automatic asks wait for a Start.")
-            result = self._enqueue_locked(clean, profile_id, limit)
+            result = self._enqueue_locked(clean, profile_id, limit, explicit=explicit, source=source,
+                                          set_id=set_id)
             running = bool(self._state and self._state.get("status") == "running")
             want_start = bool(self._priority) and not running
         started = False
@@ -765,7 +842,15 @@ class DjAnalysisJob:
                         places[track_id] = (in_line + pos - self._index + 1, False)
             pid = int(profile_id) if profile_id is not None else None
             yours = sum(1 for t in self._priority if pid in self._asked_by.get(t, ())) if pid is not None else 0
-            return {"live": live, "places": places, "in_line": in_line, "yours": yours, "held": self.held}
+            # the line in order, with who asked and why (the progress route
+            # decides what each caller may see of it)
+            line = [(t, t in self._front, dict(self._why.get(t) or {})) for t in self._priority]
+            left = 0
+            if live is not None:
+                finished = sum(int(live.get(k) or 0) for k in ("done", "failed", "unreachable", "skipped"))
+                left = max(0, int(live.get("total") or 0) - finished - in_line - (1 if live.get("current") else 0))
+            return {"live": live, "places": places, "in_line": in_line, "yours": yours, "held": self.held,
+                    "held_by": self.held_by if self.held else None, "line": line, "left": left}
 
     def _next(self, ids: List[str], *, peek: bool = False) -> Optional[Tuple[str, bool]]:
         """The next track: the asked-for line first, then the sweep's order,
@@ -778,11 +863,15 @@ class DjAnalysisJob:
                 if first in self._seen:
                     self._priority.pop(0)
                     self._asked_by.pop(first, None)
+                    self._front.discard(first)
+                    self._why.pop(first, None)
                     continue
                 if not peek:
                     self._priority.pop(0)
                     self._seen.add(first)
                     self._asked_by.pop(first, None)
+                    self._front.discard(first)
+                    self._why.pop(first, None)
                     self._taking_locked(first)
                 return first, True
             while self._index < len(ids):
@@ -859,6 +948,7 @@ class DjAnalysisJob:
                 return None
             if manual:
                 self.held = False
+                self.held_by = None
             if first is not None and str(first) in ids:
                 ids.remove(str(first))
                 ids.insert(0, str(first))
@@ -897,15 +987,16 @@ class DjAnalysisJob:
             self._run(database, ids)
         return state
 
-    def stop(self, *, by_person: bool = True) -> bool:
+    def stop(self, *, by_person: bool = True, profile_id: Optional[int] = None) -> bool:
         with self._lock:
             if not self._state or self._state.get("status") != "running":
                 return False
             if by_person:
                 self.held = True
+                # who stopped it, for "Analysis stopped by Ross" (31a, state 7)
+                self.held_by = int(profile_id) if profile_id is not None else None
                 # Stop means stop: the asked-for line goes too
-                self._priority.clear()
-                self._asked_by.clear()
+                self._clear_line_locked()
         self._stop.set()
         return True
 
@@ -999,7 +1090,13 @@ class DjAnalysisJob:
         return False
 
     def _on_step(self, mode: str, step: str) -> None:
-        self._update(step=step, step_mode=mode)
+        # when each step started, for the popover's times (31b; HANDOFF 326):
+        # one clock read a step, six or seven a track
+        at = time.monotonic()
+        with self._lock:
+            if self._state is not None:
+                self._state.update(step=step, step_mode=mode,
+                                   steps=list(self._state.get("steps") or []) + [(step, at)])
 
     def _run(self, database, ids: List[str]) -> None:
         from core.dj import progress
@@ -1024,8 +1121,9 @@ class DjAnalysisJob:
                     break
                 track_id, asked_for = found
                 prefs = self._settings()
-                self._update(current=track_id, step=None, step_mode=None, asked_for=asked_for)
                 started = time.monotonic()
+                self._update(current=track_id, step=None, step_mode=None, asked_for=asked_for, steps=[],
+                             track_started=started)
                 self._in_track.set()
                 try:
                     with progress.reporting(self._on_step):
@@ -1059,7 +1157,7 @@ class DjAnalysisJob:
                     # goes by in moments instead of half a second each (review M1)
                     self._bump("done")
                     self._bump("grids_waiting")
-                    self._update(current=None, step=None, step_mode=None)
+                    self._update(current=None, step=None, step_mode=None, steps=[])
                     continue
                 elif outcome in ("done", "tagged"):
                     errors_in_a_row = 0
@@ -1080,7 +1178,7 @@ class DjAnalysisJob:
                         status, note = "failed", f"{MAX_ERRORS_IN_A_ROW} tracks in a row couldn't be analysed"
                         break
                 # the track is finished: nothing is "working" through the rest
-                self._update(current=None, step=None, step_mode=None, asked_for=False)
+                self._update(current=None, step=None, step_mode=None, asked_for=False, steps=[])
                 self._save(database)
                 if self._stop.wait(max(self._sleep_floor, took * self._rest_factor)):
                     status = "stopped"
@@ -1109,8 +1207,7 @@ class DjAnalysisJob:
                 # kept waiting for a sweep that won't come. A person's Stop
                 # emptied it already, and what a person asked for since (an
                 # automatic ask is refused while held) runs next (re-review 4)
-                self._priority.clear()
-                self._asked_by.clear()
+                self._clear_line_locked()
             # this run's own end, saved below even if a request lands meanwhile:
             # no new run starts until it's saved (``_tail``; review L1)
             final_state = dict(self._state or {})
@@ -1145,10 +1242,25 @@ JOB = DjAnalysisJob()
 
 _scheduler: Optional[threading.Thread] = None
 _scheduler_stop = threading.Event()
+#: when the scheduler looks next (wall clock), for "next sweep in about
+#: 25 min" (31a, state 3); None while no scheduler runs
+_next_sweep_at: Optional[float] = None
+
+
+def next_sweep_in(now: Optional[float] = None) -> Optional[int]:
+    """Seconds until the scheduler next starts a sweep, or None when it
+    won't (no scheduler, or a Stop holds the sweeps)."""
+    at = _next_sweep_at
+    if at is None or JOB.held or _scheduler is None or not _scheduler.is_alive():
+        return None
+    return max(0, int(round(at - (time.time() if now is None else now))))
 
 
 def _scheduler_loop(get_database: Callable[[], Any], first_delay: float, interval: float) -> None:
+    global _next_sweep_at
+    _next_sweep_at = time.time() + first_delay
     if _scheduler_stop.wait(first_delay):
+        _next_sweep_at = None
         return
     while not _scheduler_stop.is_set():
         try:
@@ -1158,7 +1270,9 @@ def _scheduler_loop(get_database: Callable[[], Any], first_delay: float, interva
             pass
         except Exception as exc:  # noqa: BLE001 - try again next interval
             logger.warning("couldn't start the DJ analysis sweep: %s", exc)
+        _next_sweep_at = time.time() + interval
         if _scheduler_stop.wait(interval):
+            _next_sweep_at = None
             return
 
 
@@ -1224,7 +1338,7 @@ def grid_note(note: Optional[str]) -> Tuple[int, bool]:
     return int(m.group(2)), m.group(1) == GRIDS_PAUSED
 
 
-__all__ = ["DECODE_SECONDS", "GRIDS_NOTE", "GRIDS_PAUSED", "JOB", "MAX_GRID_ERRORS_IN_A_ROW", "grid_note",
+__all__ = ["DECODE_SECONDS", "GRIDS_NOTE", "GRIDS_PAUSED", "JOB", "SOURCES", "next_sweep_in", "MAX_GRID_ERRORS_IN_A_ROW", "grid_note",
            "JobRunning", "KIND", "MAX_BYTES", "MAX_SECONDS", "DjAnalysisJob", "busy_reason",
            "library_away", "library_roots", "process_track", "public_state", "register_busy", "settings_state",
            "start_scheduler", "stop_scheduler", "write_allowed"]

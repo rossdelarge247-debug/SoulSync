@@ -284,6 +284,8 @@ def test_analyse_it_now_starts_with_that_track(client, db, monkeypatch):
 
 
 def test_a_track_asked_for_while_a_sweep_runs_goes_next():
+    """Analyse it now, or an admin's Move up (31a, state 4): the track goes
+    next, before everything else in line, the last one asked first."""
     job = worker.DjAnalysisJob(busy=lambda d: None, away=lambda: False)
     assert job.prioritise("c") is False  # nothing runs: start with first= instead
     job._state = {"status": "running", "total": 3}
@@ -291,4 +293,4 @@ def test_a_track_asked_for_while_a_sweep_runs_goes_next():
     assert job.prioritise("c") is True and job.prioritise("c") is True
     assert job._state["total"] == 3  # already in the sweep: counted once
     assert job.prioritise("z") is True and job._state["total"] == 4
-    assert list(job._ordered(["a", "b", "c"])) == ["c", "z", "a", "b"]
+    assert list(job._ordered(["a", "b", "c"])) == ["z", "c", "a", "b"]

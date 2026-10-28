@@ -68,17 +68,25 @@ POST /api/library/dj/analyse
     [...]}`` (up to 500) or ``{playlist_id}`` (its rows matched to the
     library). Those that need analysis go in the asked-for line in front of
     the sweep (at most 200 a profile) and a sweep starts for them when none
-    runs (core/dj/ondemand.py). ``reason``: ``asked`` (a person's own ask)
-    or ``auto`` (the default: a page asking for what it shows); while a
-    person's Stop holds the sweeps an automatic ask is 409 ``held``. JSON
+    runs (core/dj/ondemand.py). ``reason``: ``asked`` (a person's own ask:
+    it goes to the front of the line, before what pages asked for) or
+    ``auto`` (the default: a page asking for what it shows); while a
+    person's Stop holds the sweeps an automatic ask is 409 ``held``.
+    ``source`` says why (``asked``, ``set`` with the caller's ``set_id``,
+    ``up_next``, ``mix``, ``lab``, ``dj_now``, ``page``), for the line's
+    words (Brief A, HANDOFF 325). ``{mine: true, reason: "asked"}`` is
+    Analyse mine: the caller's tracks already in line go to the front. JSON
     only, body at most 64 KB; one request a second a profile (429
     ``rate_limited`` with ``Retry-After``); 409 ``off`` while analysis is
     switched off.
 POST /api/library/dj/progress
-    ``{track_ids: [...]}`` (up to 500; may be empty) -> ``{tracks: {id:
-    {state, …}}, sweep}``: where each of the caller's tracks is (``done``,
-    ``queued`` with its place, ``working`` with its step and percent,
-    ``waiting`` with why, ``failed`` with why) and the sweep's own state.
+    ``{track_ids: [...], line?: true}`` (up to 500; may be empty) ->
+    ``{tracks: {id: {state, …}}, sweep}``: where each of the caller's
+    tracks is (``done``, ``queued`` with its place, ``working`` with its
+    step and percent, ``waiting`` with why, ``failed`` with why; each with
+    ``ready`` and ``bpm_key``) and the sweep's own state (with each step's
+    time for the track it's on, when the next sweep comes, who stopped it;
+    with ``line`` the line in order, as far as the caller may see it).
     JSON only, body at most 64 KB. Cheap enough to poll every second or two.
 GET  /api/library/dj/traktor/settings
     The Settings → Library → Traktor Pro 3 card (21b): the Mac path for the
@@ -231,7 +239,7 @@ def dj_start():
 def dj_stop():
     from core.dj import worker
 
-    if not worker.JOB.stop(by_person=True):
+    if not worker.JOB.stop(by_person=True, profile_id=get_current_profile_id()):
         return jsonify({"success": False, "error": "Nothing is working out BPM, key and energy right now."}), 409
     return jsonify({"success": True})
 
@@ -587,8 +595,21 @@ def dj_analyse():
     reason = body.get("reason", "auto")
     if reason not in ("asked", "auto"):
         return jsonify({"success": False, "error": "reason must be asked or auto"}), 400
+    # why the tracks are in line, for the line's words (HANDOFF 325)
+    source = body.get("source")
+    if source is not None and source not in worker.SOURCES:
+        return jsonify({"success": False, "error": "source isn't one SYNCHRO.S knows"}), 400
+    set_id = body.get("set_id")
+    if set_id is not None and (isinstance(set_id, bool) or not isinstance(set_id, int)
+                               or not 0 < set_id < 10 ** 15):
+        return jsonify({"success": False, "error": "set_id must be a set's number"}), 400
+    mine = body.get("mine") is True
+    if mine and reason != "asked":
+        return jsonify({"success": False, "error": "Analyse mine is a person's own ask"}), 400
     playlist = None
-    if "playlist_id" in body:
+    if mine:
+        ids: list = []
+    elif "playlist_id" in body:
         playlist = body.get("playlist_id")
         if isinstance(playlist, bool) or not isinstance(playlist, int) or not 0 < playlist < 10 ** 15:
             return jsonify({"success": False, "error": "playlist_id is needed"}), 400
@@ -607,6 +628,13 @@ def dj_analyse():
     if not worker.settings_state().get("analyze", True):
         return jsonify({"success": False, "code": "off",
                         "error": "Working out BPM, key and energy is off in Settings → Library."}), 409
+    if mine:
+        # Analyse mine: the caller's own tracks in line go first
+        moved = ondemand.promote(int(pid))
+        return _no_store({"success": True, "asked": 0, "queued": 0, "already_queued": moved["yours"],
+                          "already_done": 0, "cant": 0, "over_limit": 0, "limit": worker.PRIORITY_PER_PROFILE,
+                          "yours": moved["yours"], "moved": moved["moved"], "started": False,
+                          "position": None, "working": False}, 202)
     if playlist is not None:
         from core.dj import traktor
 
@@ -619,7 +647,7 @@ def dj_analyse():
             return jsonify({"success": False, "error": "Playlist not found"}), 404
         ids = list(dict.fromkeys(str(t["id"]) for t, _title, _artist in found["rows"] if t))[:ondemand.MAX_IDS]
     try:
-        result = ondemand.ask(database, ids, int(pid), explicit=reason == "asked")
+        result = ondemand.ask(database, ids, int(pid), explicit=reason == "asked", source=source, set_id=set_id)
     except worker.Held:
         return jsonify({"success": False, "code": "held",
                         "error": "Working out BPM, key and energy is stopped; ask for these to go on."}), 409
@@ -646,7 +674,8 @@ def dj_progress():
     from core.dj import ondemand
 
     try:
-        answer = ondemand.progress(get_database(), ids, int(pid))
+        answer = ondemand.progress(get_database(), ids, int(pid), admin=bool(_is_admin()),
+                                   line=body.get("line") is True)
     except Exception as exc:  # noqa: BLE001
         logger.error("DJ progress failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't read your library"}), 500

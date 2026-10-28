@@ -128,7 +128,7 @@ def test_a_member_asks_for_its_own_tracks_and_another_profiles_are_left_out(clie
     assert store.get(db, "2")["status"] == "done"
     # progress leaves another profile's track out too
     tracks = client.post("/api/library/dj/progress", json={"track_ids": ["2", "4"]}).get_json()["tracks"]
-    assert set(tracks) == {"2"} and tracks["2"] == {"state": "done"}
+    assert set(tracks) == {"2"} and tracks["2"] == {"state": "done", "ready": False, "bpm_key": True, "beat": "too_short"}
 
 
 def test_only_json_bodies_within_the_cap(client):
@@ -245,7 +245,8 @@ def test_asked_for_tracks_still_wait_for_the_library_drive(db):
         time.sleep(0.01)
     assert job.live()["waiting"] == "drive_away" and order == []
     snap = ondemand.progress(db, ["2"], 2, job=job, settings={"analyze": True})
-    assert snap["tracks"]["2"] == {"state": "waiting", "position": 1, "asked_for": True, "reason": "drive_away"}
+    assert snap["tracks"]["2"] == {"state": "waiting", "position": 1, "asked_for": True, "reason": "drive_away",
+                                   "ready": False, "bpm_key": False}
     away["away"] = False
     job.join(5)
     assert order == ["2"]
@@ -364,20 +365,27 @@ def test_progress_says_done_queued_working_waiting_and_failed(db):
     assert reached.wait(3)
     snap = ondemand.progress(db, ["1", "2", "3", "4", "5"], 2, job=job, settings={"analyze": True})
     tracks = snap["tracks"]
-    assert tracks["1"] == {"state": "done"}
-    assert tracks["2"] == {"state": "working", "step": "grid", "percent": progress.FULL["grid"]}
-    assert tracks["3"] == {"state": "queued", "position": 1, "asked_for": True}
-    assert tracks["5"] == {"state": "failed", "reason": "too_long"}
+    assert tracks["1"] == {"state": "done", "ready": False, "bpm_key": True, "beat": "too_short"}
+    assert tracks["2"] == {"state": "working", "step": "grid", "percent": progress.FULL["grid"], "mode": "full",
+                           "ready": False, "bpm_key": False}
+    assert tracks["3"] == {"state": "queued", "position": 1, "asked_for": True, "ready": False, "bpm_key": False}
+    # too long: how long it is, for "Skipped, 2 h 14 min is too long to analyse" (31a)
+    assert tracks["5"] == {"state": "failed", "reason": "too_long", "ready": False, "bpm_key": False,
+                           "duration": 240}
     assert "4" not in tracks
     sweep = snap["sweep"]
     assert sweep["running"] is True and sweep["total"] == 2 and sweep["in_line"] == 1 and sweep["yours"] == 1
-    assert sweep["current"] == {"step": "grid", "percent": 60, "asked_for": True, "track_id": "2",
-                                "title": "Static Bloom"}
+    current = dict(sweep["current"])
+    times, elapsed = current.pop("times"), current.pop("elapsed")
+    assert current == {"step": "grid", "percent": 60, "asked_for": True, "track_id": "2",
+                       "title": "Static Bloom", "artist": "Saltmarsh", "mode": "full", "now": "grid"}
+    # each finished step's time, the one it's on running (HANDOFF 326)
+    assert set(times) == {"read", "tempo"} and all(t >= 0 for t in times.values()) and elapsed >= 0
     seen["mid"] = snap
     gate.set()
     job.join(5)
     after = ondemand.progress(db, ["2", "3"], 2, job=job, settings={"analyze": True})
-    assert after["tracks"] == {"2": {"state": "done"}, "3": {"state": "done"}}
+    assert after["tracks"] == {"2": {"state": "done", "ready": False, "bpm_key": True, "beat": "too_short"}, "3": {"state": "done", "ready": False, "bpm_key": True, "beat": "too_short"}}
     assert after["sweep"]["running"] is False
 
 
