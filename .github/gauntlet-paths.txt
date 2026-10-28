@@ -124,7 +124,7 @@ core/privacy_check.py
 api/setup_check.py
 # The VPN set-up people add to their compose folder: slskd and the torrent
 # client inside Gluetun's network, its firewall as the kill switch
-docker-compose.vpn.yml
+docker-compose.vpn*.yml
 vpn.env.example
 
 ## Auth, sessions, profiles and admin gating

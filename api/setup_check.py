@@ -152,7 +152,9 @@ def save_privacy_settings():
         return refused
     if not isinstance(body, dict):
         return _no_store({"success": False, "error": "Send the settings as JSON"}, 400)
+    # everything is checked before anything is written: a 400 changes nothing
     updates = {}
+    clear_key = False
     if "gluetun_url" in body:
         raw = body.get("gluetun_url")
         url = privacy_check.clean_control_url(raw) if isinstance(raw, (str, type(None))) else None
@@ -163,27 +165,29 @@ def save_privacy_settings():
         updates[privacy_check.SETTING_URL] = url
     if "api_key" in body:
         key = body.get("api_key")
-        if not isinstance(key, str) or len(key.strip()) > 256 or any(c.isspace() or ord(c) < 33 for c in key.strip()):
+        key = key.strip() if isinstance(key, str) else None
+        if key is None or len(key) > 256 or any(not 33 <= ord(c) <= 126 for c in key):
             return _no_store({"success": False, "field": "api_key",
                               "error": "The key is the GLUETUN_API_KEY from your .env: letters and numbers, "
                                        "no spaces."}, 400)
-        key = key.strip()
         if key:
             updates[privacy_check.SETTING_KEY] = key
         else:
-            try:
-                config_manager.clear_secret(privacy_check.SETTING_KEY)
-            except KeyError:
-                pass
+            clear_key = True
     if "home_ip_lookup" in body:
         if not isinstance(body.get("home_ip_lookup"), bool):
             return _no_store({"success": False, "field": "home_ip_lookup", "error": "home_ip_lookup is true or false"},
                              400)
         updates[privacy_check.SETTING_HOME_LOOKUP] = body["home_ip_lookup"]
-        if not body["home_ip_lookup"]:
-            privacy_check.forget_home_address()
+    if clear_key:
+        try:
+            config_manager.clear_secret(privacy_check.SETTING_KEY)
+        except KeyError:
+            pass
     for key, value in updates.items():
         config_manager.set(key, value)
+    if updates.get(privacy_check.SETTING_HOME_LOOKUP) is False:
+        privacy_check.forget_home_address()
     return _no_store({"success": True, "settings": privacy_check.settings_state(setup_check.build_context())})
 
 

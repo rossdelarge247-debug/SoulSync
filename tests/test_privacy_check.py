@@ -7,7 +7,9 @@ outside the VPN, a kill switch that didn't hold) runs without a VPN.
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import time
 
 import pytest
 import requests
@@ -37,10 +39,12 @@ class FakeHttp:
     def __init__(self, routes):
         self.routes = dict(routes)
         self.calls = []
+        self.kwargs = []
 
-    def get(self, url, headers=None, params=None, timeout=None):
+    def get(self, url, headers=None, params=None, timeout=None, **kw):
         assert timeout is not None, "every request carries a timeout"
         self.calls.append((url, dict(headers or {})))
+        self.kwargs.append(kw)
         for prefix, value in self.routes.items():
             if url == prefix:
                 if isinstance(value, BaseException):
@@ -75,7 +79,11 @@ SAME_HOST = {"gluetun": ["172.20.0.5"], "slskd": ["172.20.0.5"], "qbittorrent": 
 OWN_HOSTS = {"gluetun": ["172.20.0.5"], "slskd": ["172.20.0.9"], "qbittorrent": ["172.20.0.5"]}
 
 
-def make_ctx(*, routes, cfg=None, hosts=SAME_HOST, torrent_port=51234, home=None, home_calls=None):
+DOCKER_NET = [ipaddress.ip_network("172.20.0.0/16")]
+
+
+def make_ctx(*, routes, cfg=None, hosts=SAME_HOST, torrent_port=51234, home=None, home_calls=None,
+             nets=DOCKER_NET):
     config = {
         "privacy.gluetun_url": GLUETUN,
         "privacy.gluetun_api_key": "k3y",
@@ -101,11 +109,12 @@ def make_ctx(*, routes, cfg=None, hosts=SAME_HOST, torrent_port=51234, home=None
 
     return sc.SetupCheckContext(get=lambda k, d=None: config.get(k, d), http=FakeHttp(routes), env={},
                                 read_mountinfo=lambda: "", resolve_host=resolve, home_ip_fetch=fetch_home,
-                                torrent_listen_port=lambda kind: torrent_port)
+                                torrent_listen_port=lambda kind: torrent_port, local_networks=lambda: nets)
 
 
 @pytest.fixture(autouse=True)
-def _fresh_home_cache():
+def _fresh_home_cache(monkeypatch):
+    monkeypatch.setattr(pc, "_sleep", lambda s: None)
     pc.forget_home_address()
     yield
     pc.forget_home_address()
@@ -119,26 +128,40 @@ def rows(report):
 # the states
 # ---------------------------------------------------------------------------
 
+PROTECTED_HEADLINE = ("slskd and qBittorrent go through Proton VPN (Netherlands) · port 51234 forwarded · "
+                      "if the VPN drops, they stop")
+
+
 def test_up_with_port_and_both_listening_is_protected():
     ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes()})
     report = pc.run_privacy_check(ctx)
     assert report["state"] == pc.PROTECTED and report["tone"] == sc.OK
-    assert report["headline"] == ("Soulseek and torrents go through Proton VPN (Netherlands) · port 51234 forwarded · "
-                                  "if the VPN drops, they stop")
+    assert report["headline"] == PROTECTED_HEADLINE
     r = rows(report)
     assert r["privacy.vpn"]["status"] == sc.OK
-    assert r["privacy.port"]["status"] == sc.OK and "slskd and qBittorrent listen on it" in r["privacy.port"]["detail"]
+    assert r["privacy.port"]["status"] == sc.OK
+    assert r["privacy.port"]["detail"] == "A port is forwarded and slskd and qBittorrent listen on it."
+    assert r["privacy.port"]["data"]["port"] == 51234
     assert r["privacy.kill_switch"]["status"] == sc.OK
     assert "leaves Soulseek" in r["privacy.kill_switch"]["detail"]
     assert report["vpn"]["forwarded_port"] == 51234
     assert report["addresses"]["vpn"] == VPN_IP
+    assert report["services_configured"] is True
+
+
+def test_the_headline_names_only_what_was_checked():
+    ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes()}, cfg={"torrent_client.type": ""})
+    report = pc.run_privacy_check(ctx)
+    assert report["headline"] == ("slskd goes through Proton VPN (Netherlands) · port 51234 forwarded · "
+                                  "if the VPN drops, it stops")
+    assert "torrent" not in report["headline"].lower()
 
 
 def test_vpn_down_says_downloads_are_stopped():
     ctx = make_ctx(routes={**gluetun_routes(status="stopped"), **slskd_routes(logged_in=False, ready=False)})
     report = pc.run_privacy_check(ctx)
     assert report["state"] == pc.VPN_DOWN and report["tone"] == sc.ERROR
-    assert report["headline"] == "VPN is down: Soulseek and torrents are stopped until it's back"
+    assert report["headline"] == "VPN is down: slskd and qBittorrent are stopped until it's back"
     r = rows(report)
     assert r["privacy.vpn"]["status"] == sc.ERROR and "'stopped'" in r["privacy.vpn"]["detail"]
     assert r["privacy.port"]["status"] == sc.SKIPPED
@@ -168,7 +191,8 @@ def test_a_port_nobody_listens_on_is_a_mismatch():
     report = pc.run_privacy_check(ctx)
     assert report["state"] == pc.PORT_MISMATCH and report["tone"] == sc.WARNING
     port = rows(report)["privacy.port"]
-    assert "slskd listens on 50300" in port["detail"] and "qBittorrent listens on 6881" in port["detail"]
+    assert "slskd isn't listening on it" in port["detail"] and "qBittorrent isn't listening on it" in port["detail"]
+    assert port["data"]["listen_ports"] == {"slskd": 50300, "torrent": 6881}
     assert "SLSKD_VPN" in port["fix"] and "Bypass authentication" in port["fix"]
     assert "51234" in report["headline"]
 
@@ -176,8 +200,17 @@ def test_a_port_nobody_listens_on_is_a_mismatch():
 def test_only_slskd_mismatched_names_only_slskd():
     ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes(listen=50300)})
     port = rows(pc.run_privacy_check(ctx))["privacy.port"]
-    assert "slskd listens on 50300" in port["detail"] and "qBittorrent" not in port["detail"]
+    assert "slskd isn't listening" in port["detail"] and "qBittorrent" not in port["detail"]
     assert "Bypass authentication" not in port["fix"]
+
+
+@pytest.mark.gauntlet
+def test_port_numbers_stay_out_of_row_text():
+    """Rows go into copied reports and the Assistant's summary; the numbers are in data."""
+    for ctx in (make_ctx(routes={**gluetun_routes(), **slskd_routes()}),
+                make_ctx(routes={**gluetun_routes(), **slskd_routes(listen=50300)}, torrent_port=6881)):
+        text = json.dumps([[r["detail"], r["fix"]] for r in pc.run_privacy_check(ctx)["rows"]])
+        assert "51234" not in text and "50300" not in text and "6881" not in text
 
 
 def test_slskd_in_its_own_container_is_not_using_the_vpn():
@@ -185,7 +218,7 @@ def test_slskd_in_its_own_container_is_not_using_the_vpn():
                    cfg={"soulseek.slskd_url": "http://slskd:5030", "torrent_client.type": ""}, hosts=OWN_HOSTS)
     report = pc.run_privacy_check(ctx)
     assert report["state"] == pc.NO_VPN and report["tone"] == sc.ERROR
-    assert report["headline"] == "Not using a VPN: Soulseek shows your home IP"
+    assert report["headline"] == "Not using a VPN: slskd shows your home IP"
     assert rows(report)["privacy.address"]["status"] == sc.ERROR
     assert rows(report)["privacy.kill_switch"]["status"] == sc.ERROR
 
@@ -195,28 +228,144 @@ def test_one_service_outside_names_it():
                    cfg={"soulseek.slskd_url": "http://slskd:5030", "torrent_client.url": "http://qbittorrent:8080"},
                    hosts=OWN_HOSTS)
     report = pc.run_privacy_check(ctx)
-    assert report["headline"] == "Soulseek doesn't go through the VPN: it shows your home IP"
+    assert report["headline"] == "slskd doesn't go through the VPN: it shows your home IP"
 
 
-def test_vpn_down_but_slskd_still_signed_in_is_a_leak():
+def test_vpn_down_but_slskd_still_signed_in_twice_is_reported():
     ctx = make_ctx(routes={**gluetun_routes(status="stopped"), **slskd_routes(logged_in=True, ready=False)})
     report = pc.run_privacy_check(ctx)
     assert report["state"] == pc.LEAK and report["tone"] == sc.ERROR
+    assert report["headline"] == "slskd still looks signed in to Soulseek while the VPN is down: check it"
     ks = rows(report)["privacy.kill_switch"]
     assert ks["status"] == sc.ERROR and "docker compose stop slskd" in ks["fix"]
 
 
-def test_slskd_reaching_gluetun_on_loopback_proves_it_is_inside():
-    # SYNCHRO.S reaches slskd through the Docker host, which proves nothing,
-    # but slskd's own integration talks to Gluetun at 127.0.0.1
-    base = "http://192.168.1.20:5030"
-    ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes(base=base)},
-                   cfg={"soulseek.slskd_url": base, "torrent_client.type": ""}, hosts={"gluetun": ["172.20.0.5"]})
+def test_signed_in_once_while_down_is_only_check_again(monkeypatch):
+    routes = {**gluetun_routes(status="stopped"), **slskd_routes(logged_in=True, ready=False)}
+    ctx = make_ctx(routes=routes)
+
+    def sign_out(_s):
+        routes_now = ctx.http.routes
+        routes_now[f"{SLSKD}/api/v0/server"] = FakeResp(200, {"isConnected": False, "isLoggedIn": False})
+    monkeypatch.setattr(pc, "_sleep", sign_out)
     report = pc.run_privacy_check(ctx)
-    assert report["state"] == pc.PROTECTED and report["tone"] == sc.OK
-    assert report["services"][0]["inside"] is True
-    assert report["headline"].startswith("Soulseek goes through Proton VPN (Netherlands)")
-    assert report["headline"].endswith("if the VPN drops, it stops")
+    assert report["state"] == pc.VPN_DOWN
+    assert rows(report)["privacy.kill_switch"]["status"] == sc.WARNING
+
+
+# H1: an address SYNCHRO.S shares with Gluetun isn't proof they share a network
+
+@pytest.mark.gauntlet
+@pytest.mark.parametrize("slskd_url,glu_url,hosts", [
+    # a NAS publishing both slskd's 5030 and Gluetun's 8000, slskd outside the VPN
+    ("http://nas:5030", "http://nas:8000", {"nas": ["192.168.1.10"]}),
+    ("http://192.168.1.10:5030", "http://192.168.1.10:8000", {}),
+    ("http://mac.local:5030", "http://mac.local:8000", {"mac.local": ["192.168.1.20"]}),
+    ("http://synchros.tail1234.ts.net:5030", "http://synchros.tail1234.ts.net:8000",
+     {"synchros.tail1234.ts.net": ["100.101.102.103"]}),
+    ("http://host.docker.internal:5030", "http://host.docker.internal:8000", {"host.docker.internal": ["192.168.65.254"]}),
+])
+def test_a_shared_lan_address_is_never_green(slskd_url, glu_url, hosts):
+    routes = {**gluetun_routes(base=glu_url.rsplit(":", 1)[0] + ":8000"),
+              **slskd_routes(integration=False, base=slskd_url)}
+    ctx = make_ctx(routes=routes, hosts=hosts,
+                   cfg={"soulseek.slskd_url": slskd_url, "privacy.gluetun_url": glu_url, "torrent_client.type": ""})
+    report = pc.run_privacy_check(ctx)
+    assert report["state"] == pc.NOT_CONFIRMED and report["tone"] == sc.WARNING
+    assert report["headline"].endswith("kill switch not confirmed")
+    assert report["services"][0]["inside"] is None
+    assert rows(report)["privacy.kill_switch"]["status"] == sc.WARNING
+
+
+@pytest.mark.gauntlet
+def test_slskd_reaching_gluetun_on_loopback_is_not_proof():
+    """slskd on the host (or network_mode: host) with Gluetun's 8000 published
+    has the same integration answer while its traffic uses the home IP."""
+    base = "http://192.168.1.20:5030"
+    ctx = make_ctx(routes={**gluetun_routes(base="http://192.168.1.20:8000"), **slskd_routes(base=base)},
+                   cfg={"soulseek.slskd_url": base, "privacy.gluetun_url": "http://192.168.1.20:8000",
+                        "torrent_client.type": ""}, hosts={})
+    report = pc.run_privacy_check(ctx)
+    assert report["state"] == pc.NOT_CONFIRMED and report["tone"] == sc.WARNING
+    assert report["services"][0]["inside"] is None
+    assert "doesn't show where its traffic goes" in report["services"][0]["how"]
+
+
+def test_service_names_off_our_docker_network_prove_nothing():
+    # single-label names, but resolving to a LAN machine, not SYNCHRO.S's Docker network
+    ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes()},
+                   hosts={"gluetun": ["192.168.1.10"]}, cfg={"torrent_client.type": ""})
+    assert pc.run_privacy_check(ctx)["state"] == pc.NOT_CONFIRMED
+
+
+# M1: a service SYNCHRO.S can't see is never green
+
+def test_slskd_unreachable_is_not_protected():
+    down = requests.exceptions.ConnectionError("refused")
+    ctx = make_ctx(routes={**gluetun_routes(), f"{SLSKD}/api/v0/options": down}, cfg={"torrent_client.type": ""})
+    report = pc.run_privacy_check(ctx)
+    assert report["state"] == pc.SERVICE_DOWN and report["tone"] == sc.WARNING
+    assert report["headline"] == ("SYNCHRO.S can't reach slskd: if Gluetun was restarted on its own, "
+                                  "restart it too")
+    r = rows(report)
+    assert r["privacy.kill_switch"]["status"] == sc.WARNING
+    assert r["privacy.port"]["status"] == sc.WARNING
+    assert "--force-recreate" in r["privacy.kill_switch"]["fix"]
+
+
+def test_an_unread_torrent_port_is_not_protected():
+    ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes()}, torrent_port=None)
+    report = pc.run_privacy_check(ctx)
+    assert report["state"] == pc.NOT_CONFIRMED and report["tone"] == sc.WARNING
+    assert report["headline"].endswith("couldn't read qBittorrent's listening port")
+    assert rows(report)["privacy.port"]["status"] == sc.WARNING
+
+
+# L1: the deadline
+
+@pytest.mark.gauntlet
+def test_a_slow_source_is_cut_off_and_reads_as_not_confirmed(monkeypatch):
+    monkeypatch.setattr(pc, "DEADLINE_S", 0.5)
+    routes = {**gluetun_routes(), **slskd_routes()}
+    ctx = make_ctx(routes=routes, cfg={"torrent_client.type": ""})
+    real_get = ctx.http.get
+
+    def slow_get(url, **kw):
+        if url.startswith(SLSKD):
+            time.sleep(2.0)
+        return real_get(url, **kw)
+    ctx.http.get = slow_get
+    started = time.monotonic()
+    report = pc.run_privacy_check(ctx)
+    assert time.monotonic() - started < 1.5
+    assert report["state"] == pc.SERVICE_DOWN and report["tone"] != sc.OK
+    assert [s["key"] for s in report["services"]] == ["slskd"]
+    assert report["services"][0]["how"] == "didn't answer in time"
+
+
+# L2: Gluetun's answers
+
+def test_gluetun_redirects_are_not_followed():
+    routes = {f"{GLUETUN}/v1/vpn/status": FakeResp(302, None), **slskd_routes()}
+    ctx = make_ctx(routes=routes)
+    report = pc.run_privacy_check(ctx)
+    assert report["state"] == pc.UNREACHABLE
+    glu = [kw for (url, _h), kw in zip(ctx.http.calls, ctx.http.kwargs) if url.startswith(GLUETUN)]
+    assert glu and all(kw.get("allow_redirects") is False for kw in glu)
+
+
+def test_an_unknown_status_word_is_not_echoed():
+    routes = {**gluetun_routes(), **slskd_routes(logged_in=False)}
+    routes[f"{GLUETUN}/v1/vpn/status"] = FakeResp(200, {"status": "<b>pwned</b>" * 3})
+    report = pc.run_privacy_check(make_ctx(routes=routes))
+    assert report["vpn"]["status"] == "unknown"
+    assert "pwned" not in json.dumps(report)
+
+
+def test_a_huge_answer_is_not_gluetun():
+    routes = {**gluetun_routes(), **slskd_routes()}
+    routes[f"{GLUETUN}/v1/vpn/status"] = FakeResp(200, {"status": "running", "pad": "x" * 40000})
+    assert pc.run_privacy_check(make_ctx(routes=routes))["state"] == pc.UNREACHABLE
 
 
 def test_an_address_that_proves_nothing_leaves_the_kill_switch_unconfirmed():
@@ -224,7 +373,7 @@ def test_an_address_that_proves_nothing_leaves_the_kill_switch_unconfirmed():
     ctx = make_ctx(routes={**gluetun_routes(), **slskd_routes(integration=False, base=base)},
                    cfg={"soulseek.slskd_url": base, "torrent_client.type": ""})
     report = pc.run_privacy_check(ctx)
-    assert report["state"] == pc.PROTECTED and report["tone"] == sc.WARNING
+    assert report["state"] == pc.NOT_CONFIRMED and report["tone"] == sc.WARNING
     assert report["headline"].endswith("kill switch not confirmed")
     assert rows(report)["privacy.kill_switch"]["status"] == sc.WARNING
 
@@ -266,6 +415,13 @@ def test_not_set_up_says_how_and_asks_nothing():
     assert report["state"] == pc.NOT_SET_UP and report["configured"] is False
     assert "home IP" in report["rows"][0]["detail"] and "gluetun:8000" in report["rows"][0]["fix"]
     assert ctx.http.calls == []
+    assert report["services_configured"] is True
+
+
+def test_nothing_to_check_without_soulseek_or_torrents():
+    ctx = make_ctx(routes={}, cfg={"privacy.gluetun_url": "", "download_source.mode": "youtube",
+                                   "torrent_client.type": ""})
+    assert pc.run_privacy_check(ctx)["services_configured"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +650,28 @@ def test_save_settings_refuses_bad_values(api, monkeypatch, body, field):
     resp = client.put("/api/setup/privacy/settings", json=body)
     assert resp.status_code == 400 and resp.get_json()["field"] == field
     assert cfg.data == {"privacy.gluetun_api_key": "old"}
+
+
+def test_save_settings_writes_nothing_when_any_value_is_bad(api, monkeypatch):
+    client, cfg, _ = api
+    monkeypatch.setattr("core.profile_context.is_admin_request", lambda: True)
+    resp = client.put("/api/setup/privacy/settings",
+                      json={"gluetun_url": "http://gluetun:8000", "api_key": "", "home_ip_lookup": "yes"})
+    assert resp.status_code == 400
+    assert cfg.data == {"privacy.gluetun_api_key": "old"} and cfg.cleared == []
+
+
+def test_save_settings_refuses_a_key_that_isnt_printable_ascii(api, monkeypatch):
+    client, cfg, _ = api
+    monkeypatch.setattr("core.profile_context.is_admin_request", lambda: True)
+    for key in ("kéy", "k\x00y", "k\u200by"):
+        assert client.put("/api/setup/privacy/settings", json={"api_key": key}).status_code == 400
+    assert cfg.data == {"privacy.gluetun_api_key": "old"}
+
+
+def test_the_gluetun_key_is_hidden_from_the_api_settings_too():
+    from api import settings as api_settings
+    assert "privacy.gluetun_api_key" in api_settings._SENSITIVE_KEYS
 
 
 def test_save_settings_needs_json_and_a_size(api, monkeypatch):

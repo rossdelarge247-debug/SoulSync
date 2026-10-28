@@ -17,10 +17,13 @@ that set-up:
   (``GET /v1/portforward``; slskd's ``GET /api/v0/options``; the torrent
   client's own preferences.)
 * Is the kill switch on? Gluetun doesn't report its firewall, so this is
-  proved from where slskd and the torrent client are: inside Gluetun's network
-  (slskd talking to Gluetun at 127.0.0.1, or both answering at one address),
-  they have no other way out. If the VPN is down and slskd is still signed in
-  to Soulseek, the kill switch didn't hold, and the check says so.
+  proved from where slskd and the torrent client are: only when SYNCHRO.S
+  reaches them and Gluetun by Docker service names that lead to one container
+  on its own Docker network are they known to be inside Gluetun's network,
+  with no other way out. Anything else (a LAN address, a name with a dot, the
+  Docker host, slskd's own Gluetun integration on its own) is "not confirmed",
+  never green. If slskd still looks signed in to Soulseek while the VPN is
+  down, in two reads a few seconds apart, the check says to check it.
 
 It runs only when Gluetun's control address is set (``privacy.gluetun_url``).
 Every request has a short timeout, nothing is changed anywhere, and IP
@@ -74,6 +77,8 @@ LEAK = "leak"
 NO_VPN = "not_using_vpn"
 NO_PORT = "no_port"
 PORT_MISMATCH = "port_mismatch"
+SERVICE_DOWN = "service_unreachable"
+NOT_CONFIRMED = "not_confirmed"
 PROTECTED = "protected"
 
 _TORRENT_NAMES = {"qbittorrent": "qBittorrent", "transmission": "Transmission", "deluge": "Deluge",
@@ -121,6 +126,8 @@ class Service:
     logged_in: Optional[bool] = None          # slskd only: signed in to Soulseek
     vpn_integration: Optional[bool] = None    # slskd only: its own Gluetun integration is on
     vpn_ready: Optional[bool] = None          # slskd only: what that integration says
+    integration_loopback: bool = False        # slskd only: the integration reaches Gluetun at 127.0.0.1
+    kind: str = ""                            # torrent only: qbittorrent | transmission | ...
 
 
 @dataclass
@@ -178,19 +185,6 @@ def clean_control_url(raw: Any) -> Optional[str]:
 def _default_resolve(host: str) -> List[str]:
     infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
     return sorted({str(i[4][0]) for i in infos})
-
-
-def _subject(services: Sequence[Service]) -> Tuple[str, bool]:
-    """("Soulseek and torrents", plural) for the services in use."""
-    names = []
-    if any(s.key == "slskd" for s in services):
-        names.append("Soulseek")
-    if any(s.key == "torrent" for s in services):
-        names.append("torrents")
-    if not names:
-        return "Soulseek and torrents", True
-    text = " and ".join(names)
-    return text[0].upper() + text[1:], len(names) > 1 or names == ["torrents"]
 
 
 def _names(services: Sequence[Service]) -> str:
@@ -254,71 +248,164 @@ def forget_home_address() -> None:
 # Reading Gluetun, slskd and the torrent client
 # ---------------------------------------------------------------------------
 
-def read_gluetun(ctx, url: str) -> Gluetun:
+#: Gluetun's answers are a few dozen bytes; anything bigger isn't Gluetun.
+GLUETUN_MAX_BYTES = 16 * 1024
+_KNOWN_STATUSES = frozenset({"running", "stopped", "starting", "stopping", "crashed", "completed"})
+
+
+def _gluetun_get(ctx, url: str, headers: Dict[str, str]):
+    """``(status, data, kind)`` for one control-server GET: redirects are not
+    followed (the key would go with them), the body is capped, and network
+    failures come back as a kind, like the setup check's ``http_get``."""
+    import json
+
+    import requests
+
     from core import setup_check as sc
+    try:
+        resp = ctx.http.get(url, headers=dict(headers), timeout=sc.HTTP_TIMEOUT, allow_redirects=False,
+                            stream=True)
+    except requests.exceptions.Timeout:
+        return None, None, "timeout"
+    except (requests.exceptions.InvalidURL, requests.exceptions.MissingSchema,
+            requests.exceptions.InvalidSchema):
+        return None, None, "bad_url"
+    except requests.exceptions.RequestException:
+        return None, None, "unreachable"
+    try:
+        status = int(resp.status_code)
+        reader = getattr(resp, "iter_content", None)
+        if callable(reader):
+            chunks, total = [], 0
+            for chunk in reader(chunk_size=4096):
+                total += len(chunk or b"")
+                if total > GLUETUN_MAX_BYTES:
+                    return status, None, "too_large"
+                chunks.append(chunk or b"")
+            body = b"".join(chunks)
+        else:
+            body = getattr(resp, "content", b"") or b""
+            if len(body) > GLUETUN_MAX_BYTES:
+                return status, None, "too_large"
+    except Exception:  # noqa: BLE001 - the answer broke off
+        return None, None, "unreachable"
+    finally:
+        closer = getattr(resp, "close", None)
+        if callable(closer):
+            closer()
+    try:
+        data = json.loads(body.decode("utf-8", errors="replace")) if body.strip() else None
+    except ValueError:
+        data = None
+    return status, data, ""
+
+
+def read_gluetun(ctx, url: str) -> Gluetun:
     g = Gluetun(url=url)
     key = ctx.cfg_str(SETTING_KEY, "")
     headers = {"X-API-Key": key} if key else {}
 
-    res = sc.http_get(ctx, f"{url}/v1/vpn/status", headers=headers)
-    if res.kind:
-        g.error = res.kind
+    status, data, kind = _gluetun_get(ctx, f"{url}/v1/vpn/status", headers)
+    if kind and kind != "too_large":
+        g.error = kind
         return g
-    if res.status in (401, 403):
+    if status in (401, 403):
         g.reachable, g.refused = True, True
         return g
-    if res.status != 200 or not isinstance(res.data, dict) or "status" not in res.data:
+    if kind or status != 200 or not isinstance(data, dict) or "status" not in data:
         g.error = "not_gluetun"
         return g
     g.reachable = True
-    g.status = str(res.data.get("status") or "").strip().lower()
+    raw = str(data.get("status") or "").strip().lower()
+    g.status = raw if raw in _KNOWN_STATUSES else "unknown"
 
-    ip = sc.http_get(ctx, f"{url}/v1/publicip/ip", headers=headers)
-    if ip.status in (401, 403):
+    status, data, _kind = _gluetun_get(ctx, f"{url}/v1/publicip/ip", headers)
+    if status in (401, 403):
         g.refused = True
-    elif ip.status == 200 and isinstance(ip.data, dict):
-        g.public_ip = _valid_ip(ip.data.get("public_ip"))
-        g.country = str(ip.data.get("country") or "").strip()[:60]
-        g.city = str(ip.data.get("city") or "").strip()[:60]
+    elif status == 200 and isinstance(data, dict):
+        g.public_ip = _valid_ip(data.get("public_ip"))
+        g.country = _plain(data.get("country"))
+        g.city = _plain(data.get("city"))
 
-    pf = sc.http_get(ctx, f"{url}/v1/portforward", headers=headers)
-    if pf.status in (401, 403):
+    status, data, _kind = _gluetun_get(ctx, f"{url}/v1/portforward", headers)
+    if status in (401, 403):
         g.refused = True
-    elif pf.status == 200 and isinstance(pf.data, dict):
+    elif status == 200 and isinstance(data, dict):
         g.port_read = True
-        ports = pf.data.get("ports")
+        ports = data.get("ports")
         found = [p for p in (_port(x) for x in ports) if p] if isinstance(ports, list) else []
-        if not found and _port(pf.data.get("port")):
-            found = [_port(pf.data.get("port"))]
-        g.ports = found
+        if not found and _port(data.get("port")):
+            found = [_port(data.get("port"))]
+        g.ports = found[:5]
     return g
+
+
+def _plain(value: Any) -> str:
+    """A place name as Gluetun gives it, kept short and printable."""
+    text = "".join(c for c in str(value or "") if c.isprintable())
+    return text.strip()[:60]
+
+
+def _default_local_networks() -> List[ipaddress.IPv4Network]:
+    """The networks SYNCHRO.S's own container sits on (Linux's routing table:
+    the routes with no gateway). Inside Docker that's the compose network."""
+    nets: List[ipaddress.IPv4Network] = []
+    try:
+        with open("/proc/net/route", encoding="ascii", errors="replace") as fh:
+            next(fh, None)
+            for line in fh:
+                parts = line.split()
+                if len(parts) < 8 or parts[0] == "lo" or parts[2] != "00000000" or parts[1] == "00000000":
+                    continue
+                dest = ipaddress.IPv4Address(int(parts[1], 16).to_bytes(4, "little"))
+                mask = ipaddress.IPv4Address(int(parts[7], 16).to_bytes(4, "little"))
+                nets.append(ipaddress.IPv4Network(f"{dest}/{mask}", strict=False))
+    except (OSError, ValueError):
+        return []
+    return nets
+
+
+def _is_service_name(host: str) -> bool:
+    """A Docker service or container name: one label, not an address."""
+    return bool(host) and "." not in host and not _is_ip(host) and host not in _HOST_GATEWAYS
 
 
 def _same_network(ctx, service_url: str, gluetun_url: str) -> Tuple[Optional[bool], str]:
     """Is the service at ``service_url`` inside Gluetun's network, judged from
-    the two addresses SYNCHRO.S uses? True when both names lead to the same
-    container; False when both are plain container names (``slskd``,
-    ``gluetun``) that lead to different containers; None otherwise (a LAN
-    address or the Docker host could be either)."""
+    the two addresses SYNCHRO.S uses?
+
+    True only when both are Docker service names (one label, not an address)
+    that lead to the same private address on a network SYNCHRO.S's own
+    container is on: then they are one container's network. False when both
+    are such names and lead to different containers there. Anything else (a
+    LAN address, a name with a dot, the Docker host, a NAS publishing both
+    ports) proves nothing either way: None."""
     a = (urlparse(service_url).hostname or "").lower()
     b = (urlparse(gluetun_url).hostname or "").lower()
-    if not a or not b:
-        return None, ""
-    loopbackish = {h for h in (a, b) if h in _HOST_GATEWAYS or _is_loopback(h)}
-    if loopbackish:
-        return None, "the Docker host's address could reach either"
-    if a == b:
-        return True, "same address as Gluetun"
+    if not _is_service_name(a) or not _is_service_name(b):
+        return None, "an address that could be any machine's"
     resolve = getattr(ctx, "resolve_host", None) or _default_resolve
+    local = getattr(ctx, "local_networks", None) or _default_local_networks
     try:
         ips_a, ips_b = set(resolve(a)), set(resolve(b))
+        nets = list(local())
     except Exception:  # noqa: BLE001 - a name that doesn't resolve says nothing either way
         return None, "the name didn't resolve"
-    if ips_a and ips_a & ips_b:
-        return True, "same address as Gluetun"
-    if ips_a and ips_b and "." not in a and "." not in b and not _is_ip(a) and not _is_ip(b):
-        return False, "its own container, not Gluetun's"
-    return None, "a different address from Gluetun's"
+
+    def on_docker_network(ip: str) -> bool:
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        return addr.is_private and not addr.is_loopback and any(addr in n for n in nets)
+
+    ours_a = {ip for ip in ips_a if on_docker_network(ip)}
+    ours_b = {ip for ip in ips_b if on_docker_network(ip)}
+    if not ours_a or not ours_b or ours_a != ips_a or ours_b != ips_b:
+        return None, "not on SYNCHRO.S's Docker network"
+    if ours_a & ours_b:
+        return True, "same container as Gluetun"
+    return False, "its own container, not Gluetun's"
 
 
 def _is_ip(host: str) -> bool:
@@ -334,11 +421,10 @@ def _is_loopback(host: str) -> bool:
 
 def read_slskd(ctx, gluetun_url: str) -> Optional[Service]:
     from core import setup_check as sc
-    raw = ctx.cfg_str("soulseek.slskd_url", "")
-    if not raw or not sc.soulseek_in_use(ctx):
+    s = slskd_placeholder(ctx)
+    if s is None:
         return None
-    url = sc._resolve_url(ctx, raw)
-    s = Service(key="slskd", name="slskd", url=url)
+    url = s.url
     headers = sc._slskd_headers(ctx)
 
     opts = sc.http_get(ctx, f"{url}/api/v0/options", headers=headers)
@@ -353,10 +439,9 @@ def read_slskd(ctx, gluetun_url: str) -> Optional[Service]:
             s.vpn_integration = bool(sc._pick(vpn, "enabled"))
             glu = sc._pick(vpn, "gluetun") or {}
             glu_host = (urlparse(str(sc._pick(glu, "url") or "")).hostname or "").lower()
-            if s.vpn_integration and (glu_host == "localhost" or _is_loopback(glu_host)):
-                s.how = "slskd reaches Gluetun at its own 127.0.0.1"
+            s.integration_loopback = bool(s.vpn_integration and (glu_host == "localhost" or _is_loopback(glu_host)))
     else:
-        s.reachable = opts.status is not None and opts.status < 500
+        s.reachable = False
 
     if s.reachable:
         app = sc.http_get(ctx, f"{url}/api/v0/application", headers=headers)
@@ -366,13 +451,36 @@ def read_slskd(ctx, gluetun_url: str) -> Optional[Service]:
                 s.vpn_ready = bool(sc._pick(vpn_state, "isReady"))
         s.logged_in = sc.slskd_logged_in(ctx, url)
 
-    if s.how and s.vpn_ready:
-        # slskd's own Gluetun integration talks to Gluetun at 127.0.0.1, which
-        # only answers inside Gluetun's network
-        s.inside = True
-    else:
-        s.inside, s.how = _same_network(ctx, url, gluetun_url)
+    # Only the network proves where slskd is. Its own Gluetun integration at
+    # 127.0.0.1 is supporting evidence, never proof: slskd on the host (or with
+    # network_mode: host) and Gluetun publishing 8000 looks just the same.
+    s.inside, s.how = _same_network(ctx, url, gluetun_url)
+    if s.inside is None and s.integration_loopback:
+        s.how = "slskd's own Gluetun integration answers, but that doesn't show where its traffic goes"
     return s
+
+
+def slskd_placeholder(ctx) -> Optional[Service]:
+    from core import setup_check as sc
+    raw = ctx.cfg_str("soulseek.slskd_url", "")
+    if not raw or not sc.soulseek_in_use(ctx):
+        return None
+    return Service(key="slskd", name="slskd", url=sc._resolve_url(ctx, raw))
+
+
+def torrent_placeholder(ctx) -> Optional[Service]:
+    client_type = ctx.cfg_str("torrent_client.type", "").lower()
+    url = ctx.cfg_str("torrent_client.url", "")
+    if not client_type or not url:
+        return None
+    from core import setup_check as sc
+    url = sc._resolve_url(ctx, url if "://" in url else f"http://{url}")
+    return Service(key="torrent", name=_TORRENT_NAMES.get(client_type, client_type), url=url, kind=client_type)
+
+
+def services_configured(ctx) -> bool:
+    """Is Soulseek or a torrent client set up, so there's something to check?"""
+    return slskd_placeholder(ctx) is not None or torrent_placeholder(ctx) is not None
 
 
 def _default_torrent_listen_port(client_type: str) -> Optional[int]:
@@ -383,19 +491,18 @@ def _default_torrent_listen_port(client_type: str) -> Optional[int]:
 
 
 def read_torrent(ctx, gluetun_url: str) -> Optional[Service]:
-    client_type = ctx.cfg_str("torrent_client.type", "").lower()
-    url = ctx.cfg_str("torrent_client.url", "")
-    if not client_type or not url:
+    s = torrent_placeholder(ctx)
+    if s is None:
         return None
-    from core import setup_check as sc
-    url = sc._resolve_url(ctx, url if "://" in url else f"http://{url}")
-    s = Service(key="torrent", name=_TORRENT_NAMES.get(client_type, client_type), url=url)
     reader = getattr(ctx, "torrent_listen_port", None) or _default_torrent_listen_port
+    # the adapters answer None both for "not reachable" and "can't say";
+    # either way the port reads as unknown, which is never green
+    s.reachable = True
     try:
-        s.listen_port = _port(reader(client_type))
+        s.listen_port = _port(reader(s.kind))
     except Exception as exc:  # noqa: BLE001 - a client that can't be read is "couldn't tell"
         logger.debug("torrent listen port unreadable: %s", exc)
-    s.inside, s.how = _same_network(ctx, url, gluetun_url)
+    s.inside, s.how = _same_network(ctx, s.url, gluetun_url)
     return s
 
 
@@ -409,21 +516,34 @@ class Facts:
     services: List[Service]
     home: HomeAddress
     vpn_name: str = DEFAULT_VPN_NAME
+    #: slskd looked signed in to Soulseek while the VPN was down, in two reads
+    #: a few seconds apart (one read alone is only "check again")
+    leak_confirmed: bool = False
+    #: it looked signed in once and not on the second read
+    leak_glimpse: bool = False
 
 
 def _where(g: Gluetun) -> str:
     return f" ({g.country})" if g.country else ""
 
 
+def _verb(services: Sequence[Service], one: str, many: str) -> str:
+    return many if len(services) != 1 else one
+
+
 def verdict(f: Facts) -> Dict[str, Any]:
     """``{state, tone, headline, rows}`` from what was read. Pure: every
-    branch is driven by the tests without a network."""
+    branch is driven by the tests without a network.
+
+    Green ("protected") only when everything was seen: the VPN up with an
+    address, a forwarded port both services listen on, and both proved inside
+    Gluetun's network. Anything SYNCHRO.S couldn't see is amber, never green."""
     from core import setup_check as sc
     mk = sc.make_result
-    subject, plural = _subject(f.services)
-    are, go, show = ("are", "go", "show") if plural else ("is", "goes", "shows")
     rows: List[Dict[str, Any]] = []
     g = f.gluetun
+    services = f.services
+    subject = _names(services) if services else "Soulseek and torrents"
 
     if g is None:
         rows.append(mk("privacy.vpn", "VPN for Soulseek and torrents", sc.SKIPPED,
@@ -434,12 +554,16 @@ def verdict(f: Facts) -> Dict[str, Any]:
                 "headline": "The privacy check isn't set up"}
 
     if not g.reachable:
-        slskd = next((s for s in f.services if s.key == "slskd"), None)
-        also = (" slskd isn't answering either: if Gluetun is stopped, Soulseek and torrents are stopped too."
+        slskd = next((s for s in services if s.key == "slskd"), None)
+        also = (" slskd isn't answering either: if Gluetun is stopped, slskd is stopped too."
                 if slskd is not None and slskd.reachable is False else "")
-        detail = (f"SYNCHRO.S can't reach Gluetun's control server at {g.url}." if g.error != "not_gluetun" else
-                  f"Something answered at {g.url}, but it isn't Gluetun's control server.") + also
-        rows.append(mk("privacy.vpn", "VPN for Soulseek and torrents", sc.ERROR, detail,
+        if g.error == "timeout":
+            detail = f"Gluetun's control server at {g.url} didn't answer in time."
+        elif g.error == "not_gluetun":
+            detail = f"Something answered at {g.url}, but it isn't Gluetun's control server."
+        else:
+            detail = f"SYNCHRO.S can't reach Gluetun's control server at {g.url}."
+        rows.append(mk("privacy.vpn", "VPN for Soulseek and torrents", sc.ERROR, detail + also,
                        "Check that the gluetun container is running (`docker compose ps`) and that the address is "
                        "Gluetun's control port, 8000 unless you changed it, e.g. `http://gluetun:8000`.", CATEGORY))
         return {"state": UNREACHABLE, "tone": sc.ERROR, "rows": rows,
@@ -455,58 +579,63 @@ def verdict(f: Facts) -> Dict[str, Any]:
         return {"state": REFUSED, "tone": sc.WARNING, "rows": rows,
                 "headline": "Gluetun refused SYNCHRO.S's key"}
 
-    outside = [s for s in f.services if s.inside is False]
-    unsure = [s for s in f.services if s.inside is None]
-    inside = [s for s in f.services if s.inside is True]
-    slskd = next((s for s in f.services if s.key == "slskd"), None)
-    leaked = (not g.up and slskd is not None and slskd.inside is not False and slskd.logged_in is True)
+    outside = [s for s in services if s.inside is False]
+    unsure = [s for s in services if s.inside is None]
+    inside = [s for s in services if s.inside is True]
+    unreachable = [s for s in services if s.reachable is not True]
+    slskd = next((s for s in services if s.key == "slskd"), None)
+    suspect = f.leak_glimpse or (not g.up and slskd is not None and slskd.inside is not False
+                                 and slskd.logged_in is True)
+    leaked = suspect and f.leak_confirmed
 
     # -- the VPN row
     if g.up:
-        rows.append(mk("privacy.vpn", "VPN", sc.OK,
-                       f"{f.vpn_name} is connected{_where(g)}.", "", CATEGORY, vpn_status=g.status))
+        rows.append(mk("privacy.vpn", "VPN", sc.OK, f"{f.vpn_name} is connected{_where(g)}.", "", CATEGORY,
+                       vpn_status=g.status))
     else:
         state = g.status or "unknown"
         said = ("Gluetun is connecting and hasn't found its public address yet" if state == "running"
                 else f"Gluetun says '{state}'")
-        rows.append(mk("privacy.vpn", "VPN", sc.ERROR,
-                       f"{f.vpn_name} isn't connected ({said}).",
+        rows.append(mk("privacy.vpn", "VPN", sc.ERROR, f"{f.vpn_name} isn't connected ({said}).",
                        "Gluetun reconnects by itself. If it stays down, open its log (`docker compose logs gluetun`) "
                        "and check WIREGUARD_PRIVATE_KEY and SERVER_COUNTRIES in your `.env`; see Support/VPN.md, "
                        "\"If the card is red\".", CATEGORY, vpn_status=state))
 
     # -- the address peers see
     if outside:
+        many = len(outside) > 1
         rows.append(mk("privacy.address", "The address peers see", sc.ERROR,
-                       f"{_names(outside)} {'run' if len(outside) > 1 else 'runs'} in {'their' if len(outside) > 1 else 'its'} "
-                       "own container, outside Gluetun's network, so peers see your home IP.",
-                       "Start SYNCHRO.S with the VPN file (`docker compose up -d` after adding "
-                       "`COMPOSE_FILE=docker-compose.yml:docker-compose.vpn.yml` to `.env`), then point SYNCHRO.S at "
-                       "slskd and the torrent client through Gluetun, e.g. `http://gluetun:5030`.", CATEGORY))
+                       f"{_names(outside)} {'run' if many else 'runs'} in {'their' if many else 'its'} own container, "
+                       "outside Gluetun's network, so peers see your home IP.",
+                       "Start SYNCHRO.S with the VPN file (`docker compose up -d` after adding the `COMPOSE_FILE` line "
+                       "to `.env`), then point SYNCHRO.S at slskd and qBittorrent by their names, `http://slskd:5030` "
+                       "and `http://qbittorrent:8080`, which the VPN file gives Gluetun.", CATEGORY))
     elif not g.up:
         rows.append(mk("privacy.address", "The address peers see", sc.SKIPPED,
                        "Not checked while the VPN is down.", "", CATEGORY))
     elif f.home.enabled and f.home.ip and f.home.ip == g.public_ip:
         rows.append(mk("privacy.address", "The address peers see", sc.ERROR,
                        "Gluetun's public address is the same as your home connection's, so peers see your home IP.",
-                       "Restart Gluetun (`docker compose restart gluetun`) and run the check again. If it stays the "
-                       "same, a VPN app on this computer may be carrying Docker's traffic; see Support/VPN.md.",
-                       CATEGORY, compared=True))
+                       "Restart Gluetun with the services that share it (`docker compose restart`) and run the check "
+                       "again. If it stays the same, a VPN app on this computer may be carrying Docker's traffic; see "
+                       "Support/VPN.md.", CATEGORY, compared=True))
     elif f.home.enabled and f.home.ip:
         rows.append(mk("privacy.address", "The address peers see", sc.OK,
-                       f"Peers see the VPN's address{_where(g)}, which is different from your home connection's.",
+                       f"Gluetun's address{_where(g)} is different from your home connection's.",
                        "", CATEGORY, compared=True))
     else:
         why = ("Your home address isn't looked up, so it wasn't compared; turn on \"Compare with my home IP\" to "
                "check." if not f.home.enabled else "Your home address couldn't be looked up just now, so it wasn't "
                "compared.")
         rows.append(mk("privacy.address", "The address peers see", sc.OK,
-                       f"Peers see the VPN's address{_where(g)}. {why}", "", CATEGORY, compared=False))
+                       f"Gluetun's address is the VPN's{_where(g)}. {why}", "", CATEGORY, compared=False))
 
-    # -- the forwarded port
+    # -- the forwarded port (its number stays in data: rows go into copied reports)
     port = g.port
-    mismatched = [s for s in f.services if port and s.listen_port and s.listen_port != port]
-    unread = [s for s in f.services if s.listen_port is None]
+    reachable = [s for s in services if s.reachable is True]
+    mismatched = [s for s in reachable if port and s.listen_port and s.listen_port != port]
+    unread = [s for s in reachable if s.listen_port is None]
+    listen_data = {s.key: s.listen_port for s in services}
     if not g.up:
         rows.append(mk("privacy.port", "Forwarded port", sc.SKIPPED, "Not checked while the VPN is down.", "",
                        CATEGORY))
@@ -516,10 +645,15 @@ def verdict(f: Facts) -> Dict[str, Any]:
                        "searches from people behind firewalls won't connect.",
                        "Port forwarding needs a paid Proton VPN plan (Plus or higher), a WireGuard key made with "
                        "NAT-PMP (Port Forwarding) on, and PORT_FORWARDING=true in your `.env`; see Support/VPN.md.",
-                       CATEGORY))
-    elif mismatched:
-        names = ", ".join(f"{s.name} listens on {s.listen_port}" for s in mismatched)
-        fixes = []
+                       CATEGORY, listen_ports=listen_data))
+    elif unreachable or mismatched or unread:
+        parts, fixes = [], []
+        for s in mismatched:
+            parts.append(f"{s.name} isn't listening on it")
+        for s in unread:
+            parts.append(f"SYNCHRO.S couldn't read {s.name}'s listening port")
+        for s in unreachable:
+            parts.append(f"SYNCHRO.S can't reach {s.name}")
         if any(s.key == "slskd" for s in mismatched):
             fixes.append("slskd follows the port by itself when its VPN integration is on (SLSKD_VPN and "
                          "SLSKD_VPN_PORT_FORWARDING, set by the VPN file; slskd 0.25 or later).")
@@ -527,87 +661,125 @@ def verdict(f: Facts) -> Dict[str, Any]:
             fixes.append("qBittorrent follows it through Gluetun's port command, which needs \"Bypass authentication "
                          "for clients on localhost\" ticked in qBittorrent's Web UI options. Other torrent clients: "
                          "set the port by hand.")
+        if unreachable:
+            fixes.append(_RESTART_HINT)
         rows.append(mk("privacy.port", "Forwarded port", sc.WARNING,
-                       f"Port {port} is forwarded, but {names}, so fewer people can reach you.",
-                       " ".join(fixes), CATEGORY, port=port))
+                       "A port is forwarded, but " + "; ".join(parts) + ", so fewer people may reach you.",
+                       " ".join(fixes), CATEGORY, port=port, listen_ports=listen_data))
     else:
-        listening = [s for s in f.services if s.listen_port == port]
-        tail = (f" and {_names(listening)} {'listen' if len(listening) > 1 else 'listens'} on it" if listening else "")
-        unknown = (f" SYNCHRO.S couldn't read {_names(unread)}'s listening port." if unread else "")
-        rows.append(mk("privacy.port", "Forwarded port", sc.OK, f"Port {port} is forwarded{tail}.{unknown}", "",
-                       CATEGORY, port=port))
+        listening = [s for s in services if s.listen_port == port]
+        tail = (f" and {_names(listening)} {_verb(listening, 'listens', 'listen')} on it" if listening else "")
+        rows.append(mk("privacy.port", "Forwarded port", sc.OK, f"A port is forwarded{tail}.", "",
+                       CATEGORY, port=port, listen_ports=listen_data))
 
     # -- the kill switch
     if leaked:
         rows.append(mk("privacy.kill_switch", "Kill switch", sc.ERROR,
-                       "The VPN is down, but slskd is still signed in to Soulseek, so it's using another connection.",
+                       "slskd still looks signed in to Soulseek while the VPN is down, in two checks a few seconds "
+                       "apart: check it.",
                        "Stop slskd now (`docker compose stop slskd`). Check that slskd has "
                        "`network_mode: \"service:gluetun\"` and no `ports:` of its own, and that Gluetun's firewall "
                        "isn't turned off (FIREWALL_ENABLED_DISABLING_IT_SHOOTS_YOU_IN_YOUR_FOOT).", CATEGORY))
     elif outside:
+        many = len(outside) > 1
         rows.append(mk("privacy.kill_switch", "Kill switch", sc.ERROR,
-                       f"{_names(outside)} {'aren' if len(outside) > 1 else 'isn'}'t behind Gluetun, so nothing stops "
-                       f"{'them' if len(outside) > 1 else 'it'} if the VPN drops.",
+                       f"{_names(outside)} {'aren' if many else 'isn'}'t behind Gluetun, so nothing stops "
+                       f"{'them' if many else 'it'} if the VPN drops.",
                        "Run it with `network_mode: \"service:gluetun\"` (the VPN file does this).", CATEGORY))
-    elif unsure or not f.services:
+    elif suspect:
+        rows.append(mk("privacy.kill_switch", "Kill switch", sc.WARNING,
+                       "slskd looked signed in to Soulseek for a moment while the VPN is down. It may just be "
+                       "catching up.", "Run the check again in a minute.", CATEGORY))
+    elif unreachable:
+        rows.append(mk("privacy.kill_switch", "Kill switch", sc.WARNING,
+                       f"SYNCHRO.S can't reach {_names(unreachable)}, so it can't confirm the kill switch.",
+                       _RESTART_HINT, CATEGORY))
+    elif unsure or not services:
         who = _names(unsure) if unsure else "slskd and the torrent client"
         rows.append(mk("privacy.kill_switch", "Kill switch", sc.WARNING,
-                       f"SYNCHRO.S can't tell whether {who} {'are' if len(unsure) != 1 else 'is'} inside Gluetun's "
-                       "network from the address it uses, so it can't confirm the kill switch.",
-                       "Point SYNCHRO.S at them through Gluetun's name, e.g. `http://gluetun:5030` for slskd and "
-                       "`http://gluetun:8080` for qBittorrent, and turn on slskd's VPN integration (the VPN file "
-                       "does both).", CATEGORY))
+                       f"SYNCHRO.S can't prove that {who} {_verb(unsure, 'is', 'are')} inside Gluetun's network from "
+                       "the address it uses, so it can't confirm the kill switch.",
+                       "Point SYNCHRO.S at them by the names the VPN file gives Gluetun: `http://slskd:5030` for slskd "
+                       "and `http://qbittorrent:8080` for qBittorrent (or `http://gluetun:…`). A LAN address, the "
+                       "Docker host or a name with a dot can't show which network a service is on.", CATEGORY))
     else:
         extra = (" slskd also leaves Soulseek whenever Gluetun says the VPN is down."
                  if slskd is not None and slskd.vpn_integration else "")
         rows.append(mk("privacy.kill_switch", "Kill switch", sc.OK,
-                       f"{_names(inside)} {'share' if len(inside) > 1 else 'shares'} Gluetun's network, and Gluetun's "
+                       f"{_names(inside)} {_verb(inside, 'shares', 'share')} Gluetun's network, and Gluetun's "
                        "firewall only lets traffic out through the VPN: if the VPN drops, "
-                       f"{'they have' if len(inside) > 1 else 'it has'} no connection.{extra}", "", CATEGORY))
+                       f"{_verb(inside, 'it has', 'they have')} no connection.{extra}", "", CATEGORY))
 
     # -- the headline
     if leaked:
         state, tone = LEAK, sc.ERROR
-        headline = "The VPN is down and Soulseek is still connected: it shows your home IP"
-    elif outside and len(outside) == len(f.services):
+        headline = "slskd still looks signed in to Soulseek while the VPN is down: check it"
+    elif outside and len(outside) == len(services):
         state, tone = NO_VPN, sc.ERROR
-        headline = f"Not using a VPN: {subject} {show} your home IP"
+        headline = f"Not using a VPN: {subject} {_verb(services, 'shows', 'show')} your home IP"
     elif outside:
         state, tone = NO_VPN, sc.ERROR
-        o_subject, o_plural = _subject(outside)
-        headline = f"{o_subject} {'don' if o_plural else 'doesn'}'t go through the VPN: {'they show' if o_plural else 'it shows'} your home IP"
+        headline = (f"{_names(outside)} {_verb(outside, 'doesn', 'don')}'t go through the VPN: "
+                    f"{_verb(outside, 'it shows', 'they show')} your home IP")
     elif not g.up:
         state, tone = VPN_DOWN, sc.ERROR
-        headline = f"VPN is down: {subject} {are} stopped until it's back"
+        headline = f"VPN is down: {subject} {_verb(services, 'is', 'are')} stopped until it's back"
     elif any(r["id"] == "privacy.address" and r["status"] == sc.ERROR for r in rows):
         state, tone = LEAK, sc.ERROR
-        headline = f"{subject} {show} your home IP: the VPN's address is your home's"
+        headline = f"{subject} {_verb(services, 'shows', 'show')} your home IP: the VPN's address is your home's"
+    elif unreachable:
+        state, tone = SERVICE_DOWN, sc.WARNING
+        names = _names(unreachable)
+        headline = (f"SYNCHRO.S can't reach {names}: if Gluetun was restarted on its own, restart "
+                    f"{_verb(unreachable, 'it', 'them')} too")
     elif not port:
         state, tone = NO_PORT, sc.WARNING
         headline = "Connected, no forwarded port: downloads work but fewer people can reach you"
     elif mismatched:
         state, tone = PORT_MISMATCH, sc.WARNING
-        headline = f"Connected, but port {port} isn't the one {_names(mismatched)} {'listen' if len(mismatched) > 1 else 'listens'} on: fewer people can reach you"
+        headline = (f"Connected, but {_names(mismatched)} {_verb(mismatched, 'isn', 'aren')}'t listening on "
+                    f"forwarded port {port}: fewer people can reach you")
+    elif unread or unsure or not services:
+        state, tone = NOT_CONFIRMED, sc.WARNING
+        what = ("kill switch not confirmed" if (unsure or not services)
+                else f"couldn't read {_names(unread)}'s listening port")
+        headline = " · ".join([f"{subject} {_verb(services, 'goes', 'go')} through {f.vpn_name}{_where(g)}",
+                               f"port {port} forwarded", what])
     else:
-        state = PROTECTED
-        parts = [f"{subject} {go} through {f.vpn_name}{_where(g)}", f"port {port} forwarded"]
-        if unsure or not f.services:
-            tone = sc.WARNING
-            parts.append("kill switch not confirmed")
-        else:
-            tone = sc.OK
-            parts.append(f"if the VPN drops, {'they' if plural else 'it'} {'stop' if plural else 'stops'}")
-        headline = " · ".join(parts)
+        state, tone = PROTECTED, sc.OK
+        headline = " · ".join([f"{subject} {_verb(services, 'goes', 'go')} through {f.vpn_name}{_where(g)}",
+                               f"port {port} forwarded",
+                               f"if the VPN drops, {_verb(services, 'it stops', 'they stop')}"])
     return {"state": state, "tone": tone, "headline": headline, "rows": rows}
+
+
+_RESTART_HINT = ("If Gluetun was restarted on its own, the services in its network lost their connection: run "
+                 "`docker compose up -d --force-recreate slskd qbittorrent` (leave out qbittorrent if you don't run "
+                 "it), then check again.")
 
 
 # ---------------------------------------------------------------------------
 # Running it
 # ---------------------------------------------------------------------------
 
+#: How long to wait before reading slskd and Gluetun again when slskd looks
+#: signed in while the VPN is down (a sign-out can take a moment).
+LEAK_RECHECK_S = 4.0
+_sleep = time.sleep
+
+
+def _timed_out(placeholder: Optional[Service]) -> Optional[Service]:
+    if placeholder is not None:
+        placeholder.reachable = None
+        placeholder.inside = None
+        placeholder.how = "didn't answer in time"
+    return placeholder
+
+
 def gather(ctx) -> Facts:
-    """Read everything at once (each source on its own thread, each request
-    with the setup check's timeouts)."""
+    """Read everything at once, each source on its own thread with the setup
+    check's timeouts, and stop waiting at :data:`DEADLINE_S`: a source that
+    hasn't answered by then reads as "couldn't tell", never as fine."""
     raw_url = ctx.cfg_str(SETTING_URL, "")
     url = clean_control_url(raw_url)
     home_on = bool(ctx.cfg(SETTING_HOME_LOOKUP, False))
@@ -617,24 +789,50 @@ def gather(ctx) -> Facts:
     from core import setup_check as sc
     url = sc._resolve_url(ctx, url)
     fetch = getattr(ctx, "home_ip_fetch", None)
-    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="privacy-check") as pool:
+    pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="privacy-check")
+    end = time.monotonic() + DEADLINE_S
+    try:
         fut_g = pool.submit(read_gluetun, ctx, url)
         fut_s = pool.submit(read_slskd, ctx, url)
         fut_t = pool.submit(read_torrent, ctx, url)
         fut_h = pool.submit(home_address, home_on, fetch)
-        end = time.monotonic() + DEADLINE_S
 
         def result(fut, default):
             try:
                 return fut.result(timeout=max(0.0, end - time.monotonic()))
-            except Exception as exc:  # noqa: BLE001 - one source failing reads as "couldn't tell"
-                logger.warning("privacy check source failed: %s", exc)
+            except Exception as exc:  # noqa: BLE001 - late or failed reads as "couldn't tell"
+                logger.warning("privacy check source failed or was late: %s", type(exc).__name__)
                 return default
 
         g = result(fut_g, Gluetun(url=url, error="timeout"))
-        services = [s for s in (result(fut_s, None), result(fut_t, None)) if s is not None]
+        slskd = result(fut_s, _timed_out(slskd_placeholder(ctx)))
+        torrent = result(fut_t, _timed_out(torrent_placeholder(ctx)))
         home = result(fut_h, HomeAddress(enabled=home_on, error="the address service didn't answer"))
-    return Facts(gluetun=g, services=services, home=home, vpn_name=vpn_name)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    leak_confirmed = leak_glimpse = False
+    if slskd is not None and slskd.logged_in is True and g.reachable and not g.up:
+        # one read alone could be slskd catching up: read both again a few
+        # seconds later, inside the same deadline
+        def again():
+            _sleep(LEAK_RECHECK_S)
+            return read_gluetun(ctx, url), sc.slskd_logged_in(ctx, slskd.url)
+
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="privacy-recheck")
+        try:
+            g2, still = pool.submit(again).result(timeout=max(0.0, end - time.monotonic()))
+            leak_confirmed = bool(still is True and g2.reachable and not g2.up)
+            if still is not True:
+                slskd.logged_in = still
+                leak_glimpse = True
+        except Exception as exc:  # noqa: BLE001 - no second read in time: not confirmed
+            logger.info("privacy check: no second read in time (%s)", type(exc).__name__)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+    services = [s for s in (slskd, torrent) if s is not None]
+    return Facts(gluetun=g, services=services, home=home, vpn_name=vpn_name, leak_confirmed=leak_confirmed,
+                 leak_glimpse=leak_glimpse)
 
 
 def check_rows(ctx) -> List[Dict[str, Any]]:
@@ -653,13 +851,14 @@ def run_privacy_check(ctx=None) -> Dict[str, Any]:
     g = facts.gluetun
     out.update({
         "configured": g is not None,
+        "services_configured": services_configured(ctx),
         "settings": settings_state(ctx),
         "vpn": None if g is None else {
             "reachable": g.reachable, "status": g.status or None, "up": g.up, "name": facts.vpn_name,
             "country": g.country or None, "city": g.city or None, "forwarded_port": g.port,
         },
-        "services": [{"key": s.key, "name": s.name, "listen_port": s.listen_port, "inside": s.inside,
-                      "how": s.how or None, "signed_in": s.logged_in} for s in facts.services],
+        "services": [{"key": s.key, "name": s.name, "reachable": s.reachable, "listen_port": s.listen_port,
+                      "inside": s.inside, "how": s.how or None, "signed_in": s.logged_in} for s in facts.services],
         "addresses": {
             "vpn": (g.public_ip or None) if g is not None else None,
             "home": facts.home.ip or None,
@@ -688,5 +887,5 @@ __all__ = [
     "CATEGORY", "SETTING_URL", "SETTING_KEY", "SETTING_HOME_LOOKUP", "SETTING_VPN_NAME", "HOME_IP_SERVICE",
     "Gluetun", "Service", "HomeAddress", "Facts", "clean_control_url", "home_address", "forget_home_address",
     "read_gluetun", "read_slskd", "read_torrent", "verdict", "gather", "check_rows", "run_privacy_check",
-    "settings_state",
+    "settings_state", "services_configured",
 ]
