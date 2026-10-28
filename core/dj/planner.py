@@ -20,28 +20,49 @@ out, filter sweep, drop swap, or auto) and a length in bars, it works out:
   and drop swap need it; cut and echo out don't.
 
 **No crossfade** (Ross, 27 October: "we either mix auto or manual or
-nothing"). When a pair can't be beat-matched the plan quietly takes a DJ move
-that doesn't need it, where the outgoing track has enough to work with:
+nothing"). When a pair can't be beat-matched the plan takes Design's 302
+move, the one rule (HANDOFF "Dev, step 2 … of 28 October"), on what each
+track's grid can be trusted with (``ready to mix``: core/dj/grid.py
+``beatmatch_problem``):
 
-* the outgoing track has a grid, even one not trusted for a beat-match (a
-  break held at 0.45, not 4/4): **echo out** on its outro (``status: ok``);
-* no grid going out (no beat, too short, too long, unreadable): **play on**
-  (``status: play_on``): the outgoing track plays to its end and the next one
-  starts, as with no transition. Nothing without a grid is ever cut by
-  counting bars at a BPM (the review's M4: that cut ambient and classical
-  endings early). ``status: cut`` stays in the plan's shape for Design's
-  302 (a cut on the outgoing grid's last phrase), the next step;
-* one album's tracks in their order (the same album, the next track
-  number): **play on**, so an album stays gapless.
+* the outgoing track is ready to mix: **a cut on its last phrase**
+  (``status: cut``): the last phrase line at or before the end of its
+  mix-out region; the player starts the next track from its start there.
+  An outgoing track whose ending wasn't analysed (only its first 10
+  minutes) plays on instead: its last phrase would be counted on an
+  estimated grid;
+* only the incoming track is ready to mix (the outgoing one has no beat
+  found, too short, a beat not steady enough, a BPM set by hand its grid
+  doesn't match): **an echo out into it** (``status: ok``, ``style:
+  echo_out``, ``out.bar: None``), placed by time a second before the
+  outgoing track's end, never by bar count; the incoming track comes in on
+  its own first downbeat;
+* neither, a track not in 4/4 on either side (304), an outgoing track too
+  long to analyse, unreadable or missing, or a length not known: **plays
+  straight on** (``status: play_on``): the outgoing track plays to its end
+  and the next one starts, as with no transition.
 
-``fallback`` keeps the move and the short reason (``{kind, code, reason}``)
-for the picker's details; nothing says "crossfade".
+Nothing without a reliable grid is ever cut by counting bars at a BPM (the
+review's M4: that cut ambient and classical endings early). One album's
+tracks in their order (the same album, the next track number) play on too,
+so an album stays gapless; that's not a failure and has no fallback words.
+A style that needs no beat-match (cut, echo out) chosen by a person keeps
+its style while the outgoing track is ready to mix. ``fallback`` keeps the
+move and the short reason (``{kind: cut | echo_out | play_on, code,
+reason}``); the browser says it in Design's words ("Couldn't beat-match:
+cutting on the phrase · the tempos are 9.7% apart"); nothing says
+"crossfade".
+
+A long blend whose bars don't fit before the outgoing track's outro ends
+becomes a short blend of 8 bars, saying so (``shortened: "the outro is
+short"``; 303). An unsure "one" keeps its style, with ``unsure_bars`` and the
+note (304).
 
 **Auto** follows BACKLOG and 26a: a compatible key (the same, ±1 on the
 wheel or the relative major/minor) and a BPM within 3% give a long blend (32
 bars); compatible within 8%, or a key nobody knows, a short blend (8); a key
-clash a cut (both with steady drums) or else echo out; a gap over 8%, or a
-grid that can't be trusted, echo out.
+clash a cut (both with steady drums) or else echo out; a pair that can't be
+beat-matched (a gap over 8%, a grid that can't be trusted), 302's move.
 """
 
 from __future__ import annotations
@@ -211,6 +232,21 @@ def _length(track: Dict[str, Any]) -> Optional[float]:
     return duration
 
 
+def _echo_length(track: Dict[str, Any]) -> Optional[float]:
+    """Where 302's echo out by time is placed from: the decoded length when
+    the whole track was analysed (the library's duration can be another
+    file's, or the tags' guess), else the believable length."""
+    analysed = track.get("analysed_s")
+    if analysed and not track.get("truncated"):
+        try:
+            value = float(analysed)
+        except (TypeError, ValueError):
+            value = 0.0
+        if math.isfinite(value) and value > 0:
+            return min(value, MAX_TRACK_SECONDS)
+    return _length(track)
+
+
 def _end_bar(track: Dict[str, Any], grid: Grid) -> Tuple[int, bool]:
     """The last bar the outgoing track can mix through, and whether it's
     known (False: past the analysed part, from the track's length)."""
@@ -299,14 +335,10 @@ def _availability(out_t, in_t, beat_ok: Optional[Tuple[str, str]]) -> Dict[str, 
     return why
 
 
-def _auto(tempo: Optional[Dict[str, Any]], key: str, in_problem, in_t) -> Tuple[str, str]:
-    """Auto's style for a pair whose outgoing grid can be trusted, and its
-    reason (BACKLOG, 26a)."""
-    if in_problem is not None:
-        return "echo_out", in_problem[1]
+def _auto(tempo: Optional[Dict[str, Any]], key: str, in_t) -> Tuple[str, str]:
+    """Auto's style for a pair that can be beat-matched, and its reason
+    (BACKLOG, 26a). A pair that can't takes 302's move (``_fallback``)."""
     gap = abs(tempo["gap"]) if tempo else 1.0
-    if gap > MAX_GAP:
-        return "echo_out", "the tempos are too far apart to beat-match"
     if key == "clash":
         drums = (in_t.get("mix_in") or {}).get("how") in ("intro", "beat_only")
         return ("cut", "the keys clash") if drums else ("echo_out", "the keys clash")
@@ -326,12 +358,87 @@ def _pair_words(out_t, in_t, tempo) -> str:
     return keys
 
 
-def _play_on(code: str, reason: str, base: Dict[str, Any]) -> Dict[str, Any]:
+#: Design's 302 moves, as the sentence's middle ("Couldn't beat-match:
+#: cutting on the phrase · the tempos are 9.7% apart")
+MOVE_WORDS = {"cut": "cutting on the phrase", "echo_out": "echo out", "play_on": "plays straight on"}
+
+#: an outgoing track with no grid to trust for these can still be echoed
+#: out by time into a ready incoming one; the rest (too long to analyse,
+#: unreadable, missing) play straight on: the decks couldn't read them either
+_ECHO_CODES = ("no_beat", "low_confidence", "bpm_mismatch")
+#: the echo out without a grid going out starts this long before its end
+ECHO_END_S = 1.0
+
+
+def _couldnt(kind: str, reason: str) -> str:
+    return f"Couldn't beat-match: {MOVE_WORDS[kind]} · {reason}"
+
+
+def _play_on(code: str, reason: str, base: Dict[str, Any], *, failed: bool = True) -> Dict[str, Any]:
     """No transition: the outgoing track plays to its end and the next one
-    starts. Never a crossfade, and never a cut by bar count."""
+    starts. Never a crossfade, and never a cut by bar count. ``failed``:
+    302's "plays straight on" (a pair that couldn't be beat-matched), not
+    an album played in its order."""
+    why = _couldnt("play_on", reason) if failed else f"Plays straight on: {reason}"
     return {**base, "status": "play_on", "style": None, "bars": None, "beatmatch": False,
-            "why": f"Plays on: {reason}", "fallback": {"kind": "play_on", "code": code, "reason": reason},
+            "why": why, "fallback": {"kind": "play_on", "code": code, "reason": reason},
             "note": None, "length_s": 0.0, "confidence": 0.0}
+
+
+def _fallback(out_t: Dict[str, Any], in_t: Dict[str, Any], out_grid: Optional[Grid], in_grid: Optional[Grid],
+              out_problem, in_problem, tempo_problem, base: Dict[str, Any]) -> Dict[str, Any]:
+    """Design's 302, the one rule for a pair that can't be beat-matched: the
+    outgoing track ready to mix, a cut on its last phrase; only the incoming
+    one, an echo out into it; neither, straight on. Not 4/4 on either side
+    plays straight on (304)."""
+    out_name = _name(out_t, "This track")
+    for problem in (out_problem, in_problem):
+        if problem is not None and problem[0] == "not_4_4":
+            return _play_on(problem[0], problem[1], base)
+    if out_problem is None and out_grid is not None:
+        code, reason = in_problem or tempo_problem or ("tempo_gap", "a tempo isn't known")
+        end_bar, known = _end_bar(out_t, out_grid)
+        last = _Phrases(out_t).latest(end_bar) if known else None
+        if last is None or last[0] <= 0:
+            if out_t.get("truncated"):
+                # its ending wasn't analysed: no phrase there to trust
+                return _play_on("end_not_analysed", f"the end of {out_name} wasn't analysed", base)
+            # analysed whole, but no mix-out region (or no phrase in it)
+            return _play_on("no_outro", f"{out_name} has no outro to cut on", base)
+        bar, level = last
+        start = round(out_grid.bar(bar), 3)
+        region = out_t.get("mix_out") or {}
+        # 304 for the cut (step 2's review M3): it still lands on a beat, but
+        # an unsure "one" may put it off the phrase, which the chip says
+        unsure = float((out_t.get("downbeats") or {}).get("confidence") or 0) < DOWNBEAT_CONFIDENT
+        return {**base, "status": "cut", "style": "cut", "label": STYLE_WORDS["cut"], "bars": None,
+                "beatmatch": False, "why": _couldnt("cut", reason),
+                "fallback": {"kind": "cut", "code": code, "reason": reason},
+                "note": "Not sure where the bars start: the cut may not land on the phrase." if unsure else None,
+                "unsure_bars": unsure,
+                "out": {"start": start, "end": start, "bar": int(bar), "end_bar": int(bar), "phrase_level": int(level),
+                        "in_outro": bool(region) and bar >= int(region.get("start_bar") or 0),
+                        "confidence": round(float(region.get("confidence") or 0.5), 2)},
+                # the player starts the next track from its start (no decks)
+                "in": {"start": 0.0, "bar": None, "how": "start", "confidence": 0.2},
+                "length_s": 0.0, "confidence": 0.5}
+    if out_problem is not None and out_problem[0] in _ECHO_CODES and in_grid is not None and in_problem is None:
+        length = _echo_length(out_t)
+        if length and length > ECHO_END_S + 4:
+            in_pt = _in_point(in_t, in_grid, "echo_out", DEFAULT_BARS["echo_out"])
+            start = round(length - ECHO_END_S, 3)
+            return {**base, "status": "ok", "style": "echo_out", "label": STYLE_WORDS["echo_out"],
+                    "bars": DEFAULT_BARS["echo_out"], "beatmatch": False, "why": _couldnt("echo_out", out_problem[1]),
+                    "fallback": {"kind": "echo_out", "code": out_problem[0], "reason": out_problem[1]},
+                    "note": None,
+                    # by time, at the outgoing track's end: never a bar counted on a grid it hasn't got
+                    "out": {"start": start, "end": start, "bar": None, "end_bar": None, "phrase_level": None,
+                            "in_outro": True, "confidence": 0.3},
+                    "in": {"start": round(in_grid.bar(in_pt["bar"]), 3), "bar": in_pt["bar"], "how": in_pt["how"],
+                           "confidence": round(in_pt["confidence"], 2)},
+                    "length_s": 0.0, "confidence": 0.3}
+    code, reason = out_problem or in_problem or tempo_problem
+    return _play_on(code, reason, base)
 
 
 def _album_in_order(out_t: Dict[str, Any], in_t: Dict[str, Any]) -> bool:
@@ -385,7 +492,8 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
     }
     if _album_in_order(out_t, in_t):
         # an album played in its order stays gapless: no transition at all
-        return {**_play_on("album_in_order", "one album's tracks in their order", base), "styles": []}
+        return {**_play_on("album_in_order", "one album's tracks in their order", base, failed=False),
+                "styles": []}
     for track, which in ((out_t, "from"), (in_t, "to")):
         if not track.get("analyzed") and track.get("reason") in (None, "not_analyzed", "analyzing"):
             return {**base, "status": "waiting", "style": None, "waiting_for": which,
@@ -405,31 +513,32 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
     base["styles"] = [{"style": s, "label": STYLE_WORDS[s], "available": available[s] is None,
                        "why": available[s]} for s in STYLES[1:]]
     fallback = None
-    if out_grid is None:
-        # nowhere to put the one: it plays on (never cut by counting bars)
-        return _play_on(out_problem[0], out_problem[1], base)
-    if out_problem is not None:
-        # a grid, but not one to beat-match on (a break held under 0.5, not
-        # 4/4): echo out needs no beat-match, only the outgoing track's beats
-        chosen = "echo_out"
-        why = f"Echo out: {out_problem[1]}"
-        fallback = {"kind": "echo_out", "code": out_problem[0], "reason": out_problem[1]}
-    elif style == "auto":
-        chosen, why = _auto(tempo, key, in_problem, in_t)
+    shortened = None
+    if beat_ok is not None and (style == "auto" or style in NEEDS_BEATMATCH or out_problem is not None):
+        # a pair that can't be beat-matched: Design's 302 move (a cut on the
+        # outgoing track's last phrase, an echo out into the incoming one, or
+        # straight on); a person's cut or echo out stays theirs while the
+        # outgoing track is ready to mix
+        return _fallback(out_t, in_t, out_grid, in_grid, out_problem, in_problem, tempo_problem, base)
+    if style == "auto":
+        chosen, why = _auto(tempo, key, in_t)
         why = f"{base['pair']}: {why}"
     else:
         chosen, why = style, None
         if available[style] is not None:
-            if style in NEEDS_BEATMATCH and beat_ok is not None:
-                # the style needs a beat-match the pair can't have: echo out
-                chosen = "echo_out"
-                why = f"{STYLE_WORDS[style]}: {beat_ok[1]}, so echo out"
-                fallback = {"kind": "echo_out", "code": beat_ok[0], "reason": beat_ok[1]}
-            else:
-                # a drop swap without a drop: Auto's choice instead, saying why
-                chosen, auto_why = _auto(tempo, key, in_problem, in_t)
-                why = f"{STYLE_WORDS[style]}: {available[style]}, so {STYLE_WORDS[chosen].lower()} ({auto_why})"
+            # a drop swap without a drop: Auto's choice instead, saying why
+            chosen, auto_why = _auto(tempo, key, in_t)
+            why = f"{STYLE_WORDS[style]}: {available[style]}, so {STYLE_WORDS[chosen].lower()} ({auto_why})"
     length = 0 if chosen == "cut" else (bars if (bars and style == chosen) else DEFAULT_BARS[chosen])
+    if chosen == "long_blend" and length > DEFAULT_BARS["short_blend"]:
+        # 303: a long blend starts on the latest phrase that leaves its bars
+        # before the outro ends ("both fine"); where they don't fit before
+        # it (a short track), it becomes a short blend and says so, rather
+        # than shrinking in silence
+        end_bar, _ = _end_bar(out_t, out_grid)
+        if end_bar - length < 0 or _Phrases(out_t).latest(end_bar - length) is None:
+            chosen, length = "short_blend", DEFAULT_BARS["short_blend"]
+            shortened = "the outro is short"
     out_pt = _out_point(out_t, out_grid, chosen, length)
     if in_grid is not None:
         in_pt = _in_point(in_t, in_grid, chosen, max(length, 1))
@@ -446,12 +555,15 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
     confidence = round(min(beat_conf, max(down_conf, 0.1) if beatmatch else 1.0, out_pt["confidence"] + 0.3,
                            in_pt["confidence"] + 0.3, 1.0), 2)
     note = None
-    if beatmatch and down_conf < DOWNBEAT_CONFIDENT:
+    unsure = bool(beatmatch and down_conf < DOWNBEAT_CONFIDENT)
+    if unsure:
+        # 304: it keeps its style; the chip shows the warning dot and this
         note = "Not sure where the bars start: the phrases may not line up."
     elif not out_pt["known"]:
         note = f"Only the first 10 minutes of {out_name} were analysed: its ending is estimated."
     return {**base, "status": "ok", "style": chosen, "label": STYLE_WORDS[chosen], "bars": length or None,
             "beatmatch": beatmatch, "why": why, "fallback": fallback, "note": note,
+            "shortened": shortened, "unsure_bars": unsure,
             "out": {"start": round(start, 3), "end": round(end, 3), "bar": out_pt["bar"],
                     "end_bar": out_pt["bar"] + length, "phrase_level": out_pt["level"],
                     "in_outro": out_pt["in_outro"], "confidence": out_pt["confidence"]},
@@ -460,5 +572,5 @@ def plan(out_t: Dict[str, Any], in_t: Dict[str, Any], *, style: str = "auto",
             "length_s": round(end - start, 3), "confidence": confidence}
 
 
-__all__ = ["BARS", "CLOSE_GAP", "DEFAULT_BARS", "MAX_GAP", "NEEDS_BEATMATCH", "PlanError", "STYLES", "key_relation",
-           "plan", "tempo_relation"]
+__all__ = ["BARS", "CLOSE_GAP", "DEFAULT_BARS", "MAX_GAP", "MOVE_WORDS", "NEEDS_BEATMATCH", "PlanError", "STYLES",
+           "key_relation", "plan", "tempo_relation"]

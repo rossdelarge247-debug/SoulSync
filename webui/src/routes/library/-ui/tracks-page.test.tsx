@@ -433,7 +433,7 @@ describe('Library → Tracks', () => {
     expect(next.textContent).toBe('Play nextMusic HD isn’t connected');
   });
 
-  it('keeps 24a’s one order in the "…" menu: Add to mix set… fourth (154, 28a)', async () => {
+  it('keeps 24a’s one order in the "…" menu: Add to set… fourth (154, 28a)', async () => {
     renderPage();
     const row = (await screen.findByText('Static Bloom')).closest('li')!;
     fireEvent.click(within(row).getByRole('button', { name: 'More for Static Bloom' }));
@@ -441,7 +441,7 @@ describe('Library → Tracks', () => {
     expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
       'Play next',
       'Mixes well with…',
-      'Add to mix set…',
+      'Add to set…',
       'Add to playlist…',
       'Double BPM',
       'Halve BPM',

@@ -20,6 +20,7 @@ import {
   LEAD_BARS,
   PRELOAD_S,
   choiceOf,
+  lastPhraseCut,
   mixNowPlan,
   mixable,
   playedAsMix,
@@ -240,7 +241,13 @@ function harness(
     muted: false,
     crossfadeSeconds: 6,
   };
-  const prefs: AutomixPrefs = { between: 'dj', auto: true, lean: 'auto', ...opts.prefs };
+  const prefs: AutomixPrefs = {
+    between: 'dj',
+    auto: true,
+    lean: 'auto',
+    keyLock: false,
+    ...opts.prefs,
+  };
   const player = {
     state: () => st,
     audio: () => el as unknown as HTMLAudioElement,
@@ -604,10 +611,15 @@ describe('Mix now', () => {
     expect(v.barsToGo).toBeGreaterThan(0);
   });
 
-  it('a cut plan cuts now; a pair that plays on has nothing to mix (never a crossfade)', async () => {
+  it('a cut plan with no grid to trust cuts now; a pair that plays on has nothing to mix (never a crossfade)', async () => {
     const h = harness({ plan: cutPlan() });
+    h.grids.mockImplementation(async () => ({
+      '1': { track_id: '1', analyzed: false, reason: 'no_beat' },
+      '2': apiGrid('2', GB, -10),
+    }));
     await at(h, 30);
     expect(h.ctl.mixNow()).toBe(true);
+    await flush();
     await vi.advanceTimersByTimeAsync(10);
     expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
     const on = harness({ plan: playOnPlan() });
@@ -1028,5 +1040,281 @@ describe('analyse on demand: a waiting pair', () => {
     h.ctl.replanWaiting();
     await flush();
     expect(h.plan).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('step 2 of 28 October: 283, 302, 314, 316, 317', () => {
+  const MIX_OUT = { start: GA.barTime(96), end: GA.barTime(112), start_bar: 96, end_bar: 112 };
+
+  it('283: a chip describes a pair, so another next track is Auto again', () => {
+    const next = track('2', 'b');
+    const other = track('9', 'z');
+    const mine = track('1', 'a', { automix: { style: 'echo_out', bars: 4, to: '2' } });
+    expect(choiceOf(mine, next)).toEqual({ style: 'echo_out', bars: 4 });
+    expect(choiceOf(mine, other)).toEqual(AUTO_CHOICE);
+    const set = {
+      id: 3,
+      name: 'Sunday Set',
+      row: 0,
+      transition: { style: 'cut' as const, bars: null },
+      next: '2',
+    };
+    expect(choiceOf(track('1', 'a', { mix_set: set }), next)).toEqual({ style: 'cut', bars: null });
+    expect(choiceOf(track('1', 'a', { mix_set: set }), other)).toEqual(AUTO_CHOICE);
+  });
+
+  it('302 and 314: a cut on the phrase counts down over its last 16 bars, like a mix', async () => {
+    const at250 = 250;
+    const h = harness({ plan: cutPlan(at250) });
+    await at(h, 100);
+    expect(h.ctl.getView().barsToGo).toBeNull();
+    expect(h.ctl.getView().inSeconds).toBeCloseTo(150, 0);
+    await at(h, at250 - 10 * 4 * (60 / 124));
+    expect(h.ctl.getView().barsToGo).toBe(10);
+  });
+
+  it('316: Cancel plays the track out straight on, with no fallback (no cut, no decks)', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 240);
+    h.ctl.cancel();
+    expect(h.ctl.getView().cancelled).toBe(true);
+    await at(h, 249);
+    h.el.advance(251);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    expect(engine.plays).toHaveLength(0);
+    expect(h.ctl.ownsAdvance()).toBe(false);
+  });
+
+  it('317: the last phrase to cut on after Back needs a grid ready to mix and its ending analysed', () => {
+    const g = { ...apiGrid('1', GA, -8), mix_out: MIX_OUT };
+    expect(lastPhraseCut(g)).toBeCloseTo(GA.barTime(112), 6);
+    // the outro's last kick off the phrase line: the line before it
+    expect(lastPhraseCut({ ...g, mix_out: { ...MIX_OUT, end_bar: 110 } })).toBeCloseTo(
+      GA.barTime(104),
+      6,
+    );
+    expect(lastPhraseCut({ ...g, grid: { ...g.grid!, confidence: 0.45 } })).toBeNull();
+    expect(lastPhraseCut({ ...g, downbeats: { ...g.downbeats!, meter: 'not_4_4' } })).toBeNull();
+    expect(lastPhraseCut({ ...g, truncated: true })).toBeNull();
+    expect(lastPhraseCut({ ...g, mix_out: null })).toBeNull();
+    expect(lastPhraseCut(null)).toBeNull();
+  });
+
+  it("317: after Back the next track comes in by 302's rule, a cut on the last phrase, never a crossfade", async () => {
+    const h = harness();
+    h.grids.mockImplementation(async () => ({
+      '1': { ...apiGrid('1', GA, -8), mix_out: MIX_OUT },
+      '2': apiGrid('2', GB, -10),
+    }));
+    await intoTheMix(h);
+    h.ctl.back();
+    // the bar back, then the outgoing deck's tempo home over 4 bars, then the element again
+    for (let i = 0; i < 40 && h.ctl.engineOwns(); i++) {
+      engine.port.time += 1;
+      h.el.advance(h.el.currentTime + 1);
+      h.ctl.poke();
+      await flush();
+      await vi.advanceTimersByTimeAsync(200);
+    }
+    expect(h.ctl.engineOwns()).toBe(false);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    const cutAt = GA.barTime(112);
+    await at(h, cutAt - 1);
+    await vi.advanceTimersByTimeAsync(400);
+    h.el.advance(cutAt + 0.01);
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+    expect(h.ctl.crossfade(h.st.queue[0], h.st.queue[1])).toBeNull();
+  });
+
+  it('302: Mix now on an echo out placed by time echoes out now, never on a counted bar', async () => {
+    const echo = okPlan({
+      style: 'echo_out',
+      bars: 4,
+      beatmatch: false,
+      fallback: { kind: 'echo_out', code: 'no_beat', reason: 'Night Ferry has no steady beat' },
+      out: { start: 299, bar: null, end: 299, end_bar: null },
+      in: { start: GB.barTime(0), bar: 0 },
+    });
+    const h = harness({ plan: echo });
+    await at(h, 100);
+    expect(h.ctl.mixNow()).toBe(true);
+    await flush();
+    await vi.advanceTimersByTimeAsync(100);
+    const firstWindow = h.window.mock.calls[0] as unknown as [unknown, string, number, number];
+    // the outgoing window around now + the lead (6 s), not around the end
+    expect(firstWindow[1]).toBe('1');
+    expect(firstWindow[2]).toBeLessThan(110);
+  });
+});
+
+describe("step 2's Gauntlet review (the reviewer's cut.probe.test.ts, as tests)", () => {
+  it('[review H1] a cut plan that arrives past its cut point never cuts at once: straight on', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    // a track just added to Up next while this one is in its tail
+    h.el.advance(280);
+    h.ctl.poke();
+    await flush();
+    h.ctl.poke();
+    await flush();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    expect(h.ctl.getView().barsToGo).toBeNull();
+  });
+
+  it('[review H1] a seek past the cut point plays on; a seek back before it arms it again', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 100);
+    h.el.currentTime = 270;
+    h.ctl.poke();
+    await flush();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    h.el.currentTime = 200;
+    await at(h, 249);
+    h.el.advance(250);
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+  });
+
+  it('[review H1] a cut already set when the listener seeks past it lets it go', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 249);
+    h.el.advance(270);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+  });
+
+  it("[review M1] an echo out by time sits a second before the element's own end, not the library's", async () => {
+    const plan = okPlan({
+      style: 'echo_out',
+      label: 'Echo out',
+      bars: 4,
+      beatmatch: false,
+      fallback: { kind: 'echo_out', code: 'no_beat', reason: 'Night Ferry has no steady beat' },
+      out: { start: 99, bar: null, end: 99, end_bar: null },
+      in: { start: 0.2, bar: 0 },
+    });
+    const h = harness({ plan });
+    h.grids.mockImplementation(async () => ({
+      '1': { track_id: '1', analyzed: false, reason: 'no_beat' },
+      '2': apiGrid('2', GB, -10),
+    }));
+    h.el.duration = 121;
+    await at(h, 60);
+    expect(h.ctl.getView().outStart).toBeCloseTo(120, 3);
+    for (const t of [80, 100, 110, 116, 117]) await at(h, t);
+    expect(engine.inputs[0]?.plan.out.start).toBeCloseTo(120, 3);
+  });
+
+  it('[review] Mix now on a cut plan cuts on the next phrase line ahead, counted down, not at once', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 100);
+    expect(h.ctl.mixNow()).toBe(true);
+    await flush();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    const v = h.ctl.getView();
+    expect(v.outStart).toBeGreaterThan(100);
+    expect(v.barsToGo).not.toBeNull();
+    // it lands on a phrase line of the outgoing grid
+    const next = GA.barTime(Math.ceil((GA.beatAt(103) - 0) / 4 / 8) * 8);
+    expect(v.outStart).toBeCloseTo(next, 2);
+    await at(h, next - 0.5);
+    h.el.advance(next + 0.01);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+  });
+
+  it('[review] Mix now on a cut plan without a grid to trust cuts now, as before', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    h.grids.mockImplementation(async () => ({
+      '1': { track_id: '1', analyzed: false, reason: 'no_beat' },
+      '2': apiGrid('2', GB, -10),
+    }));
+    await at(h, 100);
+    h.ctl.mixNow();
+    await flush();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+  });
+});
+
+describe("step 2's re-review: the cut's timing (the reviewer's r2.probe.test.ts, as tests)", () => {
+  /** time passing in small steps, the tick and timers alongside */
+  async function play(h: Harness, to: number, step = 0.1) {
+    while (h.el.currentTime < to - 1e-9) {
+      const n = Math.min(to, h.el.currentTime + step);
+      engine.port.time += n - h.el.currentTime;
+      h.el.advance(n);
+      await vi.advanceTimersByTimeAsync(step * 1000);
+      h.ctl.poke();
+      await flush();
+    }
+  }
+
+  it('[re-review 1] a cut timer that fires 400 ms late still cuts (a busy page is no seek)', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await play(h, 248.5);
+    h.el.advance(250.4);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
+  });
+
+  it('[re-review 1] a faster rate inside the wait still cuts', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await play(h, 248.05, 0.05);
+    h.el.playbackRate = 1.5;
+    // the controller's own 120 ms tick sees the new rate (poked here)
+    for (let i = 0; i < 20; i++) {
+      h.el.advance(h.el.currentTime + 0.15);
+      await vi.advanceTimersByTimeAsync(100);
+      h.ctl.poke();
+      await flush();
+    }
+    h.ctl.poke();
+    await flush();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.player.playIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('[re-review 1] a seek past the cut while its timer waits is still straight on', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await play(h, 248.5);
+    h.el.currentTime = 260;
+    await vi.advanceTimersByTimeAsync(2000);
+    h.ctl.poke();
+    await flush();
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+  });
+
+  it("[re-review 2] Mix now inside the automatic cut's 2 s lets its timer go: one cut, on the new phrase", async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await play(h, 248.6);
+    h.ctl.mixNow();
+    await flush();
+    const at0 = h.ctl.getView().outStart!;
+    expect(at0).toBeGreaterThan(251);
+    await play(h, 250.1, 0.05);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(h.player.playIndex).not.toHaveBeenCalled();
+    await play(h, at0 + 0.3, 0.05);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(h.player.playIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('[re-review 3] a seek back to just before a missed cut arms it again', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    await at(h, 100);
+    h.el.currentTime = 270;
+    h.ctl.poke();
+    await flush();
+    h.el.currentTime = 245;
+    h.ctl.poke();
+    await flush();
+    await play(h, 252);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
   });
 });

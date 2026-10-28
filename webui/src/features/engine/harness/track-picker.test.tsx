@@ -228,7 +228,7 @@ describe('a deck’s picker', () => {
     expect(asked[0]).toContain('starred=1');
     source('Sets & playlists');
     const select = await screen.findByRole('combobox', {
-      name: 'A mix set or playlist for the outgoing track',
+      name: 'A set or playlist for the outgoing track',
     });
     await waitFor(() => expect(select).toHaveTextContent('Set: Sunday Set'));
     fireEvent.change(select, { target: { value: 'set:3' } });

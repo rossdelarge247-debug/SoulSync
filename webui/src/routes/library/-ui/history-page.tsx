@@ -157,7 +157,7 @@ function MusicRow({
   const trackId = play.track_id ? String(play.track_id) : null;
   const star = useStar(trackId);
   const anchor = () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]');
-  // 24a's one order (Play next, Mixes well with…, Add to mix set…, Add to
+  // 24a's one order (Play next, Mixes well with…, Add to set…, Add to
   // playlist…, Open artist, Open album); Star first in the phone's sheet
   const entries = (sheetStar: boolean) =>
     trackId

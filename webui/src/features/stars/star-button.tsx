@@ -1,6 +1,6 @@
 /**
  * The star in React rows (Tracks, History, the Artist page, Search, Mixes
- * well with, playlists, a mix set). The same control the shell draws
+ * well with, playlists, a set). The same control the shell draws
  * (star-control.ts): the same attributes, stylesheet and store, so a star
  * changed anywhere shows everywhere.
  */

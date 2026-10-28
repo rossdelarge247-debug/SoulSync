@@ -1575,3 +1575,8 @@ textarea.pasteText,
 .rowMarker {
   margin-top: 4px;
 }
+
+/* 320, UX-21: Auto mix off, said once above the list */
+.offLine {
+  margin: 0 0 12px;
+}

@@ -901,8 +901,8 @@ export function MirroredDetailModal({
                 <button
                   type="button"
                   className="mm-round"
-                  aria-label="Add to queue"
-                  title="Add to queue"
+                  aria-label="Add to Up next"
+                  title="Add to Up next"
                   disabled={tracks.length === 0 || playing !== null}
                   aria-busy={playing === 'queue' || undefined}
                   onClick={() => void runPlay('queue')}

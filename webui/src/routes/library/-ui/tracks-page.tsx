@@ -102,7 +102,7 @@ function artistHref(track: DjTrack): string | null {
 }
 
 /**
- * The "…" (24a's one order): Play next, Mixes well with…, Add to mix set…,
+ * The "…" (24a's one order): Play next, Mixes well with…, Add to set…,
  * Add to playlist…, Double BPM, Halve BPM (Use the measured BPM after
  * either), Open artist, Open album; on a phone Star comes first (28d). A
  * starred track whose file is gone (the Starred filter) has only what still
@@ -892,8 +892,8 @@ export function TracksPage({
           label={`${plural(picked.length, 'track')} selected`}
           shortLabel={plural(picked.length, 'track')}
           count={picked.length}
-          primaryLabel="Add to mix set…"
-          idleLabel="Add to mix set…"
+          primaryLabel="Add to set…"
+          idleLabel="Add to set…"
           emptyReason="Tick tracks to select them"
           secondary={{ label: 'Export to Traktor…', onClick: () => setExporting(true) }}
           selectAll={

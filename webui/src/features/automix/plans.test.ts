@@ -8,6 +8,7 @@ import {
   autoLine,
   chipWhy,
   chipWhyShort,
+  fallbackSentence,
   inWords,
   planFor,
   planWords,
@@ -42,11 +43,15 @@ describe('the chip’s words (26g)', () => {
     const echo = plan({
       style: 'echo_out',
       bars: 4,
-      fallback: { kind: 'echo_out', code: 'tempo_gap', reason: 'the tempos are 9.7% apart' },
+      fallback: { kind: 'echo_out', code: 'no_beat', reason: 'Sand Script has no steady beat' },
     });
     expect(planWords(echo, AUTO_CHOICE)).toBe('Echo out · 4 bars');
-    expect(autoLine(echo).why).toBe('No beat-match: the tempos are 9.7% apart');
+    expect(autoLine(echo).why).toBe(
+      "Couldn't beat-match: echo out · Sand Script has no steady beat",
+    );
     expect(playsOn(plan({ status: 'play_on', style: null }))).toBe(true);
+    // 302's "plays straight on" names itself on the chip
+    expect(planWords(plan({ status: 'play_on', style: null }), AUTO_CHOICE)).toBe('Straight on');
     expect(playsOn(echo)).toBe(false);
     expect(planWords(plan({ status: 'waiting' }), AUTO_CHOICE)).toBe('Waiting');
     expect(planWords(null, { style: 'bass_swap', bars: 16 })).toBe('Bass swap · 16 bars');
@@ -67,11 +72,29 @@ describe('the chip’s words (26g)', () => {
     );
     const echo = plan({
       style: 'echo_out',
-      fallback: { kind: 'echo_out', code: 'no_beat', reason: 'live drums' },
+      fallback: { kind: 'echo_out', code: 'no_beat', reason: 'Sand Script has no steady beat' },
     });
-    // the reason is the picker's detail only: the chip's line has no warning
-    expect(chipWhy(echo, AUTO_CHOICE, 'x')).toBe('auto · 8A → 9A, +2 BPM');
-    expect(chipWhy(plan({ status: 'play_on', style: null }), AUTO_CHOICE, 'x')).toBe('plays on');
+    // 302: the chip's line says what stood in the way (26g's fallback shape)
+    expect(chipWhy(echo, AUTO_CHOICE, 'x')).toBe(
+      "couldn't beat-match: Sand Script has no steady beat",
+    );
+    expect(chipWhyShort(echo, AUTO_CHOICE)).toBe("auto · can't beat-match");
+    // an album in its order isn't a failure: it plays straight on, quietly
+    expect(
+      chipWhy(
+        plan({
+          status: 'play_on',
+          style: null,
+          fallback: {
+            kind: 'play_on',
+            code: 'album_in_order',
+            reason: "one album's tracks in their order",
+          },
+        }),
+        AUTO_CHOICE,
+        'x',
+      ),
+    ).toBe("plays straight on · one album's tracks in their order");
   });
 
   it('the step: a clash or more than 3 BPM is a jump, half time counts, no key is not known', () => {
@@ -146,5 +169,88 @@ describe('Auto’s lean (26h)', () => {
     expect(own).toHaveBeenCalledTimes(2);
     // Auto takes its pick's own length: no bars sent
     expect(own.mock.calls[0]).toEqual(['1', '2', 'auto', undefined]);
+  });
+});
+
+describe("302's fallback words (Design, 27 October; no crossfade)", () => {
+  const f = (kind: string, code: string, reason: string) =>
+    plan({
+      status: kind === 'cut' ? 'cut' : kind === 'play_on' ? 'play_on' : 'ok',
+      fallback: { kind, code, reason },
+    });
+
+  it("says the move and the reason, in Design's words", () => {
+    expect(fallbackSentence(f('cut', 'tempo_gap', 'the tempos are 9.7% apart'))).toBe(
+      "Couldn't beat-match: cutting on the phrase · the tempos are 9.7% apart",
+    );
+    expect(fallbackSentence(f('echo_out', 'no_beat', 'Sand Script has no steady beat'))).toBe(
+      "Couldn't beat-match: echo out · Sand Script has no steady beat",
+    );
+    expect(fallbackSentence(f('play_on', 'not_4_4', "Sweet Waltz isn't in 4/4"))).toBe(
+      "Couldn't beat-match: plays straight on · Sweet Waltz isn't in 4/4",
+    );
+    expect(fallbackSentence(f('play_on', 'too_long', 'A Mix is too long to analyse'))).toBe(
+      "Couldn't beat-match: plays straight on · A Mix is too long to analyse",
+    );
+    expect(fallbackSentence(f('cut', 'unreachable', "Pad can't be opened"))).toBe(
+      "Couldn't beat-match: cutting on the phrase · Pad can't be opened",
+    );
+    expect(fallbackSentence(f('play_on', 'error', "A Mix couldn't be analysed"))).toBe(
+      "Couldn't beat-match: plays straight on · A Mix couldn't be analysed",
+    );
+  });
+
+  it('says nothing for a beat-matched pair, an album in its order or a page without the decks', () => {
+    expect(fallbackSentence(plan())).toBeNull();
+    expect(
+      fallbackSentence(f('play_on', 'album_in_order', "one album's tracks in their order")),
+    ).toBeNull();
+    expect(fallbackSentence(f('play_on', 'unsupported', 'needs https'))).toBeNull();
+  });
+
+  it("the chip names the move (Cut, Echo out, Straight on) and the picker's Auto line the sentence", () => {
+    const cut = f('cut', 'tempo_gap', 'the tempos are 9.7% apart');
+    expect(planWords({ ...cut, style: 'cut', bars: null }, AUTO_CHOICE)).toBe('Cut');
+    expect(autoLine({ ...cut, style: 'cut' })).toEqual({
+      name: 'Auto: Cut',
+      why: "Couldn't beat-match: cutting on the phrase · the tempos are 9.7% apart",
+    });
+    const on = f('play_on', 'not_4_4', "Sweet Waltz isn't in 4/4");
+    expect(autoLine({ ...on, style: null })).toEqual({
+      name: 'Auto: Straight on',
+      why: "Couldn't beat-match: plays straight on · Sweet Waltz isn't in 4/4",
+    });
+    for (const p of [cut, on])
+      expect(JSON.stringify(autoLine(p)).toLowerCase()).not.toContain('crossfade');
+  });
+
+  it("303: a long blend that didn't fit says so; 304: an unsure one says so", () => {
+    const short = plan({ style: 'short_blend', bars: 8, shortened: 'the outro is short' });
+    expect(planWords(short, AUTO_CHOICE)).toBe('Short blend · 8 bars');
+    expect(chipWhy(short, AUTO_CHOICE, 'x')).toBe('auto · the outro is short');
+    expect(autoLine(short).why).toBe('Short blend: the outro is short');
+    const unsure = plan({
+      unsure_bars: true,
+      note: 'Not sure where the bars start: the phrases may not line up.',
+    });
+    expect(planWords(unsure, AUTO_CHOICE)).toBe('Long blend · 32 bars');
+    expect(chipWhy(unsure, { style: 'bass_swap', bars: 16 }, 'x')).toBe(
+      'yours · Not sure where the bars start',
+    );
+  });
+});
+
+describe('[review M3] a cut on an unsure one', () => {
+  it('keeps the amber chip and says "Not sure where the bars start" first', () => {
+    const p = plan({
+      status: 'cut',
+      style: 'cut',
+      bars: null,
+      unsure_bars: true,
+      fallback: { kind: 'cut', code: 'tempo_gap', reason: 'the tempos are 12.9% apart' },
+    });
+    expect(chipWhy(p, AUTO_CHOICE, 'x')).toBe(
+      "Not sure where the bars start · couldn't beat-match: the tempos are 12.9% apart",
+    );
   });
 });

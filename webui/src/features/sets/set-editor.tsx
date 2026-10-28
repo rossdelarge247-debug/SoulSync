@@ -1,6 +1,6 @@
 /**
  * The set itself (22c, 22d, 22e without the AI's parts): the name, the meta
- * line, Export to Traktor… and Save as mix set, the energy graph, then the rows
+ * line, Export to Traktor… and Save as a set, the energy graph, then the rows
  * with the step between each pair (Smooth / Jump / Not known yet and why, in
  * the Mixes panel's words, worked out by the server's Camelot rules). Lock
  * per row; reorder by the grip, or Move up / Move down / Move… from the "…"
@@ -17,6 +17,7 @@ import { apiClient, readJson } from '@/app/api-client';
 import { DialogBody, DialogFooter, DialogFrame, DialogHeader } from '@/components/dialog';
 import { Button, TextInput } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
+import { AutoMixOffLine } from '@/features/automix/between-tracks';
 import { SetStepChip } from '@/features/automix/set-chip';
 import { playSetAsMix } from '@/features/automix/set-play';
 import {
@@ -942,6 +943,31 @@ export function SetEditor({
   const flushRef = useRef(flush);
   flushRef.current = flush;
 
+  // 319 (step 2's review M2): a chip saved to this draft from Up next
+  // ("Save it to … too?") is written to the draft in this browser while the
+  // page is open; take its transitions in, so the next edit here doesn't
+  // write the old ones back. Only rows still the same track at the same place.
+  const written = useRef<string>(JSON.stringify(initial.rows));
+  const externalRows = source.kind === 'draft' ? source.draft.rows : null;
+  useEffect(() => {
+    if (!externalRows) return;
+    const theirs = JSON.stringify(externalRows);
+    if (theirs === written.current) return;
+    written.current = theirs;
+    setRows((mine) => {
+      let changed = false;
+      const merged = mine.map((row, i) => {
+        const other = externalRows[i];
+        if (!other || String(other.track_id ?? '') !== String(row.track_id ?? '')) return row;
+        if (JSON.stringify(other.transition ?? null) === JSON.stringify(row.transition ?? null))
+          return row;
+        changed = true;
+        return { ...row, transition: other.transition ?? null };
+      });
+      return changed ? merged : mine;
+    });
+  }, [externalRows]);
+
   // keep the draft in this browser, or save a saved set as it changes
   useEffect(() => {
     if (first.current) {
@@ -949,6 +975,7 @@ export function SetEditor({
       return;
     }
     if (source.kind === 'draft') {
+      written.current = JSON.stringify(rows);
       writeDraft(profileId, { ...source.draft, name, rows });
       return;
     }
@@ -1221,6 +1248,24 @@ export function SetEditor({
           ) : null}
         </p>
         <div className={styles.editorActions}>
+          {/* 319: Play as a mix comes before Export (33c), on a draft too; its
+              chips play whatever Between tracks says (28e) */}
+          <Button
+            size="lg"
+            variant="secondary"
+            disabled={!trackIds.length}
+            disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
+            onClick={() =>
+              void playSetAsMix(
+                source.kind === 'saved'
+                  ? { id: source.id, name: name.trim() || initial.name }
+                  : { id: 0, name: name.trim() || initial.name, draft: true },
+                viewRows,
+              )
+            }
+          >
+            Play as a mix
+          </Button>
           <Button
             size="lg"
             variant="secondary"
@@ -1230,20 +1275,6 @@ export function SetEditor({
           >
             Export to Traktor…
           </Button>
-          {source.kind === 'saved' ? (
-            // 28e: plays with its chips, DJ mix for this play whatever the setting
-            <Button
-              size="lg"
-              variant="secondary"
-              disabled={!trackIds.length}
-              disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
-              onClick={() =>
-                void playSetAsMix({ id: source.id, name: name.trim() || initial.name }, viewRows)
-              }
-            >
-              Play as a mix
-            </Button>
-          ) : null}
           {source.kind === 'draft' ? (
             <Button
               size="lg"
@@ -1252,7 +1283,7 @@ export function SetEditor({
               disabledReason={!rows.length ? 'Add a track first' : undefined}
               onClick={() => void save()}
             >
-              Save as mix set
+              Save as a set
             </Button>
           ) : null}
           <MoreMenu
@@ -1300,6 +1331,8 @@ export function SetEditor({
 
       {/* 31b: what isn't ready to mix, by kind, and what Play as a mix does meanwhile */}
       <SetNotReadyNotice ids={trackIds.slice(0, 500).map(String)} progressOf={progressOf} />
+      {/* 320, UX-21: with Auto mix off the chips are dimmed, and it's said once here */}
+      {rows.length > 1 ? <AutoMixOffLine className={styles.offLine} /> : null}
 
       {conflict ? (
         <Notice
@@ -1382,9 +1415,7 @@ export function SetEditor({
         // 28g: an empty set, and the ways to fill it
         <div className={styles.emptyCard}>
           <h2>Nothing in {name.trim() || 'this set'} yet</h2>
-          <p>
-            Add tracks from any track’s “…” → Add to mix set…, or below. Or let SYNCHRO.S start it:
-          </p>
+          <p>Add tracks from any track’s “…” → Add to set…, or below. Or let SYNCHRO.S start it:</p>
           <div className={styles.emptyActions}>
             <Button size="lg" variant="secondary" disabled disabledReason={SUGGEST_LATER}>
               Suggest a set…

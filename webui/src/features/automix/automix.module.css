@@ -320,39 +320,43 @@
   font-size: 14px;
 }
 
-/* ── Player settings → Between tracks (26h) ── */
+/* ── Between tracks (33e): Settings → Library → DJ's card ── */
 .settings {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-bottom: 8px;
+  gap: 4px;
+  box-sizing: border-box;
+  max-width: 440px;
+  padding: 16px 16px 14px;
+  border: 1px solid var(--ss-hairline);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
 }
 
-.settingsHead {
-  margin: 0;
-}
-
-.settingsHead p {
-  margin: 2px 0 0;
-  color: var(--ss-text-meta);
-  font-size: 14px;
+.settingsTitle {
+  margin: 0 0 12px;
+  color: var(--ss-text);
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 8px;
 }
 
 .card {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 4px 10px;
-  align-items: start;
-  padding: 12px 14px;
-  border: 1px solid var(--ss-surface-card-border);
-  border-radius: var(--ss-radius-card);
-  background: var(--ss-surface-card);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  min-height: 146px;
+  padding: 12px 12px 12px 12px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+  background: transparent;
   color: var(--ss-text);
   font: inherit;
   text-align: left;
@@ -378,29 +382,19 @@
   outline-offset: 2px;
 }
 
-.radio {
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  border: 2px solid var(--ss-text-meta);
-  border-radius: 50%;
-}
-
-.card[aria-checked='true'] .radio {
-  border-color: rgb(var(--ss-accent-light-rgb));
-  box-shadow: inset 0 0 0 3px #141416;
-  background: rgb(var(--ss-accent-light-rgb));
-}
-
 .card strong {
+  font-size: 15px;
   font-weight: 600;
 }
 
 .card small {
-  grid-column: 2;
   color: var(--ss-text-tertiary);
   font-size: 14px;
   line-height: 1.4;
+}
+
+.card[aria-checked='true'] small {
+  color: var(--ss-text-secondary);
 }
 
 .row {
@@ -408,32 +402,166 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-height: 52px;
+  font-size: 15px;
 }
 
-.row > span {
-  display: flex;
-  flex-direction: column;
+/* a quiet select, "Auto's own pick ▾" (33e): its own look wins over the
+   legacy Settings page's form styles */
+.selectWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 50%;
+  color: var(--ss-text-tertiary);
 }
 
-.row small {
-  color: var(--ss-text-meta);
-  font-size: 13px;
+.selectWrap::after {
+  content: '▾';
+  margin-left: 4px;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.rowSelect {
+  appearance: none !important;
+  width: auto !important;
+  min-width: 0 !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 4px 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--ss-text-tertiary) !important;
+  font: inherit;
+  font-size: 14px !important;
+  text-align: right;
+  cursor: pointer;
+}
+
+.rowSelect:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.rowSelect option {
+  background: #141416;
+  color: var(--ss-text);
 }
 
 .note {
-  margin: 0;
+  margin: 8px 0 0;
   color: var(--ss-text-meta);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-.phoneNote {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--ss-radius-control);
-  background: rgba(var(--ss-warning-rgb), 0.08);
-  color: var(--ss-text-secondary);
+/* ── the same choice, small (33e): a two-way segmented control ── */
+.switchRow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.switchLabel {
+  color: var(--ss-text-tertiary);
   font-size: 14px;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--ss-control-border);
+  border-radius: var(--ss-radius-control);
+}
+
+.segment {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ss-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.segment:hover {
+  background: var(--ss-hover-wash);
+}
+
+.segment[aria-checked='true'] {
+  border-color: var(--ss-selected-border);
+  background: var(--ss-selected-fill);
+  color: var(--ss-text);
+}
+
+.segment[aria-disabled='true'] {
+  color: var(--ss-text-meta);
+  cursor: not-allowed;
+}
+
+.segment:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+}
+
+.switchWhy {
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+/* Off, said once (320): one 14px meta line at a list's head */
+.offLine {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* Up next's head (33e, 33b): Between tracks and the Off line, over the rows */
+.upnextHead {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 10px;
+}
+
+.upnextHeadRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* the phone's mixing sheet: 308's line under it (324) */
+.phoneNote {
+  margin: 8px 0 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .cards {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    min-height: 0;
+  }
+
+  .segment {
+    min-height: 44px;
+  }
 }
 
 .srOnly {
@@ -453,4 +581,38 @@
   .handoverBar {
     display: none;
   }
+}
+
+/* Settings → Connections (312): how SYNCHRO.S is opened, this browser's answer */
+.httpsNote {
+  max-width: 640px;
+}
+
+.httpsNote p {
+  margin: 0;
+  color: var(--ss-text-tertiary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.httpsNote code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.playerSettingsBetween {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 8px;
+}
+
+/* the bar's "in 2:58" beside Mix now, until the countdown (314) */
+.mixNowWhen {
+  align-self: center;
+  margin-left: 8px;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }

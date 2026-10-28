@@ -3,7 +3,15 @@
  * so it shares the app's queries, and placed into the shell's static markup
  * (webui/index.html) with portals:
  *
- * - `#ss-between-tracks-settings`: Player settings → Between tracks (26h);
+ * - `#ss-between-tracks-library`: Settings → Library → DJ's Between tracks
+ *   (33e: the cards, the style, key lock and the note);
+ * - `#ss-between-tracks-settings`: Player settings → Between tracks, the
+ *   small control and the way to the rest (33e replaces 26h's cards);
+ * - `[data-automix-slot="menu-between"]`: the same control in the player's "…";
+ * - `[data-automix-slot="upnext-head"]`: Up next's head: Between tracks, and
+ *   with Auto mix off "Auto mix is off: tracks play straight on · Turn it
+ *   on", once (320, UX-21);
+ * - `#ss-https-note`: Settings → Connections points at https (312);
  * - `[data-automix-gap]`: Up next's gaps (static/media-player.js makes one
  *   after each row from the playing one on, while DJ mix is on): the chip;
  * - `[data-automix-slot="mixnow-bar"]` / `="mixnow-deck"`: Mix now, beside
@@ -42,7 +50,12 @@ import { SETS_QUERY_KEY } from '@/features/sets/sets.api';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import styles from './automix.module.css';
-import { BetweenTracksSettings } from './between-tracks';
+import {
+  AutoGoneNotice,
+  AutoMixOffLine,
+  BetweenTracksSettings,
+  BetweenTracksSwitch,
+} from './between-tracks';
 import {
   AutomixController,
   choiceOf,
@@ -56,14 +69,17 @@ import {
 import {
   BarStatus,
   HandoverDeck,
+  countWords,
   HandoverRecord,
   MixNowButton,
   type HandoverActions,
 } from './handover';
+import { HttpsNote } from './https-note';
 import { TransitionChip, type ChipLive } from './mix-chip';
 import { AUTO_CHOICE, inWords, planFor, planKey, stepOf, type Choice } from './plans';
 import { getPrefs, refreshPrefs, subscribePrefs, usePrefs } from './prefs';
-import { saveTransitionToSet } from './set-play';
+import { saveTransitionToDraft, saveTransitionToSet } from './set-play';
+import { openBetweenTracksSettings } from './settings-link';
 import { mixSupport } from './support';
 
 declare global {
@@ -172,6 +188,10 @@ interface Slots {
   /** the player itself: what a screen reader hears is said inside it */
   player: HTMLElement | null;
   settings: HTMLElement | null;
+  library: HTMLElement | null;
+  https: HTMLElement | null;
+  menu: HTMLElement | null;
+  upnextHead: HTMLElement | null;
   gaps: HTMLElement[];
   bar: HTMLElement | null;
   record: HTMLElement | null;
@@ -185,6 +205,10 @@ function findSlots(): Slots {
   return {
     player: document.getElementById('media-player'),
     settings: document.getElementById('ss-between-tracks-settings'),
+    library: document.getElementById('ss-between-tracks-library'),
+    https: document.getElementById('ss-https-note'),
+    menu: q('[data-automix-slot="menu-between"]'),
+    upnextHead: q('[data-automix-slot="upnext-head"]'),
     gaps: Array.from(document.querySelectorAll<HTMLElement>('[data-automix-gap]')),
     bar: q('[data-automix-slot="bar"]'),
     record: q('[data-automix-slot="record"]'),
@@ -198,6 +222,10 @@ function sameSlots(a: Slots, b: Slots): boolean {
   return (
     a.player === b.player &&
     a.settings === b.settings &&
+    a.library === b.library &&
+    a.https === b.https &&
+    a.menu === b.menu &&
+    a.upnextHead === b.upnextHead &&
     a.bar === b.bar &&
     a.record === b.record &&
     a.deck === b.deck &&
@@ -248,7 +276,7 @@ function GapChip({
   const ok = mixable(from) && mixable(to) && (prefs.between === 'dj' || playedAsMix(from, to));
   const fromId = ok ? String(from.id) : '';
   const toId = ok ? String(to.id) : '';
-  const choice = choiceOf(from);
+  const choice = choiceOf(from, to);
   const plan = useQuery({
     ...planQuery(qc, fromId, toId, choice),
     enabled: ok,
@@ -279,7 +307,12 @@ function GapChip({
     view.barsToGo !== null &&
     (view.stage === 'counting' || view.manual || view.barsToGo <= 16)
   )
-    live = { kind: 'counting', bars: view.barsToGo, onCancel: () => ctl.cancel() };
+    live = {
+      kind: 'counting',
+      bars: view.barsToGo,
+      words: countWords(view),
+      onCancel: () => ctl.cancel(),
+    };
   const set = from.mix_set && to.mix_set && from.mix_set.id === to.mix_set.id ? from.mix_set : null;
   // a page that can't run the decks: the pair plays on (no crossfade, no
   // chip; Mix now and Between tracks say why). A cut needs no decks.
@@ -322,6 +355,15 @@ function GapChip({
           ? {
               name: set.name,
               save: async (t) => {
+                if (set.draft) {
+                  // a draft played as a mix (319): saved to it in this browser
+                  saveTransitionToDraft(profile?.profileId ?? 0, String(from.id), String(to.id), t);
+                  for (const q of st.queue)
+                    if (q.mix_set?.draft && q.mix_set.row === set.row)
+                      q.mix_set = { ...q.mix_set, transition: { style: t.style, bars: t.bars } };
+                  playerApi()?.persistQueue?.();
+                  return;
+                }
                 await saveTransitionToSet(set, String(from.id), String(to.id), t);
                 // the set's page reads it again (L2)
                 void qc.invalidateQueries({
@@ -338,7 +380,8 @@ function GapChip({
       onChange={(t) => {
         // kept on the row (the step out of it) for this queue; Up next isn't
         // drawn again, so the picker stays open for the length
-        from.automix = { style: t.style, bars: t.bars } as Choice;
+        // the pair it describes (283: another next track is Auto again)
+        from.automix = { style: t.style, bars: t.bars, to: toId } as Choice & { to: string };
         playerApi()?.persistQueue?.();
         bump((n) => n + 1);
         ctl.poke();
@@ -392,7 +435,7 @@ export function AutomixHost() {
     if (ids.length > 2) requestAnalysisQuietly(ids.slice(2), 'auto', { source: 'up_next' });
   }, [tick, prefs.between]);
 
-  // the player's Added toast (Play next, Add to queue) says once where a
+  // the player's Added toast (Play next, Add to Up next) says once where a
   // track is in the analysis line while Auto mix is on (Brief A, 31b)
   useEffect(() => {
     const dj = prefs.between === 'dj';
@@ -502,9 +545,37 @@ export function AutomixHost() {
   const handing = ['counting', 'mixing', 'settling', 'handback', 'back'].includes(view.stage);
   const counting = view.barsToGo !== null && !view.transition;
 
+  // Up next's head (33e, 320): Between tracks, while the queue holds a
+  // library track auto-mix could take; with Auto mix off, said once, unless
+  // every coming pair is a set played as a mix (its chips play whatever)
+  const upcoming = st.queue.slice(Math.max(0, st.index));
+  const anyMixable = upcoming.some((t) => mixable(t));
+  let offPairs = false;
+  for (let i = 0; i + 1 < upcoming.length; i++)
+    if (
+      mixable(upcoming[i]) &&
+      mixable(upcoming[i + 1]) &&
+      !playedAsMix(upcoming[i], upcoming[i + 1])
+    )
+      offPairs = true;
   return (
     <>
-      {slots.settings ? createPortal(<BetweenTracksSettings />, slots.settings) : null}
+      {slots.library ? createPortal(<BetweenTracksSettings />, slots.library) : null}
+      {slots.settings ? createPortal(<PlayerSettingsBetween />, slots.settings) : null}
+      {slots.https ? createPortal(<HttpsNote />, slots.https) : null}
+      {slots.menu ? createPortal(<BetweenTracksSwitch showLabel />, slots.menu) : null}
+      {slots.upnextHead && anyMixable && !st.shuffle
+        ? createPortal(
+            <div className={styles.upnextHead} data-upnext-head="">
+              <div className={styles.upnextHeadRow}>
+                <BetweenTracksSwitch showLabel />
+              </div>
+              {offPairs ? <AutoMixOffLine /> : null}
+              <AutoGoneNotice />
+            </div>,
+            slots.upnextHead,
+          )
+        : null}
       {prefs.between === 'dj' || st.queue.some((t) => t.mix_set)
         ? slots.gaps.map((gap) => {
             const index = Number(gap.dataset.automixGap);
@@ -532,31 +603,53 @@ export function AutomixHost() {
         : null}
       {slots.record && handing ? createPortal(<HandoverRecord view={view} />, slots.record) : null}
       {slots.deck && (handing || counting)
-        ? createPortal(<HandoverDeck view={view} actions={actions} />, slots.deck)
+        ? createPortal(<HandoverDeck view={view} actions={actions} phone={phone} />, slots.deck)
         : null}
       {slots.player ? createPortal(<LiveWords view={view} />, slots.player) : null}
     </>
   );
 }
 
-/** What a screen reader hears, once each (26e). */
+/**
+ * What a screen reader hears, once each (26e, UX-15): "Mixing into Static
+ * Bloom in 16 bars" (or "Cutting to …") when the countdown starts, "Mixing
+ * now", then "Now playing Static Bloom", "Mix cancelled" or "Back to Night
+ * Ferry". The bar count itself stays visual (it changed every bar, and
+ * flooded the polite region).
+ */
+export function liveKey(view: AutomixView): string {
+  const to = view.pair?.toId ?? '';
+  if (view.cancelled) return `cancelled:${to}`;
+  if (view.stage === 'back') return `back:${view.pair?.fromId ?? ''}`;
+  if (view.stage === 'mixing') return `mixing:${to}`;
+  if (view.stage === 'settling' || view.stage === 'handback') return `done:${to}`;
+  if (view.stage === 'counting' || (view.barsToGo !== null && !view.transition))
+    return `counting:${to}`;
+  return '';
+}
+
+export function liveWords(key: string, view: AutomixView): string {
+  const to = view.pair?.toTitle || 'the next track';
+  const from = view.pair?.fromTitle || 'this track';
+  if (key.startsWith('counting')) {
+    const bars = countWords(view);
+    return view.plan?.status === 'cut'
+      ? `Cutting to ${to} in ${bars}`
+      : `Mixing into ${to} in ${bars}`;
+  }
+  if (key.startsWith('mixing')) return 'Mixing now';
+  if (key.startsWith('done')) return `Now playing ${to}`;
+  if (key.startsWith('cancelled')) return 'Mix cancelled';
+  if (key.startsWith('back')) return `Back to ${from}`;
+  return '';
+}
+
 function LiveWords({ view }: { view: AutomixView }) {
   const [words, setWords] = useState('');
-  const key =
-    view.stage === 'counting'
-      ? `counting:${view.pair?.toId}`
-      : view.stage === 'mixing'
-        ? `mixing:${view.pair?.toId}`
-        : view.stage === 'back'
-          ? `back:${view.pair?.fromId}`
-          : '';
+  const key = liveKey(view);
   useEffect(() => {
     if (!key) return;
-    const to = view.pair?.toTitle || 'the next track';
-    const from = view.pair?.fromTitle || 'this track';
-    if (key.startsWith('counting')) setWords(`Mixing into ${to} on the next phrase`);
-    else if (key.startsWith('mixing')) setWords(`Mixing ${from} into ${to}`);
-    else if (key.startsWith('back')) setWords(`Back to ${from}`);
+    setWords(liveWords(key, view));
     // the words are read once for each change of what's happening
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
@@ -575,5 +668,24 @@ function LiveWords({ view }: { view: AutomixView }) {
     >
       {words}
     </span>
+  );
+}
+
+/**
+ * Player settings → Between tracks (33e replaces 26h's cards there): the
+ * same small control, and the way to the style and key lock in Settings →
+ * Library → DJ.
+ */
+function PlayerSettingsBetween() {
+  return (
+    <div className={styles.playerSettingsBetween} data-player-between="">
+      <BetweenTracksSwitch showLabel />
+      <p className={styles.offLine}>
+        Style when Auto can choose and key lock:{' '}
+        <button type="button" className={styles.textButton} onClick={openBetweenTracksSettings}>
+          Settings → Library → DJ
+        </button>
+      </p>
+    </div>
   );
 }

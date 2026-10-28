@@ -192,7 +192,7 @@ export function haveLine(have: string | null | undefined): string {
   return `You have the ${v}`;
 }
 
-/** The tracklist's rows as a set keeps them (Save as mix set). */
+/** The tracklist's rows as a set keeps them (Save as a set). */
 export function rowsFromMatch(rows: MatchRow[], wants: Record<number, boolean> = {}): SetRow[] {
   return rows.map((r, i) => ({
     track_id: r.track && r.state !== 'missing' ? r.track.id : null,
@@ -279,7 +279,7 @@ export function newSetName(now = new Date()): string {
   return `New set ${now.getDate()} ${MONTHS[now.getMonth()]}`;
 }
 
-// ── mix sets beyond 22c (28a–28g) ────────────────────────────────────────────
+// ── sets beyond 22c (28a–28g) ────────────────────────────────────────────
 
 export const STYLE_WORDS: Record<TransitionStyle, string> = {
   auto: 'Auto',
@@ -368,7 +368,7 @@ export function missingWords(missing: number): string {
 /**
  * What this page holds that isn't saved, for the "changed somewhere else"
  * Notice (H1): "Not saved here: Copper Sky added, Undertow removed." or the
- * name, or "your changes to the order, notes or transitions."
+ * name, or "your changes to the order, notes or styles."
  */
 /** How many changes the "changed somewhere else" Notice names before "…and N more". */
 export const UNSAVED_SHOWN = 5;
@@ -422,7 +422,7 @@ export function unsavedWords(opts: {
   }
   return JSON.stringify(rowsBodyOf(opts.rows)) === JSON.stringify(rowsBodyOf(opts.savedRows))
     ? 'Nothing here is unsaved.'
-    : 'Not saved here: your changes to the order, notes or transitions.';
+    : 'Not saved here: your changes to the order, notes or styles.';
 }
 
 function rowsBodyOf(rows: SetRow[]) {

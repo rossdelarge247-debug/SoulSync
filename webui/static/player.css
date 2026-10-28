@@ -1006,6 +1006,11 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
     border-top: 1px solid var(--ss-hairline);
 }
 .ss-player-menu-rule { margin: 8px 4px 2px; border-top: 1px solid var(--ss-hairline); }
+/* Between tracks in the "…" (33e): the label and the small Off / Auto mix control */
+.ss-player-menu-between > span { display: flex; flex-wrap: nowrap; justify-content: space-between; width: 100%; box-sizing: border-box; padding: 4px 4px 4px 12px; }
+.ss-player-menu-between:empty { display: none; }
+/* Up next's head (33e, 320): only while auto-mix's host has something to say */
+.ss-player-upnext-head:empty { display: none; }
 .ss-player-menu-kbd {
     flex: none;
     padding: 2px 6px;

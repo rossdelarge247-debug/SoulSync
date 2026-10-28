@@ -602,12 +602,16 @@ describe('the record (HANDOFF 47, board 9d)', () => {
       .map((el) =>
         el.classList.contains('ss-player-menu-rule')
           ? '—'
-          : el.tagName === 'P'
-            ? `# ${el.textContent}`
-            : (el.firstChild?.textContent ?? '').trim(),
+          : (el as HTMLElement).dataset.automixSlot === 'menu-between'
+            ? // 33e: Between tracks, Off / Auto mix (auto-mix's host fills it)
+              'Between tracks'
+            : el.tagName === 'P'
+              ? `# ${el.textContent}`
+              : (el.firstChild?.textContent ?? '').trim(),
       );
     expect(lines).toEqual([
       '# Playback',
+      'Between tracks',
       'Speed',
       'Equalizer',
       'A–B loop',

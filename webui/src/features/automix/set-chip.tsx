@@ -1,9 +1,10 @@
 /**
- * A mix set's chip (26i): the step line ends with the set's chip and who
- * chose it, always shown in a set, DJ mix or not, because it's part of the
- * set (it plays this way, and Traktor's export notes it). With DJ mix off
- * it's dimmed, with a line saying what plays instead (26g's last state);
- * Play as a mix plays it with its chips whatever the setting (28e).
+ * A set's chip (26i): the step line ends with the set's chip and who chose
+ * it ("auto" or "yours", on screen: UX-29), always shown in a set, Auto mix
+ * or not, because it's part of the set (it plays this way, and Traktor's
+ * export notes it). With Auto mix off it's dimmed, with no line of its own
+ * (320, UX-21: the set's head says it once); Play as a mix plays it with
+ * its chips whatever the setting (28e).
  */
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -53,8 +54,9 @@ export function SetStepChip({
     staleTime: 60_000,
     retry: false,
   });
-  const dimmed =
-    prefs.between === 'dj' ? null : 'Auto mix is off: plays straight on (Play as a mix plays this)';
+  // Auto mix off: dimmed, with no line per step (320, UX-21); the set's head
+  // and Up next's say it once
+  const dimmed = prefs.between !== 'dj';
   const data = plan.isError ? null : (plan.data ?? null);
   // Waiting: the track it waits for shows its step (the set's page asks for them)
   const waitingId =
@@ -69,6 +71,7 @@ export function SetStepChip({
       plan={data}
       autoPlan={choice.style === 'auto' ? data : (auto.data ?? null)}
       dimmed={dimmed}
+      inSet
       progress={waitingId ? (progress[waitingId] ?? null) : null}
       onOpenChange={setOpen}
       onChange={onChange}

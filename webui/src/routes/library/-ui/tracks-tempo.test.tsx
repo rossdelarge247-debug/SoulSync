@@ -151,7 +151,7 @@ describe('Double BPM / Halve BPM', () => {
     expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
       'Play next',
       'Mixes well with…',
-      'Add to mix set…',
+      'Add to set…',
       'Add to playlist…',
       'Double BPMIt would be over 300 BPM',
       'Halve BPM',

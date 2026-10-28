@@ -366,7 +366,7 @@ export function useMixModel(
   } else if (subject && workingSet && inSet.length)
     primaryLabel = `Add ${subject.title || 'it'} again · it's #${inSet[0]}`;
   else if (subject && workingSet) primaryLabel = addLabel(subject.title, workingSet.name);
-  else if (subject) primaryLabel = `Add ${subject.title || 'this track'} to a new mix set`;
+  else if (subject) primaryLabel = `Add ${subject.title || 'this track'} to a new set`;
 
   const status = useQuery({ ...djStatusQueryOptions(), retry: false, enabled: Boolean(subject) });
   // analyse on demand: a track opened in the Mix tab jumps the queue (any

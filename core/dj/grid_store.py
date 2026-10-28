@@ -449,6 +449,11 @@ def public(row: Optional[Dict[str, Any]], track_id: str, *, with_beats: bool = T
         out: Dict[str, Any] = {"track_id": track_id, "analyzed": False, "reason": reason}
         if row is not None and status == "none" and row.get("beat_confidence") is not None:
             out["beat_confidence"] = row.get("beat_confidence")
+        if row is not None and status == "none" and row.get("analysed_s"):
+            # the decoded length: 302's echo out by time is placed on it, not
+            # on the library's duration (step 2's review M1)
+            out["analysed_s"] = row.get("analysed_s")
+            out["truncated"] = bool(row.get("truncated"))
         return out
     grid = grid_of(row)
     assert grid is not None

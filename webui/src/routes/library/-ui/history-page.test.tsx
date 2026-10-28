@@ -423,7 +423,7 @@ describe('Listening history on a phone (15d, HANDOFF 94)', () => {
       'Unstar',
       'Play next',
       'Mixes well with…',
-      'Add to mix set…',
+      'Add to set…',
       'Add to playlist…',
       'Open artist',
       'Open album',

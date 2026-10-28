@@ -6,6 +6,7 @@
 import type { Plan } from '@/features/engine/loader';
 
 import { fetchPlan } from '@/features/engine/loader';
+import { fallbackOf, fallbackSentence } from '@/features/engine/plan-words';
 
 import type { Lean } from './prefs';
 
@@ -106,19 +107,22 @@ export function planKey(from: string, to: string, choice: Choice, lean: Lean) {
 }
 
 /**
- * A pair that plays straight on (no grid and no BPM going out, or a page
- * that can't run the decks): no chip at all in Up next, no transition.
+ * A pair that plays straight on (no grid going out, an album in its order,
+ * or a page that can't run the decks): no transition.
  */
 export function playsOn(plan: PairPlan | null | undefined): boolean {
   return plan?.status === 'play_on';
 }
 
-/** "Long blend · 32 bars", "Cut", "Echo out · 4 bars", "Waiting"; never a crossfade. */
+// Design's 302 words (shared with the lab): MOVE_WORDS, fallbackOf, fallbackSentence
+export { MOVE_WORDS, fallbackOf, fallbackSentence } from '@/features/engine/plan-words';
+
+/** "Long blend · 32 bars", "Cut", "Echo out · 4 bars", "Straight on", "Waiting"; never a crossfade. */
 export function planWords(plan: PairPlan | null | undefined, choice: Choice): string {
   if (!plan) return choiceWords(choice);
   if (plan.status === 'waiting') return 'Waiting';
   if (plan.status === 'cut') return STYLE_LABELS.cut;
-  if (plan.status === 'play_on') return 'Plays on';
+  if (plan.status === 'play_on') return 'Straight on';
   const style = (plan.style ?? 'auto') as ChipStyle;
   const label = STYLE_LABELS[style] ?? plan.label ?? 'Auto';
   return style === 'cut' || !plan.bars ? label : `${label} · ${plan.bars} bars`;
@@ -168,7 +172,20 @@ export function chipWhy(
       ? `${title} isn't analysed yet`
       : `${title} is being analysed`;
   }
-  if (plan.status === 'play_on') return 'plays on';
+  // 302: what stood in the way (the chip names the move)
+  // (26g's fallback line: no "auto" before it, so the reason fits)
+  const f = fallbackOf(plan);
+  if (f)
+    return plan.unsure_bars
+      ? `Not sure where the bars start · couldn't beat-match: ${f.reason}`
+      : `couldn't beat-match: ${f.reason}`;
+  if (plan.status === 'play_on')
+    return plan.fallback?.code === 'unsupported'
+      ? 'blends need https or localhost'
+      : `plays straight on${plan.fallback?.reason ? ` · ${plan.fallback.reason}` : ''}`;
+  // 303 and 304 say why in place, not in silence
+  if (plan.shortened) return `${who} · ${plan.shortened}`;
+  if (plan.unsure_bars) return `${who} · Not sure where the bars start`;
   const pair = plan.pair ?? '';
   const clash = plan.key?.relation === 'clash' ? ', keys clash' : '';
   return [who, `${pair}${clash}`].filter(Boolean).join(' · ');
@@ -179,7 +196,11 @@ export function chipWhyShort(plan: PairPlan | null | undefined, choice: Choice):
   const who = choice.style === 'auto' ? 'auto' : 'yours';
   if (!plan) return who;
   if (plan.status === 'waiting') return 'being analysed';
-  if (plan.status === 'play_on') return 'plays on';
+  if (fallbackOf(plan)) return `${who} · can't beat-match`;
+  if (plan.status === 'play_on')
+    return plan.fallback?.code === 'unsupported' ? 'needs https' : 'plays straight on';
+  if (plan.shortened) return `${who} · ${plan.shortened}`;
+  if (plan.unsure_bars) return `${who} · bars unsure`;
   if (plan.key?.relation === 'clash') return `${who} · keys clash`;
   const pair = plan.pair?.split(',')[0] ?? '';
   return [who, pair].filter(Boolean).join(' · ');
@@ -189,20 +210,26 @@ export function chipWhyShort(plan: PairPlan | null | undefined, choice: Choice):
 export function autoLine(plan: PairPlan | null | undefined): { name: string; why: string } {
   if (!plan) return { name: 'Auto', why: 'Picks a style from the keys and tempos' };
   if (plan.status === 'waiting')
-    return { name: 'Auto', why: 'Picks once both tracks are analysed' };
+    return { name: 'Auto', why: 'Picks once both tracks are ready to mix' };
+  const sentence = fallbackSentence(plan);
   if (plan.status === 'play_on')
-    return { name: 'Auto: plays on', why: plan.fallback?.reason ?? 'Nothing to mix on' };
+    return {
+      name: 'Auto: Straight on',
+      why: sentence ?? plan.fallback?.reason ?? 'Nothing to mix on',
+    };
   const label = STYLE_LABELS[(plan.style ?? 'auto') as ChipStyle] ?? plan.label ?? 'Auto';
   const reason = (plan.why ?? '').split(': ').slice(1).join(': ');
-  // a move that needs no beat-match, taken because the pair can't have one:
-  // the short reason is the picker's detail (never a "crossfade" warning)
-  const why = plan.fallback
-    ? `No beat-match: ${plan.fallback.reason}`
-    : plan.leaned
-      ? `Leaning to ${label.toLowerCase()}s (Player settings)`
-      : reason
-        ? `Chosen because ${reason}`
-        : 'Chosen for this pair';
+  // 302's move, taken because the pair can't be beat-matched: its sentence
+  // is the picker's detail (never a "crossfade" warning)
+  const why = sentence
+    ? sentence
+    : plan.shortened
+      ? `Short blend: ${plan.shortened}`
+      : plan.leaned
+        ? `Leaning to ${label.toLowerCase()}s (Settings → Library → DJ)`
+        : reason
+          ? `Chosen because ${reason}`
+          : 'Chosen for this pair';
   return { name: `Auto: ${label}`, why };
 }
 

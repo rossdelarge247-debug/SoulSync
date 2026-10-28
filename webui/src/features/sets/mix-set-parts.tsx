@@ -1,5 +1,5 @@
 /**
- * A mix set's page beyond 22c (28e, 28f): the note per track (a third line,
+ * A set's page beyond 22c (28e, 28f): the note per track (a third line,
  * typed in place; "Add a note" only on hover and focus). The transition
  * chip at the end of each step line (26i) is auto-mix's own chip, shared
  * with Up next: `features/automix/mix-chip.tsx`.

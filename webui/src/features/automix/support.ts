@@ -16,3 +16,15 @@ export function mixSupport(
   if (typeof win.AudioWorkletNode === 'undefined') return "This browser can't run Auto mix's decks";
   return null;
 }
+
+/**
+ * What Auto mix can do on a page that can't run the decks (312, and step 2's
+ * review: one truth everywhere): a cut on the phrase needs no decks, so it
+ * still cuts and plays straight on; blends and echo outs need the decks.
+ */
+export function mixSupportShort(why: string | null): string | null {
+  if (!why) return null;
+  return /https/.test(why)
+    ? 'Cuts and straight on only here · blends need https or localhost'
+    : "Cuts and straight on only in this browser · it can't run the decks for blends";
+}

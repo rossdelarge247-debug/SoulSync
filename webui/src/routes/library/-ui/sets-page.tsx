@@ -248,7 +248,7 @@ export function SetsPage({ search, go }: { search: LibrarySearch; go: Go }) {
               </Button>
             }
           >
-            Drafts are kept in the browser that made them until they&apos;re saved as a mix set.
+            Drafts are kept in the browser that made them until they&apos;re saved as a set.
           </Notice>
         </div>
       );

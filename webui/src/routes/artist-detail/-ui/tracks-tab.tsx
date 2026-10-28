@@ -226,7 +226,7 @@ function PopularTracks({ artistId, artistName }: { artistId: unknown; artistName
 
 /**
  * One of your tracks (the shared "…" of 24a and the star of 28a): Play
- * next, Mixes well with…, Add to queue (this page's own), Add to mix set…,
+ * next, Mixes well with…, Add to Up next (this page's own), Add to set…,
  * Add to playlist…; on a phone the sheet would start with Star, here the
  * row keeps it (the star's 44px column).
  */
@@ -261,9 +261,9 @@ function LibraryTrackRow({
       addToPlaylist,
     },
   );
-  // this page's own Add to queue stays, straight after Play next
+  // this page's own Add to Up next stays, straight after Play next
   const at = entries.findIndex((e) => e.key === 'next') + 1;
-  entries.splice(at, 0, { key: 'queue', label: 'Add to queue', onSelect: addToQueue });
+  entries.splice(at, 0, { key: 'queue', label: 'Add to Up next', onSelect: addToQueue });
   return (
     <li
       ref={rowRef}

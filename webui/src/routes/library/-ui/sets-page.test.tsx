@@ -4,9 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { refreshPrefs } from '@/features/automix/prefs';
+import { saveTransitionToDraft } from '@/features/automix/set-play';
 import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
 import { resetMixesForTests } from '@/features/dj/mixes-store';
-import { resetDraftsForTests } from '@/features/sets/draft-store';
+import { readDraft, resetDraftsForTests, writeDraft } from '@/features/sets/draft-store';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
 
@@ -434,7 +435,7 @@ describe('Library → Sets', () => {
       'true',
     );
     expect(window.localStorage.getItem('soulsync.sets.draft.2')).toContain('"rows":[]');
-    const save = screen.getByRole('button', { name: 'Save as mix set' });
+    const save = screen.getByRole('button', { name: 'Save as a set' });
     expect(save.getAttribute('aria-disabled')).toBe('true');
   });
 
@@ -506,7 +507,7 @@ describe('Library → Sets', () => {
       tracks: [{ artist: 'Vela Sund', title: 'Gravity Well' }],
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save as mix set' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save as a set' }));
     await waitFor(() => expect(calls('/api/sets', 'POST').length).toBe(1));
     const saved = calls('/api/sets', 'POST')[0].body as {
       kind: string;
@@ -658,7 +659,7 @@ describe('Library → Sets', () => {
   });
 });
 
-describe('a mix set’s page beyond 22c (28e, 28g)', () => {
+describe('a set’s page beyond 22c (28e, 28g)', () => {
   it('a note per track, typed in place, saves with the set', async () => {
     renderPage('/library?view=sets&set=7');
     await screen.findByDisplayValue('Sunday Set');
@@ -679,9 +680,10 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
   it('each known step ends with its chip; picking a style and length saves {style, bars}', async () => {
     renderPage('/library?view=sets&set=7');
     await screen.findByDisplayValue('Sunday Set');
-    // the chip names Auto's pick once the pair is planned (26i)
+    // the chip names Auto's pick once the pair is planned (26i); Auto mix is
+    // off here, which its name says (the line is said once, at the list's head)
     const chip = await screen.findByRole('button', {
-      name: 'Transition from Lowtide Hymn to Foghorn Study: Long blend · 32 bars, auto. Change it',
+      name: /^How Lowtide Hymn goes into Foghorn Study: Long blend · 32 bars, auto/,
     });
     expect(chip.closest('[data-step]')!.getAttribute('data-step')).toBe('smooth');
     fireEvent.click(chip);
@@ -710,7 +712,7 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
     fireEvent.click(within(picker).getByRole('button', { name: 'Done' }));
     expect(
       screen.getByRole('button', {
-        name: 'Transition from Lowtide Hymn to Foghorn Study: Bass swap · 32 bars, your choice. Change it',
+        name: /^How Lowtide Hymn goes into Foghorn Study: Bass swap · 32 bars, your choice/,
       }),
     ).toBeTruthy();
     await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
@@ -718,27 +720,36 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
     expect(put.tracks[0].transition).toEqual({ style: 'bass_swap', bars: 32 });
   });
 
-  it('with DJ mix off a set keeps its chips, dimmed, saying what plays instead (26g, 26i)', async () => {
+  it('with Auto mix off a set keeps its chips, dimmed, said once above the list (320, UX-21, UX-29)', async () => {
     localStorage.setItem('soulsync-between-tracks', 'off');
     refreshPrefs();
+    // a browser that can run the decks (jsdom has no AudioWorklet)
+    vi.stubGlobal('AudioWorkletNode', class {});
     try {
       renderPage('/library?view=sets&set=7');
       await screen.findByDisplayValue('Sunday Set');
       const chip = await screen.findByRole('button', {
-        name: 'Transition from Lowtide Hymn to Foghorn Study: Long blend · 32 bars, auto. Change it',
+        name: 'How Lowtide Hymn goes into Foghorn Study: Long blend · 32 bars, auto (Auto mix is off: plays straight on). Change it',
       });
       const wrap = chip.parentElement!;
       expect(wrap).toHaveAttribute('data-dimmed');
-      expect(wrap).toHaveTextContent(
-        'Auto mix is off: plays straight on (Play as a mix plays this)',
-      );
+      // who chose it, on screen (UX-29), and no line of what plays instead
+      expect(wrap.querySelector('[data-chip-who]')?.textContent).toBe('auto');
+      expect(wrap).not.toHaveTextContent(/Auto mix is off|Play as a mix/);
+      // said once, above the list (320)
+      expect(screen.getAllByText(/Auto mix is off: tracks play straight on/)).toHaveLength(1);
+      expect(screen.getByRole('button', { name: 'Turn it on' })).toBeTruthy();
       localStorage.setItem('soulsync-between-tracks', 'dj');
       act(() => refreshPrefs());
       await waitFor(() => expect(wrap).not.toHaveAttribute('data-dimmed'));
-      expect(wrap).toHaveTextContent('auto · 6A → 7A, +1 BPM');
-      // 28e: a saved set plays with its chips
-      expect(screen.getByRole('button', { name: 'Play as a mix' })).toBeTruthy();
+      expect(wrap.querySelector('[data-chip-who]')?.textContent).toBe('auto');
+      expect(screen.queryByText(/Auto mix is off/)).toBeNull();
+      // 28e, 319: a saved set plays with its chips, Play as a mix before Export
+      const play = screen.getByRole('button', { name: 'Play as a mix' });
+      const exp = screen.getByRole('button', { name: 'Export to Traktor…' });
+      expect(play.compareDocumentPosition(exp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     } finally {
+      vi.unstubAllGlobals();
       localStorage.removeItem('soulsync-between-tracks');
       refreshPrefs();
     }
@@ -848,12 +859,38 @@ describe('a mix set’s page beyond 22c (28e, 28g)', () => {
     expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual([
       'Play next',
       'Mixes well with…',
-      'Add to mix set…',
+      'Add to set…',
       'Add to playlist…',
       'Move up',
       'Move down',
       'Move…',
       'Remove from set',
     ]);
+  });
+});
+
+describe("[review M2] 319: a chip saved to the draft from Up next survives the draft's next edit", () => {
+  it("the editor takes the draft's new transitions in before it writes again", async () => {
+    const base = { artist: 'Tidewater', state: 'owned' as const, want: 'yours' as const };
+    writeDraft(2, {
+      name: 'Draft',
+      kind: 'hand',
+      rows: [
+        { ...base, track_id: '1', title: 'Night Ferry' },
+        { ...base, track_id: '2', title: 'Static Bloom' },
+      ],
+    });
+    renderPage('/library?view=sets&set=draft');
+    await screen.findByText('Draft · not saved');
+    const name = await screen.findByDisplayValue('Draft');
+    // Up next, with the draft played as a mix: "Save it to Draft too?" → Save
+    act(() => saveTransitionToDraft(2, '1', '2', { style: 'echo_out', bars: 4 }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    // then an edit here
+    fireEvent.change(name, { target: { value: 'Draft two' } });
+    await waitFor(() => expect(readDraft(2)?.name).toBe('Draft two'));
+    expect(readDraft(2)?.rows[0].transition).toEqual({ style: 'echo_out', bars: 4 });
   });
 });

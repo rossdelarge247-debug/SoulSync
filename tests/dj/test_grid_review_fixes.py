@@ -117,7 +117,8 @@ def test_m1_the_sweep_through_to_the_plan_falls_back_with_the_reason(db, client,
     assert shaped == {"track_id": "2", "analyzed": False, "reason": reason}
     # into it: a blend falls back with the reason; out of it, whatever the style
     plan = client.get("/api/library/dj/plan?from=1&to=2&style=long_blend").get_json()["plan"]
-    assert plan["style"] == "echo_out" and plan["fallback"]["reason"] == words
+    # 302: the outgoing track is ready to mix, so a cut on its last phrase
+    assert plan["status"] == "cut" and plan["fallback"]["reason"] == words
     cut = client.get("/api/library/dj/plan?from=1&to=2&style=cut").get_json()["plan"]
     assert cut["status"] == "ok" and cut["style"] == "cut"  # the outgoing grid is enough for a cut
     out_of = client.get("/api/library/dj/plan?from=2&to=1").get_json()["plan"]
@@ -140,7 +141,7 @@ def test_m1_a_track_that_failed_before_grids_existed_says_why_too(db, client, st
     body = client.post("/api/library/dj/grids", json={"track_ids": ["3"]}).get_json()
     assert body["grids"]["3"]["reason"] == reason
     plan = client.get("/api/library/dj/plan?from=1&to=3&style=short_blend").get_json()["plan"]
-    assert plan["style"] == "echo_out" and plan["fallback"]["kind"] == "echo_out"
+    assert plan["status"] == "cut" and plan["fallback"]["kind"] == "cut"
 
 
 def test_m1_a_track_not_reached_yet_still_waits(db, client):
@@ -160,7 +161,7 @@ def test_m2_noise_gets_no_grid_and_the_plan_says_so(db, client):
     grid_store.save_result(db, "5", grid.analyze_audio(noise, SR), source_sig=None)
     assert client.get("/api/library/dj/grid/5").get_json()["grid"]["reason"] == "no_beat"
     plan = client.get("/api/library/dj/plan?from=1&to=5&style=long_blend").get_json()["plan"]
-    assert plan["style"] == "echo_out" and plan["fallback"]["reason"] == "Static has no steady beat"
+    assert plan["status"] == "cut" and plan["fallback"]["reason"] == "Static has no steady beat"
 
 
 # ── M3: a stated length costs nothing ────────────────────────────────────────
@@ -185,7 +186,8 @@ def test_m3_a_huge_stated_length_plans_at_once_and_stays_inside_thirty_minutes(d
         assert plan["out"]["end"] <= planner.MAX_TRACK_SECONDS
     cross = planner.plan(_truncated_track(duration_ms / 1000),
                          {"track_id": "2", "analyzed": True, "grid": None, "reason": None}, style="long_blend")
-    assert cross["out"]["start"] is None or cross["out"]["start"] <= planner.MAX_TRACK_SECONDS
+    # its ending wasn't analysed: straight on (302), never a cut on a guess
+    assert cross["status"] == "play_on" and "out" not in cross
 
 
 def test_m3_the_phrases_carry_on_by_arithmetic():

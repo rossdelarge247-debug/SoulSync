@@ -20,6 +20,7 @@ import {
   saveCuePrefs,
   type CuePrefs,
 } from '../outputs';
+import { fallbackSentence } from '../plan-words';
 import { STYLE_WORDS, type Style } from '../score';
 import workletUrl from '../worklet/deck-processor.js?url';
 import styles from './automix-lab.module.css';
@@ -96,14 +97,22 @@ export function PlanSummary({
         {plan.status === 'ok'
           ? (plan.label ?? plan.style ?? 'ok')
           : plan.status === 'cut'
-            ? 'Cut on the bar (the player, no decks)'
+            ? 'Cut on the phrase (the player, no decks)'
             : plan.status === 'play_on'
-              ? 'Plays on (no transition)'
+              ? 'Plays straight on'
               : plan.status}{' '}
         {plan.bars ? `· ${plan.bars} bars` : ''} {plan.chosen_by ? `(${plan.chosen_by})` : ''}
       </dd>
       <dt>Why</dt>
-      <dd>{waiting ? waitingWords(plan, titles) : (plan.why ?? '—')}</dd>
+      {/* 302's sentence when the pair couldn't be beat-matched */}
+      <dd>
+        {waiting
+          ? waitingWords(plan, titles)
+          : (fallbackSentence(plan) ??
+            (plan.shortened ? `Short blend: ${plan.shortened}` : null) ??
+            plan.why ??
+            '—')}
+      </dd>
       <dt>Out / in</dt>
       <dd>
         {plan.out || plan.in
@@ -284,7 +293,7 @@ export default function AutomixLab() {
     plan?.status === 'waiting' && thisPair
       ? `${waitingWords(plan, { from: outTrack?.title, to: inTrack?.title })}: Play the mix waits for it.`
       : (plan?.status === 'play_on' || plan?.status === 'cut') && thisPair
-        ? `Nothing for the decks: ${plan.status === 'cut' ? 'the player cuts on the bar' : 'it plays on'} (${plan.fallback?.reason ?? 'no beat grid'}).`
+        ? `Nothing for the decks: ${fallbackSentence(plan) ?? (plan.status === 'cut' ? 'the player cuts on the phrase' : `plays straight on · ${plan.fallback?.reason ?? 'no beat grid'}`)}.`
         : null;
 
   return (
@@ -412,7 +421,7 @@ export default function AutomixLab() {
             A {pos('A')} s · B {pos('B')} s · {st.beatmatch ? 'beat-matched' : 'not beat-matched'} ·
             out {st.modes.out}, in {st.modes.in}
             {st.rates ? ` · rates ${st.rates.out.toFixed(4)} / ${st.rates.in.toFixed(4)}` : ''}
-            {st.fallback ? ` · fallback: ${st.fallback}` : ''}
+            {st.fallback ? ` · couldn't beat-match: ${st.fallback}` : ''}
             {engine?.interrupted ? ` · interrupted (${engine.interrupted})` : ''}
           </p>
           <div className={styles.row}>

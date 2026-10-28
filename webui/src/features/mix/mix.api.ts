@@ -177,7 +177,7 @@ export function chooseWorkingSet(setId: number | null): Promise<WorkingSet | nul
   ).then((p) => p.working);
 }
 
-/** A new mix set of these tracks, made the working set. */
+/** A new set of these tracks, made the working set. */
 export function startWorkingSet(
   name: string,
   trackIds: string[],

@@ -77,7 +77,7 @@ describe('play, shuffle, queue', () => {
   it.each([
     ['Play Late night', 'play'],
     ['Shuffle play', 'shuffle'],
-    ['Add to queue', 'queue'],
+    ['Add to Up next', 'queue'],
   ])('%s hands the playlist over as %s', async (label, mode) => {
     renderModal(MINE, EDITS);
     fireEvent.click(screen.getByLabelText(label));

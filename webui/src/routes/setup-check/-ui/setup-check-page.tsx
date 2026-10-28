@@ -19,7 +19,7 @@ import {
   plural,
 } from '../-setup-check.helpers';
 import { PRIVACY_QUERY_KEY } from '../-setup-check.privacy';
-import { CheckGroups } from './check-groups';
+import { BrowserInfo, CheckGroups } from './check-groups';
 import { FirstRunSteps } from './first-run-steps';
 import { ClockIcon, ErrorIcon, OkIcon, RefreshIcon, WarningIcon } from './icons';
 import { PrivacyCard } from './privacy-card';
@@ -345,6 +345,7 @@ function AdminSetupCheck() {
           <SummaryTiles report={report} partial={partial} now={now} />
           <PrivacyCard />
           <CheckGroups groups={groups} onRerun={rerun} rerunning={running} />
+          <BrowserInfo />
         </div>
       ) : !bothFailed ? (
         <LoadingSkeleton />

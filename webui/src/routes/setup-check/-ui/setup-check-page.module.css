@@ -264,6 +264,11 @@
   color: var(--white-a60);
 }
 
+/* This browser (312): information, never a warning */
+.row[data-status='info'] .rowIcon {
+  color: var(--ss-info);
+}
+
 .rowBody {
   display: flex;
   flex: 1;

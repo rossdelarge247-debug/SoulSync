@@ -14,6 +14,9 @@ import pytest
 from core.dj import grid_store, planner
 from core.dj.grid import GRID_VERSION, phrases_from
 
+#: the planner decides what touches audio: the Gauntlet scans it (docs/GAUNTLET.md)
+pytestmark = pytest.mark.gauntlet
+
 #: a club track: 16 bars of drums, a groove, a breakdown, the drop, 16 bars out
 CLUB = [["intro", 0, 16, 0.9], ["main", 16, 48, 0.5], ["breakdown", 48, 64, 0.8], ["drop", 64, 96, 0.8],
         ["outro", 96, 112, 0.9]]
@@ -82,10 +85,13 @@ def test_auto_a_key_clash_cuts_when_the_next_track_has_drums_and_echoes_out_when
     assert soft["style"] == "echo_out" and soft["bars"] == 4 and soft["out"]["bar"] == 96
 
 
-def test_auto_a_big_tempo_gap_echoes_out():
+def test_auto_a_big_tempo_gap_cuts_on_the_last_phrase():
+    """302: the outgoing track is ready to mix, so a pair that can't be
+    beat-matched cuts on its last phrase."""
     p = planner.plan(_track(_row(124.0)), _track(_row(140.0), tid="2"))
-    assert p["status"] == "ok" and p["style"] == "echo_out" and p["beatmatch"] is False
-    assert "too far apart" in p["why"]
+    assert p["status"] == "cut" and p["style"] == "cut" and p["beatmatch"] is False
+    assert p["fallback"] == {"kind": "cut", "code": "tempo_gap", "reason": "the tempos are 12.9% apart"}
+    assert p["why"] == "Couldn't beat-match: cutting on the phrase · the tempos are 12.9% apart"
     assert p["tempo"]["gap_pct"] == 12.9
 
 
@@ -140,62 +146,146 @@ def test_drop_swap_without_a_drop_is_listed_unavailable_and_falls_to_autos_pick(
     assert p["why"].startswith("Drop swap: no drop found in Brass Tide, so long blend")
 
 
-# ── no crossfade: echo out, a cut on the bar, or play on ─────────────────────
+# ── no crossfade: Design's 302 (a cut on the phrase, an echo out, straight on)
 
-def test_a_blend_over_an_eight_percent_gap_echoes_out_and_says_why():
+
+def _none_row(reason="no_beat"):
+    return {"grid_version": GRID_VERSION, "status": "none", "reason": reason, "beat_confidence": 0.1}
+
+
+def test_302_outgoing_ready_cuts_on_its_last_phrase_whatever_the_incoming_lacks():
+    """The outgoing track has a grid it can be trusted with: a cut on the last
+    phrase line at or before its mix-out region's end (here the outro's end,
+    bar 112); the player starts the next track from its start (no decks)."""
     p = planner.plan(_track(_row(124.0)), _track(_row(136.0), tid="2"), style="long_blend")
-    assert p["status"] == "ok" and p["style"] == "echo_out" and p["beatmatch"] is False
-    assert p["fallback"] == {"kind": "echo_out", "code": "tempo_gap", "reason": "the tempos are 9.7% apart"}
-    assert p["why"] == "Long blend: the tempos are 9.7% apart, so echo out"
+    assert p["status"] == "cut" and p["style"] == "cut" and p["beatmatch"] is False and p["bars"] is None
+    assert p["fallback"] == {"kind": "cut", "code": "tempo_gap", "reason": "the tempos are 9.7% apart"}
+    assert p["why"] == "Couldn't beat-match: cutting on the phrase · the tempos are 9.7% apart"
+    assert p["out"]["bar"] == 112 and p["out"]["start"] == pytest.approx(_bar(124.0, 0.5, 112), abs=1e-3)
+    assert p["in"] == {"start": 0.0, "bar": None, "how": "start", "confidence": 0.2}
+    assert p["requested"] == "long_blend" and p["chosen_by"] == "yours"
     assert "crossfade" not in json.dumps(p).lower()
-    # on the outgoing outro's first phrase, at echo out's own length
-    assert p["out"]["start"] == pytest.approx(_bar(124.0, 0.5, 96), abs=1e-3) and p["bars"] == 4
     styles = {s["style"]: s for s in p["styles"]}
     assert styles["cut"]["available"] and styles["echo_out"]["available"]
     assert not styles["long_blend"]["available"]
+    # the incoming track with no steady beat, no grid at all, or a BPM set by hand its grid doesn't match
+    shaky = planner.plan(_track(_row(124.0)), _track(_row(124.0, conf=0.35), title="Sand Script", tid="2"))
+    assert shaky["status"] == "cut" and shaky["fallback"]["reason"] == "Sand Script has no steady beat"
+    assert shaky["why"] == "Couldn't beat-match: cutting on the phrase · Sand Script has no steady beat"
+    for reason, words in (("no_beat", "Pad has no steady beat"), ("unreachable", "Pad can't be opened"),
+                          ("error", "Pad couldn't be analysed"), ("too_long", "Pad is too long to analyse")):
+        cut = planner.plan(_track(_row(124.0)), _track(_none_row(reason), title="Pad", tid="2"))
+        assert cut["status"] == "cut" and cut["fallback"]["reason"] == words, reason
 
 
-def test_eight_percent_is_still_a_match_and_just_over_is_not():
+def test_302_the_last_phrase_is_the_last_phrase_line_before_the_mix_out_ends():
+    # the outro's last kick at bar 110: the cut is on 104, the last phrase line before it
+    out = _track(_row(124.0, mix_out=(96, 110, 0.9, "outro")))
+    p = planner.plan(out, _track(_row(140.0), tid="2"))
+    assert p["status"] == "cut" and p["out"]["bar"] == 104
+
+
+def test_302_eight_percent_is_still_a_match_and_just_over_is_not():
     assert planner.plan(_track(_row(100.0)), _track(_row(107.9), tid="2"), style="short_blend")["style"] == "short_blend"
     over = planner.plan(_track(_row(100.0)), _track(_row(108.2), tid="2"), style="short_blend")
-    assert over["status"] == "ok" and over["style"] == "echo_out"
+    assert over["status"] == "cut" and over["fallback"]["code"] == "tempo_gap"
 
 
-def test_a_low_confidence_incoming_grid_echoes_out_with_the_tracks_name():
-    p = planner.plan(_track(_row(124.0)), _track(_row(124.0, conf=0.35), title="Sand Script", tid="2"),
-                     style="short_blend")
-    assert p["style"] == "echo_out" and p["fallback"]["code"] == "low_confidence"
-    assert p["fallback"]["reason"] == "Sand Script has no steady beat"
-    auto = planner.plan(_track(_row(124.0)), _track(_row(124.0, conf=0.35), title="Sand Script", tid="2"))
-    assert auto["style"] == "echo_out" and auto["why"].endswith("Sand Script has no steady beat")
+def test_302_a_persons_cut_or_echo_out_stays_theirs_while_the_outgoing_track_is_ready():
+    for style in ("cut", "echo_out"):
+        p = planner.plan(_track(_row(124.0)), _track(_row(140.0), tid="2"), style=style)
+        assert p["status"] == "ok" and p["style"] == style and p["fallback"] is None, style
+        assert p["out"]["bar"] == 96
 
 
-def test_an_outgoing_grid_not_to_beat_match_on_still_echoes_out():
-    """A break held under 0.5, or a track not in 4/4: its beats are still
-    there to echo out on."""
-    p = planner.plan(_track(_row(124.0, conf=0.45), title="Amen"), _track(_row(124.0), tid="2"),
-                     style="long_blend")
-    assert p["status"] == "ok" and p["style"] == "echo_out" and p["beatmatch"] is False
-    assert p["fallback"] == {"kind": "echo_out", "code": "low_confidence", "reason": "Amen has no steady beat"}
-    assert p["out"]["start"] is not None and p["in"]["start"] is not None
+def test_302_only_the_incoming_ready_echoes_out_by_time_at_the_outgoing_end():
+    """No grid going out to trust: never a bar counted on it. The echo starts
+    a second before the outgoing track's end; the incoming track comes in on
+    its own first downbeat."""
+    for row, words, code in ((_none_row("no_beat"), "Sand Script has no steady beat", "no_beat"),
+                             (_none_row("too_short"), "Sand Script has no steady beat", "no_beat"),
+                             (_row(124.0, conf=0.35), "Sand Script has no steady beat", "low_confidence"),
+                             (_row(124.0, conf=0.45), "Sand Script has no steady beat", "low_confidence")):
+        p = planner.plan(_track(row, title="Sand Script", duration_s=241.0, dj_bpm=120.0),
+                         _track(_row(126.0, first=0.2), title="Static Bloom", tid="2"))
+        assert p["status"] == "ok" and p["style"] == "echo_out" and p["beatmatch"] is False, code
+        assert p["fallback"] == {"kind": "echo_out", "code": code, "reason": words}
+        assert p["why"] == f"Couldn't beat-match: echo out · {words}"
+        # a second before the end: the decoded length where the whole track
+        # was analysed (240 s here), else the library's (241 s)
+        end = float(row["analysed_s"]) if row.get("analysed_s") else 241.0
+        assert p["out"]["start"] == pytest.approx(end - 1.0) and p["out"]["bar"] is None
+        assert p["in"]["bar"] == 0 and p["in"]["start"] == pytest.approx(0.2, abs=1e-3)
+    # a BPM set by hand that the grid doesn't match
+    hand = planner.plan({"track_id": "1", "analyzed": False, "reason": "bpm_mismatch", "title": "Hand",
+                         "duration_s": 200.0, "key": "8A", "dj_bpm": 120.0}, _track(_row(124.0), tid="2"))
+    assert hand["style"] == "echo_out" and hand["fallback"]["code"] == "bpm_mismatch"
+    # no length known: nowhere to put it by time, so straight on
+    unknown = planner.plan(_track(_none_row(), title="Sand Script"), _track(_row(124.0), tid="2"))
+    assert unknown["status"] == "play_on" and unknown["fallback"]["code"] == "no_beat"
 
 
-def test_an_outgoing_track_without_a_grid_plays_on_never_cut_by_bar_count():
+def test_302_neither_ready_plays_straight_on_never_cut_by_bar_count():
     """Review M4: a BPM tag on a track the grid found no beat in (ambient,
-    classical) isn't a bar to cut on: it plays on, whatever its BPM."""
+    classical) isn't a bar to cut on: it plays straight on, whatever its BPM."""
     for reason in ("no_beat", "too_short"):
-        none_row = {"grid_version": GRID_VERSION, "status": "none", "reason": reason, "beat_confidence": 0.1}
         for bpm in (120.0, None):
-            p = planner.plan(_track(none_row, title="Ambient One", duration_s=200.0, dj_bpm=bpm),
-                             _track(_row(124.0), tid="2"))
+            p = planner.plan(_track(_none_row(reason), title="Ambient One", duration_s=200.0, dj_bpm=bpm),
+                             _track(_none_row("no_beat"), title="Ambient Two", tid="2"))
             assert p["status"] == "play_on" and p["style"] is None and "out" not in p, (reason, bpm)
             assert p["fallback"]["kind"] == "play_on"
-    on = planner.plan(_track({"grid_version": GRID_VERSION, "status": "none", "reason": "no_beat"},
-                             title="Ambient One", duration_s=200.0, dj_bpm=120.0), _track(_row(124.0), tid="2"))
-    assert on["why"] == "Plays on: Ambient One has no steady beat"
-    assert "crossfade" not in json.dumps(on).lower()
-    # too long, unreadable and missing files go through the sweep for real in
-    # test_grid_review_fixes.py (M1)
+            assert p["why"] == "Couldn't beat-match: plays straight on · Ambient One has no steady beat"
+    shaky = planner.plan(_track(_row(124.0, conf=0.35), title="Amen", duration_s=200.0),
+                         _track(_row(124.0, conf=0.4), tid="2"))
+    assert shaky["status"] == "play_on" and shaky["fallback"]["reason"] == "Amen has no steady beat"
+
+
+def test_302_too_long_unreadable_or_missing_going_out_plays_straight_on():
+    """The decks couldn't read them either: straight on, even into a ready track."""
+    for reason, words in (("too_long", "A Mix is too long to analyse"), ("unreachable", "A Mix can't be opened"),
+                          ("error", "A Mix couldn't be analysed")):
+        p = planner.plan(_track(_none_row(reason), title="A Mix", duration_s=600.0), _track(_row(124.0), tid="2"))
+        assert p["status"] == "play_on" and p["fallback"] == {"kind": "play_on", "code": reason, "reason": words}
+        assert p["why"] == f"Couldn't beat-match: plays straight on · {words}"
+
+
+def test_302_and_304_not_four_four_on_either_side_plays_straight_on():
+    waltz = _track(_row(150.0, meter="not_4_4", dconf=0.1), title="Sweet Waltz")
+    p = planner.plan(waltz, _track(_row(150.0), tid="2"))
+    assert p["status"] == "play_on" and p["fallback"]["code"] == "not_4_4"
+    assert p["why"] == "Couldn't beat-match: plays straight on · Sweet Waltz isn't in 4/4"
+    into = planner.plan(_track(_row(150.0)), {**waltz, "track_id": "2"})
+    assert into["status"] == "play_on" and into["fallback"]["reason"] == "Sweet Waltz isn't in 4/4"
+
+
+def test_302_an_outgoing_ending_not_analysed_plays_straight_on_rather_than_cut_on_a_guess():
+    first = [["intro", 0, 16, 0.9], ["main", 16, 300, 0.5]]
+    long_row = _row(120.0, sections=first, truncated=True, mix_out=None)
+    p = planner.plan(_track(long_row, title="Long One", duration_s=720.0), _track(_row(140.0), tid="2"))
+    assert p["status"] == "play_on" and p["fallback"]["code"] == "end_not_analysed"
+    assert p["fallback"]["reason"] == "the end of Long One wasn't analysed"
+
+
+def test_303_a_long_blend_that_doesnt_fit_before_the_outro_ends_becomes_a_short_blend():
+    # 24 bars in all: 32 don't fit before the outro ends
+    short = [["intro", 0, 8, 0.9], ["main", 8, 16, 0.5], ["outro", 16, 24, 0.9]]
+    out = _track(_row(124.0, sections=short, mix_in=(0, 8, 0.9, "intro"), mix_out=(16, 24, 0.9, "outro")))
+    p = planner.plan(out, _track(_row(124.0), key="8A", tid="2"))
+    assert p["style"] == "short_blend" and p["bars"] == 8 and p["shortened"] == "the outro is short"
+    assert p["out"]["end_bar"] <= 24
+    yours = planner.plan(out, _track(_row(124.0), tid="2"), style="long_blend")
+    assert yours["style"] == "short_blend" and yours["shortened"] == "the outro is short"
+    # with room, a long blend stays one (and starts in the main part: "both fine")
+    room = planner.plan(_track(_row(124.0)), _track(_row(124.0), key="8A", tid="2"))
+    assert room["style"] == "long_blend" and room["shortened"] is None and room["out"]["bar"] == 80
+
+
+def test_304_an_unsure_one_keeps_its_style_and_says_so():
+    p = planner.plan(_track(_row(124.0, dconf=0.1)), _track(_row(124.0), tid="2"))
+    assert p["status"] == "ok" and p["style"] == "long_blend" and p["unsure_bars"] is True
+    assert p["note"].startswith("Not sure where the bars start")
+    sure = planner.plan(_track(_row(124.0)), _track(_row(124.0), tid="2"))
+    assert sure["unsure_bars"] is False
 
 
 def test_one_albums_tracks_in_their_order_play_on():
@@ -228,13 +318,6 @@ def test_re_review_8_album_order_counts_the_disc():
     assert planner.plan({**last, "disc_last": None}, first)["status"] == "ok"
     # no disc on either: disc 1, as before
     assert planner.plan({**out, "disc_number": None}, {**nxt, "disc_number": None})["status"] == "play_on"
-
-
-def test_not_four_four_going_out_echoes_out():
-    p = planner.plan(_track(_row(150.0, meter="not_4_4", dconf=0.1), title="Sweet Waltz"),
-                     _track(_row(150.0), tid="2"))
-    assert p["style"] == "echo_out" and p["fallback"]["code"] == "not_4_4"
-    assert p["fallback"]["reason"] == "Sweet Waltz isn't in 4/4"
 
 
 def test_a_track_not_analysed_yet_waits():
@@ -305,3 +388,36 @@ def test_the_styles_match_the_sets_transitions():
 
     assert planner.STYLES == TRANSITION_STYLES
     assert planner.BARS == TRANSITION_BARS
+
+
+# ── step 2's Gauntlet review (the reviewer's probe1.py, as tests) ────────────
+
+def test_review_m3_a_cut_on_an_unsure_one_says_so():
+    p = planner.plan(_track(_row(124.0, dconf=0.1)), _track(_row(140.0), tid="2", title="B"))
+    assert p["status"] == "cut" and p["unsure_bars"] is True
+    assert p["note"].startswith("Not sure where the bars start")
+    sure = planner.plan(_track(_row(124.0)), _track(_row(140.0), tid="2", title="B"))
+    assert sure["unsure_bars"] is False and sure["note"] is None
+
+
+def test_review_m1_the_echo_by_time_sits_on_the_decoded_length_not_the_librarys():
+    row = {"grid_version": GRID_VERSION, "status": "none", "reason": "no_beat", "analysed_s": 121.0, "truncated": 0}
+    pub = grid_store.public(row, "9")
+    assert pub["analysed_s"] == 121.0 and pub["truncated"] is False
+    for library in (100.0, 121.0, 400.0):
+        p = planner.plan({**pub, "title": "Sand", "duration_s": library, "key": "8A"}, _track(_row(124.0), tid="2"))
+        assert p["style"] == "echo_out" and p["out"]["start"] == pytest.approx(120.0), library
+    # cut short by the analysis (over 10 minutes): the library's length, as before
+    long_row = {**row, "analysed_s": 600.0, "truncated": 1}
+    p = planner.plan({**grid_store.public(long_row, "9"), "title": "Sand", "duration_s": 700.0},
+                     _track(_row(124.0), tid="2"))
+    assert p["out"]["start"] == pytest.approx(699.0)
+
+
+def test_review_a_ready_track_with_no_outro_region_says_so():
+    p = planner.plan(_track(_row(124.0, mix_out=None), duration_s=240), _track(_row(140.0), tid="2"))
+    assert p["status"] == "play_on" and p["fallback"]["code"] == "no_outro"
+    assert p["fallback"]["reason"] == "Night Ferry has no outro to cut on"
+    trunc = planner.plan(_track(_row(124.0, truncated=True, mix_out=None), duration_s=900),
+                         _track(_row(140.0), tid="2"))
+    assert trunc["fallback"]["code"] == "end_not_analysed"
