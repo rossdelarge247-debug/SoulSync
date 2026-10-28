@@ -23,7 +23,7 @@ export function clockWords(seconds: number): string {
 /** The primary button: "Add Night Ferry to Sunday Set"; "✓ Added · #7" for 4 s after. */
 export function addLabel(title: string, setName: string | null): string {
   const what = title || 'this track';
-  return setName ? `Add ${what} to ${setName}` : `Start a mix set with ${what}`;
+  return setName ? `Add ${what} to ${setName}` : `Start a set with ${what}`;
 }
 
 export function addedLabel(number: number): string {

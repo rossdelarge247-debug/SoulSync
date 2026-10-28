@@ -1,10 +1,10 @@
 /**
  * One "…" for every track in the DJ area (24a): Play next, Mixes well
- * with…, Versions… (not built yet), Add to mix set…, Add to playlist…, Open
+ * with…, Versions… (not built yet), Add to set…, Add to playlist…, Open
  * artist · Open album. On a desktop the star is never in the menu (it's in
  * the row); on a phone the sheet's first line is Star, or Unstar (28d).
  * Tracks, Listening history, the Artist page, Search, Mixes well with and a
- * mix set's rows all build their menu here, so the order stays one. Tracks
+ * set's rows all build their menu here, so the order stays one. Tracks
  * adds Double BPM and Halve BPM after Add to playlist… (HANDOFF 344).
  */
 import { openAddToMixSet } from '@/features/sets/add-to-mix-set';
@@ -41,7 +41,7 @@ export function trackMenu(
     playNext?: { onSelect: () => void; disabled?: boolean; reason?: string } | null;
     /** Mixes well with… (on unless a page has its own) */
     mixes?: boolean;
-    /** where Add to mix set… pops from */
+    /** where Add to set… pops from */
     anchor?: () => HTMLElement | null | undefined;
     addToPlaylist?: (() => void) | null;
     /**
@@ -78,7 +78,7 @@ export function trackMenu(
   if (!track.fileMissing)
     entries.push({
       key: 'mixset',
-      label: 'Add to mix set…',
+      label: 'Add to set…',
       onSelect: () =>
         openAddToMixSet(
           { id: track.id, title: track.title, artist: track.artist ?? '' },

@@ -127,7 +127,7 @@ function PlayerSettingsGroup() {
       <div className="ss-player-setting">
         <span id="ss-visuals-set-blend">
           Blend between presets
-          <small>A 2-second crossfade; off, they cut.</small>
+          <small>A 2-second blend; off, they cut.</small>
         </span>
         <LabelledSwitch
           aria-labelledby="ss-visuals-set-blend"

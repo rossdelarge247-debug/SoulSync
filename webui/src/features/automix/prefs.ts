@@ -1,22 +1,26 @@
 /**
- * Player settings → Between tracks (26h): how one track gives way to the
- * next, kept per browser like the player's other settings.
+ * Between tracks (33e: Settings → Library → DJ, and the same choice, small,
+ * in Up next's head, the Mix tab and the player's "…"): how one track gives
+ * way to the next, kept per browser like the player's other settings.
  *
  * - `between`: `off` (plain playback: each track plays to its end; gapless
- *   albums stay gapless) or `dj`, shown as **Auto mix** (beat-matched, on
- *   the phrase, in each pair's style; a pair that can't be beat-matched
- *   echoes out, cuts on the bar or plays on). There's no crossfade (Ross,
+ *   albums stay gapless) or `dj`, shown as **Auto mix** (beat-matched where
+ *   both tracks are ready; Design's 302 move where they can't be: a cut on
+ *   the phrase, an echo out, or straight on). There's no crossfade (Ross,
  *   27 October): a stored `smart`, and the player's old crossfade switch
  *   (`soulsync-crossfade` on), read as `off` and are written back so;
- * - `auto`: Mix automatically. Off, DJ mix waits for Mix now and tracks
- *   play to their end;
+ * - `auto`: always on since 33e (it replaces 26h's "Mix automatically": Auto
+ *   mix mixes by itself, and Mix now still mixes early). A stored `0` is
+ *   cleared once; the field stays for the controller's manual path;
  * - `lean`: Auto's lean ("Style when Auto can choose"): `auto` keeps its own
  *   pick, `long` prefers long blends where a short one was picked, `short`
- *   the other way.
+ *   the other way;
+ * - `keyLock`: "Key lock in DJ now" (Design's 307), off by default. DJ now
+ *   (Brief E) reads it; Auto keeps the planner's rule.
  *
  * Storage keys (code identifiers, not shown): `soulsync-between-tracks`
- * (read by static/media-player.js too), `soulsync-dj-auto`, `soulsync-dj-lean`.
- * The crossfade's switch (`soulsync-crossfade`) is kept at `0`.
+ * (read by static/media-player.js too), `soulsync-dj-auto`, `soulsync-dj-lean`,
+ * `soulsync-dj-keylock`. The crossfade's switch (`soulsync-crossfade`) is kept at `0`.
  */
 import { useSyncExternalStore } from 'react';
 
@@ -27,12 +31,14 @@ export interface AutomixPrefs {
   between: BetweenTracks;
   auto: boolean;
   lean: Lean;
+  keyLock: boolean;
 }
 
 export const BETWEEN_KEY = 'soulsync-between-tracks';
 export const AUTO_KEY = 'soulsync-dj-auto';
 export const LEAN_KEY = 'soulsync-dj-lean';
 export const CROSSFADE_KEY = 'soulsync-crossfade';
+export const KEYLOCK_KEY = 'soulsync-dj-keylock';
 
 /** This browser's storage, or none where reading it throws (blocked site data). */
 function store(): Storage | null {
@@ -68,6 +74,8 @@ export function migratePrefs(): void {
   const b = read(BETWEEN_KEY);
   if (b !== null && b !== 'off' && b !== 'dj') write(BETWEEN_KEY, 'off');
   if (read(CROSSFADE_KEY) === '1') write(CROSSFADE_KEY, '0');
+  // 26h's "Mix automatically" is gone (33e): Auto mix mixes by itself
+  if (read(AUTO_KEY) === '0') write(AUTO_KEY, '1');
 }
 
 export function readPrefs(): AutomixPrefs {
@@ -78,6 +86,7 @@ export function readPrefs(): AutomixPrefs {
     between,
     auto: read(AUTO_KEY) !== '0',
     lean: l === 'long' || l === 'short' ? l : 'auto',
+    keyLock: read(KEYLOCK_KEY) === '1',
   };
 }
 
@@ -101,9 +110,10 @@ export function setPrefs(patch: Partial<AutomixPrefs>): void {
   }
   if (patch.auto !== undefined) write(AUTO_KEY, patch.auto ? '1' : '0');
   if (patch.lean) write(LEAN_KEY, patch.lean);
+  if (patch.keyLock !== undefined) write(KEYLOCK_KEY, patch.keyLock ? '1' : '0');
   snapshot = next;
   for (const fn of listeners) fn();
-  // Up next's chips come and go with DJ mix
+  // Up next's chips come and go with Auto mix
   player()?.renderQueue?.();
 }
 
@@ -113,7 +123,8 @@ export function refreshPrefs(): void {
   if (
     next.between === snapshot.between &&
     next.auto === snapshot.auto &&
-    next.lean === snapshot.lean
+    next.lean === snapshot.lean &&
+    next.keyLock === snapshot.keyLock
   )
     return;
   snapshot = next;

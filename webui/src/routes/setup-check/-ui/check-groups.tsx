@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { Badge, type BadgeTone } from '@/components/primitives';
+import { mixSupport } from '@/features/automix/support';
 
 import type { CheckGroup, CheckStatus, SetupCheckResult } from '../-setup-check.types';
 
@@ -14,7 +15,7 @@ import {
   isExpanded,
   parseFixText,
 } from '../-setup-check.helpers';
-import { StatusIcon } from './icons';
+import { InfoIcon, StatusIcon } from './icons';
 import styles from './setup-check-page.module.css';
 
 const TAG_TONE: Record<CheckStatus, BadgeTone> = {
@@ -180,5 +181,47 @@ export function CheckGroups({
         );
       })}
     </>
+  );
+}
+
+/**
+ * This browser (312): an info row the server can't run, since only the
+ * browser knows whether it may run Auto mix's decks (https, or SYNCHRO.S
+ * opened on its own computer). Never a warning: Auto mix is optional.
+ */
+export function BrowserInfo({
+  support = mixSupport,
+}: {
+  support?: () => string | null;
+} = {}) {
+  const why = support();
+  return (
+    <section
+      aria-labelledby="setup-check-group-browser"
+      className={styles.group}
+      data-setup-browser=""
+    >
+      <h2 id="setup-check-group-browser" className={styles.groupLabel}>
+        This browser
+      </h2>
+      <ul className={styles.checkList}>
+        <li className={clsx(styles.row, styles.rowCompact)} data-status="info">
+          <InfoIcon className={styles.rowIcon} />
+          <div className={styles.rowBody}>
+            <div className={styles.rowHead}>
+              <span className={styles.rowTitle}>Auto mix</span>
+              <Badge className={styles.statusTag} tone="info">
+                Info
+              </Badge>
+            </div>
+            <p className={styles.compactDetail}>
+              {why
+                ? 'Auto mix needs SYNCHRO.S on https, or opened on its own computer (localhost). Over plain http from another computer, tracks play straight on. Settings → Connections says how.'
+                : 'Auto mix can run in this browser: SYNCHRO.S is on https here, or open on its own computer.'}
+            </p>
+          </div>
+        </li>
+      </ul>
+    </section>
   );
 }

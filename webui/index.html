@@ -2974,6 +2974,11 @@
                                             </div>
                                         </div>
                                     </div>
+                                    <!-- 312: how SYNCHRO.S is opened (https) for Auto mix; this browser's
+                                         answer, from src/features/automix/https-note.tsx -->
+                                    <div class="settings-group" data-stg="connections" data-music-only>
+                                        <div id="ss-https-note"></div>
+                                    </div>
                                     <div class="stg-cardgroup" data-stg="connections">
                                         <span class="stg-cardgroup-label">Services</span>
                                         <span class="stg-cardgroup-sub">Accounts and API keys SYNCHRO.S connects
@@ -7449,6 +7454,12 @@
                                                     different ID is never overwritten. To backfill folders you
                                                     already have, run the <em>Artist NFO Backfill</em> repair job.
                                                 </div>
+                                            </div>
+                                            <!-- Settings → Library → DJ: Between tracks, Off / Auto mix (33e;
+                                                 replaces 26h's cards in Player settings; kept per browser):
+                                                 src/features/automix/between-tracks.tsx -->
+                                            <div class="settings-group" data-stg="library" id="dj-between-tracks-group">
+                                                <div id="ss-between-tracks-library"></div>
                                             </div>
                                             <div class="settings-group" data-stg="library" id="dj-settings-group">
                                                 <h3>BPM, key and energy</h3>
@@ -12694,7 +12705,10 @@
                 </div>
 
                 <div class="ss-player-view" id="np-queue-panel" role="tabpanel" aria-labelledby="ss-player-tab-queue">
-                    <div class="ss-player-empty np-queue-empty" id="np-queue-empty">Nothing up next. Play an album or a playlist, or choose Add to queue on any track.</div>
+                    <!-- Up next's head (33e, 320): Between tracks, and with it Off said
+                         once; src/features/automix/automix-host.tsx fills it -->
+                    <div class="ss-player-upnext-head" data-automix-slot="upnext-head"></div>
+                    <div class="ss-player-empty np-queue-empty" id="np-queue-empty">Nothing up next. Play an album or a playlist, or choose Add to Up next on any track.</div>
                     <div class="ss-player-rows np-queue-list" id="np-queue-list"></div>
                     <p class="ss-player-list-foot" data-player-queue-foot></p>
                 </div>
@@ -12736,8 +12750,8 @@
                         <button type="button" class="ss-player-text-btn" data-player-view-close>Back to Up next</button>
                     </div>
                     <div class="ss-player-view-body">
-                        <!-- Between tracks: Off / Auto mix (26h; no crossfade):
-                             src/features/automix/between-tracks.tsx -->
+                        <!-- Between tracks: Off / Auto mix, small, and the way to the rest in
+                             Settings → Library → DJ (33e): src/features/automix/between-tracks.tsx -->
                         <div id="ss-between-tracks-settings"></div>
                         <p class="ss-player-section">Playback</p>
                         <label class="ss-player-setting"><span>Speed<small>Kept on this device.</small></span>
@@ -12928,9 +12942,11 @@
              meta on the right; keys as kbd. Add to playlist and Sleep timer are the
              record's own buttons now. -->
         <div class="ss-player-menu" id="ss-player-menu" role="group" aria-label="More for this track" hidden>
-            <!-- a library track with its file: 24a's "Add to mix set…" -->
-            <button type="button" class="ss-player-menu-item" data-player-menu="mixset" aria-haspopup="dialog" hidden>Add to mix set…</button>
+            <!-- a library track with its file: 24a's "Add to set…" (33f) -->
+            <button type="button" class="ss-player-menu-item" data-player-menu="mixset" aria-haspopup="dialog" hidden>Add to set…</button>
             <p class="ss-player-menu-label" data-player-menu-head>Playback</p>
+            <!-- Between tracks: Off / Auto mix, the same control small (33e) -->
+            <div class="ss-player-menu-between" data-automix-slot="menu-between" data-player-menu-music></div>
             <button type="button" class="ss-player-menu-item" data-player-menu="speed" aria-expanded="false" aria-controls="ss-player-speed-list" data-player-menu-music>Speed <span class="ss-player-menu-state" data-player-speed-state>1.0×</span></button>
             <div class="ss-player-choices" id="ss-player-speed-list" role="radiogroup" aria-label="Speed" hidden></div>
             <button type="button" class="ss-player-menu-item" id="np-v2-eq-btn" aria-pressed="false">Equalizer <span class="ss-player-menu-state" data-player-eq-state>Off</span></button>
@@ -13063,7 +13079,7 @@
                 <div><dt>Next or previous track</dt><dd><kbd>Shift N</kbd> <kbd>P</kbd></dd></div>
                 <div><dt>Add the playing track to the working set</dt><dd><kbd>A</kbd></dd></div>
                 <div><dt>Star or unstar the playing track (the focused row's, on a list)</dt><dd><kbd>S</kbd></dd></div>
-                <div><dt>Mix now, into the next track on the next phrase (DJ mix on)</dt><dd><kbd>X</kbd></dd></div>
+                <div><dt>Mix now, into the next track on the next phrase (Auto mix on)</dt><dd><kbd>X</kbd></dd></div>
                 <div class="ss-player-shortcuts-gap"><dt>A–B loop</dt><dd><kbd>L</kbd></dd></div>
                 <div><dt>Slower or faster</dt><dd><kbd>[</kbd> <kbd>]</kbd></dd></div>
                 <div><dt>Visuals</dt><dd><kbd>F</kbd></dd></div>

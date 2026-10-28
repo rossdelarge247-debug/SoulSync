@@ -467,10 +467,8 @@ describe('the tray in Mix (29a)', () => {
   it('with no working set: the card, and A starts "Set from …" with the track', async () => {
     world.working = null;
     const mix = await openMix();
-    expect(await mix.findByText('Start a mix set to collect tracks')).toBeInTheDocument();
-    expect(
-      mix.getByRole('button', { name: 'Add Night Ferry to a new mix set' }),
-    ).toBeInTheDocument();
+    expect(await mix.findByText('Start a set to collect tracks')).toBeInTheDocument();
+    expect(mix.getByRole('button', { name: 'Add Night Ferry to a new set' })).toBeInTheDocument();
     let acted = false;
     act(() => {
       acted = window.SoulSyncMix!.key('A');

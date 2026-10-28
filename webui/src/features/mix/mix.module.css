@@ -932,3 +932,15 @@
     transition: none;
   }
 }
+
+/* Brief C's item 4 (33e): Between tracks, the same small control, in the Mix tab */
+.betweenRow {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.betweenRow > span {
+  justify-content: space-between;
+  width: 100%;
+}

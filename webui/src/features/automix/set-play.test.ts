@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ViewRow } from '@/features/sets/sets.api';
 
-import { playSetAsMix, saveTransitionToSet, setQueue } from './set-play';
+import { readDraft, writeDraft } from '@/features/sets/draft-store';
+
+import { playSetAsMix, saveTransitionToDraft, saveTransitionToSet, setQueue } from './set-play';
 
 function row(id: string | null, file = true, transition: ViewRow['transition'] = null): ViewRow {
   return {
@@ -48,8 +50,13 @@ describe('Play as a mix (28e)', () => {
       name: 'Sunday Set',
       row: 0,
       transition: { style: 'bass_swap', bars: 16 },
+      // the track the set's chip leads into: the next row that plays here (283)
+      next: '3',
     });
     expect(q[1].mix_set?.row).toBe(3);
+    expect(q[1].mix_set?.next).toBeNull();
+    // 319: a draft has Play as a mix too
+    expect(setQueue({ id: 0, name: 'Draft', draft: true }, rows)[0].mix_set?.draft).toBe(true);
     const play = vi.fn(async () => ({ status: 'played' }));
     (window as unknown as { playTrackList: unknown }).playTrackList = play;
     expect(await playSetAsMix({ id: 7, name: 'Sunday Set' }, rows)).toBe(true);
@@ -92,5 +99,25 @@ describe('Save it to the set too (26i)', () => {
     await expect(
       saveTransitionToSet({ id: 7, row: 0 }, '1', '4', { style: 'cut', bars: null }),
     ).rejects.toThrow(/no longer next to each other/);
+  });
+});
+
+describe('a draft played as a mix (319)', () => {
+  it('saves a chip changed in Up next to the draft in this browser', () => {
+    const base = { title: null, artist: null, state: 'owned' as const, want: 'yours' as const };
+    writeDraft(41, {
+      name: 'Draft',
+      kind: 'hand',
+      rows: [
+        { ...base, track_id: '1' },
+        { ...base, track_id: null },
+        { ...base, track_id: '2' },
+      ],
+    });
+    saveTransitionToDraft(41, '1', '2', { style: 'echo_out', bars: 4 });
+    expect(readDraft(41)?.rows[0].transition).toEqual({ style: 'echo_out', bars: 4 });
+    expect(() => saveTransitionToDraft(41, '2', '1', { style: 'cut', bars: null })).toThrow(
+      /no longer next to each other/,
+    );
   });
 });

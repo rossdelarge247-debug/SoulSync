@@ -40,7 +40,7 @@ export function RailCardActions({ label, onPlay, onQueue, onAddToPlaylist }: Rai
       <button
         type="button"
         className="dash-card-action"
-        title="Add to queue"
+        title="Add to Up next"
         aria-label={`Add ${label} to the queue`}
         disabled={busy.queue}
         aria-busy={busy.queue || undefined}

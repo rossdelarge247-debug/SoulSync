@@ -16,3 +16,9 @@ export function mixSupport(
   if (typeof win.AudioWorkletNode === 'undefined') return "This browser can't run Auto mix's decks";
   return null;
 }
+
+/** 312's short words for the controls ("Needs https or localhost"), or the browser's own lack. */
+export function mixSupportShort(why: string | null): string | null {
+  if (!why) return null;
+  return /https/.test(why) ? 'Needs https or localhost' : "This browser can't mix";
+}

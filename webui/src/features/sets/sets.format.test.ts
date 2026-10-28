@@ -215,7 +215,7 @@ describe('what isn’t saved (the “changed somewhere else” Notice)', () => {
     expect(words.length).toBeLessThan(140);
   });
 
-  it('order, notes or transitions only', () => {
+  it('order, notes or styles only', () => {
     expect(
       unsavedWords({
         savedRows: [row('1', 'A'), row('2', 'B')],
@@ -223,6 +223,6 @@ describe('what isn’t saved (the “changed somewhere else” Notice)', () => {
         savedName: 's',
         name: 's',
       }),
-    ).toBe('Not saved here: your changes to the order, notes or transitions.');
+    ).toBe('Not saved here: your changes to the order, notes or styles.');
   });
 });

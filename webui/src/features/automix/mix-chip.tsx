@@ -1,13 +1,16 @@
 /**
  * The transition chip and its style picker (26a, 26c, 26g, 26i): one
- * component for Up next's gaps and a mix set's step lines.
+ * component for Up next's gaps and a set's step lines.
  *
  * The chip: a 32px pill with a dot in the step's tone and "style · length",
  * then in meta who chose it ("auto" or "yours") and the step's reason. Its
  * states (26g): Auto and yours (the step's dot), covering a jump (the dot
- * stays warning), Waiting (being analysed · Analyse now), Crossfade
- * (couldn't beat-match, with why), Mixing now and the countdown (Deck B's
- * cyan), and a set's chip with DJ mix off (dimmed, with what plays instead).
+ * stays warning), Waiting (being analysed · Analyse now), 302's move for a
+ * pair that couldn't be beat-matched (Cut, Echo out or Straight on, amber,
+ * "couldn't beat-match: <why>"), a short blend where a long one didn't fit
+ * (303) and an unsure "one" (304, the warning dot), Mixing now and the
+ * countdown (Deck B's cyan), and a set's chip with Auto mix off (dimmed,
+ * with no line of its own: Up next's head says it once, 320).
  *
  * The picker: the pair and why, Auto naming its pick, the seven styles with
  * one line each (a style the pair can't do stays listed, aria-disabled,
@@ -36,6 +39,8 @@ import {
   autoLine,
   chipWhy,
   chipWhyShort,
+  fallbackOf,
+  fallbackSentence,
   planWords,
   type PairPlan,
 } from './plans';
@@ -56,8 +61,11 @@ export interface TransitionChipProps {
   /** Auto's own plan, for "Auto: Echo out" in the picker */
   autoPlan?: PairPlan | null;
   live?: ChipLive | null;
-  /** a set's chip with DJ mix off: what plays instead (26g's last) */
-  dimmed?: string | null;
+  /** a set's chip with Auto mix off: dimmed, with no line of what plays instead (320, UX-21) */
+  dimmed?: boolean;
+  /** a set's step line (26i): it says the pair already, so the chip's line is
+   *  who chose it ("auto" or "yours", UX-29), and what stood in the way */
+  inSet?: boolean;
   /** the first gap's "in 2:58" (Design's 249) */
   when?: string | null;
   /** Waiting's Analyse now, while the track isn't in line yet */
@@ -86,6 +94,8 @@ const DEFAULT_LENGTH: Partial<Record<TransitionStyle, number>> = {
 
 function toneOf(plan: PairPlan | null | undefined, step: Pick<Step, 'kind'>): Tone {
   if (plan?.status === 'waiting') return 'wait';
+  // 302's move, and 304's unsure "one": the warning dot
+  if (fallbackOf(plan) || plan?.unsure_bars) return 'warn';
   return step.kind;
 }
 
@@ -98,7 +108,8 @@ export function TransitionChip({
   plan = null,
   autoPlan = null,
   live = null,
-  dimmed = null,
+  dimmed = false,
+  inSet = false,
   when = null,
   analyse = null,
   progress = null,
@@ -122,7 +133,8 @@ export function TransitionChip({
       live.kind === 'mixing' ? 'Mixing now' : `In ${live.bars} bar${live.bars === 1 ? '' : 's'}`;
     return (
       <span className={sets.chipWrap} data-live={live.kind}>
-        <span className={sets.chip} data-tone="mix" role="status">
+        {/* visual only: LiveWords says each state once (UX-15) */}
+        <span className={sets.chip} data-tone="mix">
           <i aria-hidden="true" />
           {words}
         </span>
@@ -136,27 +148,34 @@ export function TransitionChip({
       </span>
     );
   }
-  // a straight play-on (no grid and no BPM going out): Up next shows no
-  // chip; a set's chip keeps its own choice, saying it plays on
-  if (plan?.status === 'play_on' && floating) return null;
-  const words = plan && plan.status !== 'play_on' ? planWords(plan, t) : chipWords(t);
+  // a quiet play-on (an album in its order, a page that can't run the
+  // decks): Up next shows no chip; 302's "plays straight on" names itself;
+  // a set's chip keeps its own choice
+  if (plan?.status === 'play_on' && floating && !fallbackOf(plan)) return null;
+  const words =
+    plan && (plan.status !== 'play_on' || fallbackOf(plan)) ? planWords(plan, t) : chipWords(t);
   const who = whoChose(t);
   // the track it waits for is in line or being worked out: its bar shows
   const inLine = pending(progress) && (progress?.state !== 'waiting' || progress.position !== null);
   const tone = toneOf(plan, step);
-  const meta = dimmed
-    ? dimmed
-    : plan
-      ? compact
+  // a set's chip says who chose it on screen (UX-29); dimmed (Auto mix
+  // off) it has no line of what plays instead: Up next's head says it once (320)
+  const detail = Boolean(
+    plan && (fallbackOf(plan) || plan.shortened || plan.unsure_bars || plan.status === 'waiting'),
+  );
+  const meta =
+    dimmed || !plan || (inSet && !detail)
+      ? who
+      : compact
         ? chipWhyShort(plan, t)
-        : chipWhy(plan, t, to, from)
-      : who;
+        : chipWhy(plan, t, to, from);
   // a phone's Waiting chip is two lines (31e): the chip, then its analysis
   const twoLine = compact && plan?.status === 'waiting' && inLine;
   return (
     <span
       className={twoLine ? `${sets.chipWrap} ${styles.twoLine}` : sets.chipWrap}
       data-dimmed={dimmed ? '' : undefined}
+      title={fallbackSentence(plan) ?? undefined}
     >
       <button
         ref={ref}
@@ -166,7 +185,7 @@ export function TransitionChip({
         data-open={open ? '' : undefined}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={`Transition from ${from} to ${to}: ${words}, ${who === 'auto' ? 'auto' : 'your choice'}. Change it`}
+        aria-label={`How ${from} goes into ${to}: ${words}, ${who === 'auto' ? 'auto' : 'your choice'}${dimmed ? ' (Auto mix is off: plays straight on)' : ''}. Change it`}
         onClick={() => setOpen((v) => !v)}
       >
         <i aria-hidden="true" />
@@ -258,8 +277,11 @@ function TransitionPicker({
     };
   }, [anchor]);
   useLayoutEffect(() => {
-    // on a phone the picker is a sheet from the bottom (sets.module.css)
-    if (!floating || !anchor || window.innerWidth <= 640) return;
+    // UX-22: anchored to the chip, flipped above it when there's more room
+    // there, and kept inside the window (it scrolls within it), wherever the
+    // chip is: Up next's tray or a set's page. On a phone it's a sheet from
+    // the bottom (sets.module.css)
+    if (!anchor || window.innerWidth <= 640) return;
     const r = anchor.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -270,7 +292,7 @@ function TransitionPicker({
         ? { position: 'fixed', left, top: r.bottom + 6, bottom: 'auto', maxHeight: below - 16 }
         : { position: 'fixed', left, top: 'auto', bottom: vh - r.top + 6, maxHeight: r.top - 16 },
     );
-  }, [floating, anchor]);
+  }, [anchor]);
   const choose = (next: Transition) => {
     onChange(next);
     if (saveTo) {
@@ -302,7 +324,8 @@ function TransitionPicker({
     <div
       ref={ref}
       className={sets.picker}
-      data-floating={floating ? '' : undefined}
+      data-floating=""
+      data-in-tray={floating ? '' : undefined}
       style={place}
       role="dialog"
       aria-label={`How ${from} goes into ${to}`}
@@ -411,5 +434,5 @@ function TransitionPicker({
       </div>
     </div>
   );
-  return floating ? createPortal(body, document.body) : body;
+  return createPortal(body, document.body);
 }

@@ -49,7 +49,7 @@ export type TransitionStyle = (typeof TRANSITION_STYLES)[number];
 /** 26a's lengths, in bars */
 export const TRANSITION_BARS = [2, 4, 8, 16, 32] as const;
 
-/** A step's transition as a mix set keeps it (the chip, 26i). */
+/** A step's transition as a set keeps it (the chip, 26i). */
 export interface Transition {
   style: TransitionStyle;
   bars: number | null;
@@ -371,7 +371,7 @@ export async function updateSet(
   };
 }
 
-/** A set the "Add to mix set…" picker lists (POST /api/sets/holding). */
+/** A set the "Add to set…" picker lists (POST /api/sets/holding). */
 export interface HoldingSet {
   id: number;
   name: string;
@@ -407,7 +407,7 @@ export interface AddedToSet {
   playlist_state: SavedSet['playlist_state'];
 }
 
-/** "Add to mix set…": at the end; one the set holds is skipped unless `again`. */
+/** "Add to set…": at the end; one the set holds is skipped unless `again`. */
 export function addToSet(id: number, trackIds: string[], again = false): Promise<AddedToSet> {
   return call<AddedToSet>(
     apiClient.post(`sets/${id}/tracks`, {

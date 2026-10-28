@@ -309,7 +309,7 @@ function PanelFoot({ family }: { family: Family }) {
         <FootRow
           id="ss-visuals-blend"
           label="Blend between presets"
-          meta="A 2-second crossfade; off, they cut"
+          meta="A 2-second blend; off, they cut"
         >
           <LabelledSwitch
             aria-labelledby="ss-visuals-blend"

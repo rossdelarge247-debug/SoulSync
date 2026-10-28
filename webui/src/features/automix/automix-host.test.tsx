@@ -18,8 +18,8 @@ import { createTestQueryClient } from '@/test/query-client';
 
 import type { AutomixView } from './controller';
 
-import { AutomixHost } from './automix-host';
-import { BarStatus, HandoverDeck, HandoverRecord } from './handover';
+import { AutomixHost, liveKey, liveWords } from './automix-host';
+import { BarStatus, HandoverDeck, HandoverRecord, MixNowButton } from './handover';
 import { readPrefs, refreshPrefs } from './prefs';
 
 vi.mock('@/platform/shell/route-controllers', () => ({
@@ -27,7 +27,10 @@ vi.mock('@/platform/shell/route-controllers', () => ({
 }));
 // jsdom has no AudioWorklet: the decks' support is the browser's, tested on its own
 const support = vi.hoisted(() => ({ why: null as string | null }));
-vi.mock('./support', () => ({ mixSupport: () => support.why }));
+vi.mock('./support', async (original) => ({
+  ...(await original<typeof import('./support')>()),
+  mixSupport: () => support.why,
+}));
 const saved = vi.hoisted(() => ({ calls: [] as unknown[][] }));
 vi.mock('./set-play', async (original) => ({
   ...(await original<typeof import('./set-play')>()),
@@ -83,6 +86,10 @@ beforeEach(() => {
       <div data-automix-slot="deck"></div>
       <span data-automix-slot="mixnow-deck"></span>
       <div id="ss-between-tracks-settings"></div>
+      <div id="ss-between-tracks-library"></div>
+      <div id="ss-https-note"></div>
+      <div data-automix-slot="menu-between"></div>
+      <div data-automix-slot="upnext-head"></div>
       <div id="np-queue-list"></div>
     </section>`;
   queue = [track('1', 'Night Ferry'), track('2', 'Static Bloom'), track('3', 'Brass Tide')];
@@ -201,11 +208,11 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
   it('a chip in every gap, the first saying when it starts', async () => {
     mount();
     const first = await screen.findByRole('button', {
-      name: 'Transition from Night Ferry to Static Bloom: Long blend · 32 bars, auto. Change it',
+      name: 'How Night Ferry goes into Static Bloom: Long blend · 32 bars, auto. Change it',
     });
     expect(
       screen.getByRole('button', {
-        name: 'Transition from Static Bloom to Brass Tide: Long blend · 32 bars, auto. Change it',
+        name: 'How Static Bloom goes into Brass Tide: Long blend · 32 bars, auto. Change it',
       }),
     ).toBeTruthy();
     const gap = first.closest('[data-automix-gap]')!;
@@ -221,7 +228,7 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
   it('the picker floats over the tray; a style chosen lasts for this queue, as yours', async () => {
     mount();
     const chip = await screen.findByRole('button', {
-      name: /^Transition from Night Ferry to Static Bloom/,
+      name: /^How Night Ferry goes into Static Bloom/,
     });
     fireEvent.click(chip);
     const picker = await screen.findByRole('dialog', {
@@ -234,14 +241,15 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
     fireEvent.click(radios[7]);
     expect(queue[0].automix).toBeUndefined();
     fireEvent.click(within(picker).getByRole('radio', { name: 'Echo out' }));
-    expect(queue[0].automix).toEqual({ style: 'echo_out', bars: 4 });
+    // kept with the track it was chosen for (283)
+    expect(queue[0].automix).toEqual({ style: 'echo_out', bars: 4, to: '2' });
     expect(player.persistQueue).toHaveBeenCalled();
     // the picker stays open for the length
     fireEvent.click(within(picker).getByRole('radio', { name: '8 bars' }));
-    expect(queue[0].automix).toEqual({ style: 'echo_out', bars: 8 });
+    expect(queue[0].automix).toEqual({ style: 'echo_out', bars: 8, to: '2' });
     fireEvent.click(within(picker).getByRole('button', { name: 'Done' }));
     await screen.findByRole('button', {
-      name: 'Transition from Night Ferry to Static Bloom: Echo out · 8 bars, your choice. Change it',
+      name: 'How Night Ferry goes into Static Bloom: Echo out · 8 bars, your choice. Change it',
     });
   });
 
@@ -253,7 +261,7 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
     const invalidate = vi.spyOn(qc, 'invalidateQueries');
     mount(qc);
     fireEvent.click(
-      await screen.findByRole('button', { name: /^Transition from Night Ferry to Static Bloom/ }),
+      await screen.findByRole('button', { name: /^How Night Ferry goes into Static Bloom/ }),
     );
     const picker = await screen.findByRole('dialog', {
       name: 'How Night Ferry goes into Static Bloom',
@@ -272,14 +280,14 @@ describe('Up next with DJ mix on (26a, 26b)', () => {
     await act(async () => {
       await new Promise((r) => setTimeout(r, 20));
     });
-    expect(screen.queryByRole('button', { name: /^Transition from/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^How .+ goes into/ })).toBeNull();
     expect(document.querySelector('[data-automix-gap]')).toBeNull();
     expect(document.querySelector('[data-automix-mixnow]')).toBeNull();
   });
 
   it('Mix now beside Next, and X through the player’s keys', async () => {
     mount();
-    await screen.findByRole('button', { name: /^Transition from Night Ferry/ });
+    await screen.findByRole('button', { name: /^How Night Ferry goes into/ });
     const buttons = await screen.findAllByRole('button', { name: 'Mix now' });
     expect(buttons).toHaveLength(2);
     expect(buttons[0]).toHaveAttribute('aria-keyshortcuts', 'X');
@@ -430,36 +438,109 @@ describe('analyse on demand in Up next', () => {
   });
 });
 
-describe('Player settings → Between tracks (26h)', () => {
-  it('Off / Auto mix (no crossfade); Auto mix adds Mix automatically and Auto’s lean', async () => {
+describe('Between tracks, Off / Auto mix, in its places (33e)', () => {
+  it('Settings → Library → DJ: two radio cards, the style, key lock and the note; no Mix automatically', async () => {
     mount();
-    const group = await screen.findByRole('radiogroup', { name: 'Between tracks' });
+    const card = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(
+        '#ss-between-tracks-library [data-between-tracks]',
+      );
+      if (!el) throw new Error('not yet');
+      return el;
+    });
+    const group = within(card).getByRole('radiogroup', { name: 'Between tracks' });
     const cards = within(group).getAllByRole('radio');
     expect(cards.map((c) => c.querySelector('strong')?.textContent)).toEqual(['Off', 'Auto mix']);
     expect(cards[1]).toHaveAttribute('aria-checked', 'true');
-    expect(group.textContent).not.toMatch(/crossfade/i);
-    expect(screen.getByRole('switch', { name: 'Mix automatically' })).toHaveAttribute(
-      'aria-checked',
-      'true',
+    expect(cards[1]).toHaveTextContent(
+      "Beat-matched where both tracks are ready; an echo out or a cut where they can't be; straight on where nothing's known.",
     );
-    fireEvent.click(screen.getByRole('switch', { name: 'Mix automatically' }));
-    expect(localStorage.getItem('soulsync-dj-auto')).toBe('0');
-    expect(
-      screen.getByText('Off: Auto mix waits for Mix now, and tracks play to their end.'),
-    ).toBeTruthy();
-    fireEvent.change(screen.getByRole('combobox', { name: /Style when Auto can choose/ }), {
+    expect(card.textContent).not.toMatch(/crossfade|Mix automatically/i);
+    fireEvent.change(within(card).getByRole('combobox', { name: 'Style when Auto can choose' }), {
       target: { value: 'long' },
     });
     expect(localStorage.getItem('soulsync-dj-lean')).toBe('long');
+    // 307: Key lock in DJ now, off by default
+    const lock = within(card).getByRole('combobox', { name: 'Key lock in DJ now' });
+    expect(lock).toHaveValue('off');
+    fireEvent.change(lock, { target: { value: 'on' } });
+    expect(localStorage.getItem('soulsync-dj-keylock')).toBe('1');
+    expect(readPrefs().keyLock).toBe(true);
+    expect(card).toHaveTextContent(
+      'Not for podcasts, audiobooks or radio. Auto mix needs SYNCHRO.S on https or opened on its own computer. Kept per browser.',
+    );
     fireEvent.click(cards[0]);
     expect(localStorage.getItem('soulsync-between-tracks')).toBe('off');
     expect(localStorage.getItem('soulsync-crossfade')).toBe('0');
-    expect(screen.queryByRole('switch', { name: 'Mix automatically' })).toBeNull();
-    expect(screen.getByText(/Podcasts, audiobooks and radio always play as Off/)).toBeTruthy();
-    fireEvent.click(cards[1]);
+    // arrows move the choice and the focus together
+    fireEvent.keyDown(group, { key: 'ArrowRight' });
     expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
-    localStorage.removeItem('soulsync-dj-auto');
     localStorage.removeItem('soulsync-dj-lean');
+    localStorage.removeItem('soulsync-dj-keylock');
+    refreshPrefs();
+  });
+
+  it('the same control, small, in Player settings, the "…" and Up next\'s head; Off said once there (320)', async () => {
+    localStorage.setItem('soulsync-between-tracks', 'off');
+    refreshPrefs();
+    mount();
+    const head = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-upnext-head]');
+      if (!el) throw new Error('not yet');
+      return el;
+    });
+    for (const slot of ['#ss-between-tracks-settings', '[data-automix-slot="menu-between"]']) {
+      const box = document.querySelector<HTMLElement>(slot)!;
+      const seg = within(box).getByRole('radiogroup', { name: 'Between tracks' });
+      expect(
+        within(seg)
+          .getAllByRole('radio')
+          .map((r) => r.textContent),
+      ).toEqual(['Off', 'Auto mix']);
+    }
+    expect(
+      within(document.querySelector<HTMLElement>('#ss-between-tracks-settings')!).getByRole(
+        'button',
+        {
+          name: 'Settings → Library → DJ',
+        },
+      ),
+    ).toBeTruthy();
+    expect(head).toHaveTextContent('Auto mix is off: tracks play straight on · Turn it on');
+    // once, never a line per step
+    expect(document.body.textContent?.match(/Auto mix is off/g)?.length).toBe(1);
+    fireEvent.click(within(head).getByRole('button', { name: 'Turn it on' }));
+    expect(localStorage.getItem('soulsync-between-tracks')).toBe('dj');
+    await waitFor(() => expect(head).not.toHaveTextContent('Auto mix is off'));
+    expect(within(head).getByRole('radio', { name: 'Auto mix' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('312: disabled with "Needs https or localhost" in each place, and Connections points at https', async () => {
+    support.why = 'Auto mix needs SYNCHRO.S on https, or opened on its own computer';
+    localStorage.setItem('soulsync-between-tracks', 'off');
+    refreshPrefs();
+    try {
+      mount();
+      await waitFor(() => expect(document.querySelector('[data-upnext-head]')).not.toBeNull());
+      const autos = screen.getAllByRole('radio', { name: /^Auto mix/ });
+      expect(autos.length).toBe(4);
+      for (const a of autos) expect(a).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.getAllByText('Needs https or localhost').length).toBeGreaterThanOrEqual(4);
+      fireEvent.click(autos[0]);
+      expect(localStorage.getItem('soulsync-between-tracks')).toBe('off');
+      expect(document.querySelector('[data-https-note]')).toHaveAttribute(
+        'data-https-note',
+        'insecure',
+      );
+      expect(document.querySelector('[data-https-note]')).toHaveTextContent(
+        /Open SYNCHRO.S on https/,
+      );
+    } finally {
+      support.why = null;
+    }
   });
 });
 
@@ -484,6 +565,7 @@ function view(over: Partial<AutomixView> = {}): AutomixView {
     inSeconds: null,
     outStart: 155,
     barsToGo: null,
+    cancelled: false,
     manual: false,
     transition: {
       phase: 'mixing',
@@ -536,9 +618,17 @@ describe('the handover (26d–26f)', () => {
     expect(actions.back).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Finish now' }));
     expect(actions.finishNow).toHaveBeenCalled();
-    const decks = screen.getByRole('button', { name: 'Watch it on Decks' });
-    expect(decks).toHaveAttribute('aria-disabled', 'true');
-    expect(decks).toHaveAccessibleDescription('Decks comes in a later step');
+    // 323: hidden until DJ now (Brief E) brings "Open DJ now"
+    expect(screen.queryByRole('button', { name: /Decks|DJ now/ })).toBeNull();
+    // the phone's line goes only under the mixing sheet (324)
+    expect(document.querySelector('[data-automix-phone-note]')).toBeNull();
+  });
+
+  it("324: a phone's mixing sheet says 308's words, once", () => {
+    render(<HandoverDeck view={view()} actions={actions} phone />);
+    expect(document.querySelector('[data-automix-phone-note]')).toHaveTextContent(
+      "If a call or the lock stops the sound, SYNCHRO.S cuts to the next track when it's back.",
+    );
   });
 
   it('Back near the end is disabled with why (305)', () => {
@@ -561,14 +651,74 @@ describe('the handover (26d–26f)', () => {
       />,
     );
     expect(screen.getByText('Mixing into Static Bloom in 6 bars…')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Cancel: Night Ferry plays out straight on' }),
+    );
     expect(actions.cancel).toHaveBeenCalled();
     rerender(<BarStatus view={view()} actions={actions} />);
     expect(screen.getByText('Night Ferry → Static Bloom')).toBeTruthy();
     expect(screen.getByText('Mixing · bar 12 of 32')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
+    // UX-20: the bar's Back is named for the track it goes back to
+    expect(screen.getByRole('button', { name: 'Back to Night Ferry' })).toHaveTextContent('Back');
     rerender(<BarStatus view={view({ stage: 'cut', transition: null })} actions={actions} />);
     expect(document.body.textContent).not.toMatch(/crossfad/i);
+  });
+
+  it("314 and 302: a cut on the phrase counts down too, with Cancel and Design's sentence", () => {
+    const cut = {
+      status: 'cut',
+      style: 'cut',
+      bars: null,
+      fallback: { kind: 'cut', code: 'tempo_gap', reason: 'the tempos are 9.7% apart' },
+      out: { start: 280, bar: 112 },
+      in: { start: 0 },
+    };
+    render(
+      <BarStatus
+        view={view({ stage: 'cut', transition: null, lanes: null, barsToGo: 6, plan: cut })}
+        actions={actions}
+      />,
+    );
+    expect(screen.getByText('Cutting to Static Bloom in 6 bars…')).toBeTruthy();
+    expect(
+      screen.getByText("Couldn't beat-match: cutting on the phrase · the tempos are 9.7% apart"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Cancel/ }));
+    expect(actions.cancel).toHaveBeenCalled();
+  });
+
+  it('314: the bar keeps "in 2:58" beside Mix now until the countdown', () => {
+    const { rerender } = render(
+      <MixNowButton
+        view={view({ stage: 'planned', transition: null, inSeconds: 178, canMixNow: true })}
+        onMixNow={actions.mixNow}
+        compact
+      />,
+    );
+    expect(screen.getByText('in 2:58')).toBeTruthy();
+    rerender(
+      <MixNowButton
+        view={view({ stage: 'planned', transition: null, inSeconds: 20, barsToGo: 10 })}
+        onMixNow={actions.mixNow}
+        compact
+      />,
+    );
+    expect(screen.queryByText(/^in \d/)).toBeNull();
+  });
+
+  it('UX-15: each state is said once, the bar count never; Cancel and Back are said', () => {
+    const counting = view({ stage: 'counting', barsToGo: 16 });
+    const key = liveKey(counting);
+    expect(liveWords(key, counting)).toBe('Mixing into Static Bloom in 16 bars');
+    // the next bar doesn't change what's said
+    expect(liveKey(view({ stage: 'counting', barsToGo: 15 }))).toBe(key);
+    expect(liveWords(liveKey(view({ stage: 'mixing' })), view())).toBe('Mixing now');
+    expect(liveWords(liveKey(view({ stage: 'handback' })), view())).toBe(
+      'Now playing Static Bloom',
+    );
+    const cancelled = view({ stage: 'planned', transition: null, cancelled: true });
+    expect(liveWords(liveKey(cancelled), cancelled)).toBe('Mix cancelled');
+    expect(liveWords(liveKey(view({ stage: 'back' })), view())).toBe('Back to Night Ferry');
   });
 });
 
@@ -581,7 +731,7 @@ describe('no crossfade on a page that can’t run the decks', () => {
         await new Promise((r) => setTimeout(r, 300));
       });
       expect(document.querySelector('[data-automix-gap]')).not.toBeNull();
-      expect(screen.queryByRole('button', { name: /^Transition from/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^How .+ goes into/ })).toBeNull();
       expect(document.body.textContent).not.toMatch(/crossfad/i);
       await waitFor(() =>
         expect(window.SoulSyncAutomix?.view().mixNowWhy).toBe('Auto mix needs SYNCHRO.S on https'),

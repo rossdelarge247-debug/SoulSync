@@ -9,18 +9,25 @@ import { Button } from '@/components/form';
  * - **HandoverDeck** (the waveform's place): two lanes on one bar ruler,
  *   the window shaded, the playhead and the marker (the bass swap, the
  *   drop); "Long blend · 32 bars · bass swaps at bar 16 · 0:23 left"; Back
- *   to the outgoing track, Finish now, and Watch it on Decks (disabled
- *   until Decks is built). Before it starts, the countdown with Cancel;
+ *   to the outgoing track and Finish now (26d's "Open DJ now" comes with
+ *   Brief E: 323). Before it starts, the countdown with Cancel, for Mix now
+ *   and for an automatic mix or cut alike, over its last 16 bars (314); on
+ *   a phone, 308's line under the mixing sheet (324);
  * - **BarStatus** (the collapsed bar's middle, 26e): counting down in bars
- *   with Cancel, or mixing with both titles and a two-line handover bar
- *   (no crossfade status: a pair that can't be beat-matched echoes out,
- *   cuts or plays on, quietly);
- * - **MixNowButton** (26a): beside Next, which still cuts; key X.
+ *   with Cancel, or mixing with both titles and a two-line handover bar; a
+ *   pair that couldn't be beat-matched says 302's sentence in the
+ *   countdown's line ("Couldn't beat-match: cutting on the phrase · …");
+ * - **MixNowButton** (26a): beside Next, which still cuts; key X. In the
+ *   bar, "in 2:58" beside it until the countdown (314).
  */
 import type { AutomixView, HandoverLanes } from './controller';
 
 import styles from './automix.module.css';
-import { STYLE_LABELS } from './plans';
+import { STYLE_LABELS, fallbackSentence, inWords } from './plans';
+
+/** 308's words (324): under the phone's mixing sheet, one line. */
+export const PHONE_LOCK_WORDS =
+  "If a call or the lock stops the sound, SYNCHRO.S cuts to the next track when it's back.";
 
 export interface HandoverActions {
   mixNow: () => void;
@@ -56,18 +63,31 @@ function markerWords(view: AutomixView): string | null {
   return `${m.label} at bar ${bar}`;
 }
 
+/** A `cut` plan (302's cut on the phrase, or a cut on the bar): the player cuts, no decks. */
+function isCut(view: AutomixView): boolean {
+  return view.plan?.status === 'cut';
+}
+
 /** "Mixing · bar 12 of 32", or the countdown's words. */
 export function stageWords(view: AutomixView): string {
   const t = view.transition;
   const to = view.pair?.toTitle || 'the next track';
   if (view.stage === 'counting' || (!t && view.barsToGo !== null)) {
     const n = view.barsToGo ?? 0;
-    return `Mixing into ${to} in ${n} bar${n === 1 ? '' : 's'}…`;
+    const bars = `${n} bar${n === 1 ? '' : 's'}`;
+    return isCut(view) ? `Cutting to ${to} in ${bars}…` : `Mixing into ${to} in ${bars}…`;
   }
   if (view.stage === 'back') return `Back to ${view.pair?.fromTitle || 'the last track'}`;
   if (view.stage === 'settling' || view.stage === 'handback') return `Mixed into ${to}`;
   if (t?.bar && t.bars) return `Mixing · bar ${t.bar} of ${t.bars}`;
   return 'Mixing';
+}
+
+/** The countdown's line: where it starts and in what style, or 302's sentence. */
+export function countdownMeta(view: AutomixView): string {
+  const sentence = fallbackSentence(view.plan);
+  if (sentence) return sentence;
+  return `starts on the next phrase · ${styleWords(view)}`;
 }
 
 export function MixNowButton({
@@ -85,7 +105,9 @@ export function MixNowButton({
   if (['counting', 'mixing', 'settling', 'handback', 'back', 'rejoin'].includes(view.stage))
     return null;
   const disabled = !view.canMixNow;
-  return (
+  // the bar keeps "in 2:58" until the last 16 bars' countdown (314)
+  const when = compact && !view.cancelled ? inWords(view.inSeconds) : null;
+  const button = (
     <button
       type="button"
       className={`${styles.mixNow} ${compact ? styles.mixNowBar : ''}`}
@@ -102,6 +124,16 @@ export function MixNowButton({
       Mix now
     </button>
   );
+  return when ? (
+    <>
+      {button}
+      <span className={styles.mixNowWhen} data-automix-when="">
+        {when}
+      </span>
+    </>
+  ) : (
+    button
+  );
 }
 
 export function BarStatus({ view, actions }: { view: AutomixView; actions: HandoverActions }) {
@@ -112,10 +144,15 @@ export function BarStatus({ view, actions }: { view: AutomixView; actions: Hando
       <div className={styles.bar} data-automix-bar="counting">
         <span className={styles.barWords}>
           <strong>{stageWords(view)}</strong>
-          <span className={styles.barMeta}>starts on the next phrase · {styleWords(view)}</span>
+          <span className={styles.barMeta}>{countdownMeta(view)}</span>
         </span>
         <span className={styles.barActions}>
-          <Button size="sm" variant="ghost" onClick={actions.cancel}>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Cancel: ${view.pair?.fromTitle || 'this track'} plays out straight on`}
+            onClick={actions.cancel}
+          >
             Cancel
           </Button>
         </span>
@@ -148,6 +185,7 @@ export function BarStatus({ view, actions }: { view: AutomixView; actions: Hando
             variant="ghost"
             disabled={!t.canGoBack}
             focusableWhenDisabled
+            aria-label={`Back to ${view.pair?.fromTitle || 'the last track'}`}
             title={
               t.canGoBack ? undefined : `Too near the end of ${view.pair?.fromTitle} to go back`
             }
@@ -295,7 +333,16 @@ export function Lanes({ lanes, phi }: { lanes: HandoverLanes; phi: number | null
   );
 }
 
-export function HandoverDeck({ view, actions }: { view: AutomixView; actions: HandoverActions }) {
+export function HandoverDeck({
+  view,
+  actions,
+  phone = false,
+}: {
+  view: AutomixView;
+  actions: HandoverActions;
+  /** a phone's mixing sheet: 308's line under it (324) */
+  phone?: boolean;
+}) {
   const t = view.transition;
   const counting = view.stage === 'counting' || (!t && view.barsToGo !== null);
   if (counting && !view.lanes) {
@@ -303,8 +350,13 @@ export function HandoverDeck({ view, actions }: { view: AutomixView; actions: Ha
       <div className={styles.deck} data-automix-deck="counting">
         <div className={styles.countdown}>
           <strong>{stageWords(view)}</strong>
-          <span>starts on the next phrase · {styleWords(view)}</span>
-          <Button size="sm" variant="ghost" onClick={actions.cancel}>
+          <span>{countdownMeta(view)}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Cancel: ${view.pair?.fromTitle || 'this track'} plays out straight on`}
+            onClick={actions.cancel}
+          >
             Cancel
           </Button>
         </div>
@@ -347,12 +399,14 @@ export function HandoverDeck({ view, actions }: { view: AutomixView; actions: Ha
             <Button size="md" variant="secondary" onClick={actions.finishNow}>
               Finish now
             </Button>
-            <Button size="md" variant="ghost" disabled disabledReason="Decks comes in a later step">
-              Watch it on Decks
-            </Button>
           </>
         ) : null}
       </div>
+      {phone && (mixing || counting) ? (
+        <p className={styles.phoneNote} data-automix-phone-note="">
+          {PHONE_LOCK_WORDS}
+        </p>
+      ) : null}
     </div>
   );
 }

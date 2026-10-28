@@ -1,5 +1,5 @@
 /**
- * "Add to mix set…" (28a, 28b, 28g): the picker lists your sets with where
+ * "Add to set…" (28a, 28b, 28g): the picker lists your sets with where
  * the track would land, says when it's in one already (Add again), offers
  * "Add 4 / Add all 6" for many, leaves missing files out and says so, makes
  * a new set in place, and ends with a toast whose Open it goes to the set.
@@ -140,12 +140,12 @@ describe('the picker’s words', () => {
   });
 });
 
-describe('Add to mix set…', () => {
+describe('Add to set…', () => {
   it('adds one track and says where, with Open it', async () => {
     render(<AddToMixSetHost />);
     act(() => openAddToMixSet(one));
     const dialog = await screen.findByRole('dialog', { name: 'Add Harbour Light to…' });
-    expect(within(dialog).getByRole('searchbox', { name: 'Find a mix set' })).toHaveFocus();
+    expect(within(dialog).getByRole('searchbox', { name: 'Find a set' })).toHaveFocus();
     expect(within(dialog).getByText('Recent')).toBeTruthy();
     expect(await within(dialog).findByText('adds as #25 · edited today')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: /Sunday Set/ }));
@@ -214,12 +214,12 @@ describe('Add to mix set…', () => {
     );
   });
 
-  it('New mix set… is named in place, then made with the track in it', async () => {
+  it('New set… is named in place, then made with the track in it', async () => {
     render(<AddToMixSetHost />);
     act(() => openAddToMixSet(one));
     const dialog = await screen.findByRole('dialog', { name: 'Add Harbour Light to…' });
-    fireEvent.click(within(dialog).getByRole('button', { name: /New mix set/ }));
-    fireEvent.change(within(dialog).getByRole('textbox', { name: "The new mix set's name" }), {
+    fireEvent.click(within(dialog).getByRole('button', { name: /New set/ }));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: "The new set's name" }), {
       target: { value: 'Warm-up' },
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Make it' }));
@@ -239,7 +239,7 @@ describe('Add to mix set…', () => {
     expect(within(dialog).queryByText('Sunday Set')).toBeNull();
     expect(within(dialog).getByText('Deep and warm, building to peak')).toBeTruthy();
     fireEvent.change(within(dialog).getByRole('searchbox'), { target: { value: 'zzz' } });
-    expect(within(dialog).getByText('No mix set matches “zzz”.')).toBeTruthy();
+    expect(within(dialog).getByText('No set matches “zzz”.')).toBeTruthy();
   });
 
   it('puts the Mix tab’s working set first, tagged (29a)', async () => {
@@ -247,7 +247,7 @@ describe('Add to mix set…', () => {
     render(<AddToMixSetHost />);
     act(() => openAddToMixSet(one));
     const dialog = await screen.findByRole('dialog', { name: 'Add Harbour Light to…' });
-    const list = await within(dialog).findByRole('list', { name: 'Your mix sets' });
+    const list = await within(dialog).findByRole('list', { name: 'Your sets' });
     await waitFor(() =>
       expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent(
         'Deep and warm, building to peak Working set',

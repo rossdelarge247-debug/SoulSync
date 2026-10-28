@@ -42,12 +42,17 @@
  * over one bar (executor.ts, Design's 252 and 308).
  *
  * No crossfade (Ross, 27 October: "we either mix auto or manual or
- * nothing"): a pair that can't be beat-matched echoes out on the decks (its
- * plan says so), cuts on the outgoing track's bar (a `cut` plan: the player
- * starts the next track there, no decks), or plays on to its end with no
- * transition (a `play_on` plan, a page that can't run the decks, a mix that
- * missed its windows). The engine's own 2 s finish of a mix the system cut
- * off stays: it ends a mix already playing.
+ * nothing"): a pair that can't be beat-matched takes Design's 302 move, as
+ * the planner says: a cut on the outgoing track's last phrase (a `cut`
+ * plan: the player starts the next track there, no decks, with the same
+ * countdown and Cancel as a mix: 314), an echo out into the incoming track
+ * on the decks (placed by time where the outgoing track has no grid to
+ * trust), or straight on to its end with no transition (a `play_on` plan,
+ * a page that can't run the decks, a mix that missed its windows). Cancel
+ * plays the track out straight on, with no fallback (316); after Back the
+ * next track comes in by 302's rule: a cut on the outgoing track's last
+ * phrase where its grid is ready to mix, else straight on (317). A mix the
+ * system cut off finishes with a cut once sound is back (308).
  *
  * Auto mix off (Between tracks: Off), a podcast, an audiobook, radio, a
  * stream, shuffle or repeat one: nothing here runs, and the player plays as
@@ -88,10 +93,19 @@ export interface QueueTrack {
   media_src?: string;
   duration?: number | null;
   image_url?: string | null;
-  /** the chip chosen in Up next for the gap after this track (lasts for this queue) */
-  automix?: Choice | null;
-  /** queued from a mix set (Play as a mix): its row and the set's chip after it */
-  mix_set?: { id: number; name: string; row: number; transition?: Choice | null } | null;
+  /** the chip chosen in Up next for the gap after this track (lasts for this
+   *  queue), and the track it was chosen for (283: another next track is Auto again) */
+  automix?: (Choice & { to?: string | null }) | null;
+  /** queued from a set (Play as a mix): its row, the set's chip after it and
+   *  the track that chip leads into; a draft's id is 0 (`draft: true`) */
+  mix_set?: {
+    id: number;
+    name: string;
+    row: number;
+    transition?: Choice | null;
+    next?: string | null;
+    draft?: boolean;
+  } | null;
 }
 
 export interface PlayerSnapshotLike {
@@ -245,8 +259,10 @@ export interface AutomixView {
   inSeconds: number | null;
   /** where the mix starts, in the playing track's seconds (the waveform's cyan marker) */
   outStart: number | null;
-  /** the countdown, in bars (Mix now, or the last 16 bars before an automatic mix) */
+  /** the countdown, in bars (Mix now, or the last 16 bars before an automatic mix or cut: 314) */
   barsToGo: number | null;
+  /** the listener's Cancel called this pair's mix off: it plays out straight on (316) */
+  cancelled: boolean;
   manual: boolean;
   transition: TransitionState | null;
   /** where the ruler's playhead is (φ), while it mixes */
@@ -270,6 +286,7 @@ const EMPTY_VIEW: AutomixView = {
   inSeconds: null,
   outStart: null,
   barsToGo: null,
+  cancelled: false,
   manual: false,
   transition: null,
   phi: null,
@@ -314,10 +331,24 @@ export function mixable(t: QueueTrack | null | undefined): boolean {
   return !t.kind || t.kind === 'library';
 }
 
-/** The chip for the gap after a track: Up next's choice, else its set's, else Auto. */
-export function choiceOf(t: QueueTrack | null | undefined): Choice {
-  const c = t?.automix ?? t?.mix_set?.transition ?? null;
-  return c && c.style ? { style: c.style as ChipStyle, bars: c.bars ?? null } : AUTO_CHOICE;
+/**
+ * The chip for the gap after a track: Up next's choice, else its set's,
+ * else Auto. A chip describes a pair (283): once the next track changes
+ * (a reorder, an insert, a removal) it's Auto's pick again, whoever chose it.
+ */
+export function choiceOf(
+  t: QueueTrack | null | undefined,
+  next?: QueueTrack | null | undefined,
+): Choice {
+  const nextId = next === undefined ? null : idOf(next);
+  const mine = t?.automix;
+  if (mine?.style && (next === undefined || !mine.to || mine.to === nextId))
+    return { style: mine.style as ChipStyle, bars: mine.bars ?? null };
+  const set = t?.mix_set;
+  const own = set?.transition;
+  if (own?.style && (next === undefined || !set?.next || set.next === nextId))
+    return { style: own.style as ChipStyle, bars: own.bars ?? null };
+  return AUTO_CHOICE;
 }
 
 /** Two rows of a set played as a mix, one after the other: DJ mix for this play (28e). */
@@ -389,6 +420,27 @@ export function mixNowPlan(
     bars: wanted > 0 ? bars : plan.bars,
     out: { ...plan.out, start, bar, end: gridA.barTime(bar + bars), end_bar: bar + bars },
   };
+}
+
+/**
+ * 317 (and 302): where the outgoing track's last phrase is, for the cut
+ * after Back: the last phrase line at or before the end of its mix-out
+ * region, on a grid that's ready to mix (a steady beat, 4/4) and whose
+ * ending was analysed. Null otherwise: the track plays straight on.
+ */
+export function lastPhraseCut(api: ApiGrid | null | undefined): number | null {
+  if (!api?.analyzed || api.truncated) return null;
+  const g = gridFromApi(api);
+  const conf = api.grid?.confidence ?? 0;
+  const meter = api.downbeats?.meter ?? '4/4';
+  const end = api.mix_out?.end_bar;
+  if (!g || conf < 0.5 || meter !== '4/4' || end == null) return null;
+  const phrases = (api.phrases ?? []).filter((ph) => ph.bar <= end);
+  if (!phrases.length) return null;
+  const last = phrases[phrases.length - 1].bar;
+  // the phrases carry on every 8 bars past the last one listed
+  const bar = last + 8 * Math.floor((end - last) / 8);
+  return bar > 0 ? g.barTime(bar) : null;
 }
 
 interface Decks {
@@ -507,6 +559,7 @@ export class AutomixController {
       next.inSeconds === null ? '' : Math.round(next.inSeconds),
       next.outStart,
       next.barsToGo,
+      next.cancelled,
       next.manual,
       t?.phase,
       t?.bar,
@@ -719,7 +772,7 @@ export class AutomixController {
       return;
     }
     const prefs = this.svc.prefs();
-    const choice = choiceOf(pair.from);
+    const choice = choiceOf(pair.from, pair.to);
     const key = [idOf(pair.from), idOf(pair.to), choice.style, choice.bars ?? 0, prefs.lean].join(
       '|',
     );
@@ -777,6 +830,14 @@ export class AutomixController {
       return;
     }
     this.stage = p.decks ? 'ready' : p.loading ? 'loading' : 'planned';
+    // 317: after Back the next track comes in by 302's rule, never a
+    // crossfade: a cut on the outgoing track's last phrase where its grid is
+    // ready to mix, else straight on
+    if (p.wentBack && !p.cancelled && !p.cutSet && el && !el.paused) {
+      const at = lastPhraseCut(p.grids?.[p.fromId]);
+      if (at !== null && el.currentTime < at && el.currentTime >= at - CUT_LOOKAHEAD_S)
+        this.setCut(p, at);
+    }
     // a page that can't run the decks: every pair plays on (Ross: no
     // crossfade), and Mix now says why
     const unsupported = this.svc.support?.() ?? null;
@@ -1324,6 +1385,24 @@ export class AutomixController {
     }
     if (this.pending !== p) return;
     const gridA = gridFromApi(p.grids[p.fromId]);
+    const placed = this.placedPlan(p);
+    if (placed && placed.out.bar == null) {
+      // 302's echo out, placed by time (no grid going out to trust): now,
+      // once the windows are in, never on a bar counted on a guess
+      const start = el.currentTime + MIX_NOW_LEAD_S;
+      const left = Number.isFinite(el.duration) ? el.duration - start : Infinity;
+      if (left < 1) {
+        p.missed = 'too near the end to mix';
+        this.emit();
+        return;
+      }
+      p.effective = { ...placed, out: { ...placed.out, start, end: start } };
+      p.decks = null;
+      p.loadError = null;
+      this.emit();
+      void this.preload(p);
+      return;
+    }
     if (!gridA) {
       p.missed = 'the track going out has no beat grid';
       this.emit();
@@ -1619,7 +1698,9 @@ export class AutomixController {
         }
       : null;
     const plan = p ? (p.effective ?? p.plan) : null;
-    const outStart = plan?.status === 'ok' ? (plan.out?.start ?? null) : null;
+    // a mix's start, or a cut's (302): both count down (314)
+    const outStart =
+      plan?.status === 'ok' || plan?.status === 'cut' ? (plan.out?.start ?? null) : null;
     const pos = el ? el.currentTime : 0;
     const t = this.transition;
     const ts = t ? t.state() : null;
@@ -1663,6 +1744,7 @@ export class AutomixController {
       inSeconds,
       outStart,
       barsToGo,
+      cancelled: Boolean(p?.cancelled),
       manual: Boolean(p?.manual),
       transition: ts,
       phi,

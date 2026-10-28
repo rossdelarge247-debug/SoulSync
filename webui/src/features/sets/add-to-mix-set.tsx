@@ -1,5 +1,5 @@
 /**
- * "Add to mix set…" (boards 28a, 28b, 28d, 28g): the fourth item of every
+ * "Add to set…" (boards 28a, 28b, 28d, 28g): the fourth item of every
  * track's "…" in the DJ area (24a), the player's "…", and Tracks' selection
  * bar's primary. One picker for the whole app, like Add to playlist: React
  * pages call `openAddToMixSet`, the shell and the legacy pages call
@@ -8,7 +8,7 @@
  * "Add Copper Sky to…": a search field (focused), Recent (your sets, the
  * last edited first) with where the track would land ("adds as #25") or
  * that it's there ("In it already · #4", with Add again; the row itself does
- * nothing new), then New mix set… (named in place, then added). Many at
+ * nothing new), then New set… (named in place, then added). Many at
  * once: a set holding some of them opens the choice in place, "Add 4" (the
  * default) or "Add all 6". A track whose file isn't here is left out and
  * said (the downloaded-only rule). Then a toast with Open it. A popover on
@@ -47,7 +47,7 @@ export interface MixSetTrack {
 
 declare global {
   interface Window {
-    /** open the "Add to mix set…" picker; `anchor` is what it pops from */
+    /** open the "Add to set…" picker; `anchor` is what it pops from */
     openAddToMixSet?: (tracks: MixSetTrack | MixSetTrack[], anchor?: HTMLElement | null) => void;
   }
 }
@@ -92,7 +92,7 @@ export function openAddToMixSet(
 ): void {
   const clean = cleanMixTracks(tracks);
   if (!clean.length) {
-    window.showToast?.('Only tracks in your library can go in a mix set', 'info');
+    window.showToast?.('Only tracks in your library can go in a set', 'info');
     return;
   }
   if (current && anchor && current.anchor === anchor) {
@@ -424,7 +424,7 @@ function Picker({ request }: { request: Request }) {
       );
     } catch (err) {
       setBusy(false);
-      window.showToast?.(err instanceof Error ? err.message : "The mix set wasn't made.", 'error');
+      window.showToast?.(err instanceof Error ? err.message : "The set wasn't made.", 'error');
     }
   };
 
@@ -464,13 +464,13 @@ function Picker({ request }: { request: Request }) {
         {ok.length ? (
           <>
             <label className={styles.srOnly} htmlFor={searchId}>
-              Find a mix set
+              Find a set
             </label>
             <input
               id={searchId}
               className={styles.search}
               type="search"
-              placeholder="Find a mix set"
+              placeholder="Find a set"
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -479,15 +479,13 @@ function Picker({ request }: { request: Request }) {
             {error ? (
               <p className={styles.note}>{error}</p>
             ) : sets === null ? (
-              <p className={styles.note}>Loading your mix sets…</p>
+              <p className={styles.note}>Loading your sets…</p>
             ) : !list.length ? (
               <p className={styles.note}>
-                {needle
-                  ? `No mix set matches “${query.trim()}”.`
-                  : 'No mix sets yet. Make one below.'}
+                {needle ? `No set matches “${query.trim()}”.` : 'No sets yet. Make one below.'}
               </p>
             ) : (
-              <ul className={styles.list} aria-label="Your mix sets">
+              <ul className={styles.list} aria-label="Your sets">
                 {list.map((set) => (
                   <SetRowView
                     key={set.id}
@@ -509,7 +507,7 @@ function Picker({ request }: { request: Request }) {
                 disabled={busy}
                 onClick={() => setNewName(needle ? query.trim() : '')}
               >
-                <span aria-hidden="true">+</span> New mix set…
+                <span aria-hidden="true">+</span> New set…
               </button>
             ) : (
               <form
@@ -523,8 +521,8 @@ function Picker({ request }: { request: Request }) {
                   className={styles.search}
                   autoFocus
                   maxLength={200}
-                  placeholder="Name the mix set"
-                  aria-label="The new mix set's name"
+                  placeholder="Name the set"
+                  aria-label="The new set's name"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                 />

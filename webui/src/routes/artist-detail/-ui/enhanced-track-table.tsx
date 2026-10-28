@@ -530,8 +530,10 @@ function TrackRow({
               <button
                 type="button"
                 className="enhanced-queue-btn lib-row-btn"
-                title={missing ? 'Add to queue and download automatically' : 'Add to queue'}
-                aria-label={missing ? 'Add to queue and download automatically' : 'Add to queue'}
+                title={missing ? 'Add to Up next and download automatically' : 'Add to Up next'}
+                aria-label={
+                  missing ? 'Add to Up next and download automatically' : 'Add to Up next'
+                }
                 onClick={act(() => enqueue(false))}
               >
                 <PlusIcon size={15} />

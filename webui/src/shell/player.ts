@@ -1002,7 +1002,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
     const st = snapshot;
     const item = (name: string) => menu.querySelector<HTMLElement>(`[data-player-menu="${name}"]`);
     setHidden(item('report'), !st.reportable);
-    // 24a: a library track with its file present goes in a mix set
+    // 24a: a library track with its file present goes in a set
     const t = st.track;
     const libraryId =
       (st.kind ?? 'library') === 'library' &&
@@ -1399,7 +1399,7 @@ export function bootPlayer(options: BootOptions = {}): PlayerChrome | null {
         empty.classList.remove('hidden');
         setText(
           empty,
-          'Nothing after this track. Play an album or a playlist, or choose Add to queue on any track.',
+          'Nothing after this track. Play an album or a playlist, or choose Add to Up next on any track.',
         );
       }
     } else if (empty && st.queue.length) {

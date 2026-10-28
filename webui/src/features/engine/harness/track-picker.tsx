@@ -6,7 +6,7 @@
  * - **Playing & Up next**: the player's queue from the playing track on;
  * - **Recent**: Listening history's last plays of your library tracks;
  * - **Starred**: your starred tracks;
- * - **Sets & playlists**: one of your mix sets or playlists, then its rows
+ * - **Sets & playlists**: one of your sets or playlists, then its rows
  *   (a playlist's rows matched to your library by title and artist, as the
  *   stars match them);
  * - **Mixes well with** (the incoming deck): the outgoing track's matches in
@@ -356,7 +356,7 @@ export function TrackPicker({
       ) : null}
       {source === 'lists' ? (
         <select
-          aria-label={`A mix set or playlist for the ${label.toLowerCase()}`}
+          aria-label={`A set or playlist for the ${label.toLowerCase()}`}
           value={list}
           onChange={(e) => setList(e.target.value)}
         >

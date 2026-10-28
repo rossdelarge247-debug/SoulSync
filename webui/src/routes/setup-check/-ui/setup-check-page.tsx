@@ -18,7 +18,7 @@ import {
   groupChecks,
   plural,
 } from '../-setup-check.helpers';
-import { CheckGroups } from './check-groups';
+import { BrowserInfo, CheckGroups } from './check-groups';
 import { FirstRunSteps } from './first-run-steps';
 import { ClockIcon, ErrorIcon, OkIcon, RefreshIcon, WarningIcon } from './icons';
 import styles from './setup-check-page.module.css';
@@ -334,6 +334,7 @@ function AdminSetupCheck() {
         <div className={styles.results} aria-busy={running}>
           <SummaryTiles report={report} partial={partial} now={now} />
           <CheckGroups groups={groups} onRerun={rerun} rerunning={running} />
+          <BrowserInfo />
         </div>
       ) : !bothFailed ? (
         <LoadingSkeleton />

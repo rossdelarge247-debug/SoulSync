@@ -17,6 +17,7 @@ import type { ViewRow } from '@/features/sets/sets.api';
 
 import { Button } from '@/components/form';
 import { LoadingState, Notice } from '@/components/primitives';
+import { BetweenTracksSwitch } from '@/features/automix/between-tracks';
 import { AnalysisLine, SweepLine, useLastSweep } from '@/features/dj/analysis-line';
 import { inLineCount, isReady, pending } from '@/features/dj/analysis.format';
 import { addTrackToPlaylist, playTrackNext } from '@/features/dj/dj-actions';
@@ -417,7 +418,7 @@ function MatchRowView({
   const [added, setAdded] = useAddedFor();
   const press = useRef<number | null>(null);
   const dj = match.dj;
-  const setName = model.workingSet?.name ?? 'a new mix set';
+  const setName = model.workingSet?.name ?? 'a new set';
   const add = async () => {
     const n = await model.addTrack({ id: match.id, title: match.title });
     if (n !== null) setAdded(n);
@@ -537,7 +538,7 @@ export function MatchesBody({ model, place }: { model: MixModel; place: RowPlace
       return (
         <StateCard title="Mix works on your own tracks">
           {seed.title || 'This track'} isn&apos;t in your library, so there&apos;s nothing to match.
-          Matches for it come once it&apos;s downloaded.
+          Mixes well with fills in once it&apos;s downloaded.
         </StateCard>
       );
     }
@@ -590,8 +591,8 @@ export function MatchesBody({ model, place }: { model: MixModel; place: RowPlace
           ) : null
         }
       >
-        BPM, key and energy are worked out in the background{ahead}. Matches show once it&apos;s
-        done.
+        BPM, key and energy are worked out in the background{ahead}. Mixes well with fills in once
+        it&apos;s ready to mix.
       </StateCard>
     );
   }
@@ -715,7 +716,7 @@ function WorkingPicker({ model, large = false }: { model: MixModel; large?: bool
       window.dispatchEvent(new CustomEvent(MIX_SET_CHANGED, { detail: {} }));
       window.showToast?.(`Started ${name} with ${model.subject.title} · #1`, 'success');
     } catch (err) {
-      window.showToast?.(err instanceof Error ? err.message : "The mix set wasn't made.", 'error');
+      window.showToast?.(err instanceof Error ? err.message : "The set wasn't made.", 'error');
     }
   };
   return (
@@ -723,11 +724,9 @@ function WorkingPicker({ model, large = false }: { model: MixModel; large?: bool
       <Menu.Trigger
         className={styles.pickButton}
         data-size={large ? 'lg' : undefined}
-        aria-label={
-          ws ? `Working on ${ws.name}. Choose another mix set` : 'Choose a mix set to work on'
-        }
+        aria-label={ws ? `Working set: ${ws.name}. Choose another set` : 'Choose a working set'}
       >
-        <span className={styles.pickName}>{ws ? ws.name : 'Choose a mix set'}</span>
+        <span className={styles.pickName}>{ws ? ws.name : 'Choose a set'}</span>
         <span className={styles.pickMeta}>
           {meta ? `${meta} ` : ''}
           <span aria-hidden="true">▾</span>
@@ -735,7 +734,7 @@ function WorkingPicker({ model, large = false }: { model: MixModel; large?: bool
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner className={styles.menu} align="end" sideOffset={6}>
-          <Menu.Popup aria-label="Your mix sets">
+          <Menu.Popup aria-label="Your sets">
             <Menu.RadioGroup
               value={ws?.id ?? 0}
               onValueChange={(v) => void choose(Number(v) || null)}
@@ -747,14 +746,14 @@ function WorkingPicker({ model, large = false }: { model: MixModel; large?: bool
                 </Menu.RadioItem>
               ))}
             </Menu.RadioGroup>
-            {sets.isPending ? <p className={styles.foot}>Loading your mix sets…</p> : null}
+            {sets.isPending ? <p className={styles.foot}>Loading your sets…</p> : null}
             <Menu.Separator className={styles.menuSeparator} />
             <Menu.Item
               className={styles.menuItem}
               onClick={() => void start()}
               disabled={!model.subject}
             >
-              New mix set with {model.subject?.title || 'this track'}
+              New set with {model.subject?.title || 'this track'}
             </Menu.Item>
             {ws ? (
               <Menu.Item className={styles.menuItem} onClick={() => void choose(null)}>
@@ -871,7 +870,7 @@ export function WorkingColumn({
     <>
       {mode === 'tray' ? (
         <div className={styles.workingRow}>
-          <span className={styles.headMeta}>Working on</span>
+          <span className={styles.headMeta}>Working set</span>
           <WorkingPicker model={model} />
         </div>
       ) : (
@@ -884,7 +883,7 @@ export function WorkingColumn({
         ) : null
       ) : model.workingLoading ? null : (
         <StateCard
-          title="Start a mix set to collect tracks"
+          title="Start a set to collect tracks"
           action={
             <button
               type="button"
@@ -892,12 +891,12 @@ export function WorkingColumn({
               disabled={model.busy || !model.subject}
               onClick={() => void model.addPlaying()}
             >
-              New mix set
+              New set
             </button>
           }
         >
-          Matches still show. A, or Add to set, makes &ldquo;{workingSetName()}&rdquo; and adds the
-          track.
+          Mixes well with still shows. A, or Add to set, makes &ldquo;{workingSetName()}&rdquo; and
+          adds the track.
         </StateCard>
       )}
       {mode === 'tray' ? (
@@ -905,13 +904,17 @@ export function WorkingColumn({
           <button
             type="button"
             className={styles.primary}
-            title={model.workingSet ? `Add to ${model.workingSet.name} (A)` : 'Start a mix set (A)'}
+            title={model.workingSet ? `Add to ${model.workingSet.name} (A)` : 'Start a set (A)'}
             disabled={model.busy || model.primaryDisabled || !model.subject}
             onClick={() => void model.addPlaying()}
             data-mix-primary=""
           >
             {model.primaryLabel}
           </button>
+          {/* Brief C's item 4 (33e): Between tracks reached from the Mix tab too */}
+          <div className={styles.betweenRow}>
+            <BetweenTracksSwitch showLabel />
+          </div>
           <p className={styles.keys}>
             Keys: S star · A add · N play the top match next · M back to Now playing.
           </p>
@@ -963,7 +966,7 @@ export function PreviewTray({ title }: { title: string }) {
 export function PreviewState() {
   return (
     <StateCard title="Mix works on your own tracks">
-      This is a stream preview. Matches for it come once it&apos;s downloaded.
+      This is a stream preview. Mixes well with fills in once it&apos;s downloaded.
     </StateCard>
   );
 }
@@ -1017,7 +1020,7 @@ export function MixDrawer({ model, onClose }: { model: MixModel; onClose: () => 
           ? `Playing a set, Add puts a track straight after the playing one (#${model.playing.number + 1}), and Play next leaves the set for one track, then returns to it.`
           : model.workingSet
             ? `Add puts a track at the end of ${model.workingSet.name}.`
-            : 'Add starts a mix set with the track.'}
+            : 'Add starts a set with the track.'}
       </p>
     </div>
   );

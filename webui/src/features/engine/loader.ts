@@ -22,6 +22,10 @@ export interface Plan extends PlanLike {
   styles?: { style: string; label: string; available: boolean; why: string | null }[];
   waiting_for?: string;
   reason?: string;
+  /** 303: a long blend that didn't fit became a short one ("the outro is short") */
+  shortened?: string | null;
+  /** 304: an unsure "one" kept its style */
+  unsure_bars?: boolean;
 }
 
 /** The server's window cap (core/dj/window.py MAX_SECONDS). */
