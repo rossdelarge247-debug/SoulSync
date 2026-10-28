@@ -37,7 +37,7 @@ import {
   type WorkingSet,
   workingSetQueryOptions,
 } from './mix.api';
-import { addLabel, addedLabel, workingSetName } from './mix.format';
+import { addedLabel, workingSetName } from './mix.format';
 
 export type TrackSubject = Extract<MixSubject, { kind: 'track' }>;
 

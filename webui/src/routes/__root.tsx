@@ -5,6 +5,7 @@ import type { AppRouterContext } from '@/app/router';
 import { AutomixHost } from '@/features/automix/automix-host';
 import { AnalysisCountHost } from '@/features/dj/analysis-line';
 import { MixTabHost } from '@/features/mix/mix-host';
+import { WorkingSetNav } from '@/features/sets/set-actions';
 import { waitForShellContext } from '@/platform/shell/bridge';
 import { ShellLocationReporter } from '@/platform/shell/route-controllers';
 import { shellStatusQueryOptions } from '@/platform/shell/status';
@@ -37,6 +38,8 @@ export const Route = createRootRouteWithContext<AppRouterContext>()({
       {/* the player's Mix tab (29a–29c): the tray's second mode, the
           Visuals drawer and the phone's Mix · Set, placed into the shell */}
       <MixTabHost />
+      {/* 33c: the sidebar's Sets row says the working set's name */}
+      <WorkingSetNav />
       {/* auto-mix (26a–26h): Up next's chips, Mix now, the handover and
           Player settings → Between tracks, placed into the shell */}
       <AutomixHost />

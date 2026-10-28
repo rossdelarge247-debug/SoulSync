@@ -219,3 +219,21 @@ export function readClock(): { at: number; length: number } | null {
     return null;
   }
 }
+
+/** The set the playing track was queued from (294), kept current: a set's page marks its row. */
+export function useQueueFrom(): QueueFrom | null {
+  const [from, setFrom] = useState<QueueFrom | null>(() => readQueue().from);
+  useEffect(() => {
+    const update = () =>
+      setFrom((prev) => {
+        const next = readQueue().from;
+        return prev?.id === next?.id && prev?.row === next?.row && prev?.asMix === next?.asMix
+          ? prev
+          : next;
+      });
+    update();
+    window.addEventListener('ss:player', update);
+    return () => window.removeEventListener('ss:player', update);
+  }, []);
+  return from;
+}

@@ -171,6 +171,8 @@ let mixesdbBusy = false;
 let playlistState: string | null = null;
 /** the set's revision on the stand-in server (compare and set, like the real one) */
 let serverRevision = 3;
+/** the profile's working set (`/api/sets/working`) */
+let workingSet: { id: number; name: string } | null = null;
 /** hold the next PUT until released (two quick edits from one window) */
 let holdNextPut: { release?: () => void } | null = null;
 
@@ -185,6 +187,7 @@ beforeEach(() => {
   mixesdbBusy = false;
   playlistState = null;
   serverRevision = 3;
+  workingSet = null;
   holdNextPut = null;
   GONE = new Set();
   WORKING = new Set();
@@ -203,7 +206,19 @@ beforeEach(() => {
       sent.push({ path, method, body });
       let answer: unknown = { success: true };
       let status = 200;
-      if (path === '/api/sets' && method === 'GET')
+      if (path === '/api/sets/working' && method === 'PUT') {
+        const id = (body as { set_id: number | null }).set_id;
+        workingSet = id ? { id, name: 'Sunday Set' } : null;
+        answer = {
+          success: true,
+          working: workingSet ? { ...workingSet, kind: 'hand', revision: 3 } : null,
+        };
+      } else if (path === '/api/sets/working')
+        answer = {
+          success: true,
+          working: workingSet ? { ...workingSet, kind: 'hand', revision: 3 } : null,
+        };
+      else if (path === '/api/sets' && method === 'GET')
         answer = {
           success: true,
           sets: [
@@ -444,7 +459,7 @@ describe('Library → Sets', () => {
     await screen.findByDisplayValue('Sunday Set');
     await waitFor(() =>
       expect(document.querySelector('[data-set-editor] p')!.textContent).toBe(
-        '3 tracks · 18 min · 118–120 BPM · 2 smooth steps',
+        '3 tracks · 18 min · 118–120 BPM · 2 smooth steps · Hide 1 not in your library',
       ),
     );
     const steps = document.querySelectorAll('[data-step="smooth"]');
@@ -892,5 +907,151 @@ describe("[review M2] 319: a chip saved to the draft from Up next survives the d
     fireEvent.change(name, { target: { value: 'Draft two' } });
     await waitFor(() => expect(readDraft(2)?.name).toBe('Draft two'));
     expect(readDraft(2)?.rows[0].transition).toEqual({ style: 'echo_out', bars: 4 });
+  });
+});
+
+describe("Brief C's set header (33c), Your sets (33e) and Brief D's rows (34b)", () => {
+  it('33c: Play is the primary, then Play as a mix, Export; the working-set toggle and its tag', async () => {
+    workingSet = { id: 7, name: 'Sunday Set' };
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const head = document.querySelector<HTMLElement>('[data-set-head]')!;
+    expect(head.tagName).toBe('DIV'); // UX-28: not a second banner
+    const buttons = within(head)
+      .getAllByRole('button')
+      .map((b) => b.textContent?.trim());
+    const at = buttons.indexOf('Play');
+    expect(buttons.slice(at, at + 3)).toEqual(['Play', 'Play as a mix', 'Export to Traktor…']);
+    expect(within(head).getByRole('button', { name: 'Play' })).toHaveAttribute(
+      'data-variant',
+      'primary',
+    );
+    const toggle = await within(head).findByRole('button', { name: 'My working set' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(within(head).getByText('Working set')).toHaveAttribute('data-set-tag', 'working');
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(calls('/api/sets/working', 'PUT').map((c) => c.body)).toEqual([{ set_id: null }]),
+    );
+    expect(
+      await within(head).findByRole('button', { name: 'Make this my working set' }),
+    ).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('262: the head\'s "…" is Open its playlist · Duplicate · Make this my working set · Remove this set…', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    fireEvent.click(screen.getByRole('button', { name: 'More for Sunday Set' }));
+    await screen.findByRole('menuitem', { name: 'Duplicate' });
+    expect(
+      screen
+        .getAllByRole('menuitem')
+        .map((m) => m.textContent)
+        .filter((t) => !t?.startsWith('Analyse these')),
+    ).toEqual(['Open its playlist', 'Duplicate', 'Make this my working set', 'Remove this set…']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    await waitFor(() => expect(calls('/api/sets', 'POST')).toHaveLength(1));
+    expect((calls('/api/sets', 'POST')[0].body as { name: string }).name).toBe('Sunday Set (copy)');
+  });
+
+  it('267: Remove this set… is a confirm on the dialog frame: Keep keeps it, Remove removes it', async () => {
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirm);
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    fireEvent.click(screen.getByRole('button', { name: 'More for Sunday Set' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove this set…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Remove Sunday Set?' });
+    expect(within(dialog).getByText('Its playlist stays.')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Keep' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(calls('/api/sets/7', 'DELETE')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'More for Sunday Set' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove this set…' }));
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove' }),
+    );
+    await waitFor(() => expect(calls('/api/sets/7', 'DELETE')).toHaveLength(1));
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('33c, 34b: the playing row is a green ▶ with "Playing · 3 of 3"; a row\'s Play plays the set from it', async () => {
+    const playTrackList = vi.fn(async () => ({ status: 'played' }));
+    const w = window as unknown as Record<string, unknown>;
+    w.playTrackList = playTrackList;
+    // their files are here, so the set has a queue to play
+    for (const id of ['1', '2', '3']) LIBRARY[id].file_path = `/m/${id}.flac` as never;
+    w.SoulSyncPlayer = {
+      state: () => ({
+        track: { id: '3', title: 'Undertow' },
+        queue: [
+          { id: '1', from_set: { id: 7, name: 'Sunday Set', row: 0 } },
+          { id: '3', from_set: { id: 7, name: 'Sunday Set', row: 3 } },
+        ],
+        index: 1,
+      }),
+      audio: () => null,
+      renderQueue: () => {},
+    };
+    try {
+      renderPage('/library?view=sets&set=7');
+      await screen.findByDisplayValue('Sunday Set');
+      expect(await screen.findByText('Playing · 3 of 3')).toHaveAttribute(
+        'data-set-tag',
+        'playing',
+      );
+      const undertow = document.querySelector<HTMLElement>('[data-set-row="3"]')!;
+      expect(undertow).toHaveAttribute('data-playing', 'true');
+      expect(within(undertow).getByRole('img', { name: 'Playing, #3' })).toBeTruthy();
+      const foghorn = document.querySelector<HTMLElement>('[data-set-row="1"]')!;
+      fireEvent.click(within(foghorn).getByRole('button', { name: 'Play Foghorn Study' }));
+      await waitFor(() => expect(playTrackList).toHaveBeenCalledTimes(1));
+      const [queue, name, options] = playTrackList.mock.calls[0] as unknown as [
+        { id: string; from_set?: { row: number }; mix_set?: unknown }[],
+        string,
+        { startIndex: number },
+      ];
+      expect(name).toBe('Sunday Set');
+      expect(queue.map((t) => t.id)).toEqual(['1', '2', '3']);
+      expect(queue.every((t) => t.from_set && !t.mix_set)).toBe(true);
+      expect(options.startIndex).toBe(1);
+    } finally {
+      delete w.playTrackList;
+      delete w.SoulSyncPlayer;
+      for (const id of ['1', '2', '3']) LIBRARY[id].file_path = null;
+    }
+  });
+
+  it('263: lines not in your library fold away on the head and come back', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    expect(await screen.findByText('Gravity Well')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide 1 not in your library' }));
+    expect(screen.queryByText('Gravity Well')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show 1 not in your library' }));
+    expect(screen.getByText('Gravity Well')).toBeTruthy();
+  });
+
+  it('33e: Your sets tags the working set and has its toggle; the others make it so', async () => {
+    renderPage();
+    const row = (await screen.findByText('Sunday Set')).closest('li')!;
+    const make = await within(row).findByRole('button', { name: 'Make this my working set' });
+    fireEvent.click(make);
+    await waitFor(() =>
+      expect(calls('/api/sets/working', 'PUT').map((c) => c.body)).toEqual([{ set_id: 7 }]),
+    );
+    expect(await within(row).findByRole('button', { name: 'Working set' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(within(row).getByText('Working set', { selector: '[data-set-tag]' })).toBeTruthy();
+  });
+
+  it("266: Suggest a set's reason is one meta line under the tab pair", async () => {
+    renderPage();
+    const reason = await screen.findByText(/Set suggestions come with the next step of Sets/);
+    const tabs = screen.getByRole('tablist', { name: 'Ways to start a set' });
+    expect(reason.parentElement).toBe(tabs.parentElement);
+    expect(tabs.nextElementSibling).toBe(reason);
   });
 });

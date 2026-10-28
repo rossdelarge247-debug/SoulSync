@@ -263,6 +263,20 @@
     color: inherit;
     pointer-events: none;
 }
+/* 33c: a row's quiet note at its right end (the Sets row's working set) */
+#app-sidebar .ss-item-note {
+    margin-left: auto;
+    padding-left: 8px;
+    min-width: 0;
+    max-width: 50%;
+    overflow: hidden;
+    color: var(--ss-text-meta);
+    font-size: 14px;
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#app-sidebar .ss-item-note[hidden] { display: none; }
 #app-sidebar .ss-label {
     flex: 1 1 auto;
     min-width: 0;

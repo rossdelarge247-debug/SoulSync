@@ -19,7 +19,7 @@ import { Button, TextInput } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 import { AutoMixOffLine } from '@/features/automix/between-tracks';
 import { SetStepChip } from '@/features/automix/set-chip';
-import { playSetAsMix } from '@/features/automix/set-play';
+import { playSet, playSetAsMix } from '@/features/automix/set-play';
 import {
   AnalysisLine,
   useAnalysis,
@@ -37,8 +37,10 @@ import { addTrackToPlaylist, playTrackNext } from '@/features/dj/dj-actions';
 import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
 import { KeyChip } from '@/features/dj/key-chip';
 import { usePlayingTrack } from '@/features/dj/playing-track';
+import { PlayGlyph, RowPlay, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
+import { useQueueFrom } from '@/features/mix/mix-subject';
 import { StarButton } from '@/features/stars/star-button';
 import { useProfile } from '@/platform/shell/route-controllers';
 import { appURL } from '@/platform/url-base';
@@ -50,6 +52,13 @@ import type { SetRow, SetView, Step, Transition, ViewRow } from './sets.api';
 import { clearDraft, readDraft, writeDraft } from './draft-store';
 import { EnergyGraph } from './energy-graph';
 import { NoteLine } from './mix-set-parts';
+import {
+  RemoveSetDialog,
+  WorkingSetToggle,
+  chooseWorking,
+  duplicateSet,
+  useIsWorking,
+} from './set-actions';
 import {
   MIX_SET_CHANGED,
   SETS_QUERY_KEY,
@@ -463,8 +472,14 @@ function Row({
   drag,
   step,
   progress = null,
+  playing = false,
+  onPlay = null,
 }: {
   step: Step | null;
+  /** the row the player is on (the queue came from this set, 294): a green ▶ for its number (33c) */
+  playing?: boolean;
+  /** Play (34b): the set from this row */
+  onPlay?: (() => void) | null;
   /** where its track is in the analysis (analyse on demand) */
   progress?: AnalysisEntry | null;
   row: ViewRow;
@@ -591,6 +606,9 @@ function Row({
       data-swapping={swapping ? 'true' : undefined}
       data-drag-over={drag.over ? 'true' : undefined}
       data-locked={held ? 'true' : undefined}
+      data-playing={playing ? 'true' : undefined}
+      data-row-play-host=""
+      {...rowPlayHandlers(phone ? null : onPlay)}
       draggable={drag.armed}
       onDragStart={drag.onDragStart}
       onDragOver={drag.onDragOver}
@@ -608,7 +626,15 @@ function Row({
             <Grip />
           </span>
         )}
-        <span className={styles.num}>{number ?? ''}</span>
+        <span className={styles.num}>
+          {playing ? (
+            <span className={styles.numPlaying} role="img" aria-label={`Playing, #${number ?? ''}`}>
+              <PlayGlyph size={16} />
+            </span>
+          ) : (
+            (number ?? '')
+          )}
+        </span>
         <span className={styles.rowText}>
           <span className={styles.rowTitle}>
             {title}
@@ -654,6 +680,13 @@ function Row({
             </span>
             <span className={styles.energy}>{dj?.energy ? `E${dj.energy}` : '—'}</span>
             <span className={styles.len}>{clock(shown.duration_ms)}</span>
+            {/* 34b: Play (the set from here), Play next (this one track, outside the set) */}
+            <RowPlay
+              title={title}
+              hidden={!track || !onPlay}
+              onPlay={() => onPlay?.()}
+              onPlayNext={track ? () => playTrackNext(track) : null}
+            />
           </>
         )}
         {shown ? (
@@ -750,6 +783,24 @@ function Row({
   );
 }
 
+/** Play as a mix's glyph (33c): two rings, as the Mix tab's mark. */
+function MixGlyph() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <circle cx="9" cy="12" r="5" />
+      <circle cx="15" cy="12" r="5" />
+    </svg>
+  );
+}
+
 /** Find it again (28e): the library rescans (an admin's Update the library). */
 async function findAgain(): Promise<void> {
   try {
@@ -823,6 +874,10 @@ export function SetEditor({
   const [sheet, setSheet] = useState<number | null>(null);
   const [moving, setMoving] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [hideGaps, setHideGaps] = useState(false);
+  const queueFrom = useQueueFrom();
+  const working = useIsWorking(source.kind === 'saved' ? source.id : null);
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -1186,6 +1241,27 @@ export function SetEditor({
     },
   });
 
+  // the set as Play and Play as a mix take it (a draft is id 0)
+  const setRef =
+    source.kind === 'saved'
+      ? { id: source.id, name: name.trim() || initial.name }
+      : { id: 0, name: name.trim() || initial.name, draft: true };
+  // 33c: the art, the playing row (the queue says which set it came from, 294)
+  const headArt = viewRows.find((r) => r.track?.image_url)?.track?.image_url ?? null;
+  const numberOfRow: (number | null)[] = [];
+  let numberedCount = 0;
+  for (const r of viewRows) numberOfRow.push(r.track || r.unreachable ? ++numberedCount : null);
+  const playingRow =
+    source.kind === 'saved' && queueFrom && queueFrom.id === source.id ? queueFrom.row : -1;
+  const playingNumber =
+    playingRow >= 0 && viewRows[playingRow]?.track ? (numberOfRow[playingRow] ?? null) : null;
+  // 353: "all ready to mix" sits in the meta line once every track is
+  const knownIds = trackIds.slice(0, 500).map(String);
+  const allReady =
+    knownIds.length > 0 && knownIds.every((id) => progressOf[id] && isReady(progressOf[id]));
+  // 263: lines of a saved famous mix that aren't in your library
+  const gapCount = viewRows.filter((r) => !r.track && !r.unreachable).length;
+
   let number = 0;
   return (
     <div className={styles.editor} data-set-editor={source.kind}>
@@ -1195,139 +1271,247 @@ export function SetEditor({
         </button>
         <span aria-hidden="true">/</span>
         <span className={styles.crumbHere}>{name || 'New set'}</span>
-        {source.kind === 'draft' ? (
-          <StatusTag tone="neutral" className={styles.draftTag}>
-            Draft · not saved
-          </StatusTag>
-        ) : saving === 'saving' ? (
-          <span className={styles.savedNote}>Saving…</span>
-        ) : saving === 'saved' ? (
-          <span className={styles.savedNote}>Saved</span>
-        ) : null}
       </nav>
 
-      <header className={styles.editorHead}>
-        <label className={styles.srOnly} htmlFor={nameId}>
-          The set’s name
-        </label>
-        <input
-          id={nameId}
-          className={styles.nameInput}
-          value={name}
-          maxLength={200}
-          onChange={(event) => setName(event.target.value)}
-          onBlur={() => !name.trim() && setName(initial.name)}
-        />
-        <p className={styles.metaLine} aria-live="polite">
-          {data
-            ? [
-                phone ? metaLineShort(data.summary) : metaLine(data.summary),
-                // 28e: "1 file missing"
-                missingWords(viewRows.filter((r) => !r.track && r.unreachable).length),
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            : ' '}
-          {fromSource ? (
-            <>
-              {' · '}
-              {fromSource}
-              {safeSourceLink(initial.source_url) ? (
-                <>
-                  {' · '}
-                  <a
-                    href={safeSourceLink(initial.source_url)!}
-                    target="_blank"
-                    rel="noopener noreferrer nofollow"
-                  >
-                    open it there
-                  </a>
-                </>
-              ) : null}
-            </>
-          ) : null}
-        </p>
-        <div className={styles.editorActions}>
-          {/* 319: Play as a mix comes before Export (33c), on a draft too; its
-              chips play whatever Between tracks says (28e) */}
-          <Button
-            size="lg"
-            variant="secondary"
-            disabled={!trackIds.length}
-            disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
-            onClick={() =>
-              void playSetAsMix(
-                source.kind === 'saved'
-                  ? { id: source.id, name: name.trim() || initial.name }
-                  : { id: 0, name: name.trim() || initial.name, draft: true },
-                viewRows,
-              )
-            }
-          >
-            Play as a mix
-          </Button>
-          <Button
-            size="lg"
-            variant="secondary"
-            disabled={!trackIds.length}
-            disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
-            onClick={() => setExporting(true)}
-          >
-            Export to Traktor…
-          </Button>
-          {source.kind === 'draft' ? (
+      {/* 33c: the art, the name with its tags, the meta line (the analysis's
+          "all ready to mix" in it, 353), then Play · Play as a mix · Export to
+          Traktor… and, at the right, the working-set toggle and the "…". Not a
+          <header>: the page's head isn't a second banner (UX-28). */}
+      <div className={styles.editorHead} data-set-head="">
+        <span className={styles.headArt} aria-hidden="true">
+          {headArt ? <img src={headArt} alt="" /> : null}
+        </span>
+        <div className={styles.headBody}>
+          <div className={styles.titleRow}>
+            <label className={styles.srOnly} htmlFor={nameId}>
+              The set’s name
+            </label>
+            <input
+              id={nameId}
+              className={styles.nameInput}
+              value={name}
+              maxLength={200}
+              size={Math.max(8, Math.min(40, name.length + 1))}
+              onChange={(event) => setName(event.target.value)}
+              onBlur={() => !name.trim() && setName(initial.name)}
+            />
+            {working ? (
+              <span className={styles.headTag} data-tone="accent" data-set-tag="working">
+                Working set
+              </span>
+            ) : null}
+            {playingNumber !== null ? (
+              <span className={styles.headTag} data-tone="playing" data-set-tag="playing">
+                Playing · {playingNumber} of {numberedCount}
+              </span>
+            ) : null}
+            {source.kind === 'draft' ? (
+              <StatusTag tone="neutral" className={styles.draftTag}>
+                Draft · not saved
+              </StatusTag>
+            ) : null}
+          </div>
+          <p className={styles.metaLine} aria-live="polite">
+            {data
+              ? [
+                  phone ? metaLineShort(data.summary) : metaLine(data.summary),
+                  // 28e: "1 file missing"
+                  missingWords(viewRows.filter((r) => !r.track && r.unreachable).length),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+              : ' '}
+            {allReady ? (
+              <>
+                {' · '}
+                <span className={styles.readyInline} data-set-ready="">
+                  <i aria-hidden="true" />
+                  all ready to mix
+                </span>
+              </>
+            ) : null}
+            {fromSource ? (
+              <>
+                {' · '}
+                {fromSource}
+                {safeSourceLink(initial.source_url) ? (
+                  <>
+                    {' · '}
+                    <a
+                      href={safeSourceLink(initial.source_url)!}
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                    >
+                      open it there
+                    </a>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+            {source.kind === 'saved' && saving !== 'idle' && saving !== 'error' ? (
+              <>
+                {' · '}
+                <span className={styles.savedNote}>
+                  {saving === 'saving' ? 'Saving…' : 'Saved'}
+                </span>
+              </>
+            ) : null}
+            {gapCount ? (
+              <>
+                {' · '}
+                {/* 263: a saved famous mix's lines not in your library, folded on ask */}
+                <button
+                  type="button"
+                  className={styles.metaButton}
+                  aria-pressed={hideGaps}
+                  onClick={() => setHideGaps((h) => !h)}
+                >
+                  {hideGaps
+                    ? `Show ${gapCount} not in your library`
+                    : `Hide ${gapCount} not in your library`}
+                </button>
+              </>
+            ) : null}
+          </p>
+          {/* 31b, 353: while anything isn't ready, the line (its bar and words)
+              sits here, under the meta line; ready, it's the meta line's dot */}
+          {allReady ? null : (
+            <SetAnalysisLine
+              ids={trackIds.slice(0, 500).map(String)}
+              progressOf={progressOf}
+              titleOf={titleOf}
+              setId={setId}
+            />
+          )}
+          <div className={styles.editorActions}>
+            {/* 33c: Play is the primary (the set from its first row, as Up next);
+                319: Play as a mix comes before Export, on a draft too */}
             <Button
               size="lg"
-              variant="primary"
-              disabled={!rows.length || saving === 'saving'}
-              disabledReason={!rows.length ? 'Add a track first' : undefined}
-              onClick={() => void save()}
+              variant={source.kind === 'draft' ? 'secondary' : 'primary'}
+              disabled={!trackIds.length}
+              disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
+              onClick={() => void playSet(setRef, viewRows)}
             >
-              Save as a set
+              <span className={styles.playGlyph} aria-hidden="true">
+                <PlayGlyph size={16} />
+              </span>
+              Play
             </Button>
-          ) : null}
-          <MoreMenu
-            className={styles.headMore}
-            label={`More for ${name}`}
-            entries={
-              source.kind === 'draft'
-                ? [
-                    ...analyseEntry,
-                    {
-                      key: 'discard',
-                      label: 'Discard this draft',
-                      onSelect: discard,
-                      tone: 'danger',
-                    },
-                  ]
-                : [
-                    ...analyseEntry,
-                    ...(playlistId
-                      ? [
-                          {
-                            key: 'playlist',
-                            label: 'Open its playlist',
-                            onSelect: () => openPlaylist(playlistId!),
-                          },
-                        ]
-                      : []),
-                    {
-                      key: 'remove',
-                      label: 'Remove this set',
-                      onSelect: () => void remove_set(),
-                      tone: 'danger',
-                    },
-                  ]
-            }
-          />
+            <Button
+              size="lg"
+              variant="secondary"
+              disabled={!trackIds.length}
+              disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
+              onClick={() => void playSetAsMix(setRef, viewRows)}
+            >
+              <span className={styles.playGlyph} aria-hidden="true">
+                <MixGlyph />
+              </span>
+              Play as a mix
+            </Button>
+            <Button
+              size="lg"
+              variant="secondary"
+              disabled={!trackIds.length}
+              disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
+              onClick={() => setExporting(true)}
+            >
+              Export to Traktor…
+            </Button>
+            {source.kind === 'draft' ? (
+              <Button
+                size="lg"
+                variant="primary"
+                disabled={!rows.length || saving === 'saving'}
+                disabledReason={!rows.length ? 'Add a track first' : undefined}
+                onClick={() => void save()}
+              >
+                Save as a set
+              </Button>
+            ) : null}
+            <span className={styles.actionsSpacer} />
+            {source.kind === 'saved' ? (
+              <WorkingSetToggle setId={source.id} name={name.trim() || initial.name} />
+            ) : null}
+            <MoreMenu
+              className={styles.headMore}
+              label={`More for ${name}`}
+              entries={
+                source.kind === 'draft'
+                  ? [
+                      ...analyseEntry,
+                      {
+                        key: 'discard',
+                        label: 'Discard this draft',
+                        onSelect: discard,
+                        tone: 'danger',
+                      },
+                    ]
+                  : [
+                      ...analyseEntry,
+                      // 262: Open its playlist · Duplicate · Make this my working set · Remove this set…
+                      ...(playlistId
+                        ? [
+                            {
+                              key: 'playlist',
+                              label: 'Open its playlist',
+                              onSelect: () => openPlaylist(playlistId!),
+                            },
+                          ]
+                        : []),
+                      {
+                        key: 'duplicate',
+                        label: 'Duplicate',
+                        onSelect: () =>
+                          void duplicateSet({
+                            name: name.trim() || initial.name,
+                            kind: initial.kind,
+                            rows,
+                          }).then((id) => {
+                            if (id === null) return;
+                            void queryClient.invalidateQueries({
+                              queryKey: [...SETS_QUERY_KEY, 'list'],
+                            });
+                            onSaved(id);
+                          }),
+                      },
+                      {
+                        key: 'working',
+                        label: working ? 'No longer my working set' : 'Make this my working set',
+                        onSelect: () =>
+                          void chooseWorking(
+                            working ? null : source.id,
+                            name.trim() || initial.name,
+                          ).then(() =>
+                            queryClient.invalidateQueries({
+                              queryKey: [...SETS_QUERY_KEY, 'working'],
+                            }),
+                          ),
+                      },
+                      {
+                        key: 'remove',
+                        label: 'Remove this set…',
+                        onSelect: () => setRemoving(true),
+                        tone: 'danger',
+                      },
+                    ]
+              }
+            />
+          </div>
         </div>
-        <SetAnalysisLine
-          ids={trackIds.slice(0, 500).map(String)}
-          progressOf={progressOf}
-          titleOf={titleOf}
-          setId={setId}
+      </div>
+      {source.kind === 'saved' ? (
+        <RemoveSetDialog
+          name={name.trim() || initial.name}
+          open={removing}
+          onKeep={() => setRemoving(false)}
+          onRemove={() => {
+            setRemoving(false);
+            void remove_set();
+          }}
         />
-      </header>
+      ) : null}
 
       {/* 31b: what isn't ready to mix, by kind, and what Play as a mix does meanwhile */}
       <SetNotReadyNotice ids={trackIds.slice(0, 500).map(String)} progressOf={progressOf} />
@@ -1453,6 +1637,7 @@ export function SetEditor({
           {viewRows.map((row, index) => {
             // 28e: a track whose file is missing keeps its number
             const n = row.track || row.unreachable ? ++number : null;
+            if (hideGaps && !row.track && !row.unreachable) return null;
             const step = steps[index];
             const nextRow = viewRows.slice(index + 1).find((r) => r.track)?.track ?? null;
             const next = nextRow?.title ?? '';
@@ -1480,6 +1665,8 @@ export function SetEditor({
                 setName={name.trim() || initial.name}
                 drag={dragFor(index)}
                 progress={row.track ? (progressOf[String(row.track.id)] ?? null) : null}
+                playing={index === playingRow}
+                onPlay={row.track ? () => void playSet(setRef, viewRows, index) : null}
               />
             );
           })}

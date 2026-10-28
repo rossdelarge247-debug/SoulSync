@@ -23,7 +23,6 @@ import { inLineCount, isReady, pending } from '@/features/dj/analysis.format';
 import { addTrackToPlaylist, playDjTrackNow, playTrackNext } from '@/features/dj/dj-actions';
 import { openDjSettings } from '@/features/dj/dj-settings-link';
 import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
-import { EnergyMeter } from '@/features/dj/energy-meter';
 import { KeyChip } from '@/features/dj/key-chip';
 import { RowPlay, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
@@ -45,17 +44,14 @@ import {
   type SheetTab,
   type TrayMode,
 } from './mix-store';
-import { readClock } from './mix-subject';
 import { chooseWorkingSet, startWorkingSet } from './mix.api';
 import {
-  clockWords,
   energyY,
   joinLead,
   matchesFoot,
   nextTransitionWords,
   setMetaWords,
   stepWord,
-  stripLine,
   trackOfWords,
   vibeOffWords,
   workingSetName,
@@ -203,25 +199,6 @@ export function ModesSwitch({
 }
 
 /* ── this track (29a's left column) ───────────────────────────────────── */
-
-function useClock(active: boolean): string {
-  const [text, setText] = useState('');
-  useEffect(() => {
-    if (!active) return;
-    const tick = () => {
-      const c = readClock();
-      setText(c ? `${clockWords(c.at)} / ${clockWords(c.length)}` : '');
-    };
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    window.addEventListener('ss:player', tick);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('ss:player', tick);
-    };
-  }, [active]);
-  return text;
-}
 
 function KeyAndBpm({ model, long }: { model: MixModel; long: boolean }) {
   const dj = model.dj;
