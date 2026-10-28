@@ -166,9 +166,19 @@ export async function fetchActiveProcesses(): Promise<{
   return readJson(response);
 }
 
-/** GET /api/spotify/playlists (loadSpotifyPlaylists, sync-spotify.js 1598). */
+/** GET /api/spotify/playlists (loadSpotifyPlaylists, sync-spotify.js 1598).
+ *  While Spotify is paused the server answers 429 with the wait in words
+ *  ("Spotify asked us to wait until 21:40…"): that's the error shown, never
+ *  "No Spotify playlists found". */
 export async function fetchSpotifyPlaylists(): Promise<unknown[]> {
-  const data = await readJson<unknown>(await fetch('/api/spotify/playlists'));
+  const response = await fetch('/api/spotify/playlists');
+  if (!response.ok) {
+    const error = await readJson<{ error?: string }>(response).catch(
+      () => ({}) as { error?: string },
+    );
+    throw new Error(error.error || 'Failed to fetch Spotify playlists');
+  }
+  const data = await readJson<unknown>(response);
   return Array.isArray(data) ? data : ((data as { playlists?: unknown[] })?.playlists ?? []);
 }
 
@@ -207,8 +217,44 @@ export interface AccountPlaylistTracks {
  */
 export async function fetchSpotifyPlaylistTracks(
   playlistId: string,
+  pollMs = 1500,
 ): Promise<AccountPlaylistTracks> {
-  return readJson(await fetch(`/api/spotify/playlist/${playlistId}`));
+  // ?async=1: the load runs as a job on the server (a big playlist is
+  // minutes of Spotify requests) and this polls for it.
+  interface LoadAnswer {
+    pending?: boolean;
+    job_id?: string;
+    status?: string;
+    playlist?: AccountPlaylistTracks;
+    error?: string;
+  }
+  const read = async (response: Response): Promise<LoadAnswer> => {
+    try {
+      return await readJson<LoadAnswer>(response);
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+  };
+  const response = await fetch(`/api/spotify/playlist/${playlistId}?async=1`);
+  const initial = await read(response);
+  if (!response.ok && response.status !== 202) {
+    return { error: initial.error || 'Failed to fetch Spotify playlist' };
+  }
+  if (!initial.pending) return initial as AccountPlaylistTracks;
+  if (!initial.job_id) return { error: 'Spotify playlist load did not return a job id' };
+  const deadline = Date.now() + 30 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    const statusResponse = await fetch(`/api/spotify/playlist-load/${initial.job_id}`);
+    const status = await read(statusResponse);
+    if (!statusResponse.ok)
+      return { error: status.error || 'Failed to check Spotify playlist load' };
+    if (status.status === 'complete') {
+      return status.playlist ?? { error: 'Spotify playlist load returned nothing' };
+    }
+    if (status.status === 'error') return { error: status.error || 'Spotify playlist load failed' };
+  }
+  return { error: 'Spotify playlist load took too long' };
 }
 
 /**

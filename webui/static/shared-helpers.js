@@ -1643,9 +1643,40 @@ function mirrorPlaylistTracksForSource(source, sourcePlaylistId, fullPlaylist) {
     });
 }
 
+// A Spotify playlist's tracks load as a job on the server (a big playlist is
+// minutes of Spotify requests, too long to hold a web request): start it with
+// ?async=1 and poll /api/spotify/playlist-load/<job_id>. Resolves to the
+// playlist, or to {error} (a pause comes with the wait in words).
+async function fetchSpotifyPlaylistJson(playlistId) {
+    const response = await fetch(`/api/spotify/playlist/${playlistId}?async=1`);
+    let initial = {};
+    try { initial = await response.json(); } catch (e) { initial = {}; }
+    if (!response.ok && response.status !== 202) {
+        return { error: initial.error || 'Failed to fetch Spotify playlist' };
+    }
+    if (!initial.pending) return initial;
+    if (!initial.job_id) return { error: 'Spotify playlist load did not return a job id' };
+    const deadline = Date.now() + 30 * 60 * 1000;
+    while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const statusResponse = await fetch(`/api/spotify/playlist-load/${initial.job_id}`);
+        let status = {};
+        try { status = await statusResponse.json(); } catch (e) { status = {}; }
+        if (!statusResponse.ok) return { error: status.error || 'Failed to check Spotify playlist load' };
+        if (status.status === 'complete') return status.playlist || { error: 'Spotify playlist load returned nothing' };
+        if (status.status === 'error') return { error: status.error || 'Spotify playlist load failed' };
+    }
+    return { error: 'Spotify playlist load took too long' };
+}
+
 async function fetchAndCachePlaylistTracks(cacheKey, fetchUrl, mirrorSource, mirrorSourceId) {
-    const response = await fetch(fetchUrl);
-    const fullPlaylist = await response.json();
+    let fullPlaylist;
+    if (mirrorSource === 'spotify') {
+        fullPlaylist = await fetchSpotifyPlaylistJson(mirrorSourceId);
+    } else {
+        const response = await fetch(fetchUrl);
+        fullPlaylist = await response.json();
+    }
     if (fullPlaylist.error) {
         throw new Error(fullPlaylist.error);
     }

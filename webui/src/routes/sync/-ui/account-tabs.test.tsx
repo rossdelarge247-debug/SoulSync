@@ -562,7 +562,7 @@ describe('SpotifyTab', () => {
     await waitFor(() => expect(screen.getByText('Road Trip')).toBeInTheDocument());
     fireEvent.click(document.querySelector('#action-btn-p1') as Element);
     await waitFor(() => expect(document.querySelector('#playlist-details-modal')).not.toBeNull());
-    expect(calls.some((c) => c.url === '/api/spotify/playlist/p1')).toBe(true);
+    expect(calls.some((c) => c.url === '/api/spotify/playlist/p1?async=1')).toBe(true);
 
     fireEvent.click(screen.getByText('📥 Download Missing Tracks'));
     expect(openDownloadMissingModal).toHaveBeenCalledWith('p1');

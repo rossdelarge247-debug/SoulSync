@@ -46,7 +46,11 @@ interface SpotifyPlaylistRow {
 export async function fetchSpotifyAccount(): Promise<SpotifyAccount> {
   const response = await fetch('/api/spotify/playlists');
   if (response.status === 401) return { connected: false, playlists: [] };
-  if (!response.ok) throw new Error('Could not load your Spotify playlists');
+  if (!response.ok) {
+    // a pause comes with the wait in words ("Spotify asked us to wait until 21:40…")
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error || 'Could not load your Spotify playlists');
+  }
   const data = (await response.json()) as
     | SpotifyPlaylistRow[]
     | { playlists?: SpotifyPlaylistRow[] };
