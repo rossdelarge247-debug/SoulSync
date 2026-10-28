@@ -246,7 +246,7 @@ def test_asked_for_tracks_still_wait_for_the_library_drive(db):
     assert job.live()["waiting"] == "drive_away" and order == []
     snap = ondemand.progress(db, ["2"], 2, job=job, settings={"analyze": True})
     assert snap["tracks"]["2"] == {"state": "waiting", "position": 1, "asked_for": True, "reason": "drive_away",
-                                   "ready": False, "bpm_key": False}
+                                   "yours": True, "ready": False, "bpm_key": False}
     away["away"] = False
     job.join(5)
     assert order == ["2"]
@@ -368,7 +368,8 @@ def test_progress_says_done_queued_working_waiting_and_failed(db):
     assert tracks["1"] == {"state": "done", "ready": False, "bpm_key": True, "beat": "too_short"}
     assert tracks["2"] == {"state": "working", "step": "grid", "percent": progress.FULL["grid"], "mode": "full",
                            "ready": False, "bpm_key": False}
-    assert tracks["3"] == {"state": "queued", "position": 1, "asked_for": True, "ready": False, "bpm_key": False}
+    assert tracks["3"] == {"state": "queued", "position": 1, "asked_for": True, "yours": True, "ready": False,
+                           "bpm_key": False}
     # too long: how long it is, for "Skipped, 2 h 14 min is too long to analyse" (31a)
     assert tracks["5"] == {"state": "failed", "reason": "too_long", "ready": False, "bpm_key": False,
                            "duration": 240}

@@ -115,7 +115,7 @@ def _rows(database, ids: List[str]) -> Dict[str, Dict[str, Any]]:
                 f"COALESCE(NULLIF(t.track_artist, ''), ar.name) AS artist, d.status AS d_status, "
                 f"d.dj_analyzer_version AS d_version, d.source_sig AS d_sig, "
                 f"g.status AS g_status, g.grid_version AS g_version, g.source_sig AS g_sig, "
-                f"g.reason AS g_reason, g.meter AS g_meter "
+                f"g.reason AS g_reason, g.meter AS g_meter, g.beat_confidence AS g_conf "
                 f"FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id "
                 f"LEFT JOIN track_grid g ON g.track_id = t.id "
                 f"LEFT JOIN artists ar ON ar.id = t.artist_id "
@@ -162,11 +162,14 @@ def classify(row: Dict[str, Any], dj_version: int) -> Dict[str, Any]:
 
 def readiness(row: Dict[str, Any]) -> Dict[str, Any]:
     """Ready to mix (31a): a beat grid at this ``GRID_VERSION`` for this
-    file, in 4/4. ``{ready, bpm_key, beat}``: ``bpm_key`` when BPM and key
-    are known (stage 1's data, whatever the grid); ``beat`` why a track
-    whose grid was looked for can't be beat-matched (``no_beat``,
-    ``too_short``, ``not_4_4``), else None."""
-    from core.dj.grid import GRID_VERSION
+    file that the planner would beat-match (core/dj/grid.py
+    ``beatmatch_problem``, the planner's own rule: a steady enough beat, in
+    4/4). ``{ready, bpm_key, beat}``: ``bpm_key`` when BPM and key are known
+    (stage 1's data, whatever the grid); ``beat`` why a track whose grid was
+    looked for can't be beat-matched (``no_beat``, also a grid too unsure to
+    trust; ``too_short``; ``not_4_4``, also a meter not worked out), else
+    None."""
+    from core.dj.grid import GRID_VERSION, beatmatch_problem
 
     g_status = row.get("g_status")
     g_current = (g_status in ("done", "none") and int(row.get("g_version") or 0) >= GRID_VERSION
@@ -174,8 +177,10 @@ def readiness(row: Dict[str, Any]) -> Dict[str, Any]:
     beat = None
     if g_current and g_status == "none":
         beat = "too_short" if row.get("g_reason") == "too_short" else "no_beat"
-    elif g_current and row.get("g_meter") == "not_4_4":
-        beat = "not_4_4"
+    elif g_current:
+        problem = beatmatch_problem(row.get("g_conf"), row.get("g_meter"))
+        if problem:
+            beat = "no_beat" if problem == "low_confidence" else "not_4_4"
     return {"ready": bool(g_current and g_status == "done" and beat is None),
             "bpm_key": row.get("d_status") == "done", "beat": beat}
 
@@ -205,7 +210,8 @@ def _retry(database, track_id: str, failed: str) -> None:
 
 
 def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bool = True,
-        source: Optional[str] = None, set_id: Optional[int] = None, retry: bool = False) -> Dict[str, Any]:
+        source: Optional[str] = None, set_id: Optional[int] = None, retry: bool = False,
+        soon: bool = False) -> Dict[str, Any]:
     """Put the caller's tracks that need analysis in the asked-for line.
     ``{asked, queued, already_queued, already_done, cant, over_limit, limit,
     yours, started}``: ``asked`` counts the ids in the caller's library,
@@ -237,7 +243,7 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
         else:
             done += 1
     result = job.ask(database, needs, int(profile_id), explicit=explicit, source=source,
-                     set_id=set_id) if needs else {
+                     set_id=set_id, soon=soon) if needs else {
         "added": [], "already": 0, "over": 0, "yours": job.queue_snapshot([], profile_id)["yours"],
         "limit": worker.PRIORITY_PER_PROFILE, "started": False, "taken": 0}
     # where the first of them now is, for the Added toast's "analysing, 2nd
@@ -245,7 +251,7 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
     snap = job.queue_snapshot(needs, profile_id) if needs else {"places": {}, "live": None}
     live = snap.get("live") or {}
     working = bool(live) and str(live.get("current") or "") in set(needs)
-    places = [p for p, _asked in snap["places"].values()]
+    places = [place[0] for place in snap["places"].values()]
     return {"asked": len(rows), "queued": len(result["added"]), "already_queued": result["already"],
             "already_done": done, "cant": cant + int(result.get("taken") or 0), "over_limit": result["over"],
             "limit": result["limit"],
@@ -307,14 +313,21 @@ def _line(database, snapshot: Dict[str, Any], profile_id: Optional[int], admin: 
     the tracks it asked for itself; an admin, every track in its library
     with who asked. Each says why it's there; the rest are only counted."""
     pid = int(profile_id) if profile_id is not None else None
-    candidates = []
-    for position, (track_id, front, why) in enumerate(snapshot.get("line") or [], start=1):
-        if admin or (pid is not None and pid in why):
-            candidates.append((position, track_id, front, why))
-        if len(candidates) >= LINE_SHOWN:
+    eligible = [(position, track_id, front, why)
+                for position, (track_id, front, why) in enumerate(snapshot.get("line") or [], start=1)
+                if admin or (pid is not None and pid in why)]
+    # the caller's library first, a batch at a time, then the first few
+    # (an admin's line isn't left empty by tracks of other libraries; L6)
+    shown: List[Any] = []
+    rows: Dict[str, Dict[str, Any]] = {}
+    for start in range(0, len(eligible), 50):
+        batch = eligible[start:start + 50]
+        found = _rows(database, [c[1] for c in batch])
+        rows.update(found)
+        shown.extend(c for c in batch if c[1] in found)
+        if len(shown) >= LINE_SHOWN:
             break
-    rows = _rows(database, [c[1] for c in candidates]) if candidates else {}
-    shown = [c for c in candidates if c[1] in rows]
+    shown = shown[:LINE_SHOWN]
     askers = {p for c in shown for p in c[3]}
     names = _profile_names(database, askers - {pid}) if admin else {}
     sets = _set_names(database, [w[1] for c in shown if pid in c[3] for w in [c[3][pid]] if w[1]], pid or 0)
@@ -338,10 +351,13 @@ def _line(database, snapshot: Dict[str, Any], profile_id: Optional[int], admin: 
     return {"line": entries, "line_more": max(0, in_line - len(entries))}
 
 
-def _wait_detail(database, reason: Optional[str], admin: bool) -> Optional[Dict[str, Any]]:
+def _wait_detail(database, reason: Optional[str], admin: bool,
+                 profile_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """What the sweep waits for, counted where that's cheap (31a, state 6):
     how many downloads are left, how many files the import has, the library
-    drive's name (admins: members don't see drives)."""
+    drive's name (admins: members don't see drives). A member's download
+    count is their own batches only; the import keeps no owner, so a member
+    gets the words without the number."""
     if not reason:
         return None
     detail: Dict[str, Any] = {"count": None, "drive": None}
@@ -350,9 +366,10 @@ def _wait_detail(database, reason: Optional[str], admin: bool) -> Optional[Dict[
             from core.activity.feed import snapshot_live_batches
 
             left = sum(max(0, int(b.get("total") or 0) - int(b.get("done") or 0) - int(b.get("failed") or 0))
-                       for b in snapshot_live_batches().values())
+                       for b in snapshot_live_batches().values()
+                       if admin or (profile_id is not None and b.get("profile_id") == profile_id))
             detail["count"] = left or None
-        elif reason == "import":
+        elif reason == "import" and admin:
             with closing(database._get_connection()) as conn:
                 row = conn.execute("SELECT SUM(total_files) AS n FROM auto_import_history "
                                    "WHERE status IN ('processing', 'scanning')").fetchone()
@@ -387,11 +404,8 @@ def _sweep(database, snapshot: Dict[str, Any], *, settings: Dict[str, bool], pro
                            "waiting_detail": None}
     if out["held"] and admin and held_by is not None:
         out["held_by"] = _profile_names(database, [held_by]).get(int(held_by))
-    pid = int(profile_id) if profile_id is not None else None
-    line_items = snapshot.get("line") or []
     # yours go first: every one of this profile's tracks is ahead of the rest
-    places = [i for i, (_t, _f, why) in enumerate(line_items, start=1) if pid is not None and pid in why]
-    out["yours_first"] = bool(places) and places == list(range(1, len(places) + 1))
+    out["yours_first"] = bool(snapshot.get("yours_first"))
     if line:
         out.update(_line(database, snapshot, profile_id, admin))
     if live is None:
@@ -400,7 +414,7 @@ def _sweep(database, snapshot: Dict[str, Any], *, settings: Dict[str, bool], pro
     finished = sum(int(live.get(k) or 0) for k in ("done", "failed", "unreachable", "skipped"))
     out.update(id=live.get("id"), total=total, done=finished, waiting=live.get("waiting"),
                percent=int(100 * finished / total) if total else None)
-    out["waiting_detail"] = _wait_detail(database, live.get("waiting"), admin)
+    out["waiting_detail"] = _wait_detail(database, live.get("waiting"), admin, profile_id)
     current = live.get("current")
     if current:
         shown: Dict[str, Any] = {"step": live.get("step"),
@@ -432,7 +446,7 @@ def progress(database, ids: Iterable[Any], profile_id: Optional[int], *, job=Non
     job = job or worker.JOB
     settings = settings if settings is not None else worker.settings_state()
     rows = _rows(database, [str(i) for i in ids])
-    snapshot = job.queue_snapshot(list(rows), profile_id)
+    snapshot = job.queue_snapshot(list(rows), profile_id, line=line)
     live = snapshot["live"]
     version = worker.analyzer_version()
     waiting = (live or {}).get("waiting")
@@ -447,9 +461,10 @@ def progress(database, ids: Iterable[Any], profile_id: Optional[int], *, job=Non
         place = snapshot["places"].get(track_id)
         state = classify(row, version)
         if place is not None and (state["needs"] or state["failed"] == "unreachable"):
-            position, asked_for = place
+            position, asked_for, yours = place
+            # ``yours``: this caller asked for it, so its Cancel does something (L4)
             entry: Dict[str, Any] = {"state": "queued", "position": position, "asked_for": asked_for,
-                                     "ready": has["ready"], "bpm_key": has["bpm_key"]}
+                                     "yours": yours, "ready": has["ready"], "bpm_key": has["bpm_key"]}
             # an asked-for track never waits for a download or an import
             if waiting in WAITS and not (asked_for and waiting in worker.SOFT_WAITS):
                 entry.update(state="waiting", reason=waiting)

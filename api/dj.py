@@ -7,8 +7,11 @@ GET  /api/library/dj/status
 POST /api/library/dj/start  (admins)
     Start a sweep now (also lifts a Stop's hold on the automatic sweeps).
     202 with the sweep; 409 when one runs or every track is done. With
-    ``{track_id}`` ("analyse it now", 17b) that track goes first, or next
-    when a sweep already runs (202 then too, ``queued: true``).
+    ``{track_id}`` ("analyse it now", 17b; Brief A's Move up) that track
+    goes to the very front of the asked-for line (202, ``queued: true``),
+    starting a run for the line alone when none runs: never a full sweep,
+    and a Stop's hold stays; 409 ``nothing_to_move`` when it needs no
+    analysis; one a second (429).
 POST /api/library/dj/stop   (admins)
     Stop the sweep; automatic sweeps wait for a restart or a Start.
 POST /api/library/dj/tracks
@@ -225,17 +228,46 @@ def dj_start():
     body = request.get_json(silent=True) or {}
     first = body.get("track_id") if isinstance(body, dict) else None
     first = str(first)[:128] if isinstance(first, (str, int)) and str(first) else None
-    if first is not None and worker.JOB.prioritise(first):
-        return _no_store({"success": True, "queued": True, "job": worker.public_state(database)}, 202)
+    if first is not None:
+        return _move_up(database, first)
     try:
-        state = worker.JOB.start(database, get_current_profile_id() or 1, manual=True, first=first)
+        state = worker.JOB.start(database, get_current_profile_id() or 1, manual=True)
     except worker.JobRunning as exc:
-        if first is not None and worker.JOB.prioritise(first):
-            return _no_store({"success": True, "queued": True, "job": worker.public_state(database)}, 202)
         return jsonify({"success": False, "error": str(exc)}), 409
     if state is None:
         return jsonify({"success": False, "error": "Every track already has its BPM, key and energy."}), 409
     return _no_store({"success": True, "job": worker.public_state(database)}, 202)
+
+
+def _move_up(database, track_id: str):
+    """An admin's Analyse now / Move up for one track: in line at the very
+    front, read "you asked". With nothing running it starts a run for the
+    asked-for line only: never a full sweep, and a Stop's hold stays (the
+    Brief A review's L5). One a second, as asking is."""
+    from core.dj import ondemand, worker
+
+    pid = int(get_current_profile_id() or 1)
+    if not ondemand.ASK_LIMIT.allow(pid):
+        response = jsonify({"success": False, "code": "rate_limited",
+                            "error": "One request a second: try again in a moment."})
+        response.status_code = 429
+        response.headers["Retry-After"] = "1"
+        return response
+    if not worker.settings_state().get("analyze", True):
+        return jsonify({"success": False, "code": "off",
+                        "error": "Working out BPM, key and energy is off in Settings → Library."}), 409
+    try:
+        result = ondemand.ask(database, [track_id], pid, explicit=True, source="asked")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Move up failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": "Couldn't read your library"}), 500
+    if not (result["queued"] or result["already_queued"]):
+        words = ("That track is analysed already." if result["already_done"]
+                 else "That track couldn't be analysed: Try again asks for it." if result["cant"]
+                 else "That track isn't in your library.")
+        return jsonify({"success": False, "code": "nothing_to_move", "error": words}), 409
+    worker.JOB.prioritise(track_id, pid)
+    return _no_store({"success": True, "queued": True, "job": worker.public_state(database)}, 202)
 
 
 @bp.route("/api/library/dj/stop", methods=["POST"])
@@ -616,6 +648,10 @@ def dj_analyse():
     retry = body.get("retry") is True
     if retry and (reason != "asked" or not _is_admin()):
         return jsonify({"success": False, "error": "Only an admin can ask for a failed track again"}), 403
+    # Up next's next transition (the next two with Auto mix on): first in line
+    soon = body.get("soon") is True
+    if soon and source != "up_next":
+        return jsonify({"success": False, "error": "soon is Up next's"}), 400
     playlist = None
     if mine:
         ids: list = []
@@ -628,6 +664,9 @@ def dj_analyse():
         ids, bad = _ids_from(body)
         if bad is not None:
             return bad
+    if soon and len(ids) > worker.SOON_PER_PROFILE:
+        return jsonify({"success": False,
+                        "error": f"Up next's next transition is {worker.SOON_PER_PROFILE} tracks at most"}), 400
     # the limit before any reading (a playlist's rows are read next)
     if not ondemand.ASK_LIMIT.allow(int(pid)):
         response = jsonify({"success": False, "code": "rate_limited",
@@ -635,14 +674,15 @@ def dj_analyse():
         response.status_code = 429
         response.headers["Retry-After"] = "1"
         return response
-    if not worker.settings_state().get("analyze", True):
-        return jsonify({"success": False, "code": "off",
-                        "error": "Working out BPM, key and energy is off in Settings → Library."}), 409
     if cancel:
+        # a Cancel works whatever the setting (review L4)
         if "playlist_id" in body or mine:
             return jsonify({"success": False, "error": "Cancel names its tracks"}), 400
         gone = ondemand.withdraw(ids, int(pid))
         return _no_store({"success": True, **gone}, 200)
+    if not worker.settings_state().get("analyze", True):
+        return jsonify({"success": False, "code": "off",
+                        "error": "Working out BPM, key and energy is off in Settings → Library."}), 409
     if mine:
         # Analyse mine: the caller's own tracks in line go first
         moved = ondemand.promote(int(pid))
@@ -663,7 +703,7 @@ def dj_analyse():
         ids = list(dict.fromkeys(str(t["id"]) for t, _title, _artist in found["rows"] if t))[:ondemand.MAX_IDS]
     try:
         result = ondemand.ask(database, ids, int(pid), explicit=reason == "asked", source=source, set_id=set_id,
-                              retry=retry)
+                              retry=retry, soon=soon)
     except worker.Held:
         return jsonify({"success": False, "code": "held",
                         "error": "Working out BPM, key and energy is stopped; ask for these to go on."}), 409

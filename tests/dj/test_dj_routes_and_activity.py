@@ -278,7 +278,8 @@ def test_analyse_it_now_starts_with_that_track(client, db, monkeypatch):
     res = client.post("/api/library/dj/start", json={"track_id": "11"})
     assert res.status_code == 202
     job.join(5)
-    assert order == ["11", "9"]
+    # that track alone: Analyse now never starts a full sweep (Brief A review L5)
+    assert order == ["11"]
     client.state["admin"] = False
     assert client.post("/api/library/dj/start", json={"track_id": "11"}).status_code == 403
 

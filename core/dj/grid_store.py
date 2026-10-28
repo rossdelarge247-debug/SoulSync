@@ -17,6 +17,7 @@ import time
 from contextlib import closing
 from typing import Any, Dict, Iterable, List, Optional
 
+from core.dj.grid import BEAT_CONFIDENT as _GRID_BEAT_CONFIDENT
 from core.dj.grid import GRID_VERSION, Grid
 from utils.logging_config import get_logger
 
@@ -25,8 +26,8 @@ logger = get_logger("dj.grid_store")
 #: below this the downbeat is shown as uncertain (and the planner won't
 #: trust phrase-aligned starts on it)
 DOWNBEAT_CONFIDENT = 0.3
-#: below this the beat grid isn't trusted for beat-matching
-BEAT_CONFIDENT = 0.5
+#: below this the beat grid isn't trusted for beat-matching (core/dj/grid.py)
+BEAT_CONFIDENT = _GRID_BEAT_CONFIDENT
 
 _FIELDS = ("grid_version", "analyzed_at", "source_sig", "status", "reason", "kind", "bpm", "period",
            "first_beat", "downbeat_index", "first_downbeat", "beat_confidence", "downbeat_confidence", "meter",
@@ -360,19 +361,30 @@ def pending_ids(database, dj_version: int, *, retry_unreachable_before: Optional
     return [str(r[0]) for r in rows]
 
 
+#: ready to mix in SQL: a grid at this version for this file, trusted for
+#: beat-matching (core/dj/grid.py ``beatmatch_problem``'s rule)
+READY_SQL = ("(g.grid_version >= ? AND g.status = 'done' AND g.source_sig IS d.source_sig "
+             "AND COALESCE(g.beat_confidence, 0) >= ? AND COALESCE(g.meter, '4/4') = '4/4')")
+
+
 def counts(database) -> Dict[str, int]:
     """Library tracks with a file: how many have a grid at this version, how
-    many were analysed without finding a beat, and how many are still to do
-    (only tracks whose BPM and key are done count as to do)."""
+    many of those are ready to mix (the planner would beat-match them: the
+    "2,140 of 4,980 ready to mix"), how many were analysed without finding a
+    beat, and how many are still to do (only tracks whose BPM and key are
+    done count as to do)."""
     with closing(database._get_connection()) as conn:
         row = conn.execute(
             "SELECT SUM(CASE WHEN g.grid_version >= ? AND g.status = 'done' THEN 1 ELSE 0 END) AS done, "
+            f"SUM(CASE WHEN {READY_SQL} THEN 1 ELSE 0 END) AS ready, "
             "SUM(CASE WHEN g.grid_version >= ? AND g.status = 'none' THEN 1 ELSE 0 END) AS no_beat, "
             f"SUM(CASE WHEN d.status = 'done' AND {_DUE_SQL} THEN 1 ELSE 0 END) AS pending "
             "FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id LEFT JOIN track_grid g ON g.track_id = t.id "
             "WHERE t.file_path IS NOT NULL AND t.file_path != ''",
-            (GRID_VERSION, GRID_VERSION, GRID_VERSION, -1.0, time.time() - ERROR_RETRY_SECONDS)).fetchone()
-    return {"done": int(row["done"] or 0), "no_beat": int(row["no_beat"] or 0), "pending": int(row["pending"] or 0)}
+            (GRID_VERSION, GRID_VERSION, BEAT_CONFIDENT, GRID_VERSION, GRID_VERSION, -1.0,
+             time.time() - ERROR_RETRY_SECONDS)).fetchone()
+    return {"done": int(row["done"] or 0), "ready": int(row["ready"] or 0), "no_beat": int(row["no_beat"] or 0),
+            "pending": int(row["pending"] or 0)}
 
 
 # ── shaping for the routes and the planner ───────────────────────────────────

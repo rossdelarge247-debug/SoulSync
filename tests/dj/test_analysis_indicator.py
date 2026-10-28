@@ -36,7 +36,7 @@ def _dj_done(db, track_id):
 
 def _grid(db, track_id, **result):
     base = {"status": "done", "kind": "constant", "bpm": 124.0, "period": 60 / 124.0, "first_beat": 0.1,
-            "downbeat_index": 0, "meter": "4/4", "bars": 64}
+            "downbeat_index": 0, "meter": "4/4", "bars": 64, "confidence": 0.9, "beat_confidence": 0.9}
     base.update(result)
     grid_store.save_result(db, track_id, base, source_sig=None)
 
@@ -126,7 +126,7 @@ def _busy_on_1(client):
 
 
 def _line_order(client):
-    return [t for t, _front, _why in client.job.queue_snapshot([])["line"]]
+    return [t for t, _front, _why in client.job.queue_snapshot([], line=True)["line"]]
 
 
 # ── 325: the line's order, and why each track is in it ───────────────────────
@@ -391,12 +391,17 @@ def test_the_next_sweep_is_counted_down_from_the_scheduler(monkeypatch):
 
 
 def test_waiting_says_how_many_downloads_and_names_the_drive_to_admins(db, monkeypatch):
+    """A member's numbers are their own (review L9): their own download
+    batches; the import keeps no owner, so only admins get its count."""
     from core.activity import feed
     from core.drives import markers
 
     monkeypatch.setattr(feed, "snapshot_live_batches",
-                        lambda: {"a": {"total": 5, "done": 1, "failed": 1}, "b": {"total": 1, "done": 0}})
-    assert ondemand._wait_detail(db, "download", False) == {"count": 4, "drive": None}
+                        lambda: {"a": {"total": 5, "done": 1, "failed": 1, "profile_id": 2},
+                                 "b": {"total": 1, "done": 0, "profile_id": 3}})
+    assert ondemand._wait_detail(db, "download", True) == {"count": 4, "drive": None}
+    assert ondemand._wait_detail(db, "download", False, 2) == {"count": 3, "drive": None}
+    assert ondemand._wait_detail(db, "download", False, 4) == {"count": None, "drive": None}
 
     class _Watch:
         def peek(self):
@@ -407,7 +412,8 @@ def test_waiting_says_how_many_downloads_and_names_the_drive_to_admins(db, monke
     assert ondemand._wait_detail(db, "drive_away", False) == {"count": None, "drive": None}
     _sql(db, "INSERT INTO auto_import_history (folder_name, folder_path, status, total_files) "
              "VALUES ('x', '/x', 'processing', 42)")
-    assert ondemand._wait_detail(db, "import", False) == {"count": 42, "drive": None}
+    assert ondemand._wait_detail(db, "import", True) == {"count": 42, "drive": None}
+    assert ondemand._wait_detail(db, "import", False, 2) == {"count": None, "drive": None}
     assert ondemand._wait_detail(db, None, True) is None
 
 
@@ -491,3 +497,205 @@ def test_join_waits_for_a_next_run_made_but_not_yet_started():
     threading.Timer(0.02, pending.start).start()
     job.join(2)
     assert pending.ident is not None and not pending.is_alive()
+
+
+# ── the Brief A review's fixes ───────────────────────────────────────────────
+
+def test_m1_ready_to_mix_is_the_planners_own_rule(db, monkeypatch):
+    """A grid saved from 0.3 but under the planner's 0.5, or with a meter
+    not worked out, isn't "Ready to mix": the planner would echo out or cut
+    (the reviewer's probe, as a test). The count follows the same rule."""
+    from core.dj import planner
+    from core.library_scope import reset_library_scope, set_library_scope
+
+    for t, extra in (("1", {"beat_confidence": 0.4}), ("2", {"meter": "unknown"}), ("3", {}),
+                     ("4", {"meter": None})):
+        _dj_done(db, t)
+        _grid(db, t, **extra)
+    token = set_library_scope("shared")
+    try:
+        tracks = ondemand.progress(db, ["1", "2", "3", "4"], 2, job=_job(), settings={"analyze": True})["tracks"]
+    finally:
+        reset_library_scope(token)
+    for t in ("1", "2", "3", "4"):
+        trusted = planner._trust(grid_store.public(grid_store.get(db, t), t), "X") is None
+        assert tracks[t]["ready"] is trusted, t
+    assert tracks["1"]["beat"] == "no_beat" and tracks["2"]["beat"] == "not_4_4"
+    assert tracks["3"]["ready"] is True and tracks["4"]["ready"] is True
+    counts = grid_store.counts(db)
+    assert counts["done"] == 4 and counts["ready"] == 2
+
+
+def test_m1_the_planner_and_readiness_share_one_predicate():
+    from core.dj import grid, planner
+
+    assert planner.BEAT_CONFIDENT == grid.BEAT_CONFIDENT == grid_store.BEAT_CONFIDENT
+    assert grid.beatmatch_problem(0.49, "4/4") == "low_confidence"
+    assert grid.beatmatch_problem(0.9, "unknown") == "not_4_4"
+    assert grid.beatmatch_problem(0.9, None) is None
+    assert grid.beatmatch_problem(None, "4/4") == "low_confidence"
+
+
+def test_l2_cancel_takes_off_the_total_only_what_an_ask_added(db):
+    """A track the run took already and let in again is counted once; a
+    Cancel of it doesn't push the total under what's done (the reviewer's
+    probe, as a test)."""
+    gate, reached = threading.Event(), threading.Event()
+
+    def process(d, t, **kw):
+        if t == "3":
+            reached.set()
+            gate.wait(5)
+            return "done"
+        return "unreachable"
+
+    job = _job(process=process)
+    job.ask(db, ["2", "3"], 2)
+    assert reached.wait(3)
+    job.ask(db, ["2"], 2)  # taken already, needs again: one more try
+    job.withdraw(["2"], 2)
+    live = job.live()
+    try:
+        assert live["total"] == 2 and live["unreachable"] == 1 and live["current"] == "3"
+    finally:
+        gate.set()
+        job.join(5)
+
+
+def test_l3_a_track_put_back_is_done_with_for_left(db):
+    gate, reached = threading.Event(), threading.Event()
+    calls = []
+
+    def process(d, t, **kw):
+        calls.append(t)
+        if t == "3":
+            reached.set()
+            gate.wait(5)
+            return "done"
+        return "deferred"
+
+    job = _job(process=process)
+    job.ask(db, ["2", "3"], 2)
+    assert reached.wait(3)
+    snap = job.queue_snapshot([])
+    try:
+        assert calls[0] == "2" and snap["left"] == 0 and snap["in_line"] == 0
+    finally:
+        gate.set()
+        job.join(5)
+
+
+def test_l4_each_queued_entry_says_whether_its_yours_and_cancel_works_when_off(client, monkeypatch):
+    _busy_on_1(client)
+    client.state["profile"] = 3
+    client.post("/api/library/dj/analyse", json={"track_ids": ["3"]})
+    client.state["profile"] = 2
+    client.post("/api/library/dj/analyse", json={"track_ids": ["4"]})
+    tracks = client.post("/api/library/dj/progress", json={"track_ids": ["3", "4"]}).get_json()["tracks"]
+    assert tracks["3"]["yours"] is False and tracks["4"]["yours"] is True
+    monkeypatch.setattr(worker, "settings_state",
+                        lambda: {"analyze": False, "write_tags": False, "overwrite_tags": False})
+    res = client.post("/api/library/dj/analyse", json={"track_ids": ["4"], "cancel": True})
+    assert res.status_code == 200 and res.get_json()["withdrawn"] == 1
+
+
+def test_l5_move_up_with_nothing_running_never_starts_a_full_sweep_nor_lifts_a_stop(client, db, monkeypatch):
+    order = []
+
+    def process(d, t, **kw):
+        order.append(t)
+        _dj_done(d, t)
+        _grid(d, t)
+        return "done"
+
+    job = _job(process=process)
+    job.held, job.held_by = True, 1
+    monkeypatch.setattr(worker, "JOB", job)
+    client.state.update(profile=1, admin=True)
+    res = client.post("/api/library/dj/start", json={"track_id": "5"})
+    assert res.status_code == 202
+    job.join(5)
+    assert order == ["5"] and job.held is True and job.held_by == 1
+    # done already: nothing to move up
+    res = client.post("/api/library/dj/start", json={"track_id": "5"})
+    assert res.status_code == 409 and res.get_json()["code"] == "nothing_to_move"
+    monkeypatch.setattr(ondemand, "ASK_LIMIT", ondemand.RateLimit(every=60))
+    assert client.post("/api/library/dj/start", json={"track_id": "6"}).status_code == 202
+    assert client.post("/api/library/dj/start", json={"track_id": "7"}).status_code == 429
+
+
+def test_l5_move_up_reads_you_asked_for_the_admin(client):
+    _busy_on_1(client)
+    client.post("/api/library/dj/analyse", json={"track_ids": ["3", "4"], "source": "set", "set_id": 40})
+    client.state.update(profile=1, admin=True)
+    assert client.post("/api/library/dj/start", json={"track_id": "4"}).status_code == 202
+    line = client.post("/api/library/dj/progress", json={"track_ids": [], "line": True}).get_json()["sweep"]["line"]
+    assert line[0]["track_id"] == "4" and line[0]["by"] == "you" and line[0]["source"] == "asked"
+
+
+def test_l6_an_admins_line_is_filled_from_its_library_first(client, db):
+    _busy_on_1(client)
+    many = [str(200 + i) for i in range(10)]
+    client.job.ask(db, many, 7, source="asked")  # another library's tracks, ahead
+    client.post("/api/library/dj/analyse", json={"track_ids": ["3", "4"]})
+    client.state.update(profile=1, admin=True)
+    sweep = client.post("/api/library/dj/progress", json={"track_ids": [], "line": True}).get_json()["sweep"]
+    assert [e["track_id"] for e in sweep["line"]] == ["3", "4"] and sweep["line_more"] == 10
+
+
+def test_l8_join_gives_up_on_a_thread_that_never_starts():
+    job = _job()
+    job._thread = threading.Thread(target=lambda: None)
+    t0 = time.monotonic()
+    job.join(0.2)
+    assert time.monotonic() - t0 < 1.0
+    # a thread whose start failed: join returns after its bound, never hangs
+    job._thread = threading.Thread(target=lambda: None)
+    t0 = time.monotonic()
+    job.join(None)
+    assert 4.0 <= time.monotonic() - t0 < 7.0
+
+
+def test_l10_up_nexts_next_transition_goes_before_a_members_bulk_ask(client, db):
+    """A member's 200-track Analyse mine doesn't delay the admin's next mix."""
+    _busy_on_1(client)
+    many = [str(300 + i) for i in range(200)]
+    for i, t in enumerate(many):
+        _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, duration) "
+                 "VALUES (?, '10', '1', ?, ?, 240000)", (t, f"Bulk {i}", f"/m/{t}.flac"))
+    client.state["profile"] = 3
+    assert client.post("/api/library/dj/analyse", json={"track_ids": many, "reason": "asked"}).get_json()["queued"] == 200
+    client.state.update(profile=1, admin=True)
+    client.post("/api/library/dj/analyse", json={"track_ids": ["5", "6"], "source": "up_next", "soon": True})
+    order = _line_order(client)
+    assert order[:2] == ["5", "6"] and order[2] == "300"
+    # page asks wait behind people's: an Up next ask that isn't the next transition
+    client.post("/api/library/dj/analyse", json={"track_ids": ["7"], "source": "up_next"})
+    assert _line_order(client)[-1] == "7"
+    # the next transition moves on: the earlier pair drops back to its own tier
+    client.post("/api/library/dj/analyse", json={"track_ids": ["7"], "source": "up_next", "soon": True})
+    order = _line_order(client)
+    assert order[0] == "7" and order.index("5") > 200
+    # soon is Up next's, two tracks at most
+    assert client.post("/api/library/dj/analyse", json={"track_ids": ["3"], "soon": True}).status_code == 400
+    assert client.post("/api/library/dj/analyse",
+                       json={"track_ids": ["2", "3", "4"], "source": "up_next", "soon": True}).status_code == 400
+
+
+def test_l11_analyse_mine_keeps_why_and_a_plain_poll_copies_no_line(client):
+    _busy_on_1(client)
+    client.post("/api/library/dj/analyse", json={"track_ids": ["4"], "source": "set", "set_id": 40})
+    client.post("/api/library/dj/analyse", json={"mine": True, "reason": "asked"})
+    line = client.post("/api/library/dj/progress", json={"track_ids": [], "line": True}).get_json()["sweep"]["line"]
+    assert line[0]["source"] == "set" and line[0]["set_name"] == "Sunday Set" and line[0]["front"] is True
+    assert client.job.queue_snapshot([], 2)["line"] is None
+
+
+def test_the_200_cap_holds_at_the_route(client, db):
+    _busy_on_1(client)
+    many = [str(600 + i) for i in range(205)]
+    for t in many:
+        _sql(db, "INSERT INTO tracks (id, album_id, artist_id, title, file_path, duration) "
+                 "VALUES (?, '10', '1', ?, ?, 240000)", (t, f"T{t}", f"/m/{t}.flac"))
+    body = client.post("/api/library/dj/analyse", json={"track_ids": many[:205]}).get_json()
+    assert body["queued"] == 200 and body["over_limit"] == 5 and body["limit"] == 200

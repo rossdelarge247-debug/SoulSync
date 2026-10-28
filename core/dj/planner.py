@@ -50,7 +50,8 @@ import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.dj.camelot import compatible_keys, parse_key
-from core.dj.grid import Grid
+from core.dj.grid import BEAT_CONFIDENT as _GRID_BEAT_CONFIDENT
+from core.dj.grid import Grid, beatmatch_problem
 
 STYLES = ("auto", "long_blend", "short_blend", "bass_swap", "cut", "echo_out", "filter_sweep", "drop_swap")
 BARS = (2, 4, 8, 16, 32)
@@ -63,8 +64,9 @@ NEEDS_BEATMATCH = ("long_blend", "short_blend", "bass_swap", "filter_sweep", "dr
 #: long blend, and a plain speed change will do
 MAX_GAP = 0.08
 CLOSE_GAP = 0.03
-#: below these the grid or the downbeat isn't trusted
-BEAT_CONFIDENT = 0.5
+#: below these the grid or the downbeat isn't trusted (the beat's rule is
+#: core/dj/grid.py's, shared with "ready to mix")
+BEAT_CONFIDENT = _GRID_BEAT_CONFIDENT
 DOWNBEAT_CONFIDENT = 0.3
 
 STYLE_WORDS = {"long_blend": "Long blend", "short_blend": "Short blend", "bass_swap": "Bass swap", "cut": "Cut",
@@ -124,9 +126,10 @@ def _trust(track: Dict[str, Any], name: str) -> Optional[Tuple[str, str]]:
         return None
     grid = track.get("grid") or {}
     down = track.get("downbeats") or {}
-    if float(grid.get("confidence") or 0) < BEAT_CONFIDENT:
+    problem = beatmatch_problem(grid.get("confidence"), down.get("meter"))
+    if problem == "low_confidence":
         return "low_confidence", f"{name} has no steady beat"
-    if down.get("meter") not in (None, "4/4"):
+    if problem == "not_4_4":
         return "not_4_4", f"{name} isn't in 4/4"
     return None
 

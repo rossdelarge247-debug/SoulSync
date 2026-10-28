@@ -73,6 +73,26 @@ MIN_DRIFT_ALIGNMENT = 0.25
 ALIGN_WINDOW_S = 30.0
 #: below this beat confidence there's no grid to mix on
 MIN_BEAT_CONFIDENCE = 0.3
+#: below this a grid (saved from MIN_BEAT_CONFIDENCE up) isn't trusted for
+#: beat-matching: the planner echoes out or cuts instead
+BEAT_CONFIDENT = 0.5
+
+
+def beatmatch_problem(confidence: Any, meter: Any) -> Optional[str]:
+    """Why a found grid can't be beat-matched, or None: ``low_confidence``
+    (the beat isn't steady enough) or ``not_4_4`` (any meter but 4/4, a
+    meter not worked out included; a grid without one is read as 4/4). The
+    one rule the planner, "ready to mix" and its count all follow (the
+    Brief A review's M1)."""
+    try:
+        conf = float(confidence or 0.0)
+    except (TypeError, ValueError):
+        conf = 0.0
+    if conf < BEAT_CONFIDENT:
+        return "low_confidence"
+    if (meter or "4/4") != "4/4":
+        return "not_4_4"
+    return None
 #: the flux peaks this long before a beat's attack (measured on generated
 #: kicks with an instant attack): it's added back
 ONSET_LAG_S = -0.0055
@@ -1132,5 +1152,5 @@ class Grid:
         return (beat - self.downbeat_index) / 4.0
 
 
-__all__ = ["GRID_VERSION", "Grid", "LABELS", "MIN_SECONDS", "analyze_audio", "beat_grid", "downbeats",
+__all__ = ["BEAT_CONFIDENT", "GRID_VERSION", "Grid", "beatmatch_problem", "LABELS", "MIN_SECONDS", "analyze_audio", "beat_grid", "downbeats",
            "phrases_from"]

@@ -571,6 +571,9 @@ PRIORITY_PER_PROFILE = 200
 #: while the sweep waits (a download), it looks this often for an asked-for
 #: track, which doesn't wait
 PRIORITY_LOOK_SECONDS = 0.5
+#: how many tracks a profile's Up next can put first for its next
+#: transition (``soon``; review L10): the next two with Auto mix on
+SOON_PER_PROFILE = 2
 #: why a track is in the asked-for line (Brief A, 31b; HANDOFF 325): a
 #: person asked (Analyse these, Analyse now, Analyse mine, Try again), a set
 #: (opened, or a track added to it or to the working set), Up next with Auto
@@ -622,12 +625,19 @@ class DjAnalysisJob:
         #: the asked-for line, in order, and who asked for each track
         self._priority: List[str] = []
         self._asked_by: Dict[str, set] = {}
-        #: the line's front: tracks a person asked for themselves (Analyse
-        #: mine, Analyse now, a lab pick) go before the ones pages asked for,
-        #: so a member's own ask jumps the line (Brief A; HANDOFF 325)
-        self._front: set = set()
+        #: the line's order, by tier (``_tier_of``): an admin's Move up first,
+        #: then what Up next needs for its next transition (``soon``), then
+        #: what a person asked for themselves (Analyse mine, Analyse now, a
+        #: lab pick), then what pages asked for; within a tier, first come
+        #: first served (Brief A; HANDOFF 325; the review's L10)
+        self._pinned: set = set()
+        self._soon_by: Dict[int, List[str]] = {}
+        self._explicit: set = set()
         #: why each track is in line, per profile that asked: (source, set id)
         self._why: Dict[str, Dict[int, Tuple[str, Optional[int]]]] = {}
+        #: tracks an ask added to this run's total (not in its own order), so a
+        #: Cancel takes back only what an ask put in (review L2)
+        self._added_in_run: set = set()
         #: who pressed Stop (a profile id), while it holds
         self.held_by: Optional[int] = None
         #: the running sweep's tracks (counted in its total)
@@ -682,37 +692,47 @@ class DjAnalysisJob:
     def _clear_line_locked(self) -> None:
         self._priority.clear()
         self._asked_by.clear()
-        self._front.clear()
+        self._pinned.clear()
+        self._soon_by.clear()
+        self._explicit.clear()
         self._why.clear()
 
-    def _front_end_locked(self) -> int:
-        """Where the front ends: the first track pages asked for."""
-        for i, t in enumerate(self._priority):
-            if t not in self._front:
-                return i
-        return len(self._priority)
+    def _forget_locked(self, track_id: str) -> None:
+        """A track leaves the line (taken, or nobody asks for it any more)."""
+        self._asked_by.pop(track_id, None)
+        self._pinned.discard(track_id)
+        self._explicit.discard(track_id)
+        self._why.pop(track_id, None)
+        for held in self._soon_by.values():
+            if track_id in held:
+                held.remove(track_id)
 
-    def _to_front_locked(self, track_id: str, *, very_front: bool = False) -> bool:
-        """Move a track in line to the end of the front (a person's own ask),
-        or to the very front (an admin's Move up). True when it moved."""
-        if track_id not in self._asked_by:
-            return False
-        if track_id in self._front and not very_front:
-            return False
-        before = self._priority.index(track_id)
-        self._priority.remove(track_id)
-        self._front.add(track_id)
-        place = 0 if very_front else self._front_end_locked()
-        self._priority.insert(place, track_id)
-        return place != before
+    def _tier_of(self, track_id: str) -> int:
+        if track_id in self._pinned:
+            return 0
+        if any(track_id in held for held in self._soon_by.values()):
+            return 1
+        if track_id in self._explicit:
+            return 2
+        return 3
+
+    def _resort_locked(self) -> None:
+        """Keep the line in tier order; the sort is stable, so each tier
+        keeps its own first-come order (a few hundred tracks at most)."""
+        self._priority.sort(key=self._tier_of)
+
+    def front(self, track_id: str) -> bool:
+        """In front of what pages asked for (shown in the popover)."""
+        return self._tier_of(track_id) <= 2
 
     def _enqueue_locked(self, ids: List[str], profile_id: Optional[int], limit: Optional[int], *,
                         explicit: bool = False, source: Optional[str] = None,
-                        set_id: Optional[int] = None) -> Dict[str, Any]:
+                        set_id: Optional[int] = None, soon: bool = False) -> Dict[str, Any]:
         """Add ``ids`` to the asked-for line (the lock is held). A track
-        already in it keeps its place, unless a person asks for it themselves
-        (``explicit``): then it joins the front. One this profile has no room
-        for is ``over``."""
+        already in it keeps its place, unless it moves up a tier: a person
+        asks for it themselves (``explicit``), or Up next needs it for its
+        next transition (``soon``: at most ``SOON_PER_PROFILE`` a profile,
+        the newest). One this profile has no room for is ``over``."""
         pid = int(profile_id) if profile_id is not None else 0
         why = (source if source in SOURCES else ("asked" if explicit else "page"), set_id)
         mine = sum(1 for t in self._priority if pid in self._asked_by.get(t, ()))
@@ -722,6 +742,7 @@ class DjAnalysisJob:
         taken = 0
         running = bool(self._state and self._state.get("status") == "running")
         current = (self._state or {}).get("current") if running else None
+        wanted: List[str] = []
         for track_id in ids:
             if running and track_id == current:
                 # being worked out right now: already as good as asked for
@@ -740,9 +761,10 @@ class DjAnalysisJob:
             if asked is not None and pid in asked:
                 already += 1
                 if explicit:
-                    # asked again by a person: it jumps to the front, and says so
-                    self._to_front_locked(track_id)
-                    self._why.setdefault(track_id, {})[pid] = why
+                    # asked again by a person: it moves up to their tier,
+                    # keeping why it was first asked for (review L11)
+                    self._explicit.add(track_id)
+                wanted.append(track_id)
                 continue
             if limit is not None and mine >= limit:
                 over += 1
@@ -752,34 +774,42 @@ class DjAnalysisJob:
                 asked.add(pid)
                 self._why.setdefault(track_id, {})[pid] = why
                 if explicit:
-                    self._to_front_locked(track_id)
+                    self._explicit.add(track_id)
                 already += 1
+                wanted.append(track_id)
                 continue
-            if explicit:
-                self._priority.insert(self._front_end_locked(), track_id)
-                self._front.add(track_id)
-            else:
-                self._priority.append(track_id)
+            self._priority.append(track_id)
             self._asked_by[track_id] = {pid}
             self._why[track_id] = {pid: why}
+            if explicit:
+                self._explicit.add(track_id)
             added.append(track_id)
+            wanted.append(track_id)
             if running and track_id not in self._queued:
                 self._queued.add(track_id)
+                self._added_in_run.add(track_id)
                 self._state["total"] = int(self._state.get("total") or 0) + 1
+        if soon:
+            # what Up next needs for its next transition goes first; this
+            # profile's earlier "soon" tracks go back to their own tier
+            self._soon_by[pid] = [t for t in wanted if t in self._asked_by][-SOON_PER_PROFILE:]
+        self._resort_locked()
         return {"added": added, "already": already, "over": over, "yours": mine, "taken": taken}
 
     def prioritise(self, track_id: str, profile_id: Optional[int] = None) -> bool:
         """"Analyse it now" or Move up (an admin's) while a sweep runs: the
-        track goes next, before everything else in line. False when no sweep
-        runs (start one with ``first`` instead)."""
+        track goes next, before everything else in line, the last one moved
+        first; it reads "you asked" for the admin. False when no sweep runs."""
         track_id = str(track_id)
         with self._lock:
             if not self._state or self._state.get("status") != "running":
                 return False
-            if track_id not in self._asked_by:
-                self._enqueue_locked([track_id], profile_id, None, explicit=True)
+            self._enqueue_locked([track_id], profile_id, None, explicit=True, source="asked")
             if track_id in self._asked_by:
-                self._to_front_locked(track_id, very_front=True)
+                self._priority.remove(track_id)
+                self._priority.insert(0, track_id)
+                self._pinned.add(track_id)
+                self._resort_locked()
             return True
 
     def withdraw(self, ids: List[str], profile_id: int) -> Dict[str, int]:
@@ -794,36 +824,41 @@ class DjAnalysisJob:
                     continue
                 askers.discard(pid)
                 (self._why.get(track_id) or {}).pop(pid, None)
+                held = self._soon_by.get(pid)
+                if held and track_id in held:
+                    held.remove(track_id)
                 out += 1
                 if not askers:
                     self._priority.remove(track_id)
-                    self._asked_by.pop(track_id, None)
-                    self._front.discard(track_id)
-                    self._why.pop(track_id, None)
-                    if self._state and self._state.get("status") == "running" and track_id in self._queued \
-                            and track_id not in self._sweep_pos:
-                        # asked for only: it no longer counts in this run
+                    self._forget_locked(track_id)
+                    running = bool(self._state and self._state.get("status") == "running")
+                    if running and track_id in self._added_in_run and track_id not in self._seen:
+                        # only what an ask added to this run comes off its
+                        # total (a retried track was counted already; L2)
+                        self._added_in_run.discard(track_id)
                         self._queued.discard(track_id)
                         self._state["total"] = max(0, int(self._state.get("total") or 0) - 1)
+            self._resort_locked()
             return {"withdrawn": out}
 
     def promote(self, profile_id: int) -> Dict[str, int]:
-        """Analyse mine: every track this profile asked for joins the front,
-        in the order they were asked. ``{moved, yours}``."""
+        """Analyse mine: every track this profile asked for joins the people's
+        tier, in the order they were asked; why each is in line stays
+        ("you added it to Sunday Set"; review L11). ``{moved, yours}``."""
         pid = int(profile_id)
         moved = 0
         with self._lock:
             mine = [t for t in self._priority if pid in self._asked_by.get(t, ())]
             for track_id in mine:
-                if track_id not in self._front:
-                    self._to_front_locked(track_id)
-                    self._why.setdefault(track_id, {})[pid] = ("asked", None)
+                if self._tier_of(track_id) > 2:
                     moved += 1
+                self._explicit.add(track_id)
+            self._resort_locked()
             return {"moved": moved, "yours": len(mine)}
 
     def ask(self, database, ids: List[str], profile_id: int, *,
             limit: int = PRIORITY_PER_PROFILE, explicit: bool = True, source: Optional[str] = None,
-            set_id: Optional[int] = None) -> Dict[str, Any]:
+            set_id: Optional[int] = None, soon: bool = False) -> Dict[str, Any]:
         """Analyse on demand: ``ids`` (tracks that need analysis, already
         checked to be in the caller's library) go in the asked-for line, and a
         sweep starts for them when none runs. ``{added, already, over,
@@ -838,7 +873,7 @@ class DjAnalysisJob:
             if self.held and not explicit:
                 raise Held("Analysis is stopped: automatic asks wait for a Start.")
             result = self._enqueue_locked(clean, profile_id, limit, explicit=explicit, source=source,
-                                          set_id=set_id)
+                                          set_id=set_id, soon=soon)
             running = bool(self._state and self._state.get("status") == "running")
             want_start = bool(self._priority) and not running
         started = False
@@ -849,33 +884,42 @@ class DjAnalysisJob:
                 started = False  # another request started it, with this line in it
         return {**result, "limit": limit, "started": started}
 
-    def queue_snapshot(self, ids: List[str], profile_id: Optional[int] = None) -> Dict[str, Any]:
+    def queue_snapshot(self, ids: List[str], profile_id: Optional[int] = None, *,
+                       line: bool = False) -> Dict[str, Any]:
         """For the progress route: the running sweep (or None), and for each
-        of ``ids`` its place in line, ``(position, asked_for)``, while it's
-        waiting to be analysed. Position 1 is the next track to be taken."""
+        of ``ids`` its place in line, ``(position, asked_for, yours)``, while
+        it's waiting to be analysed. Position 1 is the next track to be
+        taken. With ``line`` the line in order with who asked and why (the
+        progress route decides what each caller may see of it); without it
+        nothing of the line is copied (review L11)."""
+        pid = int(profile_id) if profile_id is not None else None
         with self._lock:
             live = dict(self._state) if self._state and self._state.get("status") == "running" else None
             ahead = {t: i for i, t in enumerate(self._priority)}
             in_line = len(self._priority)
-            places: Dict[str, Tuple[int, bool]] = {}
+            places: Dict[str, Tuple[int, bool, bool]] = {}
             for track_id in ids:
                 if track_id in ahead:
-                    places[track_id] = (ahead[track_id] + 1, True)
+                    places[track_id] = (ahead[track_id] + 1, True, pid in self._asked_by.get(track_id, ()))
                 elif live is not None and track_id not in self._seen:
                     pos = self._sweep_pos.get(track_id)
                     if pos is not None and pos >= self._index:
-                        places[track_id] = (in_line + pos - self._index + 1, False)
-            pid = int(profile_id) if profile_id is not None else None
-            yours = sum(1 for t in self._priority if pid in self._asked_by.get(t, ())) if pid is not None else 0
-            # the line in order, with who asked and why (the progress route
-            # decides what each caller may see of it)
-            line = [(t, t in self._front, dict(self._why.get(t) or {})) for t in self._priority]
+                        places[track_id] = (in_line + pos - self._index + 1, False, False)
+            mine = [i for i, t in enumerate(self._priority, start=1) if pid in self._asked_by.get(t, ())] \
+                if pid is not None else []
+            out_line = [(t, self._tier_of(t) <= 2, dict(self._why.get(t) or {})) for t in self._priority] \
+                if line else None
             left = 0
             if live is not None:
-                finished = sum(int(live.get(k) or 0) for k in ("done", "failed", "unreachable", "skipped"))
+                # a track put back (a drive move, a tag write, a file that
+                # changed) is done with for this run too (review L3)
+                finished = sum(int(live.get(k) or 0)
+                               for k in ("done", "failed", "unreachable", "skipped", "requeued"))
                 left = max(0, int(live.get("total") or 0) - finished - in_line - (1 if live.get("current") else 0))
-            return {"live": live, "places": places, "in_line": in_line, "yours": yours, "held": self.held,
-                    "held_by": self.held_by if self.held else None, "line": line, "left": left}
+            return {"live": live, "places": places, "in_line": in_line, "yours": len(mine),
+                    "yours_first": bool(mine) and mine == list(range(1, len(mine) + 1)),
+                    "held": self.held, "held_by": self.held_by if self.held else None, "line": out_line,
+                    "left": left}
 
     def _next(self, ids: List[str], *, peek: bool = False) -> Optional[Tuple[str, bool]]:
         """The next track: the asked-for line first, then the sweep's order,
@@ -887,16 +931,12 @@ class DjAnalysisJob:
                 first = self._priority[0]
                 if first in self._seen:
                     self._priority.pop(0)
-                    self._asked_by.pop(first, None)
-                    self._front.discard(first)
-                    self._why.pop(first, None)
+                    self._forget_locked(first)
                     continue
                 if not peek:
                     self._priority.pop(0)
                     self._seen.add(first)
-                    self._asked_by.pop(first, None)
-                    self._front.discard(first)
-                    self._why.pop(first, None)
+                    self._forget_locked(first)
                     self._taking_locked(first)
                 return first, True
             while self._index < len(ids):
@@ -988,6 +1028,7 @@ class DjAnalysisJob:
             self._index = 0
             self._seen = set()
             self._retried = set()
+            self._added_in_run = set()
             self._stop.clear()
             started = _now()
             with closing(database._get_connection()) as conn:
@@ -1027,18 +1068,22 @@ class DjAnalysisJob:
 
     def join(self, timeout: Optional[float] = None) -> None:
         deadline = None if timeout is None else time.monotonic() + timeout
+        # a thread made but not started yet (a run's end starting the next):
+        # joining it raises; it's waited for, but never for ever (a start
+        # that failed leaves it unstarted; review L8)
+        unstarted_until = time.monotonic() + 5.0
         while True:
             thread = self._thread
             if thread is None:
                 return
-            if thread.ident is None:
-                # the next run's thread is made but not started yet (a run's
-                # end starting the next): joining it now would raise
-                if deadline is not None and time.monotonic() >= deadline:
+            try:
+                thread.join(None if deadline is None else max(0.0, deadline - time.monotonic()))
+            except RuntimeError:
+                now = time.monotonic()
+                if now >= unstarted_until or (deadline is not None and now >= deadline):
                     return
                 time.sleep(0.005)
                 continue
-            thread.join(None if deadline is None else max(0.0, deadline - time.monotonic()))
             # a run that ended with tracks asked for meanwhile starts the next
             if self._thread is thread or (deadline is not None and time.monotonic() >= deadline):
                 return
@@ -1202,7 +1247,9 @@ class DjAnalysisJob:
                 elif outcome == "skipped":
                     self._bump("skipped")
                 elif outcome in ("deferred", "stale"):
-                    pass  # back in the queue for the next sweep
+                    # back in the queue for the next sweep: done with for this
+                    # run (the sweep's tracks left, review L3)
+                    self._bump("requeued")
                 else:
                     errors_in_a_row += 1
                     self._bump("failed")
