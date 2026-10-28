@@ -123,6 +123,12 @@ Built on `feat/privacy-vpn` from `integration` (d59285b9), from BACKLOG "Privacy
 - **Ross's defaults:** `vpn.env.example` shows `PORT_FORWARDING=true`, `SERVER_COUNTRIES=Netherlands` (any country with Proton P2P servers works; the UK has fewer) and the existing-qBittorrent `COMPOSE_FILE` line.
 - **Checks:** ruff; pytest on the privacy (81 tests, 10 of them `gauntlet`), setup-check, settings-redaction and clients tests; `pytest -m gauntlet`; `docker compose config` on Ross's compose, the home compose, the repository compose, a base with qBittorrent (both ways), one whose slskd sets `hostname` and `dns`, and one whose qBittorrent is on an `arr` network with `dns_search`, `mac_address`, `domainname` and `links`.
 
+**Gauntlet review, third round** (a check of 80e074c6):
+- **M, the env example's active line.** `vpn.env.example` made the existing-qBittorrent `COMPOSE_FILE` line active, which stops `docker compose up -d` for the whole stack on a compose file with no `qbittorrent` service. The slskd-only line is active again, the two qBittorrent lines are commented and explained, and Ross's existing-qBittorrent line is in his own instructions instead.
+- **L, a home network inside 172.16.0.0/12.** The pool exception now also needs the default route's interface to be a Docker bridge: its kernel driver, read with ethtool's GDRVINFO (no privileges), must be `veth`. macvlan, ipvlan or an interface that can't be read stays "not confirmed". Tested (case A3: macvlan, ipvlan and unknown).
+- **L, the amber advice** no longer suggests `http://gluetun:…`, and says (as does the guide) that a `soulsync-network` on a 192.168.x subnet can't be told from a home network, so amber is expected there.
+- **The guide** says that with the arr-network lines gluetun's firewall lets slskd and qBittorrent reach the arr network's containers: local traffic, not a leak.
+
 **Questions for Ross:** which Proton plan (Plus or higher for port forwarding)? Does he use torrents, and with which client (the file ships qBittorrent)? Which country for the VPN server?
 
 **New questions for Design:** 368–373 (Open questions, "From privacy … of 28 October").
