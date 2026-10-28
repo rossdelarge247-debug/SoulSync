@@ -376,6 +376,7 @@ def test_analyse_again_marks_only_what_the_line_took(db):
     """M2: ids past the profile's room in line aren't touched (their grid
     stays), and the job remembers the rest to find again when it takes them."""
     job = worker.DjAnalysisJob(process=lambda *a, **k: "done")
+    job.start = lambda *a, **k: None  # no sweep takes them meanwhile
     out = job.ask(db, ["1", "2", "3"], 1, limit=2, again=["1", "2", "3"])
     assert out["over"] == 1
     assert job.queue_snapshot(["1", "2", "3"], 1)["again"] == {"1", "2"}
