@@ -86,7 +86,7 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 383. **263's fold** shows for any set with lines not in your library (a saved famous mix, or a pasted tracklist saved), as "Hide 4 not in your library" at the meta line's end, not remembered. Place, and should it stay folded for the set?
 384. **Settings → Library → DJ** is a folded section after Organization, before Processing, with no group label of its own (Library's are Files & folders, Processing, …). Should it be open by default, or have a "DJ" group label above it?
 385. **UX-9's line** ("Couldn't start the mix · the tracks didn't load in time · Night Ferry plays on straight · Try again") shows for 12 s in the bar's middle and the tray's deck, then only Mix now's title keeps it. Long enough, and should the gap's chip say it too?
-399. **"BPM is right."** A beat grid held only because its octave isn't sure (drum and bass with no genre tag and no drum-and-bass drums the analysis recognises) is released by one Double BPM or Halve BPM, or, when its own BPM is already shown and Double would go out of range, by **"BPM is right"** in the track's "…" on Tracks, first among the BPM items, shown only for such a track (`bpm_unsure`). That's the provisional answer (grid v5's third review). Is the row's "…" the right home, and should the BPM's hover or the analysis indicator's reason line say why the track waits ("Not sure if it's 87 or 174 BPM")?
+399. **"BPM is right."** A beat grid held only because its octave isn't sure (drum and bass with no genre tag and no drum-and-bass drums the analysis recognises) is released by one Double BPM or Halve BPM, or, when its own BPM is already shown and Double would go out of range, by **"BPM is right"** in the track's "…" on Tracks, first among the BPM items, shown only for such a track (`bpm_unsure`). That's the provisional answer (grid v5's third review); when two octaves would both do, the "…" says "It's 172 BPM" and "It's 86 BPM" instead, neither first (its fourth). Is the row's "…" the right home, and should the BPM's hover or the analysis indicator's reason line say why the track waits ("Not sure if it's 87 or 174 BPM")?
 
 ## Log
 
@@ -181,6 +181,14 @@ Results: Ross's clips with and without tags, Groove train and the public set are
 - **Generated half-time drum and bass:**
   - With no hint: 172 held; "BPM is right" gives 0.77.
   - Under 86: ready at 86 (0.996). This is the known limit above; one ×2 gives 172, ready.
+
+**Review round 4 (the same day).** The analysis was left unchanged. In the Library's display and offer (`core/dj/store.py`):
+- A held grid's BPM never replaces a tag's or enrichment's. A held grid at 5/4, 3/4 or 2/3 of a right tag had shown its wrong tempo (105 for a funk tagged 84), and "BPM is right" made the 96 for a 128 ready.
+- A held grid's ×2 or ÷2 counts toward showing it only within 70–200 BPM (`OCTAVE_CHOICE_RANGE`). `octave_confidences` no longer scores octaves outside that range either.
+- "BPM is right" is offered only when the BPM shown is the one octave the grid would be ready at (computed in Python, `_octave_choices`).
+- When two octaves would do (a track read at double: soul at 86 shown as 172), Tracks' "…" says "It's 172 BPM" and "It's 86 BPM" after Double and Halve, with neither first.
+- `set_tempo` answers whether each grid is ready now (`ready`), and the toast says "ready to mix" only then.
+- New tests from the reviewer's reproductions, plus the member, shared-track and other-profile cases for `confirm`.
 
 ### 2026-10-29: Dev, beat-grid phase follow-up of 29 October
 
