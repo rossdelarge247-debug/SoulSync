@@ -376,6 +376,10 @@
   cursor: default;
 }
 
+.menuItem[data-submenu][data-popup-open] {
+  background: var(--ss-hover-wash);
+}
+
 .menuItem[data-two-line] {
   flex-direction: column;
   align-items: flex-start;
@@ -1404,4 +1408,10 @@
   .primaryShort {
     display: inline;
   }
+}
+
+/* Brief B (32d): a submenu's ▸ (Send to…) */
+.menuItem[data-submenu]::after {
+  content: '▸';
+  color: var(--ss-text-meta);
 }

@@ -948,7 +948,13 @@
 
 /* the drawer (29b): no art; Play · Play next, +, More like this */
 .row[data-place='drawer'] {
-  grid-template-columns: minmax(0, 1fr) auto 44px 44px;
+  grid-template-columns: 24px minmax(0, 1fr) auto 44px 44px;
+}
+
+/* Brief B (32b): the tray's matches have the grip's reserved 24px column first */
+.row[data-place='tray'] {
+  grid-template-columns: 24px 40px minmax(0, 1fr) auto auto 44px;
+  padding-left: 0;
 }
 
 /* the phone (33d): Play and "…" */

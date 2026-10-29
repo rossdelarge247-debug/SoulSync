@@ -1,0 +1,468 @@
+/*
+ * Brief B (32a–32g): the drag's own pieces (the ghost, the insertion line,
+ * the amber notes, the auto-scroll cue, the phone's Send to… tray, the
+ * sidebar's Your sets while something is lifted), and the states every
+ * surface takes from attributes the engine sets (React's lists and the
+ * legacy Up next alike): data-dnd-state on a target, data-dnd-gap and
+ * data-dnd-lifted on rows, data-dnd-grip on the grip.
+ */
+
+/* ── the grip (32b state 1): a reserved 24px column, 62% on hover and focus ── */
+.grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 32px;
+  color: rgba(255, 255, 255, 0.62);
+  cursor: grab;
+  opacity: 0;
+  touch-action: none;
+}
+
+/* a locked row's grip (275): there on hover and focus, at 14%, and it doesn't lift */
+.grip[data-locked] {
+  color: rgba(255, 255, 255, 0.14);
+  cursor: not-allowed;
+}
+
+.grip[data-none] {
+  visibility: hidden;
+  cursor: default;
+}
+
+:global([data-dnd-row]:hover) .grip,
+:global([data-dnd-row]:focus-within) .grip,
+:global([data-dnd-row]:focus) .grip,
+:global([data-dnd-lifted]) .grip {
+  opacity: 1;
+}
+
+:global([data-dnd-lifted]) .grip {
+  color: rgb(var(--ss-accent-light-rgb));
+}
+
+/* a touch screen can't hover: the grip shows, and a finger drags from it at once */
+@media (hover: none) {
+  .grip {
+    opacity: 1;
+  }
+}
+
+/* ── lifted rows (32b state 2): the source at 40%; the keyboard's row drawn (32d) ── */
+:global([data-dnd-lifted]) {
+  opacity: 0.4;
+}
+
+:global([data-dnd-lifted='keyboard']) {
+  opacity: 1;
+  border-radius: 8px;
+  outline: 2px solid rgb(var(--ss-accent-light-rgb));
+  outline-offset: -2px;
+  background: rgba(var(--ss-accent-rgb), 0.14);
+}
+
+/* a row a phone can long-press (32e) doesn't select or call up the menu */
+@media (max-width: 640px) {
+  :global([data-dnd-row]) {
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+}
+
+:global([data-dnd-row]:focus-visible) {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset-inset, -2px);
+}
+
+/* ── targets (32b state 3): lit at lift, amber when they can't take it ── */
+:global([data-dnd-state='lit']),
+:global([data-dnd-state='over']) {
+  outline: 1px dashed rgba(var(--ss-accent-light-rgb), 0.7);
+  outline-offset: 2px;
+  background-color: rgba(var(--ss-accent-rgb), 0.06);
+  border-radius: 10px;
+}
+
+:global([data-dnd-state='over']) {
+  background-color: rgba(var(--ss-accent-rgb), 0.12);
+}
+
+:global([data-dnd-state='invalid']) {
+  outline: 1px solid rgba(var(--ss-warning-rgb), 0.4);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+/* the 36px gap the insertion line opens (32a) */
+:global([data-dnd-gap='before']) {
+  margin-top: 36px !important;
+  transition: margin 120ms ease;
+}
+
+:global([data-dnd-gap='after']) {
+  margin-bottom: 36px !important;
+  transition: margin 120ms ease;
+}
+
+:global([data-dnd-locked-note]) {
+  box-shadow: inset 0 0 0 1px rgba(var(--ss-warning-rgb), 0.4);
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global([data-dnd-gap]) {
+    transition: none;
+  }
+}
+
+/* ── the ghost (32a): 48px, tilted 1.5°, title · key · BPM, a count for many ── */
+.ghost {
+  position: fixed;
+  z-index: 10050;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  max-width: 340px;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgba(var(--ss-accent-light-rgb), 0.6);
+  border-radius: 10px;
+  background: #1a1a1e;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  color: var(--ss-text);
+  pointer-events: none;
+  transform-origin: 24px 24px;
+}
+
+.ghost[data-touch] {
+  /* 32e: a phone's row lifts at 1.03 */
+  scale: 1.03;
+}
+
+.ghostText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ghostTitle {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ghostMeta {
+  color: var(--ss-text-meta);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ghostCount {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: rgb(var(--ss-accent-light-rgb));
+  color: #0b0b0f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ghostNo {
+  flex: none;
+  color: var(--ss-warning);
+  font-size: 16px;
+}
+
+/* ── the insertion line (32a): 2px accent-light with the new steps ── */
+.line {
+  position: fixed;
+  z-index: 10040;
+  height: 0;
+  border-top: 2px solid rgb(var(--ss-accent-light-rgb));
+  pointer-events: none;
+}
+
+.line::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgb(var(--ss-accent-light-rgb));
+}
+
+.lineWords {
+  position: absolute;
+  top: -12px;
+  left: 16px;
+  max-width: calc(100% - 32px);
+  overflow: hidden;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #1a1a1e;
+  color: rgb(var(--ss-accent-light-rgb));
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line[data-duplicate] .lineWords {
+  color: var(--ss-text);
+}
+
+/* ── amber notes (32b state 5): said on the target itself, never in a toast ── */
+.note {
+  position: fixed;
+  z-index: 10060;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid rgba(var(--ss-warning-rgb), 0.4);
+  border-radius: 8px;
+  background: #1a1a1e;
+  color: var(--ss-text);
+  font-size: 14px;
+  line-height: 20px;
+  pointer-events: none;
+}
+
+.note i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ss-warning);
+}
+
+.note[data-refused] {
+  pointer-events: auto;
+}
+
+.noteAction {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── auto-scroll's cue (32a): a gradient at the edge being scrolled ── */
+.scrollCue {
+  position: fixed;
+  z-index: 10030;
+  height: 48px;
+  pointer-events: none;
+}
+
+.scrollCue[data-edge='up'] {
+  background: linear-gradient(to bottom, rgba(var(--ss-accent-rgb), 0.28), transparent);
+}
+
+.scrollCue[data-edge='down'] {
+  background: linear-gradient(to top, rgba(var(--ss-accent-rgb), 0.28), transparent);
+}
+
+.scrollCueWords {
+  position: absolute;
+  right: 12px;
+  color: rgb(var(--ss-accent-light-rgb));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scrollCue[data-edge='up'] .scrollCueWords {
+  top: 4px;
+}
+
+.scrollCue[data-edge='down'] .scrollCueWords {
+  bottom: 4px;
+}
+
+/* ── the player bar's drop zones (32a: "Up next · drop to play next") ── */
+.barZones {
+  position: fixed;
+  z-index: 10020;
+  display: flex;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 6px;
+  pointer-events: none;
+}
+
+.barZone {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(20, 20, 24, 0.92);
+  color: var(--ss-text);
+  font-size: 15px;
+  font-weight: 600;
+  pointer-events: auto;
+}
+
+/* ── the sidebar's Your sets while something is lifted (32a) ── */
+.sideSets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 8px 8px 36px;
+  padding: 0;
+  list-style: none;
+}
+
+.sideSetsLabel {
+  margin: 4px 8px 0 36px;
+  color: var(--ss-text-meta);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sideSet {
+  display: flex;
+  flex-direction: column;
+  min-height: 40px;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+
+.sideSetName {
+  overflow: hidden;
+  color: var(--ss-text);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sideSetSub {
+  color: var(--ss-text-meta);
+  font-size: 12px;
+}
+
+.sideSet[data-dnd-state='invalid'] .sideSetSub {
+  color: var(--ss-warning);
+}
+
+/* ── the phone's Send to… tray (32e) ── */
+.tray {
+  position: fixed;
+  z-index: 10045;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  box-sizing: border-box;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--ss-hairline);
+  border-radius: 16px 16px 0 0;
+  background: #141416;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.trayHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 8px;
+  color: var(--ss-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.trayGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trayTarget {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 12px;
+  border: 1px dashed rgba(var(--ss-accent-light-rgb), 0.7);
+  border-radius: 10px;
+  background: rgba(var(--ss-accent-rgb), 0.06);
+  color: var(--ss-text);
+  font: inherit;
+  text-align: left;
+}
+
+.trayTarget[data-first] {
+  background: rgba(var(--ss-accent-rgb), 0.14);
+}
+
+.trayTarget[aria-disabled='true'] {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  opacity: 0.4;
+}
+
+.trayName {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.traySub {
+  color: var(--ss-text-meta);
+  font-size: 13px;
+}
+
+.trayFoot {
+  margin: 8px 0 0;
+  color: var(--ss-text-meta);
+  font-size: 13px;
+  text-align: center;
+}
+
+.trayClose {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-control-fill);
+  color: var(--ss-text);
+  font: inherit;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

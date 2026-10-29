@@ -6,10 +6,12 @@
  * the page: a saved set's id, `draft`, `famous` or `paste`.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
+import { useDndSelect, useDropTarget, type DropTarget } from '@/features/dnd/dnd-engine';
+import { draftTarget, setTarget } from '@/features/dnd/set-targets';
 import { useWorkingSet } from '@/features/mix/mix.api';
 import { readDraft, useDraft, writeDraft } from '@/features/sets/draft-store';
 import { Sparkline } from '@/features/sets/energy-graph';
@@ -84,6 +86,37 @@ function Tabs({ onFamous }: { onFamous: () => void }) {
   );
 }
 
+/**
+ * A row of Your sets as a drop target (Brief B, 32b state 3): lit while
+ * something is lifted, it appends ("drop to add · goes last"); a famous mix
+ * goes amber with why (32b state 5). Its meta line says what a drop does
+ * while the ghost is over it.
+ */
+function DropRow({
+  id,
+  make,
+  className,
+  children,
+  meta,
+}: {
+  id: string;
+  make: (el: () => HTMLElement | null) => DropTarget;
+  className?: string;
+  children: (sub: ReactNode | null) => ReactNode;
+  meta?: ReactNode;
+}) {
+  const ref = useRef<HTMLLIElement>(null);
+  const over = useDndSelect((s) => s.over);
+  useDropTarget(id, () => make(() => ref.current));
+  const here = over?.id === id ? over : null;
+  const sub = here ? (here.verdict.ok ? here.hint : here.verdict.reason) : null;
+  return (
+    <li ref={ref} className={className} data-dnd-target={id}>
+      {children(sub ?? meta ?? null)}
+    </li>
+  );
+}
+
 function YourSets({
   sets,
   onOpen,
@@ -105,70 +138,101 @@ function YourSets({
       </h2>
       <ul className={styles.setList}>
         {draft && onDraft ? (
-          <li>
-            <button type="button" className={styles.setRow} onClick={onDraft} data-set-row="draft">
-              <Sparkline energy={[]} />
-              <span className={styles.setText}>
-                <span className={styles.setName}>{draft.name}</span>
-                <span className={styles.setMeta}>
-                  {setRowMeta(draft.rows.filter((r) => r.track_id).length, 0)}
+          <DropRow
+            id="your-set:draft"
+            make={(el) =>
+              draftTarget(
+                'your-set:draft',
+                profileId,
+                draft.name,
+                draft.rows.map((r) => r.track_id),
+                el,
+              )
+            }
+          >
+            {(drop) => (
+              <button
+                type="button"
+                className={styles.setRow}
+                onClick={onDraft}
+                data-set-row="draft"
+              >
+                <Sparkline energy={[]} />
+                <span className={styles.setText}>
+                  <span className={styles.setName}>{draft.name}</span>
+                  <span className={styles.setMeta}>
+                    {drop ?? setRowMeta(draft.rows.filter((r) => r.track_id).length, 0)}
+                  </span>
                 </span>
-              </span>
-              <StatusTag tone="neutral">{KIND_TAGS[draft.kind]}</StatusTag>
-              <span className={styles.setWhen}>Draft · {whenWords(draft.updatedAt / 1000)}</span>
-            </button>
-          </li>
+                <StatusTag tone="neutral">{KIND_TAGS[draft.kind]}</StatusTag>
+                <span className={styles.setWhen}>Draft · {whenWords(draft.updatedAt / 1000)}</span>
+              </button>
+            )}
+          </DropRow>
         ) : null}
         {sets.map((s) => (
-          <li key={s.id} className={styles.setItem}>
-            <button
-              type="button"
-              className={styles.setRow}
-              onClick={() => onOpen(s.id)}
-              data-set-row={s.id}
-            >
-              <Sparkline energy={s.energy} />
-              <span className={styles.setText}>
-                <span className={styles.setName}>
-                  {s.name}
-                  {/* 33e: the working set's tag in Your sets */}
-                  {workingId === s.id ? (
-                    <span className={styles.headTag} data-tone="accent" data-set-tag="working">
-                      Working set
+          <DropRow
+            key={s.id}
+            id={`your-set:${s.id}`}
+            className={styles.setItem}
+            make={(el) => setTarget(`your-set:${s.id}`, s, el)}
+          >
+            {(drop) => (
+              <>
+                <button
+                  type="button"
+                  className={styles.setRow}
+                  onClick={() => onOpen(s.id)}
+                  data-set-row={s.id}
+                >
+                  <Sparkline energy={s.energy} />
+                  <span className={styles.setText}>
+                    <span className={styles.setName}>
+                      {s.name}
+                      {/* 33e: the working set's tag in Your sets */}
+                      {workingId === s.id ? (
+                        <span className={styles.headTag} data-tone="accent" data-set-tag="working">
+                          Working set
+                        </span>
+                      ) : null}
                     </span>
-                  ) : null}
-                </span>
-                <span className={styles.setMeta}>
-                  <span className={styles.setKindInline}>{KIND_TAGS[s.kind]} · </span>
-                  {s.kind === 'famous' && s.lines > s.tracks
-                    ? `${s.tracks} of ${s.lines} · ${setRowMeta(s.tracks, s.seconds).split(' · ')[1] ?? ''}`.replace(
-                        / · $/,
-                        '',
-                      )
-                    : setRowMeta(s.tracks, s.seconds)}
-                </span>
-              </span>
-              <StatusTag tone="neutral" className={styles.setKind}>
-                {KIND_TAGS[s.kind]}
-              </StatusTag>
-              <span className={styles.setWhen}>{whenWords(s.updated_at)}</span>
-            </button>
-            {/* 33e: "✓ Working set" on the working one, "Make this my working set" on the rest */}
-            <WorkingSetToggle setId={s.id} name={s.name} compact />
-            <MoreMenu
-              className={styles.setMore}
-              label={`More for ${s.name}`}
-              entries={[
-                { key: 'open', label: 'Open', onSelect: () => onOpen(s.id) },
-                {
-                  key: 'remove',
-                  label: 'Remove this set…',
-                  tone: 'danger',
-                  onSelect: () => onRemove(s),
-                },
-              ]}
-            />
-          </li>
+                    <span className={styles.setMeta} data-dnd-sub={drop ? '' : undefined}>
+                      {drop ?? (
+                        <>
+                          <span className={styles.setKindInline}>{KIND_TAGS[s.kind]} · </span>
+                          {s.kind === 'famous' && s.lines > s.tracks
+                            ? `${s.tracks} of ${s.lines} · ${setRowMeta(s.tracks, s.seconds).split(' · ')[1] ?? ''}`.replace(
+                                / · $/,
+                                '',
+                              )
+                            : setRowMeta(s.tracks, s.seconds)}
+                        </>
+                      )}
+                    </span>
+                  </span>
+                  <StatusTag tone="neutral" className={styles.setKind}>
+                    {KIND_TAGS[s.kind]}
+                  </StatusTag>
+                  <span className={styles.setWhen}>{whenWords(s.updated_at)}</span>
+                </button>
+                {/* 33e: "✓ Working set" on the working one, "Make this my working set" on the rest */}
+                <WorkingSetToggle setId={s.id} name={s.name} compact />
+                <MoreMenu
+                  className={styles.setMore}
+                  label={`More for ${s.name}`}
+                  entries={[
+                    { key: 'open', label: 'Open', onSelect: () => onOpen(s.id) },
+                    {
+                      key: 'remove',
+                      label: 'Remove this set…',
+                      tone: 'danger',
+                      onSelect: () => onRemove(s),
+                    },
+                  ]}
+                />
+              </>
+            )}
+          </DropRow>
         ))}
       </ul>
       {!sets.length && !draft ? (

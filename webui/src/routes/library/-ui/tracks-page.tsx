@@ -1,6 +1,9 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import type { Lifted } from '@/features/dnd/dnd-engine';
+import type { DragItem } from '@/features/dnd/dnd-model';
+
 import { Button, TextInput } from '@/components/form';
 import { Checkbox } from '@/components/form/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
@@ -50,6 +53,10 @@ import { PlayingGlyph, RowPlay, rowPlayHandlers } from '@/features/dj/row-play';
 import { allShared, useSetTempo } from '@/features/dj/tempo';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
+import { Grip } from '@/features/dnd/grip';
+import { djItem, onGripDown, onRowTouch } from '@/features/dnd/items';
+import { useRowGrid } from '@/features/dnd/row-grid';
+import { openSendToTray } from '@/features/dnd/send-to-ui';
 import { awayWords } from '@/features/drives/drives.format';
 import { useWorkingSet } from '@/features/mix/mix.api';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
@@ -128,6 +135,7 @@ function moreEntries(
     setTempo,
     canSetTempo,
     working,
+    sendTo,
   }: {
     artist: string | null;
     album: string | null;
@@ -140,6 +148,8 @@ function moreEntries(
     canSetTempo: string | null;
     /** the working set's name, for the phone's "Add to set…" line (34c) */
     working?: string | null;
+    /** Send to… (Brief B, 32d): this track, or the selection it's in */
+    sendTo?: DragItem[] | null;
   },
 ): SheetAction[] {
   const missing = Boolean(track.file_missing);
@@ -162,6 +172,7 @@ function moreEntries(
           },
       play: missing || away ? null : () => playDjTrackNow(track),
       working,
+      sendTo: missing || away ? null : sendTo,
       addToPlaylist: missing ? null : () => addTrackToPlaylist(track, anchor()),
       tempo: {
         bpm: track.dj?.bpm ?? null,
@@ -184,8 +195,11 @@ function TrackRow({
   checked = false,
   onToggle,
   progress = null,
+  lift,
 }: {
   track: DjTrack;
+  /** Brief B: what a drag from this row lifts (the row, or the selection it's in) */
+  lift: () => Lifted | null;
   /** in line or being worked out (analyse on demand): its bar and step */
   progress?: AnalysisEntry | null;
   phone: boolean;
@@ -222,6 +236,7 @@ function TrackRow({
     setTempo,
     canSetTempo: track.shared && !isAdmin ? SHARED_TEMPO_WORDS : null,
     working: working?.name ?? null,
+    sendTo: [djItem(track, away?.words)],
     anchor: () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
   });
   const key = dj?.key ? (
@@ -237,11 +252,15 @@ function TrackRow({
       ref={rowRef}
       className={styles.row}
       data-track-row={track.id}
+      // a tab stop in the row grid: it says which track it is (L8)
+      aria-label={[track.title, track.artist_name].filter(Boolean).join(', ')}
       data-star-row={track.id}
       data-file-missing={missing ? 'true' : undefined}
       data-playing={playing ? 'true' : undefined}
       data-selected={selecting && checked ? 'true' : undefined}
       data-row-play-host=""
+      data-dnd-row="tracks"
+      onPointerDown={phone ? onRowTouch(lift) : undefined}
       {...rowPlayHandlers(
         phone || missing || away || selecting ? null : () => playDjTrackNow(track),
         playing,
@@ -258,6 +277,8 @@ function TrackRow({
           : undefined
       }
     >
+      {/* Brief B (32b): the grip's reserved column; none without a file */}
+      {phone ? null : <Grip none={missing} onPointerDown={onGripDown(lift)} />}
       {selecting ? (
         <span className={styles.check}>
           <Checkbox
@@ -388,12 +409,13 @@ function TrackRow({
           <MoreMenu
             className={styles.more}
             label={`More for ${track.title}`}
-            entries={entries.map(({ key: k, label, onSelect, disabled, reason }) => ({
+            entries={entries.map(({ key: k, label, onSelect, disabled, reason, submenu }) => ({
               key: k,
               label,
               onSelect,
               disabled,
               reason,
+              submenu,
             }))}
           />
         )}
@@ -708,6 +730,49 @@ export function TracksPage({
     go({ view: 'sets', set: 'draft', q: '', bpm: '', key: '', sort: '' });
   };
 
+  // Brief B (32a, 32g): a drag lifts the row, or the whole selection when the
+  // row is in it (one ghost with a count); Tracks is a source, never a target
+  const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
+  // The selection as a drag and Send to… both take it (review L5): in the
+  // list's order, not the order ticked; tracks whose file is missing left
+  // out and said so (all of them missing: the lift's own refusal says why)
+  const selectionItems = (): { items: DragItem[]; ids: string[] } => {
+    const chosen = tracks.filter((t) => picked.includes(t.id));
+    const usable = chosen.filter((t) => !t.file_missing);
+    const take = usable.length ? usable : chosen;
+    const missing = chosen.length - usable.length;
+    if (usable.length && missing)
+      window.showToast?.(
+        `${plural(missing, 'track')} left out: ${missing === 1 ? 'its file is' : 'their files are'} missing`,
+        'info',
+      );
+    return { items: take.map((t) => djItem(t, away?.words)), ids: take.map((t) => t.id) };
+  };
+  const itemsFor = (track: DjTrack): { items: DragItem[]; ids: string[] } => {
+    if (selecting && picked.includes(track.id)) return selectionItems();
+    return { items: [djItem(track, away?.words)], ids: [track.id] };
+  };
+  const liftFrom = (track: DjTrack): Lifted | null => {
+    const { items, ids } = itemsFor(track);
+    const rows = ids
+      .map((id) => listEl?.querySelector<HTMLElement>(`[data-track-row="${CSS.escape(id)}"]`))
+      .filter((el): el is HTMLElement => Boolean(el));
+    const indexes = ids.map((id) => tracks.findIndex((t) => t.id === id));
+    return { items, source: { kind: 'tracks', listId: 'tracks', indexes }, rows };
+  };
+  // UX-27's row grid and 32d's keys: Space picks the row (or the selection) up
+  // and, Tracks being only a source, asks where it goes (Send to…)
+  useRowGrid(listEl, {
+    rowSelector: '[data-track-row]',
+    hint: 'Arrows move between rows; Enter plays; Space sends the track (or the selection) to a set or Up next; the right arrow reaches its buttons.',
+    onSpace: (row) => {
+      const track = tracks.find((t) => t.id === row.getAttribute('data-track-row'));
+      if (!track || track.file_missing || away) return false;
+      openSendToTray(itemsFor(track).items);
+      return true;
+    },
+  });
+
   const keyPick = (
     <PickButton
       id={keyId}
@@ -857,6 +922,7 @@ export function TracksPage({
           {phone ? null : (
             <div className={styles.head} aria-hidden="true">
               <span />
+              <span />
               <span>Track</span>
               <span className={styles.headBpm}>BPM</span>
               <span>Key</span>
@@ -871,7 +937,7 @@ export function TracksPage({
               {away.words}
             </span>
           ) : null}
-          <ul className={`${hs.list} ${styles.list}`} aria-label="Your tracks">
+          <ul ref={setListEl} className={`${hs.list} ${styles.list}`} aria-label="Your tracks">
             {tracks.map((track) => (
               <TrackRow
                 key={track.id}
@@ -883,6 +949,7 @@ export function TracksPage({
                 checked={selecting && picked.includes(track.id)}
                 onToggle={() => toggle(track.id)}
                 progress={progressOf[track.id] ?? null}
+                lift={() => liftFrom(track)}
               />
             ))}
           </ul>
@@ -968,6 +1035,19 @@ export function TracksPage({
               label: 'Star all',
               disabled: !picked.length,
               onSelect: () => void starAll(),
+            },
+            // Brief B (32a): "drag them, or '…' → Send to…"
+            {
+              key: 'send',
+              label: 'Send to…',
+              disabled: !picked.length || Boolean(away),
+              reason: away?.words,
+              onSelect: () => {
+                const { items } = selectionItems();
+                if (items.some((t) => t.fileMissing))
+                  window.showToast?.("Can't be sent: their files are missing", 'info');
+                else openSendToTray(items);
+              },
             },
             {
               key: 'playlist',

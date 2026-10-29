@@ -463,6 +463,18 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
+/* Brief B (32b): a library track's grip sits in the row's 24px left padding */
+.row[data-dnd-row] {
+  position: relative;
+}
+
+.rowGrip {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+}
+
 .art {
   display: block;
   width: 48px;

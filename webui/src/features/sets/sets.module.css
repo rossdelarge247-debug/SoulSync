@@ -578,7 +578,7 @@
   border-top: 2px solid rgb(var(--ss-accent-light-rgb));
 }
 
-/* rows: grip, #, title/artist, BPM, key, E, length, Lock, Swap, … */
+/* rows: grip (Brief B's shared Grip, features/dnd), #, title/artist, BPM, key, E, length, Lock, Swap, … */
 .rows {
   display: flex;
   flex-direction: column;
@@ -611,10 +611,6 @@
   background: var(--ss-selected-fill);
 }
 
-.rowItem[data-drag-over='true'] .row {
-  box-shadow: inset 0 2px 0 rgb(var(--ss-accent-light-rgb));
-}
-
 .rowItem[data-state='missing'] .rowTitle,
 .rowItem[data-state='id'] .rowTitle {
   color: var(--ss-text-secondary);
@@ -624,19 +620,6 @@
 .rowItem[data-state='id'] .row,
 .rowItem[data-state='gone']:not([data-has-values]) .row {
   grid-template-columns: 24px 28px minmax(0, 1fr) auto 44px;
-}
-
-.rowItem[data-locked='true'] .grip {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-
-.grip {
-  display: inline-flex;
-  justify-content: center;
-  color: var(--ss-text-meta);
-  cursor: grab;
-  touch-action: none;
 }
 
 .num {
@@ -1369,6 +1352,11 @@ textarea.pasteText,
   }
 
   /* 28f: number, the track, its star (once starred), the lock mark, "…" */
+  /* 32f: the moving row's ▲▼ take the last column at 92px */
+  .rowItem[data-moving='true'] .row {
+    grid-template-columns: 24px minmax(0, 1fr) 44px auto 92px;
+  }
+
   .row {
     grid-template-columns: 24px minmax(0, 1fr) 44px auto 44px;
     padding: 4px 0;
@@ -1820,4 +1808,49 @@ textarea.pasteText,
   .wantPair button {
     min-height: 44px;
   }
+}
+
+/* Brief B, 32f: the phone's Move mode ("Moving Canopy · 5 of 8" · Done; ▲▼ on the row) */
+.moveHead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--ss-surface-card);
+  color: var(--ss-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.rowItem[data-moving='true'] .row {
+  border-radius: 10px;
+  background: var(--ss-selected-fill);
+}
+
+.moveArrows {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.moveArrows button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--ss-radius-control);
+  background: var(--ss-control-fill);
+  color: var(--ss-text);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.moveArrows button:disabled {
+  color: var(--ss-disabled-text);
+  background: transparent;
+  cursor: default;
 }

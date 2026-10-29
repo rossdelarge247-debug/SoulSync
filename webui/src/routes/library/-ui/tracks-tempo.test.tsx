@@ -153,6 +153,7 @@ describe('Double BPM / Halve BPM', () => {
       'Add to Up next',
       'Mixes well with…',
       'Add to set…',
+      'Send to…',
       'Add to playlist…',
       'Double BPMIt would be over 300 BPM',
       'Halve BPM',

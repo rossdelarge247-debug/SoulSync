@@ -14,6 +14,8 @@ export interface SheetAction {
   meta?: string;
   /** Brief D's glyph before the words (34c): the star, or Play next. */
   icon?: 'star' | 'starred' | 'next';
+  /** a desktop "…"'s submenu (Send to…, 32d); the sheet opens its own tray instead */
+  submenu?: SheetAction[];
 }
 
 function SheetIcon({ icon }: { icon: NonNullable<SheetAction['icon']> }) {

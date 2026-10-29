@@ -681,7 +681,11 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
     save without a revision, so an open page's older autosave is refused
     rather than undoing this. Returns ``{"added": [{"track_id", "number"}],
     "already": [...], "left_out": [{"id", "reason"}], "revision",
-    "tracks_changed"}``."""
+    "tracks_changed", "placed", "reset"}``. ``reset`` (with ``after``) names
+    the joins put back to Auto, ``[{"track_id", "number", "transition"}]``
+    (the row's number after the add, the transition it had), so a drop's
+    Undo can give them back once the added rows are out (Brief B's review,
+    M1)."""
     ids = list(dict.fromkeys(str(i) for i in track_ids if i not in (None, "")))
     found = {t["id"]: t for t in traktor.tracks_by_ids(database, ids)}
     left_out = []
@@ -720,21 +724,27 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
             # nothing added: where they would have gone
             where = "after" if at is not None else "end"
             added = []
+            reset = []
             if adding and at is not None:
                 fresh = [{"track_id": tid, "artist": found[tid].get("artist_name") or None,
                           "title": found[tid].get("title") or None, "line_at": None, "state": "owned",
                           "want": "yours", "version": None, "locked": 0, "note": None, "transition": None,
                           "mbid": None, "raw": None} for tid in adding]
                 placed = insert_keeping_locked(old_rows, at, fresh)
-                _write_rows(conn, sid, reset_changed_joins(old_rows, placed))
+                joined = reset_changed_joins(old_rows, placed)
+                _write_rows(conn, sid, joined)
                 fresh_ids = {id(r) for r in fresh}
                 where = placed_as(at, [i for i, r in enumerate(placed) if id(r) in fresh_ids], len(placed))
                 n = 0
-                for r in placed:
+                for r, j in zip(placed, joined, strict=True):
                     if r.get("track_id"):
                         n += 1
                         if id(r) in fresh_ids:
                             added.append({"track_id": r["track_id"], "number": n})
+                        elif j is not r:
+                            # its join was reset: what it was, for the Undo
+                            reset.append({"track_id": r["track_id"], "number": n,
+                                          "transition": read_transition(r.get("transition"))})
                 conn.commit()
             elif adding:
                 where = "end"
@@ -753,7 +763,7 @@ def append_tracks(database, profile_id: int, set_id: Any, track_ids: List[str], 
             conn.rollback()
             raise
     return {"added": added, "already": already, "left_out": left_out, "revision": revision,
-            "tracks_changed": bool(added), "placed": where}
+            "tracks_changed": bool(added), "placed": where, "reset": reset}
 
 
 #: one fixed statement per playlist field (no SQL is put together at run time)

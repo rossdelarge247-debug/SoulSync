@@ -10,6 +10,7 @@
 import { useQueries, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 
+import type { DragItem } from '@/features/dnd/dnd-model';
 import type { QualityRule } from '@/features/quality/quality.model';
 
 import { Button } from '@/components/form';
@@ -19,6 +20,8 @@ import { useDjInfo } from '@/features/dj/dj.api';
 import { usePlayingTrackId } from '@/features/dj/playing-track';
 import { RowPlay, playTrackNow, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
+import { Grip } from '@/features/dnd/grip';
+import { onGripDown, onRowTouch } from '@/features/dnd/items';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { StarButton, useStar } from '@/features/stars/star-button';
 import { AppLink } from '@/routes/activity/-ui/app-link';
@@ -125,6 +128,22 @@ function SearchTrackRow({
   const play = () => playTrackNow(queueTrack(track));
   const playNext = () => window.playNext?.(queueTrack(track));
   const anchor = () => ref.current?.querySelector<HTMLElement>('[aria-label^="More for"]');
+  // Brief B (32g): a library track with its file lifts; a result that isn't yours doesn't
+  const item: DragItem = {
+    id,
+    title: track.title,
+    artist: track.artist_name ?? null,
+    key: dj?.key ?? null,
+    bpm: dj?.bpm ?? null,
+    fileMissing: !owned,
+    inLibrary: owned,
+    queue: queueTrack(track),
+  };
+  const lift = () => ({
+    items: [item],
+    source: { kind: 'search' as const, listId: 'search', indexes: [0] },
+    rows: ref.current ? [ref.current] : [],
+  });
   const entries = owned
     ? trackMenu(
         { id, title: track.title, artist: track.artist_name ?? '' },
@@ -135,6 +154,7 @@ function SearchTrackRow({
           addToUpNext: { onSelect: () => window.addToQueue?.(queueTrack(track)) },
           play,
           anchor,
+          sendTo: [item],
           addToPlaylist: () =>
             openAddToPlaylist(
               {
@@ -157,6 +177,8 @@ function SearchTrackRow({
       data-star-row={owned ? id : undefined}
       data-row-play-host=""
       data-playing={playing ? 'true' : undefined}
+      data-dnd-row={owned ? 'search' : undefined}
+      onPointerDown={owned && phone ? onRowTouch(lift) : undefined}
       {...rowPlayHandlers(owned && !phone ? play : null, playing)}
       onClick={
         phone && owned
@@ -167,6 +189,10 @@ function SearchTrackRow({
           : undefined
       }
     >
+      {/* Brief B (32b): the grip, in the row's left padding (its reserved column) */}
+      {owned && !phone ? (
+        <Grip className={styles.rowGrip} onPointerDown={onGripDown(lift)} />
+      ) : null}
       <Art url={track.album_thumb_url} />
       <div className={styles.rowText}>
         <span className={styles.rowTitle}>{track.title}</span>

@@ -650,10 +650,12 @@ describe('Library → Sets', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Lock Lowtide Hymn' }));
     const first = document.querySelector('[data-set-row="0"]')!;
     expect(first.getAttribute('data-locked')).toBe('true');
-    expect(first.getAttribute('draggable')).not.toBe('true');
-    // the grip won't arm a locked row for dragging
-    fireEvent.pointerDown(first.querySelector('[title="Locked in its place"]')!);
-    expect(first.getAttribute('draggable')).not.toBe('true');
+    // Brief B: a locked row's grip is dimmed and doesn't lift (275)
+    const grip = first.querySelector('[title="Locked in its place"]')!;
+    expect(grip.getAttribute('data-locked')).toBe('');
+    fireEvent.pointerDown(grip, { pointerType: 'mouse', button: 0, clientX: 4, clientY: 4 });
+    fireEvent.pointerMove(window, { pointerType: 'mouse', clientX: 40, clientY: 40 });
+    expect(document.querySelector('[data-dnd-lifted]')).toBeNull();
     await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
     const locked = calls('/api/sets/7', 'PUT')[0].body as {
       tracks: { track_id: string | null; locked: boolean }[];
@@ -878,6 +880,7 @@ describe('a set’s page beyond 22c (28e, 28g)', () => {
       'Play next',
       'Mixes well with…',
       'Add to set…',
+      'Send to…',
       'Add to playlist…',
       'Move up',
       'Move down',
@@ -1299,5 +1302,122 @@ describe('the UX review on a set (UX-8, UX-19, UX-27, UX-30)', () => {
       await screen.findByText(/a draft stays in this browser until you save it as a set/),
     ).toBeTruthy();
     expect(screen.queryByText(/Add to set…, or below/)).toBeNull();
+  });
+});
+
+describe("Brief B on a set's page (32a–32d, 32f)", () => {
+  const toastsOf = () => {
+    const toasts: [string, unknown][] = [];
+    window.showToast = vi.fn((m: string, _t?: string, _c?: unknown, opts?: unknown) => {
+      toasts.push([m, opts]);
+    }) as never;
+    return toasts;
+  };
+  const rowEl = (i: number) => document.querySelector<HTMLElement>(`[data-set-row="${i}"]`)!;
+  const key = (el: HTMLElement, k: string, more: KeyboardEventInit = {}) =>
+    act(() => {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...more }));
+    });
+
+  it('the rows are one tab stop; Space lifts, the arrows move with the new steps, Enter drops with Undo (32d, UX-27)', async () => {
+    const toasts = toastsOf();
+    const { resetDndForTests, undoLast } = await import('@/features/dnd/dnd-engine');
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    await waitFor(() => expect(document.querySelectorAll('[data-step]').length).toBe(2));
+    await waitFor(() => expect(rowEl(0).getAttribute('tabindex')).toBe('0'));
+    expect(rowEl(1).getAttribute('tabindex')).toBe('-1');
+    expect(within(rowEl(0)).getByRole('button', { name: 'Lock Lowtide Hymn' })).toHaveAttribute(
+      'tabindex',
+      '-1',
+    );
+    const announce = () => document.querySelector('[data-set-announce]')!.textContent;
+    rowEl(0).focus();
+    key(rowEl(0), ' ');
+    expect(announce()).toBe(
+      'Picked up Lowtide Hymn, 1 of 4. Arrows move it; Enter drops; Escape cancels.',
+    );
+    expect(rowEl(0).getAttribute('data-dnd-lifted')).toBe('keyboard');
+    key(rowEl(0), 'ArrowDown');
+    expect(announce()).toBe(
+      'Lowtide Hymn, 2 of 4. After Foghorn Study: Smooth, 7A to 6A. Before Undertow: Smooth.',
+    );
+    key(rowEl(0), 'Enter');
+    await waitFor(() =>
+      expect(toasts.find(([m]) => m.startsWith('Moved'))?.[0]).toBe('Moved Lowtide Hymn to #2'),
+    );
+    expect(toasts.find(([m]) => m.startsWith('Moved'))?.[1]).toMatchObject({
+      ms: 6000,
+      action: { label: 'Undo' },
+    });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    expect(
+      (calls('/api/sets/7', 'PUT')[0].body as { tracks: { title: string }[] }).tracks.map(
+        (t) => t.title,
+      ),
+    ).toEqual(['Foghorn Study', 'Lowtide Hymn', 'Gravity Well', 'Undertow']);
+    // ⌘Z while the toast shows: the drop goes back
+    act(() => {
+      expect(undoLast()).toBe(true);
+    });
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(2), { timeout: 2000 });
+    expect(
+      (calls('/api/sets/7', 'PUT')[1].body as { tracks: { title: string }[] }).tracks.map(
+        (t) => t.title,
+      ),
+    ).toEqual(['Lowtide Hymn', 'Foghorn Study', 'Gravity Well', 'Undertow']);
+    resetDndForTests();
+  });
+
+  it('a drop from Tracks inserts at its place, previews its steps, and Undo takes it out (32a, 32b)', async () => {
+    const toasts = toastsOf();
+    const { getTarget, resetDndForTests } = await import('@/features/dnd/dnd-engine');
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    await waitFor(() => expect(document.querySelectorAll('[data-step]').length).toBe(2));
+    const target = getTarget('set-list:set:7')!;
+    const drag = {
+      items: [{ id: '6', title: 'Kelp Garden', key: '7A', bpm: 120, queue: { id: '6' } }],
+      source: { kind: 'tracks' as const, listId: 'tracks', indexes: [0] },
+      via: 'mouse' as const,
+    };
+    expect(target.preview!(drag, 1)).toMatchObject({
+      gap: 1,
+      line: 'Smooth · 6A → 7A, +1 · Smooth · 7A → 7A, same key into Foghorn Study',
+    });
+    // a duplicate is still a valid drop, and the line says so first
+    expect(target.preview!({ ...drag, items: [{ ...drag.items[0], id: '3' }] }, 1)).toMatchObject({
+      line: 'In it already · #3 · drop to add again',
+      duplicate: true,
+    });
+    let done: Awaited<ReturnType<typeof target.drop>> = null;
+    await act(async () => {
+      done = await target.drop(drag, 1);
+    });
+    expect(done!.words).toBe('Added Kelp Garden to Sunday Set · #2');
+    expect(await screen.findByText('Kelp Garden')).toBeTruthy();
+    act(() => void done!.undo!());
+    await waitFor(() => expect(screen.queryByText('Kelp Garden')).toBeNull());
+    expect(toasts).toEqual([]);
+    resetDndForTests();
+  });
+
+  it('a locked row holds: the line skips its place and says why (275)', async () => {
+    const { getTarget, resetDndForTests } = await import('@/features/dnd/dnd-engine');
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    await waitFor(() => expect(document.querySelectorAll('[data-step]').length).toBe(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock Foghorn Study' }));
+    const target = getTarget('set-list:set:7')!;
+    const drag = {
+      items: [{ id: '6', title: 'Kelp Garden', key: '7A', bpm: 120, queue: { id: '6' } }],
+      source: { kind: 'tracks' as const, listId: 'tracks', indexes: [0] },
+      via: 'mouse' as const,
+    };
+    expect(target.preview!(drag, 1)).toMatchObject({
+      gap: 2,
+      locked: { index: 1, words: 'Foghorn Study is locked in its place · drops land after it' },
+    });
+    resetDndForTests();
   });
 });

@@ -49,8 +49,12 @@ beforeEach(() => {
       { title: 'C', artist: 'Artist', file_path: '/c' },
       { title: 'D', artist: 'Artist', file_path: '/d' }
     ], npQueueIndex = 1, isPlaying = true, npLoadingQueueItem = false, npBuffering = false;
+    let npMoveIndex = null;
     const npQueueStatusLabel = () => '', npUpdateUpNext = () => {}, npPersistQueue = () => {},
-      npQueueDragStart = () => {}, npQueueDragOver = () => {}, npQueueDrop = () => {}, npQueueDragEnd = () => {},
+      npIsSpokenWord = () => false,
+      npMixHoldsNext = () => Boolean(window.__npMixHolds),
+      npFirstFreeIndex = () => npQueueIndex + 1 + (npMixHoldsNext() ? 1 : 0),
+      NP_PLAYING_NOW = "Can't undo: it's playing now", NP_INCOMING = "Can't replace the incoming track · drop after it", npStartMoveMode = () => {}, npEndMoveMode = () => {},
       updateNpPrevNextButtons = () => {}, npScheduleQueuePrefetch = () => {}, removeFromQueue = () => {};
     ${functions}
     return { render: renderNpQueue, state: () => ({ titles: npQueue.map(t => t.title), index: npQueueIndex }),

@@ -405,6 +405,15 @@ export interface AddedToSet {
   left_out: { id: string; reason: 'not_in_library' | 'file_missing' }[];
   revision: number;
   playlist_state: SavedSet['playlist_state'];
+  /** an add after a row (293): the joins it put back to Auto, and what they had (for an Undo) */
+  reset?: SetJoinReset[];
+}
+
+/** A row whose transition an add reset: its number after the add, its transition before. */
+export interface SetJoinReset {
+  track_id: string;
+  number: number;
+  transition: Transition;
 }
 
 /** "Add to set…": at the end; one the set holds is skipped unless `again`. */

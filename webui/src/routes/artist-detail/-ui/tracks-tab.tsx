@@ -1,11 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import type { DragItem } from '@/features/dnd/dnd-model';
+
 import { Button } from '@/components/form';
 import { EmptyState, LoadingState, Notice, SkeletonList } from '@/components/primitives';
 import { DjMeta } from '@/features/dj/dj-meta';
 import { useDjInfo } from '@/features/dj/dj.api';
 import { trackMenu } from '@/features/dj/track-menu';
+import { Grip } from '@/features/dnd/grip';
+import { onGripDown, onRowTouch } from '@/features/dnd/items';
 import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
 import { StarButton } from '@/features/stars/star-button';
 import { getShellBridge } from '@/platform/shell/bridge';
@@ -240,7 +244,10 @@ function LibraryTrackRow({
   addToPlaylist,
   artistName,
   dj,
+  queue,
 }: {
+  /** as Up next takes it (Brief B's drag carries it) */
+  queue: Record<string, unknown>;
   track: EnhancedTrack;
   title: string;
   focus: boolean;
@@ -253,6 +260,21 @@ function LibraryTrackRow({
 }) {
   const id = text(track.id);
   const rowRef = useRef<HTMLLIElement>(null);
+  // Brief B (32g): an album's or an artist's own track lifts (its file is here)
+  const item: DragItem = {
+    id,
+    title,
+    artist: artistName,
+    key: dj?.key ?? null,
+    bpm: dj?.bpm ?? null,
+    fileMissing: !track.file_path,
+    queue,
+  };
+  const lift = () => ({
+    items: [item],
+    source: { kind: 'album' as const, listId: 'artist-tracks', indexes: [0] },
+    rows: rowRef.current ? [rowRef.current] : [],
+  });
   const entries = trackMenu(
     { id, title, artist: artistName },
     {
@@ -261,6 +283,7 @@ function LibraryTrackRow({
       addToUpNext: { onSelect: addToQueue },
       play,
       anchor: () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
+      sendTo: [item],
       addToPlaylist,
     },
   );
@@ -271,7 +294,10 @@ function LibraryTrackRow({
       data-star-row={id}
       data-library-row=""
       data-focus={focus ? 'true' : undefined}
+      data-dnd-row="artist"
+      onPointerDown={onRowTouch(lift)}
     >
+      <Grip className={styles.rowGrip} onPointerDown={onGripDown(lift)} />
       <span className={styles.rowNum}>{text(track.track_number)}</span>
       <button
         type="button"
@@ -388,6 +414,7 @@ function LibraryTracks({
                     }}
                     artistName={artistName}
                     dj={djInfo[text(track.id)]}
+                    queue={queueTrackPayload(track, album, artist)}
                   />
                 );
               })}
