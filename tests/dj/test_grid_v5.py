@@ -384,3 +384,59 @@ def test_the_analysis_keeps_each_octaves_confidence(dnb):
     octave = r["octave_confidence"]
     assert set(octave) >= {"1"} and octave["1"] >= r["beat_confidence"]
     assert all(0.0 <= v <= 1.0 for v in octave.values())
+
+
+
+# ── grid v5's third review ───────────────────────────────────────────────────
+
+def test_each_octave_is_scored_on_its_own_not_with_the_measured_octaves_caps():
+    # H1: a real Amen at 170 read at 85 (held by the tie and the octave)
+    # scored its ×2 with free/base carried over: 0.40, held whatever was pressed
+    y, beats = pattern_track(174.0, 48, DNB)
+    feat = grid._features(y)
+    half = np.asarray(beats)[::2]
+    held = {"kind": "constant", "confidence": 0.3, "free_confidence": 0.3, "hits": 0.9, "agreement": 0.9,
+            "mad_ms": 2.0}
+    octave = grid.octave_confidences(feat, held, half, 0, None)
+    assert octave["1"] == pytest.approx(0.3)
+    assert octave["2"] >= grid.BEAT_CONFIDENT
+
+
+def test_a_persons_choice_leaves_the_agreement_s_hold(monkeypatch):
+    y, beats = pattern_track(174.0, 48, DNB)
+    feat = grid._features(y)
+    monkeypatch.setattr(grid, "_agreement_bands", lambda *a, **k: (0.2, 0.2))
+    grid_ = {"kind": "constant", "confidence": 0.3, "free_confidence": 0.3, "hits": 0.9, "agreement": 0.2,
+             "mad_ms": 2.0}
+    octave = grid.octave_confidences(feat, grid_, np.asarray(beats)[::2], 0, None)
+    assert octave["2"] < grid.BEAT_CONFIDENT
+
+
+def test_the_tempo_tie_is_one_of_the_questions_a_person_answers(monkeypatch):
+    y, beats = pattern_track(124.0, 48, FOUR, claps=True)
+    feat = grid._features(y)
+    monkeypatch.setattr(grid, "_tempo_unsure", lambda *a, **k: True)
+    g = grid.beat_grid(feat, 124.0)
+    assert g["unsure_tempo"] and g["confidence"] <= grid.TEMPO_UNSURE_CONFIDENCE
+    assert g["free_confidence"] >= grid.BEAT_CONFIDENT
+
+
+def test_a_slow_grid_whose_double_has_drum_and_bass_s_drums_is_held():
+    # M2: drum and bass read at half
+    y, beats = pattern_track(174.0, 64, DNB)
+    feat = grid._features(y)
+    half = np.asarray(beats)[::2]
+    assert grid._octave_unsure(feat, half, 87.0, None)
+    assert not grid._octave_unsure(feat, half, 87.0, "slow")
+    assert not grid._octave_unsure(feat, half, 87.0, None, None, 87.0)  # a tag says 87
+    y, b = pattern_track(87.0, 64, BOOM_BAP)
+    assert not grid._octave_unsure(grid._features(y), np.asarray(b), 87.0, None)
+
+
+def test_jazz_doesnt_settle_a_doubled_groove_s_octave(monkeypatch):
+    # L2: acid jazz, jazz funk at 80-100 read at double
+    monkeypatch.setattr(grid, "drum_and_bass_beats", lambda *a, **k: False)
+    y, b = pattern_track(87.0, 64, BOOM_BAP)
+    feat = grid._features(y)
+    assert grid._octave_unsure(feat, _doubled(b), 174.0, "free")
+    assert not grid._octave_unsure(feat, _doubled(b), 174.0, "fast")

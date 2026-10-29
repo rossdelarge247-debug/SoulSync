@@ -203,7 +203,7 @@ def _positive(value) -> Optional[float]:
 def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Dict[str, Any]]:
     """One track's DJ data for the page: ``{bpm, bpm_source, bpm_tag, key,
     key_name, key_long, key_source, key_confidence, key_uncertain, energy,
-    analyzed}``. A track analysis hasn't reached yet still shows the BPM
+    analyzed, skipped, bpm_unsure}``. A track analysis hasn't reached yet still shows the BPM
     enrichment found.
 
     The BPM is the person's ×2 / ÷2 (``override``), else the grid's measured
@@ -242,6 +242,9 @@ def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Di
         "energy": row.get("energy"),
         "analyzed": row.get("status") == "done",
         "skipped": skipped,
+        # held for beat-matching only until a person says which octave
+        # (``_BPM_UNSURE``): the track's "BPM is right"
+        "bpm_unsure": bool(row.get("bpm_unsure")),
     }
 
 
@@ -257,7 +260,8 @@ def lookup(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
             chunk = ids[start:start + 250]
             marks = ",".join("?" * len(chunk))
             rows = conn.execute(
-                f"SELECT t.id AS tid, t.bpm AS enrichment_bpm, {_GRID_BPM} AS grid_bpm, d.* FROM tracks t "
+                f"SELECT t.id AS tid, t.bpm AS enrichment_bpm, {_GRID_BPM} AS grid_bpm, {_BPM_UNSURE} AS bpm_unsure, "
+                f"d.* FROM tracks t "
                 f"LEFT JOIN track_dj d ON d.track_id = t.id {_GRID_JOIN} WHERE t.id IN ({marks}) AND {where}",
                 chunk + params).fetchall()
             for r in rows:
@@ -275,20 +279,35 @@ SORTS = ("bpm", "key", "energy", "title", "artist", "recent")
 #: mix (HANDOFF 300; since grid v5's review only a ready one: a grid held back
 #: may be at the wrong octave, and the DJ data's BPM stands then). Since its
 #: second review also a grid held only for its octave (ready at the octave
-#: it's at, ``octave`` in its mix regions) when the DJ data's BPM isn't an
-#: octave of it: untagged drum and bass at 174 showed the analysis's 117.5,
-#: whose ×2 (235) nobody wants. At an octave of the DJ data's BPM, that
-#: one shows, and a ×2 or ÷2 from it puts the grid at the octave chosen.
+#: it's at, or since the third at its ×2 or ÷2: ``octave`` in its mix
+#: regions) when the DJ data's BPM isn't an octave of it: untagged drum and
+#: bass at 174 showed the analysis's 117.5, whose ×2 (235) nobody wants. At
+#: an octave of the DJ data's BPM, that one shows, and a ×2, ÷2 or "BPM is
+#: right" from it puts the grid at the octave chosen, in one press.
 #: Every query that uses it or _BPM_SQL joins the grid as ``g`` (_GRID_JOIN)
 _GRID_DONE = f"g.status = 'done' AND g.grid_version >= {int(GRID_VERSION)}"
-_OCTAVE_FREE = f"COALESCE(json_extract(g.mix_json, '$.octave.\"1\"'), 0) >= {float(BEAT_CONFIDENT)}"
+def _octave_sql(key: str) -> str:
+    return (f"COALESCE(CASE WHEN json_valid(g.mix_json) THEN json_extract(g.mix_json, '$.octave.\"{key}\"') END, 0)")
+
+
+#: the grid would be ready at the octave it's at, once a person says so
+_OCTAVE_FREE = f"{_octave_sql('1')} >= {float(BEAT_CONFIDENT)}"
+#: or at its ×2 or ÷2: shown, so that one press of Double or Halve from the
+#: BPM shown reaches it (grid v5's third review: a real Amen read at 85 under
+#: an analysis's 117.5 showed 117.5, whose ×2 is 235)
+_OCTAVE_ANY = (f"MAX({_octave_sql('1')}, {_octave_sql('2')}, {_octave_sql('0.5')}) "
+               f">= {float(BEAT_CONFIDENT)}")
 _NOT_OCTAVE_OF_DJ = ("(d.bpm IS NULL OR d.bpm <= 0 OR (ABS(g.bpm / d.bpm - 2.0) > 0.08 "
                      "AND ABS(g.bpm / d.bpm - 0.5) > 0.02 AND ABS(g.bpm / d.bpm - 1.0) > 0.04))")
 _GRID_BPM = (f"CASE WHEN {_GRID_DONE} AND COALESCE(g.beat_confidence, 0) >= {float(BEAT_CONFIDENT)} THEN g.bpm "
-             f"WHEN {_GRID_DONE} AND {_OCTAVE_FREE} AND {_NOT_OCTAVE_OF_DJ} THEN g.bpm END")
+             f"WHEN {_GRID_DONE} AND {_OCTAVE_ANY} AND {_NOT_OCTAVE_OF_DJ} THEN g.bpm END")
 _GRID_JOIN = "LEFT JOIN track_grid g ON g.track_id = t.id"
 #: the BPM shown: a person's ×2 / ÷2, the measured grid, the DJ data, enrichment
 _BPM_SQL = f"COALESCE(d.bpm_override, {_GRID_BPM}, d.bpm, NULLIF(t.bpm, 0))"
+#: a grid held only because its octave (or a related tempo) isn't sure, with
+#: no person's BPM yet: the BPM's "BPM is right" (``confirm``) releases it
+_BPM_UNSURE = (f"CASE WHEN {_GRID_DONE} AND d.bpm_override IS NULL "
+               f"AND COALESCE(g.beat_confidence, 0) < {float(BEAT_CONFIDENT)} AND {_OCTAVE_FREE} THEN 1 ELSE 0 END")
 
 
 def _scope(database, alias: str = "t") -> Tuple[str, List[Any]]:
@@ -317,6 +336,7 @@ def _track_select() -> str:
             f"t.bitrate AS bitrate, t.album_id AS album_id, t.artist_id AS artist_id, t.bpm AS enrichment_bpm, "
             f"COALESCE(NULLIF(t.track_artist, ''), ar.name) AS artist_name, al.title AS album_title, "
             f"al.thumb_url AS album_thumb, {_BPM_SQL} AS eff_bpm, {_GRID_BPM} AS grid_bpm, "
+            f"{_BPM_UNSURE} AS bpm_unsure, "
             f"t.owner_profile_id AS track_owner, d.* "
             f"FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id {_GRID_JOIN} "
             f"LEFT JOIN artists ar ON ar.id = t.artist_id LEFT JOIN albums al ON al.id = t.album_id ")
@@ -502,7 +522,7 @@ def mixes_with(database, track_id: str, *, limit: int = 50, fix_art=None,
 # ── a person's ×2 or ÷2 ───────────────────────────────────────────────────────
 
 #: what the BPM route does to each track
-TEMPO_ACTIONS = {"double": 2.0, "halve": 0.5, "reset": None}
+TEMPO_ACTIONS = {"double": 2.0, "halve": 0.5, "reset": None, "confirm": 1.0}
 #: a BPM a person can set by ×2 or ÷2 stays within this
 OVERRIDE_RANGE = (40.0, 300.0)
 #: the most tracks one request changes
@@ -511,13 +531,17 @@ MAX_TEMPO_TRACKS = 500
 
 def set_tempo(database, track_ids: Iterable[str], action: str, *,
               profile_id: Optional[int] = None, is_admin: bool) -> Dict[str, Any]:
-    """Double, halve or reset the BPM of the caller's tracks (``action``
-    ``double``, ``halve`` or ``reset``), only those in their library scope
+    """Double, halve, confirm or reset the BPM of the caller's tracks
+    (``action`` ``double``, ``halve``, ``confirm`` or ``reset``), only those
+    in their library scope
     (``_scope``, as every DJ read). The value is kept as ``bpm_override``,
     which analysis never writes, so no later analysis undoes it. Each
     track's grid follows at once without a decode, always worked out from
     the grid as measured (grid_store.follow_override, which keeps it), and
-    ``reset`` puts the measured grid back. The person's BPM and the grid are
+    ``reset`` puts the measured grid back. ``confirm`` ("BPM is right")
+    keeps the BPM shown as the person's: a grid held only because its octave
+    wasn't sure is then ready in one press, at the octave shown (grid v5's
+    third review; Design question 399). The person's BPM and the grid are
     written in one transaction, which the sweep's grid save also takes, so
     neither can undo the other.
 
@@ -532,7 +556,7 @@ def set_tempo(database, track_ids: Iterable[str], action: str, *,
     from core.dj import grid_store
 
     if action not in TEMPO_ACTIONS:
-        raise ValueError("action must be double, halve or reset")
+        raise ValueError("action must be double, halve, confirm or reset")
     factor = TEMPO_ACTIONS[action]
     ids = list(dict.fromkeys(str(t) for t in track_ids if t not in (None, "")))[:MAX_TEMPO_TRACKS]
     changed: Dict[str, Optional[float]] = {}

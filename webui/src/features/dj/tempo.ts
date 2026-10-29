@@ -4,6 +4,8 @@
  * The server keeps it as the track's BPM (`bpm_source` `override`) so no
  * later analysis undoes it, and the track's beat grid follows it. Tracks'
  * row "…" and the selection's "…" offer it; "Use the measured BPM" undoes it.
+ * "BPM is right" (grid v5's third review) keeps the BPM shown as the
+ * person's, for a track whose beat grid waits only on its octave.
  */
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
@@ -67,7 +69,12 @@ export function tempoWords(
       : 'Nothing to change';
     return { words, tone: 'error' };
   }
-  if (action === 'reset') {
+  if (action === 'confirm') {
+    words =
+      changed.length === 1
+        ? `${bpmNumber(changed[0]![1] ?? 0)} BPM it is: ready to mix`
+        : `Kept the BPM of ${tracks(changed.length)}`;
+  } else if (action === 'reset') {
     words =
       changed.length === 1
         ? 'Back to the measured BPM'

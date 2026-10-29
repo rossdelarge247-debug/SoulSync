@@ -866,7 +866,8 @@ def _octave_unsure(feat, beats, bpm: float, family: Optional[str], hint: Optiona
     bass, hardcore, jazz: ``core/sample/tempo.py``); a tag's or enrichment's
     BPM at the grid's own octave (``evidence``; grid v5's second review); for
     a fast grid, drum and bass's drums (``drum_and_bass_beats``), which
-    outweigh a tag or hint at half (drum and bass is often tagged 87). A slow
+    outweigh a tag or hint at half (drum and bass is often tagged 87); and
+    a slow grid (70-100) whose double has them is held. A slow
     genre on a fast grid kept fast by its drums is held (they disagree).
     Doubled grooves at 70-100 read 140-200 confidently on Groove (grid v5's
     review)."""
@@ -874,8 +875,10 @@ def _octave_unsure(feat, beats, bpm: float, family: Optional[str], hint: Optiona
 
     if family == "slow" and bpm >= OCTAVE_FAST:
         return True  # kept fast against its genre by its drums (``_genre_octave``)
-    if family is not None:
+    if family is not None and family != "free":
         return False  # a genre has decided the octave (``_pick_tempo``)
+    # (jazz, ``free``, doesn't: acid jazz, jazz funk and nu jazz are grooves
+    # at 80-100 that read at double as easily; grid v5's third review)
     fast = bpm >= OCTAVE_FAST and bpm / 2.0 >= 70.0
     if fast and drum_and_bass_beats(feat, np.asarray(beats, dtype=np.float64)):
         return False  # drum and bass's drums, whatever a tag at half says (87 for 174)
@@ -890,6 +893,14 @@ def _octave_unsure(feat, beats, bpm: float, family: Optional[str], hint: Optiona
             return True
         if not conflict_only and abs(ratio - 1.0) <= 0.04:
             return False  # the tag or enrichment says this octave
+    if 70.0 <= bpm < 100.0 and not fast:
+        # a slow grid whose double has drum and bass's drums is a fast track
+        # read at half (grid v5's third review, M2); nothing else that tells
+        # a half-read fast track from a slow groove was found on the bench
+        beats = np.asarray(beats, dtype=np.float64)
+        if beats.size >= 16:
+            doubled = np.sort(np.concatenate([beats, beats[:-1] + np.diff(beats) / 2.0]))
+            return drum_and_bass_beats(feat, doubled)
     return fast
 
 
@@ -1238,9 +1249,12 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None, genres=Non
                                        tempo_evidence)
         if agree < AGREE_READY or agree_attack < AGREE_ATTACK_MIN:
             confidence = min(confidence, BEAT_CONFIDENT - 0.05)
+        # what a person's choice of this octave leaves: the agreement's hold
+        # stays, the octave's and the related tempo's go (grid v5's third
+        # review: they're the questions the person has answered)
+        free = confidence
         if unsure_tempo:
             confidence = min(confidence, TEMPO_UNSURE_CONFIDENCE)
-        free = confidence
         if unsure_octave:
             confidence = min(confidence, OCTAVE_UNSURE_CONFIDENCE)
         return confidence, unsure_tempo, unsure_octave, free
@@ -1765,27 +1779,31 @@ def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bo
 
 def octave_confidences(feat, grid: Dict[str, Any], beats, downbeat_index: int, half: Optional[int]) -> Dict[str, float]:
     """The grid's confidence at each octave a person can choose (×2, ÷2, or
-    this one), as if the octave were settled: what Double BPM or Halve BPM
-    gives the grid they leave (core/dj/grid_store.py ``follow_override``),
-    so a person's choice releases the octave's hold in one press, without
-    a decode (grid v5's second review: untagged drum and bass held at 0.45,
-    and its ×2 stayed held). Each is scored as the grid was (hits, the
-    agreement and its holds, the tempo tie), the steadiness and the
-    sixteenth doubt carried over; at ×2 the hits count the snares too.
-    ``{"1": c, "2": c, "0.5": c}``; ÷2 keeps the beats halving keeps."""
+    this one), as if they had chosen it: what Double BPM, Halve BPM or "BPM
+    is right" gives the grid they leave (core/dj/grid_store.py
+    ``follow_override``), so one press releases a grid held for its octave,
+    without a decode (grid v5's second review). Each octave is scored on its
+    own beats: its hits (at ×2 the snares count too) and the independent
+    tracker's agreement, with the agreement's holds, times the grid's
+    steadiness. Nothing tied to the measured octave is carried over: not the
+    octave's hold, not the related-tempo tie (the person has answered both),
+    which kept a real Amen break at 85 held at 0.40 after its ×2 (grid v5's
+    third review). ``{"1": c, "2": c, "0.5": c}``; ÷2 keeps the beats halving
+    keeps."""
     import numpy as np
 
-    out = {"1": float(grid.get("free_confidence", grid.get("confidence", 0.0)))}
+    out = {"1": round(float(grid.get("free_confidence", grid.get("confidence", 0.0))), 3)}
     beats = np.asarray(beats, dtype=np.float64)
     if beats.size < 16:
         return out
-    hits0 = float(grid.get("hits") or 0.0)
-    base = _confidence(hits0, float(grid.get("agreement") or 0.0))
-    carried = min(1.0, out["1"] / base) if base > 0 else 0.0
+    if grid.get("kind") == "beats":
+        steadiness = 0.8
+    else:
+        mad = float(grid.get("mad_ms") or 0.0)
+        steadiness = 0.6 + 0.4 * max(0.0, min(1.0, 1.0 - max(0.0, mad - 3.0) / 15.0))
     rms = feat["rms_db"]
     loud = float(np.percentile(rms, 95))
     drums = _drum_frames(feat)
-    times, weights = _onsets(beat_envelope(feat))
 
     def active(b):
         frames = np.clip(np.round(_t2f(b)).astype(int), 0, len(rms) - 1)
@@ -1806,11 +1824,9 @@ def octave_confidences(feat, grid: Dict[str, Any], beats, downbeat_index: int, h
         mask = active(b)
         hits = max(_hit_rate(beat_envelope(feat), b, mask), _hit_rate(feat["env"], b, mask))
         agree, agree_attack = _agreement_bands(feat, b, period, mask)
-        conf = _confidence(hits, agree) * carried
+        conf = _confidence(hits, agree) * steadiness
         if agree < AGREE_READY or agree_attack < AGREE_ATTACK_MIN:
             conf = min(conf, BEAT_CONFIDENT - 0.05)
-        if times.size >= 16 and _tempo_unsure(times, weights, period):
-            conf = min(conf, TEMPO_UNSURE_CONFIDENCE)
         out[key] = round(float(conf), 3)
     return out
 

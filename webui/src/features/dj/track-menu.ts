@@ -11,7 +11,8 @@ import { openMixWith } from '@/features/mix/open-mix';
  * docked Mixes panel is retired, HANDOFF 329).
  * Tracks, Listening history, the Artist page, Search, Mixes well with and a
  * set's rows all build their menu here, so the order stays one. Tracks
- * adds Double BPM and Halve BPM after Add to playlist… (HANDOFF 344).
+ * adds Double BPM and Halve BPM after Add to playlist… (HANDOFF 344), led by
+ * "BPM is right" when the beat grid waits only on its octave (Design 399).
  */
 import { openAddToMixSet } from '@/features/sets/add-to-mix-set';
 import { showsStar, starStore, type StarState } from '@/features/stars/stars-store';
@@ -71,6 +72,8 @@ export function trackMenu(
     tempo?: {
       bpm: number | null;
       overridden?: boolean;
+      /** the grid waits only on its octave: "BPM is right" settles it */
+      unsure?: boolean;
       /** why the person can't set it (a member, a shared track), or null */
       blocked?: string | null;
       onSet: (action: TempoAction) => void;
@@ -120,7 +123,15 @@ export function trackMenu(
   if (opts.addToPlaylist)
     entries.push({ key: 'playlist', label: 'Add to playlist…', onSelect: opts.addToPlaylist });
   if (opts.tempo?.bpm && !track.fileMissing) {
-    const { bpm, onSet, overridden, blocked } = opts.tempo;
+    const { bpm, onSet, overridden, unsure, blocked } = opts.tempo;
+    if (unsure)
+      entries.push({
+        key: 'confirm',
+        label: 'BPM is right',
+        onSelect: () => onSet('confirm'),
+        disabled: Boolean(blocked),
+        reason: blocked || undefined,
+      });
     const tooFast = bpm * 2 > TEMPO_MAX;
     const tooSlow = bpm / 2 < TEMPO_MIN;
     entries.push({

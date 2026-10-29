@@ -93,10 +93,10 @@ SLOW_GENRES = ("hip hop", "hiphop", "rap", "boom bap", "r and b", "rnb", "trip h
                "ambient", "dancehall", "downbeat", "reggaeton", "jazz hop", "jazzhop")
 #: slow genres named with a faster family's word, read before the families
 SLOW_FIRST = ("hardcore hip hop", "hardcore rap", "jazz hop", "jazzhop")
-#: genres whose tempo may be fast or slow, but whose fast reading is
-#: believable (bebop and swing at 180-300): they settle a grid's octave as
-#: it was found, and never double or halve it. A list that also names
-#: another family takes that one ("Drum And Bass, Dance, Jazz" is fast)
+#: genres whose tempo may be fast or slow (bebop and swing at 180-300, acid
+#: jazz and jazz funk at 80-100): they never double or halve a reading, and
+#: don't settle a grid's octave either (core/dj/grid.py). A list that also
+#: names another family takes that one ("Drum And Bass, Dance, Jazz" is fast)
 FREE_GENRES = ("jazz", "bebop", "swing", "big band", "jazz fusion")
 
 # the first family a genre names wins (drum and bass before dub), after

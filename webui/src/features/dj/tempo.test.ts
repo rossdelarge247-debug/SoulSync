@@ -101,4 +101,30 @@ describe('the "…" menu', () => {
       ),
     ).toBe(false);
   });
+
+  it('offers "BPM is right" first when the grid waits only on its octave', () => {
+    const t = { id: '1', title: 'Night Ferry' };
+    const onSet = vi.fn();
+    const entries = trackMenu(t, { tempo: { bpm: 174, onSet, unsure: true } });
+    expect(
+      entries.filter((e) => ['confirm', 'double', 'halve'].includes(e.key)).map((e) => e.key),
+    ).toEqual(['confirm', 'double', 'halve']);
+    const confirm = entries.find((e) => e.key === 'confirm')!;
+    expect(confirm.label).toBe('BPM is right');
+    expect(confirm.disabled).toBe(false);
+    confirm.onSelect();
+    expect(onSet).toHaveBeenCalledWith('confirm');
+    // a member, a shared track: shown, but not theirs to set
+    expect(
+      trackMenu(t, { tempo: { bpm: 174, onSet, unsure: true, blocked: 'Only an admin' } }).find(
+        (e) => e.key === 'confirm',
+      ),
+    ).toMatchObject({ disabled: true, reason: 'Only an admin' });
+    expect(trackMenu(t, { tempo: { bpm: 174, onSet } }).some((e) => e.key === 'confirm')).toBe(
+      false,
+    );
+    expect(tempoWords('confirm', { changed: { '1': 174 }, skipped: {} }).words).toBe(
+      '174 BPM it is: ready to mix',
+    );
+  });
 });

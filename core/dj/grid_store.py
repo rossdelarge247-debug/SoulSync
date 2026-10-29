@@ -294,7 +294,13 @@ def rescale(row: Dict[str, Any], factor: float) -> Dict[str, Any]:
         if end > start:
             new_sections.append([part[0], start, end, part[3]])
     new_changes = sorted({to_bar(c) for c in changes if 0 < to_bar(c) < new_bars})
-    new_mix = {}
+    # each octave's confidence stays with the mix regions (relative to the
+    # measured grid, which a person's BPM is always worked out from); which
+    # beats a ÷2 keeps is known after a ×2 (the measured beats: the even
+    # ones), not after a ÷2
+    new_mix = {"octave": mix["octave"]} if "octave" in mix else {}
+    if factor == 2.0:
+        new_mix["half"] = 0
     for side in ("in", "out"):
         region = mix.get(side)
         if isinstance(region, list) and len(region) >= 4:

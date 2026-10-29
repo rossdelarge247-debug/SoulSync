@@ -137,7 +137,8 @@ def test_double_doubles_what_is_shown_and_the_grid_exactly(db):
     for b in range(16):
         assert grid.bar(2 * b) == pytest.approx(before.bar(b), abs=1e-6)
     assert json.loads(after["sections_json"]) == [["intro", 0, 16, 0.5], ["main", 16, 32, 0.5]]
-    assert json.loads(after["mix_json"]) == {"in": [0, 16, 0.6, "intro"], "out": [16, 32, 0.6, "outro"]}
+    # a doubled grid's ÷2 keeps the measured beats, the even ones (grid v5's third review, L4)
+    assert json.loads(after["mix_json"]) == {"in": [0, 16, 0.6, "intro"], "out": [16, 32, 0.6, "outro"], "half": 0}
     assert json.loads(after["phrases_json"]) == phrases_from([16], 32)
     public = grid_store.public(after, "1")
     assert public["bpm"] == 174.0 and public["sections"][1]["start"] == pytest.approx(before.bar(8), abs=1e-3)
@@ -577,3 +578,82 @@ def test_a_grid_held_only_for_its_octave_shows_its_bpm_unless_the_dj_datas_is_an
     _dj(db, "3", 117.5)
     grid_store.save_result(db, "3", _held_for_octave(174.0, {"1": 0.45}), source_sig="sig")
     assert _shown(db, "3")["bpm"] == 117.5
+
+
+# ── grid v5's third review: "BPM is right", and every octave-tied cap ────────
+
+def test_bpm_is_right_releases_a_grid_held_for_its_octave_in_one_press(db):
+    # M1: shown 174 (the DJ data said 117.5), ×2 out of range: before, only
+    # ÷2 then ×2 released it
+    _dj(db, "1", 117.5)
+    grid_store.save_result(db, "1", _held_for_octave(174.0, {"1": 0.91, "0.5": 0.45}), source_sig="sig")
+    shown = _shown(db, "1")
+    assert (shown["bpm"], shown["bpm_unsure"]) == (174.0, True)
+    out = store.set_tempo(db, ["1"], "confirm", profile_id=1, is_admin=True)
+    assert out["changed"] == {"1": 174.0}
+    row = grid_store.get(db, "1")
+    assert row["bpm"] == pytest.approx(174.0, abs=0.01) and row["beat_confidence"] == pytest.approx(0.91)
+    shown = _shown(db, "1")
+    assert (shown["bpm"], shown["bpm_source"], shown["bpm_unsure"]) == (174.0, "override", False)
+    # and "Use the measured BPM" puts the hold back
+    store.set_tempo(db, ["1"], "reset", profile_id=1, is_admin=True)
+    assert grid_store.get(db, "1")["beat_confidence"] == 0.45 and _shown(db, "1")["bpm_unsure"]
+
+
+def test_bpm_is_right_at_the_other_octave_shown_takes_that_octave(db):
+    # the DJ data's 87 shows (an octave of the held 174): "BPM is right" there
+    # settles the grid at 87
+    _dj(db, "1", 87.0, source="tag")
+    grid_store.save_result(db, "1", _held_for_octave(174.0, {"1": 0.91, "0.5": 0.62}), source_sig="sig")
+    assert _shown(db, "1")["bpm"] == 87.0
+    store.set_tempo(db, ["1"], "confirm", profile_id=1, is_admin=True)
+    row = grid_store.get(db, "1")
+    assert row["bpm"] == pytest.approx(87.0, abs=0.01) and row["beat_confidence"] == pytest.approx(0.62)
+
+
+def test_a_ready_grid_or_one_held_for_its_beats_isnt_unsure(db):
+    _dj(db, "1", 87.0)
+    _grid(db, "1", bpm=87.0)
+    assert _shown(db, "1")["bpm_unsure"] is False
+    _dj(db, "2", 117.5)
+    grid_store.save_result(db, "2", _held_for_octave(174.0, {"1": 0.45}), source_sig="sig")
+    assert _shown(db, "2")["bpm_unsure"] is False
+
+
+def test_bpm_is_right_through_the_route(client, db):
+    client.state["admin"] = True
+    res = _post(client, track_ids=["1"], action="confirm")
+    assert res.status_code == 200 and res.get_json()["changed"] == {"1": 87.0}
+    bad = _post(client, track_ids=["1"], action="pin")
+    assert bad.status_code == 400 and "confirm" in bad.get_json()["error"]
+
+
+def test_a_broken_mix_json_never_breaks_the_bpm_shown(db):
+    # L3: json_extract on text that isn't JSON raises in SQLite
+    _dj(db, "1", 117.5)
+    grid_store.save_result(db, "1", _held_for_octave(174.0), source_sig="sig")
+    _sql(db, "UPDATE track_grid SET mix_json = 'not json' WHERE track_id = '1'")
+    assert _shown(db, "1")["bpm"] == 117.5
+
+
+def test_a_rescaled_grid_keeps_each_octaves_confidence_and_after_a_double_its_halving_beats(db):
+    # L4
+    _dj(db, "1", 87.0, source="tag")
+    grid_store.save_result(db, "1", {**_held_for_octave(87.0), "half_parity": 1}, source_sig="sig")
+    store.set_tempo(db, ["1"], "double", profile_id=1, is_admin=True)
+    mix = json.loads(grid_store.get(db, "1")["mix_json"])
+    assert mix["octave"] == {"1": 0.74, "2": 0.71, "0.5": 0.45} and mix["half"] == 0
+    store.set_tempo(db, ["1"], "reset", profile_id=1, is_admin=True)
+    store.set_tempo(db, ["1"], "halve", profile_id=1, is_admin=True)
+    assert "half" not in json.loads(grid_store.get(db, "1")["mix_json"])
+
+
+def test_a_grid_held_at_half_whose_double_is_ready_shows_its_bpm_so_one_double_fixes_it(db):
+    # a real Amen at 170 read at 85 under an analysis's 117.5 showed 117.5:
+    # its ×2 was 235, and no press reached 170 (grid v5's third review)
+    _dj(db, "1", 117.5)
+    grid_store.save_result(db, "1", _held_for_octave(85.0, {"1": 0.45, "2": 0.8, "0.5": 0.45}), source_sig="sig")
+    assert _shown(db, "1")["bpm"] == 85.0 and _shown(db, "1")["bpm_unsure"] is False
+    store.set_tempo(db, ["1"], "double", profile_id=1, is_admin=True)
+    row = grid_store.get(db, "1")
+    assert row["bpm"] == pytest.approx(170.0, abs=0.01) and row["beat_confidence"] == pytest.approx(0.8)

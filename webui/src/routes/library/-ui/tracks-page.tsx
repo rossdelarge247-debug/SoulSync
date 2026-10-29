@@ -166,6 +166,7 @@ function moreEntries(
       tempo: {
         bpm: track.dj?.bpm ?? null,
         overridden: track.dj?.bpm_source === 'override',
+        unsure: Boolean(track.dj?.bpm_unsure),
         blocked: canSetTempo,
         onSet: (action) => void setTempo([track.id], action),
       },

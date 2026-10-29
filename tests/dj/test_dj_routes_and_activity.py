@@ -130,7 +130,7 @@ def test_track_rows_lookup(client):
     one = body["tracks"]["1"]
     assert one == {"bpm": 124.0, "bpm_source": "analysis", "bpm_tag": None, "key": "8A", "key_name": "Am", "key_long": "A minor",
                    "key_source": "analysis", "key_confidence": 0.8, "key_uncertain": False, "energy": 7,
-                   "analyzed": True, "skipped": None}
+                   "analyzed": True, "skipped": None, "bpm_unsure": False}
     # not analysed yet: the BPM enrichment found
     assert body["tracks"]["9"]["bpm"] == 128.0 and body["tracks"]["9"]["bpm_source"] == "enrichment"
     assert body["tracks"]["9"]["key"] is None
