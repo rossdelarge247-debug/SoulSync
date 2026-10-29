@@ -332,9 +332,12 @@ def mark_analyzing_again(database, before: Dict[str, Any], source_sig: Optional[
     """``analyzing`` before Analyse again's decode, keeping the grid it
     replaces in the row's reason (``fail_leftover_analyzing`` puts it back)."""
     track_id = str(before["track_id"])
-    mark(database, track_id, "analyzing", None, source_sig=source_sig)
     kept = {f: before.get(f) for f in _FIELDS}
-    _save(database, track_id, {"reason": AGAIN_PREFIX + json.dumps(kept, separators=(",", ":"))})
+    # one write: the status and the grid it keeps land together
+    _save(database, track_id, {"grid_version": GRID_VERSION, "analyzed_at": time.time(), "status": "analyzing",
+                               "reason": AGAIN_PREFIX + json.dumps(kept, separators=(",", ":")),
+                               "source_sig": source_sig, "kind": None, "beats_ms": None, "phrases_json": None,
+                               "sections_json": None, "mix_json": None, "measured_json": None})
 
 
 def get(database, track_id: str) -> Optional[Dict[str, Any]]:
@@ -365,8 +368,11 @@ def fail_leftover_analyzing(database) -> int:
         except ValueError:
             continue
         if isinstance(before, dict) and before.get("status"):
-            restore(database, {**before, "track_id": track_id})
-            restored += 1
+            try:
+                restore(database, {**before, "track_id": track_id})
+                restored += 1
+            except Exception as exc:  # noqa: BLE001 - a locked database never stops the sweep starting
+                logger.warning("Couldn't put track %s's grid back after a crash: %s", track_id, exc)
     with closing(database._get_connection()) as conn:
         cur = conn.execute("UPDATE track_grid SET status = 'error', reason = ? WHERE status = 'analyzing'",
                            ("SYNCHRO.S stopped while finding this track's beats; skipped",))

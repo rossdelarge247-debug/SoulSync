@@ -421,3 +421,21 @@ def test_a_crash_in_analyse_agains_decode_keeps_the_old_grid(db):
     assert {k: after[k] for k in grid_store._FIELDS if k != "analyzed_at"} == \
         {k: before[k] for k in grid_store._FIELDS if k != "analyzed_at"}
     assert grid_store.get(db, "9")["status"] == "error"
+
+
+def test_a_restore_that_fails_at_the_sweeps_start_doesnt_stop_it(db, monkeypatch):
+    """The follow-up's review: a locked database while a crashed Analyse
+    again's grid is put back is logged; the rest are still failed as before."""
+    _track(db, 10, "/stored/10.wav")
+    store.save(db, "10", {"bpm": 124.0, "status": "done", "dj_analyzer_version": worker.analyzer_version()})
+    grid_store.save_result(db, "10", _grid_result(124.0), source_sig="s")
+    grid_store.mark_analyzing_again(db, grid_store.get(db, "10"), "s")
+    row = grid_store.get(db, "10")
+    assert row["status"] == "analyzing" and row["reason"].startswith(grid_store.AGAIN_PREFIX)
+
+    def locked(*a, **k):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(grid_store, "restore", locked)
+    assert grid_store.fail_leftover_analyzing(db) == 1  # failed as a plain crash
+    assert grid_store.get(db, "10")["status"] == "error"

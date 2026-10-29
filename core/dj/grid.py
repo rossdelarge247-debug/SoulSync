@@ -663,15 +663,62 @@ BACKBEAT_SHARE = 0.5
 #: weaker one is taken for the bass (dance music's kick leads the low band;
 #: a bass much louder than the kick can still fool it: HANDOFF, the review)
 RIVAL_STRENGTH = 0.9
-#: a rolling bass: even lines on two or more of the other sixteenths, each at
-#: least this strong against the beat's (a bass note's tail measures 0.10, a
-#: rolling bass's notes 0.15 and up), and no backbeat. The low band is busy
-#: on every sixteenth, so the comb's line may be a bass note rather than the
-#: kick (the phase follow-up of 29 October: a rolling three-sixteenths bass
-#: over a kick at 0.9 was a sixteenth off at 0.98-0.99). An off-beat bass is
-#: one line; a kick alone, none
+#: the beat's onsets are a kick's when the low band's pitch falls by this
+#: much (mel bins of its centroid, onset to 46 ms on: a kick's sweep measures
+#: 0.15-0.72 on the generated ones, a bass note or a tom -0.04-0.04) and its
+#: sub has fallen under this share of the onset 80 ms on (a kick 0.05-0.10, a
+#: held bass note 0.94-1.04)
+KICK_PITCH_DROP = 0.1
+KICK_DECAY = 0.5
+
+
+def kick_onsets(feat, beats) -> bool:
+    """The onsets on ``beats`` sound like a kick, not a bass note or a tom:
+    in the low band (under 160 Hz) the pitch falls fast after the onset (the
+    kick's sweep) and the level drops (a short sub); the median over the
+    beats where the low band plays. False when it can't be told."""
+    import librosa
+    import numpy as np
+
+    if "mel_db" not in feat or len(beats) < 16:
+        return False
+    freqs = librosa.mel_frequencies(n_mels=N_MELS, fmin=30.0, fmax=8000.0)
+    low = np.where(freqs < 160.0)[0]
+    if low.size < 3:
+        return False
+    mel = 10.0 ** (np.asarray(feat["mel_db"])[low] / 10.0)
+    n = mel.shape[1]
+    total = mel.sum(axis=0)
+    bins = np.arange(low.size)
+    drops, decays, levels = [], [], []
+    for f in np.round(_t2f(np.asarray(beats, dtype=np.float64))).astype(int):
+        lo, hi = max(0, f - 2), min(n - 8, f + 3)
+        if hi <= lo:
+            continue
+        at = lo + int(np.argmax(total[lo:hi]))
+        later = min(n - 1, at + 4)
+        centre = float((mel[:, at] * bins).sum() / (total[at] + 1e-12))
+        after = float((mel[:, later] * bins).sum() / (total[later] + 1e-12))
+        drops.append(centre - after)
+        decays.append(float(total[min(n - 1, at + 7)] / (total[at] + 1e-12)))
+        levels.append(float(total[at]))
+    if len(levels) < 16:
+        return False
+    levels_a = np.asarray(levels)
+    playing = levels_a >= 0.3 * float(np.percentile(levels_a, 90))
+    if int(playing.sum()) < 16:
+        return False
+    return (float(np.median(np.asarray(drops)[playing])) >= KICK_PITCH_DROP
+            and float(np.median(np.asarray(decays)[playing])) <= KICK_DECAY)
+
+
+#: another sixteenth's low-band line at least this strong against the beat's
+#: and as even (a bass, toms, a rumble; an off-beat bass note's tail measures
+#: 0.10) makes a grid with no backbeat ask whether its beat sounds like a kick
+#: (``kick_onsets``); one that doesn't is held (the phase follow-up of 29
+#: October: a rolling three-sixteenths bass was a sixteenth off at 0.98-0.99,
+#: a loud off-beat bass an eighth off at 1.00)
 BUSY_LINE_STRENGTH = 0.125
-BUSY_LINES = 2
 #: a four-on-the-floor grid with a rival line and no backbeat to choose
 #: between them stays under the bar for beat-matching (gauntlet review M1:
 #: techno with a bass louder than its kick was a beat off, at 1.00)
@@ -848,18 +895,23 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
             rivals = [c for c in (1, 2, 3) if lines[c][0] >= FLOOR_EVENNESS
                       and lines[c][1] >= RIVAL_STRENGTH * max(strength0, 1e-9)]
             backed = backbeat0 >= BACKBEAT_SHARE
-            busy = [c for c in (1, 2, 3) if lines[c][0] >= FLOOR_EVENNESS
-                    and lines[c][1] >= BUSY_LINE_STRENGTH * max(strength0, 1e-9)]
-            if len(busy) >= BUSY_LINES and not rivals:
-                rivals = busy
-            if rivals and not backed:
-                # a rival line with the backbeat on it: that's the kick
-                best = max(rivals, key=lambda c: lines[c][2])
+            others = [c for c in (1, 2, 3) if lines[c][0] >= FLOOR_EVENNESS
+                      and lines[c][1] >= BUSY_LINE_STRENGTH * max(strength0, 1e-9)]
+            if (rivals or others) and not backed:
+                # another even line in the low band (an off-beat or rolling
+                # bass, toms, a rumble): one with the backbeat on it is the
+                # kick's; else the beat's own onsets say whether they're a
+                # kick (a pitch falling fast, a short sub) or a bass note
+                # (steady and held), and only the bass is held (the phase
+                # follow-up of 29 October: a bass taken for the beat was
+                # an eighth or a sixteenth off at 0.98-1.00)
+                candidates = rivals or others
+                best = max(candidates, key=lambda c: lines[c][2])
                 if lines[best][2] >= BACKBEAT_SHARE:
                     beats = beats + best * period / 4.0
                     beats = beats[(beats >= -0.02) & (beats < duration)]
                     backed = True
-                else:
+                elif not kick_onsets(feat, beats):
                     unsure_phase = True
         broken = bool(shift) and not floor
         # a break's beats are told by the whole spectrum (its snares), not the kick
