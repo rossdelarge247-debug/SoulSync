@@ -218,6 +218,28 @@ def test_l5_add_after_keeps_locked_rows_and_resets_the_changed_joins(client):
     assert tr["8"] == {"style": "auto", "bars": None}
 
 
+@pytest.mark.gauntlet
+def test_m1_the_add_names_the_joins_it_reset_for_an_undo(client):
+    """Brief B's review M1: a drop's Undo takes the added rows out and gives
+    the reset joins back, so the add answers which they were and what they had."""
+    rows = [{"track_id": "1", "state": "owned", "transition": {"style": "long_blend", "bars": 32}},
+            {"track_id": "2", "state": "owned", "transition": {"style": "cut"}},
+            {"track_id": "3", "state": "owned", "locked": True, "transition": {"style": "bass_swap", "bars": 8}},
+            {"track_id": "4", "state": "owned"}]
+    set_id = client.post("/api/sets", json={"name": "Locked", "kind": "hand", "tracks": rows}).get_json()["id"]
+    body = client.post(f"/api/sets/{set_id}/tracks",
+                       json={"track_ids": ["8"], "after": {"track_id": "1", "number": 1}}).get_json()
+    # numbers as the rows stand after the add: 1, 8, 3, 2, 4
+    assert body["reset"] == [
+        {"track_id": "1", "number": 1, "transition": {"style": "long_blend", "bars": 32}},
+        {"track_id": "3", "number": 3, "transition": {"style": "bass_swap", "bars": 8}},
+        {"track_id": "2", "number": 4, "transition": {"style": "cut", "bars": None}},
+    ]
+    # at the end, or with no join changed, nothing is reset
+    end = client.post(f"/api/sets/{set_id}/tracks", json={"track_ids": ["5"]}).get_json()
+    assert end["reset"] == []
+
+
 def test_l9_placed_says_where_the_tracks_really_went():
     assert sets_store.placed_as(0, [1, 2], 5) == "after"
     assert sets_store.placed_as(0, [2], 4) == "later"

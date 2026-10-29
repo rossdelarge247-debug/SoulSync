@@ -292,7 +292,7 @@ def add_tracks(set_id: int):
         return _failed("add", exc)
     return _ok({"id": set_id, "name": saved.get("name", ""), "added": done["added"], "already": done["already"],
                 "left_out": done["left_out"], "revision": done["revision"], "playlist_state": state,
-                "placed": done["placed"]})
+                "placed": done["placed"], "reset": done.get("reset", [])})
 
 
 # ── the working set (the Mix tab, 29a) ────────────────────────────────────────
