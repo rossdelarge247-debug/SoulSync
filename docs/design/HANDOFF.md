@@ -171,6 +171,7 @@ Built on `feat/step3-tray` from `integration` (d9a6635b): step 3 of Design's bui
 - **L4:** Vibe, remembered, asks the AI only once the AI says it can be used and only while the Mix tab is shown.
 - **L6:** a "Settings → Library → DJ" request isn't used up by the tab Settings shows first.
 - **L7:** the Sets page's file comment is back at its top.
+- **The re-review's Lows:** an Undo whose set page has gone takes its toast down with the page (`dismissToast`), and a late press says "Can't undo here: open the set to change it" (a); a move is undone to after the row that was before it, so a row put in above since doesn't leave it one place off (b); a just-started row's Playing button (Brief D's rows and Up next) does nothing while its track loads, and reads "Loading …", and Play for the loading track leaves it to start (c).
 
 **Merged with the mixing fix** (`integration` at 14564619, "Dev, mixing fix of 28 October", below): its working set's readiness line and "Play Sunday Set as a mix" (`features/mix/working-set-mix.tsx`) sit in step 3's set card in the tray (under Add, and under "Playing …" while a set plays, where its button hides) and under the picker in the phone's Set tab, since step 3's tray has no working-set column or strip.
 
