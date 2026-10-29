@@ -1200,6 +1200,35 @@ describe('the UX review on a set (UX-8, UX-19, UX-27, UX-30)', () => {
     ]);
   });
 
+  it('[re-review Low a] leaving the set page takes its Undo down; a late Undo says so and saves nothing', async () => {
+    const toasts: [string, unknown][] = [];
+    window.showToast = vi.fn((m: string, _t?: string, _c?: unknown, opts?: unknown) => {
+      toasts.push([m, opts]);
+    }) as never;
+    const dismissToast = vi.fn(() => true);
+    window.dismissToast = dismissToast;
+    try {
+      renderPage('/library?view=sets&set=7');
+      await screen.findByDisplayValue('Sunday Set');
+      const row = document.querySelector<HTMLElement>('[data-set-row="1"]')!;
+      fireEvent.click(within(row).getByRole('button', { name: 'More for Foghorn Study' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove from set' }));
+      await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+      const [, opts] = toasts.find(([m]) => m.startsWith('Removed'))!;
+      expect(opts).toMatchObject({ key: 'set-undo' });
+      // back to Sets: the page goes, and its toast with it
+      fireEvent.click(screen.getByRole('button', { name: 'Sets' }));
+      await screen.findByRole('heading', { level: 1, name: 'Sets' });
+      expect(dismissToast).toHaveBeenCalledWith('set-undo');
+      act(() => (opts as { action: { run: () => void } }).action.run());
+      expect(toasts.at(-1)?.[0]).toBe("Can't undo here: open the set to change it");
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      expect(calls('/api/sets/7', 'PUT')).toHaveLength(1);
+    } finally {
+      delete window.dismissToast;
+    }
+  });
+
   it('[gauntlet H1] Undo of a move whose row has gone says so and changes nothing', async () => {
     const { MIX_SET_CHANGED } = await import('@/features/sets/sets.api');
     const toasts: [string, unknown][] = [];

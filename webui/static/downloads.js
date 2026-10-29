@@ -5781,6 +5781,7 @@ function showToast(message, type = 'success', helpSection = null, opts = null) {
         link.onclick = e => { e.stopPropagation(); if (typeof navigateToDocsSection === 'function') navigateToDocsSection(helpSection); };
         toast.appendChild(link);
     }
+    if (opts && opts.key) toast.dataset.toastKey = String(opts.key);
     const close = () => { toast.classList.add('toast-exit'); setTimeout(() => { if (container.contains(toast)) container.removeChild(toast); }, 200); };
     if (action) {
         const button = document.createElement('button');
@@ -5820,6 +5821,19 @@ function showToast(message, type = 'success', helpSection = null, opts = null) {
     // set's Undo asks for 10 s); a help link 5 s
     }, action ? (opts.ms > 0 ? opts.ms : 6000) : helpSection ? 5000 : 3500);
 }
+
+/** Take down the showing toast if it was put up with this opts.key (an Undo whose page has gone). */
+function dismissToast(key) {
+    const toast = _notifState.currentToast;
+    const container = document.getElementById('toast-container');
+    if (!toast || !container || !container.contains(toast) || toast.dataset.toastKey !== String(key)) return false;
+    if (_notifState.toastTimer) clearTimeout(_notifState.toastTimer);
+    _notifState.currentToast = null;
+    toast.classList.add('toast-exit');
+    setTimeout(() => { if (container.contains(toast)) container.removeChild(toast); }, 200);
+    return true;
+}
+window.dismissToast = dismissToast;
 
 /** One polite live region for notices with a control in them. */
 function _toastLive(words) {

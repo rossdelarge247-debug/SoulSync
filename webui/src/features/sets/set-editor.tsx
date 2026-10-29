@@ -88,6 +88,9 @@ import styles from './sets.module.css';
 import { SwapPanel, TrackSheet, trackMeta } from './swap-panel';
 import { undoMove, undoRemove, undoSwap } from './undo-rows';
 
+/** a set page's Undo toast, taken down when the page goes */
+const UNDO_TOAST_KEY = 'set-undo';
+
 /** what a swap changes, so its Undo puts exactly those back */
 const SWAP_FIELDS = ['track_id', 'artist', 'title', 'state', 'version', 'want'] as const;
 
@@ -943,6 +946,15 @@ export function SetEditor({
 
   const rowsNow = useRef(rows);
   rowsNow.current = rows;
+  // re-review Low a: an Undo can't act on a page that's gone; its toast goes with it
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      window.dismissToast?.(UNDO_TOAST_KEY);
+    };
+  }, []);
   const nameNow = useRef(name);
   nameNow.current = name;
   const dirty = () =>
@@ -1152,9 +1164,16 @@ export function SetEditor({
   const undoable = (words: string, inverse: (cur: SetRow[]) => SetRow[] | null) => {
     window.showToast?.(words, 'success', null, {
       ms: 10_000,
+      key: UNDO_TOAST_KEY,
       action: {
         label: 'Undo',
         run: () => {
+          // the page has gone (its toast is taken down then; this is the
+          // race): say so rather than change nothing silently (re-review Low a)
+          if (!mounted.current) {
+            window.showToast?.("Can't undo here: open the set to change it", 'info');
+            return;
+          }
           const next = inverse(rowsNow.current);
           if (!next) {
             setAnnounce(`Can't undo: that track isn't in the set any more`);
@@ -1185,13 +1204,14 @@ export function SetEditor({
       return;
     }
     const moved = rows[from];
+    const before = from > 0 ? rows[from - 1] : null;
     const title = rowTitle(from);
     const next = moveRow(rows, from, to);
     setRows(next);
     const at = next.indexOf(moved);
     if (at !== from)
       undoable(`${title} moved to ${at + 1} of ${next.length}`, (cur) =>
-        undoMove(cur, moved, at, from),
+        undoMove(cur, moved, at, from, before),
       );
   };
   const use = (index: number, track: DjTrack) => {

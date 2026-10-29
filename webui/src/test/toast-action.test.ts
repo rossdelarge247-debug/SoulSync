@@ -83,6 +83,30 @@ describe('a toast with an action', () => {
     expect(document.querySelector('.toast-compact:not(.toast-exit)')).toBeNull();
   });
 
+  it('[re-review Low a] dismissToast takes down only the toast put up with that key', () => {
+    const make = new Function(
+      `const _recentToastKeys = new Map();
+       const _notifState = { history: [], maxHistory: 50, unreadCount: 0, currentToast: null, toastTimer: null };
+       const _notifIcons = {};
+       function _updateNotifBadge() {}
+       function _queueNotifJournal() {}
+       ${BLOCK}
+       return { showToast, dismissToast };`,
+    );
+    const { showToast, dismissToast } = make() as {
+      showToast: Toast;
+      dismissToast: (key: string) => boolean;
+    };
+    showToast('Removed One', 'success', null, {
+      key: 'set-undo',
+      action: { label: 'Undo', run() {} },
+    });
+    expect(dismissToast('other')).toBe(false);
+    expect(dismissToast('set-undo')).toBe(true);
+    vi.advanceTimersByTime(250);
+    expect(document.querySelector('.toast-compact')).toBeNull();
+  });
+
   it('is not swallowed as a repeat when the words are the same', () => {
     const showToast = load();
     const first = vi.fn();

@@ -19,9 +19,13 @@ declare global {
       opts?: {
         journal?: boolean;
         ms?: number;
+        /** names the toast, so dismissToast(key) can take it down */
+        key?: string;
         action?: { label: string; run: () => void };
       } | null,
     ) => void;
+    /** static/downloads.js: take down the showing toast put up with this `opts.key` */
+    dismissToast?: (key: string) => boolean;
     /** core.js: the latest server-side active music download count from the status push. */
     __soulsyncMusicActiveDownloads?: number;
     /** core.js: repaints the music Requests nav badge (admin: waiting, member: news). */

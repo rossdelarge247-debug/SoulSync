@@ -43,16 +43,21 @@ describe('undo-rows', () => {
     ]);
   });
 
-  it('moves a row back by what it is, not by where the copy had it', () => {
+  it('[re-review Low b] a move undone after a row went in above lands after its old neighbour', () => {
+    const one = row('1', 'One');
+    const two = row('2', 'Two');
     const moved = row('3', 'Three');
-    // Three went from 2 to 0; since then Four was added at the top
-    const now = [row('4', 'Four'), { ...moved }, row('1', 'One'), row('2', 'Two')];
-    expect(undoMove(now, moved, 0, 2)!.map((r) => r.title)).toEqual([
+    // One, Two, Three: Three moved to the top (from 2), then Four went in at the top
+    const now = [row('4', 'Four'), { ...moved }, { ...one }, { ...two }];
+    expect(undoMove(now, moved, 1, 2, two)!.map((r) => r.title)).toEqual([
       'Four',
       'One',
-      'Three',
       'Two',
+      'Three',
     ]);
+    // moved down from the top: back first
+    const down = [{ ...one }, { ...two }, { ...moved }];
+    expect(undoMove(down, one, 2, 0, null)!.map((r) => r.title)).toEqual(['One', 'Two', 'Three']);
   });
 
   it('drops a move or a swap whose row has gone', () => {

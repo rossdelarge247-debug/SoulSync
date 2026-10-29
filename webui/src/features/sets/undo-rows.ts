@@ -47,16 +47,29 @@ export function undoRemove<T extends RowLike>(
   return [...rows.slice(0, at), removed, ...rows.slice(at)];
 }
 
-/** Move a moved row back to `from`; null when it isn't in the set any more. */
+/**
+ * Move a moved row back after the row that was before it (as undoRemove
+ * does), so a row put in above it since doesn't leave it one place off
+ * (gauntlet re-review, Low b); its old index when that row has gone. Null
+ * when the moved row isn't in the set any more.
+ */
 export function undoMove<T extends RowLike>(
   rows: T[],
   moved: RowLike,
   at: number,
   from: number,
+  before: RowLike | null = null,
 ): T[] | null {
   const now = nearestRow(rows, moved, at);
   if (now < 0) return null;
-  return moveRow(rows, now, from);
+  let to = before ? from : 0;
+  if (before) {
+    const rest = rows.filter((_r, i) => i !== now);
+    const prev = nearestRow(rest, before, from - 1);
+    if (prev >= 0) to = prev + 1;
+  }
+  to = Math.max(0, Math.min(rows.length - 1, to));
+  return moveRow(rows, now, to);
 }
 
 /** The fields a swap changes, put back as they were. */
