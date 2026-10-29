@@ -1286,3 +1286,18 @@
   gap: 8px;
   min-width: 0;
 }
+
+/* in step 3's set card the column is narrow: the line takes its width, and
+   its action goes under the sentence rather than squeezing it */
+.workingMix :global([data-analysis-line]) {
+  align-self: stretch;
+}
+
+.workingMix :global([data-analysis-line]) > span {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.workingMix :global([data-analysis-line]) > span > span:nth-child(2) {
+  min-width: max-content;
+}
