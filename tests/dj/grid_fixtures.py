@@ -243,15 +243,29 @@ def rolling_bass_house(bpm: float = 122.0, bars: int = 48, *, bass: float = 3.0,
                                   "bpm": bpm}
 
 
+def _pluck(midi: int, seconds: float, level: float) -> np.ndarray:
+    """A bass note whose pitch falls from 2.2x in ~20 ms and dies in ~50 ms."""
+    n = int(seconds * SR)
+    t = np.arange(n) / SR
+    f = 440.0 * 2 ** ((midi - 69) / 12) * (1 + 1.2 * np.exp(-t / 0.02))
+    x = sum((0.5 ** h) * np.sin(2 * np.pi * (h + 1) * np.cumsum(f) / SR) for h in range(4))
+    return level * x * np.exp(-t / 0.05) * np.minimum(1, t / 0.002)
+
+
 def pattern_track(bpm: float, bars: int, pattern, *, bass: Sequence[int] = (), bass_level: float = 0.5,
                   claps: bool = False, kick: float = 0.9, snare_low: float = 0.0, drumless_bars: int = 0,
-                  swing: float = 0.0, seed: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+                  swing: float = 0.0, seed: int = 3, toms: Sequence[int] = (), tom_level: float = 0.3,
+                  rumble: float = 0.0, bass_kind: str = "tone") -> Tuple[np.ndarray, np.ndarray]:
     """The gauntlet review's drum machine (28 October): a pattern of
     sixteenths (``K`` kick, ``S`` snare, ``s`` ghost; a dict, or a tuple of
     dicts one a bar) over a hat on every sixteenth (the eighths louder), a
     chord a bar, a bass on the given sixteenths of each bar, and a clap on
     every other beat with ``claps``; ``drumless_bars`` open it with chords
-    and bass only. ``(y, beats)``: the beats start at 0."""
+    and bass only. ``toms``: a low tom (110-170 Hz) on those sixteenths of
+    every beat; ``rumble``: the kick's low reverb tail (the phase follow-up's
+    review, 29 October); ``bass_kind="pluck"``: a bass whose pitch drops
+    fast and dies fast, like a kick's (its second review). ``(y, beats)``:
+    the beats start at 0."""
     if isinstance(pattern, dict):
         pattern = (pattern,)
     rng = np.random.RandomState(seed)
@@ -273,7 +287,10 @@ def pattern_track(bpm: float, bars: int, pattern, *, bass: Sequence[int] = (), b
         for interval in (0, 3, 7):
             _add(y, t0, _tone(root + 12 + interval, 4 * beat, 0.04, attack=0.05))
         for s in bass:
-            _add(y, t0 + s * six, _tone(root - 12, six * 1.8, bass_level, harmonics=5, attack=0.003))
+            if bass_kind == "pluck":
+                _add(y, t0 + s * six, _pluck(root - 12, six * 1.8, bass_level))
+            else:
+                _add(y, t0 + s * six, _tone(root - 12, six * 1.8, bass_level, harmonics=5, attack=0.003))
         if b < drumless_bars:
             continue
         hits = pattern[b % len(pattern)]
@@ -289,6 +306,18 @@ def pattern_track(bpm: float, bars: int, pattern, *, bass: Sequence[int] = (), b
                 _add(y, at, snare(0.5))
             if claps and step in (4, 12):
                 _add(y, at, snare(0.5))
+            if step % 4 in toms:
+                n = int(0.15 * SR)
+                t = np.arange(n) / SR
+                _add(y, at, tom_level * np.sin(2 * np.pi * (110 + 30 * ((b * 4 + step // 4) % 3)) * t)
+                     * np.exp(-t / 0.05))
+    if rumble:
+        from scipy.signal import butter, fftconvolve, lfilter
+
+        n = int(0.6 * SR)
+        ir = np.exp(-np.arange(n) / SR / 0.2) * rng.randn(n) * rumble
+        bb, aa = butter(2, 150 / (SR / 2))
+        y = y + lfilter(bb, aa, fftconvolve(y, ir)[:len(y)])
     y = y / max(1e-9, float(np.max(np.abs(y)))) * 0.9
     return y.astype(np.float32), beats
 

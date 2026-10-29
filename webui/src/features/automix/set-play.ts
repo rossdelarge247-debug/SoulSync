@@ -96,7 +96,12 @@ interface PlayerLike {
   queueAfterPlaying(tracks: QueueTrack[]): number;
 }
 
-/** auto-mix's stages while it holds a mix (controller.ts): the queue isn't touched then */
+/**
+ * auto-mix's stages while it holds a mix (controller.ts): the queue isn't
+ * touched then. Before (windows loading, ready, a cut set) a new next track
+ * is planned afresh and nothing of the old pair acts: no cut to it, no
+ * decks for it (controller.test.ts, the phase follow-up of 29 October)
+ */
 const MIXING = new Set(['counting', 'mixing', 'settling', 'handback', 'back', 'rejoin']);
 
 /**

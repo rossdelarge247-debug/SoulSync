@@ -276,7 +276,11 @@ def _find_grid(database, track_id: str, path: str, sig: Optional[str], *, audio,
     from core.dj import grid_store
 
     before = grid_store.get(database, track_id) if keep_on_error else None
-    grid_store.mark(database, track_id, "analyzing", None, source_sig=sig)
+    if before:
+        # the grid it replaces stays in the row: a crash in the decode puts it back
+        grid_store.mark_analyzing_again(database, before, sig)
+    else:
+        grid_store.mark(database, track_id, "analyzing", None, source_sig=sig)
     try:
         result = analyze_grid(path, audio=audio, bpm_hint=bpm_hint)
     except ImportError as exc:

@@ -304,8 +304,40 @@ def mark(database, track_id: str, status: str, reason: Optional[str], *, version
 
 def restore(database, row: Dict[str, Any]) -> None:
     """Put a grid row back as it was (Analyse again whose new analysis
-    failed: the gauntlet review's M2)."""
-    _save(database, str(row["track_id"]), {f: row.get(f) for f in _FIELDS})
+    failed: the gauntlet review's M2), at the octave of a person's BPM as it
+    is now: a ×2, ÷2 or reset made during the decode is applied to it, read
+    and written in one transaction as ``save_result`` does (the phase
+    follow-up of 29 October)."""
+    track_id = str(row["track_id"])
+    values = {f: row.get(f) for f in _FIELDS}
+    with closing(database._get_connection()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if values.get("status") == "done":
+                values.update(follow_override(values, _override(conn, track_id)))
+            _write(conn, track_id, values)
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+
+
+#: an ``analyzing`` row's reason when Analyse again's decode started over a
+#: grid it would put back: the grid as it was, so a crash in the decode
+#: doesn't lose it (the phase follow-up of 29 October)
+AGAIN_PREFIX = "again:"
+
+
+def mark_analyzing_again(database, before: Dict[str, Any], source_sig: Optional[str]) -> None:
+    """``analyzing`` before Analyse again's decode, keeping the grid it
+    replaces in the row's reason (``fail_leftover_analyzing`` puts it back)."""
+    track_id = str(before["track_id"])
+    kept = {f: before.get(f) for f in _FIELDS}
+    # one write: the status and the grid it keeps land together
+    _save(database, track_id, {"grid_version": GRID_VERSION, "analyzed_at": time.time(), "status": "analyzing",
+                               "reason": AGAIN_PREFIX + json.dumps(kept, separators=(",", ":")),
+                               "source_sig": source_sig, "kind": None, "beats_ms": None, "phrases_json": None,
+                               "sections_json": None, "mix_json": None, "measured_json": None})
 
 
 def get(database, track_id: str) -> Optional[Dict[str, Any]]:
@@ -323,12 +355,38 @@ def current(row: Optional[Dict[str, Any]], source_sig: Optional[str]) -> bool:
 
 def fail_leftover_analyzing(database) -> int:
     """A grid still ``analyzing`` at a sweep's start: the decode took the
-    process down. It's an error, not tried again at this version."""
+    process down. It's an error, not tried again at this version; one that
+    Analyse again started over a grid gets that grid back instead (it was
+    current, so it isn't decoded again either)."""
     with closing(database._get_connection()) as conn:
-        cur = conn.execute("UPDATE track_grid SET status = 'error', reason = ? WHERE status = 'analyzing'",
-                           ("SYNCHRO.S stopped while finding this track's beats; skipped",))
+        kept = conn.execute("SELECT track_id, reason FROM track_grid WHERE status = 'analyzing' "
+                            "AND reason LIKE ?", (AGAIN_PREFIX + "%",)).fetchall()
+    restored = 0
+    retry: List[str] = []
+    for track_id, reason in kept:
+        try:
+            before = json.loads(str(reason)[len(AGAIN_PREFIX):])
+        except ValueError:
+            continue
+        if isinstance(before, dict) and before.get("status"):
+            try:
+                restore(database, {**before, "track_id": track_id})
+                restored += 1
+            except Exception as exc:  # noqa: BLE001 - a locked database never stops the sweep starting
+                # left as it is (``analyzing``, the grid in its reason): the
+                # next start tries again
+                logger.warning("Couldn't put track %s's grid back after a crash (tried again at the next "
+                               "start): %s", track_id, exc)
+                retry.append(str(track_id))
+    with closing(database._get_connection()) as conn:
+        marks = ",".join("?" * len(retry))
+        keep = f" AND track_id NOT IN ({marks})" if retry else ""
+        # "?" placeholders only are formatted in; every value is a bound parameter
+        cur = conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
+            f"UPDATE track_grid SET status = 'error', reason = ? WHERE status = 'analyzing'{keep}",
+            ["SYNCHRO.S stopped while finding this track's beats; skipped"] + retry)
         conn.commit()
-        return int(cur.rowcount or 0)
+        return restored + int(cur.rowcount or 0)
 
 
 # ── the sweep's top-up list ──────────────────────────────────────────────────
@@ -561,7 +619,7 @@ def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]
     return out
 
 
-__all__ = ["BEAT_CONFIDENT", "DOWNBEAT_CONFIDENT", "ERROR_RETRY_SECONDS", "apply_override", "counts", "current", "restore",
+__all__ = ["BEAT_CONFIDENT", "DOWNBEAT_CONFIDENT", "ERROR_RETRY_SECONDS", "AGAIN_PREFIX", "apply_override", "counts", "current", "mark_analyzing_again", "restore",
            "decode_beats", "encode_beats", "fail_leftover_analyzing", "follow_override", "get", "grid_of", "mark",
            "measured", "octave_factor", "pending_ids", "public", "public_entry", "rescale", "save_result",
            "scoped_rows"]

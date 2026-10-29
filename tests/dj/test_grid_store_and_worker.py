@@ -345,10 +345,11 @@ def test_analyse_again_finds_a_current_grid_again_and_keeps_it_when_that_fails(d
     sig = source_signature(path)
     store.save(db, "6", {"bpm": 124.0, "status": "done", "dj_analyzer_version": worker.analyzer_version(),
                          "source_sig": sig})
-    grid_store.save_result(db, "6", _grid_result(), source_sig=sig)
-    _sql(db, "UPDATE track_grid SET measured_json = '{\"bpm\": 62.0, \"period\": 0.9677}', bpm = 124.0 "
-             "WHERE track_id = '6'")
+    # a person's ×2 of a grid measured at 62: kept with its measured grid
+    _sql(db, "UPDATE track_dj SET bpm_override = 124.0 WHERE track_id = '6'")
+    grid_store.save_result(db, "6", _grid_result(62.0), source_sig=sig)
     before = grid_store.get(db, "6")
+    assert before["bpm"] == pytest.approx(124.0) and before["measured_json"]
     calls = []
 
     def again(p, **kw):
@@ -380,3 +381,68 @@ def test_analyse_again_marks_only_what_the_line_took(db):
     out = job.ask(db, ["1", "2", "3"], 1, limit=2, again=["1", "2", "3"])
     assert out["over"] == 1
     assert job.queue_snapshot(["1", "2", "3"], 1)["again"] == {"1", "2"}
+
+
+def test_a_restored_grid_follows_a_bpm_set_during_the_decode(db):
+    """The phase follow-up of 29 October: Analyse again's failed decode puts
+    the old grid back at the octave of the person's BPM as it is now; a ×2
+    or a reset made meanwhile isn't undone."""
+    _track(db, 7, "/stored/h.wav")
+    store.save(db, "7", {"bpm": 124.0, "status": "done", "dj_analyzer_version": worker.analyzer_version()})
+    grid_store.save_result(db, "7", _grid_result(124.0), source_sig="s")
+    before = grid_store.get(db, "7")
+    # ×2 during the decode
+    _sql(db, "UPDATE track_dj SET bpm_override = 248.0 WHERE track_id = '7'")
+    grid_store.restore(db, before)
+    doubled = grid_store.get(db, "7")
+    assert doubled["bpm"] == pytest.approx(248.0) and doubled["measured_json"]
+    # and a reset during the next one: the measured grid comes back
+    _sql(db, "UPDATE track_dj SET bpm_override = NULL WHERE track_id = '7'")
+    grid_store.restore(db, doubled)
+    back = grid_store.get(db, "7")
+    assert back["bpm"] == pytest.approx(124.0) and back["measured_json"] is None
+    assert back["period"] == pytest.approx(before["period"])
+
+
+def test_a_crash_in_analyse_agains_decode_keeps_the_old_grid(db):
+    """The follow-up's item 3: the row says ``analyzing`` with the grid it
+    replaces; the next sweep's start puts that grid back (a plain decode
+    that crashed is still an error)."""
+    for tid in ("8", "9"):
+        _track(db, int(tid), f"/stored/{tid}.wav")
+        store.save(db, tid, {"bpm": 124.0, "status": "done", "dj_analyzer_version": worker.analyzer_version()})
+        grid_store.save_result(db, tid, _grid_result(124.0), source_sig="s")
+    before = grid_store.get(db, "8")
+    grid_store.mark_analyzing_again(db, before, "s")
+    grid_store.mark(db, "9", "analyzing", None, source_sig="s")
+    assert grid_store.get(db, "8")["status"] == "analyzing"
+    assert grid_store.fail_leftover_analyzing(db) == 2
+    after = grid_store.get(db, "8")
+    assert {k: after[k] for k in grid_store._FIELDS if k != "analyzed_at"} == \
+        {k: before[k] for k in grid_store._FIELDS if k != "analyzed_at"}
+    assert grid_store.get(db, "9")["status"] == "error"
+
+
+def test_a_restore_that_fails_at_the_sweeps_start_doesnt_stop_it(db, monkeypatch):
+    """The follow-up's review: a locked database while a crashed Analyse
+    again's grid is put back is logged, the sweep still starts, and the row
+    keeps its grid for the next start to try again."""
+    _track(db, 10, "/stored/10.wav")
+    store.save(db, "10", {"bpm": 124.0, "status": "done", "dj_analyzer_version": worker.analyzer_version()})
+    grid_store.save_result(db, "10", _grid_result(124.0), source_sig="s")
+    grid_store.mark_analyzing_again(db, grid_store.get(db, "10"), "s")
+    row = grid_store.get(db, "10")
+    assert row["status"] == "analyzing" and row["reason"].startswith(grid_store.AGAIN_PREFIX)
+
+    def locked(*a, **k):
+        raise RuntimeError("database is locked")
+
+    real = grid_store.restore
+    monkeypatch.setattr(grid_store, "restore", locked)
+    assert grid_store.fail_leftover_analyzing(db) == 0
+    # left for the next start, its grid still in the row
+    row = grid_store.get(db, "10")
+    assert row["status"] == "analyzing" and row["reason"].startswith(grid_store.AGAIN_PREFIX)
+    monkeypatch.setattr(grid_store, "restore", real)
+    assert grid_store.fail_leftover_analyzing(db) == 1
+    assert grid_store.get(db, "10")["status"] == "done"
