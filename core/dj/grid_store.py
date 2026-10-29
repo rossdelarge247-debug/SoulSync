@@ -302,6 +302,12 @@ def mark(database, track_id: str, status: str, reason: Optional[str], *, version
                                "mix_json": None, "measured_json": None})
 
 
+def restore(database, row: Dict[str, Any]) -> None:
+    """Put a grid row back as it was (Analyse again whose new analysis
+    failed: the gauntlet review's M2)."""
+    _save(database, str(row["track_id"]), {f: row.get(f) for f in _FIELDS})
+
+
 def get(database, track_id: str) -> Optional[Dict[str, Any]]:
     with closing(database._get_connection()) as conn:
         row = conn.execute("SELECT * FROM track_grid WHERE track_id = ?", (str(track_id),)).fetchone()
@@ -555,7 +561,7 @@ def scoped_rows(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]
     return out
 
 
-__all__ = ["BEAT_CONFIDENT", "DOWNBEAT_CONFIDENT", "ERROR_RETRY_SECONDS", "apply_override", "counts", "current",
+__all__ = ["BEAT_CONFIDENT", "DOWNBEAT_CONFIDENT", "ERROR_RETRY_SECONDS", "apply_override", "counts", "current", "restore",
            "decode_beats", "encode_beats", "fail_leftover_analyzing", "follow_override", "get", "grid_of", "mark",
            "measured", "octave_factor", "pending_ids", "public", "public_entry", "rescale", "save_result",
            "scoped_rows"]

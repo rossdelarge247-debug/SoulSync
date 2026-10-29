@@ -60,6 +60,7 @@ import {
   workingSetName,
 } from './mix.format';
 import styles from './mix.module.css';
+import { WorkingSetMix } from './working-set-mix';
 
 /* ── icons ─────────────────────────────────────────────────────────────── */
 
@@ -1060,6 +1061,8 @@ export function SetCard({ model }: { model: MixModel }) {
         ) : (
           <p className={styles.setCardLine}>The set&apos;s last track</p>
         )}
+        {/* fix/mix-stops: how ready the working set is to mix (its Play as a mix hides while a set plays) */}
+        <WorkingSetMix model={model} />
       </div>
     );
   }
@@ -1111,6 +1114,8 @@ export function SetCard({ model }: { model: MixModel }) {
           {model.primaryLabel}
         </button>
       ) : null}
+      {/* fix/mix-stops: the working set isn't Up next; how ready it is, and Play it as a mix */}
+      <WorkingSetMix model={model} />
       <SaveUpNext model={model} />
     </div>
   );
@@ -1423,6 +1428,7 @@ function SetTab({ model }: { model: MixModel }) {
   return (
     <>
       <WorkingPicker model={model} large />
+      <WorkingSetMix model={model} />
       <SetEnergy rows={rows} />
       <ol className={styles.setList} aria-label={`${model.workingSet.name}'s tracks`}>
         {rows.map((r, i) => {

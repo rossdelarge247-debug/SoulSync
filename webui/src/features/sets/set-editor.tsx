@@ -193,12 +193,13 @@ function SetAnalysisLine({
   if (!known.length) return null;
   const notReady = known.filter((id) => !isReady(progressOf[id]));
   const working = notReady.find((id) => progressOf[id]?.state === 'working') ?? null;
-  // what an ask can move on: not being analysed now, and not a settled
-  // "can't be beat-matched" (an admin's ask tries a failed one again)
+  // what an ask can move on: not being analysed now; a "can't be
+  // beat-matched" only by an admin, whose ask finds its grid again (Ross's
+  // report of 28 October), as it tries a failed one again
   const askable = notReady.filter((id) => {
     const e = progressOf[id]!;
     if (e.state === 'working') return false;
-    if (e.state === 'done') return false;
+    if (e.state === 'done') return viewer.admin && e.beat !== 'too_short';
     if (e.state === 'failed') return viewer.admin && e.reason !== 'too_long';
     return true;
   });
@@ -209,6 +210,7 @@ function SetAnalysisLine({
       source: 'set',
       setId,
       retry: viewer.admin && askable.some((id) => progressOf[id]?.state === 'failed'),
+      again: viewer.admin && askable.some((id) => progressOf[id]?.state === 'done'),
     }).catch((error: unknown) =>
       window.showToast?.(error instanceof Error ? error.message : "That didn't work.", 'error'),
     );
@@ -216,14 +218,17 @@ function SetAnalysisLine({
   // "Analyse all N" counts what the ask takes, not the one being analysed
   // nor a settled can't (review L11); only failed ones left: Try again
   const retryOnly = askable.every((id) => progressOf[id]?.state === 'failed');
+  const againOnly = askable.every((id) => progressOf[id]?.state === 'done');
   const action = askable.length
     ? {
         label: viewer.admin
-          ? retryOnly
-            ? 'Try again'
-            : working
-              ? `Analyse all ${askable.length.toLocaleString()}`
-              : 'Analyse them now'
+          ? againOnly
+            ? 'Analyse again'
+            : retryOnly
+              ? 'Try again'
+              : working
+                ? `Analyse all ${askable.length.toLocaleString()}`
+                : 'Analyse them now'
           : 'Analyse mine',
         onClick: ask,
       }

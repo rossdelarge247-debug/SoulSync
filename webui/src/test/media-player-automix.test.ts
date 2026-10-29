@@ -215,3 +215,86 @@ describe('Up next’s gaps (26a)', () => {
     expect(draw(false, 1)).toHaveLength(0);
   });
 });
+
+describe("[gauntlet review H1] 'ended' says when the next track is owed, through the real onAudioEnded", () => {
+  function player(opts: { owns?: boolean; sleep?: boolean; loading?: boolean; index?: number }) {
+    return new Function(
+      'opts',
+      `let npAdvanceOwed = false;
+       let npSleepEndOfTrack = Boolean(opts.sleep), npXfadeActive = false, npRadioMode = false;
+       let npQueue = [{ id: '1' }, { id: '2' }, { id: '3' }], npQueueIndex = opts.index ?? 0;
+       let npShuffleOn = false, npRepeatMode = 'off', npLoadingQueueItem = Boolean(opts.loading);
+       let currentTrack = { id: '1', kind: 'library' };
+       const played = [];
+       const setPlayingState = () => {}, npSpokenOnEnded = () => {};
+       const npAutomixOwnsAdvance = () => Boolean(opts.owns);
+       const playNextInQueue = () => played.push(npQueueIndex + 1);
+       const npFetchRadioTracks = () => {};
+       // the real sleep timer's end of track: it pauses and clears its flag
+       function npFireSleepTimer() { npSleepEndOfTrack = false; }
+       ${pick('onAudioEnded', 'onAudioLoadStart')}
+       return { ended: onAudioEnded, loadstart: onAudioLoadStart,
+                get owed() { return npAdvanceOwed; }, get sleep() { return npSleepEndOfTrack; }, played };`,
+    )(opts) as {
+      ended: () => void;
+      loadstart: () => void;
+      owed: boolean;
+      sleep: boolean;
+      played: number[];
+    };
+  }
+
+  it('the sleep timer at the end of a track owes nothing, once its flag is cleared', () => {
+    const p = player({ sleep: true });
+    p.ended();
+    expect(p.sleep).toBe(false);
+    expect(p.owed).toBe(false);
+    expect(p.played).toEqual([]);
+  });
+
+  it('handed to auto-mix, or turned away by a load in flight, it is owed until the next load', () => {
+    const handed = player({ owns: true });
+    handed.ended();
+    expect(handed.owed).toBe(true);
+    handed.loadstart();
+    expect(handed.owed).toBe(false);
+    const busy = player({ loading: true });
+    busy.ended();
+    expect(busy.owed).toBe(true);
+  });
+
+  it('the player that moves on itself, or the queue that ends, owes nothing', () => {
+    const p = player({});
+    p.ended();
+    expect(p.played).toEqual([1]);
+    expect(p.owed).toBe(false);
+    const last = player({ index: 2, loading: true });
+    last.ended();
+    expect(last.owed).toBe(false);
+  });
+});
+
+describe('[gauntlet review M3] a set played from the playing track, through the real npQueueAfterPlaying', () => {
+  it('queues its later rows next, each once, and draws and saves once', () => {
+    const run = new Function(
+      `let npQueue = [{ id: 'A' }, { id: 'P' }, { id: '3' }, { id: 'X' }], npQueueIndex = 1;
+       const calls = { render: 0, persist: 0 };
+       const renderNpQueue = () => calls.render++, npPersistQueue = () => calls.persist++;
+       const updateNpPrevNextButtons = () => {}, npScheduleQueuePrefetch = () => {};
+       const npPrepareQueueTracks = (list) => list.map((t) => ({ ...t }));
+       ${pick('npQueueAfterPlaying')}
+       const at = npQueueAfterPlaying([{ id: '2' }, { id: '3' }, { id: '4' }]);
+       return { at, ids: npQueue.map((t) => t.id), index: npQueueIndex, calls };`,
+    ) as () => {
+      at: number;
+      ids: string[];
+      index: number;
+      calls: { render: number; persist: number };
+    };
+    const out = run();
+    expect(out.at).toBe(2);
+    expect(out.ids).toEqual(['A', 'P', '2', '3', '4', 'X']);
+    expect(out.index).toBe(1);
+    expect(out.calls).toEqual({ render: 1, persist: 1 });
+  });
+});

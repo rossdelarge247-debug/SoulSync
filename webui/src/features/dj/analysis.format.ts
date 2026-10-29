@@ -12,6 +12,7 @@
  */
 import type {
   AnalyseAnswer,
+  AnalysisBeat,
   AnalysisEntry,
   AnalysisLineEntry,
   AnalysisStep,
@@ -30,6 +31,7 @@ export type AnalysisAction =
   | 'move_up'
   | 'resume'
   | 'try_again'
+  | 'analyse_again'
   | 'drives'
   | 'open_move'
   | 'start_now';
@@ -41,6 +43,7 @@ export const ACTION_WORDS: Record<AnalysisAction, string> = {
   move_up: 'Move up',
   resume: 'Resume',
   try_again: 'Try again',
+  analyse_again: 'Analyse again',
   drives: 'Drives',
   open_move: 'Open the move',
   start_now: 'Start now',
@@ -197,12 +200,16 @@ export function workingWords(title: string | null | undefined, step: AnalysisSte
   return `Analysing${title ? ` ${title}` : ''} · ${stepPhrase(step)}`;
 }
 
-function beatWhy(beat: 'no_beat' | 'too_short' | 'not_4_4'): string {
-  return beat === 'not_4_4' ? 'not in 4/4' : beat === 'too_short' ? 'too short' : 'no steady beat';
+function beatWhy(beat: AnalysisBeat): string {
+  if (beat === 'not_4_4') return 'not in 4/4';
+  if (beat === 'too_short') return 'too short';
+  // a grid found, just not sure enough: not "no steady beat" (Ross's report of 28 October)
+  if (beat === 'unsure') return 'beat grid not sure enough';
+  return 'no steady beat';
 }
 
 /** Can't be beat-matched (31a, state 9): what the pair does instead. */
-export function beatWords(beat: 'no_beat' | 'too_short' | 'not_4_4'): string {
+export function beatWords(beat: AnalysisBeat): string {
   return `Can't be beat-matched · ${beatWhy(beat)} · echo out or cut`;
 }
 
@@ -230,7 +237,14 @@ export function lineView(
   switch (entry.state) {
     case 'done':
       if (entry.beat)
-        return { tone: 'warning', sentence: beatWords(entry.beat), step: null, action: null };
+        // an admin can have its beat grid found again (Ross's report of 28
+        // October: a grid judged by an older rule could never be asked again)
+        return {
+          tone: 'warning',
+          sentence: beatWords(entry.beat),
+          step: null,
+          action: viewer.admin && entry.beat !== 'too_short' ? 'analyse_again' : null,
+        };
       if (entry.ready === false) return bpmKey;
       return {
         tone: 'ready',

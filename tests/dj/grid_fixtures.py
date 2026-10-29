@@ -199,3 +199,102 @@ def break_track(bpm: float = 165.0, bars: int = 64, *, pattern: str = "amen", le
     y = y / max(1e-9, float(np.max(np.abs(y)))) * 0.9
     return y.astype(np.float32), {"beats": beats, "downbeats": beats[::4], "section_bars": [0], "bars": bars,
                                   "bpm": bpm}
+
+
+def rolling_bass_house(bpm: float = 122.0, bars: int = 48, *, bass: float = 3.0, drumless_bars: int = 0,
+                       seed: int = 1) -> Tuple[np.ndarray, Dict[str, object]]:
+    """House as it's mixed now (Ross's report of 28 October): a kick on every
+    beat (a fill drops the last two of every 16th bar), a clap on two and
+    four, an open hat on the off-beat, a rolling bass on the three sixteenths
+    between the kicks as loud as the kick in the low band, a chord a bar, a
+    little reverb and a limited master. ``drumless_bars`` opens it with bass
+    and chords only. ``(y, truth)`` as dance_track's."""
+    from scipy.signal import fftconvolve
+
+    rng = np.random.RandomState(seed)
+    beat = 60.0 / bpm
+    six = beat / 4
+    beats = np.arange(bars * 4) * beat
+    n = int((bars * 4 * beat + 2) * SR)
+    y = np.zeros(n)
+    for b in range(bars):
+        t0 = b * 4 * beat
+        root = 45 + (0, -4, 3, -2)[(b // 2) % 4]
+        drums = b >= drumless_bars
+        for k in range(4):
+            bt = t0 + k * beat
+            if drums and not (b % 16 == 15 and k >= 2):
+                _add(y, bt, _kick(1.0))
+            if drums:
+                _add(y, bt + 2 * six, _noise(int(0.12 * SR), 0.05, int(rng.randint(1e6)), 0.5))
+                for s in (1, 3):
+                    _add(y, bt + s * six, _noise(int(0.03 * SR), 0.008, int(rng.randint(1e6)), 0.08))
+                if k in (1, 3):
+                    _add(y, bt, _noise(int(0.2 * SR), 0.06, int(rng.randint(1e6)), 0.6, highpass=False))
+            for s in (1, 2, 3):
+                _add(y, bt + s * six, _tone(root - 12, six * 0.95, 0.5 * bass, harmonics=5, attack=0.003))
+        for interval in (0, 3, 7, 10):
+            _add(y, t0, _tone(root + 12 + interval, 4 * beat, 0.05, attack=0.2))
+    ir = rng.randn(int(1.2 * SR)) * np.exp(-np.arange(int(1.2 * SR)) / SR / 0.35) * 0.02
+    y = y + fftconvolve(y, ir)[:n]
+    y = y / max(1e-9, float(np.max(np.abs(y))))
+    y = np.tanh(3.0 * y) / np.tanh(3.0) * 0.95
+    return y.astype(np.float32), {"beats": beats, "downbeats": beats[::4], "section_bars": [0], "bars": bars,
+                                  "bpm": bpm}
+
+
+def pattern_track(bpm: float, bars: int, pattern, *, bass: Sequence[int] = (), bass_level: float = 0.5,
+                  claps: bool = False, kick: float = 0.9, snare_low: float = 0.0, drumless_bars: int = 0,
+                  swing: float = 0.0, seed: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+    """The gauntlet review's drum machine (28 October): a pattern of
+    sixteenths (``K`` kick, ``S`` snare, ``s`` ghost; a dict, or a tuple of
+    dicts one a bar) over a hat on every sixteenth (the eighths louder), a
+    chord a bar, a bass on the given sixteenths of each bar, and a clap on
+    every other beat with ``claps``; ``drumless_bars`` open it with chords
+    and bass only. ``(y, beats)``: the beats start at 0."""
+    if isinstance(pattern, dict):
+        pattern = (pattern,)
+    rng = np.random.RandomState(seed)
+    beat = 60.0 / bpm
+    six = beat / 4
+    beats = np.arange(bars * 4) * beat
+    y = np.zeros(int((bars * 4 * beat + 2) * SR))
+
+    def snare(level: float) -> np.ndarray:
+        n = int(0.18 * SR)
+        t = np.arange(n) / SR
+        body = np.sin(2 * np.pi * 190.0 * t) * np.exp(-t / 0.04)
+        sub = np.sin(2 * np.pi * 110.0 * t) * np.exp(-t / 0.05)
+        return level * (0.6 * body + snare_low * sub + _noise(n, 0.05, int(rng.randint(1e6)), 1.0, highpass=False) * 0.7)
+
+    for b in range(bars):
+        t0 = b * 4 * beat
+        root = 45 + (0, -4, 3, -2)[(b // 2) % 4]
+        for interval in (0, 3, 7):
+            _add(y, t0, _tone(root + 12 + interval, 4 * beat, 0.04, attack=0.05))
+        for s in bass:
+            _add(y, t0 + s * six, _tone(root - 12, six * 1.8, bass_level, harmonics=5, attack=0.003))
+        if b < drumless_bars:
+            continue
+        hits = pattern[b % len(pattern)]
+        for step in range(16):
+            at = t0 + step * six + (swing * six if step % 2 else 0.0)
+            _add(y, at, _noise(int(0.04 * SR), 0.01, int(rng.randint(1e6)), 0.12 if step % 2 == 0 else 0.05))
+            kind = hits.get(step)
+            if kind == "K":
+                _add(y, at, _kick(kick))
+            elif kind == "S":
+                _add(y, at, snare(0.8))
+            elif kind == "s":
+                _add(y, at, snare(0.5))
+            if claps and step in (4, 12):
+                _add(y, at, snare(0.5))
+    y = y / max(1e-9, float(np.max(np.abs(y)))) * 0.9
+    return y.astype(np.float32), beats
+
+
+#: the review's patterns: four on the floor, drum and bass's two-step, half time
+FOUR = {0: "K", 4: "K", 8: "K", 12: "K"}
+DNB = {0: "K", 4: "S", 10: "K", 12: "S"}
+HALF_TIME = {0: "K", 8: "S"}
+OFF_BEAT_BASS = (2, 6, 10, 14)

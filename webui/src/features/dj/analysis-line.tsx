@@ -305,6 +305,10 @@ function useRunAction(trackId: string | null | undefined): (a: AnalysisAction) =
           if (trackId)
             void said(requestAnalysis([trackId], { force: true, reason: 'asked', retry: true }));
           return;
+        case 'analyse_again':
+          if (trackId)
+            void said(requestAnalysis([trackId], { force: true, reason: 'asked', again: true }));
+          return;
         case 'move_up':
           if (trackId) void said(postDjJob('start', trackId).then(() => analysisStore.pollSoon()));
           return;

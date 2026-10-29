@@ -1066,11 +1066,19 @@ function _npLyricsInit() {
     }
 }
 
+// The playing track ended and its advance went to auto-mix, or was turned
+// away by a load in flight: the next track is owed, and auto-mix starts it if
+// nothing else does (its last line of defence for the queue; Ross's report
+// of 28 October). Never set by a stop meant at the end: the sleep timer, a
+// radio's end, the queue's end. Cleared by the next load.
+let npAdvanceOwed = false;
+
 function onAudioEnded() {
+    npAdvanceOwed = false;
     // Auto-mix (DJ mix) owns the advance while its decks play the mix: this
     // element was only keeping time under them, muted (src/features/automix),
     // so its end is no one's business, and the player is still playing
-    if (npAutomixOwnsAdvance()) return;
+    if (npAutomixOwnsAdvance()) { npAdvanceOwed = true; return; }
     // Handle audio playback completion
     console.log('🏁 Audio playback ended');
     setPlayingState(false);
@@ -1097,6 +1105,9 @@ function onAudioEnded() {
             ? npQueue.length > 1
             : (npQueueIndex < npQueue.length - 1 || npRepeatMode === 'all');
         if (hasNext) { playNextInQueue(); return; }
+    } else if (npQueue.length > 0 && npQueueIndex < npQueue.length - 1) {
+        // a load in flight turned the advance away
+        npAdvanceOwed = true;
     }
 
     // Radio mode: auto-fetch similar tracks when queue is exhausted
@@ -1156,6 +1167,7 @@ function onAudioError(event) {
 }
 
 function onAudioLoadStart() {
+    npAdvanceOwed = false;
     // Handle audio load start
     console.log('🔄 Audio loading started');
 }
@@ -2248,6 +2260,7 @@ async function playQueueItem(index, options = {}) {
     // any later load's cancel is what silences it.
     if (options.handoff) npXfadeHandoff = options.handoff;
     npLoadingQueueItem = true;
+    npAdvanceOwed = false;
     npQueueIndex = index;
     const track = npQueue[index];
     let preview = null;
@@ -2777,6 +2790,26 @@ function npReorderQueue(from, to) {
 // Auto-mix's hand-back: move a row to straight after the playing one and
 // return where it is now. A row from above the playing one takes the playing
 // row's place (npReorderQueue moves the playing index up by one for it).
+// A set played as a mix from the playing track (the Mix tab's working set:
+// Ross's report of 28 October): its later rows go straight after the playing
+// one, each once (a row already queued after it moves here rather than being
+// queued twice: the gauntlet review's M3), the rest of Up next after them;
+// drawn and saved once. The index of the first.
+function npQueueAfterPlaying(tracks) {
+    const list = npPrepareQueueTracks((tracks || []).filter(Boolean));
+    const ids = new Set(list.map(t => String(t.id)));
+    for (let i = npQueue.length - 1; i > npQueueIndex; i--) {
+        if (npQueue[i] && ids.has(String(npQueue[i].id))) npQueue.splice(i, 1);
+    }
+    const at = Math.max(0, npQueueIndex + 1);
+    npQueue.splice(at, 0, ...list);
+    renderNpQueue();
+    updateNpPrevNextButtons();
+    npPersistQueue();
+    npScheduleQueuePrefetch();
+    return at;
+}
+
 function npMoveNext(index) {
     if (!Number.isInteger(index) || index < 0 || index >= npQueue.length) return -1;
     const moved = npQueue[index];
@@ -3999,6 +4032,8 @@ window.SoulSyncPlayer = {
             volume: npVolumePercent,
             muted: npMuted,
             sleep: npSleepEndOfTrack ? 'track' : npSleepMinutes,
+            // the ended track's next is owed (auto-mix's last line of defence)
+            advanceOwed: npAdvanceOwed,
             sleepEndsAt: npSleepEndsAt,
             sleepSteps: NP_SLEEP_STEPS.slice(),
             lyrics: { synced: _npLyricsState.synced, lines: _npLyricsState.lines.length, loading: _npLyricsState.fetchInFlight,
@@ -4046,6 +4081,8 @@ window.SoulSyncPlayer = {
     },
     /** auto-mix: move a queued row to straight after the playing one; its index */
     moveNext(index) { return npMoveNext(index); },
+    /** a set played as a mix from the playing track: its later rows next, each once */
+    queueAfterPlaying(tracks) { return npQueueAfterPlaying(tracks); },
     /** Up next again (auto-mix's chips changed, or the setting) */
     renderQueue: () => renderNpQueue(),
     persistQueue: () => npPersistQueue(),
