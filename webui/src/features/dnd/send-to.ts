@@ -24,6 +24,7 @@ import {
   fetchSet,
   rowsBody,
   updateSet,
+  type SetJoinReset,
   type SetKind,
   type SetRow,
 } from '@/features/sets/sets.api';
@@ -72,7 +73,12 @@ async function analysingWords(ids: string[], setId: number | null): Promise<stri
   return words ? ` · ${words}` : '';
 }
 
-/** The row index each added track's number names (numbers count rows with a track). */
+/**
+ * The row index each added track's number names (numbers count rows with a
+ * track). Only an exact match counts: a row whose number now holds another
+ * track was moved since, and guessing which copy is ours could take out the
+ * person's own row (review L4), so it's left out and the Undo says it can't.
+ */
 export function indexesOfNumbers(
   rows: Pick<SetRow, 'track_id'>[],
   added: { track_id: string; number: number }[],
@@ -85,18 +91,26 @@ export function indexesOfNumbers(
     n += 1;
     if (want.get(n) === String(row.track_id)) out.push(i);
   });
-  // a row moved since: the same track, the last one of it
-  if (out.length < added.length) {
-    for (const a of added) {
-      if (out.some((i) => String(rows[i].track_id) === String(a.track_id))) continue;
-      for (let i = rows.length - 1; i >= 0; i -= 1) {
-        if (String(rows[i].track_id) === String(a.track_id) && !out.includes(i)) {
-          out.push(i);
-          break;
-        }
-      }
-    }
-  }
+  return out;
+}
+
+const AUTO_RESET = { style: 'auto', bars: 16 };
+
+/**
+ * The joins an add after a row reset to Auto, given back (review M1): each
+ * found by its number and track, and only while it's still the Auto the
+ * add left (one the person chose since is theirs).
+ */
+export function restoreJoins(rows: SetRow[], reset: SetJoinReset[]): SetRow[] {
+  if (!reset.length) return rows;
+  const at = indexesOfNumbers(rows, reset);
+  const out = rows.slice();
+  at.forEach((i) => {
+    const r = reset.find((x) => String(x.track_id) === String(out[i].track_id));
+    const now = out[i].transition;
+    if (!r || !now || now.style !== AUTO_RESET.style || now.bars !== AUTO_RESET.bars) return;
+    out[i] = { ...out[i], transition: r.transition };
+  });
   return out;
 }
 
@@ -108,6 +122,7 @@ export function indexesOfNumbers(
 export async function undoServerAdd(
   setId: number,
   added: { track_id: string; number: number }[],
+  reset: SetJoinReset[] = [],
 ): Promise<void> {
   for (let tries = 0; tries < 2; tries += 1) {
     const now = await fetchSet(setId);
@@ -116,9 +131,13 @@ export async function undoServerAdd(
     );
     const gone = indexesOfNumbers(rows, added);
     if (!gone.length) throw new Error("Can't undo: those tracks aren't in the set any more");
+    if (gone.length < added.length)
+      throw new Error("Can't undo: the set has changed since · move or remove them in the set");
+    // the reset joins first, by the numbers the add gave (the rows as it left them)
+    const joined = restoreJoins(rows, reset);
     try {
       await updateSet(setId, {
-        rows: rowsBody(removeKeepingLocked(rows, gone)),
+        rows: rowsBody(removeKeepingLocked(joined, gone)),
         baseRevision: now.set.revision,
       });
       changed(setId);
@@ -158,7 +177,8 @@ export async function sendToSet(
       where: done.name || set.name,
       numbers: added.map((a) => a.number),
     }) + (await asking);
-  return { words, undo: () => undoServerAdd(set.id, added) };
+  const reset = done.reset ?? [];
+  return { words, undo: () => undoServerAdd(set.id, added, reset) };
 }
 
 /** The working set: after the playing track while it plays (293), else at the end; none yet: start one. */
@@ -228,7 +248,9 @@ interface PlayerRows {
   };
   insertAt?(index: number, tracks: Record<string, unknown>[]): Record<string, unknown>[];
   removeTracks?(rows: Record<string, unknown>[]): number;
+  /** -1 not in Up next, -2 playing or played now, -3 the incoming row a mix holds */
   moveTrack?(row: Record<string, unknown>, to: number): number;
+  firstFree?(): number;
   announce?(words: string): void;
   focusRow?(index: number): void;
   startMoveMode?(index: number): void;
@@ -236,6 +258,26 @@ interface PlayerRows {
 
 export function player(): PlayerRows | null {
   return (window as unknown as { SoulSyncPlayer?: PlayerRows }).SoulSyncPlayer ?? null;
+}
+
+/** A mix running or counting down: it holds the incoming row (32c), so Play next waits behind it. */
+export function mixing(): boolean {
+  const view = window.SoulSyncAutomix?.view?.() as
+    | { stage?: string; barsToGo?: number | null }
+    | undefined;
+  if (!view) return false;
+  return (
+    ['counting', 'mixing', 'settling'].includes(view.stage ?? '') ||
+    (view.barsToGo !== null && view.barsToGo !== undefined)
+  );
+}
+
+/** Why a queue row can't be moved now (H1, M3), or null: by the row itself, not a remembered index. */
+export function moveRefusal(code: number, undo = false): string | null {
+  if (code === -1) return "Can't do that: the track isn't in Up next any more";
+  if (code === -2) return undo ? REASONS.undoPlayingNow : REASONS.playingNow;
+  if (code === -3) return REASONS.incoming;
+  return null;
 }
 
 /** What Up next takes for these: their queue shape (a track without one is left out). */
@@ -273,10 +315,15 @@ export async function sendToUpNext(
     return null;
   }
   const st = p.state();
-  const index = at === 'next' ? st.index + 1 : at === 'end' ? st.queue.length : at;
+  // while a mix holds the incoming row, Play next goes straight after it (M3)
+  const held = at === 'next' && st.index >= 0 && mixing();
+  const index = at === 'next' ? st.index + (held ? 2 : 1) : at === 'end' ? st.queue.length : at;
   const put = p.insertAt(index, rows);
+  if (!put.length) return null;
   const landed = p.state().queue.indexOf(put[0]);
-  const words = await upNextWords(items, landed < 0 ? index : landed, at === 'next');
+  const words =
+    (await upNextWords(items, landed < 0 ? index : landed, at === 'next' && !held)) +
+    (held ? ' · after the incoming track' : '');
   return {
     words,
     undo: () => {

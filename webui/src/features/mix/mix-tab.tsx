@@ -27,7 +27,7 @@ import { KeyChip } from '@/features/dj/key-chip';
 import { RowPlay, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
-import { useDnd, useDropTarget } from '@/features/dnd/dnd-engine';
+import { useDndSelect, useDropTarget } from '@/features/dnd/dnd-engine';
 import { duplicateWords } from '@/features/dnd/dnd-model';
 import { Grip } from '@/features/dnd/grip';
 import { djItem, onGripDown } from '@/features/dnd/items';
@@ -565,6 +565,8 @@ function MatchRowView({
       data-place={place}
       data-star-row={match.id}
       data-mix-row={match.id}
+      // a tab stop in the row grid: it says which track it is (L8)
+      aria-label={[match.title, match.artist_name].filter(Boolean).join(', ')}
       data-row-play-host=""
       data-dnd-row={place === 'sheet' ? undefined : 'mix'}
       {...(place === 'sheet' ? {} : rowPlayHandlers(playNow))}
@@ -1077,7 +1079,7 @@ export function SetCard({ model }: { model: MixModel }) {
   const p = model.playing;
   const ws = model.workingSet;
   const card = useRef<HTMLDivElement>(null);
-  const over = useDnd().over;
+  const over = useDndSelect((s) => s.over);
   // Brief B (32b state 3): the set card is the working set's drop target; it
   // appends, or while the set plays goes in after the playing track (293)
   const playingThis = Boolean(p && ws && p.set?.id === ws.id);

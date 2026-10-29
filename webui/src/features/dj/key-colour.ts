@@ -16,7 +16,8 @@ export interface CamelotParts {
   letter: 'A' | 'B';
 }
 
-const CAMELOT = /^(1[0-2]|[1-9])([AB])$/;
+// as the server reads them (core/dj/camelot.py): a leading 0 and spaces are fine ("08A", "8 A")
+const CAMELOT = /^0?(1[0-2]|[1-9])\s*([AB])$/;
 
 /** "8A" -> {number: 8, letter: 'A'}; null for anything that isn't a Camelot code. */
 export function camelotParts(code: string | null | undefined): CamelotParts | null {

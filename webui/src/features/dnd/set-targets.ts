@@ -10,7 +10,7 @@ import type { SetKind } from '@/features/sets/sets.api';
 import type { DropTarget } from './dnd-engine';
 
 import { duplicateWords, type DragItem } from './dnd-model';
-import { sendToDraft, sendToSet, setRefusal } from './send-to';
+import { sendToContext, sendToDraft, sendToSet, setRefusal } from './send-to';
 
 let holdings: Map<number, Record<string, number[]>> = new Map();
 
@@ -30,6 +30,12 @@ export function holdingNumber(setId: number, items: DragItem[]): number | null {
   return null;
 }
 
+/** The playing row of this set, when it's the working set and it plays (293). */
+function playingAfter(setId: number) {
+  const c = sendToContext();
+  return c.working?.id === setId ? c.after : null;
+}
+
 export function setTarget(
   id: string,
   set: { id: number; name: string; kind: SetKind },
@@ -47,9 +53,19 @@ export function setTarget(
     },
     hint: (drag) => {
       const n = holdingNumber(set.id, drag.items);
-      return n ? duplicateWords(n) : 'drop to add · goes last';
+      if (n) return duplicateWords(n);
+      const after = playingAfter(set.id);
+      return after
+        ? `after ${after.title} (#${after.number}) · adds as #${after.number + 1}`
+        : 'drop to add · goes last';
     },
-    drop: (drag) => sendToSet(set, drag.items),
+    // the working set while it plays: after the playing track, as the set card and Send to… (293, L3)
+    drop: (drag) => {
+      const after = playingAfter(set.id);
+      return sendToSet(set, drag.items, {
+        after: after ? { track_id: after.track_id, number: after.number } : null,
+      });
+    },
   };
 }
 

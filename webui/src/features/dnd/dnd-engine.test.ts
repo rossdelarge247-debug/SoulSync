@@ -320,3 +320,91 @@ describe('the keyboard (32d)', () => {
     expect(list.announce).toHaveBeenLastCalledWith('Track 1 stays at 2.');
   });
 });
+
+describe("Brief B's review: a keyboard pick-up left behind (M2) and a refused place (M3)", () => {
+  const liftR1 = () =>
+    keyboardLift('list', 1, {
+      items: [item('1')],
+      source: { kind: 'set', listId: 'set:1', indexes: [1] },
+      rows: [document.getElementById('r1')!],
+    });
+
+  it('Escape anywhere else cancels it, with its words', () => {
+    const list = listTarget();
+    registerTarget(list);
+    liftR1();
+    document
+      .getElementById('outside')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(getDnd().drag).toBeNull();
+    expect(list.announce).toHaveBeenLastCalledWith('Cancelled. Track 1 is back at 2 of 3.');
+  });
+
+  it('the focus leaving its list cancels it', () => {
+    vi.useFakeTimers();
+    try {
+      const list = listTarget();
+      registerTarget(list);
+      const r1 = document.getElementById('r1')!;
+      r1.tabIndex = 0;
+      r1.focus();
+      liftR1();
+      // to another row of the same list: still lifted
+      const r2 = document.getElementById('r2')!;
+      r2.tabIndex = 0;
+      r2.focus();
+      vi.advanceTimersByTime(5);
+      expect(getDnd().drag).not.toBeNull();
+      // out of it: put back
+      const out = document.getElementById('outside')!;
+      out.tabIndex = 0;
+      out.focus();
+      vi.advanceTimersByTime(5);
+      expect(getDnd().drag).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('its list going (a route change) cancels it', () => {
+    const off = registerTarget(listTarget());
+    liftR1();
+    off();
+    expect(getDnd().drag).toBeNull();
+  });
+
+  it('a mouse drag isn’t refused by a stale pick-up: the pointer wins', () => {
+    registerTarget(listTarget());
+    liftR1();
+    down();
+    move(50, 50, null);
+    expect(getDnd().kbd).toBeNull();
+    expect(getDnd().drag?.source.kind).toBe('tracks');
+  });
+
+  it('a place the target refuses is said, drawn amber and not dropped on', async () => {
+    const list = listTarget({
+      preview: (_d: unknown, gap: number) =>
+        gap === 0
+          ? { gap, line: null, invalid: "Can't replace the incoming track · drop after it" }
+          : { gap, line: `Smooth · at ${gap}` },
+    });
+    registerTarget(list);
+    liftR1();
+    keyboardKey('up');
+    expect(getDnd().over?.verdict.ok).toBe(false);
+    expect(getDnd().line).toBeNull();
+    expect(getDnd().note?.words).toBe("Can't replace the incoming track · drop after it");
+    expect(list.announce).toHaveBeenLastCalledWith(
+      "Track 1, 1. Can't replace the incoming track · drop after it.",
+    );
+    keyboardKey('drop');
+    expect(list.drop).not.toHaveBeenCalled();
+    expect(getDnd().kbd).not.toBeNull();
+    // the arrows find a place it takes, and that one drops
+    keyboardKey('down');
+    keyboardKey('down');
+    keyboardKey('drop');
+    await vi.waitFor(() => expect(list.drop).toHaveBeenCalled());
+  });
+});

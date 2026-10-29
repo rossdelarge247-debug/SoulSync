@@ -64,35 +64,66 @@ function shown(el: HTMLElement): boolean {
 
 export function bindRowGrid(list: HTMLElement, opts: RowGridOptions): () => void {
   let current: HTMLElement | null = null;
-  const rows = () => Array.from(list.querySelectorAll<HTMLElement>(opts.rowSelector)).filter(shown);
   const allRows = () => Array.from(list.querySelectorAll<HTMLElement>(opts.rowSelector));
+  /**
+   * The shown row `dir` steps from `from` in `every` (or the first / last
+   * shown with `from` -1 / every.length). Only the rows it passes are
+   * styled-checked, not the whole list on each key (L7).
+   */
+  const shownFrom = (every: HTMLElement[], from: number, dir: 1 | -1): HTMLElement | undefined => {
+    for (let i = from + dir; i >= 0 && i < every.length; i += dir)
+      if (shown(every[i])) return every[i];
+    return undefined;
+  };
+
+  const tidy = (row: HTMLElement) => {
+    row.setAttribute('data-grid-row', '');
+    const want = row === current ? '0' : '-1';
+    if (row.getAttribute('tabindex') !== want) row.setAttribute('tabindex', want);
+    row.querySelectorAll<HTMLElement>(FOCUSABLE).forEach((el) => {
+      if (el.closest(opts.rowSelector) !== row) return;
+      if (el.getAttribute('tabindex') !== '-1') el.setAttribute('tabindex', '-1');
+    });
+  };
 
   let applying = false;
-  const apply = () => {
+  /** every row (binding, or the current row went); `only` just those rows (a mutation, L7) */
+  const apply = (only?: Iterable<HTMLElement>) => {
     if (applying) return;
     applying = true;
     try {
-      const every = allRows();
-      if (!every.length) return;
-      if (!current || !list.contains(current)) current = rows()[0] ?? every[0];
-      for (const row of every) {
-        row.setAttribute('data-grid-row', '');
-        const want = row === current ? '0' : '-1';
-        if (row.getAttribute('tabindex') !== want) row.setAttribute('tabindex', want);
-        row.querySelectorAll<HTMLElement>(FOCUSABLE).forEach((el) => {
-          if (el.closest(opts.rowSelector) !== row) return;
-          if (el.getAttribute('tabindex') !== '-1') el.setAttribute('tabindex', '-1');
-        });
+      if (!current || !list.contains(current)) {
+        const every = allRows();
+        if (!every.length) return;
+        current = shownFrom(every, -1, 1) ?? every[0];
+        only = undefined;
       }
+      if (only) for (const row of only) tidy(row);
+      else allRows().forEach(tidy);
     } finally {
       applying = false;
     }
   };
+  /** the rows a mutation touched: the row it happened in, and rows it added */
+  const onMutations = (records: MutationRecord[]) => {
+    const touched = new Set<HTMLElement>();
+    for (const r of records) {
+      const at = (r.target as Element).closest?.(opts.rowSelector) as HTMLElement | null;
+      if (at && list.contains(at)) touched.add(at);
+      r.addedNodes.forEach((n) => {
+        if (!(n instanceof Element)) return;
+        if (n.matches(opts.rowSelector)) touched.add(n as HTMLElement);
+        n.querySelectorAll<HTMLElement>(opts.rowSelector).forEach((x) => touched.add(x));
+      });
+    }
+    apply(touched);
+  };
 
   const focusRow = (row: HTMLElement | undefined) => {
     if (!row) return;
+    const was = current;
     current = row;
-    apply();
+    apply(was && was !== row ? [was, row] : [row]);
     row.focus();
     row.scrollIntoView?.({ block: 'nearest' });
   };
@@ -132,23 +163,26 @@ export function bindRowGrid(list: HTMLElement, opts: RowGridOptions): () => void
       return;
     }
     if (inField(target)) return;
-    const list2 = rows();
-    const at = list2.indexOf(row);
     switch (event.key) {
       case 'ArrowDown':
       case 'ArrowUp': {
         if (event.altKey || event.metaKey || event.ctrlKey) return;
         event.preventDefault();
-        const next = event.key === 'ArrowDown' ? at + 1 : at - 1;
-        focusRow(list2[Math.max(0, Math.min(list2.length - 1, next))]);
+        const every = allRows();
+        const next = shownFrom(every, every.indexOf(row), event.key === 'ArrowDown' ? 1 : -1);
+        focusRow(next ?? row);
         return;
       }
       case 'Home':
-      case 'End':
+      case 'End': {
         if (!onRow) return;
         event.preventDefault();
-        focusRow(event.key === 'Home' ? list2[0] : list2[list2.length - 1]);
+        const every = allRows();
+        focusRow(
+          event.key === 'Home' ? shownFrom(every, -1, 1) : shownFrom(every, every.length, -1),
+        );
         return;
+      }
       case 'ArrowRight':
       case 'ArrowLeft': {
         const cs = controls(row);
@@ -186,8 +220,9 @@ export function bindRowGrid(list: HTMLElement, opts: RowGridOptions): () => void
   const onFocusIn = (event: FocusEvent) => {
     const row = (event.target as HTMLElement | null)?.closest<HTMLElement>(opts.rowSelector);
     if (row && list.contains(row) && row !== current) {
+      const was = current;
       current = row;
-      apply();
+      apply(was ? [was, row] : [row]);
     }
   };
 
@@ -204,7 +239,8 @@ export function bindRowGrid(list: HTMLElement, opts: RowGridOptions): () => void
   }
 
   apply();
-  const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(apply);
+  const observer =
+    typeof MutationObserver === 'undefined' ? null : new MutationObserver(onMutations);
   observer?.observe(list, { childList: true, subtree: true });
   list.addEventListener('keydown', onKeyDown);
   list.addEventListener('focusin', onFocusIn);

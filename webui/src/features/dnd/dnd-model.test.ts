@@ -23,6 +23,7 @@ import {
   placedIndexes,
   removeKeepingLocked,
   snapGap,
+  pyRound,
   stepBetween,
   stepLine,
   stepSpoken,
@@ -253,5 +254,29 @@ describe('the pointer', () => {
     expect(gapAt(rects, 10)).toBe(0);
     expect(gapAt(rects, 30)).toBe(1);
     expect(gapAt(rects, 99)).toBe(2);
+  });
+});
+
+describe("the step port agrees with core/sets/steps.py (Brief B's review, L1)", () => {
+  it('reads keys the server reads: a leading 0, spaces, lower case', () => {
+    expect(stepBetween({ key: '08A', bpm: 124 }, { key: ' 9a ', bpm: 124 })).toMatchObject({
+      kind: 'smooth',
+      from: '8A',
+      to: '9A',
+      turns: 1,
+    });
+    expect(stepBetween({ key: '8 B', bpm: 124 }, { key: '8B', bpm: 124 })?.turns).toBe(0);
+    expect(stepBetween({ key: '13A', bpm: 124 }, { key: '8A', bpm: 124 })).toBeNull();
+  });
+
+  it('rounds as Python does: ties to the even digit', () => {
+    expect(pyRound(-17.75, 1)).toBe(-17.8);
+    expect(pyRound(2.5)).toBe(2);
+    expect(pyRound(3.5)).toBe(4);
+    expect(pyRound(-0.25, 1)).toBe(-0.2);
+    // half time, 61.5 → 87.5: −17.75, which steps.py says as −17.8
+    expect(stepBetween({ key: '3B', bpm: 61.5 }, { key: '1A', bpm: 87.5 })?.bpmDiff).toBe(-17.8);
+    // the whole BPM comes from the exact change, not the rounded one
+    expect(stepBetween({ key: '8A', bpm: 120 }, { key: '8A', bpm: 123.46 })?.bpmWhole).toBe(3);
   });
 });

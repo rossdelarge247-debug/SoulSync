@@ -6,7 +6,12 @@
  * (the working set · Up next · Other sets · DJ now, laptop only), the same
  * tray a long-press drag drops on.
  */
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 
 import { openAddToMixSet } from '@/features/sets/add-to-mix-set';
 
@@ -14,7 +19,7 @@ import type { DragItem } from './dnd-model';
 
 import { showDropResult, type DropResult } from './dnd-engine';
 import styles from './dnd.module.css';
-import { sendToContext, sendToUpNext, sendToWorkingSet, setRefusal } from './send-to';
+import { mixing, sendToContext, sendToUpNext, sendToWorkingSet, setRefusal } from './send-to';
 
 export interface SendToEntry {
   key: string;
@@ -154,7 +159,8 @@ export function trayTargets(phone = true): TrayTargetView[] {
       sub: ws.reason ?? `working set · ${ws.sub}`,
       disabled: Boolean(ws.reason),
     },
-    { key: 'upnext', name: 'Up next', sub: 'play next' },
+    // while a mix holds the incoming row, Play next waits behind it (M3)
+    { key: 'upnext', name: 'Up next', sub: mixing() ? 'after the incoming track' : 'play next' },
     { key: 'other', name: 'Other sets', sub: 'choose…' },
     ...(phone ? [{ key: 'dj' as const, name: 'DJ now', sub: 'laptop only', disabled: true }] : []),
   ];
@@ -170,22 +176,40 @@ const PHONE = '(max-width: 640px)';
 export function SendToTray() {
   const items = useOpen();
   const first = useRef<HTMLButtonElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!items) return;
     back.current = document.activeElement as HTMLElement | null;
     first.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      closeSendToTray();
-    };
-    window.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener('keydown', onKey);
       back.current?.focus?.();
     };
   }, [items]);
+  // Escape closes it, scoped to the tray; Tab stays inside it (a dialog, L8)
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeSendToTray();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const all = Array.from(
+      box.current?.querySelectorAll<HTMLButtonElement>('button:not([aria-disabled="true"])') ?? [],
+    );
+    if (!all.length) return;
+    const at = all.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.shiftKey
+      ? at <= 0
+        ? all[all.length - 1]
+        : all[at - 1]
+      : at < 0 || at === all.length - 1
+        ? all[0]
+        : all[at + 1];
+    e.preventDefault();
+    next.focus();
+  };
   if (!items) return null;
   const phone = typeof window !== 'undefined' && Boolean(window.matchMedia?.(PHONE).matches);
   const title = items.length === 1 ? items[0].title : `${items.length} tracks`;
@@ -197,10 +221,13 @@ export function SendToTray() {
   };
   return (
     <div
+      ref={box}
       className={styles.tray}
       role="dialog"
+      aria-modal="true"
       aria-label={`Send ${title} to…`}
       data-dnd-send-tray=""
+      onKeyDown={onKeyDown}
     >
       <p className={styles.trayHead}>
         <span>Send {title} to…</span>

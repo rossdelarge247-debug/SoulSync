@@ -14,6 +14,8 @@ const functions = [
   'npQueuePlayingLabel',
   'npStartMoveMode',
   'npEndMoveMode',
+  'npMoveTrack',
+  'npRemoveTracks',
 ]
   .map((name) => extractFunction(name, source))
   .join('\n');
@@ -40,17 +42,27 @@ beforeEach(() => {
     ], npQueueIndex = 0, isPlaying = true, npLoadingQueueItem = false, npBuffering = false;
     let npMoveIndex = null, npMoveStart = null;
     const npQueueStatusLabel = () => '', npUpdateUpNext = () => {}, npPersistQueue = () => {},
-      npIsSpokenWord = () => false, showToast = () => {},
+      npIsSpokenWord = () => false,
+      npMixHoldsNext = () => Boolean(window.__npMixHolds),
+      npFirstFreeIndex = () => npQueueIndex + 1 + (npMixHoldsNext() ? 1 : 0),
+      NP_PLAYING_NOW = "Can't undo: it's playing now", NP_INCOMING = "Can't replace the incoming track · drop after it", showToast = () => {},
       updateNpPrevNextButtons = () => {}, npScheduleQueuePrefetch = () => {}, npStopQueuePrefetchPolling = () => {};
     ${functions}
-    return { render: renderNpQueue, state: () => ({ titles: npQueue.map(t => t.title), index: npQueueIndex }) };
+    return { render: renderNpQueue, state: () => ({ titles: npQueue.map(t => t.title), index: npQueueIndex }),
+      rows: () => npQueue, moveTrack: npMoveTrack, removeTracks: npRemoveTracks,
+      advance: () => { npQueueIndex += 1; renderNpQueue(); } };
   `,
   )(document, window, play);
   queue.render();
 });
 afterEach(() => {
   delete (window as unknown as { SoulSyncDnd?: unknown }).SoulSyncDnd;
+  delete (window as unknown as { __npMixHolds?: unknown }).__npMixHolds;
 });
+
+const mixHolds = (on: boolean) => {
+  (window as unknown as { __npMixHolds?: boolean }).__npMixHolds = on;
+};
 
 it('exposes named native Play controls without clickable row ambiguity', () => {
   const button = screen.getByRole('button', { name: 'Play C by Artist' });
@@ -114,4 +126,51 @@ it('keeps a focused row focused when Up next is drawn again (the row grid, UX-27
   row.focus();
   queue.render();
   expect(document.activeElement).toBe(document.querySelectorAll('.np-queue-item')[2]);
+});
+
+/* ── Brief B's review: H1 and M3 ──────────────────────────────────────── */
+
+it('[review H1] a move found by its row refuses once that row plays, so Undo never strands rows', () => {
+  const D = queue.rows()[3];
+  // dragged to Play next: A* D B C
+  expect(queue.moveTrack(D, 1)).toBe(1);
+  expect(queue.state()).toEqual({ titles: ['A', 'D', 'B', 'C'], index: 0 });
+  // A ends: D plays; the drop's Undo (moveTrack(D, 3)) must not move it
+  queue.advance();
+  expect(queue.moveTrack(D, 3)).toBe(-2);
+  expect(queue.state()).toEqual({ titles: ['A', 'D', 'B', 'C'], index: 1 });
+  // a row not in Up next any more
+  expect(queue.moveTrack({ title: 'Z' }, 2)).toBe(-1);
+});
+
+it('[review H1] the Move mode’s Undo says it can’t once the moved row is playing', () => {
+  fireEvent.click(screen.getByRole('button', { name: 'Move D' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Move D up' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Move D up' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+  expect(queue.state()).toEqual({ titles: ['A', 'D', 'B', 'C'], index: 0 });
+  queue.advance();
+  expect(() => dropped[0].undo()).toThrow("Can't undo: it's playing now");
+  expect(queue.state()).toEqual({ titles: ['A', 'D', 'B', 'C'], index: 1 });
+});
+
+it('[review M3] while a mix holds the incoming row nothing takes its place or moves it', () => {
+  mixHolds(true);
+  const [, B, , D] = queue.rows();
+  // to Play next: lands after the incoming row instead
+  expect(queue.moveTrack(D, 1)).toBe(2);
+  expect(queue.state().titles).toEqual(['A', 'B', 'D', 'C']);
+  // the incoming row itself doesn't move, nor go on a drop's Undo
+  expect(queue.moveTrack(B, 3)).toBe(-3);
+  expect(queue.removeTracks([B])).toBe(0);
+  expect(queue.state().titles).toEqual(['A', 'B', 'D', 'C']);
+  // the Move mode won't start on it, and its ▲ stops below it
+  fireEvent.click(screen.getByRole('button', { name: 'Move B' }));
+  expect(document.querySelector('.np-queue-move-head')).toBeNull();
+  expect(screen.getByRole('status').textContent).toBe(
+    "Can't replace the incoming track · drop after it",
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Move D' }));
+  expect(screen.getByRole('button', { name: 'Move D up' })).toBeDisabled();
+  expect(queue.state().titles).toEqual(['A', 'B', 'D', 'C']);
 });

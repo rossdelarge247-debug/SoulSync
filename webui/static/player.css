@@ -801,6 +801,11 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 /* Brief B (32b): the grip's 24px column is always there; the grip shows on
    the row's hover and focus at 62%; src/features/dnd draws the drag itself */
 .np-queue-item-grip {
+    /* above the row's stretched Play (::after, inset 0), or the grip can't be grabbed */
+    position: relative;
+    z-index: 1;
+    align-self: stretch;
+    align-items: center;
     display: inline-flex;
     justify-content: center;
     width: 24px;

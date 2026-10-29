@@ -32,7 +32,9 @@ import {
   type StepTrack,
 } from './dnd-model';
 import { bindRowGrid } from './row-grid';
-import { player, sendToUpNext } from './send-to';
+import { mixing, moveRefusal, player, sendToUpNext } from './send-to';
+
+export { mixing };
 
 export const UP_NEXT_ID = 'upnext';
 
@@ -71,18 +73,6 @@ export function queueItem(row: QueueRow): DragItem {
     inLibrary: Boolean(row.file_path) && !row.media_src,
     queue: row,
   };
-}
-
-/** A mix running or counting down: the first gap is closed (32c). */
-export function mixing(): boolean {
-  const view = window.SoulSyncAutomix?.view?.() as
-    | { stage?: string; barsToGo?: number | null }
-    | undefined;
-  if (!view) return false;
-  return (
-    ['counting', 'mixing', 'settling'].includes(view.stage ?? '') ||
-    (view.barsToGo !== null && view.barsToGo !== undefined)
-  );
 }
 
 function gapsShown(): boolean {
@@ -149,6 +139,12 @@ function liftRow(row: HTMLElement): Lifted | null {
   const q = queue();
   const track = q.rows[i];
   if (!track || i <= q.index || row.querySelector('[data-dnd-grip]') === null) return null;
+  // the incoming row a mix holds doesn't move (M3)
+  if (i === q.index + 1 && mixing()) {
+    player()?.announce?.(REASONS.incoming);
+    window.showToast?.(REASONS.incoming, 'info');
+    return null;
+  }
   return {
     items: [queueItem(track)],
     source: { kind: 'upnext', listId: UP_NEXT_ID, indexes: [i] },
@@ -186,13 +182,23 @@ export function upNextTarget(qc: QueryClient | null): DropTarget {
       const q = queue();
       const p = player();
       const g = clampGap(gap ?? q.rows.length, q.index, q.rows.length);
+      // checked again at the drop: a mix may have started while it was lifted (M3)
+      if (g === q.index + 1 && q.index >= 0 && mixing()) throw new Error(REASONS.incoming);
       if (drag.source.listId === UP_NEXT_ID) {
-        const from = drag.source.indexes[0];
-        const row = q.rows[from];
-        if (!row || !p?.moveTrack) return null;
+        // the row itself, not the index it had at the lift (H1): the queue may have moved on
+        const row =
+          (drag.items[0]?.queue as QueueRow | undefined) ?? q.rows[drag.source.indexes[0]];
+        const from = row ? q.rows.indexOf(row) : -1;
+        if (!row || from < 0 || !p?.moveTrack) throw new Error(moveRefusal(-1) ?? '');
+        if (from <= q.index) throw new Error(REASONS.playingNow);
+        // a keyboard pick-up named its place by the rows as they were: refuse if they moved
+        if (drag.via === 'keyboard' && from !== drag.source.indexes[0])
+          throw new Error(REASONS.queueMoved);
         const to = gapToIndex(from, g);
         const at = p.moveTrack(row, to);
-        if (at < 0 || at === from) return null;
+        const why = moveRefusal(at);
+        if (why) throw new Error(why);
+        if (at === from) return null;
         return {
           words: dropWords({
             mode: 'move',
@@ -201,8 +207,12 @@ export function upNextTarget(qc: QueryClient | null): DropTarget {
             numbers: [at + 1],
           }),
           undo: () => {
-            if ((p.moveTrack?.(row, from) ?? -1) < 0)
-              throw new Error("Can't undo: that track isn't in Up next any more");
+            const back = p.moveTrack?.(row, from) ?? -1;
+            const why = moveRefusal(back, true);
+            if (why)
+              throw new Error(
+                why === moveRefusal(-1) ? "Can't undo: that track isn't in Up next any more" : why,
+              );
           },
           focus: () => p.focusRow?.(at),
         };

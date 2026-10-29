@@ -50,6 +50,11 @@ export const REASONS = {
   notInLibrary: 'Only library tracks can be mixed · Download it first',
   famous: "A famous mix can't be changed · Save a copy to edit it",
   incoming: "Can't replace the incoming track · drop after it",
+  /** an Up next row that started playing while it was lifted, or before its Undo */
+  playingNow: "Can't move it: it's playing now",
+  undoPlayingNow: "Can't undo: it's playing now",
+  /** Up next moved on under a keyboard pick-up: the place it named isn't the same now */
+  queueMoved: 'Up next changed while it was lifted · try again',
   noSet: 'Make a working set first · New set in the Mix tab',
 } as const;
 
@@ -103,6 +108,23 @@ export function wheelSteps(
   return apart + (pa.letter === pb.letter ? 0 : 1);
 }
 
+/**
+ * Python's round(): to the nearest, ties to the even digit (-17.75 → -17.8),
+ * so the line's numbers match core/sets/steps.py's (review L1).
+ */
+export function pyRound(x: number, digits = 0): number {
+  if (!Number.isFinite(x)) return x;
+  // the double's own decimal digits (toFixed works from its exact value), so
+  // 3.55, really 3.5499…, rounds down as Python's does, and only a true tie is even
+  const [whole, frac = ''] = Math.abs(x).toFixed(20).split('.');
+  let n = Number(whole + frac.slice(0, digits));
+  const rest = frac.slice(digits);
+  const half = '5'.padEnd(rest.length, '0');
+  if (rest > half || (rest === half && n % 2 === 1)) n += 1;
+  const out = n / 10 ** digits;
+  return out === 0 ? 0 : x < 0 ? -out : out;
+}
+
 /** The BPM change from a to b, at the same tempo or played double or half time. */
 export function tempoStep(a: number, b: number): { diff: number; how: 'same' | 'half' | 'double' } {
   let best: { diff: number; how: 'same' | 'half' | 'double' } = { diff: b - a, how: 'same' };
@@ -127,6 +149,8 @@ export interface PreviewStep {
   to: string;
   turns: number;
   bpmDiff: number;
+  /** the change in whole BPM, rounded from the exact change as steps.py's words are */
+  bpmWhole?: number;
   how: 'same' | 'half' | 'double';
   /** why it's a jump: the keys, the tempo, or both */
   clash: 'key' | 'tempo' | null;
@@ -149,12 +173,15 @@ export function stepBetween(
   const { diff, how } = tempoStep(a, b);
   const keyJump = turns >= JUMP_STEPS;
   const tempoJump = Math.abs(diff) > JUMP_BPM;
+  const pa = camelotParts(left.key)!;
+  const pb = camelotParts(right.key)!;
   return {
     kind: keyJump || tempoJump ? 'jump' : 'smooth',
-    from: String(left.key).toUpperCase(),
-    to: String(right.key).toUpperCase(),
+    from: `${pa.number}${pa.letter}`,
+    to: `${pb.number}${pb.letter}`,
     turns,
-    bpmDiff: Math.round(diff * 10) / 10,
+    bpmDiff: pyRound(diff, 1),
+    bpmWhole: pyRound(diff),
     how,
     clash: keyJump ? 'key' : tempoJump ? 'tempo' : null,
   };
@@ -163,7 +190,7 @@ export function stepBetween(
 function bpmShort(step: PreviewStep): string {
   if (step.how === 'half') return 'half time';
   if (step.how === 'double') return 'double time';
-  const n = Math.round(step.bpmDiff);
+  const n = step.bpmWhole ?? pyRound(step.bpmDiff);
   return n === 0 ? 'same BPM' : `${n > 0 ? '+' : '−'}${Math.abs(n)} BPM`;
 }
 
@@ -185,7 +212,7 @@ export function stepSpoken(step: PreviewStep): string {
     step.clash === 'key'
       ? ', the keys clash'
       : step.clash === 'tempo'
-        ? `, the tempos are ${Math.abs(Math.round(step.bpmDiff))} BPM apart`
+        ? `, the tempos are ${Math.abs(step.bpmWhole ?? pyRound(step.bpmDiff))} BPM apart`
         : '';
   return `${kind}, ${step.from} to ${step.to}${why}`;
 }

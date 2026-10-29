@@ -186,9 +186,19 @@ export function useDnd(): DndState {
   return useSyncExternalStore(subscribeDnd, getDnd, getDnd);
 }
 
+/**
+ * One part of the drag's state (L7): a surface re-renders when that part
+ * changes, not on every pointer move (`x` and `y` change each frame; `over`
+ * and `drag` only when the target or the lift does).
+ */
+export function useDndSelect<T>(select: (s: DndState) => T): T {
+  const get = () => select(state);
+  return useSyncExternalStore(subscribeDnd, get, get);
+}
+
 /** Is something lifted (a pointer's or the keyboard's)? */
 export function useDragging(): Drag | null {
-  return useDnd().drag;
+  return useDndSelect((s) => s.drag);
 }
 
 /* ── targets ───────────────────────────────────────────────────────────── */
@@ -201,6 +211,8 @@ export function registerTarget(target: DropTarget): () => void {
   if (state.drag) light();
   return () => {
     if (targets.get(target.id) === target) {
+      // its list went (a route change, the page closed): a keyboard pick-up in it ends (M2)
+      if (state.kbd?.targetId === target.id) cancel(true);
       targets.delete(target.id);
       targetsVersion += 1;
       targetListeners.forEach((l) => l());
@@ -450,6 +462,7 @@ function onTouchMove(e: TouchEvent): void {
 function clearPending(): void {
   if (pending?.timer) window.clearTimeout(pending.timer);
   pending = null;
+  if (!state.drag) document.removeEventListener('touchmove', onTouchMove);
   window.removeEventListener('pointermove', onPendingMove);
   window.removeEventListener('pointerup', clearPending);
   window.removeEventListener('pointercancel', clearPending);
@@ -497,12 +510,19 @@ export function pointerDown(
   /** a grip: a finger drags from it at once, as a mouse does; a row: a long-press */
   from: 'grip' | 'row' = 'row',
 ): void {
-  if (state.drag || state.kbd) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
+  // a keyboard pick-up left behind gives way to the pointer (M2)
+  if (state.kbd) cancel(true);
+  if (state.drag) return;
   clearPending();
   const touch = e.pointerType === 'touch' && from === 'row';
   pending = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, timer: null, el, lift, touch };
   if (touch) {
+    // L9: a non-passive touchmove from the touch's start, so once the
+    // long-press lifts the row the browser can't already have committed the
+    // finger to a scroll (it fires pointercancel then). Before the lift it
+    // lets every move through: moving first is a scroll. (Real devices to check.)
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
     pending.timer = window.setTimeout(() => {
       const p = pending;
       clearPending();
@@ -635,6 +655,13 @@ function onUp(): void {
   void runDrop(t, drag, over.preview ? over.preview.gap : null);
 }
 
+/** Work the target under the pointer out again (its words changed: the holdings came). */
+export function refreshOver(): void {
+  if (!state.drag || state.kbd || !state.over) return;
+  set({ over: null });
+  hitTest();
+}
+
 /** Find the target under the pointer and what it would do there. */
 function hitTest(): void {
   const drag = state.drag;
@@ -702,7 +729,9 @@ function frame(now: number): void {
   lastFrame = now;
   const over = state.over ? targets.get(state.over.id) : null;
   const hit = document.elementFromPoint?.(state.x, state.y) ?? null;
-  const scroller = scrollerOf(over ?? null, (over?.el() ?? hit) as Element | null);
+  // over a target that isn't a list (a set, the bar's zone, the tray) nothing scrolls (L6)
+  const scroller =
+    over && !over.rows ? null : scrollerOf(over ?? null, (over?.el() ?? hit) as Element | null);
   let scroll: DndState['scroll'] = null;
   if (scroller && state.drag.via !== 'keyboard') {
     const isPage = scroller === document.scrollingElement;
@@ -756,9 +785,49 @@ function end(): void {
     }
     captured = null;
   }
+  unwatchKeyboardLift();
   unlight();
   verdicts.clear();
   set({ drag: null, over: null, line: null, note: null, scroll: null, kbd: null });
+}
+
+/* a keyboard pick-up ends when the focus leaves its list or Escape is pressed anywhere (M2) */
+let kbdWatch: { list: HTMLElement | null; timer: number } | null = null;
+
+function kbdEscape(e: KeyboardEvent): void {
+  if (e.key !== 'Escape' || !state.kbd) return;
+  const list = kbdWatch?.list;
+  // inside its list the row grid takes Escape itself, with the same words
+  if (list && e.target instanceof Node && list.contains(e.target)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  cancel(true);
+}
+
+function kbdFocusOut(): void {
+  if (!kbdWatch) return;
+  window.clearTimeout(kbdWatch.timer);
+  // a tick later: a list that draws its rows again puts the focus back first
+  kbdWatch.timer = window.setTimeout(() => {
+    const list = kbdWatch?.list;
+    if (!state.kbd || !list) return;
+    if (!list.contains(document.activeElement)) cancel(true);
+  }, 0);
+}
+
+function watchKeyboardLift(list: HTMLElement | null): void {
+  unwatchKeyboardLift();
+  kbdWatch = { list, timer: 0 };
+  window.addEventListener('keydown', kbdEscape, true);
+  list?.addEventListener('focusout', kbdFocusOut);
+}
+
+function unwatchKeyboardLift(): void {
+  if (!kbdWatch) return;
+  window.clearTimeout(kbdWatch.timer);
+  window.removeEventListener('keydown', kbdEscape, true);
+  kbdWatch.list?.removeEventListener('focusout', kbdFocusOut);
+  kbdWatch = null;
 }
 
 /** Put it back (Escape, a drop outside every target, a lost pointer). */
@@ -864,16 +933,26 @@ function kbdPreview(): void {
   const t = targets.get(k.targetId);
   if (!t) return;
   const preview = k.at === k.from ? null : (t.preview?.(drag, kbdGap(k.from, k.at)) ?? null);
-  const line0 = openGap(t, preview);
+  // a place the target refuses (the incoming track mid-mix, M3): amber, no line
+  const verdict: Verdict = preview?.invalid ? { ok: false, reason: preview.invalid } : { ok: true };
+  const line0 = openGap(t, verdict.ok ? preview : null);
   // the line's place stays in view as the arrows move it
   const gapRow = t.el()?.querySelector<HTMLElement>('[data-dnd-gap]');
   gapRow?.scrollIntoView?.({ block: 'nearest' });
-  const line = gapRow && preview ? measureLine(t, preview) : line0;
+  const line = gapRow && preview && verdict.ok ? measureLine(t, preview) : line0;
+  let note: NoteBox | null = null;
+  const box = !verdict.ok ? t.el()?.getBoundingClientRect() : null;
+  if (box && verdict.reason)
+    note = {
+      top: box.top + 6,
+      left: box.left + 6,
+      width: Math.min(box.width - 12, 420),
+      words: verdict.reason,
+    };
   set({
-    over: preview
-      ? { id: t.id, gap: kbdGap(k.from, k.at), verdict: { ok: true }, preview, hint: null }
-      : null,
+    over: preview ? { id: t.id, gap: kbdGap(k.from, k.at), verdict, preview, hint: null } : null,
     line,
+    note,
   });
 }
 
@@ -891,6 +970,7 @@ export function keyboardLift(targetId: string, from: number, lifted: Lifted): bo
   }
   verdicts.clear();
   lifted.rows?.forEach((r) => r.setAttribute('data-dnd-lifted', 'keyboard'));
+  watchKeyboardLift(t.el());
   set({
     drag: { items: lifted.items, source: lifted.source, via: 'keyboard' },
     kbd: { targetId, from, at: from },
@@ -920,6 +1000,12 @@ export function keyboardKey(key: 'up' | 'down' | 'top' | 'end' | 'drop' | 'cance
   if (key === 'drop') {
     const at = k.at;
     const from = k.from;
+    // a refused place: say why and keep it lifted, so the arrows can find another
+    const why = state.over && !state.over.verdict.ok ? state.over.verdict.reason : null;
+    if (why) {
+      liveSay(why, t);
+      return true;
+    }
     end();
     if (at === from) {
       liveSay(`${drag.items[0]?.title || 'The track'} stays at ${from + 1}.`, t);
@@ -931,7 +1017,10 @@ export function keyboardKey(key: 'up' | 'down' | 'top' | 'end' | 'drop' | 'cance
   const at = keyboardTarget(t.lockables?.() ?? [], k.from, k.at, key);
   set({ kbd: { ...k, at } });
   kbdPreview();
-  const words = t.moveWords?.(drag, k.from, at);
+  const refused = state.over && !state.over.verdict.ok ? state.over.verdict.reason : null;
+  const words = refused
+    ? `${drag.items[0]?.title || 'The track'}, ${at + 1}. ${refused}.`
+    : t.moveWords?.(drag, k.from, at);
   if (words) liveSay(words, t);
   return true;
 }

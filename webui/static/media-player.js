@@ -1952,6 +1952,26 @@ function npAutomix() {
 function npAutomixStop() {
     try { const a = npAutomix(); if (a && a.stop) a.stop(); } catch (e) { /* never block playback */ }
 }
+// A mix running or counting down holds the incoming row (32c): nothing may
+// take its place or move it (Brief B's review, M3). Up next's drag reads
+// the same thing (features/dnd/up-next-dnd.ts mixing()).
+function npMixHoldsNext() {
+    try {
+        const a = npAutomix();
+        const view = a && typeof a.view === 'function' ? a.view() : null;
+        if (!view || npQueueIndex < 0) return false;
+        return ['counting', 'mixing', 'settling'].includes(view.stage || '') ||
+            (view.barsToGo !== null && view.barsToGo !== undefined);
+    } catch (e) { return false; }
+}
+// The first queue place a drop, a move or an Undo may use: after the playing
+// row, and after the incoming one while a mix holds it.
+function npFirstFreeIndex() {
+    return npQueueIndex + 1 + (npMixHoldsNext() ? 1 : 0);
+}
+const NP_PLAYING_NOW = "Can't undo: it's playing now";
+const NP_INCOMING = "Can't replace the incoming track · drop after it";
+
 function npAutomixOwnsAdvance() {
     try { const a = npAutomix(); return Boolean(a && a.ownsAdvance && a.ownsAdvance()); } catch (e) { return false; }
 }
@@ -2666,6 +2686,7 @@ function renderNpQueue() {
         if (already) { topBtn.disabled = true; topBtn.dataset.none = ''; }
         topBtn.onclick = (e) => {
             e.stopPropagation();
+            if (npMixHoldsNext()) { npAnnounceQueue(NP_INCOMING); showToast(NP_INCOMING, 'info'); return; }
             const to = npMoveNext(i);
             if (to < 0) return;
             renderNpQueue();
@@ -2685,8 +2706,13 @@ function renderNpQueue() {
                 move.dataset.queueAction = direction;
                 move.textContent = symbol;
                 move.setAttribute('aria-label', `Move ${track.title || 'track'} ${direction === 'earlier' ? 'up' : 'down'}`);
-                move.disabled = target <= npQueueIndex || target < 0 || target >= npQueue.length;
+                move.disabled = target < npFirstFreeIndex() || target < 0 || target >= npQueue.length;
                 move.onclick = () => {
+                    // a mix that started since holds the incoming row (M3)
+                    if (target < npFirstFreeIndex() || i < npFirstFreeIndex()) {
+                        npAnnounceQueue(NP_INCOMING);
+                        return;
+                    }
                     npReorderQueue(i, target);
                     npMoveIndex = target;
                     renderNpQueue();
@@ -2789,6 +2815,7 @@ let npMoveStart = null;
 
 function npStartMoveMode(index) {
     if (!Number.isInteger(index) || index <= npQueueIndex || index >= npQueue.length) return;
+    if (index < npFirstFreeIndex()) { npAnnounceQueue(NP_INCOMING); showToast(NP_INCOMING, 'info'); return; }
     npMoveIndex = index;
     npMoveStart = { track: npQueue[index], index };
     renderNpQueue();
@@ -2810,11 +2837,51 @@ function npEndMoveMode() {
     const undo = () => {
         const here = npQueue.indexOf(start.track);
         if (here < 0) throw new Error("Can't undo: that track isn't in Up next any more");
-        npReorderQueue(here, Math.max(npQueueIndex + 1, Math.min(start.index, npQueue.length - 1)));
+        // the row started playing (or was played) since: moving it would take
+        // the playing track away and strand the rows between (review H1)
+        if (here <= npQueueIndex) throw new Error(NP_PLAYING_NOW);
+        if (npMixHoldsNext() && here === npQueueIndex + 1) throw new Error(NP_INCOMING);
+        npReorderQueue(here, Math.max(npFirstFreeIndex(), Math.min(start.index, npQueue.length - 1)));
+        npPersistQueue();
     };
     const dnd = window.SoulSyncDnd;
     if (dnd && typeof dnd.showDropResult === 'function') dnd.showDropResult({ words, undo });
     else showToast(words, 'success');
+}
+
+// Brief B: a drop's Undo takes these queued rows out again; how many went.
+// Never the playing row, and not the incoming one while a mix holds it (M3).
+function npRemoveTracks(rows) {
+    let gone = 0;
+    const held = npMixHoldsNext() ? npQueue[npQueueIndex + 1] : null;
+    for (const row of rows || []) {
+        const i = npQueue.indexOf(row);
+        if (i < 0 || i === npQueueIndex || row === held) continue;
+        npQueue.splice(i, 1);
+        if (i < npQueueIndex) npQueueIndex -= 1;
+        gone += 1;
+    }
+    renderNpQueue();
+    updateNpPrevNextButtons();
+    npPersistQueue();
+    npScheduleQueuePrefetch();
+    return gone;
+}
+
+// Brief B: a queued row moved to `to`, found by the row itself (so a drop's
+// Undo finds it wherever it went); its index after. -1: not in Up next;
+// -2: it's playing or played now (moving it would take the playing track
+// away and strand the rows between: the review's H1); -3: it's the incoming
+// row a mix holds (M3). Never lands above the first free place.
+function npMoveTrack(row, to) {
+    const from = npQueue.indexOf(row);
+    if (from < 0) return -1;
+    if (from <= npQueueIndex) return -2;
+    const first = npFirstFreeIndex();
+    if (from < first) return -3;
+    npReorderQueue(from, Math.max(first, Math.min(to, npQueue.length - 1)));
+    npPersistQueue();
+    return npQueue.indexOf(row);
 }
 
 // Move a queue item, keeping npQueueIndex pointed at the SAME playing track.
@@ -4141,7 +4208,7 @@ window.SoulSyncPlayer = {
         const list = npPrepareQueueTracks((tracks || []).filter(Boolean));
         if (!list.length) return [];
         const wasEmpty = npQueue.length === 0;
-        const at = Math.max(npQueueIndex + 1, Math.min(Number(index) || 0, npQueue.length));
+        const at = Math.max(npFirstFreeIndex(), Math.min(Number(index) || 0, npQueue.length));
         npQueue.splice(at, 0, ...list);
         renderNpQueue();
         updateNpPrevNextButtons();
@@ -4150,28 +4217,12 @@ window.SoulSyncPlayer = {
         if (!currentTrack && wasEmpty) playQueueItem(at);
         return list;
     },
-    /** a drop's Undo: these queued rows out again (not the playing one); how many went */
-    removeTracks(rows) {
-        let gone = 0;
-        for (const row of rows || []) {
-            const i = npQueue.indexOf(row);
-            if (i < 0 || i === npQueueIndex) continue;
-            npQueue.splice(i, 1);
-            if (i < npQueueIndex) npQueueIndex -= 1;
-            gone += 1;
-        }
-        renderNpQueue();
-        updateNpPrevNextButtons();
-        npScheduleQueuePrefetch();
-        return gone;
-    },
-    /** a queued row moved to `to` (by the row itself, so an Undo finds it); its index after */
-    moveTrack(row, to) {
-        const from = npQueue.indexOf(row);
-        if (from < 0) return -1;
-        npReorderQueue(from, Math.max(npQueueIndex + 1, Math.min(to, npQueue.length - 1)));
-        return npQueue.indexOf(row);
-    },
+    /** a drop's Undo: these queued rows out again; how many went (npRemoveTracks) */
+    removeTracks: (rows) => npRemoveTracks(rows),
+    /** a queued row moved by the row itself; its index after, or -1 / -2 / -3 (npMoveTrack) */
+    moveTrack: (row, to) => npMoveTrack(row, to),
+    /** the first place a drop may use (after the incoming row while a mix holds it) */
+    firstFree: () => npFirstFreeIndex(),
     /** Up next's polite region (UX-27) */
     announce: (words) => npAnnounceQueue(words),
     /** focus a row (the keyboard's drop, 32d) */

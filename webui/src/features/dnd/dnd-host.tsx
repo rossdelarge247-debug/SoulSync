@@ -24,10 +24,18 @@ import {
 } from '@/features/sets/sets.api';
 import { useProfile } from '@/platform/shell/route-controllers';
 
-import { showDropResult, undoLast, useDnd, useDropTarget, type Drag } from './dnd-engine';
+import {
+  getTarget,
+  refreshOver,
+  showDropResult,
+  undoLast,
+  useDndSelect,
+  useDropTarget,
+  type Drag,
+} from './dnd-engine';
 import { REASONS, ghostWords, textOf } from './dnd-model';
 import styles from './dnd.module.css';
-import { player, sendToUpNext, sendToWorkingSet, setSendToContext } from './send-to';
+import { moveRefusal, player, sendToUpNext, sendToWorkingSet, setSendToContext } from './send-to';
 import { SendToTray, sendToAnotherSet, trayTargets, type TrayTargetView } from './send-to-ui';
 import { setHoldings, setTarget } from './set-targets';
 import { bindUpNext, mixing } from './up-next-dnd';
@@ -58,10 +66,10 @@ function useMedia(query: string): boolean {
 
 function SideSet({ set }: { set: SetListItem }) {
   const ref = useRef<HTMLLIElement>(null);
-  const dnd = useDnd();
+  const overState = useDndSelect((s) => s.over);
   const id = `side-set:${set.id}`;
   useDropTarget(id, () => setTarget(id, set, () => ref.current));
-  const over = dnd.over?.id === id ? dnd.over : null;
+  const over = overState?.id === id ? overState : null;
   const sub = over
     ? over.verdict.ok
       ? (over.hint ?? 'drop to add · goes last')
@@ -143,13 +151,20 @@ function BarZones() {
       // an Up next row itself: it moves to the top
       if (drag.source.kind === 'upnext' && p?.moveTrack) {
         const st = p.state();
-        const from = drag.source.indexes[0];
-        const row = st.queue[from];
-        if (!row) return null;
-        p.moveTrack(row, st.index + 1);
+        if (st.index >= 0 && mixing()) throw new Error(REASONS.incoming);
+        // the row itself (H1): the queue may have moved on since the lift
+        const row = drag.items[0]?.queue ?? st.queue[drag.source.indexes[0]];
+        const from = row ? st.queue.indexOf(row) : -1;
+        if (!row || from < 0) return null;
+        const at = p.moveTrack(row, st.index + 1);
+        const why = moveRefusal(at);
+        if (why) throw new Error(why);
         return {
           words: `Playing next: ${drag.items[0]?.title || 'the track'}`,
-          undo: () => void p.moveTrack?.(row, from),
+          undo: () => {
+            const why2 = moveRefusal(p.moveTrack?.(row, from) ?? -1, true);
+            if (why2) throw new Error(why2);
+          },
         };
       }
       return sendToUpNext(drag.items, 'next');
@@ -283,8 +298,35 @@ function useSendToSync(profileId: number) {
 
 /* ── the host ──────────────────────────────────────────────────────────── */
 
+/** The ghost's place: the only part that follows every pointer move (L7). */
+function useGhostTransform(): string {
+  return useDndSelect((s) => `translate(${s.x - s.grabX}px, ${s.y - s.grabY}px) rotate(1.5deg)`);
+}
+
+function GhostAt({ children, touch }: { children: React.ReactNode; touch: boolean }) {
+  const transform = useGhostTransform();
+  return (
+    <div
+      className={styles.ghost}
+      data-touch={touch ? '' : undefined}
+      data-dnd-ghost=""
+      style={{ transform }}
+      aria-hidden="true"
+    >
+      {children}
+    </div>
+  );
+}
+
 export function DndHost() {
-  const st = useDnd();
+  // each part on its own (L7): a pointer move re-renders only the ghost
+  const drag = useDndSelect((s) => s.drag);
+  const over = useDndSelect((s) => s.over);
+  const line = useDndSelect((s) => s.line);
+  const note = useDndSelect((s) => s.note);
+  const refused = useDndSelect((s) => s.refused);
+  const scroll = useDndSelect((s) => s.scroll);
+  const st = { over, line, note, refused, scroll };
   const phone = useMedia(PHONE);
   const qc = useQueryClient();
   const { profileId, isAdmin } = useProfile();
@@ -319,21 +361,35 @@ export function DndHost() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // which of these the sets hold already, for "In it already · #4" (32b)
-  const drag = st.drag;
+  // which of these the sets hold already, for "In it already · #4" (32b):
+  // asked once a drag first comes over another set, so a reorder within one
+  // list never asks (L7)
+  const askedFor = useRef<Drag | null>(null);
+  const overKind = over ? getTarget(over.id) : undefined;
+  const wantHoldings = Boolean(
+    drag &&
+    drag.via !== 'keyboard' &&
+    overKind &&
+    (overKind.kind === 'set' || overKind.kind === 'working') &&
+    overKind.listId !== drag.source.listId,
+  );
   useEffect(() => {
-    if (!drag || drag.via === 'keyboard') return;
+    if (!drag) {
+      askedFor.current = null;
+      return;
+    }
+    if (!wantHoldings || askedFor.current === drag) return;
+    askedFor.current = drag;
     setHoldings(new Map());
-    let live = true;
     fetchHolding(drag.items.map((t) => t.id))
       .then((sets) => {
-        if (live) setHoldings(new Map(sets.map((s) => [s.id, s.holds])));
+        if (askedFor.current !== drag) return;
+        setHoldings(new Map(sets.map((s) => [s.id, s.holds])));
+        // the set under the ghost says "In it already" now, not a moment later
+        refreshOver();
       })
       .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [drag]);
+  }, [drag, wantHoldings]);
 
   // a missing file's "Find it again" (32b state 5): an admin's rescan, as a set's row does (28e)
   useEffect(() => {
@@ -366,22 +422,14 @@ export function DndHost() {
   return createPortal(
     <>
       {pointer && ghost ? (
-        <div
-          className={styles.ghost}
-          data-touch={drag.via === 'touch' ? '' : undefined}
-          data-dnd-ghost=""
-          style={{
-            transform: `translate(${st.x - st.grabX}px, ${st.y - st.grabY}px) rotate(1.5deg)`,
-          }}
-          aria-hidden="true"
-        >
+        <GhostAt touch={drag.via === 'touch'}>
           {ghost.count > 1 ? <span className={styles.ghostCount}>{ghost.count}</span> : null}
           <span className={styles.ghostText}>
             <span className={styles.ghostTitle}>{ghost.title || first?.title}</span>
             {ghost.meta ? <span className={styles.ghostMeta}>{ghost.meta}</span> : null}
           </span>
           {ghostNo ? <span className={styles.ghostNo}>⊘</span> : null}
-        </div>
+        </GhostAt>
       ) : null}
       {st.line ? (
         <div

@@ -252,6 +252,8 @@ function TrackRow({
       ref={rowRef}
       className={styles.row}
       data-track-row={track.id}
+      // a tab stop in the row grid: it says which track it is (L8)
+      aria-label={[track.title, track.artist_name].filter(Boolean).join(', ')}
       data-star-row={track.id}
       data-file-missing={missing ? 'true' : undefined}
       data-playing={playing ? 'true' : undefined}
@@ -731,11 +733,23 @@ export function TracksPage({
   // Brief B (32a, 32g): a drag lifts the row, or the whole selection when the
   // row is in it (one ghost with a count); Tracks is a source, never a target
   const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
+  // The selection as a drag and Send to… both take it (review L5): in the
+  // list's order, not the order ticked; tracks whose file is missing left
+  // out and said so (all of them missing: the lift's own refusal says why)
+  const selectionItems = (): { items: DragItem[]; ids: string[] } => {
+    const chosen = tracks.filter((t) => picked.includes(t.id));
+    const usable = chosen.filter((t) => !t.file_missing);
+    const take = usable.length ? usable : chosen;
+    const missing = chosen.length - usable.length;
+    if (usable.length && missing)
+      window.showToast?.(
+        `${plural(missing, 'track')} left out: ${missing === 1 ? 'its file is' : 'their files are'} missing`,
+        'info',
+      );
+    return { items: take.map((t) => djItem(t, away?.words)), ids: take.map((t) => t.id) };
+  };
   const itemsFor = (track: DjTrack): { items: DragItem[]; ids: string[] } => {
-    if (selecting && picked.includes(track.id)) {
-      const chosen = pickedTracks();
-      return { items: chosen.map((t) => djItem(t, away?.words)), ids: chosen.map((t) => t.id) };
-    }
+    if (selecting && picked.includes(track.id)) return selectionItems();
     return { items: [djItem(track, away?.words)], ids: [track.id] };
   };
   const liftFrom = (track: DjTrack): Lifted | null => {
@@ -1028,12 +1042,12 @@ export function TracksPage({
               label: 'Send to…',
               disabled: !picked.length || Boolean(away),
               reason: away?.words,
-              onSelect: () =>
-                openSendToTray(
-                  pickedTracks()
-                    .filter((t) => !t.file_missing)
-                    .map((t) => djItem(t)),
-                ),
+              onSelect: () => {
+                const { items } = selectionItems();
+                if (items.some((t) => t.fileMissing))
+                  window.showToast?.("Can't be sent: their files are missing", 'info');
+                else openSendToTray(items);
+              },
             },
             {
               key: 'playlist',

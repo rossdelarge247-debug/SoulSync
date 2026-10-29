@@ -132,7 +132,20 @@ describe('the tray at the foot (32e)', () => {
     expect(insertAt).toHaveBeenCalledWith(1, [expect.objectContaining({ id: '9' })]);
     expect(screen.queryByRole('dialog')).toBeNull();
     act(() => openSendToTray(items));
+    // Escape elsewhere on the page is that place's; in the tray it closes it (L8)
     fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    // Tab stays inside the tray: from the last target back to the first
+    const dialog = screen.getByRole('dialog');
+    const live = [
+      ...dialog.querySelectorAll('button:not([aria-disabled="true"])'),
+    ] as HTMLElement[];
+    live[live.length - 1].focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+    expect(document.activeElement).toBe(live[0]);
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(live[live.length - 1]);
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     delete (window as unknown as { SoulSyncPlayer?: unknown }).SoulSyncPlayer;
   });

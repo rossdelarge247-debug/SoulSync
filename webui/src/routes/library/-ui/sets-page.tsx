@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
-import { useDnd, useDropTarget, type DropTarget } from '@/features/dnd/dnd-engine';
+import { useDndSelect, useDropTarget, type DropTarget } from '@/features/dnd/dnd-engine';
 import { draftTarget, setTarget } from '@/features/dnd/set-targets';
 import { useWorkingSet } from '@/features/mix/mix.api';
 import { readDraft, useDraft, writeDraft } from '@/features/sets/draft-store';
@@ -106,7 +106,7 @@ function DropRow({
   meta?: ReactNode;
 }) {
   const ref = useRef<HTMLLIElement>(null);
-  const over = useDnd().over;
+  const over = useDndSelect((s) => s.over);
   useDropTarget(id, () => make(() => ref.current));
   const here = over?.id === id ? over : null;
   const sub = here ? (here.verdict.ok ? here.hint : here.verdict.reason) : null;

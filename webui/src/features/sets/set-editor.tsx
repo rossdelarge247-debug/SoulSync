@@ -1172,9 +1172,24 @@ export function SetEditor({
   });
   const data: SetView | undefined = view.data;
   // the view's rows line up with ours once it's caught up; until then ours
+  // A row's track is only ever its own (review M4): just after an edit the
+  // view (kept from before, keepPreviousData) can be in the old order, so a
+  // place whose track id differs takes that track's view from elsewhere.
   const viewRows: ViewRow[] = useMemo(() => {
-    if (data && data.rows.length === rows.length)
-      return rows.map((r, i) => ({ ...data.rows[i], ...r, track: data.rows[i].track }));
+    if (data && data.rows.length === rows.length) {
+      const byId = new Map<string, (typeof data.rows)[number]>();
+      for (const v of data.rows) if (v.track_id && v.track) byId.set(String(v.track_id), v);
+      return rows.map((r, i) => {
+        const same = data.rows[i];
+        const v =
+          same && String(same.track_id ?? '') === String(r.track_id ?? '')
+            ? same
+            : r.track_id
+              ? byId.get(String(r.track_id))
+              : undefined;
+        return v ? { ...v, ...r, track: v.track } : { ...r, track: null };
+      });
+    }
     return rows.map((r) => ({ ...r, track: null }));
   }, [data, rows]);
   const steps = data && data.rows.length === rows.length ? data.steps : [];
@@ -1401,6 +1416,7 @@ export function SetEditor({
   const isMove = (drag: Drag) => drag.source.listId === listId;
   const liftRow = (index: number, el?: HTMLElement | null): Lifted | null => {
     const row = viewRows[index];
+    // viewRows gives each place its own track by id (M4), never a neighbour's
     if (!row?.track || rows[index]?.locked) return null;
     const li = el ?? listEl?.querySelector<HTMLElement>(`[data-dnd-index="${index}"]`) ?? null;
     return {
@@ -1558,6 +1574,14 @@ export function SetEditor({
   };
   // the rows as the Move mode found them (its Undo puts the row back after its old neighbour)
   const initialOrder = useRef<SetRow[]>([]);
+  // rows adopted from the server mid-mode (another tab, a reload) are new
+  // objects: follow the row by its track, or end the mode (never "0 of N", L8)
+  useEffect(() => {
+    if (!moveMode || rows.includes(moveMode.row)) return;
+    const id = moveMode.row.track_id;
+    const same = id ? rows.findIndex((r) => r.track_id === id) : -1;
+    setMoveMode(same >= 0 ? { row: rows[same], from: moveMode.from } : null);
+  }, [rows, moveMode]);
 
   // the set as Play and Play as a mix take it (a draft is id 0)
   const setRef =

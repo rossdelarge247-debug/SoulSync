@@ -25,7 +25,12 @@ import {
 
 type Body = Record<string, unknown>;
 let calls: { path: string; method: string; body: Body }[] = [];
-let serverRows: { track_id: string | null; title: string; locked?: boolean }[] = [];
+let serverRows: {
+  track_id: string | null;
+  title: string;
+  locked?: boolean;
+  transition?: { style: string; bars: number | null } | null;
+}[] = [];
 let revision = 5;
 let analysed: Body[] = [];
 let addAnswer: Body = {};
@@ -172,6 +177,69 @@ describe('a set that isn’t open (the sidebar, Your sets)', () => {
     );
   });
 
+  it('[review M1] gives back the joins an add after the playing track reset to Auto', async () => {
+    // after the add: 1 → 9 → 2 → 3; 1's long blend was reset (and 3's cut, since changed)
+    serverRows = [
+      { track_id: '1', title: 'One', transition: { style: 'auto', bars: 16 } },
+      { track_id: '9', title: 'Nine', transition: { style: 'auto', bars: null } },
+      { track_id: '2', title: 'Two' },
+      { track_id: '3', title: 'Three' },
+    ];
+    await undoServerAdd(
+      4,
+      [{ track_id: '9', number: 2 }],
+      [
+        { track_id: '1', number: 1, transition: { style: 'long_blend', bars: 32 } },
+        // changed by the person since (not the Auto the add left): theirs, kept
+        { track_id: '3', number: 4, transition: { style: 'cut', bars: null } },
+      ],
+    );
+    const put = calls.find((c) => c.path === 'sets/4' && c.method === 'PUT')!;
+    const rows = put.body.tracks as { track_id: string; transition: unknown }[];
+    expect(rows.map((r) => r.track_id)).toEqual(['1', '2', '3']);
+    expect(rows[0].transition).toEqual({ style: 'long_blend', bars: 32 });
+    expect(rows[2].transition ?? null).toBeNull();
+  });
+
+  it('passes the add’s reset joins to its Undo', async () => {
+    addAnswer = {
+      added: [{ track_id: '9', number: 2 }],
+      reset: [{ track_id: '1', number: 1, transition: { style: 'long_blend', bars: 32 } }],
+    };
+    const done = await sendToSet({ id: 4, name: 'Warm-up', kind: 'hand' }, [item('9')], {
+      after: { track_id: '1', number: 1 },
+    });
+    serverRows = [
+      { track_id: '1', title: 'One', transition: { style: 'auto', bars: 16 } },
+      { track_id: '9', title: 'Nine' },
+      { track_id: '2', title: 'Two', locked: true },
+      { track_id: '3', title: 'Three' },
+    ];
+    await done?.undo?.();
+    const put = calls.find((c) => c.path === 'sets/4' && c.method === 'PUT')!;
+    const rows = put.body.tracks as { track_id: string; transition: unknown }[];
+    expect(rows[0].transition).toEqual({ style: 'long_blend', bars: 32 });
+  });
+
+  it('[review L4] says it can’t when a numbered row holds another track now, never guessing', async () => {
+    // #4 was the added 9; the person moved rows since, so #4 is their own 3
+    serverRows = [
+      { track_id: '1', title: 'One' },
+      { track_id: '9', title: 'Nine' },
+      { track_id: '2', title: 'Two' },
+      { track_id: '3', title: 'Three' },
+      { track_id: '9', title: 'Nine, their own' },
+    ];
+    await expect(
+      undoServerAdd(4, [
+        { track_id: '9', number: 2 },
+        { track_id: '9', number: 4 },
+      ]),
+    ).rejects.toThrow("Can't undo: the set has changed since");
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+    expect(indexesOfNumbers(serverRows, [{ track_id: '9', number: 4 }])).toEqual([]);
+  });
+
   it('finds the added rows by their numbers, past rows without a track', () => {
     expect(
       indexesOfNumbers(
@@ -241,6 +309,20 @@ describe('Up next (static/media-player.js)', () => {
     expect(done?.words).toBe('Playing next: Track 9');
     await done?.undo?.();
     expect(p.queue.map((q) => q.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('[review M3] while a mix holds the incoming track, Play next goes straight after it', async () => {
+    const p = fakePlayer([{ id: 'a' }, { id: 'b' }, { id: 'c' }], 0);
+    (window as unknown as { SoulSyncAutomix: unknown }).SoulSyncAutomix = {
+      view: () => ({ stage: 'mixing', barsToGo: null }),
+    };
+    try {
+      const done = await sendToUpNext([item('9')], 'next');
+      expect(p.insertAt).toHaveBeenCalledWith(2, [expect.objectContaining({ id: '9' })]);
+      expect(done?.words).toBe('Added Track 9 to Up next · #3 · after the incoming track');
+    } finally {
+      delete (window as unknown as { SoulSyncAutomix?: unknown }).SoulSyncAutomix;
+    }
   });
 
   it('a place says its number, with the analysis line while Auto mix is on', async () => {

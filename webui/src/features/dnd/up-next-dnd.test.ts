@@ -58,6 +58,8 @@ beforeEach(() => {
     moveTrack: (row: Row, to: number) => {
       const from = queue.indexOf(row);
       if (from < 0) return -1;
+      // as the player does (H1): a playing or played row doesn't move
+      if (from <= index) return -2;
       queue.splice(from, 1);
       queue.splice(to, 0, row);
       render();
@@ -150,6 +152,48 @@ describe('a drop in Up next', () => {
     const done = await upNextTarget(null).drop(fromTracks(), 2);
     expect(queue.map((q) => q.id)).toEqual(['a', 'b', 'x', 'c']);
     expect(done?.words).toBe('Added Harbour Lights to Up next · #3');
+  });
+
+  const fromUpNext = (at: number, via: Drag['via'] = 'mouse'): Drag => ({
+    items: [{ id: String(queue[at].id), title: String(queue[at].title), queue: queue[at] }],
+    source: { kind: 'upnext', listId: 'upnext', indexes: [at] },
+    via,
+  });
+
+  it('[review H1] finds the row by itself and refuses once it plays; its Undo says so too', async () => {
+    const t = upNextTarget(null);
+    const drag = fromUpNext(2);
+    // the track before it ended while it was lifted: it plays now
+    index = 2;
+    await expect(t.drop(drag, 3)).rejects.toThrow("Can't move it: it's playing now");
+    // a move, then it starts playing before the Undo
+    index = 0;
+    const done = await t.drop(fromUpNext(2), 1);
+    expect(queue.map((q) => q.id)).toEqual(['a', 'c', 'b']);
+    index = 1;
+    await expect(Promise.resolve().then(() => done?.undo?.())).rejects.toThrow(
+      "Can't undo: it's playing now",
+    );
+    expect(queue.map((q) => q.id)).toEqual(['a', 'c', 'b']);
+  });
+
+  it('[review H1] a keyboard pick-up refuses when Up next moved on under it', async () => {
+    const drag = fromUpNext(2, 'keyboard');
+    queue.splice(1, 0, { id: 'z', title: 'Fog Bank', file_path: '/z' });
+    await expect(upNextTarget(null).drop(drag, 1)).rejects.toThrow(
+      'Up next changed while it was lifted · try again',
+    );
+  });
+
+  it('[review M3] checks the incoming track again at the drop: a mix may have started', async () => {
+    const t = upNextTarget(null);
+    view = { stage: 'mixing', barsToGo: null };
+    await expect(t.drop(fromTracks(), 1)).rejects.toThrow(
+      "Can't replace the incoming track · drop after it",
+    );
+    // the place after it is open
+    await t.drop(fromTracks(), 2);
+    expect(queue.map((q) => q.id)).toEqual(['a', 'b', 'x', 'c']);
   });
 
   it('refuses a track without its queue shape (not a library track)', () => {
