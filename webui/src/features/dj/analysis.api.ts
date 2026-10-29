@@ -44,8 +44,12 @@ export type AnalysisWait =
 
 export type AnalysisFail = 'too_long' | 'unreachable' | 'error' | 'no_grid';
 
-/** Why a track that was analysed can't be beat-matched (Brief A, 31a state 9). */
-export type AnalysisBeat = 'no_beat' | 'too_short' | 'not_4_4';
+/**
+ * Why a track that was analysed can't be beat-matched (Brief A, 31a state
+ * 9): no beat found, a grid found but not sure enough (`unsure`: Ross's
+ * report of 28 October), too short, not in 4/4.
+ */
+export type AnalysisBeat = 'no_beat' | 'unsure' | 'too_short' | 'not_4_4';
 
 /**
  * Every entry says whether the track is ready to mix (a beat grid at this
@@ -193,6 +197,8 @@ export interface AnalyseExtras {
   set_id?: number;
   /** Try again (admins): failed tracks are asked for again */
   retry?: boolean;
+  /** Analyse again (admins): tracks already analysed have their beat grid found again */
+  again?: boolean;
   /** Up next's next transition (two tracks at most): ahead of every other ask */
   soon?: boolean;
 }
@@ -269,7 +275,7 @@ interface Waiter {
 
 /** Asks gathered together go in one request only when they say the same why. */
 function batchKey(w: Waiter): string {
-  return `${w.reason}|${w.extras.source ?? ''}|${w.extras.set_id ?? ''}|${w.extras.retry ? 1 : 0}|${w.extras.soon ? 1 : 0}`;
+  return `${w.reason}|${w.extras.source ?? ''}|${w.extras.set_id ?? ''}|${w.extras.retry ? 1 : 0}|${w.extras.again ? 1 : 0}|${w.extras.soon ? 1 : 0}`;
 }
 
 const asked = new Map<string, number>();
@@ -359,6 +365,7 @@ export function requestAnalysis(
     source,
     setId,
     retry = false,
+    again = false,
     soon = false,
   }: {
     force?: boolean;
@@ -368,6 +375,8 @@ export function requestAnalysis(
     setId?: number | null;
     /** Try again (admins) */
     retry?: boolean;
+    /** Analyse again (admins): a track already analysed has its grid found again */
+    again?: boolean;
     /** Up next's next transition: goes ahead of other asks (Brief A review, L10) */
     soon?: boolean;
   } = {},
@@ -377,6 +386,7 @@ export function requestAnalysis(
     source: source ?? (why === 'asked' ? 'asked' : undefined),
     ...(setId ? { set_id: setId } : {}),
     ...(retry ? { retry: true } : {}),
+    ...(again ? { again: true } : {}),
     ...(soon ? { soon: true } : {}),
   };
   const t = now();

@@ -29,7 +29,7 @@ it (the automatic sweeps still reach every track).
 Every entry also says whether the track is **ready to mix** (``ready``: a
 beat grid at this ``GRID_VERSION`` for this file) and whether it has **BPM
 and key** (``bpm_key``); a done track that can't be beat-matched says why
-(``beat``: ``no_beat``, ``too_short`` or ``not_4_4``), and one too long to
+(``beat``: ``no_beat``, ``unsure``, ``too_short`` or ``not_4_4``), and one too long to
 analyse says how long it is (``duration``, seconds) (Brief A, 31a).
 
 Plus the sweep's own state: running or not, how far, what it waits for, and
@@ -169,9 +169,9 @@ def readiness(row: Dict[str, Any]) -> Dict[str, Any]:
     ``beatmatch_problem``, the planner's own rule: a steady enough beat, in
     4/4). ``{ready, bpm_key, beat}``: ``bpm_key`` when BPM and key are known
     (stage 1's data, whatever the grid); ``beat`` why a track whose grid was
-    looked for can't be beat-matched (``no_beat``, also a grid too unsure to
-    trust; ``too_short``; ``not_4_4``, also a meter not worked out), else
-    None."""
+    looked for can't be beat-matched (``no_beat``: none found; ``unsure``:
+    a grid found but too unsure to beat-match on; ``too_short``;
+    ``not_4_4``, also a meter not worked out), else None."""
     from core.dj.grid import GRID_VERSION, beatmatch_problem
 
     g_status = row.get("g_status")
@@ -183,7 +183,7 @@ def readiness(row: Dict[str, Any]) -> Dict[str, Any]:
     elif g_current:
         problem = beatmatch_problem(row.get("g_conf"), row.get("g_meter"))
         if problem:
-            beat = "no_beat" if problem == "low_confidence" else "not_4_4"
+            beat = "unsure" if problem == "low_confidence" else "not_4_4"
     return {"ready": bool(g_current and g_status == "done" and beat is None),
             "bpm_key": row.get("d_status") == "done", "beat": beat}
 
@@ -214,7 +214,7 @@ def _retry(database, track_id: str, failed: str) -> None:
 
 def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bool = True,
         source: Optional[str] = None, set_id: Optional[int] = None, retry: bool = False,
-        soon: bool = False) -> Dict[str, Any]:
+        soon: bool = False, again: bool = False) -> Dict[str, Any]:
     """Put the caller's tracks that need analysis in the asked-for line.
     ``{asked, queued, already_queued, already_done, cant, over_limit, limit,
     yours, started}``: ``asked`` counts the ids in the caller's library,
@@ -224,15 +224,20 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
     own ask (it goes to the front of the line); while a Stop holds the sweeps
     an automatic one raises ``worker.Held``. ``source`` and ``set_id`` say
     why (``worker.SOURCES``). ``retry`` (Try again: an admin's own ask)
-    asks again for tracks whose analysis or grid failed."""
+    asks again for tracks whose analysis or grid failed. ``again`` (Analyse
+    again: an admin's own ask) finds the beat grid again for tracks already
+    done too (Ross's report of 28 October: grids judged by an older rule
+    said "no steady beat" and couldn't be asked for again), and asks again
+    for failed ones as ``retry`` does."""
     from core.dj import worker
 
     job = job or worker.JOB
     rows = _rows(database, [str(i) for i in ids])
     version = worker.analyzer_version()
     needs: List[str] = []
+    again_ids: List[str] = []
     done = cant = 0
-    if retry and not explicit:
+    if (retry or again) and not explicit:
         raise ValueError("Try again is a person's own ask")
     # in the order asked (Up next's pair, a set's rows), whatever order the
     # library's rows come back in
@@ -240,9 +245,15 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
     for track_id in ordered:
         row = rows[track_id]
         state = classify(row, version)
-        if retry and state["failed"] in RETRYABLE:
+        if (retry or again) and state["failed"] in RETRYABLE:
             _retry(database, track_id, state["failed"])
             state = {"needs": True, "failed": None}
+        elif again and not state["needs"] and not state["failed"]:
+            # done already: its grid is found again when the line takes it
+            # (BPM, key and energy stay); one with no room in line keeps it
+            again_ids.append(track_id)
+            needs.append(track_id)
+            continue
         if state["needs"]:
             needs.append(track_id)
         elif state["failed"]:
@@ -254,7 +265,7 @@ def ask(database, ids: Iterable[Any], profile_id: int, *, job=None, explicit: bo
         # its own tier all the same (re-review L10)
         job.set_soon(int(profile_id), [])
     result = job.ask(database, needs, int(profile_id), explicit=explicit, source=source,
-                     set_id=set_id, soon=soon) if needs else {
+                     set_id=set_id, soon=soon, **({"again": again_ids} if again_ids else {})) if needs else {
         "added": [], "already": 0, "over": 0, "yours": job.queue_snapshot([], profile_id)["yours"],
         "limit": worker.PRIORITY_PER_PROFILE, "started": False, "taken": 0}
     # where the first of them now is, for the Added toast's "analysing, 2nd
@@ -473,7 +484,9 @@ def progress(database, ids: Iterable[Any], profile_id: Optional[int], *, job=Non
             continue
         place = snapshot["places"].get(track_id)
         state = classify(row, version)
-        if place is not None and (state["needs"] or state["failed"] == "unreachable"):
+        # in line to be analysed again (Analyse again) counts as in line too
+        again = track_id in (snapshot.get("again") or ())
+        if place is not None and (state["needs"] or state["failed"] == "unreachable" or again):
             position, asked_for, yours = place
             # ``yours``: this caller asked for it, so its Cancel does something (L4)
             entry: Dict[str, Any] = {"state": "queued", "position": position, "asked_for": asked_for,

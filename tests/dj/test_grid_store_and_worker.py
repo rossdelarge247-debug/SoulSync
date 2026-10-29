@@ -331,3 +331,52 @@ def test_unreachable_grids_wait_a_day(db):
 
     assert grid_store.pending_ids(db, v, retry_unreachable_before=time.time() - 3600) == []
     assert grid_store.pending_ids(db, v, retry_unreachable_before=time.time() + 1) == ["8"]
+
+
+def test_analyse_again_finds_a_current_grid_again_and_keeps_it_when_that_fails(db, tmp_path):
+    """The gauntlet review's M2: Analyse again finds a current grid again
+    when the line takes it (``force_grid``); a new analysis that fails puts
+    the old grid back as it was, a person's ×2 and its measured grid too."""
+    y, _ = dance_track(124.0, sections=(("intro", 8), ("groove", 8)))
+    path = write_grid_wav(tmp_path / "g.wav", y)
+    _track(db, 6, "/stored/g.wav")
+    from core.sample.store import source_signature
+
+    sig = source_signature(path)
+    store.save(db, "6", {"bpm": 124.0, "status": "done", "dj_analyzer_version": worker.analyzer_version(),
+                         "source_sig": sig})
+    grid_store.save_result(db, "6", _grid_result(), source_sig=sig)
+    _sql(db, "UPDATE track_grid SET measured_json = '{\"bpm\": 62.0, \"period\": 0.9677}', bpm = 124.0 "
+             "WHERE track_id = '6'")
+    before = grid_store.get(db, "6")
+    calls = []
+
+    def again(p, **kw):
+        calls.append(p)
+        return _grid_result(bpm=124.5)
+
+    # current: nothing to do, unless asked again
+    assert worker.process_track(db, "6", resolve=lambda p: path, analyze_grid=again) == "done"
+    assert calls == []
+    assert worker.process_track(db, "6", resolve=lambda p: path, analyze_grid=again, force_grid=True) == "done"
+    assert calls == [path] and grid_store.get(db, "6")["bpm"] == pytest.approx(124.5)
+
+    grid_store.restore(db, before)
+
+    def broken(p, **kw):
+        raise RuntimeError("bad frame")
+
+    assert worker.process_track(db, "6", resolve=lambda p: path, analyze_grid=broken, force_grid=True) == "grid_error"
+    after = grid_store.get(db, "6")
+    assert {k: after[k] for k in grid_store._FIELDS if k != "analyzed_at"} == \
+        {k: before[k] for k in grid_store._FIELDS if k != "analyzed_at"}
+
+
+def test_analyse_again_marks_only_what_the_line_took(db):
+    """M2: ids past the profile's room in line aren't touched (their grid
+    stays), and the job remembers the rest to find again when it takes them."""
+    job = worker.DjAnalysisJob(process=lambda *a, **k: "done")
+    job.start = lambda *a, **k: None  # no sweep takes them meanwhile
+    out = job.ask(db, ["1", "2", "3"], 1, limit=2, again=["1", "2", "3"])
+    assert out["over"] == 1
+    assert job.queue_snapshot(["1", "2", "3"], 1)["again"] == {"1", "2"}

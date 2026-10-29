@@ -266,7 +266,7 @@ def test_a_break_is_not_beat_matched_in_the_planner():
     p = planner.plan(_track(_row(165.0)), incoming, style="long_blend")
     # held under 0.5 (311): not beat-matched; the outgoing track is ready, so 302's cut
     assert p["status"] == "cut" and p["fallback"]["code"] == "low_confidence"
-    assert p["fallback"]["reason"] == "Amen has no steady beat"
+    assert p["fallback"]["reason"] == "Amen's beat grid isn't sure enough"
 
 
 @pytest.mark.parametrize("case", [dict(fn="dance", bpm=124.0), dict(fn="dance", bpm=128.0, lead_in=0.37),

@@ -170,8 +170,8 @@ def test_302_outgoing_ready_cuts_on_its_last_phrase_whatever_the_incoming_lacks(
     assert not styles["long_blend"]["available"]
     # the incoming track with no steady beat, no grid at all, or a BPM set by hand its grid doesn't match
     shaky = planner.plan(_track(_row(124.0)), _track(_row(124.0, conf=0.35), title="Sand Script", tid="2"))
-    assert shaky["status"] == "cut" and shaky["fallback"]["reason"] == "Sand Script has no steady beat"
-    assert shaky["why"] == "Couldn't beat-match: cutting on the phrase · Sand Script has no steady beat"
+    assert shaky["status"] == "cut" and shaky["fallback"]["reason"] == "Sand Script's beat grid isn't sure enough"
+    assert shaky["why"] == "Couldn't beat-match: cutting on the phrase · Sand Script's beat grid isn't sure enough"
     for reason, words in (("no_beat", "Pad has no steady beat"), ("unreachable", "Pad can't be opened"),
                           ("error", "Pad couldn't be analysed"), ("too_long", "Pad is too long to analyse")):
         cut = planner.plan(_track(_row(124.0)), _track(_none_row(reason), title="Pad", tid="2"))
@@ -204,8 +204,8 @@ def test_302_only_the_incoming_ready_echoes_out_by_time_at_the_outgoing_end():
     its own first downbeat."""
     for row, words, code in ((_none_row("no_beat"), "Sand Script has no steady beat", "no_beat"),
                              (_none_row("too_short"), "Sand Script has no steady beat", "no_beat"),
-                             (_row(124.0, conf=0.35), "Sand Script has no steady beat", "low_confidence"),
-                             (_row(124.0, conf=0.45), "Sand Script has no steady beat", "low_confidence")):
+                             (_row(124.0, conf=0.35), "Sand Script's beat grid isn't sure enough", "low_confidence"),
+                             (_row(124.0, conf=0.45), "Sand Script's beat grid isn't sure enough", "low_confidence")):
         p = planner.plan(_track(row, title="Sand Script", duration_s=241.0, dj_bpm=120.0),
                          _track(_row(126.0, first=0.2), title="Static Bloom", tid="2"))
         assert p["status"] == "ok" and p["style"] == "echo_out" and p["beatmatch"] is False, code
@@ -237,7 +237,7 @@ def test_302_neither_ready_plays_straight_on_never_cut_by_bar_count():
             assert p["why"] == "Couldn't beat-match: plays straight on · Ambient One has no steady beat"
     shaky = planner.plan(_track(_row(124.0, conf=0.35), title="Amen", duration_s=200.0),
                          _track(_row(124.0, conf=0.4), tid="2"))
-    assert shaky["status"] == "play_on" and shaky["fallback"]["reason"] == "Amen has no steady beat"
+    assert shaky["status"] == "play_on" and shaky["fallback"]["reason"] == "Amen's beat grid isn't sure enough"
 
 
 def test_302_too_long_unreadable_or_missing_going_out_plays_straight_on():

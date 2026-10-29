@@ -82,6 +82,72 @@ export async function playSetAsMix(
   return true;
 }
 
+/** The player as a set played from the playing track needs it (static/media-player.js). */
+interface PlayerLike {
+  state(): { track: QueueTrack | null; queue: QueueTrack[]; index: number };
+  /** the rows straight after the playing one, each once, drawn and saved once */
+  queueAfterPlaying(tracks: QueueTrack[]): number;
+}
+
+/** auto-mix's stages while it holds a mix (controller.ts): the queue isn't touched then */
+const MIXING = new Set(['counting', 'mixing', 'settling', 'handback', 'back', 'rejoin']);
+
+/**
+ * Play a set as a mix from the playing track (the Mix tab's working set;
+ * Ross's report of 28 October: a working set built in the Mix tab isn't
+ * Up next, so the playing track ended and nothing followed). When the
+ * playing track is one of the set's rows, it carries its chip and the
+ * set's later rows go straight after it, each once (one already queued
+ * after it moves), so it plays on into them with no restart; otherwise the
+ * set plays from its start (Play as a mix). What was Up next stays after
+ * the set. Not while a mix holds the next row. `'continued'`, `'started'` or
+ * `'failed'`.
+ */
+export async function playSetFromPlaying(
+  set: { id: number; name: string },
+  rows: ViewRow[],
+  player: PlayerLike | null = (window as unknown as { SoulSyncPlayer?: PlayerLike })
+    .SoulSyncPlayer ?? null,
+): Promise<'continued' | 'started' | 'failed'> {
+  const queue = setQueue(set, rows);
+  const st = player?.state();
+  const playingId = st?.track?.id;
+  const at =
+    playingId === null || playingId === undefined
+      ? -1
+      : queue.findIndex((t) => String(t.id) === String(playingId));
+  const current = st && st.index >= 0 ? st.queue[st.index] : null;
+  if (!player || at < 0 || !current || String(current.id) !== String(playingId)) {
+    return (await playSetAsMix(set, rows)) ? 'started' : 'failed';
+  }
+  if (at === queue.length - 1) {
+    window.showToast?.(`${playingTitle(current)} is the last track in ${set.name}.`, 'info');
+    return 'failed';
+  }
+  // a mix in progress holds the next row (its incoming deck): the queue is
+  // left alone until it's over (the gauntlet review's M3)
+  const stage = (
+    window as unknown as { SoulSyncAutomix?: { view?: () => { stage?: string } } }
+  ).SoulSyncAutomix?.view?.()?.stage;
+  if (stage && MIXING.has(stage)) {
+    window.showToast?.('Mixing now: play the set once the mix is over.', 'info');
+    return 'failed';
+  }
+  // the playing row's chip is the set's (Auto mix for this play, 28e)
+  current.mix_set = queue[at].mix_set;
+  player.queueAfterPlaying(queue.slice(at + 1));
+  const n = queue.length - 1 - at;
+  window.showToast?.(
+    `${set.name} plays next as a mix · ${n} ${n === 1 ? 'track' : 'tracks'}`,
+    'success',
+  );
+  return 'continued';
+}
+
+function playingTitle(t: QueueTrack): string {
+  return t.title || 'This track';
+}
+
 /**
  * Save a chip changed in Up next to the set's row (26i): the row is the one
  * the queue came from while it's still the pair's; else the row holding the

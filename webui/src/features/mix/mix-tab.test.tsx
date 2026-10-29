@@ -482,6 +482,28 @@ describe('the tray in Mix (29a)', () => {
   });
 });
 
+describe("the working set as a mix (Ross's report of 28 October)", () => {
+  it('says how ready it is to mix and plays it: the working set is not Up next', async () => {
+    world.progress['4'] = { state: 'done', ready: true, bpm_key: true };
+    world.progress['6'] = { state: 'done', ready: false, bpm_key: true, beat: 'no_beat' };
+    const play = vi.fn(async () => ({ status: 'played' }));
+    (window as unknown as { playTrackList: unknown }).playTrackList = play;
+    const mix = await openMix();
+    expect(await mix.findByText('1 of 2 ready to mix')).toBeInTheDocument();
+    fireEvent.click(mix.getByRole('button', { name: 'Play Sunday Set as a mix' }));
+    // Night Ferry (playing) isn't in it: the set plays from its start, as a mix
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+    const [queue, context] = play.mock.calls[0] as unknown as [
+      { id: string; mix_set: { id: number } }[],
+      string,
+    ];
+    expect(queue.map((t) => t.id)).toEqual(['4', '6']);
+    expect(queue.every((t) => t.mix_set.id === 3)).toBe(true);
+    expect(context).toBe('Sunday Set · as a mix');
+    delete (window as unknown as { playTrackList?: unknown }).playTrackList;
+  });
+});
+
 describe('while the set plays (29b)', () => {
   it('says where it is, and Add puts a match after the playing track', async () => {
     world.rows = [

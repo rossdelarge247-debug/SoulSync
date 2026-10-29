@@ -123,6 +123,12 @@ export interface PlayerSnapshotLike {
   playbackRate?: number;
   /** the sleep timer: minutes, or 'track' (pause at the end of this one) */
   sleep?: number | 'track';
+  /**
+   * the playing track ended and its advance went to auto-mix or was turned
+   * away by a load in flight (media-player.js's `onAudioEnded`): the next
+   * track is owed. Never set by a stop meant at the end (the sleep timer).
+   */
+  advanceOwed?: boolean;
 }
 
 export interface CrossfadeHint {
@@ -320,6 +326,15 @@ const CUT_LOOKAHEAD_S = 2;
 const CUT_LATE_S = 0.25;
 /** a cut timer that fires late (a busy page, a faster rate) still cuts up to this late */
 const CUT_LATE_TIMER_S = 1;
+/**
+ * The last line of defence for the queue (Ross's report of 28 October): the
+ * playing track's element has ended, the player says the next track is
+ * owed (its own 'ended' advance went to auto-mix, or a load turned it away:
+ * `advanceOwed`), the decks hold nothing and nothing moved on after this
+ * long: the next track is started here. A stop meant at the end (the sleep
+ * timer's end of track) never owes one (the gauntlet review's H1).
+ */
+export const STALLED_END_MS = 1500;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -776,6 +791,7 @@ export class AutomixController {
     }
     const st = this.player.state();
     const pair = this.pairNow(st);
+    if (this.unstick(el, pair, st.advanceOwed === true)) return;
     const dj = pair ? this.djFor(pair.from, pair.to) : { on: false, forced: false };
     if (!pair || !dj.on) {
       if (this.pending) this.pending = null;
@@ -883,6 +899,39 @@ export class AutomixController {
       }
     }
     this.emit();
+  }
+
+  /** when the playing track's element was first seen ended, with the decks holding nothing */
+  private endedAt: { from: QueueTrack; at: number } | null = null;
+
+  /**
+   * The element ended and nothing moved the queue on (STALLED_END_MS): the
+   * player's own next track, whatever the plan (play on, a missed mix or
+   * cut, Cancel, a plan that failed). True when it acted.
+   */
+  private unstick(
+    el: HTMLAudioElement | null,
+    pair: { from: QueueTrack; to: QueueTrack; toIndex: number } | null,
+    owed: boolean,
+  ): boolean {
+    if (!el || !el.ended || !owed || this.handing || !pair || !this.started) {
+      this.endedAt = null;
+      return false;
+    }
+    const now = Date.now();
+    if (!this.endedAt || this.endedAt.from !== pair.from) {
+      this.endedAt = { from: pair.from, at: now };
+      return false;
+    }
+    if (now - this.endedAt.at < STALLED_END_MS) return false;
+    this.endedAt = null;
+    this.pending = null;
+    this.stage = 'idle';
+    void Promise.resolve()
+      .then(() => this.player.playIndex(pair.toIndex, {}))
+      .catch(() => undefined);
+    this.emit();
+    return true;
   }
 
   private barSeconds(p: Pending): number {

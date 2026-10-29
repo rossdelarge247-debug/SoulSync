@@ -460,6 +460,8 @@ export function useMixModel(
     analysing: analysing || waiting,
     cancelAnalyse,
     analyse,
+    /** the Mix tab is shown (only then is anything asked for or watched) */
+    shown,
   };
 }
 

@@ -266,21 +266,31 @@ def _mark_both(database, track_id: str, status: str, reason: str, version: int, 
 
 
 def _find_grid(database, track_id: str, path: str, sig: Optional[str], *, audio, bpm_hint,
-               analyze_grid: Callable[..., Dict[str, Any]]) -> str:
+               analyze_grid: Callable[..., Dict[str, Any]], keep_on_error: bool = False) -> str:
     """Find and keep one track's grid: ``done`` (whatever it found, a grid or
     ``none``) or ``error``. A provisional ``analyzing`` row goes first, so a
-    decode that takes the process down is skipped at the next start."""
+    decode that takes the process down is skipped at the next start.
+    ``keep_on_error`` (Analyse again): a grid that was there comes back as it
+    was when the new one fails, with its measured grid under a person's BPM
+    (the gauntlet review's M2)."""
     from core.dj import grid_store
 
+    before = grid_store.get(database, track_id) if keep_on_error else None
     grid_store.mark(database, track_id, "analyzing", None, source_sig=sig)
     try:
         result = analyze_grid(path, audio=audio, bpm_hint=bpm_hint)
     except ImportError as exc:
-        grid_store.mark(database, track_id, "stale", "analysis isn't available", version=0)
+        if before:
+            grid_store.restore(database, before)
+        else:
+            grid_store.mark(database, track_id, "stale", "analysis isn't available", version=0)
         raise _Abort(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - one bad file never stops the sweep
         logger.info("Beat grid failed for track %s: %s", track_id, exc)
-        grid_store.mark(database, track_id, "error", str(exc), source_sig=sig)
+        if before:
+            grid_store.restore(database, before)
+        else:
+            grid_store.mark(database, track_id, "error", str(exc), source_sig=sig)
         return "error"
     grid_store.save_result(database, track_id, result, source_sig=sig, replaygain_db=_replaygain_db(path))
     return "done"
@@ -393,7 +403,7 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
                   may_write: Callable[[], bool] = lambda: True,
                   library_roots: Callable[[], List[str]] = library_roots,
                   analyze_grid: Callable[..., Dict[str, Any]] = _default_grid,
-                  find_grid: bool = True) -> str:
+                  find_grid: bool = True, force_grid: bool = False) -> str:
     """Analyse one library track and keep its DJ data and its beat grid
     (a track whose DJ data is already done for this file only gets its grid:
     the top-up). ``grid_error``, ``done_grid_error`` or ``tagged_grid_error``
@@ -434,7 +444,8 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
         return "skipped"
     sig = source_signature(path)
     if top_up and dj_row.get("source_sig") == sig:
-        if not grid_store.current(grid_store.get(database, track_id), sig):
+        # Analyse again (``force_grid``): found again though it's current
+        if force_grid or not grid_store.current(grid_store.get(database, track_id), sig):
             if not find_grid:
                 return "grid_paused"
             # only the grid is due: one decode for it alone (its steps: read,
@@ -442,7 +453,7 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
             progress.mode("grid")
             progress.step("read")
             found = _find_grid(database, track_id, path, sig, audio=None, bpm_hint=dj_row.get("bpm"),
-                               analyze_grid=analyze_grid)
+                               analyze_grid=analyze_grid, keep_on_error=force_grid)
             if found == "error":
                 return "grid_error"
         return "done"
@@ -640,6 +651,11 @@ class DjAnalysisJob:
         self._seq = 0
         #: why each track is in line, per profile that asked: (source, set id)
         self._why: Dict[str, Dict[int, Tuple[str, Optional[int]]]] = {}
+        #: Analyse again (an admin's): tracks in line whose grid is found
+        #: again when they're taken, though it's current (the gauntlet
+        #: review's M2: marked then, not when asked, so one the line has no
+        #: room for keeps its grid)
+        self._again: set = set()
         #: tracks an ask added to this run's total (not in its own order), so a
         #: Cancel takes back only what an ask put in (review L2)
         self._added_in_run: set = set()
@@ -702,6 +718,7 @@ class DjAnalysisJob:
         self._explicit.clear()
         self._why.clear()
         self._placed.clear()
+        self._again.clear()
 
     def _forget_locked(self, track_id: str) -> None:
         """A track leaves the line (taken, or nobody asks for it any more)."""
@@ -870,6 +887,7 @@ class DjAnalysisJob:
                 if not askers:
                     self._priority.remove(track_id)
                     self._forget_locked(track_id)
+                    self._again.discard(track_id)
                     running = bool(self._state and self._state.get("status") == "running")
                     if running and track_id in self._added_in_run and track_id not in self._seen:
                         # only what an ask added to this run comes off its
@@ -897,7 +915,7 @@ class DjAnalysisJob:
 
     def ask(self, database, ids: List[str], profile_id: int, *,
             limit: int = PRIORITY_PER_PROFILE, explicit: bool = True, source: Optional[str] = None,
-            set_id: Optional[int] = None, soon: bool = False) -> Dict[str, Any]:
+            set_id: Optional[int] = None, soon: bool = False, again: Iterable[str] = ()) -> Dict[str, Any]:
         """Analyse on demand: ``ids`` (tracks that need analysis, already
         checked to be in the caller's library) go in the asked-for line, and a
         sweep starts for them when none runs. ``{added, already, over,
@@ -906,13 +924,20 @@ class DjAnalysisJob:
         lab pick, Analyse now) goes in; an automatic one (a page asking for
         what it shows) raises ``Held``. A person's own ask goes to the front
         of the line, before what pages asked for; ``source`` and ``set_id``
-        say why each track is there (``SOURCES``)."""
+        say why each track is there (``SOURCES``). ``again`` (Analyse again,
+        among ``ids``): those that are in line have their grid found again
+        when they're taken, though it's current; one over the limit isn't
+        touched."""
         clean = list(dict.fromkeys(str(i) for i in ids if i not in (None, "")))
         with self._lock:
             if self.held and not explicit:
                 raise Held("Analysis is stopped: automatic asks wait for a Start.")
             result = self._enqueue_locked(clean, profile_id, limit, explicit=explicit, source=source,
                                           set_id=set_id, soon=soon)
+            again_ids = {str(t) for t in again}
+            if again_ids:
+                line = set(self._priority)
+                self._again.update(t for t in clean if t in again_ids and t in line)
             running = bool(self._state and self._state.get("status") == "running")
             want_start = bool(self._priority) and not running
         started = False
@@ -958,7 +983,7 @@ class DjAnalysisJob:
             return {"live": live, "places": places, "in_line": in_line, "yours": len(mine),
                     "yours_first": bool(mine) and mine == list(range(1, len(mine) + 1)),
                     "held": self.held, "held_by": self.held_by if self.held else None, "line": out_line,
-                    "left": left}
+                    "left": left, "again": {t for t in ids if t in self._again}}
 
     def _next(self, ids: List[str], *, peek: bool = False) -> Optional[Tuple[str, bool]]:
         """The next track: the asked-for line first, then the sweep's order,
@@ -1242,6 +1267,9 @@ class DjAnalysisJob:
                 if found is None:
                     break
                 track_id, asked_for = found
+                with self._lock:
+                    forced = track_id in self._again
+                    self._again.discard(track_id)
                 prefs = self._settings()
                 started = time.monotonic()
                 self._update(current=track_id, step=None, step_mode=None, asked_for=asked_for, steps=[],
@@ -1253,7 +1281,8 @@ class DjAnalysisJob:
                                                 overwrite_tags=prefs.get("overwrite_tags", False),
                                                 may_write=lambda a=asked_for: self._wait_reason(
                                                     database, asked_for=a) is None,
-                                                find_grid=find_grid)
+                                                find_grid=find_grid,
+                                                **({"force_grid": True} if forced else {}))
                 finally:
                     self._in_track.clear()
                 took = time.monotonic() - started

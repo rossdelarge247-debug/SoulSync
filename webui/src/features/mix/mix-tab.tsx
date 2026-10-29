@@ -57,6 +57,7 @@ import {
   workingSetName,
 } from './mix.format';
 import styles from './mix.module.css';
+import { WorkingSetMix } from './working-set-mix';
 
 /* ── icons ─────────────────────────────────────────────────────────────── */
 
@@ -899,6 +900,8 @@ export function WorkingColumn({
           adds the track.
         </StateCard>
       )}
+      {/* how ready the set is to mix, and Play as a mix: the working set isn't Up next */}
+      <WorkingSetMix model={model} />
       {mode === 'tray' ? (
         <>
           <button

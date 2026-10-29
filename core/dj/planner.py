@@ -149,7 +149,10 @@ def _trust(track: Dict[str, Any], name: str) -> Optional[Tuple[str, str]]:
     down = track.get("downbeats") or {}
     problem = beatmatch_problem(grid.get("confidence"), down.get("meter"))
     if problem == "low_confidence":
-        return "low_confidence", f"{name} has no steady beat"
+        # a grid was found, just not sure enough to beat-match on: "no
+        # steady beat" is for a track whose analysis found none (Ross's
+        # report of 28 October)
+        return "low_confidence", f"{name}'s beat grid isn't sure enough"
     if problem == "not_4_4":
         return "not_4_4", f"{name} isn't in 4/4"
     return None
