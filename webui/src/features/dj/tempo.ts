@@ -56,7 +56,7 @@ function tracks(n: number): string {
  */
 export function tempoWords(
   action: TempoAction,
-  answer: Pick<DjBpmResponse, 'changed' | 'skipped'>,
+  answer: Pick<DjBpmResponse, 'changed' | 'skipped' | 'ready'>,
   /** how many were picked, when more than one change sends */
   picked = 0,
 ): { words: string; tone: 'success' | 'error' } {
@@ -70,10 +70,16 @@ export function tempoWords(
     return { words, tone: 'error' };
   }
   if (action === 'confirm') {
-    words =
-      changed.length === 1
-        ? `${bpmNumber(changed[0]![1] ?? 0)} BPM it is: ready to mix`
-        : `Kept the BPM of ${tracks(changed.length)}`;
+    // "ready to mix" only when the server says the grid is (fourth review)
+    const ready = answer.ready ?? {};
+    if (changed.length === 1) {
+      const [id, bpm] = changed[0]!;
+      words = ready[id]
+        ? `${bpmNumber(bpm ?? 0)} BPM it is: ready to mix`
+        : `Kept ${bpmNumber(bpm ?? 0)} BPM · the beats still don’t line up well enough to mix`;
+    } else {
+      words = `Kept the BPM of ${tracks(changed.length)}`;
+    }
   } else if (action === 'reset') {
     words =
       changed.length === 1

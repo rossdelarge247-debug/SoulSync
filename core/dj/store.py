@@ -24,12 +24,14 @@ What analysis heard is kept beside a tag's value (``analyzed_bpm``,
 
 from __future__ import annotations
 
+import json
 import time
 from contextlib import closing
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from core.dj.camelot import BPM_TOLERANCE, bpm_relation, bpm_windows, compatible_keys, fold_bpm, parse_key
 from core.dj.grid import BEAT_CONFIDENT, GRID_VERSION
+from core.dj.grid import OCTAVE_CHOICE_RANGE as _GRID_OCTAVE_RANGE
 from utils.logging_config import get_logger
 
 logger = get_logger("dj.store")
@@ -200,10 +202,14 @@ def _positive(value) -> Optional[float]:
     return number if number > 0 and number == number and number != float("inf") else None
 
 
+def _same_bpm(a, b) -> bool:
+    return bool(a and b) and abs(float(a) - float(b)) / float(b) <= 0.04
+
+
 def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Dict[str, Any]]:
     """One track's DJ data for the page: ``{bpm, bpm_source, bpm_tag, key,
     key_name, key_long, key_source, key_confidence, key_uncertain, energy,
-    analyzed, skipped, bpm_unsure}``. A track analysis hasn't reached yet still shows the BPM
+    analyzed, skipped, bpm_unsure, bpm_choices}``. A track analysis hasn't reached yet still shows the BPM
     enrichment found.
 
     The BPM is the person's ×2 / ÷2 (``override``), else the grid's measured
@@ -229,6 +235,7 @@ def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Di
     if bpm is None and key is None and row.get("energy") is None and not skipped:
         return None
     conf = row.get("key_confidence")
+    choices = _octave_choices(row)
     return {
         "bpm": bpm, "bpm_source": source,
         "bpm_tag": tag if (tag is not None and source != "tag") else None,
@@ -242,9 +249,12 @@ def public(row: Optional[Dict[str, Any]], *, enrichment_bpm=None) -> Optional[Di
         "energy": row.get("energy"),
         "analyzed": row.get("status") == "done",
         "skipped": skipped,
-        # held for beat-matching only until a person says which octave
-        # (``_BPM_UNSURE``): the track's "BPM is right"
-        "bpm_unsure": bool(row.get("bpm_unsure")),
+        # held for beat-matching only until a person says which octave:
+        # "BPM is right" when the BPM shown is the one octave it would be
+        # ready at; the choices when more than one is (grid v5's fourth
+        # review: a grid read at double offered a one-click confirm)
+        "bpm_unsure": len(choices) == 1 and _same_bpm(choices[0], bpm),
+        "bpm_choices": choices if len(choices) > 1 else [],
     }
 
 
@@ -260,7 +270,7 @@ def lookup(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
             chunk = ids[start:start + 250]
             marks = ",".join("?" * len(chunk))
             rows = conn.execute(
-                f"SELECT t.id AS tid, t.bpm AS enrichment_bpm, {_GRID_BPM} AS grid_bpm, {_BPM_UNSURE} AS bpm_unsure, "
+                f"SELECT t.id AS tid, t.bpm AS enrichment_bpm, {_GRID_BPM} AS grid_bpm, {_GRID_CHOICE_COLS}, "
                 f"d.* FROM tracks t "
                 f"LEFT JOIN track_dj d ON d.track_id = t.id {_GRID_JOIN} WHERE t.id IN ({marks}) AND {where}",
                 chunk + params).fetchall()
@@ -278,36 +288,75 @@ SORTS = ("bpm", "key", "energy", "title", "artist", "recent")
 #: the grid's measured BPM, from a done grid at this version that's ready to
 #: mix (HANDOFF 300; since grid v5's review only a ready one: a grid held back
 #: may be at the wrong octave, and the DJ data's BPM stands then). Since its
-#: second review also a grid held only for its octave (ready at the octave
-#: it's at, or since the third at its ×2 or ÷2: ``octave`` in its mix
-#: regions) when the DJ data's BPM isn't an octave of it: untagged drum and
-#: bass at 174 showed the analysis's 117.5, whose ×2 (235) nobody wants. At
-#: an octave of the DJ data's BPM, that one shows, and a ×2, ÷2 or "BPM is
-#: right" from it puts the grid at the octave chosen, in one press.
-#: Every query that uses it or _BPM_SQL joins the grid as ``g`` (_GRID_JOIN)
+#: second review also a held grid that would be ready at the octave it's at
+#: (or since the third, at a ×2 or ÷2 within 70-200: ``octave`` in its mix
+#: regions), when the DJ data's BPM came from the analysis and isn't an
+#: octave of it: untagged drum and bass at 174 showed the analysis's 117.5,
+#: whose ×2 (235) nobody wants. Never over a tag's or enrichment's BPM: a
+#: held grid at 5/4, 3/4 or 2/3 of a right tag showed its wrong tempo
+#: (105 for a funk tagged 84; grid v5's fourth review). At an octave of the
+#: DJ data's BPM, that one shows, and a ×2, ÷2 or "BPM is right" from it
+#: puts the grid at the octave chosen, in one press. Every query that uses
+#: it or _BPM_SQL joins the grid as ``g`` (_GRID_JOIN)
 _GRID_DONE = f"g.status = 'done' AND g.grid_version >= {int(GRID_VERSION)}"
+#: the octaves a person may choose, in BPM (a ×2 or ÷2 outside them is no
+#: choice: grid v5's fourth review)
+OCTAVE_CHOICE_RANGE = _GRID_OCTAVE_RANGE
+
+
 def _octave_sql(key: str) -> str:
     return (f"COALESCE(CASE WHEN json_valid(g.mix_json) THEN json_extract(g.mix_json, '$.octave.\"{key}\"') END, 0)")
 
 
-#: the grid would be ready at the octave it's at, once a person says so
-_OCTAVE_FREE = f"{_octave_sql('1')} >= {float(BEAT_CONFIDENT)}"
-#: or at its ×2 or ÷2: shown, so that one press of Double or Halve from the
-#: BPM shown reaches it (grid v5's third review: a real Amen read at 85 under
-#: an analysis's 117.5 showed 117.5, whose ×2 is 235)
-_OCTAVE_ANY = (f"MAX({_octave_sql('1')}, {_octave_sql('2')}, {_octave_sql('0.5')}) "
-               f">= {float(BEAT_CONFIDENT)}")
+def _in_choice(expr: str) -> str:
+    return f"({expr} BETWEEN {OCTAVE_CHOICE_RANGE[0]} AND {OCTAVE_CHOICE_RANGE[1]})"
+
+
+_READY = float(BEAT_CONFIDENT)
+#: the grid would be ready at the octave it's at, or at a ×2 or ÷2 in range
+_OCTAVE_ANY = (f"({_octave_sql('1')} >= {_READY} "
+               f"OR ({_octave_sql('2')} >= {_READY} AND {_in_choice('g.bpm * 2.0')}) "
+               f"OR ({_octave_sql('0.5')} >= {_READY} AND {_in_choice('g.bpm / 2.0')}))")
 _NOT_OCTAVE_OF_DJ = ("(d.bpm IS NULL OR d.bpm <= 0 OR (ABS(g.bpm / d.bpm - 2.0) > 0.08 "
                      "AND ABS(g.bpm / d.bpm - 0.5) > 0.02 AND ABS(g.bpm / d.bpm - 1.0) > 0.04))")
-_GRID_BPM = (f"CASE WHEN {_GRID_DONE} AND COALESCE(g.beat_confidence, 0) >= {float(BEAT_CONFIDENT)} THEN g.bpm "
-             f"WHEN {_GRID_DONE} AND {_OCTAVE_ANY} AND {_NOT_OCTAVE_OF_DJ} THEN g.bpm END")
+#: the DJ data's BPM is the analysis's (or there's none, and no enrichment)
+_DJ_FROM_ANALYSIS = ("(COALESCE(d.bpm_source, '') NOT IN ('tag', 'enrichment') "
+                     "AND NOT (d.bpm IS NULL AND COALESCE(t.bpm, 0) > 0))")
+_GRID_BPM = (f"CASE WHEN {_GRID_DONE} AND COALESCE(g.beat_confidence, 0) >= {_READY} THEN g.bpm "
+             f"WHEN {_GRID_DONE} AND {_DJ_FROM_ANALYSIS} AND {_OCTAVE_ANY} AND {_NOT_OCTAVE_OF_DJ} THEN g.bpm END")
 _GRID_JOIN = "LEFT JOIN track_grid g ON g.track_id = t.id"
 #: the BPM shown: a person's ×2 / ÷2, the measured grid, the DJ data, enrichment
 _BPM_SQL = f"COALESCE(d.bpm_override, {_GRID_BPM}, d.bpm, NULLIF(t.bpm, 0))"
-#: a grid held only because its octave (or a related tempo) isn't sure, with
-#: no person's BPM yet: the BPM's "BPM is right" (``confirm``) releases it
-_BPM_UNSURE = (f"CASE WHEN {_GRID_DONE} AND d.bpm_override IS NULL "
-               f"AND COALESCE(g.beat_confidence, 0) < {float(BEAT_CONFIDENT)} AND {_OCTAVE_FREE} THEN 1 ELSE 0 END")
+#: what the BPM's choices need (``_octave_choices``): the grid as it stands
+_GRID_CHOICE_COLS = (f"CASE WHEN {_GRID_DONE} THEN 1 ELSE 0 END AS grid_done, g.bpm AS grid_row_bpm, "
+                     "g.beat_confidence AS grid_confidence, g.mix_json AS grid_mix")
+
+
+def _octave_choices(row: Dict[str, Any]) -> List[float]:
+    """The BPMs a held grid would be ready at once a person chose them (the
+    octave it's at, its ×2 and ÷2 within OCTAVE_CHOICE_RANGE: ``octave`` in
+    its mix regions), with no person's BPM yet; [] otherwise."""
+    if not row.get("grid_done") or row.get("bpm_override") is not None:
+        return []
+    bpm = _positive(row.get("grid_row_bpm"))
+    if bpm is None or float(row.get("grid_confidence") or 0.0) >= BEAT_CONFIDENT:
+        return []
+    try:
+        octave = (json.loads(row.get("grid_mix") or "{}") or {}).get("octave") or {}
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(octave, dict):
+        return []
+    found = []
+    for key, factor in (("1", 1.0), ("2", 2.0), ("0.5", 0.5)):
+        try:
+            conf = float(octave.get(key))
+        except (TypeError, ValueError):
+            continue
+        at = bpm * factor
+        if conf >= BEAT_CONFIDENT and (factor == 1.0 or OCTAVE_CHOICE_RANGE[0] <= at <= OCTAVE_CHOICE_RANGE[1]):
+            found.append(round(at, 2))
+    return found
 
 
 def _scope(database, alias: str = "t") -> Tuple[str, List[Any]]:
@@ -336,7 +385,7 @@ def _track_select() -> str:
             f"t.bitrate AS bitrate, t.album_id AS album_id, t.artist_id AS artist_id, t.bpm AS enrichment_bpm, "
             f"COALESCE(NULLIF(t.track_artist, ''), ar.name) AS artist_name, al.title AS album_title, "
             f"al.thumb_url AS album_thumb, {_BPM_SQL} AS eff_bpm, {_GRID_BPM} AS grid_bpm, "
-            f"{_BPM_UNSURE} AS bpm_unsure, "
+            f"{_GRID_CHOICE_COLS}, "
             f"t.owner_profile_id AS track_owner, d.* "
             f"FROM tracks t LEFT JOIN track_dj d ON d.track_id = t.id {_GRID_JOIN} "
             f"LEFT JOIN artists ar ON ar.id = t.artist_id LEFT JOIN albums al ON al.id = t.album_id ")
@@ -548,7 +597,8 @@ def set_tempo(database, track_ids: Iterable[str], action: str, *,
     A shared track (no owner: everyone's library) is changed by an admin
     only; a member changes the tracks of their own library.
 
-    ``{"changed": {id: bpm | None}, "skipped": {id: reason}, "found": n}``;
+    ``{"changed": {id: bpm | None}, "skipped": {id: reason}, "found": n,
+    "ready": {id: the changed track's grid is ready to mix}}``;
     reasons ``no_bpm`` (nothing to double yet), ``out_of_range`` (it would
     leave 40-300), ``not_set`` (reset with nothing set), ``shared`` (a
     member, a shared track) and ``not_yours`` (a member, another profile's
@@ -561,8 +611,9 @@ def set_tempo(database, track_ids: Iterable[str], action: str, *,
     ids = list(dict.fromkeys(str(t) for t in track_ids if t not in (None, "")))[:MAX_TEMPO_TRACKS]
     changed: Dict[str, Optional[float]] = {}
     skipped: Dict[str, str] = {}
+    ready: Dict[str, bool] = {}
     if not ids:
-        return {"changed": changed, "skipped": skipped, "found": 0}
+        return {"changed": changed, "skipped": skipped, "found": 0, "ready": ready}
     where, params = _scope(database)
     rows = []
     with closing(database._get_connection()) as conn:
@@ -607,11 +658,19 @@ def set_tempo(database, track_ids: Iterable[str], action: str, *,
                              "bpm_override_by = excluded.bpm_override_by", (tid, target, now, profile_id))
                 grid_store.apply_override(conn, tid, target)
                 changed[tid] = target
+            # whether each changed track's grid is ready to mix now (the
+            # toast says "ready to mix" only then: grid v5's fourth review)
+            for tid in changed:
+                g = conn.execute("SELECT status, grid_version, beat_confidence, meter FROM track_grid "
+                                 "WHERE track_id = ?", (tid,)).fetchone()
+                ready[tid] = bool(g and g["status"] == "done" and int(g["grid_version"] or 0) >= GRID_VERSION
+                                  and float(g["beat_confidence"] or 0.0) >= BEAT_CONFIDENT
+                                  and (g["meter"] or "4/4") == "4/4")
             conn.commit()
         except BaseException:
             conn.rollback()
             raise
-    return {"changed": changed, "skipped": skipped, "found": len(rows)}
+    return {"changed": changed, "skipped": skipped, "found": len(rows), "ready": ready}
 
 
 __all__ = ["KEY_CONFIDENT", "MAX_TEMPO_TRACKS", "SORTS", "TEMPO_ACTIONS", "browse", "counts", "decide",

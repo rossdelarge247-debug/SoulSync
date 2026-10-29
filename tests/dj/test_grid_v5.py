@@ -440,3 +440,12 @@ def test_jazz_doesnt_settle_a_doubled_groove_s_octave(monkeypatch):
     feat = grid._features(y)
     assert grid._octave_unsure(feat, _doubled(b), 174.0, "free")
     assert not grid._octave_unsure(feat, _doubled(b), 174.0, "fast")
+
+
+def test_no_octave_outside_70_to_200_is_a_choice():
+    # grid v5's fourth review (L2): a ÷2 could make a grid ready at 43-53 BPM
+    y, beats = pattern_track(87.0, 48, BOOM_BAP)
+    feat = grid._features(y)
+    g = {"kind": "constant", "confidence": 0.8, "free_confidence": 0.8, "hits": 0.9, "agreement": 0.9, "mad_ms": 2.0}
+    octave = grid.octave_confidences(feat, g, np.asarray(beats), 0, None)
+    assert "0.5" not in octave and "2" in octave

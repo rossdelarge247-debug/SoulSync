@@ -39,6 +39,12 @@ export interface DjInfo {
    * sure: "BPM is right" (or Double / Halve) settles it in one press.
    */
   bpm_unsure?: boolean;
+  /**
+   * When the grid would be ready at more than one octave (a track read at
+   * double: 172 or 86?), the BPMs to choose from; "BPM is right" isn't led
+   * with then.
+   */
+  bpm_choices?: number[];
 }
 
 export interface DjTrack {
@@ -234,6 +240,8 @@ export interface DjBpmResponse {
   /** each changed track's new BPM (null: back to the measured one) */
   changed: Record<string, number | null>;
   skipped: Record<string, TempoSkip>;
+  /** whether each changed track's beat grid is ready to mix now */
+  ready?: Record<string, boolean>;
   tracks: Record<string, DjInfo>;
 }
 

@@ -123,8 +123,32 @@ describe('the "…" menu', () => {
     expect(trackMenu(t, { tempo: { bpm: 174, onSet } }).some((e) => e.key === 'confirm')).toBe(
       false,
     );
-    expect(tempoWords('confirm', { changed: { '1': 174 }, skipped: {} }).words).toBe(
-      '174 BPM it is: ready to mix',
+    expect(
+      tempoWords('confirm', { changed: { '1': 174 }, skipped: {}, ready: { '1': true } }).words,
+    ).toBe('174 BPM it is: ready to mix');
+    // never "ready to mix" unless the server says so (fourth review)
+    expect(
+      tempoWords('confirm', { changed: { '1': 128 }, skipped: {}, ready: { '1': false } }).words,
+    ).toBe('Kept 128 BPM · the beats still don’t line up well enough to mix');
+    expect(tempoWords('confirm', { changed: { '1': 128 }, skipped: {} }).words).not.toContain(
+      'ready to mix',
     );
+  });
+
+  it('offers both octaves, none first, when the grid would be ready at either', () => {
+    const t = { id: '1', title: 'Night Ferry' };
+    const onSet = vi.fn();
+    const entries = trackMenu(t, { tempo: { bpm: 172, onSet, choices: [172, 86] } });
+    const keys = entries.map((e) => e.key);
+    expect(keys).not.toContain('confirm');
+    expect(keys.indexOf('choice-confirm')).toBeGreaterThan(keys.indexOf('halve'));
+    expect(entries.filter((e) => e.key.startsWith('choice-')).map((e) => e.label)).toEqual([
+      'It’s 172 BPM',
+      'It’s 86 BPM',
+    ]);
+    entries.find((e) => e.key === 'choice-halve')!.onSelect();
+    expect(onSet).toHaveBeenCalledWith('halve');
+    entries.find((e) => e.key === 'choice-confirm')!.onSelect();
+    expect(onSet).toHaveBeenCalledWith('confirm');
   });
 });

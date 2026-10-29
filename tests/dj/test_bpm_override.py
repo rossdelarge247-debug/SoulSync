@@ -125,7 +125,7 @@ def test_double_doubles_what_is_shown_and_the_grid_exactly(db):
     _dj(db, "1", 87.0)
     before = grid_store.grid_of(_grid(db, "1", bpm=87.0, downbeat=1))
     out = store.set_tempo(db, ["1", "1", "nope"], "double", profile_id=3, is_admin=True)
-    assert out == {"changed": {"1": 174.0}, "skipped": {}, "found": 1}
+    assert out == {"changed": {"1": 174.0}, "skipped": {}, "found": 1, "ready": {"1": True}}
     row = store.get(db, "1")
     assert (row["bpm_override"], row["bpm_override_by"]) == (174.0, 3) and row["bpm"] == 87.0
     after = grid_store.get(db, "1")
@@ -657,3 +657,83 @@ def test_a_grid_held_at_half_whose_double_is_ready_shows_its_bpm_so_one_double_f
     store.set_tempo(db, ["1"], "double", profile_id=1, is_admin=True)
     row = grid_store.get(db, "1")
     assert row["bpm"] == pytest.approx(170.0, abs=0.01) and row["beat_confidence"] == pytest.approx(0.8)
+
+
+# ── grid v5's fourth review: what the Library shows and offers ───────────────
+
+def _held(db, bpm, octave, conf=0.45):
+    grid_store.save_result(db, "1", {**_result(bpm=bpm), "beat_confidence": conf, "octave_confidence": octave},
+                           source_sig="sig")
+
+
+@pytest.mark.parametrize("tag,grid_bpm,octave", [
+    (84.0, 105.32, {"1": 0.45, "2": 0.283, "0.5": 0.577}),  # a Groove funk at 84, its grid at 5/4
+    (128.0, 96.0, {"1": 0.8, "2": 0.3, "0.5": 0.2}),          # 3/4 of a right tag, held by the tie
+    (120.0, 80.0, {"1": 0.3, "2": 0.8, "0.5": 0.2}),          # 2/3, its ×2 ready
+])
+@pytest.mark.parametrize("source", ["tag", "enrichment"])
+def test_a_held_grid_never_shows_over_a_tag_or_enrichment_bpm(db, tag, grid_bpm, octave, source):
+    _dj(db, "1", tag, source=source)
+    _held(db, grid_bpm, octave)
+    shown = _shown(db, "1")
+    assert (shown["bpm"], shown["bpm_source"]) == (tag, source)
+    # and "BPM is right" there keeps the tag's BPM; the grid isn't at an
+    # octave of it, so it isn't made ready at its wrong tempo
+    assert not shown["bpm_unsure"]
+    out = store.set_tempo(db, ["1"], "confirm", profile_id=1, is_admin=True)
+    assert out["changed"] == {"1": tag} and out["ready"] == {"1": False}
+    assert grid_store.get(db, "1")["bpm"] == pytest.approx(grid_bpm, abs=0.01)
+
+
+def test_enrichment_alone_isnt_replaced_either(db):
+    # no DJ data BPM yet, enrichment's (tracks.bpm) shown: track 2 is 87 there
+    _sql(db, "INSERT INTO track_dj (track_id, status) VALUES ('2', 'done')")
+    grid_store.save_result(db, "2", {**_result(bpm=105.0), "beat_confidence": 0.45,
+                                     "octave_confidence": {"1": 0.9}}, source_sig="sig")
+    assert _shown(db, "2")["bpm"] == 87.0
+
+
+@pytest.mark.parametrize("grid_bpm,octave,shown_bpm,unsure,choices", [
+    # a grid read at double (soul at 86 as 172): ×1 and ÷2 both ready, two choices, no lead
+    (172.0, {"1": 0.6, "0.5": 0.72}, 172.0, False, [172.0, 86.0]),
+    # only ×1 ready, shown at it: "BPM is right"
+    (174.0, {"1": 0.9, "0.5": 0.3}, 174.0, True, []),
+    # only ×2 ready: shown so one Double reaches it, nothing to confirm here
+    (85.0, {"1": 0.45, "2": 0.9, "0.5": 0.3}, 85.0, False, []),
+    # a ÷2 out of range is no choice (and a ×2 over 200)
+    (96.0, {"1": 0.8, "0.5": 0.9}, 96.0, True, []),
+    (140.0, {"1": 0.8, "2": 0.9}, 140.0, True, []),
+])
+def test_bpm_is_right_is_offered_only_when_the_bpm_shown_is_the_one_ready_octave(db, grid_bpm, octave, shown_bpm,
+                                                                               unsure, choices):
+    _dj(db, "1", 117.5)
+    _held(db, grid_bpm, octave)
+    shown = _shown(db, "1")
+    assert (shown["bpm"], shown["bpm_unsure"], shown["bpm_choices"]) == (shown_bpm, unsure, choices)
+
+
+def test_bpm_is_right_isnt_offered_at_an_octave_that_wouldnt_be_ready(db):
+    # the DJ data's 87 shows over a grid held at 174 whose ÷2 is weak: a
+    # confirm there would leave it held, so it isn't offered (fourth review)
+    _dj(db, "1", 87.0)
+    _held(db, 174.0, {"1": 0.9, "0.5": 0.3})
+    shown = _shown(db, "1")
+    assert shown["bpm"] == 87.0 and not shown["bpm_unsure"] and shown["bpm_choices"] == []
+    out = store.set_tempo(db, ["1"], "confirm", profile_id=1, is_admin=True)
+    assert out["ready"] == {"1": False}
+
+
+def test_confirm_is_a_members_own_tracks_only(db):
+    # L1: as Double and Halve
+    _dj(db, "1", 174.0)
+    _dj(db, "4", 172.0)
+    assert store.set_tempo(db, ["1"], "confirm", profile_id=7, is_admin=False)["skipped"] == {"1": "shared"}
+    from core.library_scope import reset_library_scope, set_library_scope
+
+    token = set_library_scope(None)
+    try:
+        assert store.set_tempo(db, ["4"], "confirm", profile_id=2, is_admin=False)["skipped"] == {"4": "not_yours"}
+        assert store.set_tempo(db, ["4"], "confirm", profile_id=7, is_admin=False)["changed"] == {"4": 172.0}
+        assert store.set_tempo(db, ["1"], "confirm", profile_id=1, is_admin=True)["changed"] == {"1": 174.0}
+    finally:
+        reset_library_scope(token)

@@ -1777,6 +1777,10 @@ def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bo
             "changes": [[b, round(s, 2)] for b, s in changes], "mix_in": mix_in, "mix_out": mix_out}
 
 
+#: the octaves a person may choose by ×2 or ÷2, in BPM (core/dj/store.py)
+OCTAVE_CHOICE_RANGE = (70.0, 200.0)
+
+
 def octave_confidences(feat, grid: Dict[str, Any], beats, downbeat_index: int, half: Optional[int]) -> Dict[str, float]:
     """The grid's confidence at each octave a person can choose (×2, ÷2, or
     this one), as if they had chosen it: what Double BPM, Halve BPM or "BPM
@@ -1819,8 +1823,8 @@ def octave_confidences(feat, grid: Dict[str, Any], beats, downbeat_index: int, h
         if b.size < 16:
             continue
         period = float(np.median(np.diff(b)))
-        if not 40.0 <= 60.0 / period <= 240.0:
-            continue
+        if not OCTAVE_CHOICE_RANGE[0] <= 60.0 / period <= OCTAVE_CHOICE_RANGE[1]:
+            continue  # no octave a person chooses (a ÷2 at 43-53: grid v5's fourth review)
         mask = active(b)
         hits = max(_hit_rate(beat_envelope(feat), b, mask), _hit_rate(feat["env"], b, mask))
         agree, agree_attack = _agreement_bands(feat, b, period, mask)

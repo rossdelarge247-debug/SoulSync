@@ -1104,7 +1104,7 @@ def dj_bpm():
         logger.error("Setting the BPM failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't change the BPM"}), 500
     return _no_store({"success": True, "changed": result["changed"], "skipped": result["skipped"],
-                      "tracks": tracks})
+                      "ready": result.get("ready", {}), "tracks": tracks})
 
 
 def create_blueprint():
