@@ -4,6 +4,7 @@ import type { AppRouterContext } from '@/app/router';
 
 import { AutomixHost } from '@/features/automix/automix-host';
 import { AnalysisCountHost } from '@/features/dj/analysis-line';
+import { DndHost } from '@/features/dnd/dnd-host';
 import { MixTabHost } from '@/features/mix/mix-host';
 import { WorkingSetNav } from '@/features/sets/set-actions';
 import { waitForShellContext } from '@/platform/shell/bridge';
@@ -45,6 +46,8 @@ export const Route = createRootRouteWithContext<AppRouterContext>()({
       <AutomixHost />
       {/* Brief A (31b): the analysis count in the top bar, with its popover */}
       <AnalysisCountHost />
+      {/* Brief B (32a–32g): drag and drop's ghost, line, trays and Up next's binding */}
+      <DndHost />
     </>
   ),
 });

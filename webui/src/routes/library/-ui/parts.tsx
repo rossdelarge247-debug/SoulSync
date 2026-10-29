@@ -400,12 +400,62 @@ export type MenuEntry =
       tone?: 'danger';
       disabled?: boolean;
       /** Why it's disabled (172, 23a): a 13px second line under the label,
-       *  and the item's description for a screen reader. */
+       *  and the item's description for a screen reader. Also a submenu
+       *  item's quiet second line (Send to…'s "adds as #9", 32d). */
       reason?: string;
+      /** a submenu (Brief B's Send to…, 32d) */
+      submenu?: MenuEntry[];
     }
   | { key: string; separator: true };
 
-/** A 44px "…" and its menu (Base UI: arrows, Escape, focus back to the button). */
+function MenuEntries({ entries, reasonId }: { entries: MenuEntry[]; reasonId: string }) {
+  return (
+    <>
+      {entries.map((entry) =>
+        'separator' in entry ? (
+          <Menu.Separator key={entry.key} className={styles.menuSeparator} />
+        ) : entry.submenu ? (
+          <Menu.SubmenuRoot key={entry.key}>
+            <Menu.SubmenuTrigger className={styles.menuItem} data-submenu="">
+              {entry.label}
+            </Menu.SubmenuTrigger>
+            <Menu.Portal>
+              <Menu.Positioner className={styles.menuPositioner} align="start" sideOffset={4}>
+                <Menu.Popup className={styles.menu}>
+                  <MenuEntries entries={entry.submenu} reasonId={`${reasonId}-${entry.key}`} />
+                </Menu.Popup>
+              </Menu.Positioner>
+            </Menu.Portal>
+          </Menu.SubmenuRoot>
+        ) : (
+          <Menu.Item
+            key={entry.key}
+            className={styles.menuItem}
+            data-tone={entry.tone}
+            data-two-line={entry.reason ? '' : undefined}
+            // Base UI keeps a disabled item focusable, with aria-disabled
+            disabled={entry.disabled}
+            aria-label={entry.reason ? entry.label : undefined}
+            aria-describedby={entry.reason ? `${reasonId}-${entry.key}` : undefined}
+            onClick={entry.onSelect}
+          >
+            {entry.reason ? (
+              <>
+                <span>{entry.label}</span>
+                <span id={`${reasonId}-${entry.key}`} className={styles.menuReason}>
+                  {entry.reason}
+                </span>
+              </>
+            ) : (
+              entry.label
+            )}
+          </Menu.Item>
+        ),
+      )}
+    </>
+  );
+}
+
 export function MoreMenu({
   label,
   entries,
@@ -429,34 +479,7 @@ export function MoreMenu({
       <Menu.Portal>
         <Menu.Positioner className={styles.menuPositioner} align="end" sideOffset={6}>
           <Menu.Popup className={styles.menu}>
-            {entries.map((entry) =>
-              'separator' in entry ? (
-                <Menu.Separator key={entry.key} className={styles.menuSeparator} />
-              ) : (
-                <Menu.Item
-                  key={entry.key}
-                  className={styles.menuItem}
-                  data-tone={entry.tone}
-                  data-two-line={entry.reason ? '' : undefined}
-                  // Base UI keeps a disabled item focusable, with aria-disabled
-                  disabled={entry.disabled}
-                  aria-label={entry.reason ? entry.label : undefined}
-                  aria-describedby={entry.reason ? `${reasonId}-${entry.key}` : undefined}
-                  onClick={entry.onSelect}
-                >
-                  {entry.reason ? (
-                    <>
-                      <span>{entry.label}</span>
-                      <span id={`${reasonId}-${entry.key}`} className={styles.menuReason}>
-                        {entry.reason}
-                      </span>
-                    </>
-                  ) : (
-                    entry.label
-                  )}
-                </Menu.Item>
-              ),
-            )}
+            <MenuEntries entries={entries} reasonId={reasonId} />
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>

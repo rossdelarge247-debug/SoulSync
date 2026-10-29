@@ -27,6 +27,14 @@ import { KeyChip } from '@/features/dj/key-chip';
 import { RowPlay, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
+import { useDnd, useDropTarget } from '@/features/dnd/dnd-engine';
+import { duplicateWords } from '@/features/dnd/dnd-model';
+import { Grip } from '@/features/dnd/grip';
+import { djItem, onGripDown } from '@/features/dnd/items';
+import { useRowGrid } from '@/features/dnd/row-grid';
+import { sendToSet, setRefusal } from '@/features/dnd/send-to';
+import { openSendToTray } from '@/features/dnd/send-to-ui';
+import { holdingNumber } from '@/features/dnd/set-targets';
 import { MIX_SET_CHANGED, setsListQueryOptions } from '@/features/sets/sets.api';
 import { StarButton, useStar } from '@/features/stars/star-button';
 import { MoreMenu } from '@/routes/library/-ui/parts';
@@ -526,6 +534,14 @@ function MatchRowView({
   const more = () => moreLikeThis({ id: match.id, title: match.title });
   const ready = isReady(model.progressOf[match.id]);
   const playNow = () => playDjTrackNow(match);
+  // Brief B (32g): a match lifts onto a set's list, a set, the set card, Up next or a gap
+  const rowRef = useRef<HTMLLIElement>(null);
+  const item = djItem(match);
+  const lift = () => ({
+    items: [item],
+    source: { kind: 'mix' as const, listId: 'mix', indexes: [model.matches.indexOf(match)] },
+    rows: rowRef.current ? [rowRef.current] : [],
+  });
   // the phone: More like this is in each row's long-press (29c) and its "…"
   const longPress =
     place === 'sheet'
@@ -544,14 +560,18 @@ function MatchRowView({
   const addLabelWords = added ? `✓ #${added}` : `Add as #${at}`;
   return (
     <li
+      ref={rowRef}
       className={styles.row}
       data-place={place}
       data-star-row={match.id}
       data-mix-row={match.id}
       data-row-play-host=""
+      data-dnd-row={place === 'sheet' ? undefined : 'mix'}
       {...(place === 'sheet' ? {} : rowPlayHandlers(playNow))}
       {...longPress}
     >
+      {/* the grip (32b); on the phone a long-press is More like this (29c), so Send to… is in the "…" */}
+      {place === 'sheet' ? null : <Grip onPointerDown={onGripDown(lift)} />}
       {place === 'tray' ? (
         <span className={styles.rowArt} aria-hidden="true">
           {match.image_url ? <img src={match.image_url} alt="" loading="lazy" /> : null}
@@ -623,6 +643,9 @@ function MatchRowView({
                   <Menu.Item className={styles.menuItem} onClick={more}>
                     More like this
                   </Menu.Item>
+                  <Menu.Item className={styles.menuItem} onClick={() => openSendToTray([item])}>
+                    Send to…
+                  </Menu.Item>
                 </Menu.Popup>
               </Menu.Positioner>
             </Menu.Portal>
@@ -684,6 +707,18 @@ function MatchRowView({
 /** The matches, or the state that stands in for them (29d). */
 export function MatchesBody({ model, place }: { model: MixModel; place: RowPlace }) {
   const { mix, seed } = model;
+  // UX-27's row grid; Space sends the match somewhere (Send to…, 32d)
+  const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
+  useRowGrid(listEl, {
+    rowSelector: '[data-mix-row]',
+    hint: 'Arrows move between tracks; Enter plays; Space sends it to a set or Up next; the right arrow reaches its buttons.',
+    onSpace: (row) => {
+      const match = model.matches.find((m) => m.id === row.getAttribute('data-mix-row'));
+      if (!match) return false;
+      openSendToTray([djItem(match)]);
+      return true;
+    },
+  });
   if (!seed) return null;
   if (mix.isPending) {
     return <LoadingState label="Finding tracks that mix…" />;
@@ -773,6 +808,7 @@ export function MatchesBody({ model, place }: { model: MixModel; place: RowPlace
   }
   return (
     <ul
+      ref={setListEl}
       className={styles.list}
       aria-label={`Tracks that mix well with ${title}`}
       aria-busy={model.vibe.thinking ? 'true' : undefined}
@@ -1040,14 +1076,51 @@ function SaveUpNext({ model }: { model: MixModel }) {
 export function SetCard({ model }: { model: MixModel }) {
   const p = model.playing;
   const ws = model.workingSet;
+  const card = useRef<HTMLDivElement>(null);
+  const over = useDnd().over;
+  // Brief B (32b state 3): the set card is the working set's drop target; it
+  // appends, or while the set plays goes in after the playing track (293)
+  const playingThis = Boolean(p && ws && p.set?.id === ws.id);
+  useDropTarget(ws ? 'mix-working' : null, () => ({
+    id: 'mix-working',
+    kind: 'working',
+    listId: `working:${ws?.id ?? 0}`,
+    name: ws?.name ?? 'the working set',
+    el: () => card.current,
+    accepts: () => {
+      const reason = setRefusal(ws);
+      return reason ? { ok: false, reason } : { ok: true };
+    },
+    hint: (drag) => {
+      if (p && playingThis)
+        return `after ${p.row.track?.title || p.row.title || 'the playing track'} (#${p.number}) · adds as #${p.number + 1}`;
+      const n = ws ? holdingNumber(ws.id, drag.items) : null;
+      return n ? duplicateWords(n) : `adds as #${model.addAt}`;
+    },
+    drop: async (drag) => {
+      if (!ws) return null;
+      const after =
+        p && playingThis && p.row.track_id
+          ? { track_id: String(p.row.track_id), number: p.number }
+          : null;
+      return sendToSet(ws, drag.items, { after });
+    },
+  }));
+  const dropLine =
+    over?.id === 'mix-working' ? (
+      <p className={styles.setCardLine} data-dnd-sub="">
+        {over.verdict.ok ? over.hint : over.verdict.reason}
+      </p>
+    ) : null;
   if (p) {
     const nextTitle = p.next?.track?.title || p.next?.title || '';
     const name = p.set?.name ?? ws?.name ?? 'the set';
     return (
-      <div className={styles.setCard} data-mix-set-card="" data-playing="">
+      <div ref={card} className={styles.setCard} data-mix-set-card="" data-playing="">
         <p className={styles.setCardTitle}>
           Playing {name} · {trackOfWords(p.number, p.total).toLowerCase()}
         </p>
+        {dropLine}
         {p.next ? (
           <p className={styles.setCardLine}>
             {p.asMix ? 'as a mix · ' : ''}
@@ -1074,11 +1147,12 @@ export function SetCard({ model }: { model: MixModel }) {
       : '';
   const already = model.inSet[0] ?? null;
   return (
-    <div className={styles.setCard} data-mix-set-card="">
+    <div ref={card} className={styles.setCard} data-mix-set-card="">
       <div className={styles.setCardHead}>
         <span className={styles.headMeta}>Working set</span>
         <WorkingPicker model={model} />
       </div>
+      {dropLine}
       {already !== null ? (
         // UX-7: nothing is added unasked; Add again is a quiet choice
         <p className={styles.setCardLine} data-mix-already="">

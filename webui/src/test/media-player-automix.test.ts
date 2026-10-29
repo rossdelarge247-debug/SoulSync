@@ -194,8 +194,9 @@ describe('Up next’s gaps (26a)', () => {
          { title: 'A', artist: 'X', file_path: '/a' }, { title: 'B', artist: 'X', file_path: '/b' },
          { title: 'C', artist: 'X', file_path: '/c' }, { title: 'D', artist: 'X', file_path: '/d' }
        ], npQueueIndex = ${index}, isPlaying = true, npLoadingQueueItem = false, npBuffering = false;
-       const npQueueStatusLabel = () => '', npUpdateUpNext = () => {}, npPersistQueue = () => {},
-         npQueueDragStart = () => {}, npQueueDragOver = () => {}, npQueueDrop = () => {}, npQueueDragEnd = () => {},
+       let npMoveIndex = null;
+    const npQueueStatusLabel = () => '', npUpdateUpNext = () => {}, npPersistQueue = () => {},
+         npIsSpokenWord = () => false, npStartMoveMode = () => {}, npEndMoveMode = () => {},
          playQueueItem = () => {}, formatTime = (s) => String(s);
        ${pick('npAutomix', 'renderNpQueue', 'npFocusQueueAction', 'npQueuePlayingLabel')}
        renderNpQueue();`,

@@ -1,9 +1,14 @@
+import type { DragItem } from '@/features/dnd/dnd-model';
+
+import { openSendToTray, sendToEntries } from '@/features/dnd/send-to-ui';
 import { openMixWith } from '@/features/mix/open-mix';
 /**
  * One "…" for every track in the DJ area (24a): Play next, Add to Up next
  * (277), Mixes well with…, Versions… (not built yet), Add to set…, Send
  * to… (Brief B, step 4: a hook, `sendTo`), Add to playlist…, Open artist ·
- * Open album. On a desktop the star is never in the menu (it's in the row);
+ * Open album. Send to… (Brief B, 32d) is a submenu on a desktop (the
+ * working set, Up next, Another set…) and the foot tray on a phone (32e).
+ * On a desktop the star is never in the menu (it's in the row);
  * on a phone the sheet is 34c's: Star (or Unstar) · Play next · Mixes well
  * with… · Add to set… ("Sunday Set is working" at its end) · Send to… · Add
  * to playlist…, with Brief D's glyphs beside Star and Play next.
@@ -31,6 +36,8 @@ export interface TrackMenuEntry {
   meta?: string;
   /** Brief D's glyph beside it on the phone's sheet */
   icon?: 'star' | 'starred' | 'next';
+  /** a desktop submenu (Send to…, 32d) */
+  submenu?: TrackMenuEntry[];
 }
 
 export interface TrackMenuTrack {
@@ -57,10 +64,11 @@ export function trackMenu(
     /** the working set's name: "Sunday Set is working" beside Add to set… on a phone (34c) */
     working?: string | null;
     /**
-     * Send to… (Brief B, 32d: the working set · Up next · Other sets · DJ
-     * now): step 4 builds it; until then nothing passes it and it isn't shown.
+     * Send to… (Brief B, 32d and 32e: the working set · Up next · Another
+     * set… · DJ now when step 5 lands): what would be sent (this track, or
+     * the selection). Without it the item isn't shown.
      */
-    sendTo?: (() => void) | null;
+    sendTo?: DragItem[] | null;
     /** where Add to set… pops from */
     anchor?: () => HTMLElement | null | undefined;
     addToPlaylist?: (() => void) | null;
@@ -115,8 +123,19 @@ export function trackMenu(
           opts.anchor?.() ?? null,
         ),
     });
-  if (opts.sendTo && !track.fileMissing)
-    entries.push({ key: 'send', label: 'Send to…', onSelect: opts.sendTo });
+  if (opts.sendTo?.length && !track.fileMissing) {
+    const items = opts.sendTo;
+    entries.push(
+      opts.phone
+        ? { key: 'send', label: 'Send to…', onSelect: () => openSendToTray(items) }
+        : {
+            key: 'send',
+            label: 'Send to…',
+            onSelect: () => undefined,
+            submenu: sendToEntries(items, opts.anchor),
+          },
+    );
+  }
   if (opts.addToPlaylist)
     entries.push({ key: 'playlist', label: 'Add to playlist…', onSelect: opts.addToPlaylist });
   if (opts.tempo?.bpm && !track.fileMissing) {

@@ -9,7 +9,7 @@
  * changed, and its playlist follows.
  */
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import type { DjBrowseResponse, DjTrack } from '@/features/dj/dj.api';
 
@@ -26,8 +26,9 @@ import {
   useAnalysisViewer,
   useAutoAnalyse,
 } from '@/features/dj/analysis-line';
-import { requestAnalysis, type AnalysisEntry } from '@/features/dj/analysis.api';
+import { askForAdded, requestAnalysis, type AnalysisEntry } from '@/features/dj/analysis.api';
 import {
+  addedAnalysisWords,
   analyseTheseHint,
   analyseTheseWords,
   isReady,
@@ -40,6 +41,35 @@ import { usePlayingTrack } from '@/features/dj/playing-track';
 import { PlayGlyph, RowPlay, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
+import {
+  keyboardLift,
+  showDropResult,
+  useDropTarget,
+  type Drag,
+  type DropResult,
+  type Lifted,
+  type Preview,
+} from '@/features/dnd/dnd-engine';
+import {
+  REASONS,
+  duplicateNumber,
+  duplicateWords,
+  dropWords,
+  gapToIndex,
+  insertKeepingLocked,
+  insertionLine,
+  keyboardTarget,
+  lockedAt,
+  lockedWords,
+  movedWords,
+  removeKeepingLocked,
+  snapGap,
+  type DragItem,
+  type StepTrack,
+} from '@/features/dnd/dnd-model';
+import { Grip } from '@/features/dnd/grip';
+import { djItem, onGripDown, onRowTouch } from '@/features/dnd/items';
+import { useRowGrid } from '@/features/dnd/row-grid';
 import { playingRowIndex } from '@/features/mix/mix-model';
 import { useQueueFrom } from '@/features/mix/mix-subject';
 import { StarButton } from '@/features/stars/star-button';
@@ -86,7 +116,7 @@ import {
 } from './sets.format';
 import styles from './sets.module.css';
 import { SwapPanel, TrackSheet, trackMeta } from './swap-panel';
-import { undoMove, undoRemove, undoSwap } from './undo-rows';
+import { nearestRow, undoMove, undoRemove, undoSwap } from './undo-rows';
 
 /** a set page's Undo toast, taken down when the page goes */
 const UNDO_TOAST_KEY = 'set-undo';
@@ -301,19 +331,6 @@ export function beingWorkedOut(track: DjTrack | null | undefined): boolean {
 
 /* ── icons ─────────────────────────────────────────────────────────────── */
 
-function Grip() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      {[6, 12, 18].map((y) => (
-        <g key={y}>
-          <circle cx="9" cy={y} r="1.6" />
-          <circle cx="15" cy={y} r="1.6" />
-        </g>
-      ))}
-    </svg>
-  );
-}
-
 function LockIcon({ locked }: { locked: boolean }) {
   return (
     <svg
@@ -506,13 +523,18 @@ function Row({
   nextTitle,
   nextId,
   setName,
-  drag,
+  lift,
+  moving = null,
   step,
   progress = null,
   playing = false,
   onPlay = null,
 }: {
   step: Step | null;
+  /** Brief B: what a drag from this row lifts (null: it can't, no grip) */
+  lift: (() => Lifted | null) | null;
+  /** the phone's Move mode on this row (32f): ▲▼ */
+  moving?: { up: (() => void) | null; down: (() => void) | null } | null;
   /** the row the player is on (the queue came from this set, 294): a green ▶ for its number (33c) */
   playing?: boolean;
   /** Play (34b): the set from this row */
@@ -540,15 +562,6 @@ function Row({
   /** and its id, for the pair's plan (26i) */
   nextId: string | null;
   setName: string;
-  drag: {
-    onGrip: () => void;
-    onDragStart: (event: DragEvent) => void;
-    onDragOver: (event: DragEvent) => void;
-    onDrop: (event: DragEvent) => void;
-    onDragEnd: () => void;
-    armed: boolean;
-    over: boolean;
-  };
 }) {
   const rowRef = useRef<HTMLLIElement>(null);
   const track = row.track;
@@ -602,6 +615,8 @@ function Row({
           { id: track.id, title: track.title, artist: track.artist_name },
           {
             playNext: { onSelect: () => playTrackNext(track) },
+            // Brief B (32d): the keyboard's way to another surface
+            sendTo: [djItem(track)],
             anchor: () => rowRef.current?.querySelector<HTMLElement>('[aria-label^="More for"]'),
             addToPlaylist: () =>
               addTrackToPlaylist(
@@ -641,27 +656,25 @@ function Row({
       data-star-row={starId ?? undefined}
       data-has-values={shown ? '' : undefined}
       data-swapping={swapping ? 'true' : undefined}
-      data-drag-over={drag.over ? 'true' : undefined}
       data-locked={held ? 'true' : undefined}
       data-playing={playing ? 'true' : undefined}
+      data-moving={moving ? 'true' : undefined}
       data-row-play-host=""
+      data-dnd-row="set"
+      data-dnd-index={index}
+      aria-label={`${number ? `${number}. ` : ''}${title}${held ? ', locked' : ''}`}
       {...rowPlayHandlers(phone ? null : onPlay, playing)}
-      draggable={drag.armed}
-      onDragStart={drag.onDragStart}
-      onDragOver={drag.onDragOver}
-      onDrop={drag.onDrop}
-      onDragEnd={drag.onDragEnd}
+      onPointerDown={phone && lift && !held ? onRowTouch(lift) : undefined}
     >
       <div className={styles.row}>
+        {/* Brief B (32b): the grip's reserved column; a locked row's is dimmed and holds (275) */}
         {phone ? null : (
-          <span
-            className={styles.grip}
-            aria-hidden="true"
-            title={held ? 'Locked in its place' : 'Drag to reorder'}
-            onPointerDown={drag.onGrip}
-          >
-            <Grip />
-          </span>
+          <Grip
+            none={!lift}
+            locked={held}
+            title="Drag to move, or to another set or Up next"
+            onPointerDown={lift ? onGripDown(lift) : undefined}
+          />
         )}
         <span className={styles.num}>
           {playing ? (
@@ -782,7 +795,27 @@ function Row({
             )}
           </span>
         )}
-        {phone ? (
+        {moving ? (
+          // 32f: the Move mode's ▲▼, on the row being moved
+          <span className={styles.moveArrows}>
+            <button
+              type="button"
+              aria-label={`Move ${title} up`}
+              disabled={!moving.up}
+              onClick={moving.up ?? undefined}
+            >
+              ▲
+            </button>
+            <button
+              type="button"
+              aria-label={`Move ${title} down`}
+              disabled={!moving.down}
+              onClick={moving.down ?? undefined}
+            >
+              ▼
+            </button>
+          </span>
+        ) : phone ? (
           <button
             type="button"
             className={styles.more}
@@ -920,9 +953,10 @@ export function SetEditor({
   const working = useIsWorking(source.kind === 'saved' ? source.id : null);
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [dragFrom, setDragFrom] = useState<number | null>(null);
-  const [armed, setArmed] = useState<number | null>(null);
-  const [over, setOver] = useState<number | null>(null);
+  /** the phone's Move mode (32f): the row being moved, and where it started */
+  const [moveMode, setMoveMode] = useState<{ row: SetRow; from: number } | null>(null);
+  const [listEl, setListEl] = useState<HTMLOListElement | null>(null);
+  const emptyRef = useRef<HTMLDivElement>(null);
   const nameId = useId();
   const first = useRef(true);
   // what the server last stored, so a save sends only what changed (a
@@ -1186,6 +1220,13 @@ export function SetEditor({
       },
     });
   };
+  /** A drop's Undo (Brief B): the same inverse, said by the drag's own toast (6 s, ⌘Z). */
+  const dropUndo = (inverse: (cur: SetRow[]) => SetRow[] | null) => () => {
+    if (!mounted.current) throw new Error("Can't undo here: open the set to change it");
+    const next = inverse(rowsNow.current);
+    if (!next) throw new Error("Can't undo: that track isn't in the set any more");
+    setRows(next);
+  };
   const remove = (index: number) => {
     const removed = rows[index];
     if (!removed) return;
@@ -1198,21 +1239,30 @@ export function SetEditor({
       undoRemove(cur, removed, index, prev),
     );
   };
+  /** One move (a menu's, a drop's, the Move mode's): the new rows and its inverse. */
+  const moveEdit = (from: number, to: number, cur: SetRow[] = rowsNow.current) => {
+    const moved = cur[from];
+    if (!moved || moved.locked) return null;
+    const before = from > 0 ? cur[from - 1] : null;
+    const next = moveRow(cur, from, to);
+    const at = next.indexOf(moved);
+    if (at === from) return null;
+    return {
+      next,
+      at,
+      inverse: (now: SetRow[]) => undoMove(now, moved, at, from, before),
+    };
+  };
   const moveTo = (from: number, to: number) => {
     if (rows[from]?.locked) {
       window.showToast?.('That track is locked in its place. Unlock it to move it.', 'info');
       return;
     }
-    const moved = rows[from];
-    const before = from > 0 ? rows[from - 1] : null;
     const title = rowTitle(from);
-    const next = moveRow(rows, from, to);
-    setRows(next);
-    const at = next.indexOf(moved);
-    if (at !== from)
-      undoable(`${title} moved to ${at + 1} of ${next.length}`, (cur) =>
-        undoMove(cur, moved, at, from, before),
-      );
+    const edit = moveEdit(from, to, rows);
+    if (!edit) return;
+    setRows(edit.next);
+    undoable(`${title} moved to ${edit.at + 1} of ${edit.next.length}`, edit.inverse);
   };
   const use = (index: number, track: DjTrack) => {
     const was = rows[index];
@@ -1311,37 +1361,203 @@ export function SetEditor({
         ? 'Pasted tracklist'
         : '';
 
-  const dragFor = (index: number) => ({
-    armed: armed === index,
-    over: over === index && dragFrom !== null && dragFrom !== index,
-    onGrip: () => setArmed(rows[index]?.locked ? null : index),
-    onDragStart: (event: DragEvent) => {
-      setDragFrom(index);
-      event.dataTransfer.effectAllowed = 'move';
-      try {
-        event.dataTransfer.setData('text/plain', String(index));
-      } catch {
-        /* some browsers refuse; the index is held here anyway */
+  /* ── Brief B: the set's list as a drag target, its rows as sources (32a–32g) ── */
+  const listId = source.kind === 'saved' ? `set:${source.id}` : 'set:draft';
+  const targetId = `set-list:${listId}`;
+  const setLabel = name.trim() || initial.name;
+  // each row's DJ data for the step the insertion line previews (327: code, instant)
+  const stepOf = (row: SetRow | undefined): (StepTrack & { title: string }) | null => {
+    if (!row?.track_id) return null;
+    const v = viewRows.find((r) => r.track_id === row.track_id && r.track)?.track;
+    return { title: v?.title ?? row.title ?? '', key: v?.dj?.key ?? null, bpm: v?.dj?.bpm ?? null };
+  };
+  /** the nearest rows with a track either side of `from`..`to` in `list` */
+  const neighbours = (list: SetRow[], first: number, last: number) => {
+    let before: SetRow | undefined;
+    for (let k = first - 1; k >= 0; k -= 1)
+      if (list[k]?.track_id) {
+        before = list[k];
+        break;
       }
-    },
-    onDragOver: (event: DragEvent) => {
-      if (dragFrom === null) return;
-      event.preventDefault();
-      setOver(index);
-    },
-    onDrop: (event: DragEvent) => {
-      event.preventDefault();
-      if (dragFrom !== null) moveTo(dragFrom, index);
-      setDragFrom(null);
-      setOver(null);
-      setArmed(null);
-    },
-    onDragEnd: () => {
-      setDragFrom(null);
-      setOver(null);
-      setArmed(null);
+    let after: SetRow | undefined;
+    for (let k = last + 1; k < list.length; k += 1)
+      if (list[k]?.track_id) {
+        after = list[k];
+        break;
+      }
+    return { before: stepOf(before), after: stepOf(after) };
+  };
+  /** a row's number in `list` (rows with a track are numbered, 28e) */
+  const numberIn = (list: SetRow[], i: number) =>
+    list.slice(0, i + 1).filter((r) => r.track_id).length;
+  const freshRows = (items: DragItem[]): SetRow[] =>
+    items.map((t) => ({
+      track_id: t.id,
+      artist: t.artist ?? null,
+      title: t.title,
+      state: 'owned',
+      want: 'yours',
+    }));
+  const isMove = (drag: Drag) => drag.source.listId === listId;
+  const liftRow = (index: number, el?: HTMLElement | null): Lifted | null => {
+    const row = viewRows[index];
+    if (!row?.track || rows[index]?.locked) return null;
+    const li = el ?? listEl?.querySelector<HTMLElement>(`[data-dnd-index="${index}"]`) ?? null;
+    return {
+      items: [djItem(row.track)],
+      source: { kind: 'set', listId, indexes: [index] },
+      rows: li ? [li] : [],
+    };
+  };
+  const previewAt = (drag: Drag, gap: number): Preview => {
+    const cur = rowsNow.current;
+    const locked = lockedAt(cur, gap);
+    const lockedNote = locked >= 0 ? { index: locked, words: lockedWords(rowTitle(locked)) } : null;
+    if (isMove(drag)) {
+      const from = drag.source.indexes[0];
+      const edit = moveEdit(from, gapToIndex(from, gap), cur);
+      if (!edit) return { gap: from, line: null, locked: lockedNote };
+      const { before, after } = neighbours(edit.next, edit.at, edit.at);
+      const line =
+        insertionLine(before, drag.items, after) ?? `Moves to #${numberIn(edit.next, edit.at)}`;
+      return { gap: edit.at > from ? edit.at + 1 : edit.at, line, locked: lockedNote };
+    }
+    const g = snapGap(cur, gap);
+    const fresh = freshRows(drag.items);
+    const next = insertKeepingLocked(cur, g, fresh);
+    const first = next.indexOf(fresh[0]);
+    const last = next.indexOf(fresh[fresh.length - 1]);
+    const dup = duplicateNumber(
+      cur.map((r) => r.track_id),
+      drag.items,
+      (i) => numberIn(cur, i),
+    );
+    if (dup) return { gap: g, line: duplicateWords(dup), duplicate: true, locked: lockedNote };
+    const { before, after } = neighbours(next, first, last);
+    const line = insertionLine(before, drag.items, after) ?? `Adds as #${numberIn(next, first)}`;
+    return { gap: g, line, locked: lockedNote };
+  };
+  const focusRow = (index: number) =>
+    window.requestAnimationFrame(() =>
+      listEl?.querySelector<HTMLElement>(`[data-dnd-index="${index}"]`)?.focus(),
+    );
+  const dropAt = async (drag: Drag, gap: number): Promise<DropResult | null> => {
+    const cur = rowsNow.current;
+    if (isMove(drag)) {
+      const from = drag.source.indexes[0];
+      const edit = moveEdit(from, gapToIndex(from, gap), cur);
+      if (!edit) return null;
+      setRows(edit.next);
+      return {
+        words: dropWords({
+          mode: 'move',
+          items: drag.items,
+          where: setLabel,
+          numbers: [numberIn(edit.next, edit.at)],
+        }),
+        undo: dropUndo(edit.inverse),
+        focus: drag.via === 'keyboard' ? () => focusRow(edit.at) : null,
+      };
+    }
+    const fresh = freshRows(drag.items);
+    const next = insertKeepingLocked(cur, snapGap(cur, gap), fresh);
+    const placed = fresh.map((f) => next.indexOf(f));
+    setRows(next);
+    // a track going in is queued for its analysis, said once (Brief A's trigger)
+    const asking = askForAdded(
+      drag.items.map((t) => t.id),
+      { source: 'set', setId: source.kind === 'saved' ? source.id : null },
+    );
+    const more = addedAnalysisWords(await asking);
+    return {
+      words:
+        dropWords({
+          mode: 'copy',
+          items: drag.items,
+          where: setLabel,
+          numbers: placed.map((i) => numberIn(next, i)),
+        }) + (more ? ` · ${more}` : ''),
+      undo: dropUndo((now) => {
+        const gone = fresh
+          .map((f, k) => (now.includes(f) ? now.indexOf(f) : nearestRow(now, f, placed[k])))
+          .filter((i) => i >= 0);
+        return gone.length ? removeKeepingLocked(now, gone) : null;
+      }),
+    };
+  };
+  const moveWordsAt = (drag: Drag, from: number, at: number) => {
+    const cur = rowsNow.current;
+    const next = moveRow(cur, from, at);
+    const k = next.indexOf(cur[from]);
+    const { before, after } = neighbours(next, k, k);
+    const self = stepOf(cur[from]) ?? { title: drag.items[0]?.title ?? '' };
+    return movedWords(drag.items[0]?.title || 'The track', k + 1, next.length, self, before, after);
+  };
+  useDropTarget(targetId, () => ({
+    id: targetId,
+    kind: 'set-list',
+    listId,
+    name: setLabel,
+    el: () => listEl ?? emptyRef.current,
+    rows: () => Array.from(listEl?.querySelectorAll<HTMLElement>('[data-dnd-row="set"]') ?? []),
+    lockables: () => rowsNow.current,
+    accepts: (drag: Drag) =>
+      drag.items.every((t) => t.inLibrary !== false)
+        ? { ok: true }
+        : { ok: false, reason: REASONS.notInLibrary },
+    preview: previewAt,
+    drop: (drag: Drag, gap: number | null) => dropAt(drag, gap ?? rowsNow.current.length),
+    announce: setAnnounce,
+    moveWords: moveWordsAt,
+  }));
+  // UX-27's row grid and 32d: Space picks a row up, the arrows move it with its new steps
+  useRowGrid(listEl, {
+    rowSelector: '[data-dnd-row="set"]',
+    hint: 'Arrows move between rows; Space picks a row up to move it, then the arrows move it and Enter drops it; Enter plays from a row; the right arrow reaches its buttons.',
+    onSpace: (el) => {
+      const index = Number(el.getAttribute('data-dnd-index'));
+      if (rowsNow.current[index]?.locked) {
+        setAnnounce(`${rowTitle(index)} is locked in its place. Unlock it to move it.`);
+        return true;
+      }
+      const lifted = liftRow(index, el);
+      if (!lifted) {
+        setAnnounce(`${rowTitle(index)} can't be moved by dragging: use its Move… in the “…”.`);
+        return true;
+      }
+      return keyboardLift(targetId, index, lifted);
     },
   });
+  /** 32f: the Move mode's ▲▼ (one free place; locked rows are stepped over) */
+  const moveStep = (dir: 'up' | 'down') => {
+    if (!moveMode) return;
+    const cur = rowsNow.current;
+    const from = cur.indexOf(moveMode.row);
+    if (from < 0) return;
+    const to = keyboardTarget(cur, from, from, dir);
+    const edit = moveEdit(from, to, cur);
+    if (!edit) return;
+    setRows(edit.next);
+    const { before, after } = neighbours(edit.next, edit.at, edit.at);
+    const self = stepOf(moveMode.row) ?? { title: rowTitle(from) };
+    setAnnounce(movedWords(rowTitle(from), edit.at + 1, edit.next.length, self, before, after));
+  };
+  const endMoveMode = () => {
+    if (!moveMode) return;
+    const cur = rowsNow.current;
+    const at = cur.indexOf(moveMode.row);
+    const title = moveMode.row.title ?? 'The track';
+    const { from, row } = moveMode;
+    setMoveMode(null);
+    if (at < 0 || at === from) return;
+    const before = from > 0 ? (initialOrder.current[from - 1] ?? null) : null;
+    showDropResult({
+      words: `Moved ${viewRows[at]?.track?.title ?? title} to #${numberIn(cur, at)}`,
+      undo: dropUndo((now) => undoMove(now, row, at, from, before)),
+    });
+  };
+  // the rows as the Move mode found them (its Undo puts the row back after its old neighbour)
+  const initialOrder = useRef<SetRow[]>([]);
 
   // the set as Play and Play as a mix take it (a draft is id 0)
   const setRef =
@@ -1702,8 +1918,8 @@ export function SetEditor({
           )}
         </div>
       ) : (
-        // 28g: an empty set, and the ways to fill it
-        <div className={styles.emptyCard}>
+        // 28g: an empty set, and the ways to fill it (a drop lands here too, 32a)
+        <div className={styles.emptyCard} ref={emptyRef}>
           <h2>Nothing in {name.trim() || 'this set'} yet</h2>
           {/* UX-19: a draft lives in this browser, so Add to set… can't reach it */}
           <p>
@@ -1746,8 +1962,20 @@ export function SetEditor({
       <p className={styles.srOnly} role="status" aria-live="polite" data-set-announce="">
         {announce}
       </p>
+      {moveMode ? (
+        // 32f: "Moving Canopy · 5 of 8" and Done, over the rows
+        <div className={styles.moveHead} data-set-move-mode="">
+          <span>
+            Moving {moveMode.row.title ?? 'the track'} · {rows.indexOf(moveMode.row) + 1} of{' '}
+            {rows.length}
+          </span>
+          <Button size="lg" variant="primary" onClick={endMoveMode}>
+            Done
+          </Button>
+        </div>
+      ) : null}
       {rows.length ? (
-        <ol className={styles.rows} aria-label={`Tracks in ${name}`}>
+        <ol ref={setListEl} className={styles.rows} aria-label={`Tracks in ${name}`}>
           {viewRows.map((row, index) => {
             // 28e: a track whose file is missing keeps its number
             const n = row.track || row.unreachable ? ++number : null;
@@ -1777,7 +2005,15 @@ export function SetEditor({
                 nextTitle={next}
                 nextId={nextRow?.id ? String(nextRow.id) : null}
                 setName={name.trim() || initial.name}
-                drag={dragFor(index)}
+                lift={row.track ? () => liftRow(index) : null}
+                moving={
+                  moveMode && rows[index] === moveMode.row
+                    ? {
+                        up: index > 0 ? () => moveStep('up') : null,
+                        down: index < rows.length - 1 ? () => moveStep('down') : null,
+                      }
+                    : null
+                }
                 progress={row.track ? (progressOf[String(row.track.id)] ?? null) : null}
                 playing={index === playingRow}
                 onPlay={row.track ? () => void playSet(setRef, viewRows, index) : null}
@@ -1824,7 +2060,12 @@ export function SetEditor({
           }}
           onLock={() => update(sheet, { locked: !rows[sheet]?.locked })}
           onMove={() => {
-            setMoving(sheet);
+            // 32f: on a phone, Move is the Move mode (▲▼ and Done), not a dialog
+            const row = rows[sheet];
+            if (row && !row.locked) {
+              initialOrder.current = rows;
+              setMoveMode({ row, from: sheet });
+            }
             setSheet(null);
           }}
           onRemove={() => remove(sheet)}

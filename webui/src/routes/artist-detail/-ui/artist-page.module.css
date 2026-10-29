@@ -298,6 +298,16 @@
   cursor: not-allowed;
 }
 
+/* Send to…'s submenu (Brief B, 32d): its trigger's ▸ at the right, a quiet "adds as #9" */
+.menuItem[data-submenu] {
+  justify-content: space-between;
+}
+
+.menuMeta {
+  color: var(--ss-text-meta);
+  font-size: 13px;
+}
+
 .menuItem[data-tone='danger'] {
   color: var(--ss-danger);
 }
@@ -730,7 +740,9 @@
 
 /* your tracks: the star's column before the "…" (28a; reserved, so rows don't shift) */
 .row[data-library-row] {
-  grid-template-columns: 32px 44px minmax(0, 1fr) auto auto 32px 44px;
+  /* Brief B (32b): the grip's reserved 24px column first */
+  grid-template-columns: 24px 32px 44px minmax(0, 1fr) auto auto 32px 44px;
+  padding-left: 0;
 }
 
 .starCell {
@@ -744,6 +756,10 @@
 
 .row[data-focus='true'] {
   background: var(--ss-selected-fill);
+}
+
+.rowGrip {
+  justify-self: center;
 }
 
 .rowNum {
@@ -1214,6 +1230,12 @@ a.similarCard:focus-visible {
 
   .row[data-library-row] {
     grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+    padding-left: 4px;
+  }
+
+  /* 32e: on a phone a long-press lifts the row instead */
+  .row[data-library-row] .rowGrip {
+    display: none;
   }
 
   .rowNum,
@@ -1246,4 +1268,10 @@ a.similarCard:focus-visible {
 /* mobile.css gives every bare button a 38px floor; title buttons are text */
 :global(#webui-react-root) .titleButton {
   min-height: 0;
+}
+
+/* Brief B (32d): a submenu's ▸ (Send to…) */
+.menuItem[data-submenu]::after {
+  content: '▸';
+  color: var(--ss-text-meta);
 }

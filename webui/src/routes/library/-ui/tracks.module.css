@@ -223,7 +223,8 @@
 .head,
 .row {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 64px 64px 96px 92px 32px 44px;
+  /* Brief B (32b): the grip's reserved 24px column first */
+  grid-template-columns: 24px 48px minmax(0, 1fr) 64px 64px 96px 92px 32px 44px;
   gap: 12px;
   align-items: center;
 }

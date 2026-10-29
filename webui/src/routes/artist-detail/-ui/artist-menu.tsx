@@ -10,6 +10,16 @@ export type MenuEntry =
       onSelect: () => void;
       tone?: 'danger';
       disabled?: boolean;
+      /** a quiet second line (Send to…'s "adds as #9") */
+      reason?: string;
+      /** a submenu (Brief B's Send to…, 32d) */
+      submenu?: {
+        key: string;
+        label: string;
+        onSelect: () => void;
+        disabled?: boolean;
+        reason?: string;
+      }[];
     }
   | {
       key: string;
@@ -144,6 +154,40 @@ export function ArtistMenu({
                     </span>
                     {entry.label}
                   </Menu.CheckboxItem>
+                );
+              }
+              if (entry.submenu) {
+                return (
+                  <Menu.SubmenuRoot key={entry.key}>
+                    <Menu.SubmenuTrigger className={styles.menuItem} data-submenu="">
+                      {entry.label}
+                    </Menu.SubmenuTrigger>
+                    <Menu.Portal>
+                      <Menu.Positioner
+                        className={styles.menuPositioner}
+                        align="start"
+                        sideOffset={4}
+                        collisionPadding={12}
+                      >
+                        <Menu.Popup className={styles.menu}>
+                          {entry.submenu.map((sub) => (
+                            <Menu.Item
+                              key={sub.key}
+                              className={styles.menuItem}
+                              disabled={sub.disabled}
+                              onClick={sub.onSelect}
+                              title={sub.reason}
+                            >
+                              {sub.label}
+                              {sub.reason ? (
+                                <span className={styles.menuMeta}> · {sub.reason}</span>
+                              ) : null}
+                            </Menu.Item>
+                          ))}
+                        </Menu.Popup>
+                      </Menu.Positioner>
+                    </Menu.Portal>
+                  </Menu.SubmenuRoot>
                 );
               }
               return (

@@ -752,7 +752,7 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 }
 .ss-player-recent-row { grid-template-columns: 40px minmax(0, 1fr) auto; }
 /* Up next's rows (34b): grip, number, art, the track, Play, Move to the top, the length */
-.np-queue-item { grid-template-columns: 20px 20px 40px minmax(0, 1fr) 36px 36px auto; gap: 8px; }
+.np-queue-item { grid-template-columns: 24px 20px 40px minmax(0, 1fr) 36px 36px auto; gap: 8px; }
 .np-queue-item-num {
     color: var(--ss-text-meta);
     font-size: 14px;
@@ -798,15 +798,46 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .np-queue-item.active { background: rgba(var(--ss-success-rgb), 0.06); }
 .np-queue-item:hover,
 .ss-player-recent-row:hover { background: var(--ss-row-hover); }
-.np-queue-item.dragging { opacity: 0.5; }
-.np-queue-item.drag-over { box-shadow: inset 0 2px 0 rgb(var(--ss-accent-light-rgb)); }
+/* Brief B (32b): the grip's 24px column is always there; the grip shows on
+   the row's hover and focus at 62%; src/features/dnd draws the drag itself */
 .np-queue-item-grip {
     display: inline-flex;
-    width: 20px;
-    color: rgba(255, 255, 255, 0.4);
+    justify-content: center;
+    width: 24px;
+    color: rgba(255, 255, 255, 0.62);
     cursor: grab;
+    opacity: 0;
+    touch-action: none;
 }
-.np-queue-item-grip svg { width: 16px; height: 16px; }
+.np-queue-item:hover .np-queue-item-grip,
+.np-queue-item:focus-within .np-queue-item-grip,
+.np-queue-item:focus .np-queue-item-grip { opacity: 1; }
+.np-queue-item-grip svg { width: 20px; height: 20px; }
+.np-queue-item:focus-visible { outline: var(--ss-focus-ring); outline-offset: var(--ss-focus-offset-inset); }
+/* the Move mode (32f): "Moving Canopy · 5 of 8" and Done; the row being moved */
+.np-queue-move-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 44px;
+    padding: 4px 12px;
+    font-size: 14px;
+    color: var(--ss-text-secondary);
+}
+.np-queue-move-done {
+    min-height: 44px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: var(--ss-radius-control);
+    background: rgb(var(--ss-accent-light-rgb));
+    color: #0b0b0f;
+    font: 600 15px/1 var(--ss-shell-font);
+    cursor: pointer;
+}
+.np-queue-item[data-moving='true'] { background: rgba(var(--ss-accent-rgb), 0.14); border-radius: 10px; }
+.np-queue-item[data-moving='true'] .np-queue-item-actions { opacity: 1; pointer-events: auto; }
+.np-queue-item-moveon { display: none !important; }
 .np-queue-item-art,
 .ss-player-recent-art {
     width: 40px;
@@ -1497,6 +1528,9 @@ body:has([data-selection-bar]) .helper-first-launch-tip { display: none !importa
     .np-queue-item-grip,
     .np-queue-item-num,
     .np-queue-item-btn { display: none; }
+    /* 32e: a long-press lifts the row, so it doesn't select or call up the menu */
+    .np-queue-item { -webkit-touch-callout: none; user-select: none; }
+    .np-queue-item-moveon { display: inline-flex !important; }
     .np-queue-item-actions { position: static; transform: none; opacity: 1; pointer-events: auto; padding: 0; background: none; grid-column: 3; grid-row: 1; }
     .np-queue-item-actions > button { width: 44px; height: 44px; }
     .np-queue-item-meta { display: none; }

@@ -49,8 +49,9 @@ beforeEach(() => {
       { title: 'C', artist: 'Artist', file_path: '/c' },
       { title: 'D', artist: 'Artist', file_path: '/d' }
     ], npQueueIndex = 1, isPlaying = true, npLoadingQueueItem = false, npBuffering = false;
+    let npMoveIndex = null;
     const npQueueStatusLabel = () => '', npUpdateUpNext = () => {}, npPersistQueue = () => {},
-      npQueueDragStart = () => {}, npQueueDragOver = () => {}, npQueueDrop = () => {}, npQueueDragEnd = () => {},
+      npIsSpokenWord = () => false, npStartMoveMode = () => {}, npEndMoveMode = () => {},
       updateNpPrevNextButtons = () => {}, npScheduleQueuePrefetch = () => {}, removeFromQueue = () => {};
     ${functions}
     return { render: renderNpQueue, state: () => ({ titles: npQueue.map(t => t.title), index: npQueueIndex }),

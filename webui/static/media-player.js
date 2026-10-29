@@ -2455,6 +2455,8 @@ async function playQueueItem(index, options = {}) {
 function npFocusQueueAction(index, action) {
     const list = document.getElementById('np-queue-list');
     const row = list?.querySelectorAll('.np-queue-item')[index];
+    // the row itself (Brief B's row grid: one tab stop a row, 32d)
+    if (action === 'row' && row) { row.tabIndex = 0; row.focus(); return; }
     const button = row?.querySelector(`[data-queue-action="${action}"]`);
     if (button && !button.disabled) button.focus();
     else if (row) row.querySelector('[data-queue-action="play"]')?.focus();
@@ -2486,14 +2488,18 @@ function npQueueRowMeta(track) {
     return `${who} · ${lossy && track.bitrate ? `${fmt} ${track.bitrate}` : fmt}`;
 }
 
-const NP_GRIP_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
+// Brief B's grip (32b): three 10×2 bars, the same glyph as src/features/dnd
+const NP_GRIP_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="2" rx="1"/><rect x="7" y="11" width="10" height="2" rx="1"/><rect x="7" y="15" width="10" height="2" rx="1"/></svg>';
 
 // The queue rows (the tray's Up next). Every row is in the list; the ones
 // already played and the one playing are classed so the list shows what's
-// up next until "Show all". Each row (34b): a drag grip, its number, the
-// art, the title + "artist · format" (the whole row plays it), Play (or
-// Playing), Move to the top on hover or focus, the duration or download
-// state, and the actions (earlier, later, remove) on hover or focus.
+// up next until "Show all". Each row (34b): the grip (Brief B: a drag from
+// it, src/features/dnd/up-next-dnd.ts; none on the playing row or one
+// already played), its number, the art, the title + "artist · format" (the
+// whole row plays it), Play (or Playing), Move to the top on hover or focus,
+// the duration or download state, and Remove on hover or focus. Earlier and
+// later went with Brief B (HANDOFF 377): a drag, Space and the arrows on a
+// focused row (32d), or on a phone the Move mode (32f, npStartMoveMode).
 function renderNpQueue() {
     const listEl = document.getElementById('np-queue-list');
     const emptyEl = document.getElementById('np-queue-empty');
@@ -2502,7 +2508,7 @@ function renderNpQueue() {
     listEl.setAttribute('role', 'list');
     const focused = listEl.contains(document.activeElement) ? document.activeElement : null;
     const focusedIndex = focused?.closest('.np-queue-item')?.dataset.qindex;
-    const focusedAction = focused?.dataset.queueAction;
+    const focusedAction = focused?.dataset.queueAction || (focused?.classList?.contains('np-queue-item') ? 'row' : undefined);
 
     if (countEl) countEl.textContent = npQueue.length > 0 ? `(${npQueue.length})` : '';
 
@@ -2516,6 +2522,22 @@ function renderNpQueue() {
 
     if (emptyEl) emptyEl.classList.add('hidden');
     listEl.innerHTML = '';
+    if (npMoveIndex !== null && (npMoveIndex <= npQueueIndex || npMoveIndex >= npQueue.length)) npMoveIndex = null;
+    listEl.toggleAttribute('data-move-mode', npMoveIndex !== null);
+    if (npMoveIndex !== null) {
+        // 32f: "Moving Canopy · 5 of 8" with Done, over the rows
+        const head = document.createElement('div');
+        head.className = 'np-queue-move-head';
+        const words = document.createElement('span');
+        words.textContent = `Moving ${npQueue[npMoveIndex].title || 'the track'} · ${npMoveIndex + 1} of ${npQueue.length}`;
+        const done = document.createElement('button');
+        done.type = 'button'; done.className = 'np-queue-move-done';
+        done.dataset.queueAction = 'move-done';
+        done.textContent = 'Done';
+        done.onclick = () => npEndMoveMode();
+        head.append(words, done);
+        listEl.appendChild(head);
+    }
 
     // DJ mix (26a): a transition chip in each gap from the playing track on;
     // src/features/automix fills the gaps (it hears npNotify('queue') below)
@@ -2530,21 +2552,27 @@ function renderNpQueue() {
         item.className = 'np-queue-item ' + place;
         if (place === 'upnext' && firstUpNext) { item.classList.add('upnext-first'); firstUpNext = false; }
         item.setAttribute('role', 'listitem');
-        item.setAttribute('aria-label', `${i + 1} of ${npQueue.length}`);
+        // the row is a tab stop now (Brief B's row grid, UX-27): it says what it is
+        item.setAttribute('aria-label', `${track.title || 'Unknown track'}, ${i + 1} of ${npQueue.length}`);
         if (i === npQueueIndex) item.setAttribute('aria-current', 'true');
 
-        // Drag-to-reorder
-        item.draggable = true;
+        // Brief B (32a–32g): the row is a place in Up next's list (a target)
+        // and, while it's still to come, a source: src/features/dnd/up-next-dnd.ts
+        // reads these and drives the drag, the keyboard and the drop
         item.dataset.qindex = i;
-        item.addEventListener('dragstart', npQueueDragStart);
-        item.addEventListener('dragover', npQueueDragOver);
-        item.addEventListener('drop', npQueueDrop);
-        item.addEventListener('dragend', npQueueDragEnd);
+        item.dataset.dndRow = 'upnext';
+        item.dataset.dndIndex = String(i);
+        if (npMoveIndex === i) item.dataset.moving = 'true';
 
         const grip = document.createElement('span');
         grip.className = 'np-queue-item-grip';
         grip.setAttribute('aria-hidden', 'true');
-        grip.innerHTML = typeof NP_GRIP_SVG !== 'undefined' ? NP_GRIP_SVG : '';
+        // only library tracks with their file lift (32b); a row still to come
+        if (place === 'upnext' && track.file_path && !track.media_src && !npIsSpokenWord(track)) {
+            grip.dataset.dndGrip = '';
+            grip.title = 'Drag to move, or to a set';
+            grip.innerHTML = typeof NP_GRIP_SVG !== 'undefined' ? NP_GRIP_SVG : '';
+        }
         item.appendChild(grip);
 
         // its place in the queue (34b; a set played as a mix numbers as its rows)
@@ -2649,18 +2677,33 @@ function renderNpQueue() {
         item.appendChild(meta);
         const actions = document.createElement('div');
         actions.className = 'np-queue-item-actions';
-        for (const [direction, target, symbol] of [['earlier', i - 1, '↑'], ['later', i + 1, '↓']]) {
+        if (npMoveIndex === i) {
+            // 32f: the Move mode's ▲▼ on the row being moved
+            for (const [direction, target, symbol] of [['earlier', i - 1, '▲'], ['later', i + 1, '▼']]) {
+                const move = document.createElement('button');
+                move.type = 'button'; move.className = 'np-queue-item-move';
+                move.dataset.queueAction = direction;
+                move.textContent = symbol;
+                move.setAttribute('aria-label', `Move ${track.title || 'track'} ${direction === 'earlier' ? 'up' : 'down'}`);
+                move.disabled = target <= npQueueIndex || target < 0 || target >= npQueue.length;
+                move.onclick = () => {
+                    npReorderQueue(i, target);
+                    npMoveIndex = target;
+                    renderNpQueue();
+                    npFocusQueueAction(target, direction);
+                    npAnnounceQueue(`${track.title || 'Track'}, ${target + 1} of ${npQueue.length}`);
+                };
+                actions.appendChild(move);
+            }
+        } else if (place === 'upnext' && npMoveIndex === null) {
+            // the phone's way to reorder without a drag (32f): Move… starts the Move mode
             const move = document.createElement('button');
-            move.type = 'button'; move.className = 'np-queue-item-move';
-            move.dataset.queueAction = direction;
-            move.textContent = symbol;
-            move.setAttribute('aria-label', `Move ${track.title || 'track'} ${direction}`);
-            move.disabled = target < 0 || target >= npQueue.length;
-            move.onclick = () => {
-                npReorderQueue(i, target);
-                npFocusQueueAction(target, direction);
-                npAnnounceQueue(`${track.title || 'Track'} moved to position ${target + 1} of ${npQueue.length}`);
-            };
+            move.type = 'button'; move.className = 'np-queue-item-move np-queue-item-moveon';
+            move.dataset.queueAction = 'move';
+            move.textContent = '↕';
+            move.title = 'Move';
+            move.setAttribute('aria-label', `Move ${track.title || 'track'}`);
+            move.onclick = (e) => { e.stopPropagation(); npStartMoveMode(i); };
             actions.appendChild(move);
         }
 
@@ -2737,35 +2780,41 @@ function npRestoreQueue() {
     } catch (e) { /* corrupt entry — ignore */ }
 }
 
-// ── Queue drag-to-reorder ──
-let npDragFromIndex = null;
+// ── The Move mode (Brief B, 32f): the phone's way to reorder without a drag ──
+// One row at a time: ▲▼ on it, "Moving Canopy · 5 of 8" and Done over the
+// list; Done says where it went with Undo (src/features/dnd's toast, so ⌘Z
+// and the 6 s are the drag's own).
+let npMoveIndex = null;
+let npMoveStart = null;
 
-function npQueueDragStart(e) {
-    npDragFromIndex = Number(e.currentTarget.dataset.qindex);
-    e.currentTarget.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    // Firefox requires data to be set for drag to fire.
-    try { e.dataTransfer.setData('text/plain', String(npDragFromIndex)); } catch (_) {}
+function npStartMoveMode(index) {
+    if (!Number.isInteger(index) || index <= npQueueIndex || index >= npQueue.length) return;
+    npMoveIndex = index;
+    npMoveStart = { track: npQueue[index], index };
+    renderNpQueue();
+    npFocusQueueAction(index, 'later');
+    npAnnounceQueue(`Moving ${npQueue[index].title || 'the track'}, ${index + 1} of ${npQueue.length}. Up and down move it; Done ends.`);
 }
 
-function npQueueDragOver(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    const row = e.currentTarget;
-    document.querySelectorAll('.np-queue-item.drag-over').forEach(r => r.classList.remove('drag-over'));
-    row.classList.add('drag-over');
-}
-
-function npQueueDrop(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    const to = Number(e.currentTarget.dataset.qindex);
-    npReorderQueue(npDragFromIndex, to);
-}
-
-function npQueueDragEnd() {
-    document.querySelectorAll('.np-queue-item').forEach(r => r.classList.remove('dragging', 'drag-over'));
-    npDragFromIndex = null;
+function npEndMoveMode() {
+    const start = npMoveStart;
+    const at = npMoveIndex;
+    npMoveIndex = null;
+    npMoveStart = null;
+    renderNpQueue();
+    if (!start || at === null) return;
+    const now = npQueue.indexOf(start.track);
+    if (now < 0 || now === start.index) return;
+    npFocusQueueAction(now, 'play');
+    const words = `Moved ${start.track.title || 'the track'} to #${now + 1}`;
+    const undo = () => {
+        const here = npQueue.indexOf(start.track);
+        if (here < 0) throw new Error("Can't undo: that track isn't in Up next any more");
+        npReorderQueue(here, Math.max(npQueueIndex + 1, Math.min(start.index, npQueue.length - 1)));
+    };
+    const dnd = window.SoulSyncDnd;
+    if (dnd && typeof dnd.showDropResult === 'function') dnd.showDropResult({ words, undo });
+    else showToast(words, 'success');
 }
 
 // Move a queue item, keeping npQueueIndex pointed at the SAME playing track.
@@ -4082,6 +4131,53 @@ window.SoulSyncPlayer = {
     },
     /** auto-mix: move a queued row to straight after the playing one; its index */
     moveNext(index) { return npMoveNext(index); },
+    /**
+     * Brief B: tracks dropped at a place in Up next (never at or above the
+     * playing row). The rows as queued, so a drop's Undo can take exactly
+     * them out again. With nothing playing and nothing queued it starts, as
+     * Add to Up next does.
+     */
+    insertAt(index, tracks) {
+        const list = npPrepareQueueTracks((tracks || []).filter(Boolean));
+        if (!list.length) return [];
+        const wasEmpty = npQueue.length === 0;
+        const at = Math.max(npQueueIndex + 1, Math.min(Number(index) || 0, npQueue.length));
+        npQueue.splice(at, 0, ...list);
+        renderNpQueue();
+        updateNpPrevNextButtons();
+        npPersistQueue();
+        npScheduleQueuePrefetch();
+        if (!currentTrack && wasEmpty) playQueueItem(at);
+        return list;
+    },
+    /** a drop's Undo: these queued rows out again (not the playing one); how many went */
+    removeTracks(rows) {
+        let gone = 0;
+        for (const row of rows || []) {
+            const i = npQueue.indexOf(row);
+            if (i < 0 || i === npQueueIndex) continue;
+            npQueue.splice(i, 1);
+            if (i < npQueueIndex) npQueueIndex -= 1;
+            gone += 1;
+        }
+        renderNpQueue();
+        updateNpPrevNextButtons();
+        npScheduleQueuePrefetch();
+        return gone;
+    },
+    /** a queued row moved to `to` (by the row itself, so an Undo finds it); its index after */
+    moveTrack(row, to) {
+        const from = npQueue.indexOf(row);
+        if (from < 0) return -1;
+        npReorderQueue(from, Math.max(npQueueIndex + 1, Math.min(to, npQueue.length - 1)));
+        return npQueue.indexOf(row);
+    },
+    /** Up next's polite region (UX-27) */
+    announce: (words) => npAnnounceQueue(words),
+    /** focus a row (the keyboard's drop, 32d) */
+    focusRow: (index) => npFocusQueueAction(index, 'row'),
+    /** the Move mode (32f) */
+    startMoveMode: (index) => npStartMoveMode(index),
     /** a set played as a mix from the playing track: its later rows next, each once */
     queueAfterPlaying(tracks) { return npQueueAfterPlaying(tracks); },
     /** Up next again (auto-mix's chips changed, or the setting) */
