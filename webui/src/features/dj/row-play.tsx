@@ -68,34 +68,74 @@ export function MoveTopGlyph({ size = 18 }: { size?: number }) {
   );
 }
 
-/** Whether the player is paused (not playing) right now. */
-function readPaused(): boolean {
+interface PlayerNow {
+  playing?: boolean;
+  buffering?: boolean;
+  loading?: { active?: boolean } | null;
+}
+
+/**
+ * The player's track is still loading (the engine's loading line, buffering,
+ * or an audio element that has no data yet): a press then would pause or
+ * abort the load (gauntlet re-review, Low c).
+ */
+export function playerLoading(st?: PlayerNow | null): boolean {
   try {
-    const st = (
-      window as unknown as { SoulSyncPlayer?: { state?: () => { playing?: boolean } } }
-    ).SoulSyncPlayer?.state?.();
-    return st ? !st.playing : false;
+    const player = (
+      window as unknown as {
+        SoulSyncPlayer?: { state?: () => PlayerNow; audio?: () => HTMLMediaElement | null };
+      }
+    ).SoulSyncPlayer;
+    const now = st ?? player?.state?.();
+    if (!now) return false;
+    if (now.loading?.active || now.buffering) return true;
+    const audio = player?.audio?.();
+    // HAVE_CURRENT_DATA: the track has loaded far enough to play or pause
+    return Boolean(audio && audio.currentSrc && !audio.error && audio.readyState < 2);
   } catch {
     return false;
   }
 }
 
-/** The player paused, kept current from 'ss:player' (only the playing row asks). */
-function usePlayerPaused(): boolean {
-  const [paused, setPaused] = useState(readPaused);
+/** Whether the player is paused, or still loading, right now. */
+function readPlayer(): { paused: boolean; loading: boolean } {
+  try {
+    const st = (
+      window as unknown as { SoulSyncPlayer?: { state?: () => PlayerNow } }
+    ).SoulSyncPlayer?.state?.();
+    return { paused: st ? !st.playing : false, loading: playerLoading(st) };
+  } catch {
+    return { paused: false, loading: false };
+  }
+}
+
+/** The player paused or loading, kept current from 'ss:player' (only the playing row asks). */
+function usePlayerNow(): { paused: boolean; loading: boolean } {
+  const [now, setNow] = useState(readPlayer);
   useEffect(() => {
-    const listener = () => setPaused(readPaused());
+    const listener = () =>
+      setNow((prev) => {
+        const next = readPlayer();
+        return prev.paused === next.paused && prev.loading === next.loading ? prev : next;
+      });
     listener();
     window.addEventListener('ss:player', listener);
     return () => window.removeEventListener('ss:player', listener);
   }, []);
-  return paused;
+  return now;
 }
 
-/** "Pause X" while it plays, "Resume X" while it's paused (gauntlet review L2). */
+/**
+ * "Pause X" while it plays, "Resume X" while it's paused (gauntlet review
+ * L2), "Loading X" while it loads (the press does nothing then).
+ */
 function PlayingName({ name }: { name: string }) {
-  const paused = usePlayerPaused();
-  return <span className={styles.srOnly}>{paused ? `Resume ${name}` : `Pause ${name}`}</span>;
+  const { paused, loading } = usePlayerNow();
+  return (
+    <span className={styles.srOnly}>
+      {loading ? `Loading ${name}` : paused ? `Resume ${name}` : `Pause ${name}`}
+    </span>
+  );
 }
 
 /** A second press this soon after one is the same press (a double-click). */
@@ -167,6 +207,8 @@ export function RowPlay({
       onPlayNext();
       return;
     }
+    // a just-started track still loading: pausing now would abort it
+    if (playing && playerLoading()) return;
     const now = Date.now();
     if (now - lastPress.current < REPEAT_MS) return;
     lastPress.current = now;
@@ -272,6 +314,8 @@ interface Engine {
     queue?: QueueTrack[];
     index?: number;
     playing?: boolean;
+    buffering?: boolean;
+    loading?: { active?: boolean } | null;
   };
   insertNext?: (t: Record<string, unknown>) => number;
   playIndex?: (i: number) => unknown;
@@ -302,7 +346,9 @@ export function playTrackNow(track: Record<string, unknown>): void {
       const index = typeof st.index === 'number' ? st.index : -1;
       const atIndex = index >= 0 ? st.queue?.[index] : null;
       if (sameTrack(st.track, track) || sameTrack(atIndex, track)) {
-        if (st.track && !st.playing && sameTrack(st.track, track)) engine?.toggle?.();
+        // paused: play on; still loading: leave it to start (a toggle would abort it)
+        if (st.track && !st.playing && sameTrack(st.track, track) && !playerLoading(st))
+          engine?.toggle?.();
         return;
       }
     }

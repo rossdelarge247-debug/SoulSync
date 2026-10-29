@@ -41,3 +41,44 @@ it("[H2] the playing row and a phone's rows have no double-click play", () => {
   expect(rowPlayHandlers(null)).toEqual({});
   expect(rowPlayHandlers(play).onDoubleClick).toBeTypeOf('function');
 });
+
+it('[gauntlet re-review, Low c] a just-started row says Loading and its press does nothing until it has loaded', () => {
+  let loading = true;
+  const toggle = vi.fn();
+  w.SoulSyncPlayer = {
+    state: () => ({ track: { id: '1' }, playing: false, loading: { active: loading } }),
+    toggle,
+  };
+  render(<RowPlay title="Night Ferry" playing onPlay={() => {}} />);
+  const button = screen.getByRole('button', { name: 'Loading Night Ferry' });
+  fireEvent.click(button);
+  expect(toggle).not.toHaveBeenCalled();
+  loading = false;
+  act(() => {
+    window.dispatchEvent(new CustomEvent('ss:player'));
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Resume Night Ferry' }));
+  expect(toggle).toHaveBeenCalledTimes(1);
+});
+
+it('[gauntlet re-review, Low c] Play for the track still loading leaves it to start', async () => {
+  const { playTrackNow, resetPlayTrackNowForTests } = await import('./row-play');
+  resetPlayTrackNowForTests();
+  const toggle = vi.fn();
+  const insertNext = vi.fn();
+  w.SoulSyncPlayer = {
+    state: () => ({
+      track: { id: '1', file_path: '/m/1.flac' },
+      queue: [{ id: '1', file_path: '/m/1.flac' }],
+      index: 0,
+      playing: false,
+      buffering: true,
+    }),
+    toggle,
+    insertNext,
+    playIndex: vi.fn(),
+  };
+  playTrackNow({ id: '1', file_path: '/m/1.flac' });
+  expect(toggle).not.toHaveBeenCalled();
+  expect(insertNext).not.toHaveBeenCalled();
+});

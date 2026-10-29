@@ -2616,7 +2616,8 @@ function renderNpQueue() {
             playBtn.dataset.title = track.title || 'track';
             npQueuePlayingLabel(playBtn);
             playBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 10h3v10H4zM10 4h3v16h-3zM16 13h3v7h-3z"/></svg>';
-            playBtn.onclick = (e) => { e.stopPropagation(); togglePlayback(); };
+            // still loading: a press would pause or abort the load (gauntlet re-review, Low c)
+            playBtn.onclick = (e) => { e.stopPropagation(); if (npLoadingQueueItem || npBuffering) return; togglePlayback(); };
         } else {
             playBtn.setAttribute('aria-label', `Play ${track.title || 'track'} now`);
             playBtn.title = 'Play now';
