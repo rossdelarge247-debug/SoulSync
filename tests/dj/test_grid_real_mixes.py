@@ -129,3 +129,29 @@ def test_drum_and_bass_with_a_bass_on_every_beat_isnt_four_on_the_floor():
     assert not grid.four_on_the_floor(feat, np.asarray(beats))
     g = grid.beat_grid(feat, 174.0)
     assert g["confidence"] >= BEAT_CONFIDENT and _phase_ms(g, beats, 174.0) < 15
+
+
+# ── the phase follow-up of 29 October: a rolling bass under the kick ─────────
+
+ROLLING_316 = (1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15)
+
+
+@pytest.mark.parametrize("bpm,level,kick", [(126.0, 1.0, 0.9), (128.0, 1.2, 0.9), (128.0, 1.0, 0.5)])
+def test_a_rolling_bass_with_no_backbeat_is_never_trusted_to_beat_match(bpm, level, kick):
+    # the low band is busy on every sixteenth: the comb's line was a bass note
+    # a sixteenth off the kick, at 0.98-0.99; it's held under the bar now
+    y, _ = pattern_track(bpm, 48, FOUR, bass=ROLLING_316, bass_level=level, kick=kick)
+    g = _grid(y, bpm)
+    assert g["kind"] == "constant" and g["unsure_phase"]
+    assert g["confidence"] < BEAT_CONFIDENT
+
+
+@pytest.mark.parametrize("kw", [{}, {"bass": OFF_BEAT_BASS, "bass_level": 0.4},
+                                {"bass": OFF_BEAT_BASS, "bass_level": 0.6},
+                                {"bass": ROLLING_316, "bass_level": 1.0, "claps": True}])
+def test_ordinary_four_on_the_floor_is_still_ready(kw):
+    # a kick alone, an off-beat bass under it, a rolling bass with a clap
+    y, beats = pattern_track(126.0, 48, FOUR, **kw)
+    g = _grid(y, 126.0)
+    assert not g["unsure_phase"] and g["confidence"] >= BEAT_CONFIDENT
+    assert _phase_ms(g, beats, 126.0) < 20

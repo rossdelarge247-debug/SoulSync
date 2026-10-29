@@ -663,6 +663,15 @@ BACKBEAT_SHARE = 0.5
 #: weaker one is taken for the bass (dance music's kick leads the low band;
 #: a bass much louder than the kick can still fool it: HANDOFF, the review)
 RIVAL_STRENGTH = 0.9
+#: a rolling bass: even lines on two or more of the other sixteenths, each at
+#: least this strong against the beat's (a bass note's tail measures 0.10, a
+#: rolling bass's notes 0.15 and up), and no backbeat. The low band is busy
+#: on every sixteenth, so the comb's line may be a bass note rather than the
+#: kick (the phase follow-up of 29 October: a rolling three-sixteenths bass
+#: over a kick at 0.9 was a sixteenth off at 0.98-0.99). An off-beat bass is
+#: one line; a kick alone, none
+BUSY_LINE_STRENGTH = 0.125
+BUSY_LINES = 2
 #: a four-on-the-floor grid with a rival line and no backbeat to choose
 #: between them stays under the bar for beat-matching (gauntlet review M1:
 #: techno with a bass louder than its kick was a beat off, at 1.00)
@@ -839,6 +848,10 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
             rivals = [c for c in (1, 2, 3) if lines[c][0] >= FLOOR_EVENNESS
                       and lines[c][1] >= RIVAL_STRENGTH * max(strength0, 1e-9)]
             backed = backbeat0 >= BACKBEAT_SHARE
+            busy = [c for c in (1, 2, 3) if lines[c][0] >= FLOOR_EVENNESS
+                    and lines[c][1] >= BUSY_LINE_STRENGTH * max(strength0, 1e-9)]
+            if len(busy) >= BUSY_LINES and not rivals:
+                rivals = busy
             if rivals and not backed:
                 # a rival line with the backbeat on it: that's the kick
                 best = max(rivals, key=lambda c: lines[c][2])
