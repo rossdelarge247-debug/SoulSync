@@ -233,7 +233,12 @@ def _default_grid(path: str, *, audio=None, bpm_hint: Optional[float] = None) ->
     progress.step("grid")
     y, rate = audio
     truncated = len(y) / float(rate) >= DECODE_SECONDS - 0.05
-    return analyze_audio(y, rate, bpm_hint=bpm_hint, truncated=truncated, on_step=progress.step)
+    # the file's genre tag decides a slow hint's octave first (drum and bass
+    # at 87 is 174; hip hop at 87 stays): core/sample/tempo.py
+    from core.sample.tempo import file_genres
+
+    return analyze_audio(y, rate, bpm_hint=bpm_hint, truncated=truncated, on_step=progress.step,
+                         genres=file_genres(path))
 
 
 def _replaygain_db(path: str) -> Optional[float]:

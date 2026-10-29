@@ -46,7 +46,11 @@ def test_a_steady_track_is_a_constant_grid_on_every_beat(case):
     errors = _beat_errors(r, truth["beats"])
     assert errors.max() < 0.005, f"worst beat {errors.max() * 1000:.1f} ms"
     assert r["first_downbeat"] == pytest.approx(truth["downbeats"][0], abs=0.005)
-    assert r["beat_confidence"] >= 0.7 and r["downbeat_confidence"] >= 0.6 and r["meter"] == "4/4"
+    # ready to mix. Not 0.7 any more (grid v5): the agreement's upper band
+    # hears these generated kicks' off-beat hats, not their kick (a sine
+    # sweep, no click), so it agrees on half of them; real kicks have a click
+    assert r["beat_confidence"] >= grid.BEAT_CONFIDENT
+    assert r["downbeat_confidence"] >= 0.6 and r["meter"] == "4/4"
     assert r["bars"] == truth["bars"]
 
 
@@ -240,8 +244,9 @@ def test_an_amen_style_break_is_on_the_beat_not_on_the_kicks(case):
     """An Amen-style break puts more kicks on the "and"s than on the beat:
     the kick comb alone locked half a beat (or a sixteenth) off, at up to
     0.51 confidence, which the planner would have beat-matched. The
-    backbeat (the snare on two and four) puts it back on the beat, and a
-    break's grid stays under the planner's bar, so the pair echoes out."""
+    backbeat (the snare on two and four) puts it back on the beat. A grid
+    moved half a beat is trusted since grid v5 (real breaks moved so were on
+    the beat 5 times in 6: HANDOFF, 29 October); one moved a sixteenth isn't."""
     from core.dj import grid_store
 
     from .grid_fixtures import break_track
@@ -251,10 +256,14 @@ def test_an_amen_style_break_is_on_the_beat_not_on_the_kicks(case):
     assert r["status"] == "done", r
     errors = _beat_errors(r, truth["beats"])
     assert np.median(errors) < 0.004 and errors.max() < 0.005, f"worst beat {errors.max() * 1000:.1f} ms"
-    assert grid.MIN_BEAT_CONFIDENCE <= r["beat_confidence"] < grid_store.BEAT_CONFIDENT
+    g = grid.beat_grid(grid._features(y), None if case.get("hint") is False else case["bpm"])
+    if g["sixteenth"] % 2:
+        assert grid.MIN_BEAT_CONFIDENCE <= r["beat_confidence"] < grid_store.BEAT_CONFIDENT
+    else:
+        assert r["beat_confidence"] >= grid_store.BEAT_CONFIDENT
 
 
-def test_a_break_is_not_beat_matched_in_the_planner():
+def test_a_break_on_the_beat_is_beat_matched_in_the_planner():
     from core.dj import planner
 
     from .grid_fixtures import break_track
@@ -264,9 +273,9 @@ def test_a_break_is_not_beat_matched_in_the_planner():
     r = grid.analyze_audio(y, SR, bpm_hint=165.0)
     incoming = _track(_row(165.0, first=r["first_downbeat"], conf=r["beat_confidence"]), title="Amen", tid="2")
     p = planner.plan(_track(_row(165.0)), incoming, style="long_blend")
-    # held under 0.5 (311): not beat-matched; the outgoing track is ready, so 302's cut
-    assert p["status"] == "cut" and p["fallback"]["code"] == "low_confidence"
-    assert p["fallback"]["reason"] == "Amen's beat grid isn't sure enough"
+    # on the beat, moved there by an eighth (grid v5): beat-matched like any grid
+    assert r["beat_confidence"] >= grid.BEAT_CONFIDENT
+    assert p["status"] == "ok" and p["beatmatch"]
 
 
 @pytest.mark.parametrize("case", [dict(fn="dance", bpm=124.0), dict(fn="dance", bpm=128.0, lead_in=0.37),

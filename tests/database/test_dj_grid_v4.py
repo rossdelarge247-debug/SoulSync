@@ -63,13 +63,16 @@ def _as_before(path):
 
 
 def test_only_grids_ready_to_mix_skip_the_new_analysis(tmp_path):
-    assert GRID_VERSION == 4
     path = tmp_path / "music.db"
     _as_before(path)
     db = _reopen(path)
     grids = dict(_q(path, "SELECT track_id, grid_version FROM track_grid"))
     assert {t for t, v in grids.items() if v == 4} == {"1", "5", "6", "8"}
-    assert sorted(grid_store.pending_ids(db, ANALYZER_VERSION)) == ["2", "3", "4", "7"]
+    # grid v5 (real audio, 29 October) finds every grid again, the ones
+    # promoted to 4 included: none of them is current
+    assert GRID_VERSION == 5
+    assert not any(grid_store.current({"grid_version": v, "status": "done"}, None) for v in grids.values())
+    assert {"1", "2", "3", "4", "7", "8"} <= set(grid_store.pending_ids(db, ANALYZER_VERSION))
     assert _q(path, "SELECT 1 FROM schema_migrations WHERE name = 'dj_grid_v4'")
 
 
