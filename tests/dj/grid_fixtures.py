@@ -53,12 +53,28 @@ def _add(y: np.ndarray, at: float, sound: np.ndarray) -> None:
     y[i:j] += sound[:j - i]
 
 
-def _kick(level: float) -> np.ndarray:
+def _kick(level: float, kind: str = "click") -> np.ndarray:
+    """A kick: ``click`` (the default) a pitched sine sweep with the
+    beater's click, a few milliseconds of noise above the body, which every
+    real kick has (grid v5's review: without it the agreement's upper band
+    hears only the off-beat hats); ``soft`` the same body without the click
+    (a deep-house kick rolled off at the top); ``808`` a long sub, a sine
+    at 50 Hz dying over 0.5 s, its attack a slow 5 ms (grid v5's second
+    review, L-b)."""
+    if kind == "808":
+        n = int(0.6 * SR)
+        t = np.arange(n) / SR
+        sweep = 50 + 25 * np.exp(-t / 0.02)
+        return level * np.minimum(1.0, t / 0.005) * np.exp(-t / 0.5) * np.sin(2 * np.pi * np.cumsum(sweep) / SR)
     n = int(0.25 * SR)
     t = np.arange(n) / SR
     sweep = 50 + 90 * np.exp(-t / 0.03)
     phase = 2 * np.pi * np.cumsum(sweep) / SR
-    return level * np.exp(-t / 0.09) * np.sin(phase)
+    body = np.exp(-t / 0.09) * np.sin(phase)
+    if kind == "soft":
+        return level * body
+    click = _noise(n, 0.003, 7, 0.3)
+    return level * (body + click)
 
 
 def _noise(n: int, decay: float, seed: int, level: float, highpass: bool = True) -> np.ndarray:
@@ -255,7 +271,7 @@ def _pluck(midi: int, seconds: float, level: float) -> np.ndarray:
 def pattern_track(bpm: float, bars: int, pattern, *, bass: Sequence[int] = (), bass_level: float = 0.5,
                   claps: bool = False, kick: float = 0.9, snare_low: float = 0.0, drumless_bars: int = 0,
                   swing: float = 0.0, seed: int = 3, toms: Sequence[int] = (), tom_level: float = 0.3,
-                  rumble: float = 0.0, bass_kind: str = "tone") -> Tuple[np.ndarray, np.ndarray]:
+                  rumble: float = 0.0, bass_kind: str = "tone", kick_kind: str = "click") -> Tuple[np.ndarray, np.ndarray]:
     """The gauntlet review's drum machine (28 October): a pattern of
     sixteenths (``K`` kick, ``S`` snare, ``s`` ghost; a dict, or a tuple of
     dicts one a bar) over a hat on every sixteenth (the eighths louder), a
@@ -264,7 +280,8 @@ def pattern_track(bpm: float, bars: int, pattern, *, bass: Sequence[int] = (), b
     and bass only. ``toms``: a low tom (110-170 Hz) on those sixteenths of
     every beat; ``rumble``: the kick's low reverb tail (the phase follow-up's
     review, 29 October); ``bass_kind="pluck"``: a bass whose pitch drops
-    fast and dies fast, like a kick's (its second review). ``(y, beats)``:
+    fast and dies fast, like a kick's (its second review); ``kick_kind``:
+    ``_kick``'s kinds. ``(y, beats)``:
     the beats start at 0."""
     if isinstance(pattern, dict):
         pattern = (pattern,)
@@ -299,7 +316,7 @@ def pattern_track(bpm: float, bars: int, pattern, *, bass: Sequence[int] = (), b
             _add(y, at, _noise(int(0.04 * SR), 0.01, int(rng.randint(1e6)), 0.12 if step % 2 == 0 else 0.05))
             kind = hits.get(step)
             if kind == "K":
-                _add(y, at, _kick(kick))
+                _add(y, at, _kick(kick, kick_kind))
             elif kind == "S":
                 _add(y, at, snare(0.8))
             elif kind == "s":

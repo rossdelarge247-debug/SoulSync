@@ -40,15 +40,18 @@ def test_a_drumless_intro_doesnt_sink_the_beat_confidence():
 
 
 def test_a_break_is_still_a_break():
-    # an Amen break's kick is on some beats only: not four on the floor, so
-    # its grid stays under the bar for beat-matching (it echoes out)
+    # an Amen break's kick is on some beats only: not four on the floor; the
+    # sixteenth check moves its grid half a beat onto the beat, and since grid
+    # v5 a grid moved half a beat is trusted (real breaks so moved were on the
+    # beat 5 times in 6: HANDOFF, 29 October)
     import numpy as np
 
     y, truth = break_track(170.0, bars=48, pattern="amen")
     feat = grid._features(y)
     assert not grid.four_on_the_floor(feat, np.asarray(truth["beats"]))
     r = grid.beat_grid(feat, 170.0)
-    assert r["sixteenth"] != 0 and r["confidence"] <= grid.BREAK_CONFIDENCE
+    assert r["sixteenth"] == 2 and r["confidence"] >= BEAT_CONFIDENT
+    assert _phase_ms(r, truth["beats"], 170.0) < 15
     house, h = rolling_bass_house(122.0, 24, bass=2.0, seed=2)
     assert grid.four_on_the_floor(grid._features(house), np.asarray(h["beats"]))
 
@@ -89,39 +92,59 @@ def test_house_with_an_off_beat_bass_and_a_clap_is_ready_on_its_kick(level):
     assert _phase_ms(g, beats, 124.0) < 15
 
 
-@pytest.mark.parametrize("kw", [
-    {"bass_level": 0.5, "drumless_bars": 40},  # a long bass-only intro: the comb took the bass, at 0.98
+#: once grid v5's known limit (HANDOFF, 29 October): a generated bass louder
+#: than a generated kick, with no clap or snare to tell them apart, or a
+#: "donk" bass on two sixteenths of every beat, put the grid on the bass,
+#: trusted. Since its second review a grid the drums' attack band (500-4000
+#: Hz) disagrees with outright is held whatever the low band says
+#: (``AGREE_ATTACK_MIN``): a bass has little attack up there, a kick has its
+#: click. The strict xfails that recorded the limit pass now
+OFF_BEAT_CASES = [
+    # a bass-only intro: the agreement and the phase are taken only where
+    # the drums play (grid v5's review, M2), so the intro no longer leads
+    {"bass_level": 0.5, "drumless_bars": 40},
     {"bass_level": 0.5, "drumless_bars": 16},
-    {"bass_level": 0.8},                       # as loud as the kick in the low band
-    {"bass_level": 1.0},                       # louder: the comb took it, at 0.53
-    {"bass_level": 1.5},                       # much louder: at 1.00, an eighth off
-])
+    {"bass_level": 0.8},                                            # as loud as the kick in the low band
+    {"bass_level": 1.0},                                            # louder
+    {"bass_level": 1.5},                                            # much louder
+]
+
+
+@pytest.mark.parametrize("kw", [{"bass_level": 0.5, "drumless_bars": 40}, {"bass_level": 0.8}, {"bass_level": 1.5}])
+def test_a_kick_and_an_off_beat_bass_put_the_grid_on_one_of_them(kw):
+    # whichever line the grid takes, it's a whole line: the bars, phrases and
+    # cuts land on the kick or half a beat from it, never between
+    y, beats = pattern_track(124.0, 64, FOUR, bass=OFF_BEAT_BASS, **kw)
+    g = _grid(y, 124.0)
+    assert g["kind"] == "constant"
+    half = 1000 * 30.0 / 124.0
+    assert min(_phase_ms(g, beats, 124.0), abs(_phase_ms(g, beats, 124.0) - half)) < 20
+
+
+@pytest.mark.parametrize("kw", OFF_BEAT_CASES)
 def test_a_kick_and_an_off_beat_bass_with_no_backbeat_are_never_trusted_on_the_bass(kw):
-    # M1 and the phase follow-up: with no clap or snare to tell the kick from
-    # an off-beat bass, the beat's own onsets do (a kick's pitch falls and its
-    # sub is short; a bass note holds): a grid on the bass is kept (cuts and
-    # the bars still use it) but under the bar; one on the kick is trusted
+    # M1: a grid on the bass may be kept (cuts and the bars still use it) but
+    # only under the bar
     y, beats = pattern_track(124.0, 64, FOUR, bass=OFF_BEAT_BASS, **kw)
     g = _grid(y, 124.0)
     assert g["kind"] == "constant"
     if _phase_ms(g, beats, 124.0) > 20:
-        assert g["unsure_phase"] and g["confidence"] < BEAT_CONFIDENT
-    else:
-        assert not g["unsure_phase"]
+        assert g["confidence"] < BEAT_CONFIDENT
 
 
-@pytest.mark.parametrize("pattern,bpm,kw,most", [
-    (DNB, 174.0, {}, None),
-    (DNB, 174.0, {"bass": OFF_BEAT_BASS, "bass_level": 0.4}, grid.BREAK_CONFIDENCE),
-    (HALF_TIME, 140.0, {"bass": OFF_BEAT_BASS, "bass_level": 0.5, "snare_low": 1.5}, grid.BREAK_CONFIDENCE),
+@pytest.mark.parametrize("pattern,bpm,kw", [
+    (DNB, 174.0, {}),
+    (DNB, 174.0, {"bass": OFF_BEAT_BASS, "bass_level": 0.4}),
+    (HALF_TIME, 140.0, {"bass": OFF_BEAT_BASS, "bass_level": 0.5, "snare_low": 1.5}),
 ])
-def test_breaks_drum_and_bass_and_half_time_are_as_they_were(pattern, bpm, kw, most):
+def test_breaks_drum_and_bass_and_half_time_are_on_the_beat_and_ready(pattern, bpm, kw):
+    # not four on the floor, on the beat; a half-beat move no longer caps
+    # them under the bar (grid v5)
     y, beats = pattern_track(bpm, 64, pattern, **kw)
     g = _grid(y, bpm)
-    assert not g["four_on_the_floor"] and not g["unsure_phase"]
+    assert not g["four_on_the_floor"]
     assert _phase_ms(g, beats, bpm) < 15
-    if most is not None:
-        assert g["confidence"] <= most
+    assert g["confidence"] >= BEAT_CONFIDENT
 
 
 def test_drum_and_bass_with_a_bass_on_every_beat_isnt_four_on_the_floor():
@@ -142,25 +165,33 @@ def test_drum_and_bass_with_a_bass_on_every_beat_isnt_four_on_the_floor():
 ROLLING_316 = (1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15)
 
 
-@pytest.mark.parametrize("bpm,level,kick,kind", [(126.0, 1.0, 0.9, "tone"), (128.0, 1.2, 0.9, "tone"),
-                                                 (128.0, 1.0, 0.5, "tone"),
-                                                 # the second review: a pluck bass (its pitch drops
-                                                 # like a kick's) under a soft kick
-                                                 (118.0, 1.0, 0.5, "pluck"), (126.0, 1.0, 0.5, "pluck"),
-                                                 (134.0, 1.0, 0.5, "pluck"), (140.0, 1.0, 0.5, "pluck"),
-                                                 (134.0, 1.0, 0.9, "pluck")])
-def test_a_rolling_bass_with_no_backbeat_is_never_trusted_to_beat_match(bpm, level, kick, kind):
+@pytest.mark.parametrize("bpm,level,kick", [(126.0, 1.0, 0.9),
+                                            (128.0, 1.2, 0.9),
+                                            (128.0, 1.0, 0.5)])
+def test_a_rolling_bass_with_no_backbeat_is_never_trusted_to_beat_match(bpm, level, kick):
     # the low band is busy on every sixteenth: the comb's line was a bass note
-    # a sixteenth off the kick, at 0.98-0.99; it's held under the bar now,
-    # and a pluck's line that sounds like a kick too is a rival, not a kick
-    y, beats = pattern_track(bpm, 48, FOUR, bass=ROLLING_316, bass_level=level, kick=kick, bass_kind=kind)
+    # a sixteenth off the kick, at 0.98-0.99. A grid off the kick must stay
+    # under the bar (once the known limit above)
+    y, beats = pattern_track(bpm, 48, FOUR, bass=ROLLING_316, bass_level=level, kick=kick)
     g = _grid(y, bpm)
     assert g["kind"] == "constant"
-    if not g["unsure_phase"]:  # only ever trusted on the kick
-        assert _phase_ms(g, beats, bpm) < 20
-    assert g["unsure_phase"] or g["confidence"] >= BEAT_CONFIDENT
-    if kind == "tone":
-        assert g["unsure_phase"] and g["confidence"] < BEAT_CONFIDENT
+    if _phase_ms(g, beats, bpm) > 20:
+        assert g["confidence"] < BEAT_CONFIDENT
+
+
+@pytest.mark.parametrize("bpm,kick", [(118.0, 0.5), (126.0, 0.5), (134.0, 0.5), (140.0, 0.5), (134.0, 0.9)])
+def test_a_rolling_pluck_bass_is_held_because_its_tempo_is_unsure(bpm, kick):
+    # the second review: a pluck bass (its pitch drops like a kick's) on the
+    # three sixteenths between the kicks. The grid lands on a pluck, a
+    # sixteenth off the kick, and the agreement can't tell (its low band
+    # follows the plucks, its upper band the kick's click: 0.5). What holds
+    # it is real and said here (grid v5's review, L4): with an onset as
+    # strong on every sixteenth, a grid every three sixteenths (4/3 of the
+    # tempo) fits the onsets as well, so the tempo isn't sure (TEMPO_TIE)
+    y, beats = pattern_track(bpm, 48, FOUR, bass=ROLLING_316, bass_level=1.0, kick=kick, bass_kind="pluck")
+    g = _grid(y, bpm)
+    assert g["kind"] == "constant"
+    assert g["unsure_tempo"] and g["confidence"] < BEAT_CONFIDENT
 
 
 @pytest.mark.parametrize("kw", [{}, {"bass": OFF_BEAT_BASS, "bass_level": 0.4},
@@ -178,18 +209,17 @@ def test_ordinary_four_on_the_floor_is_still_ready(kw):
     # toms on the sixteenths between, a quiet rolling bass with no clap
     y, beats = pattern_track(126.0, 48, FOUR, **kw)
     g = _grid(y, 126.0)
-    assert not g["unsure_phase"] and g["confidence"] >= BEAT_CONFIDENT
+    assert g["confidence"] >= BEAT_CONFIDENT
     assert _phase_ms(g, beats, 126.0) < 20
 
 
-@pytest.mark.parametrize("kw", [{"rumble": 0.08}, {"rumble": 0.05, "bass": OFF_BEAT_BASS, "bass_level": 0.5},
+@pytest.mark.parametrize("kw", [{"rumble": 0.08},
+                                {"rumble": 0.05, "bass": OFF_BEAT_BASS, "bass_level": 0.5},
                                 {"toms": (1, 3), "tom_level": 0.3},
                                 {"bass": (2, 3, 6, 7, 10, 11, 14, 15), "bass_level": 0.5}])
 def test_never_confidently_on_the_wrong_line(kw):
     # a kick's low reverb rumble, toms on the off-sixteenths, a "donk" bass:
-    # a grid off the kick is never trusted. (A rumble still holds some grids
-    # that are on the kick: the reverb smears the kick's falling pitch; the
-    # HANDOFF has the numbers)
+    # a grid off the kick is never trusted (the donk is a known limit)
     for bpm in (124.0, 130.0):
         y, beats = pattern_track(bpm, 48, FOUR, seed=1, **kw)
         g = _grid(y, bpm)
@@ -197,11 +227,44 @@ def test_never_confidently_on_the_wrong_line(kw):
             assert g["confidence"] < BEAT_CONFIDENT, (kw, bpm)
 
 
-def test_the_kicks_onsets_are_told_from_a_bass_notes():
+def test_the_agreement_tells_the_kick_from_an_off_beat_bass_under_it():
+    # an independent tracker agrees with a grid on the kick, not with one on
+    # a quieter off-beat bass (grid v5's phase check, in place of the kick's
+    # onset shape)
     import numpy as np
 
     y, beats = pattern_track(126.0, 48, FOUR, bass=OFF_BEAT_BASS, bass_level=0.5)
     feat = grid._features(y)
     period = 60.0 / 126.0
-    assert grid.kick_onsets(feat, np.asarray(beats))
-    assert not grid.kick_onsets(feat, np.asarray(beats) + period / 2.0)  # on the bass
+    assert grid._agreement(feat, np.asarray(beats), period) >= 0.8
+    assert grid._agreement(feat, np.asarray(beats) + period / 2.0, period) <= 0.2
+
+
+def test_an_off_beat_bass_as_loud_as_the_kick_no_longer_sits_on_the_bar():
+    # grid v5's second review (M-a): bass 1.0 against a kick at 0.9 put the
+    # grid half a beat off with the low band's tracker on it (1.0) and the
+    # attack band's on the kick (0.0): exactly AGREE_READY, ready at 0.725
+    y, beats = pattern_track(126.0, 64, FOUR, bass=OFF_BEAT_BASS, bass_level=1.0, kick=0.9)
+    g = _grid(y, 126.0)
+    if _phase_ms(g, beats, 126.0) > 20:
+        assert g["confidence"] < BEAT_CONFIDENT and g["agreement_attack"] < grid.AGREE_ATTACK_MIN
+
+
+@pytest.mark.parametrize("kick_kind", ["soft", "808"])
+@pytest.mark.parametrize("kw", [{}, {"claps": True}, {"bass": OFF_BEAT_BASS, "bass_level": 0.4, "claps": True}])
+def test_a_soft_or_sub_kick_without_a_click_is_still_ready_on_the_beat(kick_kind, kw):
+    # grid v5's second review (L-b): the fixtures' kick has a click since the
+    # first review; a deep-house kick rolled off at the top, or an 808's long
+    # sub, has none
+    y, beats = pattern_track(122.0, 48, FOUR, kick_kind=kick_kind, **kw)
+    g = _grid(y, 122.0)
+    assert _phase_ms(g, beats, 122.0) < 20
+    assert g["confidence"] >= BEAT_CONFIDENT
+
+
+@pytest.mark.parametrize("kick_kind", ["soft", "808"])
+def test_a_soft_kick_under_a_louder_off_beat_bass_is_never_trusted_on_the_bass(kick_kind):
+    y, beats = pattern_track(124.0, 64, FOUR, kick_kind=kick_kind, bass=OFF_BEAT_BASS, bass_level=1.2)
+    g = _grid(y, 124.0)
+    if _phase_ms(g, beats, 124.0) > 20:
+        assert g["confidence"] < BEAT_CONFIDENT

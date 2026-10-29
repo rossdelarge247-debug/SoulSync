@@ -60,7 +60,7 @@ def test_only_what_the_rule_can_change_is_analysed_again(tmp_path):
     path = tmp_path / "music.db"
     _as_before_the_fix(path)
     _reopen(path)
-    assert (ANALYZER_VERSION, GRID_VERSION) == (5, 4)
+    assert (ANALYZER_VERSION, GRID_VERSION) == (5, 5)
     dj = dict(_q(path, "SELECT track_id, dj_analyzer_version FROM track_dj"))
     assert {t for t, v in dj.items() if v == 5} == {"1", "4", "5", "6", "7", "9"}
     assert {t for t, v in dj.items() if v != 5} == {"2", "3", "8", "10", "11", "12"}
@@ -97,7 +97,9 @@ def test_the_sweep_sees_only_the_ambiguous_tracks(tmp_path):
     _q(path, "DELETE FROM metadata WHERE key IN ('dj_tempo_octave_v5', 'dj_grid_v4')")
     db = _reopen(path)
     assert store.pending_ids(db, ANALYZER_VERSION) == ["2"]
-    assert grid_store.pending_ids(db, ANALYZER_VERSION) == []  # 2's grid comes with its analysis
+    # 2's grid comes with its analysis; 1's, promoted to 4 undecoded, is found
+    # again at grid v5 (every grid is: real audio, 29 October)
+    assert grid_store.pending_ids(db, ANALYZER_VERSION) == ["1"]
     assert store.counts(db, ANALYZER_VERSION)["pending"] == 1
 
 

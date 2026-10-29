@@ -218,7 +218,57 @@ def _default_analyze(path: str) -> Dict[str, Any]:
     return analyze_track(path, max_seconds=DECODE_SECONDS, keep_audio=True, on_step=progress.step)
 
 
-def _default_grid(path: str, *, audio=None, bpm_hint: Optional[float] = None) -> Dict[str, Any]:
+#: genres too broad to say anything about a tempo, skipped from enrichment's
+#: (a generic album "Electronic" hid its artist's "Drum and Bass": grid v5's
+#: second review, M-c)
+GENERIC_GENRES = ("electronic", "electronica", "dance", "edm", "electronic dance music", "club", "pop", "music",
+                  "other", "unknown", "various", "electro")
+
+
+def _library_genres(database, track_id: str) -> List[str]:
+    """The genres enrichment keeps for the track's album and its artist (JSON
+    arrays), merged, generic ones left out, for a file with no genre tag of
+    its own. Never raises."""
+    import json
+
+    try:
+        with closing(database._get_connection()) as conn:
+            row = conn.execute("SELECT al.genres AS album, ar.genres AS artist FROM tracks t "
+                               "LEFT JOIN albums al ON al.id = t.album_id LEFT JOIN artists ar ON ar.id = t.artist_id "
+                               "WHERE t.id = ?", (track_id,)).fetchone()
+    except Exception as exc:  # noqa: BLE001 - no genre is fine
+        logger.debug("genres unreadable for %s: %s", track_id, exc)
+        return []
+    if not row:
+        return []
+    merged: List[str] = []
+    for text in (row["album"], row["artist"]):
+        try:
+            found = json.loads(text) if text else []
+        except ValueError:
+            found = [text]
+        for genre in (found if isinstance(found, list) else [found]):
+            name = str(genre).strip() if genre else ""
+            if name and name.lower() not in GENERIC_GENRES and name.lower() not in (g.lower() for g in merged):
+                merged.append(name)
+    return merged[:12]
+
+
+def _tempo_evidence(values: Optional[Dict[str, Any]]) -> Optional[float]:
+    """The DJ data's BPM when a tag or enrichment gave it (not the analysis):
+    it settles the grid's octave when the grid is at it (core/dj/grid.py
+    ``_octave_unsure``)."""
+    if not values or values.get("bpm_source") not in ("tag", "enrichment"):
+        return None
+    try:
+        bpm = float(values.get("bpm") or 0)
+    except (TypeError, ValueError):
+        return None
+    return bpm if bpm > 0 else None
+
+
+def _default_grid(path: str, *, audio=None, bpm_hint: Optional[float] = None,
+                  genres: Optional[List[str]] = None, tempo_evidence: Optional[float] = None) -> Dict[str, Any]:
     """The beat grid, phrases and sections (core/dj/grid.py) from the audio
     the analysis decoded, or from a decode of its own (the same 10 minutes)
     when the DJ data came from Sample Studio or is already done."""
@@ -233,7 +283,13 @@ def _default_grid(path: str, *, audio=None, bpm_hint: Optional[float] = None) ->
     progress.step("grid")
     y, rate = audio
     truncated = len(y) / float(rate) >= DECODE_SECONDS - 0.05
-    return analyze_audio(y, rate, bpm_hint=bpm_hint, truncated=truncated, on_step=progress.step)
+    # the file's genre tag (else enrichment's, ``genres``) decides a slow
+    # hint's octave first (drum and bass at 87 is 174; hip hop at 87 stays):
+    # core/sample/tempo.py
+    from core.sample.tempo import file_genres
+
+    return analyze_audio(y, rate, bpm_hint=bpm_hint, truncated=truncated, on_step=progress.step,
+                         genres=file_genres(path) or genres or None, tempo_evidence=tempo_evidence)
 
 
 def _replaygain_db(path: str) -> Optional[float]:
@@ -266,7 +322,8 @@ def _mark_both(database, track_id: str, status: str, reason: str, version: int, 
 
 
 def _find_grid(database, track_id: str, path: str, sig: Optional[str], *, audio, bpm_hint,
-               analyze_grid: Callable[..., Dict[str, Any]], keep_on_error: bool = False) -> str:
+               analyze_grid: Callable[..., Dict[str, Any]], keep_on_error: bool = False,
+               tempo_evidence: Optional[float] = None) -> str:
     """Find and keep one track's grid: ``done`` (whatever it found, a grid or
     ``none``) or ``error``. A provisional ``analyzing`` row goes first, so a
     decode that takes the process down is skipped at the next start.
@@ -282,7 +339,11 @@ def _find_grid(database, track_id: str, path: str, sig: Optional[str], *, audio,
     else:
         grid_store.mark(database, track_id, "analyzing", None, source_sig=sig)
     try:
-        result = analyze_grid(path, audio=audio, bpm_hint=bpm_hint)
+        # enrichment's genres for a file with no tag (only the real analysis takes them)
+        # and a tag's or enrichment's BPM, which settles the octave it's at
+        extra = ({"genres": _library_genres(database, track_id), "tempo_evidence": tempo_evidence}
+                 if analyze_grid is _default_grid else {})
+        result = analyze_grid(path, audio=audio, bpm_hint=bpm_hint, **extra)
     except ImportError as exc:
         if before:
             grid_store.restore(database, before)
@@ -457,7 +518,8 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
             progress.mode("grid")
             progress.step("read")
             found = _find_grid(database, track_id, path, sig, audio=None, bpm_hint=dj_row.get("bpm"),
-                               analyze_grid=analyze_grid, keep_on_error=force_grid)
+                               analyze_grid=analyze_grid, keep_on_error=force_grid,
+                               tempo_evidence=_tempo_evidence(dj_row))
             if found == "error":
                 return "grid_error"
         return "done"
@@ -552,7 +614,7 @@ def process_track(database, track_id: str, *, resolve: Callable[[str], Optional[
         # Studio's analysis reused) the grid's own decode is the next step
         progress.step("grid" if audio is not None else "read")
         grid_failed = _find_grid(database, track_id, path, sig, audio=audio, bpm_hint=values.get("bpm"),
-                                 analyze_grid=analyze_grid) == "error"
+                                 analyze_grid=analyze_grid, tempo_evidence=_tempo_evidence(values)) == "error"
     del audio
     outcome = "tagged" if written else "done"
     # the DJ data is kept either way; a failed grid still counts as a failure

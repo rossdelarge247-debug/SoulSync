@@ -4,6 +4,8 @@
  * The server keeps it as the track's BPM (`bpm_source` `override`) so no
  * later analysis undoes it, and the track's beat grid follows it. Tracks'
  * row "…" and the selection's "…" offer it; "Use the measured BPM" undoes it.
+ * "BPM is right" (grid v5's third review) keeps the BPM shown as the
+ * person's, for a track whose beat grid waits only on its octave.
  */
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
@@ -54,7 +56,7 @@ function tracks(n: number): string {
  */
 export function tempoWords(
   action: TempoAction,
-  answer: Pick<DjBpmResponse, 'changed' | 'skipped'>,
+  answer: Pick<DjBpmResponse, 'changed' | 'skipped' | 'ready'>,
   /** how many were picked, when more than one change sends */
   picked = 0,
 ): { words: string; tone: 'success' | 'error' } {
@@ -67,7 +69,18 @@ export function tempoWords(
       : 'Nothing to change';
     return { words, tone: 'error' };
   }
-  if (action === 'reset') {
+  if (action === 'confirm') {
+    // "ready to mix" only when the server says the grid is (fourth review)
+    const ready = answer.ready ?? {};
+    if (changed.length === 1) {
+      const [id, bpm] = changed[0]!;
+      words = ready[id]
+        ? `${bpmNumber(bpm ?? 0)} BPM it is: ready to mix`
+        : `Kept ${bpmNumber(bpm ?? 0)} BPM · the beats still don’t line up well enough to mix`;
+    } else {
+      words = `Kept the BPM of ${tracks(changed.length)}`;
+    }
+  } else if (action === 'reset') {
     words =
       changed.length === 1
         ? 'Back to the measured BPM'

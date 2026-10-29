@@ -34,6 +34,17 @@ export interface DjInfo {
   analyzed: boolean;
   /** Why analysis left it out ("too long to analyse"), else null. */
   skipped?: string | null;
+  /**
+   * The beat grid is held for beat-matching only because its octave isn't
+   * sure: "BPM is right" (or Double / Halve) settles it in one press.
+   */
+  bpm_unsure?: boolean;
+  /**
+   * When the grid would be ready at more than one octave (a track read at
+   * double: 172 or 86?), the BPMs to choose from; "BPM is right" isn't led
+   * with then.
+   */
+  bpm_choices?: number[];
 }
 
 export interface DjTrack {
@@ -220,7 +231,7 @@ export function djMixesQueryOptions(trackId: string, within = 6) {
   });
 }
 
-export type TempoAction = 'double' | 'halve' | 'reset';
+export type TempoAction = 'double' | 'halve' | 'reset' | 'confirm';
 export type TempoSkip = 'no_bpm' | 'out_of_range' | 'not_set' | 'shared' | 'not_yours';
 
 export interface DjBpmResponse {
@@ -229,12 +240,15 @@ export interface DjBpmResponse {
   /** each changed track's new BPM (null: back to the measured one) */
   changed: Record<string, number | null>;
   skipped: Record<string, TempoSkip>;
+  /** whether each changed track's beat grid is ready to mix now */
+  ready?: Record<string, boolean>;
   tracks: Record<string, DjInfo>;
 }
 
 /**
  * Double BPM / Halve BPM for the caller's own tracks (`reset` goes back to
- * the measured BPM). The server keeps it so no later analysis undoes it;
+ * the measured BPM; `confirm`, "BPM is right", keeps the BPM shown as the
+ * person's). The server keeps it so no later analysis undoes it;
  * throws with the server's sentence.
  */
 export async function postDjBpm(trackIds: string[], action: TempoAction): Promise<DjBpmResponse> {

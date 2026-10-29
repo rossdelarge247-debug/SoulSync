@@ -1061,7 +1061,8 @@ def _bpm_limit():
 
 @bp.route("/api/library/dj/bpm", methods=["POST"])
 def dj_bpm():
-    """Double, halve or reset the BPM of the caller's own tracks."""
+    """Double, halve, confirm ("BPM is right") or reset the BPM of the
+    caller's own tracks."""
     pid = get_current_profile_id()
     if pid is None:
         return _no_profile()
@@ -1075,7 +1076,7 @@ def dj_bpm():
 
     action = body.get("action")
     if not isinstance(action, str) or action not in store.TEMPO_ACTIONS:
-        return jsonify({"success": False, "error": "action must be double, halve or reset"}), 400
+        return jsonify({"success": False, "error": "action must be double, halve, confirm or reset"}), 400
     raw = body.get("track_ids")
     if not isinstance(raw, list) or not raw:
         return jsonify({"success": False, "error": "track_ids must be a list"}), 400
@@ -1103,7 +1104,7 @@ def dj_bpm():
         logger.error("Setting the BPM failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": "Couldn't change the BPM"}), 500
     return _no_store({"success": True, "changed": result["changed"], "skipped": result["skipped"],
-                      "tracks": tracks})
+                      "ready": result.get("ready", {}), "tracks": tracks})
 
 
 def create_blueprint():

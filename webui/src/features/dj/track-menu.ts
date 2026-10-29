@@ -16,13 +16,15 @@ import { openMixWith } from '@/features/mix/open-mix';
  * docked Mixes panel is retired, HANDOFF 329).
  * Tracks, Listening history, the Artist page, Search, Mixes well with and a
  * set's rows all build their menu here, so the order stays one. Tracks
- * adds Double BPM and Halve BPM after Add to playlist… (HANDOFF 344).
+ * adds Double BPM and Halve BPM after Add to playlist… (HANDOFF 344), led by
+ * "BPM is right" when the beat grid waits only on its octave (Design 399).
  */
 import { openAddToMixSet } from '@/features/sets/add-to-mix-set';
 import { showsStar, starStore, type StarState } from '@/features/stars/stars-store';
 
 import type { TempoAction } from './dj.api';
 
+import { bpmNumber } from './dj.format';
 import { TEMPO_MAX, TEMPO_MIN } from './tempo';
 
 export interface TrackMenuEntry {
@@ -79,6 +81,10 @@ export function trackMenu(
     tempo?: {
       bpm: number | null;
       overridden?: boolean;
+      /** the grid waits only on its octave: "BPM is right" settles it */
+      unsure?: boolean;
+      /** it would be ready at more than one octave: "It's 172 BPM" / "It's 86 BPM" */
+      choices?: number[];
       /** why the person can't set it (a member, a shared track), or null */
       blocked?: string | null;
       onSet: (action: TempoAction) => void;
@@ -139,7 +145,15 @@ export function trackMenu(
   if (opts.addToPlaylist)
     entries.push({ key: 'playlist', label: 'Add to playlist…', onSelect: opts.addToPlaylist });
   if (opts.tempo?.bpm && !track.fileMissing) {
-    const { bpm, onSet, overridden, blocked } = opts.tempo;
+    const { bpm, onSet, overridden, unsure, choices, blocked } = opts.tempo;
+    if (unsure)
+      entries.push({
+        key: 'confirm',
+        label: 'BPM is right',
+        onSelect: () => onSet('confirm'),
+        disabled: Boolean(blocked),
+        reason: blocked || undefined,
+      });
     const tooFast = bpm * 2 > TEMPO_MAX;
     const tooSlow = bpm / 2 < TEMPO_MIN;
     entries.push({
@@ -156,6 +170,27 @@ export function trackMenu(
       disabled: Boolean(blocked) || tooSlow,
       reason: blocked || (tooSlow ? `It would be under ${TEMPO_MIN} BPM` : undefined),
     });
+    // more than one octave would do (a track read at double): both said,
+    // after Double and Halve, none led with (grid v5's fourth review)
+    if (choices && choices.length > 1 && !unsure)
+      for (const choice of choices) {
+        const near = (x: number) => Math.abs(choice - x) / x <= 0.04;
+        const action: TempoAction | null = near(bpm)
+          ? 'confirm'
+          : near(bpm * 2)
+            ? 'double'
+            : near(bpm / 2)
+              ? 'halve'
+              : null;
+        if (!action) continue;
+        entries.push({
+          key: `choice-${action}`,
+          label: `It’s ${bpmNumber(choice)} BPM`,
+          onSelect: () => onSet(action),
+          disabled: Boolean(blocked),
+          reason: blocked || undefined,
+        });
+      }
     if (overridden)
       entries.push({
         key: 'measured',

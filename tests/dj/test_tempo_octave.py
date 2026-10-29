@@ -162,6 +162,16 @@ def test_grids_at_100_to_140_are_scored_as_before(made):
     (["Hip-Hop"], "slow"), (["R&B"], "slow"), (["Dub"], "slow"), (["Electronic", "Drum & Bass"], "fast"),
     (["Hip-Hop", "Drum & Bass"], None), (["House"], None), (["Soulful House"], None), ([], None),
     ("Drum & Bass", "fast"), (None, None),
+    # grid v5's review (L3): one tag naming two families says neither; the
+    # slow family's new members
+    (["Hip Hop, Drum & Bass"], None), (["Hip Hop; Jungle"], None), (["Drum And Bass, Electronic"], "fast"),
+    (["Chillout"], "slow"), (["Lounge"], "slow"), (["Ambient"], "slow"), (["Dancehall"], "slow"),
+    (["Downbeat"], "slow"), (["Reggaeton"], "slow"),
+    # the second review: hardcore and its cousins, hard techno, jazz (any
+    # tempo, the fast one believable: "free")
+    (["Hardstyle"], "fast"), (["Gabber"], "fast"), (["Happy Hardcore"], "fast"), (["Hard Techno"], "fast"),
+    (["Frenchcore"], "fast"), (["Jazz"], "free"), (["Bebop"], "free"), (["Drum And Bass, Dance, Jazz"], "fast"),
+    (["Hardcore Hip Hop"], "slow"), (["Jazz Hop"], "slow"), (["Dub Drum and Bass"], "fast"),
 ])
 def test_genre_families(genres, family):
     assert tempo.genre_family(genres) == family
