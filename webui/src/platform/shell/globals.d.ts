@@ -14,9 +14,18 @@ declare global {
       message: string,
       type?: string,
       durationOrContext?: number | string | null,
-      /** static/downloads.js: `action` adds a link-style button after the words */
-      opts?: { journal?: boolean; action?: { label: string; run: () => void } } | null,
+      /** static/downloads.js: `action` adds a one-use button after the words, said
+       *  through a polite live region; `ms` keeps an action's notice up longer than 6 s */
+      opts?: {
+        journal?: boolean;
+        ms?: number;
+        /** names the toast, so dismissToast(key) can take it down */
+        key?: string;
+        action?: { label: string; run: () => void };
+      } | null,
     ) => void;
+    /** static/downloads.js: take down the showing toast put up with this `opts.key` */
+    dismissToast?: (key: string) => boolean;
     /** core.js: the latest server-side active music download count from the status push. */
     __soulsyncMusicActiveDownloads?: number;
     /** core.js: repaints the music Requests nav badge (admin: waiting, member: news). */
@@ -197,7 +206,7 @@ declare global {
     playTrackList?: (
       tracks: unknown[],
       contextName?: string,
-      options?: { isCurrent: () => boolean },
+      options?: { isCurrent?: () => boolean; startIndex?: number },
     ) =>
       | void
       | { status: string; error?: string }
@@ -955,6 +964,10 @@ declare global {
     openModulesSettings?: () => void;
     /** settings.js: the tab Settings opens on next (once). */
     requestSettingsTab?: (tab: string) => void;
+    /** static/settings.js: open this section with its tab (/settings?…&section=dj) */
+    requestSettingsSection?: (section: string) => void;
+    /** static/settings.js: expand a folded section and scroll to it; false when it isn't there */
+    openSettingsSection?: (section: string) => boolean;
     /** Settings -> AI, from anywhere (src/shell/ai-settings.ts). */
     openAiSettings?: () => void;
     /** src/shell/radio-settings.ts: Settings → Radio (build e). */

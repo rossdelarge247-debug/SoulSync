@@ -594,6 +594,7 @@ function view(over: Partial<AutomixView> = {}): AutomixView {
     },
     canMixNow: false,
     mixNowWhy: 'Mixing now',
+    failed: null,
     incomingBpm: { bpm: 124, pct: -1.6 },
     unsupported: null,
     ...over,
@@ -830,5 +831,38 @@ describe('[review] the countdown of an echo out placed by time counts seconds, n
     expect(screen.getByText('Mixing into Static Bloom in 12 s…')).toBeTruthy();
     expect(liveWords('counting:2', v)).toBe('Mixing into Static Bloom in 12 s');
     expect(countWords(view({ stage: 'counting', barsToGo: 6 }))).toBe('6 bars');
+  });
+});
+
+describe("UX-9: a mix that couldn't start says so", () => {
+  it('in the bar and the tray, with Try again, and once to a screen reader', () => {
+    const failed = view({
+      stage: 'idle',
+      transition: null,
+      barsToGo: null,
+      failed: "the tracks didn't load in time",
+    });
+    const mixNow = vi.fn();
+    const actions = { mixNow, cancel: vi.fn(), finishNow: vi.fn(), back: vi.fn() };
+    const bar = render(<BarStatus view={failed} actions={actions} />);
+    const line = bar.container.querySelector('[data-automix-failed]')!;
+    expect(line).toHaveTextContent(
+      "Couldn't start the mixthe tracks didn't load in time · Night Ferry plays on straight",
+    );
+    fireEvent.click(within(line as HTMLElement).getByRole('button', { name: 'Try again' }));
+    expect(mixNow).toHaveBeenCalledTimes(1);
+    bar.unmount();
+    const deck = render(<HandoverDeck view={failed} actions={actions} />);
+    expect(deck.container.querySelector('[data-automix-deck="failed"]')).toBeTruthy();
+    deck.unmount();
+    expect(liveWords(liveKey(failed), failed)).toBe(
+      "Couldn't start the mix: the tracks didn't load in time. Night Ferry plays on straight",
+    );
+    // Mix now keeps the reason on its title, and stays pressable for another go
+    const button = render(<MixNowButton view={{ ...failed, canMixNow: true }} onMixNow={mixNow} />);
+    expect(button.getByRole('button', { name: /Mix now/ })).toHaveAttribute(
+      'title',
+      "Couldn't start the mix: the tracks didn't load in time. Try again (X)",
+    );
   });
 });

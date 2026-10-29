@@ -8,7 +8,7 @@
  */
 
 import { useQueries, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import type { QualityRule } from '@/features/quality/quality.model';
 
@@ -16,10 +16,16 @@ import { Button } from '@/components/form';
 import { LoadingState, Notice, SkeletonList, StatusTag } from '@/components/primitives';
 import { DjMeta } from '@/features/dj/dj-meta';
 import { useDjInfo } from '@/features/dj/dj.api';
-import { openMixes } from '@/features/dj/mixes-store';
-import { StarButton } from '@/features/stars/star-button';
+import { usePlayingTrackId } from '@/features/dj/playing-track';
+import { RowPlay, playTrackNow, rowPlayHandlers } from '@/features/dj/row-play';
+import { trackMenu } from '@/features/dj/track-menu';
+import { openAddToPlaylist } from '@/features/playlists/add-to-playlist';
+import { StarButton, useStar } from '@/features/stars/star-button';
 import { AppLink } from '@/routes/activity/-ui/app-link';
 import { albumQueueTrack } from '@/routes/library/-library.helpers';
+import { ActionSheet } from '@/routes/library/-ui/action-sheet';
+import hs from '@/routes/library/-ui/history.module.css';
+import { MoreIcon, MoreMenu } from '@/routes/library/-ui/parts';
 
 import type {
   LibraryAlbum,
@@ -30,7 +36,6 @@ import type {
 } from '../-search.library';
 import type { SearchType } from '../-search.url';
 
-import { playOwnedTrack } from '../-search.actions';
 import {
   albumMeta,
   albumTracksQueryOptions,
@@ -76,6 +81,142 @@ function QualityTag({
   );
 }
 
+/** A library track as the player's queue takes it. */
+function queueTrack(track: LibraryTrack): Record<string, unknown> {
+  return {
+    id: track.id,
+    title: track.title,
+    artist: track.artist_name ?? '',
+    album: track.album_title ?? '',
+    file_path: track.file_path,
+    image_url: track.album_thumb_url ?? null,
+    bitrate: track.bitrate ?? undefined,
+    duration: track.duration ?? undefined,
+  };
+}
+
+/**
+ * A library track (Brief D, 34b; 276): the star, Play (the one visible
+ * button), Play next on hover and focus, and the "…" in 24a's order: Play
+ * next, Add to Up next, Mixes well with…, Add to set…, Add to playlist….
+ * On a phone a tap on the row plays and the "…" is the sheet (34c).
+ * Results that aren't yours keep Download (the Soulseek section).
+ */
+function SearchTrackRow({
+  track,
+  row,
+  verdict,
+  dj,
+  phone,
+  playing,
+}: {
+  track: LibraryTrack;
+  row: Row;
+  verdict: QualityVerdict | null;
+  dj: Parameters<typeof DjMeta>[0]['dj'];
+  phone: boolean;
+  playing: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [sheet, setSheet] = useState(false);
+  const id = String(track.id);
+  const star = useStar(track.file_path ? id : null);
+  const owned = Boolean(track.file_path);
+  const play = () => playTrackNow(queueTrack(track));
+  const playNext = () => window.playNext?.(queueTrack(track));
+  const anchor = () => ref.current?.querySelector<HTMLElement>('[aria-label^="More for"]');
+  const entries = owned
+    ? trackMenu(
+        { id, title: track.title, artist: track.artist_name ?? '' },
+        {
+          phone,
+          star,
+          playNext: { onSelect: playNext },
+          addToUpNext: { onSelect: () => window.addToQueue?.(queueTrack(track)) },
+          play,
+          anchor,
+          addToPlaylist: () =>
+            openAddToPlaylist(
+              {
+                track_name: track.title,
+                artist_name: track.artist_name ?? '',
+                album_name: track.album_title ?? '',
+                duration_ms: (track.duration ?? 0) * 1000,
+                image_url: track.album_thumb_url ?? null,
+              },
+              anchor(),
+            ),
+        },
+      )
+    : [];
+  return (
+    <div
+      ref={ref}
+      className={styles.row}
+      data-kind="library"
+      data-star-row={owned ? id : undefined}
+      data-row-play-host=""
+      data-playing={playing ? 'true' : undefined}
+      {...rowPlayHandlers(owned && !phone ? play : null, playing)}
+      onClick={
+        phone && owned
+          ? (event) => {
+              if ((event.target as HTMLElement).closest('a, button, [role="dialog"]')) return;
+              if (!playing) play();
+            }
+          : undefined
+      }
+    >
+      <Art url={track.album_thumb_url} />
+      <div className={styles.rowText}>
+        <span className={styles.rowTitle}>{track.title}</span>
+        <span className={`${styles.rowMeta} ${styles.wideOnly}`}>
+          {trackMeta(track, verdict)}
+          <DjMeta dj={dj} lead />
+        </span>
+        <span className={`${styles.rowMeta} ${styles.phoneOnly}`}>
+          {shortMeta(row, verdict)}
+          <DjMeta dj={dj} lead />
+        </span>
+      </div>
+      <span className={styles.tagCell}>
+        <QualityTag verdict={verdict} />
+      </span>
+      <div className={styles.actions}>
+        {/* 28a: the star, for a library track with its file */}
+        <StarButton id={owned ? id : null} title={track.title} />
+        {owned && !phone ? (
+          <RowPlay title={track.title} playing={playing} onPlay={play} onPlayNext={playNext} />
+        ) : null}
+        {!owned ? null : phone ? (
+          <>
+            <button
+              type="button"
+              className={hs.phoneMore}
+              aria-label={`More for ${track.title}`}
+              aria-haspopup="dialog"
+              aria-expanded={sheet}
+              onClick={() => setSheet(true)}
+            >
+              <MoreIcon />
+            </button>
+            {sheet ? (
+              <ActionSheet
+                label={`More for ${track.title}`}
+                heading={[track.title, track.artist_name].filter(Boolean).join(' · ')}
+                onClose={() => setSheet(false)}
+                actions={entries}
+              />
+            ) : null}
+          </>
+        ) : (
+          <MoreMenu label={`More for ${track.title}`} entries={entries} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** The rows a type shows, in order: artists, albums, then tracks. */
 export function libraryRows(data: LibraryResults | undefined, type: SearchType): Row[] {
   if (!data) return [];
@@ -118,6 +259,7 @@ export function LibrarySection({
   const data = results.data;
   const rows = libraryRows(data, type);
   const phone = usePhoneWidth();
+  const playingId = usePlayingTrackId();
   const limit = type === 'everything' ? rowLimit(type, phone, 2) : more ? rows.length : TYPED_ROWS;
   const shown = rows.slice(0, limit);
   const albumIds = shown.filter((r) => r.kind === 'album').map((r) => r.item.id);
@@ -307,61 +449,15 @@ export function LibrarySection({
             const track = row.item;
             const verdict = qualityVerdict([track], bar);
             return (
-              <div
-                className={styles.row}
-                data-kind="library"
-                data-star-row={track.file_path ? String(track.id) : undefined}
+              <SearchTrackRow
                 key={`track:${track.id}`}
-              >
-                <Art url={track.album_thumb_url} />
-                <div className={styles.rowText}>
-                  <span className={styles.rowTitle}>{track.title}</span>
-                  <span className={`${styles.rowMeta} ${styles.wideOnly}`}>
-                    {trackMeta(track, verdict)}
-                    <DjMeta dj={djInfo[String(track.id)]} lead />
-                  </span>
-                  <span className={`${styles.rowMeta} ${styles.phoneOnly}`}>
-                    {shortMeta(row, verdict)}
-                    <DjMeta dj={djInfo[String(track.id)]} lead />
-                  </span>
-                </div>
-                <span className={styles.tagCell}>
-                  <QualityTag verdict={verdict} />
-                </span>
-                <div className={styles.actions}>
-                  {/* 28a: the star, for a library track with its file */}
-                  <StarButton id={track.file_path ? String(track.id) : null} title={track.title} />
-                  {track.file_path ? (
-                    <Button
-                      size="lg"
-                      aria-label={`Play ${track.title}`}
-                      onClick={() =>
-                        playOwnedTrack({
-                          track_id: track.id,
-                          title: track.title,
-                          file_path: track.file_path,
-                          album_thumb_url: track.album_thumb_url,
-                          album_title: track.album_title,
-                          artist_name: track.artist_name,
-                        })
-                      }
-                    >
-                      Play
-                    </Button>
-                  ) : null}
-                  {track.file_path ? (
-                    // 152: "Mixes well with" opens the shell's docked panel
-                    <Button
-                      size="lg"
-                      variant="ghost"
-                      aria-label={`Mixes well with ${track.title}`}
-                      onClick={() => openMixes({ id: String(track.id), title: track.title })}
-                    >
-                      Mixes well with…
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
+                track={track}
+                row={row}
+                verdict={verdict}
+                dj={djInfo[String(track.id)]}
+                phone={phone}
+                playing={playingId === String(track.id)}
+              />
             );
           })}
           <div className={`${styles.cardFoot} ${styles.wideFoot}`}>

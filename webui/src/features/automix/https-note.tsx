@@ -3,6 +3,8 @@
  * secure page, which only the browser can tell. One card, this browser's
  * answer, and how to get there.
  */
+import { openDjSettings } from '@/features/dj/dj-settings-link';
+
 import styles from './automix.module.css';
 import { mixSupport } from './support';
 
@@ -33,6 +35,17 @@ export function HttpsNote({ support = mixSupport }: { support?: () => string | n
           On another computer, open it on https too.
         </p>
       )}
+      <p>
+        Between tracks (Off or Auto mix) is chosen in{' '}
+        <button
+          type="button"
+          className={styles.textButton}
+          onClick={() => openDjSettings('between')}
+        >
+          Settings → Library → DJ
+        </button>
+        .
+      </p>
     </section>
   );
 }

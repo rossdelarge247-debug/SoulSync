@@ -11,6 +11,7 @@ const functions = [
   'npAnnounceQueue',
   'npReorderQueue',
   'removeFromQueue',
+  'npQueuePlayingLabel',
 ]
   .map((name) => extractFunction(name, source))
   .join('\n');
@@ -27,7 +28,7 @@ beforeEach(() => {
       { title: 'A', artist: 'Artist', file_path: '/a' },
       { title: 'B', artist: 'Artist', file_path: '/b' },
       { title: 'C', artist: 'Artist', file_path: '/c' }
-    ], npQueueIndex = 1;
+    ], npQueueIndex = 1, isPlaying = true, npLoadingQueueItem = false, npBuffering = false;
     const npQueueStatusLabel = () => '', npUpdateUpNext = () => {}, npPersistQueue = () => {},
       npQueueDragStart = () => {}, npQueueDragOver = () => {}, npQueueDrop = () => {}, npQueueDragEnd = () => {},
       updateNpPrevNextButtons = () => {}, npScheduleQueuePrefetch = () => {}, npStopQueuePrefetchPolling = () => {};

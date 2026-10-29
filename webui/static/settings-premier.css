@@ -164,3 +164,7 @@
 #audiobook-routes-list .abr-row > span { flex: 1; }
 #audiobook-routes-list .abr-remove { padding: 8px 12px; color: #ef5350; border-color: rgba(239, 83, 80, 0.3); }
 #audiobook-routes-list .abr-empty { color: rgba(255, 255, 255, 0.45); font-size: 0.85em; padding: 4px 0; }
+
+/* Settings → Library → DJ (UX-13): a deep link scrolls its header into view
+   below the tab's sticky title, not under it */
+#settings-page .settings-section-header[data-settings-section] { scroll-margin-top: 140px; }

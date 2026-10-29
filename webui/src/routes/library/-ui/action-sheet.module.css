@@ -95,3 +95,14 @@
   color: var(--ss-text-meta);
   font-size: 14px;
 }
+
+/* 34c: the glyph column (Star, Play next), kept for every row so the words line up */
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  margin-right: 12px;
+  color: var(--ss-text-secondary);
+}

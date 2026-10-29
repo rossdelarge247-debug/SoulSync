@@ -24,7 +24,7 @@ import {
 } from '@/features/sets/sets.api';
 
 import { trackChanged, useMixState, type ChainStep } from './mix-store';
-import { readQueue, type MixSubject } from './mix-subject';
+import { readQueue, sameQueue, type MixSubject, type QueueFrom } from './mix-subject';
 import {
   MixError,
   addToWorkingSet,
@@ -37,7 +37,7 @@ import {
   type WorkingSet,
   workingSetQueryOptions,
 } from './mix.api';
-import { addLabel, addedLabel, workingSetName } from './mix.format';
+import { addedLabel, workingSetName } from './mix.format';
 
 export type TrackSubject = Extract<MixSubject, { kind: 'track' }>;
 
@@ -52,6 +52,61 @@ export interface PlayingInSet {
   step: Step | null;
   /** the playing row (its transition is the next join's) */
   row: ViewRow;
+  /** the set that's playing (the working set, or one played from its page) */
+  set?: { id: number; name: string };
+  /** played as a mix (Play as a mix: its chips play whatever the setting) */
+  asMix?: boolean;
+}
+
+/**
+ * The row of a set that's playing: the queue's mark says which row it was
+ * queued as, but the set may have changed since (a row removed or moved
+ * above it), so it's the row with the playing track nearest that mark
+ * (gauntlet review M3); -1 when the track isn't in the set any more.
+ */
+export function playingRowIndex(
+  rows: { track_id?: string | number | null }[],
+  mark: number,
+  playingId: string | null | undefined,
+): number {
+  if (!playingId) return -1;
+  let best = -1;
+  rows.forEach((row, i) => {
+    if (String(row.track_id ?? '') !== playingId) return;
+    if (best < 0 || Math.abs(i - mark) < Math.abs(best - mark)) best = i;
+  });
+  return best;
+}
+
+/** The playing row from the queue's own mark (294: a queue started from a set says which). */
+export function playingFromQueue(
+  rows: ViewRow[],
+  steps: (Step | null)[],
+  playingId: string,
+  queued: QueueFrom,
+): PlayingInSet | null {
+  const at = playingRowIndex(rows, queued.row, playingId);
+  if (at < 0) return null;
+  const from = { ...queued, row: at };
+  const row = rows[at];
+  const numbers = rowNumbers(rows);
+  const total = numbers.filter((n) => n !== null).length;
+  let next: ViewRow | null = null;
+  for (let k = from.row + 1; k < rows.length; k++)
+    if (rows[k].track_id && rows[k].track) {
+      next = rows[k];
+      break;
+    }
+  return {
+    number: numbers[from.row] ?? 0,
+    total,
+    rowIndex: from.row,
+    next,
+    step: steps[from.row] ?? null,
+    row,
+    set: { id: from.id, name: from.name },
+    asMix: from.asMix,
+  };
 }
 
 export interface StripCell {
@@ -146,7 +201,14 @@ const ADDED_MS = 4_000;
 export function useMixModel(
   subject: TrackSubject | null,
   profileId: number | null,
-  { shown = true }: { shown?: boolean } = {},
+  {
+    shown = true,
+    watch = shown,
+  }: {
+    shown?: boolean;
+    /** watch the analysis (the record's "Ready to mix", 36a) without asking for any */
+    watch?: boolean;
+  } = {},
 ) {
   const qc = useQueryClient();
   const state = useMixState();
@@ -166,7 +228,7 @@ export function useMixModel(
     const update = () =>
       setQueue((prev) => {
         const next = readQueue();
-        return prev.index === next.index && prev.ids.join(',') === next.ids.join(',') ? prev : next;
+        return sameQueue(prev, next) ? prev : next;
       });
     window.addEventListener('ss:player', update);
     return () => window.removeEventListener('ss:player', update);
@@ -205,10 +267,35 @@ export function useMixModel(
     return () => window.removeEventListener(MIX_SET_CHANGED, again);
   }, [qc]);
 
-  const playing = useMemo(
-    () => (subjectId && rows.length ? findPlayingInSet(rows, steps, subjectId, queue) : null),
-    [rows, steps, subjectId, queue],
-  );
+  // a set played from its page (or as a mix) marks its queue (294): its
+  // view is read when it isn't the working set
+  const from = queue.from && queue.from.id > 0 ? queue.from : null;
+  const otherSet = from && from.id !== (workingSet?.id ?? null) ? from.id : 0;
+  const otherView = useQuery({
+    ...setQueryOptions(profileId ?? 0, otherSet),
+    enabled: Boolean(otherSet),
+    retry: false,
+  });
+  const playing = useMemo(() => {
+    if (!subjectId) return null;
+    if (from && from.id === workingSet?.id && rows.length) {
+      const p = playingFromQueue(rows, steps, subjectId, from);
+      if (p) return p;
+    }
+    if (from && otherSet && otherView.data) {
+      const p = playingFromQueue(
+        otherView.data.rows ?? [],
+        otherView.data.steps ?? [],
+        subjectId,
+        from,
+      );
+      if (p) return p;
+    }
+    const p = rows.length ? findPlayingInSet(rows, steps, subjectId, queue) : null;
+    return p && workingSet ? { ...p, set: { id: workingSet.id, name: workingSet.name } } : p;
+  }, [rows, steps, subjectId, queue, from, otherSet, otherView.data, workingSet]);
+  /** the working set is the one playing: Add goes in after the playing row */
+  const playingWorking = Boolean(playing && workingSet && playing.set?.id === workingSet.id);
 
   // what the matches follow: More like this, End of set, or the playing track
   const endRow = state.from === 'end' ? lastPlayable(rows) : null;
@@ -226,7 +313,7 @@ export function useMixModel(
     // following another track: the playing one isn't a match to play next
     exclude: seed && subjectId && seed.id !== subjectId ? subjectId : null,
     // while the set plays, its direction is read up to where Add puts tracks
-    setAt: playing ? playing.number : null,
+    setAt: playing && playingWorking ? playing.number : null,
   };
   const [waiting, setWaiting] = useState(false);
   useEffect(() => setWaiting(false), [seed?.id]);
@@ -241,9 +328,12 @@ export function useMixModel(
   const ai = useQuery({ ...aiStatusQueryOptions(), retry: false, enabled: Boolean(subject) });
   const aiReason = ai.data && !ai.data.can_use ? ai.data.reason : null;
   const vibeWanted = state.vibe && Boolean(seed) && !aiReason;
+  // gauntlet review L4: Vibe is remembered per browser (Design's 296), but it
+  // asks the AI only once the AI says it can be used, and only while the Mix
+  // tab is shown: a track merely playing with Vibe left on spends nothing
   const vibe = useQuery({
     ...vibeQueryOptions(seed?.id ?? '', mixQ),
-    enabled: vibeWanted && Boolean(mix.data?.matches.length),
+    enabled: vibeWanted && shown && ai.data?.can_use === true && Boolean(mix.data?.matches.length),
   });
   const vibeError = vibe.error instanceof MixError ? vibe.error : null;
   const matches: MixMatch[] =
@@ -252,7 +342,7 @@ export function useMixModel(
   // the join (29a): the set's last track into the playing one, in code's words
   const last = lastPlayable(rows);
   const joinIds =
-    !playing && last?.track_id && subjectId && String(last.track_id) !== subjectId
+    !playingWorking && last?.track_id && subjectId && String(last.track_id) !== subjectId
       ? [String(last.track_id), subjectId]
       : null;
   const join = useQuery({
@@ -266,8 +356,8 @@ export function useMixModel(
   const joinStep = joinIds ? (join.data?.steps?.[0] ?? null) : null;
 
   const strip = useMemo(
-    () => (subject ? stripCells(rows, subject, dj, playing) : []),
-    [rows, subject, dj, playing],
+    () => (subject ? stripCells(rows, subject, dj, playingWorking ? playing : null) : []),
+    [rows, subject, dj, playing, playingWorking],
   );
   const inSet = useMemo(() => {
     if (!subjectId) return [] as number[];
@@ -317,7 +407,7 @@ export function useMixModel(
         }
         // while the set plays, a match goes in straight after the playing track (29b)
         const after =
-          playing && subjectId && track.id !== subjectId
+          playing && playingWorking && subjectId && track.id !== subjectId
             ? { track_id: subjectId, number: playing.number }
             : null;
         const done = await addToWorkingSet(workingSet.id, [track.id], {
@@ -342,30 +432,51 @@ export function useMixModel(
         setBusy(false);
       }
     },
-    [workingSet, playing, subjectId, refreshSet],
+    [workingSet, playing, playingWorking, subjectId, refreshSet],
   );
 
-  /** The primary (and A): the playing track into the working set. */
-  const addPlaying = useCallback(async () => {
-    if (!subject || busy) return null;
-    const number = await addTrack(
-      { id: subject.id, title: subject.title },
-      { again: inSet.length > 0 && !playing },
-    );
-    if (number !== null) setAdded({ id: subject.id, number });
-    return number;
-  }, [subject, busy, addTrack, inSet.length, playing]);
+  /**
+   * The primary (and A): the playing track into the working set. UX-7: a
+   * track already in it isn't added again unasked; A says so (a neutral
+   * note), and the set card offers "Add again". `again` is that button.
+   */
+  const addPlaying = useCallback(
+    async ({ again = false }: { again?: boolean } = {}) => {
+      if (!subject || busy) return null;
+      if (playingWorking) return null;
+      if (inSet.length > 0 && !again) {
+        window.showToast?.(
+          `${subject.title || 'It'} is in ${workingSet?.name ?? 'the set'} already, as #${inSet[0]}. Nothing was added.`,
+          'info',
+        );
+        return null;
+      }
+      const number = await addTrack(
+        { id: subject.id, title: subject.title },
+        { again: inSet.length > 0 },
+      );
+      if (number !== null) setAdded({ id: subject.id, number });
+      return number;
+    },
+    [subject, busy, addTrack, inSet, playingWorking, workingSet],
+  );
+
+  /** Where Add puts a track (293's "Add as #5"): after the playing row, or at the end. */
+  const numbered = rowNumbers(rows).filter((n) => n !== null).length;
+  const addAt = playing && playingWorking ? playing.number + 1 : numbered + 1;
 
   let primaryLabel = '';
   let primaryDisabled = false;
   if (added && added.id === subjectId) primaryLabel = addedLabel(added.number);
-  else if (subject && playing && workingSet) {
+  else if (subject && playing && playingWorking && workingSet) {
     // it's playing from the set: it's there already
     primaryLabel = `${subject.title || 'This track'} is #${playing.number} in ${workingSet.name}`;
     primaryDisabled = true;
-  } else if (subject && workingSet && inSet.length)
-    primaryLabel = `Add ${subject.title || 'it'} again · it's #${inSet[0]}`;
-  else if (subject && workingSet) primaryLabel = addLabel(subject.title, workingSet.name);
+  } else if (subject && workingSet && inSet.length) {
+    // UX-7: not the accent button when it would add a repeat
+    primaryLabel = `Already in ${workingSet.name} · #${inSet[0]}`;
+    primaryDisabled = true;
+  } else if (subject && workingSet) primaryLabel = `Add ${subject.title || 'it'} as #${addAt}`;
   else if (subject) primaryLabel = `Add ${subject.title || 'this track'} to a new set`;
 
   const status = useQuery({ ...djStatusQueryOptions(), retry: false, enabled: Boolean(subject) });
@@ -373,7 +484,16 @@ export function useMixModel(
   // profile; the server skips one that's done), and its progress shows;
   // only while the tab is shown, so a track merely playing asks nothing
   useAutoAnalyse([subjectId], shown, 'auto', { source: 'mix' });
-  const progressOf = useAnalysis([subjectId, seed?.id], shown);
+  // the matches' dots (33b: green ready to mix, grey BPM and key only)
+  const matchIds = useMemo(
+    () =>
+      (vibeWanted && vibe.data ? vibe.data.matches : (mix.data?.matches ?? [])).map((m) => m.id),
+    [vibeWanted, vibe.data, mix.data],
+  );
+  const progressOf = useAnalysis(
+    shown ? [subjectId, seed?.id, ...matchIds] : [subjectId],
+    shown || watch,
+  );
   const [analysing, setAnalysing] = useState(false);
   const analyse = useCallback(async () => {
     if (!subjectId) return;
@@ -430,6 +550,14 @@ export function useMixModel(
     setView: setView.data ?? null,
     rows,
     playing,
+    playingWorking,
+    addAt,
+    /** Up next's tracks after the playing one, for "Save Up next as a set" */
+    upNextIds: queue.ids.slice(Math.max(0, queue.index + 1)).filter(Boolean),
+    /** "8 from Sunday Set" (294) for Up next's header in Mix */
+    upNextFrom: queue.upcomingFrom ? `${queue.upcoming} from ${queue.upcomingFrom}` : null,
+    /** the queue came from a set (294): it has its own page */
+    queueFrom: queue.from?.name ?? queue.upcomingFrom,
     seed,
     following: chainTop ? 'chain' : endRow ? 'end' : 'now',
     mix,
@@ -452,10 +580,11 @@ export function useMixModel(
     addTrack,
     playNext,
     // anyone can ask for their own tracks now (analyse on demand)
-    canAnalyse: Boolean(status.data) && status.data?.settings.analyze !== false,
-    pending: status.data?.counts.pending ?? null,
+    canAnalyse: Boolean(status.data) && status.data?.settings?.analyze !== false,
+    pending: status.data?.counts?.pending ?? null,
     /** where the playing track and the matches' seed are in the analysis */
     progress: subjectId ? (progressOf[subjectId] ?? null) : null,
+    progressOf,
     seedProgress: seed?.id ? (progressOf[seed.id] ?? null) : null,
     analysing: analysing || waiting,
     cancelAnalyse,

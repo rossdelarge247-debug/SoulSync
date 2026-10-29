@@ -22,6 +22,7 @@ import type { QueueTrack } from './controller';
 export function setQueue(
   set: { id: number; name: string; draft?: boolean },
   rows: ViewRow[],
+  { asMix = true }: { asMix?: boolean } = {},
 ): QueueTrack[] {
   const out: QueueTrack[] = [];
   const playable = (row: ViewRow | undefined) => Boolean(row?.track && row.track.file_path);
@@ -43,16 +44,22 @@ export function setQueue(
       file_path: t.file_path,
       image_url: t.image_url,
       duration: t.duration_ms ? Math.round(t.duration_ms / 1000) : null,
-      mix_set: {
-        id: set.id,
-        name: set.name,
-        row: index,
-        transition: row.transition
-          ? { style: row.transition.style, bars: row.transition.bars }
-          : null,
-        next,
-        ...(set.draft ? { draft: true } : {}),
-      },
+      ...(asMix
+        ? {
+            mix_set: {
+              id: set.id,
+              name: set.name,
+              row: index,
+              transition: row.transition
+                ? { style: row.transition.style, bars: row.transition.bars }
+                : null,
+              next,
+              ...(set.draft ? { draft: true } : {}),
+            },
+          }
+        : // Play (33c): the set as a plain queue, marked so Up next and Mix
+          // say "from Sunday Set" (294); its chips play only with Auto mix on
+          { from_set: { id: set.id, name: set.name, row: index } }),
       ...({
         album: t.album_title,
         artist_id: t.artist_id,
@@ -197,4 +204,31 @@ export function saveTransitionToDraft(
   if (at < 0) throw new Error('That pair is no longer next to each other in the draft.');
   rows[at] = { ...rows[at], transition: { style: t.style, bars: t.bars } };
   writeDraft(profileId, { ...draft, rows });
+}
+
+/**
+ * Play (33c, the set's primary; 34b's row Play): the set's tracks as Up
+ * next, from the first row or from the row pressed, marked "from Sunday
+ * Set" (294). Between tracks applies as set (unlike Play as a mix).
+ */
+export async function playSet(
+  set: { id: number; name: string; draft?: boolean },
+  rows: ViewRow[],
+  fromRow = 0,
+): Promise<boolean> {
+  const queue = setQueue(set, rows, { asMix: false });
+  if (!queue.length || !window.playTrackList) {
+    window.showToast?.(
+      queue.length
+        ? "The player isn't ready yet. Try again in a moment."
+        : 'Nothing in it plays here yet.',
+      'error',
+    );
+    return false;
+  }
+  const at = queue.findIndex(
+    (t) => ((t as { from_set?: { row: number } }).from_set?.row ?? -1) >= fromRow,
+  );
+  await window.playTrackList(queue, set.name, { startIndex: Math.max(0, at) });
+  return true;
 }

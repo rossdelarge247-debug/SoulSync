@@ -531,7 +531,7 @@ SYNCHRO.S already has timed lyrics, but they sit in a side panel of the expanded
 
 ## Star tracks and mix sets
 
-**Status:** Stars and mix sets: Building · raised by Ross, 2026-10-24 · direction and defaults approved by Ross the same day · drawn by Design as `Stars and mix sets.dc.html` (28a–28g) and placed in `DJ area map (six briefs).dc.html` (24a), approved by Ross 2026-10-26 · built on `feat/stars-mix-sets`: `HANDOFF.md`, "Dev, stars and mix sets of 26 October"; the routes are in `CONTRACTS.md`, "Stars" and "Sets". Mix tab: Building · drawn by Design as `Mix tab.dc.html` (29a–29d), approved by Ross 2026-10-26 · built on `feat/mix-tab`: `HANDOFF.md`, "Dev, the Mix tab of 26 October"; the routes are in `CONTRACTS.md`, "The Mix tab".
+**Status:** Stars and mix sets: Building · raised by Ross, 2026-10-24 · direction and defaults approved by Ross the same day · drawn by Design as `Stars and mix sets.dc.html` (28a–28g) and placed in `DJ area map (six briefs).dc.html` (24a), approved by Ross 2026-10-26 · built on `feat/stars-mix-sets`: `HANDOFF.md`, "Dev, stars and mix sets of 26 October"; the routes are in `CONTRACTS.md`, "Stars" and "Sets". Mix tab: Building · drawn by Design as `Mix tab.dc.html` (29a–29d), approved by Ross 2026-10-26 · built on `feat/mix-tab`: `HANDOFF.md`, "Dev, the Mix tab of 26 October"; the routes are in `CONTRACTS.md`, "The Mix tab". **Step 3 of Design's 27 October order (Brief D and Brief C's tray): Building** on `feat/step3-tray` (`HANDOFF.md`, "Dev, step 3 (Brief D and Brief C's tray) of 28 October"): the row's primary button is Play everywhere, the tray's Mix mode sits beside Up next with the set card, the docked Mixes panel is retired ("Mixes well with…" opens Mix following the track), a set's header and working-set control, Your sets and the sidebar say the working set, the phone's sheet is one tab row. Left for later: drag and drop (step 4, Brief B) and DJ now (step 5, Brief E).
 
 ### The problem
 
@@ -811,7 +811,7 @@ Dev picks the libraries after checking their licences: some beat and structure m
 
 ## DJ now: a compact DJ mode in the playing panel
 
-**Status:** Drawn, E1 chosen by Ross (27 October): the tray's third mode, Now playing · Mix · DJ (`DJ now (Brief E, options).dc.html`, 35a–35q, 36a–36b; HANDOFF, "Design's Briefs A–E and answers 260–324, and Ross's yes"); built as step 5 of Design's 27 October order · raised by Ross, 2026-10-27 · **laptop and desktop only** (nothing on the phone) · Design's Brief E (`HANDOFF.md`, "UX review of the DJ features, and Briefs A–E"). It replaces the separate Decks plan: full Decks (21e, 26j) is DJ now expanded, built on auto-mix's engine (stage B).
+**Status:** Drawn, E1 chosen by Ross (27 October; step 3 built the tray's modes with DJ reserved: `DJ_MODE_READY` in `features/mix/mix-store.ts`, key D unbound): the tray's third mode, Now playing · Mix · DJ (`DJ now (Brief E, options).dc.html`, 35a–35q, 36a–36b; HANDOFF, "Design's Briefs A–E and answers 260–324, and Ross's yes"); built as step 5 of Design's 27 October order · raised by Ross, 2026-10-27 · **laptop and desktop only** (nothing on the phone) · Design's Brief E (`HANDOFF.md`, "UX review of the DJ features, and Briefs A–E"). It replaces the separate Decks plan: full Decks (21e, 26j) is DJ now expanded, built on auto-mix's engine (stage B).
 
 ### The problem
 

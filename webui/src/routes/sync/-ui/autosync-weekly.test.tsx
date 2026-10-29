@@ -317,7 +317,8 @@ describe('AutoSyncWeeklyBoard (861-977)', () => {
 
   it('carries the weekly lane class the CSS keys off', () => {
     const { container } = renderBoard([]);
-    expect(container.querySelector('main')?.className).toBe(
+    expect(container.querySelector('main')).toBeNull();
+    expect(container.querySelector('.auto-sync-lanes')?.className).toBe(
       'auto-sync-lanes auto-sync-weekly-lanes',
     );
   });

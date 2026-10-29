@@ -68,6 +68,8 @@ export function NoteLine({
       type="button"
       className={styles.note}
       data-empty={note ? undefined : ''}
+      // 286: one line, cut with an ellipsis, the whole note on its title
+      title={note || undefined}
       aria-label={note ? `Note for ${title}: ${note}. Change it` : `Add a note to ${title}`}
       onClick={() => setEditing(true)}
     >

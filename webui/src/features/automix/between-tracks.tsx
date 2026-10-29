@@ -161,7 +161,7 @@ export function BetweenTracksSwitch({
       data-unavailable={unsupported ? '' : undefined}
     >
       {showLabel ? (
-        <span className={styles.switchLabel} id={`${id}-label`}>
+        <span className={styles.switchLabel} id={`${id}-label`} data-between-label="">
           {label}
         </span>
       ) : null}

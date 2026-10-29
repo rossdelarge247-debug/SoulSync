@@ -27,6 +27,8 @@ html[data-player='tray'][data-mix-available] { --ss-player-h: 500px; }
     html[data-player] :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn) {
         bottom: calc(24px + var(--ss-player-h)) !important;
     }
+    /* UX-24: the first-run "New here?" tip rides with them, above the bar */
+    html[data-player] .helper-first-launch-tip { bottom: calc(34px + var(--ss-player-h)) !important; }
     html[data-player] .toast-container { bottom: calc(104px + var(--ss-player-h)); }
 }
 
@@ -494,18 +496,47 @@ html[data-player='tray'] .ss-player-bar { display: none; }
 .ss-player-modes:empty { display: none; }
 html[data-mix-available] .ss-player-tray { height: 500px; }
 .ss-player-mix { display: none; }
+/* Brief C (33b): in Mix the right column IS Up next (the same list, not a
+   copy), with Between tracks in its header; the record shrinks into Mix's
+   left column (a 56px record under the set card) and Mixes well with takes
+   the middle. */
 .ss-player[data-tray-mode='mix'] .ss-player-tray {
     grid-template-columns: 280px minmax(0, 1fr) 440px;
     padding: 20px 24px;
 }
 .ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-record,
 .ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-deck,
-.ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-list,
 .ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-radio,
 .ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-radio-tray { display: none !important; }
 .ss-player[data-tray-mode='mix'] .ss-player-mix:not([hidden]) { display: contents; }
+.ss-player[data-tray-mode='mix'] .ss-player-mix [data-mix-col='this-track'] { grid-column: 1; grid-row: 1; }
+.ss-player[data-tray-mode='mix'] .ss-player-mix [data-mix-col='matches'] { grid-column: 2; grid-row: 1; }
+.ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-list { grid-column: 3; grid-row: 1; }
+/* Up next's header in Mix: "Up next · 8 from Sunday Set", Between tracks
+   with its label; Recent and Clear stay in Now playing */
+.ss-player[data-tray-mode='mix'] #ss-player-tab-recent,
+.ss-player[data-tray-mode='mix'] .ss-player-list-head [data-player-clear] { display: none; }
+.ss-player[data-tray-mode='mix'] #ss-player-tab-queue { padding-left: 0; border-color: transparent; background: transparent; font-size: 16px; font-weight: 600; }
+.ss-player[data-tray-mode='mix'] #ss-player-tab-queue .ss-player-count { display: none; }
+.ss-player-list-from { display: none; color: var(--ss-text-meta); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ss-player[data-tray-mode='mix'] .ss-player-list-from:not(:empty) { display: inline; }
+.ss-player-list-between:empty { display: none; }
+/* Between tracks keeps to the header's row while there's room (36a), and
+   takes a row of its own at the right under the tabs when there isn't (the
+   360px column at 1440); Clear and Collapse stay on the first row */
+.ss-player-list-head { flex-wrap: wrap; row-gap: 8px; }
+.ss-player-list-between { order: 5; display: inline-flex; align-items: center; justify-content: flex-end; margin-left: auto; }
+/* the label "Between tracks" is Mix's (33b); Now playing draws the control alone (36a) */
+.ss-player-list-between [data-between-label] { display: none; }
+.ss-player[data-tray-mode='mix'] .ss-player-list-between [data-between-label] { display: inline; }
 /* the matches' list scrolls inside the tray's height */
 .ss-player[data-tray-mode='mix'] .ss-player-mix [data-mix-col] { overflow-y: auto; overscroll-behavior: contain; }
+
+/* the record's key line (36a, 279): key chip · "124 BPM · E6", ready to mix, the star beside it */
+.ss-player-record-keyline { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.ss-player-record-keyline-text { flex: 1 1 auto; min-width: 0; }
+.ss-player-record-keyline-text:empty + .ss-player-star-slot { margin-left: 0; }
+.ss-player-record-keyline:not(:has(.ss-player-record-keyline-text:not(:empty))):not(:has(.ss-player-star-slot :not([hidden]))) { display: none; }
 /* the Visuals' Mix button (29b): a text button, selected while its drawer is open */
 .ss-visuals-mix-btn[hidden] { display: none !important; }
 .ss-visuals-mix-btn { padding: 0 14px; }
@@ -720,6 +751,43 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
     padding: 6px 12px;
 }
 .ss-player-recent-row { grid-template-columns: 40px minmax(0, 1fr) auto; }
+/* Up next's rows (34b): grip, number, art, the track, Play, Move to the top, the length */
+.np-queue-item { grid-template-columns: 20px 20px 40px minmax(0, 1fr) 36px 36px auto; gap: 8px; }
+.np-queue-item-num {
+    color: var(--ss-text-meta);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+.np-queue-item-btn {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ss-radius-control);
+    background: transparent;
+    color: var(--ss-text-secondary);
+    cursor: pointer;
+}
+.np-queue-item-btn svg { width: 18px; height: 18px; }
+.np-queue-item-btn:hover:not(:disabled) { background: var(--ss-hover-wash); color: var(--ss-text); }
+.np-queue-item-btn:focus-visible { outline: var(--ss-focus-ring); outline-offset: 2px; }
+.np-queue-item-btn[data-kind='playing'] { background: rgba(var(--ss-success-rgb), 0.1); color: var(--ss-success); }
+.np-queue-item-btn[data-kind='playing'] svg { width: 16px; height: 16px; }
+/* Move to the top: on the row's hover and focus; its place is kept */
+.np-queue-item-top { opacity: 0; }
+.np-queue-item:hover .np-queue-item-top:not([data-none]),
+.np-queue-item:focus-within .np-queue-item-top:not([data-none]) { opacity: 1; }
+.np-queue-item-top[data-none] { visibility: hidden; }
+@media (hover: none) { .np-queue-item-top:not([data-none]) { opacity: 1; } }
+/* the playing row: green, not the accent (34a) */
+.np-queue-item.active .np-queue-item-title { color: var(--ss-success); }
 .np-queue-item + .np-queue-item,
 .ss-player-recent-row + .ss-player-recent-row { border-top: 1px solid var(--ss-hairline); }
 /* the list shows what's up next; "Show all" brings back what played */
@@ -727,7 +795,7 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .np-queue-list:not(.show-all) .np-queue-item.active { display: none; }
 .np-queue-list:not(.show-all) .np-queue-item.upnext-first { border-top: 0; }
 .np-queue-item.played { opacity: 0.72; }
-.np-queue-item.active { background: var(--ss-selected-fill); box-shadow: inset 0 0 0 1px var(--ss-selected-border); }
+.np-queue-item.active { background: rgba(var(--ss-success-rgb), 0.06); }
 .np-queue-item:hover,
 .ss-player-recent-row:hover { background: var(--ss-row-hover); }
 .np-queue-item.dragging { opacity: 0.5; }
@@ -805,8 +873,6 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 .np-queue-item-status.requesting,
 .np-queue-item-status.queued,
 .np-queue-item-status.pending { color: var(--ss-info); }
-.np-queue-item-eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
-.np-queue-item-eq i { width: 3px; height: 100%; border-radius: 1px; background: rgb(var(--ss-accent-light-rgb)); }
 /* row actions: on hover or keyboard focus, over the duration */
 .np-queue-item-actions {
     position: absolute;
@@ -1276,12 +1342,21 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
 /* the visuals cover everything, the floating buttons too (and the help's
    first-run "New here?" tip beside them) */
 body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn, .helper-first-launch-tip) { display: none !important; }
+/* UX-24: the "New here? Click for setup help!" tip sits under dialogs and
+   sheets (never at 999999 over them), and steps away while the tray, the
+   phone's sheet, a dialog or Tracks' selection bar is open */
+.helper-first-launch-tip { z-index: 8000 !important; }
+html[data-player='tray'] .helper-first-launch-tip,
+html[data-player-sheet] .helper-first-launch-tip,
+body:has([role='dialog'][data-open]) .helper-first-launch-tip,
+body:has([data-selection-bar]) .helper-first-launch-tip { display: none !important; }
 
 /* the mini bar is phones only */
 .ss-player-mini { display: none; }
 
 /* a narrower desktop: the bar's side column gives way first */
 @media (min-width: 769px) and (max-width: 1180px) {
+    .ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-list { min-width: 0; }
     .ss-player-bar { grid-template-columns: 260px minmax(0, 1fr) auto; gap: 16px; padding: 0 16px; }
     .ss-player-side .ss-player-volume { width: 72px; }
     .ss-player-tray { grid-template-columns: 240px minmax(0, 1fr) 320px; gap: 24px; padding: 20px 16px 16px; }
@@ -1369,16 +1444,33 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
         background: rgba(10, 12, 17, 0.72);
     }
     html[data-player-sheet] .ss-player-sheet-head { display: flex; flex-direction: column; gap: 4px; }
+    /* the handle is the sheet's Close: a 44px press target round the 36×4 bar (291) */
     .ss-player-sheet-handle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        align-self: center;
+        width: 88px;
+        height: 44px;
+        margin: -12px auto -8px;
+        padding: 0;
+        border: 0;
+        border-radius: var(--ss-radius-tag);
+        background: transparent;
+        cursor: pointer;
+        touch-action: none;
+    }
+    .ss-player-sheet-handle > span {
         display: block;
         width: 36px;
         height: 4px;
-        margin: 0 auto;
         border-radius: 2px;
         background: rgba(255, 255, 255, 0.24);
     }
-    .ss-player-sheet-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .ss-player-sheet-title { font-size: 17px; font-weight: 600; }
+    .ss-player-sheet-handle:focus-visible { outline: var(--ss-focus-ring); outline-offset: 2px; }
+    .ss-player-sheet-modes:empty { display: none; }
+    /* in Mix the sheet is Mix · Set (33d): Now playing's record, deck and list step aside */
+    .ss-player[data-tray-mode='mix'] .ss-player-tray > .ss-player-list { display: none !important; }
     /* the big card */
     .ss-player-record-top { flex-direction: column; align-items: stretch; gap: 16px; }
     .ss-player-record-art { width: 200px; height: 200px; margin: 0 auto; border-radius: var(--ss-radius-card); }
@@ -1398,10 +1490,15 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
     .ss-player-view-body { flex: none; min-height: auto; max-height: none; overflow: visible; }
     .ss-player-list .ss-player-collapse { display: none; }
     /* touch: row actions always show */
-    .np-queue-item { grid-template-columns: 20px 40px minmax(0, 1fr) auto; }
+    /* the phone: a tap on the row plays it (34c), so its Play and Move to the
+       top give way to earlier, later and remove, each a 44px target (UX-16) */
+    .np-queue-item { grid-template-columns: 40px minmax(0, 1fr) auto; }
     .np-queue-item { gap: 8px; padding: 6px 8px; }
-    .np-queue-item-actions { position: static; transform: none; opacity: 1; pointer-events: auto; padding: 0; background: none; grid-column: 4; grid-row: 1; }
-    .np-queue-item-actions > button { width: 32px; height: 44px; }
+    .np-queue-item-grip,
+    .np-queue-item-num,
+    .np-queue-item-btn { display: none; }
+    .np-queue-item-actions { position: static; transform: none; opacity: 1; pointer-events: auto; padding: 0; background: none; grid-column: 3; grid-row: 1; }
+    .np-queue-item-actions > button { width: 44px; height: 44px; }
     .np-queue-item-meta { display: none; }
     .ss-player-menu { left: 12px !important; right: 12px; width: auto; z-index: 9700; }
     .ss-player-themes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1423,7 +1520,6 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
 .ss-player[data-source='radio'] .ss-player-tray > .ss-player-record,
 .ss-player[data-source='radio'] .ss-player-tray > .ss-player-deck,
 .ss-player[data-source='radio'] .ss-player-tray > .ss-player-list,
-.ss-player[data-source='radio'] .ss-player-sheet-head .ss-player-sheet-title { display: none !important; }
 /* the radio columns: only while a station plays, and only in the tray (the
    phone keeps its sheet, 11d) */
 .ss-player-radio-tray { display: none; }
@@ -1609,7 +1705,6 @@ body:has(#np-modal-overlay:not(.hidden)) :is(.notif-bell-btn, .helper-float-btn,
    row, Add to Wanted then Scan now full width, the auto-add row, volume and
    Stop, two link rows. The sheet's own "Now playing / Close" row gives way to
    the head's 44px Close; the deck stays hidden (the sheet draws its volume). */
-.ss-player[data-source='radio'] .ss-player-sheet-row { display: none !important; }
 .ss-player[data-source='radio'] .ss-player-radio { display: flex !important; }
 /* the sheet's card is the phone's only: the desktop tray has its columns */
 html:not([data-player-sheet]) .ss-player[data-source='radio'] .ss-player-radio { display: none !important; }

@@ -82,8 +82,10 @@ def test_start_makes_a_set_its_playlist_and_the_working_set(client, db):
     assert res.status_code == 201, res.get_json()
     set_id = res.get_json()["id"]
     assert res.get_json()["working"]["id"] == set_id
-    # only your library's tracks with their file
+    # only your library's tracks with their file, and it says how many went in
+    # (the toast says the server's count, gauntlet review L1)
     assert _rows(client, set_id) == ["9"]
+    assert res.get_json()["tracks"] == 1
     saved = client.get(f"/api/sets/{set_id}").get_json()["set"]
     assert saved["name"] == "Set from Sunday 26 Oct" and saved["playlist_id"]
     # nothing that can go in: nothing made

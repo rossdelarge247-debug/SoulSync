@@ -103,9 +103,11 @@
   cursor: pointer;
 }
 
+/* the design system's primary: accent-light with dark text (UX-31) */
 .primary {
   border-color: transparent;
-  background: rgb(var(--ss-accent-rgb));
+  background: rgb(var(--ss-accent-light-rgb));
+  color: var(--ss-text-on-accent, #0b0b0f);
   font-weight: 600;
 }
 
@@ -116,10 +118,21 @@
   outline-offset: var(--ss-focus-offset);
 }
 
+/* disabled is neutral, never a faded accent (UX-31: it was 2.17:1) */
 .button:disabled,
 .primary:disabled {
-  opacity: 0.5;
+  border-color: var(--ss-disabled-border);
+  background: var(--ss-disabled-fill);
+  color: var(--ss-disabled-text);
   cursor: not-allowed;
+}
+
+.adminsOnly {
+  max-width: 560px;
+  margin: 40px;
+  color: var(--ss-text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
 }
 
 .error {

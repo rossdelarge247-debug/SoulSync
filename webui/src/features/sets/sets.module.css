@@ -53,11 +53,12 @@
 
 /* ── the planner: tabs and Your sets (22a) ───────────────────────────── */
 
+/* 266: the reason is one 14px meta line under the tab pair, so the tabs don't stretch */
 .tabsRow {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .tabs {
@@ -106,7 +107,7 @@
 
 .tabReason {
   display: inline-flex;
-  flex: 1 1 280px;
+  flex: none;
   align-items: baseline;
   gap: 8px;
   margin: 0;
@@ -145,6 +146,14 @@
 .setItem {
   display: flex;
   align-items: center;
+  gap: 8px;
+}
+
+/* 33e: the toggle beside the row, before its "…" */
+.setItem .workingToggle {
+  flex: none;
+  min-height: 40px;
+  font-size: 14px;
 }
 
 .setRow {
@@ -185,6 +194,12 @@
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.setName .headTag {
+  margin-left: 8px;
+  min-height: 20px;
+  font-size: 13px;
 }
 
 .setMeta,
@@ -259,20 +274,159 @@
 }
 
 .savedNote {
-  margin-left: auto;
   color: var(--ss-text-secondary);
-  font-size: 14px;
 }
 
+/* 33c: the art at the left, then the name and its tags, the meta line, the actions */
 .editorHead {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  padding-bottom: 4px;
+}
+
+.headArt {
+  width: 120px;
+  height: 120px;
+  overflow: hidden;
+  border-radius: var(--ss-radius-control);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.headArt img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.headBody {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+/* the tags beside the name (33c): Working set (accent wash), Playing · 4 of 12 (green) */
+.headTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: var(--ss-radius-tag);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.headTag[data-tone='accent'] {
+  background: rgba(var(--ss-accent-rgb), 0.14);
+  color: var(--ss-text);
+}
+
+.headTag[data-tone='playing'] {
+  background: rgba(var(--ss-success-rgb), 0.12);
+  color: var(--ss-success);
+}
+
+.readyInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.readyInline i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ss-success);
+}
+
+.metaButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgb(var(--ss-accent-light-rgb));
+  font: inherit;
+  cursor: pointer;
+}
+
+.metaButton:hover {
+  text-decoration: underline;
+}
+
+.metaButton:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+}
+
+.playGlyph {
+  display: inline-flex;
+  margin-right: 8px;
+}
+
+.actionsSpacer {
+  flex: 1 1 auto;
+}
+
+/* "✓ My working set" (pressed) / "Make this my working set" (33c, 33e) */
+.workingToggle {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--ss-radius-control);
+  border: 1px solid var(--ss-control-border);
+  background: transparent;
+  color: var(--ss-text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--ss-transition);
+}
+
+.workingToggle:hover:not(:disabled) {
+  background: var(--ss-hover-wash);
+}
+
+.workingToggle[aria-pressed='true'] {
+  border-color: var(--ss-selected-border);
+  background: var(--ss-selected-fill);
+}
+
+.workingToggle:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset);
+}
+
+/* Remove this set… (267): the confirm's Remove, in the danger colour */
+.removeButton.removeButton {
+  border-color: rgba(var(--ss-danger-rgb), 0.45);
+  color: var(--ss-danger);
+}
+
+.confirmBody {
+  margin: 0;
+  color: var(--ss-text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
 }
 
 .nameInput {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   min-width: 0;
+  /* as wide as the name, so its tags sit beside it (33c) */
+  field-sizing: content;
   padding: 2px 0;
   border: 0;
   border-bottom: 1px solid transparent;
@@ -313,7 +467,7 @@
 }
 
 .headMore {
-  margin-left: auto;
+  flex: none;
 }
 
 .graphCard,
@@ -442,7 +596,8 @@
 .row {
   display: grid;
   /* 28e: the star's column before Lock */
-  grid-template-columns: 24px 28px minmax(0, 1fr) 48px 56px 40px 56px 32px 44px auto 44px;
+  /* 34b: Play and Play next (92px, reserved) after the length */
+  grid-template-columns: 24px 28px minmax(0, 1fr) 48px 56px 40px 56px 92px 32px 44px auto 44px;
   align-items: center;
   gap: 8px;
   min-height: 56px;
@@ -667,6 +822,49 @@
   color: var(--ss-text);
   font-size: 15px;
   font-weight: 600;
+}
+
+/* UX-30: the places by neighbour, a scrolling list of radios */
+.movePlaces {
+  display: flex;
+  flex-direction: column;
+  max-height: 50vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 0;
+}
+
+.movePlaces legend {
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.movePlace {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 8px;
+  border-radius: var(--ss-radius-control);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.movePlace:hover {
+  background: var(--ss-hover-wash);
+}
+
+.movePlace input {
+  width: 18px;
+  height: 18px;
+  accent-color: rgb(var(--ss-accent-light-rgb));
+}
+
+.moveHere {
+  margin-left: auto;
+  color: var(--ss-text-meta);
+  font-size: 14px;
 }
 
 .addList,
@@ -1145,6 +1343,11 @@ textarea.pasteText,
 }
 
 @media (max-width: 640px) {
+  /* the phone keeps the toggle on the set's own page */
+  .setItem .workingToggle {
+    display: none;
+  }
+
   .setRow {
     grid-template-columns: 64px minmax(0, 1fr) auto;
     gap: 12px;
@@ -1203,6 +1406,20 @@ textarea.pasteText,
 
   .editorActions > :not(.headMore) {
     flex: 1 1 auto;
+  }
+
+  .editorHead {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .headArt {
+    width: 64px;
+    height: 64px;
+  }
+
+  .actionsSpacer {
+    display: none;
   }
 
   .nameInput {
@@ -1561,11 +1778,20 @@ textarea.pasteText,
   }
 }
 
-/* the set's analysis line (Brief A, 31b): with the head, 440px at most */
+/* the set's analysis line (Brief A, 31b; 353: under the meta line, 33c), 440px at most */
 .setAnalysis {
   width: 100%;
   max-width: 440px;
-  margin-top: 8px;
+}
+
+/* the playing row (33c): a green wash, its number a green ▶ */
+.rowItem[data-playing='true'] .row {
+  background: rgba(var(--ss-success-rgb), 0.06);
+}
+
+.numPlaying {
+  display: inline-flex;
+  color: var(--ss-success);
 }
 
 .notReady {
@@ -1579,4 +1805,19 @@ textarea.pasteText,
 /* 320, UX-21: Auto mix off, said once above the list */
 .offLine {
   margin: 0 0 12px;
+}
+
+/* UX-16: on a phone every control in a set's rows and the style picker is a
+   44px target (the chips, the note, the picker's rows and lengths) */
+@media (max-width: 768px) {
+  .chip,
+  .note,
+  .noteInput,
+  .pickerStyle,
+  .pickerBar,
+  .pickerDone,
+  .swapButton,
+  .wantPair button {
+    min-height: 44px;
+  }
 }

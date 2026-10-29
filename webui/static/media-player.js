@@ -2490,9 +2490,10 @@ const NP_GRIP_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="t
 
 // The queue rows (the tray's Up next). Every row is in the list; the ones
 // already played and the one playing are classed so the list shows what's
-// up next until "Show all". Each row: a drag grip, the art, a Play button
-// (title + "artist · format"), the duration or download state, and the
-// actions (play next, earlier, later, remove) on hover or focus.
+// up next until "Show all". Each row (34b): a drag grip, its number, the
+// art, the title + "artist · format" (the whole row plays it), Play (or
+// Playing), Move to the top on hover or focus, the duration or download
+// state, and the actions (earlier, later, remove) on hover or focus.
 function renderNpQueue() {
     const listEl = document.getElementById('np-queue-list');
     const emptyEl = document.getElementById('np-queue-empty');
@@ -2546,6 +2547,13 @@ function renderNpQueue() {
         grip.innerHTML = typeof NP_GRIP_SVG !== 'undefined' ? NP_GRIP_SVG : '';
         item.appendChild(grip);
 
+        // its place in the queue (34b; a set played as a mix numbers as its rows)
+        const num = document.createElement('span');
+        num.className = 'np-queue-item-num';
+        num.setAttribute('aria-hidden', 'true');
+        num.textContent = String(i + 1);
+        item.appendChild(num);
+
         // Album thumbnail
         const art = document.createElement('img');
         art.className = 'np-queue-item-art';
@@ -2588,18 +2596,55 @@ function renderNpQueue() {
             status.textContent = queueStatus || 'Missing';
             if (track.playback_error) status.title = track.playback_error;
             meta.appendChild(status);
-        } else if (i === npQueueIndex) {
-            const eq = document.createElement('div');
-            eq.className = 'np-queue-item-eq';
-            eq.setAttribute('aria-hidden', 'true');
-            eq.innerHTML = '<i></i><i></i><i></i>';
-            meta.appendChild(eq);
         } else if (track.duration) {
             const dur = document.createElement('span');
             dur.className = 'np-queue-item-duration';
             dur.textContent = formatTime(track.duration);
             meta.appendChild(dur);
         }
+
+        // Brief D (34b): Play is the row's one visible button ("Play now" cuts
+        // to it, as Next does), Playing (three green bars) on the playing row;
+        // Move to the top (an arrow to a bar) on hover and focus: Up next's
+        // Play next. Same paths as src/features/dj/row-play.tsx.
+        const playBtn = document.createElement('button');
+        playBtn.type = 'button';
+        playBtn.className = 'np-queue-item-btn np-queue-item-playnow';
+        playBtn.dataset.queueAction = 'play-now';
+        if (i === npQueueIndex) {
+            playBtn.dataset.kind = 'playing';
+            playBtn.dataset.title = track.title || 'track';
+            npQueuePlayingLabel(playBtn);
+            playBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 10h3v10H4zM10 4h3v16h-3zM16 13h3v7h-3z"/></svg>';
+            // still loading: a press would pause or abort the load (gauntlet re-review, Low c)
+            playBtn.onclick = (e) => { e.stopPropagation(); if (npLoadingQueueItem || npBuffering) return; togglePlayback(); };
+        } else {
+            playBtn.setAttribute('aria-label', `Play ${track.title || 'track'} now`);
+            playBtn.title = 'Play now';
+            playBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8z"/></svg>';
+            playBtn.onclick = (e) => { e.stopPropagation(); void playQueueItem(i); };
+        }
+        item.appendChild(playBtn);
+
+        const topBtn = document.createElement('button');
+        topBtn.type = 'button';
+        topBtn.className = 'np-queue-item-btn np-queue-item-top';
+        topBtn.dataset.queueAction = 'top';
+        topBtn.setAttribute('aria-label', `Move ${track.title || 'track'} to the top`);
+        topBtn.title = 'Move to the top: plays next';
+        topBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V7M6 13l6-6 6 6M5 4h14"/></svg>';
+        // nothing to move for the playing row or the one already next
+        const already = npQueueIndex >= 0 ? (i === npQueueIndex || i === npQueueIndex + 1) : i === 0;
+        if (already) { topBtn.disabled = true; topBtn.dataset.none = ''; }
+        topBtn.onclick = (e) => {
+            e.stopPropagation();
+            const to = npMoveNext(i);
+            if (to < 0) return;
+            renderNpQueue();
+            npFocusQueueAction(to, 'play-now');
+            npAnnounceQueue(`${track.title || 'Track'} moved to the top: it plays next`);
+        };
+        item.appendChild(topBtn);
 
         item.appendChild(meta);
         const actions = document.createElement('div');
@@ -3466,7 +3511,9 @@ async function playTrackList(tracks, contextName, options = {}) {
     renderNpQueue();
     npSetPlayContext(contextName || 'Playlist');
     npScheduleQueuePrefetch();
-    return await playQueueItem(0, options);
+    // a set's row Play (34b): the whole set queued, from that row
+    const start = Number.isInteger(options.startIndex) ? Math.max(0, Math.min(options.startIndex, npQueue.length - 1)) : 0;
+    return await playQueueItem(start, options);
 }
 window.playTrackList = playTrackList;
 
@@ -3949,6 +3996,16 @@ function npLoadingSnapshot() {
     const width = parseFloat(el.querySelector('.loading-progress')?.style.width || '0') || 0;
     return { active: !el.classList.contains('hidden'), text, progress: width };
 }
+
+/** Up next's Playing button: "Pause X" while it plays, "Resume X" while paused (gauntlet review L2). */
+function npQueuePlayingLabel(button) {
+    const title = button.dataset.title || 'track';
+    button.setAttribute('aria-label', isPlaying ? `Pause ${title}` : `Resume ${title}`);
+    button.title = isPlaying ? 'Playing · press to pause' : 'Paused · press to play';
+}
+window.addEventListener('ss:player', () => {
+    document.querySelectorAll('.np-queue-item-playnow[data-kind="playing"]').forEach(npQueuePlayingLabel);
+});
 
 window.SoulSyncPlayer = {
     /** Everything the chrome draws, read fresh each time. */

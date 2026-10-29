@@ -1,42 +1,10 @@
-import { appURL } from '@/platform/url-base';
+import { openDjSettings } from '@/features/dj/dj-settings-link';
 
 /**
  * Settings → Library → DJ's Between tracks (33e) from anywhere (Player
- * settings' "Style and key lock…"), as the Traktor card's link does.
+ * settings' "Style and key lock…", the https notes, the Mix tab): the DJ
+ * section opened and its Between tracks card focused (dj-settings-link.ts).
  */
-function scrollToCard(): void {
-  let tries = 0;
-  const look = () => {
-    const card = document.querySelector<HTMLElement>(
-      '#ss-between-tracks-library [data-between-tracks]',
-    );
-    // it lives in Settings → Library's Organization section: opened if it's folded
-    const body = card?.closest<HTMLElement>('.settings-section-body.collapsed');
-    const head = body?.previousElementSibling as HTMLElement | null | undefined;
-    if (head?.classList.contains('settings-section-header')) head.click();
-    if (card && card.offsetParent !== null) {
-      card.scrollIntoView({ block: 'start', behavior: 'smooth' });
-      card.querySelector<HTMLElement>('[aria-checked="true"]')?.focus({ preventScroll: true });
-      return;
-    }
-    tries += 1;
-    if (tries < 20) setTimeout(look, 150);
-  };
-  look();
-}
-
 export function openBetweenTracksSettings(): void {
-  const page = document.getElementById('settings-page');
-  if (page && page.offsetParent !== null && typeof window.switchSettingsTab === 'function') {
-    window.switchSettingsTab('library');
-    scrollToCard();
-    return;
-  }
-  window.requestSettingsTab?.('library');
-  if (typeof window.navigateToPage === 'function') {
-    void window.navigateToPage('settings');
-    scrollToCard();
-    return;
-  }
-  window.location.assign(appURL('/settings?tab=library'));
+  openDjSettings('between');
 }

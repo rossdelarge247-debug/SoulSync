@@ -5,7 +5,8 @@ import { Button } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 import { DjMeta } from '@/features/dj/dj-meta';
 import { useDjInfo, type DjInfo } from '@/features/dj/dj.api';
-import { openMixes, type MixesSeed } from '@/features/dj/mixes-store';
+import { usePlayingTrackId } from '@/features/dj/playing-track';
+import { RowPlay, playTrackNow, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
 import { awayWords } from '@/features/drives/drives.format';
 import { playInAppPlayer } from '@/features/playback/app-player';
@@ -58,13 +59,8 @@ function albumHref(play: MusicPlay): string | null {
     : null;
 }
 
-/** Queue a play after the current track (13a's Play; the engine says "Playing next"). */
-function queueNext(play: MusicPlay): void {
-  if (!play.track_id || !window.playNext) {
-    window.showToast?.("The player isn't ready yet. Try again in a moment.", 'error');
-    return;
-  }
-  window.playNext({
+function historyTrack(play: MusicPlay): Record<string, unknown> {
+  return {
     id: play.track_id,
     title: play.title,
     artist: play.artist,
@@ -75,7 +71,22 @@ function queueNext(play: MusicPlay): void {
     image_url: play.image_url,
     bitrate: play.bitrate,
     duration: play.length_s,
-  });
+  };
+}
+
+/** Queue a play after the current track (Play next; the engine says "Playing next"). */
+function queueNext(play: MusicPlay): void {
+  if (!play.track_id || !window.playNext) {
+    window.showToast?.("The player isn't ready yet. Try again in a moment.", 'error');
+    return;
+  }
+  window.playNext(historyTrack(play));
+}
+
+/** Play it now (Brief D's Play). */
+function playNow(play: MusicPlay): void {
+  if (!play.track_id) return;
+  playTrackNow(historyTrack(play));
 }
 
 function playSpoken(play: SpokenHistoryPlay): void {
@@ -120,22 +131,19 @@ function Art({ url }: { url: string | null | undefined }) {
 function MusicRow({
   play,
   phone,
-  first = false,
   dj,
-  onMixes,
   away,
+  playing = false,
 }: {
   play: MusicPlay;
+  /** what the player has loaded: Playing (green) in Play's place (34a) */
+  playing?: boolean;
   phone: boolean;
   /** While the library's drive is away (123): Play is disabled-neutral and
    *  described by the reason ("Music HD isn't connected", element `id`). */
   away?: { id: string; words: string };
-  /** The list's first row: on a phone its Play is filled, the rest are ghosts (15d). */
-  first?: boolean;
   /** The track's BPM and key (the library's DJ data), when known. */
   dj?: DjInfo;
-  /** "Mixes well with…" in the "…" menu, for a track in the library. */
-  onMixes?: (seed: MixesSeed) => void;
 }) {
   const time = clockTime(play.played_at);
   const artist = artistHref(play);
@@ -172,7 +180,14 @@ function MusicRow({
               disabled: Boolean(away),
               reason: away?.words,
             },
-            mixes: Boolean(onMixes),
+            // 277: appends without jumping the queue
+            addToUpNext: {
+              onSelect: () => window.addToQueue?.(historyTrack(play)),
+              disabled: Boolean(away),
+              reason: away?.words,
+            },
+            // Mixes well with… opens the tray in Mix (33a); idle, it plays first
+            play: away ? null : () => playNow(play),
             addToPlaylist,
             artistHref: artist,
             albumHref: album,
@@ -230,8 +245,19 @@ function MusicRow({
       ref={rowRef}
       className={styles.row}
       data-gone={gone ? 'true' : undefined}
-      data-actions={phone && !gone ? '2' : undefined}
       data-history-row={play.id}
+      data-playing={playing ? 'true' : undefined}
+      data-row-play-host=""
+      {...rowPlayHandlers(phone || gone || away ? null : () => playNow(play), playing)}
+      onClick={
+        // 34c: on a phone a tap on the row plays
+        phone && !gone && !away
+          ? (event) => {
+              if ((event.target as HTMLElement).closest('a, button, [role="dialog"]')) return;
+              if (!playing) playNow(play);
+            }
+          : undefined
+      }
       data-star-row={trackId ?? undefined}
       data-music=""
     >
@@ -255,20 +281,19 @@ function MusicRow({
       <span className={styles.starCell}>
         <StarButton id={trackId} title={play.title} />
       </span>
-      <div className={styles.actions} data-reveal={phone ? undefined : 'hover'}>
+      <div className={styles.actions}>
         {gone ? null : (
           <>
-            <button
-              type="button"
-              className={phone && !first ? styles.ghostPlay : styles.play}
-              aria-label={`Play ${play.title} next`}
-              title={away ? undefined : 'Play next, after the current track'}
-              aria-disabled={away ? 'true' : undefined}
-              aria-describedby={away?.id}
-              onClick={away ? undefined : () => queueNext(play)}
-            >
-              <PlayIcon />
-            </button>
+            {phone ? null : (
+              // Brief D (34b, 278): the star's column, then Play and Play next
+              <RowPlay
+                title={play.title}
+                playing={playing}
+                disabled={away ?? null}
+                onPlay={() => playNow(play)}
+                onPlayNext={() => queueNext(play)}
+              />
+            )}
             {phone ? (
               // 15d: "…" opens the phone's action sheet
               <>
@@ -416,6 +441,7 @@ export function HistoryPage({
   const query = useInfiniteQuery(historyInfiniteQueryOptions(profileId, { kind, range, q }, tz));
   const pages = query.data?.pages ?? [];
   const first = pages[0];
+  const playingId = usePlayingTrackId();
   const items = useMemo(
     () => pages.flatMap((p) => p.items as (MusicPlay | SpokenHistoryPlay)[]),
     [pages],
@@ -564,9 +590,8 @@ export function HistoryPage({
                       key={`m-${play.id}`}
                       play={play}
                       phone={phone}
-                      first={play === items[0]}
+                      playing={Boolean(play.track_id) && String(play.track_id) === playingId}
                       dj={play.track_id ? djInfo[String(play.track_id)] : undefined}
-                      onMixes={openMixes}
                       away={away}
                     />
                   ) : (

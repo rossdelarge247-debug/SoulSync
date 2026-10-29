@@ -1,4 +1,6 @@
 /** Words and small pure helpers for Library → Sets (boards 22a–22i, 22r–22s). */
+import { workingSetName } from '@/features/mix/mix.format';
+
 import type {
   MatchCounts,
   MatchRow,
@@ -275,8 +277,12 @@ export function isShape(value: unknown): value is ShapeKey {
 }
 
 /** A name for a new empty set: "New set 24 October". */
+/**
+ * A new set's name until it's renamed (UX-19: one rule everywhere, the Mix
+ * tab's and A's): "Set from Tuesday 27 Oct".
+ */
 export function newSetName(now = new Date()): string {
-  return `New set ${now.getDate()} ${MONTHS[now.getMonth()]}`;
+  return workingSetName(now);
 }
 
 // ── sets beyond 22c (28a–28g) ────────────────────────────────────────────

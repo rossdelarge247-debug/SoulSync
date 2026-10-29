@@ -297,7 +297,7 @@ export default function AutomixLab() {
         : null;
 
   return (
-    <main className={styles.lab}>
+    <div className={styles.lab}>
       <h1 className={styles.title}>Auto-mix lab</h1>
       <p className={styles.lead}>
         Stage B&rsquo;s bench: two of your tracks through a style, from the real plan. For hearing
@@ -506,6 +506,6 @@ export default function AutomixLab() {
         </div>
         <p className={styles.meta}>Kept for this browser.</p>
       </fieldset>
-    </main>
+    </div>
   );
 }

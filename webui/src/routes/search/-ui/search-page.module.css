@@ -1063,3 +1063,12 @@ button.rowTitle:focus-visible {
     padding: 16px 14px;
   }
 }
+
+/* what the player has loaded: a green wash and title (Brief D, 34a) */
+.row[data-playing='true'] {
+  background: rgba(var(--ss-success-rgb), 0.06);
+}
+
+.row[data-playing='true'] .rowTitle {
+  color: var(--ss-success);
+}

@@ -8,9 +8,11 @@
  * - `#ss-between-tracks-settings`: Player settings → Between tracks, the
  *   small control and the way to the rest (33e replaces 26h's cards);
  * - `[data-automix-slot="menu-between"]`: the same control in the player's "…";
- * - `[data-automix-slot="upnext-head"]`: Up next's head: Between tracks, and
- *   with Auto mix off "Auto mix is off: tracks play straight on · Turn it
- *   on", once (320, UX-21);
+ * - `[data-automix-slot="list-head"]`: Between tracks in Up next's header,
+ *   beside its tabs (33b, 36a; the label "Between tracks" shows in Mix);
+ * - `[data-automix-slot="upnext-head"]`: over Up next's rows, with Auto mix
+ *   off, "Auto mix is off: tracks play straight on · Turn it on", once
+ *   (320, UX-21);
  * - `#ss-https-note`: Settings → Connections points at https (312);
  * - `[data-automix-gap]`: Up next's gaps (static/media-player.js makes one
  *   after each row from the playing one on, while DJ mix is on): the chip;
@@ -192,6 +194,7 @@ interface Slots {
   https: HTMLElement | null;
   menu: HTMLElement | null;
   upnextHead: HTMLElement | null;
+  listHead: HTMLElement | null;
   gaps: HTMLElement[];
   bar: HTMLElement | null;
   record: HTMLElement | null;
@@ -209,6 +212,7 @@ function findSlots(): Slots {
     https: document.getElementById('ss-https-note'),
     menu: q('[data-automix-slot="menu-between"]'),
     upnextHead: q('[data-automix-slot="upnext-head"]'),
+    listHead: q('[data-automix-slot="list-head"]'),
     gaps: Array.from(document.querySelectorAll<HTMLElement>('[data-automix-gap]')),
     bar: q('[data-automix-slot="bar"]'),
     record: q('[data-automix-slot="record"]'),
@@ -226,6 +230,7 @@ function sameSlots(a: Slots, b: Slots): boolean {
     a.https === b.https &&
     a.menu === b.menu &&
     a.upnextHead === b.upnextHead &&
+    a.listHead === b.listHead &&
     a.bar === b.bar &&
     a.record === b.record &&
     a.deck === b.deck &&
@@ -237,6 +242,8 @@ function sameSlots(a: Slots, b: Slots): boolean {
 }
 
 const PHONE_QUERY = '(max-width: 768px)';
+/** how long a mix that couldn't start is said in the bar and the tray (UX-9) */
+export const FAILED_SHOWN_MS = 12_000;
 
 function usePhone(): boolean {
   const [phone, setPhone] = useState(
@@ -541,6 +548,27 @@ export function AutomixHost() {
     [ctl],
   );
 
+  // UX-9: a mix that couldn't start is said in the bar and the tray for 12 s
+  // (then Mix now's title keeps the reason), so it never sits there for good
+  const [failedShown, setFailedShown] = useState<string | null>(null);
+  const failedKey = view.failed ? `${view.pair?.fromId}:${view.pair?.toId}:${view.failed}` : null;
+  useEffect(() => {
+    if (!failedKey) {
+      setFailedShown(null);
+      return;
+    }
+    setFailedShown(failedKey);
+    const t = window.setTimeout(() => setFailedShown(null), FAILED_SHOWN_MS);
+    return () => window.clearTimeout(t);
+  }, [failedKey]);
+  const shownView = failedShown ? view : { ...view, failed: null };
+  useEffect(() => {
+    const root = document.getElementById('media-player');
+    if (!root) return;
+    if (failedShown && !root.dataset.automix) root.dataset.automix = 'failed';
+    else if (!failedShown && root.dataset.automix === 'failed') delete root.dataset.automix;
+  }, [failedShown, view]);
+
   const st = port.state();
   const handing = ['counting', 'mixing', 'settling', 'handback', 'back'].includes(view.stage);
   const counting = view.barsToGo !== null && !view.transition;
@@ -564,12 +592,17 @@ export function AutomixHost() {
       {slots.settings ? createPortal(<PlayerSettingsBetween />, slots.settings) : null}
       {slots.https ? createPortal(<HttpsNote />, slots.https) : null}
       {slots.menu ? createPortal(<BetweenTracksSwitch showLabel />, slots.menu) : null}
+      {slots.listHead && anyMixable && !st.shuffle
+        ? createPortal(<BetweenTracksSwitch showLabel />, slots.listHead)
+        : null}
       {slots.upnextHead && anyMixable && !st.shuffle
         ? createPortal(
             <div className={styles.upnextHead} data-upnext-head="">
-              <div className={styles.upnextHeadRow}>
-                <BetweenTracksSwitch showLabel />
-              </div>
+              {slots.listHead ? null : (
+                <div className={styles.upnextHeadRow}>
+                  <BetweenTracksSwitch showLabel />
+                </div>
+              )}
               {offPairs ? <AutoMixOffLine /> : null}
               <AutoGoneNotice />
             </div>,
@@ -598,12 +631,15 @@ export function AutomixHost() {
       {slots.mixNowDeck
         ? createPortal(<MixNowButton view={view} onMixNow={actions.mixNow} />, slots.mixNowDeck)
         : null}
-      {slots.bar && (handing || counting)
-        ? createPortal(<BarStatus view={view} actions={actions} />, slots.bar)
+      {slots.bar && (handing || counting || shownView.failed)
+        ? createPortal(<BarStatus view={shownView} actions={actions} />, slots.bar)
         : null}
       {slots.record && handing ? createPortal(<HandoverRecord view={view} />, slots.record) : null}
-      {slots.deck && (handing || counting)
-        ? createPortal(<HandoverDeck view={view} actions={actions} phone={phone} />, slots.deck)
+      {slots.deck && (handing || counting || shownView.failed)
+        ? createPortal(
+            <HandoverDeck view={shownView} actions={actions} phone={phone} />,
+            slots.deck,
+          )
         : null}
       {slots.player ? createPortal(<LiveWords view={view} />, slots.player) : null}
     </>
@@ -620,6 +656,7 @@ export function AutomixHost() {
 export function liveKey(view: AutomixView): string {
   const to = view.pair?.toId ?? '';
   if (view.cancelled) return `cancelled:${to}`;
+  if (view.failed) return `failed:${to}`;
   if (view.stage === 'back') return `back:${view.pair?.fromId ?? ''}`;
   if (view.stage === 'mixing') return `mixing:${to}`;
   if (view.stage === 'settling' || view.stage === 'handback') return `done:${to}`;
@@ -641,6 +678,8 @@ export function liveWords(key: string, view: AutomixView): string {
   if (key.startsWith('done')) return `Now playing ${to}`;
   if (key.startsWith('cancelled')) return 'Mix cancelled';
   if (key.startsWith('back')) return `Back to ${from}`;
+  if (key.startsWith('failed'))
+    return `Couldn't start the mix: ${view.failed ?? 'it failed'}. ${from} plays on straight`;
   return '';
 }
 

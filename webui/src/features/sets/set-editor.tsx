@@ -19,7 +19,7 @@ import { Button, TextInput } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
 import { AutoMixOffLine } from '@/features/automix/between-tracks';
 import { SetStepChip } from '@/features/automix/set-chip';
-import { playSetAsMix } from '@/features/automix/set-play';
+import { playSet, playSetAsMix } from '@/features/automix/set-play';
 import {
   AnalysisLine,
   useAnalysis,
@@ -37,8 +37,11 @@ import { addTrackToPlaylist, playTrackNext } from '@/features/dj/dj-actions';
 import { bpmNumber, keyTitle } from '@/features/dj/dj.format';
 import { KeyChip } from '@/features/dj/key-chip';
 import { usePlayingTrack } from '@/features/dj/playing-track';
+import { PlayGlyph, RowPlay, rowPlayHandlers } from '@/features/dj/row-play';
 import { trackMenu } from '@/features/dj/track-menu';
 import { TraktorExportDialog } from '@/features/dj/traktor-export-dialog';
+import { playingRowIndex } from '@/features/mix/mix-model';
+import { useQueueFrom } from '@/features/mix/mix-subject';
 import { StarButton } from '@/features/stars/star-button';
 import { useProfile } from '@/platform/shell/route-controllers';
 import { appURL } from '@/platform/url-base';
@@ -50,6 +53,14 @@ import type { SetRow, SetView, Step, Transition, ViewRow } from './sets.api';
 import { clearDraft, readDraft, writeDraft } from './draft-store';
 import { EnergyGraph } from './energy-graph';
 import { NoteLine } from './mix-set-parts';
+import {
+  RemoveSetDialog,
+  WorkingSetToggle,
+  afterSetRemoved,
+  chooseWorking,
+  duplicateSet,
+  useIsWorking,
+} from './set-actions';
 import {
   MIX_SET_CHANGED,
   SETS_QUERY_KEY,
@@ -75,6 +86,13 @@ import {
 } from './sets.format';
 import styles from './sets.module.css';
 import { SwapPanel, TrackSheet, trackMeta } from './swap-panel';
+import { undoMove, undoRemove, undoSwap } from './undo-rows';
+
+/** a set page's Undo toast, taken down when the page goes */
+const UNDO_TOAST_KEY = 'set-undo';
+
+/** what a swap changes, so its Undo puts exactly those back */
+const SWAP_FIELDS = ['track_id', 'artist', 'title', 'state', 'version', 'want'] as const;
 
 function usePhone(): boolean {
   const query = '(max-width: 640px)';
@@ -317,23 +335,41 @@ function LockIcon({ locked }: { locked: boolean }) {
 
 /* ── Move… ─────────────────────────────────────────────────────────────── */
 
+/**
+ * Move… (UX-30): the places by their neighbour, "To the top" and "After
+ * Night Ferry", not a bare number; the current place is marked and chosen.
+ */
 function MoveDialog({
   title,
   from,
-  count,
+  titles,
   onMove,
   onClose,
 }: {
   title: string;
   from: number;
-  count: number;
+  /** every row's title, in order */
+  titles: string[];
   onMove: (to: number) => void;
   onClose: () => void;
 }) {
-  const id = useId();
-  const [value, setValue] = useState(String(from + 1));
-  const n = Number(value);
-  const ok = Number.isInteger(n) && n >= 1 && n <= count;
+  const name = useId();
+  const [to, setTo] = useState(from);
+  // where each choice puts the row: the top, or straight after another row
+  const places = [
+    { key: 'top', label: 'To the top', to: 0 },
+    ...titles.flatMap((t, k) =>
+      k === from
+        ? []
+        : [
+            {
+              key: `after-${k}`,
+              label: `After ${t || 'an unnamed line'}`,
+              to: k < from ? k + 1 : k,
+            },
+          ],
+    ),
+  ].filter((p, k, all) => all.findIndex((q) => q.to === p.to) === k || p.key === 'top');
   return (
     <DialogFrame
       open
@@ -342,19 +378,24 @@ function MoveDialog({
     >
       <DialogHeader title={`Move ${title}`} closeLabel="Close" />
       <DialogBody>
-        <label className={styles.moveLabel} htmlFor={id}>
-          To place (1–{count})
-        </label>
-        <TextInput
-          id={id}
-          inputMode="numeric"
-          value={value}
-          autoFocus
-          onChange={(event) => setValue(event.target.value.replace(/\D/g, '').slice(0, 4))}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && ok) onMove(n - 1);
-          }}
-        />
+        <fieldset className={styles.movePlaces}>
+          <legend className={styles.moveLabel}>Where it goes</legend>
+          {places.map((p) => (
+            <label key={p.key} className={styles.movePlace}>
+              <input
+                type="radio"
+                name={name}
+                checked={to === p.to}
+                onChange={() => setTo(p.to)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') onMove(p.to);
+                }}
+              />
+              <span>{p.label}</span>
+              {p.to === from ? <span className={styles.moveHere}>its place now</span> : null}
+            </label>
+          ))}
+        </fieldset>
       </DialogBody>
       <DialogFooter>
         <Button size="lg" variant="ghost" onClick={onClose}>
@@ -363,9 +404,9 @@ function MoveDialog({
         <Button
           size="lg"
           variant="primary"
-          disabled={!ok}
-          disabledReason={ok ? undefined : `Type a place from 1 to ${count}`}
-          onClick={() => onMove(n - 1)}
+          disabled={to === from}
+          disabledReason={to === from ? 'Choose another place' : undefined}
+          onClick={() => onMove(to)}
         >
           Move here
         </Button>
@@ -468,8 +509,14 @@ function Row({
   drag,
   step,
   progress = null,
+  playing = false,
+  onPlay = null,
 }: {
   step: Step | null;
+  /** the row the player is on (the queue came from this set, 294): a green ▶ for its number (33c) */
+  playing?: boolean;
+  /** Play (34b): the set from this row */
+  onPlay?: (() => void) | null;
   /** where its track is in the analysis (analyse on demand) */
   progress?: AnalysisEntry | null;
   row: ViewRow;
@@ -596,6 +643,9 @@ function Row({
       data-swapping={swapping ? 'true' : undefined}
       data-drag-over={drag.over ? 'true' : undefined}
       data-locked={held ? 'true' : undefined}
+      data-playing={playing ? 'true' : undefined}
+      data-row-play-host=""
+      {...rowPlayHandlers(phone ? null : onPlay, playing)}
       draggable={drag.armed}
       onDragStart={drag.onDragStart}
       onDragOver={drag.onDragOver}
@@ -613,7 +663,15 @@ function Row({
             <Grip />
           </span>
         )}
-        <span className={styles.num}>{number ?? ''}</span>
+        <span className={styles.num}>
+          {playing ? (
+            <span className={styles.numPlaying} role="img" aria-label={`Playing, #${number ?? ''}`}>
+              <PlayGlyph size={16} />
+            </span>
+          ) : (
+            (number ?? '')
+          )}
+        </span>
         <span className={styles.rowText}>
           <span className={styles.rowTitle}>
             {title}
@@ -659,6 +717,14 @@ function Row({
             </span>
             <span className={styles.energy}>{dj?.energy ? `E${dj.energy}` : '—'}</span>
             <span className={styles.len}>{clock(shown.duration_ms)}</span>
+            {/* 34b: Play (the set from here), Play next (this one track, outside the set) */}
+            <RowPlay
+              title={title}
+              playing={playing}
+              hidden={!track || !onPlay}
+              onPlay={() => onPlay?.()}
+              onPlayNext={track ? () => playTrackNext(track) : null}
+            />
           </>
         )}
         {shown ? (
@@ -755,6 +821,24 @@ function Row({
   );
 }
 
+/** Play as a mix's glyph (33c): two rings, as the Mix tab's mark. */
+function MixGlyph() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <circle cx="9" cy="12" r="5" />
+      <circle cx="15" cy="12" r="5" />
+    </svg>
+  );
+}
+
 /** Find it again (28e): the library rescans (an admin's Update the library). */
 async function findAgain(): Promise<void> {
   try {
@@ -828,6 +912,12 @@ export function SetEditor({
   const [sheet, setSheet] = useState<number | null>(null);
   const [moving, setMoving] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  /** UX-27: what a move, a remove or a swap said, once, to a screen reader */
+  const [announce, setAnnounce] = useState('');
+  const [hideGaps, setHideGaps] = useState(false);
+  const queueFrom = useQueueFrom();
+  const working = useIsWorking(source.kind === 'saved' ? source.id : null);
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -856,6 +946,15 @@ export function SetEditor({
 
   const rowsNow = useRef(rows);
   rowsNow.current = rows;
+  // re-review Low a: an Undo can't act on a page that's gone; its toast goes with it
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      window.dismissToast?.(UNDO_TOAST_KEY);
+    };
+  }, []);
   const nameNow = useRef(name);
   nameNow.current = name;
   const dirty = () =>
@@ -1053,28 +1152,81 @@ export function SetEditor({
 
   const update = (index: number, patch: Partial<SetRow>) =>
     setRows((cur) => cur.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  const rowTitle = (index: number) =>
+    viewRows[index]?.track?.title ?? rows[index]?.title ?? 'The track';
+  /**
+   * UX-8: a remove, a move or a swap says so with Undo for 10 s. Undo is the
+   * inverse edit on the rows as they are now (gauntlet review H1), so a track
+   * added since (the Mix tab, another window) stays; it's used once, and if
+   * the row it would act on has gone it says so and changes nothing. UX-27:
+   * the toast's live region says the edit once; Undo's result is said here.
+   */
+  const undoable = (words: string, inverse: (cur: SetRow[]) => SetRow[] | null) => {
+    window.showToast?.(words, 'success', null, {
+      ms: 10_000,
+      key: UNDO_TOAST_KEY,
+      action: {
+        label: 'Undo',
+        run: () => {
+          // the page has gone (its toast is taken down then; this is the
+          // race): say so rather than change nothing silently (re-review Low a)
+          if (!mounted.current) {
+            window.showToast?.("Can't undo here: open the set to change it", 'info');
+            return;
+          }
+          const next = inverse(rowsNow.current);
+          if (!next) {
+            setAnnounce(`Can't undo: that track isn't in the set any more`);
+            window.showToast?.("Can't undo: that track isn't in the set any more", 'info');
+            return;
+          }
+          setRows(next);
+          setAnnounce(`Undone: ${words}`);
+        },
+      },
+    });
+  };
   const remove = (index: number) => {
+    const removed = rows[index];
+    if (!removed) return;
+    const prev = index > 0 ? rows[index - 1] : null;
+    const title = rowTitle(index);
     setRows((cur) => cur.filter((_r, i) => i !== index));
     setSwap(null);
     setSheet(null);
+    undoable(`Removed ${title} from ${name.trim() || initial.name}`, (cur) =>
+      undoRemove(cur, removed, index, prev),
+    );
   };
   const moveTo = (from: number, to: number) => {
     if (rows[from]?.locked) {
       window.showToast?.('That track is locked in its place. Unlock it to move it.', 'info');
       return;
     }
-    setRows((cur) => moveRow(cur, from, to));
+    const moved = rows[from];
+    const before = from > 0 ? rows[from - 1] : null;
+    const title = rowTitle(from);
+    const next = moveRow(rows, from, to);
+    setRows(next);
+    const at = next.indexOf(moved);
+    if (at !== from)
+      undoable(`${title} moved to ${at + 1} of ${next.length}`, (cur) =>
+        undoMove(cur, moved, at, from, before),
+      );
   };
   const use = (index: number, track: DjTrack) => {
+    const was = rows[index];
+    if (!was) return;
+    const swappedIn = { track_id: track.id, artist: track.artist_name, title: track.title };
     update(index, {
-      track_id: track.id,
-      artist: track.artist_name,
-      title: track.title,
+      ...swappedIn,
       state: 'owned',
       version: null,
       want: 'yours',
     });
-    window.showToast?.(`${track.title} is in place ${index + 1}`, 'success');
+    undoable(`Swapped ${rowTitle(index)} for ${track.title}`, (cur) =>
+      undoSwap(cur, swappedIn, index, was, SWAP_FIELDS),
+    );
   };
 
   const save = async () => {
@@ -1104,7 +1256,7 @@ export function SetEditor({
     if (source.kind !== 'saved') return;
     try {
       await deleteSet(source.id);
-      void queryClient.invalidateQueries({ queryKey: [...SETS_QUERY_KEY, 'list'] });
+      afterSetRemoved(queryClient);
       window.showToast?.(`Removed ${source.name}. Its playlist stays.`, 'success');
       onDeleted();
     } catch (err) {
@@ -1191,6 +1343,31 @@ export function SetEditor({
     },
   });
 
+  // the set as Play and Play as a mix take it (a draft is id 0)
+  const setRef =
+    source.kind === 'saved'
+      ? { id: source.id, name: name.trim() || initial.name }
+      : { id: 0, name: name.trim() || initial.name, draft: true };
+  // 33c: the art, the playing row (the queue says which set it came from, 294)
+  const headArt = viewRows.find((r) => r.track?.image_url)?.track?.image_url ?? null;
+  const numberOfRow: (number | null)[] = [];
+  let numberedCount = 0;
+  for (const r of viewRows) numberOfRow.push(r.track || r.unreachable ? ++numberedCount : null);
+  // M3: the row with the playing track nearest the queue's mark (rows above
+  // it may have been removed or moved since it was queued)
+  const playingRow =
+    source.kind === 'saved' && queueFrom && queueFrom.id === source.id
+      ? playingRowIndex(rows, queueFrom.row, playingNow?.id)
+      : -1;
+  const playingNumber =
+    playingRow >= 0 && viewRows[playingRow]?.track ? (numberOfRow[playingRow] ?? null) : null;
+  // 353: "all ready to mix" sits in the meta line once every track is
+  const knownIds = trackIds.slice(0, 500).map(String);
+  const allReady =
+    knownIds.length > 0 && knownIds.every((id) => progressOf[id] && isReady(progressOf[id]));
+  // 263: lines of a saved famous mix that aren't in your library
+  const gapCount = viewRows.filter((r) => !r.track && !r.unreachable).length;
+
   let number = 0;
   return (
     <div className={styles.editor} data-set-editor={source.kind}>
@@ -1200,139 +1377,247 @@ export function SetEditor({
         </button>
         <span aria-hidden="true">/</span>
         <span className={styles.crumbHere}>{name || 'New set'}</span>
-        {source.kind === 'draft' ? (
-          <StatusTag tone="neutral" className={styles.draftTag}>
-            Draft · not saved
-          </StatusTag>
-        ) : saving === 'saving' ? (
-          <span className={styles.savedNote}>Saving…</span>
-        ) : saving === 'saved' ? (
-          <span className={styles.savedNote}>Saved</span>
-        ) : null}
       </nav>
 
-      <header className={styles.editorHead}>
-        <label className={styles.srOnly} htmlFor={nameId}>
-          The set’s name
-        </label>
-        <input
-          id={nameId}
-          className={styles.nameInput}
-          value={name}
-          maxLength={200}
-          onChange={(event) => setName(event.target.value)}
-          onBlur={() => !name.trim() && setName(initial.name)}
-        />
-        <p className={styles.metaLine} aria-live="polite">
-          {data
-            ? [
-                phone ? metaLineShort(data.summary) : metaLine(data.summary),
-                // 28e: "1 file missing"
-                missingWords(viewRows.filter((r) => !r.track && r.unreachable).length),
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            : ' '}
-          {fromSource ? (
-            <>
-              {' · '}
-              {fromSource}
-              {safeSourceLink(initial.source_url) ? (
-                <>
-                  {' · '}
-                  <a
-                    href={safeSourceLink(initial.source_url)!}
-                    target="_blank"
-                    rel="noopener noreferrer nofollow"
-                  >
-                    open it there
-                  </a>
-                </>
-              ) : null}
-            </>
-          ) : null}
-        </p>
-        <div className={styles.editorActions}>
-          {/* 319: Play as a mix comes before Export (33c), on a draft too; its
-              chips play whatever Between tracks says (28e) */}
-          <Button
-            size="lg"
-            variant="secondary"
-            disabled={!trackIds.length}
-            disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
-            onClick={() =>
-              void playSetAsMix(
-                source.kind === 'saved'
-                  ? { id: source.id, name: name.trim() || initial.name }
-                  : { id: 0, name: name.trim() || initial.name, draft: true },
-                viewRows,
-              )
-            }
-          >
-            Play as a mix
-          </Button>
-          <Button
-            size="lg"
-            variant="secondary"
-            disabled={!trackIds.length}
-            disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
-            onClick={() => setExporting(true)}
-          >
-            Export to Traktor…
-          </Button>
-          {source.kind === 'draft' ? (
+      {/* 33c: the art, the name with its tags, the meta line (the analysis's
+          "all ready to mix" in it, 353), then Play · Play as a mix · Export to
+          Traktor… and, at the right, the working-set toggle and the "…". Not a
+          <header>: the page's head isn't a second banner (UX-28). */}
+      <div className={styles.editorHead} data-set-head="">
+        <span className={styles.headArt} aria-hidden="true">
+          {headArt ? <img src={headArt} alt="" /> : null}
+        </span>
+        <div className={styles.headBody}>
+          <div className={styles.titleRow}>
+            <label className={styles.srOnly} htmlFor={nameId}>
+              The set’s name
+            </label>
+            <input
+              id={nameId}
+              className={styles.nameInput}
+              value={name}
+              maxLength={200}
+              size={Math.max(8, Math.min(40, name.length + 1))}
+              onChange={(event) => setName(event.target.value)}
+              onBlur={() => !name.trim() && setName(initial.name)}
+            />
+            {working ? (
+              <span className={styles.headTag} data-tone="accent" data-set-tag="working">
+                Working set
+              </span>
+            ) : null}
+            {playingNumber !== null ? (
+              <span className={styles.headTag} data-tone="playing" data-set-tag="playing">
+                Playing · {playingNumber} of {numberedCount}
+              </span>
+            ) : null}
+            {source.kind === 'draft' ? (
+              <StatusTag tone="neutral" className={styles.draftTag}>
+                Draft · not saved
+              </StatusTag>
+            ) : null}
+          </div>
+          <p className={styles.metaLine} aria-live="polite">
+            {data
+              ? [
+                  phone ? metaLineShort(data.summary) : metaLine(data.summary),
+                  // 28e: "1 file missing"
+                  missingWords(viewRows.filter((r) => !r.track && r.unreachable).length),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+              : ' '}
+            {allReady ? (
+              <>
+                {' · '}
+                <span className={styles.readyInline} data-set-ready="">
+                  <i aria-hidden="true" />
+                  all ready to mix
+                </span>
+              </>
+            ) : null}
+            {fromSource ? (
+              <>
+                {' · '}
+                {fromSource}
+                {safeSourceLink(initial.source_url) ? (
+                  <>
+                    {' · '}
+                    <a
+                      href={safeSourceLink(initial.source_url)!}
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                    >
+                      open it there
+                    </a>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+            {source.kind === 'saved' && saving !== 'idle' && saving !== 'error' ? (
+              <>
+                {' · '}
+                <span className={styles.savedNote}>
+                  {saving === 'saving' ? 'Saving…' : 'Saved'}
+                </span>
+              </>
+            ) : null}
+            {gapCount ? (
+              <>
+                {' · '}
+                {/* 263: a saved famous mix's lines not in your library, folded on ask */}
+                <button
+                  type="button"
+                  className={styles.metaButton}
+                  aria-pressed={hideGaps}
+                  onClick={() => setHideGaps((h) => !h)}
+                >
+                  {hideGaps
+                    ? `Show ${gapCount} not in your library`
+                    : `Hide ${gapCount} not in your library`}
+                </button>
+              </>
+            ) : null}
+          </p>
+          {/* 31b, 353: while anything isn't ready, the line (its bar and words)
+              sits here, under the meta line; ready, it's the meta line's dot */}
+          {allReady ? null : (
+            <SetAnalysisLine
+              ids={trackIds.slice(0, 500).map(String)}
+              progressOf={progressOf}
+              titleOf={titleOf}
+              setId={setId}
+            />
+          )}
+          <div className={styles.editorActions}>
+            {/* 33c: Play is the primary (the set from its first row, as Up next);
+                319: Play as a mix comes before Export, on a draft too */}
             <Button
               size="lg"
-              variant="primary"
-              disabled={!rows.length || saving === 'saving'}
-              disabledReason={!rows.length ? 'Add a track first' : undefined}
-              onClick={() => void save()}
+              variant={source.kind === 'draft' ? 'secondary' : 'primary'}
+              disabled={!trackIds.length}
+              disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
+              onClick={() => void playSet(setRef, viewRows)}
             >
-              Save as a set
+              <span className={styles.playGlyph} aria-hidden="true">
+                <PlayGlyph size={16} />
+              </span>
+              Play
             </Button>
-          ) : null}
-          <MoreMenu
-            className={styles.headMore}
-            label={`More for ${name}`}
-            entries={
-              source.kind === 'draft'
-                ? [
-                    ...analyseEntry,
-                    {
-                      key: 'discard',
-                      label: 'Discard this draft',
-                      onSelect: discard,
-                      tone: 'danger',
-                    },
-                  ]
-                : [
-                    ...analyseEntry,
-                    ...(playlistId
-                      ? [
-                          {
-                            key: 'playlist',
-                            label: 'Open its playlist',
-                            onSelect: () => openPlaylist(playlistId!),
-                          },
-                        ]
-                      : []),
-                    {
-                      key: 'remove',
-                      label: 'Remove this set',
-                      onSelect: () => void remove_set(),
-                      tone: 'danger',
-                    },
-                  ]
-            }
-          />
+            <Button
+              size="lg"
+              variant="secondary"
+              disabled={!trackIds.length}
+              disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
+              onClick={() => void playSetAsMix(setRef, viewRows)}
+            >
+              <span className={styles.playGlyph} aria-hidden="true">
+                <MixGlyph />
+              </span>
+              Play as a mix
+            </Button>
+            <Button
+              size="lg"
+              variant="secondary"
+              disabled={!trackIds.length}
+              disabledReason={trackIds.length ? undefined : 'Add a track from your library first'}
+              onClick={() => setExporting(true)}
+            >
+              Export to Traktor…
+            </Button>
+            {source.kind === 'draft' ? (
+              <Button
+                size="lg"
+                variant="primary"
+                disabled={!rows.length || saving === 'saving'}
+                disabledReason={!rows.length ? 'Add a track first' : undefined}
+                onClick={() => void save()}
+              >
+                Save as a set
+              </Button>
+            ) : null}
+            <span className={styles.actionsSpacer} />
+            {source.kind === 'saved' ? (
+              <WorkingSetToggle setId={source.id} name={name.trim() || initial.name} />
+            ) : null}
+            <MoreMenu
+              className={styles.headMore}
+              label={`More for ${name}`}
+              entries={
+                source.kind === 'draft'
+                  ? [
+                      ...analyseEntry,
+                      {
+                        key: 'discard',
+                        label: 'Discard this draft',
+                        onSelect: discard,
+                        tone: 'danger',
+                      },
+                    ]
+                  : [
+                      ...analyseEntry,
+                      // 262: Open its playlist · Duplicate · Make this my working set · Remove this set…
+                      ...(playlistId
+                        ? [
+                            {
+                              key: 'playlist',
+                              label: 'Open its playlist',
+                              onSelect: () => openPlaylist(playlistId!),
+                            },
+                          ]
+                        : []),
+                      {
+                        key: 'duplicate',
+                        label: 'Duplicate',
+                        onSelect: () =>
+                          void duplicateSet({
+                            name: name.trim() || initial.name,
+                            kind: initial.kind,
+                            rows,
+                          }).then((id) => {
+                            if (id === null) return;
+                            void queryClient.invalidateQueries({
+                              queryKey: [...SETS_QUERY_KEY, 'list'],
+                            });
+                            onSaved(id);
+                          }),
+                      },
+                      {
+                        key: 'working',
+                        label: working ? 'No longer my working set' : 'Make this my working set',
+                        onSelect: () =>
+                          void chooseWorking(
+                            working ? null : source.id,
+                            name.trim() || initial.name,
+                          ).then(() =>
+                            queryClient.invalidateQueries({
+                              queryKey: [...SETS_QUERY_KEY, 'working'],
+                            }),
+                          ),
+                      },
+                      {
+                        key: 'remove',
+                        label: 'Remove this set…',
+                        onSelect: () => setRemoving(true),
+                        tone: 'danger',
+                      },
+                    ]
+              }
+            />
+          </div>
         </div>
-        <SetAnalysisLine
-          ids={trackIds.slice(0, 500).map(String)}
-          progressOf={progressOf}
-          titleOf={titleOf}
-          setId={setId}
+      </div>
+      {source.kind === 'saved' ? (
+        <RemoveSetDialog
+          name={name.trim() || initial.name}
+          open={removing}
+          onKeep={() => setRemoving(false)}
+          onRemove={() => {
+            setRemoving(false);
+            void remove_set();
+          }}
         />
-      </header>
+      ) : null}
 
       {/* 31b: what isn't ready to mix, by kind, and what Play as a mix does meanwhile */}
       <SetNotReadyNotice ids={trackIds.slice(0, 500).map(String)} progressOf={progressOf} />
@@ -1420,7 +1705,12 @@ export function SetEditor({
         // 28g: an empty set, and the ways to fill it
         <div className={styles.emptyCard}>
           <h2>Nothing in {name.trim() || 'this set'} yet</h2>
-          <p>Add tracks from any track’s “…” → Add to set…, or below. Or let SYNCHRO.S start it:</p>
+          {/* UX-19: a draft lives in this browser, so Add to set… can't reach it */}
+          <p>
+            {source.kind === 'draft'
+              ? 'Add tracks below; a draft stays in this browser until you save it as a set. Or let SYNCHRO.S start it:'
+              : 'Add tracks from any track’s “…” → Add to set…, or below. Or let SYNCHRO.S start it:'}
+          </p>
           <div className={styles.emptyActions}>
             <Button size="lg" variant="secondary" disabled disabledReason={SUGGEST_LATER}>
               Suggest a set…
@@ -1453,11 +1743,15 @@ export function SetEditor({
         </div>
       )}
 
+      <p className={styles.srOnly} role="status" aria-live="polite" data-set-announce="">
+        {announce}
+      </p>
       {rows.length ? (
         <ol className={styles.rows} aria-label={`Tracks in ${name}`}>
           {viewRows.map((row, index) => {
             // 28e: a track whose file is missing keeps its number
             const n = row.track || row.unreachable ? ++number : null;
+            if (hideGaps && !row.track && !row.unreachable) return null;
             const step = steps[index];
             const nextRow = viewRows.slice(index + 1).find((r) => r.track)?.track ?? null;
             const next = nextRow?.title ?? '';
@@ -1485,6 +1779,8 @@ export function SetEditor({
                 setName={name.trim() || initial.name}
                 drag={dragFor(index)}
                 progress={row.track ? (progressOf[String(row.track.id)] ?? null) : null}
+                playing={index === playingRow}
+                onPlay={row.track ? () => void playSet(setRef, viewRows, index) : null}
               />
             );
           })}
@@ -1539,7 +1835,7 @@ export function SetEditor({
         <MoveDialog
           title={viewRows[moving]?.track?.title ?? viewRows[moving]?.title ?? ''}
           from={moving}
-          count={rows.length}
+          titles={viewRows.map((r) => r.track?.title ?? r.gone_track?.title ?? r.title ?? '')}
           onMove={(to) => {
             moveTo(moving, to);
             setMoving(null);

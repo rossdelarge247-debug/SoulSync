@@ -4,7 +4,7 @@
  * …/vibe`), the working set (`/api/sets/working`), and Add after the
  * playing track (`POST /api/sets/<id>/tracks` with `after`).
  */
-import { queryOptions } from '@tanstack/react-query';
+import { queryOptions, useQuery } from '@tanstack/react-query';
 
 import type { DjMatch, DjMixesResponse } from '@/features/dj/dj.api';
 import type { AddedToSet, SetKind } from '@/features/sets/sets.api';
@@ -30,6 +30,8 @@ export interface MixMatch extends Omit<DjMatch, 'key_relation'> {
   reason: string;
   /** the phone's line: "same key · +2% · ↑1" */
   reason_short: string;
+  /** the step a set would make (22c's rule): "Smooth" or "Jump" first on the line (33b) */
+  step?: 'smooth' | 'jump' | 'unknown';
   starred: boolean;
   signals: MixSignals;
 }
@@ -181,7 +183,7 @@ export function chooseWorkingSet(setId: number | null): Promise<WorkingSet | nul
 export function startWorkingSet(
   name: string,
   trackIds: string[],
-): Promise<{ id: number; working: WorkingSet | null }> {
+): Promise<{ id: number; tracks?: number; working: WorkingSet | null }> {
   return call(
     apiClient.post('sets/working/start', { ...opts, json: { name, track_ids: trackIds } }),
   );
@@ -217,4 +219,20 @@ export function aiStatusQueryOptions() {
     queryFn: () => call<AiStatus>(apiClient.get('ai/status', opts)),
     staleTime: 60_000,
   });
+}
+
+/**
+ * The working set, for places outside the Mix tab (33c, 33e): the sidebar's
+ * Sets row, a set's header, Your sets, the phone's "Add to set…" line. Read
+ * once and shared through the query cache; a change anywhere fires
+ * MIX_SET_CHANGED and the Mix tab's model reads it again.
+ */
+export function useWorkingSet(profileId: number | string | null | undefined): WorkingSet | null {
+  const q = useQuery({
+    ...workingSetQueryOptions(profileId),
+    enabled: profileId !== null && profileId !== undefined,
+    retry: false,
+    staleTime: 30_000,
+  });
+  return q.data ?? null;
 }

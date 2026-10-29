@@ -374,7 +374,7 @@ export function AutoSyncWeeklyBoard({
             );
           }}
         />
-        <main className="auto-sync-lanes auto-sync-weekly-lanes">
+        <div className="auto-sync-lanes auto-sync-weekly-lanes">
           {AUTO_SYNC_WEEKDAYS.map((day) => {
             const cards = cardsByDay[day];
             return (
@@ -439,7 +439,7 @@ export function AutoSyncWeeklyBoard({
               </AutoSyncLane>
             );
           })}
-        </main>
+        </div>
       </div>
       {draft && draftPlaylist ? (
         <AutoSyncWeeklyEditor

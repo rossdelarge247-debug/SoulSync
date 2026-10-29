@@ -5743,9 +5743,11 @@ function _patchOverlayActive() {
 function showToast(message, type = 'success', helpSection = null, opts = null) {
     const toastKey = `${type}:${message}`;
     const now = Date.now();
+    const action = opts && opts.action && opts.action.label && typeof opts.action.run === 'function' ? opts.action : null;
 
-    // Deduplication — suppress identical toasts within 5 seconds
-    if (_recentToastKeys.has(toastKey) && now - _recentToastKeys.get(toastKey) < 5000) return;
+    // Deduplication — suppress identical toasts within 5 seconds. Not one with
+    // an action: two removes of the same title are two Undos (gauntlet H1)
+    if (!action && _recentToastKeys.has(toastKey) && now - _recentToastKeys.get(toastKey) < 5000) return;
     _recentToastKeys.set(toastKey, now);
     for (const [k, t] of _recentToastKeys) { if (now - t > 10000) _recentToastKeys.delete(k); }
 
@@ -5779,16 +5781,31 @@ function showToast(message, type = 'success', helpSection = null, opts = null) {
         link.onclick = e => { e.stopPropagation(); if (typeof navigateToDocsSection === 'function') navigateToDocsSection(helpSection); };
         toast.appendChild(link);
     }
-    const action = opts && opts.action && opts.action.label && typeof opts.action.run === 'function' ? opts.action : null;
+    if (opts && opts.key) toast.dataset.toastKey = String(opts.key);
+    const close = () => { toast.classList.add('toast-exit'); setTimeout(() => { if (container.contains(toast)) container.removeChild(toast); }, 200); };
     if (action) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'toast-compact-link toast-compact-action';
         button.textContent = action.label;
-        button.onclick = e => { e.stopPropagation(); action.run(); };
+        // one use: the action runs once and the notice goes (gauntlet H1)
+        let used = false;
+        button.onclick = e => {
+            e.stopPropagation();
+            if (used) return;
+            used = true;
+            button.disabled = true;
+            if (_notifState.toastTimer) clearTimeout(_notifState.toastTimer);
+            if (_notifState.currentToast === toast) _notifState.currentToast = null;
+            close();
+            action.run();
+        };
         toast.appendChild(button);
+        // a notice with a control is said, politely, so a screen reader
+        // knows the control is there (the toast itself isn't a live region)
+        _toastLive(`${message}. ${action.label} is in the notice.`);
     }
-    toast.onclick = () => { toast.classList.add('toast-exit'); setTimeout(() => { if (container.contains(toast)) container.removeChild(toast); }, 200); };
+    toast.onclick = close;
 
     container.appendChild(toast);
     requestAnimationFrame(() => toast.classList.add('toast-enter'));
@@ -5800,7 +5817,38 @@ function showToast(message, type = 'success', helpSection = null, opts = null) {
             setTimeout(() => { if (container.contains(toast)) container.removeChild(toast); }, 300);
         }
         _notifState.currentToast = null;
-    }, helpSection || action ? 5000 : 3500);
+    // an action stays 6 s (Brief B, UX-8) unless it asks for longer (a
+    // set's Undo asks for 10 s); a help link 5 s
+    }, action ? (opts.ms > 0 ? opts.ms : 6000) : helpSection ? 5000 : 3500);
+}
+
+/** Take down the showing toast if it was put up with this opts.key (an Undo whose page has gone). */
+function dismissToast(key) {
+    const toast = _notifState.currentToast;
+    const container = document.getElementById('toast-container');
+    if (!toast || !container || !container.contains(toast) || toast.dataset.toastKey !== String(key)) return false;
+    if (_notifState.toastTimer) clearTimeout(_notifState.toastTimer);
+    _notifState.currentToast = null;
+    toast.classList.add('toast-exit');
+    setTimeout(() => { if (container.contains(toast)) container.removeChild(toast); }, 200);
+    return true;
+}
+window.dismissToast = dismissToast;
+
+/** One polite live region for notices with a control in them. */
+function _toastLive(words) {
+    let live = document.getElementById('toast-live');
+    if (!live) {
+        live = document.createElement('div');
+        live.id = 'toast-live';
+        live.setAttribute('role', 'status');
+        live.setAttribute('aria-live', 'polite');
+        live.style.cssText = 'position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0';
+        document.body.appendChild(live);
+    }
+    // cleared first, so the same words twice are said twice
+    live.textContent = '';
+    setTimeout(() => { live.textContent = words; }, 50);
 }
 
 function _escToast(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }

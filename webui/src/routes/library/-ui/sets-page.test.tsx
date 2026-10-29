@@ -6,7 +6,7 @@ import { AppRouterProvider, createAppRouter } from '@/app/router';
 import { refreshPrefs } from '@/features/automix/prefs';
 import { saveTransitionToDraft } from '@/features/automix/set-play';
 import { analysisStore, resetAnalysisRequests } from '@/features/dj/analysis.api';
-import { resetMixesForTests } from '@/features/dj/mixes-store';
+import { resetMixForTests } from '@/features/mix/mix-store';
 import { readDraft, resetDraftsForTests, writeDraft } from '@/features/sets/draft-store';
 import { createTestQueryClient } from '@/test/query-client';
 import { createShellBridge } from '@/test/shell-bridge';
@@ -171,6 +171,10 @@ let mixesdbBusy = false;
 let playlistState: string | null = null;
 /** the set's revision on the stand-in server (compare and set, like the real one) */
 let serverRevision = 3;
+/** the profile's working set (`/api/sets/working`) */
+let workingSet: { id: number; name: string } | null = null;
+/** the set's rows on the stand-in server when something else changed them */
+let serverRows: typeof SAVED_ROWS | null = null;
 /** hold the next PUT until released (two quick edits from one window) */
 let holdNextPut: { release?: () => void } | null = null;
 
@@ -185,6 +189,8 @@ beforeEach(() => {
   mixesdbBusy = false;
   playlistState = null;
   serverRevision = 3;
+  workingSet = null;
+  serverRows = null;
   holdNextPut = null;
   GONE = new Set();
   WORKING = new Set();
@@ -203,7 +209,19 @@ beforeEach(() => {
       sent.push({ path, method, body });
       let answer: unknown = { success: true };
       let status = 200;
-      if (path === '/api/sets' && method === 'GET')
+      if (path === '/api/sets/working' && method === 'PUT') {
+        const id = (body as { set_id: number | null }).set_id;
+        workingSet = id ? { id, name: 'Sunday Set' } : null;
+        answer = {
+          success: true,
+          working: workingSet ? { ...workingSet, kind: 'hand', revision: 3 } : null,
+        };
+      } else if (path === '/api/sets/working')
+        answer = {
+          success: true,
+          working: workingSet ? { ...workingSet, kind: 'hand', revision: 3 } : null,
+        };
+      else if (path === '/api/sets' && method === 'GET')
         answer = {
           success: true,
           sets: [
@@ -225,7 +243,7 @@ beforeEach(() => {
         answer = { success: true, id: 9, playlist_id: 4 };
       else if (path === '/api/sets/7' && method === 'GET')
         answer = {
-          ...view(SAVED_ROWS),
+          ...view(serverRows ?? SAVED_ROWS),
           set: {
             id: 7,
             name: 'Sunday Set',
@@ -237,7 +255,7 @@ beforeEach(() => {
             playlist_state: playlistState,
             revision: serverRevision,
           },
-          rows: view(SAVED_ROWS).rows,
+          rows: view(serverRows ?? SAVED_ROWS).rows,
         };
       else if (path === '/api/sets/7' && method === 'PUT') {
         const held = holdNextPut;
@@ -387,7 +405,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  resetMixesForTests();
+  resetMixForTests();
   vi.unstubAllGlobals();
   delete window.SoulSyncWebShellBridge;
   delete window.showLibraryDownloadsSection;
@@ -444,7 +462,7 @@ describe('Library → Sets', () => {
     await screen.findByDisplayValue('Sunday Set');
     await waitFor(() =>
       expect(document.querySelector('[data-set-editor] p')!.textContent).toBe(
-        '3 tracks · 18 min · 118–120 BPM · 2 smooth steps',
+        '3 tracks · 18 min · 118–120 BPM · 2 smooth steps · Hide 1 not in your library',
       ),
     );
     const steps = document.querySelectorAll('[data-step="smooth"]');
@@ -892,5 +910,394 @@ describe("[review M2] 319: a chip saved to the draft from Up next survives the d
     fireEvent.change(name, { target: { value: 'Draft two' } });
     await waitFor(() => expect(readDraft(2)?.name).toBe('Draft two'));
     expect(readDraft(2)?.rows[0].transition).toEqual({ style: 'echo_out', bars: 4 });
+  });
+});
+
+describe("Brief C's set header (33c), Your sets (33e) and Brief D's rows (34b)", () => {
+  it('33c: Play is the primary, then Play as a mix, Export; the working-set toggle and its tag', async () => {
+    workingSet = { id: 7, name: 'Sunday Set' };
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const head = document.querySelector<HTMLElement>('[data-set-head]')!;
+    expect(head.tagName).toBe('DIV'); // UX-28: not a second banner
+    const buttons = within(head)
+      .getAllByRole('button')
+      .map((b) => b.textContent?.trim());
+    const at = buttons.indexOf('Play');
+    expect(buttons.slice(at, at + 3)).toEqual(['Play', 'Play as a mix', 'Export to Traktor…']);
+    expect(within(head).getByRole('button', { name: 'Play' })).toHaveAttribute(
+      'data-variant',
+      'primary',
+    );
+    const toggle = await within(head).findByRole('button', { name: 'My working set' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(within(head).getByText('Working set')).toHaveAttribute('data-set-tag', 'working');
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(calls('/api/sets/working', 'PUT').map((c) => c.body)).toEqual([{ set_id: null }]),
+    );
+    expect(
+      await within(head).findByRole('button', { name: 'Make this my working set' }),
+    ).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('262: the head\'s "…" is Open its playlist · Duplicate · Make this my working set · Remove this set…', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    fireEvent.click(screen.getByRole('button', { name: 'More for Sunday Set' }));
+    await screen.findByRole('menuitem', { name: 'Duplicate' });
+    expect(
+      screen
+        .getAllByRole('menuitem')
+        .map((m) => m.textContent)
+        .filter((t) => !t?.startsWith('Analyse these')),
+    ).toEqual(['Open its playlist', 'Duplicate', 'Make this my working set', 'Remove this set…']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    await waitFor(() => expect(calls('/api/sets', 'POST')).toHaveLength(1));
+    expect((calls('/api/sets', 'POST')[0].body as { name: string }).name).toBe('Sunday Set (copy)');
+  });
+
+  it('267: Remove this set… is a confirm on the dialog frame: Keep keeps it, Remove removes it', async () => {
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirm);
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    fireEvent.click(screen.getByRole('button', { name: 'More for Sunday Set' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove this set…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Remove Sunday Set?' });
+    expect(within(dialog).getByText('Its playlist stays.')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Keep' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(calls('/api/sets/7', 'DELETE')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'More for Sunday Set' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove this set…' }));
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove' }),
+    );
+    await waitFor(() => expect(calls('/api/sets/7', 'DELETE')).toHaveLength(1));
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('[gauntlet M2] removing the working set has every place read the working set again', async () => {
+    const { MIX_SET_CHANGED } = await import('@/features/sets/sets.api');
+    workingSet = { id: 7, name: 'Sunday Set' };
+    const changed = vi.fn();
+    window.addEventListener(MIX_SET_CHANGED, changed);
+    try {
+      renderPage('/library?view=sets&set=7');
+      await screen.findByDisplayValue('Sunday Set');
+      await waitFor(() => expect(calls('/api/sets/working', 'GET').length).toBeGreaterThan(0));
+      const before = calls('/api/sets/working', 'GET').length;
+      fireEvent.click(screen.getByRole('button', { name: 'More for Sunday Set' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove this set…' }));
+      // the server lets go of it as the set goes
+      workingSet = null;
+      fireEvent.click(
+        within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove' }),
+      );
+      await waitFor(() => expect(calls('/api/sets/7', 'DELETE')).toHaveLength(1));
+      await waitFor(() => expect(changed).toHaveBeenCalled());
+      await waitFor(() => expect(calls('/api/sets/working', 'GET').length).toBeGreaterThan(before));
+    } finally {
+      window.removeEventListener(MIX_SET_CHANGED, changed);
+    }
+  });
+
+  it('[gauntlet M2] removing a set from Your sets does the same', async () => {
+    const { MIX_SET_CHANGED } = await import('@/features/sets/sets.api');
+    workingSet = { id: 7, name: 'Sunday Set' };
+    const changed = vi.fn();
+    window.addEventListener(MIX_SET_CHANGED, changed);
+    try {
+      renderPage();
+      const row = (await screen.findByText('Sunday Set')).closest('[data-set-list-row], li')!;
+      fireEvent.click(within(row as HTMLElement).getByRole('button', { name: /^More for/ }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: /^Remove/ }));
+      workingSet = null;
+      fireEvent.click(
+        within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove' }),
+      );
+      await waitFor(() => expect(calls('/api/sets/7', 'DELETE')).toHaveLength(1));
+      await waitFor(() => expect(changed).toHaveBeenCalled());
+    } finally {
+      window.removeEventListener(MIX_SET_CHANGED, changed);
+    }
+  });
+
+  it('33c, 34b: the playing row is a green ▶ with "Playing · 3 of 3"; a row\'s Play plays the set from it', async () => {
+    const playTrackList = vi.fn(async () => ({ status: 'played' }));
+    const w = window as unknown as Record<string, unknown>;
+    w.playTrackList = playTrackList;
+    // their files are here, so the set has a queue to play
+    for (const id of ['1', '2', '3']) LIBRARY[id].file_path = `/m/${id}.flac` as never;
+    w.SoulSyncPlayer = {
+      state: () => ({
+        track: { id: '3', title: 'Undertow' },
+        queue: [
+          { id: '1', from_set: { id: 7, name: 'Sunday Set', row: 0 } },
+          { id: '3', from_set: { id: 7, name: 'Sunday Set', row: 3 } },
+        ],
+        index: 1,
+      }),
+      audio: () => null,
+      renderQueue: () => {},
+    };
+    try {
+      renderPage('/library?view=sets&set=7');
+      await screen.findByDisplayValue('Sunday Set');
+      expect(await screen.findByText('Playing · 3 of 3')).toHaveAttribute(
+        'data-set-tag',
+        'playing',
+      );
+      const undertow = document.querySelector<HTMLElement>('[data-set-row="3"]')!;
+      expect(undertow).toHaveAttribute('data-playing', 'true');
+      expect(within(undertow).getByRole('img', { name: 'Playing, #3' })).toBeTruthy();
+      const foghorn = document.querySelector<HTMLElement>('[data-set-row="1"]')!;
+      fireEvent.click(within(foghorn).getByRole('button', { name: 'Play Foghorn Study' }));
+      await waitFor(() => expect(playTrackList).toHaveBeenCalledTimes(1));
+      const [queue, name, options] = playTrackList.mock.calls[0] as unknown as [
+        { id: string; from_set?: { row: number }; mix_set?: unknown }[],
+        string,
+        { startIndex: number },
+      ];
+      expect(name).toBe('Sunday Set');
+      expect(queue.map((t) => t.id)).toEqual(['1', '2', '3']);
+      expect(queue.every((t) => t.from_set && !t.mix_set)).toBe(true);
+      expect(options.startIndex).toBe(1);
+    } finally {
+      delete w.playTrackList;
+      delete w.SoulSyncPlayer;
+      for (const id of ['1', '2', '3']) LIBRARY[id].file_path = null;
+    }
+  });
+
+  it('[gauntlet M3] the playing row follows its track when a row above it goes', async () => {
+    const w = window as unknown as Record<string, unknown>;
+    w.SoulSyncPlayer = {
+      state: () => ({
+        track: { id: '3', title: 'Undertow' },
+        queue: [{ id: '3', from_set: { id: 7, name: 'Sunday Set', row: 3 } }],
+        index: 0,
+      }),
+      audio: () => null,
+      renderQueue: () => {},
+    };
+    try {
+      renderPage('/library?view=sets&set=7');
+      await screen.findByDisplayValue('Sunday Set');
+      expect(await screen.findByText('Playing · 3 of 3')).toBeTruthy();
+      const foghorn = document.querySelector<HTMLElement>('[data-set-row="1"]')!;
+      fireEvent.click(within(foghorn).getByRole('button', { name: 'More for Foghorn Study' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove from set' }));
+      // Undertow is the third row now (index 2), and still the playing one
+      expect(await screen.findByText('Playing · 2 of 2')).toBeTruthy();
+      const undertow = document.querySelector<HTMLElement>('[data-set-row="2"]')!;
+      expect(within(undertow).getByText('Undertow')).toBeTruthy();
+      expect(undertow).toHaveAttribute('data-playing', 'true');
+      expect(document.querySelectorAll('[data-set-row][data-playing="true"]')).toHaveLength(1);
+    } finally {
+      delete w.SoulSyncPlayer;
+    }
+  });
+
+  it('263: lines not in your library fold away on the head and come back', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    expect(await screen.findByText('Gravity Well')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide 1 not in your library' }));
+    expect(screen.queryByText('Gravity Well')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show 1 not in your library' }));
+    expect(screen.getByText('Gravity Well')).toBeTruthy();
+  });
+
+  it('33e: Your sets tags the working set and has its toggle; the others make it so', async () => {
+    renderPage();
+    const row = (await screen.findByText('Sunday Set')).closest('li')!;
+    const make = await within(row).findByRole('button', { name: 'Make this my working set' });
+    fireEvent.click(make);
+    await waitFor(() =>
+      expect(calls('/api/sets/working', 'PUT').map((c) => c.body)).toEqual([{ set_id: 7 }]),
+    );
+    expect(await within(row).findByRole('button', { name: 'Working set' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(within(row).getByText('Working set', { selector: '[data-set-tag]' })).toBeTruthy();
+  });
+
+  it("266: Suggest a set's reason is one meta line under the tab pair", async () => {
+    renderPage();
+    const reason = await screen.findByText(/Set suggestions come with the next step of Sets/);
+    const tabs = screen.getByRole('tablist', { name: 'Ways to start a set' });
+    expect(reason.parentElement).toBe(tabs.parentElement);
+    expect(tabs.nextElementSibling).toBe(reason);
+  });
+});
+
+describe('the UX review on a set (UX-8, UX-19, UX-27, UX-30)', () => {
+  it('UX-8, UX-27: Remove from set says so once with Undo, and Undo puts it back', async () => {
+    const toasts: [string, unknown][] = [];
+    window.showToast = vi.fn((m: string, _t?: string, _c?: unknown, opts?: unknown) => {
+      toasts.push([m, opts]);
+    }) as never;
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const row = document.querySelector<HTMLElement>('[data-set-row="1"]')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'More for Foghorn Study' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove from set' }));
+    await waitFor(() => expect(screen.queryByText('Foghorn Study')).toBeNull());
+    const [words, opts] = toasts.find(([m]) => m.startsWith('Removed'))!;
+    expect(words).toBe('Removed Foghorn Study from Sunday Set');
+    // the toast's own live region says it (once); Undo stays up 10 s
+    expect(opts).toMatchObject({ ms: 10_000, action: { label: 'Undo' } });
+    expect(document.querySelector('[data-set-announce]')).not.toHaveTextContent(words);
+    act(() => (opts as { action: { run: () => void } }).action.run());
+    expect(await screen.findByText('Foghorn Study')).toBeTruthy();
+    expect(document.querySelector('[data-set-announce]')).toHaveTextContent(`Undone: ${words}`);
+  });
+
+  it('[gauntlet H1] Undo after a newer server copy keeps the row added since, and saves from its revision', async () => {
+    const { MIX_SET_CHANGED } = await import('@/features/sets/sets.api');
+    const toasts: [string, unknown][] = [];
+    window.showToast = vi.fn((m: string, _t?: string, _c?: unknown, opts?: unknown) => {
+      toasts.push([m, opts]);
+    }) as never;
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const row = document.querySelector<HTMLElement>('[data-set-row="1"]')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'More for Foghorn Study' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove from set' }));
+    // the remove autosaves (revision 4)
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    await screen.findByText('Saved');
+    // then the Mix tab adds Kelp Garden on the server (revision 5)
+    serverRows = [
+      SAVED_ROWS[0],
+      SAVED_ROWS[2],
+      SAVED_ROWS[3],
+      { track_id: '6', artist: 'Pale Harbour', title: 'Kelp Garden', state: 'owned' },
+    ];
+    serverRevision = 5;
+    act(() => {
+      window.dispatchEvent(new CustomEvent(MIX_SET_CHANGED, { detail: { id: 7 } }));
+    });
+    expect(await screen.findByText('Kelp Garden')).toBeTruthy();
+    // Undo the remove: Foghorn Study goes back after Lowtide Hymn, Kelp Garden stays
+    const [, opts] = toasts.find(([m]) => m.startsWith('Removed'))!;
+    act(() => (opts as { action: { run: () => void } }).action.run());
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(2), { timeout: 2000 });
+    const put = calls('/api/sets/7', 'PUT')[1].body as {
+      base_revision: number;
+      tracks: { title: string }[];
+    };
+    expect(put.base_revision).toBe(5);
+    expect(put.tracks.map((t) => t.title)).toEqual([
+      'Lowtide Hymn',
+      'Foghorn Study',
+      'Gravity Well',
+      'Undertow',
+      'Kelp Garden',
+    ]);
+  });
+
+  it('[re-review Low a] leaving the set page takes its Undo down; a late Undo says so and saves nothing', async () => {
+    const toasts: [string, unknown][] = [];
+    window.showToast = vi.fn((m: string, _t?: string, _c?: unknown, opts?: unknown) => {
+      toasts.push([m, opts]);
+    }) as never;
+    const dismissToast = vi.fn(() => true);
+    window.dismissToast = dismissToast;
+    try {
+      renderPage('/library?view=sets&set=7');
+      await screen.findByDisplayValue('Sunday Set');
+      const row = document.querySelector<HTMLElement>('[data-set-row="1"]')!;
+      fireEvent.click(within(row).getByRole('button', { name: 'More for Foghorn Study' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove from set' }));
+      await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+      const [, opts] = toasts.find(([m]) => m.startsWith('Removed'))!;
+      expect(opts).toMatchObject({ key: 'set-undo' });
+      // back to Sets: the page goes, and its toast with it
+      fireEvent.click(screen.getByRole('button', { name: 'Sets' }));
+      await screen.findByRole('heading', { level: 1, name: 'Sets' });
+      expect(dismissToast).toHaveBeenCalledWith('set-undo');
+      act(() => (opts as { action: { run: () => void } }).action.run());
+      expect(toasts.at(-1)?.[0]).toBe("Can't undo here: open the set to change it");
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      expect(calls('/api/sets/7', 'PUT')).toHaveLength(1);
+    } finally {
+      delete window.dismissToast;
+    }
+  });
+
+  it('[gauntlet H1] Undo of a move whose row has gone says so and changes nothing', async () => {
+    const { MIX_SET_CHANGED } = await import('@/features/sets/sets.api');
+    const toasts: [string, unknown][] = [];
+    window.showToast = vi.fn((m: string, _t?: string, _c?: unknown, opts?: unknown) => {
+      toasts.push([m, opts]);
+    }) as never;
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const row = document.querySelector<HTMLElement>('[data-set-row="3"]')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'More for Undertow' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Move…' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'To the top' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move here' }));
+    await waitFor(() => expect(calls('/api/sets/7', 'PUT').length).toBe(1), { timeout: 2000 });
+    await screen.findByText('Saved');
+    // somewhere else, Undertow is taken out of the set
+    serverRows = [SAVED_ROWS[0], SAVED_ROWS[1], SAVED_ROWS[2]];
+    serverRevision = 5;
+    act(() => {
+      window.dispatchEvent(new CustomEvent(MIX_SET_CHANGED, { detail: { id: 7 } }));
+    });
+    await waitFor(() => expect(screen.queryByText('Undertow')).toBeNull());
+    const [, opts] = toasts.find(([m]) => m.startsWith('Undertow moved'))!;
+    act(() => (opts as { action: { run: () => void } }).action.run());
+    expect(document.querySelector('[data-set-announce]')).toHaveTextContent(
+      "Can't undo: that track isn't in the set any more",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(calls('/api/sets/7', 'PUT')).toHaveLength(1);
+  });
+
+  it('UX-30, UX-27: Move… lists places by neighbour and says where it went', async () => {
+    renderPage('/library?view=sets&set=7');
+    await screen.findByDisplayValue('Sunday Set');
+    const row = document.querySelector<HTMLElement>('[data-set-row="3"]')!;
+    fireEvent.click(within(row).getByRole('button', { name: 'More for Undertow' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Move…' }));
+    const dialog = await screen.findByRole('dialog');
+    const places = within(dialog)
+      .getAllByRole('radio')
+      .map((r) => r.closest('label')!.textContent);
+    expect(places).toEqual([
+      'To the top',
+      'After Lowtide Hymn',
+      'After Foghorn Study',
+      'After Gravity Wellits place now',
+    ]);
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'To the top' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move here' }));
+    // said once, by the toast's live region, with Undo
+    await waitFor(() =>
+      expect(window.showToast).toHaveBeenCalledWith(
+        'Undertow moved to 1 of 4',
+        'success',
+        null,
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+      ),
+    );
+  });
+
+  it('UX-19: a new set is "Set from Tuesday 27 Oct" everywhere, and an empty draft says where to add', async () => {
+    const { newSetName } = await import('@/features/sets/sets.format');
+    expect(newSetName(new Date(2026, 9, 27))).toBe('Set from Tuesday 27 Oct');
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'New empty set' }));
+    expect(
+      await screen.findByText(/a draft stays in this browser until you save it as a set/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Add to set…, or below/)).toBeNull();
   });
 });

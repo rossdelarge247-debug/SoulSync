@@ -84,7 +84,9 @@ export function SelectionBar({
               variant="secondary"
               className={styles.barSecondary}
               disabled={count === 0}
-              disabledReason={count === 0 ? emptyReason : undefined}
+              // UX-23: one reason line for the bar, the primary's; this one
+              // stays focusable and points at it
+              focusableWhenDisabled
               onClick={secondary.onClick}
             >
               {secondary.label}

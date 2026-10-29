@@ -118,7 +118,7 @@ export function AutoSyncBoard({
             });
           }}
         />
-        <main className="auto-sync-lanes">
+        <div className="auto-sync-lanes">
           {lanes.map((lane) => (
             <AutoSyncLane
               key={lane.hours}
@@ -156,7 +156,7 @@ export function AutoSyncBoard({
               })}
             </AutoSyncLane>
           ))}
-        </main>
+        </div>
       </div>
       {pick ? (
         <AutoSyncPickMenu

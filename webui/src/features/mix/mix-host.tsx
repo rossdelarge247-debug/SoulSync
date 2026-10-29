@@ -24,9 +24,9 @@ import { playTrackNext } from '@/features/dj/dj-actions';
 import { useProfile } from '@/platform/shell/route-controllers';
 
 import { useMixModel, type MixModel } from './mix-model';
-import { getMixState, setDrawer, setTrayMode, useMixState } from './mix-store';
+import { forgetRetiredKeys, getMixState, setDrawer, setTrayMode, useMixState } from './mix-store';
 import { useMixSubject, type MixSubject } from './mix-subject';
-import { MixDrawer, MixSheet, MixTray, ModesSwitch, PreviewTray } from './mix-tab';
+import { MixDrawer, MixSheet, MixTray, ModesSwitch, PreviewTray, RecordKeyLine } from './mix-tab';
 import { mixQueryOptions } from './mix.api';
 
 export const PHONE_QUERY = '(max-width: 768px)';
@@ -67,6 +67,12 @@ function useMedia(query: string): boolean {
 interface Slots {
   modesMusic: HTMLElement | null;
   modesRadio: HTMLElement | null;
+  /** the phone's sheet head: one tab row, Now playing · Mix · Set (33d) */
+  modesSheet: HTMLElement | null;
+  /** the record's key line (36a, 279) */
+  keyLine: HTMLElement | null;
+  /** Up next's "8 from Sunday Set" (294, 33b) */
+  upNextFrom: HTMLElement | null;
   mix: HTMLElement | null;
   overlay: HTMLElement | null;
   visualsStage: HTMLElement | null;
@@ -79,6 +85,9 @@ function findSlots(): Slots {
   return {
     modesMusic: doc.querySelector<HTMLElement>('[data-player-modes="music"]'),
     modesRadio: doc.querySelector<HTMLElement>('[data-player-modes="radio"]'),
+    modesSheet: doc.querySelector<HTMLElement>('[data-player-modes="sheet"]'),
+    keyLine: doc.querySelector<HTMLElement>('[data-player-keyline]'),
+    upNextFrom: doc.querySelector<HTMLElement>('[data-player-upnext-from]'),
     mix: doc.querySelector<HTMLElement>('[data-player-mix]'),
     overlay: doc.getElementById('np-modal-overlay'),
     visualsStage: doc.querySelector<HTMLElement>('#np-modal-overlay .np-modal'),
@@ -199,6 +208,8 @@ function keyAction(
 }
 
 export function MixTabHost() {
+  // gauntlet review L3: the retired Mixes panel's keys go, once
+  useEffect(() => forgetRetiredKeys(), []);
   const subject = useMixSubject();
   const { profileId } = useProfile();
   const state = useMixState();
@@ -215,6 +226,8 @@ export function MixTabHost() {
   // and watches progress only while someone can see the tab
   const model = useMixModel(trackSubject, profileId ?? null, {
     shown: (mixShown && trayOpen) || drawerShown,
+    // the record's key line says "Ready to mix" in Now playing too (36a)
+    watch: trayOpen,
   });
 
   // the shell's markup is there from the start; look again once in case
@@ -240,6 +253,20 @@ export function MixTabHost() {
       if (root) delete root.dataset.trayMode;
     };
   }, [mixShown, slots.mix]);
+
+  // in Mix the right column is Up next itself (33b): its tab, not Recent's
+  useEffect(() => {
+    if (!mixShown || phone) return;
+    const queueTab = document.getElementById('ss-player-tab-queue');
+    if (queueTab && queueTab.getAttribute('aria-selected') !== 'true') queueTab.click();
+  }, [mixShown, phone]);
+
+  // Up next says where its tracks came from (294): "8 from Sunday Set"
+  useEffect(() => {
+    const el = slots.upNextFrom;
+    if (!el) return;
+    el.textContent = model.upNextFrom ?? '';
+  }, [slots.upNextFrom, model.upNextFrom]);
 
   // Visuals: the header's Mix button and the drawer (29b)
   useEffect(() => {
@@ -297,11 +324,20 @@ export function MixTabHost() {
   const preview = subject.kind === 'preview' ? subject.title : null;
   return (
     <>
-      {slots.modesMusic && !trackSubject?.radio
+      {slots.modesMusic && !trackSubject?.radio && !phone
         ? createPortal(<ModesSwitch mode={state.mode} />, slots.modesMusic)
         : null}
-      {slots.modesRadio && trackSubject?.radio
+      {slots.modesRadio && trackSubject?.radio && !phone
         ? createPortal(<ModesSwitch mode={state.mode} />, slots.modesRadio)
+        : null}
+      {slots.modesSheet && phone
+        ? createPortal(
+            <ModesSwitch mode={state.mode} phone sheetTab={state.sheetTab} />,
+            slots.modesSheet,
+          )
+        : null}
+      {slots.keyLine && trackSubject && !trackSubject.radio
+        ? createPortal(<RecordKeyLine model={model} />, slots.keyLine)
         : null}
       {slots.mix && mixShown
         ? createPortal(

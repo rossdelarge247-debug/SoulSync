@@ -877,7 +877,11 @@
 }
 
 /* 28b: Export to Traktor… beside the primary (in the "…" on a phone) */
-.barSecondary {
+/* UX-23: the bar's labels never wrap at 1440 */
+.barSecondary,
+.barSelectAll,
+.barActions > button,
+.barActions [data-slot='disabled-reason'] {
   white-space: nowrap;
 }
 

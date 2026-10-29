@@ -122,30 +122,102 @@ export function useMixSubject(): MixSubject {
   return subject;
 }
 
+/** Where a queued track came from: a set played (as a mix, or plain Play from its page). */
+export interface QueueFrom {
+  id: number;
+  name: string;
+  /** its row in the set */
+  row: number;
+  /** Play as a mix (its chips play whatever the setting) */
+  asMix: boolean;
+}
+
 export interface QueueView {
   /** the queue's library track ids, in order */
   ids: string[];
   /** where the playing track is in it (-1: not in the queue) */
   index: number;
+  /** the set the playing track was queued from (294: "from Sunday Set") */
+  from: QueueFrom | null;
+  /** how many tracks are up next after the playing one */
+  upcoming: number;
+  /** the set every one of them came from, when they all did */
+  upcomingFrom: string | null;
 }
 
-/** The player's queue, for "while a set plays" (29b). */
+type QueueEntry = {
+  id?: string | number | null;
+  kind?: string | null;
+  media_src?: string | null;
+  is_library?: boolean;
+  mix_set?: { id?: number; name?: string; row?: number } | null;
+  from_set?: { id?: number; name?: string; row?: number } | null;
+};
+
+const NOT_LIBRARY_KINDS = new Set(['radio', 'podcast', 'audiobook']);
+
+function isLibraryEntry(entry: QueueEntry): boolean {
+  if (entry.media_src) return false;
+  if (entry.kind && NOT_LIBRARY_KINDS.has(entry.kind)) return false;
+  return entry.is_library !== false;
+}
+
+function fromOf(entry: QueueEntry | undefined): QueueFrom | null {
+  const m = entry?.mix_set ?? null;
+  const f = entry?.from_set ?? null;
+  const src = m ?? f;
+  if (!src || typeof src.name !== 'string') return null;
+  return {
+    id: Number(src.id) || 0,
+    name: src.name,
+    row: typeof src.row === 'number' ? src.row : -1,
+    asMix: Boolean(m),
+  };
+}
+
+/** The player's queue, for "while a set plays" (29b, 294). */
 export function readQueue(): QueueView {
   try {
     const st = (
       window as unknown as {
         SoulSyncPlayer?: {
-          state?: () => { queue?: { id?: string | number | null }[]; index?: number };
+          state?: () => { queue?: QueueEntry[]; index?: number };
         };
       }
     ).SoulSyncPlayer?.state?.();
-    const ids = (st?.queue ?? []).map((q) =>
-      q?.id === null || q?.id === undefined ? '' : String(q.id),
+    const queue = st?.queue ?? [];
+    // a station, an episode, a book or a stream that isn't a library file has
+    // no library id here, whatever id it carries (gauntlet review L1)
+    const ids = queue.map((q) =>
+      q?.id === null || q?.id === undefined || !isLibraryEntry(q) ? '' : String(q.id),
     );
-    return { ids, index: typeof st?.index === 'number' ? st.index : -1 };
+    const index = typeof st?.index === 'number' ? st.index : -1;
+    const rest = queue.slice(Math.max(0, index + 1));
+    const names = new Set(rest.map((q) => fromOf(q)?.name ?? ''));
+    const only = names.size === 1 ? [...names][0] : '';
+    return {
+      ids,
+      index,
+      from: index >= 0 ? fromOf(queue[index]) : null,
+      upcoming: rest.length,
+      upcomingFrom: only || null,
+    };
   } catch {
-    return { ids: [], index: -1 };
+    return { ids: [], index: -1, from: null, upcoming: 0, upcomingFrom: null };
   }
+}
+
+/** Two reads of the queue that say the same. */
+export function sameQueue(a: QueueView, b: QueueView): boolean {
+  return (
+    a.index === b.index &&
+    a.ids.join(',') === b.ids.join(',') &&
+    a.upcomingFrom === b.upcomingFrom &&
+    a.from?.id === b.from?.id &&
+    a.from?.row === b.from?.row &&
+    a.from?.asMix === b.from?.asMix &&
+    a.from?.name === b.from?.name
+  );
 }
 
 /** The playing position and length, "2:14 / 6:05". */
@@ -161,4 +233,22 @@ export function readClock(): { at: number; length: number } | null {
   } catch {
     return null;
   }
+}
+
+/** The set the playing track was queued from (294), kept current: a set's page marks its row. */
+export function useQueueFrom(): QueueFrom | null {
+  const [from, setFrom] = useState<QueueFrom | null>(() => readQueue().from);
+  useEffect(() => {
+    const update = () =>
+      setFrom((prev) => {
+        const next = readQueue().from;
+        return prev?.id === next?.id && prev?.row === next?.row && prev?.asMix === next?.asMix
+          ? prev
+          : next;
+      });
+    update();
+    window.addEventListener('ss:player', update);
+    return () => window.removeEventListener('ss:player', update);
+  }, []);
+  return from;
 }

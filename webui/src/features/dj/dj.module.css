@@ -127,33 +127,8 @@
   background: rgb(var(--ss-accent-light-rgb));
 }
 
-/* ── the Camelot wheel ───────────────────────────────────────────────── */
-
-.wheel {
-  display: block;
-  flex: none;
-}
-
-.wheel text {
-  font-family: inherit;
-  pointer-events: none;
-}
-
-.wheelPick {
-  cursor: pointer;
-  outline: none;
-}
-
-.wheelPick:hover path {
-  filter: brightness(1.15);
-}
-
-.wheelPick:focus-visible path {
-  stroke: rgb(var(--ss-accent-light-rgb));
-  stroke-width: 2;
-}
-
-/* ── "Mixes well with": the docked panel (17a) ───────────────────────── */
+/* ── the side panel (17a's docked panel; Swap uses it, gauntlet review L3:
+   `data-side-panel` on <html>, set by features/sets/swap-panel.tsx) ──── */
 
 .panel {
   position: fixed;
@@ -177,23 +152,23 @@
 }
 
 /* narrower than 1100px it lies over the page instead of taking room */
-:global(html[data-mixes-panel='over']) .panel {
+:global(html[data-side-panel='over']) .panel {
   box-shadow: -24px 0 60px rgba(0, 0, 0, 0.45);
 }
 
 /* the page column makes room while it's docked (HANDOFF 164); style.css's
    960px floor for the page would push the page under the panel */
-:global(html[data-mixes-panel='docked'] .ss-main > .main-content) {
+:global(html[data-side-panel='docked'] .ss-main > .main-content) {
   min-width: 0;
   margin-right: 400px;
 }
 
 /* the floating buttons and toasts ride beside it, not under it */
-:global(html[data-mixes-panel] :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn)) {
+:global(html[data-side-panel] :is(.notif-bell-btn, .helper-float-btn, .activity-float-btn)) {
   right: 424px !important;
 }
 
-:global(html[data-mixes-panel] .toast-container) {
+:global(html[data-side-panel] .toast-container) {
   right: 424px !important;
 }
 
@@ -242,8 +217,7 @@
   line-height: 1.4;
 }
 
-.closeButton,
-.mixButton {
+.closeButton {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -259,28 +233,18 @@
   transition: var(--ss-transition);
 }
 
-.closeButton:hover,
-.mixButton:hover {
+.closeButton:hover {
   background: var(--ss-hover-wash);
   color: var(--ss-text);
 }
 
-.closeButton:active,
-.mixButton:active {
+.closeButton:active {
   opacity: var(--ss-pressed-opacity);
 }
 
-.closeButton:focus-visible,
-.mixButton:focus-visible {
+.closeButton:focus-visible {
   outline: var(--ss-focus-ring);
   outline-offset: var(--ss-focus-offset);
-}
-
-.wheelRow {
-  display: grid;
-  grid-template-columns: 148px minmax(0, 1fr);
-  gap: 16px;
-  align-items: center;
 }
 
 .rule {
@@ -292,17 +256,6 @@
   line-height: 1.4;
 }
 
-.followRow,
-.checkRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: fit-content;
-  min-height: 44px;
-  font-size: 15px;
-  cursor: pointer;
-}
-
 .panelBody {
   display: flex;
   flex: 1;
@@ -311,152 +264,13 @@
   overflow-y: auto;
 }
 
-.mixList {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.mixRow {
-  display: grid;
-  /* 28a: the star's column before Play next and Add to playlist */
-  grid-template-columns: 40px minmax(0, 1fr) 32px 44px 44px;
-  gap: 8px;
-  align-items: center;
-  min-height: 64px;
-  border-bottom: 1px solid var(--ss-hairline);
-}
-
-.mixArt {
-  display: block;
-  width: 40px;
-  height: 40px;
-  overflow: hidden;
-  border-radius: var(--ss-radius-tag);
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.mixArt img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.mixText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.mixTitle {
-  overflow: hidden;
-  font-size: 15px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mixMetaRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--ss-text-meta);
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.mixChip.mixChip {
-  flex: none;
-  padding: 0 5px;
-}
-
-.mixBpm {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-}
-
-.mixHow {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--ss-text-tertiary);
-  text-overflow: ellipsis;
-}
-
-.mixMeta {
-  overflow: hidden;
-  color: var(--ss-text-meta);
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mixFoot {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--ss-hairline);
-}
-
-.mixCount {
-  color: var(--ss-text-meta);
-  font-size: 14px;
-}
-
-.makeButton.makeButton {
-  flex: 1;
-  width: 100%;
-  min-width: 0;
-}
-
 /* 21a: "Make a playlist…" and "Export to Traktor…" share the foot's row */
-.footButtons {
-  display: flex;
-  gap: 8px;
-}
-
-.makeButtonTall.makeButtonTall {
-  min-height: 48px;
-}
-
-.stateBox {
-  padding: 4px 0 12px;
-}
 
 .stateLine {
   margin: 0 0 12px;
   color: var(--ss-text-secondary);
   font-size: 15px;
   line-height: 1.5;
-}
-
-.inlineLink {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: rgb(var(--ss-accent-light-rgb));
-  font: inherit;
-  cursor: pointer;
-}
-
-.inlineLink:hover {
-  text-decoration: underline;
-}
-
-.inlineLink:focus-visible {
-  outline: var(--ss-focus-ring);
-  outline-offset: var(--ss-focus-offset);
-}
-
-.inlineLink:disabled {
-  color: var(--ss-text-meta);
-  cursor: default;
 }
 
 /* ── the phone's sheet (17d) ─────────────────────────────────────────── */
@@ -495,34 +309,4 @@
 
 .sheetTitle.sheetTitle {
   font-size: 17px;
-}
-
-.sheet .mixRow {
-  grid-template-columns: 44px minmax(0, 1fr) 44px 44px 44px;
-}
-
-.sheet .mixArt {
-  width: 44px;
-  height: 44px;
-}
-
-.sheet .mixButton {
-  border: 1px solid var(--ss-control-border);
-}
-
-.sheet .mixFoot {
-  padding-top: 0;
-  border-top: 0;
-}
-
-/* ── Make a playlist from these (17b) ────────────────────────────────── */
-
-.makeDialog.makeDialog {
-  width: min(480px, calc(100vw - 24px));
-}
-
-.makeForm {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
 }

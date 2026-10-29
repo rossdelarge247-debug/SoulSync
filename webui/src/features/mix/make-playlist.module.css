@@ -1,0 +1,21 @@
+/* Make a playlist from these (17b), from the Mix tab's matches "…" */
+
+.dialog.dialog {
+  width: min(480px, calc(100vw - 24px));
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  min-height: 44px;
+  font-size: 15px;
+  cursor: pointer;
+}

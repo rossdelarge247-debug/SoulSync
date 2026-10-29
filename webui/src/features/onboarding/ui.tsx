@@ -241,7 +241,7 @@ export function StepFrame({
   return (
     <>
       <Rail step={step} />
-      <main className={s.main}>
+      <div className={s.main}>
         <div className={s.scroll}>
           <div className={cx(s.content, wide && s.wide)} key={step}>
             <header className={s.header}>
@@ -280,7 +280,7 @@ export function StepFrame({
             </button>
           </div>
         </footer>
-      </main>
+      </div>
     </>
   );
 }

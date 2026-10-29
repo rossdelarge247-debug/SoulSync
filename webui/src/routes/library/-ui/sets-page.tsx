@@ -5,14 +5,16 @@
  * starts one by hand; Your sets lists what's saved. `set` in the URL picks
  * the page: a saved set's id, `draft`, `famous` or `paste`.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/form';
 import { Notice, Skeleton, StatusTag } from '@/components/primitives';
+import { useWorkingSet } from '@/features/mix/mix.api';
 import { readDraft, useDraft, writeDraft } from '@/features/sets/draft-store';
 import { Sparkline } from '@/features/sets/energy-graph';
 import { FamousSearch, PasteTracklist } from '@/features/sets/famous-mix';
+import { RemoveSetDialog, WorkingSetToggle, afterSetRemoved } from '@/features/sets/set-actions';
 import { SetEditor } from '@/features/sets/set-editor';
 import {
   deleteSet,
@@ -95,6 +97,7 @@ function YourSets({
 }) {
   const { profileId } = useProfile();
   const draft = useDraft(profileId);
+  const workingId = useWorkingSet(profileId)?.id ?? null;
   return (
     <section className={styles.yourSets} aria-labelledby="your-sets">
       <h2 id="your-sets" className={styles.overline}>
@@ -126,7 +129,15 @@ function YourSets({
             >
               <Sparkline energy={s.energy} />
               <span className={styles.setText}>
-                <span className={styles.setName}>{s.name}</span>
+                <span className={styles.setName}>
+                  {s.name}
+                  {/* 33e: the working set's tag in Your sets */}
+                  {workingId === s.id ? (
+                    <span className={styles.headTag} data-tone="accent" data-set-tag="working">
+                      Working set
+                    </span>
+                  ) : null}
+                </span>
                 <span className={styles.setMeta}>
                   <span className={styles.setKindInline}>{KIND_TAGS[s.kind]} · </span>
                   {s.kind === 'famous' && s.lines > s.tracks
@@ -142,6 +153,8 @@ function YourSets({
               </StatusTag>
               <span className={styles.setWhen}>{whenWords(s.updated_at)}</span>
             </button>
+            {/* 33e: "✓ Working set" on the working one, "Make this my working set" on the rest */}
+            <WorkingSetToggle setId={s.id} name={s.name} compact />
             <MoreMenu
               className={styles.setMore}
               label={`More for ${s.name}`}
@@ -222,8 +235,10 @@ export function SetsPage({ search, go }: { search: LibrarySearch; go: Go }) {
   const { profileId, isAdmin } = useProfile();
   const phone = usePhone();
   const list = useQuery({ ...setsListQueryOptions(profileId), retry: false });
+  const queryClient = useQueryClient();
   const draft = useDraft(profileId);
   const page = search.set;
+  const [removing, setRemoving] = useState<SetListItem | null>(null);
 
   const newSet = () => {
     if (
@@ -337,22 +352,33 @@ export function SetsPage({ search, go }: { search: LibrarySearch; go: Go }) {
           sets={list.data}
           onOpen={(id) => go({ set: String(id) })}
           onDraft={() => go({ set: 'draft' })}
-          onRemove={(s) => {
-            if (!window.confirm(`Remove ${s.name}? Its playlist stays.`)) return;
-            deleteSet(s.id)
-              .then(() => {
-                window.showToast?.(`Removed ${s.name}. Its playlist stays.`, 'success');
-                void list.refetch();
-              })
-              .catch((err: unknown) =>
-                window.showToast?.(
-                  err instanceof Error ? err.message : "It wasn't removed.",
-                  'error',
-                ),
-              );
-          }}
+          onRemove={(s) => setRemoving(s)}
         />
       )}
+      {/* 267: a proper confirm on 15a's frame, never the browser's own */}
+      <RemoveSetDialog
+        name={removing?.name ?? ''}
+        open={Boolean(removing)}
+        onKeep={() => setRemoving(null)}
+        onRemove={() => {
+          const s = removing;
+          setRemoving(null);
+          if (!s) return;
+          deleteSet(s.id)
+            .then(() => {
+              window.showToast?.(`Removed ${s.name}. Its playlist stays.`, 'success');
+              // M2: the sidebar and the Mix tab let go of it if it was working
+              afterSetRemoved(queryClient);
+              void list.refetch();
+            })
+            .catch((err: unknown) =>
+              window.showToast?.(
+                err instanceof Error ? err.message : "It wasn't removed.",
+                'error',
+              ),
+            );
+        }}
+      />
     </div>
   );
 }
