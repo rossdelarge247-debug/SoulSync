@@ -72,7 +72,9 @@ def test_only_grids_ready_to_mix_skip_the_new_analysis(tmp_path):
     # promoted to 4 included: none of them is current
     assert GRID_VERSION == 5
     assert not any(grid_store.current({"grid_version": v, "status": "done"}, None) for v in grids.values())
-    assert {"1", "2", "3", "4", "7", "8"} <= set(grid_store.pending_ids(db, ANALYZER_VERSION))
+    # every one, exactly: the too-short and the failed grid too (a v3 row is
+    # stale whatever it says; grid v5's review asked for an exact check)
+    assert grid_store.pending_ids(db, ANALYZER_VERSION) == ["1", "2", "3", "4", "5", "6", "7", "8"]
     assert _q(path, "SELECT 1 FROM schema_migrations WHERE name = 'dj_grid_v4'")
 
 

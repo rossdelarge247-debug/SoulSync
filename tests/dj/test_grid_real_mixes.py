@@ -93,16 +93,19 @@ def test_house_with_an_off_beat_bass_and_a_clap_is_ready_on_its_kick(level):
 
 
 #: the known limit of grid v5 (HANDOFF, 29 October): a generated bass louder
-#: than a generated kick, with no clap, snare or kick click to tell them apart.
+#: than a generated kick, with no clap or snare to tell them apart (the kick
+#: has a click since the review round; it doesn't settle these).
 #: Grid v4's phase follow-up held these by the kick's falling pitch and short
 #: sub; on real tracks that test called 7 kicks in 16 a bass and held them,
 #: and moved two real grids the wrong way, so it's gone. The independent
 #: tracker hears the bass too, so these may be trusted on the bass: strict
 #: xfails, so a fix shows
-BASS_OVER_KICK = pytest.mark.xfail(strict=True, reason="grid v5 known limit: a bass louder than a clickless kick")
+BASS_OVER_KICK = pytest.mark.xfail(strict=True, reason="grid v5 known limit: a bass louder than the kick")
 OFF_BEAT_CASES = [
-    pytest.param({"bass_level": 0.5, "drumless_bars": 40}, marks=BASS_OVER_KICK),  # a long bass-only intro
-    pytest.param({"bass_level": 0.5, "drumless_bars": 16}, marks=BASS_OVER_KICK),
+    # a bass-only intro: the agreement and the phase are taken only where
+    # the drums play (grid v5's review, M2), so the intro no longer leads
+    {"bass_level": 0.5, "drumless_bars": 40},
+    {"bass_level": 0.5, "drumless_bars": 16},
     {"bass_level": 0.8},                                            # as loud as the kick in the low band
     pytest.param({"bass_level": 1.0}, marks=BASS_OVER_KICK),       # louder
     pytest.param({"bass_level": 1.5}, marks=BASS_OVER_KICK),       # much louder
@@ -164,24 +167,33 @@ def test_drum_and_bass_with_a_bass_on_every_beat_isnt_four_on_the_floor():
 ROLLING_316 = (1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15)
 
 
-@pytest.mark.parametrize("bpm,level,kick,kind", [pytest.param(126.0, 1.0, 0.9, "tone", marks=BASS_OVER_KICK),
-                                                 pytest.param(128.0, 1.2, 0.9, "tone", marks=BASS_OVER_KICK),
-                                                 pytest.param(128.0, 1.0, 0.5, "tone", marks=BASS_OVER_KICK),
-                                                 # the second review: a pluck bass (its pitch drops
-                                                 # like a kick's) under a soft kick
-                                                 (118.0, 1.0, 0.5, "pluck"), (126.0, 1.0, 0.5, "pluck"),
-                                                 (134.0, 1.0, 0.5, "pluck"), (140.0, 1.0, 0.5, "pluck"),
-                                                 (134.0, 1.0, 0.9, "pluck")])
-def test_a_rolling_bass_with_no_backbeat_is_never_trusted_to_beat_match(bpm, level, kick, kind):
+@pytest.mark.parametrize("bpm,level,kick", [pytest.param(126.0, 1.0, 0.9, marks=BASS_OVER_KICK),
+                                            pytest.param(128.0, 1.2, 0.9, marks=BASS_OVER_KICK),
+                                            pytest.param(128.0, 1.0, 0.5, marks=BASS_OVER_KICK)])
+def test_a_rolling_bass_with_no_backbeat_is_never_trusted_to_beat_match(bpm, level, kick):
     # the low band is busy on every sixteenth: the comb's line was a bass note
     # a sixteenth off the kick, at 0.98-0.99. A grid off the kick must stay
-    # under the bar (the plucks are, as their tempo ties with 4/3 of it; the
-    # tones and a loud pluck aren't: the known limit above)
-    y, beats = pattern_track(bpm, 48, FOUR, bass=ROLLING_316, bass_level=level, kick=kick, bass_kind=kind)
+    # under the bar (these don't: the known limit above)
+    y, beats = pattern_track(bpm, 48, FOUR, bass=ROLLING_316, bass_level=level, kick=kick)
     g = _grid(y, bpm)
     assert g["kind"] == "constant"
     if _phase_ms(g, beats, bpm) > 20:
         assert g["confidence"] < BEAT_CONFIDENT
+
+
+@pytest.mark.parametrize("bpm,kick", [(118.0, 0.5), (126.0, 0.5), (134.0, 0.5), (140.0, 0.5), (134.0, 0.9)])
+def test_a_rolling_pluck_bass_is_held_because_its_tempo_is_unsure(bpm, kick):
+    # the second review: a pluck bass (its pitch drops like a kick's) on the
+    # three sixteenths between the kicks. The grid lands on a pluck, a
+    # sixteenth off the kick, and the agreement can't tell (its low band
+    # follows the plucks, its upper band the kick's click: 0.5). What holds
+    # it is real and said here (grid v5's review, L4): with an onset as
+    # strong on every sixteenth, a grid every three sixteenths (4/3 of the
+    # tempo) fits the onsets as well, so the tempo isn't sure (TEMPO_TIE)
+    y, beats = pattern_track(bpm, 48, FOUR, bass=ROLLING_316, bass_level=1.0, kick=kick, bass_kind="pluck")
+    g = _grid(y, bpm)
+    assert g["kind"] == "constant"
+    assert g["unsure_tempo"] and g["confidence"] < BEAT_CONFIDENT
 
 
 @pytest.mark.parametrize("kw", [{}, {"bass": OFF_BEAT_BASS, "bass_level": 0.4},

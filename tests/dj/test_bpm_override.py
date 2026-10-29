@@ -481,3 +481,35 @@ def test_sample_studios_row_keeps_the_tempos_basis(db):
     row = worker._reuse_sample_analysis("1", "sig", worker.analyzer_version())
     assert row["tempo_basis"] == "backbeat"
     assert store.decide(enrichment_bpm=87.0, analysis=row)["bpm"] == 172.2
+
+
+def test_a_grid_held_under_the_bar_doesnt_set_the_bpm_shown(db):
+    # grid v5's review (H2): a held grid may be at the wrong octave (hip hop
+    # at 85 read at 170), so the DJ data's BPM stands until one is ready
+    _dj(db, "1", 87.0, source="tag")
+    grid_store.save_result(db, "1", {**_result(bpm=174.0), "beat_confidence": 0.45}, source_sig="sig")
+    assert (_shown(db, "1")["bpm"], _shown(db, "1")["bpm_source"]) == (87.0, "tag")
+    _sql(db, "UPDATE track_grid SET beat_confidence = 0.5 WHERE track_id = '1'")
+    assert (_shown(db, "1")["bpm"], _shown(db, "1")["bpm_source"]) == (174.0, "grid")
+
+
+@pytest.mark.parametrize("kind", ["constant", "beats"])
+def test_halving_keeps_the_louder_parity_the_analysis_found(db, kind):
+    # grid v5's review (L6): halving on the downbeat's beats kept a Groove hip
+    # hop track's hats when its downbeat was a beat off; the analysis keeps
+    # which parity is louder (``half_parity``) and halving takes it
+    _dj(db, "1", 174.0)
+    original = _grid(db, "1", bpm=174.0, kind=kind, downbeat=0, bars=32,
+                     sections=(("intro", 0, 8), ("main", 8, 32)))
+    grid_store.save_result(db, "1", {**_result(bpm=174.0, kind=kind, downbeat=0, bars=32,
+                                               sections=(("intro", 0, 8), ("main", 8, 32))), "half_parity": 1},
+                           source_sig="sig")
+    store.set_tempo(db, ["1"], "halve", profile_id=1, is_admin=True)
+    half = grid_store.get(db, "1")
+    period = float(original["period"])
+    assert half["first_beat"] == pytest.approx(float(original["first_beat"]) + period, abs=2e-3)
+    if kind == "beats":
+        assert grid_store.decode_beats(half["beats_ms"]) == grid_store.decode_beats(original["beats_ms"])[1::2]
+    # and back: doubling works from the measured grid, the parity kept with it
+    store.set_tempo(db, ["1"], "reset", profile_id=1, is_admin=True)
+    assert json.loads(grid_store.get(db, "1")["mix_json"])["half"] == 1

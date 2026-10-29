@@ -58,7 +58,12 @@ def _kick(level: float) -> np.ndarray:
     t = np.arange(n) / SR
     sweep = 50 + 90 * np.exp(-t / 0.03)
     phase = 2 * np.pi * np.cumsum(sweep) / SR
-    return level * np.exp(-t / 0.09) * np.sin(phase)
+    body = np.exp(-t / 0.09) * np.sin(phase)
+    # the beater's click: a few milliseconds of noise above the body, which
+    # every real kick has (grid v5's review: without it the agreement's
+    # upper band hears only the off-beat hats)
+    click = _noise(n, 0.003, 7, 0.3)
+    return level * (body + click)
 
 
 def _noise(n: int, decay: float, seed: int, level: float, highpass: bool = True) -> np.ndarray:

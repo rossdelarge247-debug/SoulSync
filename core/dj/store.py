@@ -29,7 +29,7 @@ from contextlib import closing
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from core.dj.camelot import BPM_TOLERANCE, bpm_relation, bpm_windows, compatible_keys, fold_bpm, parse_key
-from core.dj.grid import GRID_VERSION
+from core.dj.grid import BEAT_CONFIDENT, GRID_VERSION
 from utils.logging_config import get_logger
 
 logger = get_logger("dj.store")
@@ -271,9 +271,12 @@ def lookup(database, track_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
 
 SORTS = ("bpm", "key", "energy", "title", "artist", "recent")
 
-#: the grid's measured BPM, from a done grid at this version (HANDOFF 300);
-#: every query that uses it or _BPM_SQL joins the grid as ``g`` (_GRID_JOIN)
-_GRID_BPM = f"CASE WHEN g.status = 'done' AND g.grid_version >= {int(GRID_VERSION)} THEN g.bpm END"
+#: the grid's measured BPM, from a done grid at this version that's ready to
+#: mix (HANDOFF 300; since grid v5's review only a ready one: a grid held back
+#: may be at the wrong octave, and the DJ data's BPM stands then); every query
+#: that uses it or _BPM_SQL joins the grid as ``g`` (_GRID_JOIN)
+_GRID_BPM = (f"CASE WHEN g.status = 'done' AND g.grid_version >= {int(GRID_VERSION)} "
+             f"AND COALESCE(g.beat_confidence, 0) >= {float(BEAT_CONFIDENT)} THEN g.bpm END")
 _GRID_JOIN = "LEFT JOIN track_grid g ON g.track_id = t.id"
 #: the BPM shown: a person's ×2 / ÷2, the measured grid, the DJ data, enrichment
 _BPM_SQL = f"COALESCE(d.bpm_override, {_GRID_BPM}, d.bpm, NULLIF(t.bpm, 0))"

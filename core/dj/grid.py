@@ -110,6 +110,15 @@ EDGE_S = 0.05
 BROADBAND_WEIGHT = 0.15
 #: log(1 + C·magnitude) for the onset flux
 COMPRESSION = 10.0
+#: the flux's scale is at least this (its 99th percentile, detrended, on
+#: peak-normalised audio): real tracks measure 0.13 (an orchestra) to 1.09, a
+#: sine or chord pad 0.0001-0.0034 (HANDOFF, grid v5's review)
+FLUX_FLOOR = 0.05
+#: the beat envelope's 99th percentile is taken as at least this, on the
+#: unscaled flux (real tracks 0.45-4.4; a sine pad with a tremolo 0.018)
+BEAT_ENV_FLOOR = 0.25
+#: the hats' band starts here (Hz)
+HIGH_HZ = 4000.0
 
 #: the section labels
 LABELS = ("intro", "outro", "breakdown", "drop", "main")
@@ -160,6 +169,8 @@ def _features(y) -> Dict[str, Any]:
     env_low = flux[low].mean(axis=0)
     # the snare and clap's band (their body and crack, under the hats)
     env_mid = flux[(freqs >= 160.0) & (freqs < 2500.0)].mean(axis=0)
+    # the hats' and cymbals' band: where the drums play (``_drum_frames``)
+    env_high = flux[freqs >= HIGH_HZ].mean(axis=0)
     # RMS per frame from the signal itself (dB, peak-normalised)
     rms = np.zeros(n_frames)
     for start in range(0, n_frames, CHUNK_FRAMES):
@@ -169,14 +180,16 @@ def _features(y) -> Dict[str, Any]:
             block = np.concatenate([block, np.zeros(count * HOP - len(block), np.float32)])
         rms[start:start + count] = np.sqrt(np.mean(np.square(block.reshape(count, HOP)), axis=1))
     rms_db = 20.0 * np.log10(np.maximum(rms, 1e-6))
-    env, env_low, env_mid = _detrend(env), _detrend(env_low), _detrend(env_mid)
+    env, env_low, env_mid, env_high = _detrend(env), _detrend(env_low), _detrend(env_mid), _detrend(env_high)
     # one scale for all, from the whole spectrum's attacks: a track without
     # low attacks (a pad, a voice) keeps a small low-band envelope instead
     # of having its noise blown up to the size of a kick
-    scale = float(np.percentile(env, 99)) if env.size else 0.0
-    if scale > 0:
-        env, env_low, env_mid = env / scale, env_low / scale, env_mid / scale
-    return {"mel_db": mel_db, "chroma": chroma, "env": env, "env_low": env_low, "env_mid": env_mid,
+    # never under FLUX_FLOOR: a sustained tone's flux is noise, and scaled up
+    # to its own 99th percentile it read as onsets (a sine pad was "ready")
+    scale = max(float(np.percentile(env, 99)) if env.size else 0.0, FLUX_FLOOR)
+    env, env_low, env_mid, env_high = env / scale, env_low / scale, env_mid / scale, env_high / scale
+    return {"mel_db": mel_db, "chroma": chroma, "env": env, "env_low": env_low, "env_mid": env_mid, "env_high": env_high,
+            "flux_scale": scale,
             "rms_db": rms_db, "n_frames": n_frames, "duration": len(y) / SR}
 
 
@@ -192,14 +205,6 @@ def _detrend(env):
 
 def _t2f(t):
     return t * SR / HOP
-
-
-def _interp(env, times):
-    """The envelope at fractional times (linear between frames)."""
-    import numpy as np
-
-    f = np.clip(_t2f(np.asarray(times, dtype=np.float64) + ONSET_LAG_S), 0, len(env) - 1)
-    return np.interp(f, np.arange(len(env)), env)
 
 
 def _peak_near(env, times, radius_s: float):
@@ -358,9 +363,12 @@ def _hit_rate(env, beats, active) -> float:
     return float(np.mean(hit[use])) * min(1.0, share / DRUM_SHARE)
 
 
-#: an independent tracker's beat agrees with the grid's within this (s), or
-#: an eighth of a beat at fast tempos (a sixteenth at 174 is 86 ms)
-AGREE_TOLERANCE_S = 0.05
+#: an independent tracker's beat agrees with the grid's within this (s), or a
+#: twelfth of a beat at fast tempos. At 50 ms (an eighth) grids an eighth of
+#: a beat early still agreed (grid v5's review); real grids on the beat sit
+#: within 16 ms of the reference
+AGREE_TOLERANCE_S = 0.035
+AGREE_TOLERANCE_BEATS = 12.0
 #: the bands the tracker follows, one at a time (Hz): the low band (the kick,
 #: and a bass) and the drums' attack above it (a kick's click, a clap, a
 #: snare, the hats' low edge). The agreement is their mean: on generated
@@ -396,11 +404,12 @@ def _band_onsets(feat, band):
     return feat[key]
 
 
-def _band_agreement(onset, beats, period: float, use) -> Optional[float]:
+def _band_agreement(onset, beats, period: float, use, tolerance: Optional[float] = None) -> Optional[float]:
     import librosa
     import numpy as np
 
-    tolerance = min(AGREE_TOLERANCE_S, period / 8.0)
+    if tolerance is None:
+        tolerance = min(AGREE_TOLERANCE_S, period / AGREE_TOLERANCE_BEATS)
     span = AGREE_WINDOW * period
     agreed = counted = 0
     # windows at fixed times, not at the grid's beats (a tracker started on
@@ -432,9 +441,13 @@ def _agreement(feat, beats, period: float, active=None, broadband: bool = False)
     only its phase is free, run afresh in each window of ``AGREE_WINDOW``
     beats where the drums play, on each of ``AGREE_BANDS``. A break's
     (``broadband``) follows the whole spectrum: its kicks are off the beat,
-    its snares on two and four. On real tracks a grid on the beat agreed at
-    0.72-1.0; one a sixteenth or an eighth off at 0.0-0.05 in either band
-    (the bench of 29 October, HANDOFF)."""
+    its snares on two and four. It isn't proof of the phase: where the
+    tracker itself takes an off-beat bass or the off-beat hats, it agrees
+    with a grid half a beat off (Action, demucs_test: 0.8-0.95; grid v5's
+    review). Grids shifted by 1/8-7/8 of a beat from the reference passed
+    ``AGREE_READY`` on 4 of 259 (the public and Ross's bench) and 8 of 483
+    (Groove's train split), the reference grids on 25 of 37 and 54 of 69
+    (grid v5's review round, HANDOFF)."""
     import numpy as np
 
     beats = np.asarray(beats, dtype=np.float64)
@@ -466,8 +479,12 @@ def beat_envelope(feat):
     import numpy as np
 
     env = feat["env_low"] + BROADBAND_WEIGHT * feat["env"]
-    top = float(np.percentile(env, 99)) if env.size else 0.0
-    return env / top if top > 0 else env
+    # never scaled up from under BEAT_ENV_FLOOR (on the flux before
+    # ``_features`` scaled it): a pad's low band stays too small to read as
+    # onsets
+    floor = BEAT_ENV_FLOOR / float(feat.get("flux_scale") or 1.0)
+    top = max(float(np.percentile(env, 99)) if env.size else 0.0, floor)
+    return env / top
 
 
 def _onsets(env):
@@ -640,16 +657,25 @@ RELATED = (1.5, 2.0 / 3.0, 4.0 / 3.0, 0.75)
 #: on 4/3 of its true tempo 1.35 times as well (three sixteenths apart)
 RELATED_LEAD = 1.5
 #: within this ratio of a related tempo's strength, the tempo isn't sure: the
-#: grid stays under the bar for beat-matching
+#: grid stays under the bar for beat-matching. Revisited in grid v5's review
+#: round (L7): on the bench it holds 5 right grids and 6 wrong ones, and no
+#: other ratio separates them (right grids at 0.92-1.43 of a related tempo's
+#: strength, wrong ones at 0.95-1.91); the agreement can't settle a tie either
+#: (grids at 4/3 or 3/2 of the true tempo agree at 0.9 or more on 7 of 37
+#: and 6 of 69). Kept
 TEMPO_TIE = 1.08
 TEMPO_UNSURE_CONFIDENCE = 0.45
 #: a slow hint in this band (BPM) is doubled when the grid's own scan reads
-#: its double: drum and bass's 164-178 halved. A real one (Andy C's
-#: Heartbeat Loud) read 87 under a hint of 87, its backbeat vote "slow".
-#: Outside it a slow hint stands: boom bap tagged 72-78, hip hop read at
-#: 89-90 (tests/dj/test_tempo_octave.py). Hip hop at 82-89 with no genre tag
-#: is doubled: a hip-hop or R&B tag keeps it slow, the person's x1/2 fixes it
+#: its double and the backbeat is at the double (drum and bass's 164-178
+#: halved). Without the backbeat the scan alone doubled nearly every steady
+#: groove at 82-89 with eighth-note hats (Groove, grid v5's review). A drum
+#: and bass tag (or enrichment's genre) doubles it whatever the backbeat:
+#: Andy C's Heartbeat Loud is tagged 87 and "Drum And Bass"
 DNB_HALF = (82.0, 89.0)
+#: a grid this fast (BPM) or more, whose half is a tempo, needs evidence it's
+#: fast (``_octave_unsure``) to be beat-matched
+OCTAVE_FAST = 150.0
+OCTAVE_UNSURE_CONFIDENCE = 0.45
 
 
 def _strength_at(times, weights, bpm: float) -> float:
@@ -670,29 +696,53 @@ def _related(bpm: float):
     return [bpm * r for r in RELATED if 70.0 <= bpm * r < 200.0]
 
 
+def _fast_vote(feat, times, weights, bpm: float) -> bool:
+    """The backbeat at ``bpm`` alternates every beat (core/sample/tempo.py
+    ``backbeat``'s "fast" vote): a snare on two and four of the fast bar."""
+    import numpy as np
+
+    from core.sample import tempo
+
+    period, first, _ = _steady_grid(times, weights, 60.0 / bpm)
+    duration = float(np.max(times)) if times.size else 0.0
+    beats = first + np.arange(0, int(max(0.0, duration - first) / period) + 1) * period
+    return tempo.backbeat(feat["env_mid"], SR / HOP, beats)["vote"] == "fast"
+
+
+def _genre_octave(bpm: float, family: Optional[str]) -> float:
+    """A slow genre (hip hop, reggae, chillout …) reads a fast tempo at half."""
+    if family == "slow" and bpm >= OCTAVE_FAST and bpm / 2.0 >= 60.0:
+        return bpm / 2.0
+    return bpm
+
+
 def _pick_tempo(feat, env, times, weights, bpm_hint, genres=None) -> Optional[float]:
     """The tempo to lay the grid at. The hint (the DJ data's BPM: a tag,
     enrichment or the analysis) is a prior, not a fence: its related tempos
     (``RELATED``) and the grid's own scan are tested against it, and one the
     onsets line up on ``RELATED_LEAD`` times better replaces it (a hint at
     4/3 of the true tempo used to confine the grid to ±4% of itself, and
-    find no beat). The octave: a slow hint (70-100) is doubled when the
-    file's genre is fast (drum and bass), or when it's in ``DNB_HALF`` and
-    the grid's own scan, which doesn't see the hint, reads its double; a
-    slow genre (hip hop, R&B, reggae …) keeps it slow. The
-    backbeat vote (core/sample/tempo.py) no longer has to agree for a hint:
-    on real drum and bass it voted slow (HANDOFF, 29 October)."""
+    find no beat). A fast tempo found so (``OCTAVE_FAST`` or more) is held
+    under the bar unless something says it's fast (``_octave_unsure``):
+    halving it instead put an Amen break at 170 at 85.
+
+    The octave: a slow hint (70-100) is doubled when the file's genre is
+    fast (drum and bass), or when it's in ``DNB_HALF``, the grid's own scan
+    reads its double and the backbeat is at the double; else only the
+    backbeat doubles it (``_octave``). A slow genre (hip hop, R&B, reggae,
+    chillout …) reads a fast tempo at half, whichever path found it."""
     from core.sample import tempo
 
+    family = tempo.genre_family(genres)
     hinted = _tempo(env, bpm_hint) if bpm_hint else None
     scanned, scan_strength = _scan_tempo(times, weights)
     if not hinted:
         bpm = scanned or _tempo(env, None)
-        return _octave(feat, times, weights, bpm, hinted=False) if bpm else None
-    family = tempo.genre_family(genres)
+        return _genre_octave(_octave(feat, times, weights, bpm, hinted=False), family) if bpm else None
     if tempo.is_slow(hinted) and family != "slow":
         doubled_by_scan = (DNB_HALF[0] <= hinted < DNB_HALF[1] and scanned
-                           and abs(scanned - 2 * hinted) / (2 * hinted) <= 0.04)
+                           and abs(scanned - 2 * hinted) / (2 * hinted) <= 0.04
+                           and _fast_vote(feat, times, weights, 2 * hinted))
         if family == "fast" or doubled_by_scan:
             hinted = 2 * hinted
         else:
@@ -705,7 +755,34 @@ def _pick_tempo(feat, env, times, weights, bpm_hint, genres=None) -> Optional[fl
             best, best_strength = other, found
     if scanned and not _octave_of(scanned, hinted) and scan_strength > best_strength:
         best, best_strength = _octave(feat, times, weights, scanned, hinted=False), scan_strength
-    return best if best_strength >= RELATED_LEAD * base else hinted
+    return _genre_octave(best if best_strength >= RELATED_LEAD * base else hinted, family)
+
+
+def _octave_unsure(feat, beats, bpm: float, family: Optional[str], hint: Optional[float] = None) -> bool:
+    """Which octave is the beat isn't sure enough to beat-match on: a grid at
+    ``OCTAVE_FAST`` or more whose half is a plausible tempo, or one at double
+    or half the hint as given (a tag, enrichment or the analysis said the
+    other octave), with no evidence either way (a genre, or for a fast grid
+    the backbeat alternating every beat). Doubled grooves at 70-100 read
+    140-200 confidently on Groove (grid v5's review); drum and bass, hardcore
+    or fast jazz say so by their tag."""
+    import numpy as np
+
+    from core.sample import tempo
+
+    if family is not None:
+        return False  # a genre has decided the octave (``_pick_tempo``)
+    if hint:
+        try:
+            ratio = bpm / float(hint)
+        except (TypeError, ValueError, ZeroDivisionError):
+            ratio = 1.0
+        if abs(ratio - 2.0) / 2.0 <= 0.04 or abs(ratio - 0.5) / 0.5 <= 0.04:
+            return True
+    if bpm < OCTAVE_FAST or bpm / 2.0 < 70.0:
+        return False
+    beats = np.asarray(beats, dtype=np.float64)
+    return tempo.backbeat(feat["env_mid"], SR / HOP, beats)["vote"] != "fast"
 
 
 def _tempo_unsure(times, weights, period: float) -> bool:
@@ -794,9 +871,10 @@ BACKBEAT_WEIGHT = 1.5
 SHIFT_MARGIN = 1.15
 AMBIGUOUS_MARGIN = 1.15
 AMBIGUOUS_FACTOR = 0.6
-#: a grid the check moved (a break) is kept, for its bars and phrases, but
-#: under the planner's bar for beat-matching (0.5) until the check has been
-#: proven on real breaks: such a pair echoes out
+#: a grid the check moved by a sixteenth (not an eighth) is kept, for its
+#: bars and phrases, but under the planner's bar for beat-matching (0.5): on
+#: real tracks such a move was right once in four, while a move by an eighth
+#: was right five times in six and isn't capped (grid v5)
 BREAK_CONFIDENCE = 0.45
 
 
@@ -806,9 +884,10 @@ BREAK_CONFIDENCE = 0.45
 #: on every generated one); generated house with a rolling bass as loud as
 #: its kick measures 0.19 to 0.65. Left as it is in grid v5: on real tracks
 #: it can't be tightened (real four-on-the-floor house measured 0.13-0.58, a
-#: waltz, ragtime and drum-and-bass stems 0.06-0.35), and since v5 it decides
-#: only whether a sixteenth-check doubt (x0.6) applies and whether a rival
-#: line with the backbeat moves the grid, not a hold (HANDOFF, 29 October)
+#: waltz, ragtime and drum-and-bass stems 0.06-0.35). Since v5 it decides
+#: whether the sixteenth check's doubt (x0.6) is skipped, whether a move
+#: counts as a break's (``broken``) and whether a rival line with the
+#: backbeat moves the grid; no hold depends on it (HANDOFF, 29 October)
 FLOOR_EVENNESS = 0.12
 
 
@@ -933,6 +1012,37 @@ def sixteenth_check(feat, beats) -> Tuple[int, float]:
     return best, margin
 
 
+#: where the drums play: the hats' band busy over two bars against its loud
+#: parts. A track whose drums play in under DRUM_FRAMES_MIN of it, or nearly
+#: all of it, is taken whole
+DRUM_FRAMES_LEVEL = 0.25
+DRUM_FRAMES_MIN = 0.15
+DRUM_FRAMES_MAX = 0.9
+#: a grid the independent tracker agrees with less than this is held under
+#: the bar for beat-matching, however many onsets it hits (grid v5's review:
+#: with every beat hit, 0.09 of agreement was "ready")
+AGREE_READY = 0.5
+
+
+def _drum_frames(feat):
+    """Per frame, whether the drums play there (the hats' band busy), or None
+    when that's the whole track or too little of it to say: a long intro of
+    bass and chords alone put the comb on the bass (grid v5's review)."""
+    import numpy as np
+
+    high = feat.get("env_high")
+    if high is None or len(high) < 64:
+        return None
+    width = int(4.0 * SR / HOP) | 1
+    busy = np.convolve(high, np.ones(width) / width, mode="same")
+    top = float(np.percentile(busy, 90))
+    if top <= 0:
+        return None
+    mask = busy >= DRUM_FRAMES_LEVEL * top
+    share = float(mask.mean())
+    return mask if DRUM_FRAMES_MIN <= share <= DRUM_FRAMES_MAX else None
+
+
 def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None, genres=None) -> Dict[str, Any]:
     """The grid: ``{kind: constant | beats | none, bpm, period, first_beat,
     beats (times), confidence}``.
@@ -945,11 +1055,20 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None, genres=Non
     tracked beats instead, each pulled onto its onset."""
     import numpy as np
 
+    from core.sample import tempo
+
     env = beat_envelope(feat)
     duration = feat["duration"]
     times, weights = _onsets(env)
+    drums = _drum_frames(feat)
+    if drums is not None and times.size:
+        # the tempo and the phase from where the drums play
+        keep = drums[np.clip(np.round(_t2f(times)).astype(int), 0, len(drums) - 1)]
+        if int(keep.sum()) >= 16:
+            times, weights = times[keep], weights[keep]
     if times.size < 16:
         return {"kind": "none", "reason": "no_beat", "confidence": 0.0}
+    family = tempo.genre_family(genres)
     bpm = _pick_tempo(feat, env, times, weights, bpm_hint, genres)
     if bpm is None:
         return {"kind": "none", "reason": "no_beat", "confidence": 0.0}
@@ -984,7 +1103,23 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None, genres=Non
 
     def active_mask(beat_times):
         frames = np.clip(np.round(_t2f(beat_times)).astype(int), 0, len(rms_frames) - 1)
-        return rms_frames[frames] > loud - 30
+        playing = rms_frames[frames] > loud - 30
+        if drums is not None:
+            playing &= drums[np.clip(frames, 0, len(drums) - 1)]
+        return playing
+
+    def held(confidence, agree, beat_times, period_now):
+        """The caps every grid goes through: no tracker agreeing, a related
+        tempo as good, an octave nothing says is fast."""
+        unsure_tempo = _tempo_unsure(times, weights, period_now)
+        unsure_octave = _octave_unsure(feat, beat_times, 60.0 / period_now, family, bpm_hint)
+        if agree < AGREE_READY:
+            confidence = min(confidence, BEAT_CONFIDENT - 0.05)
+        if unsure_tempo:
+            confidence = min(confidence, TEMPO_UNSURE_CONFIDENCE)
+        if unsure_octave:
+            confidence = min(confidence, OCTAVE_UNSURE_CONFIDENCE)
+        return confidence, unsure_tempo, unsure_octave
 
     if mad_ms <= STEADY_MAD_MS and drift_ms <= STEADY_DRIFT_MS:
         # centre the grid on the on-beat onsets (the phase vector leans
@@ -1042,14 +1177,12 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None, genres=Non
         elif margin < AMBIGUOUS_MARGIN and not floor:
             # not sure which sixteenth, and no kick on every beat to say
             confidence *= AMBIGUOUS_FACTOR
-        unsure_tempo = _tempo_unsure(times, weights, period)
-        if unsure_tempo:
-            confidence = min(confidence, TEMPO_UNSURE_CONFIDENCE)
+        confidence, unsure_tempo, unsure_octave = held(confidence, agree, beats, period)
         return {"kind": "constant", "bpm": round(60.0 / period, 3), "period": period, "first_beat": float(beats[0]),
                 "beats": beats, "confidence": round(confidence, 3), "sixteenth": shift,
                 "sixteenth_margin": round(min(margin, 99.0), 2), "four_on_the_floor": floor,
                 "backbeat": backed, "hits": round(hits, 3), "agreement": round(agree, 3),
-                "unsure_tempo": unsure_tempo,
+                "unsure_tempo": unsure_tempo, "unsure_octave": unsure_octave,
                 "mad_ms": round(mad_ms, 1), "drift_ms": round(drift_ms, 1), "alignment": round(strength, 3)}
     # a drifting tempo: librosa's tracked beats give each onset its beat
     # number; the beats with a clear onset are kept where the onset is, and
@@ -1086,9 +1219,11 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None, genres=Non
         confidence = min(confidence, BREAK_CONFIDENCE)
     if margin < AMBIGUOUS_MARGIN:
         confidence *= AMBIGUOUS_FACTOR
+    confidence, unsure_tempo, unsure_octave = held(confidence, agree, beats, period)
     return {"kind": "beats", "bpm": round(60.0 / period, 3), "period": period, "first_beat": float(beats[0]),
             "beats": beats, "confidence": round(confidence, 3), "sixteenth": shift,
-            "sixteenth_margin": round(min(margin, 99.0), 2), "mad_ms": round(mad_ms, 1),
+            "sixteenth_margin": round(min(margin, 99.0), 2), "hits": round(hits, 3), "agreement": round(agree, 3),
+            "unsure_tempo": unsure_tempo, "unsure_octave": unsure_octave, "mad_ms": round(mad_ms, 1),
             "drift_ms": round(drift_ms, 1), "alignment": round(strength, 3)}
 
 
@@ -1142,8 +1277,12 @@ def _beat_parts(feat, beats):
 #: October)
 DOWNBEAT_TURN_WEIGHT = 0.5
 #: the downbeat's confidence: over windows of this many beats (8 bars), how
-#: many put the strongest beat on the same one
+#: many put the strongest beat on the same one, and how clearly
 DOWNBEAT_WINDOW = 32
+DOWNBEAT_WINDOW_LEAD = 0.5
+#: the one's lead over the next beat across the whole track (standard
+#: errors); under it the downbeat stays "unsure" (under 0.3)
+DOWNBEAT_MIN_SEPARATION = 1.5
 
 
 def _phase_strength(salience, period: int) -> Tuple[int, float]:
@@ -1164,24 +1303,31 @@ def _phase_strength(salience, period: int) -> Tuple[int, float]:
 
 
 def _window_agreement(salience, phase: int) -> float:
-    """The share of 8-bar windows (overlapping by half) whose strongest beat
-    of the bar is ``phase``, as 0 (chance, a quarter) to 1 (all of them)."""
+    """How steadily 8-bar windows (overlapping by half) put the strongest
+    beat of the bar on ``phase``, each window weighed by how clearly it says
+    so (its lead over its second-best beat, against the salience's spread:
+    full at ``DOWNBEAT_WINDOW_LEAD``); 0 is chance, 1 every window clearly
+    agreeing. Repeating a weak lead isn't evidence (grid v5's review: 11 of
+    12 wrong downbeats scored 0.3 or more)."""
     import numpy as np
 
+    salience = np.asarray(salience, dtype=np.float64)
     n = len(salience)
-    votes = []
+    spread = float(np.std(salience)) or 1.0
+    weights = []
     step = DOWNBEAT_WINDOW // 2
     for start in range(0, max(1, n - DOWNBEAT_WINDOW + 1), step):
         part = salience[start:start + DOWNBEAT_WINDOW]
         if len(part) < 8:
             continue
-        means = [float(np.mean(part[(p - start) % 4::4])) for p in range(4)]
-        votes.append(int(np.argmax(means)) == phase)
-    if not votes:
+        means = np.array([float(np.mean(part[(p - start) % 4::4])) for p in range(4)])
+        order = np.argsort(means)[::-1]
+        lead = (means[order[0]] - means[order[1]]) / spread
+        weights.append(min(1.0, lead / DOWNBEAT_WINDOW_LEAD) * (1.0 if int(order[0]) == phase else -1.0 / 3.0))
+    if not weights:
         return 0.0
-    share = float(np.mean(votes))
     # a few windows say little: two agreeing windows aren't eight
-    return max(0.0, (share - 0.25) / 0.75) * min(1.0, len(votes) / 4.0)
+    return max(0.0, float(np.mean(weights))) * min(1.0, len(weights) / 4.0)
 
 
 def downbeats(feat, beats) -> Dict[str, Any]:
@@ -1205,6 +1351,8 @@ def downbeats(feat, beats) -> Dict[str, Any]:
     if sep3 > 4.0 and sep3 > 1.5 * max(sep4, 0.0):
         meter = "not_4_4"
     confidence = _window_agreement(salience, phase)
+    if _phase_strength(salience, 4)[1] < DOWNBEAT_MIN_SEPARATION:
+        confidence = min(confidence, 0.29)
     if meter != "4/4":
         confidence = min(confidence, 0.2)
     return {"phase": int(phase), "confidence": round(confidence, 3), "meter": meter}
@@ -1465,6 +1613,7 @@ def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bo
            "beat_confidence": grid["confidence"], "downbeat_confidence": down["confidence"],
            "meter": down["meter"], "bars": int(n_bars),
            "beats": [round(float(b), 4) for b in beats] if grid["kind"] == "beats" else None}
+    out["half_parity"] = half_parity(feat, beats)
     if n_bars < 8:
         return {**out, "phrases": phrases_from([], n_bars), "sections": [], "mix_in": None, "mix_out": None}
     if on_step is not None:
@@ -1483,6 +1632,40 @@ def analyze_audio(y, sr: int, *, bpm_hint: Optional[float] = None, truncated: bo
     mix_in, mix_out = _mix_regions(sections, kick, n_bars, truncated)
     return {**out, "phrases": phrases_from(change_bars, n_bars), "sections": sections,
             "changes": [[b, round(s, 2)] for b, s in changes], "mix_in": mix_in, "mix_out": mix_out}
+
+
+#: halving keeps the beats of the parity that's louder (the whole
+#: spectrum's flux) in at least this share of 16-beat windows; nearer an
+#: even split, those the downbeat is on
+HALF_PARITY_SHARE = 0.6
+
+
+def half_parity(feat, beats) -> Optional[int]:
+    """Which beats (0: the even ones from the first, 1: the odd) to keep when
+    this grid is halved (core/dj/grid_store.py ``rescale``), or None to keep
+    the downbeat's. A grid at twice the tempo has the track's beats (kick or
+    snare) on one parity and the hats between on the other; the downbeat
+    alone chose wrong on a Groove hip hop track read at 134 (grid v5's review,
+    L6). On the review bench's grids at twice the reference tempo, the louder
+    parity was the reference's beats on 90 of 106 (HANDOFF)."""
+    import numpy as np
+
+    beats = np.asarray(beats, dtype=np.float64)
+    peaks = _peak_near(feat["env"], beats, 0.03)[0]
+    even = []
+    for s in range(0, len(peaks) - 15, 16):
+        w = peaks[s:s + 16]
+        a, b = float(np.mean(w[0::2])), float(np.mean(w[1::2]))
+        if max(a, b) > 0:
+            even.append(a > b)
+    if not even:
+        return None
+    share = float(np.mean(even))
+    if share >= HALF_PARITY_SHARE:
+        return 0
+    if share <= 1.0 - HALF_PARITY_SHARE:
+        return 1
+    return None
 
 
 def _zrows(m):

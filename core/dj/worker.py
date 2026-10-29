@@ -218,7 +218,34 @@ def _default_analyze(path: str) -> Dict[str, Any]:
     return analyze_track(path, max_seconds=DECODE_SECONDS, keep_audio=True, on_step=progress.step)
 
 
-def _default_grid(path: str, *, audio=None, bpm_hint: Optional[float] = None) -> Dict[str, Any]:
+def _library_genres(database, track_id: str) -> List[str]:
+    """The genres enrichment keeps for the track's album, then its artist
+    (JSON arrays), for a file with no genre tag of its own. Never raises."""
+    import json
+
+    try:
+        with closing(database._get_connection()) as conn:
+            row = conn.execute("SELECT al.genres AS album, ar.genres AS artist FROM tracks t "
+                               "LEFT JOIN albums al ON al.id = t.album_id LEFT JOIN artists ar ON ar.id = t.artist_id "
+                               "WHERE t.id = ?", (track_id,)).fetchone()
+    except Exception as exc:  # noqa: BLE001 - no genre is fine
+        logger.debug("genres unreadable for %s: %s", track_id, exc)
+        return []
+    if not row:
+        return []
+    for text in (row["album"], row["artist"]):
+        try:
+            found = json.loads(text) if text else []
+        except ValueError:
+            found = [text]
+        found = [str(g) for g in (found if isinstance(found, list) else [found]) if g]
+        if found:
+            return found[:8]
+    return []
+
+
+def _default_grid(path: str, *, audio=None, bpm_hint: Optional[float] = None,
+                  genres: Optional[List[str]] = None) -> Dict[str, Any]:
     """The beat grid, phrases and sections (core/dj/grid.py) from the audio
     the analysis decoded, or from a decode of its own (the same 10 minutes)
     when the DJ data came from Sample Studio or is already done."""
@@ -233,12 +260,13 @@ def _default_grid(path: str, *, audio=None, bpm_hint: Optional[float] = None) ->
     progress.step("grid")
     y, rate = audio
     truncated = len(y) / float(rate) >= DECODE_SECONDS - 0.05
-    # the file's genre tag decides a slow hint's octave first (drum and bass
-    # at 87 is 174; hip hop at 87 stays): core/sample/tempo.py
+    # the file's genre tag (else enrichment's, ``genres``) decides a slow
+    # hint's octave first (drum and bass at 87 is 174; hip hop at 87 stays):
+    # core/sample/tempo.py
     from core.sample.tempo import file_genres
 
     return analyze_audio(y, rate, bpm_hint=bpm_hint, truncated=truncated, on_step=progress.step,
-                         genres=file_genres(path))
+                         genres=file_genres(path) or genres or None)
 
 
 def _replaygain_db(path: str) -> Optional[float]:
@@ -287,7 +315,9 @@ def _find_grid(database, track_id: str, path: str, sig: Optional[str], *, audio,
     else:
         grid_store.mark(database, track_id, "analyzing", None, source_sig=sig)
     try:
-        result = analyze_grid(path, audio=audio, bpm_hint=bpm_hint)
+        # enrichment's genres for a file with no tag (only the real analysis takes them)
+        extra = {"genres": _library_genres(database, track_id)} if analyze_grid is _default_grid else {}
+        result = analyze_grid(path, audio=audio, bpm_hint=bpm_hint, **extra)
     except ImportError as exc:
         if before:
             grid_store.restore(database, before)

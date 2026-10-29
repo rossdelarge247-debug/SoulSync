@@ -88,6 +88,10 @@ def save_result(database, track_id: str, result: Dict[str, Any], *, source_sig: 
     (it's applied to this grid, or this grid waits for it)."""
     done = result.get("status") == "done"
     mix = {"in": result.get("mix_in"), "out": result.get("mix_out")} if done else None
+    if mix is not None and result.get("half_parity") in (0, 1):
+        # which beats a ÷2 keeps (core/dj/grid.py ``half_parity``): kept with
+        # the mix regions, so it comes back with the measured grid
+        mix["half"] = int(result["half_parity"])
     values = {
         "grid_version": int(result.get("version") or GRID_VERSION), "analyzed_at": time.time(),
         "source_sig": source_sig, "status": "done" if done else "none",
@@ -202,8 +206,9 @@ def rescale(row: Dict[str, Any], factor: float) -> Dict[str, Any]:
     one, and every bar becomes two, so sections and mix regions double and
     the phrases are counted again from the same section changes.
 
-    Halving keeps every other beat (those the downbeat is on), so the beats
-    are exact too; two bars become one, paired so that the most section
+    Halving keeps every other beat (the louder parity the analysis kept as
+    ``half`` in the mix regions, or else those the downbeat is on), so the
+    beats are exact too; two bars become one, paired so that the most section
     changes fall on a bar line (an odd one rounds down), and the phrases are
     counted again from them."""
     from core.dj.grid import phrases_from
@@ -228,7 +233,7 @@ def rescale(row: Dict[str, Any], factor: float) -> Dict[str, Any]:
         def to_bar(b: float, up: bool = False) -> int:
             return int(2 * b)
     else:
-        parity = down % 2
+        parity = mix.get("half") if mix.get("half") in (0, 1) else down % 2
         # pair the bars so the most section changes fall on a new bar line
         odd = sum(1 for c in changes if c % 2)
         shift = 1 if odd > len(changes) - odd else 0

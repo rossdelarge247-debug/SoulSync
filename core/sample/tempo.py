@@ -86,7 +86,8 @@ FAST_GENRES = ("drum and bass", "drumandbass", "drumnbass", "dnb", "d and b", "j
                "jump up", "darkstep", "techstep", "drumstep", "halftime", "happy hardcore", "ragga jungle")
 HALF_GENRES = ("dubstep", "brostep", "riddim", "trap", "grime", "drill", "uk drill")
 SLOW_GENRES = ("hip hop", "hiphop", "rap", "boom bap", "r and b", "rnb", "trip hop", "downtempo", "lo fi", "lofi",
-               "reggae", "dub", "soul", "neo soul", "chillhop", "g funk")
+               "reggae", "dub", "soul", "neo soul", "chillhop", "g funk", "chillout", "chill out", "lounge",
+               "ambient", "dancehall", "downbeat", "reggaeton")
 
 _FAMILIES = (("fast", FAST_GENRES), ("half", HALF_GENRES), ("slow", SLOW_GENRES))
 
@@ -107,9 +108,11 @@ def genre_family(genres: Optional[Iterable[Any]]) -> Optional[str]:
         return None
     if isinstance(genres, str):
         genres = [genres]
+    # "Drum And Bass, Dance, Jazz" is three genres: each is read on its own
+    genres = [part for genre in genres if genre is not None for part in re.split(r"[,;|]", str(genre))]
     found = set()
     for genre in genres:
-        if genre is None:
+        if not genre.strip():
             continue
         text = _normal(genre)
         for family, words in _FAMILIES:
