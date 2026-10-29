@@ -92,6 +92,11 @@ def save_result(database, track_id: str, result: Dict[str, Any], *, source_sig: 
         # which beats a ÷2 keeps (core/dj/grid.py ``half_parity``): kept with
         # the mix regions, so it comes back with the measured grid
         mix["half"] = int(result["half_parity"])
+    octave = result.get("octave_confidence")
+    if mix is not None and isinstance(octave, dict):
+        # each octave's confidence once a person has chosen it (core/dj/grid.py
+        # ``octave_confidences``): a ×2 or ÷2 releases the octave's hold
+        mix["octave"] = {str(k): round(float(v), 3) for k, v in octave.items() if k in ("1", "2", "0.5")}
     values = {
         "grid_version": int(result.get("version") or GRID_VERSION), "analyzed_at": time.time(),
         "source_sig": source_sig, "status": "done" if done else "none",
@@ -160,8 +165,20 @@ def measured(row: Dict[str, Any]) -> Dict[str, Any]:
     person's BPM rescaled it, the measured values kept in ``measured_json``."""
     kept = _loads(row.get("measured_json"), None)
     if isinstance(kept, dict) and kept.get("period"):
-        return {**row, **{k: kept.get(k) for k in _RESCALED}, "measured_json": None}
+        back = {k: kept.get(k) for k in _MEASURED if k in kept}
+        return {**row, **back, "measured_json": None}
     return {**row, "measured_json": None}
+
+
+def _chosen_confidence(base: Dict[str, Any], factor: float) -> Optional[float]:
+    """The grid's confidence at ``factor`` of its measured tempo once a person
+    has chosen that octave (kept from the analysis in the mix regions as
+    ``octave``), or None when the analysis didn't keep one (an older grid)."""
+    octave = (_loads(base.get("mix_json"), {}) or {}).get("octave")
+    key = {1.0: "1", 2.0: "2", 0.5: "0.5"}.get(float(factor))
+    if not isinstance(octave, dict) or key is None or octave.get(key) is None:
+        return None
+    return float(octave[key])
 
 
 def follow_override(row: Dict[str, Any], target: Optional[float]) -> Dict[str, Any]:
@@ -171,29 +188,46 @@ def follow_override(row: Dict[str, Any], target: Optional[float]) -> Dict[str, A
     again exactly. With no target, or one at the measured grid's own tempo
     or not an octave of it, the measured grid comes back (``{}`` when the
     row is it already). A rescaled row keeps the measured values in
-    ``measured_json``."""
+    ``measured_json``.
+
+    A person's BPM settles the octave: the grid it leaves takes the
+    confidence the analysis kept for that octave (``_chosen_confidence``),
+    so a grid held only because its octave wasn't sure is ready after one
+    ×2 or ÷2, or with a person's BPM at the measured tempo itself (grid v5's
+    second review). The measured confidence comes back with a reset."""
     if row.get("status") != "done":
         return {}
     base = measured(row)
-    restore = {k: base.get(k) for k in _RESCALED} if row.get("measured_json") else {}
+    restore = {k: base.get(k) for k in _MEASURED} if row.get("measured_json") else {}
     if restore:
         restore["measured_json"] = None
     factor = octave_factor(base.get("bpm"), target) if target is not None else None
-    if factor is None or factor == 1.0:
+    if factor is None:
         return restore
+    chosen = _chosen_confidence(base, factor)
+    if factor == 1.0:
+        if chosen is None or chosen == base.get("beat_confidence"):
+            return restore
+        values = {**{k: base.get(k) for k in _MEASURED}, "beat_confidence": chosen}
+        values["measured_json"] = json.dumps({k: base.get(k) for k in _MEASURED}, separators=(",", ":"))
+        return values
     out = dict(base)
     while factor != 1.0:
         step = 2.0 if factor > 1 else 0.5
         out.update(rescale(out, step))
         factor /= step
     values = {k: out[k] for k in _RESCALED if k in out}
-    values["measured_json"] = json.dumps({k: base.get(k) for k in _RESCALED}, separators=(",", ":"))
+    if chosen is not None:
+        values["beat_confidence"] = chosen
+    values["measured_json"] = json.dumps({k: base.get(k) for k in _MEASURED}, separators=(",", ":"))
     return values
 
 
 #: what rescale changes
 _RESCALED = ("bpm", "period", "first_beat", "downbeat_index", "first_downbeat", "bars", "beats_ms",
              "phrases_json", "sections_json", "mix_json")
+#: what a person's BPM changes, kept as measured in ``measured_json``
+_MEASURED = _RESCALED + ("beat_confidence",)
 
 
 def rescale(row: Dict[str, Any], factor: float) -> Dict[str, Any]:

@@ -83,13 +83,26 @@ RADIUS_S = 0.035
 #: "&", "'n'" and "n" between words read as "and")
 FAST_GENRES = ("drum and bass", "drumandbass", "drumnbass", "dnb", "d and b", "jungle", "neurofunk",
                "liquid funk", "liquid dnb", "liquid drum and bass", "liquid", "breakcore", "footwork", "juke",
-               "jump up", "darkstep", "techstep", "drumstep", "halftime", "happy hardcore", "ragga jungle")
+               "jump up", "darkstep", "techstep", "drumstep", "halftime", "happy hardcore", "ragga jungle",
+               # grid v5's second review: hardcore and its cousins, hard techno
+               "hardcore", "uk hardcore", "hardstyle", "rawstyle", "gabber", "gabba", "frenchcore", "speedcore",
+               "uptempo", "terrorcore", "hard techno")
 HALF_GENRES = ("dubstep", "brostep", "riddim", "trap", "grime", "drill", "uk drill")
 SLOW_GENRES = ("hip hop", "hiphop", "rap", "boom bap", "r and b", "rnb", "trip hop", "downtempo", "lo fi", "lofi",
                "reggae", "dub", "soul", "neo soul", "chillhop", "g funk", "chillout", "chill out", "lounge",
-               "ambient", "dancehall", "downbeat", "reggaeton")
+               "ambient", "dancehall", "downbeat", "reggaeton", "jazz hop", "jazzhop")
+#: slow genres named with a faster family's word, read before the families
+SLOW_FIRST = ("hardcore hip hop", "hardcore rap", "jazz hop", "jazzhop")
+#: genres whose tempo may be fast or slow, but whose fast reading is
+#: believable (bebop and swing at 180-300): they settle a grid's octave as
+#: it was found, and never double or halve it. A list that also names
+#: another family takes that one ("Drum And Bass, Dance, Jazz" is fast)
+FREE_GENRES = ("jazz", "bebop", "swing", "big band", "jazz fusion")
 
-_FAMILIES = (("fast", FAST_GENRES), ("half", HALF_GENRES), ("slow", SLOW_GENRES))
+# the first family a genre names wins (drum and bass before dub), after
+# SLOW_FIRST ("hardcore hip hop" is hip hop, "jazz hop" isn't jazz)
+_FAMILIES = (("slow", SLOW_FIRST), ("fast", FAST_GENRES), ("half", HALF_GENRES), ("slow", SLOW_GENRES),
+             ("free", FREE_GENRES))
 
 
 def _normal(text: str) -> str:
@@ -102,10 +115,19 @@ def _normal(text: str) -> str:
 
 def genre_family(genres: Optional[Iterable[Any]]) -> Optional[str]:
     """``fast`` (drum and bass and its cousins), ``half`` (dubstep, trap:
-    140 read in half time), ``slow`` (hip hop and its cousins) or None. A
-    list naming more than one family says nothing."""
+    140 read in half time), ``slow`` (hip hop and its cousins), ``free``
+    (jazz: any tempo, the fast one believable) or None. A list naming more
+    than one family says nothing (``free`` gives way to any other)."""
+    found = genre_families(genres)
+    if len(found) > 1:
+        found.discard("free")
+    return found.pop() if len(found) == 1 else None
+
+
+def genre_families(genres: Optional[Iterable[Any]]) -> set:
+    """Every family the genres name (see ``genre_family``)."""
     if not genres:
-        return None
+        return set()
     if isinstance(genres, str):
         genres = [genres]
     # "Drum And Bass, Dance, Jazz" is three genres: each is read on its own
@@ -118,8 +140,8 @@ def genre_family(genres: Optional[Iterable[Any]]) -> Optional[str]:
         for family, words in _FAMILIES:
             if any(f" {w} " in text for w in words):
                 found.add(family)
-                break  # the first family a genre names (drum and bass before dub)
-    return found.pop() if len(found) == 1 else None
+                break  # the first family a genre names
+    return found
 
 
 def _fold(bpm) -> Optional[float]:

@@ -273,10 +273,19 @@ SORTS = ("bpm", "key", "energy", "title", "artist", "recent")
 
 #: the grid's measured BPM, from a done grid at this version that's ready to
 #: mix (HANDOFF 300; since grid v5's review only a ready one: a grid held back
-#: may be at the wrong octave, and the DJ data's BPM stands then); every query
-#: that uses it or _BPM_SQL joins the grid as ``g`` (_GRID_JOIN)
-_GRID_BPM = (f"CASE WHEN g.status = 'done' AND g.grid_version >= {int(GRID_VERSION)} "
-             f"AND COALESCE(g.beat_confidence, 0) >= {float(BEAT_CONFIDENT)} THEN g.bpm END")
+#: may be at the wrong octave, and the DJ data's BPM stands then). Since its
+#: second review also a grid held only for its octave (ready at the octave
+#: it's at, ``octave`` in its mix regions) when the DJ data's BPM isn't an
+#: octave of it: untagged drum and bass at 174 showed the analysis's 117.5,
+#: whose ×2 (235) nobody wants. At an octave of the DJ data's BPM, that
+#: one shows, and a ×2 or ÷2 from it puts the grid at the octave chosen.
+#: Every query that uses it or _BPM_SQL joins the grid as ``g`` (_GRID_JOIN)
+_GRID_DONE = f"g.status = 'done' AND g.grid_version >= {int(GRID_VERSION)}"
+_OCTAVE_FREE = f"COALESCE(json_extract(g.mix_json, '$.octave.\"1\"'), 0) >= {float(BEAT_CONFIDENT)}"
+_NOT_OCTAVE_OF_DJ = ("(d.bpm IS NULL OR d.bpm <= 0 OR (ABS(g.bpm / d.bpm - 2.0) > 0.08 "
+                     "AND ABS(g.bpm / d.bpm - 0.5) > 0.02 AND ABS(g.bpm / d.bpm - 1.0) > 0.04))")
+_GRID_BPM = (f"CASE WHEN {_GRID_DONE} AND COALESCE(g.beat_confidence, 0) >= {float(BEAT_CONFIDENT)} THEN g.bpm "
+             f"WHEN {_GRID_DONE} AND {_OCTAVE_FREE} AND {_NOT_OCTAVE_OF_DJ} THEN g.bpm END")
 _GRID_JOIN = "LEFT JOIN track_grid g ON g.track_id = t.id"
 #: the BPM shown: a person's ×2 / ÷2, the measured grid, the DJ data, enrichment
 _BPM_SQL = f"COALESCE(d.bpm_override, {_GRID_BPM}, d.bpm, NULLIF(t.bpm, 0))"

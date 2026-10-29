@@ -12,7 +12,7 @@ import pytest
 
 from core.dj import grid, planner
 
-from .grid_fixtures import FOUR, OFF_BEAT_BASS, SR, dance_track, pattern_track
+from .grid_fixtures import DNB, FOUR, OFF_BEAT_BASS, SR, dance_track, pattern_track
 
 pytestmark = pytest.mark.gauntlet
 
@@ -102,21 +102,24 @@ def dnb():
 def test_a_slow_hint_in_drum_and_bass_s_half_needs_drum_and_bass_to_double(dnb, monkeypatch):
     # Andy C's Heartbeat Loud read 87 under a hint of 87. Doubling any hint at
     # 82-89 that the scan read at twice made boom bap and hip hop at 85 into
-    # 170 (grid v5's review, H2): the scan's double alone isn't enough. A
-    # fast backbeat (a snare every other beat of the double) or a drum and
-    # bass genre is. Heartbeat's own file says drum and bass
+    # 170 (grid v5's review, H2): the scan's double alone isn't enough.
+    # Drum and bass's drums at the double (``drum_and_bass_beats``; the
+    # backbeat vote said "slow" on real drum and bass: its second review) or
+    # a drum and bass genre is
     from core.sample import tempo
 
+    # (the generated track's backbeat votes "fast"; real drum and bass's said "slow")
+    monkeypatch.setattr(tempo, "backbeat", lambda *a, **k: {"vote": "slow", "fast": 0.2, "slow": 0.72})
     scan = grid._scan_tempo
     monkeypatch.setattr(grid, "_scan_tempo", lambda t, w: (172.1, scan(t, w)[1]))
-    monkeypatch.setattr(tempo, "backbeat", lambda *a, **k: {"vote": "slow", "fast": 0.2, "slow": 0.72})
+    monkeypatch.setattr(grid, "drum_and_bass_beats", lambda *a, **k: False)
     assert grid.beat_grid(dnb, 86.0)["bpm"] == pytest.approx(86.0, abs=0.2)
     assert grid.beat_grid(dnb, 86.0, ["Drum And Bass"])["bpm"] == pytest.approx(172.0, abs=0.2)
-    monkeypatch.setattr(tempo, "backbeat", lambda *a, **k: {"vote": "fast", "fast": 0.8, "slow": 0.2})
+    monkeypatch.setattr(grid, "drum_and_bass_beats", lambda *a, **k: True)
     assert grid.beat_grid(dnb, 86.0)["bpm"] == pytest.approx(172.0, abs=0.2)
     assert grid.beat_grid(dnb, 86.0, ["Hip Hop"])["bpm"] == pytest.approx(86.0, abs=0.2)
     # outside drum and bass's half (82-89), a slow hint stands: boom bap at 76
-    monkeypatch.setattr(tempo, "backbeat", lambda *a, **k: {"vote": "slow", "fast": 0.2, "slow": 0.72})
+    monkeypatch.setattr(grid, "drum_and_bass_beats", lambda *a, **k: False)
     monkeypatch.setattr(grid, "_scan_tempo", lambda t, w: (152.0, scan(t, w)[1]))
     assert grid._pick_tempo(dnb, grid.beat_envelope(dnb), *grid._onsets(grid.beat_envelope(dnb)), 76.0) != 152.0
 
@@ -204,9 +207,13 @@ def test_hits_alone_dont_make_a_grid_ready(dnb, monkeypatch):
     # however many beats have a hit
     g = grid.beat_grid(dnb, 174.0, ["Drum & Bass"])
     assert g["confidence"] >= grid.BEAT_CONFIDENT
-    monkeypatch.setattr(grid, "_agreement", lambda *a, **k: grid.AGREE_READY - 0.01)
+    monkeypatch.setattr(grid, "_agreement_bands", lambda *a, **k: (grid.AGREE_READY - 0.01, 1.0))
     held = grid.beat_grid(dnb, 174.0, ["Drum & Bass"])
     assert held["confidence"] < grid.BEAT_CONFIDENT and held["hits"] >= 0.5
+    # M-a: the attack band disagreeing outright holds it too
+    monkeypatch.setattr(grid, "_agreement_bands", lambda *a, **k: (0.5, 0.0))
+    held = grid.beat_grid(dnb, 174.0, ["Drum & Bass"])
+    assert held["confidence"] < grid.BEAT_CONFIDENT
 
 
 def test_the_agreement_counts_in_full_only_with_hits():
@@ -290,6 +297,12 @@ def test_the_worker_falls_back_on_enrichments_genres(tmp_path, monkeypatch):
 
     assert worker._library_genres(Db(), "1") == ["Drum & Bass"]
     assert worker._library_genres(Db(), "2") == []
+    # the second review (M-c): album and artist merged, generic genres left out
+    c = sqlite3.connect(str(path))
+    c.executescript("UPDATE albums SET genres = '[\"Electronic\", \"Soul\"]' WHERE id = 'b';")
+    c.commit()
+    c.close()
+    assert worker._library_genres(Db(), "1") == ["Soul", "Drum & Bass"]
     seen = {}
     monkeypatch.setattr(tempo, "file_genres", lambda p: [])
     monkeypatch.setattr("core.dj.grid.analyze_audio", lambda y, rate, **kw: seen.update(kw) or {"status": "none"})
@@ -298,3 +311,76 @@ def test_the_worker_falls_back_on_enrichments_genres(tmp_path, monkeypatch):
     monkeypatch.setattr(tempo, "file_genres", lambda p: ["Drum & Bass"])
     worker._default_grid(str(tmp_path / "x.flac"), audio=(np.zeros(SR * 30, np.float32), SR), genres=["Hip Hop"])
     assert seen["genres"] == ["Drum & Bass"]  # the file's own tag first
+
+
+
+# ── grid v5's second review ──────────────────────────────────────────────────
+
+BOOM_BAP = {0: "K", 8: "S", 10: "K"}
+
+
+def _doubled(beats):
+    beats = np.asarray(beats)
+    return np.sort(np.concatenate([beats, beats[:-1] + np.diff(beats) / 2.0]))
+
+
+def test_drum_and_bass_s_drums_say_it_s_fast_and_a_doubled_groove_s_dont():
+    # H-new 3: the snare's crack on two and four of the fast bar, against
+    # the beat opposite the kick, and the two-step's second kick half a beat
+    # after it (Heartbeat Loud 0.46 and 0.79 on real audio)
+    y, beats = pattern_track(174.0, 64, DNB)
+    assert grid.drum_and_bass_beats(grid._features(y), np.asarray(beats))
+    y, beats = pattern_track(87.0, 64, BOOM_BAP)
+    assert not grid.drum_and_bass_beats(grid._features(y), _doubled(beats))
+    y, beats = pattern_track(87.0, 64, FOUR, claps=True)
+    assert not grid.drum_and_bass_beats(grid._features(y), _doubled(beats))
+
+
+def test_drum_and_bass_s_drums_settle_the_octave_whatever_a_hint_at_half_says(monkeypatch):
+    y, beats = pattern_track(174.0, 64, DNB)
+    feat = grid._features(y)
+    beats = np.asarray(beats)
+    assert not grid._octave_unsure(feat, beats, 174.0, None, 87.0)
+    monkeypatch.setattr(grid, "drum_and_bass_beats", lambda *a, **k: False)
+    assert grid._octave_unsure(feat, beats, 174.0, None, 87.0)
+
+
+def test_a_tag_or_enrichment_bpm_at_the_grid_s_octave_settles_it(monkeypatch):
+    # H-new 2: the DJ data's BPM from a tag or enrichment (not the analysis)
+    monkeypatch.setattr(grid, "drum_and_bass_beats", lambda *a, **k: False)
+    y, beats = pattern_track(174.0, 64, DNB)
+    feat = grid._features(y)
+    beats = np.asarray(beats)
+    assert grid._octave_unsure(feat, beats, 174.0, None)
+    assert not grid._octave_unsure(feat, beats, 174.0, None, None, 174.0)
+    assert not grid._octave_unsure(feat, beats, 174.0, None, 174.0, 173.0)
+    # at the other octave it's no evidence for this one
+    assert grid._octave_unsure(feat, beats, 174.0, None, None, 87.0)
+    y, b = pattern_track(87.0, 64, BOOM_BAP)
+    slow = grid._features(y)
+    assert grid._octave_unsure(slow, np.asarray(b), 87.0, None, None, 174.0)
+    assert not grid._octave_unsure(slow, np.asarray(b), 87.0, None, None, 87.0)
+
+
+def test_a_slow_genre_halves_a_fast_grid_only_without_drum_and_bass_s_drums():
+    # L-c: ambient jungle at 170 tagged "Ambient" isn't 85; held instead
+    assert grid._genre_octave(170.0, "slow", lambda bpm: True) == 170.0
+    assert grid._genre_octave(170.0, "slow", lambda bpm: False) == pytest.approx(85.0)
+    beats = np.arange(0, 60, 60 / 170.0)
+    assert grid._octave_unsure({}, beats, 170.0, "slow")
+
+
+def test_a_fast_family_wins_for_a_fast_reading():
+    # M-c: liquid drum and bass is often tagged Soul too
+    assert grid._family_at({"fast", "slow"}, 174.0) == "fast"
+    assert grid._family_at({"fast", "slow"}, 87.0) is None
+    assert grid._family_at({"slow"}, 87.0) == "slow"
+    assert grid._family_at(set(), 174.0) is None
+
+
+def test_the_analysis_keeps_each_octaves_confidence(dnb):
+    y, beats = pattern_track(174.0, 48, DNB)
+    r = grid.analyze_audio(y, SR, bpm_hint=87.0)
+    octave = r["octave_confidence"]
+    assert set(octave) >= {"1"} and octave["1"] >= r["beat_confidence"]
+    assert all(0.0 <= v <= 1.0 for v in octave.values())
