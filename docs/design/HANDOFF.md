@@ -86,7 +86,7 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 383. **263's fold** shows for any set with lines not in your library (a saved famous mix, or a pasted tracklist saved), as "Hide 4 not in your library" at the meta line's end, not remembered. Place, and should it stay folded for the set?
 384. **Settings → Library → DJ** is a folded section after Organization, before Processing, with no group label of its own (Library's are Files & folders, Processing, …). Should it be open by default, or have a "DJ" group label above it?
 385. **UX-9's line** ("Couldn't start the mix · the tracks didn't load in time · Night Ferry plays on straight · Try again") shows for 12 s in the bar's middle and the tray's deck, then only Mix now's title keeps it. Long enough, and should the gap's chip say it too?
-399. **"This tempo is right."** A beat grid held only because its octave isn't sure (drum and bass with no genre tag and no drum-and-bass drums the analysis recognises) is released by one Double BPM or Halve BPM. When the Library already shows the held grid's own BPM (174, because the DJ data said 117.5), there is nothing to press: Double goes out of range, and Halve then Double does it in two. Is there a natural place for a "This tempo is right" action (the BPM's hover or the track's menu), or is Halve-then-Double enough?
+399. **"BPM is right."** A beat grid held only because its octave isn't sure (drum and bass with no genre tag and no drum-and-bass drums the analysis recognises) is released by one Double BPM or Halve BPM, or, when its own BPM is already shown and Double would go out of range, by **"BPM is right"** in the track's "…" on Tracks, first among the BPM items, shown only for such a track (`bpm_unsure`). That's the provisional answer (grid v5's third review). Is the row's "…" the right home, and should the BPM's hover or the analysis indicator's reason line say why the track waits ("Not sure if it's 87 or 174 BPM")?
 
 ## Log
 
@@ -162,6 +162,25 @@ Ready and right: Ross 1 → 4 in every mode (Acid 0.86, London Thing 0.78, Acid 
 - **The remaining Groove test errors** (a 65 BPM rock groove read at 130, a 190 prog track read at 95) are left for the reviewer, as asked; nothing was tuned on the test split.
 
 Results (Groove train, the public set and Ross's clips, every hint mode): ready-right and ready-wrong are unchanged from the first review round. Ross's 4 are ready with and without their tags (Heartbeat untagged: 174 at 0.74 under no hint, 87, 117.5 and 174). Untagged Heartbeat before → after: held at 0.45 (or read at 87 at 0.35) under every hint, with ×2 leaving it held → ready at 174 (0.74) under every hint, shown as 174. With its drum evidence switched off (a stand-in for drum and bass without a two-step), the hint of 87 reads 87 at 0.35 and one ×2 makes it 174 at 0.79, ready. CPU: the grid is 0.32 s median per clip, about 1.7 s per 10 minutes of audio (+0.25 s, mostly the two octaves' agreements).
+
+**Review round 3 (the same day).** Untagged Heartbeat was fixed, Groove test didn't regress, and the drum-and-bass detector had no false positives in 56 tries. What remained was a person always being able to fix a held track in one press, and half-read fast tracks. What changed:
+- **H1, a person's choice releases every cap tied to the octave.** `octave_confidences` scores each octave on its own beats (hits, the agreement and its holds) times the grid's steadiness. It no longer carries the measured octave's caps over (`free/base`), which had held a real Amen at 85 to 0.40 after its ×2. A person's choice of an octave lifts both the octave's hold and the related-tempo tie for that octave (`free_confidence` is now taken before the tie). The agreement's hold stays.
+- **M1, "BPM is right"** (`confirm`, alongside double, halve and reset, in `store.set_tempo` and `POST /api/library/dj/bpm`) keeps the BPM shown as the person's, so the grid takes that octave's confidence. On Tracks it leads the "…"'s BPM items for a track whose grid waits only on its octave (`bpm_unsure` in the DJ data). This is Design question 399's provisional answer. The Library also shows a held grid's BPM when its ×2 or ÷2 would be ready and the DJ data's BPM isn't an octave of it: a real Amen read at 85 under an analysis's 117.5 used to show 117.5, whose ×2 was 235.
+- **M2, half-read fast tracks:** a 70–100 grid with no slow genre and no tag or enrichment BPM at its octave is held when its double has drum and bass's drums (`drum_and_bass_beats`; Heartbeat read at 87). Nothing else separated half-read fast tracks from slow grooves on the bench. The comb at the double is as strong or stronger on 38 of 45 slow grooves (Groove train and public). The ×2 octave's confidence is 0.35–0.91 on the bench's right slow grids, against 0.77–0.85 on half-read fast ones. Off-beat onset density overlaps too. So half-time drum and bass (a snare every fourth fast beat) and a prog track at 190 read at 95 are still confidently half when a hint says so. These are left for the Beat This! trial. No real slow track is newly held: every table below is unchanged.
+- **M3:** the Groove punk at 128 on E-GMD's "Raw Dnb" kit, ready 0.42 of a beat off, is a known limit. No cheap general cause was found, and the kit isn't on the bench.
+- **L2:** jazz (`free`) no longer settles the octave hold (acid jazz, jazz funk and nu jazz are grooves at 80–100 that read at double). **L3:** `json_extract` is guarded with `json_valid()`. **L4:** a rescaled grid keeps `octave` in its mix regions, and after a ×2 also `half` (0: the measured beats). **L1:** Ross's `dnb*` clips hadn't arrived, so the detector isn't re-calibrated.
+
+Results: Ross's clips with and without tags, Groove train and the public set are unchanged from round 2 in every hint mode. The press flows, from the measured grid under each DJ BPM:
+- **Untagged Heartbeat:** ready at 174 (0.74) under every DJ BPM. ÷2 gives 87, ready 0.77.
+- **The forced roller** (Heartbeat with its drum evidence switched off):
+  - Under 117.5: 174 held, "BPM is right" offered; it gives 0.74, ready.
+  - Under 87 (tag or analysis): 87 at 0.35; one ×2 gives 174, ready 0.80.
+- **A real Amen (Sonic Pi, CC0) at 170 and 176:**
+  - Under 87, or with no hint (shown 85 now): one ×2 gives 170 or 176, ready 0.80–0.85. Before, nothing released it.
+  - Under 117.5 or 174: held at 170 or 176; "BPM is right" gives 0.90–0.91, ready.
+- **Generated half-time drum and bass:**
+  - With no hint: 172 held; "BPM is right" gives 0.77.
+  - Under 86: ready at 86 (0.996). This is the known limit above; one ×2 gives 172, ready.
 
 ### 2026-10-29: Dev, beat-grid phase follow-up of 29 October
 
