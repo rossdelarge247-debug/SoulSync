@@ -145,8 +145,13 @@ export function bindRowGrid(list: HTMLElement, opts: RowGridOptions): () => void
     const onRow = target === row;
     const shift = event.shiftKey;
 
-    // a row picked up with Space (32d)
-    if (isKeyboardLifted() && onRow) {
+    // a row picked up with Space (32d). Focus on one of its controls (or
+    // another row) goes back to the lifted row first, so its keys still work (L-a)
+    if (isKeyboardLifted()) {
+      if (!onRow) {
+        const back = list.querySelector<HTMLElement>('[data-dnd-lifted="keyboard"]') ?? row;
+        back.focus();
+      }
       const map: Record<string, Parameters<typeof keyboardKey>[0] | undefined> = {
         ArrowUp: shift ? 'top' : 'up',
         ArrowDown: shift ? 'end' : 'down',

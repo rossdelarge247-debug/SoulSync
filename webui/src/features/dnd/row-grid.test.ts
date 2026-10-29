@@ -6,6 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getDnd, keyboardLift, registerTarget, resetDndForTests } from './dnd-engine';
 import { bindRowGrid } from './row-grid';
 
 let off: () => void;
@@ -90,5 +91,50 @@ describe('the row grid', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(rows()[3].getAttribute('tabindex')).toBe('-1');
     expect(rows()[3].querySelector('button')!.getAttribute('tabindex')).toBe('-1');
+  });
+});
+
+describe("a pick-up with the focus on one of the row's controls (review L-a)", () => {
+  afterEach(() => resetDndForTests());
+
+  function lift() {
+    const list = document.getElementById('list')!;
+    rows().forEach((r, i) => r.setAttribute('data-dnd-index', String(i)));
+    registerTarget({
+      id: 'list',
+      kind: 'set-list',
+      listId: 'set:1',
+      name: 'Sunday Set',
+      el: () => list,
+      rows: () => rows(),
+      lockables: () => [{}, {}, {}],
+      accepts: () => ({ ok: true }),
+      preview: (_d, gap) => ({ gap, line: null }),
+      drop: async () => null,
+      announce: () => {},
+    });
+    rows()[1].focus();
+    keyboardLift('list', 1, {
+      items: [{ id: 'b', title: 'B' }],
+      source: { kind: 'set', listId: 'set:1', indexes: [1] },
+      rows: [rows()[1]],
+    });
+  }
+
+  it('an arrow brings the focus back to the lifted row and moves it', () => {
+    lift();
+    const more = document.querySelector<HTMLElement>('[aria-label="More for b"]')!;
+    more.focus();
+    press(more, 'ArrowDown');
+    expect(document.activeElement).toBe(rows()[1]);
+    expect(getDnd().kbd?.at).toBe(2);
+  });
+
+  it('Escape on a control inside the row puts it back', () => {
+    lift();
+    const more = document.querySelector<HTMLElement>('[aria-label="More for b"]')!;
+    more.focus();
+    press(more, 'Escape');
+    expect(getDnd().drag).toBeNull();
   });
 });

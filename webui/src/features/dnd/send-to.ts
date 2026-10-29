@@ -103,13 +103,18 @@ const AUTO_RESET = { style: 'auto', bars: 16 };
  */
 export function restoreJoins(rows: SetRow[], reset: SetJoinReset[]): SetRow[] {
   if (!reset.length) return rows;
-  const at = indexesOfNumbers(rows, reset);
+  // by number and track together: a set can hold the same track twice (L-b)
+  const want = new Map(reset.map((r) => [r.number, r]));
   const out = rows.slice();
-  at.forEach((i) => {
-    const r = reset.find((x) => String(x.track_id) === String(out[i].track_id));
-    const now = out[i].transition;
-    if (!r || !now || now.style !== AUTO_RESET.style || now.bars !== AUTO_RESET.bars) return;
-    out[i] = { ...out[i], transition: r.transition };
+  let n = 0;
+  out.forEach((row, i) => {
+    if (!row.track_id) return;
+    n += 1;
+    const r = want.get(n);
+    if (!r || String(r.track_id) !== String(row.track_id)) return;
+    const now = row.transition;
+    if (!now || now.style !== AUTO_RESET.style || now.bars !== AUTO_RESET.bars) return;
+    out[i] = { ...row, transition: r.transition };
   });
   return out;
 }
@@ -327,8 +332,14 @@ export async function sendToUpNext(
   return {
     words,
     undo: () => {
-      if (!p.removeTracks?.(put))
-        throw new Error("Can't undo: those tracks aren't in Up next any more");
+      const gone = p.removeTracks?.(put) ?? 0;
+      if (!gone) throw new Error("Can't undo: those tracks aren't in Up next any more");
+      // some stayed (the incoming track a mix holds, or one playing now): say so (L-c)
+      const left = put.length - gone;
+      if (left > 0)
+        throw new Error(
+          `Took ${gone} of ${put.length} out · ${left === 1 ? 'one is playing or mixing in now, so it stays' : `${left} are playing or mixing in now, so they stay`}`,
+        );
     },
   };
 }

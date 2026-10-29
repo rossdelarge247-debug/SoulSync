@@ -796,9 +796,10 @@ let kbdWatch: { list: HTMLElement | null; timer: number } | null = null;
 
 function kbdEscape(e: KeyboardEvent): void {
   if (e.key !== 'Escape' || !state.kbd) return;
-  const list = kbdWatch?.list;
-  // inside its list the row grid takes Escape itself, with the same words
-  if (list && e.target instanceof Node && list.contains(e.target)) return;
+  // on the lifted row the row grid takes Escape itself, with the same words;
+  // anywhere else (a control inside the row too) it's put back here (L-a)
+  const lifted = (e.target as Element | null)?.getAttribute?.('data-dnd-lifted') === 'keyboard';
+  if (lifted && kbdWatch?.list?.contains(e.target as Node)) return;
   e.preventDefault();
   e.stopPropagation();
   cancel(true);

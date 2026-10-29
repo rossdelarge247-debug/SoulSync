@@ -174,3 +174,14 @@ it('[review M3] while a mix holds the incoming row nothing takes its place or mo
   expect(screen.getByRole('button', { name: 'Move D up' })).toBeDisabled();
   expect(queue.state().titles).toEqual(['A', 'B', 'D', 'C']);
 });
+
+it('[review L-d] an empty grip (played and playing rows) lets a press through to the row’s Play', () => {
+  const css = readFileSync(resolve(process.cwd(), 'static/player.css'), 'utf8');
+  expect(css).toMatch(
+    /\.np-queue-item-grip:not\(\[data-dnd-grip\]\)\s*\{\s*pointer-events:\s*none;/,
+  );
+  const grips = [...document.querySelectorAll('.np-queue-item .np-queue-item-grip')];
+  // the playing row's grip is the empty one; the rows to come can be lifted
+  expect(grips[0].hasAttribute('data-dnd-grip')).toBe(false);
+  expect(grips.slice(1).every((g) => g.hasAttribute('data-dnd-grip'))).toBe(true);
+});

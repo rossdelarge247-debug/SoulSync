@@ -814,6 +814,8 @@ a.ss-player-record-artist:hover { color: rgb(var(--ss-accent-light-rgb)); text-d
     opacity: 0;
     touch-action: none;
 }
+/* an empty grip (a played or the playing row) mustn't block the row's Play under it (L-d) */
+.np-queue-item-grip:not([data-dnd-grip]) { pointer-events: none; }
 .np-queue-item:hover .np-queue-item-grip,
 .np-queue-item:focus-within .np-queue-item-grip,
 .np-queue-item:focus .np-queue-item-grip { opacity: 1; }

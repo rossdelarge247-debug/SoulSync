@@ -201,6 +201,29 @@ describe('a set that isn’t open (the sidebar, Your sets)', () => {
     expect(rows[2].transition ?? null).toBeNull();
   });
 
+  it('[review L-b] a set holding a track twice gets each copy’s own join back', async () => {
+    serverRows = [
+      { track_id: '1', title: 'One', transition: { style: 'auto', bars: 16 } },
+      { track_id: '9', title: 'Nine' },
+      { track_id: '2', title: 'Two' },
+      { track_id: '1', title: 'One again', transition: { style: 'auto', bars: 16 } },
+      { track_id: '3', title: 'Three' },
+    ];
+    await undoServerAdd(
+      4,
+      [{ track_id: '9', number: 2 }],
+      [
+        { track_id: '1', number: 1, transition: { style: 'long_blend', bars: 32 } },
+        { track_id: '1', number: 4, transition: { style: 'cut', bars: null } },
+      ],
+    );
+    const put = calls.find((c) => c.path === 'sets/4' && c.method === 'PUT')!;
+    const rows = put.body.tracks as { track_id: string; transition: unknown }[];
+    expect(rows.map((r) => r.track_id)).toEqual(['1', '2', '1', '3']);
+    expect(rows[0].transition).toEqual({ style: 'long_blend', bars: 32 });
+    expect(rows[2].transition).toEqual({ style: 'cut', bars: null });
+  });
+
   it('passes the add’s reset joins to its Undo', async () => {
     addAnswer = {
       added: [{ track_id: '9', number: 2 }],
@@ -323,6 +346,16 @@ describe('Up next (static/media-player.js)', () => {
     } finally {
       delete (window as unknown as { SoulSyncAutomix?: unknown }).SoulSyncAutomix;
     }
+  });
+
+  it('[review L-c] an Undo that couldn’t take every row out says what stayed', async () => {
+    const p = fakePlayer([{ id: 'a' }, { id: 'b' }], 0);
+    const done = await sendToUpNext([item('8'), item('9')], 2);
+    // the player keeps one (the incoming track a mix holds now)
+    p.removeTracks.mockImplementationOnce(() => 1);
+    await expect(Promise.resolve().then(() => done?.undo?.())).rejects.toThrow(
+      'Took 1 of 2 out · one is playing or mixing in now, so it stays',
+    );
   });
 
   it('a place says its number, with the analysis line while Auto mix is on', async () => {
