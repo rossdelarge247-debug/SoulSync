@@ -670,27 +670,37 @@ RIVAL_STRENGTH = 0.9
 #: held bass note 0.94-1.04)
 KICK_PITCH_DROP = 0.1
 KICK_DECAY = 0.5
+#: a pluck bass falls fast and dies fast too (the second review round of 29
+#: October), but its pitch ends higher: another line that falls fast must end
+#: this much higher than the beat's (the centroid 46 ms on, mel bins of the
+#: low band: generated kicks 0.01-0.28, plucks 0.33-0.46) for the beat to be
+#: the kick's; lower or close, the beat may be the pluck, or both kicks: held.
+#: Not an absolute bar: a rolling bass ringing into the kick lifts the kick's
+#: own centroid to 0.47-0.54
+KICK_CENTRE_MARGIN = 0.1
 
 
-def kick_onsets(feat, beats) -> bool:
-    """The onsets on ``beats`` sound like a kick, not a bass note or a tom:
-    in the low band (under 160 Hz) the pitch falls fast after the onset (the
-    kick's sweep) and the level drops (a short sub); the median over the
-    beats where the low band plays. False when it can't be told."""
+def onset_shape(feat, beats) -> Optional[Tuple[float, float, float]]:
+    """How the low band's onsets on ``beats`` move (under 160 Hz), the median
+    over the beats where it plays: ``(pitch drop, decay, centre after)``: the
+    centroid's fall in mel bins from the onset to 46 ms on, the level 80 ms
+    on as a share of the onset's, and where the centroid sits at 46 ms (a
+    kick's sweep ends near 50 Hz; a bass note, a pluck's included, stays on
+    its pitch and its harmonics). None when it can't be told."""
     import librosa
     import numpy as np
 
     if "mel_db" not in feat or len(beats) < 16:
-        return False
+        return None
     freqs = librosa.mel_frequencies(n_mels=N_MELS, fmin=30.0, fmax=8000.0)
     low = np.where(freqs < 160.0)[0]
     if low.size < 3:
-        return False
+        return None
     mel = 10.0 ** (np.asarray(feat["mel_db"])[low] / 10.0)
     n = mel.shape[1]
     total = mel.sum(axis=0)
     bins = np.arange(low.size)
-    drops, decays, levels = [], [], []
+    drops, decays, centres, levels = [], [], [], []
     for f in np.round(_t2f(np.asarray(beats, dtype=np.float64))).astype(int):
         lo, hi = max(0, f - 2), min(n - 8, f + 3)
         if hi <= lo:
@@ -700,16 +710,29 @@ def kick_onsets(feat, beats) -> bool:
         centre = float((mel[:, at] * bins).sum() / (total[at] + 1e-12))
         after = float((mel[:, later] * bins).sum() / (total[later] + 1e-12))
         drops.append(centre - after)
+        centres.append(after)
         decays.append(float(total[min(n - 1, at + 7)] / (total[at] + 1e-12)))
         levels.append(float(total[at]))
     if len(levels) < 16:
-        return False
+        return None
     levels_a = np.asarray(levels)
     playing = levels_a >= 0.3 * float(np.percentile(levels_a, 90))
     if int(playing.sum()) < 16:
-        return False
-    return (float(np.median(np.asarray(drops)[playing])) >= KICK_PITCH_DROP
-            and float(np.median(np.asarray(decays)[playing])) <= KICK_DECAY)
+        return None
+    return (float(np.median(np.asarray(drops)[playing])), float(np.median(np.asarray(decays)[playing])),
+            float(np.median(np.asarray(centres)[playing])))
+
+
+def _kick_shape(shape: Optional[Tuple[float, float, float]]) -> bool:
+    """A falling, short onset: a kick (or a pluck bass: see KICK_CENTRE_MARGIN)."""
+    return bool(shape and shape[0] >= KICK_PITCH_DROP and shape[1] <= KICK_DECAY)
+
+
+def kick_onsets(feat, beats) -> bool:
+    """The onsets on ``beats`` sound like a kick, not a bass note or a tom:
+    in the low band the pitch falls fast after the onset (the kick's sweep)
+    and the level drops (a short sub). False when it can't be told."""
+    return _kick_shape(onset_shape(feat, beats))
 
 
 #: another sixteenth's low-band line at least this strong against the beat's
@@ -911,8 +934,18 @@ def beat_grid(feat: Dict[str, Any], bpm_hint: Optional[float] = None) -> Dict[st
                     beats = beats + best * period / 4.0
                     beats = beats[(beats >= -0.02) & (beats < duration)]
                     backed = True
-                elif not kick_onsets(feat, beats):
-                    unsure_phase = True
+                else:
+                    shape0 = onset_shape(feat, beats)
+                    if not _kick_shape(shape0):
+                        unsure_phase = True
+                    else:
+                        # a line that falls fast too (a pluck bass, a second
+                        # kick) ending about as low: the beat may be on it
+                        for c in others:
+                            other = onset_shape(feat, beats + c * period / 4.0)
+                            if _kick_shape(other) and other[2] < shape0[2] + KICK_CENTRE_MARGIN:
+                                unsure_phase = True
+                                break
         broken = bool(shift) and not floor
         # a break's beats are told by the whole spectrum (its snares), not the kick
         hits = _hit_rate(feat["env"] if broken else env, beats, active_mask(beats),

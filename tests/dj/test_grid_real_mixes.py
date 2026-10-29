@@ -142,14 +142,25 @@ def test_drum_and_bass_with_a_bass_on_every_beat_isnt_four_on_the_floor():
 ROLLING_316 = (1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15)
 
 
-@pytest.mark.parametrize("bpm,level,kick", [(126.0, 1.0, 0.9), (128.0, 1.2, 0.9), (128.0, 1.0, 0.5)])
-def test_a_rolling_bass_with_no_backbeat_is_never_trusted_to_beat_match(bpm, level, kick):
+@pytest.mark.parametrize("bpm,level,kick,kind", [(126.0, 1.0, 0.9, "tone"), (128.0, 1.2, 0.9, "tone"),
+                                                 (128.0, 1.0, 0.5, "tone"),
+                                                 # the second review: a pluck bass (its pitch drops
+                                                 # like a kick's) under a soft kick
+                                                 (118.0, 1.0, 0.5, "pluck"), (126.0, 1.0, 0.5, "pluck"),
+                                                 (134.0, 1.0, 0.5, "pluck"), (140.0, 1.0, 0.5, "pluck"),
+                                                 (134.0, 1.0, 0.9, "pluck")])
+def test_a_rolling_bass_with_no_backbeat_is_never_trusted_to_beat_match(bpm, level, kick, kind):
     # the low band is busy on every sixteenth: the comb's line was a bass note
-    # a sixteenth off the kick, at 0.98-0.99; it's held under the bar now
-    y, _ = pattern_track(bpm, 48, FOUR, bass=ROLLING_316, bass_level=level, kick=kick)
+    # a sixteenth off the kick, at 0.98-0.99; it's held under the bar now,
+    # and a pluck's line that sounds like a kick too is a rival, not a kick
+    y, beats = pattern_track(bpm, 48, FOUR, bass=ROLLING_316, bass_level=level, kick=kick, bass_kind=kind)
     g = _grid(y, bpm)
-    assert g["kind"] == "constant" and g["unsure_phase"]
-    assert g["confidence"] < BEAT_CONFIDENT
+    assert g["kind"] == "constant"
+    if not g["unsure_phase"]:  # only ever trusted on the kick
+        assert _phase_ms(g, beats, bpm) < 20
+    assert g["unsure_phase"] or g["confidence"] >= BEAT_CONFIDENT
+    if kind == "tone":
+        assert g["unsure_phase"] and g["confidence"] < BEAT_CONFIDENT
 
 
 @pytest.mark.parametrize("kw", [{}, {"bass": OFF_BEAT_BASS, "bass_level": 0.4},
@@ -158,7 +169,10 @@ def test_a_rolling_bass_with_no_backbeat_is_never_trusted_to_beat_match(bpm, lev
                                 # the follow-up's review: low percussion and a quiet rolling bass
                                 {"toms": (1, 2, 3), "tom_level": 0.3},
                                 {"toms": (1, 2, 3), "tom_level": 0.15, "bass": OFF_BEAT_BASS, "bass_level": 0.4},
-                                {"bass": ROLLING_316, "bass_level": 0.25}])
+                                {"bass": ROLLING_316, "bass_level": 0.25},
+                                # the second review: a pluck bass off the beat
+                                {"bass": OFF_BEAT_BASS, "bass_level": 0.9, "bass_kind": "pluck"},
+                                {"bass": OFF_BEAT_BASS, "bass_level": 1.5, "bass_kind": "pluck"}])
 def test_ordinary_four_on_the_floor_is_still_ready(kw):
     # a kick alone, an off-beat bass under it, a rolling bass with a clap,
     # toms on the sixteenths between, a quiet rolling bass with no clap

@@ -362,6 +362,7 @@ def fail_leftover_analyzing(database) -> int:
         kept = conn.execute("SELECT track_id, reason FROM track_grid WHERE status = 'analyzing' "
                             "AND reason LIKE ?", (AGAIN_PREFIX + "%",)).fetchall()
     restored = 0
+    retry: List[str] = []
     for track_id, reason in kept:
         try:
             before = json.loads(str(reason)[len(AGAIN_PREFIX):])
@@ -372,10 +373,18 @@ def fail_leftover_analyzing(database) -> int:
                 restore(database, {**before, "track_id": track_id})
                 restored += 1
             except Exception as exc:  # noqa: BLE001 - a locked database never stops the sweep starting
-                logger.warning("Couldn't put track %s's grid back after a crash: %s", track_id, exc)
+                # left as it is (``analyzing``, the grid in its reason): the
+                # next start tries again
+                logger.warning("Couldn't put track %s's grid back after a crash (tried again at the next "
+                               "start): %s", track_id, exc)
+                retry.append(str(track_id))
     with closing(database._get_connection()) as conn:
-        cur = conn.execute("UPDATE track_grid SET status = 'error', reason = ? WHERE status = 'analyzing'",
-                           ("SYNCHRO.S stopped while finding this track's beats; skipped",))
+        marks = ",".join("?" * len(retry))
+        keep = f" AND track_id NOT IN ({marks})" if retry else ""
+        # "?" placeholders only are formatted in; every value is a bound parameter
+        cur = conn.execute(  # nosemgrep: sqlalchemy-execute-raw-query
+            f"UPDATE track_grid SET status = 'error', reason = ? WHERE status = 'analyzing'{keep}",
+            ["SYNCHRO.S stopped while finding this track's beats; skipped"] + retry)
         conn.commit()
         return restored + int(cur.rowcount or 0)
 
