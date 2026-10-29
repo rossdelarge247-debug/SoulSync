@@ -1416,3 +1416,51 @@ describe("step 2's re-review: the cut's timing (the reviewer's r2.probe.test.ts,
     expect(h.player.playIndex).toHaveBeenCalledWith(1, { automix: true });
   });
 });
+
+describe('the phase follow-up of 29 October: the next track changes before the mix (M3 of the review)', () => {
+  // Play <set> as a mix from the playing track puts rows straight after it;
+  // before a mix holds the decks (loading its windows, ready, a cut set) the
+  // pair is planned afresh and nothing of the old one acts
+  it('a cut set for the old pair never cuts to it', async () => {
+    const h = harness({ plan: cutPlan(250) });
+    h.ctl.start();
+    await at(h, 249);
+    expect(h.ctl.getView().stage).toBe('cut');
+    // the set's rows go in after the playing one
+    h.st.queue.splice(1, 0, track('7', 'Set Row'));
+    h.ctl.poke();
+    await flush();
+    await at(h, 251);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(h.plan).toHaveBeenLastCalledWith('1', '7', AUTO_CHOICE, 'auto');
+    // never to the old next track (now at 2); a cut into the new one is fine
+    for (const call of h.player.playIndex.mock.calls) expect(call[0]).not.toBe(2);
+    h.ctl.stop();
+  });
+
+  it('windows loading for the old pair are let go, and the decks never take it', async () => {
+    let release: (() => void) | null = null;
+    const h = harness();
+    h.window.mockImplementation(
+      (_ctx: unknown, _id: string, start: number, dur: number) =>
+        new Promise((r) => {
+          release = () => r(deck(start, Math.min(dur, 5)));
+        }),
+    );
+    h.ctl.start();
+    await at(h, OUT - 40);
+    h.ctl.poke();
+    await flush();
+    expect(h.ctl.getView().stage).toBe('loading');
+    expect(release).not.toBeNull();
+    h.st.queue.splice(1, 0, track('7', 'Set Row'));
+    h.ctl.poke();
+    await flush();
+    release!();
+    await flush();
+    const v = h.ctl.getView();
+    expect(v.pair?.toId).toBe('7');
+    expect(engine.loaded).toEqual([]);
+    h.ctl.stop();
+  });
+});
