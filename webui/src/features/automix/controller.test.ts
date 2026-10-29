@@ -1438,6 +1438,25 @@ describe('the phase follow-up of 29 October: the next track changes before the m
     h.ctl.stop();
   });
 
+  it('windows ready for the old pair are let go, and the decks never take it', async () => {
+    const h = harness();
+    h.ctl.start();
+    await at(h, OUT - 40);
+    h.ctl.poke();
+    await flush();
+    expect(h.ctl.getView().stage).toBe('ready');
+    h.st.queue.splice(1, 0, track('7', 'Set Row'));
+    h.ctl.poke();
+    await flush();
+    expect(h.ctl.getView().pair?.toId).toBe('7');
+    // through the old pair's take-over point: its decks never start
+    await at(h, OUT - 1);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(engine.plays.filter((p) => p.deck === 'B')).toEqual([]);
+    expect(h.ctl.getView().pair?.toId).toBe('7');
+    h.ctl.stop();
+  });
+
   it('windows loading for the old pair are let go, and the decks never take it', async () => {
     let release: (() => void) | null = null;
     const h = harness();
