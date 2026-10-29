@@ -89,6 +89,39 @@ Questions 1–28 were answered in Design's session of 22 October, 29–57 in its
 
 ## Log
 
+### 2026-10-29: Dev, beat grids on real audio of 29 October
+
+Built on `fix/grid-real` from `integration` (3972ede4), after Ross's report that the latest build got most of his tracks' beats wrong or "not found". **Every earlier grid test used generated audio, and the rules had been tuned to it.** This round measured the grid on real music and rebuilt what failed there. **Grid version 5:** every stored grid is found again by the sweep (nothing at 4 is promoted; Ross's ~110 analysed tracks are a few minutes of grid-only decodes, counted in the analysis indicator's "to do" meanwhile; a mix that needs one of them waits for it, as at every version).
+
+**The bench** (local files only, nothing committed): Ross's seven 2-minute clips (the core), plus 34 openly licensed public tracks (librosa's example tracks, Sonic Pi's CC0 loops, Essentia's techno loop, the three StepMania songs with their charts as an annotated beat grid, Red Eclipse's CC-BY-SA soundtrack, others), each at three BPM hints (the analysis's, as an untagged track gets; the true one, as a tag; none). The reference beat is an independent tracker's (madmom's, not shipped: its models are CC BY-NC-SA), the charts', and Ross's ear where he gave it. `scripts/grid_bench.py` runs the same measurement on any files you point it at (`--list tracks.csv` with an optional reference BPM and first beat, or a beat annotation file).
+
+**What was wrong, measured:**
+- **The confidence didn't tell a right grid from a wrong one** (on the bench, AUC 0.68: 14 of 21 grids on the beat scored under 0.5). Its "beats louder than the half-beats" factor sank techno with an off-beat bass (contrast 0.97, so 0.12 although on the beat); its 0.45 caps fired on right grids: the half-beat break move (right 5 times in 6), the ×0.6 "which sixteenth" doubt (four-on-the-floor tracks measure 0.88–1.10 with off-beat hats).
+- **The phase follow-up moved two of Ross's tracks the wrong way:** Acid went a sixteenth off at 0.59 (the busy-line move took a bass line whose backbeat share was 0.84 over the kick's), Realizer fell from 0.78 to no beat. Its kick test (`kick_onsets`) called 7 of 16 real kicks a bass: real kicks' sub decays at 0.05–0.88 against the 0.5 bar (generated kicks 0.05–0.10). `UNSURE_PHASE` never caught a wrong phase on real audio and held right ones.
+- **The hint was a fence:** a wrong analysis BPM (123 or 89 for songs at 180) kept the grid within 4% of itself, where it found no beat. A hint of 87 kept drum and bass at 87 (Heartbeat Loud): the backbeat vote said "slow".
+- **The downbeat was at chance:** its salience agreed with the independent tracker on 12 of 39 tracks; the whole spectrum's attack and the timbre's change follow the clap on two and four.
+
+**What it does now:**
+- **The beat's confidence** is the hit rate (no contrast factor) and an independent tracker's agreement (`_agreement`): librosa's beat tracker (already a dependency) held to the grid's tempo, on the low band and on the drums' attack band (500–4000 Hz), in 8-bar windows at fixed times where the drums play; a break's on the whole spectrum. 0.45 of it from the hits, so a grid no tracker agrees with is never ready.
+- **Removed:** the busy-line move, `kick_onsets`/`onset_shape` and `UNSURE_PHASE`; the break cap on a half-beat move (kept on a sixteenth's, right 1 time in 4); the ×0.6 doubt on four-on-the-floor grids. A rival line with the backbeat still moves the grid (as at v4 before the follow-up).
+- **The hint is a prior** (`_pick_tempo`): its 3/2, 2/3, 4/3 and 3/4 and the grid's own scan are tested, and one the onsets fit 1.5 times better wins; a tempo that ties with a related one within 8% is held (`TEMPO_UNSURE_CONFIDENCE`). **Drum and bass:** a slow hint at 82–89 is doubled when the grid's scan reads the double, whatever the backbeat vote; the file's genre tag (now passed by the worker) decides first: drum and bass doubles, hip hop, R&B, reggae keep it slow.
+- **Downbeats** follow the kick, with the harmony's turn at half weight; their confidence is how many 8-bar windows agree. It never decides a beat-match (it only marks the bars as unsure).
+- **Kept:** the comb's steady grid, the drift path, the tempo scan, `FLOOR_EVENNESS` (it can't be tightened on real audio: real house 0.13–0.58, a waltz and drum-and-bass stems up to 0.35; it now only decides the ×0.6 doubt and the rival move). CPU: about 0.2–0.9 s more per 10 minutes of audio for the grid (one core; 1.8–2.6 s in all), the agreement itself 0.05 s.
+
+**Results** (the production hint; "ready" is confidence 0.5 or more in 4/4; 4T4 and Realizer left out of the counts, their phase is disputed):
+
+| | v3 | v4 (14564619) | 3972ede4 | v5 |
+|---|---|---|---|---|
+| Ross's clips: on the beat / ready / ready but wrong | 5 / 2 / 0 | 4 / 2 / 0 | 3 / 1 / 1 | 5 / 4 / 0 |
+| public dance and electronic (21): on the beat / ready / ready but wrong | 9 / 5 / 1 | 10 / 5 / 1 | 10 / 5 / 0 | 12 / 10 / 1 |
+| downbeat agreeing with the independent tracker (of the grids on the beat) | 6 of 20 | 6 of 21 | 5 of 20 | 16 of 23 |
+
+Ross's clips at v5: Acid 0.86, London Thing 0.78 (by ear 127 from the start: right), Acid Lab 0.70, Heartbeat Loud 0.75 at 174; Action 0.39 (on the beat, but librosa's tracker takes its off-beat bass: held); Realizer 0.40 and 4T4 no beat (both disputed; by ear neither starts on bar 1: v5's Realizer downbeat is at 1.59 s, the 4th beat). The two "ready but wrong" are a Red Eclipse track at 2/3 of the reference's tempo and a pop song doubled (88 → 177): the octave of an untagged slow pop song is still a guess.
+
+**Known limits:** a generated bass louder than a generated clickless kick, with no clap (and a rolling tone bass, a "donk"), can be trusted on the bass: the tracker hears the bass too. These are strict xfails in `test_grid_real_mixes.py`; no real track on the bench did this. Untagged hip hop at 82–89 is read at double (a genre tag or the person's ÷2 fixes it). The bench is small: 7 real clips of Ross's, few house or techno tracks among the public ones.
+
+**Tests:** `test_grid_v5.py` (the confidence, the agreement's phase sense and its independence from the grid it checks, the hint as a prior, drum and bass under a slow hint and the genre, the tempo tie, the downbeat and its confidence, an unsure downbeat still beat-matching); `test_grid_accuracy.py` and `test_grid_real_mixes.py` re-expressed (breaks moved half a beat are ready; the bass-over-kick hazards kept as strict xfails); the version tests at 5.
+
 ### 2026-10-29: Dev, beat-grid phase follow-up of 29 October
 
 Built on `fix/grid-phase` from `integration` (14564619), for the gauntlet review's remaining items on the mixing fix (its scripts: `scratchpad/review-mix/`). **No new route, no schema change, no new grid version:** the change only holds grids back (a held grid is still cut on and counted in bars), so grids already at v4 keep their values; Analyse again finds one anew.
