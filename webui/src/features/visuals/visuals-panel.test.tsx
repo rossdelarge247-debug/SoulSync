@@ -139,14 +139,19 @@ afterEach(() => {
 });
 
 describe('the panel (10a)', () => {
-  it('three families as OptionButtons; AVS isn’t built, so it isn’t there', async () => {
+  it('four families as OptionButtons (Data, 30a, after Classic); AVS isn’t built, so it isn’t there', async () => {
     const { c } = setup();
     act(() => {
       c.setOpen(true);
       c.togglePanel(true);
     });
     const families = within(screen.getByRole('group', { name: 'Family' })).getAllByRole('button');
-    expect(families.map((b) => b.textContent)).toEqual(['SYNCHRO.S', 'MilkDrop', 'Classic']);
+    expect(families.map((b) => b.textContent)).toEqual([
+      'SYNCHRO.S',
+      'MilkDrop',
+      'Classic',
+      'Data',
+    ]);
     expect(screen.queryByText('AVS')).toBeNull();
     expect(families[0]).toHaveAttribute('aria-pressed', 'true');
     c.dispose();

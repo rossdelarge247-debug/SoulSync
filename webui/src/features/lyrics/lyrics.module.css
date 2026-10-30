@@ -1,0 +1,521 @@
+/* The lyrics layer (27a–27g) and the phone's record (27e). The overlay, its
+   header and transport live in static/player.css; the layer sits between the
+   stage canvases (z 0) and the chrome (z 3). */
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── the layer ─────────────────────────────────────────────────────────── */
+
+.layer {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+  color: #fff;
+}
+
+/* over the artwork, the layer covers the still stage with its own art */
+.layer[data-ground='art'] {
+  z-index: 5;
+  background: #000;
+}
+
+/* the Visuals panel takes the right: the words keep to what's left (10a) */
+:global(#np-modal-overlay[data-visuals-panel]) .stage {
+  right: calc(520px + 32px);
+}
+
+.wash {
+  position: absolute;
+  inset: 0;
+  /* lyrics only (27a note 1): #0c0c0c with the artwork's colour as a faint wash */
+  background:
+    radial-gradient(
+      ellipse 70% 60% at 50% 100%,
+      rgba(var(--np-ambient-r, 139), var(--np-ambient-g, 92), var(--np-ambient-b, 246), 0.16),
+      transparent 70%
+    ),
+    var(--ss-ground-page, #0c0c0c);
+}
+
+.artBlur {
+  position: absolute;
+  inset: -80px;
+  background-position: center;
+  background-size: cover;
+  /* 27c: blurred 40px and darkened to 55% */
+  filter: blur(40px) brightness(0.45);
+}
+
+.scrim {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(1200px, 92vw);
+  height: min(560px, 70vh);
+  transform: translate(-50%, -50%);
+  /* 27a note 2: dim where the words are, 62% at the centre to 30% at the edge */
+  background: radial-gradient(
+    closest-side,
+    rgba(0, 0, 0, 0.62),
+    rgba(0, 0, 0, 0.3) 78%,
+    rgba(0, 0, 0, 0)
+  );
+}
+
+.stage {
+  position: absolute;
+  inset: 64px 0 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 40px 96px;
+}
+
+/* ── the lines ─────────────────────────────────────────────────────────── */
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: min(960px, 100%);
+  text-align: center;
+  pointer-events: auto;
+}
+
+.line {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--ss-radius-control, 10px);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-wrap: balance;
+  cursor: pointer;
+}
+
+.line:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: 2px;
+}
+
+.lineText {
+  display: inline;
+}
+
+/* hovering a line shows its time at the line's end (27a) */
+.lineTime {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  margin-left: 8px;
+  transform: translateY(-50%);
+  color: var(--ss-text-meta);
+  font: 400 14px/1 var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.line:hover .lineTime,
+.line:focus-visible .lineTime {
+  opacity: 1;
+}
+
+.prev,
+.next,
+.after {
+  font-size: var(--ly-side, 24px);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.prev {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.next,
+.after {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.empty {
+  min-height: calc(var(--ly-side, 24px) * 1.3);
+  cursor: default;
+}
+
+.current {
+  font-size: var(--ly-size, 44px);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.current .lineText {
+  animation: lineIn 240ms ease-out;
+}
+
+.lines[data-still='true'] .current .lineText {
+  /* reduced motion (27d): the whole line, a 200 ms fade */
+  animation: lineFade 200ms linear;
+}
+
+.waiting,
+.gap {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* the sweep (27d): lit to the left of --f, the rest at 45% */
+.word {
+  --f: 0%;
+  color: transparent;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* real word times: a hard edge, lit white */
+.lines[data-sweep='real'] .word {
+  background-image: linear-gradient(90deg, #fff var(--f), rgba(255, 255, 255, 0.45) var(--f));
+}
+
+/* the estimate: a 24px feathered edge, and lit only to 85% (never claiming to be on the words) */
+.lines[data-sweep='estimate'] .word {
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.85) calc(var(--f) - 12px),
+    rgba(255, 255, 255, 0.45) calc(var(--f) + 12px)
+  );
+}
+
+.lines[data-still='true'] .word {
+  color: #fff;
+  background: none;
+}
+
+@keyframes lineIn {
+  from {
+    opacity: 0.4;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lineFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── plain lyrics (27g): smaller, all alike, scrolling with the track ─── */
+
+.plainBox {
+  position: relative;
+  width: min(760px, 100%);
+  height: min(420px, 60vh);
+  overflow: hidden;
+  mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
+  pointer-events: auto;
+}
+
+.plainList {
+  padding: 30% 0;
+  text-align: center;
+  will-change: transform;
+}
+
+.plainList p {
+  margin: 0 0 10px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: calc(var(--ly-side, 24px));
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.plainList .plainGap {
+  height: 18px;
+}
+
+/* ── the states (27g) ──────────────────────────────────────────────────── */
+
+.note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 24px;
+  border-radius: var(--ss-radius-card, 14px);
+  background: rgba(0, 0, 0, 0.45);
+  text-align: center;
+  animation: lineFade 200ms linear;
+}
+
+.noteMain {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.noteSub {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+/* ── the pill (27a): one pill above the transport, with the chrome ─────── */
+
+.pill {
+  position: absolute;
+  left: 50%;
+  bottom: calc(72px + 16px);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 32px);
+  padding: 4px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--ss-radius-control, 10px);
+  background: rgba(20, 20, 22, 0.88);
+  pointer-events: auto;
+  transition: opacity 300ms ease;
+}
+
+:global(#np-modal-overlay[data-visuals-panel]) .pill {
+  left: calc((100% - 552px) / 2);
+}
+
+:global(.np-modal.npv2-ui-hidden) .pill {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pillBtn,
+.pillOffset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--ss-text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pillBtn:hover,
+.pillOffset:hover {
+  background: var(--ss-hover-wash);
+}
+
+.pillBtn:focus-visible,
+.pillOffset:focus-visible {
+  outline: var(--ss-focus-ring);
+  outline-offset: var(--ss-focus-offset-inset, -2px);
+}
+
+.pillBtn[aria-pressed='true'] {
+  border-color: var(--ss-selected-border);
+  background: var(--ss-selected-fill);
+}
+
+.pillBtn[aria-disabled='true'] {
+  color: var(--ss-disabled-text, rgba(255, 255, 255, 0.4));
+  cursor: default;
+}
+
+.pillBig {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.pillOffset {
+  min-width: 56px;
+  padding: 0 6px;
+  color: var(--ss-text-secondary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+.pillRule {
+  flex: none;
+  width: 1px;
+  height: 24px;
+  margin: 0 4px;
+  background: var(--ss-hairline, rgba(255, 255, 255, 0.08));
+}
+
+.pillSource {
+  overflow: hidden;
+  padding: 0 10px 0 4px;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ── the phone (27e, 27f) ──────────────────────────────────────────────── */
+
+@media (width <= 768px) {
+  .stage {
+    inset: 56px 0 64px;
+    padding: 16px 16px 88px;
+  }
+
+  .lines {
+    gap: 12px;
+  }
+
+  .current {
+    font-size: calc(var(--ly-size, 44px) * 0.64);
+  }
+
+  .prev,
+  .next {
+    font-size: calc(var(--ly-side, 24px) * 0.75);
+  }
+
+  .lineTime {
+    display: none;
+  }
+
+  .pill {
+    bottom: calc(64px + 12px);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .pillSource {
+    flex-basis: 100%;
+    padding: 4px 8px 6px;
+    text-align: center;
+  }
+}
+
+/* the record (27e): lyrics in the artwork's place */
+.record {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 220px;
+  padding: 8px 0 4px;
+  color: #fff;
+}
+
+.record .lines {
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+}
+
+.record .line {
+  padding: 2px 0;
+}
+
+.record .current {
+  font-size: calc(var(--ly-size, 44px) * 0.6);
+}
+
+.record .prev,
+.record .next,
+.record .after {
+  font-size: calc(var(--ly-side, 24px) * 0.75);
+}
+
+.record .plainBox {
+  height: 240px;
+}
+
+.record .plainList {
+  text-align: left;
+}
+
+.recordNote {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--ss-text-meta);
+  font-size: 15px;
+}
+
+.recordSource {
+  margin: 0;
+  color: var(--ss-text-meta);
+  font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .current .lineText {
+    animation: lineFade 200ms linear;
+  }
+
+  .lineTime,
+  .pill {
+    transition: none;
+  }
+}
+
+/* the credit (10c) sits bottom left while the chrome shows: the pill steps up over it */
+:global(.np-modal:has([data-visuals-credit])) .pill {
+  bottom: calc(72px + 16px + 96px);
+}
+
+/* a phone on its side (27f): no room for both, so the credit steps aside for the pill */
+@media (orientation: landscape) and (height <= 500px) {
+  :global(.np-modal:has([data-visuals-credit])) .pill {
+    bottom: calc(72px + 8px);
+  }
+
+  :global(#np-modal-overlay[data-lyrics] [data-visuals-credit]) {
+    display: none !important;
+  }
+
+  .stage {
+    inset: 64px 0 72px;
+    padding: 4px 24px 64px;
+  }
+
+  .pill {
+    bottom: calc(72px + 8px);
+  }
+
+  .current {
+    font-size: calc(var(--ly-size, 44px) * 0.6);
+  }
+
+  .prev,
+  .next {
+    font-size: calc(var(--ly-side, 24px) * 0.75);
+  }
+
+  .lines {
+    gap: 8px;
+  }
+}

@@ -2049,7 +2049,11 @@ describe('the Visuals keys (HANDOFF 60)', () => {
       /data-player-menu="visuals" aria-keyshortcuts="F">Visuals <kbd[^>]*>F<\/kbd>/,
     );
     expect(html).toContain(
-      'In the visuals, V, Shift V, R and Shift S work on the visuals; L is the A–B loop and S the star there too.',
+      'In the visuals, V, Shift V, R and Shift S work on the visuals and T on the lyrics; L is the A–B loop and S the star there too.',
+    );
+    // 24a, 27a: T is lyrics over the visuals
+    expect(html).toContain(
+      '<dt>Lyrics over the visuals (on a phone, in the record)</dt><dd><kbd>T</kbd></dd>',
     );
     // 83: L is the A–B loop everywhere; 24a: the favourite is Shift S, S the star
     expect(html).toContain('<dt>A–B loop</dt><dd><kbd>L</kbd></dd>');

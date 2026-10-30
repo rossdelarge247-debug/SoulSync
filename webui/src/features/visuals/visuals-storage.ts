@@ -1,7 +1,8 @@
 /**
  * What the Visuals remember per browser (HANDOFF "Visuals, what's remembered
  * where"): the family, MilkDrop's preset, Recent, Quality, Blend, "Every
- * preset", Classic's settings and how often the key hints have shown. Auto-cycle is the
+ * preset", Classic's settings, Data's (30a, 30d, 30h) and how often the key
+ * hints have shown. Auto-cycle is the
  * SYNCHRO.S visuals' own key, shared. Favourites are per profile, on the
  * server. "Play visuals this time" lasts the session.
  *
@@ -9,6 +10,7 @@
  * read falls back and every write is best effort.
  */
 
+import type { DataColour, DataNumbers } from './data-viz';
 import type { ClassicMode, Family, Quality, ScopeDraw } from './visuals.types';
 
 import { normaliseQuality, RECENT_MAX } from './visuals.logic';
@@ -31,6 +33,14 @@ export interface VisualsPrefs {
   classicPeaks: boolean;
   scopeDraw: ScopeDraw;
   hints: number;
+  /** Data (30a): hex or decimal, the bits, the texture, the colour (30h) */
+  dataNumbers: DataNumbers;
+  dataBits: boolean;
+  dataTexture: boolean;
+  dataColour: DataColour;
+  /** "Data underneath" (30d), per visual, off by default */
+  dataUnderBars: boolean;
+  dataUnderScope: boolean;
 }
 
 export const DEFAULT_PREFS: VisualsPrefs = {
@@ -44,6 +54,12 @@ export const DEFAULT_PREFS: VisualsPrefs = {
   classicPeaks: true,
   scopeDraw: 'lines',
   hints: 0,
+  dataNumbers: 'hex',
+  dataBits: true,
+  dataTexture: true,
+  dataColour: 'accent',
+  dataUnderBars: false,
+  dataUnderScope: false,
 };
 
 function local(): Storage | null {
@@ -96,7 +112,8 @@ export function loadPrefs(): VisualsPrefs {
   const draw = get('scope-draw');
   const hints = Number(get('hints'));
   return {
-    family: family === 'milkdrop' || family === 'classic' ? family : 'synchros',
+    family:
+      family === 'milkdrop' || family === 'classic' || family === 'data' ? family : 'synchros',
     preset: get('preset') || null,
     recent,
     quality: normaliseQuality(get('quality')),
@@ -106,6 +123,12 @@ export function loadPrefs(): VisualsPrefs {
     classicPeaks: get('classic-peaks') !== '0',
     scopeDraw: draw === 'dots' || draw === 'solid' ? draw : 'lines',
     hints: Number.isFinite(hints) && hints > 0 ? Math.floor(hints) : 0,
+    dataNumbers: get('data-numbers') === 'dec' ? 'dec' : 'hex',
+    dataBits: get('data-bits') !== '0',
+    dataTexture: get('data-texture') !== '0',
+    dataColour: (['phosphor', 'white'] as const).find((c) => c === get('data-colour')) ?? 'accent',
+    dataUnderBars: get('data-under-bars') === '1',
+    dataUnderScope: get('data-under-scope') === '1',
   };
 }
 
@@ -122,6 +145,12 @@ export function savePrefs(p: Partial<VisualsPrefs>): void {
   if (p.classicPeaks !== undefined) set('classic-peaks', p.classicPeaks ? '1' : '0');
   if (p.scopeDraw !== undefined) set('scope-draw', p.scopeDraw);
   if (p.hints !== undefined) set('hints', String(p.hints));
+  if (p.dataNumbers !== undefined) set('data-numbers', p.dataNumbers);
+  if (p.dataBits !== undefined) set('data-bits', p.dataBits ? '1' : '0');
+  if (p.dataTexture !== undefined) set('data-texture', p.dataTexture ? '1' : '0');
+  if (p.dataColour !== undefined) set('data-colour', p.dataColour);
+  if (p.dataUnderBars !== undefined) set('data-under-bars', p.dataUnderBars ? '1' : null);
+  if (p.dataUnderScope !== undefined) set('data-under-scope', p.dataUnderScope ? '1' : null);
 }
 
 export function loadAutocycle(): string {

@@ -61,7 +61,7 @@ afterEach(() => {
 });
 
 describe('the table (one place for 287)', () => {
-  it('maps M, ⇧M, N, ⇧N, A and X, and nothing else', () => {
+  it('maps M, ⇧M, N, ⇧N, A, X and T, and nothing else', () => {
     expect(handler().table).toEqual({
       M: ['mix:M', 'mute'],
       '⇧M': ['mute'],
@@ -69,7 +69,35 @@ describe('the table (one place for 287)', () => {
       '⇧N': ['next'],
       A: ['mix:A'],
       X: ['automix:X'],
+      T: ['lyrics:T'],
     });
+  });
+
+  it('t: lyrics over the visuals, and left to the page when the layer doesn’t act (27a)', () => {
+    const lyricsKey = vi.fn(() => true);
+    (window as unknown as { SoulSyncLyrics?: unknown }).SoulSyncLyrics = { key: lyricsKey };
+    try {
+      const { handle } = handler();
+      const ev = key('t');
+      handle(ev);
+      expect(lyricsKey).toHaveBeenCalledWith('T');
+      expect(ev.defaultPrevented).toBe(true);
+      expect(mixKey).not.toHaveBeenCalled();
+      lyricsKey.mockReturnValue(false);
+      const ev2 = key('T');
+      handle(ev2);
+      expect(ev2.defaultPrevented).toBe(false);
+      // ⇧T isn't bound
+      lyricsKey.mockClear();
+      handle(key('T', { shiftKey: true }));
+      expect(lyricsKey).not.toHaveBeenCalled();
+    } finally {
+      delete (window as unknown as { SoulSyncLyrics?: unknown }).SoulSyncLyrics;
+    }
+    // without the layer loaded nothing happens
+    const ev3 = key('t');
+    handler().handle(ev3);
+    expect(ev3.defaultPrevented).toBe(false);
   });
 
   it('x: Mix now through auto-mix only, and left to the page when it doesn’t act (26a)', () => {

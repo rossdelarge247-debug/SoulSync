@@ -374,7 +374,9 @@ export function creditLine(opts: {
       ? [opts.author ? `by ${opts.author}` : 'author unknown', FAMILY_NAMES.milkdrop]
       : opts.family === 'classic'
         ? [FAMILY_NAMES.classic, 'drawn by SYNCHRO.S']
-        : ['drawn by SYNCHRO.S'];
+        : opts.family === 'data'
+          ? ['the decoded audio', 'drawn by SYNCHRO.S']
+          : ['drawn by SYNCHRO.S'];
   if (opts.position > 0 && opts.total > 0)
     bits.push(`${opts.position.toLocaleString('en-GB')} of ${opts.total.toLocaleString('en-GB')}`);
   bits.push(movedWords(opts.moved, opts.autocycle));

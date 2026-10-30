@@ -1,7 +1,8 @@
 """What the player's readout says about a library file (GET /api/library/tracks/<id>/details).
 
 "FLAC 24/96 · 2,304 kbps" needs the format, the bitrate, the bit depth and the
-sample rate. The library already stores the bitrate (the scan writes it); bit
+sample rate; the Visuals' Data readout (board 30i) adds the channels and the
+bitrate on disk (the file's size over its length). The library already stores the bitrate (the scan writes it); bit
 depth and sample rate are read from the file with mutagen the first time the
 player asks, and kept on the track row with the file's signature, so the next
 ask (and anyone else's) is a plain row read until the file is replaced.
@@ -21,6 +22,9 @@ logger = get_logger("playback.audio_details")
 TRACK_COLUMNS = (
     ("bit_depth", "INTEGER"),
     ("sample_rate", "INTEGER"),
+    # 1 mono, 2 stereo, more for surround; 0 once read and not known (the
+    # Data visualiser's readout, 30i)
+    ("channels", "INTEGER"),
     # "<size>:<mtime_ns>" of the file the two above were read from
     ("audio_probe_sig", "TEXT"),
 )
@@ -60,7 +64,7 @@ def probe(path: str) -> Dict[str, Any]:
     sample rate, bitrate in kbps, length. Missing facts are None; a file
     mutagen can't open gives all None and never raises."""
     out: Dict[str, Any] = {"format": format_key(path), "bit_depth": None, "sample_rate": None,
-                           "bitrate_kbps": None, "duration_s": None}
+                           "channels": None, "bitrate_kbps": None, "duration_s": None}
     try:
         from mutagen import File as MutagenFile
 
@@ -85,6 +89,8 @@ def probe(path: str) -> Dict[str, Any]:
         lossless = True
     rate = getattr(info, "sample_rate", None)
     out["sample_rate"] = int(rate) if isinstance(rate, (int, float)) and rate > 0 else None
+    channels = getattr(info, "channels", None)
+    out["channels"] = int(channels) if isinstance(channels, (int, float)) and channels > 0 else None
     bits = getattr(info, "bits_per_sample", None)
     # an AAC .m4a reports 16 bits like ALAC does; only lossless has a bit depth
     if lossless and isinstance(bits, (int, float)) and bits > 0:
@@ -109,8 +115,12 @@ def track_row(db, track_id: str) -> Optional[Dict[str, Any]]:
     conn = db._get_connection()
     try:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(tracks)").fetchall()}
+        # a database without the channels column (its migration hasn't run)
+        # reads them as known-unknown (0), so a request never probes the file
+        # again only to fail to keep the answer
         probed = ", ".join(
-            f"t.{name}" if name in cols else f"NULL AS {name}" for name, _ in TRACK_COLUMNS)
+            f"t.{name}" if name in cols else (f"0 AS {name}" if name == "channels" else f"NULL AS {name}")
+            for name, _ in TRACK_COLUMNS)
         disc = "t.disc_number" if "disc_number" in cols else "NULL AS disc_number"
         owner = "t.owner_profile_id" if "owner_profile_id" in cols else "NULL AS owner_profile_id"
         row = conn.execute(
@@ -137,8 +147,10 @@ def _remember(db, track_id: str, facts: Dict[str, Any], sig: str) -> None:
     conn = db._get_connection()
     try:
         conn.execute(
-            "UPDATE tracks SET bit_depth = ?, sample_rate = ?, audio_probe_sig = ? WHERE id = ?",
-            (facts.get("bit_depth"), facts.get("sample_rate"), sig, str(track_id)),
+            "UPDATE tracks SET bit_depth = ?, sample_rate = ?, channels = ?, audio_probe_sig = ? "
+            "WHERE id = ?",
+            (facts.get("bit_depth"), facts.get("sample_rate"), facts.get("channels") or 0, sig,
+             str(track_id)),
         )
         conn.commit()
     except Exception as exc:  # noqa: BLE001 - the readout works without the memo
@@ -157,15 +169,23 @@ def details_for(db, row: Dict[str, Any], path: Optional[str], *,
     bitrate = row.get("bitrate")
     bit_depth = row.get("bit_depth")
     sample_rate = row.get("sample_rate")
+    channels = row.get("channels")
     duration_ms = row.get("duration")
     duration_s = round(duration_ms / 1000, 3) if isinstance(duration_ms, (int, float)) and duration_ms else None
 
     on_disk = bool(path and os.path.isfile(path))
+    size = None
     if on_disk:
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = None
         sig = file_signature(path)
-        if sig and sig != row.get("audio_probe_sig"):
+        # a row read before the channels were kept (NULL) is read once more
+        if sig and (sig != row.get("audio_probe_sig") or channels is None):
             facts = probe(path)
             bit_depth, sample_rate = facts.get("bit_depth"), facts.get("sample_rate")
+            channels = facts.get("channels")
             key = facts.get("format") or key
             if not bitrate and facts.get("bitrate_kbps"):
                 bitrate = facts["bitrate_kbps"]
@@ -175,6 +195,12 @@ def details_for(db, row: Dict[str, Any], path: Optional[str], *,
         elif key == "aac" and bit_depth:
             # remembered from an earlier probe that read it as ALAC
             key = "alac"
+
+    # the whole file's size over its length, as 30i defines "on disk": tags and
+    # embedded artwork included (a few kbps on a long track, more on a short one)
+    on_disk_kbps = None
+    if size and duration_s:
+        on_disk_kbps = int(round(size * 8 / duration_s / 1000)) or None
 
     if on_disk:
         path_label = "Library"
@@ -190,6 +216,8 @@ def details_for(db, row: Dict[str, Any], path: Optional[str], *,
         "bitrate_kbps": int(bitrate) if isinstance(bitrate, (int, float)) and bitrate > 0 else None,
         "bit_depth": int(bit_depth) if bit_depth else None,
         "sample_rate": int(sample_rate) if sample_rate else None,
+        "channels": int(channels) if channels else None,
+        "on_disk_kbps": on_disk_kbps,
         "duration_s": duration_s,
         "path_label": path_label,
         "on_disk": on_disk,

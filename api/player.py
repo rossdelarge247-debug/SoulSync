@@ -8,8 +8,8 @@ GET /api/library/tracks/<id>/peaks
     ``reason`` (not_on_disk, not_audio, unreadable) so the player stops asking.
 
 GET /api/library/tracks/<id>/details
-    ``{format, bitrate_kbps, bit_depth, sample_rate, path_label, ...}`` for the
-    tray's readout, plus the record's album line and the quality tag
+    ``{format, bitrate_kbps, bit_depth, sample_rate, channels, on_disk_kbps,
+    path_label, ...}`` for the tray's readout and the Visuals' Data readout, plus the record's album line and the quality tag
     (``quality.at_target``). Bit depth and sample rate are read from the file
     once and kept on the track (core/playback/audio_details.py).
 

@@ -17,6 +17,7 @@ import { StatusTag } from '@/components/primitives';
 import type { Family } from './visuals.types';
 
 import { BAR_COUNT, drawBars, drawScope, newBarsState, stillBars, stillWave } from './classic';
+import { DataChoices, DataUnderneath } from './data-controls';
 import { MilkdropBrowser } from './milkdrop-browser';
 import { useVisuals, useVisualsController } from './use-visuals';
 import { autocycleChoices, autocycleWords } from './visuals.logic';
@@ -93,6 +94,7 @@ export function VisualsPanel() {
         {s.family === 'milkdrop' ? <MilkdropBrowser /> : null}
         {s.family === 'synchros' ? <SynchrosGrid /> : null}
         {s.family === 'classic' ? <ClassicChoices /> : null}
+        {s.family === 'data' ? <DataChoices /> : null}
       </div>
       <PanelFoot family={s.family} />
     </aside>
@@ -187,6 +189,7 @@ function ClassicChoices() {
                   ) : null}
                 </span>
               </button>
+              <DataUnderneath mode={mode} />
               {mode === 'bars' ? (
                 <div className={styles.classicSetting}>
                   <span id="ss-visuals-peaks">Falling peaks</span>
@@ -249,7 +252,8 @@ function PanelFoot({ family }: { family: Family }) {
   const s = useVisuals();
   const c = useVisualsController();
   if (family === 'milkdrop' && (!s.webgl2 || s.engineError)) return null;
-  const classic = family === 'classic';
+  // Classic's two and Data have nothing to cycle and always draw at full size
+  const classic = family === 'classic' || family === 'data';
   const more = s.index.uncurated ?? 0;
   const everyRow =
     family === 'milkdrop' && s.index.status === 'ready' && (more > 0 || s.everyPreset);
@@ -273,11 +277,13 @@ function PanelFoot({ family }: { family: Family }) {
         id="ss-visuals-autocycle"
         label="Auto-cycle"
         meta={
-          classic
-            ? 'Doesn’t apply to Classic: there are two'
-            : family === 'milkdrop'
-              ? 'Moves to the next preset by itself'
-              : 'Moves to the next visual by itself'
+          family === 'data'
+            ? 'Doesn’t apply to Data'
+            : classic
+              ? 'Doesn’t apply to Classic: there are two'
+              : family === 'milkdrop'
+                ? 'Moves to the next preset by itself'
+                : 'Moves to the next visual by itself'
         }
       >
         <Select
@@ -335,7 +341,11 @@ function PanelFoot({ family }: { family: Family }) {
         </FootRow>
       ) : null}
       {classic ? (
-        <FootRow id="ss-visuals-quality" label="Quality" meta="Classic always draws at full size">
+        <FootRow
+          id="ss-visuals-quality"
+          label="Quality"
+          meta={`${family === 'data' ? 'Data' : 'Classic'} always draws at full size`}
+        >
           <span className={styles.footValue}>Full</span>
         </FootRow>
       ) : null}

@@ -4,14 +4,16 @@
  * spike, user-supplied presets only).
  */
 
-export type Family = 'synchros' | 'milkdrop' | 'classic';
+export type Family = 'synchros' | 'milkdrop' | 'classic' | 'data';
 
-export const FAMILIES: readonly Family[] = ['synchros', 'milkdrop', 'classic'];
+/** Data (30a) is a visual of its own, after Classic: it draws on Classic's canvas. */
+export const FAMILIES: readonly Family[] = ['synchros', 'milkdrop', 'classic', 'data'];
 
 export const FAMILY_NAMES: Record<Family, string> = {
   synchros: 'SYNCHRO.S',
   milkdrop: 'MilkDrop',
   classic: 'Classic',
+  data: 'Data',
 };
 
 /** MilkDrop's resolution scale (10a's foot). */

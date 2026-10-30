@@ -3,12 +3,15 @@
  * media-player.js builds the graph on first play: element → EQ → analyser →
  * speakers). The tap has no output, so it adds nothing to what you hear, and
  * it's made once and kept. Before anything has played, or when the graph
- * can't be read, it reads silence.
+ * can't be read, it reads silence. Data (30a) adds a channel splitter and
+ * an analyser per channel off the same node, the first time it's drawn.
  */
 
 import { isSilent } from './visuals.logic';
 
 export const TAP_FFT = 1024;
+/** Data's two taps (30a): enough for a frame's new samples at 192 kHz and 60 fps. */
+export const DATA_FFT = 4096;
 
 interface PlayerHooks {
   analyser?: () => AnalyserNode | null;
@@ -24,6 +27,14 @@ export interface AudioTap {
   sampleRate(): number;
   /** True while the last TAP_FFT samples are silence (or nothing can be read). */
   silent(): boolean;
+  /**
+   * Data (30a): the latest DATA_FFT float samples of the left and right
+   * channels as the analyser hands them over (after the equalizer, at the
+   * context's rate). False when nothing can be read; out stays as it was.
+   */
+  floats?(left: Float32Array<ArrayBuffer>, right: Float32Array<ArrayBuffer>): boolean;
+  /** Data and its layer aren't drawn: unhook the splitter (floats() hooks it again). */
+  releaseFloats?(): void;
 }
 
 export function createAudioTap(win: Window = window): AudioTap {
@@ -31,6 +42,15 @@ export function createAudioTap(win: Window = window): AudioTap {
   let source: AnalyserNode | null = null;
   let rate = 48000;
   const scratch = new Uint8Array(TAP_FFT);
+  // Data's: a splitter off the same analyser into one analyser per channel
+  // (an analyser alone mixes down to mono). Made the first time Data asks.
+  let pair: {
+    source: AnalyserNode;
+    split: ChannelSplitterNode;
+    left: AnalyserNode;
+    right: AnalyserNode;
+    hooked: boolean;
+  } | null = null;
 
   const player = () => (win as Window & { SoulSyncPlayer?: PlayerHooks }).SoulSyncPlayer;
 
@@ -73,6 +93,47 @@ export function createAudioTap(win: Window = window): AudioTap {
       return out;
     },
     sampleRate: () => rate,
+    releaseFloats() {
+      if (!pair || !pair.hooked) return;
+      try {
+        pair.source.disconnect(pair.split);
+      } catch {
+        // already apart
+      }
+      pair.hooked = false;
+    },
+    floats(left, right) {
+      const shared = player()?.analyser?.() ?? null;
+      if (!shared) return false;
+      if (!pair || pair.source !== shared) {
+        try {
+          const ctx = shared.context as AudioContext;
+          const split = ctx.createChannelSplitter(2);
+          const l = ctx.createAnalyser();
+          const r = ctx.createAnalyser();
+          l.fftSize = DATA_FFT;
+          r.fftSize = DATA_FFT;
+          shared.connect(split);
+          split.connect(l, 0);
+          split.connect(r, 1);
+          pair = { source: shared, split, left: l, right: r, hooked: true };
+          rate = ctx.sampleRate || rate;
+        } catch {
+          return false;
+        }
+      }
+      if (!pair.hooked) {
+        try {
+          shared.connect(pair.split);
+          pair.hooked = true;
+        } catch {
+          return false;
+        }
+      }
+      pair.left.getFloatTimeDomainData(left);
+      pair.right.getFloatTimeDomainData(right);
+      return true;
+    },
     silent() {
       const node = ensure();
       if (!node) return true;

@@ -140,3 +140,139 @@ def test_a_file_that_isnt_here_says_where_it_streams_from(tmp_path):
     assert out["format"] == "FLAC"
     assert out["bitrate_kbps"] == 900
     assert out["bit_depth"] is None and out["on_disk"] is False
+
+
+def _write_stereo(path, sr=44100, subtype="PCM_16", seconds=1.0):
+    t = np.arange(int(seconds * sr)) / sr
+    tone = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    sf.write(str(path), np.stack([tone, -tone], axis=1), sr, subtype=subtype)
+
+
+def test_probe_reads_the_channels(tmp_path):
+    mono, stereo = tmp_path / "m.flac", tmp_path / "s.flac"
+    _write(mono, sr=44100, subtype="PCM_16")
+    _write_stereo(stereo)
+    assert D.probe(str(mono))["channels"] == 1
+    assert D.probe(str(stereo))["channels"] == 2
+    junk = tmp_path / "x.flac"
+    junk.write_bytes(b"\x00" * 100)
+    assert D.probe(str(junk))["channels"] is None
+
+
+def test_details_say_the_channels_and_the_bitrate_on_disk(tmp_path):
+    """The Data readout (30i): channels from the file, kept with the other
+    facts; on disk is the file's size over its length."""
+    import os
+
+    db = _Db(tmp_path / "m.db")
+    song = tmp_path / "s.flac"
+    _write_stereo(song, seconds=2.0)
+    conn = db._get_connection()
+    conn.execute("INSERT INTO tracks (id, title, file_path) VALUES ('t1', 'A', ?)", (str(song),))
+    conn.commit()
+    conn.close()
+    out = D.details_for(db, db.row("t1"), str(song))
+    assert out["channels"] == 2
+    assert db.row("t1")["channels"] == 2
+    expected = round(os.path.getsize(song) * 8 / out["duration_s"] / 1000)
+    assert out["on_disk_kbps"] == expected
+
+
+def test_a_row_kept_before_the_channels_is_read_once_more(tmp_path, monkeypatch):
+    db = _Db(tmp_path / "m.db")
+    song = tmp_path / "s.flac"
+    _write_stereo(song)
+    conn = db._get_connection()
+    conn.execute("INSERT INTO tracks (id, title, file_path) VALUES ('t1', 'A', ?)", (str(song),))
+    conn.commit()
+    conn.close()
+    D.details_for(db, db.row("t1"), str(song))
+    # as an older build left it: the facts kept, the channels not
+    conn = db._get_connection()
+    conn.execute("UPDATE tracks SET channels = NULL WHERE id = 't1'")
+    conn.commit()
+    conn.close()
+    assert D.details_for(db, db.row("t1"), str(song))["channels"] == 2
+    # kept now: the next ask is a row read
+    monkeypatch.setattr(D, "probe", lambda path: pytest.fail("probed again"))
+    assert D.details_for(db, db.row("t1"), str(song))["channels"] == 2
+
+
+def test_unknown_channels_are_kept_as_known_unknown(tmp_path, monkeypatch):
+    db = _Db(tmp_path / "m.db")
+    junk = tmp_path / "x.flac"
+    junk.write_bytes(b"\x00" * 100)
+    conn = db._get_connection()
+    conn.execute("INSERT INTO tracks (id, title, file_path) VALUES ('t1', 'A', ?)", (str(junk),))
+    conn.commit()
+    conn.close()
+    assert D.details_for(db, db.row("t1"), str(junk))["channels"] is None
+    assert db.row("t1")["channels"] == 0
+    monkeypatch.setattr(D, "probe", lambda path: pytest.fail("probed again"))
+    assert D.details_for(db, db.row("t1"), str(junk))["channels"] is None
+
+
+def test_a_streamed_file_has_no_bitrate_on_disk(tmp_path):
+    db = _Db(tmp_path / "m.db")
+    conn = db._get_connection()
+    conn.execute("INSERT INTO tracks (id, title, file_path, bitrate) VALUES ('t1', 'A', '/x/a.flac', 900)")
+    conn.commit()
+    conn.close()
+    out = D.details_for(db, db.row("t1"), None)
+    assert out["on_disk_kbps"] is None and out["channels"] is None
+
+
+def test_without_the_channels_column_a_request_never_probes_again(tmp_path, monkeypatch):
+    """A database whose migration hasn't added `channels` reads it as
+    known-unknown, so every request doesn't open the file only to fail to
+    keep the answer (review L8)."""
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(str(path))
+    conn.execute("CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT, file_path TEXT, bitrate INTEGER, "
+                 "duration INTEGER, track_number INTEGER, album_id TEXT, artist_id TEXT, "
+                 "bit_depth INTEGER, sample_rate INTEGER, audio_probe_sig TEXT)")
+    conn.execute("CREATE TABLE albums (id TEXT, title TEXT, year INTEGER, thumb_url TEXT, track_count INTEGER)")
+    conn.execute("CREATE TABLE artists (id TEXT, name TEXT)")
+    song = tmp_path / "s.flac"
+    _write_stereo(song)
+    from core.playback.peaks import file_signature
+
+    conn.execute("INSERT INTO tracks (id, title, file_path, bit_depth, sample_rate, audio_probe_sig) "
+                 "VALUES ('t1', 'A', ?, 16, 44100, ?)", (str(song), file_signature(str(song))))
+    conn.commit()
+    conn.close()
+
+    class Db(_Db):
+        def __init__(self, p):
+            self.path = str(p)
+
+        def _current_scope_sql(self, _col):
+            return "1=1", []
+
+    db = Db(path)
+    row = D.track_row(db, "t1")
+    assert row["channels"] == 0
+    monkeypatch.setattr(D, "probe", lambda p: pytest.fail("probed without the column"))
+    out = D.details_for(db, row, str(song))
+    assert out["channels"] is None and out["bit_depth"] == 16
+
+
+def test_an_upgraded_database_gains_the_channels_column_cleanly(tmp_path):
+    """A library made before `tracks.channels` opens with the column and no
+    failed migration step (review L7)."""
+    from database.music_database import MusicDatabase
+
+    path = tmp_path / "music.db"
+    db = MusicDatabase(str(path))
+    conn = sqlite3.connect(str(path))
+    conn.execute("ALTER TABLE tracks DROP COLUMN channels")
+    conn.commit()
+    assert "channels" not in {r[1] for r in conn.execute("PRAGMA table_info(tracks)")}
+    conn.close()
+    db._initialize_database()  # the next start
+    conn = sqlite3.connect(str(path))
+    try:
+        assert "channels" in {r[1] for r in conn.execute("PRAGMA table_info(tracks)")}
+    finally:
+        conn.close()
+    assert db.schema_health()["failed_steps"] == []

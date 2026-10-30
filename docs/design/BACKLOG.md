@@ -14,11 +14,11 @@ New features Ross wants explored, written up so Design can pick them up. Each en
 | AudD on every track change | Exploring | [below](#audd-on-every-track-change) |
 | DJ area: BPM, key and mixing (Traktor Pro 3) | Building (stage 1: Built; stage 2a: Built) | [below](#dj-area-bpm-key-and-mixing-traktor-pro-3) |
 | Famous mixes and AI set suggestions | Sets 1: Built · Sets 2: Ready for Dev | [below](#famous-mixes-and-ai-set-suggestions) |
-| Lyrics centre stage, timed to the words | Ready for Design (step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
+| Lyrics centre stage, timed to the words | Built (step 1; step 2: Exploring) | [below](#lyrics-centre-stage-timed-to-the-words) |
 | Star tracks and mix sets | Built (Mix tab: Built) | [below](#star-tracks-and-mix-sets) |
 | Versions and remixes beside Up next | Ready for Design | [below](#versions-and-remixes-beside-up-next) |
 | Auto-mix: beat-matched transitions in Up next | Built (stages A–C); Between tracks (33e) and 302's rule: Building | [below](#auto-mix-beat-matched-transitions-in-up-next) |
-| Data visualiser: the decoded audio as numbers and bits | Ready for Design | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
+| Data visualiser: the decoded audio as numbers and bits | Built (step 1) | [below](#data-visualiser-the-decoded-audio-as-numbers-and-bits) |
 | Privacy: a VPN for Soulseek and torrents, and a privacy check | Building (VPN file, guide and Privacy card on `feat/privacy-vpn`) | [below](#privacy-a-vpn-for-soulseek-and-torrents-and-a-privacy-check) |
 | Reach SYNCHRO.S from anywhere with Tailscale | Exploring | [below](#reach-synchros-from-anywhere-with-tailscale) |
 | DJ now: a compact DJ mode in the playing panel | Drawn (E1 chosen) | [below](#dj-now-a-compact-dj-mode-in-the-playing-panel) |
@@ -457,7 +457,7 @@ Building a set from a big library is slow: SYNCHRO.S knows each track's BPM, key
 
 ## Lyrics centre stage, timed to the words
 
-**Status:** Ready for Design (step 1) · step 2 Exploring · raised by Ross, 2026-10-24 · direction approved by Ross the same day.
+**Status:** Built (step 1) · step 2 Exploring (a later trial, not built) · raised by Ross, 2026-10-24 · direction approved by Ross the same day · drawn by Design as 27a–27h and approved by Ross on 26 October · step 1 built on `feat/lyrics-data` (`HANDOFF.md`, "Dev, Lyrics step 1 and the Data visualiser of 30 October"; the screen in `SCREENS.md`, the pattern in `DESIGN-SYSTEM.md`).
 
 ### The problem
 
@@ -853,7 +853,7 @@ Whichever wins replaces the docked Mixes panel and the working-set strip, so the
 
 ## Data visualiser: the decoded audio as numbers and bits
 
-**Status:** Ready for Design · raised by Ross, 2026-10-24 · direction approved by Ross the same day.
+**Status:** Built (step 1) · raised by Ross, 2026-10-24 · direction approved by Ross the same day · drawn by Design as 30a–30i and approved by Ross on 26 October (a mode and a layer, accent by default) · step 1 built on `feat/lyrics-data` (`HANDOFF.md`, "Dev, Lyrics step 1 and the Data visualiser of 30 October"); the file-bytes view isn't built.
 
 ### What Ross wants
 

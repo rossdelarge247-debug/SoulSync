@@ -494,6 +494,7 @@ Three reads for the bar and tray (`api/player.py`). All need a profile (401 `pro
 {
   "success": true, "track_id": "981", "format": "FLAC", "format_key": "flac",
   "bitrate_kbps": 2304, "bit_depth": 24, "sample_rate": 96000, "duration_s": 276.4,
+  "channels": 2, "on_disk_kbps": 2296,
   "path_label": "Library", "on_disk": true,
   "title": "Harbour Light", "artist": "Pale Harbour", "artist_id": "42",
   "album": "Lantern", "album_id": "811", "year": 2024, "track_number": 3, "disc_number": 1,
@@ -504,6 +505,7 @@ Three reads for the bar and tray (`api/player.py`). All need a profile (401 `pro
 ```
 
 - `format` is the readout's word (FLAC, ALAC, MP3, AAC, OGG, Opus, WAV, AIFF, DSD); `bit_depth` is only given for lossless files. Bit depth and sample rate are read from the file with mutagen the first time and kept on the track (`tracks.bit_depth`, `sample_rate`, with `audio_probe_sig` so a changed file is read again; `core/playback/audio_details.py`). `bitrate_kbps` is the library's own, or the file's when the library has none.
+- `channels` (1 mono, 2 stereo, more for surround) is read with the bit depth and sample rate and kept on the track (`tracks.channels`; 0 kept when the file doesn't say, answered as `null`); a track whose facts were kept before `channels` existed is read once more; a database without the column yet answers `null` without opening the file. `on_disk_kbps` is the whole file's size over its length (tags and embedded artwork included, as board 30i defines "on disk"), `null` when the file isn't on this machine. Both feed the Visuals' Data readout (board 30i; Lyrics step 1 and the Data visualiser of 30 October).
 - `path_label` is where it plays from: "Library", or "Library (streamed from Navidrome)" when the file isn't on this machine. The player adds the output ("Library → This device"), since only the browser knows it.
 - `quality` is the current quality target judged like the Artist page's tag (type and stored bitrate), or `null` when there's no target or the type is unknown. The rest feeds the record: the album line ("Lantern · 2024 · track 3 of 11"), the artist link and Open album.
 
@@ -1224,6 +1226,12 @@ MilkDrop's preset list, one preset by key, favourites per profile, and where an 
 - `own_presets_dir` is only in an admin's answer. PUT `{"own_presets_dir": "/music/milkdrop"}` (or `""` for none) checks the folder first: a full path (400 `bad_path`), that exists (400 `missing`) and can be read (400 `unreadable`); members get 403 `admin_only`. Docker paths go through the same resolver as the other folders. Shown in Player settings → MilkDrop.
 
 **The radio card's restart** uses the existing `POST /api/radio/play` with `force_relay: true` (`SoulSyncRadio.play(id, {forceRelay: true})`); nothing new on the server.
+
+**Lyrics over the visuals (boards 27a–27g) and Data (30a–30i): no new routes.**
+
+- **Lyrics** come from the fetch the player already makes for every music track, `POST /api/lyrics/fetch` `{title, artist, album?, duration?, file_path?}` → `{success, synced, plain, source, instrumental}`. `source` is `sidecar` (an `.lrc` or `.txt` beside the track wins) or `lrclib`; `synced` is LRC text as it came, word times (Enhanced LRC's `<mm:ss.xx>`) included; `instrumental` (new, 30 October) is true when LRCLIB marks the track as having no words and gives none, and then `success` is false. Radio, podcasts and audiobooks aren't asked for, as before. The page reads the answer through `SoulSyncPlayer.lyricsData()`.
+- **Kept in the browser:** Lyrics on or off (`soulsync-visuals-lyrics`), Lyrics only (`soulsync-visuals-lyrics-only`), the text size (`soulsync-visuals-lyrics-size`: 36, 44 or 56) and the early/late nudge per track (`soulsync-lyrics-offsets`: a JSON map from `lib:<track id>` or `t:<title>|<artist>|<album>` to seconds, earlier positive, 0.1 s steps, ±10 s, the newest 500 tracks). Data's settings: `soulsync-visuals-data-numbers` (`hex` or `dec`), `-data-bits`, `-data-texture`, `-data-colour` (`accent`, `phosphor`, `white`), `-data-under-bars`, `-data-under-scope`; the family `data` in `soulsync-visuals-family`.
+- **Data's readout** reads `GET /api/library/tracks/<id>/details` above (format, sample rate, bit depth, channels, bitrate, on disk) for a library track, and the station's stream (`codec`, `bitrate_kbps`) from the radio session for a station; the samples are the page's own audio graph (a channel splitter and an analyser per channel off the player's analyser), nothing fetched.
 
 ### Your music's drives (boards 14a–14t)
 

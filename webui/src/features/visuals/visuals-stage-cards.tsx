@@ -169,7 +169,8 @@ export function openPlayerSettings(): void {
 export function StillCard({ art }: { art: string | null }) {
   const s = useVisuals();
   const c = useVisualsController();
-  if (!s.open || !s.still) return null;
+  // Data under reduced motion is its own still block (30g); Lyrics only has no visual
+  if (!s.open || !s.still || s.engine !== 'still') return null;
   return (
     <div className={styles.still} data-visuals-still>
       {art ? (

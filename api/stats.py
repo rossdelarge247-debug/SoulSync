@@ -328,10 +328,11 @@ def fetch_lyrics_endpoint():
     """Fetch lyrics for the now-playing media player.
 
     Body: ``{title, artist, album?, duration?}``. Returns
-    ``{success, synced, plain, source}`` where ``synced`` is an LRC
+    ``{success, synced, plain, source, instrumental?}`` where ``synced`` is an LRC
     string with ``[mm:ss.xx] line`` timestamps (or None) and ``plain``
     is the untimestamped text (or None). ``source`` is the lookup
     strategy that hit (``exact`` / ``search`` / ``sidecar``).
+    ``instrumental`` is true when LRCLIB marks the track as having no words.
 
     Tries the local ``.lrc`` / ``.txt`` sidecar first when a
     ``file_path`` is supplied — already-downloaded tracks should not
@@ -410,8 +411,11 @@ def fetch_lyrics_endpoint():
 
         synced = getattr(result, 'synced_lyrics', None) or None
         plain = getattr(result, 'plain_lyrics', None) or None
+        # LRCLIB marks a track instrumental (no words to show): the Visuals'
+        # lyrics layer says so once (board 27g) instead of "no lyrics found"
+        instrumental = bool(getattr(result, 'instrumental', False)) and not (synced or plain)
         return jsonify({'success': bool(synced or plain), 'synced': synced,
-                        'plain': plain, 'source': 'lrclib'})
+                        'plain': plain, 'source': 'lrclib', 'instrumental': instrumental})
     except Exception as e:
         logger.error("lyrics fetch failed: %s", e)
         return jsonify({'success': False, 'error': str(e),
