@@ -83,13 +83,29 @@ export function bitCells(n: number, bits: 16 | 24): { sign: boolean; cells: bool
 }
 
 /** How many of the newest `count` samples are at full scale (256). */
-export function countFullScale(buf: ArrayLike<number>, count: number, bits: 16 | 24): number {
+export function countFullScale(
+  buf: ArrayLike<number>,
+  count: number,
+  bits: 16 | 24,
+  gain = 1,
+): number {
   const n = Math.max(0, Math.min(buf.length, Math.floor(count)));
   let hits = 0;
   for (let i = buf.length - n; i < buf.length; i += 1) {
-    if (isFullScale(toInt(buf[i] ?? 0, bits), bits)) hits += 1;
+    if (isFullScale(toInt((buf[i] ?? 0) * gain, bits), bits)) hits += 1;
   }
   return hits;
+}
+
+/**
+ * The browser scales the element's sound by its volume before the audio
+ * graph sees it (measured in Chromium, 30 October: a clipped file read
+ * ±0x599A at 70%), so the values are divided by it to be the file's again.
+ * Muted or at 0, nothing reaches the analyser: 1, and the readout says Muted.
+ */
+export function volumeGain(volume: number, muted: boolean): number {
+  if (muted || !Number.isFinite(volume) || volume <= 0.001) return 1;
+  return 1 / Math.min(1, volume);
 }
 
 /** Every value exactly zero: digital silence (30f), not a quiet room. */

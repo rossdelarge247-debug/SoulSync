@@ -60,6 +60,7 @@ import {
   shownDepth,
   sliceWords,
   toInt,
+  volumeGain,
   WHITE,
 } from './data-viz';
 import {
@@ -284,6 +285,8 @@ export class VisualsController {
   private snapshotAt = 0;
   private fps = 60;
   private infoCheckedAt = 0;
+  /** the element's volume undone (volumeGain) */
+  private gain = 1;
   private lastSize: { width: number; height: number } | null = null;
   private accentRgb = '';
   private accentAt = 0;
@@ -939,7 +942,7 @@ export class VisualsController {
     }
   };
 
-  private playerState(): { playing: boolean; time: number } {
+  private playerState(): { playing: boolean; time: number; gain: number; muted: boolean } {
     const p = (
       this.win as Window & {
         SoulSyncPlayer?: {
@@ -951,10 +954,18 @@ export class VisualsController {
     try {
       // the element itself: state() builds the whole player snapshot, too much for every frame
       const el = p?.audio?.() ?? null;
-      if (el) return { playing: !el.paused, time: el.currentTime };
-      return { playing: Boolean(p?.state?.()?.playing), time: 0 };
+      if (el) {
+        const muted = el.muted || el.volume <= 0.001;
+        return {
+          playing: !el.paused,
+          time: el.currentTime,
+          gain: volumeGain(el.volume, el.muted),
+          muted,
+        };
+      }
+      return { playing: Boolean(p?.state?.()?.playing), time: 0, gain: 1, muted: false };
     } catch {
-      return { playing: false, time: 0 };
+      return { playing: false, time: 0, gain: 1, muted: false };
     }
   }
 
@@ -963,7 +974,7 @@ export class VisualsController {
     const out: number[] = [];
     const step = Math.max(1, Math.floor(from.length / Math.max(1, columns)));
     for (let i = 0; i < columns; i += 1)
-      out.push(toInt(from[(i * step + shift * 13) % from.length] ?? 0, depth));
+      out.push(toInt((from[(i * step + shift * 13) % from.length] ?? 0) * this.gain, depth));
     return out;
   }
 
@@ -1437,13 +1448,14 @@ export class VisualsController {
     const depth = shownDepth(info);
     const mono = info.channels === 1;
     const rate = this.tap.sampleRate();
-    const { playing, time } = this.playerState();
+    const { playing, time, gain, muted } = this.playerState();
+    this.gain = gain;
     const got = playing ? (this.tap.floats?.(this.dataL, this.dataR) ?? false) : false;
     if (got) {
       // the full-scale count: only the samples new since the last frame (256)
       const fresh = Math.min(DATA_FFT, Math.round(Math.min(raw, 0.5) * rate));
-      this.fullScale += countFullScale(this.dataL, fresh, depth);
-      if (!mono) this.fullScale += countFullScale(this.dataR, fresh, depth);
+      this.fullScale += countFullScale(this.dataL, fresh, depth, gain);
+      if (!mono) this.fullScale += countFullScale(this.dataR, fresh, depth, gain);
       const last = DATA_FFT - 1;
       if (snapshot) {
         // one block of consecutive samples, all at full strength
@@ -1451,13 +1463,13 @@ export class VisualsController {
         this.dataRows = [];
         for (let i = DATA_FFT - n; i < DATA_FFT; i += 1)
           this.dataRows.push({
-            l: toInt(this.dataL[i]!, depth),
-            r: mono ? null : toInt(this.dataR[i]!, depth),
+            l: toInt(this.dataL[i]! * gain, depth),
+            r: mono ? null : toInt(this.dataR[i]! * gain, depth),
           });
       } else {
         this.dataRows.push({
-          l: toInt(this.dataL[last]!, depth),
-          r: mono ? null : toInt(this.dataR[last]!, depth),
+          l: toInt(this.dataL[last]! * gain, depth),
+          r: mono ? null : toInt(this.dataR[last]! * gain, depth),
         });
         if (this.dataRows.length > 32) this.dataRows.splice(0, this.dataRows.length - 32);
       }
@@ -1510,7 +1522,13 @@ export class VisualsController {
           silent: allZero(this.dataRows),
         }),
         counter: counterWords(samples, info.channels, stream),
-        tag: !playing ? 'Paused' : snapshot ? 'Snapshot · every 1 s' : null,
+        tag: !playing
+          ? 'Paused'
+          : muted
+            ? 'Muted: no samples reach the analyser'
+            : snapshot
+              ? 'Snapshot · every 1 s'
+              : null,
         slice: snapshot ? null : sliceWords(rate, this.fps),
       },
       tex,

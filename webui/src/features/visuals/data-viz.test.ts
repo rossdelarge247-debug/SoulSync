@@ -20,6 +20,7 @@ import {
   shownDepth,
   sliceWords,
   toInt,
+  volumeGain,
   type DataInfo,
 } from './data-viz';
 
@@ -94,6 +95,16 @@ describe('bits as sign and size (30e)', () => {
     expect(countFullScale(buf, 8, 16)).toBe(3);
     expect(countFullScale(buf, 0, 16)).toBe(0);
     expect(countFullScale(buf, 99, 16)).toBe(3);
+  });
+
+  it('the element’s volume is undone, so a clipped file reads full scale at 70% too', () => {
+    expect(volumeGain(0.7, false)).toBeCloseTo(1 / 0.7);
+    expect(volumeGain(1, false)).toBe(1);
+    expect(volumeGain(0, false)).toBe(1);
+    expect(volumeGain(0.5, true)).toBe(1);
+    const buf = new Float32Array([0.7, -0.7, 0.35]);
+    expect(countFullScale(buf, 3, 16, volumeGain(0.7, false))).toBe(2);
+    expect(toInt(0.35 * volumeGain(0.7, false), 16)).toBe(16384);
   });
 
   it('silence is every value exactly zero', () => {
