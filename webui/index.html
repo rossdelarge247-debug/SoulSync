@@ -177,6 +177,11 @@
         } catch (e) { /* no localStorage → default (show) */ }
     </script>
     <script>
+        // Settings → Library → DJ's "Show the Mix tab" (library.dj_show_mix_tab,
+        // off by default; api/dj.py): src/features/mix/mix-visibility.ts reads it
+        window.SOULSYNC_MIX_TAB = {{ initial_mix_tab | default(false) | tojson }};
+    </script>
+    <script>
         // Module switches (core/modules.py): the on/off state each module had
         // when this page rendered. Hide a turned-off module's sidebar entries
         // (and the Audio/Video switch while Video is off) before first paint.
@@ -8378,6 +8383,24 @@
                                             <div class="help-text" style="margin-top: 6px;">
                                                 Off unless you want SYNCHRO.S's own values everywhere,
                                                 including over what another app wrote.
+                                            </div>
+                                        </div>
+                                        <!-- Show the Mix tab (library.dj_show_mix_tab, off by default
+                                             while Ross rethinks mixing): the player's Mix mode, the
+                                             phone's Mix · Set and every way into them. Sets, Up next,
+                                             Between tracks and the analysis stay either way.
+                                             src/features/mix/mix-visibility.ts -->
+                                        <div class="settings-group" data-stg="library" id="dj-mix-tab-group">
+                                            <h3>Mix tab</h3>
+                                            <label class="toggle-row">
+                                                <input type="checkbox" id="dj-show-mix-tab">
+                                                <span>Show the Mix tab</span>
+                                            </label>
+                                            <div class="help-text" style="margin-top: 6px;">
+                                                The player's Mix mode (key M), the phone's Mix and Set
+                                                tabs, and "Mixes well with…" in a track's "…". Off for
+                                                now while mixing is being rethought. Sets, Up next,
+                                                Between tracks and Play as a mix work either way.
                                             </div>
                                         </div>
                                     </div>

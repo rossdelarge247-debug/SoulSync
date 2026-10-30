@@ -96,6 +96,9 @@ TOO_LONG = "too long to analyse"
 SETTING_ANALYZE = "library.dj_analysis"
 SETTING_WRITE_TAGS = "library.dj_write_tags"
 SETTING_OVERWRITE_TAGS = "library.dj_overwrite_tags"
+#: Settings → Library → DJ's "Show the Mix tab" (off by default): not the
+#: sweep's, but served with its settings so the web UI reads one place
+SETTING_SHOW_MIX_TAB = "library.dj_show_mix_tab"
 
 
 class JobRunning(RuntimeError):
@@ -132,7 +135,13 @@ def _setting(key: str, default: bool) -> bool:
 
 def settings_state() -> Dict[str, bool]:
     return {"analyze": _setting(SETTING_ANALYZE, True), "write_tags": _setting(SETTING_WRITE_TAGS, False),
-            "overwrite_tags": _setting(SETTING_OVERWRITE_TAGS, False)}
+            "overwrite_tags": _setting(SETTING_OVERWRITE_TAGS, False), "show_mix_tab": show_mix_tab()}
+
+
+def show_mix_tab() -> bool:
+    """Settings → Library → DJ's "Show the Mix tab": off unless an admin turned
+    it on (an unreadable config keeps it hidden)."""
+    return _setting(SETTING_SHOW_MIX_TAB, False)
 
 
 # ── what makes it wait ───────────────────────────────────────────────────────

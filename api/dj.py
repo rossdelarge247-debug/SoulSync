@@ -133,6 +133,13 @@ POST /api/library/dj/bpm
 
 Every route needs a profile and reads the caller's library scope, like the
 other library routes.
+
+The page shell also gets Settings → Library → DJ's "Show the Mix tab"
+(``library.dj_show_mix_tab``, off by default) when it renders
+(``initial_mix_tab``, as ``window.SOULSYNC_MIX_TAB``), the way the module
+switches reach it (api/modules.py), so the player's tray knows before its
+first paint whether Mix is there; ``status``'s ``settings.show_mix_tab``
+carries it after that.
 """
 
 from __future__ import annotations
@@ -154,6 +161,19 @@ bp = Blueprint("library_dj", __name__)
 
 get_database = None
 fix_art_url = None
+
+
+@bp.app_context_processor
+def _inject_initial_mix_tab():
+    """Whether the Mix tab shows (Settings → Library → DJ), as the page shell
+    renders: one boolean, before sign-in like the module switches."""
+    try:
+        from core.dj import worker
+
+        return {"initial_mix_tab": worker.show_mix_tab()}
+    except Exception as exc:  # noqa: BLE001 - never break the page over this
+        logger.debug("the Mix tab's setting for the page shell failed: %s", exc)
+        return {"initial_mix_tab": False}
 
 
 def configure(*, get_database_, fix_art_url_=None) -> None:
