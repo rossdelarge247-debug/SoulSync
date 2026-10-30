@@ -125,6 +125,8 @@ export interface DataPrefs {
 
 /** How often the texture moves on (it's texture, not for reading: 30a note 2). */
 export const TEXTURE_MS = 100;
+/** About a second of reads with a silent right channel before an unnamed stream is mono. */
+export const MONO_READS = 60;
 /** Reduced motion: one still block a second (30g). */
 export const SNAPSHOT_MS = 1000;
 
@@ -290,6 +292,7 @@ export class VisualsController {
   private infoCheckedAt = 0;
   private dataReadAt = 0;
   private monoReads = 0;
+  private monoLatched = false;
   /** the element's volume undone (volumeGain) */
   private gain = 1;
   private lastSize: { width: number; height: number } | null = null;
@@ -395,7 +398,10 @@ export class VisualsController {
     next.engine = engineModeFor(next);
     this.s = next;
     this.syncEngineAttr();
-    if (!this.dataInUse(next)) this.tap.releaseFloats?.();
+    if (!this.dataInUse(next)) {
+      this.tap.releaseFloats?.();
+      this.dataReadAt = 0;
+    }
     for (const fn of this.listeners) fn();
     this.win.dispatchEvent(new CustomEvent('ss:visuals'));
   }
@@ -900,6 +906,7 @@ export class VisualsController {
     this.fullScale = 0;
     this.infoFor = null;
     this.monoReads = 0;
+    this.monoLatched = false;
     this.dataReadAt = 0;
     this.textureStill = false;
   }
@@ -968,7 +975,7 @@ export class VisualsController {
     const p = (
       this.win as Window & {
         SoulSyncPlayer?: {
-          state?: () => { playing?: boolean };
+          state?: () => { playing?: boolean; volume?: number; muted?: boolean };
           audio?: () => HTMLMediaElement | null;
         };
       }
@@ -979,12 +986,25 @@ export class VisualsController {
       // while auto-mix's decks play the mix, the element only keeps time (fading,
       // then muted): its volume says nothing about what the analyser hears
       const mixing = this.automixOwns();
-      if (el) {
-        const muted = !mixing && (el.muted || el.volume <= 0.001);
+      if (el && mixing) {
+        // the decks play at the player's volume (0 when muted): undo that instead
+        const st = p?.state?.();
+        const volume = Math.max(0, Math.min(100, Number(st?.volume ?? 100))) / 100;
+        const muted = Boolean(st?.muted) || volume <= 0.001;
         return {
           playing: !el.paused,
           time: el.currentTime,
-          gain: mixing ? 1 : volumeGain(el.volume, el.muted),
+          gain: volumeGain(volume, Boolean(st?.muted)),
+          muted,
+          mixing,
+        };
+      }
+      if (el) {
+        const muted = el.muted || el.volume <= 0.001;
+        return {
+          playing: !el.paused,
+          time: el.currentTime,
+          gain: volumeGain(el.volume, el.muted),
           muted,
           mixing,
         };
@@ -1498,9 +1518,13 @@ export class VisualsController {
     if (got && info.channels === null) {
       this.monoReads = looksMono(this.dataL, this.dataR) ? this.monoReads + 1 : 0;
     }
-    const mono = info.channels === 1 || (info.channels === null && this.monoReads >= 8);
+    // latched for the track once seen for MONO_READS reads, so a hard-left
+    // intro on a stereo stream doesn't flip the layout back and forth
+    if (this.monoReads >= MONO_READS) this.monoLatched = true;
+    const mono = info.channels === 1 || (info.channels === null && this.monoLatched);
     const readAt = this.dataReadAt;
-    if (got) this.dataReadAt = t;
+    // a frame without a read leaves no baseline: the next read only sets one
+    this.dataReadAt = got ? t : 0;
     if (got && !snapshot && !mixing && readAt) {
       // the full-scale count: only the samples new since the last read (256);
       // not under reduced motion (a block a second can't see the rest) nor
