@@ -144,6 +144,9 @@ function setTrackInfo(track) {
         });
     } else {
         _npLyricsState.trackKey = null;
+        _npLyricsState.raw = null;
+        _npLyricsState.gen++;
+        _npLyricsState.fetchInFlight = false;
         _npLyricsResetUI();
     }
     npNotify('track');
@@ -876,6 +879,12 @@ const _npLyricsState = {
     activeIndex: -1,
     fetchInFlight: false,
     autoOpen: false,
+    // what the fetch answered, as it came (the Visuals' lyrics layer reads it
+    // through SoulSyncPlayer.lyricsData(); src/features/lyrics): the LRC text
+    // with any word times, the plain text, where it came from, LRCLIB's
+    // instrumental mark, the file beside the track, and whether it's done
+    gen: 0,
+    raw: null,
 };
 
 function _npLyricsResetUI() {
@@ -985,8 +994,12 @@ async function _npLyricsLoadForTrack(track) {
     const key = _npLyricsTrackKey(track);
     if (!key) return;
     if (_npLyricsState.trackKey === key) return;     // already loaded
-    if (_npLyricsState.fetchInFlight) return;
+    // a fetch still out for the track before is dropped when it lands (the
+    // key check below), so a quick skip doesn't leave this track without
+    const gen = ++_npLyricsState.gen;
     _npLyricsState.trackKey = key;
+    _npLyricsState.raw = { key, done: false, synced: null, plain: null, source: null, instrumental: false,
+        fileName: track.is_library && track.filename ? String(track.filename).split(/[\\/]/).pop() : null };
     _npLyricsState.lines = [];
     _npLyricsState.synced = false;
     _npLyricsState.activeIndex = -1;
@@ -1007,7 +1020,15 @@ async function _npLyricsLoadForTrack(track) {
             }),
         });
         const data = await resp.json();
-        if (_npLyricsState.trackKey !== key) return;    // track changed mid-fetch
+        if (_npLyricsState.trackKey !== key || gen !== _npLyricsState.gen) return;    // track changed mid-fetch
+        if (data) {
+            Object.assign(_npLyricsState.raw, {
+                synced: typeof data.synced === 'string' ? data.synced : null,
+                plain: typeof data.plain === 'string' ? data.plain : null,
+                source: data.source || null,
+                instrumental: Boolean(data.instrumental),
+            });
+        }
         if (data && data.success) {
             if (data.synced) {
                 const parsed = _npLyricsParseLrc(data.synced);
@@ -1036,8 +1057,11 @@ async function _npLyricsLoadForTrack(track) {
         if (content) content.innerHTML = '<div class="np-lyrics-empty">Lyrics unavailable</div>';
         if (status) status.textContent = '';
     } finally {
-        _npLyricsState.fetchInFlight = false;
-        npNotify('lyrics');
+        if (gen === _npLyricsState.gen) {
+            _npLyricsState.fetchInFlight = false;
+            if (_npLyricsState.raw && _npLyricsState.raw.key === key) _npLyricsState.raw.done = true;
+            npNotify('lyrics');
+        }
     }
 }
 
@@ -3092,7 +3116,7 @@ function handlePlayerKeyboardShortcuts(event) {
             event.preventDefault();
             npSetVolume(npVolumePercent - 5);
             break;
-        // 24a: M, N, A and X through NP_LETTER_KEYS (below the handler)
+        // 24a: M, N, A, X and T through NP_LETTER_KEYS (below the handler)
         case 'm':
         case 'M':
         case 'n':
@@ -3100,7 +3124,9 @@ function handlePlayerKeyboardShortcuts(event) {
         case 'a':
         case 'A':
         case 'x':
-        case 'X': {
+        case 'X':
+        case 't':
+        case 'T': {
             if (event.ctrlKey || event.metaKey || event.altKey) return;
             const actions = NP_LETTER_KEYS[(event.shiftKey ? '⇧' : '') + event.key.toUpperCase()];
             if (!actions) return;
@@ -3137,7 +3163,10 @@ function handlePlayerKeyboardShortcuts(event) {
 // own. Ross answered 287: mute and next move to ⇧M / ⇧N, which always mute
 // and skip; plain M and N still do where there's no Mix tab. X is Mix now
 // (26a, auto-mix stage C: src/features/automix): it acts only with DJ mix
-// on and a next track it can mix into, else the key is the page's.
+// on and a next track it can mix into, else the key is the page's. T is
+// lyrics over the visuals (24a, 27a; src/features/lyrics): it acts while the
+// Visuals are open or the phone's sheet shows the record, for music only (not
+// radio or spoken audio), else the key is the page's.
 const NP_LETTER_KEYS = {
     'M': ['mix:M', 'mute'],
     '⇧M': ['mute'],
@@ -3145,12 +3174,16 @@ const NP_LETTER_KEYS = {
     '⇧N': ['next'],
     'A': ['mix:A'],
     'X': ['automix:X'],
+    'T': ['lyrics:T'],
 };
 
 // true when the action acted (the key is then the page's no more)
 function npLetterKeyAction(action) {
     if (action.startsWith('mix:')) {
         return Boolean(window.SoulSyncMix && window.SoulSyncMix.key(action.slice(4)));
+    }
+    if (action.startsWith('lyrics:')) {
+        return Boolean(window.SoulSyncLyrics && window.SoulSyncLyrics.key(action.slice(7)));
     }
     if (action.startsWith('automix:')) {
         const a = npAutomix();
@@ -4168,6 +4201,12 @@ window.SoulSyncPlayer = {
         };
     },
     analyser() { return npAnalyser; },
+    /** the playing track's lyrics as fetched (null for none asked: radio, spoken
+     * audio, nothing playing); the Visuals' lyrics layer parses them */
+    lyricsData() {
+        const r = _npLyricsState.raw;
+        return r ? Object.assign({}, r) : null;
+    },
     /** The player's audio graph, made now if it isn't yet: the two-deck
      * engine (auto-mix) plays on this context and into this analyser, so
      * the visualisers see the mix and the output device applies to it. */
